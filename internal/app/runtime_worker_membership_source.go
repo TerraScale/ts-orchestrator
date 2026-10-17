@@ -12,7 +12,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -51,8 +50,7 @@ func runRuntimeWorkerMembershipSource(ctx context.Context, args []string, input 
 		return err
 	}
 	defer clear(key)
-	cfg.NATS.Embedded, cfg.NATS.ClientRole = nil, "controller"
-	runtime, err := natscell.Start(ctx, cfg.NATS)
+	runtime, err := openRootBrokerSourceClient(ctx, cfg, "runtime-worker-membership-source", wire)
 	if err != nil {
 		return err
 	}

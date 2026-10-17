@@ -30,13 +30,16 @@ func TestControllerCredentialFilesListOnlyPublicMaterial(t *testing.T) {
 		paths = append(paths, file.Path)
 	}
 	for _, want := range []string{"client-cert.pem", "client-ca.pem", "client.creds", "server-cert.pem", "route-ca.pem",
-		"operator.jwt", "system.jwt", "cell.jwt", "system.creds", "membership.creds", "interregion.jwt", "leaf-cert.pem",
+		"operator.jwt", "system.jwt", "cell.jwt", "interregion.jwt", "leaf-cert.pem",
 		"iad-cert.pem", "iad.creds", "link-cert.pem", "link-ca.pem", "link.creds", "host-issuer-cert.pem", "terrabase-ca.pem"} {
 		if !slices.Contains(paths, want) {
 			t.Errorf("scan misses %s", want)
 		}
 	}
 	for _, path := range paths {
+		if path == "system.creds" || path == "membership.creds" {
+			t.Errorf("ordinary scanner opens privileged credential %s", path)
+		}
 		if strings.Contains(path, "key") || strings.Contains(path, "0000000000SF1REEJJX6TC691V") || strings.Contains(path, "password") {
 			t.Errorf("scan opens secret %s", path)
 		}

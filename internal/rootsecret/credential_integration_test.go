@@ -11,12 +11,15 @@ import (
 	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -30,6 +33,21 @@ import (
 // This exercises real signed SDK HTTP attempts and native atomic file delivery;
 // the shared root IPC scenarios separately qualify process/session admission.
 func TestCredentialSDKToMemoryDelivery(t *testing.T) {
+	if directory := os.Getenv("TS_GENERATION_PRIVATE_STAGE_CHILD"); directory != "" {
+		if os.Geteuid() == 0 {
+			t.Fatal("fixture did not drop the service UID")
+		}
+		if _, err := os.ReadFile(filepath.Join(directory, "controller-a.creds")); !errors.Is(err, os.ErrPermission) {
+			t.Fatalf("ordinary private-stage read: %v", err)
+		}
+		if err := os.Remove(filepath.Join(directory, "controller-a.creds")); !errors.Is(err, os.ErrPermission) {
+			t.Fatalf("ordinary private-stage unlink: %v", err)
+		}
+		if err := os.Rename(directory, directory+"-replacement"); !errors.Is(err, os.ErrPermission) {
+			t.Fatalf("ordinary private-stage replacement: %v", err)
+		}
+		return
+	}
 	const value = "root-delivery-private-sentinel"
 	id := "ocid1.vaultsecret.oc1.sa-saopaulo-1.owned"
 	digest := sha256.Sum256([]byte(value))
@@ -129,6 +147,47 @@ func TestCredentialSDKToMemoryDelivery(t *testing.T) {
 	info, err := os.Lstat(filepath.Join(directory, reference.TargetFile))
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 		t.Fatal("installed credential is not an owner-only regular file")
+	}
+	if os.Geteuid() == 0 {
+		// Use the existing SDK-delivered inode and its real memory directory.
+		// A separate accessible executable is needed after dropping privileges.
+		base := t.TempDir()
+		if err := os.Chmod(filepath.Dir(base), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(base, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		self, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		source, err := os.Open(self)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer source.Close()
+		binary := filepath.Join(base, "private-stage-test")
+		destination, err := os.OpenFile(binary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o755)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.Copy(destination, source); err != nil {
+			destination.Close()
+			t.Fatal(err)
+		}
+		if err := destination.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(binary, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		command := exec.CommandContext(t.Context(), binary, "-test.run=^TestCredentialSDKToMemoryDelivery$")
+		command.Env = append(os.Environ(), "TS_GENERATION_PRIVATE_STAGE_CHILD="+directory)
+		command.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: 65534, Gid: 65534}}
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("ordinary generation custody: %v\n%s", err, output)
+		}
 	}
 	for _, scenario := range []int32{2, 3, 4} {
 		mode.Store(scenario)

@@ -32,6 +32,7 @@ type authenticatedNATS struct {
 // the same test seams as the production broker-claim CLI scenario.
 func (a *authenticatedNATS) controller(t *testing.T, cfg *Config) {
 	t.Helper()
+	installNativeBrokerControllerFixture(t)
 	cfg.NATS = a.config(t, cfg.NATS)
 	cfg.Controller.BrokerTicketKeyFile = a.ticketPrivateFile
 	newAcceptedSpecTrust(t, cfg)

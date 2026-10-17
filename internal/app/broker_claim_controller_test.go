@@ -136,6 +136,7 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 				"terrabase": {Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}},
 			}}}
 	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
+	installNativeBrokerControllerFixture(t)
 	previousRuntime := controllerRuntimeProduction
 	previousMarker := controllerMarkerPresent
 	previousBaked := controllerBakedInputsPresent

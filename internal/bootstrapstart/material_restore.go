@@ -31,55 +31,204 @@ const GenerationChainCopy = MarkerDirectory + "/" + MaterialGenerationsFile
 // match the reference's digest and size.
 type SecretReader func(context.Context, bootstrap.SecretReference) ([]byte, error)
 
-// ReadIdentityRekeyMaterial reads the full proposed Vault inventory and refuses
-// replacement of existing baseline files outside the signed generation, except
-// the controller response key rotated by the root-signed host handoff. The
-// installer must verify generation/config semantics together before effects.
-func (store MaterialStore) ReadIdentityRekeyMaterial(ctx context.Context, accepted AcceptedIdentity, generationChain []byte, roots trust.Keyring, read SecretReader, now time.Time) (map[string][]byte, error) {
-	target, err := generationTarget(accepted)
-	if err != nil {
+// ReadIdentityRekeyMaterial binds the old installed inventory to the exact
+// signed predecessor and reads the complete checkpoint-authorized target.
+func (store MaterialStore) ReadIdentityRekeyMaterial(ctx context.Context, verified VerifiedIdentityRekey, inputs TrustInputs, read SecretReader, sourceLive func() error, now time.Time) (map[string][]byte, error) {
+	return store.readIdentityRekeyMaterial(ctx, NewMarkerStore(), verified, inputs, read, sourceLive, now)
+}
+
+func (store MaterialStore) readIdentityRekeyMaterial(ctx context.Context, markers MarkerStore, verified VerifiedIdentityRekey, inputs TrustInputs, read SecretReader, sourceLive func() error, now time.Time) (map[string][]byte, error) {
+	_, chain, previous, err := identityRekeyMaterialTarget(verified, inputs, now)
+	if err != nil || sourceLive == nil || ctx == nil {
+		return nil, errors.Join(ErrMaterial, err)
+	}
+	if err := store.VerifyIdentityRekeyMaterialAdoption(verified, inputs, now); err != nil {
 		return nil, err
 	}
-	var newest *bootstrap.VerifiedMaterialGeneration
-	if len(generationChain) != 0 {
-		chain, err := bootstrap.DecodeMaterialGenerationChain(generationChain)
-		if err != nil {
-			return nil, err
+	store.restoreCurrent = func([]trust.Envelope) error {
+		if _, err := verified.VerifyCurrent(inputs, time.Now()); err != nil {
+			return err
 		}
-		verified, err := target.VerifyChain(chain, roots, now)
-		if err != nil {
-			return nil, err
-		}
-		newest = &verified[len(verified)-1]
-		if newest.Fingerprint() != accepted.MaterialGenerationSHA256 {
-			return nil, fmt.Errorf("%w: proposed chain differs from accepted baseline", ErrMaterial)
-		}
-	} else if accepted.MaterialGenerationSHA256 != "" {
-		return nil, fmt.Errorf("%w: proposed generation chain is missing", ErrMaterial)
+		return store.verifyIdentityRekeyInstalledPredecessor(ctx, markers, verified, chain, previous)
 	}
-	refs := materialReferences(accepted, newest)
-	baseline := materialReferences(accepted, nil)
-	immutable := acceptedMaterialDigests(accepted)
-	delete(immutable, accepted.Slot+"-response.key")
-	if newest != nil {
-		for _, ref := range newest.Generation().Secrets {
-			if ref.Slot == "" || ref.Slot == accepted.Slot {
-				if baseline[ref.TargetFile] != ref {
-					return nil, fmt.Errorf("%w: proposed generation reference %s differs from accepted baseline", ErrMaterial, ref.TargetFile)
-				}
-				delete(immutable, ref.TargetFile)
+	store.restoreSeal = func() error {
+		if err := identityRekeyOriginalLive(verified); err != nil {
+			return err
+		}
+		if err := sourceLive(); err != nil {
+			return err
+		}
+		return ctx.Err()
+	}
+	contents, err := store.readGuardedReferences(ctx, previous.materials, read, nil)
+	if err == nil {
+		err = identityRekeyFilesMatch(previous, contents)
+	}
+	if err == nil {
+		err = store.publicationLive(nil)
+	}
+	if err != nil {
+		clearContents(contents)
+		return nil, err
+	}
+	return contents, nil
+}
+
+func (store MaterialStore) verifyIdentityRekeyInstalledPredecessor(ctx context.Context, markers MarkerStore, verified VerifiedIdentityRekey, chain []byte, previous identityMaterialPredecessors) error {
+	markerDir, err := markers.openDirectory()
+	if err != nil {
+		return err
+	}
+	oldWire, err := markers.readIdentityBytes(markerDir, markerName)
+	unix.Close(markerDir)
+	if err != nil {
+		return err
+	}
+	isTarget := bytes.Equal(oldWire, verified.journal.AcceptedWire)
+	if !isTarget && digest(oldWire) != verified.journal.PreviousAcceptanceSHA256 {
+		return ErrAcceptancePredecessor
+	}
+	old, oldErr := DecodeAcceptedIdentity(oldWire)
+	oldRefs := materialReferences(old, nil)
+	if oldErr != nil {
+		// Opaque recovery retains the prior immutable check; unknown old pins
+		// never authorize baseline rotation.
+		oldRefs = maps.Clone(previous.materials)
+		delete(oldRefs, verified.Accepted().Slot+"-response.key")
+		targetChain, err := bootstrap.DecodeMaterialGenerationChain(chain)
+		if err != nil {
+			return err
+		}
+		generation, err := bootstrap.MaterialGenerationPayload(targetChain[len(targetChain)-1])
+		if err != nil {
+			return err
+		}
+		for _, ref := range generation.Secrets {
+			if ref.Slot == "" || ref.Slot == verified.Accepted().Slot {
+				delete(oldRefs, ref.TargetFile)
 			}
 		}
 	}
-	installed, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
+	dir, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(dir)
+	if err := store.verifyIdentityMaterialPredecessors(dir, chain, previous); err != nil {
+		return err
+	}
+	installed, err := readUnpinned(dir, MaterialGenerationsFile, store.serviceUID, store.serviceGID, maxGenerationChainBytes)
+	if err != nil {
+		return err
+	}
+	committed := bytes.Equal(installed, chain)
+	staging, stageErr := store.openStaging(dir)
+	if stageErr == nil {
+		defer unix.Close(staging)
+		stagedChain, readErr := store.readStaged(staging, MaterialGenerationsFile, "", maxGenerationChainBytes)
+		if readErr == nil {
+			if !bytes.Equal(stagedChain, chain) {
+				return ErrMaterial
+			}
+			committed = true
+		} else if !errors.Is(readErr, os.ErrNotExist) {
+			return readErr
+		}
+	} else if !errors.Is(stageErr, os.ErrNotExist) {
+		return stageErr
+	}
+	if isTarget {
+		oldRefs = previous.materials
+	} else if oldErr == nil && !bytes.Equal(installed, chain) {
+		oldRefs, err = identityRekeyPredecessorReferences(old, verified.Accepted(), installed, previous.installed)
+		if err != nil {
+			return err
+		}
+	}
+
+	for name, ref := range oldRefs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		wire, err := store.readStaged(dir, name, ref.SHA256, ref.MaxBytes)
+		clear(wire)
+		if err != nil && committed && !isTarget {
+			if targetRef, exists := previous.materials[name]; exists {
+				wire, err = store.readStaged(dir, name, targetRef.SHA256, targetRef.MaxBytes)
+				clear(wire)
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("identity rekey installed predecessor %s: %w", name, err)
+		}
+	}
+	return ctx.Err()
+}
+
+// Only the new checkpoint's exact old-chain hash authorizes this inventory
+// inspection; parsed retired-root bytes never become generation authority.
+func identityRekeyPredecessorReferences(old, target AcceptedIdentity, wire []byte, checkpointHash string) (map[string]bootstrap.SecretReference, error) {
+	if digest(wire) != checkpointHash || old.DeploymentID != target.DeploymentID || old.Environment != target.Environment ||
+		old.ClusterID != target.ClusterID || old.Cell != target.Cell || old.Slot != target.Slot ||
+		!slices.Equal(old.ControllerSlots, target.ControllerSlots) {
+		return nil, ErrMaterial
+	}
+	refs := materialReferences(old, nil)
+	chain, err := bootstrap.DecodeMaterialGenerationChain(wire)
+	if err != nil {
+		if old.MaterialGenerationSHA256 != "" {
+			return nil, err
+		}
+		return refs, nil
+	}
+	acceptance, err := old.AcceptanceSHA256()
 	if err != nil {
 		return nil, err
 	}
-	defer unix.Close(installed)
-	if err := store.verifyInstalled(ctx, installed, immutable); err != nil {
-		return nil, fmt.Errorf("identity rekey must preserve existing baseline material: %w", err)
+	baseline := old.MaterialGenerationSHA256 == ""
+	previous := ""
+	var newest bootstrap.MaterialGeneration
+	scope := trust.Scope{Domain: "terrascale.bootstrap.material-generation", DeploymentID: old.DeploymentID,
+		Cell: old.Cell, Environment: old.Environment, Role: "material", Slot: "generation"}
+	for index, envelope := range chain {
+		generation, err := bootstrap.MaterialGenerationPayload(envelope)
+		if err != nil || envelope.Scope != scope || generation.DeploymentID != old.DeploymentID ||
+			generation.Environment != old.Environment || generation.ClusterID != old.ClusterID || string(generation.Cell) != old.Cell ||
+			!slices.Equal(generation.ControllerSlots, old.ControllerSlots) || generation.Generation != uint64(index+1) ||
+			generation.Previous != previous || generation.Operator != old.Broker.Operator ||
+			generation.SystemAccount != old.Broker.SystemAccount || generation.CellAccount != old.Broker.CellAccount ||
+			generation.HostSigner != old.Broker.HostSigner || generation.RoleSigner != old.Broker.RoleSigner ||
+			index > 0 && len(newest.ControllerConfigs) != 0 && len(generation.ControllerConfigs) == 0 ||
+			index > 0 && slices.ContainsFunc(newest.Secrets, func(ref bootstrap.SecretReference) bool { return ref.Purpose == bootstrap.SecretController }) &&
+				!slices.ContainsFunc(generation.Secrets, func(ref bootstrap.SecretReference) bool { return ref.Purpose == bootstrap.SecretController }) {
+			return nil, errors.Join(ErrMaterial, err)
+		}
+		previous, err = trust.Fingerprint(envelope)
+		if err != nil {
+			return nil, err
+		}
+		if previous == old.MaterialGenerationSHA256 {
+			if generation.AccountSigner != old.Broker.AccountSigner {
+				return nil, ErrMaterial
+			}
+			baseline = true
+		}
+		newest = generation
 	}
-	return readReferences(ctx, refs, read)
+	if !baseline {
+		return nil, ErrMaterial
+	}
+	for _, config := range newest.ControllerConfigs {
+		if config.Slot == old.Slot && config.AcceptanceSHA256 != acceptance {
+			return nil, ErrMaterial
+		}
+	}
+	for _, ref := range newest.Secrets {
+		if ref.Slot == "" || ref.Slot == old.Slot {
+			refs[ref.TargetFile] = ref
+		}
+	}
+	return refs, nil
 }
 
 // RestoreMaterial mounts the controller credential directory in memory and
@@ -91,7 +240,10 @@ func (store MaterialStore) ReadIdentityRekeyMaterial(ctx context.Context, accept
 // are read. Before the first mount, removeDiskCopies deletes the old on-disk
 // files once each equals its Vault copy; without it they stay hidden beneath
 // the mount. check reads and compares every pin and changes nothing.
-func RestoreMaterial(ctx context.Context, read SecretReader, removeDiskCopies, check bool) (string, error) {
+func RestoreMaterial(ctx context.Context, read SecretReader, sourceLive func() error, removeDiskCopies, check bool) (string, error) {
+	if sourceLive == nil {
+		return "", ErrMaterial
+	}
 	if !check {
 		unlock, err := selfupdate.NewLayout(selfupdate.DefaultRoot).Lock()
 		if err != nil {
@@ -116,6 +268,11 @@ func RestoreMaterial(ctx context.Context, read SecretReader, removeDiskCopies, c
 	store, err := NewMaterialStore(nil, uint32(uid), uint32(gid))
 	if err != nil {
 		return "", err
+	}
+	if !check {
+		if err := store.prepareDirectoryCustody(); err != nil {
+			return "", err
+		}
 	}
 	if initial {
 		if present, err := IdentityRekeyJournalPresent(); err != nil {
@@ -145,8 +302,23 @@ func RestoreMaterial(ctx context.Context, read SecretReader, removeDiskCopies, c
 	if err != nil {
 		return "", err
 	}
+	store.restoreSeal = func() error {
+		if err := sourceLive(); err != nil {
+			return err
+		}
+		return ctx.Err()
+	}
+	store.restoreCurrent = func(chain []trust.Envelope) error {
+		if err := store.restoreSeal(); err != nil {
+			return err
+		}
+		if err := verifyGenerationAdmission(target, chain, false); err != nil {
+			return err
+		}
+		return store.restoreSeal()
+	}
 	installer := generationInstaller{store: store, target: target, roots: inputs.Roots.Current,
-		historicalRoots: inputs.Roots.Historical, spool: GenerationSpoolDirectory, config: controllerConfigFile}
+		historicalRoots: inputs.Roots.Historical, spool: GenerationSpoolDirectory, privateSpool: GenerationPrivateSpoolDirectory, config: controllerConfigFile}
 	dir, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, false)
 	if err != nil {
 		return "", fmt.Errorf("open service-owned credential directory: %w", err)
@@ -175,6 +347,12 @@ func RestoreMaterial(ctx context.Context, read SecretReader, removeDiskCopies, c
 	unix.Close(dir)
 	if err != nil {
 		return "", err
+	}
+	if len(chain) != 0 {
+		store.restoreChain, err = bootstrap.DecodeMaterialGenerationChain(chain)
+		if err != nil {
+			return "", err
+		}
 	}
 	if check {
 		return store.checkRestore(ctx, refs, chain, read)
@@ -206,6 +384,9 @@ func RestoreMaterial(ctx context.Context, read SecretReader, removeDiskCopies, c
 		return "", err
 	}
 	defer clearContents(contents)
+	if err := store.publicationLive(nil); err != nil {
+		return "", err
+	}
 	if err := pins.verifyIssuedFiles(contents, time.Now()); err != nil {
 		return "", err
 	}
@@ -213,7 +394,10 @@ func RestoreMaterial(ctx context.Context, read SecretReader, removeDiskCopies, c
 		return "", err
 	}
 	if chain != nil {
-		if err := writeSynced(store.chainCopy, chain); err != nil {
+		if err := store.publicationLive(nil); err != nil {
+			return "", err
+		}
+		if err := store.writeSyncedWithDelivery(store.chainCopy, chain, nil); err != nil {
 			return "", err
 		}
 		if err := convergeRestoredConfig(store, target, inputs.Roots.Historical, chain, controllerConfigFile, time.Now(), contents); err != nil {
@@ -257,8 +441,11 @@ func (installer generationInstaller) restoreDisk(ctx context.Context, accepted A
 	if err != nil {
 		return "", err
 	}
-	wire, chain, staged, config, _ := installer.armedStage(held, now)
+	wire, chain, staged, config, delivery, stageErr := installer.armedStage(held, now)
 	defer clearContents(staged)
+	if stageErr != nil {
+		return "", stageErr
+	}
 	successor := wire != nil
 	if !successor {
 		chain = held
@@ -283,7 +470,8 @@ func (installer generationInstaller) restoreDisk(ctx context.Context, accepted A
 		return "", fmt.Errorf("%w: accepted material generation is missing", ErrMaterial)
 	}
 	refs := materialReferences(accepted, newest)
-	contents, err := readReferences(ctx, refs, read)
+	store.restoreChain = chain
+	contents, err := store.readGuardedReferences(ctx, refs, read, delivery)
 	if err != nil {
 		return "", err
 	}
@@ -296,7 +484,7 @@ func (installer generationInstaller) restoreDisk(ctx context.Context, accepted A
 			return "", err
 		}
 		diskChain = wire
-		diskContents, err = readReferences(ctx, diskRefs, read)
+		diskContents, err = store.readGuardedReferences(ctx, diskRefs, read, delivery)
 		if err != nil {
 			return "", err
 		}
@@ -306,6 +494,9 @@ func (installer generationInstaller) restoreDisk(ctx context.Context, accepted A
 		}); err != nil {
 			return "", err
 		}
+	}
+	if err := store.publicationLive(delivery); err != nil {
+		return "", err
 	}
 	if successor {
 		checked := maps.Clone(contents)
@@ -318,11 +509,14 @@ func (installer generationInstaller) restoreDisk(ctx context.Context, accepted A
 		if err := installer.target.VerifyFiles(newest.Generation(), materialReader(checked), now.Add(time.Since(started))); err != nil {
 			return "", err
 		}
-		if err := installer.preserveConfig(held); err != nil {
+		if err := installer.preserveConfig(held, delivery); err != nil {
 			return "", err
 		}
 		if config != nil {
-			if err := writeSynced(filepath.Join(filepath.Dir(installer.config), pendingControllerConfig), config); err != nil {
+			if err := store.publicationLive(delivery); err != nil {
+				return "", err
+			}
+			if err := store.writeSyncedWithDelivery(filepath.Join(filepath.Dir(installer.config), pendingControllerConfig), config, delivery); err != nil {
 				return "", err
 			}
 		}
@@ -330,19 +524,25 @@ func (installer generationInstaller) restoreDisk(ctx context.Context, accepted A
 	if err := verifyRestoreContents(installer.target, installer.historicalRoots, wire, contents, installer.config, now.Add(time.Since(started))); err != nil {
 		return "", err
 	}
+	if err := store.publicationLive(delivery); err != nil {
+		return "", err
+	}
 	if wire != nil {
-		if err := writeSynced(store.chainCopy, wire); err != nil {
+		if err := store.writeSyncedWithDelivery(store.chainCopy, wire, delivery); err != nil {
 			return "", err
 		}
-		if err := convergeRestoredConfig(store, installer.target, installer.historicalRoots, wire, installer.config, now.Add(time.Since(started)), contents); err != nil {
+		if err := convergeRestoredConfigWithDelivery(store, installer.target, installer.historicalRoots, wire, installer.config, now.Add(time.Since(started)), contents, delivery); err != nil {
 			return "", err
 		}
 	}
 	removed := 0
 	if removeDiskCopies {
-		if removed, err = store.removeDiskCopies(diskContents, diskChain); err != nil {
+		if removed, err = store.removeDiskCopiesWithDelivery(diskContents, diskChain, delivery); err != nil {
 			return "", err
 		}
+	}
+	if err := store.publicationLive(delivery); err != nil {
+		return "", err
 	}
 	if err := mountMemory(store.installedDirectory, store.serviceUID, store.serviceGID); err != nil {
 		return "", fmt.Errorf("mount the credential directory in memory: %w", err)
@@ -350,7 +550,13 @@ func (installer generationInstaller) restoreDisk(ctx context.Context, accepted A
 	if err := verifyRestoreContents(installer.target, installer.historicalRoots, wire, contents, installer.config, now.Add(time.Since(started))); err != nil {
 		return "", err
 	}
-	if err := store.fill(contents, wire); err != nil {
+	if err := store.publicationLive(delivery); err != nil {
+		return "", err
+	}
+	if err := store.fillWithDelivery(contents, wire, delivery); err != nil {
+		return "", err
+	}
+	if err := store.publicationLive(delivery); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("restored %d files from Vault into memory; removed %d disk copies", len(refs), removed), nil
@@ -400,12 +606,14 @@ func (installer generationInstaller) restoreArmedGeneration(now time.Time) error
 	if err != nil {
 		return err
 	}
-	wire, chain, files, config, err := installer.armedStage(held, now)
-	if err != nil || wire == nil {
-		// Vault restoration validates the held inventory after filling missing files.
+	wire, chain, files, config, delivery, err := installer.armedStage(held, now)
+	if err != nil {
+		return err
+	}
+	if wire == nil {
 		return nil
 	}
-	_, err = installer.installArmed(held, wire, chain, files, config, now)
+	_, err = installer.installArmed(held, wire, chain, files, config, delivery, now)
 	return err
 }
 
@@ -514,6 +722,26 @@ func readReferences(ctx context.Context, refs map[string]bootstrap.SecretReferen
 	return contents, nil
 }
 
+func (store MaterialStore) readGuardedReferences(ctx context.Context, refs map[string]bootstrap.SecretReference, read SecretReader, delivery *GenerationDeliveryLifetime) (map[string][]byte, error) {
+	if read == nil {
+		return nil, ErrMaterial
+	}
+	return readReferences(ctx, refs, func(ctx context.Context, reference bootstrap.SecretReference) ([]byte, error) {
+		if err := store.publicationLive(delivery); err != nil {
+			return nil, err
+		}
+		content, err := read(ctx, reference)
+		if err != nil {
+			return nil, err
+		}
+		if err := store.publicationLive(delivery); err != nil {
+			clear(content)
+			return nil, err
+		}
+		return content, nil
+	})
+}
+
 func clearContents(contents map[string][]byte) {
 	for _, content := range contents {
 		clear(content)
@@ -525,7 +753,7 @@ func clearContents(contents map[string][]byte) {
 func (store MaterialStore) checkRestore(ctx context.Context, refs map[string]bootstrap.SecretReference, chain []byte,
 	read SecretReader,
 ) (string, error) {
-	contents, err := readReferences(ctx, refs, read)
+	contents, err := store.readGuardedReferences(ctx, refs, read, nil)
 	if err != nil {
 		return "", err
 	}
@@ -555,6 +783,10 @@ func (store MaterialStore) checkRestore(ctx context.Context, refs map[string]boo
 // shown to equal its Vault copy (or the chain's durable copy). Anything else
 // in the directory refuses the removal, so nothing unrecovered is lost.
 func (store MaterialStore) removeDiskCopies(contents map[string][]byte, chain []byte) (int, error) {
+	return store.removeDiskCopiesWithDelivery(contents, chain, nil)
+}
+
+func (store MaterialStore) removeDiskCopiesWithDelivery(contents map[string][]byte, chain []byte, delivery *GenerationDeliveryLifetime) (int, error) {
 	dir, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
 	if err != nil {
 		return 0, err
@@ -586,6 +818,9 @@ func (store MaterialStore) removeDiskCopies(contents map[string][]byte, chain []
 		names = append(slices.Delete(names, index, index+1), MaterialGenerationsFile)
 	}
 	for _, name := range names {
+		if err := store.publicationLive(delivery); err != nil {
+			return 0, err
+		}
 		if err := unix.Unlinkat(dir, name, 0); err != nil {
 			return 0, fmt.Errorf("remove disk copy %s: %w", name, err)
 		}
@@ -604,6 +839,15 @@ func (store MaterialStore) missing(refs map[string]bootstrap.SecretReference, is
 	missing := map[string]bootstrap.SecretReference{}
 	for name, reference := range refs {
 		content, err := readMaterial(dir, name, store.serviceUID, store.serviceGID, reference.SHA256, reference.MaxBytes)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			pending, pendingErr := store.readStaged(dir, name, reference.SHA256, reference.MaxBytes)
+			clear(pending)
+			if pendingErr == nil {
+				clear(content)
+				missing[name] = reference
+				continue
+			}
+		}
 		if issued[name] != "" {
 			clear(content)
 			content, err = readUnpinned(dir, name, store.serviceUID, store.serviceGID, reference.MaxBytes)
@@ -621,22 +865,32 @@ func (store MaterialStore) missing(refs map[string]bootstrap.SecretReference, is
 // fill installs contents and, when the directory has none, the chain; a chain
 // it has must be the durable copy.
 func (store MaterialStore) fill(contents map[string][]byte, chain []byte) error {
+	return store.fillWithDelivery(contents, chain, nil)
+}
+
+func (store MaterialStore) fillWithDelivery(contents map[string][]byte, chain []byte, delivery *GenerationDeliveryLifetime) error {
 	dir, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
 	if err != nil {
 		return err
 	}
 	defer unix.Close(dir)
 	for _, name := range slices.Sorted(maps.Keys(contents)) {
-		if err := store.installMaterial(dir, name, contents[name], digest(contents[name]), bootstrap.MaxSecretBytes); err != nil {
+		if err := store.installMaterialWithDelivery(dir, name, contents[name], digest(contents[name]), bootstrap.MaxSecretBytes, delivery); err != nil {
 			return fmt.Errorf("install %s: %w", name, err)
 		}
 	}
 	if chain == nil {
 		return nil
 	}
+	if err := store.publicationLive(delivery); err != nil {
+		return err
+	}
 	installed, err := readUnpinned(dir, MaterialGenerationsFile, store.serviceUID, store.serviceGID, maxGenerationChainBytes)
 	if errors.Is(err, os.ErrNotExist) {
-		return store.writeStaged(dir, MaterialGenerationsFile, chain)
+		if err := store.writeStaged(dir, MaterialGenerationsFile, chain); err != nil {
+			return err
+		}
+		return store.publicationLive(delivery)
 	}
 	if err == nil && !bytes.Equal(installed, chain) {
 		err = fmt.Errorf("%w: installed generation chain differs from its durable copy", ErrMaterial)
@@ -645,15 +899,15 @@ func (store MaterialStore) fill(contents map[string][]byte, chain []byte) error 
 }
 
 // keepChain writes the durable copy of a staged chain before it commits.
-func (store MaterialStore) keepChain(staging int) error {
+func (store MaterialStore) keepChain(staging int, delivery *GenerationDeliveryLifetime) error {
 	if store.chainCopy == "" {
 		return nil
 	}
-	chain, err := readUnpinned(staging, MaterialGenerationsFile, store.serviceUID, store.serviceGID, maxGenerationChainBytes)
+	chain, err := store.readStaged(staging, MaterialGenerationsFile, "", maxGenerationChainBytes)
 	if err != nil {
 		return err
 	}
-	return writeSynced(store.chainCopy, chain)
+	return store.writeSyncedWithDelivery(store.chainCopy, chain, delivery)
 }
 
 func memoryFilesystem(fd int) bool {
@@ -679,8 +933,12 @@ func mountMemory(path string, uid, gid uint32) error {
 	if filepath.Clean(path) != path {
 		return ErrMaterial
 	}
+	mode := uint32(0o700)
+	if path == MaterialDirectory {
+		uid, gid, mode = 0, 0, 0o755
+	}
 	return unix.Mount("tmpfs", path, "tmpfs", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC,
-		fmt.Sprintf("mode=0700,uid=%d,gid=%d", uid, gid))
+		fmt.Sprintf("mode=%04o,uid=%d,gid=%d", mode, uid, gid))
 }
 
 // convergeRestoredConfig puts the pending controller config in place when the
@@ -720,6 +978,10 @@ func verifyRestoreContents(target GenerationTarget, roots trust.Keyring, chainWi
 }
 
 func convergeRestoredConfig(store MaterialStore, target GenerationTarget, roots trust.Keyring, chainWire []byte, configPath string, now time.Time, contents map[string][]byte) error {
+	return convergeRestoredConfigWithDelivery(store, target, roots, chainWire, configPath, now, contents, nil)
+}
+
+func convergeRestoredConfigWithDelivery(store MaterialStore, target GenerationTarget, roots trust.Keyring, chainWire []byte, configPath string, now time.Time, contents map[string][]byte, delivery *GenerationDeliveryLifetime) error {
 	if err := verifyRestoreContents(target, roots, chainWire, contents, configPath, now); err != nil {
 		return err
 	}
@@ -733,6 +995,9 @@ func convergeRestoredConfig(store MaterialStore, target GenerationTarget, roots 
 	}
 	_, pending, err := generationConfig(target, generation, configPath)
 	if err != nil || !pending {
+		return err
+	}
+	if err := store.publicationLive(delivery); err != nil {
 		return err
 	}
 	if err := os.Rename(filepath.Join(filepath.Dir(configPath), pendingControllerConfig), configPath); err != nil {
@@ -770,7 +1035,7 @@ func (store MaterialStore) prepareInitialMemory() error {
 }
 
 func (store MaterialStore) readRestoreReferences(ctx context.Context, refs, missing map[string]bootstrap.SecretReference, read SecretReader) (map[string][]byte, error) {
-	contents, err := readReferences(ctx, missing, read)
+	contents, err := store.readGuardedReferences(ctx, missing, read, nil)
 	if err != nil {
 		return nil, err
 	}

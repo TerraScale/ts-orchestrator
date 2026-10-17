@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"golang.org/x/sys/unix"
 )
@@ -51,6 +52,11 @@ type MaterialStore struct {
 	allowUnsafeAncestors bool
 	// chainCopy is where an adopted chain is kept durably (GenerationChainCopy).
 	chainCopy string
+	// NewMaterialStore always installs the fixed-source generation admission.
+	admitGeneration func(GenerationTarget, []trust.Envelope) error
+	restoreCurrent  func([]trust.Envelope) error
+	restoreSeal     func() error
+	restoreChain    []trust.Envelope
 }
 
 func NewMaterialStore(vault SecretMaterializer, serviceUID, serviceGID uint32) (MaterialStore, error) {
@@ -60,6 +66,7 @@ func NewMaterialStore(vault SecretMaterializer, serviceUID, serviceGID uint32) (
 	return MaterialStore{
 		vault: vault, installedDirectory: MaterialDirectory, stagingDirectory: StagingDirectory,
 		serviceUID: serviceUID, serviceGID: serviceGID, chainCopy: GenerationChainCopy,
+		admitGeneration: verifyCurrentGenerationAdmission,
 	}, nil
 }
 
@@ -204,9 +211,20 @@ func sameMaterials(left, right map[string]string) bool {
 }
 
 func (store MaterialStore) installMaterial(dir int, name string, content []byte, want string, maximum int64) error {
-	if existing, err := readMaterial(dir, name, store.serviceUID, store.serviceGID, want, maximum); err == nil {
+	return store.installMaterialWithDelivery(dir, name, content, want, maximum, nil)
+}
+
+func (store MaterialStore) installMaterialWithDelivery(dir int, name string, content []byte, want string, maximum int64, delivery *GenerationDeliveryLifetime) error {
+	if err := store.publicationLive(delivery); err != nil {
+		return err
+	}
+	uid, gid := materialOwner(name, store.serviceUID, store.serviceGID)
+	if existing, err := store.readStaged(dir, name, want, maximum); err == nil {
 		clear(existing)
-		return nil
+		if err := store.publicationLive(delivery); err != nil {
+			return err
+		}
+		return store.publishInstalledOwner(dir, name, delivery)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -221,11 +239,12 @@ func (store MaterialStore) installMaterial(dir int, name string, content []byte,
 	}
 	defer unix.Unlinkat(dir, temporary, 0)
 	file := os.NewFile(uintptr(fd), temporary)
+	defer file.Close()
 	if err := unix.Fchmod(fd, 0o600); err != nil {
 		_ = file.Close()
 		return err
 	}
-	if err := unix.Fchown(fd, int(store.serviceUID), int(store.serviceGID)); err != nil {
+	if err := unix.Fchown(fd, os.Geteuid(), os.Getegid()); err != nil {
 		_ = file.Close()
 		return err
 	}
@@ -237,23 +256,51 @@ func (store MaterialStore) installMaterial(dir int, name string, content []byte,
 		_ = file.Close()
 		return err
 	}
-	if err := file.Close(); err != nil {
+	if err := store.publicationLive(delivery); err != nil {
 		return err
 	}
 	if err := unix.Renameat2(dir, temporary, dir, name, unix.RENAME_NOREPLACE); err != nil {
 		if !errors.Is(err, unix.EEXIST) {
 			return err
 		}
+	} else {
+		if err := store.publicationLive(delivery); err != nil {
+			return err
+		}
+		if err := unix.Fchown(fd, int(uid), int(gid)); err != nil {
+			return err
+		}
+	}
+	if err := file.Sync(); err != nil {
+		return err
 	}
 	if err := unix.Fsync(dir); err != nil {
 		return err
 	}
 	verified, err := readMaterial(dir, name, store.serviceUID, store.serviceGID, want, maximum)
 	clear(verified)
-	return err
+	return errors.Join(err, store.publicationLive(delivery))
+}
+
+// materialOwner is fixed by the broker capability, never selected by a caller.
+// Broker identity, route authentication and shared issuers stay in root custody.
+func materialOwner(name string, uid, gid uint32) (uint32, uint32) {
+	switch name {
+	case "system.creds", "membership.creds", "controller-account-signer.seed", "controller-tls-issuer-key.pem", "route-password",
+		"controller-a-tls-key.pem", "controller-b-tls-key.pem", "controller-c-tls-key.pem", bootstrap.LinkCredentialsFile,
+		"interregion-tls-controller-a-key.pem", "interregion-tls-controller-b-key.pem", "interregion-tls-controller-c-key.pem":
+		return 0, 0
+	}
+	if peer, leaf := strings.CutPrefix(name, "leaf-"); leaf {
+		if peer, credentials := strings.CutSuffix(peer, ".creds"); credentials && peer == strings.ToLower(peer) && catalog.IsCell(strings.ToUpper(peer)) {
+			return 0, 0
+		}
+	}
+	return uid, gid
 }
 
 func readMaterial(dir int, name string, uid, gid uint32, want string, maximum int64) ([]byte, error) {
+	uid, gid = materialOwner(name, uid, gid)
 	if !markerNameRE.MatchString(name) || !markerDigestRE.MatchString(want) || maximum <= 0 || maximum > bootstrap.MaxSecretBytes {
 		return nil, ErrMaterial
 	}
@@ -278,6 +325,9 @@ func readMaterial(dir int, name string, uid, gid uint32, want string, maximum in
 }
 
 func openMaterialDirectory(path string, uid, gid uint32, mode uint32, allowUnsafeAncestors bool) (int, error) {
+	if path == MaterialDirectory {
+		uid, gid, mode = 0, 0, 0o755
+	}
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return -1, ErrMaterial
 	}

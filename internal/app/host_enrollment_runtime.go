@@ -88,13 +88,13 @@ type managedHostEnrollment struct {
 
 var errStaleUnclaimedRenewal = errors.New("stale unclaimed host renewal")
 
-func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natscell.Runtime,
+func startManagedHostEnrollment(ctx context.Context, cfg Config, transport *natscell.Runtime, native controllerBrokerNative,
 	managed *managedControllerConfig, fleet oci.Fleet, intents placementIntentLookup,
 	members placement.MemberPinReader, controller *host.Controller, verifier host.ManagedRegistrationVerifier,
 	responseKey ed25519.PrivateKey,
 	fencer authority.Fencer, services *specRegistry, pool *nodePoolBinding,
 ) (*http.Server, net.Listener, <-chan error, error) {
-	if managed == nil || fleet == nil || intents == nil || members == nil || controller == nil || verifier == nil ||
+	if transport == nil || native == nil || managed == nil || fleet == nil || intents == nil || members == nil || controller == nil || verifier == nil ||
 		cfg.NATS.Embedded == nil || cfg.Controller.HostEnrollmentListenAddress == "" {
 		return nil, nil, nil, errors.New("managed host enrollment requires a complete private controller runtime")
 	}
@@ -102,39 +102,31 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	grantStore, err := hostenroll.OpenGrantStore(ctx, runtime.JetStream(), cfg.NATS.Replicas)
+	grantStore, err := hostenroll.OpenGrantStore(ctx, transport.JetStream(), cfg.NATS.Replicas)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	issuer, err := loadHostIssuer(cfg, runtime)
+	issuer, err := loadHostIssuer(ctx, cfg, native)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if err := issuer.ValidateAccountScope(runtime.InitialCellJWT()); err != nil {
+	// The listener reads the broker's installed certificate files independently.
+	// Session tickets are off so clients cannot resume under an old certificate.
+	reloading, err := natscell.NewReloadingTLS(cfg.NATS.Embedded.TLS, "listener")
+	if err != nil {
 		return nil, nil, nil, err
 	}
-	// The listener shares the broker's address and certificate, so it serves
-	// a renewed certificate as soon as the broker does. Session tickets are
-	// off so no client resumes a session made under the old certificate.
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, SessionTicketsDisabled: true}
-	if reloading := runtime.BrokerTLS(); reloading != nil {
-		tlsConfig.GetCertificate = reloading.Certificate
-	} else {
-		certificate, err := tls.LoadX509KeyPair(cfg.NATS.Embedded.TLS.CertFile, cfg.NATS.Embedded.TLS.KeyFile)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		tlsConfig.Certificates = []tls.Certificate{certificate}
-	}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, SessionTicketsDisabled: true,
+		GetCertificate: reloading.Certificate}
 	listenIP, listenPort, err := net.SplitHostPort(cfg.Controller.HostEnrollmentListenAddress)
 	if err != nil || listenPort != "8443" || net.ParseIP(listenIP) == nil || listenIP != cfg.NATS.Embedded.Host {
 		return nil, nil, nil, errors.New("host enrollment listener must bind the exact private broker IP on port 8443")
 	}
-	registrationMutations, err := authority.OpenReader(ctx, runtime.JetStream(), cfg.NATS.Cell)
+	registrationMutations, err := authority.OpenReader(ctx, transport.JetStream(), cfg.NATS.Cell)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	registrations, err := host.NewReader(ctx, host.ReaderConfig{Cell: cfg.NATS.Cell, Conn: runtime.Conn(), JS: runtime.JetStream(), StateReplicas: cfg.NATS.Replicas, HostMutations: registrationMutations})
+	registrations, err := host.NewReader(ctx, host.ReaderConfig{Cell: cfg.NATS.Cell, Conn: transport.Conn(), JS: transport.JetStream(), StateReplicas: cfg.NATS.Replicas, HostMutations: registrationMutations})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -148,7 +140,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 		generation: managed.region.Generation, environment: placementConfig.Environment,
 		diskBytes: placementConfig.Resources.DiskBytes,
 		fleet:     fleet, intents: intents, members: members, controller: controller, verifier: verifier,
-		grants: grantStore, js: runtime.JetStream(), issuer: issuer, responseKey: responseKey, fencer: fencer,
+		grants: grantStore, js: transport.JetStream(), issuer: issuer, responseKey: responseKey, fencer: fencer,
 		services: services, runtimeIdentity: runtimeIdentity,
 		registrationMutations: registrationMutations, registrations: registrations,
 	}

@@ -15,13 +15,19 @@ import (
 
 // openControllerRuntime reconciles rooted shared identity before exposing any
 // bridge, leafnode or ordinary authority on an installation that was re-keyed.
-func openControllerRuntime(ctx context.Context, cfg Config, clockCheck func() error) (*natscell.Runtime, error) {
+func (broker *rootBrokerRuntime) openControllerRuntime(ctx context.Context, cfg Config, clockCheck func() error) (*natscell.Runtime, error) {
+	if err := broker.guard(ctx); err != nil {
+		return nil, err
+	}
 	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	if err != nil {
 		return nil, err
 	}
 	journal, err := bootstrapstart.ReadIdentityRekeyJournal(accepted)
 	if errors.Is(err, os.ErrNotExist) {
+		if err := broker.guard(ctx); err != nil {
+			return nil, err
+		}
 		return natscell.Start(ctx, cfg.NATS)
 	}
 	if err != nil {
@@ -38,6 +44,9 @@ func openControllerRuntime(ctx context.Context, cfg Config, clockCheck func() er
 	defer held.Close()
 	if err := held.WaitForCluster(ctx, cfg.NATS.Replicas); err != nil {
 		return nil, fmt.Errorf("identity rekey quorum: %w", err)
+	}
+	if err := broker.guard(ctx); err != nil {
+		return nil, err
 	}
 	envelope, err := journal.ResetEnvelope()
 	if err != nil {
@@ -62,6 +71,9 @@ func openControllerRuntime(ctx context.Context, cfg Config, clockCheck func() er
 			return nil, err
 		}
 		check := func() (time.Time, error) {
+			if err := broker.guard(ctx); err != nil {
+				return time.Time{}, err
+			}
 			if clockCheck == nil {
 				return time.Time{}, errors.New("identity rekey requires healthy NTP before shared effects")
 			}
@@ -121,6 +133,9 @@ func openControllerRuntime(ctx context.Context, cfg Config, clockCheck func() er
 		return nil, err
 	}
 	if err := bootstrapstart.VerifyAcceptedLocalIdentity(accepted, observe); err != nil {
+		return nil, err
+	}
+	if err := broker.guard(ctx); err != nil {
 		return nil, err
 	}
 	return natscell.Start(ctx, cfg.NATS)

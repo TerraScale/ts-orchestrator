@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
@@ -20,16 +21,39 @@ import (
 )
 
 type rootOCIProcess struct {
-	witness    *rootoci.ProcessWitness
-	ctx        context.Context
-	cancel     context.CancelFunc
-	startupEnd time.Time
-	generation uint64
-	runtime    bool
-	invocation string
-	session    context.Context
-	lease      context.Context
-	stopLease  func()
+	witness        *rootoci.ProcessWitness
+	ctx            context.Context
+	cancel         context.CancelFunc
+	startupEnd     time.Time
+	generation     uint64
+	runtime        bool
+	invocation     string
+	session        context.Context
+	lease          context.Context
+	stopLease      func()
+	brokerStartup  *rootBrokerStartup
+	managerBinding *rootManagerRuntimeBinding
+	supervisor     rootOCIProcessSupervisor
+}
+
+type rootOCIProcessSupervisor interface {
+	verify(context.Context, *rootoci.ProcessWitness) error
+}
+
+type rootOCISystemdSupervisor struct {
+	invocation, cgroup string
+}
+
+func (supervisor rootOCISystemdSupervisor) verify(ctx context.Context, witness *rootoci.ProcessWitness) error {
+	if witness == nil || witness.Verify() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	service, err := observeRootOCIController(ctx)
+	if err != nil || service.pid != witness.Peer().PID || service.invocation != supervisor.invocation ||
+		service.cgroup != supervisor.cgroup || !rootOCIProcessCgroup(witness.Cgroup(), service.cgroup) || witness.Verify() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	return nil
 }
 
 func (process *rootOCIProcess) close() {
@@ -55,6 +79,7 @@ type rootOCIAuthority struct {
 	child    *rootOCIProcess
 	main     *rootOCIProcess
 	sources  *rootBoundRuntimeSources
+	children atomic.Pointer[rootBrokerSourceChildren]
 }
 
 func (authority *rootOCIAuthority) bindSources(sources *rootBoundRuntimeSources) error {
@@ -142,18 +167,58 @@ func (authority *rootOCIAuthority) registerAdmissionChild(pid int) (func(), erro
 }
 
 func (authority *rootOCIAuthority) verifyBinary(witness *rootoci.ProcessWitness) error {
+	_, err := authority.readVerifiedBinary(authority.ctx, witness)
+	return err
+}
+
+func (authority *rootOCIAuthority) readVerifiedBinary(ctx context.Context, witness *rootoci.ProcessWitness) (bootstrapstart.RunningBinary, error) {
+	if ctx == nil || ctx.Err() != nil || witness == nil {
+		return bootstrapstart.RunningBinary{}, rootoci.ErrUnauthorized
+	}
 	inputs, err := bootstrapstart.LoadTrustInputs(authority.accepted)
 	if err != nil || witness.Verify() != nil {
-		return rootoci.ErrUnauthorized
+		return bootstrapstart.RunningBinary{}, rootoci.ErrUnauthorized
 	}
-	if err := bootstrapstart.VerifyRestartProcessBinary(witness.Peer().PID, authority.accepted, authority.layout, inputs.Roots.Historical); err != nil {
-		return rootoci.ErrUnauthorized
+	binary, err := bootstrapstart.ReadVerifiedRestartProcessBinary(ctx, witness.Peer().PID, authority.accepted, authority.layout, inputs.Roots.Historical)
+	if err != nil || witness.Verify() != nil || ctx.Err() != nil {
+		return bootstrapstart.RunningBinary{}, rootoci.ErrUnauthorized
 	}
-	return witness.Verify()
+	return binary, nil
 }
 
 func (authority *rootOCIAuthority) authorize(request context.Context, peer nativerootoci.Peer, operation rootoci.Operation) (rootoci.Lease, error) {
-	return authority.authorizeProcess(request, peer, operation.ReadOnly())
+	if registry := authority.children.Load(); registry != nil {
+		if child := registry.find(peer.PID); child != nil {
+			if operation != rootoci.OperationObserveLocalInstance || child.witness.Peer() != peer {
+				return rootoci.Lease{}, rootoci.ErrUnauthorized
+			}
+			return child.localInstanceLease(request)
+		}
+	}
+	if operation == rootoci.OperationObserveLocalInstance && authority.localDescriptorGuard(request) != nil {
+		return rootoci.Lease{}, rootoci.ErrUnauthorized
+	}
+	lease, err := authority.authorizeProcess(request, peer, operation.ReadOnly())
+	if err == nil && operation == rootoci.OperationObserveLocalInstance && authority.localDescriptorGuard(request) != nil {
+		return rootoci.Lease{}, rootoci.ErrUnauthorized
+	}
+	return lease, err
+}
+
+func (authority *rootOCIAuthority) localDescriptorGuard(ctx context.Context) error {
+	if ctx == nil || ctx.Err() != nil || authority.ctx.Err() != nil || authority.verifyMarker() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	imds := bootstrapstart.NewIMDSClient()
+	descriptor, err := imds.FetchDescriptor(ctx)
+	if err != nil || descriptor.SchemaVersion != 1 || descriptor.Slot != authority.accepted.Slot || ctx.Err() != nil || authority.ctx.Err() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	instance, err := imds.FetchInstanceID(ctx)
+	if err != nil || instance != authority.accepted.InstanceOCID || authority.verifyMarker() != nil || ctx.Err() != nil || authority.ctx.Err() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	return nil
 }
 
 func (authority *rootOCIAuthority) authorizeRuntime(request context.Context, peer nativerootoci.Peer) (rootoci.Lease, error) {
@@ -171,7 +236,13 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 	if original, ok := request.Deadline(); ok && original.Before(deadline) {
 		deadline = original
 	}
+	if authority.sources != nil {
+		deadline = earlier(deadline, authority.sources.deadline)
+	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	if registry := authority.children.Load(); registry != nil {
+		ctx = swarmruntime.WithSourceChildRegistrar(ctx, registry)
+	}
 	stopRequest := context.AfterFunc(request, cancel)
 	stopAuthority := context.AfterFunc(authority.ctx, cancel)
 	defer func() { stopRequest(); stopAuthority(); cancel() }()
@@ -193,6 +264,8 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 	if err != nil {
 		return deny()
 	}
+	ctx, stopCurrent := context.WithDeadline(ctx, currentAuthority.ExpiresAt())
+	defer stopCurrent()
 	if source.generation != process.generation || source.session != nil {
 		process.runtime = true
 	}
@@ -236,6 +309,9 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 		authority.verifyMarker() != nil || authority.verifyProcess(ctx, process) != nil || ctx.Err() != nil || source.session.Err() != nil {
 		return rootoci.Lease{}, rootoci.ErrUnauthorized
 	}
+	if err := authority.verifyManagerRuntimeBinding(ctx, process, binding, identity, currentAuthority); err != nil {
+		return rootoci.Lease{}, err
+	}
 	if process.session != source.session {
 		if process.stopLease != nil {
 			process.stopLease()
@@ -247,10 +323,10 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 		process.stopLease = func() { stop(); stopSources(); cancelLease() }
 	}
 	worker := identity.Identity()
-	return rootoci.Lease{Context: process.lease, Deadline: earlier(earlier(identity.ExpiresAt(), currentAuthority.ExpiresAt()), authority.sources.deadline),
+	return rootoci.Lease{Context: process.lease, Deadline: earlier(earlier(earlier(identity.ExpiresAt(), currentAuthority.ExpiresAt()), authority.sources.deadline), process.managerBinding.signed.Binding.ExpiresAt),
 		RuntimeID: entityid.Derive("controller-runtime", process.witness.Binding()),
-		Binding: fmt.Sprintf("%s:runtime:%s:%d:%s", process.witness.Binding(), worker.HostSessionID,
-			worker.RegistrationGeneration, currentAuthority.Anchor().Digest())}, nil
+		Binding: fmt.Sprintf("%s:runtime:%s:%d:%s:%s", process.witness.Binding(), worker.HostSessionID,
+			worker.RegistrationGeneration, currentAuthority.Anchor().Digest(), process.managerBinding.digest)}, nil
 }
 
 func controllerRuntimeID() (string, error) {
@@ -286,12 +362,10 @@ func (authority *rootOCIAuthority) verifyProcess(ctx context.Context, process *r
 		}
 		return nil
 	}
-	service, err := observeRootOCIController(ctx)
-	if err != nil || service.pid != process.witness.Peer().PID || service.invocation != process.invocation ||
-		!rootOCIProcessCgroup(process.witness.Cgroup(), service.cgroup) || process.witness.Verify() != nil {
+	if process.supervisor == nil {
 		return rootoci.ErrUnauthorized
 	}
-	return nil
+	return process.supervisor.verify(ctx, process.witness)
 }
 
 func earlier(left, right time.Time) time.Time {
@@ -309,19 +383,19 @@ func (authority *rootOCIAuthority) currentProcess(ctx context.Context, peer nati
 		}
 		return authority.child, nil
 	}
-	service, err := observeRootOCIController(ctx)
-	if err != nil || service.pid != peer.PID {
-		return nil, rootoci.ErrUnauthorized
-	}
 	if authority.main != nil && authority.main.witness.Peer() == peer {
 		if authority.main.witness.Verify() == nil {
-			if authority.main.invocation != service.invocation || !rootOCIProcessCgroup(authority.main.witness.Cgroup(), service.cgroup) {
+			if err := authority.verifyProcess(ctx, authority.main); err != nil {
 				authority.main.cancel()
 				return nil, rootoci.ErrUnauthorized
 			}
 			return authority.main, nil
 		}
 		authority.main.cancel()
+	}
+	service, err := observeRootOCIController(ctx)
+	if err != nil || service.pid != peer.PID {
+		return nil, rootoci.ErrUnauthorized
 	}
 	witness, err := rootoci.CaptureProcess(peer.PID)
 	if err != nil {
@@ -337,6 +411,7 @@ func (authority *rootOCIAuthority) currentProcess(ctx context.Context, peer nati
 		authority.main.close()
 	}
 	authority.main = authority.process(witness, service.invocation)
+	authority.main.supervisor = rootOCISystemdSupervisor{invocation: service.invocation, cgroup: service.cgroup}
 	return authority.main, nil
 }
 

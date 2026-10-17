@@ -31,6 +31,7 @@ import (
 // Local process scenarios keep the real JWT broker gate and replace only cloud admission.
 func stubAuthenticatedController(t *testing.T, cfg *Config) {
 	t.Helper()
+	installNativeBrokerControllerFixture(t)
 	previousRuntime, previousMarker := controllerRuntimeProduction, controllerMarkerPresent
 	previousBaked, previousAdmission := controllerBakedInputsPresent, controllerBootstrapProduction
 	previousFounder, previousClock := controllerFounderProduction, controllerBrokerClockProbe

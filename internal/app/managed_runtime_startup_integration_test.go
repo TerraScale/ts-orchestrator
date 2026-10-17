@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -119,6 +120,18 @@ func TestManagedRuntimeReadyBeforeSingleOwnHostSession(t *testing.T) {
 	defer clear(root)
 	foundation, grantWire, intent := managerStartupFoundation(t, root)
 	fixture := bootstrapstart.NewControllerManagerStartupFixture(t, enrollment, broker, root, foundation)
+	localDescriptor := acceptedControllerLocalDescriptor{accepted: fixture.Accepted.Clone()}
+	canceledAdmission, cancelAdmission := context.WithCancel(ctx)
+	cancelAdmission()
+	if _, err := localDescriptor.FetchDescriptor(canceledAdmission); !errors.Is(err, bootstrapstart.ErrInstanceObservation) {
+		t.Fatalf("ordinary descriptor ignored original admission cancellation: %v", err)
+	}
+	if _, err := localDescriptor.FetchInstanceID(canceledAdmission); !errors.Is(err, bootstrapstart.ErrInstanceObservation) {
+		t.Fatalf("ordinary instance read ignored original admission cancellation: %v", err)
+	}
+	if _, err := (acceptedControllerLocalDescriptor{}).FetchDescriptor(ctx); !errors.Is(err, bootstrapstart.ErrInstanceObservation) {
+		t.Fatalf("ordinary descriptor accepted an unbound identity: %v", err)
+	}
 	foundations := managerStartupFoundationResolver(t, fixture, grantWire, intent)
 	vaultClient, bundles := managerStartupVault(t)
 	admitted, err := swarmruntime.ReadAcceptedManagerAdmission(ctx, fixture.Reader, fixture.Accepted)
@@ -281,6 +294,140 @@ func TestManagedRuntimeReadyBeforeSingleOwnHostSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertClosed()
+	// Exercise the actual native signer and signed Agent/CAS handoff together;
+	// production MainPID and root credential/R3 admission remain separate.
+	reader, err := host.NewReader(ctx, host.ReaderConfig{Cell: "gru", Conn: runtime.Conn(), JS: runtime.JetStream(), StateReplicas: 1, HostMutations: control})
+	if err != nil {
+		t.Fatal(err)
+	}
+	native, err := node.ReadOnlyControlClient(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cluster, err := native.ClusterIdentity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := native.GetNode(ctx, &api.GetNodeRequest{NodeID: node.ID()})
+	if err != nil || manager == nil || manager.Node == nil {
+		t.Fatal("native manager certificate unavailable", err)
+	}
+	certificate, _ := pem.Decode(manager.Node.Certificate.Certificate)
+	if certificate == nil {
+		t.Fatal("native manager certificate is not PEM")
+	}
+	currentAuthority, err := fixture.Reader.ReadRuntimeAuthority(ctx, fixture.Accepted, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := agent.RuntimeWorkerIdentity(fixture.Instance.InstanceOCID, node.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := reader.ReadManagerRuntimeSession(ctx, registration.Node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptedWire, err := bootstrapstart.EncodeAcceptedIdentity(fixture.Accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptedDigest, certificateDigest, clusterDigest := sha256.Sum256(acceptedWire), sha256.Sum256(certificate.Bytes), sha256.Sum256(cluster.RootCACert)
+	worker := identity.Identity()
+	payload := host.ManagerRuntimeBinding{Version: 1, DeploymentID: fixture.Accepted.DeploymentID, ClusterID: fixture.Accepted.ClusterID,
+		SwarmClusterID: cluster.ID, Environment: registration.Environment, Cell: registration.Cell, OCIRegion: admitted.Region,
+		NodeID: node.ID(), InstanceID: worker.InstanceID, HostID: statuses[0].Registration.ID, HostNode: registration.Node,
+		HostSessionID: worker.HostSessionID, HostSessionEpoch: identity.SessionEpoch(), RegistrationGeneration: registration.Generation,
+		RegistrationRevision: snapshot.RegistrationRevision(), SourceRevision: snapshot.SourceRevision(),
+		HostPublicKey: registration.PublicKey, NATSUserPublicKey: registration.NATSUserPublicKey,
+		RuntimeCandidateID: entityid.New(), BinarySHA256: fixture.Accepted.Binary.SHA256, AcceptanceSHA256: hex.EncodeToString(acceptedDigest[:]),
+		AnchorSHA256: currentAuthority.Anchor().Digest(), SourceSHA256: currentAuthority.ManagerSourceSHA256(),
+		CertificateSHA256: hex.EncodeToString(certificateDigest[:]), ClusterCASHA256: hex.EncodeToString(clusterDigest[:]),
+		IssuedAt: time.Now().UTC(), ExpiresAt: earlier(identity.ExpiresAt(), currentAuthority.ExpiresAt())}
+	guard := func(effect context.Context) error {
+		if err := snapshot.Revalidate(effect); err != nil {
+			return err
+		}
+		if err := agent.VerifyOwnRegistration(snapshot.Registration(), responsePublic); err != nil {
+			return err
+		}
+		fresh, err := fixture.Reader.ReadRuntimeAuthority(effect, fixture.Accepted, time.Now().UTC())
+		if err != nil || fresh.Identity() != currentAuthority.Identity() || fresh.ManagerSourceSHA256() != payload.SourceSHA256 {
+			return errors.New("signed fixture regional source changed before native signing")
+		}
+		return effect.Err()
+	}
+	initialCall, finishInitial := context.WithDeadline(ctx, payload.ExpiresAt)
+	defer finishInitial()
+	predecessor, err := node.SignManagerRuntimeBinding(initialCall, payload, guard)
+	if err != nil {
+		t.Fatal("actual native manager refused initial carrier", err)
+	}
+	if err := agent.SetManagerRuntimeBinding(initialCall, predecessor); err != nil {
+		t.Fatal(err)
+	}
+	old, err := reader.ReadManagerRuntimeSession(ctx, registration.Node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewalCall, finishRenewal := context.WithTimeout(ctx, 30*time.Second)
+	defer finishRenewal()
+	var handoff *host.ManagerRuntimeRenewalHandoff
+	for {
+		handoff, err = reader.BeginManagerRuntimeRenewal(renewalCall, agent, predecessor)
+		if err == nil {
+			break
+		}
+		select {
+		case <-renewalCall.Done():
+			t.Fatal("actual maintenance exchange did not admit manager renewal", err)
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	defer handoff.Close()
+	proof := handoff.Proof()
+	snapshot, err = reader.ReadManagerRuntimeSession(handoff.Context(), registration.Node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload.SourceRevision, payload.IssuedAt = proof.SourceRevision(), time.Now().UTC()
+	originalDeadline, _ := handoff.Context().Deadline()
+	payload.ExpiresAt = earlier(earlier(proof.ExpiresAt(), currentAuthority.ExpiresAt()), originalDeadline)
+	renewalGuard := func(effect context.Context) error {
+		if err := proof.Revalidate(effect); err != nil {
+			return err
+		}
+		return guard(effect)
+	}
+	successor, err := node.SignManagerRuntimeBinding(handoff.Context(), payload, renewalGuard)
+	if err != nil {
+		t.Fatal("actual native manager refused independently read successor", err)
+	}
+	published, err := handoff.Install(handoff.Context(), successor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handoff.Context().Err() == nil || renewalCall.Err() != nil || published.Revalidate(renewalCall) != nil {
+		t.Fatal("successor readback inherited the canceled installation context")
+	}
+	readback, err := reader.ReadManagerRuntimeSession(renewalCall, registration.Node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, found := readback.SignedBinding()
+	if !found || !reflect.DeepEqual(actual, successor) || readback.SourceRevision() <= proof.SourceRevision() ||
+		successor.Binding.SourceRevision != proof.SourceRevision() || !successor.Binding.ExpiresAt.After(predecessor.Binding.ExpiresAt) {
+		t.Fatal("native successor differs from exact signed renewal/readback")
+	}
+	if err := host.VerifySignedManagerRuntimeBinding(successor, manager.Node.Certificate.Certificate, cluster.RootCACert, cluster.ID, time.Now()); err != nil {
+		t.Fatal("successor did not authenticate against the actual manager certificate", err)
+	}
+	if old.Revalidate(renewalCall) == nil || proof.Revalidate(renewalCall) == nil {
+		t.Fatal("original carrier or renewal proof followed the signed successor")
+	}
+	if _, err := handoff.Install(renewalCall, successor); err == nil {
+		t.Fatal("terminal native handoff accepted a second installation")
+	}
 	stopSession()
 	select {
 	case err := <-sessionDone:
@@ -290,6 +437,9 @@ func TestManagedRuntimeReadyBeforeSingleOwnHostSession(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
+	}
+	if published.Revalidate(ctx) == nil {
+		t.Fatal("native successor readback survived actual Agent session cancellation")
 	}
 	current, err = client.GetNode(ctx, &api.GetNodeRequest{NodeID: node.ID()})
 	if err != nil || current.Node == nil || current.Node.Spec.Availability != api.NodeAvailabilityPause {
