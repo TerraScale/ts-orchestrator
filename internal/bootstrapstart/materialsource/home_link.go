@@ -96,7 +96,7 @@ func (link *LinkSource) PublishRegionalLink(ctx context.Context, target bootstra
 }
 
 func (link *LinkSource) evidence(publication bootstrapmaterial.Publication) bootstrap.RegionalLinkEvidence {
-	return bootstrap.RegionalLinkEvidence{SourceObjectKey: link.source.key, SourceSHA256: link.source.state.Reference.SHA256, MaterialRecord: bytes.Clone(link.source.archive.Files["material.json"]), Journal: bytes.Clone(link.source.state.Journal), References: publication.LinkGenerationReferences(), Delivery: bytes.Clone(link.source.state.Delivery)}
+	return bootstrap.RegionalLinkEvidence{Actor: bootstrap.SourceInventoryActor{InstanceID: link.source.state.Actor.InstanceID, GrantDigest: link.source.state.Actor.GrantDigest, TemplateDigest: link.source.state.Actor.TemplateDigest}, SourceObjectKey: link.source.key, SourceSHA256: link.source.state.Reference.SHA256, MaterialRecord: bytes.Clone(link.source.archive.Files["material.json"]), Journal: bytes.Clone(link.source.state.Journal), References: publication.LinkGenerationReferences(), Delivery: bytes.Clone(link.source.state.Delivery)}
 }
 
 // StartupLink exposes the same public proof for home initial binding and reboot.
@@ -196,7 +196,7 @@ func ResolveRegionalLink(ctx context.Context, regional VerifiedColdStartMaterial
 	if err != nil {
 		return deny()
 	}
-	if err := restoreRegionalLink(ctx, proof, record, publication, bundles, directory, now); err != nil {
+	if err := restoreRegionalLink(ctx, proof, publication, bundles, directory, now); err != nil {
 		return VerifiedRegionalLink{}, err
 	}
 	result := VerifiedRegionalLink{regional: regional, proof: proof, directory: directory, record: record, publication: publication}
@@ -234,7 +234,10 @@ func linkPublication(evidence bootstrap.RegionalLinkEvidence, target bootstrap.S
 	return result, nil
 }
 
-func restoreRegionalLink(ctx context.Context, proof bootstrap.VerifiedStartupLink, record bootstrapmaterial.LinkRecord, publication bootstrapmaterial.Publication, bundles bootstrapmaterial.BundleClient, directory string, now time.Time) error {
+func restoreRegionalLink(ctx context.Context, proof bootstrap.VerifiedStartupLink, publication bootstrapmaterial.Publication, bundles bootstrapmaterial.BundleClient, directory string, now time.Time) error {
+	if err := proof.VerifyCurrent(ctx, time.Now()); err != nil {
+		return err
+	}
 	evidence := proof.Evidence()
 	if _, err := os.Lstat(directory); err == nil {
 		return bootstrapmaterial.ValidateLinkPublication(directory, publication, evidence.Journal, now)
@@ -247,7 +250,7 @@ func restoreRegionalLink(ctx context.Context, proof bootstrap.VerifiedStartupLin
 	}
 	defer os.RemoveAll(parent)
 	for _, ref := range evidence.References {
-		if err := proof.VerifyCurrent(ctx, now); err != nil {
+		if err := proof.VerifyCurrent(ctx, time.Now()); err != nil {
 			return err
 		}
 		response, err := bundles.GetSecretBundle(ociclient.RequestContext(ctx), ocisecrets.GetSecretBundleRequest{SecretId: new(ref.SecretOCID), VersionNumber: new(int64(1))})
@@ -277,7 +280,7 @@ func restoreRegionalLink(ctx context.Context, proof bootstrap.VerifiedStartupLin
 	if err := bootstrapmaterial.ValidateLinkPublication(parent, publication, evidence.Journal, now); err != nil {
 		return err
 	}
-	if err := proof.VerifyCurrent(ctx, now); err != nil {
+	if err := proof.VerifyCurrent(ctx, time.Now()); err != nil {
 		return err
 	}
 	if err := syncSourceDirectory(parent); err != nil {
