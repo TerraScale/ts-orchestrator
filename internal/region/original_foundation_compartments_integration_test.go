@@ -104,7 +104,17 @@ func signHistoricalOriginalCompartmentBundle(t *testing.T, fixture foundationPro
 
 func (f *originalCompartmentSDKFixture) run(t *testing.T) error {
 	t.Helper()
-	return provisionOriginalFoundationCompartments(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	stage, err := provisionFoundationMaterial(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	if err != nil {
+		return err
+	}
+	defer stage.cancel()
+	ctx, release, err := stage.authority.HomeWrite(stage.ctx, 0)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return retainOriginalFoundationCompartments(ctx, stage.authority)
 }
 
 func (f *originalCompartmentSDKFixture) record(t *testing.T) FoundationRecord {
@@ -382,8 +392,8 @@ func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
 		if err := ProvisionFoundationBundle(t.Context(), f.factoryFor(), f.roots, f.bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) || f.cloud.creates != 0 {
 			t.Fatalf("ordinary prospective path changed its existing startup refusal: %v", err)
 		}
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationCompartmentsPending) {
-			t.Fatalf("original operator did not retain unresolved network/actor HOLD: %v", err)
+		if err := f.run(t); err != nil {
+			t.Fatalf("original compartment component did not complete: %v", err)
 		}
 		f.assertIncomplete(t, true)
 		posts := f.dispatches()
@@ -438,7 +448,7 @@ func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
 			}
 		}
 		postsBefore, materialBefore := len(posts), f.cloud.materialPosts
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationCompartmentsPending) || len(f.dispatches()) != postsBefore || f.cloud.creates != 5 || f.cloud.materialPosts != materialBefore {
+		if err := f.run(t); err != nil || len(f.dispatches()) != postsBefore || f.cloud.creates != 5 || f.cloud.materialPosts != materialBefore {
 			t.Fatalf("completed compartment replay repeated creates/material or claimed serving: %v", err)
 		}
 	})
@@ -467,7 +477,7 @@ func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
 						t.Fatal("unknown accepted response permitted erasure of original pending identity")
 					}
 				}
-				if err := f.run(t); !errors.Is(err, ErrOriginalFoundationCompartmentsPending) || f.cloud.creates != 5 {
+				if err := f.run(t); err != nil || f.cloud.creates != 5 {
 					t.Fatalf("original uncertain response did not resume to five physical compartments: %v", err)
 				}
 				after := f.dispatches()
@@ -497,7 +507,7 @@ func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
 			f.cloud.mu.Lock()
 			f.cloud.rows[accepted.ResourceID]["lifecycleState"] = "ACTIVE"
 			f.cloud.mu.Unlock()
-			if err := f.run(t); !errors.Is(err, ErrOriginalFoundationCompartmentsPending) || len(f.dispatches()) != 5 || f.cloud.creates != 5 {
+			if err := f.run(t); err != nil || len(f.dispatches()) != 5 || f.cloud.creates != 5 {
 				t.Fatalf("non-ACTIVE retry repeated accepted create instead of exact-ID GET: %v", err)
 			}
 			retained := f.record(t).OriginalFoundationCompartments.Regions[0].Compartments[1]
@@ -509,7 +519,7 @@ func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
 		for _, drift := range []string{"missing accepted ID", "wrong returned ID", "wrong parent", "wrong name", "missing selected GRU"} {
 			t.Run(drift, func(t *testing.T) {
 				f := newOriginalCompartmentSDKFixture(t, "")
-				if err := f.run(t); !errors.Is(err, ErrOriginalFoundationCompartmentsPending) {
+				if err := f.run(t); err != nil {
 					t.Fatal(err)
 				}
 				before := f.wire(t)
@@ -692,7 +702,7 @@ func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
 
 	t.Run("protected object CAS preserves original compartment evidence", func(t *testing.T) {
 		f := newOriginalCompartmentSDKFixture(t, "")
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationCompartmentsPending) {
+		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
 		store := f.store(t)

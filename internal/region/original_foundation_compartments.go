@@ -20,10 +20,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/identity"
 )
 
-var ErrOriginalFoundationCompartmentsPending = fmt.Errorf("%w: original compartments retained; original network and source actor remain unavailable", ErrOriginalSourceProducerHold)
-
-// OriginalFoundationCompartments retains only the finite original compartment
-// prerequisites. It has no current foundation, launch, IAM or runtime authority.
+// OriginalFoundationCompartments retains finite original prerequisites.
+// It has no current foundation, launch, IAM or runtime authority.
 type OriginalFoundationCompartments struct {
 	GrantSHA256       string                                 `json:"grantSha256"`
 	BundleSHA256      string                                 `json:"bundleSha256"`
@@ -46,6 +44,7 @@ type OriginalFoundationCompartmentRegion struct {
 	OperationID          string                           `json:"operationId"`
 	ProducerIntentSHA256 string                           `json:"producerIntentSha256"`
 	Compartments         [2]OriginalFoundationCompartment `json:"compartments"`
+	Network              *OriginalFoundationNetwork       `json:"network,omitempty"`
 }
 
 type OriginalFoundationCompartment struct {
@@ -80,11 +79,18 @@ func provisionOriginalFoundationCompartments(ctx context.Context, factory *ocicl
 		return err
 	}
 	defer release()
-	expected, err := originalCompartmentScope(ctx, stage.authority)
+	if err := retainOriginalFoundationCompartments(ctx, stage.authority); err != nil {
+		return err
+	}
+	return provisionOriginalFoundationNetwork(ctx, stage.authority)
+}
+
+func retainOriginalFoundationCompartments(ctx context.Context, authority *HomeIAMAuthority) error {
+	expected, err := originalCompartmentScope(ctx, authority)
 	if err != nil {
 		return err
 	}
-	store, ok := stage.resolver.Store.(*ObjectFoundationStore)
+	store, ok := authority.resolver.Store.(*ObjectFoundationStore)
 	if !ok {
 		return ErrOriginalSourceProducerHold
 	}
@@ -100,7 +106,7 @@ func provisionOriginalFoundationCompartments(ctx context.Context, factory *ocicl
 		initial := expected
 		record.OriginalFoundationCompartments = &initial
 		record.Stage = "original-foundation"
-		if err := checkpointOriginalCompartments(ctx, stage.authority, &record, &etag); err != nil {
+		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
 			return err
 		}
 	} else if !sameOriginalSourceValue(record.OriginalFoundationCompartments.scopeOnly(), expected) {
@@ -108,14 +114,12 @@ func provisionOriginalFoundationCompartments(ctx context.Context, factory *ocicl
 	}
 	for region := range expected.Regions {
 		for role := range expected.Regions[region].Compartments {
-			if err := provisionOriginalCompartment(ctx, stage.authority, region, role); err != nil {
+			if err := provisionOriginalCompartment(ctx, authority, region, role); err != nil {
 				return err
 			}
 		}
 	}
-	// An acknowledged compartment is not a private network, source actor,
-	// admitted identity or a serving region. The next original consumer is absent.
-	return ErrOriginalFoundationCompartmentsPending
+	return nil
 }
 
 func originalCompartmentScope(ctx context.Context, authority *HomeIAMAuthority) (OriginalFoundationCompartments, error) {
@@ -416,6 +420,7 @@ func checkpointOriginalCompartments(ctx context.Context, authority *HomeIAMAutho
 
 func (scope OriginalFoundationCompartments) scopeOnly() OriginalFoundationCompartments {
 	for region := range scope.Regions {
+		scope.Regions[region].Network = nil
 		for role := range scope.Regions[region].Compartments {
 			entry := &scope.Regions[region].Compartments[role]
 			entry.Pending, entry.Provenance = nil, nil
@@ -487,7 +492,7 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 			}
 		}
 	}
-	return nil
+	return r.validateOriginalFoundationNetwork()
 }
 
 func (next FoundationRecord) retainOriginalFoundationCompartments(previous FoundationRecord) error {
@@ -513,5 +518,5 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 			}
 		}
 	}
-	return nil
+	return next.retainOriginalFoundationNetwork(previous)
 }
