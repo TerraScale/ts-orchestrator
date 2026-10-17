@@ -90,6 +90,12 @@ func TestOriginalBrokerProofBindsActualServerAndDirectory(t *testing.T) {
 	if err := proof.Revalidate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	if err := proof.RevalidateRuntime(t.Context(), r); err != nil {
+		t.Fatal(err)
+	}
+	if err := proof.RevalidateRuntime(t.Context(), &Runtime{}); err == nil {
+		t.Fatal("genesis accepted another runtime")
+	}
 	info := proof.Info()
 	if info.ServerID != r.server.ID() || info.RaftNodeID != r.server.NodeName() || info.Installation.CellAccount != r.CellAccount() {
 		t.Fatal("proof does not bind actual broker")
@@ -117,6 +123,12 @@ func TestOriginalBrokerProofBindsActualServerAndDirectory(t *testing.T) {
 	storage, err := r.ObserveBrokerStorage(t.Context())
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err := storage.RevalidateRuntime(t.Context(), r); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.RevalidateRuntime(t.Context(), &Runtime{}); err == nil {
+		t.Fatal("storage observation accepted another runtime")
 	}
 	if storage.Info().MarkerSHA256 != proof.Info().MarkerSHA256 || storage.Info().StartedAt != proof.Info().StartedAt {
 		t.Fatal("read-only observation changed durable origin")
