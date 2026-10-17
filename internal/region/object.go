@@ -206,7 +206,7 @@ func (r FoundationRecord) validate() error {
 			return errors.New("foundation record has invalid pending create")
 		}
 	}
-	return nil
+	return r.validateCapacity()
 }
 
 func validAuxiliaryID(key, id, region string) bool {

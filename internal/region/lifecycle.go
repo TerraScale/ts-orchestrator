@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
@@ -142,6 +143,11 @@ type FoundationRecord struct {
 	SourcePolicyIDs     map[string]SourcePolicyRecord           `json:"sourcePolicyIds,omitempty"`
 	NetBirdManager      *NetBirdManagerLaunch                   `json:"netbirdManager,omitempty"`
 	WorkerPolicyIDs     map[string]WorkerPolicyRecord           `json:"workerPolicyIds,omitempty"`
+	CapacityLedger      *capacityledger.Ledger                  `json:"capacityLedger,omitempty"`
+	CapacityCreates     map[string]PoolCreateRecord             `json:"capacityCreates,omitempty"`
+	CapacityPools       map[string]PoolResourceRecord           `json:"capacityPools,omitempty"`
+	PoolChildren        map[string]PoolChildRecord              `json:"poolChildren,omitempty"`
+	PoolQuarantines     map[string]PoolQuarantineRecord         `json:"poolQuarantines,omitempty"`
 }
 
 // FoundationStore uses conditional writes in an already-authorized durable home
@@ -578,5 +584,6 @@ func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (Foun
 	result.SourcePolicyIDs = cloneSourcePolicies(result.SourcePolicyIDs)
 	result.WorkerPolicyIDs = maps.Clone(result.WorkerPolicyIDs)
 	result.ResourceProvenance = maps.Clone(result.ResourceProvenance)
+	result.cloneCapacity()
 	return result, errors.Join(providerErr, err)
 }
