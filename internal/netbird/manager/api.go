@@ -32,6 +32,7 @@ type API struct {
 	http  *http.Client
 	// beforeWrite fences every mutation, including multiple writes in one step.
 	beforeWrite func() error
+	mutation    func(*http.Request) (*http.Response, error)
 }
 
 // ValidateManagementURL accepts an https origin, or an http origin on a
@@ -115,7 +116,12 @@ func (api *API) do(ctx context.Context, method, path string, in, out any) error 
 			return err
 		}
 	}
-	response, err := api.http.Do(request)
+	var response *http.Response
+	if method != http.MethodGet && api.mutation != nil {
+		response, err = api.mutation(request)
+	} else {
+		response, err = api.http.Do(request)
+	}
 	if err != nil {
 		// A *url.Error carries only the method, the URL (validated origin
 		// without userinfo plus an API path) and the transport cause; the
