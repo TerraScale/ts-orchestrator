@@ -116,10 +116,11 @@ func poolChildMatches(view PoolChildView, request PoolChildObservation) bool {
 }
 
 func samePoolChildAuthority(original, current PoolChildView) bool {
-	if current.ExpiresAt.Before(original.ExpiresAt) || !current.OriginalDeadline.Equal(original.OriginalDeadline) {
+	if current.ExpiresAt.Before(original.ExpiresAt) || current.OriginalDeadline.Before(original.OriginalDeadline) {
 		return false
 	}
 	current.ObservedAt, current.ExpiresAt = original.ObservedAt, original.ExpiresAt
+	current.OriginalDeadline = original.OriginalDeadline
 	return reflect.DeepEqual(original, current)
 }
 
