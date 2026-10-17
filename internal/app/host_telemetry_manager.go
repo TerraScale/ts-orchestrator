@@ -65,6 +65,7 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		return err
 	}
 	managed := make(map[string]hostload.Request)
+	pins := make(map[string][]hostload.TaskPin)
 	var accepted []*api.Task
 	for _, task := range tasks {
 		role := task.ServiceAnnotations.Labels[swarmruntime.LabelRole]
@@ -77,6 +78,11 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		if _, err := swarmruntime.DecodeContainer(task); err != nil {
 			return err
 		}
+		fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
+		if err != nil {
+			return err
+		}
+		pins[role] = append(pins[role], hostload.TaskPin{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, Fingerprint: fingerprint})
 		requirements := task.Spec.Resources
 		if requirements.Reservations == nil || !proto.Equal(requirements.Reservations, requirements.Limits) {
 			return errors.New("manager task reservations differ from its executable limits")
@@ -99,13 +105,28 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		if !owns(role.Role) {
 			continue
 		}
+		if _, allocated := managed[role.Role]; !allocated {
+			return errors.New("host reported a managed role without a matching manager allocation")
+		}
 		measured[role.Role] = role
 	}
 	report.Roles = slices.DeleteFunc(slices.Clone(report.Roles), func(role hostload.RoleUsage) bool { return owns(role.Role) })
 	for _, role := range slices.Sorted(maps.Keys(managed)) {
 		value, exists := measured[role]
 		if !exists {
-			value = hostload.RoleUsage{Role: role}
+			value = hostload.RoleUsage{Role: role, Tasks: pins[role]}
+		} else {
+			actual := make(map[string]hostload.TaskPin)
+			for _, pin := range value.Tasks {
+				actual[pin.TaskID] = pin
+			}
+			expected := make(map[string]hostload.TaskPin)
+			for _, pin := range pins[role] {
+				expected[pin.TaskID] = pin
+			}
+			if !maps.Equal(actual, expected) {
+				return errors.New("host role measurements differ from its exact manager task set")
+			}
 		}
 		report.Roles = append(report.Roles, value)
 	}
@@ -123,6 +144,30 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		if err := verify(ctx, registration, latest.Task); err != nil {
 			return err
 		}
+	}
+	confirmedTasks, err := telemetryTasks(ctx, history.services, client, registration)
+	if err != nil {
+		return err
+	}
+	remaining := make(map[string]*api.Task)
+	for _, task := range accepted {
+		remaining[task.ID] = task
+	}
+	for _, task := range confirmedTasks {
+		if !owns(task.ServiceAnnotations.Labels[swarmruntime.LabelRole]) {
+			continue
+		}
+		before, exists := remaining[task.ID]
+		if !exists || !proto.Equal(task, before) {
+			return errors.New("manager task set changed while reading host telemetry")
+		}
+		if err := verify(ctx, registration, task); err != nil {
+			return err
+		}
+		delete(remaining, task.ID)
+	}
+	if len(remaining) != 0 {
+		return errors.New("manager task set changed while reading host telemetry")
 	}
 	current, err := telemetryRegistration(ctx, history, origin)
 	if err != nil {
@@ -222,7 +267,7 @@ func telemetryTasks(ctx context.Context, specs *specRegistry, client api.Control
 	}
 	var tasks []*api.Task
 	for _, task := range listed.Tasks {
-		if task == nil || task.DesiredState > api.TaskStateRunning {
+		if task == nil || task.Status.State >= api.TaskStateCompleted {
 			continue
 		}
 		labels := task.ServiceAnnotations.Labels
