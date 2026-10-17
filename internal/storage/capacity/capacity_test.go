@@ -2,6 +2,7 @@ package capacity
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -9,8 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/storage"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 const gib = uint64(1 << 30)
@@ -159,18 +162,30 @@ func TestRealStatfsOfTempDir(t *testing.T) {
 func TestUsageStorePublishesWithTTLAndFeedsSignals(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	runtime, err := natscell.Start(ctx, natscell.Config{
-		Cell: "lab", Instance: "storage-usage-test", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")},
-	})
+	token := rand.Text()
+	broker, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true,
+		StoreDir: filepath.Join(t.TempDir(), "jetstream"), Authorization: token})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = runtime.Close() })
-	if _, err := OpenUsageStore(ctx, runtime.JetStream(), 1, 0, Policy{}); err == nil {
+	broker.Start()
+	t.Cleanup(func() { broker.Shutdown(); broker.WaitForShutdown() })
+	if !broker.ReadyForConnections(5 * time.Second) {
+		t.Fatal("storage usage broker did not become ready")
+	}
+	connection, err := nats.Connect(broker.ClientURL(), nats.Token(token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(connection.Close)
+	js, err := jetstream.New(connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenUsageStore(ctx, js, 1, 0, Policy{}); err == nil {
 		t.Fatal("usage store without TTL was opened")
 	}
-	store, err := OpenUsageStore(ctx, runtime.JetStream(), 1, time.Minute, Policy{})
+	store, err := OpenUsageStore(ctx, js, 1, time.Minute, Policy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +221,7 @@ func TestUsageStorePublishesWithTTLAndFeedsSignals(t *testing.T) {
 	}
 	// Reopening with a TTL the configuration validated against its interval
 	// reconciles the bucket instead of keeping the old TTL (#127 12053).
-	reopened, err := OpenUsageStore(ctx, runtime.JetStream(), 1, time.Hour, Policy{})
+	reopened, err := OpenUsageStore(ctx, js, 1, time.Hour, Policy{})
 	if err != nil || reopened.ttl != time.Hour {
 		t.Fatalf("reopen did not reconcile the bucket TTL: %v %+v", err, reopened)
 	}
@@ -214,7 +229,19 @@ func TestUsageStorePublishesWithTTLAndFeedsSignals(t *testing.T) {
 	if err != nil || status.TTL() != time.Hour {
 		t.Fatalf("bucket TTL after reopen = %v, %v", status, err)
 	}
-	reserve := JetStreamReservation(runtime.LocalStoreUsedBytes, 1<<30)
+	reserve := JetStreamReservation(func(ctx context.Context) (uint64, error) {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		usage, err := broker.Jsz(&server.JSzOptions{})
+		if err != nil {
+			return 0, err
+		}
+		if usage.Disabled {
+			return 0, errors.New("storage usage JetStream is disabled")
+		}
+		return usage.Store, nil
+	}, 1<<30)
 	if reserved, err := reserve(ctx); err != nil || reserved == 0 || reserved > 1<<30 {
 		t.Fatalf("JetStream reservation = %d, %v", reserved, err)
 	}
