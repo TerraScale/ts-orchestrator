@@ -83,18 +83,6 @@ func (s *ObjectFoundationStore) Load(ctx context.Context, cell string) (Foundati
 }
 
 func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record FoundationRecord, etag string) (string, error) {
-	if etag != "" {
-		previous, currentETag, err := s.Load(ctx, record.Cell)
-		if err != nil {
-			return "", err
-		}
-		if currentETag != etag {
-			return "", ErrFoundationConflict
-		}
-		if err := previous.retainOCIRIssuances(record); err != nil {
-			return "", err
-		}
-	}
 	if err := record.validate(); err != nil {
 		return "", err
 	}
@@ -105,6 +93,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 		}
 		if observedETag != etag {
 			return "", ErrFoundationConflict
+		}
+		if err := previous.retainOCIRIssuances(record); err != nil {
+			return "", err
 		}
 		if err := record.retainCapacity(previous); err != nil {
 			return "", err

@@ -17,10 +17,17 @@ func runManagedRuntimeRootSources(ctx context.Context, cfg Config, factory *ocic
 		if err == nil {
 			defer cancel()
 			defer sources.conn.Close()
+			original, stopOriginal := context.WithDeadline(attempt, sources.deadline)
+			defer stopOriginal()
+			lifetime, stopOCIR, err := startManagedRuntimeOCIR(original, backends.foundation, sources.guard)
+			if err != nil {
+				return fmt.Errorf("initialize root registry credentials before runtime admission: %w", err)
+			}
+			defer stopOCIR()
 			if err := authority.bindSources(sources); err != nil {
 				return fmt.Errorf("bind original root runtime sources: %w", err)
 			}
-			return sources.wait(attempt)
+			return errors.Join(sources.wait(lifetime), context.Cause(lifetime))
 		}
 		cancel()
 		if errors.Is(err, errRootRuntimeSourceBinding) {
