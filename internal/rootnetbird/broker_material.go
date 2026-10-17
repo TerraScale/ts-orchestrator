@@ -205,18 +205,28 @@ func (b *Backend) ReconcileManagerReader(ctx context.Context, sourceGuard func(c
 	if err != nil {
 		return rootoci.ErrUnauthorized
 	}
-	home, err := region.NewRuntimeHomeIAMAuthority(ctx, s.Authority, s.Accepted, source.Resolver())
-	if err != nil {
-		return rootoci.ErrUnauthorized
+	policyErr := region.VerifyNetBirdBrokerReader(ctx, b.factory, source.Resolver(), source.Source(), recipient)
+	if errors.Is(policyErr, region.ErrNetBirdBrokerPolicyAbsent) {
+		home, err := region.NewRuntimeHomeIAMAuthority(ctx, s.Authority, s.Accepted, source.Resolver())
+		if err != nil {
+			return rootoci.ErrUnauthorized
+		}
+		ensureErr := home.EnsureNetBirdBrokerReader(ctx, source.Source(), recipient)
+		// A concurrent admitted controller may have completed the original policy.
+		policyErr = region.VerifyNetBirdBrokerReader(ctx, b.factory, source.Resolver(), source.Source(), recipient)
+		if policyErr != nil {
+			return errors.Join(ensureErr, policyErr)
+		}
 	}
-	if err := home.EnsureNetBirdBrokerReader(ctx, source.Source(), recipient); err != nil {
-		return err
+	if policyErr != nil || guard(ctx) != nil {
+		return errors.Join(rootoci.ErrUnauthorized, policyErr)
 	}
 	if !current.ExpiresAt.IsZero() {
 		deadline = earlier(deadline, current.ExpiresAt)
 	}
 	deadline = earlier(deadline, material.ExpiresAt)
 	contentDigest := digest([]byte(current.Value()))
+	secretID, secretVersion, secretExpiry := current.ID, current.Version, current.ExpiresAt
 	state := &managerReaderState{cell: material.Cell, user: user, source: material.SourceSHA256, deadline: material.ExpiresAt}
 	state.guard = func(check context.Context) error {
 		if guard(check) != nil || !time.Now().Before(deadline) {
@@ -225,7 +235,7 @@ func (b *Backend) ReconcileManagerReader(ctx context.Context, sourceGuard func(c
 		check, stop := context.WithTimeout(check, 30*time.Second)
 		defer stop()
 		observed, err := vaultsecret.ReadCurrent(ociclient.WithRequestGuard(check, guard), &bundles, ref)
-		if err != nil || observed.ID != current.ID || observed.Version != current.Version || !observed.ExpiresAt.Equal(current.ExpiresAt) || digest([]byte(observed.Value())) != contentDigest {
+		if err != nil || observed.ID != secretID || observed.Version != secretVersion || !observed.ExpiresAt.Equal(secretExpiry) || digest([]byte(observed.Value())) != contentDigest {
 			return rootoci.ErrUnauthorized
 		}
 		return guard(check)
