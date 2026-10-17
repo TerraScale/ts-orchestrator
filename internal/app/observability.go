@@ -419,12 +419,17 @@ func (runtime *runtimeObservability) provide(board *dashboard.Dashboard) {
 	if runtime.cluster != nil {
 		board.SetCluster(runtime.cluster)
 	}
+	var journal dashboard.Journal
 	if runtime.boardJournal != nil {
-		journal := *runtime.boardJournal
-		if server := runtime.boards[board]; server != nil {
+		journal = *runtime.boardJournal
+	}
+	if server := runtime.boards[board]; server != nil {
+		if runtime.boardJournal != nil {
 			server.HandleMetricHistory(journal.History)
-			journal.Metrics = server.MetricCatalog()
 		}
+		journal.Metrics = server.MetricCatalog()
+	}
+	if runtime.boardJournal != nil || journal.Metrics != nil {
 		board.SetJournal(journal)
 	}
 }
