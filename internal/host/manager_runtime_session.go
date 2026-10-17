@@ -210,7 +210,7 @@ func (s *ManagerRuntimeSession) Revalidate(ctx context.Context) error {
 	}
 	if regRevision != s.registrationRevision || !sameJSON(registration, s.registration) || revision < s.revision ||
 		current.RegistrationGeneration != s.current.RegistrationGeneration || current.SessionID != s.current.SessionID || current.Epoch != s.current.Epoch ||
-		!sameManagerCarrier(current.ManagerRuntimeBinding, s.current.ManagerRuntimeBinding) || !time.Now().Before(s.deadline) || s.original.Err() != nil {
+		current.ExpiresAt.Before(s.deadline) || !sameManagerCarrier(current.ManagerRuntimeBinding, s.current.ManagerRuntimeBinding) || !time.Now().Before(s.deadline) || s.original.Err() != nil {
 		return errors.New("original manager runtime registration or session carrier changed")
 	}
 	return ctx.Err()
@@ -218,7 +218,7 @@ func (s *ManagerRuntimeSession) Revalidate(ctx context.Context) error {
 
 // FindManagerRuntimeSession searches the existing ordered inventory, never an
 // additional origin index. A duplicate native identity is a refusal.
-func (r *Reader) FindManagerRuntimeSession(ctx context.Context, nodeID string) (*ManagerRuntimeSession, error) {
+func (r *Reader) FindManagerRuntimeSession(ctx context.Context, nodeID string) (_ *ManagerRuntimeSession, resultErr error) {
 	if ctx == nil || ctx.Err() != nil || r == nil || r.controller == nil || !managerNativeID(nodeID) {
 		return nil, errors.New("manager runtime native identity unavailable")
 	}
@@ -229,6 +229,12 @@ func (r *Reader) FindManagerRuntimeSession(ctx context.Context, nodeID string) (
 		return nil, err
 	}
 	var found *ManagerRuntimeSession
+	var limitCancel context.CancelFunc
+	defer func() {
+		if resultErr != nil && limitCancel != nil {
+			limitCancel()
+		}
+	}()
 	for subject := range info.State.Subjects {
 		node, ok := strings.CutPrefix(subject, prefix)
 		if !ok {
@@ -247,10 +253,19 @@ func (r *Reader) FindManagerRuntimeSession(ctx context.Context, nodeID string) (
 		if found != nil {
 			return nil, errors.New("manager runtime native identity is ambiguous")
 		}
+		deadline := current.ExpiresAt
+		if expiry := current.ManagerRuntimeBinding.Binding.ExpiresAt; expiry.Before(deadline) {
+			deadline = expiry
+		}
+		ctx, limitCancel = context.WithDeadline(ctx, deadline)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		found, err = r.ReadManagerRuntimeSession(ctx, node)
 		if err != nil {
 			return nil, err
 		}
+
 	}
 	if found == nil {
 		return nil, errors.New("manager runtime native session not found")
