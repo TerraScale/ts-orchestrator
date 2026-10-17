@@ -183,6 +183,12 @@ func (b *Backend) AuthorizeNetBirdIntent(ctx context.Context, call rootoci.Call,
 	if err != nil || specPin.revision != originalFacts.SpecRevision || !bytes.Equal(specPin.wire, originalFacts.SignedSpec) {
 		return fail(err)
 	}
+	if err := lease.Guard(ctx); err != nil {
+		return fail(err)
+	}
+	if err := guard(ctx); err != nil {
+		return fail(err)
+	}
 	if ctx.Err() != nil || !time.Now().Before(request.ExpiresAt) {
 		return fail(ctx.Err())
 	}
