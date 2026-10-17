@@ -31,7 +31,7 @@ func (client *Client) ReconcileAtlasTopology(ctx context.Context) (AtlasTopology
 	}
 	if ctx.Err() != nil || !time.Now().Before(receipt.ExpiresAt) ||
 		(receipt.State != AtlasTopologyPublished && receipt.State != AtlasTopologyUnconfigured) {
-		return AtlasTopologyReceipt{}, ErrUnavailable
+		return AtlasTopologyReceipt{}, outcomeError(OperationReconcileAtlasTopology)
 	}
 	return receipt, nil
 }
