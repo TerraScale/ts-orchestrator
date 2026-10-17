@@ -152,7 +152,7 @@ func (b *rootOCIResources) ReconcileTaskTraffic(ctx context.Context, call rootoc
 			return errors.Join(ociresource.ErrFenced, err)
 		}
 		currentScope, err := b.foundation.TaskTrafficFoundation(ctx, call)
-		if err != nil || !reflect.DeepEqual(scope, currentScope) {
+		if err != nil || !rootTrafficFoundationCurrent(scope, currentScope, deadline) {
 			return errors.Join(ociresource.ErrFenced, err)
 		}
 		return call.Guard(ctx)
@@ -515,3 +515,8 @@ func rootTrafficBackends(manager managerEdgeSnapshot, addresses map[string]strin
 }
 
 var _ rootoci.Foundation = (*rootOCIResources)(nil)
+
+func rootTrafficFoundationCurrent(original, current rootfoundation.TaskTrafficScope, deadline time.Time) bool {
+	return !deadline.IsZero() && !current.ExpiresAt.Before(deadline) &&
+		reflect.DeepEqual(original.Foundation, current.Foundation) && original.OCIRegion == current.OCIRegion && original.CompartmentID == current.CompartmentID
+}
