@@ -126,16 +126,18 @@ func (a *ManagedRuntimeTargetAdmission) Guard(ctx context.Context) error {
 		return authority.ErrFenced
 	}
 	r := a.reader
+	caller := ctx
 	sourceCtx, stopOriginal, err := managedRuntimeContext(r.original, a.original, a.deadline)
 	if err != nil {
 		return err
 	}
 	defer stopOriginal()
-	ctx, stopCaller, err := managedRuntimeContext(sourceCtx, ctx, a.deadline)
+	ctx, stopCaller, err := managedRuntimeContext(sourceCtx, caller, a.deadline)
 	if err != nil {
 		return err
 	}
 	defer stopCaller()
+	deadline, _ := ctx.Deadline()
 	if err := r.guard(ctx); err != nil {
 		return err
 	}
@@ -149,7 +151,7 @@ func (a *ManagedRuntimeTargetAdmission) Guard(ctx context.Context) error {
 	if err := r.guard(ctx); err != nil {
 		return err
 	}
-	if a.original.Err() != nil || !time.Now().Before(a.deadline) {
+	if a.original.Err() != nil || caller.Err() != nil || !time.Now().Before(a.deadline) || !time.Now().Before(deadline) {
 		return authority.ErrFenced
 	}
 	return ctx.Err()

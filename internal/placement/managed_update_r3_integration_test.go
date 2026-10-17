@@ -18,6 +18,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
@@ -149,7 +151,42 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 
 	// The read-only root path uses the same genuine R3 records and a real
 	// member-state bucket, without constructing a Controller or authority writer.
-	authorityReader, err := authority.OpenReader(ctx, broker.JetStream(), controller.config.Cell)
+	var onLeaseResponse func()
+	var controlLastSequence uint64
+	readJS, err := jetstream.New(broker.Conn(), jetstream.WithClientTrace(&jetstream.ClientTrace{
+		ResponseReceived: func(subject string, payload []byte, _ nats.Header) {
+			if onLeaseResponse == nil || subject != "$JS.API.STREAM.MSG.GET."+authority.ControlStreamName &&
+				subject != "$JS.API.STREAM.INFO."+authority.ControlStreamName {
+				return
+			}
+			var response struct {
+				State struct {
+					LastSequence uint64 `json:"last_seq"`
+				} `json:"state"`
+				Message struct {
+					Subject  string `json:"subject"`
+					Sequence uint64 `json:"seq"`
+				} `json:"message"`
+			}
+			if err := json.Unmarshal(payload, &response); err != nil {
+				t.Errorf("decode actual authority lease response: %v", err)
+				return
+			}
+			if subject == "$JS.API.STREAM.INFO."+authority.ControlStreamName {
+				controlLastSequence = response.State.LastSequence
+				return
+			}
+			// currentLease retries a renewal newer than its preceding stream Info.
+			if response.Message.Subject == protocol.Control(controller.config.Cell, "lease") &&
+				response.Message.Sequence <= controlLastSequence {
+				onLeaseResponse()
+			}
+		},
+	}))
+	if err != nil {
+		t.Fatalf("trace genuine managed runtime authority: %v", err)
+	}
+	authorityReader, err := authority.OpenReader(ctx, readJS, controller.config.Cell)
 	if err != nil {
 		t.Fatalf("open read-only managed runtime authority: %v", err)
 	}
@@ -231,6 +268,70 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 	}
 	if err := targetAdmission.Guard(ctx); err != nil {
 		t.Fatalf("shorter independent caller changed the original live admission: %v", err)
+	}
+	for _, name := range []string{"cancel-final-guard-caller", "expire-shorter-final-guard-caller"} {
+		t.Run(name, func(t *testing.T) {
+			var caller context.Context
+			var stopCaller context.CancelFunc
+			if name == "cancel-final-guard-caller" {
+				caller, stopCaller = context.WithCancel(ctx)
+			} else {
+				caller, stopCaller = context.WithTimeout(ctx, time.Second)
+				if deadline, _ := caller.Deadline(); !deadline.Before(targetAdmission.deadline) {
+					t.Fatal("Guard caller deadline did not narrow the original admission")
+				}
+			}
+			defer stopCaller()
+			delayed := &managedRuntimeGuardCaller{Context: caller, release: make(chan struct{}),
+				started: make(chan struct{}), finished: make(chan struct{})}
+			defer func() {
+				onLeaseResponse = nil
+				close(delayed.release)
+				select {
+				case <-delayed.started:
+					select {
+					case <-delayed.finished:
+					case <-ctx.Done():
+						t.Error("delayed caller propagation did not finish before root deadline")
+					}
+				default:
+				}
+			}()
+			leaseResponses := 0
+			onLeaseResponse = func() {
+				leaseResponses++
+				if leaseResponses != 2 {
+					return
+				}
+				if caller.Err() != nil {
+					t.Fatal("Guard caller expired before its final genuine lease response")
+				}
+				if name == "cancel-final-guard-caller" {
+					stopCaller()
+				}
+				select {
+				case <-delayed.started:
+				case <-ctx.Done():
+					t.Fatal("caller propagation did not reach its bounded scheduling barrier")
+				}
+			}
+			guardErr := targetAdmission.Guard(delayed)
+			if leaseResponses != 2 || caller.Err() == nil || guardErr == nil {
+				t.Fatalf("Guard returned after final lease response with responses=%d caller=%v err=%v",
+					leaseResponses, caller.Err(), guardErr)
+			}
+			select {
+			case <-delayed.finished:
+				t.Fatal("caller cancellation propagated before the synchronous return assertion")
+			default:
+			}
+			if ctx.Err() != nil || !time.Now().Before(targetAdmission.deadline) {
+				t.Fatal("final caller lifetime assertion consumed the original admission lifetime")
+			}
+		})
+	}
+	if err := targetAdmission.Guard(ctx); err != nil {
+		t.Fatalf("final Guard caller expiration changed the original live admission: %v", err)
 	}
 	// Even identical bytes at a later real member revision replace the source.
 	if _, err := durableMembers.CompareAndSwap(ctx, memberRevision, preparedSeat.State); err != nil {
@@ -314,6 +415,28 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 		t.Fatalf("test timeout clock did not reach the exact deadline: %v vs %v", timeoutAt,
 			preparedAt.Add(managedUpdateCanaryProofTimeout))
 	}
+}
+
+// Delay only the documented asynchronous AfterFunc callback; caller state stays real.
+type managedRuntimeGuardCaller struct {
+	context.Context
+	release  chan struct{}
+	started  chan struct{}
+	finished chan struct{}
+}
+
+func (caller *managedRuntimeGuardCaller) Value(key any) any {
+	// Prevent the embedded context's private cancellation state bypassing AfterFunc.
+	return context.WithoutCancel(caller.Context).Value(key)
+}
+
+func (caller *managedRuntimeGuardCaller) AfterFunc(call func()) func() bool {
+	return context.AfterFunc(caller.Context, func() {
+		close(caller.started)
+		<-caller.release
+		call()
+		close(caller.finished)
+	})
 }
 
 func signedManagedUpdatePreparedRecord(t *testing.T, update ManagedUpdateIntent) (authority.ManagedUpdateRecord, ed25519.PublicKey) {
