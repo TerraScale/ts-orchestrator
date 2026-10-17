@@ -54,7 +54,7 @@ type terminalAdmissionControl interface {
 	ReadPlacementIntent(context.Context, string, string) (authority.LogEntry, error)
 	ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error)
 	ListPendingEnrollmentEffects(context.Context, authority.WorkloadScope) ([]authority.EnrollmentEffect, error)
-	CommitTerminalIntent(context.Context, uint64, authority.WorkloadScope, string, []byte, func(context.Context) error) (uint64, error)
+	CommitSignedTerminalIntent(context.Context, uint64, authority.WorkloadScope, string, []byte, []byte, func(context.Context) error) (uint64, error)
 }
 
 type terminalGrantStatus func(context.Context, authority.TerminalIntent) error
@@ -247,6 +247,7 @@ func handleTerminalRequest(ctx context.Context, wire []byte, action, cell string
 	inventory oci.TerminalExecutor, fence terminalGrantFence, proof terminalGrantProof,
 	grants terminalGrantStatus,
 ) (terminalReply, error) {
+	wire = bytes.Clone(wire)
 	var envelope protocol.Envelope
 	if err := protocol.DecodeStrict(wire, &envelope, maxTerminalWireBytes); err != nil {
 		return terminalReply{}, err
@@ -288,6 +289,8 @@ func handleTerminalRequest(ctx context.Context, wire []byte, action, cell string
 	if envelope.Epoch == 0 || control.Current().Epoch != envelope.Epoch {
 		return terminalReply{}, authority.ErrFenced
 	}
+	ctx, cancel := context.WithDeadline(ctx, envelope.ExpiresAt)
+	defer cancel()
 	canonical, err := protocol.EncodeJSON(request)
 	if action == "apply" {
 		canonical, err = protocol.EncodeJSON(intent)
@@ -320,7 +323,7 @@ func handleTerminalRequest(ctx context.Context, wire []byte, action, cell string
 	if action == "apply" {
 		prior, err := control.ReadTerminalIntent(ctx, scope.DatabaseID, scope.PartitionID)
 		if err == nil {
-			if prior.OperationID == intent.OperationID && bytes.Equal(prior.Payload, envelope.Payload) {
+			if prior.OperationID == intent.OperationID && bytes.Equal(prior.Payload, envelope.Payload) && bytes.Equal(prior.OriginalWire, wire) {
 				return terminalReply{Intent: &intent, MarkerSequence: prior.Sequence}, nil
 			}
 			return terminalReply{}, authority.ErrOperationConflict
@@ -349,7 +352,7 @@ func handleTerminalRequest(ctx context.Context, wire []byte, action, cell string
 	if err := fence(ctx, envelope.Epoch, intent); err != nil {
 		return terminalReply{}, fmt.Errorf("terminal cleanup held during grant fencing; some exact grants may already be disabled: %w", err)
 	}
-	sequence, err := control.CommitTerminalIntent(ctx, envelope.Epoch, scope, intent.OperationID, envelope.Payload,
+	sequence, err := control.CommitSignedTerminalIntent(ctx, envelope.Epoch, scope, intent.OperationID, envelope.Payload, wire,
 		func(lockedCtx context.Context) error {
 			pending, err := control.ListPendingEnrollmentEffects(lockedCtx, scope)
 			if err != nil {

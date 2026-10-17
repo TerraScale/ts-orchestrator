@@ -26,8 +26,8 @@ func (control terminalTestControl) ListPendingEnrollmentEffects(context.Context,
 	return control.pending, nil
 }
 
-func (control terminalTestControl) CommitTerminalIntent(ctx context.Context, epoch uint64,
-	scope authority.WorkloadScope, operationID string, payload []byte, settled func(context.Context) error,
+func (control terminalTestControl) CommitSignedTerminalIntent(ctx context.Context, epoch uint64,
+	scope authority.WorkloadScope, operationID string, payload, originalWire []byte, settled func(context.Context) error,
 ) (uint64, error) {
 	if epoch != control.snapshot.Epoch {
 		return 0, authority.ErrFenced
@@ -42,7 +42,7 @@ func (control terminalTestControl) CommitTerminalIntent(ctx context.Context, epo
 	control.nextSeq++
 	control.terminal[key] = authority.LogEntry{Kind: authority.MutationTerminalIntent,
 		SubjectKey: key, OperationID: operationID, Epoch: epoch, Sequence: control.nextSeq,
-		Payload: bytes.Clone(payload)}
+		Payload: bytes.Clone(payload), OriginalWire: bytes.Clone(originalWire)}
 	return control.nextSeq, nil
 }
 
@@ -172,6 +172,20 @@ func TestTerminalPlanApplyAndStatusRequireSignedExactInventory(t *testing.T) {
 	}
 	if fenceCalls != 2 {
 		t.Fatalf("exact grant fence calls = %d, want one held attempt and one accepted attempt", fenceCalls)
+	}
+	stored := control.terminal[approved.DatabaseID+"."+approved.PartitionID]
+	if !bytes.Equal(stored.OriginalWire, applyWire) {
+		t.Fatal("terminal marker lost exact signed apply ingress")
+	}
+	repeated, err := handleTerminalRequest(ctx, applyWire, "apply", "gru", policy, control,
+		region, terminalTestMembers{}, inventory, fence, proof, grantOK)
+	if err != nil || repeated.MarkerSequence != applied.MarkerSequence || fenceCalls != 2 {
+		t.Fatalf("exact signed retry changed terminal provenance or repeated fencing: %+v, %v", repeated, err)
+	}
+	reissued := sign("apply", approved.OperationID, approved.PlacementGeneration, approved, now.Add(time.Nanosecond), now.Add(time.Minute))
+	if _, err := handleTerminalRequest(ctx, reissued, "apply", "gru", policy, control,
+		region, terminalTestMembers{}, inventory, fence, proof, grantOK); !errors.Is(err, authority.ErrOperationConflict) || fenceCalls != 2 {
+		t.Fatalf("fresh terminal envelope replaced original provenance or repeated fencing: %v", err)
 	}
 	if _, err := handleTerminalRequest(ctx, planWire, "plan", "gru", policy, control,
 		region, terminalTestMembers{}, inventory, fence, proof, grantOK); !errors.Is(err, authority.ErrFenced) {

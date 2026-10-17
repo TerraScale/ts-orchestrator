@@ -415,6 +415,7 @@ func (control *placementAdmissionTestControl) ReadTerminalIntent(_ context.Conte
 		return authority.LogEntry{}, authority.ErrNotFound
 	}
 	entry.Payload = bytes.Clone(entry.Payload)
+	entry.OriginalWire = bytes.Clone(entry.OriginalWire)
 	return entry, nil
 }
 

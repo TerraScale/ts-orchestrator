@@ -239,7 +239,7 @@ func (r *Runtime) commitMutationSourceVerified(
 	if err := validateMutation(kind, subjectKey, operationID, payload); err != nil {
 		return 0, err
 	}
-	if err := validatePlacementSource(kind, r.config.Scope, operationID, expectedEpoch, payload, originalWire); err != nil {
+	if err := validateSignedSource(kind, r.config.Scope, operationID, expectedEpoch, payload, originalWire); err != nil {
 		return 0, err
 	}
 	r.mu.Lock()
@@ -589,9 +589,17 @@ func (r *Runtime) BeginActiveWorkloadEffect(ctx context.Context, epoch uint64, s
 func (r *Runtime) CommitTerminalIntent(ctx context.Context, epoch uint64, scope WorkloadScope,
 	operationID string, payload []byte, verifySettled func(context.Context) error,
 ) (uint64, error) {
+	return r.commitTerminalIntent(ctx, epoch, scope, operationID, payload, nil, verifySettled)
+}
+
+func (r *Runtime) commitTerminalIntent(ctx context.Context, epoch uint64, scope WorkloadScope,
+	operationID string, payload, originalWire []byte, verifySettled func(context.Context) error,
+) (uint64, error) {
 	if r == nil || ctx == nil || ctx.Err() != nil || verifySettled == nil {
 		return 0, ErrFenced
 	}
+	payload = bytes.Clone(payload)
+	originalWire = bytes.Clone(originalWire)
 	subjectKey, err := placementIntentSubjectKey(scope.DatabaseID, scope.PartitionID)
 	if err != nil {
 		return 0, err
@@ -606,7 +614,7 @@ func (r *Runtime) CommitTerminalIntent(ctx context.Context, epoch uint64, scope 
 	defer gate.Unlock()
 	prior, err := r.ReadTerminalIntent(ctx, scope.DatabaseID, scope.PartitionID)
 	if err == nil {
-		if prior.OperationID == operationID && bytes.Equal(prior.Payload, payload) {
+		if prior.OperationID == operationID && bytes.Equal(prior.Payload, payload) && bytes.Equal(prior.OriginalWire, originalWire) {
 			return prior.Sequence, nil
 		}
 		return 0, ErrOperationConflict
@@ -620,8 +628,8 @@ func (r *Runtime) CommitTerminalIntent(ctx context.Context, epoch uint64, scope 
 	if err := r.requireNoActiveBackup(ctx, scope.DatabaseID, scope.PartitionID); err != nil {
 		return 0, err
 	}
-	return r.commitMutationVerified(ctx, epoch, MutationTerminalIntent, subjectKey, operationID,
-		0, payload, func(check context.Context) error {
+	return r.commitMutationSourceVerified(ctx, epoch, MutationTerminalIntent, subjectKey, operationID,
+		0, payload, originalWire, func(check context.Context) error {
 			if err := r.requireNoRuntimeEffects(check, scope); err != nil {
 				return err
 			}
@@ -1187,7 +1195,7 @@ func jsonMarshal(value any) ([]byte, error) {
 
 func decodeControlRecord(data []byte) (controlRecord, error) {
 	var record controlRecord
-	if len(data) == 0 || len(data) > maxControlPayload+4096+2*maxPlacementSourceWire {
+	if len(data) == 0 || len(data) > maxControlPayload+4096+2*maxTerminalSourceWire {
 		return record, errors.New("control log record size is invalid")
 	}
 	if err := json.Unmarshal(data, &record, json.RejectUnknownMembers(true)); err != nil {
@@ -1196,7 +1204,7 @@ func decodeControlRecord(data []byte) (controlRecord, error) {
 	if record.Version != 1 || record.Scope == "" || record.OperationID == "" || record.Epoch == 0 || len(record.Payload) > maxControlPayload {
 		return record, errors.New("control log record fields are invalid")
 	}
-	if err := validatePlacementSource(record.Kind, record.Scope, record.OperationID, record.Epoch, record.Payload, record.OriginalWire); err != nil {
+	if err := validateSignedSource(record.Kind, record.Scope, record.OperationID, record.Epoch, record.Payload, record.OriginalWire); err != nil {
 		return record, err
 	}
 	return record, nil

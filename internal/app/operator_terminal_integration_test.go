@@ -282,6 +282,39 @@ func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing
 	if err := json.Unmarshal(applyOutput.Bytes(), &receipt); err != nil || receipt.MarkerSequence == 0 || receipt.Intent == nil {
 		t.Fatalf("terminal apply receipt: %+v, %v", receipt, err)
 	}
+	marker, err := control.ReadTerminalIntent(ctx, intent.DatabaseID, intent.PartitionID)
+	if err != nil || marker.Sequence != receipt.MarkerSequence || len(marker.OriginalWire) == 0 {
+		t.Fatalf("accepted terminal marker lost original signed ingress: err=%v", err)
+	}
+	var original protocol.Envelope
+	if err := protocol.DecodeStrict(marker.OriginalWire, &original, maxTerminalWireBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := protocol.VerifyEnvelope(original, protocol.EnvelopeScope{
+		Region: "gru", Kind: "placement.terminal.apply", Actor: "ops", OperationID: reviewed.OperationID,
+		Generation: reviewed.PlacementGeneration, Epoch: marker.Epoch,
+	}, operatorPublic, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: 5 * time.Minute, ClockSkew: 30 * time.Second}); err != nil ||
+		!bytes.Equal(original.Payload, marker.Payload) {
+		t.Fatalf("retained terminal ingress lost its actual operator signature or payload: %v", err)
+	}
+	independent, err := authority.OpenReader(ctx, broker.JetStream(), "gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, err := independent.ReadTerminalIntent(ctx, intent.DatabaseID, intent.PartitionID)
+	if err != nil || !bytes.Equal(retained.OriginalWire, marker.OriginalWire) || retained.Sequence != marker.Sequence {
+		t.Fatalf("independent reader lost terminal original ingress: err=%v", err)
+	}
+	marker.OriginalWire[0] ^= 1
+	readback, err := control.ReadTerminalIntent(ctx, intent.DatabaseID, intent.PartitionID)
+	if err != nil || !bytes.Equal(readback.OriginalWire, retained.OriginalWire) {
+		t.Fatalf("caller mutated durable terminal ingress: err=%v", err)
+	}
+	if _, err := control.CommitTerminalIntent(ctx, readback.Epoch,
+		authority.WorkloadScope{DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID},
+		readback.OperationID, readback.Payload, func(context.Context) error { return nil }); !errors.Is(err, authority.ErrOperationConflict) {
+		t.Fatalf("payload-only terminal replay discarded signed provenance: %v", err)
+	}
 	for _, instanceID := range grantInstances {
 		grant, revision, err := grants.Read(ctx, instanceID)
 		if err != nil || revision == 0 || !grant.Disabled {

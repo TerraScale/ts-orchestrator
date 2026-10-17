@@ -8,7 +8,10 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
-const maxPlacementSourceWire = 20 << 10
+const (
+	maxPlacementSourceWire = 20 << 10
+	maxTerminalSourceWire  = 36 << 10
+)
 
 // CommitSignedPlacementIntent atomically retains exact ingress with its admitted payload.
 // The archive is evidence, never a substitute for independent root authentication.
@@ -43,21 +46,41 @@ func (r *Reader) CommitSignedPlacementIntent(context.Context, uint64, string, st
 	return 0, ErrNotLeader
 }
 
-func validatePlacementSource(kind HostMutationKind, scope, operationID string, epoch uint64, payload, wire []byte) error {
+// CommitSignedTerminalIntent preserves ingress under the existing exclusive terminal gate.
+func (r *Runtime) CommitSignedTerminalIntent(ctx context.Context, epoch uint64, scope WorkloadScope,
+	operationID string, payload, originalWire []byte, verifySettled func(context.Context) error,
+) (uint64, error) {
+	if len(originalWire) == 0 {
+		return 0, errors.New("terminal admission requires its original signed ingress")
+	}
+	return r.commitTerminalIntent(ctx, epoch, scope, operationID, payload, originalWire, verifySettled)
+}
+
+func validateSignedSource(kind HostMutationKind, scope, operationID string, epoch uint64, payload, wire []byte) error {
 	if len(wire) == 0 {
 		return nil
 	}
-	if kind != MutationPlacementIntent || len(wire) > maxPlacementSourceWire {
-		return errors.New("original ingress is outside the bounded placement source")
+	var expectedKind string
+	var limit int
+	switch kind {
+	case MutationPlacementIntent:
+		expectedKind, limit = "placement.intent", maxPlacementSourceWire
+	case MutationTerminalIntent:
+		expectedKind, limit = "placement.terminal.apply", maxTerminalSourceWire
+	default:
+		return errors.New("original ingress is outside the bounded signed source")
+	}
+	if len(wire) > limit {
+		return errors.New("original signed ingress exceeds its source limit")
 	}
 	var envelope protocol.Envelope
-	if err := protocol.DecodeStrict(wire, &envelope, maxPlacementSourceWire); err != nil {
+	if err := protocol.DecodeStrict(wire, &envelope, limit); err != nil {
 		return err
 	}
-	if envelope.SchemaVersion != protocol.EnvelopeSchemaVersion || envelope.Kind != "placement.intent" || envelope.Region != scope ||
+	if envelope.SchemaVersion != protocol.EnvelopeSchemaVersion || envelope.Kind != expectedKind || envelope.Region != scope ||
 		envelope.OperationID != operationID || envelope.Epoch != epoch || envelope.Generation == 0 || envelope.Actor == "" ||
 		envelope.KeyID == "" || envelope.Signature == "" || !envelope.ExpiresAt.After(envelope.IssuedAt) || !bytes.Equal(envelope.Payload, payload) {
-		return errors.New("original placement ingress differs from its committed payload or scope")
+		return errors.New("original signed ingress differs from its committed payload or scope")
 	}
 	return nil
 }
