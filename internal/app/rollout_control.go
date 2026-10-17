@@ -368,7 +368,7 @@ func (c *rolloutControl) publishProofs(ctx context.Context, cfg Config, runtime 
 	responseKey ed25519.PrivateKey,
 ) {
 	publisher := rolloutexec.Publisher{Conn: runtime.Conn(), Cell: cfg.NATS.Cell, Unit: cfg.NATS.Instance,
-		Key: responseKey, Healthy: func() bool { return c.ready.Load() && native.Ready() }}
+		Key: responseKey, Healthy: func() bool { return c.ready.Load() && runtime.Ready() && native.Ready() }}
 	if err := publisher.Run(ctx); ctx.Err() == nil {
 		slog.ErrorContext(ctx, "rollout health proofs stopped", observability.ComponentKey, "rollout", "error", err)
 	}

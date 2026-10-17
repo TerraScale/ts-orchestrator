@@ -245,7 +245,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	runtime.registry.Register(oci.Metrics)
 	runtime.registry.Register(placement.Metrics)
 	runtime.health.Add(observability.Check{Name: "nats", Run: func(context.Context) (bool, string) {
-		if observed.native.Ready() {
+		if observed.nats.Ready() && observed.native.Ready() {
 			return true, "regional broker connected"
 		}
 		return false, "regional broker is not connected"
