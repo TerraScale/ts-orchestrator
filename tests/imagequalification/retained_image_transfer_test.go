@@ -3,10 +3,12 @@ package imagequalification
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/md5" // OCI API-key fingerprints use MD5 over public SPKI DER.
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
@@ -15,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,6 +26,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
+	"github.com/oracle/oci-go-sdk/v65/identity"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
@@ -31,6 +35,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/confinement"
+	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/principal"
 )
 
 func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
@@ -41,6 +47,38 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	a.ArtifactDisposition, a.ReaderIAMAuthority = qualification.RetainTestedImage, qualification.ExactHostReaders
 	a.ImageRetainUntil, a.ImageTransferUntil = f.now.Add(30*time.Minute), f.now.Add(20*time.Minute)
 	a.ImagePublicationBucket, _ = releasechannel.BucketName(a.Candidate.Cell)
+	a.MaterialFixtures = nil
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuerPublic, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := md5.Sum(issuerPublic)
+	parts := make([]string, len(fingerprint))
+	for i, b := range fingerprint {
+		parts[i] = fmt.Sprintf("%02x", b)
+	}
+	payload, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p principal.Preparation
+	if err := json.Unmarshal(payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	p.Schema, p.ExpiresAt = principal.PreparationSchema, f.now.Add(40*time.Minute)
+	p.IssuerPrincipal, p.IssuerFingerprint = "ocid1.user.oc1..issuer", strings.Join(parts, ":")
+	p.PrincipalName, p.GroupName, p.PolicyName = "ts-qualification-"+a.RunID+"-user", "ts-qualification-"+a.RunID+"-group", "ts-qualification-"+a.RunID+"-policy"
+	p.Object = "qualification/" + a.RunID + "/" + a.Candidate.ArtifactSHA256 + ".qcow2"
+	p.PublicKeyPEM, p.PublicKeyFingerprint, err = principal.GenerateKey(filepath.Join(t.TempDir(), "escrow"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.PolicyTemplate = principal.RequiredTemplate(p)
+	a.PolicyStatements = confinement.RequiredStatements(confinement.Scope{RunID: p.RunID, Group: a.Group, Compartment: p.Compartment, Bucket: p.Bucket, Object: p.Object, ExpiresAt: p.ExpiresAt, CleanupUntil: p.CleanupUntil})
 	sign := func(value any, scope trust.Scope, key ed25519.PrivateKey, expires time.Time) []byte {
 		t.Helper()
 		payload, err := trust.EncodePayload(value)
@@ -62,16 +100,10 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := json.Marshal(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var p qualification.Preparation
-	if err := json.Unmarshal(payload, &p); err != nil {
-		t.Fatal(err)
-	}
-	p.Schema, p.ExpiresAt = "terrascale.test.image-qualification.principal.v1", f.now.Add(40*time.Minute)
 	prepared.principalWire = sign(p, qualification.Scope(a.RunID, a.Candidate, "disposable-principal"), f.private, p.CleanupUntil)
+	if _, err := principal.VerifyPreparation(prepared.principalWire, nil, f.roots, p.RunID, f.now); err != nil {
+		t.Fatal(err)
+	}
 	imageID := "ocid1.image.oc1.sa-saopaulo-1.tested"
 	j := journal{RunID: a.RunID, ApprovalSHA256: prepared.approvalSHA256, ImageID: imageID, Hosts: map[string]string{}, RetainedAt: f.now}
 	binding := hostadmission.Binding{Schema: hostadmission.BindingSchema, Purpose: a.Purpose, RunID: a.RunID,
@@ -151,10 +183,6 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	}
 	receiptWire := sign(receipt, scope, leaf, f.now.Add(time.Hour))
 	objects := map[string][]byte{releasechannel.ImageProductionEvidenceObject(j.RootGateSHA256): rootBody, releasechannel.ImageProductionEvidenceObject(hashBytes(baselineBody)): baselineBody}
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var mu sync.Mutex
 	mode := ""
 	now := f.now.Add(2 * time.Second)
@@ -168,6 +196,22 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			var issuerResource any
+			switch r.URL.Path {
+			case "/20160918/tenancies/" + p.Tenancy:
+				issuerResource = identity.Tenancy{Id: new(p.Tenancy), HomeRegionKey: new("GRU")}
+			case "/20160918/users/" + p.IssuerPrincipal:
+				issuerResource = identity.User{Id: new(p.IssuerPrincipal), CompartmentId: new(p.Tenancy), LifecycleState: identity.UserLifecycleStateActive}
+			case "/20160918/users/" + p.IssuerPrincipal + "/apiKeys":
+				issuerResource = []identity.ApiKey{{UserId: new(p.IssuerPrincipal), Fingerprint: new(p.IssuerFingerprint), LifecycleState: identity.ApiKeyLifecycleStateActive}}
+			}
+			if issuerResource != nil {
+				reads++
+				_ = json.MarshalWrite(w, issuerResource)
+				return
+			}
+		}
 		if strings.HasPrefix(r.URL.Path, "/20160918/instances/") && r.Method == http.MethodGet {
 			reads++
 			if mode == "remaining-host" {
@@ -296,14 +340,14 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	transport := original.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		if address != "objectstorage.sa-saopaulo-1.oraclecloud.com:443" && address != "iaas.sa-saopaulo-1.oraclecloud.com:443" {
+		if address != "objectstorage.sa-saopaulo-1.oraclecloud.com:443" && address != "iaas.sa-saopaulo-1.oraclecloud.com:443" && address != "identity.sa-saopaulo-1.oci.oraclecloud.com:443" {
 			return nil, fmt.Errorf("unapproved fixture origin %s", address)
 		}
 		return (&tls.Dialer{Config: &tls.Config{RootCAs: pool, ServerName: u.Hostname(), MinVersion: tls.VersionTLS13}}).DialContext(ctx, network, u.Host)
 	}
 	http.DefaultTransport = transport
 	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
-	provider := common.NewRawConfigurationProvider(a.Tenancy, "ocid1.user.oc1..observer", a.OCIRegion, "observer-fingerprint", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
+	provider := common.NewRawConfigurationProvider(a.Tenancy, p.IssuerPrincipal, a.OCIRegion, p.IssuerFingerprint, string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
 	observer, err := ociclient.New(provider, ociclient.Options{Region: a.OCIRegion, Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceCompute: {PerSecond: 10000, Burst: 1000}, ociclient.ServiceObjectStorage: {PerSecond: 10000, Burst: 1000}}, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
 	if err != nil {
 		t.Fatal(err)
@@ -428,6 +472,80 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Run("outer-restart-after-principal-removal", func(t *testing.T) {
+			directory := t.TempDir()
+			paths := rootCredentialPaths{Journal: path, Approval: filepath.Join(directory, "approval.json"), PrincipalDirectory: filepath.Join(directory, "principal")}
+			if err := os.Mkdir(paths.PrincipalDirectory, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(paths.Approval, approvalWire, 0600); err != nil {
+				t.Fatal(err)
+			}
+			preparationDigest := hashBytes(prepared.principalWire)
+			description := "Disposable image qualification " + preparationDigest
+			var hostIDs []string
+			for _, spec := range a.Hosts {
+				hostIDs = append(hostIDs, j.Hosts[spec.Name])
+			}
+			requests := []struct {
+				name, id, path string
+				request        common.OCIRequest
+			}{
+				{"user", a.Principal, "/users", identity.CreateUserRequest{CreateUserDetails: identity.CreateUserDetails{CompartmentId: new(p.Tenancy), Name: new(p.PrincipalName), Description: new(description)}}},
+				{"group", a.Group, "/groups", identity.CreateGroupRequest{CreateGroupDetails: identity.CreateGroupDetails{CompartmentId: new(p.Tenancy), Name: new(p.GroupName), Description: new(description)}}},
+				{"policy", a.PolicyID, "/policies", identity.CreatePolicyRequest{CreatePolicyDetails: identity.CreatePolicyDetails{CompartmentId: new(p.Tenancy), Name: new(p.PolicyName), Description: new(description), Statements: a.PolicyStatements}}},
+				{"key", p.PublicKeyFingerprint, "/users/{userId}/apiKeys", identity.UploadApiKeyRequest{UserId: new(a.Principal), CreateApiKeyDetails: identity.CreateApiKeyDetails{Key: new(p.PublicKeyPEM)}}},
+				{"membership", "ocid1.groupmembership.oc1..original", "/userGroupMemberships", identity.AddUserToGroupRequest{AddUserToGroupDetails: identity.AddUserToGroupDetails{UserId: new(a.Principal), GroupId: new(a.Group)}}},
+				{"reader-group", binding.ReaderIAM.DynamicGroupID, "/dynamicGroups", identity.CreateDynamicGroupRequest{CreateDynamicGroupDetails: identity.CreateDynamicGroupDetails{CompartmentId: new(p.Tenancy), Name: new(p.GroupName + "-readers"), Description: new(description), MatchingRule: new(qualification.ReaderMatchingRule(hostIDs))}}},
+				{"reader-policy", binding.ReaderIAM.PolicyID, "/policies", identity.CreatePolicyRequest{CreatePolicyDetails: identity.CreatePolicyDetails{CompartmentId: new(p.Tenancy), Name: new(p.PolicyName + "-readers"), Description: new(description), Statements: qualification.ReaderStatements(binding.ReaderIAM.DynamicGroupID, a.Compartment, plan.ExpiresAt())}}},
+			}
+			operations := map[string]any{}
+			for _, original := range requests {
+				raw, err := original.request.HTTPRequest(http.MethodPost, original.path, nil, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				body, err := io.ReadAll(raw.Body)
+				raw.Body.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				request, err := json.Marshal(struct {
+					Method string `json:"method"`
+					Path   string `json:"path"`
+					Body   string `json:"body"`
+				}{raw.Method, raw.URL.EscapedPath(), string(body)}, json.Deterministic(true))
+				if err != nil {
+					t.Fatal(err)
+				}
+				deleteUser := ""
+				if original.name == "key" {
+					deleteUser = a.Principal
+				}
+				deletion, err := json.Marshal(struct{ Operation, ID, User, ETag string }{original.name, original.id, deleteUser, "fixture-etag"}, json.Deterministic(true))
+				if err != nil {
+					t.Fatal(err)
+				}
+				operations[original.name] = map[string]any{"request": jsontext.Value(request), "request_sha256": hashBytes(request), "retry_token": hashBytes([]byte(preparationDigest + "/" + original.name + "/" + hashBytes(request)))[:32], "first_attempt": f.now, "id": original.id,
+					"delete_intent": true, "delete_request": jsontext.Value(deletion), "delete_sha256": hashBytes(deletion), "delete_request_id": hashBytes([]byte(preparationDigest + "/delete/" + original.name + "/" + hashBytes(deletion)))[:32], "delete_first_attempt": f.now.Add(35 * time.Minute), "deleted": true}
+			}
+			if err := checkpoint(filepath.Join(paths.PrincipalDirectory, "journal.json"), map[string]any{"preparation_sha256": preparationDigest, "preparation_wire": jsontext.Value(prepared.principalWire), "operations": operations, "reader_proof": j.RetainedReaderProof, "reader_verified_at": j.RetainedAt, "cleaning": true, "cleaned": true}); err != nil {
+				t.Fatal(err)
+			}
+			mu.Lock()
+			mode = "missing-publication"
+			beforeReads := reads
+			mu.Unlock()
+			if _, err := runRootCredentialBoundary(t.Context(), prepared.principalWire, nil, f.roots, observer, nil, paths); err != nil {
+				t.Fatalf("outer restart required renewed creation, signing or local artifacts: %v", err)
+			}
+			mu.Lock()
+			afterReads, afterWrites := reads, writes
+			mu.Unlock()
+			if afterReads <= beforeReads || afterWrites != publicationWrites {
+				t.Fatal("outer restart failed to reobserve cleanup without cloud writes")
+			}
+		})
 		consoleOperation := "console/" + a.Hosts[0].Name + "/root"
 		settled.ConsoleHistories[consoleOperation] = "ocid1.consolehistory.oc1.sa-saopaulo-1.original"
 		settled.ConsoleDeleted[consoleOperation] = true
