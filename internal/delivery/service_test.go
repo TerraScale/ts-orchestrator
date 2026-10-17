@@ -249,6 +249,52 @@ func TestSubmitOperationReadRetriesTransientLeaderFailure(t *testing.T) {
 	if err != nil || got != want || calls != 2 {
 		t.Fatalf("operation leader read after failover: value=%v error=%v calls=%d, want value and two attempts", got, err, calls)
 	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	broker := startDeliveryTestBroker(t, ctx)
+	kv, err := broker.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: OperationBucket, History: 4, Storage: jetstream.FileStorage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := operationKey("leader-retry")
+	payload := []byte(`{"state":"accepted"}`)
+	revision, err := kv.Put(ctx, key, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{config: Config{Conn: broker.Conn()}}
+	reads := 0
+	read := func(ctx context.Context) (*operationValue, error) {
+		reads++
+		entry, err := service.getOperation(ctx, key)
+		if err == nil && reads == 1 {
+			// Inject one transient error after a genuine read; both attempts use the native leader API.
+			return nil, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+		}
+		return entry, err
+	}
+	durable, err := retrySubmitOperationRead(ctx, read)
+	if err != nil || durable == nil || durable.Revision() != revision || !bytes.Equal(durable.Value(), payload) || reads != 2 {
+		t.Fatalf("durable leader retry: value=%v error=%v reads=%d, want stored revision %d and two reads", durable, err, reads, revision)
+	}
+	if _, err := retrySubmitOperationRead(ctx, func(ctx context.Context) (*operationValue, error) {
+		return service.getOperation(ctx, operationKey("missing"))
+	}); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("missing operation after real leader read: %v", err)
+	}
+	if err := kv.Delete(ctx, key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := retrySubmitOperationRead(ctx, read); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("deleted operation after real leader read: %v", err)
+	}
+	canceled, stop := context.WithCancel(ctx)
+	stop()
+	beforeCancellation := reads
+	if _, err := retrySubmitOperationRead(canceled, read); !errors.Is(err, context.Canceled) || reads != beforeCancellation {
+		t.Fatalf("canceled leader retry: error=%v reads=%d, want cancellation without another read", err, reads)
+	}
 }
 
 func TestSubmitOperationReadUsesRecoveryBudgetAfterFiveTransientFailures(t *testing.T) {
