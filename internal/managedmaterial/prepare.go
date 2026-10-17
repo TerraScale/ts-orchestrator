@@ -206,6 +206,7 @@ func (service PreparationService) verifyCurrent(ctx context.Context, entry autho
 	}
 	if err := VerifyPreparationReceipt(receipt, controllerKey,
 		service.Cell, partition, bundle); err != nil {
+		clearInitialBundle(&bundle)
 		return PreparationReceipt{}, InitialBundle{}, err
 	}
 	return receipt, bundle, nil

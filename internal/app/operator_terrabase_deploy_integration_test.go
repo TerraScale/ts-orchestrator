@@ -275,9 +275,10 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 		t.Cleanup(func() { _ = subscription.Unsubscribe() })
 	}
 	subscribe(serveArtifactAdmission(ctx, broker.Conn(), deployTestCell, control, service))
-	repository, err := managedmaterial.NewRepository(managedmaterial.RepositoryConfig{Region: oci.RegionGRU, Cell: deployTestCell,
-		Namespace: "grxnmoqvrcdv", Bucket: "ts-preview-gru-material", KMSKeyID: "ocid1.key.oc1.sa-saopaulo-1.material"},
-		new(preparationTestObjects), control)
+	materialObjects := new(preparationTestObjects)
+	repositoryConfig := managedmaterial.RepositoryConfig{Region: oci.RegionGRU, Cell: deployTestCell,
+		Namespace: "grxnmoqvrcdv", Bucket: "ts-preview-gru-material", KMSKeyID: "ocid1.key.oc1.sa-saopaulo-1.material"}
+	repository, err := managedmaterial.NewRepository(repositoryConfig, materialObjects, control)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +286,16 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 		Fencer: control, ControllerKey: controllerPrivate, RecipientSigner: signerPublic,
 		AllowedSubnetCIDR: "10.251.0.0/25", NativeValidator: appNativeMaterialValidator{},
 		NativeVerifierSHA256: strings.Repeat("a", 64)}
-	admission := preparedMaterialAdmission(material)
+	materialReceipts, err := authority.OpenReader(ctx, broker.JetStream(), deployTestCell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicCurrent, err := managedmaterial.NewPreparationReader(repositoryConfig, materialObjects, materialReceipts,
+		controllerPublic, material.AllowedSubnetCIDR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admission := preparedMaterialAdmission(publicCurrent)
 	subscribe(serveMaterialPreparation(ctx, broker.Conn(), deployTestCell, policy, material))
 	subscribe(servePlacementAdmission(ctx, broker.Conn(), deployTestCell, policy, control, admission))
 	store, err := placement.NewJetStreamStore(ctx, broker.JetStream(), deployTestCell, 1,

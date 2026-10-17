@@ -286,8 +286,10 @@ func (repository *Repository) ReadPinned(ctx context.Context, ref ObjectReferenc
 	if err != nil {
 		return InitialBundle{}, err
 	}
+	defer clear(observed.bytes)
 	if observed.ref.VersionID != ref.VersionID || observed.ref.ETag != ref.ETag ||
 		observed.ref.SHA256 != ref.SHA256 || observed.ref.SpecSHA256 != ref.SpecSHA256 {
+		clearInitialBundle(&observed.bundle)
 		return InitialBundle{}, ErrMaterialConflict
 	}
 	return observed.bundle, nil
@@ -332,7 +334,7 @@ func (repository *Repository) validObjectName(name, specSHA string) bool {
 
 func (repository *Repository) read(ctx context.Context, name, versionID, etag, wantSHA string,
 	controllerKey ed25519.PublicKey,
-) (observedBundle, error) {
+) (result observedBundle, resultErr error) {
 	request := objectstorage.GetObjectRequest{NamespaceName: new(repository.config.Namespace),
 		BucketName: new(repository.config.Bucket), ObjectName: new(name)}
 	if versionID != "" {
@@ -358,6 +360,13 @@ func (repository *Repository) read(ctx context.Context, name, versionID, etag, w
 		return observedBundle{}, ErrMaterialConflict
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Content, maxStoredBundleBytes+1))
+	var stored storedBundle
+	defer func() {
+		if resultErr != nil {
+			clear(body)
+			clearInitialBundle(&stored.Bundle)
+		}
+	}()
 	if err != nil {
 		return observedBundle{}, err
 	}
@@ -370,7 +379,6 @@ func (repository *Repository) read(ctx context.Context, name, versionID, etag, w
 		etag != "" && *response.ETag != etag {
 		return observedBundle{}, ErrMaterialConflict
 	}
-	var stored storedBundle
 	if err := json.Unmarshal(body, &stored, json.RejectUnknownMembers(true)); err != nil ||
 		stored.Region != string(repository.config.Region) || stored.Cell != repository.config.Cell ||
 		stored.Namespace != repository.config.Namespace || stored.Bucket != repository.config.Bucket ||
@@ -381,6 +389,7 @@ func (repository *Repository) read(ctx context.Context, name, versionID, etag, w
 		return observedBundle{}, ErrMaterialConflict
 	}
 	canonical, err := protocol.EncodeJSON(stored)
+	defer clear(canonical)
 	if err != nil || !bytes.Equal(body, canonical) {
 		return observedBundle{}, ErrMaterialConflict
 	}

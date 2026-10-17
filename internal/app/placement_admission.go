@@ -239,7 +239,11 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 	return placementApplyResponse{}, errors.New("placement intent contention")
 }
 
-func preparedMaterialAdmission(service managedmaterial.PreparationService) placementMaterialAdmission {
+type preparedMaterialCurrentReader interface {
+	Current(context.Context, string, string) (managedmaterial.PreparationReceipt, error)
+}
+
+func preparedMaterialAdmission(service preparedMaterialCurrentReader) placementMaterialAdmission {
 	return func(ctx context.Context, intent placement.Intent) error {
 		receipt, err := service.Current(ctx, intent.DatabaseID, intent.PartitionID)
 		if err != nil {

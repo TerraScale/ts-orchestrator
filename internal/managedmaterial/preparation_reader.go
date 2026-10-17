@@ -1,6 +1,7 @@
 package managedmaterial
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"errors"
@@ -8,7 +9,9 @@ import (
 	"slices"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // PreparationReader authenticates current R3 receipts and their exact immutable
@@ -33,11 +36,28 @@ func NewPreparationReader(config RepositoryConfig, client ObjectClient, receipts
 }
 
 func (reader *PreparationReader) Current(ctx context.Context, database, partition string) (PreparationReceipt, error) {
-	if reader == nil {
+	if reader == nil || ctx == nil || ctx.Err() != nil || reader.service.Repository == nil || reader.service.Receipts == nil ||
+		!entityid.Valid(database) || !entityid.Valid(partition) {
 		return PreparationReceipt{}, errors.New("managed material reader is unavailable")
 	}
-	receipt, _, err := reader.service.currentBundle(ctx, database, partition, reader.controllerKey)
-	return receipt, err
+	original, err := reader.service.Receipts.ReadMaterialReceipt(ctx, database, partition)
+	if err != nil {
+		return PreparationReceipt{}, err
+	}
+	receipt, bundle, err := reader.service.currentBundle(ctx, database, partition, reader.controllerKey)
+	clearInitialBundle(&bundle)
+	if err != nil {
+		return PreparationReceipt{}, err
+	}
+	wire, err := protocol.EncodeJSON(receipt)
+	if err != nil || !bytes.Equal(wire, original.Payload) {
+		return PreparationReceipt{}, ErrMaterialConflict
+	}
+	current, err := reader.service.Receipts.ReadMaterialReceipt(ctx, database, partition)
+	if err != nil || !sameCredentialFloorEntry(original, current) || ctx.Err() != nil {
+		return PreparationReceipt{}, ErrMaterialConflict
+	}
+	return receipt, nil
 }
 
 func (reader *PreparationReader) Verify(ctx context.Context, intent placement.Intent) error {
@@ -46,4 +66,16 @@ func (reader *PreparationReader) Verify(ctx context.Context, intent placement.In
 		return err
 	}
 	return VerifyIntentAgainstReceipt(intent, receipt)
+}
+
+func clearInitialBundle(bundle *InitialBundle) {
+	clear(bundle.Retained.AuthoritySigner)
+	clear(bundle.Retained.ReplicationCA)
+	clear(bundle.Retained.HTTPSCA)
+	for _, member := range bundle.Members {
+		for _, file := range member.Files {
+			clear(file.Contents)
+		}
+	}
+	*bundle = InitialBundle{}
 }
