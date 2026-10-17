@@ -3,6 +3,7 @@ package nodescale
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -143,15 +144,23 @@ func (pool *ChosenPool) PrepareRetirement(ctx context.Context, instanceID, remov
 		return rootoci.PoolRetirementExpectation{}, err
 	}
 	birth := proof.View()
-	child := drainwire.PoolChild{Cell: birth.Cell, BirthOperationID: birth.OperationID, RemovalOperationID: removalOperationID,
-		InstanceID: instanceID, PoolID: birth.PoolID, ConfigurationID: birth.ConfigurationID, RecipeSHA256: birth.RecipeSHA256,
+	return originalPoolRetirement(birth, instanceID, removalOperationID)
+}
+
+func (pool *ChosenPool) drainRetirement(ctx context.Context, record Record, original rootoci.PoolRetirementExpectation) error {
+	selected, err := pool.selectors(ctx, record)
+	if err != nil {
+		return err
+	}
+	child := drainwire.PoolChild{Cell: original.Child.Cell, BirthOperationID: original.Child.OperationID, RemovalOperationID: original.RemovalOperationID,
+		InstanceID: original.InstanceID, PoolID: original.Child.PoolID, ConfigurationID: original.Child.ConfigurationID, RecipeSHA256: original.Child.RecipeSHA256,
 		GrantSHA256: selected.GrantSHA256, Generation: selected.Generation}
 	capture, err := pool.root.BeginPoolDrain(ctx, child)
 	if err != nil {
-		return rootoci.PoolRetirementExpectation{}, errors.Join(ErrCapacityPending, err)
+		return errors.Join(ErrCapacityPending, err)
 	}
 	if capture.Child != child {
-		return rootoci.PoolRetirementExpectation{}, errors.New("root drain capture differs from the original pool child")
+		return errors.New("root drain capture differs from the original pool child")
 	}
 	// The 30-second scaler interval exceeds original lease/stop authority;
 	// finish this capture within its fixed deadline instead of the next tick.
@@ -159,27 +168,33 @@ func (pool *ChosenPool) PrepareRetirement(ctx context.Context, instanceID, remov
 	defer cancel()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	var stopped rootoci.PoolDrainView
 	for {
-		stopped, err = pool.root.RefreshPoolDrain(drainCtx, child)
+		stopped, err := pool.root.RefreshPoolDrain(drainCtx, child)
 		if err == nil {
 			if stopped.Child != child || !stopped.ExpiresAt.Equal(capture.ExpiresAt) || stopped.Phase != drainwire.PoolStopped || len(stopped.SHA256) != 64 || !time.Now().Before(stopped.ExpiresAt) {
-				return rootoci.PoolRetirementExpectation{}, fmt.Errorf("%w: original protected pool drain has not stopped", ErrCapacityPending)
+				return fmt.Errorf("%w: original protected pool drain has not stopped", ErrCapacityPending)
 			}
-			break
+			return nil
 		}
 		if errors.Is(err, rootoci.ErrUnauthorized) || errors.Is(err, rootoci.ErrInvalid) {
-			return rootoci.PoolRetirementExpectation{}, errors.Join(ErrCapacityPending, err)
+			return errors.Join(ErrCapacityPending, err)
 		}
 		select {
 		case <-drainCtx.Done():
-			return rootoci.PoolRetirementExpectation{}, errors.Join(ErrCapacityPending, err, drainCtx.Err())
+			return errors.Join(ErrCapacityPending, err, drainCtx.Err())
 		case <-ticker.C:
 		}
 	}
+}
+
+func originalPoolRetirement(birth rootoci.PoolChildView, instanceID, removalOperationID string) (rootoci.PoolRetirementExpectation, error) {
+	_, digestErr := hex.DecodeString(birth.OriginalBirthGrantSHA256)
+	if instanceID == "" || birth.InstanceID != instanceID || len(birth.OriginalBirthGrantSHA256) != 64 || digestErr != nil || birth.OriginalBirthGeneration == 0 || birth.Epoch == 0 {
+		return rootoci.PoolRetirementExpectation{}, fmt.Errorf("%w: authenticated original purchase selectors are unavailable", ErrCapacityPending)
+	}
 	return rootoci.PoolRetirementExpectation{Child: rootoci.PoolChildExpectation{Cell: birth.Cell, OperationID: birth.OperationID, ReservationID: birth.ReservationID,
 		RecipeSHA256: birth.RecipeSHA256, PoolID: birth.PoolID, ConfigurationID: birth.ConfigurationID,
-		GrantSHA256: selected.GrantSHA256, Generation: selected.Generation, Epoch: selected.Epoch}, InstanceID: instanceID, RemovalOperationID: removalOperationID, DrainSHA256: stopped.SHA256}, nil
+		GrantSHA256: birth.OriginalBirthGrantSHA256, Generation: birth.OriginalBirthGeneration, Epoch: birth.Epoch}, InstanceID: instanceID, RemovalOperationID: removalOperationID}, nil
 }
 
 func (pool *ChosenPool) Remove(ctx context.Context, instanceID string) error {
@@ -190,17 +205,13 @@ func (pool *ChosenPool) Remove(ctx context.Context, instanceID string) error {
 	if record.Action == nil || record.Retirement == nil || record.Retirement.InstanceID != instanceID || record.Retirement.RemovalOperationID != removalOperation(record, instanceID) {
 		return fmt.Errorf("%w: exact original root retirement is not durable", ErrCapacityPending)
 	}
-	selected, err := pool.selectors(ctx, record)
-	if err != nil {
-		return err
-	}
 	original := *record.Retirement
-	if original.Child.Cell != selected.Cell || original.Child.GrantSHA256 != selected.GrantSHA256 || original.Child.Generation != selected.Generation || original.Child.Epoch != selected.Epoch {
-		return fmt.Errorf("%w: current selectors differ from the original retained retirement authority", ErrCapacityPending)
-	}
+	// A failed replay can mean HOME already retired this child. Always ask
+	// HOME to reconcile the saved request against its own protected evidence.
+	drainErr := pool.drainRetirement(ctx, record, original)
 	view, err := pool.root.RetirePoolChild(ctx, original)
 	if err != nil {
-		return errors.Join(ErrCapacityPending, err)
+		return errors.Join(ErrCapacityPending, drainErr, err)
 	}
 	if view.Stage != "retired" || view.Cell != original.Child.Cell || view.InstanceID != original.InstanceID || view.RemovalOperationID != original.RemovalOperationID {
 		return fmt.Errorf("%w: original instance and boot volume retirement is incomplete", ErrCapacityPending)
