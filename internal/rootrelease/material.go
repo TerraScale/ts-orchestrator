@@ -64,6 +64,11 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 	if err != nil {
 		return materialScope{}, err
 	}
+	materialRoots := roots.Current
+	if operation == rootoci.OperationRetainedContainerEvidence || operation == rootoci.OperationRetainedContainerAllocation {
+		// Rotated roots authenticate retained provenance, never current authority.
+		materialRoots = roots.Historical
+	}
 	intent, err := s.Intents.ContainerIntent(ctx, operationID)
 	if err != nil {
 		return materialScope{}, err
@@ -112,7 +117,7 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		return materialScope{}, err
 	}
 	target := release.ContainerTarget{Cell: identity.Cell, Environment: identity.Environment, Role: intent.Role, Architecture: claim.Architecture}
-	retained, err := release.VerifyContainerHistorical(*intent.Container, roots.Current, target)
+	retained, err := release.VerifyContainerHistorical(*intent.Container, materialRoots, target)
 	if err != nil {
 		return materialScope{}, err
 	}
@@ -138,7 +143,7 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		if err != nil {
 			return materialScope{}, err
 		}
-		if _, err := release.VerifySequenceMigrationCurrent(migration, roots.Current, intent.Role, intent.Environment, migration.IssuedAt); err != nil {
+		if _, err := release.VerifySequenceMigrationCurrent(migration, materialRoots, intent.Role, intent.Environment, migration.IssuedAt); err != nil {
 			return materialScope{}, err
 		}
 	default:
@@ -170,14 +175,14 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 	}
 	verifyClaim := func(at time.Time) error {
 		if len(intent.Container.Delegation) == 0 {
-			_, err := trust.VerifyCurrent(envelope, release.ContainerScope(target), roots.Current, at, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime})
+			_, err := trust.VerifyCurrent(envelope, release.ContainerScope(target), materialRoots, at, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime})
 			return err
 		}
 		delegation, err := trust.DecodeEnvelope(intent.Container.Delegation)
 		if err != nil {
 			return err
 		}
-		grant, err := trust.VerifyDelegationCurrent(delegation, roots.Current, at, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime})
+		grant, err := trust.VerifyDelegationCurrent(delegation, materialRoots, at, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime})
 		if err != nil {
 			return err
 		}
@@ -195,13 +200,13 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 	}
 	_, imageDigest, _ := strings.Cut(claim.Image, "@sha256:")
 	candidate := release.ProductionExpectation{SourceRevision: claim.SourceRevision, ArtifactSHA256: imageDigest, QualificationSHA256: claim.QualificationSHA256, Cell: target.Cell, Environment: target.Environment, Runtime: release.ProductionRuntime, Architecture: target.Architecture, Role: target.Role}
-	proof, err := release.VerifyProductionCurrent(claim.Production.Qualification, claim.Production.Delegation, roots.Current, candidate, verifyAt)
+	proof, err := release.VerifyProductionCurrent(claim.Production.Qualification, claim.Production.Delegation, materialRoots, candidate, verifyAt)
 	if err != nil {
 		return materialScope{}, err
 	}
 
 	if operation == rootoci.OperationContainerEvidence || operation == rootoci.OperationContainerAllocation {
-		if _, err := release.VerifyProductionCurrent(claim.Production.Qualification, claim.Production.Delegation, roots.Current, candidate, expires); err != nil {
+		if _, err := release.VerifyProductionCurrent(claim.Production.Qualification, claim.Production.Delegation, materialRoots, candidate, expires); err != nil {
 			return materialScope{}, err
 		}
 	}
@@ -244,7 +249,7 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		}
 		return call.Guard(ctx)
 	}
-	return materialScope{intent: intent, retained: retained, roots: roots.Current, proof: proof, expires: expires, guard: guard}, guard(ctx)
+	return materialScope{intent: intent, retained: retained, roots: materialRoots, proof: proof, expires: expires, guard: guard}, guard(ctx)
 }
 
 func (b *Backend) ContainerEvidence(ctx context.Context, call rootoci.Call, request rootoci.ContainerEvidenceRequest) (rootoci.ContainerEvidenceChunk, error) {
