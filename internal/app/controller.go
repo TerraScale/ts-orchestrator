@@ -374,6 +374,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	var fleet oci.Fleet
 	var volumeInspector host.ManagedVolumeInspector
 	var terminalExecutor oci.TerminalExecutor
+	workloadRoot := rootoci.NewClient(rootoci.Expectations{Cell: cfg.NATS.Cell})
+	defer workloadRoot.Close()
 	var materialService *managedmaterial.PreparationService
 	var backupRuntime *backupOperationRuntime
 	var materialAdmission placementMaterialAdmission
@@ -402,7 +404,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			AllowedSubnetCIDR:    accepted.subnetCIDR,
 			NativeValidator:      managedmaterial.PackagedNativeMaterialValidator{},
 			NativeVerifierSHA256: accepted.nativeVerifierSHA256}
-		materialAdmission = preparedMaterialAdmission(*materialService)
+		materialAdmission = preparedMaterialAdmission(sdkManagedMaterialCurrent{client: workloadRoot})
 
 		journal, _, err := retryControllerOpen(ctx, "open OCI mutation journal", fullClusterReady, false,
 			func(attempt context.Context) (*oci.KVJournal, error) {
@@ -724,8 +726,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if terraBaseCA != nil {
 		nativeMemberCA = terraBaseCA.CertificatePEM()
 	}
-	workloadRoot := rootoci.NewClient(rootoci.Expectations{Cell: cfg.NATS.Cell})
-	defer workloadRoot.Close()
 	rootInventory := &rootInventoryViews{client: workloadRoot}
 	nativeReleases.canary = newSmokeGate(nativeMemberCA, workloadRoot).check
 	workloadReconciler, hostLoad, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,

@@ -9,12 +9,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
@@ -71,6 +73,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 		"session_cancel", "raw_sign", "unknown_member", "wrong_process", "expired", "effect_then_revoke", "backend_unknown",
 		"retained_negative_offset", "retained_startup", "channel_bad_role", "channel_offset_limit", "channel_startup",
 		"native_bad_node", "native_startup",
+		"material_current_valid", "material_current_bad_id", "material_current_unknown_id", "material_current_expired", "material_current_startup",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -86,7 +89,8 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 			reader := &transportReader{started: make(chan struct{}), stopped: make(chan struct{})}
 			var successor atomic.Bool
 			foundation := &transportFoundation{successor: &successor, unknown: scenario == "backend_unknown"}
-			service := &Service{backends: Backends{Readers: reader, Foundations: foundation}}
+			workloads := &transportCurrentWorkloads{expired: scenario == "material_current_expired"}
+			service := &Service{backends: Backends{Readers: reader, Foundations: foundation, Workloads: workloads}}
 			started := make(chan struct{})
 			var childPID int
 			var authorizations atomic.Int32
@@ -102,6 +106,12 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					return Lease{}, ErrUnauthorized
 				}
 				expectedOperation := OperationObserveLocalInstance
+				if strings.HasPrefix(scenario, "material_current_") {
+					expectedOperation = OperationManagedMaterialCurrent
+				}
+				if scenario == "material_current_startup" && !operation.ReadOnly() {
+					return Lease{}, ErrUnauthorized
+				}
 				if scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" {
 					if !operation.ReadOnly() {
 						return Lease{}, ErrUnauthorized
@@ -204,6 +214,20 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if strings.HasPrefix(scenario, "material_current_") {
+				input := ManagedMaterialCurrentRequest{DatabaseID: transportMaterialDatabase, PartitionID: transportMaterialPartition}
+				if scenario == "material_current_bad_id" {
+					input.DatabaseID = "../other"
+				}
+				if scenario == "material_current_unknown_id" {
+					input.DatabaseID = entityid.New()
+				}
+				request.Operation = OperationManagedMaterialCurrent
+				request.Payload, err = json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			wire, err := json.Marshal(request)
 			if err != nil {
 				t.Fatal(err)
@@ -249,6 +273,35 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 				var response wireResponse
 				if json.Unmarshal(output.Bytes(), &response) != nil || response.Status != "outcome_unknown" || foundation.effects.Load() != 1 || reader.calls.Load() != 0 {
 					t.Fatalf("uncertain committed effect lost outcome: effects=%d response=%s", foundation.effects.Load(), output.Bytes())
+				}
+			} else if strings.HasPrefix(scenario, "material_current_") {
+				var response wireResponse
+				expected, calls := "ok", int32(1)
+				switch scenario {
+				case "material_current_bad_id":
+					expected, calls = "invalid", 0
+				case "material_current_unknown_id":
+					expected = "unauthorized"
+				case "material_current_expired":
+					expected = "unavailable"
+				case "material_current_startup":
+					expected, calls = "unauthorized", 0
+				}
+				if json.Unmarshal(output.Bytes(), &response) != nil || response.Status != expected || workloads.calls.Load() != calls ||
+					reader.calls.Load() != 0 || foundation.effects.Load() != 0 {
+					t.Fatalf("public material transport returned wrong boundary result: calls=%d response=%s", workloads.calls.Load(), output.Bytes())
+				}
+				if calls == 0 && authorizations.Load() != 0 {
+					t.Fatal("unadmitted public material request retained transport authority")
+				}
+				if expected == "ok" {
+					var receipt ManagedMaterialCurrentReceipt
+					if json.Unmarshal(response.Payload, &receipt) != nil || receipt.Preparation.Spec.PlacementDatabaseID != transportMaterialDatabase ||
+						receipt.Preparation.PartitionID != transportMaterialPartition || !time.Now().Before(receipt.ExpiresAt) || receipt.ExpiresAt.After(deadline) ||
+						bytes.Contains(response.Payload, []byte(`"ciphertext"`)) || bytes.Contains(response.Payload, []byte(`"Contents"`)) ||
+						bytes.Contains(response.Payload, []byte(`"Retained"`)) {
+						t.Fatal("public CURRENT transport exposed a bundle or lost its finite scope")
+					}
 				}
 			} else {
 				var response wireResponse
@@ -335,4 +388,33 @@ func (foundation *transportFoundation) ReconcileFoundation(ctx context.Context, 
 }
 func (*transportFoundation) EnsureSource(context.Context, Call, SourceRequest) (SourceReceipt, error) {
 	return SourceReceipt{}, ErrUnauthorized
+}
+
+const transportMaterialDatabase = "00000000001Y9Z8VKC1VV66J6B"
+const transportMaterialPartition = "0000000000Z3WK359G2W66CVT8"
+
+// This backend checks the real Unix transport only. It mints no accepted domain
+// authority and does not exercise the installed root OCI verifier.
+type transportCurrentWorkloads struct {
+	WorkloadCredentials
+	expired bool
+	calls   atomic.Int32
+}
+
+func (backend *transportCurrentWorkloads) ManagedMaterialCurrent(ctx context.Context, call Call, request ManagedMaterialCurrentRequest) (ManagedMaterialCurrentReceipt, error) {
+	if call.Guard(ctx) != nil {
+		return ManagedMaterialCurrentReceipt{}, ErrUnauthorized
+	}
+	backend.calls.Add(1)
+	if request.DatabaseID != transportMaterialDatabase || request.PartitionID != transportMaterialPartition {
+		return ManagedMaterialCurrentReceipt{}, ErrUnauthorized
+	}
+	deadline := call.Deadline()
+	if backend.expired {
+		deadline = time.Now().Add(-time.Second)
+	}
+	return ManagedMaterialCurrentReceipt{Preparation: managedmaterial.PreparationReceipt{
+		Spec:        managedmaterial.InitialSpec{PlacementDatabaseID: request.DatabaseID, PartitionID: request.PartitionID},
+		PartitionID: request.PartitionID, Generation: 1, Signature: "transport-fixture-only",
+	}, ExpiresAt: deadline}, nil
 }

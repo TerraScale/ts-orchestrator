@@ -143,6 +143,9 @@ func (service *Service) validRequest(request wireRequest) bool {
 		return decodePayload(request.Payload, &input) == nil && input.Valid()
 	case OperationReconcileVolumeBackups:
 		return decodePayload(request.Payload, new(struct{})) == nil
+	case OperationManagedMaterialCurrent:
+		var input ManagedMaterialCurrentRequest
+		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.DatabaseID) && entityid.Valid(input.PartitionID)
 	case OperationMaterializeContainer:
 		if len(request.Payload) > (64<<10)+128 {
 			return false
@@ -357,6 +360,22 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 		return service.backends.Volumes.ObserveTerminatedInstance(ctx, call, input)
 	case OperationReconcileVolumeBackups:
 		return service.backends.Backups.ReconcileVolumeBackups(ctx, call)
+	case OperationManagedMaterialCurrent:
+		var input ManagedMaterialCurrentRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		receipt, err := service.backends.Workloads.ManagedMaterialCurrent(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		wire, err := json.Marshal(receipt)
+		if err != nil || len(wire) > MaxManagedMaterialCurrentBytes || !validResponseExpiry(receipt.ExpiresAt, call) ||
+			receipt.Preparation.Spec.PlacementDatabaseID != input.DatabaseID || receipt.Preparation.PartitionID != input.PartitionID ||
+			receipt.Preparation.Spec.PartitionID != input.PartitionID || receipt.Preparation.Generation == 0 || receipt.Preparation.Signature == "" {
+			return nil, ErrUnavailable
+		}
+		return receipt, nil
 	case OperationMaterializeContainer:
 		var input MaterializeContainerRequest
 		if err := decodePayload(request.Payload, &input); err != nil {

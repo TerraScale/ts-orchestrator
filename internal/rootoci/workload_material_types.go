@@ -58,6 +58,7 @@ type ContainerGenerationReceipt struct {
 }
 
 type WorkloadCredentials interface {
+	ManagedMaterialCurrent(context.Context, Call, ManagedMaterialCurrentRequest) (ManagedMaterialCurrentReceipt, error)
 	MaterializeContainer(context.Context, Call, MaterializeContainerRequest) (ContainerMaterialReceipt, error)
 	ObserveContainerGeneration(context.Context, Call, ObserveContainerGenerationRequest) (ContainerGenerationReceipt, error)
 	MaterializeNativeCanary(context.Context, Call, NativeCanaryRequest) (NativeCanaryReceipt, error)
