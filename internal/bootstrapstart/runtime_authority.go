@@ -148,11 +148,10 @@ func (reader *CurrentFounderAuthorityReader) RuntimeInstanceObserver(ctx context
 	if err != nil {
 		return nil, err
 	}
-	provider, err := newOCIAdmissionProvider(config)
-	if err != nil {
-		return nil, err
+	if reader.runtimeSDK == nil {
+		return nil, ErrInstanceObservation
 	}
-	return NewOCIInstanceObserver(config.Cell, provider)
+	return reader.runtimeSDK.instanceObserver(ctx, config)
 }
 
 // ObserveWorkerArchitecture checks the exact observed OCI shape and image in its AD.
