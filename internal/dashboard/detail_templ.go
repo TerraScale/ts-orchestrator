@@ -962,9 +962,9 @@ func partitionDetailBody(current view) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var47 string
-			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(placementServingText(database))
+			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(placementServingText(*database))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/detail.templ`, Line: 198, Col: 171}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/detail.templ`, Line: 198, Col: 172}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 			if templ_7745c5c3_Err != nil {
@@ -977,7 +977,7 @@ func partitionDetailBody(current view) templ.Component {
 			var templ_7745c5c3_Var48 string
 			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(database.DesiredSeats))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/detail.templ`, Line: 198, Col: 206}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/detail.templ`, Line: 198, Col: 207}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 			if templ_7745c5c3_Err != nil {
