@@ -1,11 +1,15 @@
+//go:build fixturetest
+
 package materialsource
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -14,12 +18,14 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -27,11 +33,13 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
@@ -88,7 +96,7 @@ func materialSourceAnchor(t *testing.T) (bootstrap.VerifiedBootstrapAnchor, boot
 		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: oci.RegionGRU,
 		OCIRegion: "sa-saopaulo-1", ControllerSlots: slots, LedgerDelegationWire: grantWire,
 		StorageDomain: bootstrap.StorageDomain{Namespace: "namespace-a", LedgerBucket: "ledger-bucket",
-			LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", HeadBucket: "head-bucket",
+			LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", HeadBucket: "gru-1-head",
 			HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", Prefix: "private/bootstrap"},
 		InitialRegionIntentGeneration: 4, InitialRegionIntentSHA256: hex.EncodeToString(intentDigest[:]),
 		InitialRegionIntentWire: intentWire}
@@ -112,7 +120,10 @@ func materialSourceAnchor(t *testing.T) (bootstrap.VerifiedBootstrapAnchor, boot
 	return current, historical, roots, rootPrivate, anchorWire
 }
 
-type materialProtocolSecret struct{ ID, Name, Content, Token string }
+type materialProtocolSecret struct {
+	ID, Name, Content, Token string
+	Target                   bootstrapmaterial.VaultTarget
+}
 type materialProtocol struct {
 	mu                sync.Mutex
 	directory         string
@@ -122,6 +133,10 @@ type materialProtocol struct {
 	loseSourceCreate  bool
 	hiddenSourceReads int
 	sourceCreates     int
+	policies          map[string]identity.Policy
+	founders          map[string]http.Handler
+	interceptObject   func(http.ResponseWriter, *http.Request) bool
+	interceptIAM      func(http.ResponseWriter, *http.Request) bool
 }
 
 func (server *materialProtocol) objectPath(key string) string {
@@ -132,6 +147,24 @@ func (server *materialProtocol) put(key string, body []byte) error {
 	return os.WriteFile(server.objectPath(key), body, 0o600)
 }
 func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if server.interceptObject != nil && server.interceptObject(w, r) {
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/20160918/") {
+		var handler http.Handler
+		server.mu.Lock()
+		for token, candidate := range server.founders {
+			if strings.Contains(r.Header.Get("Authorization"), token) {
+				handler = candidate
+				break
+			}
+		}
+		server.mu.Unlock()
+		if handler != nil {
+			handler.ServeHTTP(w, r)
+			return
+		}
+	}
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
@@ -139,7 +172,24 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(401)
 		return
 	}
+	if r.Method == http.MethodGet && r.URL.Path == "/n" {
+		io.WriteString(w, `"namespace-a"`)
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/n/namespace-a/b/gru-1-head" {
+		json.MarshalWrite(w, objectstorage.Bucket{Id: new("ocid1.bucket.oc1.sa-saopaulo-1.head"), Name: new("gru-1-head"), Namespace: new("namespace-a"), KmsKeyId: new("ocid1.key.oc1.sa-saopaulo-1.head"), CompartmentId: new("ocid1.compartment.oc1..control")})
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/n/") {
+		bucketKMS := "ocid1.key.oc1.sa-saopaulo-1.head"
+		switch {
+		case strings.Contains(r.URL.Path, "/b/ledger-bucket/o/"):
+			bucketKMS = "ocid1.key.oc1.sa-saopaulo-1.ledger"
+		case strings.Contains(r.URL.Path, "/b/sfo-ledger/o/"):
+			bucketKMS = "ocid1.key.oc1.us-sanjose-1.ledger"
+		case strings.Contains(r.URL.Path, "/b/sfo-1-head/o/"):
+			bucketKMS = "ocid1.key.oc1.us-sanjose-1.head"
+		}
 		old, err := os.ReadFile(server.objectPath(r.URL.Path))
 		etag := digestWire(old)
 		if r.Method == http.MethodGet {
@@ -148,8 +198,15 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 				io.WriteString(w, `{"code":"ObjectNotFound","message":"absent"}`)
 				return
 			}
+			info, err := os.Stat(server.objectPath(r.URL.Path))
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
 			w.Header().Set("etag", etag)
-			w.Header().Set("opc-sse-kms-key-id", "ocid1.key.oc1.sa-saopaulo-1.head")
+			w.Header().Set("Content-Length", strconv.Itoa(len(old)))
+			w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
+			w.Header().Set("opc-sse-kms-key-id", bucketKMS)
 			w.Write(old)
 			return
 		}
@@ -162,7 +219,9 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 			io.WriteString(w, `{"code":"PreconditionFailed","message":"changed"}`)
 			return
 		}
-		if r.Header.Get("if-none-match") == "" && r.Header.Get("if-match") == "" || r.Header.Get("opc-sse-kms-key-id") != "ocid1.key.oc1.sa-saopaulo-1.head" {
+		explicitKMS := strings.Contains(r.URL.Path, "/bootstrap/v2/material-source/") || strings.HasSuffix(r.URL.Path, "/iam-lease.json")
+		kms := r.Header.Get("opc-sse-kms-key-id")
+		if r.Header.Get("if-none-match") == "" && r.Header.Get("if-match") == "" || explicitKMS && kms != bucketKMS || kms != "" && kms != bucketKMS {
 			w.WriteHeader(400)
 			return
 		}
@@ -175,7 +234,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 			w.WriteHeader(500)
 			return
 		}
-		if r.Header.Get("if-none-match") == "*" {
+		if r.Header.Get("if-none-match") == "*" && strings.Contains(r.URL.Path, "/bootstrap/v2/material-source/") {
 			server.sourceCreates++
 		}
 		w.Header().Set("etag", digestWire(body))
@@ -214,7 +273,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 			return
 		}
 		server.creates++
-		secret := materialProtocolSecret{ID: fmt.Sprintf("ocid1.vaultsecret.oc1.%s.secret%d", strings.Split(server.target.VaultOCID, ".")[3], server.creates), Name: details.Name, Content: details.Content.Content, Token: r.Header.Get("opc-retry-token")}
+		secret := materialProtocolSecret{ID: fmt.Sprintf("ocid1.vaultsecret.oc1.%s.secret%d", strings.Split(server.target.VaultOCID, ".")[3], server.creates), Target: server.target, Name: details.Name, Content: details.Content.Content, Token: r.Header.Get("opc-retry-token")}
 		wire, _ := json.Marshal(secret)
 		if server.put("secret-"+secret.ID, wire) != nil || server.put("name-"+secret.Name, wire) != nil || server.put("token-"+secret.Token, wire) != nil {
 			w.WriteHeader(500)
@@ -240,10 +299,14 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 		if err == nil {
 			var secret materialProtocolSecret
 			json.Unmarshal(body, &secret)
-			items = append(items, ocivault.SecretSummary{Id: new(secret.ID), SecretName: new(secret.Name), CompartmentId: new(server.target.CompartmentOCID), VaultId: new(server.target.VaultOCID), LifecycleState: ocivault.SecretSummaryLifecycleStateActive})
+			items = append(items, ocivault.SecretSummary{Id: new(secret.ID), SecretName: new(secret.Name), CompartmentId: new(secret.Target.CompartmentOCID), VaultId: new(secret.Target.VaultOCID), LifecycleState: ocivault.SecretSummaryLifecycleStateActive})
 		}
 		response = items
-	case strings.HasSuffix(r.URL.Path, "/secretbundles"):
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/secretbundles/actions/getByName"):
+		if r.URL.Query().Get("versionNumber") != "1" {
+			w.WriteHeader(400)
+			return
+		}
 		if strings.HasPrefix(r.URL.Query().Get("secretName"), "ts-bootstrap-source-") && server.hiddenSourceReads > 0 {
 			server.hiddenSourceReads--
 			w.WriteHeader(404)
@@ -288,7 +351,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 		}
 		var secret materialProtocolSecret
 		json.Unmarshal(body, &secret)
-		response = ocivault.Secret{Id: new(id), SecretName: new(secret.Name), CompartmentId: new(server.target.CompartmentOCID), VaultId: new(server.target.VaultOCID), KeyId: new(server.target.KMSKeyOCID), LifecycleState: ocivault.SecretLifecycleStateActive, CurrentVersionNumber: new(int64(1))}
+		response = ocivault.Secret{Id: new(id), SecretName: new(secret.Name), CompartmentId: new(secret.Target.CompartmentOCID), VaultId: new(secret.Target.VaultOCID), KeyId: new(secret.Target.KMSKeyOCID), LifecycleState: ocivault.SecretLifecycleStateActive, CurrentVersionNumber: new(int64(1))}
 	default:
 		w.WriteHeader(404)
 		return
@@ -297,12 +360,30 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 }
 
 func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
+	if _, err := brokerauth.MeasureHealthyClock(brokerauth.KernelClockProbe{}); err != nil {
+		t.Fatalf("source admission scenario requires bounded kernel NTP clock: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	now := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Second)
 	anchor, _, roots, private, _ := materialSourceAnchor(t)
 	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.vault", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}
 	protocol := &materialProtocol{directory: t.TempDir(), target: target, loseCreate: true, loseSourceCreate: true}
-	endpoint := httptest.NewServer(protocol)
+	endpoint := httptest.NewTLSServer(protocol)
 	defer endpoint.Close()
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	originalTransport := http.DefaultTransport
+	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasSuffix(host, ".oraclecloud.com") {
+			return nil, fmt.Errorf("unexpected SDK TLS endpoint %s", address)
+		}
+		return (&tls.Dialer{Config: endpoint.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, network, strings.TrimPrefix(endpoint.URL, "https://"))
+	}
+	http.DefaultTransport = transport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport; transport.CloseIdleConnections() })
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -347,6 +428,12 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	pinnedSlots := slices.Clone(anchor.Anchor().ControllerSlots)
 	publish := func() {
 		t.Helper()
+		for i := range grant.Regions {
+			grant.Regions[i].Generation = grant.Generation
+			if material := grant.Regions[i].BootstrapMaterial; material != nil && material.SourceRegistration != nil {
+				material.SourceRegistration.Generation = grant.Generation
+			}
+		}
 		payload, err := trust.EncodePayload(grant)
 		if err != nil {
 			t.Fatal(err)
@@ -383,9 +470,24 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		sourceFoundationRecords(t, protocol, grant)
+		rootWire, err := trust.EncodeEnvelope(rootEnvelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chainWire, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
 		protocol.mu.Lock()
 		defer protocol.mu.Unlock()
-		if err := protocol.put("/n/namespace-a/b/head-bucket/o/private/bootstrap/foundation-scope-v1.json", wire); err != nil {
+		if err = protocol.put("/n/namespace-a/b/gru-1-head/o/orchestrator/foundation/v1/anchor.json", rootWire); err != nil {
+			t.Fatal(err)
+		}
+		if err = protocol.put("/n/namespace-a/b/gru-1-head/o/orchestrator/foundation/v1/root-chain.json", chainWire); err != nil {
+			t.Fatal(err)
+		}
+		if err := protocol.put("/n/namespace-a/b/gru-1-head/o/private/bootstrap/foundation-scope-v1.json", wire); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -393,7 +495,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU"); err == nil {
 		t.Fatal("foundation-only grant minted source")
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), region.VerifiedBootstrapMaterial{}, &objects, &management, &bundles, filepath.Join(t.TempDir(), "source"), now); err == nil {
+	if _, err := ResolveColdStartMaterial(t.Context(), region.VerifiedBootstrapMaterial{}, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "source"), now); err == nil {
 		t.Fatal("empty grant minted source")
 	}
 	grant.Regions[0].BootstrapMaterial = intent
@@ -403,7 +505,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), pinnedOnly, &objects, &management, &bundles, filepath.Join(t.TempDir(), "missing-pinned-source"), now); err == nil || protocol.creates != 0 {
+	if _, err := ResolveColdStartMaterial(t.Context(), pinnedOnly, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "missing-pinned-source"), now); err == nil || protocol.creates != 0 {
 		t.Fatal("existing pinned identity minted replacement source")
 	}
 	for index, material := range []*region.BootstrapMaterialIntent{intent, spokeIntent} {
@@ -412,8 +514,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		startup, _ := sourceImageRecipe(t, private, roots, now, material.Config, ids, anchor.Anchor().InitialRegionIntentWire)
 		material.Startup = &startup
 		material.SourceRegistration = &bootstrap.InitialSourceRegistration{InstallationID: material.InstallationID, DeploymentID: material.Config.DeploymentID, Environment: material.Config.Environment, ClusterID: material.Config.ClusterID, Cell: oci.Region(strings.ToUpper(material.Config.Cell)), Generation: 1, PlanSHA256: material.PlanSHA256, SeedSlot: startup.SeedSlot, ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}, StorageDomain: anchor.StorageDomain(), LedgerRecordDomains: bootstrap.BootstrapLedgerCapabilityDomains()}
-		if material.Config.Cell == "sfo" {
-			material.SourceRegistration.StorageDomain = bootstrap.StorageDomain{Namespace: "namespace-sfo", LedgerBucket: "sfo-ledger", HeadBucket: "sfo-head", LedgerKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.ledger", HeadKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.head", Prefix: "regional/sfo"}
+		if index == 1 {
+			material.SourceRegistration.StorageDomain = bootstrap.StorageDomain{Namespace: "namespace-a", LedgerBucket: "sfo-ledger", LedgerKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.ledger", HeadBucket: "sfo-1-head", HeadKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.head", Prefix: "private/sfo"}
 		}
 	}
 	publish()
@@ -421,10 +523,33 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	actor, homeAuthority := sourceFounderFixtureWithAuthority(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
+	assertSourceFounderGeometryDenials(t, actor, verified, protocol)
+	_, competingAuthority := sourceFounderFixtureWithAuthority(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.lease-contender")
+	assertHomeIAMLeases(t, homeAuthority, competingAuthority, &objects, protocol)
+	// Matching Actor fields cannot adopt a source created before its IAM journal.
+	sourceScope := digestWire([]byte(verified.InstallationID() + "\x00gru"))
+	sourceObject := verified.StorageDomain().Prefix + "/bootstrap/v2/material-source/" + sourceScope + ".json"
+	sourcePath := "/n/namespace-a/b/gru-1-head/o/" + sourceObject
+	counterfeit, _ := json.Marshal(materialSourceState{SchemaVersion: 1, Actor: materialSourceActor{InstanceID: actor.InstanceID(), GrantDigest: actor.GrantDigest(), TemplateDigest: actor.TemplateDigest()}, InstallationID: verified.InstallationID(), Cell: "gru", Generation: verified.Generation(), PlanSHA256: verified.PlanDigest(), Target: target, SecretName: "ts-bootstrap-source-" + sourceScope[:32], RetryToken: "00000000-0000-4000-8000-000000000001", StartedAt: now})
+	if err := protocol.put(sourcePath, counterfeit); err != nil {
+		t.Fatal(err)
+	}
+	if err := actor.AuthorizeSourceObject(t.Context(), sourceObject); err == nil {
+		t.Fatal("source predating exact IAM protection was adopted")
+	}
+	if len(protocol.policies) != 0 || protocol.creates != 0 {
+		t.Fatal("unproven source reached IAM or Vault creation")
+	}
+	if err := os.Remove(protocol.objectPath(sourcePath)); err != nil {
+		t.Fatal(err)
+	}
 	for attempt := range 2 {
-		if _, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now.Add(time.Duration(attempt)*time.Second)); err == nil {
+		_, attemptErr := ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now.Add(time.Duration(attempt)*time.Second))
+		if attemptErr == nil {
 			t.Fatal("uncertain source response or competing candidate unexpectedly succeeded")
 		}
+		t.Logf("source boot attempt %d: %v", attempt, attemptErr)
 	}
 	if protocol.creates != 1 {
 		t.Fatalf("uncertain source retry duplicated escrow: creates=%d", protocol.creates)
@@ -435,9 +560,16 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	for i := range 2 {
 		directory := filepath.Join(t.TempDir(), "source")
 		workers.Go(func() {
-			sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, directory, now)
-			if errs[i] != nil {
-				sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, directory, now)
+			for attempt := range 30 {
+				sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, directory, now)
+				if errs[i] == nil || attempt == 29 {
+					return
+				}
+				select {
+				case <-t.Context().Done():
+					return
+				case <-time.After(100 * time.Millisecond):
+				}
 			}
 		})
 	}
@@ -446,6 +578,10 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+	differentActor := sourceFounderFixture(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.other")
+	if _, err := ResolveColdStartMaterial(t.Context(), verified, differentActor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "different-instance"), now); err == nil || protocol.creates != 1 {
+		t.Fatal("different actual instance rebound original founder source")
 	}
 	committedWire, err := os.ReadFile(protocol.objectPath("secret-" + sources[0].state.Reference.SecretOCID))
 	if err != nil {
@@ -462,8 +598,12 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil || digestWire(committedBody) != sources[0].state.Reference.SHA256 {
 		t.Fatal("source recovery changed original committed source")
 	}
+	compressedBytes := len(committedBody)
 	clear(committedBody)
-	t.Logf("founder source escrow compressed bytes=%d (Vault limit=%d)", sources[0].state.Reference.MaxBytes, materialSourceSecretLimit)
+	t.Logf("founder source escrow compressed bytes=%d (Vault limit=%d)", compressedBytes, materialSourceSecretLimit)
+	if compressedBytes == 0 || compressedBytes > materialSourceSecretLimit || int64(compressedBytes) != sources[0].state.Reference.MaxBytes {
+		t.Fatalf("actual compressed source exceeds its pinned Vault budget: bytes=%d pinned=%d limit=%d", compressedBytes, sources[0].state.Reference.MaxBytes, materialSourceSecretLimit)
+	}
 	if !reflect.DeepEqual(sources[0].Record(), sources[1].Record()) || protocol.sourceCreates != 1 {
 		t.Fatal("concurrent boots selected different signing roots")
 	}
@@ -473,7 +613,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if protocol.creates != 2 {
 		t.Fatalf("creates after response loss=%d", protocol.creates)
 	}
-	replacement, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, filepath.Join(t.TempDir(), "replacement"), now)
+	replacement, err := ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "replacement"), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,7 +621,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(publication.References) != 27 || protocol.creates != 28 || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
+	if len(publication.References) != 30 || protocol.creates != 31 || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
 		t.Fatalf("replacement rotated source or duplicated secrets: creates=%d refs=%d", protocol.creates, len(publication.References))
 	}
 	projection, err := replacement.InstallMaterial(t.Context())
@@ -496,13 +636,12 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err := projection.VerifyCurrent(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	spokeAnchor := assertHomeStartupPublicProof(t, replacement, projection, anchor, roots, private, protocol, now)
 	for _, ref := range publication.References {
 		if ref.Reference.SecretOCID == replacement.state.Reference.SecretOCID {
 			t.Fatal("escrow reference leaked to normal host")
 		}
 	}
-	body, err := os.ReadFile(protocol.objectPath("/n/namespace-a/b/head-bucket/o/" + replacement.key))
+	body, err := os.ReadFile(protocol.objectPath("/n/namespace-a/b/gru-1-head/o/" + replacement.key))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,11 +681,41 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := peer.GetSecretBundle(t.Context(), ocisecrets.GetSecretBundleRequest{SecretId: new(publication.References[0].Reference.SecretOCID), VersionNumber: new(int64(1))}); err != nil {
 		t.Fatalf("normal host material unreadable: %v", err)
 	}
+	rogueDirectory := filepath.Join(t.TempDir(), "rogue-source")
+	rogueRecord, err := bootstrapmaterial.Generate(rogueDirectory, cfg, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{"material.json", "READY"}
+	for _, file := range rogueRecord.Files {
+		names = append(names, file.Name)
+	}
+	for _, name := range names {
+		body, err := os.ReadFile(filepath.Join(rogueDirectory, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = os.WriteFile(filepath.Join(replacement.directory, name), body, 0o600)
+		clear(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := replacement.Provision(t.Context(), target, &management, &bundles, now); err == nil || protocol.creates != 31 {
+		t.Fatal("edited local roots caused Vault effects")
+	}
+	replacement, err = ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, replacement.directory, now)
+	if err != nil || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
+		t.Fatalf("trusted source repair: %v", err)
+	}
+	if _, err := replacement.Provision(t.Context(), target, &management, &bundles, now); err != nil || protocol.creates != 31 {
+		t.Fatalf("trusted source publication replay: %v", err)
+	}
 	if _, err := sources[1].Provision(t.Context(), target, &management, &bundles, now); err == nil {
 		t.Fatal("stale source checkpoint was allowed")
 	}
 	for _, directory := range []string{replacement.directory, filepath.Join(replacement.directory, "link")} {
-		if _, err := ResolveLinkSource(t.Context(), replacement, replacement, nil, &objects, &management, &bundles, directory, now); err == nil || protocol.creates != 28 {
+		if _, err := ResolveLinkSource(t.Context(), replacement, replacement, nil, &objects, &management, &bundles, directory, now); err == nil || protocol.creates != 31 {
 			t.Fatal("Link restore overlapped original regional producer")
 		}
 	}
@@ -572,7 +741,12 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(linkRecord, recoveredLink.Record()) || protocol.creates != 37 || len(linkPublication.References) != 8 {
+	homeMaterial, err := replacement.InstallMaterial(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertHomeStartupPublicProof(t, replacement, homeMaterial, recoveredLink, anchor, roots, private, protocol, now)
+	if !reflect.DeepEqual(linkRecord, recoveredLink.Record()) || protocol.creates != 40 || len(linkPublication.References) != 8 {
 		t.Fatalf("Link source rotated or publication duplicated: creates=%d refs=%d", protocol.creates, len(linkPublication.References))
 	}
 	for _, ref := range linkPublication.References {
@@ -591,22 +765,46 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spokeSource, err := ResolveColdStartMaterial(t.Context(), spokeGrant, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-source"), now)
+	spokeActor := sourceFounderFixture(t, spokeGrant, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.us-sanjose-1.founder")
+	if spokeActor.SourceStorageDomain() != anchor.StorageDomain() || spokeActor.Founder().StorageDomain() == spokeActor.SourceStorageDomain() {
+		t.Fatal("spoke founder confused its regional ledger with home source storage")
+	}
+	spokeSource, err := ResolveColdStartMaterial(t.Context(), spokeGrant, spokeActor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-source"), now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ResolveLinkSource(t.Context(), spokeSource, replacement, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "unproven-spoke-link"), now); err == nil {
 		t.Fatal("spoke minted Link without recovered home signer")
 	}
-	spokeLink, err := ResolveLinkSource(t.Context(), spokeSource, replacement, recoveredLink, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-link"), now)
+	homeTemplate, err := bootstrap.VerifyRegionalStartupTemplate(verified.FoundationGrantWire(), roots, anchor, oci.RegionGRU, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	recoveredSpoke, err := ResolveLinkSource(t.Context(), spokeSource, replacement, recoveredLink, &objects, &management, &bundles, filepath.Join(t.TempDir(), "recovered-spoke-link"), now)
+	spokeTemplate, err := bootstrap.VerifyRegionalStartupTemplate(spokeGrant.FoundationGrantWire(), roots, anchor, oci.RegionSFO, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if protocol.creates != 39 || !reflect.DeepEqual(spokeLink.Record(), recoveredSpoke.Record()) || spokeLink.Record().Signer != recoveredLink.Record().Signer || spokeLink.Record().HomeLinkSHA256 != linkPublication.MaterialSHA256 {
+	homeInventory, err := bootstrap.LoadRegionalSource(t.Context(), homeTemplate, &objects, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spokeInventory, err := bootstrap.LoadRegionalSource(t.Context(), spokeTemplate, &objects, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipient, err := bootstrap.VerifyLinkRecipient(t.Context(), spokeInventory, homeInventory, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spokeLink, err := IssueRegionalLink(t.Context(), replacement, recoveredLink, recipient, spokeGrant, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-link"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveredSpoke, err := IssueRegionalLink(t.Context(), replacement, recoveredLink, recipient, spokeGrant, &objects, &management, &bundles, filepath.Join(t.TempDir(), "recovered-spoke-link"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if protocol.creates != 42 || !reflect.DeepEqual(spokeLink.Record(), recoveredSpoke.Record()) || spokeLink.Record().Signer != recoveredLink.Record().Signer || spokeLink.Record().HomeLinkSHA256 != linkPublication.MaterialSHA256 {
 		t.Fatalf("spoke changed home Link authority: creates=%d", protocol.creates)
 	}
 	for _, file := range spokeLink.Record().Files {
@@ -614,6 +812,46 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 			t.Fatal("spoke source contains home signer")
 		}
 	}
+	// Deliver SFO leaves, then recover through public objects and regional Vault only.
+	protocol.target = bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..sfocontrol", VaultOCID: "ocid1.vault.oc1.us-sanjose-1.vault", KMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.key"}
+	if _, err := spokeSource.Provision(t.Context(), protocol.target, &management, &bundles, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recoveredSpoke.PublishRegionalLink(t.Context(), protocol.target, &management, &bundles, now); err != nil {
+		t.Fatal(err)
+	}
+	regionalMaterial, err := spokeSource.InstallMaterial(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicRecovered, err := ResolveRegionalLink(t.Context(), regionalMaterial, recipient, &objects, &bundles, filepath.Join(t.TempDir(), "public-spoke-recovery"), now)
+	if err != nil || !publicRecovered.IsVerified() {
+		t.Fatalf("public spoke recovery: %v", err)
+	}
+	if !reflect.DeepEqual(publicRecovered.Record(), recoveredSpoke.Record()) {
+		t.Fatal("public recovery changed home-issued Link")
+	}
+	spokeProjection, err := NewStartupProjection(spokeTemplate, regionalMaterial, spokeTemplate.Template().SeedSlot)
+	if err != nil {
+		t.Fatalf("spoke startup projection: %v", err)
+	}
+	spokeProjection, err = spokeProjection.WithStartupLink(t.Context(), publicRecovered.Proof(), now)
+	if err != nil {
+		t.Fatalf("spoke startup Link attachment: %v", err)
+	}
+	spokeConfigs := make(map[string][]byte)
+	for _, slot := range spokeProjection.Manifest().ControllerSlots {
+		spokeConfigs[slot], err = json.Marshal(map[string]any{"nats": map[string]any{}, "controller": map[string]string{"cell": "sfo", "slot": slot}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	spokeAuthority, err := spokeProjection.BindConfigs(t.Context(), spokeConfigs)
+	if err != nil || spokeAuthority.StorageDomain() != spokeActor.Founder().StorageDomain() || spokeAuthority.VerifyCurrent(t.Context(), time.Now()) != nil {
+		t.Fatalf("spoke startup proof with separate regional ledger: %v", err)
+	}
+	wantCreates := protocol.creates
+	protocol.target = target
 	grant.Generation = 2
 	grant.Regions[0].Generation = 2
 	grant.Regions[1].Generation = 2
@@ -624,7 +862,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, replacement.directory, now)
+	actor = sourceFounderFixture(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
+	restarted, err := ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, replacement.directory, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,6 +876,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := restarted.Provision(t.Context(), target, &management, &bundles, verified.ExpiresAt()); err == nil {
 		t.Fatal("expired grant published material")
 	}
+	grant.Generation = 3
 	intent.Config.ValidityHours = 72
 	wire, _ = json.Marshal(intent.Config, json.Deterministic(true))
 	intent.PlanSHA256 = digestWire(wire)
@@ -646,9 +886,10 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), changed, &objects, &management, &bundles, filepath.Join(t.TempDir(), "changed"), now); err == nil {
+	if _, err := ResolveColdStartMaterial(t.Context(), changed, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "changed"), now); err == nil {
 		t.Fatal("same installation changed its signing source")
 	}
+	grant.Generation = 4
 	intent.Config = cfg
 	wire, _ = json.Marshal(cfg, json.Deterministic(true))
 	intent.PlanSHA256, intent.SourceRegistration = digestWire(wire), nil
@@ -657,9 +898,10 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != 39 {
+	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != wantCreates {
 		t.Fatal("source escrow overrode pinned ledger key")
 	}
+	grant.Generation = 5
 	pinnedLedgerWire = sourcePinnedLedger(t, private, replacement.Record(), now)
 	pinnedSlots = []string{"controller-a", "controller-b", "controller-c"}
 	publish()
@@ -667,41 +909,10 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pinnedRecovery, err := ResolveColdStartMaterial(t.Context(), matchingPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "matching-pin"), now)
-	if err != nil || !reflect.DeepEqual(pinnedRecovery.Record(), replacement.Record()) || protocol.creates != 39 {
+	actor, homeAuthority = sourceFounderFixtureWithAuthority(t, matchingPin, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
+	pinnedRecovery, err := ResolveColdStartMaterial(t.Context(), matchingPin, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "matching-pin"), now)
+	if err != nil || !reflect.DeepEqual(pinnedRecovery.Record(), replacement.Record()) || protocol.creates != wantCreates {
 		t.Fatalf("matching pinned source recovery: %v", err)
 	}
-	// Regional ledger storage deliberately differs from the foundation source
-	// bucket; the public proof must read home while preserving SFO ledger pins.
-	protocol.target = bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..sfocontrol", VaultOCID: "ocid1.vault.oc1.us-sanjose-1.vault", KMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.key"}
-	if _, err := spokeSource.Provision(t.Context(), protocol.target, &management, &bundles, now); err != nil {
-		t.Fatal(err)
-	}
-	spokeMaterial, err := spokeSource.InstallMaterial(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	spokeTemplate, err := bootstrap.VerifyStartupTemplate(spokeGrant.FoundationGrantWire(), roots, spokeAnchor, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	startup, err := NewStartupProjection(spokeTemplate, spokeMaterial, "controller-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	configs := map[string][]byte{}
-	for _, slot := range spokeAnchor.Anchor().ControllerSlots {
-		configs[slot], err = json.Marshal(map[string]any{"nats": map[string]any{}, "controller": map[string]string{"cell": "sfo", "slot": slot}})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	bound, err := startup.BindConfigs(t.Context(), configs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := bootstrap.LoadDerivedStartupAuthority(t.Context(), spokeTemplate, &objects, "controller-a", now)
-	if err != nil || loaded.Digest() != bound.Digest() || loaded.StorageDomain() != spokeAnchor.StorageDomain() || !strings.HasPrefix(spokeSource.key, "private/bootstrap/") || strings.HasPrefix(spokeSource.key, "regional/sfo/") {
-		t.Fatalf("independent home source and regional ledger domains: %v", err)
-	}
+	assertHomeIAMRetiredRoot(t, homeAuthority, &objects, roots, private, anchor)
 }
