@@ -292,7 +292,7 @@ func connectControllerReaderLease(ctx, readCtx context.Context, snapshot control
 		previous := cancel
 		cancel = func() { deadlineCancel(); previous() }
 	}
-	conn, lease, err := natscell.ConnectMemoryLease(connectionCtx, snapshot.nats.Cell, snapshot.nats.URL, values[0],
+	conn, lease, err := natscell.ConnectMemoryLeaseForOperation(connectionCtx, readCtx, snapshot.nats.Cell, snapshot.nats.URL, values[0],
 		&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{certificate}})
 	if err != nil {
 		cancel()
