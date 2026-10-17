@@ -341,7 +341,7 @@ func (repository *Repository) read(ctx context.Context, name, versionID, etag, w
 	if etag != "" {
 		request.IfMatch = new(etag)
 	}
-	response, err := repository.client.GetObject(ctx, request)
+	response, err := repository.client.GetObject(ociclient.RequestContext(ctx), request)
 	if err != nil {
 		if service, ok := errors.AsType[objectServiceError](err); ok &&
 			service.GetHTTPStatusCode() == http.StatusNotFound {
