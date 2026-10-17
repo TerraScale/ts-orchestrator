@@ -99,6 +99,9 @@ func (s *SignedFootprint) ContainerReleaseAuthority(ctx context.Context, cell, r
 // ValidateContainerReleaseAuthorities checks producer inputs without granting
 // runtime authority. The producer must sign the resulting foundation grant.
 func ValidateContainerReleaseAuthorities(grant FoundationGrant, roots trust.Keyring, home bootstrap.StorageDomain, now time.Time) error {
+	if err := validateFoundationWorkloadGenesis(grant, home); err != nil {
+		return err
+	}
 	if len(grant.ReleaseAuthorities) == 0 {
 		return nil
 	}
@@ -161,6 +164,9 @@ func ValidateContainerReleaseAuthorities(grant FoundationGrant, roots trust.Keyr
 		if len(expected) != 0 {
 			return errors.New("container release delegation omits approved capabilities")
 		}
+		if grant.SchemaVersion == 3 {
+			continue
+		}
 		migrationEnvelope, err := trust.DecodeEnvelope(intent.SequenceMigrationWire)
 		if err != nil {
 			return fmt.Errorf("container release sequence migration: %w", err)
@@ -183,6 +189,60 @@ func ValidateContainerReleaseAuthorities(grant FoundationGrant, roots trust.Keyr
 				return errors.New("container release sequence migration lacks an approved regional floor")
 			}
 		}
+	}
+	return nil
+}
+
+func foundationWorkloadGenesis(grant FoundationGrant, home bootstrap.StorageDomain) ([]release.WorkloadGenesis, error) {
+	if grant.SchemaVersion != 3 || home.Validate() != nil || home.HeadBucket != foundationDiscoveryBucket || len(grant.Regions) != 3 || len(grant.ReleaseAuthorities) != 3 {
+		return nil, errors.New("workload genesis requires the complete founding grant and fixed home store")
+	}
+	var origins []release.WorkloadGenesis
+	seen := make(map[string]bool, 9)
+	for _, authority := range grant.ReleaseAuthorities {
+		if len(authority.SequenceMigrationWire) != 0 || authority.Environment != "production" || len(authority.Cells) != 3 {
+			return nil, errors.New("workload genesis cannot import migration history or omit a founding cell")
+		}
+		for _, cell := range authority.Cells {
+			var material *BootstrapMaterialIntent
+			for _, regional := range grant.Regions {
+				if regional.Plan["cell"] == cell {
+					if material != nil {
+						return nil, errors.New("workload genesis repeats a founding regional identity")
+					}
+					material = regional.BootstrapMaterial
+				}
+			}
+			if material == nil || material.InstallationID != grant.InstallationID || material.Config.Cell != strings.ToLower(cell) || material.Config.Environment != authority.Environment {
+				return nil, errors.New("workload genesis differs from its original signed regional material")
+			}
+			origin := release.WorkloadGenesis{Schema: release.WorkloadGenesisSchema, TenancyID: grant.TenancyID, InstallationID: grant.InstallationID,
+				DeploymentID: material.Config.DeploymentID, ClusterID: material.Config.ClusterID, Cell: cell, Environment: authority.Environment, Role: authority.Role,
+				Namespace: home.Namespace, Bucket: home.HeadBucket}
+			name, err := release.WorkloadGenesisObject(origin.TenancyID, origin.Cell, origin.Environment, origin.Role)
+			if err != nil || origin.Validate() != nil || seen[name] {
+				return nil, errors.New("workload genesis has an invalid or repeated permanent founding scope")
+			}
+			seen[name] = true
+			origins = append(origins, origin)
+		}
+	}
+	return origins, nil
+}
+
+func validateFoundationWorkloadGenesis(grant FoundationGrant, home bootstrap.StorageDomain) error {
+	if grant.SchemaVersion != 3 {
+		if len(grant.WorkloadGenesis) != 0 {
+			return errors.New("historical foundation grant cannot carry workload genesis")
+		}
+		return nil
+	}
+	expected, err := foundationWorkloadGenesis(grant, home)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(grant.WorkloadGenesis, expected) {
+		return errors.New("workload genesis differs from the exact original founding scopes")
 	}
 	return nil
 }

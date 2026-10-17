@@ -78,7 +78,7 @@ func (v VerifiedInfrastructureSpend) Footprint() capacityinventory.Scope {
 }
 
 // FoundationInfrastructureScopeDigest hashes the original signed compartment
-// authority. Schema 2 uses canonical logical roles for resources not yet created;
+// authority. Schemas 2 and 3 use canonical logical roles for resources not yet created;
 // their later physical inventory scope has a separate digest.
 func FoundationInfrastructureScopeDigest(grant FoundationGrant) (string, error) {
 	scope, err := infrastructureScope(grant)
@@ -99,7 +99,7 @@ func infrastructureScope(grant FoundationGrant) (capacityinventory.Scope, error)
 		compartments := []string{grant.ParentCompartmentID, grant.SharedCompartmentID}
 		for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment"} {
 			id, ok := ids[key].(string)
-			if grant.SchemaVersion == 2 {
+			if grant.SchemaVersion == 2 || grant.SchemaVersion == 3 {
 				ref, err := FoundationResourceReference(intent.Plan["cell"].(string), key)
 				if err != nil {
 					return capacityinventory.Scope{}, err
@@ -113,7 +113,7 @@ func infrastructureScope(grant FoundationGrant) (capacityinventory.Scope, error)
 				}
 			}
 			if !ok || !physicalCompartmentID(id) {
-				return capacityinventory.Scope{}, errors.New("fleet spending requires exact signed compartment identities or canonical schema-2 roles")
+				return capacityinventory.Scope{}, errors.New("fleet spending requires exact signed compartment identities or canonical schema-2/3 roles")
 			}
 			compartments = append(compartments, id)
 		}

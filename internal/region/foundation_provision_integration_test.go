@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -40,9 +41,21 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
-// This extends the existing signed SDK/disk journal scenario through the actual
-// operator entrypoint. Only remote OCI resources and offline keys are fixtures.
-func foundationProvisionSDKScenario(t *testing.T) {
+type foundationProvisionFixture struct {
+	approval   FoundationPreparationInput
+	prepared   FoundationPreparation
+	bundle     RetainedFoundation
+	roots      trust.Keyring
+	root       ed25519.PrivateKey
+	now        time.Time
+	images     map[string]releasechannel.CurrentImage
+	cloud      *provisionCloud
+	provider   *provisionProvider
+	factoryFor func() *ociclient.Factory
+}
+
+func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
+	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
 	now := time.Now().UTC().Truncate(time.Second)
@@ -67,6 +80,11 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		HomeStorageDomain: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: foundationDiscoveryBucket, LedgerBucket: "gru-1-ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "bootstrap"},
 		SourceVaultTarget: bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.home", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}, TrustedSigners: signers, GRUController: host, SFOController: host, FRAController: host, NetBirdManager: host}
 	approval.ReleaseAuthorities = provisionReleaseAuthorities(t, root, leafPublic, approval.HomeStorageDomain, now)
+	historicalAuthorities := approval.ReleaseAuthorities
+	approval.ReleaseAuthorities = slices.Clone(historicalAuthorities)
+	for index := range approval.ReleaseAuthorities {
+		approval.ReleaseAuthorities[index].SequenceMigrationWire = nil
+	}
 	cloud := &provisionCloud{test: t, directory: t.TempDir(), rows: map[string]map[string]any{}, collections: map[string]string{}, tokens: map[string]string{}, rules: map[string][]any{}, retention: map[string][]any{}, launches: map[string]string{}, tariff: 0.0001, lostLaunch: true, lostPolicy: true}
 	images := map[string]releasechannel.CurrentImage{}
 	for _, role := range []string{"GRU", "SFO", "FRA", "netbird-manager"} {
@@ -136,37 +154,19 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grantPayload, err := trust.EncodePayload(prepared.Grant)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := trust.Scope{Domain: foundationGrantDomain, DeploymentID: prepared.Anchor.DeploymentID, Cell: string(prepared.Anchor.Cell), Environment: prepared.Anchor.Environment, Role: "foundation", Slot: prepared.Anchor.ClusterID}
-	grantEnvelope, err := trust.Sign(grantPayload, scope, now.Add(-time.Second), now.Add(20*time.Minute), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	grantWire, err := trust.EncodeEnvelope(grantEnvelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	grantDigest := sha256.Sum256(grantWire)
-	prepared.Anchor.FoundationScope.GrantSHA256 = hex.EncodeToString(grantDigest[:])
-	anchorEnvelope, err := bootstrap.SignBootstrapAnchor(prepared.Anchor, now.Add(-time.Second), now.Add(20*time.Minute), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	anchorWire, err := trust.EncodeEnvelope(anchorEnvelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundle := RetainedFoundation{TenancyID: prepared.Grant.TenancyID, Namespace: prepared.Anchor.StorageDomain.Namespace, RootChainWire: chain, AnchorWire: anchorWire, GrantWire: grantWire}
+	originPreparation := prepared
+	// Preserve the original signed migration scenario as historical schema2.
+	prepared.Grant.SchemaVersion = 2
+	prepared.Grant.WorkloadGenesis = nil
+	prepared.Grant.ReleaseAuthorities = historicalAuthorities
+	bundle := signProvisionFoundation(t, prepared, chain, root, now)
 	if err := VerifyFoundationProvisionBundle(t.Context(), roots, bundle); err != nil {
 		t.Fatal(err)
 	}
 	cloud.bundle = bundle.clone()
 	cloud.seedPrerequisites(approval)
 	server := httptest.NewTLSServer(http.HandlerFunc(cloud.serveHTTP))
-	defer server.Close()
+	t.Cleanup(server.Close)
 	listener, ok := server.Listener.Addr().(*net.TCPAddr)
 	if !ok || !listener.IP.IsLoopback() || listener.Port == 0 {
 		t.Fatal("provision fixture requires literal loopback listener")
@@ -207,6 +207,46 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		}
 		return factory
 	}
+	return foundationProvisionFixture{approval: approval, prepared: originPreparation, bundle: bundle, roots: roots, root: root, now: now, images: images, cloud: cloud, provider: provider, factoryFor: factoryFor}
+}
+
+func signProvisionFoundation(t *testing.T, prepared FoundationPreparation, chain []byte, root ed25519.PrivateKey, now time.Time) RetainedFoundation {
+	t.Helper()
+	home := *prepared.Anchor.FoundationScope
+	prepared.Anchor.FoundationScope = &home
+	grantPayload, err := trust.EncodePayload(prepared.Grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := trust.Scope{Domain: foundationGrantDomain, DeploymentID: prepared.Anchor.DeploymentID, Cell: string(prepared.Anchor.Cell), Environment: prepared.Anchor.Environment, Role: "foundation", Slot: prepared.Anchor.ClusterID}
+	grantEnvelope, err := trust.Sign(grantPayload, scope, now.Add(-time.Second), now.Add(20*time.Minute), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantWire, err := trust.EncodeEnvelope(grantEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantDigest := sha256.Sum256(grantWire)
+	prepared.Anchor.FoundationScope.GrantSHA256 = hex.EncodeToString(grantDigest[:])
+	anchorEnvelope, err := bootstrap.SignBootstrapAnchor(prepared.Anchor, now.Add(-time.Second), now.Add(20*time.Minute), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchorWire, err := trust.EncodeEnvelope(anchorEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := RetainedFoundation{TenancyID: prepared.Grant.TenancyID, Namespace: prepared.Anchor.StorageDomain.Namespace, RootChainWire: chain, AnchorWire: anchorWire, GrantWire: grantWire}
+	return bundle
+}
+
+// This extends the existing signed SDK/disk journal scenario through the actual
+// operator entrypoint. Only remote OCI resources and offline keys are fixtures.
+func foundationProvisionSDKScenario(t *testing.T) {
+	fixture := newFoundationProvisionFixture(t)
+	approval, bundle, roots := fixture.approval, fixture.bundle, fixture.roots
+	cloud, provider, factoryFor := fixture.cloud, fixture.provider, fixture.factoryFor
 	factory := factoryFor()
 	invalid := bundle.clone()
 	invalid.GrantWire = []byte("invalid signed authority")
@@ -387,6 +427,146 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if cloud.journal("GRU").FoundationWriter.OriginalQuote != nil || cloud.launchPosts != posts || cloud.creates != creates {
 		t.Fatal("legacy reopen invented original evidence or purchased another resource")
 	}
+	t.Run("prospective workload genesis", foundationWorkloadGenesisSDKScenario)
+}
+
+func foundationWorkloadGenesisSDKScenario(t *testing.T) {
+	fixture := newFoundationProvisionFixture(t)
+	// This independent prospective operator does not inherit the legacy client's floor.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	prepared := fixture.prepared
+	if prepared.Grant.SchemaVersion != 3 || len(prepared.Grant.WorkloadGenesis) != 9 {
+		t.Fatal("new founding preparation did not derive the complete prospective lineage")
+	}
+	bundle := signProvisionFoundation(t, prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
+	if err := VerifyFoundationProvisionBundle(t.Context(), fixture.roots, bundle); err != nil {
+		t.Fatalf("original root-signed prospective founding grant: %v", err)
+	}
+	_, foreignRoot, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := signProvisionFoundation(t, prepared, bundle.RootChainWire, foreignRoot, fixture.now)
+	factory := fixture.factoryFor()
+	reads, requests := fixture.provider.reads.Load(), fixture.cloud.requests
+	if err := ProvisionFoundationBundle(t.Context(), factory, fixture.roots, foreign); err == nil || fixture.provider.reads.Load() != reads || fixture.cloud.requests != requests {
+		t.Fatalf("untrusted origin signer reached the operator/cloud boundary: %v", err)
+	}
+	for name, mutate := range map[string]func(*FoundationGrant){
+		"historical schema with genesis": func(grant *FoundationGrant) { grant.SchemaVersion = 2 },
+		"missing original scope":         func(grant *FoundationGrant) { grant.WorkloadGenesis = grant.WorkloadGenesis[:8] },
+		"different original deployment": func(grant *FoundationGrant) {
+			grant.WorkloadGenesis[0].DeploymentID = grant.WorkloadGenesis[1].DeploymentID
+		},
+		"different home store": func(grant *FoundationGrant) { grant.WorkloadGenesis[0].Namespace = "other" },
+		"mixed historical migration": func(grant *FoundationGrant) {
+			grant.ReleaseAuthorities[0].SequenceMigrationWire = []byte("test-only conflicting migration input")
+		},
+	} {
+		candidate := prepared
+		candidate.Grant.WorkloadGenesis = slices.Clone(prepared.Grant.WorkloadGenesis)
+		candidate.Grant.ReleaseAuthorities = slices.Clone(prepared.Grant.ReleaseAuthorities)
+		mutate(&candidate.Grant)
+		invalid := signProvisionFoundation(t, candidate, bundle.RootChainWire, fixture.root, fixture.now)
+		factory := fixture.factoryFor()
+		reads, requests := fixture.provider.reads.Load(), fixture.cloud.requests
+		if err := ProvisionFoundationBundle(t.Context(), factory, fixture.roots, invalid); err == nil || fixture.provider.reads.Load() != reads || fixture.cloud.requests != requests {
+			t.Fatalf("%s reached the operator/cloud boundary: %v", name, err)
+		}
+	}
+	fixture.cloud.bundle = bundle.clone()
+	fixture.cloud.lostOrigin = true
+	before := fixture.cloud.creates
+	if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
+		t.Fatalf("prospective origin did not retain the existing startup refusal: %v", err)
+	}
+	if fixture.cloud.lostOrigin || fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 || fixture.cloud.hasAnchor() {
+		t.Fatal("prospective publication failed uncertain-write recovery or preceded paid effects/startup")
+	}
+	expected, err := json.Marshal(bundle, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, origin := range prepared.Grant.WorkloadGenesis {
+		name, err := release.WorkloadGenesisObject(origin.TenancyID, origin.Cell, origin.Environment, origin.Role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err := os.ReadFile(fixture.cloud.objectPath("gru-1-head/" + name))
+		if err != nil || !bytes.Equal(wire, expected) {
+			t.Fatalf("origin did not retain original grant/anchor/root lineage at %s: %v", name, err)
+		}
+	}
+	if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) || fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 {
+		t.Fatalf("identical origin replay initialized a runtime or changed the startup refusal: %v", err)
+	}
+	t.Run("independent historical operator", func(t *testing.T) {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, fixture.bundle); err == nil || !strings.Contains(err.Error(), "permanent founding workload origin") || fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 {
+			t.Fatalf("same-root historical grant bypassed the stable founding origin: %v", err)
+		}
+	})
+	t.Run("different original installation", func(t *testing.T) {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		approval := fixture.approval
+		approval.ParentCompartmentID = "ocid1.compartment.oc1..replacement-parent"
+		replacement, err := PrepareFoundationGrant(t.Context(), approval, fixture.images, func(_ context.Context, _ string, region string) (Live, error) {
+			entry, _ := catalog.CellForOCIRegion(region)
+			return Live{AvailabilityDomain: "scenario:AD-1", ServiceID: "ocid1.service.oc1." + region + ".services", ServiceCIDR: "all-" + strings.ToLower(entry.OCIRegionKey) + "-services-in-oracle-services-network"}, nil
+		})
+		if err != nil || replacement.Grant.InstallationID == prepared.Grant.InstallationID {
+			t.Fatalf("replacement installation fixture: %v", err)
+		}
+		other := signProvisionFoundation(t, replacement, bundle.RootChainWire, fixture.root, fixture.now)
+		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, other); err == nil || !strings.Contains(err.Error(), "permanent founding workload origin") || fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 {
+			t.Fatalf("new root-signed installation bypassed the original permanent scope: %v", err)
+		}
+	})
+	resolver, err := verifyRetainedFoundation(t.Context(), bundle, fixture.roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authority, err := resolver.ContainerReleaseAuthority(t.Context(), "GRU", "terrabase", "production"); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") || authority.IsVerified() {
+		t.Fatal("prospective origin minted container ordering authority without a consumer")
+	}
+	if spending, err := resolver.InfrastructureSpend(t.Context()); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") || spending.IsVerified() {
+		t.Fatal("prospective origin minted resolved infrastructure spending without a consumer")
+	}
+	if spending, err := resolver.Footprint.(*SignedFootprint).InfrastructureSpend(t.Context()); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") || spending.IsVerified() {
+		t.Fatal("prospective origin minted direct infrastructure spending without a consumer")
+	}
+	if _, err := resolver.Footprint.(*SignedFootprint).OCIRIssuers(t.Context()); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") {
+		t.Fatalf("prospective origin exposed runtime OCIR issuance: %v", err)
+	}
+	if _, err := resolver.Footprint.AuthorizedRegions(t.Context()); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") {
+		t.Fatalf("prospective origin exposed runtime foundation scope: %v", err)
+	}
+	anchor, err := verifyDiscoveryAnchor(bundle.AnchorWire, fixture.roots, bundle.TenancyID, bundle.Namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA} {
+		if _, err := bootstrap.VerifyRegionalStartupTemplate(bundle.GrantWire, fixture.roots, anchor, cell, time.Now()); !errors.Is(err, bootstrap.ErrManifestInvalid) {
+			t.Fatalf("unbound %s parser ignored the signed prospective schema: %v", cell, err)
+		}
+		if _, err := bootstrap.VerifyBoundRegionalStartupTemplate(t.Context(), fixture.factoryFor(), bundle.GrantWire, fixture.roots, anchor, cell, time.Now()); !errors.Is(err, bootstrap.ErrManifestInvalid) {
+			t.Fatalf("bound %s parser ignored the signed prospective schema: %v", cell, err)
+		}
+	}
+	first := prepared.Grant.WorkloadGenesis[0]
+	name, err := release.WorkloadGenesisObject(first.TenancyID, first.Cell, first.Environment, first.Role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflict := []byte("test-only conflicting original retained lineage")
+	fixture.cloud.writeObject("gru-1-head/"+name, conflict)
+	if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil || fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 {
+		t.Fatalf("conflicting permanent origin was reused or replaced: %v", err)
+	}
+	actual, err := os.ReadFile(fixture.cloud.objectPath("gru-1-head/" + name))
+	if err != nil || !bytes.Equal(actual, conflict) {
+		t.Fatal("conflicting origin bytes were overwritten")
+	}
 }
 
 type provisionProvider struct {
@@ -416,6 +596,7 @@ type provisionCloud struct {
 	launches                       map[string]string
 	tariff                         float64
 	lostLaunch, lostPolicy         bool
+	lostOrigin                     bool
 	requests, creates, launchPosts int
 }
 
@@ -891,6 +1072,12 @@ func (c *provisionCloud) serveStorage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		c.writeObject(bucket+"/"+object, wire)
+		if strings.HasPrefix(object, "orchestrator/workload-genesis/v1/") && c.lostOrigin {
+			c.lostOrigin = false
+			w.WriteHeader(http.StatusServiceUnavailable)
+			io.WriteString(w, `{"code":"InternalError","message":"accepted origin response lost"}`)
+			return
+		}
 		w.Header().Set("etag", digestSource(wire))
 		return
 	}

@@ -69,6 +69,11 @@ type FoundationPreparationInput struct {
 }
 
 func (input FoundationPreparationInput) validate() error {
+	for _, authority := range input.ReleaseAuthorities {
+		if len(authority.SequenceMigrationWire) != 0 {
+			return errors.New("a new foundation must derive workload genesis without historical migration inputs")
+		}
+	}
 	validID := func(value, kind string) bool {
 		return strings.HasPrefix(value, "ocid1."+kind+".oc1..") && len(value) <= 255 && !strings.ContainsAny(value, " \t\r\n")
 	}
@@ -192,7 +197,7 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		return FoundationPreparation{}, err
 	}
 	installation := foundationPreparationInstallation(input)
-	grant := FoundationGrant{InstallationID: installation, SchemaVersion: 2, Generation: 1, TenancyID: input.TenancyID, ParentCompartmentID: input.ParentCompartmentID,
+	grant := FoundationGrant{InstallationID: installation, SchemaVersion: 3, Generation: 1, TenancyID: input.TenancyID, ParentCompartmentID: input.ParentCompartmentID,
 		SharedCompartmentID: input.SharedCompartmentID, Currency: input.Currency, MonthlyLimitMinor: input.MonthlyLimitMinor, CleanupOwner: input.CleanupOwner,
 		ReleaseAuthorities:  input.ReleaseAuthorities,
 		InfrastructureSpend: &InfrastructureSpendIntent{BudgetID: entityid.Derive("foundation-infrastructure-budget", installation), Currency: input.Currency, MonthlyLimitMinor: input.InfrastructureMonthlyLimitMinor, Bootstrap: &BootstrapSpendingIntent{ReservedMinor: input.BootstrapReservedMinor}}}
@@ -274,6 +279,10 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		return FoundationPreparation{}, err
 	}
 	grant.InfrastructureSpend.ScopeSHA256, err = FoundationInfrastructureScopeDigest(grant)
+	if err != nil {
+		return FoundationPreparation{}, err
+	}
+	grant.WorkloadGenesis, err = foundationWorkloadGenesis(grant, input.HomeStorageDomain)
 	if err != nil {
 		return FoundationPreparation{}, err
 	}
@@ -491,13 +500,22 @@ func controllerBootstrapSlot(installation, cell string, startup bootstrap.Startu
 // ValidatePreparedFoundation prevents the ceremony from signing spending
 // hashes unrelated to the recipes its launch consumers actually enforce.
 func ValidatePreparedFoundation(grant FoundationGrant) error {
+	var home bootstrap.StorageDomain
+	for _, regional := range grant.Regions {
+		if regional.Plan["cell"] == "GRU" && regional.BootstrapMaterial != nil && regional.BootstrapMaterial.SourceRegistration != nil {
+			home = regional.BootstrapMaterial.SourceRegistration.StorageDomain
+		}
+	}
+	if err := validateFoundationWorkloadGenesis(grant, home); err != nil {
+		return err
+	}
 	if err := validatePreparedReleaseAuthorities(grant.ReleaseAuthorities); err != nil {
 		return err
 	}
 	if err := ValidateBootstrapSpending(grant); err != nil {
 		return err
 	}
-	if grant.SchemaVersion != 2 || grant.Generation != 1 || grant.InfrastructureSpend == nil || grant.InfrastructureSpend.Bootstrap == nil || len(grant.InfrastructureSpend.Bootstrap.Slots) != 4 || len(grant.Regions) != 3 {
+	if (grant.SchemaVersion != 2 && grant.SchemaVersion != 3) || grant.Generation != 1 || grant.InfrastructureSpend == nil || grant.InfrastructureSpend.Bootstrap == nil || len(grant.InfrastructureSpend.Bootstrap.Slots) != 4 || len(grant.Regions) != 3 {
 		return errors.New("prepared foundation requires exactly three controller allocations and one dedicated GRU manager")
 	}
 	slots := make(map[string]BootstrapSlotIntent, 4)

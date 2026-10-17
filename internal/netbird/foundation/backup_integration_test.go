@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,13 +22,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 )
 
 // This scenario crosses the real SQLite process/filesystem and signed OCI SDK
-// HTTP boundaries. The loopback OCI protocol server persists both region copies.
-func TestBackupRestorePersistentIdentityAndProtectedCopies(t *testing.T) {
+// HTTP boundaries. Its raw scope tests concrete archive/SDK helpers, not manager
+// admission or the public APIs with genuine signed constructor proofs.
+// The loopback OCI protocol server persists both region copies.
+func TestBackupArchivePersistentIdentityAndProtectedCopies(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	root := t.TempDir()
@@ -102,8 +107,11 @@ policy.close()
 	var unlocked atomic.Bool
 	var failSFO atomic.Bool
 	var puts atomic.Int32
+	var requests atomic.Int32
+	var foreignInventory atomic.Bool
 	objects := t.TempDir()
 	factory, endpoint := ociresourcetest.Server(t, func(w http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
 		parts := strings.SplitN(strings.TrimPrefix(request.URL.Path, "/n/tenancy/b/"), "/", 3)
 		bucket := parts[0]
 		if bucket != "netbird-gru" && bucket != "netbird-sfo" {
@@ -163,6 +171,9 @@ policy.close()
 			slices.SortFunc(inventory, func(a, b map[string]any) int { return strings.Compare(a["name"].(string), b["name"].(string)) })
 			start := request.URL.Query().Get("start")
 			inventory = slices.DeleteFunc(inventory, func(object map[string]any) bool { return object["name"].(string) < start })
+			if foreignInventory.Load() {
+				inventory = []map[string]any{{"name": "netbird/foundation/v1/foreign.tar", "size": 1}}
+			}
 			page := map[string]any{"objects": inventory}
 			if len(inventory) > 1 {
 				page["objects"], page["nextStartWith"] = inventory[:1], inventory[1]["name"]
@@ -229,6 +240,12 @@ policy.close()
 			http.Error(w, "unexpected method", 405)
 		}
 	})
+	installation := entityid.Derive("netbird-backup-integration", "installation")
+	scope := backupScope{InstallationID: installation, StoreGeneration: entityid.Derive("netbird-foundation-store", installation) + ":1", TenancyID: "ocid1.tenancy.oc1..t", Namespace: "tenancy"}
+	for i, region := range [2]string{"sa-saopaulo-1", "us-sanjose-1"} {
+		bucket := [2]string{"netbird-gru", "netbird-sfo"}[i]
+		scope.Destinations[i] = backupDestination{Region: region, Bucket: bucket, BucketID: "ocid1.bucket.oc1." + region + "." + bucket, CompartmentID: "ocid1.compartment.oc1..control", KMSKeyID: "ocid1.key.oc1." + region + "." + bucket}
+	}
 	var targets [2]BackupTarget
 	for i, region := range []string{"sa-saopaulo-1", "us-sanjose-1"} {
 		regional, err := ociclient.New(factory.Provider(), ociclient.Options{Region: region})
@@ -240,9 +257,7 @@ policy.close()
 			t.Fatal(err)
 		}
 		ociclient.PinHost(&client.BaseClient, endpoint)
-		bucket := []string{"netbird-gru", "netbird-sfo"}[i]
-		targets[i] = BackupTarget{Client: client, Region: region, Namespace: "tenancy", Bucket: bucket,
-			BucketID: "ocid1.bucket.oc1." + region + "." + bucket, CompartmentID: "ocid1.compartment.oc1..control", KMSKeyID: "ocid1.key.oc1." + region + "." + bucket}
+		targets[i] = BackupTarget{client: client, scope: scope, index: i}
 	}
 	var paused atomic.Int32
 	quiesce := func(context.Context) (func(context.Context) error, error) {
@@ -257,17 +272,155 @@ policy.close()
 		}
 		return func(context.Context) error { resumed.Store(true); return nil }, nil
 	}
+	// Raw facts confer no current manager authority on any public operation.
+	beforeRequests, beforePaused := requests.Load(), paused.Load()
+	if _, err := NewBackupTargets(ctx, factory, region.FoundationResolver{}, region.VerifiedNetBirdManager{}); err == nil {
+		t.Fatal("constructor accepted absent manager proof")
+	}
+	if _, err := Backup(ctx, data, config, targets, quiesce); err == nil {
+		t.Fatal("backup accepted raw target facts")
+	}
+	if _, err := LatestBackup(ctx, targets[1]); err == nil {
+		t.Fatal("inventory accepted raw target facts")
+	}
+	if _, err := Restore(ctx, targets[1], "foreign", filepath.Join(root, "unadmitted")); err == nil {
+		t.Fatal("restore accepted raw target facts")
+	}
+	if requests.Load() != beforeRequests || paused.Load() != beforePaused {
+		t.Fatal("absent authority caused remote or service effects")
+	}
+	if _, err := os.Lstat(filepath.Join(root, "unadmitted")); !os.IsNotExist(err) {
+		t.Fatal("absent authority touched replacement identity")
+	}
+	swapped := [2]BackupTarget{targets[1], targets[0]}
+	if _, err := Backup(ctx, data, config, swapped, quiesce); err == nil {
+		t.Fatal("backup accepted reversed regional slots")
+	}
+	mismatched := targets
+	mismatched[1].scope.Namespace = "foreign"
+	if _, err := Backup(ctx, data, config, mismatched, quiesce); err == nil {
+		t.Fatal("backup accepted different complete scopes")
+	}
 	started := time.Now()
-	record, err := Backup(ctx, data, config, targets, quiesce)
+	record, err := backupArchiveFixture(t, ctx, data, config, targets, quiesce)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if puts.Load() != 2 || !resumed.Load() {
 		t.Fatalf("protected copies=%d resumed=%v", puts.Load(), resumed.Load())
 	}
-	latest, err := LatestBackup(ctx, targets[1])
+	latest, err := targets[1].latestBackup(ctx)
 	if err != nil || latest != record {
 		t.Fatalf("automatic remote discovery changed the snapshot: %v", err)
+	}
+	foreignInventory.Store(true)
+	if _, err := targets[1].latestBackup(ctx); err == nil {
+		t.Fatal("inventory accepted an object outside the exact scope prefix")
+	}
+	foreignInventory.Store(false)
+	// Neither the selected destination nor its surviving peer can be transplanted.
+	for _, mutate := range []struct {
+		name   string
+		change func(*backupScope)
+	}{
+		{"generation", func(s *backupScope) { s.StoreGeneration = strings.TrimSuffix(s.StoreGeneration, ":1") + ":2" }},
+		{"installation", func(s *backupScope) {
+			s.InstallationID = entityid.Derive("netbird-backup-integration", "foreign")
+			s.StoreGeneration = entityid.Derive("netbird-foundation-store", s.InstallationID) + ":1"
+		}},
+		{"tenancy", func(s *backupScope) { s.TenancyID = "ocid1.tenancy.oc1..foreign" }},
+		{"namespace", func(s *backupScope) { s.Namespace = "foreign" }},
+		{"GRU destination", func(s *backupScope) { s.Destinations[0].BucketID += "foreign" }},
+		{"SFO destination", func(s *backupScope) { s.Destinations[1].BucketID += "foreign" }},
+	} {
+		t.Run(mutate.name, func(t *testing.T) {
+			foreign := targets[1]
+			mutate.change(&foreign.scope)
+			before := requests.Load()
+			if err := foreign.download(ctx, record.Object, io.Discard); err == nil || requests.Load() != before {
+				t.Fatal("foreign object scope reached remote GET")
+			}
+			// Rehashing/renaming the original archive cannot replace its manifest scope.
+			archive, err := os.Open(filepath.Join(objects, "netbird-sfo", record.Object))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer archive.Close()
+			forgedObject := record.Object
+			if prefix, err := foreign.scope.prefix(); err == nil {
+				originalPrefix, err := scope.prefix()
+				if err != nil {
+					t.Fatal(err)
+				}
+				forgedObject = prefix + strings.TrimPrefix(record.Object, originalPrefix)
+			}
+			missingParent := filepath.Join(root, "absent-"+strings.ReplaceAll(mutate.name, " ", "-"))
+			stage, _, err := extractBackup(ctx, archive, foreign.scope, forgedObject, filepath.Join(missingParent, "identity"))
+			if err == nil || stage != "" || !strings.Contains(err.Error(), "scope") && !strings.Contains(err.Error(), "generation") {
+				t.Fatalf("foreign manifest was not rejected before staging: %v", err)
+			}
+			if _, err := os.Lstat(missingParent); !os.IsNotExist(err) {
+				t.Fatal("foreign manifest touched replacement parent")
+			}
+		})
+	}
+	// Even a digest-valid, correctly named archive must carry exact scope/time.
+	for _, malformed := range []struct {
+		name     string
+		manifest backupManifest
+		unknown  bool
+	}{
+		{name: "unscoped legacy", manifest: backupManifest{Version: 1, CreatedAt: record.CreatedAt}},
+		{name: "missing scope", manifest: backupManifest{Version: 2, CreatedAt: record.CreatedAt}},
+		{name: "wrong manifest generation", manifest: func() backupManifest {
+			m := backupManifest{Version: 2, CreatedAt: record.CreatedAt, Scope: scope}
+			m.Scope.StoreGeneration += "foreign"
+			return m
+		}()},
+		{name: "wrong timestamp", manifest: backupManifest{Version: 2, CreatedAt: record.CreatedAt.Add(time.Second), Scope: scope}},
+		{name: "unknown member", manifest: backupManifest{Version: 2, CreatedAt: record.CreatedAt, Scope: scope}, unknown: true},
+	} {
+		t.Run(malformed.name, func(t *testing.T) {
+			wire, err := json.Marshal(malformed.manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if malformed.unknown {
+				wire = append([]byte(`{"unexpected":1,`), wire[1:]...)
+			}
+			var body bytes.Buffer
+			writer := tar.NewWriter(&body)
+			if err := writer.WriteHeader(&tar.Header{Name: "manifest.json", Typeflag: tar.TypeReg, Size: int64(len(wire)), Mode: 0o600}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := writer.Write(wire); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			archive, err := os.CreateTemp(t.TempDir(), "manifest-*.tar")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer archive.Close()
+			if _, err := archive.Write(body.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+			prefix, err := scope.prefix()
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest := sha256.Sum256(body.Bytes())
+			object := prefix + record.CreatedAt.Format("20060102T150405.000000000Z") + "/" + hex.EncodeToString(digest[:]) + ".tar"
+			missingParent := filepath.Join(root, "absent-malformed-"+strings.ReplaceAll(malformed.name, " ", "-"))
+			if stage, _, err := extractBackup(ctx, archive, scope, object, filepath.Join(missingParent, "identity")); err == nil || stage != "" || !strings.Contains(err.Error(), "manifest") {
+				t.Fatalf("invalid manifest reached staging: %v", err)
+			}
+			if _, err := os.Lstat(missingParent); !os.IsNotExist(err) {
+				t.Fatal("invalid manifest created a replacement directory")
+			}
+		})
 	}
 	// Losing the entire first host and its region's copy still permits recovery.
 	if err := os.RemoveAll(filepath.Dir(data)); err != nil {
@@ -277,7 +430,7 @@ policy.close()
 		t.Fatal(err)
 	}
 	replacement := filepath.Join(root, "replacement")
-	created, err := Restore(ctx, targets[1], record.Object, replacement)
+	created, err := restoreArchiveFixture(t, ctx, targets[1], record.Object, replacement)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,25 +458,25 @@ with sqlite3.connect(root / 'idp.db') as db:
     assert db.execute('SELECT id, source, destination FROM policy ORDER BY id').fetchall() == [('policy-at-shutdown', 'fra', 'gru'), ('policy-original', 'gru', 'sfo')]
 `)
 	t.Logf("isolated persistent-store recovery=%s recoverable-data-age=%s source-bytes=%d", time.Since(started), time.Since(created), record.Bytes)
-	if _, err := Restore(ctx, targets[1], record.Object, replacement); err == nil {
+	if _, err := restoreArchiveFixture(t, ctx, targets[1], record.Object, replacement); err == nil {
 		t.Fatal("restore overwrote an existing identity")
 	}
 	// Reject a protection downgrade before quiescing the real service.
 	for _, downgrade := range []*atomic.Bool{&public, &unlocked} {
 		downgrade.Store(true)
 		before := paused.Load()
-		if _, err := Backup(ctx, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets, quiesce); err == nil || paused.Load() != before {
+		if _, err := backupArchiveFixture(t, ctx, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets, quiesce); err == nil || paused.Load() != before {
 			t.Fatal("unprotected backup stopped the service or was accepted")
 		}
 		downgrade.Store(false)
 	}
 	// Snapshot and cancellation failures resume through an uncancelled context
 	// and leave no unencrypted temporary archives on the original host.
-	if _, err := Backup(ctx, filepath.Join(replacement, "data"), filepath.Join(root, "missing-config"), targets, quiesce); err == nil || !resumed.Load() {
+	if _, err := backupArchiveFixture(t, ctx, filepath.Join(replacement, "data"), filepath.Join(root, "missing-config"), targets, quiesce); err == nil || !resumed.Load() {
 		t.Fatal("snapshot failure did not resume the server")
 	}
 	cancelled, cancelSnapshot := context.WithCancel(ctx)
-	if _, err := Backup(cancelled, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets,
+	if _, err := backupArchiveFixture(t, cancelled, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets,
 		func(context.Context) (func(context.Context) error, error) {
 			resumed.Store(false)
 			cancelSnapshot()
@@ -339,7 +492,7 @@ with sqlite3.connect(root / 'idp.db') as db:
 	}
 	// Partial remote failure keeps the successful copy and returns an error.
 	failSFO.Store(true)
-	partial, err := Backup(ctx, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets, quiesce)
+	partial, err := backupArchiveFixture(t, ctx, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets, quiesce)
 	if err == nil || !resumed.Load() {
 		t.Fatal("partial copy failure claimed success or left the service stopped")
 	}
@@ -357,7 +510,7 @@ with sqlite3.connect(root / 'idp.db') as db:
 		t.Fatal(err)
 	}
 	badReplacement := filepath.Join(root, "damaged-replacement")
-	if _, err := Restore(ctx, targets[1], record.Object, badReplacement); err == nil {
+	if _, err := restoreArchiveFixture(t, ctx, targets[1], record.Object, badReplacement); err == nil {
 		t.Fatal("corrupt remote archive was accepted")
 	}
 	if _, err := os.Lstat(badReplacement); !os.IsNotExist(err) {
@@ -366,7 +519,7 @@ with sqlite3.connect(root / 'idp.db') as db:
 	// Even a digest-valid archive cannot write outside the replacement root.
 	var malicious bytes.Buffer
 	writer := tar.NewWriter(&malicious)
-	manifest, err := json.Marshal(backupManifest{Version: 1, CreatedAt: record.CreatedAt})
+	manifest, err := json.Marshal(backupManifest{Version: 2, CreatedAt: record.CreatedAt, Scope: scope})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,25 +535,78 @@ with sqlite3.connect(root / 'idp.db') as db:
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256(malicious.Bytes())
-	maliciousObject := backupPrefix + record.CreatedAt.Format("20060102T150405.000000000Z") + "/" + hex.EncodeToString(digest[:]) + ".tar"
+	prefix, err := scope.prefix()
+	if err != nil {
+		t.Fatal(err)
+	}
+	maliciousObject := prefix + record.CreatedAt.Format("20060102T150405.000000000Z") + "/" + hex.EncodeToString(digest[:]) + ".tar"
 	if err := os.WriteFile(filepath.Join(objects, "netbird-sfo", maliciousObject), malicious.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Restore(ctx, targets[1], maliciousObject, badReplacement); err == nil {
+	if _, err := restoreArchiveFixture(t, ctx, targets[1], maliciousObject, badReplacement); err == nil {
 		t.Fatal("archive traversal was accepted")
 	}
 	if _, err := os.Lstat(filepath.Join(root, "escaped")); !os.IsNotExist(err) {
 		t.Fatal("recovery escaped its isolated root")
 	}
 	failSFO.Store(false)
-	newest, err := Backup(ctx, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets, quiesce)
+	newest, err := backupArchiveFixture(t, ctx, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets, quiesce)
 	if err != nil {
 		t.Fatal(err)
 	}
-	latest, err = LatestBackup(ctx, targets[1])
+	latest, err = targets[1].latestBackup(ctx)
 	if err != nil || latest != newest {
 		t.Fatalf("paginated discovery did not choose the newest recoverable archive: %v", err)
 	}
+}
+
+// backupArchiveFixture joins the real local snapshot and SDK archive helpers;
+// it deliberately has no production admission proof or public-API success claim.
+func backupArchiveFixture(t *testing.T, ctx context.Context, data, config string, targets [2]BackupTarget,
+	quiesce func(context.Context) (func(context.Context) error, error),
+) (record BackupRecord, err error) {
+	t.Helper()
+	for _, target := range targets {
+		if err := target.protectedBucket(ctx); err != nil {
+			return record, err
+		}
+	}
+	archive, err := os.CreateTemp(filepath.Dir(data), ".netbird-backup-*.tar")
+	if err != nil {
+		return record, err
+	}
+	defer func() { err = errors.Join(err, archive.Close(), os.Remove(archive.Name())) }()
+	record, err = snapshotBackup(ctx, archive, data, config, targets[0].scope, quiesce)
+	if err != nil {
+		return record, err
+	}
+	for _, target := range targets {
+		if err := target.upload(ctx, archive, record); err != nil {
+			return record, err
+		}
+	}
+	return record, nil
+}
+
+func restoreArchiveFixture(t *testing.T, ctx context.Context, target BackupTarget, object, replacement string) (created time.Time, err error) {
+	t.Helper()
+	if err := target.protectedBucket(ctx); err != nil {
+		return created, err
+	}
+	archive, err := os.CreateTemp(filepath.Dir(replacement), ".netbird-restore-*.tar")
+	if err != nil {
+		return created, err
+	}
+	defer func() { err = errors.Join(err, archive.Close(), os.Remove(archive.Name())) }()
+	if err := target.download(ctx, object, archive); err != nil {
+		return created, err
+	}
+	stage, created, err := extractBackup(ctx, archive, target.scope, object, replacement)
+	if err != nil {
+		return created, err
+	}
+	defer os.RemoveAll(stage)
+	return created, publishBackup(stage, replacement)
 }
 
 func sqlite(t *testing.T, ctx context.Context, directory, script string) {

@@ -37,6 +37,7 @@ var ErrFoundationGrantPending = errors.New("authenticated foundation grant is pe
 type FoundationGrant struct {
 	WorkerProfiles      []WorkerProfile                   `json:"workerProfiles,omitempty"`
 	ReleaseAuthorities  []ContainerReleaseAuthorityIntent `json:"releaseAuthorities,omitempty"`
+	WorkloadGenesis     []release.WorkloadGenesis         `json:"workloadGenesis,omitempty"`
 	InstallationID      string                            `json:"installationId"`
 	SchemaVersion       int                               `json:"schemaVersion"`
 	Generation          uint64                            `json:"generation"`
@@ -411,6 +412,28 @@ func (s *SignedFootprint) readGrant(ctx context.Context) ([]byte, error) {
 }
 
 func (s *SignedFootprint) verifyGrant(wire []byte) (ApprovedFootprint, time.Time, error) {
+	footprint, expires, err := s.verifyOriginalGrant(wire)
+	if err != nil {
+		return ApprovedFootprint{}, time.Time{}, err
+	}
+	envelope, err := trust.DecodeEnvelope(wire)
+	if err != nil {
+		return ApprovedFootprint{}, time.Time{}, err
+	}
+	var grant struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(envelope.Payload, &grant); err != nil {
+		return ApprovedFootprint{}, time.Time{}, err
+	}
+	if grant.SchemaVersion == 3 {
+		return ApprovedFootprint{}, time.Time{}, errors.New("workload genesis has no admitted runtime consumer")
+	}
+	return footprint, expires, nil
+}
+
+// verifyOriginalGrant authenticates producer documents without admitting runtime use.
+func (s *SignedFootprint) verifyOriginalGrant(wire []byte) (ApprovedFootprint, time.Time, error) {
 	if !time.Now().Before(s.expires) {
 		return ApprovedFootprint{}, time.Time{}, errors.New("foundation bootstrap authority expired")
 	}
@@ -433,9 +456,12 @@ func (s *SignedFootprint) verifyGrant(wire []byte) (ApprovedFootprint, time.Time
 	if err := json.Unmarshal(payload, &grant, json.RejectUnknownMembers(true)); err != nil {
 		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope schema invalid")
 	}
-	if grant.InstallationID != s.home.InstallationID || (grant.SchemaVersion != 1 && grant.SchemaVersion != 2) || grant.Generation != s.home.GrantGeneration || grant.TenancyID != s.tenancy || grant.MonthlyLimitMinor <= 0 ||
+	if grant.InstallationID != s.home.InstallationID || (grant.SchemaVersion != 1 && grant.SchemaVersion != 2 && grant.SchemaVersion != 3) || grant.Generation != s.home.GrantGeneration || grant.TenancyID != s.tenancy || grant.MonthlyLimitMinor <= 0 ||
 		(grant.Currency != "USD" && grant.Currency != "BRL") || grant.CleanupOwner == "" || len(grant.CleanupOwner) > 128 {
 		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope lacks matching tenancy, numerical spend authority or cleanup owner")
+	}
+	if err := validateFoundationWorkloadGenesis(grant, s.storage); err != nil {
+		return ApprovedFootprint{}, time.Time{}, err
 	}
 	footprint := ApprovedFootprint{GrantSHA256: hex.EncodeToString(digest[:]), TenancyID: grant.TenancyID, ParentCompartmentID: grant.ParentCompartmentID,
 		SharedCompartmentID: grant.SharedCompartmentID, Regions: grant.Regions}
