@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/gofrs/flock"
@@ -237,7 +238,7 @@ func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup
 			return nil, err
 		}
 		switch info.FullMethod {
-		case "/docker.swarmkit.v1.Control/ListClusters", workerPrepareMethod, workerAdmitMethod, workerAuditMethod, workerReadMembershipMethod, "/docker.swarmkit.v1.Control/GetNode", "/docker.swarmkit.v1.Control/ListNodes", "/docker.swarmkit.v1.Control/UpdateNode", "/docker.swarmkit.v1.Control/GetTask", "/docker.swarmkit.v1.Control/ListTasks", "/docker.swarmkit.v1.Control/GetService", "/docker.swarmkit.v1.Control/ListServices", "/docker.swarmkit.v1.Control/CreateService", "/docker.swarmkit.v1.Control/UpdateService", "/docker.swarmkit.v1.Control/GetConfig", "/docker.swarmkit.v1.Control/ListConfigs", "/docker.swarmkit.v1.Control/CreateConfig", "/docker.swarmkit.v1.Control/UpdateConfig":
+		case "/docker.swarmkit.v1.Control/ListClusters", workerPrepareMethod, workerAdmitMethod, workerAuditMethod, workerReadMembershipMethod, "/docker.swarmkit.v1.Control/GetNode", "/docker.swarmkit.v1.Control/ListNodes", "/docker.swarmkit.v1.Control/UpdateNode", "/docker.swarmkit.v1.Control/GetTask", "/docker.swarmkit.v1.Control/ListTasks", "/docker.swarmkit.v1.Control/GetService", "/docker.swarmkit.v1.Control/ListServices", "/docker.swarmkit.v1.Control/CreateService", "/docker.swarmkit.v1.Control/UpdateService", "/docker.swarmkit.v1.Control/RemoveService", "/docker.swarmkit.v1.Control/GetConfig", "/docker.swarmkit.v1.Control/ListConfigs", "/docker.swarmkit.v1.Control/CreateConfig", "/docker.swarmkit.v1.Control/UpdateConfig":
 		default:
 			return nil, denied()
 		}
@@ -292,7 +293,24 @@ func (s *managementServer) floor(spec *api.ConfigSpec) bool {
 	if err != nil || sequence == 0 {
 		return false
 	}
-	identity := sha256.Sum256([]byte(s.environment + "/" + s.region + "/" + spec.Annotations.Labels[LabelRole]))
+	labels := spec.Annotations.Labels
+	if strings.HasPrefix(spec.Annotations.Name, "ts-worker-family-") {
+		migration := labels["terrascale.release-migration"]
+		digest, err := hex.DecodeString(migration)
+		if labels[LabelRole] != "function-worker" || err != nil || len(digest) != sha256.Size || migration != strings.ToLower(migration) {
+			return false
+		}
+		identity := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%d", migration, labels[LabelRole], s.environment, sequence)))
+		return spec.Annotations.Name == fmt.Sprintf("ts-worker-family-%x", identity[:16])
+	}
+	scope := s.environment + "/" + s.region + "/" + labels[LabelRole]
+	if architecture := labels[labelReleaseArchitecture]; architecture != "" {
+		if labels[LabelRole] != "function-worker" || architecture != "arm64" && architecture != "amd64" {
+			return false
+		}
+		scope += "/" + architecture
+	}
+	identity := sha256.Sum256([]byte(scope))
 	return spec.Annotations.Name == fmt.Sprintf("ts-release-%x", identity[:16])
 }
 func denied() error {
@@ -350,7 +368,7 @@ func (s *managementServer) ListServices(ctx context.Context, req *api.ListServic
 	return result, nil
 }
 func (s *managementServer) managedService(spec *api.ServiceSpec) bool {
-	if spec == nil || !s.scoped(spec.Annotations) || spec.GetReplicated() == nil || len(spec.Networks) != 0 {
+	if spec == nil || !s.scoped(spec.Annotations) || spec.GetReplicated() == nil || spec.GetReplicated().Replicas > autoscale.MaxReplicas || len(spec.Networks) != 0 {
 		return false
 	}
 	placement := spec.Task.Placement
@@ -404,6 +422,16 @@ func (s *managementServer) UpdateService(ctx context.Context, req *api.UpdateSer
 	}
 	return s.client.UpdateService(ctx, req)
 }
+func (s *managementServer) RemoveService(ctx context.Context, req *api.RemoveServiceRequest) (*api.RemoveServiceResponse, error) {
+	current, err := s.GetService(ctx, &api.GetServiceRequest{ServiceID: req.ServiceID})
+	if err != nil {
+		return nil, err
+	}
+	if !s.managedService(&current.Service.Spec) {
+		return nil, denied()
+	}
+	return s.client.RemoveService(ctx, req)
+}
 func (s *managementServer) GetConfig(ctx context.Context, req *api.GetConfigRequest) (*api.GetConfigResponse, error) {
 	result, err := s.client.GetConfig(ctx, req)
 	if err == nil && !s.floor(&result.Config.Spec) {
@@ -432,7 +460,7 @@ func (s *managementServer) CreateConfig(ctx context.Context, req *api.CreateConf
 	return s.client.CreateConfig(ctx, req)
 }
 func (s *managementServer) UpdateConfig(ctx context.Context, req *api.UpdateConfigRequest) (*api.UpdateConfigResponse, error) {
-	if !s.floor(req.Spec) {
+	if !s.floor(req.Spec) || strings.HasPrefix(req.Spec.Annotations.Name, "ts-worker-family-") {
 		return nil, denied()
 	}
 	current, err := s.GetConfig(ctx, &api.GetConfigRequest{ConfigID: req.ConfigID})
