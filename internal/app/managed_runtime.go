@@ -11,6 +11,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -51,18 +52,6 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if err != nil {
 		return err
 	}
-	// The existing child performs current OCI, signed identity and live material admission.
-	if err := superviseControllerAdmission(ctx, cfg, "bootstrap-admit-restart", "/proc/self/exe"); err != nil {
-		return fmt.Errorf("admit root runtime: %w", err)
-	}
-	current, err := markers.ReadIdentity()
-	if err != nil {
-		return err
-	}
-	after, err := bootstrapstart.EncodeAcceptedIdentity(current)
-	if err != nil || !bytes.Equal(before, after) {
-		return errors.New("accepted runtime identity changed during live admission")
-	}
 	initial, err := markers.ReadInitialFormation()
 	if err != nil {
 		return err
@@ -83,6 +72,32 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if err != nil {
 		return err
 	}
+	ownhost := &managedRuntimeHost{reader: reader, accepted: accepted.Clone()}
+	authority, err := newRootOCIAuthority(ctx, accepted, ownhost, selfupdate.NewLayout(selfUpdateRoot(cfg.Host.SelfUpdateRoot)), uid, gid)
+	if err != nil {
+		return err
+	}
+	defer authority.Close()
+	backends, err := newManagedRootBackends(ctx, cfg, local, ownhost)
+	if err != nil {
+		return fmt.Errorf("construct admitted root backends: %w", err)
+	}
+	listener, err := rootoci.Listen(ctx, backends.service, authority.authorize, gid)
+	if err != nil {
+		return fmt.Errorf("listen for admitted root operations: %w", err)
+	}
+	defer listener.Close()
+	if err := superviseControllerAdmissionWithAuthority(ctx, cfg, "bootstrap-admit-restart", "/proc/self/exe", authority); err != nil {
+		return fmt.Errorf("admit root runtime: %w", err)
+	}
+	current, err := markers.ReadIdentity()
+	if err != nil {
+		return err
+	}
+	after, err := bootstrapstart.EncodeAcceptedIdentity(current)
+	if err != nil || !bytes.Equal(before, after) {
+		return errors.New("accepted runtime identity changed during live admission")
+	}
 	vault, err := ocivault.NewVaultsClientWithConfigurationProvider(local.factory.Provider())
 	if err != nil {
 		return err
@@ -102,14 +117,14 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if err != nil {
 		return err
 	}
-	ownhost := &managedRuntimeHost{reader: reader, accepted: accepted.Clone(), taskLoad: executor}
+	ownhost.taskLoad = executor
 	if err := executor.BindContainerMaterial(admitted, ownhost); err != nil {
 		return err
 	}
 	if err := executor.SetRegistryResolver(ownhost.registryResolver); err != nil {
 		return err
 	}
-	node, err := swarmruntime.StartAcceptedNode(ctx, reader, accepted, local.foundations, &vault, &bundles, executor)
+	node, err := swarmruntime.StartAcceptedNode(ctx, reader, accepted, local.foundations, &vault, &bundles, executor, backends.service)
 	if err != nil {
 		return err
 	}
@@ -124,11 +139,6 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 		defer cancel()
 		_ = node.Stop(stopCtx)
 	}()
-	authority, err := newRootOCIAuthority(ctx, accepted, ownhost, selfupdate.NewLayout(selfUpdateRoot(cfg.Host.SelfUpdateRoot)), uid, gid)
-	if err != nil {
-		return err
-	}
-	defer authority.Close()
 	stateful, err := newRootStatefulAuthorizer(cfg, authority, local.factory)
 	if err != nil {
 		return err
@@ -161,7 +171,7 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	sourcesDone := make(chan struct{})
 	go func() {
 		defer close(sourcesDone)
-		err := runManagedRuntimeRootSources(sourcesCtx, cfg, local.factory, ownhost, authority)
+		err := runManagedRuntimeRootSources(sourcesCtx, cfg, local.factory, ownhost, authority, backends)
 		stopRuntime(fmt.Errorf("root runtime source authority ended: %w", err))
 	}()
 	defer func() { stopSources(); <-sourcesDone }()

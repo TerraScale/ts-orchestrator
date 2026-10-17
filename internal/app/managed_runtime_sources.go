@@ -8,14 +8,12 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/rootociread"
-	"github.com/TerraScale/ts-orchestrator/internal/rootrelease"
 )
 
-func runManagedRuntimeRootSources(ctx context.Context, cfg Config, factory *ociclient.Factory, ownhost *managedRuntimeHost, authority *rootOCIAuthority) error {
+func runManagedRuntimeRootSources(ctx context.Context, cfg Config, factory *ociclient.Factory, ownhost *managedRuntimeHost, authority *rootOCIAuthority, backends *managedRootBackends) error {
 	for ctx.Err() == nil {
 		attempt, cancel := context.WithCancel(ctx)
-		sources, err := openManagedRuntimeRootSources(attempt, cfg, factory, ownhost)
+		sources, err := bindRootRuntimeSources(attempt, cfg, factory, ownhost, backends.readers, backends.containers, backends.channels, backends.netbird)
 		if err == nil {
 			defer cancel()
 			defer sources.conn.Close()
@@ -38,20 +36,4 @@ func runManagedRuntimeRootSources(ctx context.Context, cfg Config, factory *ocic
 		}
 	}
 	return context.Cause(ctx)
-}
-
-func openManagedRuntimeRootSources(ctx context.Context, cfg Config, factory *ociclient.Factory, ownhost *managedRuntimeHost) (*rootBoundRuntimeSources, error) {
-	reader, err := rootociread.New(factory)
-	if err != nil {
-		return nil, err
-	}
-	containers, err := rootrelease.New(factory)
-	if err != nil {
-		return nil, err
-	}
-	channels, err := newRootReleaseChannels(ctx, cfg, factory, containers, ownhost.reader, ownhost.accepted)
-	if err != nil {
-		return nil, err
-	}
-	return bindRootRuntimeSources(ctx, cfg, factory, ownhost, reader, containers, channels)
 }

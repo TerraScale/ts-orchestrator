@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/rootnetbird"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/rootociread"
 	"github.com/TerraScale/ts-orchestrator/internal/rootrelease"
@@ -37,9 +38,9 @@ type rootBoundRuntimeSources struct {
 var errRootRuntimeSourceBinding = errors.New("original root runtime source binding failed")
 
 func bindRootRuntimeSources(ctx context.Context, cfg Config, factory *ociclient.Factory, ownhost *managedRuntimeHost,
-	reader *rootociread.Backend, containers *rootrelease.Backend, channels *rootReleaseChannels,
+	reader *rootociread.Backend, containers *rootrelease.Backend, channels *rootReleaseChannels, netbird *rootnetbird.Backend,
 ) (_ *rootBoundRuntimeSources, resultErr error) {
-	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil || factory == nil || ownhost == nil || reader == nil || containers == nil || channels == nil {
+	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil || factory == nil || ownhost == nil || reader == nil || containers == nil || channels == nil || netbird == nil {
 		return nil, rootoci.ErrUnauthorized
 	}
 	ownhost.mu.RLock()
@@ -109,6 +110,10 @@ func bindRootRuntimeSources(ctx context.Context, cfg Config, factory *ociclient.
 	}
 	bindings := rootrelease.Sources{JS: sources.js, Fleet: fleet, Node: node, Intents: sources.intents,
 		Specs: sources.specs.kv, Roots: rootKV, Leases: sources.mutations, Hosts: sources.hosts, Authority: authority, Accepted: accepted}
+	if err := netbird.Bind(rootnetbird.Sources{JS: sources.js, Specs: sources.specs.kv, Roots: rootKV,
+		Leases: sources.mutations, Authority: authority, Accepted: accepted, Credentials: sources.credentials}); err != nil {
+		return nil, errors.Join(errRootRuntimeSourceBinding, err)
+	}
 	if err := reader.BindFleet(journal, images); err != nil {
 		return nil, errors.Join(errRootRuntimeSourceBinding, err)
 	}
