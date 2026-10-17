@@ -86,7 +86,7 @@ func (o *rootReleaseObservation) binaryChunk(ctx context.Context, location relea
 	}
 	result := rootoci.ReleaseBinaryChunk{Size: size, Digest: digest, ExpiresAt: o.deadline}
 	if offset == size {
-		return result, nil
+		return result, o.guard(ctx)
 	}
 	count := min(int64(rootoci.ReleaseBinaryChunkBytes), size-offset)
 	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{NamespaceName: new(location.Namespace), BucketName: new(location.Bucket), ObjectName: new(name), Range: new(fmt.Sprintf("bytes=%d-%d", offset, offset+count-1))})
