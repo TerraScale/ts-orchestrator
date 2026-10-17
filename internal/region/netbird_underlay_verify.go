@@ -2,6 +2,7 @@ package region
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"time"
 
@@ -23,6 +24,20 @@ type VerifiedNetBirdJournalUnderlay struct {
 func (v VerifiedNetBirdJournalUnderlay) IsVerified() bool {
 	return v.original != nil && v.journal.PurposeSHA256 != ""
 }
+
+// Digest identifies the entire retained original journal without revalidating
+// live authority; callers still require CurrentDeadline or Revalidate.
+func (v VerifiedNetBirdJournalUnderlay) Digest() string {
+	if !v.IsVerified() {
+		return ""
+	}
+	wire, err := json.Marshal(v.journal, json.Deterministic(true))
+	if err != nil {
+		return ""
+	}
+	return digestSource(wire)
+}
+
 func (v VerifiedNetBirdJournalUnderlay) Purpose() bootstrap.NetBirdJournalPurpose {
 	return v.purpose.Purpose()
 }
