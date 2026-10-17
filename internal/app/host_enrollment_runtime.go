@@ -201,6 +201,10 @@ func (enrollment *managedHostEnrollment) ServeHTTP(writer http.ResponseWriter, r
 			return
 		}
 	}
+	if !enrollment.admitStartupHostEnrollment(request, enrollmentRequest, descriptor, peerIP) {
+		http.Error(writer, "startup enrollment requires this accepted controller", http.StatusForbidden)
+		return
+	}
 	response, err := enrollment.enroll(request.Context(), snapshot.Epoch, peerIP, wire, enrollmentRequest, descriptor)
 	if err != nil {
 		if errors.Is(err, errStaleUnclaimedRenewal) {

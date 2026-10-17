@@ -121,11 +121,17 @@ func (enrollment *rootHostEnrollment) servePublic(original context.Context, raw 
 	}
 	monitor := source.monitor(ctx, raw, cancel)
 	defer func() { cancel(); <-monitor }()
+	if source.startup != nil {
+		peer, _, err := net.SplitHostPort(raw.RemoteAddr().String())
+		if err != nil || peer != source.startup.current.Identity().PrivateIP {
+			return
+		}
+	}
 	lease, err := source.admit(ctx)
 	if err != nil {
 		return
 	}
-	ctx, stopLease := context.WithDeadline(ctx, lease.Deadline)
+	ctx, stopLease := context.WithDeadline(ctx, lease.deadline)
 	defer stopLease()
 	stopLeaseClose := context.AfterFunc(ctx, func() { _ = raw.Close() })
 	defer stopLeaseClose()
@@ -155,7 +161,7 @@ func (enrollment *rootHostEnrollment) servePublic(original context.Context, raw 
 	if !source.same(destination.source) || destination.guard(ctx) != nil || source.guard(ctx, lease) != nil {
 		return
 	}
-	deadline = earlier(deadline, destination.lease.Deadline)
+	deadline = earlier(deadline, destination.lease.deadline)
 	ctx, stopDelivery := context.WithDeadline(ctx, deadline)
 	defer stopDelivery()
 	stopDestination := context.AfterFunc(destination.ctx, stopDelivery)
@@ -164,7 +170,7 @@ func (enrollment *rootHostEnrollment) servePublic(original context.Context, raw 
 		return
 	}
 	preface := rootHostEnrollmentPreface{Version: 1, TLSVersion: state.Version, CipherSuite: state.CipherSuite,
-		RemoteAddress: raw.RemoteAddr().String(), LocalAddress: raw.LocalAddr().String(), AcceptedAt: accepted.UTC(), Deadline: deadline.UTC()}
+		RemoteAddress: raw.RemoteAddr().String(), LocalAddress: raw.LocalAddr().String(), AcceptedAt: accepted.UTC(), Deadline: deadline.UTC(), Startup: source.startupIdentity()}
 	if writeRootHostEnrollmentPreface(destination.conn, preface) != nil || destination.guard(ctx) != nil {
 		return
 	}

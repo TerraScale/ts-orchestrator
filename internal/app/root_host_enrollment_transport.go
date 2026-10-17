@@ -19,18 +19,36 @@ import (
 const rootHostEnrollmentMaxPreface = 1024
 
 type rootHostEnrollmentPreface struct {
-	Version       uint8     `json:"version"`
-	TLSVersion    uint16    `json:"tls_version"`
-	CipherSuite   uint16    `json:"cipher_suite"`
-	RemoteAddress string    `json:"remote_address"`
-	LocalAddress  string    `json:"local_address"`
-	AcceptedAt    time.Time `json:"accepted_at"`
-	Deadline      time.Time `json:"deadline"`
+	Version       uint8                             `json:"version"`
+	TLSVersion    uint16                            `json:"tls_version"`
+	CipherSuite   uint16                            `json:"cipher_suite"`
+	RemoteAddress string                            `json:"remote_address"`
+	LocalAddress  string                            `json:"local_address"`
+	AcceptedAt    time.Time                         `json:"accepted_at"`
+	Deadline      time.Time                         `json:"deadline"`
+	Startup       *rootHostEnrollmentStartupIdentity `json:"startup,omitempty"`
+}
+
+// Startup is descriptive evidence carried only by the authenticated root
+// connection. It cannot grant authority through HTTP headers or caller DTOs.
+type rootHostEnrollmentStartupIdentity struct {
+	Cell       string `json:"cell"`
+	Region     string `json:"region"`
+	Slot       string `json:"slot"`
+	InstanceID string `json:"instance_id"`
+	PrivateIP  string `json:"private_ip"`
 }
 
 func (preface rootHostEnrollmentPreface) valid(local string) bool {
 	now := time.Now()
 	peer, err := netip.ParseAddrPort(preface.RemoteAddress)
+	if preface.Startup != nil {
+		identity := preface.Startup
+		if err != nil || identity.Cell == "" || identity.Region == "" || identity.Slot == "" || identity.InstanceID == "" ||
+			identity.PrivateIP != peer.Addr().String() || local != net.JoinHostPort(identity.PrivateIP, "8443") {
+			return false
+		}
+	}
 	return err == nil && peer.Addr().Is4() && peer.Addr().IsPrivate() && !peer.Addr().IsLoopback() && peer.Port() != 0 &&
 		preface.Version == 1 && preface.TLSVersion == tls.VersionTLS13 &&
 		(preface.CipherSuite == tls.TLS_AES_128_GCM_SHA256 || preface.CipherSuite == tls.TLS_AES_256_GCM_SHA384 ||
@@ -59,6 +77,7 @@ type rootHostEnrollmentSource struct {
 	session      context.Context
 	sessionLease context.Context
 	peer         nativerootoci.Peer
+	startup      *rootBrokerStartup
 }
 
 func (enrollment *rootHostEnrollment) captureSource() (*rootHostEnrollmentSource, error) {
@@ -66,34 +85,72 @@ func (enrollment *rootHostEnrollment) captureSource() (*rootHostEnrollmentSource
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
 	process, sources := authority.main, authority.sources
-	if process == nil || process.witness == nil || sources == nil || process.managerBinding == nil ||
-		process.session == nil || process.lease == nil || process.ctx.Err() != nil ||
-		process.session.Err() != nil || process.lease.Err() != nil || sources.lease.Err() != nil {
+	if process == nil || process.witness == nil || process.ctx.Err() != nil {
 		return nil, rootoci.ErrUnauthorized
 	}
-	return &rootHostEnrollmentSource{broker: enrollment.broker, process: process, sources: sources,
-		binding: process.managerBinding, session: process.session, sessionLease: process.lease, peer: process.witness.Peer()}, nil
+	source := &rootHostEnrollmentSource{broker: enrollment.broker, process: process, sources: sources,
+		binding: process.managerBinding, session: process.session, sessionLease: process.lease, peer: process.witness.Peer()}
+	if sources != nil && process.managerBinding != nil && process.session != nil && process.lease != nil &&
+		process.session.Err() == nil && process.lease.Err() == nil && sources.lease.Err() == nil {
+		return source, nil
+	}
+	// This is a separate enrollment-only use of the already accepted startup
+	// transport. It never falls through to an OCI observation or runtime lease.
+	source.startup = process.brokerStartup
+	if source.startup == nil || source.startup.process != process || source.startup.ctx.Err() != nil ||
+		!source.startupRetainedLocked() || sources != nil && sources.lease.Err() != nil {
+		return nil, rootoci.ErrUnauthorized
+	}
+	return source, nil
+}
+
+// Caller holds authority.mu; lock order matches verifyBrokerStartupLocked.
+func (source *rootHostEnrollmentSource) startupRetainedLocked() bool {
+	ownhost := source.broker.authority.ownhost
+	ownhost.mu.RLock()
+	defer ownhost.mu.RUnlock()
+	return !source.process.runtime && ownhost.session == nil && ownhost.generation == source.process.generation &&
+		source.process.brokerStartup == source.startup && source.startup.process == source.process && source.startup.ctx.Err() == nil
 }
 
 func (source *rootHostEnrollmentSource) retained() bool {
-	if source.broker.ctx.Err() != nil || source.process.ctx.Err() != nil || source.session.Err() != nil ||
-		source.sessionLease.Err() != nil || source.sources.lease.Err() != nil || source.process.witness.Verify() != nil {
+	if source.broker.ctx.Err() != nil || source.process.ctx.Err() != nil || source.process.witness.Verify() != nil {
 		return false
 	}
 	authority := source.broker.authority
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
-	return authority.main == source.process && authority.sources == source.sources && source.process.managerBinding == source.binding &&
-		source.process.session == source.session && source.process.lease == source.sessionLease && source.process.witness.Peer() == source.peer
+	if authority.main != source.process || authority.sources != source.sources || source.process.managerBinding != source.binding ||
+		source.process.session != source.session || source.process.lease != source.sessionLease || source.process.witness.Peer() != source.peer {
+		return false
+	}
+	if source.sources != nil && source.sources.lease.Err() != nil {
+		return false
+	}
+	if source.startup != nil {
+		return source.startupRetainedLocked()
+	}
+	return source.session != nil && source.sessionLease != nil && source.session.Err() == nil && source.sessionLease.Err() == nil
 }
 
 func (source *rootHostEnrollmentSource) context(parent context.Context) (context.Context, context.CancelFunc) {
-	deadline := earlier(source.broker.origin.ExpiresAt(), earlier(source.sources.deadline, source.binding.signed.Binding.ExpiresAt))
+	deadline := source.broker.origin.ExpiresAt()
+	parents := []context.Context{source.broker.ctx, source.process.ctx}
+	if source.sources != nil {
+		deadline = earlier(deadline, source.sources.deadline)
+		parents = append(parents, source.sources.lease)
+	}
+	if source.startup != nil {
+		deadline = earlier(deadline, source.startup.deadline)
+		parents = append(parents, source.startup.ctx)
+	} else {
+		deadline = earlier(deadline, source.binding.signed.Binding.ExpiresAt)
+		parents = append(parents, source.session, source.sessionLease)
+	}
 	ctx, cancel := context.WithDeadline(parent, deadline)
-	stops := []func() bool{
-		context.AfterFunc(source.broker.ctx, cancel), context.AfterFunc(source.process.ctx, cancel),
-		context.AfterFunc(source.session, cancel), context.AfterFunc(source.sessionLease, cancel),
-		context.AfterFunc(source.sources.lease, cancel),
+	stops := make([]func() bool, 0, len(parents))
+	for _, parent := range parents {
+		stops = append(stops, context.AfterFunc(parent, cancel))
 	}
 	return ctx, func() {
 		for _, stop := range stops {
@@ -103,25 +160,49 @@ func (source *rootHostEnrollmentSource) context(parent context.Context) (context
 	}
 }
 
-func (source *rootHostEnrollmentSource) admit(ctx context.Context) (rootoci.Lease, error) {
-	if ctx.Err() != nil || !source.retained() {
-		return rootoci.Lease{}, rootoci.ErrUnauthorized
-	}
-	lease, err := source.broker.authority.authorizeRuntime(ctx, source.peer)
-	if err != nil || lease.Context == nil || lease.Context != source.sessionLease || lease.Context.Err() != nil ||
-		!time.Now().Before(lease.Deadline) || !source.retained() {
-		return rootoci.Lease{}, rootoci.ErrUnauthorized
-	}
-	if err := source.broker.guard(ctx); err != nil {
-		return rootoci.Lease{}, err
-	}
-	return lease, nil
+// Only the runtime branch contains a general runtime lease. The startup branch
+// retains the original accepted capability without minting or promoting one.
+type rootHostEnrollmentAdmission struct {
+	runtime  rootoci.Lease
+	startup  *rootBrokerStartup
+	deadline time.Time
 }
 
-func (source *rootHostEnrollmentSource) guard(ctx context.Context, lease rootoci.Lease) error {
+func (source *rootHostEnrollmentSource) admit(ctx context.Context) (rootHostEnrollmentAdmission, error) {
+	if ctx.Err() != nil || !source.retained() {
+		return rootHostEnrollmentAdmission{}, rootoci.ErrUnauthorized
+	}
+	var admission rootHostEnrollmentAdmission
+	if source.startup != nil {
+		if err := source.broker.authority.verifyBrokerStartup(ctx, source.startup); err != nil {
+			return rootHostEnrollmentAdmission{}, err
+		}
+		admission.startup, admission.deadline = source.startup, source.startup.deadline
+		if source.sources != nil {
+			admission.deadline = earlier(admission.deadline, source.sources.deadline)
+		}
+	} else {
+		lease, err := source.broker.authority.authorizeRuntime(ctx, source.peer)
+		if err != nil || lease.Context == nil || lease.Context != source.sessionLease || lease.Context.Err() != nil {
+			return rootHostEnrollmentAdmission{}, rootoci.ErrUnauthorized
+		}
+		admission.runtime, admission.deadline = lease, lease.Deadline
+	}
+	admission.deadline = earlier(admission.deadline, source.broker.origin.ExpiresAt())
+	if !time.Now().Before(admission.deadline) || !source.retained() {
+		return rootHostEnrollmentAdmission{}, rootoci.ErrUnauthorized
+	}
+	if err := source.broker.guard(ctx); err != nil {
+		return rootHostEnrollmentAdmission{}, err
+	}
+	return admission, nil
+}
+
+func (source *rootHostEnrollmentSource) guard(ctx context.Context, admission rootHostEnrollmentAdmission) error {
 	current, err := source.admit(ctx)
-	if err != nil || current.Context != lease.Context || !current.Deadline.Equal(lease.Deadline) ||
-		current.Binding != lease.Binding || current.RuntimeID != lease.RuntimeID || ctx.Err() != nil {
+	if err != nil || current.startup != admission.startup || !current.deadline.Equal(admission.deadline) ||
+		current.runtime.Context != admission.runtime.Context || current.runtime.Binding != admission.runtime.Binding ||
+		current.runtime.RuntimeID != admission.runtime.RuntimeID || !current.runtime.Deadline.Equal(admission.runtime.Deadline) || ctx.Err() != nil {
 		return rootoci.ErrUnauthorized
 	}
 	return nil
@@ -129,7 +210,16 @@ func (source *rootHostEnrollmentSource) guard(ctx context.Context, lease rootoci
 
 func (source *rootHostEnrollmentSource) same(other *rootHostEnrollmentSource) bool {
 	return source.process == other.process && source.sources == other.sources && source.binding == other.binding &&
-		source.session == other.session && source.sessionLease == other.sessionLease && source.peer == other.peer
+		source.session == other.session && source.sessionLease == other.sessionLease && source.peer == other.peer && source.startup == other.startup
+}
+
+func (source *rootHostEnrollmentSource) startupIdentity() *rootHostEnrollmentStartupIdentity {
+	if source.startup == nil {
+		return nil
+	}
+	identity := source.startup.current.Identity()
+	return &rootHostEnrollmentStartupIdentity{Cell: identity.Cell, Region: identity.OCIRegion,
+		Slot: identity.Slot, InstanceID: identity.InstanceID, PrivateIP: identity.PrivateIP}
 }
 
 func (source *rootHostEnrollmentSource) monitor(ctx context.Context, conn syscall.Conn, cancel context.CancelFunc) <-chan struct{} {
@@ -171,7 +261,7 @@ type rootHostEnrollmentDestination struct {
 	ctx    context.Context
 	conn   *net.UnixConn
 	source *rootHostEnrollmentSource
-	lease  rootoci.Lease
+	lease  rootHostEnrollmentAdmission
 	done   chan struct{}
 }
 
@@ -202,7 +292,7 @@ func (enrollment *rootHostEnrollment) servePrivate(parent context.Context, conn 
 	if err != nil {
 		return
 	}
-	ctx, stopLease := context.WithDeadline(ctx, lease.Deadline)
+	ctx, stopLease := context.WithDeadline(ctx, lease.deadline)
 	defer stopLease()
 	stopLeaseClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopLeaseClose()

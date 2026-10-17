@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/rootociwire"
@@ -215,7 +217,8 @@ func hostEnrollmentPeer(request *http.Request) (string, error) {
 		return peer, nil
 	}
 	conn, ok := request.Context().Value(rootHostEnrollmentContextKey{}).(*rootHostEnrollmentConn)
-	if !ok || conn.guard(request.Context()) != nil {
+	if !ok || conn.guard(request.Context()) != nil || conn.preface.Startup != nil &&
+		(request.Method != http.MethodPost || request.URL.Path != "/v1/host-enrollment") {
 		return "", rootoci.ErrUnauthorized
 	}
 	peer, err := netip.ParseAddrPort(conn.preface.RemoteAddress)
@@ -223,4 +226,23 @@ func hostEnrollmentPeer(request *http.Request) (string, error) {
 		return "", rootoci.ErrUnauthorized
 	}
 	return peer.Addr().String(), nil
+}
+
+// The original authenticated root stream supplies transport provenance. The
+// separately parsed signed request and adopted signed spec supply host admission.
+func (enrollment *managedHostEnrollment) admitStartupHostEnrollment(request *http.Request,
+	enrolled hostenroll.Request, descriptor hostboot.Descriptor, peerIP string,
+) bool {
+	conn, ok := request.Context().Value(rootHostEnrollmentContextKey{}).(*rootHostEnrollmentConn)
+	if !ok || conn.preface.Startup == nil {
+		return true
+	}
+	identity := conn.preface.Startup
+	accepted := enrollment.runtimeIdentity
+	grant, _, granted := enrollment.services.hostGrant(descriptor.Node)
+	return conn.guard(request.Context()) == nil && descriptor.IsController() &&
+		identity.Cell == accepted.Cell && identity.Cell == enrollment.cell && identity.Region == string(enrollment.region) &&
+		identity.InstanceID == accepted.InstanceOCID && identity.PrivateIP == accepted.PrimaryPrivateIP && identity.Slot == accepted.Slot &&
+		descriptor.Cell == identity.Cell && descriptor.Region == identity.Region && enrolled.InstanceID == identity.InstanceID &&
+		peerIP == identity.PrivateIP && granted && grant.Controller == identity.Slot && grant.PrivateIP == identity.PrivateIP
 }
