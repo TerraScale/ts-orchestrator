@@ -341,6 +341,12 @@ func TestEmptyMirrorWithoutHomeContactFailsClosed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	js := newTestJetStream(t)
+	if _, err := OpenMirrorReader(ctx, js, "gru", "sfo", 1); !errors.Is(err, jetstream.ErrStreamNotFound) {
+		t.Fatalf("read-only missing mirror = %v, want stream not found", err)
+	}
+	if _, err := js.Stream(ctx, StreamName); !errors.Is(err, jetstream.ErrStreamNotFound) {
+		t.Fatal("read-only mirror opener created or changed a missing stream", err)
+	}
 	stream, err := js.CreateStream(ctx, jetstream.StreamConfig{Name: "EMPTY_MIRROR_PROBE", Subjects: []string{"probe.>"}})
 	if err != nil {
 		t.Fatal(err)
@@ -351,6 +357,29 @@ func TestEmptyMirrorWithoutHomeContactFailsClosed(t *testing.T) {
 	}
 	if _, err := reader.Term(ctx); !errors.Is(err, ErrMirrorNotCaughtUp) {
 		t.Fatalf("empty unconfirmed mirror term = %v, want ErrMirrorNotCaughtUp", err)
+	}
+	// The same actual stream name in the wrong role is refused, never rewritten.
+	writer, err := OpenHome(ctx, js, "gru", nil, 1, &pausedFencer{epoch: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sequence, err := writer.PutRoster(ctx, 1, testRoster(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := OpenHomeReader(ctx, js, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roster, got, err := home.Roster(ctx); err != nil || got != sequence || roster.Generation != 1 {
+		t.Fatalf("actual read-only home roster = %+v, %d, %v", roster, got, err)
+	}
+	if _, err := OpenMirrorReader(ctx, js, "gru", "sfo", 1); err == nil {
+		t.Fatal("read-only mirror reader accepted an actual writable home stream")
+	}
+	info, err := writer.stream.Info(ctx)
+	if err != nil || info.Config.Mirror != nil || info.Config.Metadata["terrascale-role"] != "home" {
+		t.Fatal("refused read-only mirror opener changed the actual home stream", err)
 	}
 }
 
