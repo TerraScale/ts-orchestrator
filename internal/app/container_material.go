@@ -507,6 +507,9 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if err := config.guardMaterialEpoch(ctx, epoch); err != nil {
 		return containerMaterialRecipient{}, err
 	}
+	if err := selected.continuityGuard(ctx); err != nil {
+		return containerMaterialRecipient{}, err
+	}
 	if ctx.Err() != nil || !verified.Valid(time.Now().UTC()) || controllerProof != nil && (!controllerProof.Valid(time.Now()) || !time.Now().Before(enrollment.ExpiresAt)) {
 		return fail()
 	}
@@ -565,13 +568,17 @@ func (controller *containerMaterialController) currentMaterialTask(ctx context.C
 	config.Specs.mu.Lock()
 	revision := config.Specs.revision
 	config.Specs.mu.Unlock()
-	now := time.Now().UTC()
-	if revision != selected.SpecRevision || config.Specs.roots.reply("").Head != selected.rootHead ||
-		!selected.Verified.Valid(now) || selected.controllerProof != nil && (!selected.controllerProof.Valid(now) || !now.Before(selected.enrollmentExpiresAt)) {
+	if revision != selected.SpecRevision || config.Specs.roots.reply("").Head != selected.rootHead {
 		return containermaterial.ErrPending
 	}
 	if err := config.guardMaterialEpoch(ctx, selected.epoch); err != nil {
 		return err
+	}
+	if err := selected.continuityGuard(ctx); err != nil {
+		return err
+	}
+	if now := time.Now().UTC(); !selected.Verified.Valid(now) || selected.controllerProof != nil && (!selected.controllerProof.Valid(now) || !now.Before(selected.enrollmentExpiresAt)) {
+		return containermaterial.ErrPending
 	}
 	return ctx.Err()
 }
