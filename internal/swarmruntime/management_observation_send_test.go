@@ -5,12 +5,17 @@ package swarmruntime
 import (
 	"context"
 	"errors"
+	"net"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestManagementObservationBlockedSend(t *testing.T) {
@@ -67,5 +72,73 @@ func TestManagementObservationBlockedSend(t *testing.T) {
 				t.Fatal("sender did not exit after transport released it")
 			}
 		})
+	}
+}
+
+func TestManagementObservationGRPCBlockedSend(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	listener := bufconn.Listen(64 << 10)
+	defer listener.Close()
+	server := grpc.NewServer()
+	defer server.Stop()
+	closed := make(chan struct{})
+	started := make(chan struct{})
+	finished := make(chan struct{})
+	returned := make(chan error, 1)
+	server.RegisterService(&grpc.ServiceDesc{
+		ServiceName: "observation.SendFixture", HandlerType: (*interface{})(nil),
+		Streams: []grpc.StreamDesc{{StreamName: "Blocked", ServerStreams: true, Handler: func(_ any, stream grpc.ServerStream) error {
+			if err := stream.RecvMsg(new(wrapperspb.BytesValue)); err != nil {
+				return err
+			}
+			err := sendManagementObservation(stream.Context(), closed, func() error { return nil }, func() error {
+				defer close(finished)
+				close(started)
+				return stream.SendMsg(&wrapperspb.BytesValue{Value: make([]byte, 1<<20)})
+			})
+			returned <- err
+			return err
+		}}},
+	}, new(struct{}))
+	go func() { _ = server.Serve(listener) }()
+	conn, err := grpc.NewClient("passthrough:///observation-send-fixture", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	stream, err := conn.NewStream(ctx, &grpc.StreamDesc{ServerStreams: true}, "/observation.SendFixture/Blocked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.SendMsg(new(wrapperspb.BytesValue)); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.CloseSend(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("gRPC sender did not start")
+	}
+	select {
+	case <-finished:
+		t.Fatal("fixture did not produce a blocked gRPC send")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(closed)
+	select {
+	case err := <-returned:
+		if status.Code(err) != codes.OutOfRange {
+			t.Fatalf("overflow did not return the gRPC handler: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("overflow retained the gRPC handler")
+	}
+	select {
+	case <-finished:
+	case <-ctx.Done():
+		t.Fatal("handler return did not release actual blocked gRPC SendMsg")
 	}
 }
