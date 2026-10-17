@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -68,42 +69,53 @@ func TestManagedSnapshotAndWatchdogRejectFIFOWithoutHoldingLock(t *testing.T) {
 	}
 }
 
-func TestManagedUnitEnabledResultRequiresStateAndExitStatus(t *testing.T) {
-	exit1 := exec.Command("sh", "-c", "exit 1").Run()
-	exit4 := exec.Command("sh", "-c", "exit 4").Run()
+func TestManagedSnapshotPersistsOnlyConfirmedServiceStateFromProcess(t *testing.T) {
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
 		state string
-		err   error
+		code  int
 		want  string
 	}{
-		{state: "enabled\n", want: "enabled"},
-		{state: "enabled-runtime\n", want: "enabled"},
-		{state: "static\n", want: "enabled"},
-		{state: "transient\n", want: "error"},
-		{state: "transient\n", err: exit1, want: "error"},
-		{state: "disabled\n", err: exit1, want: "disabled"},
-		{state: "masked\n", err: exit1, want: "disabled"},
-		{state: "linked\n", err: exit1, want: "disabled"},
-		{state: "not-found\n", err: exit4, want: "disabled"},
-		{err: exit1, want: "error"},
-		{state: "disabled\n", want: "error"},
-		{state: "enabled\n", err: exit1, want: "error"},
-		{state: "not-found\n", err: exit1, want: "error"},
-		{state: "disabled\n", err: context.DeadlineExceeded, want: "error"},
-		{state: "disabled\n", err: context.Canceled, want: "error"},
-		{state: "disabled\n", err: errors.New("systemd communication failed"), want: "error"},
-		{state: "unknown-secret-state", err: exit1, want: "error"},
+		{"enabled\n", 0, "enabled"}, {"enabled-runtime\n", 0, "enabled"}, {"static\n", 0, "enabled"},
+		{"transient\n", 0, "error"}, {"transient\n", 1, "error"},
+		{"disabled\n", 1, "disabled"}, {"masked\n", 1, "disabled"}, {"linked\n", 1, "disabled"},
+		{"not-found\n", 4, "disabled"}, {"", 1, "error"}, {"disabled\n", 0, "error"},
+		{"enabled\n", 1, "error"}, {"not-found\n", 1, "error"}, {"unknown-secret-state", 1, "error"},
 	} {
-		err := managedUnitEnabledResult(test.state, test.err)
-		actual := "error"
-		if err == nil {
-			actual = "enabled"
-		} else if errors.Is(err, errManagedUnitNotEnabled) {
-			actual = "disabled"
-		}
-		if actual != test.want || err != nil && strings.Contains(err.Error(), "unknown-secret-state") {
-			t.Errorf("state %q / %v: result=%s error=%v, want=%s", test.state, test.err, actual, err, test.want)
-		}
+		t.Run(strings.TrimSpace(test.state)+"-"+strconv.Itoa(test.code), func(t *testing.T) {
+			f := newManagedFixture(t)
+			f.m.systemctl = func(ctx context.Context, args ...string) error {
+				if !slices.Equal(args, []string{"is-enabled", "netbird.service"}) {
+					t.Fatalf("unexpected command %v", args)
+				}
+				command := exec.CommandContext(ctx, shell, "-c", `printf '%s' "$1"; exit "$2"`, "--", test.state, strconv.Itoa(test.code))
+				output, err := command.Output()
+				return managedUnitEnabledResult(string(output), err)
+			}
+			transaction := managedTransaction{ManagedResult: ManagedResult{TransactionID: f.options.TransactionID}, StateBackup: true}
+			err := f.m.backupState(t.Context(), transaction)
+			manifest := filepath.Join(f.m.backupDirectory(transaction), "state.json")
+			if test.want == "error" {
+				if err == nil || strings.Contains(err.Error(), "unknown-secret-state") {
+					t.Fatalf("uncertain process result persisted: %v", err)
+				}
+				if _, err := os.Stat(manifest); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("unsafe snapshot published: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			wire, err := os.ReadFile(manifest)
+			var saved managedSavedState
+			if err != nil || json.Unmarshal(wire, &saved) != nil || saved.Enabled != (test.want == "enabled") {
+				t.Fatalf("wrong persisted service state: %+v %v", saved, err)
+			}
+		})
 	}
 }
 

@@ -43,5 +43,5 @@ func runNetBirdAgent(ctx context.Context, args []string) error {
 		return err
 	}
 	return local.Run(ctx, local.Config{Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Controller: public,
-		Directory: filepath.Join(cfg.Host.StateRoot, cfg.NATS.Cell, cfg.Host.Node, "netbird")})
+		Directory: filepath.Join(cfg.Host.StateRoot, cfg.NATS.Cell, cfg.Host.Node, "netbird")}, readNetBirdSetupKey)
 }

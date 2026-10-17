@@ -26,8 +26,7 @@ func newNetBirdBootstrapFixture(t *testing.T) netbirdBootstrapFixture {
 	t.Helper()
 	dir := t.TempDir()
 	f := netbirdBootstrapFixture{configPath: filepath.Join(dir, "netbird.json"),
-		config: netbird.Config{ManagementURL: netbird.DefaultManagementURL, Region: "sa-saopaulo-1",
-			SetupKeySecretID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.bootstrap"}}
+		config: netbird.Config{ManagementURL: netbird.DefaultManagementURL, Region: "sa-saopaulo-1"}}
 	for name, value := range map[string]any{"netbird.json": f.config, "netbird-pin.json": netbirdArtifactTestPin(t)} {
 		wire, err := json.Marshal(value)
 		if err != nil {
@@ -218,7 +217,7 @@ func TestNetBirdBootstrapLoadsConfigAfterRecoveryRestoresIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored := f.config
-	restored.SetupKeySecretID = "ocid1.vaultsecret.oc1.sa-saopaulo-1.restored"
+	restored.Region = "us-sanjose-1"
 	f.runner.status = func(context.Context) (client.ManagedResult, error) {
 		wire, err := json.Marshal(restored)
 		if err != nil {
@@ -231,7 +230,7 @@ func TestNetBirdBootstrapLoadsConfigAfterRecoveryRestoresIt(t *testing.T) {
 	}
 	enrolled := false
 	f.runner.enroll = func(_ context.Context, cfg netbird.Config) error {
-		if cfg.SetupKeySecretID != restored.SetupKeySecretID {
+		if cfg != restored {
 			t.Fatal("enrollment used the config superseded by rollback")
 		}
 		enrolled = true

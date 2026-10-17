@@ -73,7 +73,7 @@ func writeSetupKey(directory string, key []byte) (string, error) {
 	return path, nil
 }
 
-func hostsContent(original []byte, ip string) ([]byte, error) {
+func hostsContent(original []byte) ([]byte, error) {
 	var updated strings.Builder
 	seenManaged := false
 	for line := range strings.SplitSeq(string(original), "\n") {
@@ -99,12 +99,7 @@ func hostsContent(original []byte, ip string) ([]byte, error) {
 		updated.WriteByte('\n')
 	}
 	result := strings.TrimSuffix(updated.String(), "\n")
-	if ip != "" {
-		if result != "" && !strings.HasSuffix(result, "\n") {
-			result += "\n"
-		}
-		result += ip + "\t" + managerHostname + "\t" + hostsMarker + "\n"
-	}
+
 	return []byte(result), nil
 }
 
@@ -126,12 +121,12 @@ func readHosts(path string) ([]byte, os.FileInfo, error) {
 	return body, info, nil
 }
 
-func updateHosts(path, ip string) error {
+func removeManagerHosts(path string) error {
 	original, info, err := readHosts(path)
 	if err != nil {
 		return err
 	}
-	body, err := hostsContent(original, ip)
+	body, err := hostsContent(original)
 	if err != nil || bytes.Equal(body, original) {
 		return err
 	}

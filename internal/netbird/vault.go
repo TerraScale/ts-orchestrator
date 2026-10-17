@@ -31,8 +31,12 @@ func validSetupKey(key []byte) bool {
 	return err == nil && parsed != uuid.Nil()
 }
 
-func readOCISetupKey(ctx context.Context, cfg Config) ([]byte, error) {
-	return readOCISecret(ctx, cfg.Region, cfg.SetupKeySecretID, "setup-key", setupKeyMaxBytes, validSetupKey)
+// ReadSetupKey reads the CURRENT value of the runtime-resolved regional secret.
+func ReadSetupKey(ctx context.Context, region, secretID string) ([]byte, error) {
+	if !ValidSecretID(region, secretID) {
+		return nil, errors.New("NetBird setup-key identity differs from its OCI region")
+	}
+	return readOCISecret(ctx, region, secretID, "setup-key", setupKeyMaxBytes, validSetupKey)
 }
 
 // setupKeyMaxBytes bounds the encoded setup-key bundle read from OCI Vault.
@@ -63,15 +67,6 @@ func validAdminPAT(token []byte) bool {
 // ValidAdminPAT reports whether token has NetBird's PAT shape. The manager
 // client and the OCI Vault reader share this predicate.
 func ValidAdminPAT(token []byte) bool { return validAdminPAT(token) }
-
-// ReadAdminPAT reads the current NetBird admin PAT version from OCI Vault with
-// the instance principal. The caller must clear the returned bytes.
-func ReadAdminPAT(ctx context.Context, cfg Config) ([]byte, error) {
-	if cfg.AdminPATSecretID == "" {
-		return nil, errors.New("NetBird admin_pat_secret_id is not configured")
-	}
-	return readOCISecret(ctx, cfg.Region, cfg.AdminPATSecretID, "admin PAT", maxAdminPATBytes, validAdminPAT)
-}
 
 func readOCISecret(ctx context.Context, region, secretID, label string, maxBytes int, valid func([]byte) bool) ([]byte, error) {
 	for _, name := range ociclient.SecretUnsafeEnv {

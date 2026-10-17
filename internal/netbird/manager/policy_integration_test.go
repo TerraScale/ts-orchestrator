@@ -167,12 +167,11 @@ func TestImageInputCLIWritesAllRegionsWithoutPeerMaps(t *testing.T) {
 			if err := os.WriteFile(plan, wire, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			secret := "ocid1.vaultsecret.oc1." + region.oci + ".example"
-			if err := Run(t.Context(), []string{"image-input", "--plan", plan, "--setup-key-secret-id", secret, "--out", out}, io.Discard); err != nil {
+			if err := Run(t.Context(), []string{"image-input", "--plan", plan, "--out", out}, io.Discard); err != nil {
 				t.Fatal(err)
 			}
 			cfg, err := client.ValidateConfig(out)
-			if err != nil || cfg.Region != region.oci || cfg.SetupKeySecretID != secret || len(cfg.PeerNames) != 0 {
+			if err != nil || cfg.Region != region.oci {
 				t.Fatalf("invalid automatic image input: %+v %v", cfg, err)
 			}
 		})

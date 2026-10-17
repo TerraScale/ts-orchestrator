@@ -50,7 +50,7 @@ func TestSyncWarnsAboutSetupKeyWithoutChangingIt(t *testing.T) {
 	f.setupKeys[0]["auto_groups"] = []string{}
 	f.setupKeys[0]["state"] = "revoked"
 	report, err := Sync(t.Context(), f.api(t), GRU(), false)
-	if err != nil || len(report.Warnings) != 2 {
+	if err != nil || len(report.Warnings) != 5 {
 		t.Fatalf("warnings %v error %v", report.Warnings, err)
 	}
 }
@@ -61,7 +61,7 @@ func TestSyncIgnoresRevokedSetupKeysWithTheServerKeyName(t *testing.T) {
 	f.setupKeys = append(f.setupKeys, map[string]any{"id": "sk0", "name": "gru-servers",
 		"type": "reusable", "state": "revoked", "valid": false, "revoked": true, "auto_groups": f.setupKeys[0]["auto_groups"]})
 	report, err := Sync(t.Context(), f.api(t), GRU(), false)
-	if err != nil || len(report.Warnings) != 0 {
+	if err != nil || len(report.Warnings) != 3 {
 		t.Fatalf("warnings %v error %v", report.Warnings, err)
 	}
 }
@@ -288,7 +288,7 @@ func TestCLIReportOmitsSummaryWhenTheRunFailed(t *testing.T) {
 	var out bytes.Buffer
 	for _, command := range [][]string{{"sync"}, {"sync", "--apply"}, {"prune-peers", "--apply"}} {
 		out.Reset()
-		err := Run(t.Context(), append(command, "--management-url", f.server.URL), &out)
+		err := runManualManagerCLI(t.Context(), append(command, "--management-url", f.server.URL), &out)
 		if err == nil || strings.Contains(out.String(), "no changes") {
 			t.Fatalf("%v on a failing manager: %q %v", command, out.String(), err)
 		}
@@ -305,14 +305,14 @@ func TestCLIReadsPATSafelyAndPrintsNoSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := Run(t.Context(), []string{"inventory", "--pat-file", patFile, "--management-url", f.server.URL}, &out); err != nil {
+	if err := runManualManagerCLI(t.Context(), []string{"inventory", "--pat-file", patFile, "--management-url", f.server.URL}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out.String(), "SECRET") || !strings.Contains(out.String(), `"gru-servers"`) {
 		t.Fatalf("inventory output: %s", out.String())
 	}
 	out.Reset()
-	if err := Run(t.Context(), []string{"sync", "--pat-file", patFile, "--management-url", f.server.URL}, &out); err != nil {
+	if err := runManualManagerCLI(t.Context(), []string{"sync", "--pat-file", patFile, "--management-url", f.server.URL}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "plan: rename group gru-servers") || !strings.Contains(out.String(), "rerun with --apply") ||
@@ -321,7 +321,7 @@ func TestCLIReadsPATSafelyAndPrintsNoSecrets(t *testing.T) {
 	}
 	t.Setenv("NB_PAT", testPAT)
 	out.Reset()
-	if err := Run(t.Context(), []string{"prune-peers", "--apply", "--management-url", f.server.URL}, &out); err != nil ||
+	if err := runManualManagerCLI(t.Context(), []string{"prune-peers", "--apply", "--management-url", f.server.URL}, &out); err != nil ||
 		!strings.Contains(out.String(), "no changes") {
 		t.Fatalf("prune: %s %v", out.String(), err)
 	}
@@ -338,14 +338,14 @@ func TestCLIReadsPATSafelyAndPrintsNoSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{loose, link, dir} {
-		if err := Run(t.Context(), []string{"inventory", "--pat-file", path, "--management-url", f.server.URL}, &out); err == nil {
+		if err := runManualManagerCLI(t.Context(), []string{"inventory", "--pat-file", path, "--management-url", f.server.URL}, &out); err == nil {
 			t.Errorf("accepted PAT file %s", path)
 		}
 	}
-	if err := Run(t.Context(), []string{"prune-peers", "--offline-for", "5m"}, &out); err == nil {
+	if err := runManualManagerCLI(t.Context(), []string{"prune-peers", "--offline-for", "5m"}, &out); err == nil {
 		t.Fatal("accepted a too-short offline threshold")
 	}
-	if err := Run(t.Context(), []string{"frobnicate", "--management-url", f.server.URL}, &out); err == nil ||
+	if err := runManualManagerCLI(t.Context(), []string{"frobnicate", "--management-url", f.server.URL}, &out); err == nil ||
 		!strings.Contains(err.Error(), `unknown netbird command "frobnicate"`) {
 		t.Fatalf("unknown command error = %v", err)
 	}
@@ -433,7 +433,10 @@ func TestSyncWarnsAboutUnmanagedPoliciesAndBroadSetupKeysWithoutChangingThem(t *
 	if err != nil || len(report.Changes) != 0 {
 		t.Fatalf("second sync: %v %v", report.Changes, err)
 	}
-	want := []string{"policy Default is not in the desired state of cell gru-1",
+	want := []string{"policy operators-to-gru-cell is not in the desired state of cell gru-1",
+		"policy operators-to-forgejo is not in the desired state of cell gru-1",
+		"policy operators-ping-to-forgejo is not in the desired state of cell gru-1",
+		"policy Default is not in the desired state of cell gru-1",
 		"setup key gru-servers must auto-assign only group gru-servers"}
 	if !slices.Equal(report.Warnings, want) {
 		t.Fatalf("warnings %q", report.Warnings)
@@ -490,7 +493,7 @@ func TestSetupKeyCommandWritesTheKeyOnlyToANewOwnerOnlyFile(t *testing.T) {
 	var stdout bytes.Buffer
 	run := func(args ...string) error {
 		stdout.Reset()
-		return Run(t.Context(), append(append([]string{"setup-key"}, args...), "--management-url", f.server.URL), &stdout)
+		return runManualManagerCLI(t.Context(), append(append([]string{"setup-key"}, args...), "--management-url", f.server.URL), &stdout)
 	}
 	if err := run("--out", out); err != nil || len(f.mutations) != 0 ||
 		!strings.Contains(stdout.String(), "plan: create setup-key gru-servers") ||
@@ -530,7 +533,7 @@ func TestSetupKeyCommandWritesTheKeyOnlyToANewOwnerOnlyFile(t *testing.T) {
 		t.Fatal("created a key for an unknown group")
 	}
 	for _, args := range [][]string{{"setup-key"}, {"remove-peers"}, {"remove-peers", "--all", "--slot", "db-1"}} {
-		if err := Run(t.Context(), args, &stdout); err == nil {
+		if err := runManualManagerCLI(t.Context(), args, &stdout); err == nil {
 			t.Errorf("%v accepted", args)
 		}
 	}

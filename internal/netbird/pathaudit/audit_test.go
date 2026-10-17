@@ -2,9 +2,7 @@ package pathaudit
 
 import (
 	"bytes"
-	"context"
 	"encoding/json/v2"
-	"errors"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -98,7 +96,39 @@ func TestRemoteCommandStreamsLargeSocketInventory(t *testing.T) {
 	}
 }
 
-func TestInspectRequiresLiveConsistentDaemonEvidence(t *testing.T) {
+func auditProcessEvidence(t *testing.T, expected string, evidence map[string][]byte, nodes []string) (string, error) {
+	t.Helper()
+	directory := t.TempDir()
+	for node, wire := range evidence {
+		if err := os.WriteFile(filepath.Join(directory, node+".json"), wire, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(directory, "netbird")
+	body := `directory=$(dirname "$0")
+case "$1" in
+ status) printf '{"peers":{"details":[]}}';;
+ ssh) node=${3#root@}; cat "$directory/$node.json";;
+ *) exit 2;;
+esac
+`
+	if err := os.WriteFile(script, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"--vault-id", "ocid1.vault.oc1.sa-saopaulo-1.integration", "--netbird", shell + " " + script, "--expected-ip", expected}
+	for _, node := range nodes {
+		args = append(args, "--node", node)
+	}
+	var out bytes.Buffer
+	err = Run(t.Context(), args, &out)
+	return out.String(), err
+}
+
+func TestAuditReadsProcessEvidenceAndRequiresConsistentDaemonState(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		ip     string
@@ -126,36 +156,27 @@ func TestInspectRequiresLiveConsistentDaemonEvidence(t *testing.T) {
 			if test.ip == "" {
 				test.ip = "10.250.10.155"
 			}
-			err := inspect(observation(t, test.ip, test.change), netip.MustParseAddr(test.ip))
+			_, err := auditProcessEvidence(t, test.ip, map[string][]byte{"ts-gru-1": observation(t, test.ip, test.change)}, []string{"ts-gru-1"})
 			if (err != nil) != test.bad {
 				t.Fatalf("error = %v, want failure %v", err, test.bad)
 			}
 		})
 	}
-	if inspect([]byte(`{}`), netip.MustParseAddr("10.250.10.155")) == nil || inspect([]byte(`{`), netip.MustParseAddr("10.250.10.155")) == nil {
-		t.Fatal("missing or malformed evidence passed")
+	for _, wire := range []string{`{}`, `{`} {
+		if _, err := auditProcessEvidence(t, "10.250.10.155", map[string][]byte{"ts-gru-1": []byte(wire)}, []string{"ts-gru-1"}); err == nil {
+			t.Fatal("missing or malformed evidence passed")
+		}
 	}
 }
 
-func TestAuditContinuesAfterFailureButCannotPassMissingOrMixedNodes(t *testing.T) {
-	var visited []string
-	var out bytes.Buffer
-	err := Audit(t.Context(), &out, []string{"ts-gru-1", "ts-sfo-1"}, netip.MustParseAddr("10.250.10.155"),
-		func(ctx context.Context, node string) ([]byte, error) {
-			if _, ok := ctx.Deadline(); !ok {
-				t.Fatal("SSH has no deadline")
-			}
-			visited = append(visited, node)
-			if node == "ts-gru-1" {
-				return nil, errors.New("unreachable")
-			}
-			return observation(t, "163.176.73.79", nil), nil
-		})
-	if err == nil || len(visited) != 2 || strings.Count(out.String(), "FAIL") != 2 {
-		t.Fatalf("visited %v, output %s, error %v", visited, &out, err)
+func TestAuditContinuesAfterProcessFailureAndRejectsMissingOrMixedNodes(t *testing.T) {
+	out, err := auditProcessEvidence(t, "10.250.10.155", map[string][]byte{"ts-sfo-1": observation(t, "163.176.73.79", nil)}, []string{"ts-gru-1", "ts-sfo-1"})
+	if err == nil || strings.Count(out, "FAIL") != 2 || !strings.Contains(out, "ts-gru-1") || !strings.Contains(out, "ts-sfo-1") {
+		t.Fatalf("incomplete audit: %s %v", out, err)
 	}
 	for _, nodes := range [][]string{nil, {"ts-gru-1", "ts-gru-1"}, {"ts-ops"}, {"gru-1"}, {"ts-gru-1;id"}} {
-		if Audit(t.Context(), &out, nodes, netip.MustParseAddr("10.250.10.155"), nil) == nil {
+		var output bytes.Buffer
+		if Audit(t.Context(), &output, nodes, netip.MustParseAddr("10.250.10.155"), nil) == nil {
 			t.Fatalf("invalid server selection passed: %v", nodes)
 		}
 	}

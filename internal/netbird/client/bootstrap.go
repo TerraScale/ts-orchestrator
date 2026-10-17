@@ -14,11 +14,15 @@ import (
 const bootstrapPendingFile = "netbird-bootstrap.pending"
 
 // EnrollBootstrap excludes rollout admission and recovery through enrollment.
-func EnrollBootstrap(ctx context.Context, configPath string) error {
+func EnrollBootstrap(ctx context.Context, configPath string, reader netbird.SetupKeyReader) error {
+	if reader == nil {
+		return errors.New("NetBird bootstrap requires an authenticated setup-key reader")
+	}
 	m, err := localManagedClient()
 	if err != nil {
 		return err
 	}
+	m.enroll = func(ctx context.Context, cfg netbird.Config) error { return netbird.Enroll(ctx, cfg, reader) }
 	return m.enrollBootstrap(ctx, configPath)
 }
 

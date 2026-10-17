@@ -17,8 +17,7 @@ func TestNetBirdPinValidationAndAmendment(t *testing.T) {
 	}
 	id := Identity{DeploymentID: "5MDYB72MN6NMSTJ8H7WCQ6ZK5P", Cell: "gru", Environment: "production"}
 	managed := NetBird{Pin: pin, Enrollment: netbird.Config{
-		ManagementURL: netbird.DefaultManagementURL, Region: netbird.DefaultRegion,
-		SetupKeySecretID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.setupkey"}}
+		ManagementURL: netbird.DefaultManagementURL, Region: netbird.DefaultRegion}}
 	spec := testSpec(id, 2)
 	spec.NetBird = &managed
 	if spec.Level() != 20 || !errors.Is(spec.Validate(), ErrInvalid) {
@@ -47,10 +46,8 @@ func TestNetBirdPinValidationAndAmendment(t *testing.T) {
 		"input checksum":     func(n *NetBird) { n.Pin.EnrollmentConfig.SHA256 = "" },
 		"foreign region": func(n *NetBird) {
 			n.Enrollment.Region = "us-sanjose-1"
-			n.Enrollment.SetupKeySecretID = "ocid1.vaultsecret.oc1.us-sanjose-1.setupkey"
 		},
-		"foreign manager":   func(n *NetBird) { n.Enrollment.ManagementURL = "https://example.com" },
-		"literal setup key": func(n *NetBird) { n.Enrollment.SetupKeySecretID = "secret-value" },
+		"foreign manager": func(n *NetBird) { n.Enrollment.ManagementURL = "https://example.com" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			invalid, altered := spec, managed

@@ -29,8 +29,12 @@ func runNetBirdEnroll(ctx context.Context, args []string, output io.Writer) erro
 	}
 	return enrollNetBirdBootstrap(ctx, *configPath, output, netbirdBootstrapRuntime{
 		binary: "/usr/local/bin/netbird", fallback: "/usr/local/lib/terrascale-orchestrator/netbird-client",
-		status: client.ManagedStatus, defaults: client.ReadBootstrapConfig, install: client.InstallManaged, confirm: client.ConfirmManaged,
-		enroll: func(ctx context.Context, _ netbird.Config) error { return client.EnrollBootstrap(ctx, *configPath) },
+		status: client.ManagedStatus, defaults: client.ReadBootstrapConfig, install: func(ctx context.Context, pin client.Pin, cfg netbird.Config, options client.ManagedOptions) (client.ManagedResult, error) {
+			return client.InstallManaged(ctx, pin, cfg, options, readNetBirdSetupKey)
+		}, confirm: client.ConfirmManaged,
+		enroll: func(ctx context.Context, _ netbird.Config) error {
+			return client.EnrollBootstrap(ctx, *configPath, readNetBirdSetupKey)
+		},
 	})
 }
 

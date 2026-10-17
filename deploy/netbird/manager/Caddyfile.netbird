@@ -1,12 +1,16 @@
-# Site block for netbird.terrascale.tech in the ts-ops edge Caddyfile
-# (/etc/caddy/Caddyfile, image localhost/caddy-l4). The rest of that file
-# (global layer4 SSH mux, Forgejo) is owned by the ts-ops host runbook.
-# gRPC needs cleartext HTTP/2 to the loopback publish; relay and signal use
-# WebSockets. Validate before reload; see deploy/netbird/README.md in ts-orchestrator.
+{
+    servers {
+        protocols h1 h2
+    }
+    admin off
+}
+# Public ingress starts only after private bootstrap and verified Vault delivery.
 netbird.terrascale.tech {
-	@grpc header Content-Type application/grpc*
-	reverse_proxy @grpc h2c://127.0.0.1:18081
-	@backend path /relay* /ws-proxy/* /api/* /oauth2/*
-	reverse_proxy @backend 127.0.0.1:18081
-	reverse_proxy 127.0.0.1:18080
+    @setup path /api/setup
+    respond @setup 404
+    @grpc header Content-Type application/grpc*
+    reverse_proxy @grpc h2c://127.0.0.1:18081
+    @backend path /relay* /ws-proxy/* /api/* /oauth2/*
+    reverse_proxy @backend 127.0.0.1:18081
+    reverse_proxy 127.0.0.1:18080
 }

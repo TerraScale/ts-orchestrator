@@ -1,14 +1,13 @@
 # NetBird combined server (management + signal + relay + STUN).
-# install.sh renders this template to /etc/netbird/config.yaml with
-# `ts-orch vault render`, inserting each placeholder KEY as the JSON-quoted
-# OCI Vault secret gru-1-<key> (docs/secrets.md).
+# The Go foundation supervisor delivers this template to the protected runtime
+# directory from create-once OCI Vault secrets before starting upstream.
 server:
-  listenAddress: ":80"
+  listenAddress: "127.0.0.1:18081"
   exposedAddress: "https://netbird.terrascale.tech:443"
   stunPorts:
     - 3478
   metricsPort: 9090
-  healthcheckAddress: ":9000"
+  healthcheckAddress: "127.0.0.1:19000"
   logLevel: "info"
   logFile: "console"
 
@@ -17,6 +16,7 @@ server:
 
   auth:
     issuer: "https://netbird.terrascale.tech/oauth2"
+    # Upstream must refresh embedded OIDC signing keys after rotation.
     signKeyRefreshEnabled: true
     sessionCookieEncryptionKey: {{NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY}}
     dashboardRedirectURIs:
@@ -26,12 +26,8 @@ server:
       - "http://localhost:53000/"
 
   reverseProxy:
-    # Host Caddy reaches the loopback publish through the bridge gateway; only
-    # it may supply forwarded client addresses (the default trusts everyone).
-    trustedHTTPProxies:
-      - "10.89.77.1/32"
-    trustedPeers:
-      - "10.89.77.1/32"
+    trustedHTTPProxies: ["127.0.0.1/32"]
+    trustedPeers: ["127.0.0.1/32"]
 
   store:
     engine: "sqlite"

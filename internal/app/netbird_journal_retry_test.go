@@ -22,9 +22,7 @@ func TestNetBirdRecoverySaveSurvivesUnchangedIssuanceDuringHealthAndReturn(t *te
 	}
 	n := netbirdRollout{cell: "gru", key: key, services: &specRegistry{},
 		fence: &releaseFence{kv: fenceKV(t), fencer: &fenceLease{}}}
-	target := network.Target{Enrollment: netbird.Config{PeerNames: map[string]string{
-		"10.0.0.1": "ts-gru-1", "10.0.0.2": "ts-gru-2", "10.0.0.3": "ts-gru-3",
-	}}}
+	target := network.Target{Enrollment: netbird.Config{Region: netbird.DefaultRegion}}
 	now := time.Now().UTC()
 	record := network.Record{ID: "7E5HKSCCJSQJGMM2DVVHCQDQFV", Node: "node-a", Previous: "0.79.0", Target: target,
 		PinHash: network.Hash(target), Phase: "rollback-check", RollbackRequired: new(true),

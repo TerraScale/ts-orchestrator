@@ -11,6 +11,7 @@ import (
 	"uuid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
 
@@ -100,21 +101,9 @@ func ReconcileServerEnrollment(ctx context.Context, api *API, d Desired, directo
 		state.Key != "" && !validEnrollmentKey(state.Key) || state.SecretID != "" && (state.Key == "" || state.KeyID == "") {
 		return EnrollmentResult{}, errors.New("NetBird enrollment intent differs from its management scope")
 	}
-	var groups []apiGroup
-	if err := client.do(ctx, "GET", "/groups", nil, &groups); err != nil {
+	servers, err := enrollmentGroup(ctx, &client, d.ServersGroup, store, &state, authority)
+	if err != nil {
 		return EnrollmentResult{}, err
-	}
-	var servers string
-	for _, group := range groups {
-		if group.Name == d.ServersGroup {
-			if servers != "" || group.ID == "" || group.Issued != "api" {
-				return EnrollmentResult{}, errors.New("NetBird enrollment servers group is ambiguous or not API owned")
-			}
-			servers = group.ID
-		}
-	}
-	if servers == "" {
-		return EnrollmentResult{}, errors.New("NetBird enrollment awaits its reconciled regional servers group")
 	}
 	name := state.Name + "-enrollment-" + state.Operation
 	key, err := enrollmentKey(ctx, &client, name, servers)
@@ -203,6 +192,75 @@ func ReconcileServerEnrollment(ctx context.Context, api *API, d Desired, directo
 	return EnrollmentResult{OperationID: state.Operation, KeyID: state.KeyID, SecretID: state.SecretID}, nil
 }
 
+// Group creation shares the durable enrollment intent; a lost POST is drained
+// before another create can run, so a slow earlier request cannot duplicate it.
+func enrollmentGroup(ctx context.Context, api *API, name string, store *enrollmentStore, state *enrollmentState, authority EnrollmentAuthority) (string, error) {
+	read := func() (string, error) {
+		var groups []apiGroup
+		if err := api.do(ctx, "GET", "/groups", nil, &groups); err != nil {
+			return "", err
+		}
+		var id string
+		for _, group := range groups {
+			if group.Name != name {
+				continue
+			}
+			if id != "" || group.ID == "" || group.Issued != "api" {
+				return "", errors.New("NetBird enrollment servers group is ambiguous or not API owned")
+			}
+			id = group.ID
+		}
+		return id, nil
+	}
+	id, err := read()
+	if err != nil {
+		return "", err
+	}
+	if state.GroupID != "" {
+		if id != state.GroupID {
+			return "", errors.New("NetBird enrollment servers group identity changed")
+		}
+		return id, nil
+	}
+	if id == "" && state.GroupAttempted {
+		if authority.Quiesce == nil {
+			return "", ErrEnrollmentUncertain
+		}
+		if err := api.beforeWrite(); err != nil {
+			return "", err
+		}
+		if err := authority.Quiesce(ctx); err != nil {
+			return "", err
+		}
+		id, err = read()
+		if err != nil {
+			return "", err
+		}
+	}
+	if id == "" {
+		state.GroupAttempted = true
+		if err := store.write(*state); err != nil {
+			return "", err
+		}
+		var created created
+		if err := api.do(ctx, "POST", "/groups", groupRequest{Name: name, Peers: []string{}, Resources: []resourceRef{}}, &created); err != nil {
+			return "", err
+		}
+		id, err = read()
+		if err != nil {
+			return "", err
+		}
+		if id == "" || created.ID != id {
+			return "", errors.New("NetBird enrollment group creation has no verified identity")
+		}
+	}
+	state.GroupID = id
+	if err := store.write(*state); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
 func newEnrollmentOperation() string {
 	var id [16]byte
 	_, _ = rand.Read(id[:])
@@ -241,5 +299,8 @@ func (v fencedEnrollmentVault) CreateSecret(ctx context.Context, request ocivaul
 	if err := v.check(); err != nil {
 		return ocivault.CreateSecretResponse{}, err
 	}
+	// Reconciliation rechecks authority before recovering an uncertain create.
+	retry := common.NoRetryPolicy()
+	request.RequestMetadata.RetryPolicy = &retry
 	return v.VaultClient.CreateSecret(ctx, request)
 }

@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -101,6 +102,8 @@ policy.close()
 	var public atomic.Bool
 	var unlocked atomic.Bool
 	var failSFO atomic.Bool
+	var holdUpload atomic.Bool
+	uploadStarted, uploadStopped := make(chan struct{}), make(chan struct{})
 	var puts atomic.Int32
 	objects := t.TempDir()
 	factory, endpoint := ociresourcetest.Server(t, func(w http.ResponseWriter, request *http.Request) {
@@ -189,6 +192,12 @@ policy.close()
 			wire, err := io.ReadAll(request.Body)
 			if err != nil {
 				t.Error(err)
+				return
+			}
+			if holdUpload.Load() {
+				close(uploadStarted)
+				<-request.Context().Done()
+				close(uploadStopped)
 				return
 			}
 			digest := sha256.Sum256(wire)
@@ -337,6 +346,26 @@ with sqlite3.connect(root / 'idp.db') as db:
 	if leftovers, err := filepath.Glob(filepath.Join(replacement, ".netbird-backup-*")); err != nil || len(leftovers) != 0 {
 		t.Fatalf("unencrypted archive remained after cancellation: %v", err)
 	}
+	// Cancellation joins the signed SDK upload before releasing the local snapshot lock.
+	holdUpload.Store(true)
+	uploadCtx, cancelUpload := context.WithCancel(ctx)
+	defer cancelUpload()
+	go func() {
+		select {
+		case <-uploadStarted:
+		case <-time.After(5 * time.Second):
+		}
+		cancelUpload()
+	}()
+	if _, err := Backup(uploadCtx, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets, quiesce); !errors.Is(err, context.Canceled) || !resumed.Load() {
+		t.Fatalf("cancelled upload escaped cancellation or left the manager stopped: %v", err)
+	}
+	select {
+	case <-uploadStopped:
+	case <-time.After(time.Second):
+		t.Fatal("cancelled backup left its signed SDK request running")
+	}
+	holdUpload.Store(false)
 	// Partial remote failure keeps the successful copy and returns an error.
 	failSFO.Store(true)
 	partial, err := Backup(ctx, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets, quiesce)
@@ -346,6 +375,31 @@ with sqlite3.connect(root / 'idp.db') as db:
 	if _, err := os.Stat(filepath.Join(objects, "netbird-gru", partial.Object)); err != nil {
 		t.Fatal("partial failure lost its successful regional copy")
 	}
+	// The production lifecycle discovers and installs an actual protected backup,
+	// without treating missing remote copies as authority for a new database.
+	recoveredRoot := filepath.Join(root, "automatic-recovery")
+	if err := os.Mkdir(recoveredRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	lifecycle := &testStoreLifecycle{recovery: true}
+	if err := PrepareStore(ctx, recoveredRoot, lifecycle, func(context.Context) ([2]BackupTarget, error) { return targets, nil }); err != nil {
+		t.Fatalf("automatic protected store restore: %v", err)
+	}
+	if lifecycle.genesis != 0 {
+		t.Fatal("restore consumed fresh-genesis authority")
+	}
+	sqlite(t, ctx, filepath.Join(recoveredRoot, "data"), `import sqlite3,sys
+from pathlib import Path
+with sqlite3.connect(Path(sys.argv[1]) / 'store.db') as db:
+    assert db.execute("SELECT public_key FROM peers WHERE id='peer-original'").fetchone()[0] == 'wireguard-original'
+`)
+	if err := PrepareStore(ctx, recoveredRoot, lifecycle, func(context.Context) ([2]BackupTarget, error) {
+		t.Fatal("healthy local store unnecessarily read backups")
+		return targets, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	// A damaged remote body is never installed on a replacement.
 	objectPath := filepath.Join(objects, "netbird-sfo", record.Object)
 	wire, err := os.ReadFile(objectPath)

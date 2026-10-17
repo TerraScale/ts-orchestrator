@@ -78,6 +78,19 @@ func NewAPI(managementURL, token string) (*API, error) {
 	}}, nil
 }
 
+// NewFencedAPI requires the dedicated manager's current admission before every mutation.
+func NewFencedAPI(managementURL, token string, check func() error) (*API, error) {
+	if check == nil {
+		return nil, errors.New("NetBird account writes require dedicated manager authority")
+	}
+	api, err := NewAPI(managementURL, token)
+	if err != nil {
+		return nil, err
+	}
+	api.beforeWrite = check
+	return api, nil
+}
+
 // Close releases idle connections.
 func (api *API) Close() { api.http.CloseIdleConnections() }
 

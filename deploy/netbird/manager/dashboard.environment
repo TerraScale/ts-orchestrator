@@ -5,6 +5,7 @@ AUTH_AUDIENCE=netbird-dashboard
 AUTH_CLIENT_ID=netbird-dashboard
 AUTH_CLIENT_SECRET=
 AUTH_AUTHORITY=https://netbird.terrascale.tech/oauth2
+# Upstream dashboard requires this selector for its embedded Dex identity provider.
 USE_AUTH0=false
 AUTH_SUPPORTED_SCOPES=openid profile email groups
 AUTH_REDIRECT_URI=/nb-auth

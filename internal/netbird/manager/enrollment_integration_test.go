@@ -22,14 +22,16 @@ import (
 
 // Actual clients cross NetBird/OCI HTTP and protected escrow/filesystem boundaries.
 func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
-	for _, interruption := range []string{"key-response", "vault-response", "before-key-dispatch"} {
+	for _, interruption := range []string{"group-response", "key-response", "vault-response", "before-key-dispatch", "vault-epoch-loss"} {
 		t.Run(interruption, func(t *testing.T) {
 			root := t.TempDir()
+			groupPath := filepath.Join(root, "groups.json")
 			keyPath, vaultPath := filepath.Join(root, "upstream.json"), filepath.Join(root, "vault.json")
 			const keyValue = "884B8BCF-16BC-4D2C-8A3F-AE5F8B6B3BA3"
 			const secretID = "ocid1.vaultsecret.oc1.sa-saopaulo-1.test.enrollment"
 			var interrupted atomic.Bool
-			var keysCreated, vaultsCreated atomic.Int32
+			var groupsCreated, keysCreated, vaultsCreated atomic.Int32
+			var vaultAttempts atomic.Int32
 			var term atomic.Uint64
 			term.Store(1)
 			managerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +42,25 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 				keys := readEnrollmentJSON[[]apiSetupKey](t, keyPath)
 				switch {
 				case r.Method == http.MethodGet && r.URL.Path == "/api/groups":
-					writeEnrollmentJSON(t, w, []apiGroup{{ID: "servers", Name: "gru-servers", Issued: "api"}})
+					groups := readEnrollmentJSON[[]apiGroup](t, groupPath)
+					if groups == nil {
+						groups = []apiGroup{}
+					}
+					writeEnrollmentJSON(t, w, groups)
+				case r.Method == http.MethodPost && r.URL.Path == "/api/groups":
+					var request groupRequest
+					if err := json.UnmarshalRead(r.Body, &request); err != nil || request.Name != "gru-servers" || len(request.Peers) != 0 || len(request.Resources) != 0 {
+						t.Error("invalid genesis server group")
+						w.WriteHeader(400)
+						return
+					}
+					groupsCreated.Add(1)
+					persistEnrollmentJSON(t, groupPath, []apiGroup{{ID: "servers", Name: request.Name, Issued: "api"}})
+					if interruption == "group-response" && interrupted.CompareAndSwap(false, true) {
+						w.WriteHeader(http.StatusServiceUnavailable)
+						return
+					}
+					writeEnrollmentJSON(t, w, created{ID: "servers"})
 				case r.Method == http.MethodGet && r.URL.Path == "/api/setup-keys":
 					if keys == nil {
 						keys = []apiSetupKey{}
@@ -102,6 +122,13 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 					}
 					writeEnrollmentJSON(t, w, items)
 				case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/secrets"):
+					vaultAttempts.Add(1)
+					if interruption == "vault-epoch-loss" && interrupted.CompareAndSwap(false, true) {
+						term.Add(1)
+						w.WriteHeader(http.StatusServiceUnavailable)
+						writeEnrollmentJSON(t, w, map[string]string{"code": "Unavailable", "message": "authority lost before retry"})
+						return
+					}
 					var request struct {
 						SecretName    string `json:"secretName"`
 						SecretContent struct {
@@ -155,7 +182,7 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 				defer api.Close()
 				expected := term.Load()
 				api.beforeWrite = func() error {
-					if interruption == "before-key-dispatch" && interrupted.CompareAndSwap(false, true) {
+					if interruption == "before-key-dispatch" && groupsCreated.Load() > 0 && interrupted.CompareAndSwap(false, true) {
 						term.Add(1)
 					}
 					if term.Load() != expected {
@@ -174,6 +201,9 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 			if interruption != "vault-response" && firstErr == nil {
 				t.Fatalf("interruption claimed success: %+v", first)
 			}
+			if interruption == "vault-epoch-loss" && vaultAttempts.Load() != 1 {
+				t.Fatalf("SDK redispatched a Vault write after authority loss: %d attempts", vaultAttempts.Load())
+			}
 			result, err := reconcile()
 			if err != nil || result.SecretID != secretID || result.KeyID == "" {
 				t.Fatalf("restart did not recover delivery: %+v %v", result, err)
@@ -182,7 +212,7 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 			if interruption == "key-response" {
 				wantCreates = 2
 			}
-			if keysCreated.Load() != wantCreates || vaultsCreated.Load() != 1 {
+			if groupsCreated.Load() != 1 || keysCreated.Load() != wantCreates || vaultsCreated.Load() != 1 {
 				t.Fatalf("duplicate credentials: keys=%d vaults=%d", keysCreated.Load(), vaultsCreated.Load())
 			}
 			again, err := reconcile()

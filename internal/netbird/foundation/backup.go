@@ -62,6 +62,9 @@ func Backup(ctx context.Context, dataDir, configPath string, targets [2]BackupTa
 	if quiesce == nil || targets[0].Region != "sa-saopaulo-1" || targets[1].Region != "us-sanjose-1" {
 		return record, errors.New("NetBird backup requires quiescence and admitted GRU and SFO targets")
 	}
+	for index := range targets {
+		ociclient.ConfigureRequestCancellation(&targets[index].Client.BaseClient)
+	}
 	for _, target := range targets {
 		if err := target.protected(ctx); err != nil {
 			return record, err
@@ -116,7 +119,7 @@ func Backup(ctx context.Context, dataDir, configPath string, targets [2]BackupTa
 		if _, err := archive.Seek(0, io.SeekStart); err != nil {
 			return record, err
 		}
-		_, err := target.Client.PutObject(ctx, objectstorage.PutObjectRequest{
+		_, err := target.Client.PutObject(ociclient.RequestContext(ctx), objectstorage.PutObjectRequest{
 			NamespaceName: new(target.Namespace), BucketName: new(target.Bucket), ObjectName: new(record.Object),
 			PutObjectBody: io.NopCloser(archive), ContentLength: new(record.Bytes), ContentType: new("application/x-tar"),
 			IfNoneMatch: new("*"), OpcSseKmsKeyId: new(target.KMSKeyID),
@@ -146,7 +149,7 @@ func (target BackupTarget) protected(ctx context.Context) error {
 		!strings.HasPrefix(target.CompartmentID, "ocid1.compartment.oc1..") {
 		return errors.New("NetBird recovery requires admitted bucket, compartment and regional KMS identities")
 	}
-	bucket, err := target.Client.GetBucket(ctx, objectstorage.GetBucketRequest{NamespaceName: new(target.Namespace), BucketName: new(target.Bucket)})
+	bucket, err := target.Client.GetBucket(ociclient.RequestContext(ctx), objectstorage.GetBucketRequest{NamespaceName: new(target.Namespace), BucketName: new(target.Bucket)})
 	if err != nil {
 		return fmt.Errorf("inspect NetBird recovery bucket in %s: %w", target.Region, err)
 	}
@@ -155,7 +158,7 @@ func (target BackupTarget) protected(ctx context.Context) error {
 		bucket.KmsKeyId == nil || *bucket.KmsKeyId != target.KMSKeyID || bucket.PublicAccessType != objectstorage.BucketPublicAccessTypeNopublicaccess {
 		return errors.New("NetBird recovery bucket identity, privacy or KMS protection changed")
 	}
-	rules, err := target.Client.ListRetentionRules(ctx, objectstorage.ListRetentionRulesRequest{NamespaceName: new(target.Namespace), BucketName: new(target.Bucket)})
+	rules, err := target.Client.ListRetentionRules(ociclient.RequestContext(ctx), objectstorage.ListRetentionRulesRequest{NamespaceName: new(target.Namespace), BucketName: new(target.Bucket)})
 	if err != nil {
 		return err
 	}
@@ -273,6 +276,7 @@ func backupObjectDigest(object string) (string, error) {
 // LatestBackup discovers the newest immutable recovery object in an admitted
 // region, so replacement hosts need no manually copied backup record.
 func LatestBackup(ctx context.Context, target BackupTarget) (BackupRecord, error) {
+	ociclient.ConfigureRequestCancellation(&target.Client.BaseClient)
 	var latest BackupRecord
 	if err := target.protected(ctx); err != nil {
 		return latest, err
@@ -282,7 +286,7 @@ func LatestBackup(ctx context.Context, target BackupTarget) (BackupRecord, error
 		Prefix: new(backupPrefix), Fields: new("name,size"), Limit: new(1000),
 	}
 	for {
-		response, err := target.Client.ListObjects(ctx, request)
+		response, err := target.Client.ListObjects(ociclient.RequestContext(ctx), request)
 		if err != nil {
 			return latest, err
 		}
@@ -321,7 +325,7 @@ func (target BackupTarget) download(ctx context.Context, object string, destinat
 	if err != nil {
 		return err
 	}
-	response, err := target.Client.GetObject(ctx, objectstorage.GetObjectRequest{
+	response, err := target.Client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{
 		NamespaceName: new(target.Namespace), BucketName: new(target.Bucket), ObjectName: new(object),
 	})
 	if err != nil {
@@ -346,6 +350,7 @@ func (target BackupTarget) download(ctx context.Context, object string, destinat
 // verifies bytes before extraction and never activates a second manager.
 // The service owner must fence the old host before activating this identity.
 func Restore(ctx context.Context, target BackupTarget, object, replacementDir string) (manifestTime time.Time, err error) {
+	ociclient.ConfigureRequestCancellation(&target.Client.BaseClient)
 	if err := target.protected(ctx); err != nil {
 		return manifestTime, err
 	}
@@ -422,8 +427,27 @@ func Restore(ctx context.Context, target BackupTarget, object, replacementDir st
 	if !config || stores == 0 {
 		return manifestTime, errors.New("NetBird recovery lacks config or SQLite identity store")
 	}
+	if err := fs.WalkDir(root.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || !entry.IsDir() {
+			return walkErr
+		}
+		directory, err := root.Open(path)
+		if err != nil {
+			return err
+		}
+		return errors.Join(directory.Sync(), directory.Close())
+	}); err != nil {
+		return manifestTime, fmt.Errorf("persist NetBird recovery directories: %w", err)
+	}
 	if err := unix.Renameat2(unix.AT_FDCWD, stage, unix.AT_FDCWD, replacementDir, unix.RENAME_NOREPLACE); err != nil {
 		return manifestTime, fmt.Errorf("install isolated NetBird recovery: %w", err)
+	}
+	parent, err := os.Open(filepath.Dir(replacementDir))
+	if err != nil {
+		return manifestTime, err
+	}
+	if err := errors.Join(parent.Sync(), parent.Close()); err != nil {
+		return manifestTime, fmt.Errorf("persist installed NetBird recovery: %w", err)
 	}
 	return manifest.CreatedAt, nil
 }

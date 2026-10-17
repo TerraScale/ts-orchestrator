@@ -33,8 +33,7 @@ func TestHostEnrollmentOnlySeedsUnmanagedFirstBootstrapNetBirdConfig(t *testing.
 		InstallRoot: "/opt/terrascale", StateRoot: "/var/lib/terrascale"}
 	pending := pendingHostEnrollment{IdentityKey: "identity", NATSUserSeed: base64.StdEncoding.EncodeToString(seed), TLSPrivateKey: "key"}
 	previous := cellspec.NetBird{Pin: netbirdArtifactTestPin(t), Enrollment: netbird.Config{
-		ManagementURL: netbird.DefaultManagementURL, ManagementIP: "10.250.0.1", Region: "sa-saopaulo-1",
-		SetupKeySecretID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.previous"}}
+		ManagementURL: netbird.DefaultManagementURL, Region: "sa-saopaulo-1"}}
 	next := previous
 	next.Pin.Version = "0.80.1"
 	next.Pin.Archives.Arm64.URL = strings.ReplaceAll(next.Pin.Archives.Arm64.URL, "0.80.0", "0.80.1")
@@ -42,8 +41,7 @@ func TestHostEnrollmentOnlySeedsUnmanagedFirstBootstrapNetBirdConfig(t *testing.
 	if err := client.ValidatePin(next.Pin); err != nil {
 		t.Fatal(err)
 	}
-	next.Enrollment.ManagementIP = "10.250.0.2"
-	next.Enrollment.SetupKeySecretID = "ocid1.vaultsecret.oc1.sa-saopaulo-1.next"
+	next.Enrollment.Region = "us-sanjose-1"
 	for _, test := range []struct {
 		name, operation string
 		host, managed   bool

@@ -280,7 +280,7 @@ func localManagedClient() (managedClient, error) {
 		return managedClient{}, errors.New("managed NetBird operations must run as root")
 	}
 	return managedClient{root: "/", architecture: runtime.GOARCH, executable: "/proc/self/exe",
-		status: netbird.Status, enroll: netbird.Enroll,
+		status: netbird.Status,
 		systemctl: func(ctx context.Context, args ...string) error {
 			commandCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 			defer cancel()
@@ -636,11 +636,15 @@ func (m managedClient) armRollback(ctx context.Context, transaction managedTrans
 // InstallManaged runs on the target node after its controller drains it and
 // verifies a second access path. The old binary remains until confirmation;
 // an independent systemd timer rolls back if the controller cannot reconnect.
-func InstallManaged(ctx context.Context, pin Pin, cfg netbird.Config, options ManagedOptions) (ManagedResult, error) {
+func InstallManaged(ctx context.Context, pin Pin, cfg netbird.Config, options ManagedOptions, reader netbird.SetupKeyReader) (ManagedResult, error) {
+	if reader == nil {
+		return ManagedResult{}, errors.New("NetBird installation requires an authenticated setup-key reader")
+	}
 	m, err := localManagedClient()
 	if err != nil {
 		return ManagedResult{}, err
 	}
+	m.enroll = func(ctx context.Context, cfg netbird.Config) error { return netbird.Enroll(ctx, cfg, reader) }
 	return m.install(ctx, pin, cfg, options)
 }
 

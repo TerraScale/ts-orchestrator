@@ -240,11 +240,6 @@ func (n NetBird) Validate(cell string) error {
 	if effectiveRegion != region.OCIRegion {
 		return errors.New("NetBird enrollment region differs from the cell")
 	}
-	for _, name := range n.Enrollment.PeerNames {
-		if !strings.HasPrefix(name, "ts-"+cell+"-") && !strings.HasPrefix(name, cell+"-") {
-			return errors.New("NetBird peer name differs from the cell")
-		}
-	}
 	return nil
 }
 

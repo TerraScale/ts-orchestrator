@@ -5,26 +5,33 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
 func TestHostsUpdateOwnsOnlyExactTaggedEntry(t *testing.T) {
 	original := []byte("127.0.0.1 localhost\n\n# comment preserved\n10.250.1.2 git.terrascale.tech other\n10.250.10.10\tnetbird.terrascale.tech\t" + hostsMarker + "\n")
-	updated, err := hostsContent(original, "10.250.10.155")
+	path := filepath.Join(t.TempDir(), "hosts")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := removeManagerHosts(path)
+	updated, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(updated, []byte("# comment preserved\n10.250.1.2 git.terrascale.tech other\n")) || bytes.Contains(updated, []byte("10.250.10.10")) {
+	if !bytes.Contains(updated, []byte("# comment preserved\n10.250.1.2 git.terrascale.tech other\n")) || bytes.Contains(updated, []byte("10.250.10.10")) || bytes.Contains(updated, []byte(hostsMarker)) {
 		t.Fatalf("unexpected hosts update %q", updated)
 	}
-	again, err := hostsContent(updated, "10.250.10.155")
+	err = removeManagerHosts(path)
+	again, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
 	if err != nil || !bytes.Equal(updated, again) {
 		t.Fatalf("hosts update is not idempotent: %q %q %v", updated, again, err)
-	}
-	removed, err := hostsContent(updated, "")
-	if err != nil || strings.Contains(string(removed), managerHostname) {
-		t.Fatalf("managed hosts removal failed: %q %v", removed, err)
 	}
 	for _, conflict := range []string{
 		"10.0.0.1 netbird.terrascale.tech unrelated\n",
@@ -32,7 +39,10 @@ func TestHostsUpdateOwnsOnlyExactTaggedEntry(t *testing.T) {
 		"10.0.0.1 unrelated " + hostsMarker + "\n",
 		"10.0.0.1 netbird.terrascale.tech " + hostsMarker + "\n10.0.0.2 netbird.terrascale.tech " + hostsMarker + "\n",
 	} {
-		if _, err := hostsContent([]byte(conflict), "10.250.10.155"); err == nil {
+		if err := os.WriteFile(path, []byte(conflict), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := removeManagerHosts(path); err == nil {
 			t.Fatalf("accepted hosts conflict %q", conflict)
 		}
 	}
@@ -40,22 +50,26 @@ func TestHostsUpdateOwnsOnlyExactTaggedEntry(t *testing.T) {
 
 func TestAtomicHostsUpdatePreservesModeAndRejectsSymlinks(t *testing.T) {
 	e := testEnroller(t)
-	if err := updateHosts(e.hostsPath, "10.250.10.155"); err != nil {
+	if err := removeManagerHosts(e.hostsPath); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(e.hostsPath)
 	if err != nil || info.Mode().Perm() != 0o644 {
 		t.Fatalf("mode was not preserved: %v %v", info, err)
 	}
+	before, err := os.ReadFile(e.hostsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	link := filepath.Join(t.TempDir(), "hosts-link")
 	if err := os.Symlink(e.hostsPath, link); err != nil {
 		t.Fatal(err)
 	}
-	if err := updateHosts(link, "10.250.10.156"); err == nil {
+	if err := removeManagerHosts(link); err == nil {
 		t.Fatal("followed hosts symlink")
 	}
 	body, err := os.ReadFile(e.hostsPath)
-	if err != nil || bytes.Contains(body, []byte("10.250.10.156")) {
+	if err != nil || !bytes.Equal(body, before) {
 		t.Fatal("hosts symlink changed its target")
 	}
 }
