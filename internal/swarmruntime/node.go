@@ -215,6 +215,11 @@ func startNode(ctx context.Context, cfg NodeConfig, executor exec.Executor, init
 			return nil, err
 		}
 	}
+	var pausedExecutor *pausedManagerExecutor
+	if a.Role == "manager" && initialAvailability == api.NodeAvailabilityPause {
+		pausedExecutor = &pausedManagerExecutor{Executor: executor, ready: make(chan struct{})}
+		executor = pausedExecutor
+	}
 	upstream, err := swarmnode.New(&swarmnode.Config{
 		Hostname:           a.HostID,
 		StateDir:           cfg.StateDir,
@@ -239,19 +244,37 @@ func startNode(ctx context.Context, cfg NodeConfig, executor exec.Executor, init
 		n.err = errors.Join(upstream.Err(context.Background()), lock.Unlock())
 		close(n.done)
 	}()
-	select {
-	case <-upstream.Ready():
-		if (upstream.Manager() != nil) == (a.Role == "manager") {
-			return n, nil
+	var paused <-chan error
+	if pausedExecutor != nil {
+		result := make(chan error, 1)
+		paused = result
+		go func() { result <- pauseManagerBeforeAgent(runCtx, upstream) }()
+	}
+waitReady:
+	for {
+		select {
+		case err = <-paused:
+			if err != nil {
+				break waitReady
+			}
+			close(pausedExecutor.ready)
+			paused = nil
+		case <-upstream.Ready():
+			if (upstream.Manager() != nil) == (a.Role == "manager") {
+				return n, nil
+			}
+			err = errors.New("SwarmKit certificate role does not match admitted host role")
+			break waitReady
+		case <-n.done:
+			err = n.err
+			if err == nil {
+				err = errors.New("swarm node stopped before registration")
+			}
+			break waitReady
+		case <-ctx.Done():
+			err = ctx.Err()
+			break waitReady
 		}
-		err = errors.New("SwarmKit certificate role does not match admitted host role")
-	case <-n.done:
-		err = n.err
-		if err == nil {
-			err = errors.New("swarm node stopped before registration")
-		}
-	case <-ctx.Done():
-		err = ctx.Err()
 	}
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer stopCancel()

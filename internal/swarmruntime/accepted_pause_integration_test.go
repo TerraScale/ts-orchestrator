@@ -2,6 +2,9 @@ package swarmruntime
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
+	"path/filepath"
 	"runtime"
 	"sync/atomic"
 	"testing"
@@ -12,6 +15,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 // This starts at the verified-identity boundary and exercises real CA joins,
@@ -97,11 +102,103 @@ func TestAcceptedManagersRegisterPausedBeforeExecutionAdmission(t *testing.T) {
 	}
 }
 
+func TestAcceptedManagerRestartPausesBeforeAgentRegistration(t *testing.T) {
+	// Retain manager lifetime through cleanup of both starts of its persisted state.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	t.Cleanup(cancel)
+	_, vaultClient, bundles := bootstrapVaultServer(t)
+	target := vaultsecret.Target{CompartmentID: "ocid1.compartment.oc1..control", VaultID: "ocid1.vault.oc1.sa-saopaulo-1.control", KeyID: "ocid1.key.oc1.sa-saopaulo-1.control"}
+	identity := bootstrapstart.RuntimeIdentity{DeploymentID: "0000000000F9PR1WNVDTEXS31Z", ClusterID: "0000000000RMSAJ9B0JFV7ESHN",
+		Environment: "production", Cell: "GRU", OCIRegion: "sa-saopaulo-1", Slot: "controller-a", SeedSlot: "controller-a",
+		InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.founder", PrivateIP: "127.181.0.21", SeedPrivateIP: "127.181.0.21"}
+	directory := t.TempDir()
+	start := func(executor *acceptedPauseExecutor) *Node {
+		t.Helper()
+		node, err := startAcceptedNodeAt(ctx, directory, identity, target, vaultClient, bundles, executor, func(context.Context) error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { nodeFixtureStop(t, node) })
+		return node
+	}
+	node := start(&acceptedPauseExecutor{first: make(chan api.NodeSpec_Availability, 1)})
+	nodeID := node.ID()
+	client, err := node.ControlClient(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := current.Node.Spec.Copy()
+	spec.Availability = api.NodeAvailabilityActive
+	// The fixture deliberately persists an admitted ACTIVE predecessor.
+	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: nodeID, NodeVersion: &current.Node.Meta.Version, Spec: spec}); err != nil {
+		t.Fatal(err)
+	}
+	nodeFixtureStop(t, node)
+
+	described := make(chan error, 1)
+	executor := &acceptedPauseExecutor{first: make(chan api.NodeSpec_Availability, 1), describe: func(ctx context.Context) error {
+		report := func(err error) {
+			select {
+			case described <- err:
+			default:
+			}
+		}
+		// Observe the real persisted row at the first delegated Describe, before registration.
+		conn, err := grpc.NewClient("unix:"+filepath.Join(directory, "node", "control.sock"),
+			grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
+		if err != nil {
+			report(err)
+			return err
+		}
+		defer conn.Close()
+		current, err := api.NewControlClient(conn).GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
+		if err == nil && (current.Node == nil || current.Node.Spec.Availability != api.NodeAvailabilityPause) {
+			err = errors.New("persisted manager was not PAUSE before agent description")
+		}
+		report(err)
+		return err
+	}}
+	node = start(executor)
+	if node.ID() != nodeID {
+		t.Fatal("restart changed the persisted manager identity")
+	}
+	select {
+	case err := <-described:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("restarted executor was not described", ctx.Err())
+	}
+	select {
+	case availability := <-executor.first:
+		if availability != api.NodeAvailabilityPause || executor.unpaused.Load() || executor.assignments.Load() != 0 {
+			t.Fatal("restarted manager reconnected before its PAUSE barrier")
+		}
+	case <-ctx.Done():
+		t.Fatal("restarted manager was not configured", ctx.Err())
+	}
+}
+
 type acceptedPauseExecutor struct {
 	bootstrapHostExecutor
 	first       chan api.NodeSpec_Availability
+	describe    func(context.Context) error
 	unpaused    atomic.Bool
 	assignments atomic.Int32
+}
+
+func (e *acceptedPauseExecutor) Describe(ctx context.Context) (*api.NodeDescription, error) {
+	if e.describe != nil {
+		if err := e.describe(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return e.bootstrapHostExecutor.Describe(ctx)
 }
 
 func (e *acceptedPauseExecutor) Configure(_ context.Context, node *api.Node) error {
