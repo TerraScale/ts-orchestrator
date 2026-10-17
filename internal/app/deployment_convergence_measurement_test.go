@@ -187,6 +187,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	}
 
 	intentPaths := make([]string, len(artifacts))
+	operationIDs := make([]string, len(artifacts))
 	provenance := collectConvergenceProvenance(t)
 	if len(provenance.DirtyPaths) != 0 {
 		t.Fatalf("refusing measurement with dirty source paths: %s", strings.Join(provenance.DirtyPaths, ", "))
@@ -198,6 +199,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 			DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(nil, nil, nil),
 			OperationID: entityid.Derive("test-convergence", fmt.Sprint(index+1)),
 		}
+		operationIDs[index] = intent.OperationID
 		intentPaths[index] = testJSONFile(t, root, fmt.Sprintf("intent-%03d.json", index+1), intent)
 	}
 
@@ -221,7 +223,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 			Status      string `json:"status"`
 		}
 		if err := json.Unmarshal(output.Bytes(), &submitted); err != nil ||
-			submitted.OperationID != fmt.Sprintf("convergence-%03d", generation) ||
+			submitted.OperationID != operationIDs[index] ||
 			submitted.Fingerprint == "" || submitted.Status != "submitted" {
 			t.Fatalf("submit receipt for generation %d: %v: %s", generation, err, output.String())
 		}
