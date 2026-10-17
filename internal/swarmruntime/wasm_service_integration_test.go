@@ -56,6 +56,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	wasmCfg := serviceConfig(t, "ts-gru-wasm", "wasm")
+	wasmCfg.Admission.HostID = entityid.Derive("function-service-host", t.Name())
 	wasmCfg.Admission.Region = "sa-saopaulo-1"
 	wasmCfg.Admission.ManagerAddress = workerCfg.Admission.ManagerAddress
 	wasmCfg.Admission.JoinToken = clusters.Clusters[0].RootCA.JoinTokens.Worker
@@ -195,6 +196,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	if err := intent.VerifyWorkerFloor(ctx, client, workerProof); err != nil {
 		t.Fatal(err)
 	}
+	testFunctionAllocationObservation(t, ctx, client, intent, current, workerProof, tasks.Tasks[0])
 	siblingIntent := intent
 	siblingIntent.Architecture = "arm64"
 	if runtime.GOARCH == "arm64" {
