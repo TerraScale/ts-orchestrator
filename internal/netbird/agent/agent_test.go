@@ -295,14 +295,164 @@ func TestWorkerAppliedTargetRequiresSuccessfulInstallAndConfirmation(t *testing.
 	if last.AppliedTargetHash != previousHash || last.InstalledTargetHash != targetHash {
 		t.Fatal("unconfirmed install was reported as applied")
 	}
+	if _, err := completedTarget(last); err == nil {
+		t.Fatal("signed unconfirmed install produced a completed target")
+	}
 	apply("confirm", errors.New("confirmation failed"))
 	if last.AppliedTargetHash != previousHash || last.Error == "" {
 		t.Fatal("failed confirmation changed applied target")
+	}
+	if _, err := completedTarget(last); err == nil {
+		t.Fatal("signed failed confirmation produced a completed target")
 	}
 	apply("confirm", nil)
 	if last.AppliedTargetHash != targetHash || last.Error != "" {
 		t.Fatal("successful confirmation did not publish applied target")
 	}
+	t.Run("completed target", func(t *testing.T) {
+		confirmed := last
+		view, err := completedTarget(confirmed)
+		if err != nil || view.Generation != confirmed.Generation || view.Epoch != confirmed.Epoch || view.Transaction != confirmed.Transaction ||
+			view.Action != confirmed.Action || view.ActionID != confirmed.ActionID || view.TargetHash != confirmed.TargetHash ||
+			view.InstalledTargetHash != confirmed.InstalledTargetHash || view.AppliedTargetHash != confirmed.AppliedTargetHash {
+			t.Fatalf("confirmed checkpoint: %+v %v", view, err)
+		}
+		for name, change := range map[string]func(*ledger){
+			"pre-effect confirm": func(last *ledger) { last.ActionID = network.CommandID(last.Transaction, "install") },
+			"failed confirm":     func(last *ledger) { last.Error = "confirmation failed" },
+			"installed differs":  func(last *ledger) { last.InstalledTargetHash = strings.Repeat("b", 64) },
+			"applied differs":    func(last *ledger) { last.AppliedTargetHash = strings.Repeat("b", 64) },
+			"missing installed":  func(last *ledger) { last.InstalledTargetHash = "" },
+			"missing applied":    func(last *ledger) { last.AppliedTargetHash = "" },
+			"noncanonical hash":  func(last *ledger) { last.TargetHash = strings.Repeat("A", 64) },
+			"invalid transaction": func(last *ledger) {
+				last.Transaction = "not-a-transaction"
+				last.ActionID = network.CommandID(last.Transaction, "confirm")
+			},
+			"zero generation": func(last *ledger) { last.Generation = 0 },
+			"zero epoch":      func(last *ledger) { last.Epoch = 0 },
+			"install":         func(last *ledger) { last.Action = "install" },
+			"rollback":        func(last *ledger) { last.Action = "rollback"; last.InstalledTargetHash = "" },
+			"absent":          func(last *ledger) { *last = ledger{} },
+		} {
+			t.Run(name, func(t *testing.T) {
+				changed := confirmed
+				change(&changed)
+				if view, err := completedTarget(changed); err == nil || view != (CompletedTargetView{}) {
+					t.Fatalf("unfinished checkpoint accepted: %+v %v", view, err)
+				}
+			})
+		}
+		t.Run("noncanonical identity", func(t *testing.T) {
+			for _, identity := range [][2]string{{"GRU", "gru-1-ctl-1"}, {"unknown", "ts-gru-1"}, {"gru", "../ts-gru-1"}, {"gru", "gru-1-controller-a"}} {
+				if view, err := ReadCompletedTarget(identity[0], identity[1]); err == nil || view != (CompletedTargetView{}) {
+					t.Fatalf("invalid identity accepted: %q %+v %v", identity, view, err)
+				}
+			}
+			if os.Geteuid() != 0 {
+				if _, err := ReadCompletedTarget("gru", "gru-1-ctl-1"); err == nil {
+					t.Fatal("unprivileged caller accepted")
+				}
+			}
+		})
+		t.Run("protected directory", func(t *testing.T) {
+			if err := os.Chmod(cfg.StateDirectory, 0770); err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := os.Chmod(cfg.StateDirectory, 0700); err != nil {
+					t.Error(err)
+				}
+			}()
+			file, err := os.Open(cfg.StateDirectory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			if err := checkCompletedTargetDirectory(int(file.Fd()), false); err == nil {
+				t.Fatal("writable ancestor accepted")
+			}
+			if err := os.Chmod(cfg.StateDirectory, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := checkCompletedTargetDirectory(int(file.Fd()), true); err == nil {
+				t.Fatal("nonprivate final directory accepted")
+			}
+			if os.Geteuid() != 0 {
+				if err := os.Chmod(cfg.StateDirectory, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := checkCompletedTargetDirectory(int(file.Fd()), true); err == nil {
+					t.Fatal("nonroot final directory accepted")
+				}
+			}
+		})
+		t.Run("held descriptor and strict ledger", func(t *testing.T) {
+			if os.Geteuid() != 0 {
+				t.Skip("protected worker-ledger fixture requires root ownership")
+			}
+			wire, err := os.ReadFile(filepath.Join(cfg.StateDirectory, "ledger.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			file, err := os.Open(cfg.StateDirectory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			moved := cfg.StateDirectory + ".moved"
+			if err := os.Rename(cfg.StateDirectory, moved); err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := os.Remove(cfg.StateDirectory); err != nil && !errors.Is(err, os.ErrNotExist) {
+					t.Error(err)
+				}
+				if err := os.Rename(moved, cfg.StateDirectory); err != nil {
+					t.Error(err)
+				}
+			}()
+			if err := os.Symlink(t.TempDir(), cfg.StateDirectory); err != nil {
+				t.Fatal(err)
+			}
+			if view, err := readCompletedTarget(file); err != nil || view.TargetHash != targetHash || view.Transaction != command.Transaction {
+				t.Fatalf("held ledger descriptor lost signed confirmed target: %+v %v", view, err)
+			}
+			path := filepath.Join(moved, "ledger.json")
+			for name, change := range map[string]func() error{
+				"unknown field": func() error {
+					return os.WriteFile(path, append(append([]byte(nil), wire[:len(wire)-1]...), []byte(",\"unknown\":true}")...), 0600)
+				},
+				"duplicate field": func() error {
+					return os.WriteFile(path, append(append([]byte(nil), wire[:len(wire)-1]...), []byte(",\"epoch\":3}")...), 0600)
+				},
+				"public mode": func() error { return os.Chmod(path, 0644) },
+				"hard link": func() error {
+					return os.Link(path, filepath.Join(moved, "alias"))
+				},
+			} {
+				t.Run(name, func(t *testing.T) {
+					t.Cleanup(func() {
+						if err := os.Remove(filepath.Join(moved, "alias")); err != nil && !errors.Is(err, os.ErrNotExist) {
+							t.Error(err)
+						}
+						if err := os.Chmod(path, 0600); err != nil {
+							t.Error(err)
+						}
+						if err := os.WriteFile(path, wire, 0600); err != nil {
+							t.Error(err)
+						}
+					})
+					if err := change(); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := readCompletedTarget(file); err == nil {
+						t.Fatal("unsafe ledger accepted")
+					}
+				})
+			}
+		})
+	})
 	apply("rollback", errors.New("rollback failed"))
 	if last.AppliedTargetHash != targetHash || last.Error == "" {
 		t.Fatal("failed rollback reported previous target as restored")
