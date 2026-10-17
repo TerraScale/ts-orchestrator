@@ -10,12 +10,17 @@ There is no separate app scheduler or machine task store.
 Platform services use their signed profile's role as the app name. Tenant
 functions use `fn-<lowercase intent ULID>`; their function-tenant binding is
 checked against the derived manager service intent. Qualified TerraBase
-member services use `db-<lowercase intent ULID>`. Member services currently
-carry no tenant binding, so only the platform organization can see them.
+members group under `db-<lowercase business database ULID>`. Their tenant
+comes from the current authenticated placement intent's canonical roster,
+matched by exact business database, partition, member and placement digest.
+The canonical TerraBase database ID is a separate signed identity. Distinct
+tenant, cluster or canonical database scopes cannot merge under one app.
 
-An app ID is a canonical ULID derived from its actual manager service ID.
+Platform and function app IDs are canonical ULIDs derived from actual
+manager service IDs. Database app IDs derive from the stable business
+database ID (`manager-database-app`), grouping current member services.
 A machine ID is a canonical ULID derived from its actual task ID. Recreating
-a service or replacing a task creates a new public identity; old task IDs
+a platform/function service or replacing a task creates a new public identity; old task IDs
 are never reassigned to replacement tasks. Versions are manager object
 versions, and `regions` reports the service's actual requested replicas.
 
@@ -42,4 +47,7 @@ destroyed intent, and retained manager task history remains visible.
 
 `TS_APPS`, `TS_MACHINES` and `TS_MACHINE_STATUS` are retired. The API does
 not open or reserve those buckets, and KV snapshots no longer include them.
-Manager state remains in SwarmKit's own persistent state.
+Manager state remains in SwarmKit's own persistent state. The retired store
+used random app IDs and had no production app writer; these explicit
+manager/product mappings do not claim to preserve arbitrary historical
+laboratory KV app IDs or names.

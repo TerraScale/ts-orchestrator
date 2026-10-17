@@ -22,10 +22,18 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-type managerMachinesView struct{ manager *managerWorkloadView }
+type managerMachinePlacements interface {
+	ListIntents(context.Context) ([]placement.Intent, error)
+	ReadMember(context.Context, string, string, string) (placement.VersionedMemberState, error)
+}
 
-func newManagerMachinesView(manager *managerWorkloadView) machinesapi.AppSource {
-	return &managerMachinesView{manager: manager}
+type managerMachinesView struct {
+	manager    *managerWorkloadView
+	placements managerMachinePlacements
+}
+
+func newManagerMachinesView(manager *managerWorkloadView, placements managerMachinePlacements) machinesapi.AppSource {
+	return &managerMachinesView{manager: manager, placements: placements}
 }
 
 // Snapshot never retains an earlier result when authority or manager reads fail.
@@ -50,7 +58,10 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 		return nil, fmt.Errorf("read machines manager services: %w", err)
 	}
 	snapshots := []machinesapi.AppSnapshot{}
-	seen := map[string]bool{}
+	seen := map[string]int{}
+	databaseScopes := map[string]string{}
+	var intents []placement.Intent
+	var memberPins []placement.VersionedMemberState
 	nodes := map[string]uint64{}
 	for _, service := range listed.Services {
 		if service == nil {
@@ -68,6 +79,8 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 			return nil, errors.New("machines manager service identity or mode is invalid")
 		}
 		name, class, tenantID := role, machines.ClassPlatform, ""
+		appID := entityid.Derive("manager-app", service.ID)
+		var member *placement.VersionedMemberState
 		switch {
 		case role == swarmruntime.FunctionWorkerRole:
 			tenantID = labels[swarmruntime.LabelFunctionTenant]
@@ -77,14 +90,29 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 			}
 			name, class = "fn-"+strings.ToLower(intent), machines.ClassTenant
 		case role == "terrabase":
-			// Member services have no tenant binding; only the platform may see them.
-			if labels["terrascale.stateful"] != "true" || !entityid.Valid(labels["terrascale.database-id"]) || !entityid.Valid(labels["terrascale.partition-id"]) || !entityid.Valid(labels["terrascale.member-id"]) {
-				return nil, errors.New("machines stateful member identity is invalid")
+			if view.placements == nil {
+				return nil, errors.New("machines stateful placement authority is unavailable")
 			}
-			if intent != entityid.Derive("stateful-service", m.specs.identity.Environment, m.specs.cell, labels["terrascale.database-id"], labels["terrascale.partition-id"], labels["terrascale.member-id"]) {
-				return nil, errors.New("machines stateful service ownership is invalid")
+			if intents == nil {
+				intents, err = view.placements.ListIntents(ctx)
+				if err != nil {
+					return nil, err
+				}
 			}
-			name = "db-" + strings.ToLower(intent)
+			owner, pin, err := view.statefulOwner(ctx, service, intents)
+			if err != nil {
+				return nil, err
+			}
+			tenantID, class = owner.CanonicalRoster.TenantID, machines.ClassTenant
+			name = "db-" + strings.ToLower(owner.DatabaseID)
+			appID = entityid.Derive("manager-database-app", owner.DatabaseID)
+			scope := tenantID + "/" + owner.CanonicalRoster.ClusterID + "/" + owner.CanonicalRoster.DatabaseID
+			if previous, exists := databaseScopes[name]; exists && previous != scope {
+				return nil, errors.New("machines database app has ambiguous authenticated ownership")
+			}
+			databaseScopes[name] = scope
+			member = &pin
+			memberPins = append(memberPins, pin)
 		default:
 			if _, admitted := profiles[role]; !admitted {
 				continue
@@ -93,15 +121,14 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 				return nil, errors.New("machines platform service ownership is invalid")
 			}
 		}
-		if seen[name] {
+		if index, exists := seen[name]; exists && (role != "terrabase" || snapshots[index].App.ID != appID || snapshots[index].App.Class != class || snapshots[index].App.Tenant != tenantID) {
 			return nil, errors.New("ambiguous machines manager app identity")
 		}
-		seen[name] = true
 		config, err := managerMachineConfig(service.Spec.Task, service.Spec.Annotations)
 		if err != nil {
 			return nil, err
 		}
-		app := machines.App{Name: name, ID: entityid.Derive("manager-app", service.ID), Class: class, Tenant: tenantID,
+		app := machines.App{Name: name, ID: appID, Class: class, Tenant: tenantID,
 			Version: service.Meta.Version.Index, Config: config, Regions: map[string]int{m.specs.cell: int(service.Spec.GetReplicated().Replicas)}}
 		tasks, err := m.client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}}})
 		if err != nil || tasks == nil {
@@ -129,9 +156,15 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 				if node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != region {
 					return nil, errors.New("machines task host is outside the admitted region")
 				}
+				if member != nil && (node.Spec.Annotations.Name != member.State.HostNode || node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != member.State.InstanceID) {
+					return nil, errors.New("machines task host differs from current member placement")
+				}
 				nodes[node.ID] = node.Meta.Version.Index
 				machine.Host = node.Spec.Annotations.Name
 				machine.FailureDomain = node.Spec.Annotations.Labels["terrascale.failure-domain"]
+				if member != nil {
+					machine.FailureDomain = strings.ToLower(member.State.FailureDomain)
+				}
 				if node.Status.State == api.NodeStatus_DOWN {
 					state = machines.StateLost
 				}
@@ -155,7 +188,17 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 			return nil, errors.New("machines manager tasks changed during observation")
 		}
 		slices.SortFunc(snapshot.Machines, func(a, b machinesapi.MachineView) int { return strings.Compare(a.ID, b.ID) })
-		snapshots = append(snapshots, snapshot)
+		if index, exists := seen[name]; exists {
+			previous := &snapshots[index]
+			previous.Machines = append(previous.Machines, snapshot.Machines...)
+			previous.App.Regions[m.specs.cell] += snapshot.App.Regions[m.specs.cell]
+			if snapshot.App.Version > previous.App.Version {
+				previous.App.Version, previous.App.Config = snapshot.App.Version, snapshot.App.Config
+			}
+		} else {
+			seen[name] = len(snapshots)
+			snapshots = append(snapshots, snapshot)
+		}
 	}
 	confirmed, err := m.client.ListServices(ctx, &api.ListServicesRequest{Filters: filters})
 	if err != nil || confirmed == nil || !sameManagerServices(listed.Services, confirmed.Services) {
@@ -167,12 +210,78 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 			return nil, errors.New("machines manager host changed during observation")
 		}
 	}
+	if len(memberPins) > 0 {
+		currentIntents, err := view.placements.ListIntents(ctx)
+		if err != nil || !reflect.DeepEqual(intents, currentIntents) {
+			return nil, errors.New("machines placement authority changed during observation")
+		}
+		for _, pin := range memberPins {
+			state := pin.State
+			current, err := view.placements.ReadMember(ctx, state.DatabaseID, state.PartitionID, state.MemberID)
+			if err != nil || current.Revision != pin.Revision || !reflect.DeepEqual(current.State, pin.State) {
+				return nil, errors.New("machines placement member changed during observation")
+			}
+		}
+	}
+	for index := range snapshots {
+		slices.SortFunc(snapshots[index].Machines, func(a, b machinesapi.MachineView) int { return strings.Compare(a.ID, b.ID) })
+	}
 	currentProfiles, currentPolicies := m.specs.effective()
 	if !reflect.DeepEqual(profiles, currentProfiles) || !reflect.DeepEqual(policies, currentPolicies) || !m.leader(ctx, epoch) || ctx.Err() != nil {
 		return nil, errors.New("machines manager authority changed during observation")
 	}
 	slices.SortFunc(snapshots, func(a, b machinesapi.AppSnapshot) int { return strings.Compare(a.App.Name, b.App.Name) })
 	return snapshots, nil
+}
+
+// Resolve business database/partition labels only through current admitted R3
+// placement; canonical TerraBase database identity is a separate signed scope.
+func (view *managerMachinesView) statefulOwner(ctx context.Context, service *api.Service, intents []placement.Intent) (placement.Intent, placement.VersionedMemberState, error) {
+	labels := service.Spec.Annotations.Labels
+	deny := func() (placement.Intent, placement.VersionedMemberState, error) {
+		return placement.Intent{}, placement.VersionedMemberState{}, errors.New("machines stateful service differs from admitted placement")
+	}
+	if labels["terrascale.stateful"] != "true" || labels["terrascale.member-id"] == "" || labels["terrascale.placement-sha256"] == "" {
+		return deny()
+	}
+	var matched *placement.Intent
+	for index := range intents {
+		intent := &intents[index]
+		if intent.DatabaseID == labels["terrascale.database-id"] && intent.PartitionID == labels["terrascale.partition-id"] {
+			if matched != nil || intent.PayloadDigest() != labels["terrascale.placement-sha256"] || intent.ValidateForAdmission() != nil {
+				return deny()
+			}
+			matched = intent
+		}
+	}
+	if matched == nil {
+		return deny()
+	}
+	m := view.manager
+	if labels[swarmruntime.LabelIntentID] != entityid.Derive("stateful-service", m.specs.identity.Environment, m.specs.cell, matched.DatabaseID, matched.PartitionID, labels["terrascale.member-id"]) {
+		return deny()
+	}
+	pin, err := view.placements.ReadMember(ctx, matched.DatabaseID, matched.PartitionID, labels["terrascale.member-id"])
+	if err != nil {
+		return placement.Intent{}, placement.VersionedMemberState{}, err
+	}
+	state := pin.State
+	region, err := state.Region.OCIRegion()
+	if err != nil || state.Validate() != nil || pin.Revision == 0 || state.DatabaseID != matched.DatabaseID || state.PartitionID != matched.PartitionID || state.MemberID != labels["terrascale.member-id"] || region != labels[swarmruntime.LabelRegion] || state.IntentGeneration != matched.Generation || state.IntentPayloadDigest != matched.PayloadDigest() {
+		return deny()
+	}
+	if state.Stage != placement.StageServing && state.Stage != placement.StageAwaitingHealthy && state.Stage != placement.StageDraining && state.Stage != placement.StageDrained {
+		return deny()
+	}
+	row, err := matched.RosterRowForSeat(placement.Seat{MemberID: state.MemberID, Region: state.Region, FailureDomain: state.FailureDomain, Kind: state.Kind})
+	if err != nil || row != state.CanonicalRosterRow {
+		return deny()
+	}
+	rosterDigest, err := matched.CanonicalRosterDigest()
+	if err != nil || rosterDigest != state.CanonicalRosterDigest {
+		return deny()
+	}
+	return *matched, pin, nil
 }
 
 // Return only public image/resource metadata: container env, files and arguments may contain secrets.

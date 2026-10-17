@@ -39,17 +39,15 @@ The work ships in slices under TS-564.
 | `GET /v1/apps/{app}/machines` | `orch:read` | `{"machines": [Machine]}`, each with its `status` once observed |
 | `GET /v1/apps/{app}/machines/{id}` | `orch:read` | The machine and its `status` |
 
-A machine's `status` is the orchestrator's last observation, kept in its
-own bucket so host reports never contend with desired-state writes
-([apps and machines](apps-machines.md#model)). The API reads the two
-records separately, so a status can lag the machine: it may describe the
-previous `version` or `desired` state until the next observation.
-`updated_at` says when it was observed. The API returns no snapshot of both.
+A machine's `status` comes from the same current manager observation as its
+task identity, desired state and image/resource metadata. Service/task
+versions, admitted stateful placement and controller authority are rechecked
+before the response; an unavailable or changing view returns 503.
+`updated_at` is the task lifecycle timestamp. `RUNNING` alone does not imply
+application readiness ([apps and machines](apps-machines.md)).
 
-A path value becomes part of a KV key only after it matches the model's
-rules (an app name is a DNS label, a machine ID is a canonical uppercase 26-character Crockford ULID).
-Otherwise the request gets 400 `invalid_name`, so a value cannot widen a
-key filter.
+App names are DNS labels. Machine IDs are canonical uppercase 26-character
+Crockford ULIDs derived from actual manager task IDs.
 
 ## Serving
 

@@ -25,8 +25,12 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/machines"
 	"github.com/TerraScale/ts-orchestrator/internal/machinesapi"
+	"github.com/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/tenant"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -151,6 +155,32 @@ func TestMachinesManagerAuthenticatedHTTPIntegration(t *testing.T) {
 	if _, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: function}); err != nil {
 		t.Fatal(err)
 	}
+	members, admitted, states := machinesAdmittedPlacement(t, ctx, broker, control)
+	databaseTenant, err := tenant.New(admitted.CanonicalRoster.TenantID, tenantOrg, entityid.New(), "gru", tenant.Spec{Plan: "starter", Members: 1, TerraBase: strings.Repeat("a", 64)}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tenants.Create(ctx, databaseTenant); err != nil {
+		t.Fatal(err)
+	}
+	var memberServiceID string
+	for index, state := range states {
+		memberSpec := base.Copy()
+		memberSpec.Annotations.Name = fmt.Sprintf("machines-member-%d", index)
+		memberSpec.Annotations.Labels = map[string]string{
+			swarmruntime.LabelIntentID: entityid.Derive("stateful-service", identity.Environment, identity.Cell, state.DatabaseID, state.PartitionID, state.MemberID),
+			swarmruntime.LabelRole:     "terrabase", swarmruntime.LabelRegion: "sa-saopaulo-1", swarmruntime.LabelEnvironment: identity.Environment,
+			"terrascale.stateful": "true", "terrascale.database-id": state.DatabaseID, "terrascale.partition-id": state.PartitionID, "terrascale.member-id": state.MemberID, "terrascale.placement-sha256": admitted.PayloadDigest(),
+		}
+		memberSpec.Task.GetGeneric().Kind = execution.StatefulContainerKind
+		memberSpec.Task.GetGeneric().Payload.TypeUrl = execution.StatefulContainerTypeURL
+		memberSpec.Task.Placement = &api.Placement{Constraints: []string{"node.labels.test-unavailable==true"}}
+		response, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: memberSpec})
+		if err != nil {
+			t.Fatal(err)
+		}
+		memberServiceID = response.Service.ID
+	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +193,7 @@ func TestMachinesManagerAuthenticatedHTTPIntegration(t *testing.T) {
 	t.Cleanup(jwks.Close)
 	issuer, audience := "https://gru.auth.terrascale.tech/terrascale", "https://gru.orch.terrascale.tech"
 	cfg := Config{NATS: natscell.Config{Cell: "gru", Replicas: 1}, Controller: ControllerConfig{MachinesAPI: &machinesapi.Config{ListenAddress: fmt.Sprintf("127.0.0.1:%d", freeTCPPort(t)), Issuer: issuer, Audience: audience, JWKSURLs: []string{jwks.URL}, Clients: []string{clientID}, PlatformOrganizationID: platformOrg, Members: map[string][]string{platformOrg: {platformSub}, tenantOrg: {tenantSub}, otherOrg: {otherSub}}}}}
-	serving, err := startMachinesAPI(ctx, cfg, broker, control, func() bool { return true }, newManagerMachinesView(view), nil)
+	serving, err := startMachinesAPI(ctx, cfg, broker, control, func() bool { return true }, newManagerMachinesView(view, members), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,6 +254,46 @@ func TestMachinesManagerAuthenticatedHTTPIntegration(t *testing.T) {
 			t.Fatalf("foreign app leaked: %d %s", code, wire)
 		}
 	}
+	databaseName := "db-" + strings.ToLower(admitted.DatabaseID)
+	expectedAppID := entityid.Derive("manager-database-app", admitted.DatabaseID)
+	if admitted.DatabaseID == admitted.CanonicalRoster.DatabaseID {
+		t.Fatal("fixture conflated business and canonical database identities")
+	}
+	genericRuntimeEventually(t, ctx, func() bool {
+		code, wire := get(tenantSub, "/v1/apps/"+databaseName+"/machines")
+		var body struct {
+			Machines []machinesapi.MachineView `json:"machines"`
+		}
+		if code != http.StatusOK || json.Unmarshal(wire, &body) != nil || len(body.Machines) != len(states) {
+			return false
+		}
+		for _, machine := range body.Machines {
+			if machine.AppID != expectedAppID || machine.App != databaseName {
+				t.Fatalf("database product identity was not preserved: %+v", machine)
+			}
+		}
+		return true
+	})
+	if code, wire := get(otherSub, "/v1/apps/"+databaseName); code != http.StatusNotFound {
+		t.Fatalf("foreign database leaked: %d %s", code, wire)
+	}
+	currentMember, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: memberServiceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied := currentMember.Service.Spec.Copy()
+	copied.Annotations.Labels["terrascale.database-id"] = admitted.CanonicalRoster.DatabaseID
+	changed, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: memberServiceID, ServiceVersion: &currentMember.Service.Meta.Version, Spec: copied})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, wire := get(tenantSub, "/v1/apps/"+databaseName); code != http.StatusServiceUnavailable {
+		t.Fatalf("canonical database replaced business key: %d %s", code, wire)
+	}
+	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: memberServiceID, ServiceVersion: &changed.Service.Meta.Version, Spec: &currentMember.Service.Spec}); err != nil {
+		t.Fatal(err)
+	}
+	genericRuntimeEventually(t, ctx, func() bool { code, _ := get(tenantSub, "/v1/apps/"+databaseName); return code == http.StatusOK })
 	changeDuringProbe.Store(true)
 	if code, wire := get(platformSub, "/v1/apps/api/machines"); code != http.StatusServiceUnavailable {
 		t.Fatalf("service version changed during probe: %d %s", code, wire)
@@ -240,6 +310,75 @@ func TestMachinesManagerAuthenticatedHTTPIntegration(t *testing.T) {
 			t.Fatalf("obsolete bucket %s was opened: %v", bucket, err)
 		}
 	}
+}
+
+// Signed material receipts and placement use the actual authority log and
+// admitted reader; the object backend and member hosts remain local fixtures.
+func machinesAdmittedPlacement(t *testing.T, ctx context.Context, broker *natscell.Runtime, control *authority.Runtime) (placement.Store, placement.Intent, []placement.MemberState) {
+	t.Helper()
+	epoch := control.Current().Epoch
+	_, controllerPrivate := testEd25519(t, t.TempDir(), "machines-material-controller.key")
+	baseline := testManagedPlacementIntent()
+	spec, recipientSigner := backupAdmissionSpec(t, baseline)
+	bundle, err := managedmaterial.GenerateInitial(spec, recipientSigner, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := managedmaterial.NewRepository(managedmaterial.RepositoryConfig{Region: oci.RegionGRU, Cell: "gru", Namespace: "terrascale", Bucket: "machines-material", KMSKeyID: "ocid1.key.oc1.sa-saopaulo-1.material"}, new(preparationTestObjects), control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, err := repository.CreateInitial(ctx, epoch, spec.PartitionID, spec, bundle, controllerPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := managedmaterial.SignPreparationReceipt("gru", spec.PartitionID, spec, bundle, object, controllerPrivate, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := protocol.EncodeJSON(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.CommitMaterialReceipt(ctx, epoch, spec.PlacementDatabaseID, spec.PartitionID, entityid.Derive("material-receipt", receipt.SpecSHA256), 0, payload); err != nil {
+		t.Fatal(err)
+	}
+	preparation := managedmaterial.PreparationService{Cell: "gru", Repository: repository, Receipts: control, Fencer: control, ControllerKey: controllerPrivate, RecipientSigner: recipientSigner, AllowedSubnetCIDR: "10.0.0.0/24"}
+	material := preparedMaterialAdmission(preparation)
+	requested := backupAdmissionIntent(t, baseline, receipt)
+	policy, privateKey := newPlacementAdmissionPolicy(t)
+	payload, err = protocol.EncodeJSON(requested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "gru", Kind: "placement.intent", Actor: "ops", OperationID: requested.OperationID(), Generation: requested.Generation, Epoch: epoch}, now, now.Add(time.Minute), privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := protocol.EncodeJSON(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyAndApplyPlacement(ctx, wire, "gru", policy, control, material); err != nil {
+		t.Fatal(err)
+	}
+	members, err := placement.NewJetStreamStore(ctx, broker.JetStream(), "gru", 1, admittedPlacementReader{cell: "gru", store: control, material: material})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intents, err := members.ListIntents(ctx)
+	if err != nil || len(intents) != 1 {
+		t.Fatalf("read admitted database placement: %+v %v", intents, err)
+	}
+	admitted := intents[0]
+	states, _, _, _ := managedUpdateAppBaseline(t, admitted, epoch)
+	for _, state := range states {
+		if _, err := members.CompareAndSwap(ctx, 0, state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return members, admitted, states
 }
 
 func signTestAccessToken(t *testing.T, key *ecdsa.PrivateKey, kid string, claims map[string]any) string {
