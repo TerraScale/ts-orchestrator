@@ -123,7 +123,7 @@ func TestControllerAdmissionChildReceivesTheLoadedBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	executable := writeAdmissionShell(t, fmt.Sprintf("#!/bin/sh\n%s > %s\n", shellQuote(cat), shellQuote(wirePath)))
-	signed := []byte(`{ "version": 1, "nats": {"cell": "gru", "instance": "ctl-1"} }`)
+	signed := []byte(`{ "version": 2, "nats": {"cell": "gru", "instance": "ctl-1"} }`)
 	configPath := filepath.Join(directory, "controller.json")
 	if err := os.WriteFile(configPath, signed, 0o600); err != nil {
 		t.Fatal(err)

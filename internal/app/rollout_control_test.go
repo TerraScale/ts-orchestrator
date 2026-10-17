@@ -282,7 +282,7 @@ func TestRolloutConfigAndCommandFlagsAreChecked(t *testing.T) {
 	}
 	for _, key := range []string{"enabled", "executor", "channel", "allow_scoped_auto_sign"} {
 		for _, value := range []string{"true", "false", "null"} {
-			wire := []byte(`{"version":1,"controller":{"rollouts":{"` + key + `":` + value + `}}}`)
+			wire := []byte(`{"version":2,"controller":{"rollouts":{"` + key + `":` + value + `}}}`)
 			if _, err := decodeConfig(wire); err == nil {
 				t.Fatalf("retired control accepted: %s=%s", key, value)
 			}

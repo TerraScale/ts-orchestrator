@@ -159,7 +159,7 @@ func credentialLauncherManifest(t *testing.T, expected map[string]string) bootst
 		Profiles: []bootstrap.LaunchProfile{{Slot: "controller-a", CompartmentOCID: "ocid1.compartment.oc1..fixture",
 			AvailabilityDomain: "fixture:SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-1",
 			SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.fixture", Shape: "VM.Standard.E4.Flex"}},
-		ControllerConfig: []byte(`{"version":1,"nats":{},"controller":{}}`)}
+		ControllerConfig: []byte(`{"version":2,"nats":{},"controller":{}}`)}
 	manifest.ControllerConfigSHA256 = controllerSHA256(manifest.ControllerConfig)
 	for _, name := range bootstrap.ControllerConfigFileNames {
 		manifest.ControllerFiles = append(manifest.ControllerFiles, bootstrap.ControllerConfigFile{Name: name, Bytes: []byte(`{}`), SHA256: controllerSHA256([]byte(`{}`))})

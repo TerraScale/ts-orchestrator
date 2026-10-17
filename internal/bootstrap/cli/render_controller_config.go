@@ -130,7 +130,7 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 			cfg.Controller.Workloads = make(map[string]app.WorkloadProfile)
 		}
 		cfg.Controller.Workloads[tsauth.Role] = profile
-		cfg.Controller.Autoscale = &app.AutoscaleConfig{Enabled: true, Services: []workload.ServiceSpec{service}}
+		cfg.Controller.Autoscale = &app.AutoscaleConfig{Services: []workload.ServiceSpec{service}}
 	}
 	wire, err := protocol.EncodeJSON(cfg)
 	if err != nil || len(wire) > bootstrap.MaxControllerConfigBytes {

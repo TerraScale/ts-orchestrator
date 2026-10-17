@@ -58,7 +58,7 @@ func TestSignedObservabilityStaysOnLoopbackOrBrokerAddress(t *testing.T) {
 func TestLoadConfigRejectsPublicObservabilityListener(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"version":1,"nats":{"cell":"lab"},"observability":{"listen_address":"8.8.8.8:9464"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":2,"nats":{"cell":"lab"},"observability":{"listen_address":"8.8.8.8:9464"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), "observability") {
