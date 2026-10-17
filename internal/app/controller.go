@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,6 +47,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -562,11 +564,24 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				ManagedCredentialFloor:      credentialFloor,
 				ManagedVolumeInspector:      volumeInspector,
 				TaskLoadRoles: func(ctx context.Context, registration host.Registration) ([]string, error) {
+					functionCalls.RLock()
+					defer functionCalls.RUnlock()
 					controller := automaticContainers.Load()
-					if controller == nil {
+					functions := automaticFunctions.Load()
+					if controller == nil || functions == nil {
 						return nil, containermaterial.ErrPending
 					}
-					return controller.taskLoadRoles(ctx, registration)
+					roles, err := controller.taskLoadRoles(ctx, registration)
+					if err != nil {
+						return nil, err
+					}
+					functionRoles, err := functions.taskLoadRoles(ctx, registration, controller.config.WorkerMembership)
+					if err != nil {
+						return nil, err
+					}
+					roles = append(roles, functionRoles...)
+					slices.Sort(roles)
+					return roles, nil
 				},
 				FunctionMaterialProvider: func(ctx context.Context, registration host.Registration, binding host.FunctionMaterialBinding) (host.FunctionMaterialFiles, error) {
 					functionCalls.RLock()
@@ -854,7 +869,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	telemetry.usage.SetExpected(hostLoad.managedExpectedUsage(nativeReleases, telemetry, generic.owns))
+	ownsAllocation := func(role string) bool {
+		return role == swarmruntime.FunctionWorkerRole || generic.owns(role)
+	}
+	telemetry.usage.SetExpected(hostLoad.managedExpectedUsage(nativeReleases, telemetry, ownsAllocation))
 	genericServices.Store(generic)
 	defer genericServices.Store(nil)
 	services.removalReady = generic.removalReady
@@ -863,7 +881,22 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	hostController.SetLoadObservationSink(func(requestCtx context.Context, origin hostload.Origin, report hostload.Report) error {
-		return hostLoad.recordManaged(requestCtx, nativeReleases, telemetry, functionClient, observationClient, generic.owns, containers.verifyTask, origin, report)
+		functionCalls.RLock()
+		defer functionCalls.RUnlock()
+		verify := func(ctx context.Context, registration host.Registration, task *api.Task) error {
+			if task == nil {
+				return containermaterial.ErrPending
+			}
+			if task.ServiceAnnotations.Labels[swarmruntime.LabelRole] == swarmruntime.FunctionWorkerRole {
+				controller := automaticFunctions.Load()
+				if controller == nil {
+					return containermaterial.ErrPending
+				}
+				return controller.verifyAllocation(ctx, registration, task, functionMembership)
+			}
+			return containers.verifyAllocation(ctx, registration, task)
+		}
+		return hostLoad.recordManaged(requestCtx, nativeReleases, telemetry, functionClient, observationClient, ownsAllocation, verify, origin, report)
 	})
 	homeKey := func(ctx context.Context) (ed25519.PublicKey, error) {
 		local, derived, present, err := installedAutomaticStartup(ctx)

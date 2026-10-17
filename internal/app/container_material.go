@@ -24,6 +24,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
@@ -62,6 +63,15 @@ type containerMaterialRecipient struct {
 	rootHead            string
 	epoch               uint64
 	enrollmentExpiresAt time.Time
+}
+
+// Evidence alone does not authorize a registry pull, material, or allocation.
+type containerMaterialEvidence struct {
+	recipient  containerMaterialRecipient
+	entry      jetstream.KeyValueEntry
+	roots      trust.Keyring
+	enrollment controllerEnrollmentSnapshot
+	binding    host.ContainerMaterialBinding
 }
 
 func (controller *containerMaterialController) taskRegistration(ctx context.Context, task *api.Task) (host.Registration, host.ContainerMaterialBinding, error) {
@@ -199,23 +209,16 @@ func (controller *containerMaterialController) managerSession(ctx context.Contex
 }
 
 func (controller *containerMaterialController) taskLoadRoles(ctx context.Context, registration host.Registration) ([]string, error) {
-	tasks, err := controller.config.Client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+	tasks, err := telemetryTasks(ctx, controller.config.Specs, controller.config.Client, registration)
 	if err != nil {
 		return nil, err
 	}
 	roles := map[string]bool{}
-	for _, task := range tasks.Tasks {
-		if task == nil || task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] == "" {
+	for _, task := range tasks {
+		if task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] == "" || task.ServiceAnnotations.Labels[swarmruntime.LabelRole] == swarmruntime.FunctionWorkerRole {
 			continue
 		}
-		current, _, err := controller.taskRegistration(ctx, task)
-		if err != nil {
-			return nil, err
-		}
-		if current.ID != registration.ID {
-			continue
-		}
-		if err := controller.verifyTask(ctx, registration, task); err != nil {
+		if err := controller.verifyAllocation(ctx, registration, task); err != nil {
 			return nil, err
 		}
 		roles[task.ServiceAnnotations.Labels[swarmruntime.LabelRole]] = true
@@ -233,9 +236,9 @@ func startContainerMaterial(ctx context.Context, config containerMaterialConfig)
 	return controller, stop, nil
 }
 
-func (controller *containerMaterialController) registryRecipient(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (containerMaterialRecipient, error) {
-	fail := func() (containerMaterialRecipient, error) {
-		return containerMaterialRecipient{}, containermaterial.ErrPending
+func (controller *containerMaterialController) recipientEvidence(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (containerMaterialEvidence, error) {
+	fail := func() (containerMaterialEvidence, error) {
+		return containerMaterialEvidence{}, containermaterial.ErrPending
 	}
 	config := controller.config
 	if binding.HostID != registration.ID {
@@ -243,11 +246,11 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	}
 	epoch := config.Authority.Current().Epoch
 	if err := config.Authority.Guard(ctx, epoch); err != nil {
-		return containerMaterialRecipient{}, err
+		return containerMaterialEvidence{}, err
 	}
 	taskResponse, err := config.Client.GetTask(ctx, &api.GetTaskRequest{TaskID: binding.TaskID})
 	if err != nil {
-		return containerMaterialRecipient{}, err
+		return containerMaterialEvidence{}, err
 	}
 	if taskResponse == nil || taskResponse.Task == nil {
 		return fail()
@@ -255,11 +258,11 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	task := taskResponse.Task
 	intent, err := config.Delivery.ContainerIntent(ctx, task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID])
 	if err != nil {
-		return containerMaterialRecipient{}, err
+		return containerMaterialEvidence{}, err
 	}
 	entry, err := config.Specs.kv.Get(ctx, cellSpecKey)
 	if err != nil {
-		return containerMaterialRecipient{}, err
+		return containerMaterialEvidence{}, err
 	}
 	config.Specs.mu.Lock()
 	adopted := config.Specs.revision
@@ -271,11 +274,11 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	rootHead := config.Specs.roots.reply("").Head
 	proof, err := containermaterial.VerifyProfile(entry.Value(), roots, config.Specs.identity, intent)
 	if err != nil {
-		return containerMaterialRecipient{}, err
+		return containerMaterialEvidence{}, err
 	}
 	node, err := config.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: binding.NodeID})
 	if err != nil {
-		return containerMaterialRecipient{}, err
+		return containerMaterialEvidence{}, err
 	}
 	if node == nil || node.Node == nil || node.Node.Description == nil || node.Node.Description.Platform == nil {
 		return fail()
@@ -284,34 +287,70 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if node.Node.Role == api.NodeRoleManager {
 		enrollment, err = completedControllerEnrollment(ctx, config, registration, binding.InstanceID)
 		if err != nil {
-			return containerMaterialRecipient{}, err
+			return containerMaterialEvidence{}, err
 		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, enrollment.ExpiresAt)
+		defer cancel()
 	}
 	expected, err := containermaterial.ServiceIntent(proof, node.Node.Description.Platform.Architecture)
 	if err != nil {
-		return containerMaterialRecipient{}, err
+		return containerMaterialEvidence{}, err
 	}
 	target := release.ContainerTarget{Cell: strings.ToUpper(intent.Cell), Environment: intent.Environment, Role: intent.Role, Architecture: expected.Architecture}
 	allocations, err := currentContainerAllocations(ctx, config.Factory, *intent.Container, roots, target)
 	if err != nil {
-		return containerMaterialRecipient{}, err
+		return containerMaterialEvidence{}, err
 	}
 	validUntil := time.Now().UTC().Add(30 * time.Second)
 	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots, target, time.Now().UTC(), validUntil, func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		return config.Evidence(ctx, intent.Role, digest)
 	}, allocations)
 	if err != nil {
-		return containerMaterialRecipient{}, err
+		return containerMaterialEvidence{}, err
 	}
+	ctx, cancel := context.WithDeadline(ctx, verified.ExpiresAt())
+	defer cancel()
 	taskBinding := binding
 	var controllerProof *bootstrapstart.ControllerHostRecipient
 	if node.Node.Role == api.NodeRoleManager {
 		controllerProof, err = bootstrapstart.ReadControllerHostRecipient(ctx, config.Founders, config.Accepted, entry.Value(), registration.Node, binding.InstanceID, node.Node.Status.Addr)
 		if err != nil {
-			return containerMaterialRecipient{}, err
+			return containerMaterialEvidence{}, err
 		}
 		taskBinding.HostID = controllerProof.ControllerSlot()
 	}
+	return containerMaterialEvidence{
+		recipient: containerMaterialRecipient{Task: task, Intent: intent, Profile: proof.Profile(), Verified: verified, Expected: expected, SpecRevision: entry.Revision(), proof: proof,
+			controllerProof: controllerProof, rootHead: rootHead, epoch: epoch, enrollmentExpiresAt: enrollment.ExpiresAt},
+		entry: entry, roots: roots, enrollment: enrollment, binding: taskBinding,
+	}, nil
+}
+
+func (controller *containerMaterialController) registryRecipient(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (containerMaterialRecipient, error) {
+	fail := func() (containerMaterialRecipient, error) {
+		return containerMaterialRecipient{}, containermaterial.ErrPending
+	}
+	evidence, err := controller.recipientEvidence(ctx, registration, binding)
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	config := controller.config
+	selected := evidence.recipient
+	task, intent, expected, verified, proof := selected.Task, selected.Intent, selected.Expected, selected.Verified, selected.proof
+	entry, roots, rootHead, epoch := evidence.entry, evidence.roots, selected.rootHead, selected.epoch
+	enrollment, controllerProof, taskBinding := evidence.enrollment, selected.controllerProof, evidence.binding
+	deadline := verified.ExpiresAt()
+	if controllerProof != nil {
+		if controllerProof.Deadline().Before(deadline) {
+			deadline = controllerProof.Deadline()
+		}
+		if enrollment.ExpiresAt.Before(deadline) {
+			deadline = enrollment.ExpiresAt
+		}
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	if err := containermaterial.VerifyTask(ctx, config.Client, task, expected, verified, roots, proof, registration, taskBinding, controllerProof); err != nil {
 		return containerMaterialRecipient{}, err
 	}
