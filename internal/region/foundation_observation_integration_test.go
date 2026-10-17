@@ -73,13 +73,17 @@ func TestFoundationObservationDurableProgress(t *testing.T) {
 		ParentCompartmentID: grant.ParentCompartmentID, SharedCompartmentID: grant.SharedCompartmentID, Generation: 1, IntentDigest: digest,
 		GrantSHA256: reader.home.GrantSHA256, OperationID: entityid.Derive("regional-foundation", reader.tenancy, "GRU", "1"), Epoch: 1152921504606846977,
 		LeaseID: entityid.New(), ExpiresAt: now.Add(foundationLease), Stage: "foundation", StartedAt: started, UpdatedAt: now,
-		ResourceIDs: map[string]string{"vault": "ocid1.vault.oc1.sa-saopaulo-1.owned"}, AuxiliaryIDs: map[string]string{"backup_bucket": "ocid1.bucket.oc1.sa-saopaulo-1.owned"}}
+		ResourceIDs:  map[string]string{"vault": "ocid1.vault.oc1.sa-saopaulo-1.owned", "backup_bucket": "ocid1.bucket.oc1.sa-saopaulo-1.primary"},
+		AuxiliaryIDs: map[string]string{"backup_bucket": "ocid1.bucket.oc1.sa-saopaulo-1.owned"}}
 	create := PendingFoundationCreate{OperationID: record.OperationID, IntentDigest: digest, FirstAttemptAt: started.Add(time.Minute),
 		Request: foundation.CreateIdentity{Key: "key", Region: foundationHomeRegion, RequestDigest: strings.Repeat("c", 64), RetryToken: strings.Repeat("d", 64)}}
 	record.PendingCreates = map[string]PendingFoundationCreate{"key": create}
 	birth := create
 	birth.Request.Key = "vault"
 	record.ResourceProvenance = map[string]FoundationResourceProvenance{"vault": {Create: birth, ResourceID: record.ResourceIDs["vault"], Generation: 1, GrantSHA256: record.GrantSHA256}}
+	// Both maps may retain the same key with different IDs; birth belongs to one.
+	birth.Request.Key = "backup_bucket"
+	record.ResourceProvenance["backup_bucket"] = FoundationResourceProvenance{Create: birth, ResourceID: record.ResourceIDs["backup_bucket"], Generation: 1, GrantSHA256: record.GrantSHA256}
 	etag, err := store.CompareAndSwap(t.Context(), record, "")
 	if err != nil {
 		t.Fatal(err)
@@ -133,16 +137,16 @@ func TestFoundationObservationDurableProgress(t *testing.T) {
 				view.Reason != record.BlockedReason || !view.StartedAt.Equal(started) || !view.UpdatedAt.Equal(now) || !view.CompletedAt.Equal(record.CompletedAt) {
 				t.Fatalf("durable progress mismatch: %+v, %v", view, err)
 			}
-			if len(view.Checkpoints) != 2+len(record.PendingCreates) {
+			if len(view.Checkpoints) != 3+len(record.PendingCreates) {
 				t.Fatalf("checkpoint count = %d", len(view.Checkpoints))
 			}
 			for _, checkpoint := range view.Checkpoints {
-				if checkpoint.Key == "vault" || checkpoint.Kind == "pending-create" {
+				if checkpoint.Kind == "resource" || checkpoint.Kind == "pending-create" {
 					if checkpoint.OperationID != record.OperationID || !checkpoint.FirstAttemptAt.Equal(create.FirstAttemptAt) || checkpoint.Generation != 1 {
 						t.Fatalf("checkpoint source provenance lost: %+v", checkpoint)
 					}
-				} else if !checkpoint.FirstAttemptAt.IsZero() {
-					t.Fatal("invented checkpoint time")
+				} else if !checkpoint.FirstAttemptAt.IsZero() || checkpoint.OperationID != "" || checkpoint.Generation != 0 {
+					t.Fatalf("unrelated resource birth metadata attached to auxiliary checkpoint: %+v", checkpoint)
 				}
 			}
 			for _, forbidden := range []string{record.LeaseID, digest, reader.home.GrantSHA256, create.Request.RetryToken, create.Request.RequestDigest,

@@ -105,7 +105,7 @@ func (r FoundationResolver) ObserveFoundation(ctx context.Context, cell string) 
 		}{{"resource", record.ResourceIDs}, {"auxiliary", record.AuxiliaryIDs}} {
 			for key, id := range source.ids {
 				checkpoint := FoundationCheckpoint{Kind: source.kind, Key: key, ResourceID: id}
-				if provenance, ok := record.ResourceProvenance[key]; ok {
+				if provenance, ok := record.ResourceProvenance[key]; ok && provenance.ResourceID == id {
 					checkpoint.OperationID = provenance.Create.OperationID
 					checkpoint.Generation = provenance.Generation
 					checkpoint.FirstAttemptAt = provenance.Create.FirstAttemptAt
