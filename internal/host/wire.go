@@ -99,13 +99,20 @@ type response struct {
 	Payload   json.RawMessage `json:"payload,omitempty"`
 }
 
+type sessionOperation struct {
+	Kind                  string                       `json:"kind"`
+	ManagerRuntimeBinding *SignedManagerRuntimeBinding `json:"manager_runtime_binding,omitempty"`
+}
+
 type session struct {
-	RegistrationGeneration uint64    `json:"registration_generation"`
-	SessionID              string    `json:"session_id"`
-	Epoch                  uint64    `json:"epoch"`
-	ExpiresAt              time.Time `json:"expires_at"`
-	LastNonce              string    `json:"last_nonce"`
-	LastIssuedAt           time.Time `json:"last_issued_at"`
+	LastPayloadSHA256      string                       `json:"last_payload_sha256,omitempty"`
+	ManagerRuntimeBinding  *SignedManagerRuntimeBinding `json:"manager_runtime_binding,omitempty"`
+	RegistrationGeneration uint64                       `json:"registration_generation"`
+	SessionID              string                       `json:"session_id"`
+	Epoch                  uint64                       `json:"epoch"`
+	ExpiresAt              time.Time                    `json:"expires_at"`
+	LastNonce              string                       `json:"last_nonce"`
+	LastIssuedAt           time.Time                    `json:"last_issued_at"`
 }
 
 type desiredReply struct {
