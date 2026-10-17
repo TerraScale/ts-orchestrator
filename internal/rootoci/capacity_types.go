@@ -8,6 +8,7 @@ import (
 // Pool requests select existing authority. The root derives provider payloads,
 // original reservations and lifecycle evidence independently of these fields.
 type Pool interface {
+	PreparePoolRetirement(context.Context, Call, PoolRetirementSelector) (PoolRetirementPreparation, error)
 	AdvancePoolChild(context.Context, Call, PoolChildExpectation) (PoolChildView, error)
 	RetirePoolChild(context.Context, Call, PoolRetirementExpectation) (PoolRetirementView, error)
 	QuarantinePoolChild(context.Context, Call, PoolQuarantineExpectation) (PoolQuarantineView, error)
@@ -27,6 +28,17 @@ type PoolChildExpectation struct {
 	GrantSHA256         string   `json:"grant_sha256"`
 	Generation          uint64   `json:"generation"`
 	Epoch               uint64   `json:"epoch"`
+}
+
+// Cleanup discovery returns original selectors only; action and drain IDs stay empty.
+type PoolRetirementSelector struct {
+	Cell       string `json:"cell"`
+	InstanceID string `json:"instance_id"`
+}
+
+type PoolRetirementPreparation struct {
+	Retirement PoolRetirementExpectation `json:"retirement"`
+	Node       string                    `json:"node"`
 }
 
 type PoolRetirementExpectation struct {

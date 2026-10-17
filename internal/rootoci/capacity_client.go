@@ -13,14 +13,16 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
-	OperationAdvancePoolChild    Operation = "advance_pool_child"
-	OperationRetirePoolChild     Operation = "retire_pool_child"
-	OperationQuarantinePoolChild Operation = "quarantine_pool_child"
-	OperationObservePoolChild    Operation = "observe_pool_child"
+	OperationAdvancePoolChild      Operation = "advance_pool_child"
+	OperationRetirePoolChild       Operation = "retire_pool_child"
+	OperationQuarantinePoolChild   Operation = "quarantine_pool_child"
+	OperationObservePoolChild      Operation = "observe_pool_child"
+	OperationPreparePoolRetirement Operation = "prepare_pool_retirement"
 )
 
 var ErrPoolChildUnverified = errors.New("pool child lacks current authenticated root creation authority")
@@ -29,6 +31,26 @@ func (client *Client) AdvancePoolChild(ctx context.Context, request PoolChildExp
 	var response PoolChildView
 	err := client.invoke(ctx, OperationAdvancePoolChild, request, &response)
 	return response, err
+}
+
+// PreparePoolRetirement describes an original live child without granting admission or effects.
+func (client *Client) PreparePoolRetirement(ctx context.Context, request PoolRetirementSelector) (PoolRetirementPreparation, error) {
+	var response PoolRetirementPreparation
+	if err := client.invoke(ctx, OperationPreparePoolRetirement, request, &response); err != nil {
+		return PoolRetirementPreparation{}, err
+	}
+	if !validPoolRetirementPreparation(response, request) {
+		return PoolRetirementPreparation{}, ErrInvalid
+	}
+	return response, nil
+}
+
+func validPoolRetirementPreparation(response PoolRetirementPreparation, request PoolRetirementSelector) bool {
+	retirement := response.Retirement
+	child := retirement.Child
+	return validPoolChild(child) && child.Cell == request.Cell && retirement.InstanceID == request.InstanceID &&
+		entityid.Valid(child.OperationID) && child.OperationID == child.ReservationID && validSelector(child.PoolID) && validSelector(child.ConfigurationID) &&
+		retirement.RemovalOperationID == "" && retirement.DrainSHA256 == "" && naming.IsNode(response.Node, request.Cell)
 }
 
 func (client *Client) RetirePoolChild(ctx context.Context, request PoolRetirementExpectation) (PoolRetirementView, error) {
