@@ -30,6 +30,10 @@ func VerifyFunctionTaskAllocation(ctx context.Context, client api.ControlClient,
 	if err != nil {
 		return err
 	}
+	ctx, cancelFunction := context.WithDeadline(ctx, function.ExpiresAt())
+	defer cancelFunction()
+	ctx, cancelWorker := context.WithDeadline(ctx, worker.ExpiresAt())
+	defer cancelWorker()
 	assignment, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: task.ID})
 	if err != nil {
 		return err
