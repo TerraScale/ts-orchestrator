@@ -582,7 +582,13 @@ func (authority *HomeIAMAuthority) VerifyFoundationWriter(ctx context.Context) e
 // FoundationWriterDeadline returns the verified original writer's shortest
 // deadline so dependent proofs retain it through their remaining reads/effects.
 func (authority *HomeIAMAuthority) FoundationWriterDeadline(ctx context.Context) (time.Time, error) {
-	if ctx == nil || authority == nil || authority.operator != nil {
+	return authority.FoundationWriterDeadlineForOperation(ctx, ctx)
+}
+
+// FoundationWriterDeadlineForOperation keeps the verified writer's original
+// lifetime separate from ctx's temporary read budget. It grants no new authority.
+func (authority *HomeIAMAuthority) FoundationWriterDeadlineForOperation(ctx, original context.Context) (time.Time, error) {
+	if ctx == nil || original == nil || authority == nil || authority.operator != nil {
 		return time.Time{}, ErrFoundationFenced
 	}
 	var expires time.Time
@@ -593,13 +599,24 @@ func (authority *HomeIAMAuthority) FoundationWriterDeadline(ctx context.Context)
 	} else {
 		return time.Time{}, ErrFoundationFenced
 	}
+	if err := original.Err(); err != nil {
+		return time.Time{}, err
+	}
+	if deadline, ok := original.Deadline(); ok && deadline.Before(expires) {
+		expires = deadline
+	}
 	ctx, cancelProof := context.WithDeadline(ctx, expires)
 	defer cancelProof()
-	scopeDeadline, err := authority.scopeDeadline(ctx)
+	stopOriginal := context.AfterFunc(original, cancelProof)
+	defer stopOriginal()
+	scopeDeadline, err := authority.scopeDeadlineForOperation(ctx, original)
 	if err != nil {
 		return time.Time{}, err
 	}
-	ctx, cancelScope := context.WithDeadline(ctx, scopeDeadline)
+	if scopeDeadline.Before(expires) {
+		expires = scopeDeadline
+	}
+	ctx, cancelScope := context.WithDeadline(ctx, expires)
 	defer cancelScope()
 	entry, ok := catalog.CellForOCIRegion(authority.factory.Region())
 	if !ok {
@@ -613,17 +630,23 @@ func (authority *HomeIAMAuthority) FoundationWriterDeadline(ctx context.Context)
 	if pending == nil || pending.validate() != nil || pending.Cell != entry.Cell || pending.InstanceID != authority.instanceID || pending.InstallationID != authority.installationID || pending.Namespace != authority.domain.Namespace || pending.Bucket != authority.domain.HeadBucket || pending.KMSKeyID != authority.domain.HeadKMSKeyOCID || pending.BucketCompartment != authority.bucketCompartment || pending.Policy == nil || pending.Policy.PolicyID == "" || pending.Policy.VerifiedAt.IsZero() {
 		return time.Time{}, ErrFoundationFenced
 	}
-	material, err := authority.resolver.BootstrapMaterial(ctx, entry.Cell)
+	material, err := authority.resolver.BootstrapMaterialForOperation(ctx, original, entry.Cell)
 	if err != nil {
 		return time.Time{}, err
 	}
-	ctx, cancelMaterial := context.WithDeadline(ctx, material.ExpiresAt())
+	if material.ExpiresAt().Before(expires) {
+		expires = material.ExpiresAt()
+	}
+	ctx, cancelMaterial := context.WithDeadline(ctx, expires)
 	defer cancelMaterial()
 	writerImage, imageExpected, err := foundationWriterImage(ctx, authority.resolver, material, entry.Cell)
 	if err != nil {
 		return time.Time{}, err
 	}
-	ctx, cancelImage := context.WithDeadline(ctx, writerImage.ExpiresAt())
+	if writerImage.ExpiresAt().Before(expires) {
+		expires = writerImage.ExpiresAt()
+	}
+	ctx, cancelImage := context.WithDeadline(ctx, expires)
 	defer cancelImage()
 	home, err := authority.factory.HomeRegion(ctx, authority.tenancyID)
 	if err != nil {
@@ -640,11 +663,14 @@ func (authority *HomeIAMAuthority) FoundationWriterDeadline(ctx context.Context)
 	if err := (&SourceFounder{iam: iam}).verifyPolicy(ctx, SourcePolicyRecord{Request: pending.Policy.Request, PolicyID: pending.Policy.PolicyID}); err != nil {
 		return time.Time{}, err
 	}
-	guardDeadline, err := authority.guardDeadline(ctx, 0)
+	guardDeadline, err := authority.guardDeadlineForOperation(ctx, original, 0)
 	if err != nil {
 		return time.Time{}, err
 	}
-	ctx, cancelGuard := context.WithDeadline(ctx, guardDeadline)
+	if guardDeadline.Before(expires) {
+		expires = guardDeadline
+	}
+	ctx, cancelGuard := context.WithDeadline(ctx, expires)
 	defer cancelGuard()
 	if err := writerImage.ValidFor(imageExpected, time.Now()); err != nil {
 		return time.Time{}, err
@@ -655,11 +681,13 @@ func (authority *HomeIAMAuthority) FoundationWriterDeadline(ctx context.Context)
 	if err := ociclient.LimitAdmission(ctx, material.ExpiresAt()); err != nil {
 		return time.Time{}, err
 	}
+	if err := original.Err(); err != nil {
+		return time.Time{}, err
+	}
 	if err := ctx.Err(); err != nil {
 		return time.Time{}, err
 	}
-	deadline, _ := ctx.Deadline()
-	return deadline, nil
+	return expires, nil
 }
 
 func (record FoundationWriterRecord) validate() error {

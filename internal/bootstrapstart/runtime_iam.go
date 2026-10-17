@@ -94,16 +94,33 @@ func (proof VerifiedRuntimeIAM) VerifyCurrent(ctx context.Context) error {
 // CurrentDeadline retains the original acquisition cancellation and purpose
 // deadline plus any shorter current signed selection through verification.
 func (proof VerifiedRuntimeIAM) CurrentDeadline(ctx context.Context) (time.Time, error) {
-	if ctx == nil || !proof.IsVerified() {
+	return proof.CurrentDeadlineForOperation(ctx, ctx)
+}
+
+// CurrentDeadlineForOperation bounds reads by ctx while retaining the original
+// acquisition and signed source minima independently of that temporary budget.
+func (proof VerifiedRuntimeIAM) CurrentDeadlineForOperation(ctx, original context.Context) (time.Time, error) {
+	if ctx == nil || original == nil || !proof.IsVerified() {
 		return time.Time{}, ErrSourceFounder
 	}
 	if err := proof.original.Err(); err != nil {
 		return time.Time{}, err
 	}
-	ctx, cancelOriginal := context.WithDeadline(ctx, proof.expires)
+	expires := proof.expires
+	for _, retained := range []context.Context{original, proof.original} {
+		if err := retained.Err(); err != nil {
+			return time.Time{}, err
+		}
+		if deadline, ok := retained.Deadline(); ok && deadline.Before(expires) {
+			expires = deadline
+		}
+	}
+	ctx, cancelOriginal := context.WithDeadline(ctx, expires)
 	defer cancelOriginal()
 	stopOriginal := context.AfterFunc(proof.original, cancelOriginal)
 	defer stopOriginal()
+	stopOperationOriginal := context.AfterFunc(original, cancelOriginal)
+	defer stopOperationOriginal()
 	if err := proof.original.Err(); err != nil {
 		return time.Time{}, err
 	}
@@ -115,7 +132,10 @@ func (proof VerifiedRuntimeIAM) CurrentDeadline(ctx context.Context) (time.Time,
 	if err != nil {
 		return time.Time{}, err
 	}
-	ctx, cancelCurrent := context.WithDeadline(ctx, current.ExpiresAt())
+	if current.ExpiresAt().Before(expires) {
+		expires = current.ExpiresAt()
+	}
+	ctx, cancelCurrent := context.WithDeadline(ctx, expires)
 	defer cancelCurrent()
 	scope, err := current.Anchor().FoundationScope()
 	if err != nil || scope != proof.scope || current.Anchor().Digest() != proof.anchor || current.Identity().OCIRegion != proof.factory.Region() {
@@ -140,7 +160,10 @@ func (proof VerifiedRuntimeIAM) CurrentDeadline(ctx context.Context) (time.Time,
 	if err != nil {
 		return time.Time{}, err
 	}
-	ctx, cancelManifest := context.WithDeadline(ctx, manifestDeadline)
+	if manifestDeadline.Before(expires) {
+		expires = manifestDeadline
+	}
+	ctx, cancelManifest := context.WithDeadline(ctx, expires)
 	defer cancelManifest()
 	observed, err := proof.observer.ObserveInstance(ctx, instance)
 	if err != nil {
@@ -159,8 +182,7 @@ func (proof VerifiedRuntimeIAM) CurrentDeadline(ctx context.Context) (time.Time,
 			!slices.Equal(nsgs, expected) || !observed.PrimaryVNIC || observed.PrimaryVNICOCID != proof.accepted.PrimaryVNICOCID || observed.PrimaryPrivateIP != proof.accepted.PrimaryPrivateIP {
 			return time.Time{}, ErrSourceFounder
 		}
-		deadline, _ := ctx.Deadline()
-		if err := ociclient.LimitAdmission(ctx, deadline); err != nil {
+		if err := ociclient.LimitAdmission(ctx, expires); err != nil {
 			return time.Time{}, err
 		}
 		if err := ociclient.LimitAdmission(ctx, proof.expires); err != nil {
@@ -169,10 +191,13 @@ func (proof VerifiedRuntimeIAM) CurrentDeadline(ctx context.Context) (time.Time,
 		if err := proof.original.Err(); err != nil {
 			return time.Time{}, err
 		}
+		if err := original.Err(); err != nil {
+			return time.Time{}, err
+		}
 		if err := ctx.Err(); err != nil {
 			return time.Time{}, err
 		}
-		return deadline, nil
+		return expires, nil
 	}
 	return time.Time{}, ErrSourceFounder
 }
