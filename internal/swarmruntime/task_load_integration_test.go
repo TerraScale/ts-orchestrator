@@ -16,6 +16,10 @@ func checkExecutorTaskLoad(t *testing.T, ctx context.Context, executor *Executor
 		first[0].CPULimit == nil || *first[0].CPULimit != 0.25 || first[0].MemoryLimit == nil || *first[0].MemoryLimit > 64<<20 {
 		t.Fatalf("actual task cgroup did not produce bounded initial telemetry: %+v %v", first, err)
 	}
+	if len(first[0].Tasks) != 1 || first[0].Tasks[0].TaskID != running.task.ID || first[0].Tasks[0].ServiceID != running.task.ServiceID ||
+		first[0].Tasks[0].NodeID != running.task.NodeID || first[0].Tasks[0].Fingerprint != running.fingerprint {
+		t.Fatalf("actual task measurement lost its exact assignment identity: %+v", first[0].Tasks)
+	}
 	select {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
@@ -35,5 +39,8 @@ func checkExecutorTaskLoad(t *testing.T, ctx context.Context, executor *Executor
 	partial, err := executor.ReadTaskLoad(ctx)
 	if err != nil || len(partial) != 1 || partial[0].Role != "ts-auth" || partial[0].CPUCores != nil || partial[0].MemoryBytes != nil || partial[0].LimitsRead {
 		t.Fatalf("one missing allocated task became a partial role measurement: %+v %v", partial, err)
+	}
+	if len(partial[0].Tasks) != 2 || partial[0].Tasks[0].TaskID != running.task.ID || partial[0].Tasks[1].TaskID != missing.ID {
+		t.Fatalf("unknown usage lost the complete allocated task set: %+v", partial[0].Tasks)
 	}
 }
