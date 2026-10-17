@@ -22,12 +22,12 @@ import (
 type regionalDeliveryPlanner struct {
 	nativeHistory *nativeHistory
 	hosts         *host.Controller
+	services      *specRegistry
 	// profiles returns the current cell spec's delivery profiles.
 	profiles func() map[string]WorkloadProfile
 	// address returns the private address the cell spec grants a node.
-	address   func(node string) string
-	workloads *workload.Reconciler
-	migrated  func(string) bool
+	address  func(node string) string
+	migrated func(string) bool
 }
 
 func (p *regionalDeliveryPlanner) ApplyDesired(ctx context.Context, desired host.Desired) (host.Receipt, error) {

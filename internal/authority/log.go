@@ -162,8 +162,8 @@ func (r *Runtime) CommitHostMutation(
 	expectedSubjectSequence uint64,
 	payload []byte,
 ) (uint64, error) {
-	if kind == MutationUsageObservation {
-		return 0, errors.New("usage observations require verified host authority")
+	if kind == MutationUsageObservation || kind == MutationRuntimeOwner {
+		return 0, errors.New("usage observations and runtime ownership require verified host authority")
 	}
 	if err := validateHostMutation(kind, subjectKey, operationID, payload); err != nil {
 		return 0, err
@@ -261,6 +261,10 @@ func (r *Runtime) commitMutationVerified(
 			return 0, ErrFenced
 		}
 
+		if err := r.guardNativeDesiredOwner(ctx, kind, subjectKey, payload); err != nil {
+			return 0, err
+		}
+
 		existing, err := r.stream.GetLastMsgForSubject(ctx, subject)
 		if errors.Is(err, jetstream.ErrMsgNotFound) {
 			existing = nil
@@ -314,6 +318,9 @@ func (r *Runtime) commitMutationVerified(
 			return ack.Sequence, nil
 		}
 		if isSequenceConflict(err) {
+			if err := r.guardNativeDesiredOwner(ctx, kind, subjectKey, payload); err != nil {
+				return 0, err
+			}
 			latest, readErr := r.stream.GetLastMsgForSubject(ctx, subject)
 			if readErr == nil {
 				prior, decodeErr := decodeControlRecord(latest.Data)
@@ -329,9 +336,44 @@ func (r *Runtime) commitMutationVerified(
 			}
 			continue
 		}
+		if ownerErr := r.guardNativeDesiredOwner(ctx, kind, subjectKey, payload); ownerErr != nil {
+			return 0, ownerErr
+		}
 		return r.resolveUnknownMutation(ctx, subject, kind, subjectKey, operationID, expectedEpoch, payload, err)
 	}
 	return 0, ErrConflict
+}
+
+// The global CAS orders native admission against the permanent runtime fence.
+// Malformed desired payloads cannot acquire execution authority through this path.
+func (r *Runtime) guardNativeDesiredOwner(ctx context.Context, kind HostMutationKind, key string, payload []byte) error {
+	if kind != MutationDesired {
+		return nil
+	}
+	var target struct {
+		Cell        string `json:"cell"`
+		Node        string `json:"node"`
+		Environment string `json:"environment"`
+		Role        string `json:"role"`
+		Withdrawn   bool   `json:"withdrawn"`
+	}
+	if err := json.Unmarshal(payload, &target); err != nil {
+		return err
+	}
+	if target.Withdrawn {
+		return nil
+	}
+	if target.Cell != r.config.Scope || key != target.Cell+"."+target.Node+"."+target.Role || !natsToken.MatchString(target.Environment) {
+		return errors.New("native desired ownership scope is invalid")
+	}
+	_, err := r.stream.GetLastMsgForSubject(ctx, mutationSubject(r.config.Scope, MutationRuntimeOwner, target.Cell+"."+target.Environment+"."+target.Role))
+	if errors.Is(err, jetstream.ErrMsgNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return errors.New("native workload is permanently fenced by container runtime ownership")
 }
 
 // ReadHostMutation reads the current committed host record.
@@ -1181,7 +1223,7 @@ func decodeControlRecord(data []byte) (controlRecord, error) {
 }
 
 func validateHostMutation(kind HostMutationKind, subjectKey, operationID string, payload []byte) error {
-	if kind != MutationRegistration && kind != MutationDesired && kind != MutationRetirement && kind != MutationUsageObservation {
+	if kind != MutationRegistration && kind != MutationDesired && kind != MutationRetirement && kind != MutationUsageObservation && kind != MutationRuntimeOwner {
 		return errors.New("host mutation kind is not allowed")
 	}
 	return validateMutation(kind, subjectKey, operationID, payload)
@@ -1206,7 +1248,7 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 	switch kind {
 	case MutationRegistration, MutationRetirement, MutationUsageObservation:
 		want = 2
-	case MutationDesired:
+	case MutationDesired, MutationRuntimeOwner:
 		want = 3
 	case MutationPlacementIntent:
 		want = 2

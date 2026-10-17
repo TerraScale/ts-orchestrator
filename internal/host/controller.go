@@ -401,6 +401,9 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 	c.retireMu.RLock()
 	defer c.retireMu.RUnlock()
 	if !d.Withdrawn {
+		if err := c.guardNativeOwner(ctx, d.Environment, d.Role); err != nil {
+			return Receipt{}, err
+		}
 		retired, err := c.retired(ctx, d.Node)
 		if err != nil {
 			return Receipt{}, err
@@ -1224,6 +1227,11 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (payload
 		}
 		if !exists {
 			return desiredReply{Registration: &registration, RegistrationRevision: registrationRevision}, nil
+		}
+		if !desired.Withdrawn {
+			if err := c.guardNativeOwner(ctx, desired.Environment, desired.Role); err != nil {
+				return nil, err
+			}
 		}
 		return desiredReply{Desired: &desired, Revision: revision, Registration: &registration, RegistrationRevision: registrationRevision}, nil
 	case "artifact":

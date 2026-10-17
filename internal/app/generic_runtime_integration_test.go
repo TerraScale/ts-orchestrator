@@ -138,6 +138,59 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		Trusted: map[string]delivery.TrustedSigner{keyID: {Actor: "release", PublicKey: signer.leaf.Public().(ed25519.PublicKey)}}}
 	history := retainGenericRuntimeNativeRelease(t, ctx, broker.JetStream(), specs, fencer, codec, profile, policy.Role, identity.Environment, session.registration.Node)
 	history.hosts = session.hosts
+	retainedState, _, err := history.load(ctx, policy.Role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retainedBinding := nativeBindings(&retainedState)[0]
+	nativeDesired := host.Desired{Cell: identity.Cell, Node: session.registration.Node, Environment: identity.Environment,
+		Role: policy.Role, Digest: retainedBinding.Artifact.Digest, Generation: 1, AuthorityEpoch: fencer.Current().Epoch}
+	if _, err := session.hosts.ApplyDesired(ctx, nativeDesired); err != nil {
+		t.Fatal("admit retained native desired through ordered host authority", err)
+	}
+	genericRuntimeEventually(t, ctx, func() bool {
+		statuses, err := session.hosts.ListHosts(ctx)
+		if err != nil {
+			return false
+		}
+		for _, status := range statuses {
+			for _, report := range status.Reports {
+				if status.Verified && report.Role == policy.Role && report.Generation == nativeDesired.Generation && report.Digest == nativeDesired.Digest && report.State == "running" {
+					return true
+				}
+			}
+		}
+		return false
+	})
+	unboundData := []byte("independently signed native artifact absent retained profile history")
+	unboundRecord, err := delivery.NewArtifactRecord(delivery.ArtifactClaimRequest{Cell: identity.Cell, Role: policy.Role, Environment: identity.Environment,
+		Source: delivery.ArtifactSource{Repository: "https://example.invalid/api", Commit: strings.Repeat("c", 40), TreeDigest: strings.Repeat("d", 64)}},
+		controllerSHA256(unboundData), int64(len(unboundData)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unboundClaim, err := codec.SignArtifact(ctx, unboundRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := history.deliveries.AdmitClaim(ctx, bytes.NewReader(unboundData), unboundClaim); err != nil {
+		t.Fatal(err)
+	}
+	unboundDesired := nativeDesired
+	unboundDesired.Generation++
+	unboundDesired.Digest = unboundRecord.Digest
+	if _, err := session.hosts.ApplyDesired(ctx, unboundDesired); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := history.retainedContainerFloor(ctx, policy.Role, identity.Environment); err == nil || !strings.Contains(err.Error(), "current native desired lacks authenticated retained release and profile coverage") {
+		t.Fatal("signed but unbound native artifact acquired an incomplete migration floor", err)
+	}
+	nativeDesired.Generation = unboundDesired.Generation + 1
+	if _, err := session.hosts.ApplyDesired(ctx, nativeDesired); err != nil {
+		t.Fatal(err)
+	}
+	// The real signed agent drives the simulated process runner; this proves
+	// the handoff protocol, not OS process cessation or native custody.
 	legacyFloor, err := history.retainedContainerFloor(ctx, policy.Role, identity.Environment)
 	if err != nil {
 		t.Fatal(err)
@@ -346,7 +399,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 				return nil, err
 			}
 			return evidence(ctx, digest)
-		}, Probe: probe, RetainedFloor: history.retainedContainerFloor, SessionGuard: session.verify}, signals)
+		}, Probe: probe, RetainedFloor: history.retainedContainerFloor, Hosts: session.hosts, SessionGuard: session.verify}, signals)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,6 +455,73 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err := deliveries.Submit(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
+	select {
+	case <-session.nativeRunner.stopEntered:
+	case <-ctx.Done():
+		t.Fatal("signed agent did not receive native withdrawal", ctx.Err())
+	}
+	if err := session.hosts.GuardContainerOwner(ctx, identity.Environment, policy.Role); err == nil {
+		t.Fatal("native withdrawal was mistaken for completed stop ownership")
+	}
+	pendingOwner, err := fencer.ReadHostMutation(ctx, authority.MutationRuntimeOwner, identity.Cell+"."+identity.Environment+"."+policy.Role)
+	if err != nil || pendingOwner.Sequence == 0 {
+		t.Fatal("withdrawal preceded durable native admission fence", err)
+	}
+	withdrawals, err := session.hosts.ListDesired(ctx, policy.Role)
+	if err != nil || len(withdrawals) != 1 || !withdrawals[0].Withdrawn || withdrawals[0].Generation != nativeDesired.Generation+1 || withdrawals[0].Digest != "" {
+		t.Fatalf("handoff did not retain exact higher-generation withdrawal: %+v %v", withdrawals, err)
+	}
+	if simulated, err := session.nativeRunner.Observe(ctx, policy.Role); err != nil || !simulated.Running {
+		t.Fatal("blocked simulated Stop unexpectedly ceased its native observation", err)
+	}
+	if listed, err := client.ListServices(ctx, &api.ListServicesRequest{}); err != nil || len(listed.Services) != 0 {
+		t.Fatalf("container service preceded authenticated native stopped receipt: %+v %v", listed, err)
+	}
+	if receipt, err := deliveries.Status(ctx, intent.OperationID); err == nil && receipt.Status == "accepted" {
+		t.Fatal("container delivery accepted while native Stop was incomplete")
+	}
+	reopened := nativeDesired
+	reopened.Generation = withdrawals[0].Generation + 1
+	if _, err := session.hosts.ApplyDesired(ctx, reopened); err == nil {
+		t.Fatal("higher native generation bypassed permanent runtime ownership")
+	}
+	if _, err := session.hosts.ApplyDesired(ctx, nativeDesired); err == nil {
+		t.Fatal("idempotent native desired bypassed permanent runtime ownership")
+	}
+	rawDesired, err := protocol.EncodeJSON(reopened)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withdrawalHead, err := fencer.ReadHostMutation(ctx, authority.MutationDesired, identity.Cell+"."+session.registration.Node+"."+policy.Role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fencer.CommitHostMutation(ctx, fencer.Current().Epoch, authority.MutationDesired,
+		withdrawalHead.SubjectKey, entityid.New(), withdrawalHead.Sequence, rawDesired); err == nil {
+		t.Fatal("raw ordered desired admission bypassed permanent runtime owner fence")
+	}
+	if _, err := fencer.CommitHostMutation(ctx, fencer.Current().Epoch, authority.MutationRuntimeOwner,
+		pendingOwner.SubjectKey, entityid.New(), pendingOwner.Sequence, pendingOwner.Payload); err == nil {
+		t.Fatal("runtime owner accepted unverified mutation route")
+	}
+	resumeHosts, err := host.NewController(ctx, session.controllerConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumeConfig := controller.config
+	resumeConfig.Hosts = resumeHosts
+	pendingResume, err := newGenericRuntime(resumeConfig, signals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pendingResume.apply(ctx, intent); err == nil {
+		t.Fatal("controller replacement promoted an already-withdrawn target without its stopped receipt")
+	}
+	resumedOwner, err := fencer.ReadHostMutation(ctx, authority.MutationRuntimeOwner, pendingOwner.SubjectKey)
+	if err != nil || resumedOwner.Sequence != pendingOwner.Sequence || !bytes.Equal(resumedOwner.Payload, pendingOwner.Payload) {
+		t.Fatal("pending resume replaced original native inventory or authorization provenance", err)
+	}
+	session.nativeRunner.releaseStop()
 	genericRuntimeEventually(t, ctx, func() bool {
 		receipt, err := deliveries.Status(ctx, intent.OperationID)
 		return err == nil && receipt.Status == "accepted"
@@ -410,6 +530,26 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err != nil || len(listed.Services) != 1 {
 		t.Fatalf("signed application submission: %+v %v", listed, err)
 	}
+	if err := session.hosts.GuardContainerOwner(ctx, identity.Environment, policy.Role); err != nil {
+		t.Fatal("accepted service lacks durable authenticated stopped ownership", err)
+	}
+	completedOwner, err := fencer.ReadHostMutation(ctx, authority.MutationRuntimeOwner, pendingOwner.SubjectKey)
+	if err != nil || completedOwner.Sequence <= pendingOwner.Sequence {
+		t.Fatal("native stopped ownership was not durably completed", err)
+	}
+	restoredHosts, err := host.NewController(ctx, session.controllerConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restoredHosts.GuardContainerOwner(ctx, identity.Environment, policy.Role); err != nil {
+		t.Fatal("new controller lost durable native stopped ownership", err)
+	}
+	if _, err := restoredHosts.ApplyDesired(ctx, reopened); err == nil {
+		t.Fatal("controller replacement reopened permanently fenced native ownership")
+	}
+	// Native ownership is complete; the container phase uses the production session-only lifecycle.
+	session.stop(t)
+	session.start(t, ctx, (*host.Agent).RunSession)
 	serviceID := listed.Services[0].ID
 	altered := intent.Clone()
 	altered.Container.Sequence = nil
@@ -662,7 +802,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err := controller.refresh(ctx); err == nil || len(controller.scaler.Last()) != 0 {
 		t.Fatalf("ended authenticated session retained scaling authority: %+v %v", controller.scaler.Last(), err)
 	}
-	session.start(t, ctx)
+	session.start(t, ctx, (*host.Agent).RunSession)
 	ready(2)
 	if err := controller.refresh(ctx); err != nil {
 		t.Fatal(err)
@@ -1141,7 +1281,30 @@ func (f *genericRuntimeUsage) assertRestarts(t *testing.T, ctx context.Context) 
 	}
 }
 
+type genericRuntimeNativeRunner struct {
+	*inMemoryRunner
+	stopEntered chan struct{}
+	allowStop   chan struct{}
+	entered     sync.Once
+	released    sync.Once
+}
+
+func (runner *genericRuntimeNativeRunner) Stop(ctx context.Context, role string) error {
+	runner.entered.Do(func() { close(runner.stopEntered) })
+	select {
+	case <-runner.allowStop:
+		return runner.inMemoryRunner.Stop(ctx, role)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (runner *genericRuntimeNativeRunner) releaseStop() {
+	runner.released.Do(func() { close(runner.allowStop) })
+}
+
 type genericRuntimeHostSession struct {
+	nativeRunner     *genericRuntimeNativeRunner
 	mu               sync.Mutex
 	config           host.AgentConfig
 	registration     host.Registration
@@ -1206,16 +1369,18 @@ func startGenericRuntimeHostSession(t *testing.T, ctx context.Context, auth *aut
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = transport.Close() })
-	session := &genericRuntimeHostSession{hosts: hosts, controllerConfig: controllerConfig, registration: registration, config: host.AgentConfig{Cell: "gru", Node: registration.Node,
+	nativeRunner := &genericRuntimeNativeRunner{inMemoryRunner: new(inMemoryRunner), stopEntered: make(chan struct{}), allowStop: make(chan struct{})}
+	t.Cleanup(nativeRunner.releaseStop)
+	session := &genericRuntimeHostSession{nativeRunner: nativeRunner, hosts: hosts, controllerConfig: controllerConfig, registration: registration, config: host.AgentConfig{Cell: "gru", Node: registration.Node,
 		Environment: environment, Roles: registration.Roles, Conn: transport.Conn(), Identity: private, NATSUserPublicKey: nkey, ControllerPublicKey: responsePublic,
-		Runner: &inMemoryRunner{}, TaskLoad: taskLoad, InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), WorkloadIdentity: testHostWorkloadIdentity(),
+		Runner: nativeRunner, TaskLoad: taskLoad, PollInterval: 100 * time.Millisecond, InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), WorkloadIdentity: testHostWorkloadIdentity(),
 		ClockCheck: func() error { return nil }}}
-	session.start(t, ctx)
+	session.start(t, ctx, (*host.Agent).Run)
 	t.Cleanup(func() { session.stop(t) })
 	return session
 }
 
-func (session *genericRuntimeHostSession) start(t *testing.T, ctx context.Context) {
+func (session *genericRuntimeHostSession) start(t *testing.T, ctx context.Context, run func(*host.Agent, context.Context) error) {
 	t.Helper()
 	ready := make(chan struct{})
 	config := session.config
@@ -1229,15 +1394,13 @@ func (session *genericRuntimeHostSession) start(t *testing.T, ctx context.Contex
 	session.mu.Lock()
 	session.agent, session.ctx, session.cancel, session.done = agent, runCtx, cancel, done
 	session.mu.Unlock()
-	go func() { done <- agent.RunSession(runCtx) }()
+	go func() { done <- run(agent, runCtx) }()
 	select {
 	case <-ready:
 	case <-ctx.Done():
 		t.Fatal("signed host session did not initialize: ", ctx.Err())
 	}
-	if err := session.verify(ctx); err != nil {
-		t.Fatal(err)
-	}
+	genericRuntimeEventually(t, ctx, func() bool { return session.verify(ctx) == nil })
 }
 
 func (session *genericRuntimeHostSession) stop(t *testing.T) {

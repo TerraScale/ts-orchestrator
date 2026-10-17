@@ -26,6 +26,22 @@ type hostTelemetry struct {
 	usageSequence   uint64
 }
 
+func startHostTelemetry(profiles map[string]WorkloadProfile, hosts *host.Controller, fencer authority.Fencer) *hostTelemetry {
+	requests := loadRequests(profileResources(profiles))
+	load := &hostTelemetry{fencer: fencer, requests: requests,
+		load: hostload.NewAggregator(hostload.AggregatorConfig{Requests: requests})}
+	hosts.SetLoadSink(load.record)
+	return load
+}
+
+func loadRequests(resources map[string]placement.Resources) map[string]hostload.Request {
+	requests := make(map[string]hostload.Request, len(resources))
+	for role, request := range resources {
+		requests[role] = hostload.Request{CPUCores: float64(request.CPU), MemoryBytes: request.MemoryBytes}
+	}
+	return requests
+}
+
 // current is called with mu held before accepting or charting reports.
 func (t *hostTelemetry) current() bool {
 	snapshot := t.fencer.Current()

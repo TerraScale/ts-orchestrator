@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
@@ -38,6 +39,7 @@ type genericRuntimeConfig struct {
 	Probe           func(context.Context, *api.Task) error
 	SessionGuard    func(context.Context) error
 	RetainedFloor   func(context.Context, string, string) (release.SequenceFloor, error)
+	Hosts           *host.Controller
 }
 
 type genericRuntime struct {
@@ -54,7 +56,7 @@ type genericRuntime struct {
 }
 
 func newGenericRuntime(config genericRuntimeConfig, signals autoscale.Source) (*genericRuntime, error) {
-	if config.Client == nil || config.ManagerID == "" || config.Authority == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Allocations == nil || config.Evidence == nil || config.CurrentBundle == nil || config.Probe == nil || config.RetainedFloor == nil || config.SessionGuard == nil || config.OriginalProfile == nil {
+	if config.Client == nil || config.ManagerID == "" || config.Authority == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Allocations == nil || config.Evidence == nil || config.CurrentBundle == nil || config.Probe == nil || config.RetainedFloor == nil || config.SessionGuard == nil || config.OriginalProfile == nil || config.Hosts == nil {
 		return nil, errors.New("generic runtime requires current signed service, release, manager and recipient authority")
 	}
 	runtime := &genericRuntime{config: config, owned: map[string]bool{}, releases: map[string]string{}}
@@ -192,6 +194,13 @@ func (runtime *genericRuntime) apply(ctx context.Context, intent delivery.Intent
 		if err := config.SessionGuard(ctx); err != nil {
 			return err
 		}
+		currentFloor, err := config.RetainedFloor(ctx, intent.Role, intent.Environment)
+		if err != nil {
+			return err
+		}
+		if currentFloor != retained {
+			return errors.New("authenticated retained native release floor changed")
+		}
 		confirmed, err = config.Delivery.ContainerIntent(ctx, intent.OperationID)
 		if err != nil {
 			return err
@@ -208,6 +217,18 @@ func (runtime *genericRuntime) apply(ctx context.Context, intent delivery.Intent
 	if err := guard(ctx); err != nil {
 		return err
 	}
+	deadline, _ := ctx.Deadline()
+	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots, release.ContainerTarget{Cell: strings.ToUpper(intent.Cell), Environment: intent.Environment, Role: intent.Role, Architecture: expected.Architecture},
+		time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
+			return config.Evidence(ctx, intent.OperationID, digest)
+		}, allocations)
+	if err != nil {
+		return err
+	}
+	ownerGuard, err := config.Hosts.HandoffToContainer(ctx, verified, roots, retained, guard)
+	if err != nil {
+		return err
+	}
 	identity := claim.Image + "/" + intent.ConfigDigest
 	runtime.mu.Lock()
 	changed := runtime.releases[intent.Role] != identity
@@ -219,11 +240,11 @@ func (runtime *genericRuntime) apply(ctx context.Context, intent delivery.Intent
 	_, err = swarmruntime.ApplySignedService(ctx, config.Client, expected, *intent.Container, roots, retained,
 		func(ctx context.Context, digest string) (io.ReadCloser, error) {
 			return config.Evidence(ctx, intent.OperationID, digest)
-		}, config.Probe, allocations, guard)
+		}, config.Probe, allocations, ownerGuard)
 	if err != nil {
 		return err
 	}
-	return guard(ctx)
+	return ownerGuard(ctx)
 }
 
 func (runtime *genericRuntime) refresh(ctx context.Context) error {
@@ -377,6 +398,9 @@ func (runtime *genericRuntime) removeAbsent(ctx context.Context) error {
 		if err := config.SessionGuard(ctx); err != nil {
 			return err
 		}
+		if err := config.Hosts.GuardContainerOwner(ctx, service.Spec.Annotations.Labels[swarmruntime.LabelEnvironment], service.Spec.Annotations.Labels[swarmruntime.LabelRole]); err != nil {
+			return err
+		}
 		if err := config.Authority.Guard(ctx, epoch); err != nil {
 			return err
 		}
@@ -450,10 +474,13 @@ func (client genericScaleClient) UpdateService(ctx context.Context, request *api
 	if !allowed || latest.Revision() != revision || !bytes.Equal(latest.Value(), entry.Value()) || config.Specs.roots.reply("").Head != head {
 		return nil, containermaterial.ErrPending
 	}
-	if err := config.Authority.Guard(ctx, epoch); err != nil {
+	if err := config.SessionGuard(ctx); err != nil {
 		return nil, err
 	}
-	if err := config.SessionGuard(ctx); err != nil {
+	if err := config.Hosts.GuardContainerOwner(ctx, request.Spec.Annotations.Labels[swarmruntime.LabelEnvironment], request.Spec.Annotations.Labels[swarmruntime.LabelRole]); err != nil {
+		return nil, err
+	}
+	if err := config.Authority.Guard(ctx, epoch); err != nil {
 		return nil, err
 	}
 	return client.ControlClient.UpdateService(ctx, request, options...)

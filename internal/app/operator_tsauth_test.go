@@ -416,9 +416,19 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 		t.Fatalf("retained placement resources: %v, %v", resources, err)
 	}
 	// A fresh reconciler, after leader replay, keeps the recovery template and
-	// reservations despite today's larger B/C placement profile.
-	config := &AutoscaleConfig{Services: []workload.ServiceSpec{spec}}
-	reconciler, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{tsauth.Role: profile}, []workload.ServiceSpec{spec}, history.hosts, history.fencer, history)
+	// reservations despite today's larger B/C placement profile. This retains
+	// legacy replay coverage until its active-boundary replacement is qualified.
+	replayProfiles := profileResources(map[string]WorkloadProfile{tsauth.Role: profile})
+	replayLoad := startHostTelemetry(map[string]WorkloadProfile{tsauth.Role: profile}, history.hosts, history.fencer)
+	reconciler, err := workload.New(workload.Config{Cell: "gru", Specs: []workload.ServiceSpec{spec}, Profiles: replayProfiles,
+		Hosts: history.hosts, Writer: history, Fencer: history.fencer, Signals: replayLoad.load,
+		ReleaseResources: func(ctx context.Context, desired []host.Desired, profiles map[string]placement.Resources) (map[string]placement.Resources, error) {
+			resolved, err := history.resources(ctx, desired, profiles)
+			if err == nil {
+				replayLoad.setResources(resolved)
+			}
+			return resolved, err
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
