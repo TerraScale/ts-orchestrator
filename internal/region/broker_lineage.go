@@ -111,6 +111,10 @@ func (record FoundationRecord) validateBrokerLineage() error {
 		!floor.SpecStreamCreated.IsZero() && (floor.SpecStreamCreated.Before(creation.StartedAt) || floor.SpecStreamCreated.After(record.UpdatedAt)) {
 		return errors.New("root or spec floor has invalid actual stream identity")
 	}
+	if floor.SpecRevision == 0 && floor.SpecGeneration != 0 || floor.SpecRevision != 0 && (floor.SpecGeneration == 0 || floor.RootRevision == 0) ||
+		creation.Genesis == nil && (floor.RootRevision != 0 || !floor.RootStreamCreated.IsZero() || floor.SpecRevision != 0 || !floor.SpecStreamCreated.IsZero()) {
+		return errors.New("published control floor lacks its original committed broker or exact revision")
+	}
 	return nil
 }
 
@@ -136,6 +140,13 @@ func retainBrokerLineage(previous, current *RuntimeLineageRecord) error {
 		after.RootSequence == before.RootSequence && (after.RootHead != before.RootHead || after.RootChainSHA256 != before.RootChainSHA256) ||
 		after.SpecGeneration < before.SpecGeneration || after.SpecGeneration == before.SpecGeneration && after.SpecSHA256 != before.SpecSHA256 || after.UpdatedAt.Before(before.UpdatedAt) {
 		return errors.New("protected root or spec floor rolls back or changes adopted source")
+	}
+	if previous.Broker != nil && previous.Broker.Genesis == nil && *before != *after {
+		return errors.New("uncommitted broker cannot change its original public source floor")
+	}
+	if after.RootSequence > before.RootSequence && after.RootRevision <= before.RootRevision ||
+		after.SpecGeneration > before.SpecGeneration && after.SpecRevision <= before.SpecRevision {
+		return errors.New("advanced control generation has no newer actual source revision")
 	}
 	if !before.RootStreamCreated.IsZero() && !before.RootStreamCreated.Equal(after.RootStreamCreated) ||
 		!before.SpecStreamCreated.IsZero() && !before.SpecStreamCreated.Equal(after.SpecStreamCreated) ||
