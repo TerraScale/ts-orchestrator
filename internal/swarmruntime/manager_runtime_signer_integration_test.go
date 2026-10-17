@@ -7,18 +7,23 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nkeys"
 )
@@ -267,6 +272,94 @@ func TestManagerRuntimeNativeSigningIntegration(t *testing.T) {
 		if key, _, err := node.nodeSigningKey(); err == nil {
 			_ = key.Close()
 			t.Fatal("symlinked native private key was accepted")
+		}
+	})
+	t.Run("stage requires genuine admitted caller and opaque ownhost", func(t *testing.T) {
+		stage := managedmaterial.MaterialStage{}
+		if signed, err := node.SignManagedMaterialStage(ctx, rootoci.Call{}, nil, nil, stage, guard); err == nil || len(signed.Signature) != 0 {
+			t.Fatal("zero caller or ownhost delivered a native stage signature")
+		}
+		rootCall, err := rootoci.RootCall(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := rootCall.AuthorityBindingSHA256(ctx); err == nil {
+			t.Fatal("synthetic bootstrap RootCall established an admitted stage caller")
+		}
+	})
+	t.Run("stage structure has fixed bounds and separate semantic expiry", func(t *testing.T) {
+		// This checks only the DTO boundary, using the real native public pins.
+		// Placeholder source bodies cannot establish domain or caller authority.
+		now := time.Now().UTC()
+		semanticExpiry := now.Add(time.Minute)
+		useExpiry := now.Add(5 * time.Second)
+		nativeCertificate, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		database, partition := entityid.New(), entityid.New()
+		spec := managedmaterial.InitialSpec{PlacementDatabaseID: database, PartitionID: partition}
+		specWire, err := protocol.EncodeJSON(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		operation := entityid.Derive("material-g1", string(specWire))
+		stage := managedmaterial.MaterialStage{Version: 1, Action: managedmaterial.MaterialStagePreparation,
+			Cell: "gru", DatabaseID: database, PartitionID: partition, OperationID: operation, RuntimeID: entityid.New(), Epoch: 1,
+			AdmittedAt: now, OperationExpiresAt: semanticExpiry, GrantExpiresAt: semanticExpiry, SemanticSourceExpiresAt: semanticExpiry,
+			CredentialExpiresAt: useExpiry, LeaseExpiresAt: useExpiry, OriginalContextExpiresAt: useExpiry, OriginalCallerExpiresAt: useExpiry,
+			NativeCertificateExpiresAt: nativeCertificate.NotAfter, ExpiresAt: semanticExpiry, CallerAuthoritySHA256: strings.Repeat("1", 64),
+			Native: managedmaterial.MaterialStageNative{NodeID: node.ID(), InstanceID: cfg.Admission.InstanceID, OCIRegion: cfg.Admission.Region,
+				SwarmClusterID: cluster.ID, ClusterCASHA256: requested.ClusterCASHA256, CertificateSHA256: requested.CertificateSHA256},
+			Evidence: managedmaterial.MaterialStageEvidence{Operator: &protocol.Envelope{OperationID: operation, Epoch: 1,
+				Region: "gru", ExpiresAt: semanticExpiry, Payload: specWire}},
+			Preparation: &managedmaterial.PreparationReceipt{Cell: "gru", PartitionID: partition, Spec: spec}}
+		for _, name := range []managedmaterial.MaterialStageSourceName{
+			managedmaterial.MaterialStageAcceptedIdentity, managedmaterial.MaterialStageControllerConfig, managedmaterial.MaterialStageControllerGeneration,
+			managedmaterial.MaterialStageMaterialKeyReference, managedmaterial.MaterialStageRootHead, managedmaterial.MaterialStageServiceSpec,
+			managedmaterial.MaterialStageOperatorPolicy, managedmaterial.MaterialStageLease, managedmaterial.MaterialStageOwnhost,
+			managedmaterial.MaterialStageNativeManager, managedmaterial.MaterialStageNativeCluster, managedmaterial.MaterialStageMaterialDomain,
+		} {
+			stage.Sources = append(stage.Sources, managedmaterial.MaterialStageSource{Name: name, Payload: []byte("{}")})
+		}
+		slices.SortFunc(stage.Sources, func(a, b managedmaterial.MaterialStageSource) int {
+			return strings.Compare(string(a.Name), string(b.Name))
+		})
+		wire, err := managedmaterial.MaterialStageSigningBytes(stage)
+		if err != nil || !bytes.HasPrefix(wire, []byte("TS-MANAGED-MATERIAL-STAGE-V1\x00")) {
+			t.Fatalf("finite stage structure or fixed domain rejected: %v", err)
+		}
+		changed := stage
+		changed.ExpiresAt = useExpiry
+		if _, err := managedmaterial.MaterialStageSigningBytes(changed); err == nil {
+			t.Fatal("attempt transport expiry replaced the exact semantic ceiling")
+		}
+		changed = stage
+		changed.Action = "arbitrary_sign"
+		if _, err := managedmaterial.MaterialStageSigningBytes(changed); err == nil {
+			t.Fatal("stage accepted an arbitrary signing action")
+		}
+		changed = stage
+		changed.Sources = slices.Clone(stage.Sources)
+		changed.Sources[0].Payload = bytes.Repeat([]byte("x"), (128<<10)+1)
+		if _, err := managedmaterial.MaterialStageSigningBytes(changed); err == nil {
+			t.Fatal("stage accepted an oversized source")
+		}
+		changed = stage
+		changed.Sources = slices.Clone(stage.Sources)
+		changed.Sources[1].Name = changed.Sources[0].Name
+		if _, err := managedmaterial.MaterialStageSigningBytes(changed); err == nil {
+			t.Fatal("stage accepted duplicate source names")
+		}
+		changed = stage
+		changed.Preparation = new(*stage.Preparation)
+		changed.Preparation.Signature = strings.Repeat("x", 256<<10)
+		if _, err := managedmaterial.MaterialStageSigningBytes(changed); err == nil {
+			t.Fatal("stage accepted an oversized candidate")
+		}
+		oversized := managedmaterial.SignedMaterialStage{Stage: stage, Signature: bytes.Repeat([]byte("x"), managedmaterial.MaxSignedMaterialStageBytes)}
+		if managedmaterial.VerifySignedMaterialStage(oversized, certificate, cluster.RootCACert, cluster.ID, now) == nil {
+			t.Fatal("native stage verifier accepted an oversized signed record")
 		}
 	})
 }
