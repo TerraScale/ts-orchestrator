@@ -278,3 +278,130 @@ func TestMetricDashboardUsesSourceCadenceHTTP(t *testing.T) {
 		}
 	}
 }
+
+func TestDetailMetricHistoryHTTPGapsAndCoverage(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	const database = "00000000000DMQEY0YD7RZ04RR"
+	const partition = "00000000003K6TBW31R91GBDRD"
+	const operation = "0000000000HAAS49GS9KYXGSQT"
+	history := observability.NewHistory(observability.HistoryConfig{MaxSeries: 69})
+	for _, second := range []int{50, 40, 10, 0} {
+		history.Append(now.Add(-time.Duration(second)*time.Second), []observability.Sample{
+			{Metric: observability.HistPartitionDesired, Labels: observability.L("database", database, "partition", partition), Value: float64(second)},
+			{Metric: observability.HistPartitionServing, Labels: observability.L("database", database, "partition", partition), Value: float64(second)},
+			{Metric: observability.HistRolloutProgress, Labels: observability.L("operation", operation), Value: float64(second) / 100},
+			{Metric: observability.HistHostCPUUtilization, Labels: observability.L("member", "host-a"), Value: float64(second) / 100},
+		})
+	}
+	for service := range 65 {
+		history.Append(now, []observability.Sample{{Metric: observability.HistServiceCPUCores,
+			Labels: observability.L("member", "host-a", "service", fmt.Sprintf("service-%02d", service)), Value: float64(service)}})
+	}
+	// Exceed the real store's capacity so API and charts must disclose genuine collection loss.
+	history.Append(now, []observability.Sample{{Metric: "obs_rejected_series", Value: 1}})
+	const token = "detail-history-private-integration-token"
+	listener, err := observability.NewTokenServer(observability.Config{}, token, observability.ServerDeps{
+		Registry: observability.NewRegistry(false), Health: new(observability.Health),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener.HandleMetricHistory(history)
+	snapshot := memberSnapshot()
+	snapshot.ObservedAt, snapshot.Errors = now, nil
+	snapshot.Placement.Databases[0].Readiness = "observed"
+	New(Options{Now: func() time.Time { return now }, Snapshots: fixedSnapshots{snapshot: snapshot},
+		Journal: &Journal{History: history, Metrics: listener.MetricCatalog()}}).Mount(listener)
+	server := httptest.NewServer(listener)
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
+	get := func(path string) string {
+		t.Helper()
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		response, err := server.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		if err != nil || response.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s: status=%d err=%v body=%s", path, response.StatusCode, err, body)
+		}
+		return string(body)
+	}
+	charts := func(body string) []chartSpec {
+		t.Helper()
+		var specs []chartSpec
+		for _, match := range regexp.MustCompile(`(?:<p class="note warn" role="status">([^<]*)</p>\s*)?<ts-chart[^>]*data-spec="([^"]*)"`).FindAllStringSubmatch(body, -1) {
+			var spec chartSpec
+			if err := json.Unmarshal([]byte(html.UnescapeString(match[2])), &spec); err != nil {
+				t.Fatal(err)
+			}
+			// Warnings are rendered beside the chart and excluded from its JSON.
+			spec.Warning = html.UnescapeString(match[1])
+			specs = append(specs, spec)
+		}
+		return specs
+	}
+	query := url.Values{"metric": {observability.HistPartitionDesired}, "range": {"15m"}, "tier": {"raw"}}
+	var result observability.CatalogHistory
+	if err := json.Unmarshal([]byte(get("/v1/history?"+query.Encode())), &result); err != nil ||
+		!result.Incomplete || result.DroppedSeries != 1 || len(result.Series) != 1 || !result.Series[0].Gaps ||
+		len(result.Series[0].Points) != 4 || result.Series[0].Points[3].Value != 0 {
+		t.Fatalf("real history did not expose gap, collection loss and zero: %+v err=%v", result, err)
+	}
+	for _, test := range []struct {
+		path        string
+		chartCount  int
+		seriesNames []string
+	}{
+		{"/terrabase/" + database + "/" + partition + "?range=15m", 1, []string{"desired", "desired", "serving", "serving"}},
+		{"/rollouts/" + operation + "?range=15m", 1, []string{"completed", "completed"}},
+		{"/regions/fra/hosts/host-a?range=15m", 5, []string{"host-a", "host-a"}},
+	} {
+		body := get(test.path)
+		specs := charts(body)
+		if len(specs) != test.chartCount || len(specs[0].Series) != len(test.seriesNames) {
+			t.Fatalf("GET %s lost chart segments: %+v", test.path, specs)
+		}
+		if !strings.Contains(specs[0].Warning, "Regional metric history is incomplete:") ||
+			!strings.Contains(specs[0].Warning, "missing values are not zero") || !strings.Contains(body, `role="status"`) {
+			t.Fatalf("GET %s hid history coverage: %+v", test.path, specs[0])
+		}
+		for index, series := range specs[0].Series {
+			if series.Name != test.seriesNames[index] || len(series.Points) != 2 ||
+				series.Points[1][0]-series.Points[0][0] != 10_000 {
+				t.Fatalf("GET %s joined a gap or lost a segment: %+v", test.path, series)
+			}
+			if index%2 == 1 && series.Points[1][1] != 0 {
+				t.Fatalf("GET %s replaced a genuine zero: %+v", test.path, series)
+			}
+			if series.Name == "desired" && (!series.Dashed || series.Status != "idle") ||
+				(series.Name == "serving" || series.Name == "completed") && series.Status != "ok" {
+				t.Fatalf("GET %s lost segment styling: %+v", test.path, series)
+			}
+		}
+		if test.chartCount == 5 {
+			if len(specs[1].Series) != 0 || specs[1].Empty != "Regional metric history is incomplete." {
+				t.Fatalf("missing memory history was presented as zero or complete: %+v", specs[1])
+			}
+			if len(specs[3].Series) != 64 || !strings.Contains(specs[3].Warning, "Truncated: more series exist") ||
+				strings.Contains(specs[3].Warning, "32 series") {
+				t.Fatalf("64-series query bound was hidden or misstated: %+v", specs[3])
+			}
+		}
+	}
+	catalog := charts(get("/metric-catalog?metric=" + observability.HistPartitionDesired + "&range=15m"))
+	if len(catalog) != 1 || len(catalog[0].Series) != 2 || len(catalog[0].Series[1].Points) != 2 || catalog[0].Series[1].Points[1][1] != 0 {
+		t.Fatalf("shared catalog lost gap or zero parity: %+v", catalog)
+	}
+	if remote := get("/regions/sfo/hosts/host-a?range=15m"); len(charts(remote)) != 0 {
+		t.Fatal("remote host page rendered local regional history")
+	}
+}
