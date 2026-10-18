@@ -837,15 +837,42 @@ func TestOriginalFoundationNetworkSDK(t *testing.T) {
 				f.assertNetworkState(t, false)
 			})
 		}
+		fixtureT := t
+		var completed *originalNetworkSDKFixture
 		for _, drift := range []string{"completed extra listed rule", "missing accepted VCN", "wrong VCN compartment", "blocked service gateway", "public subnet", "wrong user", "wrong tenancy", "expired original"} {
 			t.Run(drift, func(t *testing.T) {
-				f := newOriginalNetworkSDKFixture(t, "")
-				if err := f.run(t); err != nil {
-					t.Fatal(err)
+				if completed == nil {
+					completed = newOriginalNetworkSDKFixture(fixtureT, "")
+					if err := completed.run(t); err != nil {
+						t.Fatal(err)
+					}
 				}
+				f := completed
 				f.assertNetworkState(t, true)
 				before := f.wire(t)
 				network := f.record(t).OriginalFoundationCompartments.Regions[0].Network
+				bundle := f.bundle.clone()
+				f.networkMu.Lock()
+				fault := f.networkFault
+				f.networkMu.Unlock()
+				rows := map[string]map[string]any{}
+				f.cloud.mu.Lock()
+				for _, slot := range []int{0, 1, 4} {
+					id := network.Creates[slot].Provenance.ResourceID
+					rows[id] = maps.Clone(f.cloud.rows[id])
+				}
+				f.cloud.mu.Unlock()
+				t.Cleanup(func() {
+					f.cloud.mu.Lock()
+					for id, row := range rows {
+						f.cloud.rows[id] = row
+					}
+					f.cloud.mu.Unlock()
+					f.networkMu.Lock()
+					f.networkFault = fault
+					f.networkMu.Unlock()
+					f.bundle = bundle
+				})
 				f.cloud.mu.Lock()
 				switch drift {
 				case "missing accepted VCN":

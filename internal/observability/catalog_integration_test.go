@@ -3,12 +3,15 @@ package observability
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -403,5 +406,104 @@ func TestMetricCatalogHTTPBoundedExpositionIntegration(t *testing.T) {
 	local.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/v1/metrics/catalog", nil))
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("tokenless discovery status %d", recorder.Code)
+	}
+}
+
+func TestMetricCatalogLiveSystemHistoryHTTPIntegration(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" {
+		t.Skip("system statistics require Linux")
+	}
+	registry := NewRegistry(false)
+	collector, err := NewCollector(CollectorConfig{
+		Cell: "live-cell", Member: "live-host", Role: "controller", Registry: registry,
+		Filesystems: []FilesystemRole{{Role: "tmp", Path: t.TempDir()}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := collector.Snapshot(t.Context(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.System == nil || len(snapshot.Errors) != 0 {
+		t.Fatalf("live system snapshot: %+v", snapshot)
+	}
+	system := snapshot.System
+	if system.CPUCount < 1 || system.MemTotalBytes == 0 || system.ProcessRSSBytes == 0 ||
+		len(system.Filesystems) != 1 || system.Filesystems[0].SizeBytes == 0 {
+		t.Fatalf("live procfs/statfs observations: %+v", system)
+	}
+	history := NewHistory(HistoryConfig{})
+	token := strings.Repeat("l", 40)
+	server, err := NewTokenServer(Config{}, token, ServerDeps{Registry: registry, Health: new(Health)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.HandleMetricHistory(history)
+	listener := httptest.NewServer(server)
+	t.Cleanup(listener.Close)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- (HistorySampler{Store: history, Collect: ClusterCollect(nil, collector)}).Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != context.Canceled {
+			t.Errorf("live sampler stopped: %v", err)
+		}
+	})
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	poll := time.NewTicker(10 * time.Millisecond)
+	defer poll.Stop()
+	for !slices.Contains(history.Metrics(), HistFSSize) {
+		select {
+		case <-deadline.C:
+			t.Fatal("live sampler did not retain filesystem observations")
+		case <-t.Context().Done():
+			t.Fatal(t.Context().Err())
+		case <-poll.C:
+		}
+	}
+	for _, metric := range []string{HistMemoryTotal, HistFSSize} {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+			listener.URL+"/v1/history?metric="+metric+"&tier=raw&range=1m&label.member=live-host", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		response, err := listener.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, readErr := io.ReadAll(response.Body)
+		closeErr := response.Body.Close()
+		if readErr != nil || closeErr != nil {
+			t.Fatalf("read live history: %v; close: %v", readErr, closeErr)
+		}
+		var result CatalogHistory
+		if err := jsonv2.Unmarshal(data, &result); err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusOK || result.State != "available" || len(result.Series) != 1 ||
+			result.IntervalSeconds != DefaultHistoryInterval.Seconds() || result.Pending || result.Incomplete || result.Truncated {
+			t.Fatalf("live %s history: status %d, %+v", metric, response.StatusCode, result)
+		}
+		series := result.Series[0]
+		if series.Metric != metric || series.Tier != TierRaw || series.Labels["member"] != "live-host" ||
+			len(series.Points) == 0 || series.LastObservedAt.IsZero() {
+			t.Fatalf("live %s series: %+v", metric, series)
+		}
+		if metric == HistFSSize && series.Labels["role"] != "tmp" {
+			t.Fatalf("live filesystem role: %+v", series.Labels)
+		}
+		for _, point := range series.Points {
+			if !(point.Value > 0) || math.IsInf(point.Value, 0) || point.Min != point.Value || point.Max != point.Value ||
+				point.Time.Before(snapshot.ObservedAt.Truncate(time.Millisecond)) || point.Time.After(result.ObservedAt) {
+				t.Fatalf("live %s point: %+v", metric, point)
+			}
+		}
 	}
 }
