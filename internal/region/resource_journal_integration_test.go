@@ -14,7 +14,7 @@ import (
 )
 
 func TestProtectedResourceJournalSharesFoundationCASAndByteBound(t *testing.T) {
-	store, client, _ := foundationProtocolStore(t)
+	store, client, raw := foundationProtocolStore(t)
 	now := time.Now().UTC()
 	desired, err := ociresource.NewDesired(ociresource.Key{Region: "GRU", Kind: "nsg-rules", Name: "members"}, 1, ociresource.PolicyEnforce, struct {
 		ID string `json:"id"`
@@ -74,23 +74,75 @@ func TestProtectedResourceJournalSharesFoundationCASAndByteBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, _ := json.Marshal(loaded, json.Deterministic(true))
 	entry := loaded.OCIResources.Resources[desired.Key.String()]
 	operation := *entry.Desired.Operation
 	request := operation.Requests[0]
 	request.Body = make([]byte, 64<<10)
-	operation.Requests = []ociresource.RequestAttempt{request, request}
+	operation.Requests = append(slices.Clone(operation.Requests), request, request)
 	entry.Desired.Operation = &operation
 	loaded.OCIResources.Resources[desired.Key.String()] = entry
-	if _, err := restarted.CompareAndSwap(t.Context(), loaded, loadedETag); err == nil {
-		t.Fatal("protected journal bypassed shared 128 KiB object bound")
+	before, err := json.Marshal(loaded, json.Deterministic(true))
+	if err != nil || len(before) <= foundationRecordLimit || len(before) >= foundationJournalLimit {
+		t.Fatalf("journal regression must cross only the old object bound: bytes=%d err=%v", len(before), err)
 	}
-	current, _, err := restarted.Load(t.Context(), "GRU")
+	loadedETag, err = restarted.CompareAndSwap(t.Context(), loaded, loadedETag)
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, _ := json.Marshal(current, json.Deterministic(true))
-	if string(before) != string(after) {
+	current, currentETag, err := restarted.Load(t.Context(), "GRU")
+	if err != nil || currentETag != loadedETag || !reflect.DeepEqual(current, loaded) {
+		t.Fatalf("journal above 128 KiB changed during CAS/reload: %v", err)
+	}
+	operation.Requests = append(slices.Clone(operation.Requests), request, request, request, request)
+	operation.Failure = "boundary"
+	entry.Desired.Operation = &operation
+	loaded.OCIResources.Resources[desired.Key.String()] = entry
+	oversized, err := json.Marshal(loaded, json.Deterministic(true))
+	if err != nil || len(oversized) <= foundationJournalLimit+1 {
+		t.Fatalf("journal regression did not reach the object bound: bytes=%d err=%v", len(oversized), err)
+	}
+	last := &operation.Requests[len(operation.Requests)-1]
+	// Base64 moves in four-byte steps; the failure string fills the remainder.
+	trim := 3 * ((len(oversized) - foundationJournalLimit - 1 + 3) / 4)
+	if trim > len(last.Body) {
+		t.Fatal("journal boundary adjustment exceeds one valid request body")
+	}
+	last.Body = last.Body[:len(last.Body)-trim]
+	oversized, err = json.Marshal(loaded, json.Deterministic(true))
+	if err != nil || len(oversized) > foundationJournalLimit+1 {
+		t.Fatalf("could not size exact journal boundary: bytes=%d err=%v", len(oversized), err)
+	}
+	operation.Failure += strings.Repeat("x", foundationJournalLimit+1-len(oversized))
+	if err := loaded.validate(); err != nil {
+		t.Fatalf("oversize candidate must otherwise remain valid: %v", err)
+	}
+	operation.Failure = operation.Failure[:len(operation.Failure)-1]
+	before, err = json.Marshal(loaded, json.Deterministic(true))
+	if err != nil || len(before) != foundationJournalLimit {
+		t.Fatalf("journal write candidate is not exactly at the object bound: bytes=%d err=%v", len(before), err)
+	}
+	loadedETag, err = restarted.CompareAndSwap(t.Context(), loaded, loadedETag)
+	if err != nil {
+		t.Fatalf("journal write at exact object byte bound was rejected: %v", err)
+	}
+	operation.Failure += "x"
+	oversized, err = json.Marshal(loaded, json.Deterministic(true))
+	if err != nil || len(oversized) != foundationJournalLimit+1 {
+		t.Fatalf("journal write candidate is not one byte above object bound: bytes=%d err=%v", len(oversized), err)
+	}
+	if _, err := restarted.CompareAndSwap(t.Context(), loaded, loadedETag); err == nil || !strings.Contains(err.Error(), "foundation record exceeds size bound") {
+		t.Fatalf("oversized valid journal bypassed object byte bound: %v", err)
+	}
+	current, _, err = restarted.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := json.Marshal(current, json.Deterministic(true))
+	if err != nil || string(before) != string(after) {
 		t.Fatal("oversized journal damaged original operation")
+	}
+	raw(foundationObjectPrefix+"GRU.json", append(slices.Clone(after), ' '))
+	if _, _, err := restarted.Load(t.Context(), "GRU"); err == nil || !strings.Contains(err.Error(), "foundation record exceeds size bound") {
+		t.Fatalf("journal one byte above object bound was accepted: %v", err)
 	}
 }

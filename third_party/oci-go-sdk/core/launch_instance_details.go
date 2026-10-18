@@ -322,7 +322,10 @@ func (m *LaunchInstanceDetails) UnmarshalJSON(data []byte) (e error) {
 
 	m.SubnetId = model.SubnetId
 
-	m.LaunchVolumeAttachments = make([]LaunchAttachVolumeDetails, len(model.LaunchVolumeAttachments))
+	m.LaunchVolumeAttachments = nil
+	if model.LaunchVolumeAttachments != nil {
+		m.LaunchVolumeAttachments = make([]LaunchAttachVolumeDetails, len(model.LaunchVolumeAttachments))
+	}
 	for i, n := range model.LaunchVolumeAttachments {
 		nn, e = n.UnmarshalPolymorphicJSON(n.JsonData)
 		if e != nil {
@@ -360,7 +363,10 @@ func (m *LaunchInstanceDetails) UnmarshalJSON(data []byte) (e error) {
 
 	m.InstanceConfigurationId = model.InstanceConfigurationId
 
-	m.LicensingConfigs = make([]LaunchInstanceLicensingConfig, len(model.LicensingConfigs))
+	m.LicensingConfigs = nil
+	if model.LicensingConfigs != nil {
+		m.LicensingConfigs = make([]LaunchInstanceLicensingConfig, len(model.LicensingConfigs))
+	}
 	for i, n := range model.LicensingConfigs {
 		nn, e = n.UnmarshalPolymorphicJSON(n.JsonData)
 		if e != nil {

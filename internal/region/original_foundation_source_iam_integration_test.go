@@ -179,8 +179,8 @@ func (f *originalSourceIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http.R
 			return
 		}
 		pins, err := originalSourceIAMUpstream(next)
-		if err != nil || !bytes.Equal(pins, f.upstream) || len(wire) > 128<<10 {
-			f.cloud.test.Error("source checkpoint changed original bytes or exceeded128KiB")
+		if err != nil || !bytes.Equal(pins, f.upstream) || len(wire) > foundationJournalLimit {
+			f.cloud.test.Error("source checkpoint changed original bytes or exceeded protected journal bound")
 			originalCompartmentFailure(w, 400, "InvalidParameter")
 			return
 		}
@@ -371,7 +371,7 @@ func (f *originalSourceIAMSDKFixture) policy(w http.ResponseWriter, r *http.Requ
 func (f *originalSourceIAMSDKFixture) assertState(t *testing.T, complete bool) {
 	t.Helper()
 	record := f.record(t)
-	if record.validateOriginalFoundationSourceIAM() != nil || len(record.SourcePolicyIDs) != 0 || len(record.ResourceIDs) != 0 || record.FoundationWriter != nil || record.NetBirdManager != nil || !record.CompletedAt.IsZero() || f.cloud.hasAnchor() || f.cloud.creates != 30 || f.cloud.launchPosts != 3 || len(f.wire(t)) > 128<<10 {
+	if record.validateOriginalFoundationSourceIAM() != nil || len(record.SourcePolicyIDs) != 0 || len(record.ResourceIDs) != 0 || record.FoundationWriter != nil || record.NetBirdManager != nil || !record.CompletedAt.IsZero() || f.cloud.hasAnchor() || f.cloud.creates != 30 || f.cloud.launchPosts != 3 || len(f.wire(t)) > foundationJournalLimit {
 		t.Fatal("source IAM fabricated generic/runtime authority, repeated upstream effects or exceeded journal bound")
 	}
 	pins, err := originalSourceIAMUpstream(record)

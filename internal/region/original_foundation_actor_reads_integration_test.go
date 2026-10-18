@@ -520,7 +520,7 @@ func (f *originalActorReadsSDKFixture) assertReadsState(t *testing.T) {
 		t.Fatal(err)
 	}
 	pins, err := originalActorReadsUpstream(record)
-	if err != nil || !bytes.Equal(pins, f.readsUpstream) || len(f.wire(t)) > 128<<10 {
+	if err != nil || !bytes.Equal(pins, f.readsUpstream) || len(f.wire(t)) > foundationJournalLimit {
 		t.Fatal("READ progress replaced immutable original prerequisites or exceeded protected record bound")
 	}
 	seen := map[string]bool{}

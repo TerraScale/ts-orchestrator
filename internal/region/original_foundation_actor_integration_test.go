@@ -678,7 +678,7 @@ func (f *originalActorSDKFixture) actorDispatches() []originalActorDispatch {
 func (f *originalActorSDKFixture) assertActorState(t *testing.T) {
 	t.Helper()
 	record := f.record(t)
-	if len(f.wire(t)) > 128<<10 {
+	if len(f.wire(t)) > foundationJournalLimit {
 		t.Fatal("full original actor preimages exceed protected FoundationRecord object read bound")
 	}
 	if err := record.validate(); err != nil {

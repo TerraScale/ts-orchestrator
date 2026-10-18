@@ -21,6 +21,10 @@ import (
 )
 
 const foundationRecordLimit = 128 << 10
+
+// The finite journal retains all three regions' requests, receipts and outcomes;
+// grants and individual policy requests keep their separate 128 KiB bound.
+const foundationJournalLimit = 512 << 10
 const foundationObjectPrefix = "orchestrator/regions/v1/"
 
 type FoundationObjects interface {
@@ -71,11 +75,11 @@ func (s *ObjectFoundationStore) Load(ctx context.Context, cell string) (Foundati
 	if response.ETag == nil || *response.ETag == "" {
 		return FoundationRecord{}, "", errors.New("foundation record has no conditional-write ETag")
 	}
-	wire, err := io.ReadAll(io.LimitReader(response.Content, foundationRecordLimit+1))
+	wire, err := io.ReadAll(io.LimitReader(response.Content, foundationJournalLimit+1))
 	if err != nil {
 		return FoundationRecord{}, "", err
 	}
-	if len(wire) > foundationRecordLimit {
+	if len(wire) > foundationJournalLimit {
 		return FoundationRecord{}, "", errors.New("foundation record exceeds size bound")
 	}
 	var record FoundationRecord
@@ -165,7 +169,7 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 	if err != nil {
 		return "", err
 	}
-	if len(wire) > foundationRecordLimit {
+	if len(wire) > foundationJournalLimit {
 		return "", errors.New("foundation record exceeds size bound")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)

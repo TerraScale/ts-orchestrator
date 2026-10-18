@@ -301,7 +301,7 @@ func (w *CapacityJournalWriter) CompareAndSwap(ctx context.Context, record Found
 	}
 	// Freeze caller maps and pointers before admission rereads the protected head.
 	wire, err := json.Marshal(record, json.Deterministic(true))
-	if err != nil || len(wire) > foundationRecordLimit {
+	if err != nil || len(wire) > foundationJournalLimit {
 		return "", errors.Join(ErrFoundationFenced, err)
 	}
 	var next FoundationRecord
