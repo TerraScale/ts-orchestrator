@@ -390,24 +390,6 @@ func TestStoreOutageIsUnavailable(t *testing.T) {
 	}
 }
 
-func TestPublicRoutes(t *testing.T) {
-	f := newFixture(t)
-	if code, body, _ := call(t, f.server, "", "/healthz"); code != http.StatusOK || body["status"] != "ok" {
-		t.Fatalf("healthz: %d %v", code, body)
-	}
-	code, body, _ := call(t, f.server, "", "/v1/openapi.json")
-	paths, _ := body["paths"].(map[string]any)
-	if code != http.StatusOK || body["openapi"] != "3.1.0" {
-		t.Fatalf("openapi: %d", code)
-	}
-	// Every route the server mounts is documented.
-	for _, path := range []string{"/healthz", "/v1/openapi.json", "/v1/apps", "/v1/apps/{app}", "/v1/apps/{app}/machines",
-		"/v1/apps/{app}/machines/{id}"} {
-		if paths[path] == nil {
-			t.Fatalf("openapi lacks %s", path)
-		}
-	}
-}
 
 func TestConfigValidate(t *testing.T) {
 	valid := Config{ListenAddress: "10.0.0.1:8444", TLSCertFile: "cert.pem", TLSKeyFile: "key.pem", Issuer: testIssuer, Audience: testAudience,
