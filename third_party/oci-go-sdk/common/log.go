@@ -337,7 +337,14 @@ func Logf(format string, v ...interface{}) {
 
 // Debugf logs v with the provided format if debug mode is set
 func Debugf(format string, v ...interface{}) {
-	defaultLogger.Log(debugLogging, "%s", RedactSensitiveStringForLogs(fmt.Sprintf(format, v...)))
+	logger := defaultLogger
+	switch logger.(type) {
+	case DefaultSDKLogger, *DefaultSDKLogger:
+		if logger.LogLevel() < debugLogging {
+			return
+		}
+	}
+	logger.Log(debugLogging, "%s", RedactSensitiveStringForLogs(fmt.Sprintf(format, v...)))
 }
 
 // Debug logs v if debug mode is set

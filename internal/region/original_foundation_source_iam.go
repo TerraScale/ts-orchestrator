@@ -79,7 +79,14 @@ func ProvisionOriginalFoundationSourceIAM(ctx context.Context, factory *ociclien
 			return err
 		}
 	}
-	return ErrOriginalFoundationSourceIAMPending
+	grant, err := decodeOriginalMaterialGrant(bundle)
+	if err != nil {
+		return err
+	}
+	if grant.OriginalActorAdmissionReads == nil {
+		return ErrOriginalFoundationSourceIAMPending
+	}
+	return provisionOriginalFoundationAdmissionReads(ctx, authority)
 }
 
 func completeOriginalSourceIAMActors(record FoundationRecord) error {

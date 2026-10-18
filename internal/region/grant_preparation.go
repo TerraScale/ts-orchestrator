@@ -321,6 +321,16 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		}
 		grant.Regions[index].BootstrapMaterial.OriginalSourceProducer = &purpose
 	}
+	recipes, err := originalAdmissionReadIntents(grant, input.HomeStorageDomain)
+	if err != nil {
+		return FoundationPreparation{}, err
+	}
+	grant.OriginalActorAdmissionReads = &recipes
+	publication, err := originalFoundationPublicationIntent(grant, input.HomeStorageDomain)
+	if err != nil {
+		return FoundationPreparation{}, err
+	}
+	grant.OriginalPublication = &publication
 	if err := ValidatePreparedFoundation(grant); err != nil {
 		return FoundationPreparation{}, err
 	}
@@ -594,6 +604,12 @@ func ValidatePreparedFoundation(grant FoundationGrant) error {
 		if regional.Plan["cell"] == "GRU" && regional.BootstrapMaterial != nil && regional.BootstrapMaterial.SourceRegistration != nil {
 			home = regional.BootstrapMaterial.SourceRegistration.StorageDomain
 		}
+	}
+	if err := validateOriginalAdmissionReadIntents(grant, home); err != nil {
+		return err
+	}
+	if err := validateOriginalFoundationPublicationIntent(grant, home); err != nil {
+		return err
 	}
 	if err := validateNetBirdComponentIdentities(grant, home); err != nil {
 		return err

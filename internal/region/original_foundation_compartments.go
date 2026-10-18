@@ -24,6 +24,7 @@ import (
 // OriginalFoundationCompartments retains finite original prerequisites.
 // It has no current foundation, launch, IAM or runtime authority.
 type OriginalFoundationCompartments struct {
+	Publication       *OriginalFoundationPublication         `json:"publication,omitempty"`
 	GrantSHA256       string                                 `json:"grantSha256"`
 	BundleSHA256      string                                 `json:"bundleSha256"`
 	GRUIntentSHA256   string                                 `json:"gruIntentSha256"`
@@ -50,6 +51,7 @@ type OriginalFoundationCompartmentRegion struct {
 	Actor                *OriginalFoundationActorLaunch    `json:"actor,omitempty"`
 	ActorReads           *OriginalFoundationActorReads     `json:"actorReads,omitempty"`
 	SourceIAM            *OriginalFoundationSourceIAM      `json:"sourceIam,omitempty"`
+	AdmissionReads       *OriginalFoundationAdmissionReads `json:"admissionReads,omitempty"`
 	NetBirdManager       *OriginalFoundationNetBirdManager `json:"netbirdManager,omitempty"`
 }
 
@@ -442,12 +444,14 @@ func checkpointOriginalCompartments(ctx context.Context, authority *HomeIAMAutho
 }
 
 func (scope OriginalFoundationCompartments) scopeOnly() OriginalFoundationCompartments {
+	scope.Publication = nil
 	for region := range scope.Regions {
 		scope.Regions[region].Network = nil
 		scope.Regions[region].Vault = nil
 		scope.Regions[region].Actor = nil
 		scope.Regions[region].ActorReads = nil
 		scope.Regions[region].SourceIAM = nil
+		scope.Regions[region].AdmissionReads = nil
 		scope.Regions[region].NetBirdManager = nil
 		for role := range scope.Regions[region].Compartments {
 			entry := &scope.Regions[region].Compartments[role]
@@ -535,6 +539,12 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 	if err := r.validateOriginalFoundationSourceIAM(); err != nil {
 		return err
 	}
+	if err := r.validateOriginalFoundationAdmissionReads(); err != nil {
+		return err
+	}
+	if err := r.validateOriginalFoundationPublication(); err != nil {
+		return err
+	}
 	if err := r.validateOriginalNetBirdManager(); err != nil {
 		return err
 	}
@@ -557,6 +567,12 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 			return err
 		}
 		if err := next.retainOriginalFoundationSourceIAM(previous); err != nil {
+			return err
+		}
+		if err := next.retainOriginalFoundationAdmissionReads(previous); err != nil {
+			return err
+		}
+		if err := next.retainOriginalFoundationPublication(previous); err != nil {
 			return err
 		}
 		if err := next.retainOriginalNetBirdManager(previous); err != nil {
@@ -592,6 +608,12 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 		return err
 	}
 	if err := next.retainOriginalFoundationSourceIAM(previous); err != nil {
+		return err
+	}
+	if err := next.retainOriginalFoundationAdmissionReads(previous); err != nil {
+		return err
+	}
+	if err := next.retainOriginalFoundationPublication(previous); err != nil {
 		return err
 	}
 	if err := next.retainOriginalNetBirdManager(previous); err != nil {

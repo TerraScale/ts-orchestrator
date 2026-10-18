@@ -74,7 +74,21 @@ func newOriginalActorReadsSDKFixture(t *testing.T, fault string, slot int) *orig
 
 func (f *originalActorReadsSDKFixture) run(t *testing.T) error {
 	t.Helper()
-	return provisionOriginalFoundationCompartments(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	if err := f.originalActorSDKFixture.run(t); err != nil {
+		return err
+	}
+	authority, _, err := newOperatorHomeIAMAuthority(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithDeadline(t.Context(), authority.operator.deadline)
+	defer cancel()
+	ctx, release, err := authority.HomeWrite(ctx, 0)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return retainOriginalFoundationActorReads(ctx, authority)
 }
 
 func originalActorReadsUpstream(record FoundationRecord) ([]byte, error) {
@@ -544,7 +558,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	// Sequential: inherited fixtures own the process transport and signed roots.
 	t.Run("three finite exact READ policies retain downstream HOLD and replay GET only", func(t *testing.T) {
 		f := newOriginalActorReadsSDKFixture(t, "", 0)
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationActorReadsPending) {
+		if err := f.run(t); err != nil {
 			network, rules := f.effects()
 			t.Fatalf("automatic coordinator did not retain explicit host-entry/custody/source/archive HOLD (compartments=%d network=%d NSG-adds=%d KMS=%d actors=%d READs=%d creates=%d launches=%d): %v", len(f.dispatches()), len(network), rules, len(f.kmsDispatches()), len(f.actorDispatches()), len(f.readDispatches()), f.cloud.creates, f.cloud.launchPosts, err)
 		}
@@ -561,7 +575,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		f.assertReadsState(t)
 		before, material := f.wire(t), f.cloud.materialPosts
 		gets := maps.Clone(f.readsGets)
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationActorReadsPending) {
+		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(before, f.wire(t)) || len(f.readDispatches()) != 3 || f.cloud.creates != 33 || f.cloud.materialPosts != material || f.cloud.launchPosts != 3 {
@@ -589,7 +603,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 			for _, fault := range []string{"scope checkpoint", "reservation checkpoint", "stale lease", "unknown create", "lost create response", "response before CAS", "lost accepted checkpoint", "readback checkpoint", "lost readback checkpoint", "throttle", "timeout"} {
 				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
 					f := newOriginalActorReadsSDKFixture(t, fault, slot)
-					if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationActorReadsPending) {
+					if err := f.run(t); err == nil {
 						t.Fatal("interrupted READ operation reached downstream completion HOLD")
 					}
 					f.assertActorState(t)
@@ -626,7 +640,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 					f.readsMu.Lock()
 					f.readsFault = ""
 					f.readsMu.Unlock()
-					if err := f.run(t); !errors.Is(err, ErrOriginalFoundationActorReadsPending) {
+					if err := f.run(t); err != nil {
 						t.Fatalf("exact retained READ did not recover: %v", err)
 					}
 					after := f.readDispatches()
@@ -659,7 +673,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		if err := VerifyFoundationProvisionBundle(t.Context(), f.roots, f.bundle); err != nil {
 			t.Fatal(err)
 		}
-		if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationActorReadsPending) || len(f.readDispatches()) != 1 {
+		if err := f.run(t); err == nil || len(f.readDispatches()) != 1 {
 			t.Fatal("historical READ setup did not retain one unknown actual policy result")
 		}
 		record := f.record(t)
@@ -715,7 +729,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 			t.Fatal(err)
 		}
 		creates, material := f.cloud.creates, f.cloud.materialPosts
-		if err := f.run(t); !errors.Is(err, ErrOriginalSourceProducerHold) || errors.Is(err, ErrOriginalFoundationActorReadsPending) {
+		if err := f.run(t); !errors.Is(err, ErrOriginalSourceProducerHold) {
 			t.Fatalf("expired unknown READ did not retain explicit retry HOLD: %v", err)
 		}
 		retained := f.record(t)
@@ -738,7 +752,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 				}
 				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
 					f := newOriginalActorReadsSDKFixture(t, fault, slot)
-					if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationActorReadsPending) {
+					if err := f.run(t); err == nil {
 						t.Fatal("invalid/refused original policy acquired accepted readback")
 					}
 					entry := f.record(t).OriginalFoundationCompartments.Regions[slot].ActorReads
@@ -767,7 +781,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		for _, fault := range []string{"policy missing", "policy pending", "policy identity", "policy compartment", "policy name", "policy description", "policy extra statement", "policy object write", "policy tags", "policy defined tags"} {
 			t.Run(fault, func(t *testing.T) {
 				f := newOriginalActorReadsSDKFixture(t, fault, 0)
-				if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationActorReadsPending) {
+				if err := f.run(t); err == nil {
 					t.Fatal("conflicting/missing exact GetPolicy accepted original public READ")
 				}
 				entry := f.record(t).OriginalFoundationCompartments.Regions[0].ActorReads
@@ -786,7 +800,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		for _, fault := range []string{"namespace", "bucket identity", "bucket compartment", "bucket KMS", "bucket namespace", "bucket name", "document missing", "document bytes", "document oversized"} {
 			t.Run(fault, func(t *testing.T) {
 				f := newOriginalActorReadsSDKFixture(t, fault, 0)
-				if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationActorReadsPending) || len(f.readDispatches()) != 0 || f.cloud.creates != 30 {
+				if err := f.run(t); err == nil || len(f.readDispatches()) != 0 || f.cloud.creates != 30 {
 					t.Fatal("foreign/missing public original storage acquired policy creation")
 				}
 				for _, region := range f.record(t).OriginalFoundationCompartments.Regions {
@@ -854,7 +868,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 
 	t.Run("protected CAS retains every original READ binding and effect", func(t *testing.T) {
 		f := newOriginalActorReadsSDKFixture(t, "", 0)
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationActorReadsPending) {
+		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
 		store, before := f.store(t), f.wire(t)

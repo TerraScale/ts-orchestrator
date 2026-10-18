@@ -35,21 +35,23 @@ var ErrFoundationGrantPending = errors.New("authenticated foundation grant is pe
 // FoundationGrant is a separate root authorization. A bootstrap anchor, region
 // subscription or permission to read OCI never authorizes foundation spending.
 type FoundationGrant struct {
-	WorkerProfiles      []WorkerProfile                   `json:"workerProfiles,omitempty"`
-	ReleaseAuthorities  []ContainerReleaseAuthorityIntent `json:"releaseAuthorities,omitempty"`
-	WorkloadGenesis     []release.WorkloadGenesis         `json:"workloadGenesis,omitempty"`
-	InstallationID      string                            `json:"installationId"`
-	SchemaVersion       int                               `json:"schemaVersion"`
-	Generation          uint64                            `json:"generation"`
-	TenancyID           string                            `json:"tenancyId"`
-	ParentCompartmentID string                            `json:"parentCompartmentId"`
-	SharedCompartmentID string                            `json:"sharedCompartmentId"`
-	Currency            string                            `json:"currency"`
-	MonthlyLimitMinor   int64                             `json:"monthlyLimitMinor"`
-	CleanupOwner        string                            `json:"cleanupOwner"`
-	Regions             []FoundationIntent                `json:"regions"`
-	InfrastructureSpend *InfrastructureSpendIntent        `json:"infrastructureSpend,omitempty"`
-	OCIRIssuances       []OCIRIssuerIntent                `json:"ocirIssuances,omitempty"`
+	WorkerProfiles              []WorkerProfile                      `json:"workerProfiles,omitempty"`
+	ReleaseAuthorities          []ContainerReleaseAuthorityIntent    `json:"releaseAuthorities,omitempty"`
+	WorkloadGenesis             []release.WorkloadGenesis            `json:"workloadGenesis,omitempty"`
+	OriginalActorAdmissionReads *[3]OriginalActorAdmissionReadIntent `json:"originalActorAdmissionReads,omitempty"`
+	OriginalPublication         *OriginalFoundationPublicationIntent `json:"originalPublication,omitempty"`
+	InstallationID              string                               `json:"installationId"`
+	SchemaVersion               int                                  `json:"schemaVersion"`
+	Generation                  uint64                               `json:"generation"`
+	TenancyID                   string                               `json:"tenancyId"`
+	ParentCompartmentID         string                               `json:"parentCompartmentId"`
+	SharedCompartmentID         string                               `json:"sharedCompartmentId"`
+	Currency                    string                               `json:"currency"`
+	MonthlyLimitMinor           int64                                `json:"monthlyLimitMinor"`
+	CleanupOwner                string                               `json:"cleanupOwner"`
+	Regions                     []FoundationIntent                   `json:"regions"`
+	InfrastructureSpend         *InfrastructureSpendIntent           `json:"infrastructureSpend,omitempty"`
+	OCIRIssuances               []OCIRIssuerIntent                   `json:"ocirIssuances,omitempty"`
 }
 
 // BootstrapMaterialIntent explicitly authorizes credential generation. Its
@@ -488,6 +490,12 @@ func (s *SignedFootprint) verifyOriginalDocument(wire []byte) (FoundationGrant, 
 		return FoundationGrant{}, time.Time{}, err
 	}
 	if err := validateOriginalSourceProducerPurposes(grant, s.storage); err != nil {
+		return FoundationGrant{}, time.Time{}, err
+	}
+	if err := validateOriginalAdmissionReadIntents(grant, s.storage); err != nil {
+		return FoundationGrant{}, time.Time{}, err
+	}
+	if err := validateOriginalFoundationPublicationIntent(grant, s.storage); err != nil {
 		return FoundationGrant{}, time.Time{}, err
 	}
 	footprint := ApprovedFootprint{GrantSHA256: hex.EncodeToString(digest[:]), TenancyID: grant.TenancyID, ParentCompartmentID: grant.ParentCompartmentID,

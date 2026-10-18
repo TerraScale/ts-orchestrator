@@ -235,9 +235,9 @@ func (c *Controller) ClaimGenesisContainer(ctx context.Context, genesis release.
 	if errors.Is(err, authority.ErrNotFound) {
 		epoch := c.authorityEpoch()
 		owner = runtimeOwner{Cell: c.cell, Environment: origin.Environment, Role: origin.Role, AuthorityEpoch: epoch, Phase: "container", AuthorizedBy: genesis.Fingerprint(), WorkloadGenesisSHA256: genesis.Fingerprint(), Genesis: origin}
-		wire, operation, err := mutationPayload(owner)
-		if err != nil {
-			return err
+		wire, operation, encodeErr := mutationPayload(owner)
+		if encodeErr != nil {
+			return encodeErr
 		}
 		_, err = store.CommitHostMutationVerified(ctx, epoch, authority.MutationRuntimeOwner, runtimeOwnerKey(c.cell, origin.Environment, origin.Role), operation, 0, wire, func(check context.Context) error {
 			if err := guard(check); err != nil {
@@ -336,15 +336,15 @@ func (c *Controller) HandoffToContainer(ctx context.Context, verified release.Ve
 	}
 	owner, entry, err := c.readRuntimeOwner(ctx, claim.Environment, claim.Role)
 	if errors.Is(err, authority.ErrNotFound) {
-		targets, err := c.nativeOwnerInventory(ctx, claim.Environment, claim.Role)
-		if err != nil {
-			return nil, err
+		targets, inventoryErr := c.nativeOwnerInventory(ctx, claim.Environment, claim.Role)
+		if inventoryErr != nil {
+			return nil, inventoryErr
 		}
 		owner = runtimeOwner{Cell: c.cell, Environment: claim.Environment, Role: claim.Role, AuthorityEpoch: epoch,
 			Phase: "native-fenced", AuthorizedBy: verified.Fingerprint(), MigrationSHA256: claim.SequenceMigrationSHA256, Retained: retained, Targets: targets}
-		wire, operation, err := mutationPayload(owner)
-		if err != nil {
-			return nil, err
+		wire, operation, encodeErr := mutationPayload(owner)
+		if encodeErr != nil {
+			return nil, encodeErr
 		}
 		_, err = store.CommitHostMutationVerified(ctx, epoch, authority.MutationRuntimeOwner,
 			runtimeOwnerKey(c.cell, claim.Environment, claim.Role), operation, 0, wire, func(check context.Context) error {

@@ -52,7 +52,22 @@ func provisionOriginalFoundationActorReads(ctx context.Context, authority *HomeI
 	if err := retainOriginalFoundationActorReads(ctx, authority); err != nil {
 		return err
 	}
-	return ErrOriginalFoundationActorReadsPending
+	grant, err := decodeOriginalMaterialGrant(authority.operator.bundle)
+	if err != nil {
+		return err
+	}
+	if grant.OriginalActorAdmissionReads == nil {
+		return ErrOriginalFoundationActorReadsPending
+	}
+	if err := validateOriginalAdmissionReadIntents(grant, authority.domain); err != nil {
+		return err
+	}
+	for index := range 3 {
+		if err := retainOriginalSourceIAM(ctx, authority, index); err != nil {
+			return err
+		}
+	}
+	return provisionOriginalFoundationAdmissionReads(ctx, authority)
 }
 
 func retainOriginalFoundationActorReads(ctx context.Context, authority *HomeIAMAuthority) error {

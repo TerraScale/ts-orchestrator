@@ -102,10 +102,27 @@ func TestGenericGenesisOwnerAndPersistentFloorIntegration(t *testing.T) {
 	if err := session.hosts.GuardContainerOwner(ctx, target.Environment, target.Role); err == nil {
 		t.Fatal("empty native inventory created runtime authority")
 	}
+	ownerKey := "gru." + target.Environment + "." + target.Role
+	rejected := errors.New("genesis final guard rejected")
+	guardCalls := 0
+	if err := session.hosts.ClaimGenesisContainer(ctx, target.Genesis, func(check context.Context) error {
+		if err := guard(check); err != nil {
+			return err
+		}
+		guardCalls++
+		if guardCalls > 1 {
+			return rejected
+		}
+		return nil
+	}); !errors.Is(err, rejected) {
+		t.Fatal("genesis owner ignored the final ordered verifier guard", err)
+	}
+	if _, err := fencer.ReadHostMutation(ctx, authority.MutationRuntimeOwner, ownerKey); !errors.Is(err, authority.ErrNotFound) {
+		t.Fatal("rejected genesis claim changed the real ordered owner log", err)
+	}
 	if err := session.hosts.ClaimGenesisContainer(ctx, target.Genesis, guard); err != nil {
 		t.Fatal(err)
 	}
-	ownerKey := "gru." + target.Environment + "." + target.Role
 	owner, err := fencer.ReadHostMutation(ctx, authority.MutationRuntimeOwner, ownerKey)
 	if err != nil || owner.Sequence == 0 {
 		t.Fatalf("genesis owner was not committed to the real ordered log: %v", err)

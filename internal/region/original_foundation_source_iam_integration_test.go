@@ -36,8 +36,10 @@ type originalSourceIAMSDKFixture struct {
 
 func originalSourceIAMUpstream(record FoundationRecord) ([]byte, error) {
 	section := *record.OriginalFoundationCompartments
+	section.Publication = nil
 	for index := range section.Regions {
 		section.Regions[index].SourceIAM = nil
+		section.Regions[index].AdmissionReads = nil
 	}
 	record.OriginalFoundationCompartments = &section
 	record.UpdatedAt = time.Time{}
@@ -47,7 +49,7 @@ func originalSourceIAMUpstream(record FoundationRecord) ([]byte, error) {
 func newOriginalSourceIAMSDKFixture(t *testing.T, fault string) *originalSourceIAMSDKFixture {
 	t.Helper()
 	base := newOriginalActorSDKFixture(t, "", 0)
-	if err := base.run(t); !errors.Is(err, ErrOriginalFoundationActorPending) {
+	if err := base.run(t); err != nil {
 		t.Fatalf("genuine original coordinator did not retain three acknowledged actors: %v", err)
 	}
 	f := &originalSourceIAMSDKFixture{originalActorSDKFixture: base, fault: fault, rows: map[string]map[string]any{}, gets: map[string]int{}}
@@ -77,7 +79,23 @@ func newOriginalSourceIAMSDKFixture(t *testing.T, fault string) *originalSourceI
 
 func (f *originalSourceIAMSDKFixture) run(t *testing.T) error {
 	t.Helper()
-	return ProvisionOriginalFoundationSourceIAM(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	authority, _, err := newOperatorHomeIAMAuthority(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithDeadline(t.Context(), authority.operator.deadline)
+	defer cancel()
+	ctx, release, err := authority.HomeWrite(ctx, 0)
+	if err != nil {
+		return err
+	}
+	defer release()
+	for index := range 3 {
+		if err := retainOriginalSourceIAM(ctx, authority, index); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (f *originalSourceIAMSDKFixture) expectedPolicy(record FoundationRecord, index int) map[string]any {
@@ -424,7 +442,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 				creates, material, launches := f.cloud.creates, f.cloud.materialPosts, f.cloud.launchPosts
 				compartments, kms, actors := len(f.dispatches()), len(f.kmsDispatches()), len(f.actorDispatches())
 				network, rules := f.effects()
-				if err := ProvisionOriginalFoundationSourceIAM(t.Context(), f.factoryFor(), f.roots, f.bundle); err == nil || errors.Is(err, ErrOriginalFoundationSourceIAMPending) {
+				if err := ProvisionOriginalFoundationSourceIAM(t.Context(), f.factoryFor(), f.roots, f.bundle); err == nil {
 					t.Fatal("missing upstream prerequisite admitted source IAM stage")
 				}
 				afterNetwork, afterRules := f.effects()
@@ -437,7 +455,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 	t.Run("three exact policies and GET-only replay retain downstream HOLD", func(t *testing.T) {
 		f := newOriginalSourceIAMSDKFixture(t, "")
 		material := f.cloud.materialPosts
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationSourceIAMPending) {
+		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
 		if len(f.posts) != 3 || len(f.rows) != 3 || f.absenceReads < 3 || f.secretReads < 3 {
@@ -449,7 +467,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 		absences := f.absenceReads
 		secrets := f.secretReads
 		f.fault = "archive after IAM"
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationSourceIAMPending) {
+		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
 		if len(f.posts) != 3 || f.cloud.materialPosts != material || !bytes.Equal(before, f.wire(t)) || f.absenceReads != absences || f.secretReads != secrets {
@@ -470,7 +488,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 				if fault == "wrong roots" {
 					f.roots = trust.Keyring{}
 				}
-				if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationSourceIAMPending) {
+				if err := f.run(t); err == nil {
 					t.Fatal("invalid source prerequisite admitted IAM")
 				}
 				if len(f.posts) != 0 || !bytes.Equal(before, f.wire(t)) {
@@ -483,7 +501,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 		for _, fault := range []string{"reservation checkpoint", "stale lease", "unknown create", "lost create response", "response before CAS", "lost accepted checkpoint", "readback checkpoint", "readback unavailable", "readback conflict", "create refused"} {
 			t.Run(fault, func(t *testing.T) {
 				f := newOriginalSourceIAMSDKFixture(t, fault)
-				if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationSourceIAMPending) {
+				if err := f.run(t); err == nil {
 					t.Fatal("interrupted IAM claimed completed policy set")
 				}
 				f.assertState(t, false)
@@ -502,11 +520,11 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 				err := f.run(t)
 				unresolved := fault == "lost create response" || fault == "response before CAS" || fault == "create refused"
 				if unresolved {
-					if err == nil || errors.Is(err, ErrOriginalFoundationSourceIAMPending) || len(f.posts) != len(previous) || !bytes.Equal(before, f.wire(t)) {
+					if err == nil || len(f.posts) != len(previous) || !bytes.Equal(before, f.wire(t)) {
 						t.Fatal("unknown provider response was adopted/recreated or immutable HOLD changed")
 					}
 				} else {
-					if !errors.Is(err, ErrOriginalFoundationSourceIAMPending) {
+					if err != nil {
 						t.Fatal(err)
 					}
 					if fault == "unknown create" && (len(f.posts) != 4 || !sameOriginalSourceValue(f.posts[0], f.posts[1])) {
@@ -538,7 +556,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 				case "bucket":
 					f.cloud.rows[record.AuxiliaryIDs["head_bucket"]]["kmsKeyId"] = f.approval.HomeStorageDomain.LedgerKMSKeyOCID
 				}
-				if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationSourceIAMPending) {
+				if err := f.run(t); err == nil {
 					t.Fatal("fresh physical/escrow drift admitted source policy")
 				}
 				if len(f.posts) != 0 || !bytes.Equal(before, f.wire(t)) {
@@ -549,7 +567,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 	})
 	t.Run("retention rejects scope and actor substitutions", func(t *testing.T) {
 		f := newOriginalSourceIAMSDKFixture(t, "")
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationSourceIAMPending) {
+		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
 		original := f.wire(t)
