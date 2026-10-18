@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -30,9 +31,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 )
 
-type recoveryAuthority struct{}
+type recoveryAuthority struct{ guard func() error }
 
-func (recoveryAuthority) Guard(context.Context, uint64) error { return nil }
+func (authority recoveryAuthority) Guard(context.Context, uint64) error {
+	if authority.guard != nil {
+		return authority.guard()
+	}
+	return nil
+}
 func (recoveryAuthority) HomeWrite(ctx context.Context, _ uint64) (context.Context, func(), error) {
 	return ctx, func() {}, nil
 }
@@ -272,6 +278,38 @@ func TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately(t *testing.T) {
 				if err := attempt.checkpointAuxiliary(ctx, key, id); err == nil {
 					t.Fatalf("invalid auxiliary identity accepted: %s=%s", key, id)
 				}
+			}
+			var revokeAtPUT, revoked bool
+			attempt.controller.Authority = recoveryAuthority{guard: func() error {
+				if revoked {
+					return ErrFoundationFenced
+				}
+				return nil
+			}}
+			client := store.client.(*objectstorage.ObjectStorageClient)
+			previous := client.Interceptor
+			puts := 0
+			client.Interceptor = func(request *http.Request) error {
+				if request.Method == http.MethodPut {
+					puts++
+					revoked = revokeAtPUT
+				}
+				return previous(request)
+			}
+			if err := attempt.checkpointAuxiliary(ctx, "ledger_bucket", bucketID); err != nil || puts != 1 {
+				t.Fatalf("valid authority did not checkpoint through the configured SDK interceptor: puts=%d err=%v", puts, err)
+			}
+			before, etag, err := store.Load(ctx, entry.cell)
+			if err != nil {
+				t.Fatal(err)
+			}
+			revokeAtPUT = true
+			if err := attempt.checkpointAuxiliary(ctx, "ledger_bucket", bucketID); !errors.Is(err, ErrFoundationFenced) || puts != 2 || !revoked {
+				t.Fatalf("authority revoked at the SDK interceptor still checkpointed: puts=%d revoked=%v err=%v", puts, revoked, err)
+			}
+			after, actualETag, err := store.Load(t.Context(), entry.cell)
+			if err != nil || actualETag != etag || !sameOriginalSourceValue(before, after) {
+				t.Fatalf("late authority refusal changed the durable journal or ETag: %v", err)
 			}
 		})
 	}

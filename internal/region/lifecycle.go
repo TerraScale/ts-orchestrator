@@ -16,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/drainwire"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
@@ -498,7 +499,7 @@ func (a *foundationAttempt) update(ctx context.Context) error {
 		return err
 	}
 	a.record.UpdatedAt = time.Now().UTC()
-	etag, err := a.controller.Store.CompareAndSwap(ctx, a.record, a.etag)
+	etag, err := a.controller.Store.CompareAndSwap(ociclient.WithAuthority(ociclient.CheckpointContext(ctx), a.guard), a.record, a.etag)
 	if err != nil {
 		a.cancel(err)
 		return err
