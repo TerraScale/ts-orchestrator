@@ -1,7 +1,11 @@
 package terrabase
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -107,7 +111,20 @@ func TestCollectWANLoopbackBoundsAndNoRedirect(t *testing.T) {
 	var mode atomic.Int32
 	var redirected atomic.Int32
 	var requests atomic.Int32
+	type scrapeReceipt struct {
+		method  string
+		path    string
+		body    string
+		written int
+		err     error
+	}
+	var inputBody atomic.Pointer[string]
+	served := make(chan scrapeReceipt, 1)
+	originalHandlersDone := make(chan struct{}, 5)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mode.Load() != 4 {
+			defer func() { originalHandlersDone <- struct{}{} }()
+		}
 		requests.Add(1)
 		if r.URL.Path != "/metrics" {
 			redirected.Add(1)
@@ -120,6 +137,10 @@ func TestCollectWANLoopbackBoundsAndNoRedirect(t *testing.T) {
 			fmt.Fprint(w, strings.Repeat(" ", wanBodyBytes+1))
 		case 3:
 			<-r.Context().Done()
+		case 4:
+			receipt := scrapeReceipt{method: r.Method, path: r.URL.Path, body: *inputBody.Load()}
+			receipt.written, receipt.err = fmt.Fprint(w, receipt.body)
+			served <- receipt
 		default:
 			fmt.Fprint(w, wanMetricsFixture)
 		}
@@ -151,5 +172,77 @@ func TestCollectWANLoopbackBoundsAndNoRedirect(t *testing.T) {
 	}
 	if redirected.Load() != 0 {
 		t.Fatal("collector followed a redirect")
+	}
+
+	// Join the five original requests before changing the shared handler phase.
+	joinCtx, joinCancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer joinCancel()
+	for range 5 {
+		select {
+		case <-originalHandlersDone:
+		case <-joinCtx.Done():
+			t.Fatalf("original WAN handlers did not finish: %v", joinCtx.Err())
+		}
+	}
+
+	// Deliver every original invalid scrape through the real loopback collector.
+	env[EnvRegion] = "gru-1"
+	mode.Store(4)
+	var tooMany strings.Builder
+	for i := range MaxWANRegions + 1 {
+		tooMany.WriteString(strings.ReplaceAll(wanMetricsFixture, "sfo-1", fmt.Sprintf("native-%d", i)))
+	}
+	for name, input := range map[string]string{
+		"missing gauge":         strings.ReplaceAll(wanMetricsFixture, "terrabase_wan_conflicts{region=\"sfo-1\"} 1\n", ""),
+		"duplicate":             wanMetricsFixture + "terrabase_wan_lag{region=\"sfo-1\"} 7\n",
+		"bare duplicate":        wanMetricsFixture + "terrabase_wan_lag\n",
+		"NaN":                   strings.ReplaceAll(wanMetricsFixture, "} 7\n", "} NaN\n"),
+		"infinity":              strings.ReplaceAll(wanMetricsFixture, "} 12.5\n", "} +Inf\n"),
+		"negative":              strings.ReplaceAll(wanMetricsFixture, "} 7\n", "} -1\n"),
+		"fractional count":      strings.ReplaceAll(wanMetricsFixture, "} 3\n", "} 1.5\n"),
+		"inexact count":         strings.ReplaceAll(wanMetricsFixture, "} 7\n", "} 9007199254740992\n"),
+		"unknown label":         strings.ReplaceAll(wanMetricsFixture, "region=\"sfo-1\"", "region=\"sfo-1\",database=\"x\""),
+		"duplicate label":       strings.ReplaceAll(wanMetricsFixture, "region=\"sfo-1\"", "region=\"sfo-1\",region=\"sfo-1\""),
+		"bad token":             strings.ReplaceAll(wanMetricsFixture, "sfo-1", "sfo.*"),
+		"foreign scope":         strings.ReplaceAll(wanMetricsFixture, "TerraScale.TerraBase", "foreign"),
+		"timestamp":             strings.ReplaceAll(wanMetricsFixture, "} 7\n", "} 7 1234\n"),
+		"empty reason on gauge": strings.ReplaceAll(wanMetricsFixture, "region=\"sfo-1\"", "region=\"sfo-1\",reason=\"\""),
+		"unknown reason":        strings.ReplaceAll(wanMetricsFixture, "reason=\"ahead\"", "reason=\"other\""),
+		"truncated labels":      wanMetricsFixture + "terrabase_wan_lag{region=\"sfo-1\" 7\n",
+		"body bound":            strings.Repeat("#", wanBodyBytes+1),
+		"line bound":            strings.Repeat("#", 16<<10),
+		"source bound":          tooMany.String(),
+	} {
+		if !t.Run(name, func(t *testing.T) {
+			inputBody.Store(&input)
+			before := requests.Load()
+			got, err := CollectWAN(t.Context(), env)
+			if err := t.Context().Err(); err != nil {
+				t.Fatalf("native scrape lost its live test context: %v", err)
+			}
+			if err == nil || got != nil {
+				t.Fatalf("invalid scrape accepted: %+v, %v", got, err)
+			}
+			if _, transport := errors.AsType[net.Error](err); transport || errors.Is(err, context.Canceled) ||
+				errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+				errors.Is(err, io.ErrClosedPipe) || errors.Is(err, net.ErrClosed) {
+				t.Fatalf("transport failure replaced invalid scrape rejection: %v", err)
+			}
+			select {
+			case receipt := <-served:
+				if receipt.method != http.MethodGet || receipt.path != "/metrics" || receipt.body != input ||
+					receipt.written != len(input) || receipt.err != nil {
+					t.Fatalf("native scrape receipt: method=%q path=%q body matches=%v written=%d want=%d error=%v",
+						receipt.method, receipt.path, receipt.body == input, receipt.written, len(input), receipt.err)
+				}
+			case <-t.Context().Done():
+				t.Fatalf("native body write receipt canceled: %v", t.Context().Err())
+			}
+			if requests.Load() != before+1 {
+				t.Fatal("collector did not make exactly one native request")
+			}
+		}) {
+			t.FailNow()
+		}
 	}
 }

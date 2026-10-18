@@ -634,6 +634,78 @@ func TestGenerateHoldsIncompleteAndTamperedSource(t *testing.T) {
 	if _, err := Generate(directory, testConfig(), time.Now()); err == nil {
 		t.Fatal("tampered source was regenerated")
 	}
+
+	t.Run("one-year validity survives immutable source publication", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.ValidityHours = 365 * 24
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("one-year material rejected: %v", err)
+		}
+		parent := t.TempDir()
+		directory := filepath.Join(parent, "material")
+		now := time.Now().UTC().Truncate(time.Second)
+		if _, err := Generate(directory, cfg, now); err != nil {
+			t.Fatalf("one-year material generation: %v", err)
+		}
+		persisted, err := Load(directory)
+		if err != nil {
+			t.Fatalf("one-year material readback: %v", err)
+		}
+		if err := ValidateLive(directory, persisted); err != nil {
+			t.Fatalf("one-year material live validation: %v", err)
+		}
+		deadline := now.Add(365 * 24 * time.Hour)
+		if !reflect.DeepEqual(persisted.Config, cfg) || !persisted.IssuedAt.Equal(now) || !persisted.ExpiresAt.Equal(deadline) {
+			t.Fatalf("persisted one-year material has different config or validity: %+v", persisted)
+		}
+		wire, err := os.ReadFile(filepath.Join(directory, "ca.pem"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		block, _ := pem.Decode(wire)
+		if block == nil {
+			t.Fatal("persisted one-year CA is not PEM")
+		}
+		ca, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ca.NotAfter.Equal(deadline) {
+			t.Fatalf("persisted CA expiry = %v, want %v", ca.NotAfter, deadline)
+		}
+
+		cfg.ValidityHours++
+		if cfg.Validate() == nil {
+			t.Fatal("material longer than one year accepted")
+		}
+		rejected := filepath.Join(parent, "too-long")
+		if _, err := os.Lstat(rejected); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("rejected material path was not absent: %v", err)
+		}
+		before, err := os.ReadDir(parent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Generate(rejected, cfg, now); !errors.Is(err, ErrMaterial) {
+			t.Fatalf("material longer than one year generation = %v, want ErrMaterial", err)
+		}
+		if _, err := os.Lstat(rejected); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("rejected material created an artifact: %v", err)
+		}
+		after, err := os.ReadDir(parent)
+		if err != nil || len(after) != len(before) {
+			t.Fatalf("rejected generation changed parent entries: %v", err)
+		}
+		for index, entry := range before {
+			if after[index].Name() != entry.Name() {
+				t.Fatal("rejected generation changed parent entry names")
+			}
+		}
+		unchanged, err := Load(directory)
+		if err != nil || !reflect.DeepEqual(unchanged, persisted) {
+			t.Fatalf("rejected generation changed existing material: %v", err)
+		}
+	})
 }
 
 func TestLoadRejectsWorldReadableOrLinkedMaterial(t *testing.T) {

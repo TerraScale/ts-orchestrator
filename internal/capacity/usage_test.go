@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -167,6 +168,136 @@ func TestAuthenticatedAPIAndRegionalClient(t *testing.T) {
 	}
 	if _, err := (Client{URLs: []string{httpServer.URL}, Token: token}).Query(t.Context(), "sfo", from, to); err == nil {
 		t.Fatal("accepted mismatched region")
+	}
+
+	lifecycleUsage := func(t *testing.T, store *Store, from, to time.Time, expected []hostload.UsageInterval) Usage {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		defer cancel()
+		api, err := observability.NewTokenServer(observability.Config{ListenAddress: "127.0.0.1:9463"}, token, observability.ServerDeps{Registry: observability.NewRegistry(false), Health: new(observability.Health)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		api.HandleAuthenticated("GET /v1/usage", store.Handler(func(context.Context, time.Time, time.Time) ([]hostload.UsageInterval, error) {
+			return expected, nil
+		}))
+		listener := httptest.NewServer(api)
+		t.Cleanup(listener.Close)
+		usage, err := (Client{URLs: []string{listener.URL}, Token: token}).Query(ctx, "gru", from, to)
+		if err != nil {
+			t.Fatalf("authenticated lifecycle query: %v", err)
+		}
+		return usage
+	}
+	for _, test := range []struct {
+		name                string
+		lifetimes           [][3]int
+		mean, minimum, peak float64
+		bound               float64
+	}{
+		{"replacement", [][3]int{{0, 0, 30}, {1, 30, 60}}, 1, 1, 1, 2},
+		{"staggered start", [][3]int{{0, 0, 60}, {1, 30, 60}}, 1.5, 1, 2, 2},
+		{"inactive gap", [][3]int{{0, 0, 20}, {1, 40, 60}}, 2.0 / 3, 0, 1, 2},
+		{"reactivation", [][3]int{{0, 0, 20}, {0, 40, 60}}, 2.0 / 3, 0, 1, 1},
+	} {
+		t.Run("service lifetimes/"+test.name, func(t *testing.T) {
+			store := NewStore("gru")
+			from := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Minute)
+			to := from.Add(time.Minute)
+			var expected []hostload.UsageInterval
+			for _, lifetime := range test.lifetimes {
+				node := []string{"a", "b"}[lifetime[0]]
+				start, end := from.Add(time.Duration(lifetime[1])*time.Second), from.Add(time.Duration(lifetime[2])*time.Second)
+				expected = append(expected, fullWindowInventory(start, end, "", node, node+"/api")...)
+			}
+			// Keep delayed reports outside the exact original active lifetimes.
+			for _, node := range []string{"a", "b"} {
+				for at := from; at.Before(to); at = at.Add(5 * time.Second) {
+					value := 100.0
+					for _, interval := range expected {
+						if interval.Node == node && !at.Before(interval.From) && at.Before(interval.To) {
+							value = 1
+						}
+					}
+					appendUsageSample(store, at, node, value)
+				}
+			}
+			usage := lifecycleUsage(t, store, from, to, expected)
+			if !usage.Complete || len(usage.Services) != 1 {
+				t.Fatalf("active lifetimes were not covered: %+v", usage)
+			}
+			row := usage.Services[0]
+			for _, check := range []struct {
+				stat       *Stats
+				multiplier float64
+			}{
+				{row.CPU.Usage, 1}, {row.CPU.Request, 2}, {row.CPU.Limit, 4}, {row.CPU.Headroom, 3},
+				{row.Memory.Usage, 100}, {row.Memory.Request, 200}, {row.Memory.Limit, 400}, {row.Memory.Headroom, 300},
+			} {
+				stat, scale := check.stat, check.multiplier
+				if stat == nil || math.Abs(stat.Mean-test.mean*scale) > 1e-9 || stat.Min != test.minimum*scale || stat.Max != test.peak*scale || stat.MaxUpperBound == nil || *stat.MaxUpperBound != test.bound*scale {
+					t.Fatalf("misaligned service statistics: %+v, scale %g", stat, scale)
+				}
+			}
+			if test.name == "replacement" {
+				var table bytes.Buffer
+				if err := WriteTable(&table, usage); err != nil || !strings.Contains(table.String(), "1.00 / 2.00 / 4.00 / 3.00") {
+					t.Fatalf("table doubled replacement capacity: %s %v", table.String(), err)
+				}
+			}
+		})
+	}
+	t.Run("unequal cadence", func(t *testing.T) {
+		store := NewStore("gru")
+		from := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+		to := from.Add(30 * time.Second)
+		for _, node := range []string{"a", "b"} {
+			seconds := []int{0, 5, 10, 20, 25}
+			if node == "b" {
+				seconds = []int{0, 5, 10, 15, 20, 25}
+			}
+			for _, second := range seconds {
+				value := 1.0
+				if second >= 10 && second < 20 {
+					value = 3
+				}
+				if node == "b" {
+					value = 4 - value
+				}
+				appendUsageSample(store, from.Add(time.Duration(second)*time.Second), node, value)
+			}
+		}
+		usage := lifecycleUsage(t, store, from, to, fullWindowInventory(from, to, "", "a", "a/api", "b", "b/api"))
+		if !usage.Complete || len(usage.Services) != 1 {
+			t.Fatalf("cadence fixture incomplete: %+v", usage)
+		}
+		row := usage.Services[0]
+		if row.CPU.Usage == nil || row.CPU.Usage.MaxUpperBound == nil || row.CPU.Headroom == nil || row.CPU.Usage.Mean != 4 || row.CPU.Usage.Min != 4 || row.CPU.Usage.Max != 4 || *row.CPU.Usage.MaxUpperBound != 6 || row.CPU.Headroom.Min != 4 {
+			t.Fatalf("replica peaks were treated as simultaneous: %+v", row.CPU)
+		}
+	})
+	for _, missing := range []string{"replica", "interior gap"} {
+		t.Run("missing measurements/"+missing, func(t *testing.T) {
+			store := NewStore("gru")
+			from := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Minute)
+			to := from.Add(time.Minute)
+			for _, node := range []string{"a", "b"} {
+				for second := 0; second < 60; second += 5 {
+					if node == "b" && (missing == "replica" || (second >= 20 && second < 45)) {
+						continue
+					}
+					appendUsageSample(store, from.Add(time.Duration(second)*time.Second), node, 1)
+				}
+			}
+			usage := lifecycleUsage(t, store, from, to, fullWindowInventory(from, to, "", "a", "a/api", "b", "b/api"))
+			if usage.Complete || len(usage.Services) != 1 || usage.Services[0].CPU.Usage != nil || usage.Services[0].CPU.Headroom != nil {
+				t.Fatalf("unknown active telemetry became a numeric total: %+v", usage)
+			}
+			var table bytes.Buffer
+			if err := WriteTable(&table, usage); err != nil || !strings.Contains(table.String(), "? / ? / ? / ?") {
+				t.Fatalf("unknown totals disappeared from table: %s %v", table.String(), err)
+			}
+		})
 	}
 }
 
