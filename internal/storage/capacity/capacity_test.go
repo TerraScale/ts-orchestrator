@@ -299,6 +299,172 @@ func TestUsageStorePublishesWithTTLAndFeedsSignals(t *testing.T) {
 	if signals, err := expiring.Signals(ctx); err != nil || len(signals) != 0 {
 		t.Fatalf("broker-expired signals = %+v, %v", signals, err)
 	}
+
+	nativeSignals := func(t *testing.T, inputs []VolumeUsage) []Signal {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		defer cancel()
+		// Fresh storage keeps the original node, mount and observation values in every case.
+		token := rand.Text()
+		broker, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true,
+			StoreDir: filepath.Join(t.TempDir(), "jetstream"), Authorization: token})
+		if err != nil {
+			t.Fatal(err)
+		}
+		broker.Start()
+		t.Cleanup(func() { broker.Shutdown(); broker.WaitForShutdown() })
+		if !broker.ReadyForConnections(5 * time.Second) {
+			t.Fatal("storage usage broker did not become ready")
+		}
+		connection, err := nats.Connect(broker.ClientURL(), nats.Token(token))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(connection.Close)
+		js, err := jetstream.New(connection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		publisher, err := OpenUsageStore(ctx, js, 1, time.Minute, Policy{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readerConnection, err := nats.Connect(broker.ClientURL(), nats.Token(token))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(readerConnection.Close)
+		readerJS, err := jetstream.New(readerConnection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader, err := OpenUsageStore(ctx, readerJS, 1, time.Minute, Policy{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader.now = func() time.Time { return observed.Add(10 * time.Second) }
+		for _, input := range inputs {
+			if err := publisher.Publish(ctx, input); err != nil {
+				t.Fatal(err)
+			}
+			key := usageKey(input)
+			entry, err := reader.kv.Get(ctx, key)
+			if err != nil || entry.Key() != key || entry.Revision() == 0 || len(entry.Value()) == 0 {
+				t.Fatalf("published entry %q = %v, %v", key, entry, err)
+			}
+		}
+		usages, err := reader.Usages(ctx)
+		if err != nil || len(usages) != len(inputs) {
+			t.Fatalf("Usages() = %+v, %v; want %d records", usages, err, len(inputs))
+		}
+		signals, err := reader.Signals(ctx)
+		if err != nil || len(signals) != len(inputs) {
+			t.Fatalf("Signals() = %+v, %v; want %d records", signals, err, len(inputs))
+		}
+		signalUsages := make([]VolumeUsage, len(signals))
+		for i, signal := range signals {
+			signalUsages[i] = signal.Usage
+		}
+		for _, readbacks := range [][]VolumeUsage{usages, signalUsages} {
+			for _, expected := range inputs {
+				matches := 0
+				for _, readback := range readbacks {
+					if usageKey(readback) != usageKey(expected) {
+						continue
+					}
+					matches++
+					business := readback
+					business.ObservedAt = expected.ObservedAt
+					if !readback.ObservedAt.Equal(expected.ObservedAt) || business != expected {
+						t.Fatalf("persisted usage = %+v, want %+v", readback, expected)
+					}
+				}
+				if matches != 1 {
+					t.Fatalf("readback has %d copies of %s, want 1", matches, usageKey(expected))
+				}
+			}
+		}
+		return signals
+	}
+	for _, test := range []struct {
+		name string
+		used uint64
+		want Level
+	}{
+		{"half", 50, LevelOK},
+		{"warn", 72, LevelWarn},
+		{"scale-out", 86, LevelScaleOut},
+		{"refuse", 96, LevelCritical},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			signals := nativeSignals(t, []VolumeUsage{usage(storage.RoleTerraBaseData, 100*gib, test.used*gib, (100-test.used)*gib)})
+			signal := signals[0]
+			if signal.Level != test.want {
+				t.Fatalf("%s: level %s (%.2f), want %s", test.name, signal.Level, signal.Utilization, test.want)
+			}
+			if test.want != LevelOK && signal.Reason == "" {
+				t.Fatalf("%s: signal has no reason", test.name)
+			}
+		})
+	}
+	t.Run("free-space floor", func(t *testing.T) {
+		small := usage(storage.RoleBoot, 10*gib, 2*gib, gib/2)
+		got := nativeSignals(t, []VolumeUsage{small})[0]
+		if got.Level != LevelCritical || !strings.Contains(got.Reason, "floor") {
+			t.Fatalf("free-space floor not enforced: %+v", got)
+		}
+	})
+	t.Run("inode floor", func(t *testing.T) {
+		inodes := usage(storage.RoleBoot, 100*gib, 10*gib, 90*gib)
+		inodes.InodesFree = 10
+		got := nativeSignals(t, []VolumeUsage{inodes})[0]
+		if got.Level != LevelCritical {
+			t.Fatalf("inode floor not enforced: %+v", got)
+		}
+	})
+	t.Run("reservation counts as used", func(t *testing.T) {
+		reserved := usage(storage.RoleJetStream, 100*gib, 40*gib, 60*gib)
+		reserved.ReservedBytes = 50 * gib
+		got := nativeSignals(t, []VolumeUsage{reserved})[0]
+		if got.Level != LevelScaleOut || got.Utilization < 0.89 {
+			t.Fatalf("reservation not counted as used: %+v", got)
+		}
+	})
+	t.Run("unbacked reservation", func(t *testing.T) {
+		reserved := usage(storage.RoleJetStream, 100*gib, 40*gib, 60*gib)
+		reserved.ReservedBytes = 70 * gib
+		got := nativeSignals(t, []VolumeUsage{reserved})[0]
+		if got.Level != LevelCritical {
+			t.Fatalf("unbacked JetStream reservation is not critical: %+v", got)
+		}
+	})
+	bootUsage := usage(storage.RoleBoot, 100*gib, 60*gib, 40*gib)
+	sharedUsage := usage(storage.RoleJetStream, 100*gib, 60*gib, 40*gib)
+	sharedUsage.ReservedBytes = 8 * gib
+	t.Run("shared filesystem", func(t *testing.T) {
+		signals := nativeSignals(t, []VolumeUsage{bootUsage, sharedUsage})
+		headroom, ok := NodeHeadroomBytes(signals, "host-a")
+		if !ok || headroom != 32*gib {
+			t.Fatalf("shared-filesystem headroom = %d %v, want the 8 GiB JetStream reserve subtracted", headroom, ok)
+		}
+	})
+	t.Run("separate filesystem", func(t *testing.T) {
+		separate := usage(storage.RoleJetStream, 200*gib, 60*gib, 140*gib)
+		separate.ReservedBytes = 8 * gib
+		signals := nativeSignals(t, []VolumeUsage{bootUsage, separate})
+		headroom, ok := NodeHeadroomBytes(signals, "host-a")
+		if !ok || headroom != 40*gib {
+			t.Fatalf("separate-filesystem headroom = %d %v, want the full boot headroom", headroom, ok)
+		}
+	})
+	t.Run("exhausted reservation", func(t *testing.T) {
+		exhausted := sharedUsage
+		exhausted.ReservedBytes = 80 * gib
+		signals := nativeSignals(t, []VolumeUsage{bootUsage, exhausted})
+		if headroom, _ := NodeHeadroomBytes(signals, "host-a"); headroom != 0 {
+			t.Fatalf("over-reserved headroom = %d, want 0", headroom)
+		}
+	})
 }
 
 type recordingPublisher struct {
