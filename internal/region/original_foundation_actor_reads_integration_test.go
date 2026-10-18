@@ -186,8 +186,17 @@ func (f *originalActorReadsSDKFixture) expectedReadPolicy(record FoundationRecor
 func (f *originalActorReadsSDKFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	f.readsMu.Lock()
 	defer f.readsMu.Unlock()
+	policyRequest := strings.Contains(r.URL.Path, "/policies")
+	checkpointRequest := r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/o/"+foundationObjectPrefix+"GRU.json")
+	storageFaultRequest := r.Method == http.MethodGet && (f.readsFault == "namespace" && r.URL.Path == "/n" ||
+		strings.HasPrefix(f.readsFault, "bucket ") && r.URL.Path == "/n/ns/b/gru-1-head" ||
+		slices.Contains([]string{"document missing", "document bytes", "document oversized"}, f.readsFault))
+	if !policyRequest && !checkpointRequest && !storageFaultRequest {
+		f.originalActorSDKFixture.serveHTTP(w, r)
+		return
+	}
 	record, complete := f.currentActors()
-	if complete && r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/o/"+foundationObjectPrefix+"GRU.json") {
+	if complete && checkpointRequest {
 		if f.readsCheckpointFault(w, r) {
 			return
 		}
@@ -195,8 +204,8 @@ func (f *originalActorReadsSDKFixture) serveHTTP(w http.ResponseWriter, r *http.
 	if complete && r.Method == http.MethodGet && f.readsStorageFault(w, r, record) {
 		return
 	}
-	if !strings.Contains(r.URL.Path, "/policies") {
-		if !complete && r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/o/"+foundationObjectPrefix+"GRU.json") {
+	if !policyRequest {
+		if !complete && checkpointRequest {
 			recorder := httptest.NewRecorder()
 			f.originalActorSDKFixture.serveHTTP(recorder, r)
 			if recorder.Code < 300 {
