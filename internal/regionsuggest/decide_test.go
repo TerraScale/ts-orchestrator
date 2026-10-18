@@ -136,53 +136,8 @@ func TestAddOverBudgetStillSuggestsAdd(t *testing.T) {
 	}
 }
 
-func TestSaturationNeedsAnHourAndForgetsWhenItEnds(t *testing.T) {
-	t.Parallel()
 
-	saturated := testRegions(statusSaturated(), statusBusy(), statusBusy())
-	suggestion, memory := Suggest(saturated, lhrOnly, Memory{}, testBudget(testHeadroom, testPrice), testNow)
-	if suggestion.Action != ActionNone || !memory.SaturatedSince["gru"].Equal(testNow) {
-		t.Fatalf("first saturated round = %+v, %+v", suggestion, memory)
-	}
-	suggestion, memory = Suggest(saturated, lhrOnly, memory, testBudget(testHeadroom, testPrice), testNow.Add(SaturatedFor))
-	if suggestion.Action != ActionAdd || suggestion.Cell != "lhr" {
-		t.Fatalf("saturated for an hour = %+v", suggestion)
-	}
-	calm := testRegions(statusBusy(), statusBusy(), statusBusy())
-	_, memory = Suggest(calm, lhrOnly, memory, testBudget(testHeadroom, testPrice), testNow.Add(2*SaturatedFor))
-	if _, ok := memory.SaturatedSince["gru"]; ok {
-		t.Fatalf("a region that stopped wanting nodes kept its clock: %+v", memory)
-	}
-}
 
-func TestIdleNeedsIdleForThenSuggestsRemoval(t *testing.T) {
-	t.Parallel()
-
-	regions := testRegions(statusBusy(), statusBusy(), statusIdle())
-	suggestion, memory := Suggest(regions, nil, Memory{}, testBudget(0, 0), testNow)
-	if suggestion.Action != ActionNone {
-		t.Fatalf("first idle round = %+v", suggestion)
-	}
-	suggestion, memory = Suggest(regions, nil, memory, testBudget(0, 0), testNow.Add(IdleFor-time.Minute))
-	if suggestion.Action != ActionNone {
-		t.Fatalf("idle one minute short of IdleFor = %+v", suggestion)
-	}
-	suggestion, _ = Suggest(regions, nil, memory, testBudget(0, 0), testNow.Add(IdleFor))
-	if suggestion.Action != ActionRemove || suggestion.Cell != "sfo" || suggestion.OCIRegion != "us-sanjose-1" {
-		t.Fatalf("idle for IdleFor = %+v", suggestion)
-	}
-}
-
-func TestUnknownStatusForgetsTheIdleClock(t *testing.T) {
-	t.Parallel()
-
-	regions := testRegions(statusBusy(), statusBusy(), nil)
-	_, memory := Suggest(regions, nil, Memory{IdleSince: map[string]time.Time{"sfo": testNow.Add(-time.Hour)}},
-		testBudget(0, 0), testNow)
-	if _, ok := memory.IdleSince["sfo"]; ok {
-		t.Fatalf("an unknown status kept the idle clock: %+v", memory)
-	}
-}
 
 func TestNearestPicksTheLowestRoundTrip(t *testing.T) {
 	t.Parallel()

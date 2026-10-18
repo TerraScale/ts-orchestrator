@@ -53,6 +53,119 @@ func TestSuggestSavesTheAddSuggestion(t *testing.T) {
 	if err != nil || !ok || saved != suggestion {
 		t.Fatalf("saved suggestion = %+v, %v, %v; want %+v", saved, ok, err, suggestion)
 	}
+
+	persist := func(t *testing.T, writer, reader *Store, want State, revision uint64) (State, uint64) {
+		t.Helper()
+		written, err := writer.Save(t.Context(), 1, want, revision)
+		if err != nil || written <= revision {
+			t.Fatalf("save revision = %d after %d, %v", written, revision, err)
+		}
+		loaded, found, err := reader.Load(t.Context())
+		if err != nil || found != written {
+			t.Fatalf("loaded revision = %d, %v; want %d", found, err, written)
+		}
+		if loaded.Suggestion != want.Suggestion {
+			t.Fatalf("loaded suggestion = %+v; want %+v", loaded.Suggestion, want.Suggestion)
+		}
+		for _, clocks := range []struct {
+			name      string
+			got, want map[string]time.Time
+		}{
+			{name: "saturation", got: loaded.Memory.SaturatedSince, want: want.Memory.SaturatedSince},
+			{name: "idle", got: loaded.Memory.IdleSince, want: want.Memory.IdleSince},
+		} {
+			if len(clocks.got) != len(clocks.want) {
+				t.Fatalf("loaded %s clocks = %v; want %v", clocks.name, clocks.got, clocks.want)
+			}
+			for cell, wantAt := range clocks.want {
+				if gotAt, ok := clocks.got[cell]; !ok || !gotAt.Equal(wantAt) {
+					t.Fatalf("loaded %s clock for %s = %v, present=%v; want %v", clocks.name, cell, gotAt, ok, wantAt)
+				}
+			}
+		}
+		return loaded, found
+	}
+
+	t.Run("retainedSaturationClockAcrossStore", func(t *testing.T) {
+		js := newTestJetStream(t)
+		writer, err := OpenStore(t.Context(), js, 1, fencer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader, err := OpenStore(t.Context(), js, 1, fencer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		saturated := testRegions(statusSaturated(), statusBusy(), statusBusy())
+		suggestion, memory := Suggest(saturated, lhrOnly, Memory{}, testBudget(testHeadroom, testPrice), testNow)
+		state, revision := persist(t, writer, reader, State{Memory: memory, Suggestion: suggestion}, 0)
+		if state.Suggestion.Action != ActionNone || !state.Memory.SaturatedSince["gru"].Equal(testNow) {
+			t.Fatalf("first saturated round = %+v, %+v", state.Suggestion, state.Memory)
+		}
+		suggestion, memory = Suggest(saturated, lhrOnly, state.Memory, testBudget(testHeadroom, testPrice), testNow.Add(SaturatedFor))
+		state, revision = persist(t, writer, reader, State{Memory: memory, Suggestion: suggestion}, revision)
+		if state.Suggestion.Action != ActionAdd || state.Suggestion.Cell != "lhr" {
+			t.Fatalf("saturated for an hour = %+v", state.Suggestion)
+		}
+		calm := testRegions(statusBusy(), statusBusy(), statusBusy())
+		suggestion, memory = Suggest(calm, lhrOnly, state.Memory, testBudget(testHeadroom, testPrice), testNow.Add(2*SaturatedFor))
+		state, _ = persist(t, writer, reader, State{Memory: memory, Suggestion: suggestion}, revision)
+		if _, ok := state.Memory.SaturatedSince["gru"]; ok {
+			t.Fatalf("a region that stopped wanting nodes kept its clock: %+v", state.Memory)
+		}
+	})
+
+	t.Run("retainedIdleClockAcrossStore", func(t *testing.T) {
+		js := newTestJetStream(t)
+		writer, err := OpenStore(t.Context(), js, 1, fencer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader, err := OpenStore(t.Context(), js, 1, fencer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		regions := testRegions(statusBusy(), statusBusy(), statusIdle())
+		suggestion, memory := Suggest(regions, nil, Memory{}, testBudget(0, 0), testNow)
+		state, revision := persist(t, writer, reader, State{Memory: memory, Suggestion: suggestion}, 0)
+		if state.Suggestion.Action != ActionNone {
+			t.Fatalf("first idle round = %+v", state.Suggestion)
+		}
+		suggestion, memory = Suggest(regions, nil, state.Memory, testBudget(0, 0), testNow.Add(IdleFor-time.Minute))
+		state, revision = persist(t, writer, reader, State{Memory: memory, Suggestion: suggestion}, revision)
+		if state.Suggestion.Action != ActionNone {
+			t.Fatalf("idle one minute short of IdleFor = %+v", state.Suggestion)
+		}
+		suggestion, memory = Suggest(regions, nil, state.Memory, testBudget(0, 0), testNow.Add(IdleFor))
+		state, _ = persist(t, writer, reader, State{Memory: memory, Suggestion: suggestion}, revision)
+		if state.Suggestion.Action != ActionRemove || state.Suggestion.Cell != "sfo" || state.Suggestion.OCIRegion != "us-sanjose-1" {
+			t.Fatalf("idle for IdleFor = %+v", state.Suggestion)
+		}
+	})
+
+	t.Run("retainedUnknownStatusClearsStoredIdleClock", func(t *testing.T) {
+		js := newTestJetStream(t)
+		writer, err := OpenStore(t.Context(), js, 1, fencer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader, err := OpenStore(t.Context(), js, 1, fencer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		state, revision := persist(t, writer, reader, State{
+			Memory: Memory{IdleSince: map[string]time.Time{"sfo": testNow.Add(-time.Hour)}},
+		}, 0)
+		if at, ok := state.Memory.IdleSince["sfo"]; !ok || !at.Equal(testNow.Add(-time.Hour)) {
+			t.Fatalf("initial idle clock = %v, present=%v", at, ok)
+		}
+		regions := testRegions(statusBusy(), statusBusy(), nil)
+		suggestion, memory := Suggest(regions, nil, state.Memory, testBudget(0, 0), testNow)
+		state, _ = persist(t, writer, reader, State{Memory: memory, Suggestion: suggestion}, revision)
+		if _, ok := state.Memory.IdleSince["sfo"]; ok {
+			t.Fatalf("an unknown status kept the idle clock: %+v", state.Memory)
+		}
+	})
 }
 
 func TestCandidatesAreTheCatalogRegionsThatServeNothing(t *testing.T) {
