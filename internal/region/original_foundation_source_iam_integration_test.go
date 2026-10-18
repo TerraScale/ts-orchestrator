@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net"
 	"net/http"
@@ -189,10 +190,10 @@ func (f *originalSourceIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http.R
 		return
 	}
 	if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/o/"+foundationObjectPrefix+"GRU.json") {
-		body, _, err := originalNetworkBody(r)
-		wire, marshalErr := json.Marshal(body)
+		wire, err := io.ReadAll(io.LimitReader(r.Body, foundationJournalLimit+1))
+		r.Body = io.NopCloser(bytes.NewReader(wire))
 		var next FoundationRecord
-		if err != nil || marshalErr != nil || json.Unmarshal(wire, &next) != nil {
+		if err != nil || json.Unmarshal(wire, &next) != nil {
 			f.cloud.test.Error("invalid source IAM checkpoint")
 			originalCompartmentFailure(w, 400, "InvalidParameter")
 			return
