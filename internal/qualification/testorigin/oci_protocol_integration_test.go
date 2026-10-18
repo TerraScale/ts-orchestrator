@@ -452,7 +452,7 @@ func (world *ociWorld) serveManagedSecrets(w http.ResponseWriter, request *http.
 		}
 		decoded, err := base64.StdEncoding.Strict().DecodeString(*content.Content)
 		defer clear(decoded)
-		if err != nil || len(decoded) == 0 || len(decoded) > bootstrap.MaxSecretBytes {
+		if err != nil || len(decoded) == 0 || int64(len(decoded)) > bootstrap.MaxSecretBytes {
 			world.reject(w, 400)
 			return
 		}
