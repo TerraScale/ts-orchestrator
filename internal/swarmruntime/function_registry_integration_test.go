@@ -14,12 +14,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/functionmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/nats-io/nats.go/jetstream"
+	"google.golang.org/grpc"
 )
 
 type functionRegistryRollbackExecutor struct{ functionSlotExecutor }
@@ -29,6 +33,20 @@ func (functionRegistryRollbackExecutor) Controller(task *api.Task) (exec.Control
 		return nil, err
 	}
 	return &serviceController{fail: task.ServiceAnnotations.Labels[labelReleaseSequence] == "102", done: make(chan struct{})}, nil
+}
+
+// Keep the real manager response pending across an actual authority guard.
+type functionRegistryGuardClient struct {
+	api.ControlClient
+	afterNode func(context.Context) error
+}
+
+func (client *functionRegistryGuardClient) GetNode(ctx context.Context, request *api.GetNodeRequest, options ...grpc.CallOption) (*api.GetNodeResponse, error) {
+	response, err := client.ControlClient.GetNode(ctx, request, options...)
+	if err == nil && client.afterNode != nil {
+		err = client.afterNode(ctx)
+	}
+	return response, err
 }
 
 func TestFunctionRegistryManagerIntegration(t *testing.T) {
@@ -87,12 +105,15 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 		t.Helper()
 		selected := claim
 		selected.Sequence = sequence
+		if sequence > 1 {
+			selected.Revision = "second"
+		}
 		signed, err := release.SignFunctionClaim(selected, module, functionDelegation, roots, signer, now, 30*time.Minute)
 		if err != nil {
 			t.Fatal(err)
 		}
 		wire, _ := trust.EncodeEnvelope(signed)
-		proof, err := release.VerifyFunctionCurrent(wire, functionDelegationWire, module, roots, release.FunctionExpectation{Environment: claim.Environment, Cell: claim.Cell, TenantID: claim.TenantID, FunctionID: claim.FunctionID, Revision: claim.Revision, Digest: claim.Digest, MinimumSequence: sequence}, now)
+		proof, err := release.VerifyFunctionCurrent(wire, functionDelegationWire, module, roots, release.FunctionExpectation{Environment: claim.Environment, Cell: claim.Cell, TenantID: claim.TenantID, FunctionID: claim.FunctionID, Revision: selected.Revision, Digest: claim.Digest, MinimumSequence: sequence}, now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -207,6 +228,82 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	if err := admission.VerifyCurrent(ctx); err != nil {
 		t.Fatal("unchanged actual manager state rejected a fresh registry receipt: ", err)
 	}
+	t.Run("durable intent changes during final authority wait", func(t *testing.T) {
+		js, _ := effectSessionR3(t)
+		control, err := authority.Start(ctx, js, authority.Config{Scope: "gru", DeploymentID: entityid.New(), CandidateID: entityid.New(), Replicas: 3})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = control.Close() })
+		epoch := control.Current().Epoch
+		sequence, err := control.CommitFunctionIntent(ctx, epoch, entityid.New(), 0, current.proof)
+		if err != nil {
+			t.Fatal(err)
+		}
+		artifacts, err := js.CreateObjectStore(ctx, jetstream.ObjectStoreConfig{Bucket: "FUNCTION_REGISTRY_INTENT", Replicas: 3, Storage: jetstream.FileStorage})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := artifacts.PutBytes(ctx, "sha256-"+claim.Digest, module); err != nil {
+			t.Fatal(err)
+		}
+		source := functionmaterial.Reader{Authority: control, Artifacts: artifacts, Roots: func() trust.Keyring { return roots }}
+		guarded := &functionRegistryGuardClient{ControlClient: client}
+		receipt, err := AdmitFunctionRegistryTask(ctx, guarded, task, intent, source, worker)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := receipt.VerifyCurrent(ctx); err != nil {
+			t.Fatal("unchanged durable function intent rejected a fresh receipt: ", err)
+		}
+		checkCtx, cancelCheck := context.WithCancel(ctx)
+		defer cancelCheck()
+		waiting, resume := make(chan struct{}), make(chan struct{})
+		guarded.afterNode = func(ctx context.Context) error {
+			if err := control.Guard(ctx, epoch); err != nil {
+				return err
+			}
+			close(waiting)
+			select {
+			case <-resume:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		checked := make(chan error, 1)
+		go func() { checked <- receipt.VerifyCurrent(checkCtx) }()
+		select {
+		case <-waiting:
+		case err := <-checked:
+			t.Fatal("registry recheck did not reach its authority wait: ", err)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		if _, err := control.CommitFunctionIntent(ctx, epoch, entityid.New(), sequence, functionProof(2)); err != nil {
+			t.Fatal(err)
+		}
+		if !current.proof.Valid() || control.Current().Epoch != epoch {
+			t.Fatal("durable revision change expired the old proof or changed the authority epoch")
+		}
+		// Release the existing wait without changing any manager object.
+		close(resume)
+		select {
+		case err := <-checked:
+			if err == nil || !strings.Contains(err.Error(), "function registry authority changed during admission") {
+				t.Fatal("registry receipt did not reject the changed durable function authority: ", err)
+			}
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		actualService, serviceErr := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
+		actualTask, taskErr := client.GetTask(ctx, &api.GetTaskRequest{TaskID: task.ID})
+		actualNode, nodeErr := client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
+		if serviceErr != nil || taskErr != nil || nodeErr != nil || actualService == nil || actualTask == nil || actualNode == nil ||
+			!proto.Equal(actualService.Service, receipt.service) || !proto.Equal(actualTask.Task, receipt.task) || !proto.Equal(actualNode.Node, receipt.node) {
+			t.Fatalf("manager state changed during durable source regression: service=%v task=%v node=%v", serviceErr, taskErr, nodeErr)
+		}
+	})
 	actualService, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
 	if err != nil {
 		t.Fatal(err)

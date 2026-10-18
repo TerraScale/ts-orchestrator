@@ -1,6 +1,7 @@
 package swarmruntime
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/pem"
@@ -27,6 +28,7 @@ func VerifyFunctionRegistryTask(ctx context.Context, client api.ControlClient, t
 // against the current function and durable worker floor.
 type FunctionRegistryTaskAdmission struct {
 	client   api.ControlClient
+	current  CurrentFunctionIntent
 	task     *api.Task
 	service  *api.Service
 	node     *api.Node
@@ -91,7 +93,7 @@ func AdmitFunctionRegistryTask(ctx context.Context, client api.ControlClient, ta
 	if err := verifyFunctionRegistryRecipient(node.Node, intent); err != nil {
 		return nil, err
 	}
-	admission := &FunctionRegistryTaskAdmission{client: client, task: assignment.Task.Copy(), service: service.Service.Copy(), node: node.Node.Copy(), intent: intent, function: function, worker: worker}
+	admission := &FunctionRegistryTaskAdmission{client: client, current: current, task: assignment.Task.Copy(), service: service.Service.Copy(), node: node.Node.Copy(), intent: intent, function: function, worker: worker}
 	if previous || rollback {
 		if err := intent.verifyRetainedWorkerFloor(ctx, client, worker); err != nil {
 			return nil, err
@@ -99,23 +101,17 @@ func AdmitFunctionRegistryTask(ctx context.Context, client api.ControlClient, ta
 	} else if err := intent.VerifyWorkerFloor(ctx, client, worker); err != nil {
 		return nil, err
 	}
-	latest, err := current.CurrentFunction(ctx, intent.TenantID, intent.FunctionID)
-	if err != nil {
-		return nil, err
-	}
-	if !latest.Valid() || latest.EnvelopeSHA256() != function.EnvelopeSHA256() {
-		return nil, errors.New("function registry authority changed during assignment verification")
-	}
 	if err := admission.VerifyCurrent(ctx); err != nil {
 		return nil, err
 	}
 	return admission, nil
 }
 
-// VerifyCurrent rereads manager state without repeating source, floor or OCI
-// verification. Exact service equality preserves the admitted PreviousSpec path.
+// VerifyCurrent rereads manager state and current function authority without
+// repeating floor or OCI verification. Exact service equality preserves the
+// admitted PreviousSpec path.
 func (admission *FunctionRegistryTaskAdmission) VerifyCurrent(ctx context.Context) error {
-	if admission == nil || admission.client == nil || admission.task == nil || admission.service == nil || admission.node == nil {
+	if admission == nil || admission.client == nil || admission.current == nil || admission.task == nil || admission.service == nil || admission.node == nil {
 		return errors.New("function registry admission is unavailable")
 	}
 	service, err := admission.client.GetService(ctx, &api.GetServiceRequest{ServiceID: admission.service.ID})
@@ -141,6 +137,13 @@ func (admission *FunctionRegistryTaskAdmission) VerifyCurrent(ctx context.Contex
 	}
 	if err := verifyFunctionRegistryRecipient(node.Node, admission.intent); err != nil {
 		return err
+	}
+	latest, err := admission.current.CurrentFunction(ctx, admission.intent.TenantID, admission.intent.FunctionID)
+	if err != nil {
+		return err
+	}
+	if !latest.Valid() || latest.EnvelopeSHA256() != admission.function.EnvelopeSHA256() || !bytes.Equal(latest.Delegation(), admission.function.Delegation()) {
+		return errors.New("function registry authority changed during admission")
 	}
 	if !admission.function.Valid() || !admission.worker.Valid(time.Now().UTC()) {
 		return errors.New("function registry authority expired during admission")

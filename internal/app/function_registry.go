@@ -115,6 +115,9 @@ func (controller functionController) registryAdmission(ctx context.Context, regi
 	if err := rootTrustHeadCurrent(ctx, config.JS, config.Roots, chain.Head); err != nil {
 		return host.RegistryAdmissionDocument{}, err
 	}
+	if err := config.Authority.VerifyFunctionIntent(ctx, proof); err != nil {
+		return host.RegistryAdmissionDocument{}, err
+	}
 	if !proof.Valid() || !verified.Valid(time.Now().UTC()) || ctx.Err() != nil {
 		return host.RegistryAdmissionDocument{}, errors.New("function registry proof expired during final root verification")
 	}

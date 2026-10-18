@@ -79,6 +79,9 @@ func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, 
 	if err := rootTrustHeadCurrent(ctx, source.js, source.roots, source.rootHead); err != nil {
 		return release.VerifiedFunction{}, err
 	}
+	if err := source.authority.VerifyFunctionIntent(ctx, proof); err != nil {
+		return release.VerifiedFunction{}, err
+	}
 	state := source.authority.Current()
 	if !state.CanMutate() || state.Epoch != source.epoch {
 		return release.VerifiedFunction{}, authority.ErrFenced
