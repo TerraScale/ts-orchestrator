@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -52,16 +53,8 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 		t.Fatal(err)
 	}
 	proof := materialProof(t, roots, private, 1)
-	natsServer, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	go natsServer.Start()
-	if !natsServer.ReadyForConnections(5 * time.Second) {
-		t.Fatal("NATS did not start")
-	}
-	t.Cleanup(func() { natsServer.Shutdown(); natsServer.WaitForShutdown() })
-	conn, err := nats.Connect(natsServer.ClientURL())
+	brokers := materialBrokerCluster(t)
+	conn, err := nats.Connect(brokers[0].ClientURL())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +63,7 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	control, err := authority.Start(t.Context(), js, authority.Config{DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
+	control, err := authority.Start(t.Context(), js, authority.Config{DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +71,7 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 	if _, err := control.CommitFunctionIntent(t.Context(), control.Current().Epoch, entityid.New(), 0, proof); err != nil {
 		t.Fatal(err)
 	}
-	artifacts, err := js.CreateObjectStore(t.Context(), jetstream.ObjectStoreConfig{Bucket: "FUNCTION_INTEGRATION"})
+	artifacts, err := js.CreateObjectStore(t.Context(), jetstream.ObjectStoreConfig{Bucket: "FUNCTION_INTEGRATION", Replicas: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,9 +183,98 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 	if bytes.Equal(clone["broker.creds"], delivery.Files()["broker.creds"]) {
 		t.Fatal("mutable delivery files")
 	}
+	queueScope, err := functions.QueueIdentity(functions.Manifest{ABI: proof.Claim().ABI, TenantID: proof.Claim().TenantID, FunctionID: proof.Claim().FunctionID, Revision: proof.Claim().Revision, Digest: proof.Claim().Digest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipts, err := js.KeyValue(t.Context(), queueScope.ReceiptBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptDigest := bytes.Repeat([]byte{1}, 32)
+	receiptRevision, err := receipts.Create(t.Context(), "retained", receiptDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{queueScope.Stream, "KV_" + queueScope.ReceiptBucket} {
+		stream, err := js.Stream(t.Context(), name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config := stream.CachedInfo().Config
+		config.Replicas = 1
+		if _, err := js.UpdateStream(t.Context(), config); err != nil {
+			t.Fatal(err)
+		}
+	}
+	consumer, err := js.Consumer(t.Context(), queueScope.Stream, "worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumerConfig := consumer.CachedInfo().Config
+	consumerConfig.Replicas = 1
+	if _, err := js.UpdateConsumer(t.Context(), queueScope.Stream, consumerConfig); err != nil {
+		t.Fatal(err)
+	}
+	grantBefore, err := control.ReadFunctionGrant(t.Context(), binding.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLegacy := func() {
+		t.Helper()
+		for _, name := range []string{queueScope.Stream, "KV_" + queueScope.ReceiptBucket} {
+			stream, err := js.Stream(t.Context(), name)
+			if err != nil || stream.CachedInfo().Config.Replicas != 1 {
+				t.Fatalf("denied migration changed %s: %v", name, err)
+			}
+		}
+		consumer, err := js.Consumer(t.Context(), queueScope.Stream, "worker")
+		if err != nil || consumer.CachedInfo().Config.Replicas != 1 {
+			t.Fatalf("denied migration changed durable consumer: %v", err)
+		}
+	}
+	authorize := controller.AuthorizeRecipient
+	controller.AuthorizeRecipient = func(context.Context, Binding) error { return ErrMaterial }
+	if _, err := controller.Prepare(t.Context(), proof.Claim().TenantID, proof.Claim().FunctionID, binding); err == nil {
+		t.Fatal("unauthorized recipient migrated queue")
+	}
+	assertLegacy()
+	controller.AuthorizeRecipient = func(context.Context, Binding) error { return nil }
+	foreign := binding
+	foreign.NodeID = strings.Repeat("d", 25)
+	if _, err := controller.Prepare(t.Context(), proof.Claim().TenantID, proof.Claim().FunctionID, foreign); err == nil {
+		t.Fatal("mismatched grant binding migrated queue")
+	}
+	assertLegacy()
+	controller.AuthorizeRecipient = authorize
+	trustExpiry := controller.Reader.Trust.expiresAt
+	controller.Reader.Trust.expiresAt = now.Add(-time.Minute)
+	if _, err := controller.Prepare(t.Context(), proof.Claim().TenantID, proof.Claim().FunctionID, binding); err == nil {
+		t.Fatal("expired delivery trust migrated queue")
+	}
+	assertLegacy()
+	controller.Reader.Trust.expiresAt = trustExpiry
 	retried, err := controller.Prepare(t.Context(), proof.Claim().TenantID, proof.Claim().FunctionID, binding)
 	if err != nil || !bytes.Equal(retried.Files()["broker.creds"], delivery.Files()["broker.creds"]) {
 		t.Fatalf("immutable grant retry: %v", err)
+	}
+	for _, name := range []string{queueScope.Stream, "KV_" + queueScope.ReceiptBucket} {
+		stream, err := js.Stream(t.Context(), name)
+		if err != nil || stream.CachedInfo().Config.Replicas != 3 {
+			t.Fatalf("existing grant did not migrate %s to R3: %v", name, err)
+		}
+	}
+	consumer, err = js.Consumer(t.Context(), queueScope.Stream, "worker")
+	if err != nil || consumer.CachedInfo().Config.Replicas != 0 || consumer.CachedInfo().Config.MemoryStorage {
+		t.Fatalf("existing R1 durable consumer did not inherit R3 file storage: %v", err)
+	}
+	retained, err := receipts.Get(t.Context(), "retained")
+	if err != nil || retained.Revision() != receiptRevision || !bytes.Equal(retained.Value(), receiptDigest) {
+		t.Fatalf("migration changed retained receipt: %v", err)
+	}
+	grantAfter, err := control.ReadFunctionGrant(t.Context(), binding.TaskID)
+	if err != nil || grantBefore.Sequence != grantAfter.Sequence || !bytes.Equal(grantBefore.Payload, grantAfter.Payload) {
+		t.Fatalf("queue migration changed immutable grant: %v", err)
 	}
 	other := binding
 	other.NodeID = strings.Repeat("d", 25)
@@ -393,5 +475,50 @@ func verifyMaterialTLSConnection(t *testing.T, files map[string][]byte, proof re
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatal("function TLS endpoint unavailable")
+	}
+}
+
+func materialBrokerCluster(t *testing.T) []*server.Server {
+	t.Helper()
+	var brokers []*server.Server
+	for index := range 3 {
+		routeAddress := "nats-route://127.0.0.1:1"
+		if index != 0 {
+			routeAddress = "nats-route://" + brokers[0].ClusterAddr().String()
+		}
+		route, err := url.Parse(routeAddress)
+		if err != nil {
+			t.Fatal(err)
+		}
+		broker, err := server.NewServer(&server.Options{ServerName: fmt.Sprintf("material-r3-%d", index), Host: "127.0.0.1", Port: -1,
+			JetStream: true, StoreDir: t.TempDir(), Cluster: server.ClusterOpts{Name: "material-r3", Host: "127.0.0.1", Port: -1}, Routes: []*url.URL{route}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		go broker.Start()
+		if !broker.ReadyForConnections(5 * time.Second) {
+			t.Fatal("material R3 broker did not start")
+		}
+		brokers = append(brokers, broker)
+		t.Cleanup(func() { broker.Shutdown(); broker.WaitForShutdown() })
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	for {
+		ready := false
+		for _, broker := range brokers {
+			ready = ready || (broker.JetStreamIsLeader() && len(broker.JetStreamClusterPeers()) == 3)
+		}
+		for _, broker := range brokers {
+			ready = ready && broker.JetStreamIsCurrent()
+		}
+		if ready {
+			return brokers
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("material R3 metadata unavailable: ", ctx.Err())
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 }

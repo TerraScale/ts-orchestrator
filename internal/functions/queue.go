@@ -68,12 +68,12 @@ func provisionQueue(ctx context.Context, nc *nats.Conn, manifest Manifest) error
 		return err
 	}
 	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{Name: scope.Stream, Subjects: []string{scope.Subject},
-		Storage: jetstream.FileStorage, Retention: jetstream.WorkQueuePolicy, Discard: jetstream.DiscardNew,
+		Storage: jetstream.FileStorage, Replicas: 3, Retention: jetstream.WorkQueuePolicy, Discard: jetstream.DiscardNew,
 		MaxAge: time.Hour, MaxMsgs: 10000, MaxBytes: 64 << 20, MaxMsgSize: MaxPayloadBytes + 8192, Duplicates: 2 * time.Minute})
 	if err != nil {
 		return fmt.Errorf("function queue: %w", err)
 	}
-	_, err = js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: scope.ReceiptBucket, Storage: jetstream.FileStorage, History: 1, TTL: 24 * time.Hour, MaxBytes: 64 << 20, MaxValueSize: 512})
+	_, err = js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: scope.ReceiptBucket, Storage: jetstream.FileStorage, Replicas: 3, History: 1, TTL: 24 * time.Hour, MaxBytes: 64 << 20, MaxValueSize: 512})
 	if err != nil {
 		return fmt.Errorf("function receipts: %w", err)
 	}
@@ -104,7 +104,7 @@ func NewQueueWorker(ctx context.Context, nc *nats.Conn, worker Invoker) (*QueueW
 		return nil, fmt.Errorf("bind function queue: %w", err)
 	}
 	config := stream.CachedInfo().Config
-	if len(config.Subjects) != 1 || config.Subjects[0] != scope.Subject || config.Storage != jetstream.FileStorage || config.Retention != jetstream.WorkQueuePolicy || config.Discard != jetstream.DiscardNew || config.MaxAge != time.Hour || config.MaxMsgs != 10000 || config.MaxBytes != 64<<20 || config.MaxMsgSize != MaxPayloadBytes+8192 {
+	if len(config.Subjects) != 1 || config.Subjects[0] != scope.Subject || config.Storage != jetstream.FileStorage || config.Replicas != 3 || config.Retention != jetstream.WorkQueuePolicy || config.Discard != jetstream.DiscardNew || config.MaxAge != time.Hour || config.MaxMsgs != 10000 || config.MaxBytes != 64<<20 || config.MaxMsgSize != MaxPayloadBytes+8192 {
 		return nil, fmt.Errorf("%w: function stream policy", ErrScope)
 	}
 	consumer, err := stream.Consumer(ctx, "worker")
@@ -112,7 +112,7 @@ func NewQueueWorker(ctx context.Context, nc *nats.Conn, worker Invoker) (*QueueW
 		return nil, fmt.Errorf("bind function consumer: %w", err)
 	}
 	cc := consumer.CachedInfo().Config
-	if cc.Durable != "worker" || cc.FilterSubject != scope.Subject || cc.AckPolicy != jetstream.AckExplicitPolicy || cc.AckWait != 30*time.Second || cc.MaxAckPending != 1 || cc.MaxRequestBatch != 1 || cc.MaxWaiting != 32 || cc.MaxDeliver != -1 || cc.MaxRequestExpires != time.Second {
+	if cc.Durable != "worker" || cc.MemoryStorage || (cc.Replicas != 0 && cc.Replicas != 3) || cc.FilterSubject != scope.Subject || cc.AckPolicy != jetstream.AckExplicitPolicy || cc.AckWait != 30*time.Second || cc.MaxAckPending != 1 || cc.MaxRequestBatch != 1 || cc.MaxWaiting != 32 || cc.MaxDeliver != -1 || cc.MaxRequestExpires != time.Second {
 		return nil, fmt.Errorf("%w: function consumer policy", ErrScope)
 	}
 	receipts, err := js.KeyValue(ctx, scope.ReceiptBucket)
@@ -124,7 +124,7 @@ func NewQueueWorker(ctx context.Context, nc *nats.Conn, worker Invoker) (*QueueW
 		return nil, err
 	}
 	rc := receiptStream.CachedInfo().Config
-	if !rc.AllowDirect || rc.Storage != jetstream.FileStorage || rc.MaxBytes != 64<<20 || rc.MaxMsgSize != 512 || rc.MaxAge != 24*time.Hour || rc.MaxMsgsPerSubject != 1 || len(rc.Subjects) != 1 || rc.Subjects[0] != "$KV."+scope.ReceiptBucket+".>" {
+	if !rc.AllowDirect || rc.Storage != jetstream.FileStorage || rc.Replicas != 3 || rc.MaxBytes != 64<<20 || rc.MaxMsgSize != 512 || rc.MaxAge != 24*time.Hour || rc.MaxMsgsPerSubject != 1 || len(rc.Subjects) != 1 || rc.Subjects[0] != "$KV."+scope.ReceiptBucket+".>" {
 		return nil, fmt.Errorf("%w: function receipt policy", ErrScope)
 	}
 	return &QueueWorker{worker: worker, manifest: manifest, subject: scope.Subject, consumer: consumer, receipts: receipts}, nil

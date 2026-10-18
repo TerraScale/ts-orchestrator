@@ -63,16 +63,28 @@ func (controller Controller) Prepare(ctx context.Context, tenant, function strin
 	if err != nil {
 		return VerifiedDelivery{}, err
 	}
+	epoch := controller.Authority.Current().Epoch
 	if entry, err := controller.Authority.ReadFunctionGrant(ctx, binding.TaskID); err == nil {
 		grant, err := authority.DecodeFunctionGrant(entry)
 		if err != nil || grant.TenantID != tenant || grant.FunctionID != function || grant.EnvelopeSHA256 != proof.EnvelopeSHA256() {
 			return VerifiedDelivery{}, ErrMaterial
 		}
+		if _, err := reader.Current(ctx, binding); err != nil {
+			return VerifiedDelivery{}, err
+		}
+		if err := controller.recheck(ctx, reader, proof, sequence, account, binding, epoch); err != nil {
+			return VerifiedDelivery{}, err
+		}
+		if err := controller.Authority.Guard(ctx, epoch); err != nil {
+			return VerifiedDelivery{}, err
+		}
+		if err := functions.ProvisionQueue(ctx, controller.Conn, proof); err != nil {
+			return VerifiedDelivery{}, err
+		}
 		return reader.Current(ctx, binding)
 	} else if !errors.Is(err, authority.ErrNotFound) {
 		return VerifiedDelivery{}, err
 	}
-	epoch := controller.Authority.Current().Epoch
 	guard := func() error { return controller.Authority.Guard(ctx, epoch) }
 	if err := guard(); err != nil {
 		return VerifiedDelivery{}, err

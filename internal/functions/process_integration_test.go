@@ -51,20 +51,13 @@ func TestFunctionWorkerProcess(t *testing.T) {
 	ca, serverCertificate, clientCertificate, wrongCertificate := processCertificates(t, "spiffe://terrascale.tech/tenants/"+deployment.TenantID+"/functions/"+deployment.FunctionID,
 		deployment.FunctionID+"."+strings.ToLower(deployment.TenantID)+".functions."+strings.ToLower(deployment.Cell)+".terrascale.internal")
 	credentials, workerCredentials, operatorID, systemID, resolver := processBrokerCredentials(t, admitted)
-	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir(),
+	brokers := functionBrokerCluster(t, &server.Options{
 		TLSConfig:   &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{serverCertificate}},
 		TrustedKeys: []string{operatorID}, SystemAccount: systemID, AccountResolver: resolver,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	go srv.Start()
-	if !srv.ReadyForConnections(5 * time.Second) {
-		t.Fatal("broker startup failed")
-	}
-	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
-	deployment.BrokerURL = strings.Replace(srv.ClientURL(), "nats://", "tls://", 1)
-	files["deployment.json"], err = json.Marshal(deployment)
+	deployment.BrokerURL = strings.Replace(brokers[0].ClientURL(), "nats://", "tls://", 1)
+	deploymentWire, err := json.Marshal(deployment)
+	files["deployment.json"] = deploymentWire
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +392,7 @@ func processBrokerCredentials(t *testing.T, admitted release.VerifiedFunction) (
 		}
 		claim := jwt.NewAccountClaims(id)
 		if js {
-			claim.Limits.JetStreamLimits = jwt.JetStreamLimits{MemoryStorage: 64 << 20, DiskStorage: 256 << 20, Streams: 4, Consumer: 4}
+			claim.Limits.JetStreamLimits = jwt.JetStreamLimits{MemoryStorage: 64 << 20, DiskStorage: 512 << 20, Streams: 4, Consumer: 4}
 		}
 		encoded, err := claim.Encode(operator)
 		if err != nil {

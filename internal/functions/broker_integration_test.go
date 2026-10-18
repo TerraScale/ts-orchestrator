@@ -121,7 +121,20 @@ func TestWorkerBrokerJWTAndTLSIsolation(t *testing.T) {
 		"$JS.ACK." + otherScope.Stream + ".worker.1.1.1.1.0",
 		"$JS.ACK." + scope.Stream + ".other.1.1.1.1.0",
 	} {
-		t.Run(subject, func(t *testing.T) {
+		name := subject
+		switch subject {
+		case otherScope.Subject:
+			name = "other_tenant_publication"
+		case "$JS.API.STREAM.INFO." + otherScope.Stream:
+			name = "other_tenant_stream_info"
+		case "$KV." + otherScope.ReceiptBucket + ".broker-1":
+			name = "other_tenant_receipt_write"
+		case "$JS.API.DIRECT.GET.KV_" + otherScope.ReceiptBucket + ".$KV." + otherScope.ReceiptBucket + ".broker-1":
+			name = "other_tenant_receipt_read"
+		case "$JS.ACK." + otherScope.Stream + ".worker.1.1.1.1.0":
+			name = "other_tenant_acknowledgment"
+		}
+		t.Run(name, func(t *testing.T) {
 			if err := nc.Publish(subject, []byte(`{"subjects":["ts.controller.>"]}`)); err != nil {
 				t.Fatal(err)
 			}
@@ -308,7 +321,7 @@ func workerBrokerFixture(t *testing.T) (*jwt.AccountClaims, nkeys.KeyPair, strin
 	}
 	account := jwt.NewAccountClaims(accountID)
 	account.SigningKeys.Add(signerID)
-	account.Limits.JetStreamLimits = jwt.JetStreamLimits{MemoryStorage: 64 << 20, DiskStorage: 256 << 20, Streams: 20, Consumer: 20}
+	account.Limits.JetStreamLimits = jwt.JetStreamLimits{MemoryStorage: 64 << 20, DiskStorage: 512 << 20, Streams: 20, Consumer: 20}
 	accountJWT, err := account.Encode(operator)
 	if err != nil {
 		t.Fatal(err)
@@ -325,16 +338,8 @@ func workerBrokerFixture(t *testing.T) (*jwt.AccountClaims, nkeys.KeyPair, strin
 		t.Fatal(err)
 	}
 	serverTLS, clientTLS := workerBrokerTLS(t)
-	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir(),
-		TLSConfig: serverTLS, TrustedOperators: []*jwt.OperatorClaims{operatorClaim}, AccountResolver: resolver, SystemAccount: systemID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	go srv.Start()
-	if !srv.ReadyForConnections(5 * time.Second) {
-		t.Fatal("JWT TLS broker did not start")
-	}
-	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
+	brokers := functionBrokerCluster(t, &server.Options{TLSConfig: serverTLS,
+		TrustedOperators: []*jwt.OperatorClaims{operatorClaim}, AccountResolver: resolver, SystemAccount: systemID})
 	connect := func(creds []byte, inbox string) (*nats.Conn, <-chan error) {
 		t.Helper()
 		violations := make(chan error, 64)
@@ -343,7 +348,7 @@ func workerBrokerFixture(t *testing.T) (*jwt.AccountClaims, nkeys.KeyPair, strin
 		if inbox != "" {
 			opts = append(opts, nats.CustomInboxPrefix(inbox))
 		}
-		nc, err := nats.Connect(srv.ClientURL(), opts...)
+		nc, err := nats.Connect(brokers[0].ClientURL(), opts...)
 		if err != nil {
 			t.Fatal(err)
 		}
