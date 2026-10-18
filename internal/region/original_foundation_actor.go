@@ -185,6 +185,11 @@ func originalActorScope(record FoundationRecord, index int, startup bootstrap.St
 	if index < 0 || index >= 3 || originalActorPrerequisiteRecord(record) != nil {
 		return scope, ErrOriginalSourceProducerHold
 	}
+	return originalActorScopeFromPrerequisites(record, index, startup, config)
+}
+
+func originalActorScopeFromPrerequisites(record FoundationRecord, index int, startup bootstrap.StartupTemplate, config bootstrapmaterial.Config) (OriginalFoundationActorLaunch, error) {
+	var scope OriginalFoundationActorLaunch
 	region := record.OriginalFoundationCompartments.Regions[index]
 	q := (*record.OriginalSourceProducers)[index].Intent
 	startupDigest, err := ControllerBootstrapRecipeDigest(startup)
@@ -824,7 +829,7 @@ func (record FoundationRecord) validateOriginalFoundationActors() error {
 	for index, region := range root.Regions {
 		actor := region.Actor
 		q := (*record.OriginalSourceProducers)[index].Intent
-		expected, err := originalActorScope(record, index, actor.Startup, actor.Config)
+		expected, err := originalActorScopeFromPrerequisites(record, index, actor.Startup, actor.Config)
 		if err != nil || !sameOriginalSourceValue(actor.scopeOnly(), expected) {
 			return errors.Join(ErrOriginalSourceProducerHold, err)
 		}

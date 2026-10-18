@@ -107,6 +107,11 @@ func originalSourceIAMScope(record FoundationRecord, index int) (OriginalFoundat
 	if index < 0 || index >= 3 || record.OriginalSourceProducers == nil || completeOriginalSourceIAMActors(record) != nil {
 		return scope, ErrOriginalSourceProducerHold
 	}
+	return originalSourceIAMScopeFromActors(record, index)
+}
+
+func originalSourceIAMScopeFromActors(record FoundationRecord, index int) (OriginalFoundationSourceIAM, error) {
+	var scope OriginalFoundationSourceIAM
 	root := record.OriginalFoundationCompartments
 	region, birth := root.Regions[index], (*record.OriginalSourceProducers)[index]
 	q := birth.Intent
@@ -372,13 +377,21 @@ func (record FoundationRecord) validateOriginalFoundationSourceIAM() error {
 	if root == nil {
 		return nil
 	}
+	for _, region := range root.Regions {
+		if region.SourceIAM != nil {
+			if err := completeOriginalSourceIAMActors(record); err != nil {
+				return errors.Join(ErrOriginalSourceProducerHold, err)
+			}
+			break
+		}
+	}
 	seen := map[string]bool{}
 	for index, region := range root.Regions {
 		entry := region.SourceIAM
 		if entry == nil {
 			continue
 		}
-		expected, err := originalSourceIAMScope(record, index)
+		expected, err := originalSourceIAMScopeFromActors(record, index)
 		if err != nil || !sameOriginalSourceValue(entry.scopeOnly(), expected) || entry.Pending == nil {
 			return errors.Join(ErrOriginalSourceProducerHold, err)
 		}
