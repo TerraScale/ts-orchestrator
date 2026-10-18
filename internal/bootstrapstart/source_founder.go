@@ -192,7 +192,16 @@ func (proof VerifiedSourceFounder) observe(ctx context.Context) (InstanceObserva
 }
 
 func (proof VerifiedSourceFounder) verifyPrincipal(instance string) error {
-	provider := proof.factory.Provider()
+	return VerifyInstancePrincipal(proof.factory, instance, proof.tenancy)
+}
+
+// VerifyInstancePrincipal checks local token claims only. The caller must then
+// authenticate this provider through OCI before accepting any remote evidence.
+func VerifyInstancePrincipal(factory *ociclient.Factory, instance, tenancy string) error {
+	if factory == nil || !instanceIDRE.MatchString(instance) || tenancy == "" {
+		return ErrSourceFounder
+	}
+	provider := factory.Provider()
 	// The SDK reports an unsupported-method error with its valid auth kind.
 	kind, _ := provider.AuthType()
 	if kind.AuthType != common.InstancePrincipal {
@@ -218,7 +227,7 @@ func (proof VerifiedSourceFounder) verifyPrincipal(instance string) error {
 		Expiry   int64  `json:"exp"`
 	}
 	// OCI authenticates this same SDK token on the independent observation.
-	if json.Unmarshal(payload, &claims) != nil || claims.Subject != instance || claims.Instance != instance || claims.Type != "instance" || claims.Tenancy != proof.tenancy || time.Now().Unix() >= claims.Expiry {
+	if json.Unmarshal(payload, &claims) != nil || claims.Subject != instance || claims.Instance != instance || claims.Type != "instance" || claims.Tenancy != tenancy || time.Now().Unix() >= claims.Expiry {
 		return ErrSourceFounder
 	}
 	return nil

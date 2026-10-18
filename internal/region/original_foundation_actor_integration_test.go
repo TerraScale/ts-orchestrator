@@ -170,7 +170,7 @@ func (f *originalActorSDKFixture) expectedBody(record FoundationRecord, index in
 	return map[string]any{
 		"availabilityDomain": profile.AvailabilityDomain, "faultDomain": profile.FaultDomain,
 		"compartmentId": originalCompartmentID(region.Compartments[0]), "displayName": strings.ToLower(region.Cell) + "-1-controller-a", "shape": profile.Shape,
-		"metadata":    map[string]any{"terrascale-bootstrap": `{"schemaVersion":1,"slot":"controller-a"}`},
+		"metadata":    map[string]any{"terrascale-bootstrap": fmt.Sprintf(`{"schemaVersion":1,"slot":"controller-a","originalBundleSha256":%q}`, record.OriginalFoundationCompartments.BundleSHA256)},
 		"definedTags": map[string]any{}, "securityAttributes": map[string]any{}, "extendedMetadata": map[string]any{}, "freeformTags": map[string]any{},
 		"launchVolumeAttachments": []any{}, "licensingConfigs": []any{},
 		"shapeConfig":   map[string]any{"ocpus": float64(geometry.WholeOCPUs), "memoryInGBs": float64(geometry.MemoryInGB)},

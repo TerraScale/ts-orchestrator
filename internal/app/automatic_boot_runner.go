@@ -38,6 +38,9 @@ func RunAutomaticBootstrap(ctx context.Context, args []string) error {
 	if err := controllerClockCheck(controllerBrokerClockProbe())(); err != nil {
 		return fmt.Errorf("automatic controller startup NTP clock health: %w", err)
 	}
+	if err := region.DeliverOriginalFoundationPublic(ctx); err != nil {
+		return fmt.Errorf("deliver original public foundation bundle: %w", err)
+	}
 	if err := bootstrapstart.InstallLaunchMaterial(ctx, bootstrapstart.NewIMDSClient(), time.Now().UTC()); errors.Is(err, bootstrapstart.ErrNotController) {
 		return setupRuntimeWorker(ctx, os.Stdout)
 	} else if err != nil {

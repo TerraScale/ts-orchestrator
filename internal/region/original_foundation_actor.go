@@ -245,7 +245,7 @@ func originalActorScope(record FoundationRecord, index int, startup bootstrap.St
 	scope.Config.Slots = slices.Clone(config.Slots)
 	scope.ControlCompartmentID, scope.NetworkProofSHA256, scope.VaultProofSHA256 = control, digestSource(networkWire), digestSource(vaultWire)
 	scope.Request = core.LaunchInstanceDetails{
-		AvailabilityDomain: new(profile.AvailabilityDomain), CompartmentId: new(control), FaultDomain: new(profile.FaultDomain), DisplayName: new(strings.ToLower(region.Cell) + "-1-" + startup.SeedSlot), Shape: new(profile.Shape), Metadata: foundationWriterMetadata(startup.SeedSlot),
+		AvailabilityDomain: new(profile.AvailabilityDomain), CompartmentId: new(control), FaultDomain: new(profile.FaultDomain), DisplayName: new(strings.ToLower(region.Cell) + "-1-" + startup.SeedSlot), Shape: new(profile.Shape), Metadata: map[string]string{"terrascale-bootstrap": fmt.Sprintf(`{"schemaVersion":1,"slot":%q,"originalBundleSha256":%q}`, startup.SeedSlot, record.OriginalFoundationCompartments.BundleSHA256)},
 		LaunchVolumeAttachments: []core.LaunchAttachVolumeDetails{}, LicensingConfigs: []core.LaunchInstanceLicensingConfig{}, DefinedTags: map[string]map[string]any{}, SecurityAttributes: map[string]map[string]any{}, ExtendedMetadata: map[string]any{}, FreeformTags: map[string]string{},
 		ShapeConfig:       &core.LaunchInstanceShapeConfigDetails{Ocpus: new(float32(resources.WholeOCPUs)), MemoryInGBs: new(float32(resources.MemoryInGB))},
 		SourceDetails:     core.InstanceSourceViaImageDetails{ImageId: new(startup.ImageOCID), BootVolumeSizeInGBs: new(int64(resources.BootVolumeGB)), BootVolumeVpusPerGB: new(int64(10))},
