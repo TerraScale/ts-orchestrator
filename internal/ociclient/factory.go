@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -106,10 +107,18 @@ type Factory struct {
 	limits   map[Service]Limit
 	policy   common.RetryPolicy
 
-	mu       sync.Mutex
-	limiters map[Service]*rate.Limiter
-	origin   *Factory
-	regions  map[string]*Factory
+	mu           sync.Mutex
+	limiters     map[Service]*rate.Limiter
+	origin       *Factory
+	regions      map[string]*Factory
+	transport    *common.OciHTTPTransportWrapper
+	transportKey sdkTransportKey
+}
+
+type sdkTransportKey struct {
+	template *http.Transport
+	tlsPaths [3]string
+	refresh  time.Duration
 }
 
 // New builds a factory over an existing configuration provider. Region must be
@@ -330,6 +339,26 @@ func (f *Factory) Configure(client *common.BaseClient, service Service) {
 	ConfigureReadCancellation(client)
 }
 
+// configureSDK shares only constructor-issued transports, before request wrappers.
+func (f *Factory) configureSDK(client *common.BaseClient, service Service) {
+	if dispatcher, ok := client.HTTPClient.(*http.Client); ok {
+		if transport, ok := dispatcher.Transport.(*common.OciHTTPTransportWrapper); ok {
+			if template, ok := http.DefaultTransport.(*http.Transport); ok {
+				key := sdkTransportKey{template: template, refresh: transport.RefreshRate,
+					// These vendor TLS paths preserve the SDK's certificate configuration and refresh behavior.
+					tlsPaths: [3]string{os.Getenv("OCI_DEFAULT_CERTS_PATH"), os.Getenv("OCI_DEFAULT_CLIENT_CERTS_PATH"), os.Getenv("OCI_DEFAULT_CLIENT_CERTS_PRIVATE_KEY_PATH")}}
+				f.mu.Lock()
+				if f.transport == nil || f.transportKey != key {
+					f.transport, f.transportKey = transport, key
+				}
+				dispatcher.Transport = f.transport
+				f.mu.Unlock()
+			}
+		}
+	}
+	f.Configure(client, service)
+}
+
 // PinHost replaces a client's endpoint with an exact canonical endpoint. It is
 // used by callers whose signed configuration names the endpoint.
 func PinHost(client *common.BaseClient, endpoint string) {
@@ -345,7 +374,7 @@ func (f *Factory) Compute() (core.ComputeClient, error) {
 		return client, fmt.Errorf("create OCI Compute client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceCompute)
+	f.configureSDK(&client.BaseClient, ServiceCompute)
 	return client, nil
 }
 
@@ -357,7 +386,7 @@ func (f *Factory) ComputeManagement() (core.ComputeManagementClient, error) {
 		return client, fmt.Errorf("create OCI Compute Management client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceComputeManagement)
+	f.configureSDK(&client.BaseClient, ServiceComputeManagement)
 	return client, nil
 }
 
@@ -368,7 +397,7 @@ func (f *Factory) Blockstorage() (core.BlockstorageClient, error) {
 		return client, fmt.Errorf("create OCI Block Volume client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceBlockstorage)
+	f.configureSDK(&client.BaseClient, ServiceBlockstorage)
 	return client, nil
 }
 
@@ -379,7 +408,7 @@ func (f *Factory) Network() (core.VirtualNetworkClient, error) {
 		return client, fmt.Errorf("create OCI network client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceNetwork)
+	f.configureSDK(&client.BaseClient, ServiceNetwork)
 	return client, nil
 }
 
@@ -390,7 +419,7 @@ func (f *Factory) ObjectStorage() (objectstorage.ObjectStorageClient, error) {
 		return client, fmt.Errorf("create OCI Object Storage client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceObjectStorage)
+	f.configureSDK(&client.BaseClient, ServiceObjectStorage)
 	client.HTTPClient = Instrument(client.HTTPClient, string(ServiceObjectStorage))
 	return client, nil
 }
@@ -402,7 +431,7 @@ func (f *Factory) NetworkLoadBalancer() (networkloadbalancer.NetworkLoadBalancer
 		return client, fmt.Errorf("create OCI network load balancer client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceNLB)
+	f.configureSDK(&client.BaseClient, ServiceNLB)
 	return client, nil
 }
 
@@ -414,7 +443,7 @@ func (f *Factory) LoadBalancer() (loadbalancer.LoadBalancerClient, error) {
 		return client, fmt.Errorf("create OCI load balancer client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceNLB)
+	f.configureSDK(&client.BaseClient, ServiceNLB)
 	return client, nil
 }
 
@@ -425,7 +454,7 @@ func (f *Factory) Identity() (identity.IdentityClient, error) {
 		return client, fmt.Errorf("create OCI identity client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceIdentity)
+	f.configureSDK(&client.BaseClient, ServiceIdentity)
 	return client, nil
 }
 
@@ -436,7 +465,7 @@ func (f *Factory) Limits() (limits.LimitsClient, error) {
 		return client, fmt.Errorf("create OCI limits client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceLimits)
+	f.configureSDK(&client.BaseClient, ServiceLimits)
 	return client, nil
 }
 
@@ -447,7 +476,7 @@ func (f *Factory) WorkRequests() (workrequests.WorkRequestClient, error) {
 		return client, fmt.Errorf("create OCI work request client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceWorkRequests)
+	f.configureSDK(&client.BaseClient, ServiceWorkRequests)
 	return client, nil
 }
 
@@ -458,7 +487,7 @@ func (f *Factory) Usage() (usageapi.UsageapiClient, error) {
 		return client, fmt.Errorf("create OCI usage API client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceUsage)
+	f.configureSDK(&client.BaseClient, ServiceUsage)
 	return client, nil
 }
 
@@ -469,7 +498,7 @@ func (f *Factory) Artifacts() (artifacts.ArtifactsClient, error) {
 		return client, fmt.Errorf("create OCI artifacts client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceArtifacts)
+	f.configureSDK(&client.BaseClient, ServiceArtifacts)
 	client.HTTPClient = Instrument(client.HTTPClient, string(ServiceArtifacts))
 	return client, nil
 }
@@ -481,7 +510,7 @@ func (f *Factory) Search() (resourcesearch.ResourceSearchClient, error) {
 		return client, fmt.Errorf("create OCI resource search client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceSearch)
+	f.configureSDK(&client.BaseClient, ServiceSearch)
 	return client, nil
 }
 
