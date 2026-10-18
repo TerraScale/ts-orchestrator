@@ -471,6 +471,9 @@ func writeObserve(out io.Writer, view, format, source, search string, data []byt
 			return false, errors.New("unsupported history version")
 		}
 		partial = result.Truncated || result.Pending || result.Incomplete || result.State != "available"
+		for _, series := range result.Series {
+			partial = partial || series.Stale || series.Gaps
+		}
 		value = result
 		if format == "table" {
 			fmt.Fprintf(table, "STATE\t%s\tREASON\t%s\nTRUNCATED\t%t\tPENDING\t%t\tINCOMPLETE\t%t\n", result.State, result.Reason, result.Truncated, result.Pending, result.Incomplete)

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,6 +42,8 @@ func TestCapacityDiscoveryOCIProtocol(t *testing.T) {
 		missingQualification     bool
 		invalidResources         bool
 		expiredFacts             bool
+		cycleEndpoint            string
+		twoTokenCycle            bool
 	}{
 		{name: "A1 preferred over cheaper qualified A2", wantShape: PreferredShape},
 		{name: "exhausted A1 selects qualified A2", wantShape: "VM.Standard.A2.Flex", a1Exhausted: true},
@@ -54,14 +57,30 @@ func TestCapacityDiscoveryOCIProtocol(t *testing.T) {
 		{name: "capacity for another configuration is pending", wrongReportConfig: true, pending: "no current host capacity"},
 		{name: "unqualified runtime is pending", missingQualification: true, pending: "runtime/architecture qualification"},
 		{name: "invalid shape resource bounds are pending", invalidResources: true, pending: "OCPU/memory"},
+		{name: "shape page self-cycle is pending", cycleEndpoint: "/shapes", pending: "pagination repeated"},
+		{name: "shape two-token cycle is pending", cycleEndpoint: "/shapes", twoTokenCycle: true, pending: "pagination repeated"},
+		{name: "limit page self-cycle is refused", cycleEndpoint: "/limitDefinitions"},
+		{name: "limit two-token cycle is refused", cycleEndpoint: "/limitDefinitions", twoTokenCycle: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			architecture := scenario.architecture
 			if architecture == "" {
 				architecture = "arm64"
 			}
+			var cycleRequests, capacityReports atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
+				if scenario.cycleEndpoint != "" && strings.HasSuffix(r.URL.Path, scenario.cycleEndpoint) {
+					if cycleRequests.Add(1) > 3 {
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					next := "page-a"
+					if scenario.twoTokenCycle && r.URL.Query().Get("page") == "page-a" {
+						next = "page-b"
+					}
+					w.Header().Set("opc-next-page", next)
+				}
 				write := func(value any) {
 					if err := json.MarshalWrite(w, value); err != nil {
 						t.Errorf("OCI response: %v", err)
@@ -83,7 +102,9 @@ func TestCapacityDiscoveryOCIProtocol(t *testing.T) {
 							QuotaNames:    []string{"standard-core-count", "standard-memory-count"}}
 					}
 					if r.URL.Query().Get("page") == "" {
-						w.Header().Set("opc-next-page", "page-2")
+						if scenario.cycleEndpoint != "/shapes" {
+							w.Header().Set("opc-next-page", "page-2")
+						}
 						write([]core.Shape{shape(PreferredShape, "Ampere Altra")})
 					} else {
 						write([]core.Shape{shape("VM.Standard.E5.Flex", "AMD EPYC"), shape("VM.Standard.A2.Flex", "AmpereOne"), shape("VM.New.Flex", "unknown CPU")})
@@ -113,6 +134,7 @@ func TestCapacityDiscoveryOCIProtocol(t *testing.T) {
 					}
 					write(limits.ResourceAvailability{FractionalAvailability: new(available)})
 				case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/computeCapacityReports"):
+					capacityReports.Add(1)
 					if scenario.unsupportedReport {
 						w.WriteHeader(http.StatusBadRequest)
 						write(map[string]string{"code": "InvalidParameter", "message": "capacity report unsupported"})
@@ -177,6 +199,21 @@ func TestCapacityDiscoveryOCIProtocol(t *testing.T) {
 				request.Images[0].RuntimeManifestDigest = ""
 			}
 			selection, err := DiscoverCapacity(t.Context(), compute, quotaClient, request)
+			if scenario.cycleEndpoint != "" {
+				wantRequests := int32(2)
+				if scenario.twoTokenCycle {
+					wantRequests = 3
+				}
+				if cycleRequests.Load() != wantRequests || capacityReports.Load() != 0 || len(selection.Candidates) != 0 {
+					t.Fatalf("cyclic listing made %d requests and %d capacity reports, selection=%+v; want %d requests, no reports or candidates", cycleRequests.Load(), capacityReports.Load(), selection, wantRequests)
+				}
+			}
+			if scenario.cycleEndpoint == "/limitDefinitions" {
+				if err == nil || !strings.Contains(err.Error(), "pagination repeated") {
+					t.Fatalf("cyclic compute limit listing error=%v, want pagination refusal", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

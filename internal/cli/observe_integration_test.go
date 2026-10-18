@@ -138,6 +138,53 @@ func TestObserveRealHistoryTruncation(t *testing.T) {
 	}
 }
 
+func TestObserveRealHistorySeriesCoverage(t *testing.T) {
+	for _, coverage := range []string{"stale", "gaps"} {
+		t.Run(coverage, func(t *testing.T) {
+			f := newObserveFixture(t)
+			olderMember := "fresh"
+			if coverage == "stale" {
+				olderMember = "stale"
+			}
+			const metric = "cli_history_coverage"
+			now := time.Now()
+			f.history.Append(now.Add(-time.Minute), []observability.Sample{{Metric: metric,
+				Labels: observability.L("member", olderMember), Value: 1}})
+			f.history.Append(now, []observability.Sample{{Metric: metric,
+				Labels: observability.L("member", "fresh"), Value: 2}})
+			for _, format := range []string{"table", "json"} {
+				t.Run(format, func(t *testing.T) {
+					output, runErr := f.run(t, "history", "--metric", metric, "--tier", "raw", "--format", format)
+					if runErr == nil || !strings.Contains(runErr.Error(), "partial") {
+						t.Fatalf("%s coverage reported complete: output %q, error %v", coverage, output, runErr)
+					}
+					if format == "table" {
+						fields := strings.Join(strings.Fields(output), " ")
+						if !strings.Contains(fields, "STATE available") || !strings.Contains(fields, strings.ToUpper(coverage)+" true") {
+							t.Fatalf("missing %s coverage in table: %q", coverage, output)
+						}
+						return
+					}
+					var envelope struct {
+						Partial bool                         `json:"partial"`
+						Data    observability.CatalogHistory `json:"data"`
+					}
+					if err := json.Unmarshal([]byte(output), &envelope); err != nil || !envelope.Partial || envelope.Data.State != "available" {
+						t.Fatalf("partial history envelope %q: %v", output, err)
+					}
+					found := false
+					for _, series := range envelope.Data.Series {
+						found = found || coverage == "stale" && series.Stale || coverage == "gaps" && series.Gaps
+					}
+					if !found {
+						t.Fatalf("missing %s coverage in history: %+v", coverage, envelope.Data)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestObserveRealAPIErrorsAndBounds(t *testing.T) {
 	f := newObserveFixture(t)
 	for _, test := range []struct {

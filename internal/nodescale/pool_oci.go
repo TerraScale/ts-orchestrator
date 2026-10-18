@@ -368,15 +368,20 @@ func (o *OCIPool) validateImage(ctx context.Context, recipe Recipe) error {
 func listAll[T any](fetch func(page *string) ([]T, *string, error)) ([]T, error) {
 	var all []T
 	var page *string
+	seen := map[string]bool{}
 	for {
 		items, next, err := fetch(page)
 		if err != nil {
 			return nil, err
 		}
 		all = append(all, items...)
-		if next == nil {
+		if next == nil || *next == "" {
 			return all, nil
 		}
+		if seen[*next] {
+			return nil, fmt.Errorf("OCI listing pagination repeated a page token")
+		}
+		seen[*next] = true
 		page = next
 	}
 }
