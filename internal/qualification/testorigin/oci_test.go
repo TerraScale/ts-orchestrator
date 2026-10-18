@@ -817,8 +817,8 @@ func (world *ociWorld) serveFederation(w http.ResponseWriter, request *http.Requ
 		world.reject(w, http.StatusUnauthorized)
 		return
 	}
-	deadline, _ := world.ctx.Deadline()
-	expires := min(deadline.Unix(), world.leaf.NotAfter.Unix())
+	// The SDK refreshes tokens five minutes early; the world context bounds all requests.
+	expires := min(time.Now().Add(time.Hour).Unix(), world.leaf.NotAfter.Unix())
 	if expires <= time.Now().Unix() || len(world.sessions) >= 256 {
 		world.reject(w, http.StatusServiceUnavailable)
 		return
