@@ -87,6 +87,12 @@ func TestResumePreservesHistoricalJSONBytes(t *testing.T) {
 		if a.err != nil || err != nil || !bytes.Equal(selectionBytes, written) || !bytes.Equal(selectionBytes, canonical) {
 			t.Fatalf("stored selection %s, written %s, canonical %s, %v %v", selectionBytes, written, canonical, a.err, err)
 		}
+		resumed := &Attempt{}
+		resumed.writeJSON(planPath, typed(resumed, resumed.read(planPath), &bootstrap.FounderPlan{}))
+		resumed.writeJSON(selectionPath, typed(resumed, resumed.read(selectionPath), &bootstrapstart.FounderSelection{}))
+		if resumed.Err() != nil {
+			t.Fatal(resumed.Err())
+		}
 		planBefore, err := os.ReadFile(planPath)
 		if err != nil || !bytes.Equal(planBefore, planBytes) {
 			t.Fatalf("plan before rejection %s, want %s, %v", planBefore, planBytes, err)

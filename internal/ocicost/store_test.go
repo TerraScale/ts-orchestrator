@@ -96,6 +96,55 @@ func TestStoreRoundTrip(t *testing.T) {
 			t.Error("Empty() = false for a report without days")
 		}
 	})
+
+	t.Run("summary forecast from independent reader", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		defer cancel()
+		js := testJetStream(t)
+		producer, err := OpenStore(ctx, js, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := viewReport()
+		if err := producer.Put(ctx, want); err != nil {
+			t.Fatal(err)
+		}
+		conn, err := nats.Connect(js.Conn().ConnectedUrl())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(conn.Close)
+		readerJS, err := jetstream.New(conn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader, err := OpenStore(ctx, readerJS, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		report, err := reader.Report(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(report, want) {
+			t.Fatalf("independent report = %+v, want %+v", report, want)
+		}
+		view := Summarize(report, viewNow, nil)
+		if view.Cell != "gru" || view.OCIRegion != "sa-saopaulo-1" {
+			t.Fatalf("view identity = %q %q", view.Cell, view.OCIRegion)
+		}
+		// 840 this month; the 7 complete days before the 9th average 100 a day,
+		// so the month ends at 800 + 100 × 23 days left.
+		if view.Forecast.MonthToDateCents != 840 || view.Forecast.RateCents != 100 || view.Forecast.MonthEndCents != 3100 {
+			t.Fatalf("forecast = %+v", view.Forecast)
+		}
+		if len(view.Services) != 2 || view.Services[0].Name != "compute" || len(view.Components) != 2 {
+			t.Fatalf("lines = %+v %+v", view.Services, view.Components)
+		}
+		if view.UntaggedCents != 340 {
+			t.Fatalf("untagged = %d, want 840 - 500", view.UntaggedCents)
+		}
+	})
 }
 
 func TestStoreReportBeforePutIsNoReport(t *testing.T) {
