@@ -837,12 +837,13 @@ func TestOriginalFoundationNetworkSDK(t *testing.T) {
 				f.assertNetworkState(t, false)
 			})
 		}
-		for _, drift := range []string{"missing accepted VCN", "wrong VCN compartment", "blocked service gateway", "public subnet", "wrong user", "wrong tenancy", "expired original"} {
+		for _, drift := range []string{"completed extra listed rule", "missing accepted VCN", "wrong VCN compartment", "blocked service gateway", "public subnet", "wrong user", "wrong tenancy", "expired original"} {
 			t.Run(drift, func(t *testing.T) {
 				f := newOriginalNetworkSDKFixture(t, "")
 				if err := f.run(t); err != nil {
 					t.Fatal(err)
 				}
+				f.assertNetworkState(t, true)
 				before := f.wire(t)
 				network := f.record(t).OriginalFoundationCompartments.Regions[0].Network
 				f.cloud.mu.Lock()
@@ -857,6 +858,11 @@ func TestOriginalFoundationNetworkSDK(t *testing.T) {
 					f.cloud.rows[network.Creates[4].Provenance.ResourceID]["prohibitPublicIpOnVnic"] = false
 				}
 				f.cloud.mu.Unlock()
+				if drift == "completed extra listed rule" {
+					f.networkMu.Lock()
+					f.networkFault = "extra listed rule"
+					f.networkMu.Unlock()
+				}
 				var err error
 				if drift == "wrong user" || drift == "wrong tenancy" {
 					provider := originalCompartmentProvider{ConfigurationProvider: f.provider, user: "ocid1.user.oc1..test", tenancy: f.approval.TenancyID}

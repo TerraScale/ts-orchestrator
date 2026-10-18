@@ -70,6 +70,9 @@ func retainOriginalFoundationVault(ctx context.Context, authority *HomeIAMAuthor
 	if err != nil {
 		return err
 	}
+	if err := record.validateOriginalFoundationVault(); err != nil {
+		return err
+	}
 	changed := false
 	for index := range record.OriginalFoundationCompartments.Regions {
 		expected, err := originalVaultScope(record, index)
@@ -88,6 +91,40 @@ func retainOriginalFoundationVault(ctx context.Context, authority *HomeIAMAuthor
 		}
 	}
 	for index := range record.OriginalFoundationCompartments.Regions {
+		region := record.OriginalFoundationCompartments.Regions[index]
+		v := region.Vault
+		if !v.Vault.VerifiedAt.IsZero() && !v.Key.VerifiedAt.IsZero() {
+			if v.Vault.ReadbackSHA256 == "" || v.Key.ReadbackSHA256 == "" || v.Vault.HoldReason != "" || v.Key.HoldReason != "" {
+				return ErrOriginalSourceProducerHold
+			}
+			regional, err := authority.factory.ForRegion(region.OCIRegion)
+			if err != nil {
+				return err
+			}
+			reader := sdkcli.NewClient(regional, "")
+			endpoint, err := readOriginalVault(ctx, reader, v)
+			if err != nil {
+				return err
+			}
+			if endpoint != v.Vault.ManagementEndpoint {
+				return ErrOriginalSourceProducerHold
+			}
+			version, err := readOriginalVaultKey(ctx, reader, region.OCIRegion, v)
+			if err != nil {
+				return err
+			}
+			if version != v.Key.CurrentKeyVersion {
+				return ErrOriginalSourceProducerHold
+			}
+			for slot := range 2 {
+				entry := originalVaultEntry(v, slot)
+				readback, err := originalVaultReadback(v, slot, originalVaultID(*entry))
+				if err != nil || readback != entry.ReadbackSHA256 {
+					return errors.Join(ErrOriginalSourceProducerHold, err)
+				}
+			}
+			continue
+		}
 		for slot := range 2 {
 			if err := provisionOriginalVaultResource(ctx, authority, index, slot); err != nil {
 				return err

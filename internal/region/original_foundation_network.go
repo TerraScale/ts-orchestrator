@@ -85,6 +85,9 @@ func retainOriginalFoundationNetwork(ctx context.Context, authority *HomeIAMAuth
 	if record.OriginalFoundationCompartments == nil || !sameOriginalSourceValue(record.OriginalFoundationCompartments.scopeOnly(), expected) {
 		return ErrOriginalSourceProducerHold
 	}
+	if err := record.validateOriginalFoundationNetwork(); err != nil {
+		return err
+	}
 	changed := false
 	for index, region := range record.OriginalFoundationCompartments.Regions {
 		if err := originalNetworkPrerequisites(ctx, authority, index); err != nil {
@@ -118,6 +121,43 @@ func retainOriginalFoundationNetwork(ctx context.Context, authority *HomeIAMAuth
 		}
 	}
 	for index := range record.OriginalFoundationCompartments.Regions {
+		region := record.OriginalFoundationCompartments.Regions[index]
+		n := region.Network
+		if n.Complete {
+			expected, desired, err := originalNetworkRequests(n, region)
+			if err != nil {
+				return err
+			}
+			regional, err := authority.factory.ForRegion(region.OCIRegion)
+			if err != nil {
+				return err
+			}
+			client, err := regional.Network()
+			if err != nil {
+				return err
+			}
+			for slot, entry := range n.Creates {
+				readback, err := readOriginalNetworkResource(ctx, client, expected, slot, entry.Provenance.ResourceID)
+				if err != nil {
+					return err
+				}
+				if readback != entry.ReadbackSHA256 {
+					return ErrOriginalSourceProducerHold
+				}
+			}
+			pins, err := originalNetworkRulePins(n.Rules.ReturnedRules, desired)
+			if err != nil {
+				return err
+			}
+			readback, err := readOriginalNetworkRules(ctx, client, n.Creates[5].Provenance.ResourceID, desired, pins)
+			if err != nil {
+				return err
+			}
+			if readback != n.Rules.ReadbackSHA256 {
+				return ErrOriginalSourceProducerHold
+			}
+			continue
+		}
 		for slot := range originalNetworkKeys {
 			if err := provisionOriginalNetworkCreate(ctx, authority, index, slot); err != nil {
 				return err
@@ -684,6 +724,22 @@ func listOriginalNetworkRules(ctx context.Context, client core.VirtualNetworkCli
 	return nil, ErrOriginalSourceProducerHold
 }
 
+func readOriginalNetworkRules(ctx context.Context, client core.VirtualNetworkClient, id string, desired core.AddNetworkSecurityGroupSecurityRulesDetails, pins map[string]string) (string, error) {
+	live, err := listOriginalNetworkRules(ctx, client, id)
+	if err != nil {
+		return "", err
+	}
+	observed, err := originalNetworkRulePins(live, desired)
+	if err != nil || !sameOriginalSourceValue(pins, observed) {
+		return "", errors.Join(ErrOriginalSourceProducerHold, err)
+	}
+	wire, err := json.Marshal(pins, json.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
+	return digestSource(wire), nil
+}
+
 func provisionOriginalNetworkRules(ctx context.Context, authority *HomeIAMAuthority, index int) error {
 	if err := originalNetworkPrerequisites(ctx, authority, index); err != nil {
 		return err
@@ -797,19 +853,10 @@ func provisionOriginalNetworkRules(ctx context.Context, authority *HomeIAMAuthor
 	if err != nil {
 		return hold("rules-response-unresolved", err)
 	}
-	live, err := listOriginalNetworkRules(ctx, client, id)
+	digest, err := readOriginalNetworkRules(ctx, client, id, desired, pins)
 	if err != nil {
 		return err
 	}
-	observed, err := originalNetworkRulePins(live, desired)
-	if err != nil || !sameOriginalSourceValue(pins, observed) {
-		return errors.Join(ErrOriginalSourceProducerHold, err)
-	}
-	wire, err := json.Marshal(pins, json.Deterministic(true))
-	if err != nil {
-		return err
-	}
-	digest := digestSource(wire)
 	if rules.ReadbackSHA256 != "" && rules.ReadbackSHA256 != digest {
 		return ErrOriginalSourceProducerHold
 	}
