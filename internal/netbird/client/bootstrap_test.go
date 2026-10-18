@@ -387,9 +387,9 @@ func TestManagedBootstrapConfigReplacesImageDefaultsBeforeAdmission(t *testing.T
 				if _, err := os.Lstat(filepath.Join(root, bootstrapPendingFile)); !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("invalid publication left a pending marker: %v", err)
 				}
-				after, err := os.ReadDir(root)
-				if err != nil || len(after) != len(before) {
-					t.Fatalf("invalid publication changed directory entries: %v", err)
+				after, readErr := os.ReadDir(root)
+				if readErr != nil || len(after) != len(before) {
+					t.Fatalf("invalid publication changed directory entries: %v", readErr)
 				}
 				for index, entry := range before {
 					if after[index].Name() != entry.Name() {

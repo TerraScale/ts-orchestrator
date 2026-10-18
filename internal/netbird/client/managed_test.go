@@ -761,6 +761,23 @@ func TestManagedTransactionIdentityAndBootstrapOwnership(t *testing.T) {
 			f := newManagedFixture(t)
 			canonicalID := f.options.TransactionID
 			f.options.TransactionID = id
+			files := []struct {
+				path string
+				body []byte
+				mode os.FileMode
+			}{{f.m.path(managedBinary), f.old, 0}, {f.options.BinaryPath, f.next, 0}}
+			for index := range files {
+				info, err := os.Lstat(files[index].path)
+				if err != nil || !info.Mode().IsRegular() {
+					t.Fatalf("invalid ID fixture %s metadata: %v", files[index].path, err)
+				}
+				files[index].mode = info.Mode()
+				body, err := os.ReadFile(files[index].path)
+				if err != nil || !bytes.Equal(body, files[index].body) {
+					t.Fatalf("invalid ID fixture %s bytes: %v", files[index].path, err)
+				}
+				files[index].body = body
+			}
 			for _, operation := range []string{"install", "rollback"} {
 				var err error
 				if operation == "install" {
@@ -771,14 +788,10 @@ func TestManagedTransactionIdentityAndBootstrapOwnership(t *testing.T) {
 				if err == nil || len(f.calls) != 0 {
 					t.Fatalf("invalid ID reached %s: %v %v", operation, err, f.calls)
 				}
-				for _, file := range []struct {
-					path string
-					body []byte
-					mode os.FileMode
-				}{{f.m.path(managedBinary), f.old, 0755}, {f.options.BinaryPath, f.next, 0700}} {
+				for _, file := range files {
 					assertManagedFile(t, file.path, file.body)
 					info, err := os.Lstat(file.path)
-					if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != file.mode {
+					if err != nil || !info.Mode().IsRegular() || info.Mode() != file.mode {
 						t.Fatalf("invalid ID changed %s metadata: %v", file.path, err)
 					}
 				}

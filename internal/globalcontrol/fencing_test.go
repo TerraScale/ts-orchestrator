@@ -3,6 +3,7 @@ package globalcontrol
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strconv"
@@ -388,7 +389,7 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 	}
 	{
 		encode := func(value any) []byte {
-			wire, err := protocol.EncodeJSON(value)
+			wire, err := json.Marshal(value)
 			if err != nil {
 				t.Fatal(err)
 			}
