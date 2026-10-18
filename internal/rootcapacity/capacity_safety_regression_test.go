@@ -216,7 +216,7 @@ func TestRootCapacityLaunchContractAndRetryFailuresOCIProtocol(t *testing.T) {
 					if captured.Size == nil || *captured.Size != 0 || value(captured.InstanceConfigurationId) != child.ConfigurationID || value(captured.CompartmentId) != "ocid1.compartment.oc1..fixture" || len(captured.PlacementConfigurations) != 2 {
 						t.Fatal("actual pool request can implicitly create children or changed exact inception scope")
 					}
-					continue
+					return
 				}
 				var captured core.ComputeInstanceDetails
 				if effect == "configuration" {
