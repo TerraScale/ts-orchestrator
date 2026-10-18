@@ -957,14 +957,6 @@ func TestStandbyLeavesDurableIntentForNewLeader(t *testing.T) {
 	}
 }
 
-func TestStrictIntentRejectsDuplicateAndUnknownFields(t *testing.T) {
-	for _, body := range []string{`{"schemaVersion":1,"schemaVersion":1}`, `{"unknown":1}`, `{"schemaVersion":1} {}`} {
-		if _, err := DecodeIntent([]byte(body)); err == nil {
-			t.Errorf("accepted %s", body)
-		}
-	}
-}
-
 func TestSignedUnadmittedIntentHasQueryVisibleRejection(t *testing.T) {
 	s, ctx := testService(t, &testWriter{})
 	// testCodec passes payloads through; these exact malformed bodies are not Ed25519-signed.

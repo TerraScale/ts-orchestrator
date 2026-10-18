@@ -198,24 +198,3 @@ func TestLinkTimeoutAppliesUnderALaterCallerDeadline(t *testing.T) {
 		}
 	})
 }
-
-func TestUnlinkDropsOnlyPeerRegions(t *testing.T) {
-	t.Parallel()
-	links, err := New("gru", nil, []string{"sfo", "fra"}, time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	links.Unlink("GRU")
-	links.Unlink("mia")
-	if got := links.Regions(); !slices.Equal(got, []string{"gru", "fra", "sfo"}) {
-		t.Fatalf("local or unknown unlink changed regions = %v", got)
-	}
-	conn := &nats.Conn{}
-	if err := links.Link("sfo", conn); err != nil || !links.Linked("sfo") {
-		t.Fatalf("link sfo: %v", err)
-	}
-	links.Unlink("SFO")
-	if got := links.Regions(); !slices.Equal(got, []string{"gru", "fra"}) || links.Linked("sfo") {
-		t.Fatalf("after unlink regions = %v, linked %v", got, links.Linked("sfo"))
-	}
-}

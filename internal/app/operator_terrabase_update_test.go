@@ -189,6 +189,103 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	if len(fake.prepares) != before {
 		t.Fatalf("rerun after a held rollback flipped the seat again: %+v", fake.prepares[before:])
 	}
+
+	{
+		digest := strings.Repeat("a", 64)
+		record := staged.KnownBad{Digest: digest, SeatID: "000000000082AXF7GZQT1D126Y", OperationID: "0000000000VWA5N990CSNH40S5", Reason: "held", RecordedAt: time.Now()}
+		if err := record.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if (staged.KnownBad{Digest: "x"}).Validate() == nil {
+			t.Fatal("incomplete known-bad record validated")
+		}
+		set := staged.KnownBadSet{digest: record}
+		if err := set.Refuse(digest); !errors.Is(err, staged.ErrKnownBad) || staged.Classify(err) != staged.ClassTerminal {
+			t.Fatalf("known-bad digest was not refused terminally: %v", err)
+		}
+		if err := set.Refuse(strings.Repeat("b", 64)); err != nil {
+			t.Fatal(err)
+		}
+		directory := t.TempDir()
+		writer, err := openDeployState(directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		empty, err := writer.knownBad()
+		if err != nil || len(empty) != 0 {
+			t.Fatalf("fresh known-bad set = %v, %v", empty, err)
+		}
+		name := filepath.Join(deployKnownBadDirectory, digest+".json")
+		var missing staged.KnownBad
+		if found, err := writer.readJSON(name, &missing); err != nil || found {
+			t.Fatalf("known-bad record existed before create: %v, %v", found, err)
+		}
+		wire, err := protocol.EncodeJSON(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(wire) > maxDeployStateFileBytes {
+			t.Fatalf("known-bad record exceeds native file limit: %d", len(wire))
+		}
+		if created, err := writer.readOrCreateJSON(name, set[digest]); err != nil || !created {
+			t.Fatalf("known-bad record create = %v, %v", created, err)
+		}
+		reader, err := openDeployState(directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stored, err := reader.knownBad()
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected, err := protocol.EncodeJSON(set)
+		if err != nil {
+			t.Fatal(err)
+		}
+		storedWire, err := protocol.EncodeJSON(stored)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(stored) != 1 || !bytes.Equal(storedWire, expected) {
+			t.Fatalf("reopened known-bad set differs: entries %d, stored bytes %d, want %d", len(stored), len(storedWire), len(expected))
+		}
+		raw, err := reader.readFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(raw, wire) {
+			t.Fatalf("native known-bad file differs: bytes %d, want %d", len(raw), len(wire))
+		}
+		if err := stored[digest].Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if err := stored.Refuse(digest); !errors.Is(err, staged.ErrKnownBad) || staged.Classify(err) != staged.ClassTerminal {
+			t.Fatalf("stored known-bad digest was not refused terminally: %v", err)
+		}
+		if err := stored.Refuse(strings.Repeat("b", 64)); err != nil {
+			t.Fatal(err)
+		}
+		invalid := staged.KnownBad{Digest: "x"}
+		invalidName := strings.Repeat("b", 64) + ".json"
+		invalidPath := filepath.Join(deployKnownBadDirectory, invalidName)
+		if created, err := writer.readOrCreateJSON(invalidPath, invalid); err != nil || !created {
+			t.Fatalf("invalid known-bad native create = %v, %v", created, err)
+		}
+		invalidWire, err := protocol.EncodeJSON(invalid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err = reader.readFile(invalidPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(raw, invalidWire) {
+			t.Fatalf("native invalid known-bad file differs: bytes %d, want %d", len(raw), len(invalidWire))
+		}
+		if rejected, err := reader.knownBad(); err == nil || rejected != nil || err.Error() != "retained known-bad record "+invalidName+" is invalid" {
+			t.Fatalf("invalid native known-bad record admitted: %v, %v", rejected, err)
+		}
+	}
 }
 
 func TestTerraBaseUpdateSoaksTheFirstSeatAndRollsBackARestartingCandidate(t *testing.T) {

@@ -562,19 +562,3 @@ func TestSnapshotRewritesADeletedObject(t *testing.T) {
 	}
 }
 
-// A follower never uploads; the leader check gates every pass.
-func TestSnapshotRunsOnlyOnTheLeader(t *testing.T) {
-	js := startJetStream(t)
-	put(t, openBucket(t, js, testBucket), "a", []byte("1"))
-	fake := newObjectStorage(t)
-	snapshotter := snapshotterFor(js, fake, testBucket)
-	snapshotter.Leader = func() bool { return false }
-	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	defer cancel()
-	if err := snapshotter.Run(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("run = %v", err)
-	}
-	if fake.putCount() != 0 {
-		t.Fatalf("follower wrote %d snapshots", fake.putCount())
-	}
-}

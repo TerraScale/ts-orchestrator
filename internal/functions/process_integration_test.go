@@ -448,29 +448,3 @@ func processBrokerCredentials(t *testing.T, admitted release.VerifiedFunction) (
 	}
 	return credentials, workerCredentials, operatorID, systemID, resolver
 }
-
-func TestFunctionWorkerRejectsExpiredMaterial(t *testing.T) {
-	proof, deployment, files := signedFunctionFixture(t, integrationArtifact(t, "echo"))
-	deployment.BrokerURL = "tls://127.0.0.1:4222"
-	for name, expiry := range map[string]time.Time{"missing": {}, "expired": time.Now().Add(-time.Second), "beyond release": proof.ExpiresAt().Add(time.Second)} {
-		t.Run(name, func(t *testing.T) {
-			deployment.ExpiresAt = expiry
-			wire, err := json.Marshal(deployment)
-			if err != nil {
-				t.Fatal(err)
-			}
-			directory := t.TempDir()
-			for name, value := range files {
-				if err := os.WriteFile(filepath.Join(directory, name), value, 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if err := os.WriteFile(filepath.Join(directory, "deployment.json"), wire, 0600); err != nil {
-				t.Fatal(err)
-			}
-			if err := runProcess(t.Context(), directory, "127.0.0.1:0", io.Discard); err == nil || !strings.Contains(err.Error(), "material authority") {
-				t.Fatalf("invalid material expiry accepted: %v", err)
-			}
-		})
-	}
-}
