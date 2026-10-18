@@ -462,7 +462,8 @@ func TestOriginalFoundationAdmissionReadVersionsSDK(t *testing.T) {
 					refusals := f.journalRefusals
 					writeJournal(badWire, badWire)
 					_, _, err := store.Load(t.Context(), "GRU")
-					serviceErr, ok := errors.AsType[common.ServiceError](err)
+					var serviceErr common.ServiceError
+					ok := errors.As(err, &serviceErr)
 					if !ok || serviceErr.GetHTTPStatusCode() != 400 || f.journalRefusals != refusals+1 ||
 						!bytes.Equal(badWire, f.wire(t)) || len(f.posts) != posts {
 						t.Fatal("changed journal escaped actual SDK refusal or changed durable/provider state", err)
