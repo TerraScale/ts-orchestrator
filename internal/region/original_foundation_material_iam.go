@@ -18,7 +18,10 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/identity"
 )
 
-const originalMaterialIAMPurpose = "original-material-publication-iam/v1"
+const (
+	originalMaterialIAMPurpose   = "original-material-publication-iam/v1"
+	originalMaterialIAMPurposeV2 = "original-material-publication-iam/v2"
+)
 
 var ErrOriginalFoundationMaterialIAMPending = fmt.Errorf("%w: original material-publication IAM retained; startup and runtime admission remain unavailable", ErrOriginalFoundationAdmissionReadsPending)
 
@@ -40,6 +43,7 @@ type OriginalMaterialPublicationIAMIntent struct {
 	Key                          string                                 `json:"key"`
 	SecretNames                  []string                               `json:"secretNames"`
 	Operations                   [7]OriginalActorAdmissionReadOperation `json:"operations"`
+	PolicyRead                   *OriginalActorAdmissionReadOperation   `json:"policyRead,omitempty"`
 }
 
 func originalMaterialIAMOperations() [7]OriginalActorAdmissionReadOperation {
@@ -54,8 +58,16 @@ func originalMaterialIAMOperations() [7]OriginalActorAdmissionReadOperation {
 	}
 }
 
-func originalMaterialIAMRecipe(purpose OriginalSourceProducerIntent, config bootstrapmaterial.Config, control, vault, key string) (OriginalMaterialPublicationIAMIntent, error) {
+func originalMaterialIAMRecipe(version string, purpose OriginalSourceProducerIntent, config bootstrapmaterial.Config, control, vault, key string) (OriginalMaterialPublicationIAMIntent, error) {
 	var recipe OriginalMaterialPublicationIAMIntent
+	var policyRead *OriginalActorAdmissionReadOperation
+	switch version {
+	case originalMaterialIAMPurpose:
+	case originalMaterialIAMPurposeV2:
+		policyRead = new(OriginalActorAdmissionReadOperation{"GetPolicy", "policies", "POLICY_READ", "regional-control-policy-read"})
+	default:
+		return recipe, ErrOriginalSourceProducerHold
+	}
 	wire, err := json.Marshal(purpose, json.Deterministic(true))
 	plan, configErr := json.Marshal(config, json.Deterministic(true))
 	names, namesErr := bootstrapmaterial.OriginalPublicationSecretNames(config)
@@ -64,11 +76,11 @@ func originalMaterialIAMRecipe(purpose OriginalSourceProducerIntent, config boot
 		control == "" || vault == "" || key == "" {
 		return recipe, ErrOriginalSourceProducerHold
 	}
-	return OriginalMaterialPublicationIAMIntent{Purpose: originalMaterialIAMPurpose, Cell: purpose.Cell, OCIRegion: purpose.OCIRegion,
+	return OriginalMaterialPublicationIAMIntent{Purpose: version, Cell: purpose.Cell, OCIRegion: purpose.OCIRegion,
 		TenancyID: purpose.TenancyID, InstallationID: purpose.InstallationID, ProducerIntentSHA256: digestSource(wire),
 		PlanSHA256: purpose.PlanSHA256, AdmissionAuthorizationSHA256: purpose.AdmissionAuthorizationSHA256,
 		ActorOperationID: purpose.OperationID, ActorRecipeSHA256: purpose.Allocation.RecipeSHA256,
-		ControlCompartment: control, Vault: vault, Key: key, SecretNames: names, Operations: originalMaterialIAMOperations()}, nil
+		ControlCompartment: control, Vault: vault, Key: key, SecretNames: names, Operations: originalMaterialIAMOperations(), PolicyRead: policyRead}, nil
 }
 
 func originalMaterialIAMIntents(grant FoundationGrant, home bootstrap.StorageDomain) ([3]OriginalMaterialPublicationIAMIntent, error) {
@@ -76,6 +88,10 @@ func originalMaterialIAMIntents(grant FoundationGrant, home bootstrap.StorageDom
 	if grant.SchemaVersion != 3 || grant.Generation != 1 || len(grant.Regions) != 3 || requireOriginalSourceProducerPurposes(grant) != nil ||
 		grant.OriginalActorAdmissionReads == nil || grant.OriginalPublication == nil || validateOriginalAdmissionReadIntents(grant, home) != nil || validateOriginalFoundationPublicationIntent(grant, home) != nil {
 		return intents, ErrOriginalSourceProducerHold
+	}
+	version := originalMaterialIAMPurposeV2
+	if grant.OriginalMaterialPublicationIAM != nil {
+		version = (*grant.OriginalMaterialPublicationIAM)[0].Purpose
 	}
 	for index, cell := range [3]string{"GRU", "SFO", "FRA"} {
 		found := false
@@ -103,7 +119,7 @@ func originalMaterialIAMIntents(grant FoundationGrant, home bootstrap.StorageDom
 			if err != nil {
 				return intents, err
 			}
-			intents[index], err = originalMaterialIAMRecipe(*material.OriginalSourceProducer, material.Config, control, vault, key)
+			intents[index], err = originalMaterialIAMRecipe(version, *material.OriginalSourceProducer, material.Config, control, vault, key)
 			if err != nil {
 				return intents, err
 			}
@@ -174,7 +190,7 @@ func originalMaterialIAMScope(record FoundationRecord, index int, recipe Origina
 	root := record.OriginalFoundationCompartments
 	regional, birth := root.Regions[index], (*record.OriginalSourceProducers)[index]
 	actor, v := regional.Actor, regional.Vault
-	expected, err := originalMaterialIAMRecipe(birth.Intent, actor.Config, recipe.ControlCompartment, recipe.Vault, recipe.Key)
+	expected, err := originalMaterialIAMRecipe(recipe.Purpose, birth.Intent, actor.Config, recipe.ControlCompartment, recipe.Vault, recipe.Key)
 	if err != nil || !sameOriginalSourceValue(expected, recipe) || !originalActorRole(regional.Cell, "control_compartment", recipe.ControlCompartment, v.ControlCompartmentID) ||
 		!originalActorRole(regional.Cell, "vault", recipe.Vault, originalVaultID(v.Vault.OriginalFoundationKMSCreate)) || !originalActorRole(regional.Cell, "key", recipe.Key, originalVaultID(v.Key.OriginalFoundationKMSCreate)) || actor.ControlCompartmentID != v.ControlCompartmentID {
 		return scope, ErrOriginalSourceProducerHold
@@ -230,6 +246,10 @@ func originalMaterialIAMPolicy(scope OriginalFoundationMaterialIAM) identity.Cre
 			conditions += fmt.Sprintf(", target.key.id='%s'", scope.Target.KMSKeyOCID)
 		}
 		statements = append(statements, fmt.Sprintf("Allow any-user to %s %s in compartment id %s where all {%s}", verb, operation.ResourceType, scope.Target.CompartmentOCID, conditions))
+	}
+	if scope.Recipe.Purpose == originalMaterialIAMPurposeV2 && scope.Recipe.PolicyRead != nil {
+		// GetPolicy exposes regional policy metadata; the consumer still verifies the intended ID, body and ETag.
+		statements = append(statements, fmt.Sprintf("Allow any-user to read policies in compartment id %s where all {%s, request.operation='GetPolicy', request.permission='POLICY_READ'}", scope.Target.CompartmentOCID, principal))
 	}
 	return identity.CreatePolicyDetails{CompartmentId: new(scope.Target.CompartmentOCID), Name: new("ts-original-material-iam-" + scope.IdentitySHA256[:32]), Description: new("Prospectively authorized finite original material publication"), Statements: statements, FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}
 }

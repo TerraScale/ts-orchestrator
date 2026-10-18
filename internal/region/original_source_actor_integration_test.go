@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -176,4 +177,52 @@ func originalSourceActorTestTransport(t *testing.T, server *httptest.Server) {
 	}
 	http.DefaultTransport = transport
 	t.Cleanup(func() { http.DefaultTransport = previous; transport.CloseIdleConnections() })
+}
+
+func TestOriginalMaterialPublicationUsesProtectedV2Policy(t *testing.T) {
+	f := newOriginalMaterialIAMSDKFixture(t, "")
+	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
+		t.Fatal(err)
+	}
+	record := f.record(t)
+	grant := f.prepared.Grant
+	for index := range 3 {
+		entry, err := originalSourceMaterialPublication(grant, record, index)
+		if err != nil || entry == nil {
+			t.Fatal("completed signed v2 material policy unavailable", err)
+		}
+		scope, err := originalMaterialPublicationScope(*entry)
+		if err != nil || scope.Target != entry.Target || scope.PolicyID != entry.Provenance.ResourceID || scope.PolicyETag != entry.PolicyETag {
+			t.Fatal("material scope lost protected policy identity", err)
+		}
+		if err := verifyOriginalMaterialPublicationPolicy(t.Context(), f.factoryFor(), *entry); err != nil {
+			t.Fatal("actual SDK exact policy readback", err)
+		}
+		changed := *entry
+		changed.PolicyETag = "different-policy-revision"
+		if verifyOriginalMaterialPublicationPolicy(t.Context(), f.factoryFor(), changed) == nil {
+			t.Fatal("changed material policy ETag passed")
+		}
+		changed = *entry
+		request := changed.Request
+		request.Statements = slices.Clone(request.Statements)
+		request.Statements[0] = "Allow any-user to manage all-resources in tenancy"
+		changed.Request = request
+		if verifyOriginalMaterialPublicationPolicy(t.Context(), f.factoryFor(), changed) == nil {
+			t.Fatal("changed material policy body passed")
+		}
+	}
+	recipes := *grant.OriginalMaterialPublicationIAM
+	grant.OriginalMaterialPublicationIAM = &recipes
+	for index := range recipes {
+		recipes[index].Purpose = originalMaterialIAMPurpose
+		recipes[index].PolicyRead = nil
+		if entry, err := originalSourceMaterialPublication(grant, record, index); err != nil || entry != nil {
+			t.Fatal("historical v1 acquired publication read capability", err)
+		}
+	}
+	var actor VerifiedOriginalSourceActor
+	if _, factory, ctx, err := actor.MaterialPublication(t.Context()); err == nil || factory != nil || ctx != nil {
+		t.Fatal("zero actor acquired material publication clients")
+	}
 }

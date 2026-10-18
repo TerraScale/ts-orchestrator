@@ -10,7 +10,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 )
 
-// EnsureOriginalSourceArchive archives original source without granting startup authority.
+// EnsureOriginalSourceArchive archives and publishes original material without granting startup authority.
 func EnsureOriginalSourceArchive(ctx context.Context) error {
 	actor, err := region.OpenOriginalSourceActor(ctx)
 	if err != nil {
@@ -22,6 +22,9 @@ func EnsureOriginalSourceArchive(ctx context.Context) error {
 	}
 	if err := archive.VerifyCurrent(ctx); err != nil {
 		return fmt.Errorf("verify current original source archive: %w", err)
+	}
+	if err := archive.PublishRegionalMaterial(ctx, time.Now().UTC()); err != nil {
+		return fmt.Errorf("publish original regional material: %w", err)
 	}
 	return nil
 }

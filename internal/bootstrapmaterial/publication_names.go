@@ -25,3 +25,21 @@ func OriginalPublicationSecretNames(cfg Config) ([]string, error) {
 	slices.Sort(secrets)
 	return secrets, nil
 }
+
+// OriginalPublicationSecretName binds one closed original file to its exact
+// existing Vault name; digest and size stay bound by the authenticated record.
+func OriginalPublicationSecretName(cfg Config, file File) (string, error) {
+	names, err := OriginalPublicationSecretNames(cfg)
+	if err != nil {
+		return "", err
+	}
+	purpose, slot := classify(file.Name)
+	if purpose == "" || purpose == "owner-only" || file.Purpose != purpose || file.Slot != slot {
+		return "", ErrMaterial
+	}
+	name := secretName(cfg, file)
+	if !slices.Contains(names, name) {
+		return "", ErrMaterial
+	}
+	return name, nil
+}

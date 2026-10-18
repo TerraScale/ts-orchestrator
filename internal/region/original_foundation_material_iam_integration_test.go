@@ -47,7 +47,11 @@ func newOriginalMaterialIAMSDKFixture(t *testing.T, fault string) *originalMater
 	t.Helper()
 	// Preserve pinned loopback TLS instead of the OCI SDK's proxy transport clone.
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
-	reads := newOriginalActorReadsSDKFixture(t, "", 0)
+	return originalMaterialIAMSDKFixtureFor(t, newOriginalActorReadsSDKFixture(t, "", 0), fault)
+}
+
+func originalMaterialIAMSDKFixtureFor(t *testing.T, reads *originalActorReadsSDKFixture, fault string) *originalMaterialIAMSDKFixture {
+	t.Helper()
 	if reads.prepared.Grant.OriginalMaterialPublicationIAM == nil {
 		t.Fatal("prospective preparation omitted material IAM")
 	}
@@ -129,6 +133,9 @@ func (f *originalMaterialIAMSDKFixture) expectedMaterialPolicy(t *testing.T, rec
 		statement("use", "vaults", "CreateSecret", "VAULT_CREATE_SECRET", fmt.Sprintf(", target.vault.id='%s'", vault)),
 		statement("use", "keys", "CreateSecret", "KEY_ENCRYPT", fmt.Sprintf(", target.key.id='%s'", key)),
 		statement("use", "keys", "CreateSecret", "KEY_DECRYPT", fmt.Sprintf(", target.key.id='%s'", key)),
+	}
+	if entry.Recipe.Purpose == "original-material-publication-iam/v2" {
+		statements = append(statements, statement("read", "policies", "GetPolicy", "POLICY_READ", ""))
 	}
 	return map[string]any{"compartmentId": control, "name": "ts-original-material-iam-" + entry.IdentitySHA256[:32], "description": "Prospectively authorized finite original material publication", "statements": statements, "freeformTags": map[string]any{}, "definedTags": map[string]any{}}
 }
@@ -312,6 +319,12 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 		if posts != 3 {
 			t.Fatal("material IAM did not create exactly one finite policy per original actor")
 		}
+		for _, regional := range f.record(t).OriginalFoundationCompartments.Regions {
+			entry := regional.MaterialPublicationIAM
+			if entry.Recipe.Purpose != "original-material-publication-iam/v2" || entry.Recipe.PolicyRead == nil || len(entry.Request.Statements) != 8 {
+				t.Fatal("fresh preparation did not prospectively sign the eighth policy-metadata read statement")
+			}
+		}
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || len(f.posts) != posts || f.journalPuts != puts || f.puts != public || !bytes.Equal(before, f.wire(t)) {
 			t.Fatal("completed material IAM replay changed history or repeated effects", err)
 		}
@@ -411,10 +424,94 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 	})
 }
 
+// This historical wire schema deliberately has no policyRead field.
+type originalMaterialIAMV1Wire struct {
+	Purpose                      string                                 `json:"purpose"`
+	Cell                         string                                 `json:"cell"`
+	OCIRegion                    string                                 `json:"ociRegion"`
+	TenancyID                    string                                 `json:"tenancyId"`
+	InstallationID               string                                 `json:"installationId"`
+	ProducerIntentSHA256         string                                 `json:"producerIntentSha256"`
+	PlanSHA256                   string                                 `json:"planSha256"`
+	AdmissionAuthorizationSHA256 string                                 `json:"admissionAuthorizationSha256"`
+	ActorOperationID             string                                 `json:"actorOperationId"`
+	ActorRecipeSHA256            string                                 `json:"actorRecipeSha256"`
+	ControlCompartment           string                                 `json:"controlCompartment"`
+	Vault                        string                                 `json:"vault"`
+	Key                          string                                 `json:"key"`
+	SecretNames                  []string                               `json:"secretNames"`
+	Operations                   [7]OriginalActorAdmissionReadOperation `json:"operations"`
+}
+
+func TestOriginalFoundationMaterialIAMV1Compatibility(t *testing.T) {
+	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
+	reads := newOriginalActorReadsSDKFixture(t, "", 0)
+	if reads.prepared.Grant.OriginalMaterialPublicationIAM == nil {
+		t.Fatal("prospective preparation omitted material IAM")
+	}
+	recipes := *reads.prepared.Grant.OriginalMaterialPublicationIAM
+	for index := range recipes {
+		if recipes[index].Purpose != "original-material-publication-iam/v2" || recipes[index].PolicyRead == nil {
+			t.Fatal("fresh preparation did not produce v2")
+		}
+		recipes[index].Purpose, recipes[index].PolicyRead = originalMaterialIAMPurpose, nil
+	}
+	reads.prepared.Grant.OriginalMaterialPublicationIAM = &recipes
+	if err := validateOriginalMaterialIAMIntents(reads.prepared.Grant, reads.approval.HomeStorageDomain); err != nil {
+		t.Fatal("historical v1 signed contract rejected", err)
+	}
+	wire, err := json.Marshal(recipes, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy [3]originalMaterialIAMV1Wire
+	if err := json.Unmarshal(wire, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacyWire, err := json.Marshal(legacy, json.Deterministic(true))
+	if err != nil || !bytes.Equal(wire, legacyWire) || digestSource(wire) != digestSource(legacyWire) || bytes.Contains(wire, []byte("policyRead")) {
+		t.Fatal("nil policyRead changed historical v1 wire or digest", err)
+	}
+	reconstructed, err := originalMaterialIAMIntents(reads.prepared.Grant, reads.approval.HomeStorageDomain)
+	if err != nil || !sameOriginalSourceValue(reconstructed, recipes) {
+		t.Fatal("historical signed purpose was upgraded during reconstruction", err)
+	}
+	f := originalMaterialIAMSDKFixtureFor(t, reads, "")
+	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
+		t.Fatal(err)
+	}
+	f.assertMaterialIAM(t)
+	for _, regional := range f.record(t).OriginalFoundationCompartments.Regions {
+		entry := regional.MaterialPublicationIAM
+		if entry.Recipe.Purpose != originalMaterialIAMPurpose || entry.Recipe.PolicyRead != nil || len(entry.Request.Statements) != 7 {
+			t.Fatal("historical coordinator upgraded v1 recipe or policy")
+		}
+	}
+	before, posts, puts, public := bytes.Clone(f.wire(t)), len(f.posts), f.journalPuts, f.puts
+	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || !bytes.Equal(before, f.wire(t)) || len(f.posts) != posts || f.journalPuts != puts || f.puts != public {
+		t.Fatal("historical v1 restart changed signed journal or repeated effects", err)
+	}
+	beforeCloud := originalMaterialIAMSnapshot(t, f.cloud)
+	store := f.store(t)
+	current, etag, err := store.Load(t.Context(), "GRU")
+	if err != nil || etag == "" {
+		t.Fatal("missing actual current v1 store ETag", err)
+	}
+	entry := current.OriginalFoundationCompartments.Regions[0].MaterialPublicationIAM
+	entry.Recipe.Purpose = originalMaterialIAMPurposeV2
+	entry.Recipe.PolicyRead = new(OriginalActorAdmissionReadOperation{"GetPolicy", "policies", "POLICY_READ", "regional-control-policy-read"})
+	if _, err := store.CompareAndSwap(t.Context(), current, etag); err == nil {
+		t.Fatal("actual protected CAS upgraded retained v1 recipe")
+	}
+	if !bytes.Equal(beforeCloud, originalMaterialIAMSnapshot(t, f.cloud)) || len(f.posts) != posts || f.journalPuts != puts || f.puts != public {
+		t.Fatal("rejected v1 upgrade changed durable objects or effects")
+	}
+}
+
 func TestOriginalFoundationMaterialIAMSignedContract(t *testing.T) {
 	// Preserve the fixture's literal loopback transport through SDK client construction.
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
-	for _, change := range []string{"purpose", "name", "owner name", "vault", "key", "control", "actor recipe", "permission", "key encrypt operation", "key decrypt operation", "LIST scope"} {
+	for _, change := range []string{"purpose", "name", "owner name", "vault", "key", "control", "actor recipe", "permission", "key encrypt operation", "key decrypt operation", "LIST scope", "missing policy read", "policy list", "policy resource", "policy permission", "policy scope", "v1 policy read", "mixed version"} {
 		t.Run(change, func(t *testing.T) {
 			f := newOriginalActorReadsSDKFixture(t, "", 0)
 			prepared := f.prepared
@@ -424,6 +521,9 @@ func TestOriginalFoundationMaterialIAMSignedContract(t *testing.T) {
 			recipes := *prepared.Grant.OriginalMaterialPublicationIAM
 			for index := range recipes {
 				recipes[index].SecretNames = slices.Clone(recipes[index].SecretNames)
+				if recipes[index].PolicyRead != nil {
+					recipes[index].PolicyRead = new(*recipes[index].PolicyRead)
+				}
 			}
 			prepared.Grant.OriginalMaterialPublicationIAM = &recipes
 			switch change {
@@ -449,6 +549,22 @@ func TestOriginalFoundationMaterialIAMSignedContract(t *testing.T) {
 				recipes[0].Operations[6].Operation = "Decrypt"
 			case "LIST scope":
 				recipes[0].Operations[0].Scope = "material-names-vault"
+			case "missing policy read":
+				recipes[0].PolicyRead = nil
+			case "policy list":
+				recipes[0].PolicyRead.Operation = "ListPolicies"
+			case "policy resource":
+				recipes[0].PolicyRead.ResourceType = "all-resources"
+			case "policy permission":
+				recipes[0].PolicyRead.Permission = "POLICY_UPDATE"
+			case "policy scope":
+				recipes[0].PolicyRead.Scope = "material-names-vault"
+			case "v1 policy read":
+				for index := range recipes {
+					recipes[index].Purpose = originalMaterialIAMPurpose
+				}
+			case "mixed version":
+				recipes[1].Purpose, recipes[1].PolicyRead = originalMaterialIAMPurpose, nil
 			}
 			if validateOriginalMaterialIAMIntents(prepared.Grant, f.approval.HomeStorageDomain) == nil {
 				t.Fatal("changed finite recipe passed direct validation")
@@ -481,7 +597,7 @@ func TestOriginalFoundationMaterialIAMRetainedContract(t *testing.T) {
 	}
 	f.assertMaterialIAM(t)
 	store := f.store(t)
-	for _, change := range []string{"remove", "actor", "vault", "name", "statement", "token", "receipt", "ETag", "completion"} {
+	for _, change := range []string{"remove", "actor", "vault", "name", "statement", "token", "receipt", "ETag", "completion", "policy read", "purpose downgrade"} {
 		t.Run(change, func(t *testing.T) {
 			current, etag, err := store.Load(t.Context(), "GRU")
 			if err != nil || etag == "" {
@@ -508,6 +624,10 @@ func TestOriginalFoundationMaterialIAMRetainedContract(t *testing.T) {
 				entry.PolicyETag = "different"
 			case "completion":
 				entry.VerifiedAt = entry.VerifiedAt.Add(time.Nanosecond)
+			case "policy read":
+				entry.Recipe.PolicyRead.Operation = "ListPolicies"
+			case "purpose downgrade":
+				entry.Recipe.Purpose, entry.Recipe.PolicyRead = originalMaterialIAMPurpose, nil
 			}
 			if current.validate() == nil && current.retainOriginalFoundationMaterialIAM(previous) == nil {
 				t.Fatal("changed retained material policy passed direct contract")

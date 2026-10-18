@@ -49,13 +49,14 @@ type OriginalSourceActorScope struct {
 type VerifiedOriginalSourceActor struct{ proof *originalSourceActorProof }
 
 type originalSourceActorProof struct {
-	factory     *ociclient.Factory
-	scope       OriginalSourceActorScope
-	config      bootstrapmaterial.Config
-	intent      OriginalSourceProducerIntent
-	attestor    VerifiedAdmissionAttestor
-	recordETag  string
-	publicETags [2]string
+	factory             *ociclient.Factory
+	scope               OriginalSourceActorScope
+	config              bootstrapmaterial.Config
+	intent              OriginalSourceProducerIntent
+	attestor            VerifiedAdmissionAttestor
+	recordETag          string
+	publicETags         [2]string
+	materialPublication *OriginalFoundationMaterialIAM
 }
 
 func (v VerifiedOriginalSourceActor) IsVerified() bool {
@@ -281,7 +282,11 @@ func readOriginalSourceActor(ctx context.Context, factory *ociclient.Factory, in
 	config.Slots = slices.Clone(config.Slots)
 	intent := birth.Intent
 	intent.Profile.NetworkSecurityGroupOCIDs = slices.Clone(intent.Profile.NetworkSecurityGroupOCIDs)
-	return VerifiedOriginalSourceActor{proof: &originalSourceActorProof{factory: factory, scope: scope, config: config, intent: intent, attestor: attestor, recordETag: recordETag, publicETags: etags}}, nil
+	publication, err := originalSourceMaterialPublication(grant, record, index)
+	if err != nil {
+		return deny(err)
+	}
+	return VerifiedOriginalSourceActor{proof: &originalSourceActorProof{factory: factory, scope: scope, config: config, intent: intent, attestor: attestor, recordETag: recordETag, publicETags: etags, materialPublication: publication}}, nil
 }
 
 func readOriginalSourceDocument(ctx context.Context, objects FoundationObjects, namespace, name string, limit int64) ([]byte, string, error) {

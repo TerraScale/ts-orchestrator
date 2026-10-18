@@ -82,6 +82,7 @@ type originalMechanicalSDK struct {
 	faulted          bool
 	creates          int
 	byName, metadata int
+	material         *originalMaterialSDK
 }
 
 func (f *originalMechanicalSDK) fail(w http.ResponseWriter, status int) {
@@ -96,6 +97,9 @@ func (f *originalMechanicalSDK) ServeHTTP(w http.ResponseWriter, r *http.Request
 		f.t.Error("mechanical request lacks actual OCI SDK signing")
 	}
 	q := f.in.intent
+	if f.material != nil && f.serveMaterial(w, r) {
+		return
+	}
 	if r.URL.Path == "/n/ns/b/gru-1-head/o/"+q.SourceObject {
 		if r.Host != "objectstorage.sa-saopaulo-1.oraclecloud.com" {
 			f.t.Error("source object escaped fixed HOME host")
@@ -130,6 +134,18 @@ func (f *originalMechanicalSDK) ServeHTTP(w http.ResponseWriter, r *http.Request
 			f.faulted = true
 			f.fail(w, 503)
 			return
+		}
+		if f.material != nil {
+			var previous originalSourceState
+			if json.Unmarshal(f.state, &previous) != nil || !validOriginalState(next, f.in) || !immutableOriginalState(previous, next) {
+				f.t.Error("material checkpoint escaped monotone protected state")
+				f.fail(w, 400)
+				return
+			}
+			if f.material.fault == "journal refused" && next.Publication != nil && len(next.Publication.Journal) > 0 && !bytes.Equal(previous.Publication.Journal, next.Publication.Journal) {
+				f.fail(w, 503)
+				return
+			}
 		}
 		f.state = bytes.Clone(wire)
 		if f.fault == "lost CAS response" && !f.faulted {

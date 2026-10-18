@@ -44,18 +44,19 @@ type originalSourceCandidate struct {
 // Schema 3 is deliberately separate from the normal founder's schema 1.
 // Its public inventory is DATA and cannot grant startup or runtime identity.
 type originalSourceState struct {
-	SchemaVersion                int                             `json:"schemaVersion"`
-	Kind                         string                          `json:"kind"`
-	Scope                        region.OriginalSourceActorScope `json:"scope"`
-	IntentSHA256                 string                          `json:"intentSha256"`
-	AdmissionAuthorizationSHA256 string                          `json:"admissionAuthorizationSha256"`
-	Target                       bootstrapmaterial.VaultTarget   `json:"target"`
-	SecretName                   string                          `json:"secretName"`
-	RetryToken                   string                          `json:"retryToken"`
-	StartedAt                    time.Time                       `json:"startedAt"`
-	Candidate                    originalSourceCandidate         `json:"candidate"`
-	Reference                    materialSourceReference         `json:"reference"`
-	OriginalAdmissionInventory   []byte                          `json:"originalAdmissionInventory,omitempty"`
+	SchemaVersion                int                               `json:"schemaVersion"`
+	Kind                         string                            `json:"kind"`
+	Scope                        region.OriginalSourceActorScope   `json:"scope"`
+	IntentSHA256                 string                            `json:"intentSha256"`
+	AdmissionAuthorizationSHA256 string                            `json:"admissionAuthorizationSha256"`
+	Target                       bootstrapmaterial.VaultTarget     `json:"target"`
+	SecretName                   string                            `json:"secretName"`
+	RetryToken                   string                            `json:"retryToken"`
+	StartedAt                    time.Time                         `json:"startedAt"`
+	Candidate                    originalSourceCandidate           `json:"candidate"`
+	Reference                    materialSourceReference           `json:"reference"`
+	OriginalAdmissionInventory   []byte                            `json:"originalAdmissionInventory,omitempty"`
+	Publication                  *originalMaterialPublicationState `json:"publication,omitempty"`
 }
 
 type originalSourceInputs struct {
@@ -143,7 +144,7 @@ func originalState(in originalSourceInputs, now time.Time) originalSourceState {
 func validOriginalState(state originalSourceState, in originalSourceInputs) bool {
 	if state.SchemaVersion != 3 || state.Kind != originalSourceKind || state.Scope != in.scope || state.IntentSHA256 != in.intentSHA ||
 		state.AdmissionAuthorizationSHA256 != in.admissionSHA || state.Target != in.intent.Escrow || state.SecretName != in.intent.SourceSecretName ||
-		state.StartedAt.IsZero() || state.StartedAt.After(time.Now()) || !state.StartedAt.Before(in.scope.Deadline) || len(state.OriginalAdmissionInventory) > bootstrap.MaxManifestBytes {
+		state.StartedAt.IsZero() || state.StartedAt.After(time.Now()) || !state.StartedAt.Before(in.scope.Deadline) || len(state.OriginalAdmissionInventory) > bootstrap.MaxManifestBytes || !validOriginalPublication(state, in) {
 		return false
 	}
 	if id, err := uuid.Parse(state.RetryToken); err != nil || id.String() != state.RetryToken {
@@ -151,13 +152,13 @@ func validOriginalState(state originalSourceState, in originalSourceInputs) bool
 	}
 	c, r := state.Candidate, state.Reference
 	if c == (originalSourceCandidate{}) {
-		return r == (materialSourceReference{}) && len(state.OriginalAdmissionInventory) == 0
+		return r == (materialSourceReference{}) && len(state.OriginalAdmissionInventory) == 0 && state.Publication == nil
 	}
 	if !validDigest(c.SHA256) || !validDigest(c.CreateSHA256) || c.MaxBytes <= 0 || c.MaxBytes > materialSourceSecretLimit {
 		return false
 	}
 	if r == (materialSourceReference{}) {
-		return len(state.OriginalAdmissionInventory) == 0
+		return len(state.OriginalAdmissionInventory) == 0 && state.Publication == nil
 	}
 	return originalSecretID(r.SecretOCID) && r.SHA256 == c.SHA256 && r.MaxBytes == c.MaxBytes
 }
@@ -167,7 +168,8 @@ func immutableOriginalState(prior, next originalSourceState) bool {
 	a.Candidate, b.Candidate = originalSourceCandidate{}, originalSourceCandidate{}
 	a.Reference, b.Reference = materialSourceReference{}, materialSourceReference{}
 	a.OriginalAdmissionInventory, b.OriginalAdmissionInventory = nil, nil
-	if !sameOriginalState(a, b) || prior.Candidate != (originalSourceCandidate{}) && prior.Candidate != next.Candidate ||
+	a.Publication, b.Publication = nil, nil
+	if !sameOriginalState(a, b) || !immutableOriginalPublication(prior, next) || prior.Candidate != (originalSourceCandidate{}) && prior.Candidate != next.Candidate ||
 		prior.Reference != (materialSourceReference{}) && prior.Reference != next.Reference ||
 		len(prior.OriginalAdmissionInventory) != 0 && !bytes.Equal(prior.OriginalAdmissionInventory, next.OriginalAdmissionInventory) {
 		return false
@@ -412,7 +414,7 @@ func readOriginalCandidate(dir int) ([]byte, error) {
 }
 
 func originalReservationSHA(state originalSourceState) string {
-	state.Candidate, state.Reference, state.OriginalAdmissionInventory = originalSourceCandidate{}, materialSourceReference{}, nil
+	state.Candidate, state.Reference, state.OriginalAdmissionInventory, state.Publication = originalSourceCandidate{}, materialSourceReference{}, nil, nil
 	wire, _ := json.Marshal(state, json.Deterministic(true))
 	return digestWire(wire)
 }
