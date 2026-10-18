@@ -1074,6 +1074,20 @@ type provisionProvider struct {
 	reads atomic.Int64
 }
 
+func (p *provisionProvider) KeyIDContext(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return p.ConfigurationProvider.KeyID()
+}
+
+func (p *provisionProvider) PrivateRSAKeyContext(ctx context.Context) (*rsa.PrivateKey, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return p.ConfigurationProvider.PrivateRSAKey()
+}
+
 func (p *provisionProvider) TenancyOCID() (string, error) {
 	p.reads.Add(1)
 	return p.ConfigurationProvider.TenancyOCID()

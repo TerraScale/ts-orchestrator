@@ -3,6 +3,7 @@ package region
 import (
 	"bytes"
 	"context"
+	"crypto/rsa"
 	"crypto/tls"
 	"encoding/json/v2"
 	"errors"
@@ -365,6 +366,22 @@ type originalCompartmentProvider struct {
 
 func (p originalCompartmentProvider) UserOCID() (string, error)    { return p.user, nil }
 func (p originalCompartmentProvider) TenancyOCID() (string, error) { return p.tenancy, nil }
+
+func (p originalCompartmentProvider) KeyIDContext(ctx context.Context) (string, error) {
+	provider, ok := p.ConfigurationProvider.(common.ContextKeyProvider)
+	if !ok {
+		return "", errors.New("original fixture provider lacks context key support")
+	}
+	return provider.KeyIDContext(ctx)
+}
+
+func (p originalCompartmentProvider) PrivateRSAKeyContext(ctx context.Context) (*rsa.PrivateKey, error) {
+	provider, ok := p.ConfigurationProvider.(common.ContextKeyProvider)
+	if !ok {
+		return nil, errors.New("original fixture provider lacks context key support")
+	}
+	return provider.PrivateRSAKeyContext(ctx)
+}
 
 func (f *originalCompartmentSDKFixture) store(t *testing.T) *ObjectFoundationStore {
 	t.Helper()
