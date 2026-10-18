@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"html"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"slices"
@@ -487,13 +487,28 @@ func TestOCIRateEvidenceChartsTheSummedPerMinuteRate(t *testing.T) {
 
 func TestGzipQualityZeroIsRefused(t *testing.T) {
 	t.Parallel()
+	server := newStreamServer(t, newTestDashboard(Options{}))
 	for header, want := range map[string]bool{"gzip": true, "gzip;q=0.5": true, "br, gzip; q=1": true, "gzip;q=0": false, "gzip;q=0.0": false, "gzip; q=0.000": false, "deflate": false, "gzip;Q=0.00": false} {
-		request := httptest.NewRequest(http.MethodGet, assetURL("app.js"), nil)
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+assetURL("app.js"), nil)
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
 		request.Header.Set("Accept-Encoding", header)
-		response := httptest.NewRecorder()
-		newTestDashboard(Options{}).Handler().ServeHTTP(response, request)
-		if response.Code != http.StatusOK || (response.Header().Get("Content-Encoding") == "gzip") != want {
-			t.Errorf("GET asset with %q = %d, encoding %q", header, response.Code, response.Header().Get("Content-Encoding"))
+		response, err := server.Client().Do(request)
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+		_, readErr := io.Copy(io.Discard, response.Body)
+		closeErr := response.Body.Close()
+		cancel()
+		if readErr != nil || closeErr != nil {
+			t.Fatalf("GET asset with %q read=%v close=%v", header, readErr, closeErr)
+		}
+		if response.StatusCode != http.StatusOK || (response.Header.Get("Content-Encoding") == "gzip") != want {
+			t.Errorf("GET asset with %q = %d, encoding %q", header, response.StatusCode, response.Header.Get("Content-Encoding"))
 		}
 	}
 }

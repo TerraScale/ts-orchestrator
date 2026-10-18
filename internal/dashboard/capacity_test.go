@@ -3,8 +3,8 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -29,20 +29,41 @@ func (source *fakeCapacity) SetBudget(_ context.Context, next budget.Budget) err
 	return source.setErr
 }
 
-// postBudget submits the budget form to the dashboard's routes. The test
-// request's host is example.com, so the default Origin is same-host; an empty
-// header value is an absent one.
-func postBudget(handler http.Handler, form url.Values, headers map[string]string) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(http.MethodPost, "/capacity/budget", strings.NewReader(form.Encode()))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	request.Header.Set("Origin", "http://example.com")
+// capacityRequest keeps the original example.com host for same-host form checks.
+func capacityRequest(t *testing.T, dashboard *Dashboard, form url.Values, headers map[string]string) (*http.Response, string) {
+	t.Helper()
+	server := newStreamServer(t, dashboard)
+	defer server.Close() // Join handlers before callers inspect or change the provider.
+	client := *server.Client()
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	method, path := http.MethodGet, "/capacity"
+	if form != nil {
+		method, path = http.MethodPost, "/capacity/budget"
+	}
+	request, err := http.NewRequestWithContext(ctx, method, server.URL+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Host = "example.com"
+	if form != nil {
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header.Set("Origin", "http://example.com")
+	}
 	for name, value := range headers {
 		request.Header.Set(name, value)
 	}
-	request.RemoteAddr = "192.0.2.7:4444"
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, request)
-	return recorder
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, readErr := io.ReadAll(response.Body)
+	closeErr := response.Body.Close()
+	if readErr != nil || closeErr != nil {
+		t.Fatalf("%s %s read=%v close=%v", method, path, readErr, closeErr)
+	}
+	return response, string(body)
 }
 
 func validBudgetForm() url.Values {
@@ -52,23 +73,23 @@ func validBudgetForm() url.Values {
 func TestSetBudgetWritesThroughTheHomeAndRedirects(t *testing.T) {
 	t.Parallel()
 	source := &fakeCapacity{}
-	handler := newTestDashboard(Options{Journal: &Journal{Capacity: source}}).Handler()
+	dashboard := newTestDashboard(Options{Journal: &Journal{Capacity: source}})
 	for _, headers := range []map[string]string{
 		nil,
 		{"Origin": "", "Referer": "http://example.com/capacity"},
 	} {
 		source.budgets = nil
-		response := postBudget(handler, validBudgetForm(), headers)
-		if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/capacity" {
-			t.Fatalf("POST with %v = %d to %q, want 303 to /capacity", headers, response.Code, response.Header().Get("Location"))
+		response, _ := capacityRequest(t, dashboard, validBudgetForm(), headers)
+		if response.StatusCode != http.StatusSeeOther || response.Header.Get("Location") != "/capacity" {
+			t.Fatalf("POST with %v = %d to %q, want 303 to /capacity", headers, response.StatusCode, response.Header.Get("Location"))
 		}
 		if len(source.budgets) != 1 {
 			t.Fatalf("POST with %v wrote %d budgets, want 1", headers, len(source.budgets))
 		}
 		got := source.budgets[0]
 		if got.Schema != budget.Schema || got.MonthlyCapCents != 50000 || got.Currency != "BRL" ||
-			got.SetBy != "dashboard 192.0.2.7" || !got.SetAt.Equal(testNow) || got.Validate() != nil {
-			t.Fatalf("budget = %+v, want BRL 500.00 set from 192.0.2.7 at the clock", got)
+			got.SetBy != "dashboard 127.0.0.1" || !got.SetAt.Equal(testNow) || got.Validate() != nil {
+			t.Fatalf("budget = %+v, want BRL 500.00 set from 127.0.0.1 at the clock", got)
 		}
 	}
 }
@@ -99,10 +120,10 @@ func TestSetBudgetRefusesCrossSiteAndBadInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			source := &fakeCapacity{}
-			handler := newTestDashboard(Options{Journal: &Journal{Capacity: source}}).Handler()
-			response := postBudget(handler, tc.form, tc.headers)
-			if response.Code != tc.code {
-				t.Fatalf("POST = %d %q, want %d", response.Code, response.Body.String(), tc.code)
+			dashboard := newTestDashboard(Options{Journal: &Journal{Capacity: source}})
+			response, body := capacityRequest(t, dashboard, tc.form, tc.headers)
+			if response.StatusCode != tc.code {
+				t.Fatalf("POST = %d %q, want %d", response.StatusCode, body, tc.code)
 			}
 			if len(source.budgets) != 0 {
 				t.Fatalf("refused POST wrote %d budgets", len(source.budgets))
@@ -115,10 +136,10 @@ func TestBudgetFormReadsTheMajorUnit(t *testing.T) {
 	t.Parallel()
 	for amount, want := range map[string]uint64{"500": 50000, "500.5": 50050, "500.50": 50050, "500.05": 50005, "0.01": 1, "10000000000": 1_000_000_000_000} {
 		source := &fakeCapacity{}
-		handler := newTestDashboard(Options{Journal: &Journal{Capacity: source}}).Handler()
-		response := postBudget(handler, url.Values{"amount": {amount}, "currency": {"BRL"}}, nil)
-		if response.Code != http.StatusSeeOther || len(source.budgets) != 1 || source.budgets[0].MonthlyCapCents != want {
-			t.Fatalf("POST amount %s = %d, budgets %+v", amount, response.Code, source.budgets)
+		dashboard := newTestDashboard(Options{Journal: &Journal{Capacity: source}})
+		response, _ := capacityRequest(t, dashboard, url.Values{"amount": {amount}, "currency": {"BRL"}}, nil)
+		if response.StatusCode != http.StatusSeeOther || len(source.budgets) != 1 || source.budgets[0].MonthlyCapCents != want {
+			t.Fatalf("POST amount %s = %d, budgets %+v", amount, response.StatusCode, source.budgets)
 		}
 	}
 }
@@ -126,21 +147,21 @@ func TestBudgetFormReadsTheMajorUnit(t *testing.T) {
 func TestSetBudgetOutsideTheHomeConflictsAndSilentLeaderIsUnavailable(t *testing.T) {
 	t.Parallel()
 	source := &fakeCapacity{setErr: ErrBudgetNotHome}
-	handler := newTestDashboard(Options{Journal: &Journal{Capacity: source}}).Handler()
-	response := postBudget(handler, validBudgetForm(), nil)
-	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "set the budget on the home region's dashboard") {
-		t.Fatalf("POST outside the home = %d %q, want 409 naming the home", response.Code, response.Body.String())
+	dashboard := newTestDashboard(Options{Journal: &Journal{Capacity: source}})
+	response, body := capacityRequest(t, dashboard, validBudgetForm(), nil)
+	if response.StatusCode != http.StatusConflict || !strings.Contains(body, "set the budget on the home region's dashboard") {
+		t.Fatalf("POST outside the home = %d %q, want 409 naming the home", response.StatusCode, body)
 	}
 
 	source.setErr = errors.New("ask the global leader: nats: timeout")
-	response = postBudget(handler, validBudgetForm(), nil)
-	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "global leader did not set the budget") {
-		t.Fatalf("POST with a silent leader = %d %q, want 503", response.Code, response.Body.String())
+	response, body = capacityRequest(t, dashboard, validBudgetForm(), nil)
+	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(body, "global leader did not set the budget") {
+		t.Fatalf("POST with a silent leader = %d %q, want 503", response.StatusCode, body)
 	}
 
-	starting := newTestDashboard(Options{}).Handler()
-	if response := postBudget(starting, validBudgetForm(), nil); response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("POST before the provider is attached = %d, want 503", response.Code)
+	starting := newTestDashboard(Options{})
+	if response, _ := capacityRequest(t, starting, validBudgetForm(), nil); response.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("POST before the provider is attached = %d, want 503", response.StatusCode)
 	}
 }
 
@@ -161,7 +182,7 @@ func TestCapacityPageShowsBudgetCapacityScalingAndSuggestion(t *testing.T) {
 			LastChange: at},
 		Suggestion: &regionsuggest.Suggestion{Action: "none", Reason: "no region is saturated", At: at},
 	}}
-	body := get(t, newTestDashboard(Options{Journal: &Journal{Capacity: source}}).Handler(), "/capacity").Body.String()
+	_, body := capacityRequest(t, newTestDashboard(Options{Journal: &Journal{Capacity: source}}), nil, nil)
 	for _, want := range []string{
 		"Capacity", "Monthly budget", "BRL 500.00", "dashboard 192.0.2.7", `action="/capacity/budget"`,
 		`value="500.00"`, `value="BRL"`, "BRL 420.00", "84", "projected spend is 84% of the cap",
@@ -177,7 +198,7 @@ func TestCapacityPageShowsBudgetCapacityScalingAndSuggestion(t *testing.T) {
 func TestCapacityPageExplainsAnEmptyHome(t *testing.T) {
 	t.Parallel()
 	source := &fakeCapacity{view: CapacityView{Home: true}}
-	body := get(t, newTestDashboard(Options{Journal: &Journal{Capacity: source}}).Handler(), "/capacity").Body.String()
+	_, body := capacityRequest(t, newTestDashboard(Options{Journal: &Journal{Capacity: source}}), nil, nil)
 	for _, want := range []string{"No monthly budget is set; nothing grows past its current size.",
 		"No capacity document has been written yet.", "This region has no node scaling status yet.",
 		"The region suggestion has not been computed yet.", `action="/capacity/budget"`} {
@@ -192,7 +213,7 @@ func TestCapacityPageOutsideTheHomeHidesTheFormAndSuggestion(t *testing.T) {
 	source := &fakeCapacity{view: CapacityView{Unavailable: []string{"capacity document"},
 		Budget: &budget.Budget{Schema: budget.Schema, ID: "00000000009DQWP5T1WY4KP1TS", MonthlyCapCents: 50000,
 			Currency: "BRL", SetBy: "dashboard 192.0.2.7", SetAt: testNow}}}
-	body := get(t, newTestDashboard(Options{Journal: &Journal{Capacity: source}}).Handler(), "/capacity").Body.String()
+	_, body := capacityRequest(t, newTestDashboard(Options{Journal: &Journal{Capacity: source}}), nil, nil)
 	for _, want := range []string{"The budget is set on the home region's dashboard.",
 		"The region suggestion is computed in the home region.", "could not be read", "BRL 500.00"} {
 		if !strings.Contains(body, want) {
