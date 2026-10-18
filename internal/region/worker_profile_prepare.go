@@ -67,6 +67,7 @@ func PrepareWorkerProfilesSDK(ctx context.Context, factory *ociclient.Factory, n
 				placements := map[string][]string{}
 				for _, domain := range domains {
 					var page *string
+					seen := map[string]bool{}
 					for {
 						response, err := compute.ListShapes(ctx, core.ListShapesRequest{CompartmentId: new(grant.ParentCompartmentID), AvailabilityDomain: new(domain), Page: page})
 						if err != nil {
@@ -85,9 +86,10 @@ func PrepareWorkerProfilesSDK(ctx context.Context, factory *ociclient.Factory, n
 						if response.OpcNextPage == nil || *response.OpcNextPage == "" {
 							break
 						}
-						if page != nil && *page == *response.OpcNextPage {
+						if seen[*response.OpcNextPage] {
 							return nil, errors.New("worker shape discovery repeated a page")
 						}
+						seen[*response.OpcNextPage] = true
 						page = response.OpcNextPage
 					}
 				}

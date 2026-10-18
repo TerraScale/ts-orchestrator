@@ -369,6 +369,7 @@ func (pending SourcePolicyRecord) validate(key string) error {
 func (actor *SourceFounder) findPolicy(ctx context.Context, details identity.CreatePolicyDetails) (string, error) {
 	id := ""
 	page := ""
+	seen := map[string]bool{}
 	for {
 		response, err := actor.iam.ListPolicies(ociclient.RequestContext(ctx), identity.ListPoliciesRequest{CompartmentId: details.CompartmentId, Name: details.Name, Page: optionalSourceString(page)})
 		if err != nil {
@@ -386,9 +387,10 @@ func (actor *SourceFounder) findPolicy(ctx context.Context, details identity.Cre
 		if response.OpcNextPage == nil || *response.OpcNextPage == "" {
 			return id, nil
 		}
-		if *response.OpcNextPage == page {
+		if seen[*response.OpcNextPage] {
 			return "", errors.New("source policy discovery repeated its page")
 		}
+		seen[*response.OpcNextPage] = true
 		page = *response.OpcNextPage
 	}
 }

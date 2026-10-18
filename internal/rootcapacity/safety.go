@@ -64,10 +64,34 @@ func (a *attempt) authorizeLaunch(ctx context.Context) error {
 	if err := a.knownReadyMembers(members, child.PoolID); err != nil {
 		return err
 	}
+	if err := a.validateShapeResources(ctx, child.AvailabilityDomain); err != nil {
+		return err
+	}
+	if err := a.worker.Revalidate(a.readContext(ctx)); err != nil {
+		return err
+	}
+	if err := budget.Revalidate(a.readContext(ctx), a.home, a.receipt, proof, quote, snapshot, time.Now()); err != nil {
+		return err
+	}
+	if err := a.guard(ctx); err != nil {
+		return err
+	}
+	now := time.Now()
+	if !now.Before(a.receipt.LaunchExpiresAt) || !now.Before(a.worker.ExpiresAt()) || !proof.ValidAt(now) {
+		return errors.New("launch authority expired during final provider authorization")
+	}
+	if err := snapshot.Validate(proof.Footprint(), now); err != nil {
+		return err
+	}
+	return quote.Validate(proof.Footprint(), a.receipt.Cell, a.receipt.CompartmentID, a.receipt.Shape, a.receipt.OCPUs, a.receipt.MemoryGB, a.receipt.BootGB, now)
+}
+
+func (a *attempt) validateShapeResources(ctx context.Context, availabilityDomain string) error {
 	compute, err := a.factory.Compute()
 	if err != nil {
 		return err
 	}
+	seenPages := map[string]bool{}
 	var page *string
 	found, count := false, 0
 	for pages := 0; ; pages++ {
@@ -75,7 +99,7 @@ func (a *attempt) authorizeLaunch(ctx context.Context) error {
 			return errors.New("compatible shape pagination exceeds its finite bound")
 		}
 		response, err := compute.ListShapes(a.readContext(ctx), core.ListShapesRequest{CompartmentId: new(a.receipt.CompartmentID),
-			AvailabilityDomain: new(child.AvailabilityDomain), ImageId: new(a.recipe.ImageID), Page: page})
+			AvailabilityDomain: new(availabilityDomain), ImageId: new(a.recipe.ImageID), Page: page})
 		if err != nil {
 			return err
 		}
@@ -99,31 +123,16 @@ func (a *attempt) authorizeLaunch(ctx context.Context) error {
 		if value(response.OpcNextPage) == "" {
 			break
 		}
-		if value(page) == value(response.OpcNextPage) {
+		if seenPages[value(response.OpcNextPage)] {
 			return errors.New("compatible shape inventory repeated a page token")
 		}
+		seenPages[value(response.OpcNextPage)] = true
 		page = response.OpcNextPage
 	}
 	if !found {
 		return errors.New("exact signed image has no actual compatible launch shape in original AD")
 	}
-	if err := a.worker.Revalidate(a.readContext(ctx)); err != nil {
-		return err
-	}
-	if err := budget.Revalidate(a.readContext(ctx), a.home, a.receipt, proof, quote, snapshot, time.Now()); err != nil {
-		return err
-	}
-	if err := a.guard(ctx); err != nil {
-		return err
-	}
-	now := time.Now()
-	if !now.Before(a.receipt.LaunchExpiresAt) || !now.Before(a.worker.ExpiresAt()) || !proof.ValidAt(now) {
-		return errors.New("launch authority expired during final provider authorization")
-	}
-	if err := snapshot.Validate(proof.Footprint(), now); err != nil {
-		return err
-	}
-	return quote.Validate(proof.Footprint(), a.receipt.Cell, a.receipt.CompartmentID, a.receipt.Shape, a.receipt.OCPUs, a.receipt.MemoryGB, a.receipt.BootGB, now)
+	return nil
 }
 
 func (a *attempt) authorizeAttach(ctx context.Context) error {

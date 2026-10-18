@@ -4,7 +4,10 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json/v2"
+	"net/http"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,5 +121,123 @@ func TestWorkerProfileAuthorityRequiresIndependentCurrentSources(t *testing.T) {
 	reader.home.GrantSHA256 = strings.Repeat("0", 64)
 	if _, err := reader.WorkerProfiles(t.Context(), "GRU", "container"); err == nil {
 		t.Fatal("worker reader accepted a different root-pinned grant")
+	}
+}
+
+func TestWorkerProfilePreparationSDKPagination(t *testing.T) {
+	for _, scenario := range []struct {
+		name, cycle   string
+		emptyTerminal bool
+	}{
+		{name: "finite pages reuse tokens across roles architectures and domains"},
+		{name: "empty terminal page", emptyTerminal: true},
+		{name: "self cycle discards earlier profiles", cycle: "self"},
+		{name: "two token cycle discards earlier profiles", cycle: "two"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			var requests, listings, pageRequests, images atomic.Int32
+			bucket, err := releasechannel.BucketName("GRU")
+			if err != nil {
+				t.Fatal(err)
+			}
+			factory := paginationSDKFactory(t, func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/20160918/availabilityDomains":
+					if r.URL.Query().Get("compartmentId") != "ocid1.tenancy.oc1..test" {
+						t.Error("availability domains escaped tenancy")
+					}
+					if err := json.MarshalWrite(w, []map[string]string{{"name": "test:AD-2"}, {"name": "test:AD-1"}, {"name": "test:AD-1"}}); err != nil {
+						t.Error(err)
+					}
+				case strings.HasPrefix(r.URL.Path, "/n/ns/b/"+bucket+"/o/"):
+					object := strings.TrimPrefix(r.URL.Path, "/n/ns/b/"+bucket+"/o/")
+					if !slices.Contains([]string{releasechannel.CurrentImageObject("container", "arm64", "production"), releasechannel.CurrentImageObject("container", "amd64", "production"), releasechannel.CurrentImageObject("wasm", "arm64", "production"), releasechannel.CurrentImageObject("wasm", "amd64", "production")}, object) {
+						t.Error("image lookup escaped current worker channels")
+					}
+					images.Add(1)
+					w.WriteHeader(http.StatusNotFound)
+					w.Write([]byte(`{"code":"ObjectNotFound","message":"no current qualified image"}`))
+				case r.URL.Path == "/20160918/shapes":
+					requests.Add(1)
+					if r.URL.Query().Get("compartmentId") != "ocid1.compartment.oc1..parent" || !slices.Contains([]string{"test:AD-1", "test:AD-2"}, r.URL.Query().Get("availabilityDomain")) {
+						t.Error("shape listing escaped compartment or availability domain")
+					}
+					page := r.URL.Query().Get("page")
+					if page == "" {
+						listings.Add(1)
+						pageRequests.Store(0)
+					}
+					if pageRequests.Add(1) > 3 {
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					cycle := scenario.cycle != "" && listings.Load() == 5
+					items := []map[string]any{}
+					shape, processor := "VM.Standard.A1.Flex", "Ampere Altra"
+					switch page {
+					case "":
+						w.Header().Set("opc-next-page", "page-a")
+					case "page-a":
+						shape, processor = "VM.Standard.E5.Flex", "AMD EPYC"
+						next := "page-b"
+						if cycle && scenario.cycle == "self" {
+							next = "page-a"
+						}
+						w.Header().Set("opc-next-page", next)
+					case "page-b":
+						if cycle {
+							w.Header().Set("opc-next-page", "page-a")
+						} else if scenario.emptyTerminal {
+							w.Header().Set("opc-next-page", "")
+						}
+					default:
+						t.Errorf("unexpected shape page: %s", r.URL)
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					if page != "page-b" {
+						items = append(items, map[string]any{"shape": shape, "processorDescription": processor, "isFlexible": true, "ocpuOptions": map[string]any{"min": 1, "max": 8}, "memoryOptions": map[string]any{"minInGBs": 1, "maxInGBs": 128, "minPerOcpuInGBs": 1, "maxPerOcpuInGBs": 64}})
+					}
+					if err := json.MarshalWrite(w, items); err != nil {
+						t.Error(err)
+					}
+				default:
+					t.Errorf("worker preparation escaped SDK fixture: %s", r.URL)
+					w.WriteHeader(http.StatusBadRequest)
+				}
+			})
+			public, _, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			roots, err := trust.ParseKeyring(public)
+			if err != nil {
+				t.Fatal(err)
+			}
+			grant := FoundationGrant{TenancyID: "ocid1.tenancy.oc1..test", ParentCompartmentID: "ocid1.compartment.oc1..parent", InfrastructureSpend: &InfrastructureSpendIntent{MonthlyLimitMinor: 9000}, Regions: []FoundationIntent{{Plan: map[string]any{"cell": "GRU", "region": foundationHomeRegion}, BootstrapMaterial: &BootstrapMaterialIntent{PlanSHA256: strings.Repeat("a", 64), Config: bootstrapmaterial.Config{Environment: "production"}, SourceRegistration: &bootstrap.InitialSourceRegistration{StorageDomain: bootstrap.StorageDomain{Namespace: "ns"}}}}}}
+			profiles, err := PrepareWorkerProfilesSDK(t.Context(), factory, "ns", roots, grant, time.Now())
+			if scenario.cycle != "" {
+				want := int32(15)
+				if scenario.cycle == "self" {
+					want = 14
+				}
+				if err == nil || !strings.Contains(err.Error(), "repeated a page") || profiles != nil || requests.Load() != want || listings.Load() != 5 || images.Load() != 3 {
+					t.Fatalf("cyclic shapes profiles=%+v error=%v requests=%d listings=%d images=%d", profiles, err, requests.Load(), listings.Load(), images.Load())
+				}
+				return
+			}
+			if err != nil || len(profiles) != 4 || requests.Load() != 24 || listings.Load() != 8 || images.Load() != 4 {
+				t.Fatalf("finite shapes profiles=%+v error=%v requests=%d listings=%d images=%d", profiles, err, requests.Load(), listings.Load(), images.Load())
+			}
+			for _, profile := range profiles {
+				shape := "VM.Standard.A1.Flex"
+				if profile.Architecture == "amd64" {
+					shape = "VM.Standard.E5.Flex"
+				}
+				if profile.Shape != shape || !slices.Equal(profile.AvailabilityDomains, []string{"test:AD-1", "test:AD-2"}) {
+					t.Fatalf("paginated worker shape or placements changed: %+v", profile)
+				}
+			}
+		})
 	}
 }

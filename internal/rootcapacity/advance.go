@@ -238,6 +238,7 @@ func (a *attempt) prepareChild(ctx context.Context, management core.ComputeManag
 func (a *attempt) members(ctx context.Context, management core.ComputeManagementClient, poolID string) ([]core.InstanceSummary, error) {
 	var result []core.InstanceSummary
 	seen := map[string]bool{}
+	seenPages := map[string]bool{}
 	var page *string
 	for pages := 0; ; pages++ {
 		if pages >= 128 {
@@ -261,9 +262,10 @@ func (a *attempt) members(ctx context.Context, management core.ComputeManagement
 		if value(response.OpcNextPage) == "" {
 			return result, nil
 		}
-		if value(page) == value(response.OpcNextPage) {
+		if seenPages[value(response.OpcNextPage)] {
 			return nil, errors.New("pool membership repeated its page token")
 		}
+		seenPages[value(response.OpcNextPage)] = true
 		page = response.OpcNextPage
 	}
 }

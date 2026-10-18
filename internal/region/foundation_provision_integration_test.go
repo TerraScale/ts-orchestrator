@@ -579,8 +579,21 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	legacy := cloud.journal("GRU")
 	legacy.FoundationWriter.OriginalQuote = nil
 	legacyWire, err := json.Marshal(legacy, json.Deterministic(true))
-	if err != nil || bytes.Contains(legacyWire, []byte(`"originalQuote"`)) {
+	if err != nil {
 		t.Fatalf("absent historical quote changed legacy wire schema: %v", err)
+	}
+	var legacyFields struct {
+		FoundationWriter map[string]any        `json:"foundationWriter"`
+		NetBirdManager   *NetBirdManagerLaunch `json:"netBirdManager"`
+	}
+	if err := json.Unmarshal(legacyWire, &legacyFields); err != nil || legacyFields.FoundationWriter == nil {
+		t.Fatalf("historical writer missing from legacy wire: %v", err)
+	}
+	if _, present := legacyFields.FoundationWriter["originalQuote"]; present {
+		t.Fatal("absent historical writer quote entered legacy wire")
+	}
+	if legacyFields.NetBirdManager == nil || legacyFields.NetBirdManager.OriginalQuote == nil || !sameCapacityValue(legacyFields.NetBirdManager.OriginalQuote, legacy.NetBirdManager.OriginalQuote) {
+		t.Fatal("legacy writer encoding changed the independent original manager quote")
 	}
 	cloud.writeObject("gru-1-head/"+foundationObjectPrefix+"GRU.json", legacyWire)
 	legacy, legacyETag, err := store.Load(t.Context(), "GRU")

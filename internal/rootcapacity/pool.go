@@ -341,6 +341,7 @@ func (a *attempt) pointConfiguration(ctx context.Context, management core.Comput
 
 // A same-name provider object blocks inception; discovery never supplies origin.
 func (a *attempt) rejectPoolCollision(ctx context.Context, management core.ComputeManagementClient, name string) error {
+	seenPages := map[string]bool{}
 	var page *string
 	for pages := 0; pages < 128; pages++ {
 		response, err := management.ListInstancePools(a.readContext(ctx), core.ListInstancePoolsRequest{
@@ -362,9 +363,10 @@ func (a *attempt) rejectPoolCollision(ctx context.Context, management core.Compu
 		if value(response.OpcNextPage) == "" {
 			return nil
 		}
-		if value(response.OpcNextPage) == value(page) {
+		if seenPages[value(response.OpcNextPage)] {
 			return errors.New("pool collision inventory repeated a page token")
 		}
+		seenPages[value(response.OpcNextPage)] = true
 		page = response.OpcNextPage
 	}
 	return errors.New("pool collision pagination exceeds its finite bound")
