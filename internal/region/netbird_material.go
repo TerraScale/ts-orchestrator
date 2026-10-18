@@ -440,8 +440,11 @@ func (authority *HomeIAMAuthority) checkNetBirdMaterialOrigins(ctx context.Conte
 			return err
 		}
 		wire, err := readDiscoveryObject(ctx, authority.operator.objects, authority.operator.domain.Namespace, name, int64(len(expected)))
-		if err != nil || !bytes.Equal(wire, expected) {
-			return errors.New("original material lacks exact independent origin readbacks")
+		if err != nil {
+			return fmt.Errorf("original material lacks exact independent origin readbacks for %s: %w", name, err)
+		}
+		if !bytes.Equal(wire, expected) {
+			return fmt.Errorf("original material lacks exact independent origin readbacks for %s: bytes differ (expected %d, observed %d)", name, len(expected), len(wire))
 		}
 	}
 	return nil

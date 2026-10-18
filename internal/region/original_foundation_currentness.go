@@ -123,8 +123,15 @@ func (entry OriginalFoundationPublication) scopeOnly() OriginalFoundationPublica
 }
 
 func originalPublicationScope(record FoundationRecord, intent OriginalFoundationPublicationIntent, rootChainSHA string) (OriginalFoundationPublication, error) {
+	if completeOriginalFoundationAdmissionReads(record) != nil {
+		return OriginalFoundationPublication{}, ErrOriginalSourceProducerHold
+	}
+	return originalPublicationScopeFromAdmissionReads(record, intent, rootChainSHA)
+}
+
+func originalPublicationScopeFromAdmissionReads(record FoundationRecord, intent OriginalFoundationPublicationIntent, rootChainSHA string) (OriginalFoundationPublication, error) {
 	var entry OriginalFoundationPublication
-	if completeOriginalFoundationAdmissionReads(record) != nil || !validFoundationDigest(rootChainSHA) {
+	if !validFoundationDigest(rootChainSHA) {
 		return entry, ErrOriginalSourceProducerHold
 	}
 	root := record.OriginalFoundationCompartments
@@ -187,7 +194,7 @@ func originalPublicationAuthority(ctx context.Context, authority *HomeIAMAuthori
 	if err != nil || grant.OriginalPublication == nil || validateOriginalFoundationPublicationIntent(grant, authority.domain) != nil {
 		return record, etag, expected, deadline, errors.Join(ErrOriginalSourceProducerHold, err)
 	}
-	expected, err = originalPublicationScope(record, *grant.OriginalPublication, digestSource(authority.operator.bundle.RootChainWire))
+	expected, err = originalPublicationScopeFromAdmissionReads(record, *grant.OriginalPublication, digestSource(authority.operator.bundle.RootChainWire))
 	if err != nil || expected.GrantSHA256 != digestSource(authority.operator.bundle.GrantWire) {
 		return record, etag, expected, deadline, errors.Join(ErrOriginalSourceProducerHold, err)
 	}
