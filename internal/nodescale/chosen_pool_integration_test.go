@@ -50,7 +50,7 @@ func capacityEnrollmentRecipe(t *testing.T) Recipe {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundle := hostenroll.PublicBundle{SchemaVersion: 1, Cell: "gru", Region: "sa-saopaulo-1", Environment: "production",
+	bundle := hostenroll.PublicBundle{SchemaVersion: 1, Cell: "gru", Region: "GRU", Environment: "production",
 		ControllerEndpoints:         []string{"10.0.0.1:8443", "10.0.0.2:8443", "10.0.0.3:8443"},
 		NATSURLs:                    []string{"tls://10.0.0.1:4222", "tls://10.0.0.2:4222", "tls://10.0.0.3:4222"},
 		CAPEM:                       string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
