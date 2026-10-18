@@ -910,8 +910,8 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	before := fixture.cloud.creates
 	assertMissingCurrentGrant := func(err error) {
 		t.Helper()
-		service, ok := errors.AsType[common.ServiceError](err)
-		if !ok || service.GetHTTPStatusCode() != http.StatusNotFound || !strings.Contains(err.Error(), "read current protected foundation grant") {
+		var service common.ServiceError
+		if !errors.As(err, &service) || service.GetHTTPStatusCode() != http.StatusNotFound || !strings.Contains(err.Error(), "read current protected foundation grant") {
 			t.Fatalf("prospective startup bypassed the missing protected current grant: %v", err)
 		}
 		if _, err := os.Stat(fixture.cloud.objectPath("gru-1-head/bootstrap/" + foundationGrantObject)); !errors.Is(err, os.ErrNotExist) {
