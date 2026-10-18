@@ -260,7 +260,17 @@ func retainOriginalFoundationPublication(ctx context.Context, authority *HomeIAM
 	if err := guard(ctx); err != nil {
 		return err
 	}
-	publicationCtx := ociclient.WithRequestGuard(ociclient.WithAuthority(ctx, guard), guard)
+	preSign := func(dispatchCtx context.Context) error {
+		guarded := originalProviderCheckpointContext(dispatchCtx, ctx)
+		lease, ok := guarded.Value(homeIAMLeaseKey{}).(*homeIAMLease)
+		if !ok || lease == nil || lease.authority != authority {
+			return ErrOriginalSourceProducerHold
+		}
+		// Signing may use an external key; retain fresh root and lease fencing.
+		// The full guard still reads every publication prerequisite after signing.
+		return authority.Guard(guarded, 0)
+	}
+	publicationCtx := ociclient.WithRequestGuard(ociclient.WithAuthority(ctx, preSign), guard)
 	var readbacks [2]OriginalFoundationPublicationReadback
 	for index, wire := range [2][]byte{authority.operator.bundle.RootChainWire, authority.operator.bundle.GrantWire} {
 		if entry.Readbacks == nil {

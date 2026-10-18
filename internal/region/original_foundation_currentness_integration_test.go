@@ -19,6 +19,19 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
+type originalPublicationBoundarySigner struct {
+	common.HTTPRequestSigner
+	after func(*http.Request)
+}
+
+func (s originalPublicationBoundarySigner) Sign(request *http.Request) error {
+	if err := s.HTTPRequestSigner.Sign(request); err != nil {
+		return err
+	}
+	s.after(request)
+	return nil
+}
+
 type originalPublicationSDKFixture struct {
 	*originalAdmissionReadsSDKFixture
 	publicationMu sync.Mutex
@@ -215,6 +228,67 @@ func TestOriginalFoundationCurrentnessSDK(t *testing.T) {
 			t.Fatal("completed replay repeated effects or changed protected publication history")
 		}
 	})
+	for _, boundary := range []string{"provider drift after signing", "operation cancellation after signing"} {
+		t.Run(boundary, func(t *testing.T) {
+			f := newOriginalPublicationSDKFixture(t, "lost reservation response")
+			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) || !f.faulted {
+				t.Fatal("boundary setup did not lose the genuine durable reservation acknowledgement", err)
+			}
+			record := f.record(t)
+			entry := record.OriginalFoundationCompartments.Publication
+			if completeOriginalFoundationAdmissionReads(record) != nil || entry == nil || entry.Readbacks != nil || f.puts != [2]int{} {
+				t.Fatal("signing boundary lacks complete genuine prerequisites and pending publication")
+			}
+			authority, _, err := newOperatorHomeIAMAuthority(t.Context(), f.factoryFor(), f.roots, f.bundle)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lease, release, err := authority.HomeWrite(t.Context(), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer release()
+			operation, cancel := context.WithCancel(lease)
+			defer cancel()
+			before := bytes.Clone(f.wire(t))
+			policyID := record.OriginalFoundationCompartments.Regions[0].SourceIAM.Provenance.ResourceID
+			source := f.originalSourceIAMSDKFixture
+			signed, readsAtSign := 0, 0
+			authority.objects.Signer = originalPublicationBoundarySigner{HTTPRequestSigner: authority.objects.Signer, after: func(request *http.Request) {
+				if request.Method != http.MethodPut || !strings.HasSuffix(request.URL.Path, "/o/"+foundationRootChainObject) {
+					return
+				}
+				if !strings.HasPrefix(request.Header.Get("Authorization"), "Signature ") || request.Header.Get("If-None-Match") != "*" {
+					t.Error("boundary did not follow genuine SDK signing of the immutable publication")
+				}
+				signed++
+				if boundary == "operation cancellation after signing" {
+					cancel()
+					return
+				}
+				source.mu.Lock()
+				readsAtSign = source.gets[policyID]
+				source.rows[policyID]["statements"] = []string{"Allow any-user to manage all-resources in tenancy"}
+				source.mu.Unlock()
+			}}
+			err = retainOriginalFoundationPublication(operation, authority)
+			if !errors.Is(err, ErrOriginalSourceProducerHold) || signed != 1 || f.puts != [2]int{} || f.completions != 0 || f.cloud.hasAnchor() || !bytes.Equal(before, f.wire(t)) {
+				t.Fatal("post-signing boundary reached the provider or changed protected pending publication", err)
+			}
+			if boundary == "operation cancellation after signing" {
+				if !errors.Is(err, context.Canceled) {
+					t.Fatal("post-signing operation cancellation was not retained", err)
+				}
+			} else {
+				source.mu.Lock()
+				readsAfter := source.gets[policyID]
+				source.mu.Unlock()
+				if readsAfter <= readsAtSign {
+					t.Fatal("final guard did not freshly read the provider policy after signing")
+				}
+			}
+		})
+	}
 	t.Run("lost object response recovers through exact readback", func(t *testing.T) {
 		f := newOriginalPublicationSDKFixture(t, "lost object response")
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) || !f.faulted {
