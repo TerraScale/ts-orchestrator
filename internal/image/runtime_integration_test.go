@@ -363,7 +363,7 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Wri
 			t.Fatal(err)
 		}
 	}
-	for _, executable := range []string{"usr/local/bin/terrascale-orchestrator", "usr/local/bin/netbird", "usr/bin/systemctl", "bin/sh"} {
+	for _, executable := range []string{"usr/local/bin/terrascale-orchestrator", "usr/local/bin/netbird", "usr/bin/systemctl", "bin/sh", "var/lib/terrascale-orchestrator/current/terrascale-orchestrator"} {
 		p := filepath.Join(root, executable)
 		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 			t.Fatal(err)
