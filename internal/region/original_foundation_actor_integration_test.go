@@ -170,10 +170,15 @@ func (f *originalActorSDKFixture) expectedBody(record FoundationRecord, index in
 	return map[string]any{
 		"availabilityDomain": profile.AvailabilityDomain, "faultDomain": profile.FaultDomain,
 		"compartmentId": originalCompartmentID(region.Compartments[0]), "displayName": strings.ToLower(region.Cell) + "-1-controller-a", "shape": profile.Shape,
-		"metadata":          map[string]any{"terrascale-bootstrap": `{"schemaVersion":1,"slot":"controller-a"}`},
-		"shapeConfig":       map[string]any{"ocpus": float64(geometry.WholeOCPUs), "memoryInGBs": float64(geometry.MemoryInGB)},
-		"sourceDetails":     map[string]any{"sourceType": "image", "imageId": startup.ImageOCID, "bootVolumeSizeInGBs": float64(geometry.BootVolumeGB), "bootVolumeVpusPerGB": float64(10)},
-		"createVnicDetails": map[string]any{"subnetId": region.Network.Creates[4].Provenance.ResourceID, "nsgIds": []any{region.Network.Creates[5].Provenance.ResourceID}, "privateIp": privateIP, "assignPublicIp": false},
+		"metadata":    map[string]any{"terrascale-bootstrap": `{"schemaVersion":1,"slot":"controller-a"}`},
+		"definedTags": map[string]any{}, "securityAttributes": map[string]any{}, "extendedMetadata": map[string]any{}, "freeformTags": map[string]any{},
+		"launchVolumeAttachments": []any{}, "licensingConfigs": []any{},
+		"shapeConfig":   map[string]any{"ocpus": float64(geometry.WholeOCPUs), "memoryInGBs": float64(geometry.MemoryInGB)},
+		"sourceDetails": map[string]any{"sourceType": "image", "imageId": startup.ImageOCID, "bootVolumeSizeInGBs": float64(geometry.BootVolumeGB), "bootVolumeVpusPerGB": float64(10)},
+		"createVnicDetails": map[string]any{
+			"subnetId": region.Network.Creates[4].Provenance.ResourceID, "nsgIds": []any{region.Network.Creates[5].Provenance.ResourceID}, "privateIp": privateIP, "assignPublicIp": false,
+			"definedTags": map[string]any{}, "freeformTags": map[string]any{}, "securityAttributes": map[string]any{}, "ipv6AddressIpv6SubnetCidrPairDetails": []any{},
+		},
 	}
 }
 

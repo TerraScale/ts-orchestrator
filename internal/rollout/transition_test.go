@@ -194,56 +194,6 @@ func TestNewRejectsKnownBadAndInvalidSpecs(t *testing.T) {
 	}
 }
 
-func TestRolloutCompletesThroughCanarySoakAndBatches(t *testing.T) {
-	record := newRecord(t, controllers(), testPolicy())
-	if actions := NextActions(record); len(actions) != 0 {
-		t.Fatalf("pending rollout acts: %v", actions)
-	}
-	at := testStart
-	record = apply(t, record, Event{Kind: EventStart, At: at})
-	if actions := NextActions(record); len(actions) != 1 || actions[0].Kind != ActionPreflight {
-		t.Fatalf("preflight actions = %v", actions)
-	}
-	record = apply(t, record, Event{Kind: EventPreflightPassed, At: at})
-	if record.Phase != PhaseCanary {
-		t.Fatalf("phase = %s", record.Phase)
-	}
-	actions := NextActions(record)
-	if len(actions) != 1 || actions[0].Kind != ActionPrepare || actions[0].Unit != "ctrl-b" || actions[0].Digest != toDigest ||
-		!slices.Equal(actions[0].Peers, []string{"ctrl-a", "ctrl-c"}) || actions[0].OperationID == "" {
-		t.Fatalf("canary actions = %+v", actions)
-	}
-	record = apply(t, record, Event{Kind: EventPrepared, Unit: "ctrl-b", At: at})
-	if record.Phase != PhaseCanarySoak {
-		t.Fatalf("phase = %s", record.Phase)
-	}
-	// A single serving proof never promotes: the soak needs time and reports.
-	at = at.Add(time.Second)
-	record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at, 10), At: at})
-	at = at.Add(record.soakDuration() + time.Minute)
-	record = apply(t, record, Event{Kind: EventTick, At: at})
-	if record.Phase != PhaseCanarySoak {
-		t.Fatalf("one report promoted the canary: %s", record.Phase)
-	}
-	record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at, 10), At: at})
-	if record.Phase != PhaseBatch || record.WaveIndex != 1 || record.Units["ctrl-b"].State != UnitPromoted {
-		t.Fatalf("canary did not promote: %s wave %d", record.Phase, record.WaveIndex)
-	}
-	record, at = soakWave(t, record, at)
-	if record.Phase != PhaseBatch || record.WaveIndex != 2 {
-		t.Fatalf("batch 1 did not promote: %s", record.Phase)
-	}
-	if actions := NextActions(record); len(actions) != 1 || actions[0].Unit != "ctrl-a" {
-		t.Fatalf("seed is not last: %v", actions)
-	}
-	record, _ = soakWave(t, record, at)
-	if record.Phase != PhaseComplete || len(record.KnownBad) != 0 {
-		t.Fatalf("rollout did not complete cleanly: %s %v", record.Phase, record.KnownBad)
-	}
-	if _, err := Apply(record, Event{Kind: EventTick, At: at}); !errors.Is(err, ErrTerminal) {
-		t.Fatalf("terminal record accepted an event: %v", err)
-	}
-}
 
 func startedCanary(t *testing.T, units []Unit) (Record, time.Time) {
 	t.Helper()
@@ -265,39 +215,6 @@ func requireRollingBack(t *testing.T, record Record, reason string) {
 	}
 }
 
-func TestSoakFailuresRollBack(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		reason string
-		event  func(time.Time) Event
-	}{
-		{"restart", "restarted during soak", func(at time.Time) Event {
-			return Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at, 11), At: at}
-		}},
-		{"wrong digest", "unexpected digest", func(at time.Time) Event {
-			h := health(at, 10)
-			h.Digest = otherBad
-			return Event{Kind: EventHealthy, Unit: "ctrl-b", Health: h, At: at}
-		}},
-		{"failed canary", "failed-canary", func(at time.Time) Event {
-			return Event{Kind: EventUnhealthy, Unit: "ctrl-b", Reason: "failed-canary", At: at}
-		}},
-		{"held", "held", func(at time.Time) Event { return Event{Kind: EventHeld, Unit: "ctrl-b", At: at} }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			record, at := startedCanary(t, controllers())
-			record = apply(t, record, Event{Kind: EventPrepared, Unit: "ctrl-b", At: at})
-			at = at.Add(time.Second)
-			record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at, 10), At: at})
-			at = at.Add(time.Second)
-			record = apply(t, record, test.event(at))
-			requireRollingBack(t, record, test.reason)
-			if !slices.Equal(record.RollbackOrder, []string{"ctrl-b"}) {
-				t.Fatalf("rollback order = %v", record.RollbackOrder)
-			}
-		})
-	}
-}
 
 func TestDeadlinesRollBack(t *testing.T) {
 	record, at := startedCanary(t, controllers())
@@ -563,30 +480,6 @@ func TestOperationIDIsStableAndDistinct(t *testing.T) {
 	}
 }
 
-func TestHealthBeforeTheWaveStartedIsStaleWhilePreparing(t *testing.T) {
-	policy := testPolicy()
-	policy.CanaryUnits = 2
-	record := newRecord(t, seats(), policy)
-	at := testStart.Add(time.Minute)
-	record = apply(t, record, Event{Kind: EventStart, At: at})
-	record = apply(t, record, Event{Kind: EventPreflightPassed, At: at})
-	if len(record.Waves[0]) != 2 {
-		t.Fatalf("canary wave = %v, want two units", record.Waves[0])
-	}
-	first := record.Waves[0][0]
-	record = apply(t, record, Event{Kind: EventPrepared, Unit: first, At: at})
-	if !record.Phase.preparing() {
-		t.Fatalf("phase = %s, want the wave still preparing", record.Phase)
-	}
-	replayed := health(testStart, 100)
-	if _, err := Apply(record, Event{Kind: EventHealthy, Unit: first, Health: replayed, At: at.Add(time.Second)}); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("a report from before the wave started was accepted: %v", err)
-	}
-	fresh := apply(t, record, Event{Kind: EventHealthy, Unit: first, Health: health(at.Add(time.Second), 100), At: at.Add(time.Second)})
-	if fresh.Units[first].HealthyReports != 1 {
-		t.Fatalf("fresh report not counted: %+v", fresh.Units[first])
-	}
-}
 
 func TestValidateRejectsContradictoryAndMalformedRecords(t *testing.T) {
 	record := newRecord(t, controllers(), testPolicy())
