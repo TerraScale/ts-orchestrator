@@ -3,7 +3,10 @@
 package managedmaterial
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json/v2"
 	"os"
 	"runtime"
 	"strings"
@@ -72,6 +75,34 @@ func TestPrepareInitialUsesAdmittedPackagedNativeValidator(t *testing.T) {
 		objects.etag != confirmed.Object.ETag || objects.bodySHA != confirmed.Object.SHA256 {
 		t.Fatalf("native-validated preparation did not produce exactly one matching object Put and R3 CAS: receipt=%+v entry=%+v puts=%d commits=%d object_name=%s object_version=%s object_etag=%s object_sha256=%s",
 			confirmed, receipts.entry, objects.putCount, receipts.commitCount, objects.name, objects.version, objects.etag, objects.bodySHA)
+	}
+	input, err := nativeInitialInput(spec, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := encodeNativeValidationRequest(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request nativeValidationRequest
+	if err := json.Unmarshal(wire, &request, json.RejectUnknownMembers(true)); err != nil {
+		t.Fatal(err)
+	}
+	config, err := spec.LiveS3.ConfigJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Version != 1 || request.Mode != "alpha_object_durable" ||
+		request.AuthorityCertificate != base64.StdEncoding.EncodeToString(bundle.Authority.Certificate) ||
+		request.TrustedKey != base64.StdEncoding.EncodeToString(bundle.Authority.TrustedKey) ||
+		request.SignedV2S3Config != base64.StdEncoding.EncodeToString(config) ||
+		request.Expected.ConfigurationID != bundle.Authority.ConfigurationID ||
+		request.Expected.CertificateSHA256 != sha256Hex(bundle.Authority.Certificate) ||
+		request.Expected.TrustedKeySHA256 != sha256Hex(bundle.Authority.TrustedKey) ||
+		request.Expected.SignedV2S3ConfigSHA256 != sha256Hex(config) ||
+		bytes.Contains(wire, []byte(spec.LiveS3.Credential.SecretOCID)) ||
+		bytes.Contains(wire, []byte("secret_access_key")) {
+		t.Fatal("native request differs from public produced material or carries a secret reference")
 	}
 	t.Logf("accepted admitted TerraBase native verifier source=%s sha256=%s",
 		sourceCommit, pinnedSHA256)

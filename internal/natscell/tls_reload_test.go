@@ -256,6 +256,56 @@ func TestReloadingTLSRollsOverTheCA(t *testing.T) {
 	installTLS(t, files, nextCert, nextKey, next)
 	accepts("old CA dropped, an old-CA client", []testCA{old, next}, oldClient, false)
 	accepts("old CA dropped, a new-CA client", []testCA{next}, nextClient, true)
+
+	t.Run("startup sets are rejected on live route reload", func(t *testing.T) {
+		ca, stranger := newTestCA(t, "cell CA"), newTestCA(t, "stranger CA")
+		for name, leaf := range map[string]func() ([]byte, []byte){
+			"an expired leaf": func() ([]byte, []byte) {
+				cert, key, _ := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(-time.Minute))
+				return cert, key
+			},
+			"a route leaf without client use": func() ([]byte, []byte) {
+				cert, key, _ := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
+				return cert, key
+			},
+			"a leaf outside the bundle": func() ([]byte, []byte) {
+				cert, key, _ := stranger.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
+				return cert, key
+			},
+		} {
+			files := testTLSFiles(t)
+			cert, key := leaf()
+			validCert, validKey, first := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
+			installTLS(t, files, validCert, validKey, ca)
+			reloading, err := newCheckingTLS(files, "route")
+			if err != nil {
+				t.Fatal(err)
+			}
+			address := serveEcho(t, reloading.PeerConfig())
+			client := clientConfig([]testCA{ca}, ca.client(t))
+			conn, serial, err := dial(address, client)
+			if err != nil || serial.Cmp(first) != 0 {
+				t.Fatalf("%s: startup route presented %v, want %v (%v)", name, serial, first, err)
+			}
+			conn.Close()
+			installTLS(t, files, cert, key, ca)
+			if _, err := NewReloadingTLS(files, "route"); err == nil {
+				t.Errorf("startup accepted %s", name)
+			}
+			conn, serial, err = dial(address, client)
+			if err != nil || serial.Cmp(first) != 0 {
+				t.Fatalf("%s: rejected startup set changed the live route leaf to %v, want %v (%v)", name, serial, first, err)
+			}
+			conn.Close()
+			renewedCert, renewedKey, renewed := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(2*time.Hour))
+			installTLS(t, files, renewedCert, renewedKey, ca)
+			conn, serial, err = dial(address, client)
+			if err != nil || serial.Cmp(renewed) != 0 || serial.Cmp(first) == 0 {
+				t.Fatalf("%s: repaired route presented %v, want renewal %v (%v)", name, serial, renewed, err)
+			}
+			conn.Close()
+		}
+	})
 }
 
 // The dialing end of a route presents a renewed certificate on its next dial
