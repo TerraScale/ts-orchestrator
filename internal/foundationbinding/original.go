@@ -19,19 +19,37 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
+// CreateIdentity contains no payloads. The regional journal binds it to its
+// authenticated operation and signed intent before OCI receives the request.
+type CreateIdentity = createRequest
+
+func (identity CreateIdentity) Validate() error {
+	digest, err := hex.DecodeString(identity.RequestDigest)
+	_, region := catalog.CellForOCIRegion(identity.Region)
+	if identity.Key == "" || len(identity.Key) > 128 || strings.ContainsAny(identity.Key, "\x00\r\n/\\") || !region || err != nil || len(digest) != 32 {
+		return errors.New("foundation create identity is invalid")
+	}
+	if identity.RetryToken != "" {
+		token, err := hex.DecodeString(identity.RetryToken)
+		if err != nil || len(token) != 32 {
+			return errors.New("foundation create retry token is invalid")
+		}
+	}
+	return nil
+}
+
 // OriginalStartupResources is independently observed DATA, never startup authority.
 // Bootstrap retains its own private provenance after verifying the signed recipe.
 type OriginalStartupResources struct {
 	ResourceIDs                                                                        map[string]string
 	ActorOperationID, InstanceOCID, EvidenceSHA256                                     string
-	Create                                                                             foundation.CreateIdentity
+	Create                                                                             CreateIdentity
 	SourceObject, SourceSecretName, ProducerIntentSHA256, AdmissionAuthorizationSHA256 string
 	Scope                                                                              jsontext.Value
 	LaunchRequest                                                                      []byte
@@ -213,7 +231,7 @@ func ResolveOriginalStartup(ctx context.Context, factory *ociclient.Factory, aut
 	pending := originalMap(actor, "pending")
 	request := originalMap(actor, "request")
 	create := originalMap(pending, "request")
-	var createIdentity foundation.CreateIdentity
+	var createIdentity CreateIdentity
 	createWire, _ := json.Marshal(create, json.Deterministic(true))
 	if json.Unmarshal(createWire, &createIdentity, json.RejectUnknownMembers(true)) != nil || createIdentity.Validate() != nil || !canonicalDigest(createIdentity.RequestDigest) || !canonicalDigest(createIdentity.RetryToken) || createIdentity.Key != "controller-a" || createIdentity.Region != catalog.OCIRegion(authority.Cell) || createIdentity.RequestDigest != originalDigest(request) || originalText(pending, "operationId") != originalText(purpose, "operationId") || !entityid.Valid(originalText(purpose, "operationId")) || originalText(pending, "intentDigest") != originalText(regional, "intentSha256") || originalDigest(originalMap(actorProof, "create")) != originalDigest(pending) || originalText(actorProof, "grantSha256") != authority.GrantSHA256 || originalNumber(actorProof, "generation") != 1 || originalText(actor, "holdReason") != "" || originalText(actor, "verifiedAt") == "" || !canonicalDigest(originalText(actor, "readbackSha256")) {
 		return deny()

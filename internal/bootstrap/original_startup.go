@@ -19,7 +19,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -28,10 +27,10 @@ import (
 // OriginalLaunchIdentity is signed DATA about an already-created original actor.
 // It does not turn an observed tag, caller identity or ordinary founder into birth.
 type OriginalLaunchIdentity struct {
-	ActorOperationID string                    `json:"actorOperationId"`
-	InstanceOCID     string                    `json:"instanceOcid"`
-	Create           foundation.CreateIdentity `json:"createIdentity"`
-	EvidenceSHA256   string                    `json:"evidenceSha256"`
+	ActorOperationID string                           `json:"actorOperationId"`
+	InstanceOCID     string                           `json:"instanceOcid"`
+	Create           foundationbinding.CreateIdentity `json:"createIdentity"`
+	EvidenceSHA256   string                           `json:"evidenceSha256"`
 }
 
 func (identity OriginalLaunchIdentity) validate() error {
@@ -51,10 +50,10 @@ func OriginalLaunchCreateKey(identity OriginalLaunchIdentity) (string, error) {
 		return "", ErrManifestInvalid
 	}
 	wire, err := json.Marshal(struct {
-		Purpose          string                    `json:"purpose"`
-		ActorOperationID string                    `json:"actorOperationId"`
-		InstanceOCID     string                    `json:"instanceOcid"`
-		Create           foundation.CreateIdentity `json:"createIdentity"`
+		Purpose          string                           `json:"purpose"`
+		ActorOperationID string                           `json:"actorOperationId"`
+		InstanceOCID     string                           `json:"instanceOcid"`
+		Create           foundationbinding.CreateIdentity `json:"createIdentity"`
 	}{"original-seed/v1", identity.ActorOperationID, identity.InstanceOCID, identity.Create}, json.Deterministic(true))
 	if err != nil {
 		return "", err

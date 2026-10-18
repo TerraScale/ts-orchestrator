@@ -2,37 +2,15 @@ package foundation
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
-	"strings"
 
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
 )
 
 // CreateIdentity contains no payloads. The regional journal binds it to its
 // authenticated operation and signed intent before OCI receives the request.
-type CreateIdentity struct {
-	Key           string `json:"key"`
-	Region        string `json:"region"`
-	RequestDigest string `json:"requestDigest"`
-	RetryToken    string `json:"retryToken,omitempty"`
-}
-
-func (identity CreateIdentity) Validate() error {
-	digest, err := hex.DecodeString(identity.RequestDigest)
-	_, region := catalog.CellForOCIRegion(identity.Region)
-	if identity.Key == "" || len(identity.Key) > 128 || strings.ContainsAny(identity.Key, "\x00\r\n/\\") || !region || err != nil || len(digest) != 32 {
-		return errors.New("foundation create identity is invalid")
-	}
-	if identity.RetryToken != "" {
-		token, err := hex.DecodeString(identity.RetryToken)
-		if err != nil || len(token) != 32 {
-			return errors.New("foundation create retry token is invalid")
-		}
-	}
-	return nil
-}
+type CreateIdentity = foundationbinding.CreateIdentity
 
 type recoveringCreateKey struct{}
 
