@@ -14,30 +14,33 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 // Explicit genesis qualifies the signed SDK primitive. It does not qualify the
 // production DiscoveryGenesis constructor or admit a local original actor.
 func originalStartupTrustFixture(t *testing.T, rotated bool) (*originalMaterialIAMSDKFixture, bootstrap.VerifiedBootstrapAnchor) {
 	t.Helper()
-	f := newOriginalMaterialIAMSDKFixture(t, "")
+	// Preserve the material fixture's pinned loopback transport during initial SDK work.
+	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
+	reads := newOriginalActorReadsSDKFixture(t, "", 0)
 	if rotated {
 		public, private, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			t.Fatal(err)
 		}
-		identity := trust.ChainIdentity{DeploymentID: f.prepared.Anchor.DeploymentID, Cell: "gru", Environment: "production"}
-		verified, err := trust.VerifyRootChain(f.roots, identity, trust.RootChain{Version: 1})
+		identity := trust.ChainIdentity{DeploymentID: reads.prepared.Anchor.DeploymentID, Cell: "gru", Environment: "production"}
+		verified, err := trust.VerifyRootChain(reads.roots, identity, trust.RootChain{Version: 1})
 		if err != nil {
 			t.Fatal(err)
 		}
-		rotation, err := trust.NextRotation(verified, f.root.Public().(ed25519.PublicKey), public)
+		rotation, err := trust.NextRotation(verified, reads.root.Public().(ed25519.PublicKey), public)
 		if err != nil {
 			t.Fatal(err)
 		}
 		signed := trust.SignedRotation{}
-		for _, key := range []ed25519.PrivateKey{f.root, private} {
-			envelope, err := trust.SignRotation(rotation, identity, f.now.Add(-time.Minute), f.now.Add(time.Hour), key)
+		for _, key := range []ed25519.PrivateKey{reads.root, private} {
+			envelope, err := trust.SignRotation(rotation, identity, reads.now.Add(-time.Minute), reads.now.Add(time.Hour), key)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -47,9 +50,10 @@ func originalStartupTrustFixture(t *testing.T, rotated bool) (*originalMaterialI
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.bundle.RootChainWire = wire
-		f.cloud.bundle.RootChainWire = bytes.Clone(wire)
+		reads.bundle.RootChainWire = wire
+		reads.cloud.bundle = reads.bundle.clone()
 	}
+	f := originalMaterialIAMSDKFixtureFor(t, reads, "")
 	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 		t.Fatalf("retain genuine original producer and IAM: %v", err)
 	}
