@@ -46,21 +46,25 @@ type NetBirdManagerProfile struct {
 // NetBirdManagerIntent extends the same root-signed foundation footprint. Image
 // and runtime qualification are independent of permission to buy this slot.
 type NetBirdManagerIntent struct {
-	Material                    *NetBirdMaterialAuthority `json:"material,omitempty"`
-	Role                        string                    `json:"role"`
-	StoreOrigin                 string                    `json:"storeOrigin"`
-	Profile                     NetBirdManagerProfile     `json:"profile"`
-	ImageOCID                   string                    `json:"imageOcid"`
-	Architecture                string                    `json:"architecture"`
-	ImageReceiptWire            []byte                    `json:"imageReceiptWire"`
-	ImageDelegationWire         []byte                    `json:"imageDelegationWire"`
-	QualificationWire           []byte                    `json:"qualificationWire"`
-	QualificationDelegationWire []byte                    `json:"qualificationDelegationWire"`
+	Material                    *NetBirdMaterialAuthority           `json:"material,omitempty"`
+	Components                  *[3]NetBirdComponentAuthorityIntent `json:"components,omitempty"`
+	Account                     *NetBirdAccountAuthority            `json:"account,omitempty"`
+	Backup                      *NetBirdBackupAuthority             `json:"backup,omitempty"`
+	Role                        string                              `json:"role"`
+	StoreOrigin                 string                              `json:"storeOrigin"`
+	Profile                     NetBirdManagerProfile               `json:"profile"`
+	ImageOCID                   string                              `json:"imageOcid"`
+	Architecture                string                              `json:"architecture"`
+	ImageReceiptWire            []byte                              `json:"imageReceiptWire"`
+	ImageDelegationWire         []byte                              `json:"imageDelegationWire"`
+	QualificationWire           []byte                              `json:"qualificationWire"`
+	QualificationDelegationWire []byte                              `json:"qualificationDelegationWire"`
 }
 
 // NetBirdManagerLaunch is an immutable singleton reservation in the existing
 // foundation journal. New grant generations cannot reset a pending launch.
 type NetBirdManagerLaunch struct {
+	Account             *NetBirdAccountJournal    `json:"account,omitempty"`
 	SlotID              string                    `json:"slotId"`
 	OperationID         string                    `json:"operationId"`
 	ProfileSHA256       string                    `json:"profileSha256"`
@@ -90,6 +94,9 @@ type verifiedNetBirdIntent struct {
 }
 
 func (i NetBirdManagerIntent) validate() error {
+	if (i.Components != nil || i.Account != nil || i.Backup != nil) && (i.Material == nil || i.Material.validate() != nil) {
+		return errors.New("dedicated NetBird purposes require the exact original signed material lineage")
+	}
 	p := i.Profile
 	address, err := netip.ParseAddr(p.PrivateIP)
 	network, networkErr := netip.ParsePrefix(p.NetworkCIDR)
@@ -114,6 +121,13 @@ func (s *SignedFootprint) authorizedNetBirdManager(ctx context.Context) (verifie
 	wire, err := s.readGrant(ctx)
 	if err != nil {
 		return verifiedNetBirdIntent{}, err
+	}
+	grant, originalExpires, err := s.verifyOriginalDocument(wire)
+	if err != nil {
+		return verifiedNetBirdIntent{}, err
+	}
+	if grant.SchemaVersion == 3 {
+		return verifyOriginalNetBirdIntent(ctx, s, grant, originalExpires, netBirdMaterialSHA(wire))
 	}
 	footprint, expires, err := s.verifyGrant(wire)
 	if err != nil {
@@ -169,16 +183,31 @@ func (s *SignedFootprint) openNetBirdEvidence(ctx context.Context, digest string
 // VerifiedNetBirdManager is held only by the independently observed dedicated
 // instance. No caller-supplied role or resource name can construct this proof.
 type VerifiedNetBirdManager struct {
-	target          vaultsecret.Target
-	storeGeneration string
-	check           func(context.Context) error
-	recovery        bool
-	transition      func(context.Context, bool) error
+	target              vaultsecret.Target
+	credentialTarget    vaultsecret.Target
+	binding             NetBirdManagerBinding
+	originalGrantSHA256 string
+	storeGeneration     string
+	check               func(context.Context) error
+	recovery            bool
+	transition          func(context.Context, bool) error
 }
 
-func (v VerifiedNetBirdManager) VaultTarget() vaultsecret.Target { return v.target }
-func (v VerifiedNetBirdManager) StoreGeneration() string         { return v.storeGeneration }
-func (v VerifiedNetBirdManager) RecoveryRequired() bool          { return v.recovery }
+// NetBirdManagerBinding identifies the independently admitted physical store.
+type NetBirdManagerBinding struct {
+	InstanceID, BootVolumeID, RecipeSHA256, PhysicalScopeSHA256 string
+}
+
+func (v VerifiedNetBirdManager) VaultTarget() vaultsecret.Target      { return v.target }
+func (v VerifiedNetBirdManager) CredentialTarget() vaultsecret.Target { return v.credentialTarget }
+func (v VerifiedNetBirdManager) PhysicalBinding(ctx context.Context) (NetBirdManagerBinding, error) {
+	if err := v.Check(ctx); err != nil {
+		return NetBirdManagerBinding{}, err
+	}
+	return v.binding, nil
+}
+func (v VerifiedNetBirdManager) StoreGeneration() string { return v.storeGeneration }
+func (v VerifiedNetBirdManager) RecoveryRequired() bool  { return v.recovery }
 func (v VerifiedNetBirdManager) ClaimGenesis(ctx context.Context) error {
 	if v.transition == nil {
 		return errors.New("dedicated manager store authority is absent")
@@ -215,6 +244,13 @@ func AdmitNetBirdManager(ctx context.Context, factory *ociclient.Factory, resolv
 	observer, err := bootstrapstart.NewOCIInstanceObserver(oci.RegionGRU, factory.Provider())
 	if err != nil {
 		return VerifiedNetBirdManager{}, err
+	}
+	original, err := reader.originalNetBirdGrant(ctx)
+	if err != nil {
+		return VerifiedNetBirdManager{}, err
+	}
+	if original {
+		return admitOriginalNetBirdManager(ctx, resolver, reader, observer, instanceID, bootstrapstart.VerifyCurrentRunningBinary)
 	}
 	return admitNetBirdManager(ctx, resolver, reader, netBirdObservedInstance{factory: factory, resolver: resolver, reader: reader, observer: observer},
 		instanceID, bootstrapstart.VerifyCurrentRunningBinary)
@@ -328,7 +364,9 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 		_, err = resolver.Store.CompareAndSwap(ctx, latest, etag)
 		return err
 	}
-	return VerifiedNetBirdManager{target: target, storeGeneration: store, check: check, transition: transition,
+	return VerifiedNetBirdManager{target: target, credentialTarget: target, storeGeneration: store, check: check, transition: transition,
+		binding: NetBirdManagerBinding{InstanceID: record.NetBirdManager.InstanceID, BootVolumeID: record.NetBirdManager.BootVolumeID,
+			RecipeSHA256: record.NetBirdManager.RecipeSHA256, PhysicalScopeSHA256: record.NetBirdManager.PhysicalScopeSHA256},
 		recovery: intent.intent.StoreOrigin == "restore" || record.NetBirdManager.StoreState != "empty"}, nil
 }
 
@@ -363,14 +401,17 @@ func NetBirdManagerRecipeDigest(intent NetBirdManagerIntent, imageSHA256 string)
 		return "", errors.New("NetBird manager recipe requires a qualified image digest")
 	}
 	wire, err := json.Marshal(struct {
-		Role        string                    `json:"role"`
-		StoreOrigin string                    `json:"storeOrigin"`
-		Profile     NetBirdManagerProfile     `json:"profile"`
-		ImageOCID   string                    `json:"imageOcid"`
-		ImageSHA256 string                    `json:"imageSha256"`
-		Runtime     string                    `json:"runtime"`
-		Material    *NetBirdMaterialAuthority `json:"material,omitempty"`
-	}{NetBirdManagerRole, intent.StoreOrigin, intent.Profile, intent.ImageOCID, imageSHA256, NetBirdManagerRuntime, intent.Material}, json.Deterministic(true))
+		Role        string                              `json:"role"`
+		StoreOrigin string                              `json:"storeOrigin"`
+		Profile     NetBirdManagerProfile               `json:"profile"`
+		ImageOCID   string                              `json:"imageOcid"`
+		ImageSHA256 string                              `json:"imageSha256"`
+		Runtime     string                              `json:"runtime"`
+		Material    *NetBirdMaterialAuthority           `json:"material,omitempty"`
+		Components  *[3]NetBirdComponentAuthorityIntent `json:"components,omitempty"`
+		Account     *NetBirdAccountAuthority            `json:"account,omitempty"`
+		Backup      *NetBirdBackupAuthority             `json:"backup,omitempty"`
+	}{NetBirdManagerRole, intent.StoreOrigin, intent.Profile, intent.ImageOCID, imageSHA256, NetBirdManagerRuntime, intent.Material, intent.Components, intent.Account, intent.Backup}, json.Deterministic(true))
 	if err != nil {
 		return "", err
 	}
@@ -379,6 +420,11 @@ func NetBirdManagerRecipeDigest(intent NetBirdManagerIntent, imageSHA256 string)
 }
 
 func (l NetBirdManagerLaunch) validate() error {
+	if l.Account != nil {
+		if err := l.Account.validate(&l.Account.Authority); err != nil {
+			return err
+		}
+	}
 	if err := validateNetBirdComponentFloors(l.ComponentFloors); err != nil {
 		return err
 	}
@@ -417,6 +463,9 @@ func (next FoundationRecord) retainNetBirdManager(previous FoundationRecord) err
 		return errors.New("NetBird manager original reservation cannot be removed")
 	}
 	old, current := *previous.NetBirdManager, *next.NetBirdManager
+	if err := retainNetBirdAccount(old.Account, current.Account); err != nil {
+		return err
+	}
 	if old.ComponentFloors == nil && current.ComponentFloors != nil && old.StoreState != "empty" {
 		return errNetBirdComponentFloor
 	}
@@ -432,6 +481,7 @@ func (next FoundationRecord) retainNetBirdManager(previous FoundationRecord) err
 	}
 	current.InstanceID, current.BootVolumeID, current.StoreState = old.InstanceID, old.BootVolumeID, old.StoreState
 	current.ComponentFloors = old.ComponentFloors
+	current.Account = old.Account
 	if !sameCapacityValue(old, current) {
 		return errors.New("NetBird manager cannot replace its original quote or launch identity")
 	}

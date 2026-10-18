@@ -81,6 +81,9 @@ func (v NetBirdComponents) RetainReleaseFloors(ctx context.Context) error {
 	s := v.state
 	ctx, cancel := context.WithDeadline(ctx, s.expires)
 	defer cancel()
+	if s.original {
+		return v.retainOriginalReleaseFloors(ctx)
+	}
 	guarded := ociclient.WithRequestGuard(ctx, func(context.Context) error { return v.Check(ctx) })
 	record, etag, err := s.resolver.Store.Load(guarded, "GRU")
 	if err != nil {
@@ -94,17 +97,7 @@ func (v NetBirdComponents) RetainReleaseFloors(ctx context.Context) error {
 	if launch.ComponentFloors == nil && (s.intent.intent.StoreOrigin != "new" || launch.StoreState != "empty") {
 		return errNetBirdComponentFloor
 	}
-	var floors [3]NetBirdComponentFloor
-	for i, component := range s.components {
-		claim, migration := component.release.Claim(), component.release.Migration()
-		floors[i] = NetBirdComponentFloor{Role: component.role, ReleaseSequence: claim.ReleaseSequence, ReleaseIdentity: component.release.ReleaseIdentity(),
-			Image: claim.Image, SequenceMigrationSHA256: claim.SequenceMigrationSHA256, SequenceNamespace: migration.Namespace,
-			SequenceBucket: migration.Bucket, SequenceRegion: migration.Region, BundleSHA256: component.release.BundleSHA256()}
-		if launch.ComponentFloors != nil && floors[i].ReleaseSequence == launch.ComponentFloors[i].ReleaseSequence {
-			// Renewed signatures cannot replace the original bundle evidence.
-			floors[i].BundleSHA256 = launch.ComponentFloors[i].BundleSHA256
-		}
-	}
+	floors := s.currentReleaseFloors(launch.ComponentFloors)
 	if err := retainNetBirdComponentFloors(launch.ComponentFloors, &floors); err != nil {
 		return err
 	}
@@ -117,6 +110,57 @@ func (v NetBirdComponents) RetainReleaseFloors(ctx context.Context) error {
 		// A lost committed response or competing CAS is resolved only by reread.
 		observed, _, observeErr := s.resolver.Store.Load(guarded, "GRU")
 		if observeErr != nil || observed.NetBirdManager == nil || observed.NetBirdManager.ComponentFloors == nil || *observed.NetBirdManager.ComponentFloors != floors {
+			return errors.Join(err, observeErr)
+		}
+	}
+	return v.Check(ctx)
+}
+
+func (s *netBirdComponents) currentReleaseFloors(previous *[3]NetBirdComponentFloor) [3]NetBirdComponentFloor {
+	var floors [3]NetBirdComponentFloor
+	for i, component := range s.components {
+		claim, migration := component.release.Claim(), component.release.Migration()
+		floors[i] = NetBirdComponentFloor{Role: component.role, ReleaseSequence: claim.ReleaseSequence, ReleaseIdentity: component.release.ReleaseIdentity(),
+			Image: claim.Image, SequenceMigrationSHA256: claim.SequenceMigrationSHA256, SequenceNamespace: migration.Namespace,
+			SequenceBucket: migration.Bucket, SequenceRegion: migration.Region, BundleSHA256: component.release.BundleSHA256()}
+		if previous != nil && floors[i].ReleaseSequence == previous[i].ReleaseSequence {
+			// Renewed signatures cannot replace the original bundle evidence.
+			floors[i].BundleSHA256 = previous[i].BundleSHA256
+		}
+	}
+	return floors
+}
+
+func (v NetBirdComponents) retainOriginalReleaseFloors(ctx context.Context) error {
+	s := v.state
+	guarded := ociclient.WithRequestGuard(ctx, func(context.Context) error { return v.Check(ctx) })
+	state, err := s.reader.originalNetBirdState(guarded, s.resolver)
+	if err != nil {
+		return err
+	}
+	if state.intent.grantDigest != s.intent.grantDigest || state.manager.Launch == nil || state.manager.Launch.RecipeSHA256 != s.intent.recipeDigest ||
+		state.manager.Launch.ProfileSHA256 != s.intent.profileDigest {
+		return ErrFoundationFenced
+	}
+	launch := *state.manager.Launch
+	if launch.ComponentFloors == nil && (s.intent.intent.StoreOrigin != "new" || launch.StoreState != "empty") {
+		return errNetBirdComponentFloor
+	}
+	floors := s.currentReleaseFloors(launch.ComponentFloors)
+	if err := retainNetBirdComponentFloors(launch.ComponentFloors, &floors); err != nil {
+		return err
+	}
+	if launch.ComponentFloors != nil && *launch.ComponentFloors == floors {
+		return v.Check(ctx)
+	}
+	launch.ComponentFloors = &floors
+	manager := *state.manager
+	manager.Launch = &launch
+	state.record.OriginalFoundationCompartments.Regions[0].NetBirdManager = &manager
+	state.record.UpdatedAt = time.Now().UTC()
+	if _, err := s.resolver.Store.CompareAndSwap(guarded, state.record, state.etag); err != nil {
+		observed, observeErr := s.reader.originalNetBirdState(guarded, s.resolver)
+		if observeErr != nil || observed.manager.Launch == nil || observed.manager.Launch.ComponentFloors == nil || *observed.manager.Launch.ComponentFloors != floors {
 			return errors.Join(err, observeErr)
 		}
 	}

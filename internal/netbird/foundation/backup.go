@@ -37,6 +37,7 @@ type BackupTarget struct {
 	index        int
 	manager      region.VerifiedNetBirdManager
 	material     region.VerifiedBootstrapMaterial
+	original     *region.VerifiedOriginalNetBirdBackupAuthority
 	destinations [2]region.VerifiedBackupDestination
 }
 
@@ -91,43 +92,64 @@ func NewBackupTargets(ctx context.Context, factory *ociclient.Factory, resolver 
 	if factory == nil || factory.Provider() == nil {
 		return targets, errors.New("NetBird recovery requires an OCI identity provider")
 	}
-	if err := manager.Check(ctx); err != nil {
+	authority, err := resolver.OriginalNetBirdBackup(ctx, manager)
+	if err != nil && !errors.Is(err, region.ErrNotOriginalNetBirdManager) {
 		return targets, err
 	}
-	material, err := resolver.BootstrapMaterial(ctx, "GRU")
-	if err != nil {
-		return targets, err
-	}
-	if err := material.Revalidate(ctx); err != nil {
-		return targets, err
-	}
-	tenancy, err := factory.Provider().TenancyOCID()
-	if err != nil {
-		return targets, err
-	}
-	scope := backupScope{InstallationID: material.InstallationID(), StoreGeneration: manager.StoreGeneration(), TenancyID: tenancy, Namespace: material.StorageDomain().Namespace}
+	var material region.VerifiedBootstrapMaterial
+	var original *region.VerifiedOriginalNetBirdBackupAuthority
 	var destinations [2]region.VerifiedBackupDestination
-	for i, cell := range [2]string{"GRU", "SFO"} {
-		record, err := resolver.Resolve(ctx, cell)
+	var scope backupScope
+	if err == nil {
+		original = &authority
+		tenancy, err := factory.Provider().TenancyOCID()
 		if err != nil {
 			return targets, err
 		}
-		destination, err := resolver.BackupDestination(ctx, cell)
+		if tenancy != authority.TenancyID() {
+			return targets, errors.New("original NetBird recovery belongs to a different tenancy")
+		}
+		scope = backupScope{InstallationID: authority.InstallationID(), StoreGeneration: authority.StoreGeneration(), TenancyID: tenancy, Namespace: authority.Namespace()}
+		destinations = authority.Destinations()
+		for i, destination := range destinations {
+			vault := destination.VaultTarget()
+			scope.Destinations[i] = backupDestination{Region: destination.OCIRegion(), Bucket: destination.BucketName(), BucketID: destination.BucketID(), CompartmentID: vault.CompartmentID, KMSKeyID: vault.KeyID}
+		}
+	} else {
+		material, err = resolver.BootstrapMaterial(ctx, "GRU")
 		if err != nil {
 			return targets, err
 		}
-		if err := destination.Check(ctx); err != nil {
+		if err := material.Revalidate(ctx); err != nil {
 			return targets, err
 		}
-		vault, err := record.VaultTarget()
+		tenancy, err := factory.Provider().TenancyOCID()
 		if err != nil {
 			return targets, err
 		}
-		if record.TenancyID != tenancy || destination.VaultTarget() != vault || i == 0 && manager.VaultTarget() != vault {
-			return targets, errors.New("NetBird recovery authority belongs to a different tenancy or manager foundation")
+		scope = backupScope{InstallationID: material.InstallationID(), StoreGeneration: manager.StoreGeneration(), TenancyID: tenancy, Namespace: material.StorageDomain().Namespace}
+		for i, cell := range [2]string{"GRU", "SFO"} {
+			record, err := resolver.Resolve(ctx, cell)
+			if err != nil {
+				return targets, err
+			}
+			destination, err := resolver.BackupDestination(ctx, cell)
+			if err != nil {
+				return targets, err
+			}
+			if err := destination.Check(ctx); err != nil {
+				return targets, err
+			}
+			vault, err := record.VaultTarget()
+			if err != nil {
+				return targets, err
+			}
+			if record.TenancyID != tenancy || destination.VaultTarget() != vault || i == 0 && manager.VaultTarget() != vault {
+				return targets, errors.New("NetBird recovery authority belongs to a different tenancy or manager foundation")
+			}
+			destinations[i] = destination
+			scope.Destinations[i] = backupDestination{Region: destination.OCIRegion(), Bucket: destination.BucketName(), BucketID: destination.BucketID(), CompartmentID: vault.CompartmentID, KMSKeyID: vault.KeyID}
 		}
-		destinations[i] = destination
-		scope.Destinations[i] = backupDestination{Region: destination.OCIRegion(), Bucket: destination.BucketName(), BucketID: destination.BucketID(), CompartmentID: vault.CompartmentID, KMSKeyID: vault.KeyID}
 	}
 	if err := scope.validate(); err != nil {
 		return targets, err
@@ -141,7 +163,7 @@ func NewBackupTargets(ctx context.Context, factory *ociclient.Factory, resolver 
 		if err != nil {
 			return targets, err
 		}
-		targets[i] = BackupTarget{client: client, scope: scope, index: i, manager: manager, material: material, destinations: destinations}
+		targets[i] = BackupTarget{client: client, scope: scope, index: i, manager: manager, material: material, original: original, destinations: destinations}
 		if err := targets[i].protected(ctx); err != nil {
 			return [2]BackupTarget{}, err
 		}
@@ -156,18 +178,32 @@ func (target BackupTarget) checkAuthority(ctx context.Context) error {
 	if target.index < 0 || target.index >= len(target.scope.Destinations) {
 		return errors.New("NetBird recovery destination is absent")
 	}
-	if err := target.manager.Check(ctx); err != nil {
-		return err
+	var installationID, namespace string
+	if target.original != nil {
+		if err := target.original.Check(ctx); err != nil {
+			return err
+		}
+		installationID, namespace = target.original.InstallationID(), target.original.Namespace()
+		if target.original.StoreGeneration() != target.scope.StoreGeneration || target.original.TenancyID() != target.scope.TenancyID {
+			return errors.New("original NetBird recovery store or tenancy changed")
+		}
+	} else {
+		if err := target.manager.Check(ctx); err != nil {
+			return err
+		}
+		if err := target.material.Revalidate(ctx); err != nil {
+			return err
+		}
+		installationID, namespace = target.material.InstallationID(), target.material.StorageDomain().Namespace
 	}
-	if err := target.material.Revalidate(ctx); err != nil {
-		return err
-	}
-	if target.manager.StoreGeneration() != target.scope.StoreGeneration || target.material.InstallationID() != target.scope.InstallationID || target.material.StorageDomain().Namespace != target.scope.Namespace {
+	if target.manager.StoreGeneration() != target.scope.StoreGeneration || installationID != target.scope.InstallationID || namespace != target.scope.Namespace {
 		return errors.New("NetBird recovery installation or store scope changed")
 	}
 	for i, destination := range target.destinations {
-		if err := destination.Check(ctx); err != nil {
-			return err
+		if target.original == nil {
+			if err := destination.Check(ctx); err != nil {
+				return err
+			}
 		}
 		vault := destination.VaultTarget()
 		expected := backupDestination{Region: destination.OCIRegion(), Bucket: destination.BucketName(), BucketID: destination.BucketID(), CompartmentID: vault.CompartmentID, KMSKeyID: vault.KeyID}

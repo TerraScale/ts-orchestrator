@@ -50,6 +50,7 @@ type netBirdComponents struct {
 	reader     *SignedFootprint
 	manager    VerifiedNetBirdManager
 	intent     verifiedNetBirdIntent
+	original   bool
 	expires    time.Time
 	components [3]NetBirdComponent
 }
@@ -130,12 +131,25 @@ func ReadNetBirdComponents(ctx context.Context, factory *ociclient.Factory, reso
 	if err := manager.Check(ctx); err != nil {
 		return NetBirdComponents{}, err
 	}
-	intent, err := reader.authorizedNetBirdManager(ctx)
+	original, err := reader.originalNetBirdGrant(ctx)
 	if err != nil {
 		return NetBirdComponents{}, err
 	}
+	var intent verifiedNetBirdIntent
+	if original {
+		state, err := reader.originalNetBirdState(ctx, resolver)
+		if err != nil {
+			return NetBirdComponents{}, err
+		}
+		intent = state.intent
+	} else {
+		intent, err = reader.authorizedNetBirdManager(ctx)
+		if err != nil {
+			return NetBirdComponents{}, err
+		}
+	}
 	deadline, _ := ctx.Deadline()
-	s := &netBirdComponents{factory: factory, resolver: resolver, reader: reader, manager: manager, intent: intent, expires: deadline}
+	s := &netBirdComponents{factory: factory, resolver: resolver, reader: reader, manager: manager, intent: intent, original: original, expires: deadline}
 	s.capDeadline(intent.expires)
 	if err := s.guard(ctx); err != nil {
 		return NetBirdComponents{}, err
@@ -175,6 +189,21 @@ func (s *netBirdComponents) guard(ctx context.Context) error {
 	if err != nil || tenancy != s.reader.tenancy {
 		return errors.Join(errNetBirdComponents, err)
 	}
+	if s.original {
+		state, err := s.reader.originalNetBirdState(ctx, s.resolver)
+		if err != nil || state.intent.grantDigest != s.intent.grantDigest || state.intent.installationID != s.intent.installationID || state.intent.generation != s.intent.generation ||
+			s.manager.originalGrantSHA256 != state.intent.grantDigest || s.manager.CredentialTarget() != state.target() || s.manager.VaultTarget() != state.regionalTarget() ||
+			s.manager.StoreGeneration() != state.intent.intent.Material.Context.StoreGeneration {
+			return errors.Join(errNetBirdComponents, err)
+		}
+		if err := s.manager.Check(ctx); err != nil {
+			return err
+		}
+		if !time.Now().Before(s.expires) {
+			return errNetBirdComponents
+		}
+		return ctx.Err()
+	}
 	intent, err := s.reader.authorizedNetBirdManager(ctx)
 	if err != nil || intent.grantDigest != s.intent.grantDigest || intent.installationID != s.intent.installationID || intent.generation != s.intent.generation ||
 		s.manager.StoreGeneration() != entityid.Derive("netbird-foundation-store", intent.installationID)+":1" {
@@ -204,7 +233,13 @@ func (s *netBirdComponents) requestContext(base context.Context, issuer *Verifie
 			return err
 		}
 		if issuer != nil {
-			if err := s.resolver.GuardOCIRIssuer(base, *issuer); err != nil {
+			var err error
+			if s.original {
+				err = GuardNetBirdOCIRIssuer(base, s.factory, s.resolver, s.manager, *issuer)
+			} else {
+				err = s.resolver.GuardOCIRIssuer(base, *issuer)
+			}
+			if err != nil {
 				return err
 			}
 		}
@@ -225,7 +260,7 @@ func (s *netBirdComponents) location() (releasechannel.Location, error) {
 }
 
 func (s *netBirdComponents) checkAuthority(ctx context.Context, expected VerifiedContainerReleaseAuthority, role string) error {
-	current, err := s.resolver.ContainerReleaseAuthority(ctx, "GRU", role, "production")
+	current, err := s.componentAuthority(ctx, role)
 	if err != nil || !current.IsVerified() || !time.Now().Before(current.ExpiresAt()) || !slices.Contains(current.Architectures(), "arm64") ||
 		current.ImageRepository() != expected.ImageRepository() || current.SourceRepository() != expected.SourceRepository() ||
 		!bytes.Equal(current.DelegationWire(), expected.DelegationWire()) || !bytes.Equal(current.SequenceMigrationWire(), expected.SequenceMigrationWire()) {
@@ -236,13 +271,13 @@ func (s *netBirdComponents) checkAuthority(ctx context.Context, expected Verifie
 
 func (s *netBirdComponents) readComponent(ctx context.Context, location releasechannel.Location, role string) (NetBirdComponent, error) {
 	guarded := s.requestContext(ctx, nil)
-	authority, err := s.resolver.ContainerReleaseAuthority(guarded, "GRU", role, "production")
+	authority, err := s.componentAuthority(guarded, role)
 	if err != nil || !authority.IsVerified() || !slices.Contains(authority.Architectures(), "arm64") {
 		return NetBirdComponent{}, errors.Join(errNetBirdComponents, err)
 	}
 	s.capDeadline(authority.ExpiresAt())
-	issuer, err := s.resolver.OCIRIssuer(guarded, authority.ImageRepository())
-	if err != nil || issuer.InstallationID() != s.intent.installationID || issuer.TenancyID() != s.reader.tenancy || issuer.Intent().OCIRegion != foundationHomeRegion || issuer.Intent().VaultTarget != s.manager.VaultTarget() {
+	issuer, err := s.componentIssuer(guarded, role, authority)
+	if err != nil || issuer.InstallationID() != s.intent.installationID || issuer.TenancyID() != s.reader.tenancy || issuer.Intent().OCIRegion != foundationHomeRegion || issuer.Intent().VaultTarget != s.manager.CredentialTarget() {
 		return NetBirdComponent{}, errors.Join(errNetBirdComponents, err)
 	}
 	s.capDeadline(issuer.ExpiresAt())

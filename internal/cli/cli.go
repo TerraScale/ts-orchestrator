@@ -159,6 +159,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "oci-region":
 		return runOCIRegion(ctx, args[1:], commandio.NewWriter(output))
 	case "region":
+		if len(args) > 1 && args[1] == "create" {
+			return provisionOriginalFoundationFromFile(ctx, args[2:], commandio.NewWriter(output))
+		}
 		return region.Run(ctx, args[1:], commandio.NewWriter(output), os.Stderr)
 	case "image", "netbird":
 		if args[0] == "netbird" && len(args) > 1 && args[1] == "dns" {

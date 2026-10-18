@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 func TestLocalCommandDispatchWithoutRuntimeConfig(t *testing.T) {
@@ -37,6 +39,10 @@ func TestLocalCommandDispatchWithoutRuntimeConfig(t *testing.T) {
 		{args: []string{"netbird", "sync", "--help"}, want: "prune-peers"},
 		{args: []string{"netbird", "inventory", "unexpected"}, want: "no positional arguments", wantError: true},
 		{args: []string{"oci-region", "--help"}, want: "preview"},
+		{args: []string{"region", "--help"}, want: "create  BUNDLE"},
+		{args: []string{"region", "create"}, want: "usage: ts-orch region create BUNDLE", wantError: true},
+		{args: []string{"region", "plan"}, want: "needs a region argument", wantError: true},
+		{args: []string{"region", "unknown", "fra"}, want: `unknown region command "unknown"`, wantError: true},
 		{args: []string{"oci-region", "import-image", "--help"}, want: `unknown oci-region command "import-image"`, wantError: true},
 		{args: []string{"oci-region", "import-image", "--qcow2", "candidate.qcow2", "--sha256", strings.Repeat("a", 64)}, want: `unknown oci-region command "import-image"`, wantError: true},
 		{args: []string{"qualification", "--help"}, want: "firecracker"},
@@ -98,5 +104,62 @@ func TestHelpPropagatesOutputFailure(t *testing.T) {
 				t.Fatalf("%v error = %v, want %v", args, err, want)
 			}
 		}
+	}
+}
+
+func TestRegionCreateRejectsUntrustedBundleBeforeOperator(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	for _, test := range []struct {
+		name string
+		wire string
+		want error
+	}{
+		{name: "malformed", wire: "{"},
+		{name: "unknown member", wire: `{"unknown":true}`},
+		{name: "unsigned", wire: "{}"},
+		{name: "forged documents", wire: `{"tenancyId":"ocid1.tenancy.oc1..untrusted","namespace":"untrusted","rootChainWire":"e30=","anchorWire":"e30=","grantWire":"e30="}`, want: trust.ErrInvalid},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bundle.json")
+			if err := os.WriteFile(path, []byte(test.wire), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var output bytes.Buffer
+			err := Run(t.Context(), []string{"region", "create", path}, &output)
+			if err == nil || test.want != nil && !errors.Is(err, test.want) {
+				t.Fatalf("error = %v, want bundle refusal %v", err, test.want)
+			}
+			if output.Len() != 0 {
+				t.Fatalf("rejected bundle wrote success output: %q", output.String())
+			}
+			wire, err := os.ReadFile(path)
+			if err != nil || string(wire) != test.wire {
+				t.Fatalf("bundle changed: %q, error = %v", wire, err)
+			}
+		})
+	}
+	for _, name := range []string{"directory", "oversized"} {
+		t.Run(name, func(t *testing.T) {
+			path := t.TempDir()
+			if name == "oversized" {
+				path = filepath.Join(path, "bundle.json")
+				file, err := os.Create(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := file.Truncate((3 << 20) + 1); err != nil {
+					file.Close()
+					t.Fatal(err)
+				}
+				if err := file.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var output bytes.Buffer
+			err := Run(t.Context(), []string{"region", "create", path}, &output)
+			if err == nil || !strings.Contains(err.Error(), "foundation bundle must be a bounded regular file") || output.Len() != 0 {
+				t.Fatalf("output = %q, error = %v, want bounded regular file refusal", output.String(), err)
+			}
+		})
 	}
 }

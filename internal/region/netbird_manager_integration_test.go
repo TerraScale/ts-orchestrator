@@ -46,6 +46,11 @@ import (
 // This fixture crosses the real OCI SDK, public-price HTTP and disk-backed
 // Object Storage CAS; only the remote services and ARM64 binary measurement are fixtures.
 func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
+	withNetBirdManagerFixture(t, nil)
+}
+
+func withNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory, FoundationResolver, VerifiedNetBirdManager)) {
+	t.Helper()
 	store, objects, writeOriginal := foundationProtocolStore(t)
 	// Retain the original journal fixture while serving the signed home bucket.
 	write := func(name string, wire []byte) {
@@ -522,6 +527,10 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	claim, err := admit()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if run != nil {
+		run(factory, resolver, claim)
+		return
 	}
 	if claim.RecoveryRequired() {
 		t.Fatal("new explicitly funded store required restore")
@@ -1049,7 +1058,7 @@ func netBirdComponentFixtures(t *testing.T, root ed25519.PrivateKey, roots trust
 		}
 		target := release.ContainerTarget{Cell: "GRU", Role: role, Environment: "production", Architecture: "arm64"}
 		scope := release.ContainerScope(target)
-		delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: keyWire, Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(time.Hour), root)
+		delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: keyWire, Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(30*24*time.Hour), root)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -160,6 +160,27 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 		}
 		return factory
 	}
+	componentObjects, err := factoryFor().ObjectStorage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	components := netBirdComponentFixtures(t, root, roots, approval.HomeStorageDomain, &componentObjects, now,
+		func(value any, scope trust.Scope, signer ed25519.PrivateKey) []byte {
+			t.Helper()
+			payload, err := trust.EncodePayload(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			envelope, err := trust.Sign(payload, scope, now.Add(-time.Minute), now.Add(30*24*time.Hour), signer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return provisionEnvelope(t, envelope)
+		}, func(name string, wire []byte) { cloud.writeObject("gru-1-head/"+name, wire) })
+	for index, component := range components {
+		approval.NetBirdComponents[index] = component.authority
+	}
+	preparationRequests := cloud.requests
 	prepared, err := PrepareFoundationGrant(t.Context(), approval, images, func(_ context.Context, _ string, region string) (Live, error) {
 		entry, _ := catalog.CellForOCIRegion(region)
 		serviceID := "ocid1.service.oc1." + region + ".services"
@@ -171,7 +192,7 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cloud.requests != 3 || len(cloud.imageReads) != 3 || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
+	if cloud.requests-preparationRequests != 3 || len(cloud.imageReads) != 3 || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
 		t.Fatal("image preparation did not remain three authenticated reads without effects or discovery")
 	}
 	for index, regional := range prepared.Grant.Regions {
@@ -249,6 +270,9 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 		if manager := prepared.Grant.Regions[index].NetBirdManager; manager != nil {
 			legacy := *manager
 			legacy.Material = nil
+			legacy.Components = nil
+			legacy.Account = nil
+			legacy.Backup = nil
 			prepared.Grant.Regions[index].NetBirdManager = &legacy
 		}
 	}
@@ -372,8 +396,8 @@ func foundationProvisionSDKScenario(t *testing.T) {
 			})
 		}
 		for name, mutate := range map[string]func(*releasechannel.CurrentImage){
-			"unqualified base image": func(image *releasechannel.CurrentImage) { *image = releasechannel.CurrentImage{} },
-			"expired qualification": func(image *releasechannel.CurrentImage) { image.ExpiresAt = time.Now().Add(-time.Second) },
+			"unqualified base image":   func(image *releasechannel.CurrentImage) { *image = releasechannel.CurrentImage{} },
+			"expired qualification":    func(image *releasechannel.CurrentImage) { image.ExpiresAt = time.Now().Add(-time.Second) },
 			"different signed receipt": func(image *releasechannel.CurrentImage) { image.ReceiptWire = fixture.images["SFO"].ReceiptWire },
 		} {
 			t.Run(name, func(t *testing.T) {
@@ -1854,7 +1878,7 @@ func provisionReleaseAuthorities(t *testing.T, root ed25519.PrivateKey, public e
 				Environment: scope.Environment, Role: scope.Role, Slots: []string{"linux-arm64", "linux-amd64"}, Actions: []string{"sign"}})
 			migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 41, IssuedAt: now.Add(-time.Hour), EvidenceSHA256: strings.Repeat("a", 64)})
 		}
-		delegated, err := trust.SignDelegation(delegation, now.Add(-time.Minute), now.Add(30*time.Minute), root)
+		delegated, err := trust.SignDelegation(delegation, now.Add(-time.Minute), now.Add(30*24*time.Hour), root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1877,8 +1901,12 @@ func provisionImage(t *testing.T, root, leaf ed25519.PrivateKey, roots trust.Key
 		ImageSHA256: strings.Repeat("f", 64), OCIImageOCID: "ocid1.image.oc1." + catalog.OCIRegion(cell) + ".qualified", OCIRegion: cell}
 	qualifiedRole, runtime := "orchestrator", release.ProductionRuntime
 	gates := []string{"runtime-ha", "workload-safety"}
+	lifetime := time.Hour
+	delegationExpiry := now.Add(2 * time.Hour)
 	if role == "netbird-manager" {
 		qualifiedRole, runtime, gates = role, release.NetBirdProductionRuntime, []string{"netbird-foundation", "netbird-recovery"}
+		lifetime = 30 * 24 * time.Hour
+		delegationExpiry = now.Add(lifetime)
 	}
 	qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: release.ProductionExpectation{SourceRevision: image.SourceRevision, ArtifactSHA256: image.ImageSHA256,
 		QualificationSHA256: image.QualificationSHA256, Cell: cell, Environment: "production", Architecture: image.Architecture, Role: qualifiedRole, Runtime: runtime}}
@@ -1893,7 +1921,7 @@ func provisionImage(t *testing.T, root, leaf ed25519.PrivateKey, roots trust.Key
 	if err != nil {
 		t.Fatal(err)
 	}
-	qualified, err := trust.Sign(payload, release.ProductionQualificationScope(qualification.Candidate), now.Add(-time.Second), now.Add(time.Hour), root)
+	qualified, err := trust.Sign(payload, release.ProductionQualificationScope(qualification.Candidate), now.Add(-time.Second), now.Add(lifetime), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1912,13 +1940,13 @@ func provisionImage(t *testing.T, root, leaf ed25519.PrivateKey, roots trust.Key
 	keyID, _ := trust.KeyID(public)
 	keyWire, _ := trust.EncodeDelegatedPublicKey(public)
 	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: keyWire,
-		Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(2*time.Hour), root)
+		Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), delegationExpiry, root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var signed trust.Envelope
 	if role == "netbird-manager" {
-		signed, err = release.SignNetBirdImageReceipt(image, "production", delegation, roots, leaf, now, time.Hour)
+		signed, err = release.SignNetBirdImageReceipt(image, "production", delegation, roots, leaf, now, lifetime)
 	} else {
 		signed, err = release.SignImageReceipt(image, "production", delegation, roots, leaf, now, time.Hour)
 	}

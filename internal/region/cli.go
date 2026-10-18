@@ -95,43 +95,64 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 }
 
 func provisionFromFile(ctx context.Context, args []string, out io.Writer) error {
+	factory, roots, bundle, _, err := ReadOriginalFoundationProvision(ctx, args)
+	if err != nil {
+		return err
+	}
+	if err := ProvisionOriginalFoundationPrerequisites(ctx, factory, roots, bundle); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, "provisioned exact signed foundation footprint")
+	return err
+}
+
+// ReadOriginalFoundationProvision verifies the bounded retained bundle before
+// opening original operator credentials. Its schema is authenticated by that
+// same complete verification, never inferred from a provision result.
+func ReadOriginalFoundationProvision(ctx context.Context, args []string) (*ociclient.Factory, trust.Keyring, RetainedFoundation, int, error) {
+	var bundle RetainedFoundation
 	if len(args) != 1 || args[0] == "" || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: ts-orch region create BUNDLE")
+		return nil, nil, bundle, 0, errors.New("usage: ts-orch region create BUNDLE")
 	}
 	file, err := os.Open(args[0])
 	if err != nil {
-		return err
+		return nil, nil, bundle, 0, err
 	}
 	defer file.Close()
 	const maximum = 3 << 20
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maximum {
-		return errors.New("foundation bundle must be a bounded regular file")
+		return nil, nil, bundle, 0, errors.New("foundation bundle must be a bounded regular file")
 	}
 	wire, err := io.ReadAll(io.LimitReader(file, maximum+1))
 	if err != nil || len(wire) > maximum {
-		return errors.Join(errors.New("foundation bundle exceeds its read bound"), err)
+		return nil, nil, bundle, 0, errors.Join(errors.New("foundation bundle exceeds its read bound"), err)
 	}
-	var bundle RetainedFoundation
 	if err := json.Unmarshal(wire, &bundle, json.RejectUnknownMembers(true)); err != nil {
-		return err
+		return nil, nil, bundle, 0, err
 	}
 	genesis, err := trust.DiscoveryGenesis()
 	if err != nil {
-		return err
+		return nil, nil, bundle, 0, err
 	}
 	if err := VerifyFoundationProvisionBundle(ctx, genesis, bundle); err != nil {
-		return err
+		return nil, nil, bundle, 0, err
+	}
+	grant, err := decodeOriginalMaterialGrant(bundle)
+	if err != nil {
+		return nil, nil, bundle, 0, err
 	}
 	factory, err := ociclient.OperatorConfig(foundationHomeRegion)
 	if err != nil {
-		return err
+		return nil, nil, bundle, 0, err
 	}
-	if err := provisionOriginalFoundationCompartments(ctx, factory, genesis, bundle); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(out, "provisioned exact signed foundation footprint")
-	return err
+	return factory, genesis, bundle, grant.SchemaVersion, nil
+}
+
+// ProvisionOriginalFoundationPrerequisites preserves the lower original actor
+// stage and its truthful custody/runtime pending result.
+func ProvisionOriginalFoundationPrerequisites(ctx context.Context, factory *ociclient.Factory, roots trust.Keyring, bundle RetainedFoundation) error {
+	return provisionOriginalFoundationCompartments(ctx, factory, roots, bundle)
 }
 
 func isFlagSet(flags *flag.FlagSet, name string) bool {

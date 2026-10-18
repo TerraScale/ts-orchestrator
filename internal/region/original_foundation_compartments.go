@@ -37,16 +37,17 @@ type OriginalFoundationCompartments struct {
 }
 
 type OriginalFoundationCompartmentRegion struct {
-	Cell                 string                           `json:"cell"`
-	OCIRegion            string                           `json:"ociRegion"`
-	IntentSHA256         string                           `json:"intentSha256"`
-	Generation           uint64                           `json:"generation"`
-	OperationID          string                           `json:"operationId"`
-	ProducerIntentSHA256 string                           `json:"producerIntentSha256"`
-	Compartments         [2]OriginalFoundationCompartment `json:"compartments"`
-	Network              *OriginalFoundationNetwork       `json:"network,omitempty"`
-	Vault                *OriginalFoundationVault         `json:"vault,omitempty"`
-	Actor                *OriginalFoundationActorLaunch   `json:"actor,omitempty"`
+	Cell                 string                            `json:"cell"`
+	OCIRegion            string                            `json:"ociRegion"`
+	IntentSHA256         string                            `json:"intentSha256"`
+	Generation           uint64                            `json:"generation"`
+	OperationID          string                            `json:"operationId"`
+	ProducerIntentSHA256 string                            `json:"producerIntentSha256"`
+	Compartments         [2]OriginalFoundationCompartment  `json:"compartments"`
+	Network              *OriginalFoundationNetwork        `json:"network,omitempty"`
+	Vault                *OriginalFoundationVault          `json:"vault,omitempty"`
+	Actor                *OriginalFoundationActorLaunch    `json:"actor,omitempty"`
+	NetBirdManager       *OriginalFoundationNetBirdManager `json:"netbirdManager,omitempty"`
 }
 
 type OriginalFoundationCompartment struct {
@@ -425,6 +426,7 @@ func (scope OriginalFoundationCompartments) scopeOnly() OriginalFoundationCompar
 		scope.Regions[region].Network = nil
 		scope.Regions[region].Vault = nil
 		scope.Regions[region].Actor = nil
+		scope.Regions[region].NetBirdManager = nil
 		for role := range scope.Regions[region].Compartments {
 			entry := &scope.Regions[region].Compartments[role]
 			entry.Pending, entry.Provenance = nil, nil
@@ -502,7 +504,13 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 	if err := r.validateOriginalFoundationVault(); err != nil {
 		return err
 	}
-	return r.validateOriginalFoundationActors()
+	if err := r.validateOriginalFoundationActors(); err != nil {
+		return err
+	}
+	if err := r.validateOriginalNetBirdManager(); err != nil {
+		return err
+	}
+	return r.validateOriginalNetBirdBackup()
 }
 
 func (next FoundationRecord) retainOriginalFoundationCompartments(previous FoundationRecord) error {
@@ -514,7 +522,13 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 		if err := next.retainOriginalFoundationVault(previous); err != nil {
 			return err
 		}
-		return next.retainOriginalFoundationActors(previous)
+		if err := next.retainOriginalFoundationActors(previous); err != nil {
+			return err
+		}
+		if err := next.retainOriginalNetBirdManager(previous); err != nil {
+			return err
+		}
+		return next.retainOriginalNetBirdBackup(previous)
 	}
 	if current == nil || !sameOriginalSourceValue(old.scopeOnly(), current.scopeOnly()) {
 		return ErrOriginalSourceProducerHold
@@ -537,5 +551,11 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 	if err := next.retainOriginalFoundationVault(previous); err != nil {
 		return err
 	}
-	return next.retainOriginalFoundationActors(previous)
+	if err := next.retainOriginalFoundationActors(previous); err != nil {
+		return err
+	}
+	if err := next.retainOriginalNetBirdManager(previous); err != nil {
+		return err
+	}
+	return next.retainOriginalNetBirdBackup(previous)
 }

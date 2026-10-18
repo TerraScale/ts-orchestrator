@@ -51,22 +51,23 @@ type FoundationHostApproval struct {
 // FoundationPreparationInput contains the initial caller-approved authority,
 // not regional plans, credentials, discovered membership or runtime settings.
 type FoundationPreparationInput struct {
-	TenancyID                       string                            `json:"tenancyId"`
-	ParentCompartmentID             string                            `json:"parentCompartmentId"`
-	SharedCompartmentID             string                            `json:"sharedCompartmentId"`
-	Currency                        string                            `json:"currency"`
-	MonthlyLimitMinor               int64                             `json:"monthlyLimitMinor"`
-	InfrastructureMonthlyLimitMinor int64                             `json:"infrastructureMonthlyLimitMinor"`
-	BootstrapReservedMinor          int64                             `json:"bootstrapReservedMinor"`
-	CleanupOwner                    string                            `json:"cleanupOwner"`
-	HomeStorageDomain               bootstrap.StorageDomain           `json:"homeStorageDomain"`
-	SourceVaultTarget               bootstrapmaterial.VaultTarget     `json:"sourceVaultTarget"`
-	TrustedSigners                  jsontext.Value                    `json:"trustedSigners"`
-	ReleaseAuthorities              []ContainerReleaseAuthorityIntent `json:"releaseAuthorities"`
-	GRUController                   FoundationHostApproval            `json:"gruController"`
-	SFOController                   FoundationHostApproval            `json:"sfoController"`
-	FRAController                   FoundationHostApproval            `json:"fraController"`
-	NetBirdManager                  FoundationHostApproval            `json:"netbirdManager"`
+	TenancyID                       string                             `json:"tenancyId"`
+	ParentCompartmentID             string                             `json:"parentCompartmentId"`
+	SharedCompartmentID             string                             `json:"sharedCompartmentId"`
+	Currency                        string                             `json:"currency"`
+	MonthlyLimitMinor               int64                              `json:"monthlyLimitMinor"`
+	InfrastructureMonthlyLimitMinor int64                              `json:"infrastructureMonthlyLimitMinor"`
+	BootstrapReservedMinor          int64                              `json:"bootstrapReservedMinor"`
+	CleanupOwner                    string                             `json:"cleanupOwner"`
+	HomeStorageDomain               bootstrap.StorageDomain            `json:"homeStorageDomain"`
+	SourceVaultTarget               bootstrapmaterial.VaultTarget      `json:"sourceVaultTarget"`
+	TrustedSigners                  jsontext.Value                     `json:"trustedSigners"`
+	ReleaseAuthorities              []ContainerReleaseAuthorityIntent  `json:"releaseAuthorities"`
+	NetBirdComponents               [3]ContainerReleaseAuthorityIntent `json:"netbirdComponents"`
+	GRUController                   FoundationHostApproval             `json:"gruController"`
+	SFOController                   FoundationHostApproval             `json:"sfoController"`
+	FRAController                   FoundationHostApproval             `json:"fraController"`
+	NetBirdManager                  FoundationHostApproval             `json:"netbirdManager"`
 }
 
 func (input FoundationPreparationInput) validate() error {
@@ -92,7 +93,10 @@ func (input FoundationPreparationInput) validate() error {
 		}
 		remaining -= host.MonthlyLimitMinor
 	}
-	return validatePreparedReleaseAuthorities(input.ReleaseAuthorities)
+	if err := validatePreparedReleaseAuthorities(input.ReleaseAuthorities); err != nil {
+		return err
+	}
+	return validatePreparedNetBirdComponents(input.NetBirdComponents, input.HomeStorageDomain)
 }
 
 func validatePreparedReleaseAuthorities(authorities []ContainerReleaseAuthorityIntent) error {
@@ -175,6 +179,9 @@ func PrepareFoundationGrantSDK(ctx context.Context, input FoundationPreparationI
 		return FoundationPreparation{}, err
 	}
 	if err := ValidateContainerReleaseAuthorities(prepared.Grant, roots, input.HomeStorageDomain, time.Now()); err != nil {
+		return FoundationPreparation{}, err
+	}
+	if err := validateNetBirdComponentIntents(prepared.Grant, roots, input.HomeStorageDomain, time.Now()); err != nil {
 		return FoundationPreparation{}, err
 	}
 	prepared.Grant.WorkerProfiles, err = PrepareWorkerProfilesSDK(ctx, factory, namespace, roots, prepared.Grant, time.Now())
@@ -315,6 +322,9 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		grant.Regions[index].BootstrapMaterial.OriginalSourceProducer = &purpose
 	}
 	if err := ValidatePreparedFoundation(grant); err != nil {
+		return FoundationPreparation{}, err
+	}
+	if err := validateNetBirdBackupCoolingInterval(grant, time.Now().Add(originalNetBirdRetentionCooling)); err != nil {
 		return FoundationPreparation{}, err
 	}
 	return FoundationPreparation{Grant: grant, Anchor: anchor}, nil
@@ -500,6 +510,18 @@ func prepareFoundationNetBird(input FoundationPreparationInput, installation str
 	if err != nil {
 		return NetBirdManagerIntent{}, BootstrapSlotIntent{}, err
 	}
+	components, err := prepareNetBirdComponentIntents(input, material)
+	if err != nil {
+		return NetBirdManagerIntent{}, BootstrapSlotIntent{}, err
+	}
+	account, err := newNetBirdAccountAuthority(installation, input.TenancyID, material)
+	if err != nil {
+		return NetBirdManagerIntent{}, BootstrapSlotIntent{}, err
+	}
+	backup, err := newNetBirdBackupAuthority(installation, input.TenancyID, input.HomeStorageDomain)
+	if err != nil {
+		return NetBirdManagerIntent{}, BootstrapSlotIntent{}, err
+	}
 	// The dedicated manager uses its own /24 next to the controller network.
 	network, err := netip.ParsePrefix(plan["network_cidr"].(string))
 	if err != nil {
@@ -510,7 +532,7 @@ func prepareFoundationNetBird(input FoundationPreparationInput, installation str
 	managerNetwork := netip.PrefixFrom(netip.AddrFrom4(address), 24)
 	address[3] = 10
 	host := input.NetBirdManager
-	intent := NetBirdManagerIntent{Material: &material, Role: NetBirdManagerRole, StoreOrigin: "new", ImageOCID: image.Image.Receipt().OCIImageOCID, Architecture: "arm64",
+	intent := NetBirdManagerIntent{Material: &material, Components: components, Account: &account, Backup: &backup, Role: NetBirdManagerRole, StoreOrigin: "new", ImageOCID: image.Image.Receipt().OCIImageOCID, Architecture: "arm64",
 		Profile:          NetBirdManagerProfile{AvailabilityDomain: plan["availability_domain"].(string), FaultDomain: "FAULT-DOMAIN-1", PrivateIP: netip.AddrFrom4(address).String(), NetworkCIDR: managerNetwork.String(), Shape: "VM.Standard.A1.Flex", OCPUs: float32(host.OCPUs), MemoryGB: float32(host.MemoryGB), BootVolumeGB: host.BootGB},
 		ImageReceiptWire: slices.Clone(image.ReceiptWire), ImageDelegationWire: slices.Clone(image.DelegationWire), QualificationWire: slices.Clone(image.QualificationWire), QualificationDelegationWire: slices.Clone(image.QualificationDelegationWire)}
 	profileDigest, err := NetBirdManagerProfileDigest(intent.Profile)
@@ -572,6 +594,15 @@ func ValidatePreparedFoundation(grant FoundationGrant) error {
 		if regional.Plan["cell"] == "GRU" && regional.BootstrapMaterial != nil && regional.BootstrapMaterial.SourceRegistration != nil {
 			home = regional.BootstrapMaterial.SourceRegistration.StorageDomain
 		}
+	}
+	if err := validateNetBirdComponentIdentities(grant, home); err != nil {
+		return err
+	}
+	if err := validateFoundationNetBirdAccount(grant); err != nil {
+		return err
+	}
+	if err := validateFoundationNetBirdBackup(grant); err != nil {
+		return err
 	}
 	if err := validateFoundationWorkloadGenesis(grant, home); err != nil {
 		return err

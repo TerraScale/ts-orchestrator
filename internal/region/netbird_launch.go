@@ -23,7 +23,40 @@ import (
 // The foundation owner is also the singleton host owner. A lost launch response
 // retains its original request and token; no discovery miss buys another host.
 func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, plan map[string]any, progress FoundationProgress) error {
-	if progress.ManagerAuthority == nil || progress.ManagerAllocation == nil || progress.CheckpointManager == nil {
+	if progress.ManagerAllocation == nil {
+		return errors.New("dedicated manager lacks same-grant authority and durable checkpoints")
+	}
+	return reconcileNetBirdManagerAllocation(ctx, factory, plan, progress, func(ctx context.Context, slot string) (netBirdManagerAllocation, error) {
+		return progress.ManagerAllocation(ctx, slot)
+	}, ReconcileNetBirdNetwork, nil)
+}
+
+// The original producer supplies its own sealed allocation; generic spending
+// verification never accepts an original schema-3 grant.
+type netBirdManagerAllocation interface {
+	Slot() BootstrapSlotIntent
+	IsVerified() bool
+	InstallationID() string
+	Generation() uint64
+	GrantDigest() string
+	BindingDigest() string
+	ScopeDigest() string
+	PhysicalScopeDigest() string
+	OperationID() string
+	ExpiresAt() time.Time
+	Footprint() capacityinventory.Scope
+	Revalidate(context.Context) error
+	Validate(BootstrapLaunchRequest, capacityinventory.Quote, time.Time) error
+}
+
+var errNetBirdManagerLaunchIdentity = errors.New("dedicated manager launch returned no exact instance identity")
+
+func reconcileNetBirdManagerAllocation(ctx context.Context, factory *ociclient.Factory, plan map[string]any, progress FoundationProgress,
+	allocationFor func(context.Context, string) (netBirdManagerAllocation, error),
+	networkFor func(context.Context, *ociclient.Factory, map[string]any, NetBirdManagerProfile, FoundationProgress) (string, string, error),
+	launchFailure func(context.Context, error) error,
+) error {
+	if progress.ManagerAuthority == nil || allocationFor == nil || progress.CheckpointManager == nil || progress.BeforeWrite == nil {
 		return errors.New("dedicated manager lacks same-grant authority and durable checkpoints")
 	}
 	intent, err := progress.ManagerAuthority(ctx)
@@ -36,7 +69,7 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 	}
 	compartment, _ := ids["control_compartment"].(string)
 	slotID := BootstrapSlotID(intent.installationID, "GRU", NetBirdManagerRole, NetBirdManagerRole)
-	allocation, err := progress.ManagerAllocation(ctx, slotID)
+	allocation, err := allocationFor(ctx, slotID)
 	if err != nil {
 		return err
 	}
@@ -62,7 +95,7 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		readOnly.CheckpointAuxiliary = func(context.Context, string, string) error {
 			return errors.New("existing manager cannot adopt network resources")
 		}
-		subnet, nsg, err := ReconcileNetBirdNetwork(ctx, factory, plan, intent.intent.Profile, readOnly)
+		subnet, nsg, err := networkFor(ctx, factory, plan, intent.intent.Profile, readOnly)
 		if err != nil {
 			return err
 		}
@@ -108,6 +141,9 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		}
 	} else {
 		launch.OriginalQuote = new(quote.Original())
+		if intent.intent.Account != nil {
+			launch.Account = newNetBirdAccountJournal(*intent.intent.Account, launch.StartedAt)
+		}
 	}
 	request := func(digest, token string) BootstrapLaunchRequest {
 		return BootstrapLaunchRequest{SlotID: slotID, OperationID: launch.OperationID, Cell: "GRU", CompartmentID: compartment,
@@ -130,7 +166,7 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		if current.installationID != intent.installationID || current.generation != intent.generation || current.grantDigest != intent.grantDigest || current.profileDigest != intent.profileDigest || current.recipeDigest != intent.recipeDigest {
 			return ctx, nil, ErrFoundationFenced
 		}
-		nextAllocation, err := progress.ManagerAllocation(ctx, slotID)
+		nextAllocation, err := allocationFor(ctx, slotID)
 		if err != nil {
 			return ctx, nil, err
 		}
@@ -146,7 +182,7 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		}
 		return guard(ctx, home)
 	}
-	subnet, nsg, err := ReconcileNetBirdNetwork(ctx, factory, plan, p, progress)
+	subnet, nsg, err := networkFor(ctx, factory, plan, p, progress)
 	if err != nil {
 		return err
 	}
@@ -208,10 +244,16 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		response, err := compute.LaunchInstance(ociclient.RequestContext(guardCtx), core.LaunchInstanceRequest{LaunchInstanceDetails: details,
 			OpcRetryToken: new(launch.RetryToken), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}})
 		if err != nil {
+			if launchFailure != nil {
+				return launchFailure(ctx, err)
+			}
 			return err
 		}
 		if response.Id == nil || *response.Id == "" {
-			return errors.New("dedicated manager launch returned no exact instance identity")
+			if launchFailure != nil {
+				return launchFailure(ctx, errNetBirdManagerLaunchIdentity)
+			}
+			return errNetBirdManagerLaunchIdentity
 		}
 		launch.InstanceID = *response.Id
 		if err := progress.CheckpointManager(ctx, launch); err != nil {
@@ -241,7 +283,7 @@ func (launch NetBirdManagerLaunch) validateOriginalQuote(details core.LaunchInst
 	return nil
 }
 
-func validateNetBirdAllocation(allocation VerifiedBootstrapAllocation, intent verifiedNetBirdIntent, compartment string) error {
+func validateNetBirdAllocation(allocation netBirdManagerAllocation, intent verifiedNetBirdIntent, compartment string) error {
 	p, s := intent.intent.Profile, allocation.Slot()
 	if !allocation.IsVerified() || !time.Now().Before(allocation.ExpiresAt()) || allocation.InstallationID() != intent.installationID || allocation.Generation() != intent.generation || allocation.GrantDigest() != intent.grantDigest ||
 		s.Cell != "GRU" || s.Role != NetBirdManagerRole || s.Slot != NetBirdManagerRole || s.CompartmentID != compartment || s.ProfileSHA256 != intent.profileDigest || s.RecipeSHA256 != intent.recipeDigest ||
@@ -287,78 +329,114 @@ func netBirdRequestDigest(details core.LaunchInstanceDetails) (string, error) {
 }
 
 func observeNetBirdGeometry(ctx context.Context, factory *ociclient.Factory, intent NetBirdManagerIntent, launch NetBirdManagerLaunch, compartment string) (string, error) {
+	boot, _, err := observeNetBirdManagerGeometryCurrent(ctx, factory, intent, launch, compartment, false)
+	return boot, err
+}
+
+func observeNetBirdManagerGeometry(ctx context.Context, factory *ociclient.Factory, intent NetBirdManagerIntent, launch NetBirdManagerLaunch, compartment string) (string, string, error) {
+	return observeNetBirdManagerGeometryCurrent(ctx, factory, intent, launch, compartment, true)
+}
+
+func observeNetBirdManagerGeometryCurrent(ctx context.Context, factory *ociclient.Factory, intent NetBirdManagerIntent, launch NetBirdManagerLaunch, compartment string, original bool) (string, string, error) {
 	compute, err := factory.Compute()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	response, err := compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(launch.InstanceID)})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	i, p := response.Instance, intent.Profile
 	if i.Id == nil || *i.Id != launch.InstanceID || i.CompartmentId == nil || *i.CompartmentId != compartment ||
 		i.AvailabilityDomain == nil || *i.AvailabilityDomain != p.AvailabilityDomain || i.FaultDomain == nil || *i.FaultDomain != p.FaultDomain ||
 		i.Shape == nil || *i.Shape != p.Shape || i.ShapeConfig == nil || i.ShapeConfig.Ocpus == nil || *i.ShapeConfig.Ocpus != p.OCPUs ||
 		i.ShapeConfig.MemoryInGBs == nil || *i.ShapeConfig.MemoryInGBs != p.MemoryGB || i.LifecycleState != core.InstanceLifecycleStateRunning || len(i.Metadata) != 0 || len(i.ExtendedMetadata) != 0 {
-		return "", errors.New("dedicated manager observed instance geometry or boot metadata differs")
+		return "", "", errors.New("dedicated manager observed instance geometry or boot metadata differs")
 	}
 	image, ok := i.SourceDetails.(core.InstanceSourceViaImageDetails)
 	if !ok || image.ImageId == nil || *image.ImageId != intent.ImageOCID {
-		return "", errors.New("dedicated manager exact instance image provenance is absent")
+		return "", "", errors.New("dedicated manager exact instance image provenance is absent")
 	}
 	vnics, err := compute.ListVnicAttachments(ociclient.RequestContext(ctx), core.ListVnicAttachmentsRequest{CompartmentId: new(compartment), InstanceId: new(launch.InstanceID)})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if len(vnics.Items) != 1 || vnics.OpcNextPage != nil && *vnics.OpcNextPage != "" {
-		return "", errors.New("dedicated manager must have exactly one network attachment")
+		return "", "", errors.New("dedicated manager must have exactly one network attachment")
 	}
 	attachment := vnics.Items[0]
 	if attachment.InstanceId == nil || *attachment.InstanceId != launch.InstanceID || attachment.VnicId == nil || attachment.LifecycleState != core.VnicAttachmentLifecycleStateAttached {
-		return "", errors.New("dedicated manager network attachment has no exact current instance")
+		return "", "", errors.New("dedicated manager network attachment has no exact current instance")
 	}
 	network, err := factory.Network()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	vnicResponse, err := network.GetVnic(ociclient.RequestContext(ctx), core.GetVnicRequest{VnicId: attachment.VnicId})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	vnic := vnicResponse.Vnic
 	public, publicErr := netip.ParseAddr(value(vnic.PublicIp))
 	if vnic.Id == nil || *vnic.Id != *attachment.VnicId || vnic.IsPrimary == nil || !*vnic.IsPrimary || vnic.PrivateIp == nil || *vnic.PrivateIp != p.PrivateIP ||
 		vnic.SkipSourceDestCheck == nil || *vnic.SkipSourceDestCheck || publicErr != nil || !public.Is4() || !public.IsGlobalUnicast() || public.IsPrivate() ||
 		len(vnic.Ipv6Addresses) != 0 || vnic.LifecycleState != core.VnicLifecycleStateAvailable {
-		return "", errors.New("dedicated manager public primary VNIC differs or permits forwarding")
+		return "", "", errors.New("dedicated manager public primary VNIC differs or permits forwarding")
+	}
+	// The exact launch body pins the subnet and NSG independently of VNIC names.
+	if original {
+		if len(vnic.NsgIds) != 1 || value(vnic.SubnetId) == "" {
+			return "", "", errors.New("dedicated manager VNIC lacks its exact launch network")
+		}
+		digest, err := netBirdRequestDigest(netBirdLaunchDetails(intent, compartment, value(vnic.SubnetId), vnic.NsgIds[0]))
+		if err != nil || digest != launch.RequestDigest {
+			return "", "", errors.Join(errors.New("dedicated manager VNIC differs from its immutable launch body"), err)
+		}
+		if !validOriginalActorID("vnicattachment", foundationHomeRegion, value(attachment.Id)) || !validOriginalActorID("vnic", foundationHomeRegion, value(vnic.Id)) ||
+			value(attachment.CompartmentId) != compartment || value(attachment.AvailabilityDomain) != p.AvailabilityDomain || value(attachment.SubnetId) != value(vnic.SubnetId) || value(attachment.VlanId) != "" ||
+			value(vnic.AvailabilityDomain) != p.AvailabilityDomain || value(vnic.VlanId) != "" || value(vnic.RouteTableId) != "" {
+			return "", "", errors.New("original manager VNIC attachment differs from its exact physical launch")
+		}
+		subnet, err := network.GetSubnet(ociclient.RequestContext(ctx), core.GetSubnetRequest{SubnetId: vnic.SubnetId})
+		if err != nil {
+			return "", "", err
+		}
+		if value(subnet.Id) != value(vnic.SubnetId) || value(subnet.CompartmentId) != value(vnic.CompartmentId) || subnet.LifecycleState != core.SubnetLifecycleStateAvailable {
+			return "", "", errors.New("original manager VNIC belongs to a different network compartment")
+		}
 	}
 	attachments, err := compute.ListBootVolumeAttachments(ociclient.RequestContext(ctx), core.ListBootVolumeAttachmentsRequest{CompartmentId: new(compartment),
 		AvailabilityDomain: new(p.AvailabilityDomain), InstanceId: new(launch.InstanceID)})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if len(attachments.Items) != 1 || attachments.OpcNextPage != nil && *attachments.OpcNextPage != "" {
-		return "", errors.New("dedicated manager boot volume attachment is ambiguous")
+		return "", "", errors.New("dedicated manager boot volume attachment is ambiguous")
 	}
 	a := attachments.Items[0]
 	if a.InstanceId == nil || *a.InstanceId != launch.InstanceID || a.BootVolumeId == nil || a.LifecycleState != core.BootVolumeAttachmentLifecycleStateAttached ||
 		launch.BootVolumeID != "" && *a.BootVolumeId != launch.BootVolumeID {
-		return "", errors.New("dedicated manager boot volume differs from its checkpoint")
+		return "", "", errors.New("dedicated manager boot volume differs from its checkpoint")
 	}
 	volume, err := factory.Blockstorage()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	boot, err := volume.GetBootVolume(ociclient.RequestContext(ctx), core.GetBootVolumeRequest{BootVolumeId: a.BootVolumeId})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	b := boot.BootVolume
 	if b.Id == nil || *b.Id != *a.BootVolumeId || b.CompartmentId == nil || *b.CompartmentId != compartment || b.ImageId == nil || *b.ImageId != intent.ImageOCID ||
-		b.SizeInGBs == nil || *b.SizeInGBs != p.BootVolumeGB || b.VpusPerGB == nil || *b.VpusPerGB != 10 || b.LifecycleState != core.BootVolumeLifecycleStateAvailable {
-		return "", errors.New("dedicated manager boot volume image or billing geometry differs")
+		b.SizeInGBs == nil || *b.SizeInGBs != p.BootVolumeGB || b.VpusPerGB == nil || *b.VpusPerGB != 10 || b.LifecycleState != core.BootVolumeLifecycleStateAvailable ||
+		original && (b.IsAutoTuneEnabled != nil && *b.IsAutoTuneEnabled || len(b.AutotunePolicies) != 0 || b.AutoTunedVpusPerGB != nil && *b.AutoTunedVpusPerGB != 10) {
+		return "", "", errors.New("dedicated manager boot volume image or billing geometry differs")
 	}
-	return *b.Id, nil
+	if original && (!validOriginalActorID("bootvolumeattachment", foundationHomeRegion, value(a.Id)) || !validOriginalActorID("bootvolume", foundationHomeRegion, value(b.Id)) ||
+		value(a.CompartmentId) != compartment || value(a.AvailabilityDomain) != p.AvailabilityDomain || value(b.AvailabilityDomain) != p.AvailabilityDomain || value(i.ImageId) != intent.ImageOCID || value(i.IpxeScript) != "") {
+		return "", "", errors.New("original manager boot attachment or image differs from its exact physical launch")
+	}
+	return *b.Id, *attachment.VnicId, nil
 }
 
 // netBirdObservedInstance checks the entire isolated network and exact disk

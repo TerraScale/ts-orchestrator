@@ -123,71 +123,86 @@ func ValidateContainerReleaseAuthorities(grant FoundationGrant, roots trust.Keyr
 			return errors.New("container release authority has duplicate role/environment or invalid target scope")
 		}
 		seen[key] = true
-		if err := validateContainerRepositories(intent, home.Namespace); err != nil {
-			return err
-		}
-		expected := make(map[trust.Scope]bool, len(intent.Cells)*len(intent.Architectures))
-		seenCells := make(map[string]bool, len(intent.Cells))
-		for _, cell := range intent.Cells {
-			if !cells[cell] || seenCells[cell] {
-				return errors.New("container release authority cell is duplicate or outside the signed footprint")
-			}
-			seenCells[cell] = true
-			for _, arch := range intent.Architectures {
-				scope := release.ContainerScope(release.ContainerTarget{Cell: cell, Role: intent.Role, Environment: intent.Environment, Architecture: arch})
-				if arch != "arm64" && arch != "amd64" || expected[scope] {
-					return errors.New("container release authority architecture is invalid or duplicate")
-				}
-				expected[scope] = true
-			}
-		}
-		delegationEnvelope, err := trust.DecodeEnvelope(intent.DelegationWire)
-		if err != nil {
-			return fmt.Errorf("container release delegation: %w", err)
-		}
-		delegation, err := trust.VerifyDelegationCurrent(delegationEnvelope, roots, now, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime})
+		delegationEnvelope, delegation, err := validateContainerReleaseDelegation(intent, roots, home, cells, now)
 		if err != nil {
 			return err
-		}
-		if roots[delegation.SubjectKeyID()] != nil {
-			return errors.New("container release signer must differ from existing offline roots")
-		}
-		for _, capability := range delegation.Capabilities() {
-			for _, slot := range capability.Slots {
-				scope := trust.Scope{Domain: capability.Domain, DeploymentID: capability.DeploymentID, Cell: capability.Cell, Environment: capability.Environment, Role: capability.Role, Slot: slot}
-				if !expected[scope] {
-					return errors.New("container release delegation grants extra or duplicate capabilities")
-				}
-				delete(expected, scope)
-			}
-		}
-		if len(expected) != 0 {
-			return errors.New("container release delegation omits approved capabilities")
 		}
 		if grant.SchemaVersion == 3 {
 			continue
 		}
-		migrationEnvelope, err := trust.DecodeEnvelope(intent.SequenceMigrationWire)
-		if err != nil {
-			return fmt.Errorf("container release sequence migration: %w", err)
-		}
-		// Original durable migration bytes retain their floor after expiry;
-		// the signer's first import still requires its existing current guard.
-		migration, err := release.VerifySequenceMigrationHistorical(migrationEnvelope, roots, intent.Role, intent.Environment)
-		if err != nil {
+		if err := validateContainerReleaseMigration(intent, delegationEnvelope, delegation, roots, home); err != nil {
 			return err
 		}
-		var public trust.Delegation
-		if err := json.Unmarshal(delegationEnvelope.Payload, &public, json.RejectUnknownMembers(true)); err != nil {
-			return err
+	}
+	return nil
+}
+
+func validateContainerReleaseDelegation(intent ContainerReleaseAuthorityIntent, roots trust.Keyring, home bootstrap.StorageDomain, cells map[string]bool, now time.Time) (trust.Envelope, trust.VerifiedDelegation, error) {
+	var empty trust.VerifiedDelegation
+	if err := validateContainerRepositories(intent, home.Namespace); err != nil {
+		return trust.Envelope{}, empty, err
+	}
+	expected := make(map[trust.Scope]bool, len(intent.Cells)*len(intent.Architectures))
+	seenCells := make(map[string]bool, len(intent.Cells))
+	for _, cell := range intent.Cells {
+		if !cells[cell] || seenCells[cell] {
+			return trust.Envelope{}, empty, errors.New("container release authority cell is duplicate or outside the signed footprint")
 		}
-		if migration.SignerKeyID != delegation.SubjectKeyID() || migration.SignerPublicKey != public.SubjectPublicKey || migration.Namespace != home.Namespace || migration.Bucket != home.HeadBucket {
-			return errors.New("container release sequence signer or store differs from signed authority")
-		}
-		for _, cell := range intent.Cells {
-			if !slices.ContainsFunc(migration.Regions, func(floor release.SequenceFloor) bool { return floor.Cell == cell }) {
-				return errors.New("container release sequence migration lacks an approved regional floor")
+		seenCells[cell] = true
+		for _, arch := range intent.Architectures {
+			scope := release.ContainerScope(release.ContainerTarget{Cell: cell, Role: intent.Role, Environment: intent.Environment, Architecture: arch})
+			if arch != "arm64" && arch != "amd64" || expected[scope] {
+				return trust.Envelope{}, empty, errors.New("container release authority architecture is invalid or duplicate")
 			}
+			expected[scope] = true
+		}
+	}
+	envelope, err := trust.DecodeEnvelope(intent.DelegationWire)
+	if err != nil {
+		return trust.Envelope{}, empty, fmt.Errorf("container release delegation: %w", err)
+	}
+	delegation, err := trust.VerifyDelegationCurrent(envelope, roots, now, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime})
+	if err != nil {
+		return trust.Envelope{}, empty, err
+	}
+	if roots[delegation.SubjectKeyID()] != nil {
+		return trust.Envelope{}, empty, errors.New("container release signer must differ from existing offline roots")
+	}
+	for _, capability := range delegation.Capabilities() {
+		for _, slot := range capability.Slots {
+			scope := trust.Scope{Domain: capability.Domain, DeploymentID: capability.DeploymentID, Cell: capability.Cell, Environment: capability.Environment, Role: capability.Role, Slot: slot}
+			if !expected[scope] {
+				return trust.Envelope{}, empty, errors.New("container release delegation grants extra or duplicate capabilities")
+			}
+			delete(expected, scope)
+		}
+	}
+	if len(expected) != 0 {
+		return trust.Envelope{}, empty, errors.New("container release delegation omits approved capabilities")
+	}
+	return envelope, delegation, nil
+}
+
+func validateContainerReleaseMigration(intent ContainerReleaseAuthorityIntent, delegationEnvelope trust.Envelope, delegation trust.VerifiedDelegation, roots trust.Keyring, home bootstrap.StorageDomain) error {
+	migrationEnvelope, err := trust.DecodeEnvelope(intent.SequenceMigrationWire)
+	if err != nil {
+		return fmt.Errorf("container release sequence migration: %w", err)
+	}
+	// Original durable migration bytes retain their floor after expiry.
+	migration, err := release.VerifySequenceMigrationHistorical(migrationEnvelope, roots, intent.Role, intent.Environment)
+	if err != nil {
+		return err
+	}
+	var public trust.Delegation
+	if err := json.Unmarshal(delegationEnvelope.Payload, &public, json.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if migration.SignerKeyID != delegation.SubjectKeyID() || migration.SignerPublicKey != public.SubjectPublicKey || migration.Namespace != home.Namespace || migration.Bucket != home.HeadBucket {
+		return errors.New("container release sequence signer or store differs from signed authority")
+	}
+	for _, cell := range intent.Cells {
+		if !slices.ContainsFunc(migration.Regions, func(floor release.SequenceFloor) bool { return floor.Cell == cell }) {
+			return errors.New("container release sequence migration lacks an approved regional floor")
 		}
 	}
 	return nil
