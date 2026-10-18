@@ -202,6 +202,66 @@ type managedEnrollmentFixture struct {
 	fleet        *managedEnrollmentFleet
 }
 
+func fixtureManagedNativeAuthority(cell, environment string) managedNativeAdmissionAuthority {
+	return func(ctx context.Context, requestedCell, requestedEnvironment string) error {
+		if requestedCell != cell || requestedEnvironment != environment {
+			return errors.New("fixture native lineage differs from the independent cell and environment")
+		}
+		return ctx.Err()
+	}
+}
+
+func TestManagedNativeAdmissionIsSeparateFromRegistrationProvenance(t *testing.T) {
+	fixture := newManagedEnrollmentFixture(t)
+	verifier := fixture.verifier.(managedRegistrationVerifier)
+	registration := fixture.registration
+	desired := host.Desired{Cell: registration.Cell, Node: registration.Node, Role: "terrabase", Environment: registration.Environment,
+		ManagedMember: &host.ManagedMemberLaunch{Member: *registration.ManagedMember, OCI: *registration.ManagedOCI}}
+	if err := verifier.VerifyManagedNativeAdmission(t.Context(), desired, registration); err != nil {
+		t.Fatal(err)
+	}
+	denied := errors.New("current schema3 lineage refuses native admission")
+	verifier.nativeAuthority = func(context.Context, string, string) error { return denied }
+	if err := verifier.VerifyManagedNativeAdmission(t.Context(), desired, registration); !errors.Is(err, denied) {
+		t.Fatalf("native lineage refusal was bypassed: %v", err)
+	}
+	if err := verifier.VerifyManagedRegistration(t.Context(), registration); err != nil {
+		t.Fatalf("native exclusion blocked common registration/stop provenance: %v", err)
+	}
+	verifier.nativeAuthority = nil
+	if err := verifier.VerifyManagedNativeAdmission(t.Context(), desired, registration); err == nil {
+		t.Fatal("missing native policy admitted a native writer")
+	}
+	if _, err := newManagedRegistrationVerifier("gru", oci.RegionGRU, "regional-owner", 1, fixture.intents, fixture.members, fixture.fleet, nil); err == nil {
+		t.Fatal("constructor accepted a missing mandatory native policy")
+	}
+	for _, mutate := range []func(*host.Desired){
+		func(d *host.Desired) { d.Cell = "sfo" },
+		func(d *host.Desired) { d.Environment = "canary" },
+		func(d *host.Desired) { d.Node = "foreign-node" },
+		func(d *host.Desired) { d.Role = "ts-auth" },
+		func(d *host.Desired) { d.Withdrawn = true },
+		func(d *host.Desired) { d.ManagedMember = nil },
+		func(d *host.Desired) {
+			member := *d.ManagedMember
+			member.Member.HostAttempt++
+			d.ManagedMember = &member
+		},
+		func(d *host.Desired) {
+			member := *d.ManagedMember
+			member.OCI.InstanceID = "foreign-instance"
+			d.ManagedMember = &member
+		},
+	} {
+		changed := desired
+		mutate(&changed)
+		verifier.nativeAuthority = fixtureManagedNativeAuthority("gru", "production")
+		if err := verifier.VerifyManagedNativeAdmission(t.Context(), changed, registration); err == nil {
+			t.Fatal("native policy accepted a substituted target")
+		}
+	}
+}
+
 func newManagedEnrollmentFixture(t *testing.T) managedEnrollmentFixture {
 	t.Helper()
 	intent := testManagedPlacementIntent()
@@ -258,7 +318,8 @@ func newManagedEnrollmentFixture(t *testing.T) managedEnrollmentFixture {
 	}}
 	members := &managedEnrollmentMemberReader{member: placement.VersionedMemberState{State: state, Revision: 4}}
 	fleet := &managedEnrollmentFleet{instances: []oci.Instance{instance}}
-	verifier, err := newManagedRegistrationVerifier("gru", oci.RegionGRU, "regional-owner", 1, intents, members, fleet)
+	verifier, err := newManagedRegistrationVerifier("gru", oci.RegionGRU, "regional-owner", 1, intents, members, fleet,
+		fixtureManagedNativeAuthority("gru", "production"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -104,6 +104,7 @@ func (v VerifiedBindings) Revalidate(ctx context.Context) error {
 }
 
 type grant struct {
+	WorkloadGenesis     jsontext.Value   `json:"workloadGenesis,omitempty"`
 	WorkerProfiles      jsontext.Value   `json:"workerProfiles,omitempty"`
 	ReleaseAuthorities  jsontext.Value   `json:"releaseAuthorities,omitempty"`
 	InstallationID      string           `json:"installationId"`
@@ -152,42 +153,45 @@ type provenance struct {
 // These private wire views avoid importing the region/bootstrap packages:
 // their consumers must be able to call this verifier without an import cycle.
 type record struct {
-	PoolDrains            jsontext.Value           `json:"poolDrains,omitempty"`
-	NetBirdBrokerPolicies jsontext.Value           `json:"netbirdBrokerPolicies,omitempty"`
-	RuntimeLineage        jsontext.Value           `json:"runtimeLineage,omitempty"`
-	OCIRIssuances         jsontext.Value           `json:"ocirIssuances,omitempty"`
-	FoundationWriter      jsontext.Value           `json:"foundationWriter,omitempty"`
-	CapacityLedger        *capacityledger.Ledger   `json:"capacityLedger,omitempty"`
-	PoolChildren          jsontext.Value           `json:"poolChildren,omitempty"`
-	CapacityPools         jsontext.Value           `json:"capacityPools,omitempty"`
-	CapacityCreates       jsontext.Value           `json:"capacityCreates,omitempty"`
-	PoolQuarantines       jsontext.Value           `json:"poolQuarantines,omitempty"`
-	WorkerPolicyIDs       jsontext.Value           `json:"workerPolicyIds,omitempty"`
-	OCIResources          jsontext.Value           `json:"ociResources,omitempty"`
-	SourcePolicyIDs       jsontext.Value           `json:"sourcePolicyIds,omitempty"`
-	NetBirdManager        jsontext.Value           `json:"netbirdManager,omitempty"`
-	SchemaVersion         int                      `json:"schemaVersion"`
-	Cell                  string                   `json:"cell"`
-	OCIRegion             string                   `json:"ociRegion"`
-	TenancyID             string                   `json:"tenancyId"`
-	ParentCompartmentID   string                   `json:"parentCompartmentId"`
-	SharedCompartmentID   string                   `json:"sharedCompartmentId"`
-	Generation            uint64                   `json:"generation"`
-	GrantSHA256           string                   `json:"grantSha256"`
-	IntentDigest          string                   `json:"intentDigest"`
-	OperationID           string                   `json:"operationId"`
-	Epoch                 uint64                   `json:"epoch"`
-	LeaseID               string                   `json:"leaseId,omitempty"`
-	ExpiresAt             time.Time                `json:"expiresAt,omitzero"`
-	Stage                 string                   `json:"stage"`
-	BlockedReason         string                   `json:"blockedReason,omitempty"`
-	StartedAt             time.Time                `json:"startedAt"`
-	UpdatedAt             time.Time                `json:"updatedAt"`
-	CompletedAt           time.Time                `json:"completedAt,omitzero"`
-	ResourceIDs           map[string]string        `json:"resourceIds"`
-	AuxiliaryIDs          map[string]string        `json:"auxiliaryIds,omitempty"`
-	PendingCreates        map[string]pendingCreate `json:"pendingCreates,omitempty"`
-	ResourceProvenance    map[string]provenance    `json:"resourceProvenance,omitempty"`
+	OriginalFoundationCompartments jsontext.Value           `json:"originalFoundationCompartments,omitempty"`
+	OriginalSourceProducers        jsontext.Value           `json:"originalSourceProducers,omitempty"`
+	NetBirdMaterial                jsontext.Value           `json:"netBirdMaterial,omitempty"`
+	PoolDrains                     jsontext.Value           `json:"poolDrains,omitempty"`
+	NetBirdBrokerPolicies          jsontext.Value           `json:"netbirdBrokerPolicies,omitempty"`
+	RuntimeLineage                 jsontext.Value           `json:"runtimeLineage,omitempty"`
+	OCIRIssuances                  jsontext.Value           `json:"ocirIssuances,omitempty"`
+	FoundationWriter               jsontext.Value           `json:"foundationWriter,omitempty"`
+	CapacityLedger                 *capacityledger.Ledger   `json:"capacityLedger,omitempty"`
+	PoolChildren                   jsontext.Value           `json:"poolChildren,omitempty"`
+	CapacityPools                  jsontext.Value           `json:"capacityPools,omitempty"`
+	CapacityCreates                jsontext.Value           `json:"capacityCreates,omitempty"`
+	PoolQuarantines                jsontext.Value           `json:"poolQuarantines,omitempty"`
+	WorkerPolicyIDs                jsontext.Value           `json:"workerPolicyIds,omitempty"`
+	OCIResources                   jsontext.Value           `json:"ociResources,omitempty"`
+	SourcePolicyIDs                jsontext.Value           `json:"sourcePolicyIds,omitempty"`
+	NetBirdManager                 jsontext.Value           `json:"netbirdManager,omitempty"`
+	SchemaVersion                  int                      `json:"schemaVersion"`
+	Cell                           string                   `json:"cell"`
+	OCIRegion                      string                   `json:"ociRegion"`
+	TenancyID                      string                   `json:"tenancyId"`
+	ParentCompartmentID            string                   `json:"parentCompartmentId"`
+	SharedCompartmentID            string                   `json:"sharedCompartmentId"`
+	Generation                     uint64                   `json:"generation"`
+	GrantSHA256                    string                   `json:"grantSha256"`
+	IntentDigest                   string                   `json:"intentDigest"`
+	OperationID                    string                   `json:"operationId"`
+	Epoch                          uint64                   `json:"epoch"`
+	LeaseID                        string                   `json:"leaseId,omitempty"`
+	ExpiresAt                      time.Time                `json:"expiresAt,omitzero"`
+	Stage                          string                   `json:"stage"`
+	BlockedReason                  string                   `json:"blockedReason,omitempty"`
+	StartedAt                      time.Time                `json:"startedAt"`
+	UpdatedAt                      time.Time                `json:"updatedAt"`
+	CompletedAt                    time.Time                `json:"completedAt,omitzero"`
+	ResourceIDs                    map[string]string        `json:"resourceIds"`
+	AuxiliaryIDs                   map[string]string        `json:"auxiliaryIds,omitempty"`
+	PendingCreates                 map[string]pendingCreate `json:"pendingCreates,omitempty"`
+	ResourceProvenance             map[string]provenance    `json:"resourceProvenance,omitempty"`
 }
 
 // Verify authenticates the root-signed wire before reading its protected
@@ -222,11 +226,11 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 	if err := json.Unmarshal(payload, &approved, json.RejectUnknownMembers(true)); err != nil {
 		return VerifiedBindings{}, fmt.Errorf("foundation grant schema: %w", err)
 	}
-	if approved.SchemaVersion != 2 || approved.Generation != authority.Generation || approved.InstallationID != authority.InstallationID || approved.TenancyID != tenancy ||
+	if (approved.SchemaVersion != 2 && approved.SchemaVersion != 3) || approved.Generation != authority.Generation || approved.InstallationID != authority.InstallationID || approved.TenancyID != tenancy ||
 		!resourceID(approved.ParentCompartmentID, "compartment", "") || !resourceID(approved.SharedCompartmentID, "compartment", "") ||
 		approved.MonthlyLimitMinor <= 0 || approved.Currency != "USD" && approved.Currency != "BRL" || approved.CleanupOwner == "" || len(approved.CleanupOwner) > 128 ||
 		len(approved.Regions) == 0 || len(approved.Regions) > catalog.Len {
-		return VerifiedBindings{}, errors.New("foundation grant lacks current schema-2 scope or spend authority")
+		return VerifiedBindings{}, errors.New("foundation grant lacks current bound scope or spend authority")
 	}
 	var selected intent
 	var selectedDigest string

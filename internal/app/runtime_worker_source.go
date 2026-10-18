@@ -133,8 +133,24 @@ func runRuntimeWorkerAdmissionSource(ctx context.Context, args []string, input i
 	if err != nil {
 		return err
 	}
+	initial, err := bootstrapstart.NewMarkerStore().ReadInitialFormation()
+	if err != nil {
+		return err
+	}
+	floor, err := bootstrapstart.NewServiceFounderSelectionFloorStore(uid)
+	if err != nil {
+		return err
+	}
+	founders, err := currentControllerFounderReader(ctx, local.baked, initial, floor)
+	if err != nil {
+		return err
+	}
+	nativeAuthority, err := newManagedNativeAdmissionAuthority(accepted, founders, local.factory)
+	if err != nil {
+		return err
+	}
 	verifier, err := newManagedRegistrationVerifier(cfg.NATS.Cell, managed.region.Region, managed.region.Owner,
-		managed.region.Generation, mutations, members, fleet)
+		managed.region.Generation, mutations, members, fleet, nativeAuthority)
 	if err != nil {
 		return err
 	}
@@ -142,18 +158,6 @@ func runRuntimeWorkerAdmissionSource(ctx context.Context, args []string, input i
 		return err
 	}
 	if query.Swarm != nil {
-		initial, err := bootstrapstart.NewMarkerStore().ReadInitialFormation()
-		if err != nil {
-			return err
-		}
-		floor, err := bootstrapstart.NewServiceFounderSelectionFloorStore(uid)
-		if err != nil {
-			return err
-		}
-		founders, err := currentControllerFounderReader(ctx, local.baked, initial, floor)
-		if err != nil {
-			return err
-		}
 		current, err := founders.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
 		if err != nil {
 			return err

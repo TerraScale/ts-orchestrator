@@ -111,11 +111,10 @@ func (r FoundationResolver) WorkloadGenesis(ctx context.Context, cell, role, env
 	if err != nil {
 		return release.VerifiedWorkloadGenesis{}, nil, err
 	}
-	genesis, err := trust.DiscoveryGenesis()
-	if err != nil {
-		return release.VerifiedWorkloadGenesis{}, nil, err
+	if len(reader.independentGenesis) == 0 {
+		return release.VerifiedWorkloadGenesis{}, nil, errors.New("workload genesis requires its independent production root pin")
 	}
-	verified, err := verifyWorkloadGenesisEvidence(original, genesis, expected)
+	verified, err := verifyWorkloadGenesisEvidence(original, reader.independentGenesis, expected)
 	if err != nil {
 		return release.VerifiedWorkloadGenesis{}, nil, err
 	}
@@ -182,7 +181,7 @@ func verifyWorkloadGenesisEvidence(wire []byte, independentGenesis trust.Keyring
 	if err := json.Unmarshal(grantEnvelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
 		return release.VerifiedWorkloadGenesis{}, err
 	}
-	if grant.SchemaVersion != 3 || grant.Generation != home.GrantGeneration || validateFoundationWorkloadGenesis(grant, home.StorageDomain) != nil || validateFoundationAdmissionAttestors(grant, home.StorageDomain) != nil || validateOriginalSourceProducerPurposes(grant, home.StorageDomain) != nil {
+	if grant.SchemaVersion != 3 || grant.Generation != home.GrantGeneration || validateFoundationWorkloadGenesis(grant, home.StorageDomain) != nil || validateFoundationAdmissionAttestors(grant, home.StorageDomain) != nil || validateOriginalSourceProducerPurposes(grant, home.StorageDomain) != nil || requireOriginalSourceProducerPurposes(grant) != nil {
 		return release.VerifiedWorkloadGenesis{}, errors.New("original workload grant lacks its complete founding scope")
 	}
 	scope := trust.Scope{Domain: foundationGrantDomain, DeploymentID: home.DeploymentID, Cell: "GRU", Environment: expected.Environment, Role: "foundation", Slot: home.ClusterID}

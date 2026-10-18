@@ -262,7 +262,8 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := newManagedRegistrationVerifier(cell, regionID, region.Owner, region.Generation, control, store, fleet)
+	verifier, err := newManagedRegistrationVerifier(cell, regionID, region.Owner, region.Generation, control, store, fleet,
+		fixtureManagedNativeAuthority(cell, "production"))
 	if err != nil {
 		t.Fatal(err)
 	}

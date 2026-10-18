@@ -353,7 +353,8 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := newManagedRegistrationVerifier(deployTestCell, oci.RegionGRU, region.Owner, region.Generation, control, store, fleet)
+	verifier, err := newManagedRegistrationVerifier(deployTestCell, oci.RegionGRU, region.Owner, region.Generation, control, store, fleet,
+		fixtureManagedNativeAuthority(deployTestCell, "canary"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -370,6 +370,18 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	defer stopKVSnapshots()
+	acceptedRuntime, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+	if err != nil {
+		return err
+	}
+	containerFounders, err := currentControllerHostReader(ctx)
+	if err != nil {
+		return err
+	}
+	capacityFoundation, err := foundationDiscovery(ctx)
+	if err != nil {
+		return fmt.Errorf("discover capacity foundation: %w", err)
+	}
 	var managedController *placement.Controller
 	var registrationVerifier host.ManagedRegistrationVerifier
 	var materialProvider host.ManagedMaterialProvider
@@ -482,9 +494,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		if err != nil {
 			return err
 		}
+		nativeAuthority, err := newManagedNativeAdmissionAuthority(acceptedRuntime, containerFounders, capacityFoundation.factory)
+		if err != nil {
+			return fmt.Errorf("configure managed native foundation authority: %w", err)
+		}
 		registrationVerifier, err = newManagedRegistrationVerifier(
 			cfg.NATS.Cell, managed.region.Region, managed.region.Owner, managed.region.Generation,
-			control, placementStore, fleet,
+			control, placementStore, fleet, nativeAuthority,
 		)
 		if err != nil {
 			return fmt.Errorf("configure managed host enrollment: %w", err)
@@ -819,18 +835,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// One node pool serves enrollment and the scaler. It binds in the
 	// background, since IMDS or OCI may not answer yet. Without a managed
 	// runtime there is no pool: pool nodes are refused.
-	capacityFoundation, err := foundationDiscovery(runCtx)
-	if err != nil {
-		return fmt.Errorf("discover capacity foundation: %w", err)
-	}
 	_, _, err = retryControllerOpen(runCtx, "retain generic genesis runtime owners", fullClusterReady, false,
 		func(attempt context.Context) (bool, error) {
 			return true, retainGenericGenesisOwners(attempt, capacityFoundation.foundations, hostController, cfg.NATS.Cell, services.identity.Environment)
 		}, nil)
-	if err != nil {
-		return err
-	}
-	acceptedRuntime, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	if err != nil {
 		return err
 	}
@@ -854,10 +862,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer functionCalls.Unlock()
 		stopFunctions()
 	}()
-	containerFounders, err := currentControllerHostReader(runCtx)
-	if err != nil {
-		return err
-	}
 	containerMutations, err := authority.OpenReader(runCtx, runtime.JetStream(), cfg.NATS.Cell)
 	if err != nil {
 		return err

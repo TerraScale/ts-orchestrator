@@ -840,9 +840,17 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	fixture.cloud.bundle = bundle.clone()
 	fixture.cloud.lostOrigin = true
 	before := fixture.cloud.creates
-	if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
-		t.Fatalf("prospective origin did not retain the existing startup refusal: %v", err)
+	assertMissingCurrentGrant := func(err error) {
+		t.Helper()
+		service, ok := errors.AsType[common.ServiceError](err)
+		if !ok || service.GetHTTPStatusCode() != http.StatusNotFound || !strings.Contains(err.Error(), "read current protected foundation grant") {
+			t.Fatalf("prospective startup bypassed the missing protected current grant: %v", err)
+		}
+		if _, err := os.Stat(fixture.cloud.objectPath("gru-1-head/bootstrap/" + foundationGrantObject)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("unpublished current grant unexpectedly exists: %v", err)
+		}
 	}
+	assertMissingCurrentGrant(ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle))
 	if fixture.cloud.lostOrigin || fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 || fixture.cloud.hasAnchor() {
 		t.Fatal("prospective publication failed uncertain-write recovery or preceded paid effects/startup")
 	}
@@ -860,8 +868,9 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 			t.Fatalf("origin did not retain original grant/anchor/root lineage at %s: %v", name, err)
 		}
 	}
-	if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) || fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 {
-		t.Fatalf("identical origin replay initialized a runtime or changed the startup refusal: %v", err)
+	assertMissingCurrentGrant(ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle))
+	if fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 {
+		t.Fatal("identical origin replay initialized a runtime or purchased a resource")
 	}
 	fixture.assertMaterial(t)
 	t.Run("original producer birth retention", func(t *testing.T) {
@@ -1050,20 +1059,23 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 			t.Fatal("document-only proof inferred a protected original actor/source binding")
 		}
 	}
-	if authority, err := resolver.ContainerReleaseAuthority(t.Context(), "GRU", "terrabase", "production"); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") || authority.IsVerified() {
-		t.Fatal("prospective origin minted container ordering authority without a consumer")
+	if authority, err := resolver.ContainerReleaseAuthority(t.Context(), "GRU", "terrabase", "production"); err == nil || !strings.Contains(err.Error(), "only generic container roles") || authority.IsVerified() {
+		t.Fatal("TerraBase original commitment minted generic container ordering authority")
 	}
-	if spending, err := resolver.InfrastructureSpend(t.Context()); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") || spending.IsVerified() {
-		t.Fatal("prospective origin minted resolved infrastructure spending without a consumer")
+	if spending, err := resolver.InfrastructureSpend(t.Context()); err == nil || !strings.Contains(err.Error(), "authenticated production OCI factory") || spending.IsVerified() {
+		t.Fatal("document-only origin minted resolved infrastructure spending without physical bindings")
 	}
-	if spending, err := resolver.Footprint.(*SignedFootprint).InfrastructureSpend(t.Context()); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") || spending.IsVerified() {
-		t.Fatal("prospective origin minted direct infrastructure spending without a consumer")
+	if spending, err := resolver.Footprint.(*SignedFootprint).InfrastructureSpend(t.Context()); err == nil || !strings.Contains(err.Error(), "logical spending scope requires independently verified foundation bindings") || spending.IsVerified() {
+		t.Fatal("document-only origin minted direct infrastructure spending without physical bindings")
 	}
-	if _, err := resolver.Footprint.(*SignedFootprint).OCIRIssuers(t.Context()); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") {
-		t.Fatalf("prospective origin exposed runtime OCIR issuance: %v", err)
+	if _, err := resolver.Footprint.(*SignedFootprint).OCIRIssuers(t.Context()); err == nil || !strings.Contains(err.Error(), "authenticated production OCI factory") {
+		t.Fatalf("document-only origin exposed OCIR credentials without physical bindings: %v", err)
 	}
-	if _, err := resolver.Footprint.AuthorizedRegions(t.Context()); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") {
-		t.Fatalf("prospective origin exposed runtime foundation scope: %v", err)
+	footprint, err := resolver.Footprint.AuthorizedRegions(t.Context())
+	if err != nil || footprint.GrantSHA256 != preparationDigest(bundle.GrantWire) || footprint.TenancyID != prepared.Grant.TenancyID ||
+		footprint.ParentCompartmentID != prepared.Grant.ParentCompartmentID || footprint.SharedCompartmentID != prepared.Grant.SharedCompartmentID ||
+		!sameOriginalSourceValue(footprint.Regions, prepared.Grant.Regions) {
+		t.Fatalf("complete prospective grant lost its exact signed read-only regional scope: %v", err)
 	}
 	anchor, err := verifyDiscoveryAnchor(bundle.AnchorWire, fixture.roots, bundle.TenancyID, bundle.Namespace)
 	if err != nil {
@@ -1073,9 +1085,8 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		if _, err := bootstrap.VerifyRegionalStartupTemplate(bundle.GrantWire, fixture.roots, anchor, cell, time.Now()); !errors.Is(err, bootstrap.ErrManifestInvalid) {
 			t.Fatalf("unbound %s parser ignored the signed prospective schema: %v", cell, err)
 		}
-		if _, err := bootstrap.VerifyBoundRegionalStartupTemplate(t.Context(), fixture.factoryFor(), bundle.GrantWire, fixture.roots, anchor, cell, time.Now()); !errors.Is(err, bootstrap.ErrManifestInvalid) {
-			t.Fatalf("bound %s parser ignored the signed prospective schema: %v", cell, err)
-		}
+		_, err := bootstrap.VerifyBoundRegionalStartupTemplate(t.Context(), fixture.factoryFor(), bundle.GrantWire, fixture.roots, anchor, cell, time.Now())
+		assertMissingCurrentGrant(err)
 	}
 	first := prepared.Grant.WorkloadGenesis[0]
 	name, err := release.WorkloadGenesisObject(first.TenancyID, first.Cell, first.Environment, first.Role)

@@ -349,6 +349,14 @@ type managedNativeReply struct {
 	Sequence uint64              `json:"sequence"`
 }
 
+func (c *Controller) verifyManagedNativeAdmission(ctx context.Context, native ManagedNativeProvenance) error {
+	verifier, ok := c.managedVerifier.(ManagedNativeAdmissionVerifier)
+	if !ok {
+		return errors.New("managed native admission lacks its independent current-lineage verifier")
+	}
+	return verifier.VerifyManagedNativeAdmission(ctx, native.Desired, native.Registration)
+}
+
 func (c *Controller) serveManagedNative(ctx context.Context, req request, r Registration, s session) (any, error) {
 	var query managedNativeQuery
 	if err := decodeStrict(req.Payload, &query); err != nil {
@@ -364,6 +372,9 @@ func (c *Controller) serveManagedNative(ctx context.Context, req request, r Regi
 	volumeID := native.Desired.ManagedMember.VolumeID
 	owner, entry, err := ReadManagedRuntimeOwner(ctx, c.mutations, c.cell, volumeID)
 	if errors.Is(err, authority.ErrNotFound) && query.Action == "admit" {
+		if err := c.verifyManagedNativeAdmission(ctx, native); err != nil {
+			return nil, err
+		}
 		owner = ManagedRuntimeOwner{Version: 1, Cell: c.cell, VolumeID: volumeID, Phase: "native", Native: native, ObservationOrigin: "original-unobserved"}
 		// The prior authenticated report survives Recover dropping local
 		// inventory. A later report cannot replace an unknown legacy origin.
@@ -387,8 +398,14 @@ func (c *Controller) serveManagedNative(ctx context.Context, req request, r Regi
 			if err := c.verifyManagedEnrollmentHistory(check, native); err != nil {
 				return err
 			}
-			_, _, err = c.authorize(check, req)
-			return err
+			if err := c.verifyManagedNativeAdmission(check, current); err != nil {
+				return err
+			}
+			authorized, _, err := c.authorize(check, req)
+			if err != nil || !sameJSON(authorized, native.Registration) {
+				return errors.Join(err, errors.New("native enrollment caller changed during policy verification"))
+			}
+			return nil
 		})
 	}
 	if err != nil {
@@ -399,6 +416,27 @@ func (c *Controller) serveManagedNative(ctx context.Context, req request, r Regi
 	}
 	if query.Action == "stop" {
 		return c.storeManagedNativeStop(ctx, req, r, owner, entry, query.Stop)
+	}
+	switch owner.Phase {
+	case "native":
+		if err := c.verifyManagedNativeAdmission(ctx, native); err != nil {
+			return nil, err
+		}
+	case "native-fenced":
+		// A negative observation lets the original writer stop, never execute.
+	default:
+		return nil, ErrManagedNativeFenced
+	}
+	current, err := c.currentManagedNative(ctx, req.Node, query.Role)
+	if err != nil || !sameJSON(current, native) {
+		return nil, errors.Join(err, errors.New("managed native target changed before reply"))
+	}
+	confirmed, retained, err := ReadManagedRuntimeOwner(ctx, c.mutations, c.cell, volumeID)
+	if err != nil || retained.Sequence != entry.Sequence || !sameJSON(confirmed, owner) {
+		return nil, errors.Join(err, errors.New("managed native owner changed before reply"))
+	}
+	if _, _, err := c.authorize(ctx, req); err != nil {
+		return nil, err
 	}
 	return managedNativeReply{Owner: owner, Sequence: entry.Sequence}, nil
 }

@@ -308,6 +308,7 @@ func verifyContainerIdentity(bundle ContainerBundle, roots trust.Keyring, expect
 	}
 	var migrationEnvelope trust.Envelope
 	var migration SequenceMigration
+	var err error
 	if claim.WorkloadGenesisSHA256 != "" {
 		if len(bundle.Migration) != 0 || !expected.Genesis.Allows(expected) || claim.WorkloadGenesisSHA256 != expected.Genesis.Fingerprint() || envelope.KeyID != expected.Genesis.SignerKeyID() || len(bundle.Delegation) == 0 {
 			return VerifiedContainer{}, errors.New("container release differs from authenticated original genesis")

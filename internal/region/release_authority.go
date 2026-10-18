@@ -61,6 +61,35 @@ func (r FoundationResolver) ContainerReleaseAuthority(ctx context.Context, cell,
 	return reader.ContainerReleaseAuthority(ctx, cell, role, environment)
 }
 
+// VerifyNativeWorkloadAdmission checks current foundation lineage separately
+// from registration provenance, which remains usable for stopping old writers.
+func (r FoundationResolver) VerifyNativeWorkloadAdmission(ctx context.Context, cell, environment string) error {
+	reader, ok := r.Footprint.(*SignedFootprint)
+	if !ok || reader == nil || reader.client == nil || !reader.bootstrapAnchor.IsVerified() || ctx == nil {
+		return errors.New("native admission requires the current authenticated foundation reader")
+	}
+	if !strings.EqualFold(string(reader.local.Cell), cell) || environment != reader.local.Environment {
+		return trust.ErrScopeMismatch
+	}
+	wire, err := reader.readGrant(ctx)
+	if err != nil {
+		return err
+	}
+	grant, _, err := reader.verifyOriginalDocument(wire)
+	if err != nil {
+		return err
+	}
+	if grant.SchemaVersion != 1 && grant.SchemaVersion != 2 {
+		return errors.New("current foundation lineage does not admit native workloads")
+	}
+	if !slices.ContainsFunc(grant.Regions, func(intent FoundationIntent) bool {
+		return strings.EqualFold(fmt.Sprint(intent.Plan["cell"]), cell)
+	}) {
+		return trust.ErrScopeMismatch
+	}
+	return ctx.Err()
+}
+
 func (s *SignedFootprint) ContainerReleaseAuthority(ctx context.Context, cell, role, environment string) (VerifiedContainerReleaseAuthority, error) {
 	wire, err := s.readGrant(ctx)
 	if err != nil {
@@ -80,6 +109,9 @@ func (s *SignedFootprint) ContainerReleaseAuthority(ctx context.Context, cell, r
 	}
 	if environment != s.scope.Environment {
 		return VerifiedContainerReleaseAuthority{}, trust.ErrScopeMismatch
+	}
+	if grant.SchemaVersion == 3 && role != "ts-auth" && role != "function-worker" {
+		return VerifiedContainerReleaseAuthority{}, errors.New("workload genesis admits only generic container roles")
 	}
 	if err := ValidateContainerReleaseAuthorities(grant, s.roots, s.storage, time.Now()); err != nil {
 		return VerifiedContainerReleaseAuthority{}, err

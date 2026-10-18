@@ -22,6 +22,34 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+// Existing host fixtures explicitly model eligible legacy lineage. Production
+// obtains this separate capability only from current independent founder proof.
+func (verify managedRegistrationVerifierFunc) VerifyManagedNativeAdmission(ctx context.Context, desired Desired, registration Registration) error {
+	if desired.Role != "terrabase" || desired.Withdrawn || desired.Cell != registration.Cell || desired.Node != registration.Node ||
+		desired.Environment != registration.Environment || desired.ManagedMember == nil || registration.ManagedMember == nil || registration.ManagedOCI == nil ||
+		desired.ManagedMember.Member != *registration.ManagedMember || desired.ManagedMember.OCI != *registration.ManagedOCI {
+		return errors.New("fixture native target differs from legacy registration")
+	}
+	return verify(ctx, registration)
+}
+
+type managedProvenanceOnlyVerifier struct {
+	verify func(context.Context, Registration) error
+}
+
+func (v managedProvenanceOnlyVerifier) VerifyManagedRegistration(ctx context.Context, registration Registration) error {
+	return v.verify(ctx, registration)
+}
+
+type managedNativePolicyVerifier struct {
+	managedProvenanceOnlyVerifier
+	admit func(context.Context, Desired, Registration) error
+}
+
+func (v managedNativePolicyVerifier) VerifyManagedNativeAdmission(ctx context.Context, desired Desired, registration Registration) error {
+	return v.admit(ctx, desired, registration)
+}
+
 func TestManagedNativeFenceCancelsAndJoinsPausedPermits(t *testing.T) {
 	gate := &managedNativeGate{}
 	permit, release, err := gate.acquire(t.Context(), "physical-volume")
@@ -185,6 +213,44 @@ func testManagedNativeSignedEnrollment(t *testing.T, retainedOriginal bool) {
 	c.managedDesiredVerifier = func(context.Context, Desired, Registration, Desired, bool) error {
 		return errors.New("write transition closed")
 	}
+	legacyVerifier := c.managedVerifier
+	provenance := managedProvenanceOnlyVerifier{verify: func(context.Context, Registration) error { return nil }}
+	c.managedVerifier = provenance
+	if _, err := call("admit", nil); err == nil {
+		t.Fatal("missing mandatory native capability admitted an original writer")
+	}
+	assertNoOwner := func() {
+		t.Helper()
+		if _, _, err := ReadManagedRuntimeOwner(ctx, control, c.cell, d.ManagedMember.VolumeID); !errors.Is(err, authority.ErrNotFound) {
+			t.Fatalf("refused native admission mutated the initial owner: %v", err)
+		}
+	}
+	assertNoOwner()
+	lineageDenied := errors.New("independent current schema3 lineage excludes native admission")
+	denyNative := managedNativePolicyVerifier{managedProvenanceOnlyVerifier: provenance,
+		admit: func(context.Context, Desired, Registration) error { return lineageDenied }}
+	c.managedVerifier = denyNative
+	if _, err := call("admit", nil); err == nil {
+		t.Fatal("schema3 lineage admitted an original native writer")
+	}
+	assertNoOwner()
+	checks := 0
+	c.managedVerifier = managedNativePolicyVerifier{managedProvenanceOnlyVerifier: provenance,
+		admit: func(_ context.Context, desired Desired, registration Registration) error {
+			checks++
+			if !sameJSON(desired, d) || !sameJSON(registration, r) {
+				return errors.New("native policy received a substituted retained target")
+			}
+			if checks > 2 {
+				return lineageDenied
+			}
+			return nil
+		}}
+	if _, err := call("admit", nil); err == nil || checks < 3 {
+		t.Fatalf("changed lineage escaped final enrollment CAS: calls=%d err=%v", checks, err)
+	}
+	assertNoOwner()
+	c.managedVerifier = legacyVerifier
 	initial, err := call("admit", nil)
 	if err != nil || initial.Sequence == 0 || initial.Owner.Phase != "native" {
 		t.Fatalf("signed enrollment: %+v %v", initial, err)
@@ -195,6 +261,48 @@ func testManagedNativeSignedEnrollment(t *testing.T, retainedOriginal bool) {
 	if !retainedOriginal && (initial.Owner.Writer != nil || initial.Owner.ObservationOrigin != "original-unobserved") {
 		t.Fatal("enrollment manufactured an absent original process")
 	}
+	c.managedVerifier = denyNative
+	for _, action := range []string{"admit", "state"} {
+		if _, err := call(action, nil); err == nil {
+			t.Fatalf("existing native owner bypassed final current policy for %s", action)
+		}
+	}
+	for _, action := range []string{"admit", "state"} {
+		c.managedVerifier = provenance
+		if _, err := call(action, nil); err == nil {
+			t.Fatalf("existing native owner bypassed missing policy for %s", action)
+		}
+		key := sessionKey(c.cell, r.Node)
+		original, _, found, err := c.sessionSnapshot(ctx, key)
+		if err != nil || !found {
+			t.Fatal("missing current session before final policy", err)
+		}
+		c.managedVerifier = managedNativePolicyVerifier{managedProvenanceOnlyVerifier: provenance,
+			admit: func(check context.Context, _ Desired, _ Registration) error {
+				current, revision, found, err := c.sessionSnapshot(check, key)
+				if err != nil || !found {
+					return errors.Join(err, errors.New("missing session during native policy"))
+				}
+				current.ExpiresAt = time.Now().Add(-time.Second)
+				_, err = c.cas(check, key, current, revision)
+				return err
+			}}
+		if _, err := call(action, nil); err == nil {
+			t.Fatalf("native %s reply survived session expiry during policy", action)
+		}
+		_, revision, found, err := c.sessionSnapshot(ctx, key)
+		if err != nil || !found {
+			t.Fatal("missing expired session after final policy", err)
+		}
+		if _, err := c.cas(ctx, key, original, revision); err != nil {
+			t.Fatal(err)
+		}
+	}
+	retainedOwner, retainedEntry, err := ReadManagedRuntimeOwner(ctx, control, c.cell, d.ManagedMember.VolumeID)
+	if err != nil || retainedEntry.Sequence != initial.Sequence || !sameJSON(retainedOwner, initial.Owner) {
+		t.Fatalf("policy refusal rewrote the retained native owner: %v", err)
+	}
+	c.managedVerifier = legacyVerifier
 	if err := GuardManagedContainerOwner(ctx, control, c.cell, d.ManagedMember.VolumeID); !errors.Is(err, ErrNativePublicationUnsettled) {
 		t.Fatalf("native owner granted container: %v", err)
 	}
@@ -243,6 +351,7 @@ func testManagedNativeSignedEnrollment(t *testing.T, retainedOriginal bool) {
 		if err := c.FenceManagedNative(ctx, d.Node, command.OperationID, strings.Repeat("b", 64), func(context.Context) error { return nil }); !errors.Is(err, ErrNativePublicationUnsettled) {
 			t.Fatalf("fence result: %v", err)
 		}
+		c.managedVerifier = denyNative
 	})
 	fenced, err := call("state", nil)
 	if err != nil || fenced.Owner.Phase != "native-fenced" || fenced.Owner.Writer == nil || fenced.Owner.Stop != nil {

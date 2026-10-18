@@ -95,11 +95,11 @@ func VerifyStartupVault(ctx context.Context, factory *ociclient.Factory, authori
 	if err := json.Unmarshal(payload, &approved, json.RejectUnknownMembers(true)); err != nil {
 		return VerifiedStartupVault{}, fmt.Errorf("foundation grant schema: %w", err)
 	}
-	if approved.SchemaVersion != 2 || approved.Generation != authority.Generation || approved.InstallationID != authority.InstallationID || approved.TenancyID != tenancy ||
+	if (approved.SchemaVersion != 2 && approved.SchemaVersion != 3) || approved.Generation != authority.Generation || approved.InstallationID != authority.InstallationID || approved.TenancyID != tenancy ||
 		!resourceID(approved.ParentCompartmentID, "compartment", "") || !resourceID(approved.SharedCompartmentID, "compartment", "") ||
 		approved.MonthlyLimitMinor <= 0 || approved.Currency != "USD" && approved.Currency != "BRL" || approved.CleanupOwner == "" || len(approved.CleanupOwner) > 128 ||
 		len(approved.Regions) == 0 || len(approved.Regions) > catalog.Len {
-		return VerifiedStartupVault{}, errors.New("foundation grant lacks current schema-2 scope or spend authority")
+		return VerifiedStartupVault{}, errors.New("foundation grant lacks current bound scope or spend authority")
 	}
 	var selected intent
 	var selectedDigest string

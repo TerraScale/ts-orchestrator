@@ -6,12 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
+	"strings"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 type placementIntentLookup interface {
@@ -22,6 +30,60 @@ type managedHostObserver interface {
 	Observe(context.Context) ([]oci.Instance, error)
 }
 
+type managedNativeAdmissionAuthority func(context.Context, string, string) error
+
+func newManagedNativeAdmissionAuthority(accepted bootstrapstart.AcceptedIdentity, founders *bootstrapstart.CurrentFounderAuthorityReader,
+	factory *ociclient.Factory,
+) (managedNativeAdmissionAuthority, error) {
+	if accepted.Validate() != nil || founders == nil || factory == nil {
+		return nil, errors.New("native admission requires installed identity and independent current founder authority")
+	}
+	accepted = accepted.Clone()
+	inputs, err := bootstrapstart.LoadTrustInputs(accepted)
+	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context, cell, environment string) error {
+		if ctx == nil || !strings.EqualFold(cell, accepted.Cell) || environment != accepted.Environment {
+			return errors.New("native admission target differs from the installed controller")
+		}
+		current, err := founders.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		adopted, err := bootstrapstart.LoadTrustInputs(accepted)
+		if err != nil {
+			return err
+		}
+		roots, err := trust.VerifyRootChain(inputs.Genesis, adopted.ChainIdentity, adopted.Chain)
+		if err != nil {
+			return err
+		}
+		envelope, err := trust.DecodeEnvelope(current.Anchor().Wire())
+		if err != nil {
+			return err
+		}
+		anchor, err := bootstrap.VerifyBootstrapAnchor(envelope, roots.Current, bootstrap.BootstrapAnchorExpectation{
+			DeploymentID: accepted.DeploymentID, Cell: oci.Region(accepted.Cell), Environment: accepted.Environment,
+		}, time.Now().UTC(), bootstrap.BootstrapAnchorTrustPolicy())
+		if err != nil {
+			return err
+		}
+		foundation, err := region.NewFoundationDiscovery(factory, anchor, roots.Current)
+		if err != nil {
+			return err
+		}
+		if err := foundation.VerifyNativeWorkloadAdmission(ctx, cell, environment); err != nil {
+			return err
+		}
+		confirmed, err := founders.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
+		if err != nil || confirmed.Identity() != current.Identity() || confirmed.Anchor().Digest() != current.Anchor().Digest() {
+			return errors.Join(err, errors.New("native admission founder authority changed during verification"))
+		}
+		return ctx.Err()
+	}, nil
+}
+
 type managedRegistrationVerifier struct {
 	cell            string
 	region          oci.Region
@@ -30,6 +92,7 @@ type managedRegistrationVerifier struct {
 	intents         placementIntentLookup
 	members         placement.MemberPinReader
 	fleet           managedHostObserver
+	nativeAuthority managedNativeAdmissionAuthority
 }
 
 func newManagedRegistrationVerifier(
@@ -40,15 +103,29 @@ func newManagedRegistrationVerifier(
 	intents placementIntentLookup,
 	members placement.MemberPinReader,
 	fleet managedHostObserver,
+	nativeAuthority managedNativeAdmissionAuthority,
 ) (host.ManagedRegistrationVerifier, error) {
 	if cell == "" || region == "" || owner == "" || fleetGeneration == 0 ||
-		intents == nil || members == nil || fleet == nil {
-		return nil, errors.New("managed registration verifier requires cell, region-bound authority, member store and OCI observer")
+		intents == nil || members == nil || fleet == nil || nativeAuthority == nil {
+		return nil, errors.New("managed registration verifier requires cell, region-bound authority, member store, OCI observer and independent native policy")
 	}
 	return managedRegistrationVerifier{
 		cell: cell, region: region, owner: owner, fleetGeneration: fleetGeneration,
-		intents: intents, members: members, fleet: fleet,
+		intents: intents, members: members, fleet: fleet, nativeAuthority: nativeAuthority,
 	}, nil
+}
+
+func (verifier managedRegistrationVerifier) VerifyManagedNativeAdmission(ctx context.Context, desired host.Desired, registration host.Registration) error {
+	if ctx == nil || verifier.nativeAuthority == nil || desired.Withdrawn || desired.Role != "terrabase" ||
+		desired.Cell != verifier.cell || registration.Cell != verifier.cell || desired.Node != registration.Node ||
+		desired.Environment != registration.Environment || !slices.Contains(registration.Roles, desired.Role) ||
+		desired.ManagedMember == nil || registration.ManagedPlacement == nil || registration.ManagedMember == nil || registration.ManagedOCI == nil {
+		return errors.New("native admission lacks the exact current managed target and independent policy")
+	}
+	if desired.ManagedMember.Member != *registration.ManagedMember || desired.ManagedMember.OCI != *registration.ManagedOCI {
+		return errors.New("native admission target differs from the registered member and OCI host")
+	}
+	return verifier.nativeAuthority(ctx, desired.Cell, desired.Environment)
 }
 
 func (verifier managedRegistrationVerifier) VerifyManagedRegistration(ctx context.Context, registration host.Registration) error {

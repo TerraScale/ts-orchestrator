@@ -335,17 +335,18 @@ func (s *SignedFootprint) verifyStartup(startup BootstrapStartupIntent, config b
 // create or install a grant. Its trust/storage identity comes from a currently
 // verified controller bootstrap anchor.
 type SignedFootprint struct {
-	bootstrapAnchor bootstrap.VerifiedBootstrapAnchor
-	factory         *ociclient.Factory
-	retainedGrant   []byte
-	client          FoundationObjects
-	storage         bootstrap.StorageDomain
-	scope           trust.Scope
-	expires         time.Time
-	roots           trust.Keyring
-	tenancy         string
-	home            bootstrap.FoundationScope
-	local           bootstrap.BootstrapAnchor
+	bootstrapAnchor    bootstrap.VerifiedBootstrapAnchor
+	factory            *ociclient.Factory
+	retainedGrant      []byte
+	client             FoundationObjects
+	storage            bootstrap.StorageDomain
+	scope              trust.Scope
+	expires            time.Time
+	roots              trust.Keyring
+	independentGenesis trust.Keyring
+	tenancy            string
+	home               bootstrap.FoundationScope
+	local              bootstrap.BootstrapAnchor
 }
 
 func NewSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, tenancy string) (*SignedFootprint, error) {
@@ -366,9 +367,13 @@ func newSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBoots
 	if tenancy != home.TenancyID {
 		return nil, errors.New("authenticated tenancy differs from signed home reference")
 	}
+	genesis, err := trust.DiscoveryGenesis()
+	if err != nil {
+		return nil, err
+	}
 	identity := anchor.Anchor()
 	return &SignedFootprint{bootstrapAnchor: anchor, client: client, storage: home.StorageDomain, expires: anchor.ExpiresAt(), home: home, local: identity,
-		scope: trust.Scope{Domain: foundationGrantDomain, DeploymentID: home.DeploymentID, Cell: "GRU", Environment: identity.Environment, Role: "foundation", Slot: home.ClusterID}, roots: maps.Clone(roots), tenancy: tenancy}, nil
+		scope: trust.Scope{Domain: foundationGrantDomain, DeploymentID: home.DeploymentID, Cell: "GRU", Environment: identity.Environment, Role: "foundation", Slot: home.ClusterID}, roots: maps.Clone(roots), independentGenesis: maps.Clone(genesis), tenancy: tenancy}, nil
 }
 
 func (s *SignedFootprint) AuthorizedRegions(ctx context.Context) (ApprovedFootprint, error) {
@@ -425,14 +430,14 @@ func (s *SignedFootprint) verifyGrant(wire []byte) (ApprovedFootprint, time.Time
 	if err != nil {
 		return ApprovedFootprint{}, time.Time{}, err
 	}
-	var grant struct {
-		SchemaVersion int `json:"schemaVersion"`
-	}
+	var grant FoundationGrant
 	if err := json.Unmarshal(envelope.Payload, &grant); err != nil {
 		return ApprovedFootprint{}, time.Time{}, err
 	}
 	if grant.SchemaVersion == 3 {
-		return ApprovedFootprint{}, time.Time{}, errors.New("workload genesis has no admitted runtime consumer")
+		if err := requireOriginalSourceProducerPurposes(grant); err != nil {
+			return ApprovedFootprint{}, time.Time{}, err
+		}
 	}
 	return footprint, expires, nil
 }

@@ -88,7 +88,7 @@ func verifyRegionalStartupTemplateBindings(wire []byte, roots trust.Keyring, anc
 			} `json:"bootstrapMaterial"`
 		} `json:"regions"`
 	}
-	if json.Unmarshal(payload, &grant) != nil || (grant.SchemaVersion != 1 || bindings != nil) && (grant.SchemaVersion != 2 || bindings == nil) || grant.InstallationID != home.InstallationID || grant.Generation != home.GrantGeneration || grant.TenancyID != home.TenancyID {
+	if json.Unmarshal(payload, &grant) != nil || (grant.SchemaVersion != 1 || bindings != nil) && ((grant.SchemaVersion != 2 && grant.SchemaVersion != 3) || bindings == nil) || grant.InstallationID != home.InstallationID || grant.Generation != home.GrantGeneration || grant.TenancyID != home.TenancyID {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
 	var identity BootstrapAnchor

@@ -375,6 +375,12 @@ type ManagedRegistrationVerifier interface {
 	VerifyManagedRegistration(context.Context, Registration) error
 }
 
+// ManagedNativeAdmissionVerifier is required for every positive native permit.
+// Common registration and stop readers convey no native admission authority.
+type ManagedNativeAdmissionVerifier interface {
+	VerifyManagedNativeAdmission(context.Context, Desired, Registration) error
+}
+
 // ManagedDesiredVerifier admits only a managed desired whose initial launch or
 // signed canary update is current in durable placement and authority state.
 type ManagedDesiredVerifier func(context.Context, Desired, Registration, Desired, bool) error

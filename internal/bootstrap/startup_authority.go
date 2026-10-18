@@ -251,7 +251,7 @@ func verifyStartupTemplateForIdentityBindings(wire []byte, roots trust.Keyring, 
 			} `json:"bootstrapMaterial"`
 		} `json:"regions"`
 	}
-	if json.Unmarshal(payload, &grant) != nil || (grant.SchemaVersion != 1 || bindings != nil) && (grant.SchemaVersion != 2 || bindings == nil) || grant.Generation != home.GrantGeneration || grant.InstallationID != home.InstallationID || grant.TenancyID != home.TenancyID {
+	if json.Unmarshal(payload, &grant) != nil || (grant.SchemaVersion != 1 || bindings != nil) && ((grant.SchemaVersion != 2 && grant.SchemaVersion != 3) || bindings == nil) || grant.Generation != home.GrantGeneration || grant.InstallationID != home.InstallationID || grant.TenancyID != home.TenancyID {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
 	for _, region := range grant.Regions {
@@ -426,7 +426,7 @@ func verifyStartupBindings(ctx context.Context, factory *ociclient.Factory, wire
 			} `json:"bootstrapMaterial"`
 		} `json:"regions"`
 	}
-	if json.Unmarshal(payload, &grant) != nil || grant.SchemaVersion != 2 {
+	if json.Unmarshal(payload, &grant) != nil || grant.SchemaVersion != 2 && grant.SchemaVersion != 3 {
 		return nil, ErrManifestInvalid
 	}
 	var keys []string
