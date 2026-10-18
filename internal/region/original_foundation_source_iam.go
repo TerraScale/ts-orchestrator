@@ -93,6 +93,13 @@ func completeOriginalSourceIAMActors(record FoundationRecord) error {
 	if record.OriginalFoundationCompartments == nil || record.validateOriginalFoundationActors() != nil {
 		return ErrOriginalSourceProducerHold
 	}
+	return completeOriginalSourceIAMActorsFromValidatedActors(record)
+}
+
+func completeOriginalSourceIAMActorsFromValidatedActors(record FoundationRecord) error {
+	if record.OriginalFoundationCompartments == nil {
+		return ErrOriginalSourceProducerHold
+	}
 	for _, region := range record.OriginalFoundationCompartments.Regions {
 		a := region.Actor
 		if a == nil || a.Pending == nil || a.Provenance == nil || a.ReadbackSHA256 == "" || a.VerifiedAt.IsZero() || a.BootVolumeID == "" || a.PrimaryVNICID == "" || a.HoldReason != "" {
@@ -380,6 +387,22 @@ func (record FoundationRecord) validateOriginalFoundationSourceIAM() error {
 	for _, region := range root.Regions {
 		if region.SourceIAM != nil {
 			if err := completeOriginalSourceIAMActors(record); err != nil {
+				return errors.Join(ErrOriginalSourceProducerHold, err)
+			}
+			break
+		}
+	}
+	return record.validateOriginalFoundationSourceIAMFromValidatedActors()
+}
+
+func (record FoundationRecord) validateOriginalFoundationSourceIAMFromValidatedActors() error {
+	root := record.OriginalFoundationCompartments
+	if root == nil {
+		return nil
+	}
+	for _, region := range root.Regions {
+		if region.SourceIAM != nil {
+			if err := completeOriginalSourceIAMActorsFromValidatedActors(record); err != nil {
 				return errors.Join(ErrOriginalSourceProducerHold, err)
 			}
 			break

@@ -533,16 +533,17 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 	if err := r.validateOriginalFoundationVault(); err != nil {
 		return err
 	}
-	if err := r.validateOriginalFoundationActors(); err != nil {
+	// Reuse predecessor validation only within this unchanged-record pass.
+	if err := r.validateOriginalFoundationActorsFromValidatedNetworkAndVault(); err != nil {
 		return err
 	}
-	if err := r.validateOriginalFoundationActorReads(); err != nil {
+	if err := r.validateOriginalFoundationActorReadsFromValidatedActors(); err != nil {
 		return err
 	}
-	if err := r.validateOriginalFoundationSourceIAM(); err != nil {
+	if err := r.validateOriginalFoundationSourceIAMFromValidatedActors(); err != nil {
 		return err
 	}
-	if err := r.validateOriginalFoundationAdmissionReads(); err != nil {
+	if err := r.validateOriginalFoundationAdmissionReadsFromValidatedActors(); err != nil {
 		return err
 	}
 	if err := r.validateOriginalFoundationPublication(); err != nil {

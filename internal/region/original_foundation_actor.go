@@ -161,6 +161,14 @@ func originalActorPrerequisiteRecord(record FoundationRecord) error {
 	if err := record.validateOriginalFoundationVault(); err != nil {
 		return err
 	}
+	return originalActorPrerequisiteRecordFromValidatedNetworkAndVault(record)
+}
+
+func originalActorPrerequisiteRecordFromValidatedNetworkAndVault(record FoundationRecord) error {
+	root := record.OriginalFoundationCompartments
+	if root == nil || record.OriginalSourceProducers == nil || record.Stage != "original-foundation" || !record.netBirdMaterialOnly() {
+		return ErrOriginalSourceProducerHold
+	}
 	for _, region := range root.Regions {
 		for _, compartment := range region.Compartments {
 			if compartment.VerifiedAt.IsZero() || compartment.ReadbackSHA256 == "" || compartment.HoldReason != "" {
@@ -815,6 +823,29 @@ func (record FoundationRecord) validateOriginalFoundationActors() error {
 		return ErrOriginalSourceProducerHold
 	}
 	if err := originalActorPrerequisiteRecord(record); err != nil {
+		return err
+	}
+	return record.validateOriginalFoundationActorsFromValidatedNetworkAndVault()
+}
+
+func (record FoundationRecord) validateOriginalFoundationActorsFromValidatedNetworkAndVault() error {
+	root := record.OriginalFoundationCompartments
+	if root == nil {
+		return nil
+	}
+	attached := 0
+	for _, region := range root.Regions {
+		if region.Actor != nil {
+			attached++
+		}
+	}
+	if attached == 0 {
+		return nil
+	}
+	if attached != 3 {
+		return ErrOriginalSourceProducerHold
+	}
+	if err := originalActorPrerequisiteRecordFromValidatedNetworkAndVault(record); err != nil {
 		return err
 	}
 	notBefore := root.BornAt

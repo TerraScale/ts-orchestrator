@@ -104,6 +104,10 @@ func originalActorReadsActors(record FoundationRecord) error {
 	if err := record.validateOriginalFoundationActors(); err != nil {
 		return err
 	}
+	return originalActorReadsActorsFromValidatedActors(record)
+}
+
+func originalActorReadsActorsFromValidatedActors(record FoundationRecord) error {
 	if record.OriginalFoundationCompartments == nil || record.OriginalSourceProducers == nil {
 		return ErrOriginalSourceProducerHold
 	}
@@ -497,6 +501,29 @@ func (record FoundationRecord) validateOriginalFoundationActorReads() error {
 		return ErrOriginalSourceProducerHold
 	}
 	if err := originalActorReadsActors(record); err != nil {
+		return err
+	}
+	return record.validateOriginalFoundationActorReadsFromValidatedActors()
+}
+
+func (record FoundationRecord) validateOriginalFoundationActorReadsFromValidatedActors() error {
+	root := record.OriginalFoundationCompartments
+	if root == nil {
+		return nil
+	}
+	attached := 0
+	for _, region := range root.Regions {
+		if region.ActorReads != nil {
+			attached++
+		}
+	}
+	if attached == 0 {
+		return nil
+	}
+	if attached != 3 {
+		return ErrOriginalSourceProducerHold
+	}
+	if err := originalActorReadsActorsFromValidatedActors(record); err != nil {
 		return err
 	}
 	notBefore := root.BornAt

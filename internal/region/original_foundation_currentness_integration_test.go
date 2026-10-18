@@ -14,8 +14,10 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -235,6 +237,103 @@ func TestOriginalFoundationCurrentnessSDK(t *testing.T) {
 		}
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) || f.puts != puts || !bytes.Equal(before, f.wire(t)) {
 			t.Fatal("completed replay repeated effects or changed protected publication history")
+		}
+
+		// Serve persisted bytes directly so corruption reaches production record validation.
+		home := f.approval.HomeStorageDomain
+		journalName := foundationObjectPrefix + "GRU.json"
+		journalPath := f.cloud.objectPath(home.HeadBucket + "/" + journalName)
+		var journalReads atomic.Int64
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/n/"+home.Namespace+"/b/"+home.HeadBucket+"/o/"+journalName ||
+				r.URL.RawQuery != "" || !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
+				t.Error("journal validation requires an exact signed SDK GET")
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			recorder := httptest.NewRecorder()
+			f.cloud.serveHTTP(recorder, r)
+			if recorder.Code != http.StatusOK {
+				t.Errorf("journal oracle returned %d, expected actual persisted bytes", recorder.Code)
+			} else {
+				journalReads.Add(1)
+			}
+			originalNetworkCopyResponse(w, recorder)
+		}))
+		t.Cleanup(server.Close)
+		objects, err := f.factoryFor().ObjectStorage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		objects.HTTPClient = server.Client()
+		ociclient.PinHost(&objects.BaseClient, server.URL)
+		ociclient.ConfigureRequestCancellation(&objects.BaseClient)
+		store, err := NewObjectFoundationStore(&objects, home.Namespace, home.HeadBucket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		load := func() error {
+			t.Helper()
+			reads := journalReads.Load()
+			_, _, err := store.Load(t.Context(), "GRU")
+			if journalReads.Load() != reads+1 {
+				t.Fatal("store validation did not consume exactly one actual HTTP 200 journal GET")
+			}
+			return err
+		}
+		if err := load(); err != nil {
+			t.Fatal("genuine persisted publication failed production validation", err)
+		}
+		restore := func() {
+			t.Helper()
+			if err := os.WriteFile(journalPath, before, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Cleanup(restore)
+		completions := f.completions
+		creates, material, launches := f.cloud.creates, f.cloud.materialPosts, f.cloud.launchPosts
+		for _, mutation := range []struct {
+			name  string
+			apply func(*FoundationRecord)
+		}{
+			{"network request", func(record *FoundationRecord) {
+				record.OriginalFoundationCompartments.Regions[0].Network.Requests.VCN.DisplayName = new("changed-network")
+			}},
+			{"vault request", func(record *FoundationRecord) {
+				record.OriginalFoundationCompartments.Regions[0].Vault.Vault.Request.DisplayName = new("changed-vault")
+			}},
+			{"actor config", func(record *FoundationRecord) {
+				record.OriginalFoundationCompartments.Regions[0].Actor.Config.Cell = "changed-cell"
+			}},
+			{"actor reads presence", func(record *FoundationRecord) { record.OriginalFoundationCompartments.Regions[0].ActorReads = nil }},
+			{"source IAM scope", func(record *FoundationRecord) {
+				record.OriginalFoundationCompartments.Regions[0].SourceIAM.Bucket = "changed-bucket"
+			}},
+		} {
+			var changed FoundationRecord
+			if err := json.Unmarshal(before, &changed); err != nil {
+				t.Fatal(err)
+			}
+			mutation.apply(&changed)
+			bad, err := json.Marshal(changed, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(journalPath, bad, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := load(); !errors.Is(err, ErrOriginalSourceProducerHold) {
+				t.Fatal("actual SDK store accepted persisted corruption", mutation.name, err)
+			}
+			if !bytes.Equal(bad, f.wire(t)) || f.puts != puts || f.completions != completions ||
+				f.cloud.creates != creates || f.cloud.materialPosts != material || f.cloud.launchPosts != launches {
+				t.Fatal("refused journal corruption changed persisted bytes or emitted effects", mutation.name)
+			}
+			restore()
+			if err := load(); err != nil {
+				t.Fatal("actual SDK store did not recover restored journal", mutation.name, err)
+			}
 		}
 	})
 	t.Run("origin discovery reads current signed bytes", func(t *testing.T) {

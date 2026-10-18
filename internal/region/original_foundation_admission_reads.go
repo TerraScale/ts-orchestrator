@@ -170,6 +170,13 @@ func completeOriginalAdmissionReadPrerequisites(record FoundationRecord) error {
 	if originalActorReadsActors(record) != nil {
 		return ErrOriginalSourceProducerHold
 	}
+	return completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record)
+}
+
+func completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record FoundationRecord) error {
+	if originalActorReadsActorsFromValidatedActors(record) != nil {
+		return ErrOriginalSourceProducerHold
+	}
 	for _, regional := range record.OriginalFoundationCompartments.Regions {
 		reads, source := regional.ActorReads, regional.SourceIAM
 		if reads == nil || reads.Pending == nil || reads.Provenance == nil || reads.VerifiedAt.IsZero() || reads.ReadbackSHA256 == "" || reads.HoldReason != "" ||
@@ -529,6 +536,22 @@ func (record FoundationRecord) validateOriginalFoundationAdmissionReads() error 
 	for _, regional := range root.Regions {
 		if regional.AdmissionReads != nil {
 			if err := completeOriginalAdmissionReadPrerequisites(record); err != nil {
+				return errors.Join(ErrOriginalSourceProducerHold, err)
+			}
+			break
+		}
+	}
+	return record.validateOriginalFoundationAdmissionReadsFromValidatedActors()
+}
+
+func (record FoundationRecord) validateOriginalFoundationAdmissionReadsFromValidatedActors() error {
+	root := record.OriginalFoundationCompartments
+	if root == nil {
+		return nil
+	}
+	for _, regional := range root.Regions {
+		if regional.AdmissionReads != nil {
+			if err := completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record); err != nil {
 				return errors.Join(ErrOriginalSourceProducerHold, err)
 			}
 			break
