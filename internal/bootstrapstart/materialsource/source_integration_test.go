@@ -332,6 +332,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	t.Run("prospective original actor lifecycle", func(t *testing.T) {
 		t.Skip("HOLD: schema3 has no authentic VerifiedBootstrapMaterial/SourceFounder producer; escrow loss, host loss and same-key renewal cannot be qualified by document or mechanical-data fixtures")
 	})
+	// This fixture has no authenticated SourceFounder; nil preserves production refusal.
+	// The positive lifecycle assertions below still execute and remain unqualified.
 	now := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Second)
 	anchor, _, roots, private, _ := materialSourceAnchor(t)
 	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.vault", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}
@@ -428,7 +430,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU"); err == nil {
 		t.Fatal("foundation-only grant minted source")
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), region.VerifiedBootstrapMaterial{}, &objects, &management, &bundles, filepath.Join(t.TempDir(), "source"), now); err == nil {
+	if _, err := ResolveColdStartMaterial(t.Context(), region.VerifiedBootstrapMaterial{}, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "source"), now); err == nil {
 		t.Fatal("empty grant minted source")
 	}
 	grant.Regions[0].BootstrapMaterial = intent
@@ -438,7 +440,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), pinnedOnly, &objects, &management, &bundles, filepath.Join(t.TempDir(), "missing-pinned-source"), now); err == nil || protocol.creates != 0 {
+	if _, err := ResolveColdStartMaterial(t.Context(), pinnedOnly, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "missing-pinned-source"), now); err == nil || protocol.creates != 0 {
 		t.Fatal("existing pinned identity minted replacement source")
 	}
 	for index, material := range []*region.BootstrapMaterialIntent{intent, spokeIntent} {
@@ -457,7 +459,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	for attempt := range 2 {
-		if _, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now.Add(time.Duration(attempt)*time.Second)); err == nil {
+		if _, err := ResolveColdStartMaterial(t.Context(), verified, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now.Add(time.Duration(attempt)*time.Second)); err == nil {
 			t.Fatal("uncertain source response or competing candidate unexpectedly succeeded")
 		}
 	}
@@ -470,9 +472,9 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	for i := range 2 {
 		directory := filepath.Join(t.TempDir(), "source")
 		workers.Go(func() {
-			sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, directory, now)
+			sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, nil, &objects, &management, &bundles, directory, now)
 			if errs[i] != nil {
-				sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, directory, now)
+				sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, nil, &objects, &management, &bundles, directory, now)
 			}
 		})
 	}
@@ -508,7 +510,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if protocol.creates != 2 {
 		t.Fatalf("creates after response loss=%d", protocol.creates)
 	}
-	replacement, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, filepath.Join(t.TempDir(), "replacement"), now)
+	replacement, err := ResolveColdStartMaterial(t.Context(), verified, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "replacement"), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,7 +628,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spokeSource, err := ResolveColdStartMaterial(t.Context(), spokeGrant, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-source"), now)
+	spokeSource, err := ResolveColdStartMaterial(t.Context(), spokeGrant, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-source"), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -659,7 +661,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, replacement.directory, now)
+	restarted, err := ResolveColdStartMaterial(t.Context(), verified, nil, &objects, &management, &bundles, replacement.directory, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -681,7 +683,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), changed, &objects, &management, &bundles, filepath.Join(t.TempDir(), "changed"), now); err == nil {
+	if _, err := ResolveColdStartMaterial(t.Context(), changed, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "changed"), now); err == nil {
 		t.Fatal("same installation changed its signing source")
 	}
 	intent.Config = cfg
@@ -692,7 +694,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != 39 {
+	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != 39 {
 		t.Fatal("source escrow overrode pinned ledger key")
 	}
 	pinnedLedgerWire = sourcePinnedLedger(t, private, replacement.Record(), now)
@@ -702,7 +704,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pinnedRecovery, err := ResolveColdStartMaterial(t.Context(), matchingPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "matching-pin"), now)
+	pinnedRecovery, err := ResolveColdStartMaterial(t.Context(), matchingPin, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "matching-pin"), now)
 	if err != nil || !reflect.DeepEqual(pinnedRecovery.Record(), replacement.Record()) || protocol.creates != 39 {
 		t.Fatalf("matching pinned source recovery: %v", err)
 	}
