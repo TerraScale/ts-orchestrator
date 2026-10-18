@@ -118,7 +118,21 @@ func originalAdmissionReadsSDKFixtureFor(t *testing.T, reads *originalActorReads
 
 func (f *originalAdmissionReadsSDKFixture) run(t *testing.T) error {
 	t.Helper()
-	return provisionOriginalFoundationCompartments(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	if f.prepared.Grant.OriginalActorAdmissionReads != nil {
+		return ProvisionOriginalFoundationSourceIAM(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	}
+	authority, _, err := newOperatorHomeIAMAuthority(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithDeadline(t.Context(), authority.operator.deadline)
+	defer cancel()
+	ctx, release, err := authority.HomeWrite(ctx, 0)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return provisionOriginalFoundationActorReads(ctx, authority)
 }
 
 func (f *originalAdmissionReadsSDKFixture) expectedPolicy(t *testing.T, record FoundationRecord, index int) map[string]any {
@@ -352,6 +366,11 @@ func TestOriginalFoundationAdmissionReadVersionsSDK(t *testing.T) {
 				recipes[index].Purpose = version
 			}
 			reads.prepared.Grant.OriginalActorAdmissionReads = &recipes
+			publication, err := originalFoundationPublicationIntent(reads.prepared.Grant, reads.approval.HomeStorageDomain)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reads.prepared.Grant.OriginalPublication = &publication
 			f := originalAdmissionReadsSDKFixtureFor(t, reads, "")
 			if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) {
 				t.Fatal(err)
