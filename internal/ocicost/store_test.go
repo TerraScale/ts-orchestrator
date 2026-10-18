@@ -144,6 +144,54 @@ func TestStoreRoundTrip(t *testing.T) {
 		if view.UntaggedCents != 340 {
 			t.Fatalf("untagged = %d, want 840 - 500", view.UntaggedCents)
 		}
+
+		t.Run("summary folded lines from independent reader", func(t *testing.T) {
+			report := viewReport()
+			report.Services = nil
+			for index := 1; index <= 20; index++ {
+				report.Services = append(report.Services, Line{Name: fmt.Sprintf("svc-%02d", index), Cents: uint64(index)})
+			}
+			want := report
+			if err := producer.Put(ctx, want); err != nil {
+				t.Fatal(err)
+			}
+			report, err := reader.Report(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(report, want) {
+				t.Fatalf("independent report = %+v, want %+v", report, want)
+			}
+			services := Summarize(report, viewNow, nil).Services
+			if len(services) != maxViewLines {
+				t.Fatalf("services = %d lines, want %d", len(services), maxViewLines)
+			}
+			if last := services[maxViewLines-1]; last.Name != "Other" || last.Cents != 16+17+18+19+20 {
+				t.Fatalf("folded line = %+v, want Other 90", last)
+			}
+			if services[maxViewLines-2].Name != "svc-15" {
+				t.Fatalf("kept lines = ..., %q, want svc-15 last", services[maxViewLines-2].Name)
+			}
+		})
+
+		t.Run("summary untagged floor from independent reader", func(t *testing.T) {
+			report := viewReport()
+			report.Components = []Line{{Name: "controller", Cents: 1000}}
+			want := report
+			if err := producer.Put(ctx, want); err != nil {
+				t.Fatal(err)
+			}
+			report, err := reader.Report(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(report, want) {
+				t.Fatalf("independent report = %+v, want %+v", report, want)
+			}
+			if untagged := Summarize(report, viewNow, nil).UntaggedCents; untagged != 0 {
+				t.Fatalf("untagged = %d, want 0 when tags exceed the month", untagged)
+			}
+		})
 	})
 }
 
