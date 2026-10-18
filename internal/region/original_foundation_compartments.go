@@ -39,20 +39,21 @@ type OriginalFoundationCompartments struct {
 }
 
 type OriginalFoundationCompartmentRegion struct {
-	Cell                 string                            `json:"cell"`
-	OCIRegion            string                            `json:"ociRegion"`
-	IntentSHA256         string                            `json:"intentSha256"`
-	Generation           uint64                            `json:"generation"`
-	OperationID          string                            `json:"operationId"`
-	ProducerIntentSHA256 string                            `json:"producerIntentSha256"`
-	Compartments         [2]OriginalFoundationCompartment  `json:"compartments"`
-	Network              *OriginalFoundationNetwork        `json:"network,omitempty"`
-	Vault                *OriginalFoundationVault          `json:"vault,omitempty"`
-	Actor                *OriginalFoundationActorLaunch    `json:"actor,omitempty"`
-	ActorReads           *OriginalFoundationActorReads     `json:"actorReads,omitempty"`
-	SourceIAM            *OriginalFoundationSourceIAM      `json:"sourceIam,omitempty"`
-	AdmissionReads       *OriginalFoundationAdmissionReads `json:"admissionReads,omitempty"`
-	NetBirdManager       *OriginalFoundationNetBirdManager `json:"netbirdManager,omitempty"`
+	Cell                   string                            `json:"cell"`
+	OCIRegion              string                            `json:"ociRegion"`
+	IntentSHA256           string                            `json:"intentSha256"`
+	Generation             uint64                            `json:"generation"`
+	OperationID            string                            `json:"operationId"`
+	ProducerIntentSHA256   string                            `json:"producerIntentSha256"`
+	Compartments           [2]OriginalFoundationCompartment  `json:"compartments"`
+	Network                *OriginalFoundationNetwork        `json:"network,omitempty"`
+	Vault                  *OriginalFoundationVault          `json:"vault,omitempty"`
+	Actor                  *OriginalFoundationActorLaunch    `json:"actor,omitempty"`
+	ActorReads             *OriginalFoundationActorReads     `json:"actorReads,omitempty"`
+	SourceIAM              *OriginalFoundationSourceIAM      `json:"sourceIam,omitempty"`
+	AdmissionReads         *OriginalFoundationAdmissionReads `json:"admissionReads,omitempty"`
+	MaterialPublicationIAM *OriginalFoundationMaterialIAM    `json:"materialPublicationIam,omitempty"`
+	NetBirdManager         *OriginalFoundationNetBirdManager `json:"netbirdManager,omitempty"`
 }
 
 type OriginalFoundationCompartment struct {
@@ -452,6 +453,7 @@ func (scope OriginalFoundationCompartments) scopeOnly() OriginalFoundationCompar
 		scope.Regions[region].ActorReads = nil
 		scope.Regions[region].SourceIAM = nil
 		scope.Regions[region].AdmissionReads = nil
+		scope.Regions[region].MaterialPublicationIAM = nil
 		scope.Regions[region].NetBirdManager = nil
 		for role := range scope.Regions[region].Compartments {
 			entry := &scope.Regions[region].Compartments[role]
@@ -545,6 +547,9 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 	if err := r.validateOriginalFoundationPublication(); err != nil {
 		return err
 	}
+	if err := r.validateOriginalFoundationMaterialIAM(); err != nil {
+		return err
+	}
 	if err := r.validateOriginalNetBirdManager(); err != nil {
 		return err
 	}
@@ -573,6 +578,9 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 			return err
 		}
 		if err := next.retainOriginalFoundationPublication(previous); err != nil {
+			return err
+		}
+		if err := next.retainOriginalFoundationMaterialIAM(previous); err != nil {
 			return err
 		}
 		if err := next.retainOriginalNetBirdManager(previous); err != nil {
@@ -614,6 +622,9 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 		return err
 	}
 	if err := next.retainOriginalFoundationPublication(previous); err != nil {
+		return err
+	}
+	if err := next.retainOriginalFoundationMaterialIAM(previous); err != nil {
 		return err
 	}
 	if err := next.retainOriginalNetBirdManager(previous); err != nil {

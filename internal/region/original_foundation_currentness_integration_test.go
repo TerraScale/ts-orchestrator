@@ -32,7 +32,12 @@ type originalPublicationSDKFixture struct {
 
 func newOriginalPublicationSDKFixture(t *testing.T, fault string) *originalPublicationSDKFixture {
 	t.Helper()
-	f := &originalPublicationSDKFixture{originalAdmissionReadsSDKFixture: newOriginalAdmissionReadsSDKFixture(t, "", false), fault: fault}
+	return originalPublicationSDKFixtureFor(t, newOriginalAdmissionReadsSDKFixture(t, "", false), fault)
+}
+
+func originalPublicationSDKFixtureFor(t *testing.T, admission *originalAdmissionReadsSDKFixture, fault string) *originalPublicationSDKFixture {
+	t.Helper()
+	f := &originalPublicationSDKFixture{originalAdmissionReadsSDKFixture: admission, fault: fault}
 	server := httptest.NewTLSServer(http.HandlerFunc(f.serveHTTP))
 	t.Cleanup(server.Close)
 	listener, ok := server.Listener.Addr().(*net.TCPAddr)

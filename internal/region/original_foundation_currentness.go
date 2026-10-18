@@ -243,8 +243,8 @@ func retainOriginalFoundationPublication(ctx context.Context, authority *HomeIAM
 		return ErrOriginalSourceProducerHold
 	}
 	guard := func(dispatchCtx context.Context) error {
-		// Capturing the existing lease context avoids recursive provider guards.
-		saved, _, currentScope, deadline, err := originalPublicationAuthority(ociclient.CheckpointContext(ctx), authority)
+		// Keep lease values while honoring the publication attempt's shorter lifetime.
+		saved, _, currentScope, deadline, err := originalPublicationAuthority(originalProviderCheckpointContext(dispatchCtx, ctx), authority)
 		if err != nil || !sameOriginalSourceValue(currentScope, expected) || !sameOriginalSourceValue(saved.OriginalFoundationCompartments.Publication, entry) {
 			return errors.Join(ErrOriginalSourceProducerHold, err)
 		}

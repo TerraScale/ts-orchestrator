@@ -359,9 +359,8 @@ func provisionOriginalActorRead(ctx context.Context, authority *HomeIAMAuthority
 		return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
 	}
 	guard := func(dispatchCtx context.Context) error {
-		// Use the captured base context so policy request guards cannot recurse
-		// through the authenticated prerequisite and checkpoint reads.
-		checkCtx := ociclient.CheckpointContext(ctx)
+		// Keep lease values without inheriting this provider guard or losing dispatch cancellation.
+		checkCtx := originalProviderCheckpointContext(dispatchCtx, ctx)
 		saved, _, currentScopes, deadline, err := originalActorReadsPrerequisites(checkCtx, authority)
 		if err != nil {
 			return err

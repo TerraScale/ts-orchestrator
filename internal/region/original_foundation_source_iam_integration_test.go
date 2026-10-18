@@ -38,6 +38,7 @@ func originalSourceIAMUpstream(record FoundationRecord) ([]byte, error) {
 	section := *record.OriginalFoundationCompartments
 	section.Publication = nil
 	for index := range section.Regions {
+		section.Regions[index].MaterialPublicationIAM = nil
 		section.Regions[index].SourceIAM = nil
 		section.Regions[index].AdmissionReads = nil
 	}

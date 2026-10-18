@@ -259,6 +259,9 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 	originPreparation := prepared
 	// Preserve the original signed migration scenario as historical schema2.
 	prepared.Grant.SchemaVersion = 2
+	prepared.Grant.OriginalActorAdmissionReads = nil
+	prepared.Grant.OriginalPublication = nil
+	prepared.Grant.OriginalMaterialPublicationIAM = nil
 	prepared.Grant.WorkloadGenesis = nil
 	prepared.Grant.ReleaseAuthorities = historicalAuthorities
 	prepared.Grant.Regions = slices.Clone(prepared.Grant.Regions)

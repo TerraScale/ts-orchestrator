@@ -100,7 +100,12 @@ func TestPoolWireFinalAdmissionRunsAfterDurableBegin(t *testing.T) {
 				}, nil
 			})
 			_, err = client.CreateInstancePool(ociclient.RequestContext(ctx), core.CreateInstancePoolRequest{
-				CreateInstancePoolDetails: core.CreateInstancePoolDetails{CompartmentId: new(testCompartment), Size: new(0)}, OpcRetryToken: new("original-token")})
+				CreateInstancePoolDetails: core.CreateInstancePoolDetails{CompartmentId: new(testCompartment),
+					InstanceConfigurationId: new("ocid1.instanceconfiguration.oc1.sa-saopaulo-1.fixture"),
+					PlacementConfigurations: []core.CreateInstancePoolPlacementConfigurationDetails{{
+						AvailabilityDomain: new("fixture:SA-SAOPAULO-1-AD-1"),
+						PrimaryVnicSubnets: &core.InstancePoolPlacementPrimarySubnet{SubnetId: new("ocid1.subnet.oc1.sa-saopaulo-1.fixture")},
+					}}, Size: new(0)}, OpcRetryToken: new("original-token")})
 			if err == nil || boundary != "deadline-after-wait" && !errors.Is(err, nodescale.ErrCapacityPending) || dispatched.Load() != 0 {
 				t.Fatalf("expired post-checkpoint authority reached wire: calls=%d err=%v", dispatched.Load(), err)
 			}

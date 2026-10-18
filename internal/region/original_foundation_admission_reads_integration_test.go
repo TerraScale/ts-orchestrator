@@ -45,6 +45,7 @@ func originalAdmissionReadPrior(record FoundationRecord, sources bool) ([]byte, 
 	section := *record.OriginalFoundationCompartments
 	section.Publication = nil
 	for index := range section.Regions {
+		section.Regions[index].MaterialPublicationIAM = nil
 		section.Regions[index].AdmissionReads = nil
 		if !sources {
 			section.Regions[index].SourceIAM = nil
@@ -60,22 +61,28 @@ func newOriginalAdmissionReadsSDKFixture(t *testing.T, fault string, legacy bool
 	// Preserve the pinned loopback transport instead of the SDK's proxy clone.
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
 	reads := newOriginalActorReadsSDKFixture(t, "", 0)
+	// Existing stage fixtures represent signed grants from before material IAM.
+	reads.prepared.Grant.OriginalMaterialPublicationIAM = nil
 	if legacy {
 		reads.prepared.Grant.OriginalActorAdmissionReads = nil
 		reads.prepared.Grant.OriginalPublication = nil
-		reads.bundle = signProvisionFoundation(t, reads.prepared, reads.bundle.RootChainWire, reads.root, reads.now)
-		reads.cloud.bundle = reads.bundle.clone()
-		var err error
-		reads.publicBundle, err = json.Marshal(reads.bundle, json.Deterministic(true))
-		if err != nil {
-			t.Fatal(err)
-		}
+	}
+	return originalAdmissionReadsSDKFixtureFor(t, reads, fault)
+}
+
+func originalAdmissionReadsSDKFixtureFor(t *testing.T, reads *originalActorReadsSDKFixture, fault string) *originalAdmissionReadsSDKFixture {
+	t.Helper()
+	reads.bundle = signProvisionFoundation(t, reads.prepared, reads.bundle.RootChainWire, reads.root, reads.now)
+	reads.cloud.bundle = reads.bundle.clone()
+	var err error
+	reads.publicBundle, err = json.Marshal(reads.bundle, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := reads.run(t); err != nil {
 		t.Fatalf("genuine original actor/public-read stage: %v", err)
 	}
 	source := &originalSourceIAMSDKFixture{originalActorSDKFixture: reads.originalActorSDKFixture, rows: map[string]map[string]any{}, gets: map[string]int{}}
-	var err error
 	source.upstream, err = originalSourceIAMUpstream(reads.record(t))
 	if err != nil {
 		t.Fatal(err)

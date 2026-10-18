@@ -191,7 +191,7 @@ func TestGenericGenesisOwnerAndPersistentFloorIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent := swarmruntime.ServiceIntent{ID: entityid.Derive("genesis-service", target.Role), OperationID: entityid.New(), Role: target.Role, Region: "sa-saopaulo-1", Environment: target.Environment, Architecture: target.Architecture, Replicas: 1, Generation: 1, Container: &api.ContainerSpec{Image: verified.Claim().Image}, Resources: &api.ResourceRequirements{Reservations: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 32 << 20, Generic: []*api.GenericResource{genericresource.NewDiscrete(swarmruntime.DiskResource, 64<<20)}}, Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 32 << 20, Generic: []*api.GenericResource{genericresource.NewDiscrete(swarmruntime.DiskResource, 64<<20)}}}}
+	intent := swarmruntime.ServiceIntent{ID: entityid.Derive("genesis-service", target.Role), OperationID: entityid.New(), Role: target.Role, Region: "sa-saopaulo-1", Environment: target.Environment, Architecture: target.Architecture, Replicas: 1, Generation: 1, Container: &api.ContainerSpec{Image: verified.Claim().Image, User: "65532:65532"}, Resources: &api.ResourceRequirements{Reservations: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 32 << 20, Generic: []*api.GenericResource{genericresource.NewDiscrete(swarmruntime.DiskResource, 64<<20)}}, Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 32 << 20, Generic: []*api.GenericResource{genericresource.NewDiscrete(swarmruntime.DiskResource, 64<<20)}}}}
 	probe := func(check context.Context, task *api.Task) error {
 		if err := session.verify(check); err != nil {
 			return err
@@ -299,7 +299,7 @@ func TestGenericGenesisOwnerAndPersistentFloorIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next.Container = &api.ContainerSpec{Image: nextProof.Claim().Image}
+	next.Container = &api.ContainerSpec{Image: nextProof.Claim().Image, User: "65532:65532"}
 	if _, err := swarmruntime.ApplySignedService(ctx, client, next, second, signer.roots, release.SequenceFloor{}, secondEvidence, probe, signer.allocations, ownerGuard); err != nil {
 		t.Fatal("advance genuine genesis sequence", err)
 	}

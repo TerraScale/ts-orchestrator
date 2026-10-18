@@ -338,7 +338,14 @@ func provisionOriginalFoundationAdmissionReads(ctx context.Context, authority *H
 	if err := retainOriginalFoundationPublication(ctx, authority); err != nil {
 		return err
 	}
-	return ErrOriginalFoundationAdmissionReadsPending
+	grant, err := decodeOriginalMaterialGrant(authority.operator.bundle)
+	if err != nil {
+		return err
+	}
+	if grant.OriginalMaterialPublicationIAM == nil {
+		return ErrOriginalFoundationAdmissionReadsPending
+	}
+	return provisionOriginalFoundationMaterialIAM(ctx, authority)
 }
 
 func (entry OriginalFoundationAdmissionReads) scopeOnly() OriginalFoundationAdmissionReads {
@@ -401,7 +408,7 @@ func provisionOriginalAdmissionRead(ctx context.Context, authority *HomeIAMAutho
 		return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
 	}
 	guard := func(dispatchCtx context.Context) error {
-		saved, _, currentScopes, deadline, err := originalAdmissionReadPrerequisites(ociclient.CheckpointContext(ctx), authority)
+		saved, _, currentScopes, deadline, err := originalAdmissionReadPrerequisites(originalProviderCheckpointContext(dispatchCtx, ctx), authority)
 		if err != nil {
 			return err
 		}

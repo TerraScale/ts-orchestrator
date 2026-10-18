@@ -331,6 +331,11 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		return FoundationPreparation{}, err
 	}
 	grant.OriginalPublication = &publication
+	materialIAM, err := originalMaterialIAMIntents(grant, input.HomeStorageDomain)
+	if err != nil {
+		return FoundationPreparation{}, err
+	}
+	grant.OriginalMaterialPublicationIAM = &materialIAM
 	if err := ValidatePreparedFoundation(grant); err != nil {
 		return FoundationPreparation{}, err
 	}
@@ -609,6 +614,9 @@ func ValidatePreparedFoundation(grant FoundationGrant) error {
 		return err
 	}
 	if err := validateOriginalFoundationPublicationIntent(grant, home); err != nil {
+		return err
+	}
+	if err := validateOriginalMaterialIAMIntents(grant, home); err != nil {
 		return err
 	}
 	if err := validateNetBirdComponentIdentities(grant, home); err != nil {
