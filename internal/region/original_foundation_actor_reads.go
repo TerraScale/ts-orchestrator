@@ -283,6 +283,11 @@ func originalActorReadScope(record FoundationRecord, index int, releaseDigest st
 	if err := originalActorReadsActors(record); err != nil {
 		return scope, err
 	}
+	return originalActorReadScopeFromPrerequisites(record, index, releaseDigest, origin, key, compartment, bundleBytes)
+}
+
+func originalActorReadScopeFromPrerequisites(record FoundationRecord, index int, releaseDigest string, origin release.WorkloadGenesis, key, compartment string, bundleBytes int64) (OriginalFoundationActorReads, error) {
+	var scope OriginalFoundationActorReads
 	region := record.OriginalFoundationCompartments.Regions[index]
 	actor := region.Actor
 	birth := (*record.OriginalSourceProducers)[index]
@@ -512,7 +517,7 @@ func (record FoundationRecord) validateOriginalFoundationActorReads() error {
 			!validFoundationDigest(entry.ReleaseAuthoritySHA256) || entry.BundleBytes <= 0 {
 			return errors.Join(ErrOriginalSourceProducerHold, err)
 		}
-		expected, err := originalActorReadScope(record, index, entry.ReleaseAuthoritySHA256, origin, key, entry.BucketCompartmentID, entry.BundleBytes)
+		expected, err := originalActorReadScopeFromPrerequisites(record, index, entry.ReleaseAuthoritySHA256, origin, key, entry.BucketCompartmentID, entry.BundleBytes)
 		if err != nil || !sameOriginalSourceValue(entry.scopeOnly(), expected) {
 			return errors.Join(ErrOriginalSourceProducerHold, err)
 		}

@@ -198,6 +198,11 @@ func originalAdmissionReadScope(record FoundationRecord, index int, recipe Origi
 	if index < 0 || index >= 3 || completeOriginalAdmissionReadPrerequisites(record) != nil {
 		return scope, ErrOriginalSourceProducerHold
 	}
+	return originalAdmissionReadScopeFromPrerequisites(record, index, recipe)
+}
+
+func originalAdmissionReadScopeFromPrerequisites(record FoundationRecord, index int, recipe OriginalActorAdmissionReadIntent) (OriginalFoundationAdmissionReads, error) {
+	var scope OriginalFoundationAdmissionReads
 	root := record.OriginalFoundationCompartments
 	regional, birth := root.Regions[index], (*record.OriginalSourceProducers)[index]
 	actor, source := regional.Actor, regional.SourceIAM
@@ -518,12 +523,20 @@ func (record FoundationRecord) validateOriginalFoundationAdmissionReads() error 
 	if root == nil {
 		return nil
 	}
+	for _, regional := range root.Regions {
+		if regional.AdmissionReads != nil {
+			if err := completeOriginalAdmissionReadPrerequisites(record); err != nil {
+				return errors.Join(ErrOriginalSourceProducerHold, err)
+			}
+			break
+		}
+	}
 	for index, regional := range root.Regions {
 		entry := regional.AdmissionReads
 		if entry == nil {
 			continue
 		}
-		expected, err := originalAdmissionReadScope(record, index, entry.Recipe)
+		expected, err := originalAdmissionReadScopeFromPrerequisites(record, index, entry.Recipe)
 		if err != nil || !sameOriginalSourceValue(entry.scopeOnly(), expected) {
 			return errors.Join(ErrOriginalSourceProducerHold, err)
 		}
