@@ -261,10 +261,16 @@ type OriginalSourceProducerBirth struct {
 }
 
 func (operator *foundationOperator) originalSourceProducerBirth(grant FoundationGrant) ([3]OriginalSourceProducerBirth, error) {
-	var births [3]OriginalSourceProducerBirth
 	if err := requireOriginalSourceProducerPurposes(grant); err != nil {
-		return births, err
+		return [3]OriginalSourceProducerBirth{}, err
 	}
+	return operator.originalSourceProducerBirthFromPreparedGrant(grant)
+}
+
+// The caller must have required the complete original producer purposes on
+// this same local grant. This assembles immutable values without authority I/O.
+func (operator *foundationOperator) originalSourceProducerBirthFromPreparedGrant(grant FoundationGrant) ([3]OriginalSourceProducerBirth, error) {
+	var births [3]OriginalSourceProducerBirth
 	bundleWire, err := json.Marshal(operator.bundle, json.Deterministic(true))
 	if err != nil {
 		return births, err
@@ -376,7 +382,16 @@ func (authority *HomeIAMAuthority) checkOriginalSourceProducerBirth(ctx context.
 	if err != nil || grant.SchemaVersion != 3 {
 		return err
 	}
-	expected, err := authority.operator.originalSourceProducerBirth(grant)
+	if err := requireOriginalSourceProducerPurposes(grant); err != nil {
+		return err
+	}
+	return authority.checkOriginalSourceProducerBirthFromPreparedGrant(ctx, grant)
+}
+
+// The same local grant has already passed requireOriginalSourceProducerPurposes.
+// Birth authority is still read independently from the protected store each time.
+func (authority *HomeIAMAuthority) checkOriginalSourceProducerBirthFromPreparedGrant(ctx context.Context, grant FoundationGrant) error {
+	expected, err := authority.operator.originalSourceProducerBirthFromPreparedGrant(grant)
 	if err != nil {
 		return err
 	}

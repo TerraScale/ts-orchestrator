@@ -154,7 +154,8 @@ func originalCompartmentScope(ctx context.Context, authority *HomeIAMAuthority) 
 	if err := ValidatePreparedFoundation(grant); err != nil {
 		return scope, err
 	}
-	if err := authority.checkOriginalSourceProducerBirth(ctx); err != nil {
+	// Prepared validation required the producer purposes on this exact local grant.
+	if err := authority.checkOriginalSourceProducerBirthFromPreparedGrant(ctx, grant); err != nil {
 		return scope, err
 	}
 	if err := authority.checkNetBirdMaterialOrigins(ctx, grant); err != nil {

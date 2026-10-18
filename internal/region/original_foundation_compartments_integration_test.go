@@ -478,6 +478,37 @@ func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
 		if err := f.run(t); err != nil || len(f.dispatches()) != postsBefore || f.cloud.creates != 5 || f.cloud.materialPosts != materialBefore {
 			t.Fatalf("completed compartment replay repeated creates/material or claimed serving: %v", err)
 		}
+		authority, _, err := newOperatorHomeIAMAuthority(t.Context(), f.factoryFor(), f.roots, f.bundle)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, releaseLease, err := authority.HomeWrite(t.Context(), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer releaseLease()
+		if current, err := originalCompartmentScope(ctx, authority); err != nil || !sameOriginalSourceValue(current, section.scopeOnly()) {
+			t.Fatalf("prepared grant did not reproduce the exact guarded compartment scope: %v", err)
+		}
+		retained := f.wire(t)
+		defer f.cloud.writeObject("gru-1-head/"+foundationObjectPrefix+"GRU.json", retained)
+		f.replaceRecord(t, func(record *FoundationRecord) {
+			birth := &record.OriginalSourceProducers[0]
+			birth.Intent.PlanSHA256 = preparationDigest([]byte("foreign original producer plan"))
+			wire, err := json.Marshal(birth.Intent, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			birth.IntentSHA256 = preparationDigest(wire)
+			record.OriginalFoundationCompartments.Regions[0].ProducerIntentSHA256 = birth.IntentSHA256
+			if err := record.validate(); err != nil {
+				t.Fatalf("fresh birth drift must remain structurally valid: %v", err)
+			}
+		})
+		changed := f.wire(t)
+		if _, err := originalCompartmentScope(ctx, authority); !errors.Is(err, ErrOriginalSourceProducerHold) || len(f.dispatches()) != postsBefore || f.cloud.creates != 5 || f.cloud.materialPosts != materialBefore || !bytes.Equal(changed, f.wire(t)) {
+			t.Fatalf("validated local grant reused stale birth authority or changed effects: %v", err)
+		}
 	})
 
 	t.Run("unknown effects reopen exact original identity", func(t *testing.T) {
