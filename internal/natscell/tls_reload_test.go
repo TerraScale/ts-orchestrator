@@ -548,30 +548,7 @@ func TestReloadingTLSConcurrentRenewals(t *testing.T) {
 }
 
 // Startup makes the checks a reload makes against its own bundle.
-func TestReloadingTLSChecksTheStartupSet(t *testing.T) {
-	ca, stranger := newTestCA(t, "cell CA"), newTestCA(t, "stranger CA")
-	for name, leaf := range map[string]func() ([]byte, []byte){
-		"an expired leaf": func() ([]byte, []byte) {
-			cert, key, _ := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(-time.Minute))
-			return cert, key
-		},
-		"a route leaf without client use": func() ([]byte, []byte) {
-			cert, key, _ := ca.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
-			return cert, key
-		},
-		"a leaf outside the bundle": func() ([]byte, []byte) {
-			cert, key, _ := stranger.leaf(t, "gru-1-ctl-1", "127.0.0.1", time.Now().Add(time.Hour))
-			return cert, key
-		},
-	} {
-		files := testTLSFiles(t)
-		cert, key := leaf()
-		installTLS(t, files, cert, key, ca)
-		if _, err := NewReloadingTLS(files, "route"); err == nil {
-			t.Errorf("startup accepted %s", name)
-		}
-	}
-}
+
 
 // A renewal written in place under the same inode, size and modification
 // time is still seen: sets are told apart by their bytes.

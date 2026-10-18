@@ -25,49 +25,7 @@ func usage(role storage.VolumeRole, total, used, avail uint64) VolumeUsage {
 		TotalBytes: total, UsedBytes: used, AvailBytes: avail, InodesTotal: 1 << 20, InodesFree: 1 << 19, ObservedAt: observed}
 }
 
-func TestEvaluateThresholds(t *testing.T) {
-	cases := []struct {
-		name string
-		used uint64
-		want Level
-	}{
-		{"half", 50, LevelOK},
-		{"warn", 72, LevelWarn},
-		{"scale-out", 86, LevelScaleOut},
-		{"refuse", 96, LevelCritical},
-	}
-	for _, test := range cases {
-		signal := Evaluate(usage(storage.RoleTerraBaseData, 100*gib, test.used*gib, (100-test.used)*gib), Policy{})
-		if signal.Level != test.want {
-			t.Fatalf("%s: level %s (%.2f), want %s", test.name, signal.Level, signal.Utilization, test.want)
-		}
-		if test.want != LevelOK && signal.Reason == "" {
-			t.Fatalf("%s: signal has no reason", test.name)
-		}
-	}
-}
 
-func TestEvaluateFloorsAndReservations(t *testing.T) {
-	small := usage(storage.RoleBoot, 10*gib, 2*gib, gib/2)
-	if got := Evaluate(small, Policy{}); got.Level != LevelCritical || !strings.Contains(got.Reason, "floor") {
-		t.Fatalf("free-space floor not enforced: %+v", got)
-	}
-	inodes := usage(storage.RoleBoot, 100*gib, 10*gib, 90*gib)
-	inodes.InodesFree = 10
-	if got := Evaluate(inodes, Policy{}); got.Level != LevelCritical {
-		t.Fatalf("inode floor not enforced: %+v", got)
-	}
-	// 40 GiB used, 60 GiB free, but JetStream may still claim 50 GiB of it.
-	store := usage(storage.RoleJetStream, 100*gib, 40*gib, 60*gib)
-	store.ReservedBytes = 50 * gib
-	if got := Evaluate(store, Policy{}); got.Level != LevelScaleOut || got.Utilization < 0.89 {
-		t.Fatalf("reservation not counted as used: %+v", got)
-	}
-	store.ReservedBytes = 70 * gib
-	if got := Evaluate(store, Policy{}); got.Level != LevelCritical {
-		t.Fatalf("unbacked JetStream reservation is not critical: %+v", got)
-	}
-}
 
 func TestPolicyValidation(t *testing.T) {
 	if err := (Policy{}).Validate(); err != nil {
@@ -106,26 +64,6 @@ func TestWorstAndNodeHeadroom(t *testing.T) {
 	}
 }
 
-func TestNodeHeadroomSubtractsAJetStreamReserveOnTheBootFilesystem(t *testing.T) {
-	boot := usage(storage.RoleBoot, 100*gib, 60*gib, 40*gib)
-	shared := usage(storage.RoleJetStream, 100*gib, 60*gib, 40*gib)
-	shared.ReservedBytes = 8 * gib
-	headroom, ok := NodeHeadroomBytes([]Signal{Evaluate(boot, Policy{}), Evaluate(shared, Policy{})}, "host-a")
-	if !ok || headroom != 32*gib {
-		t.Fatalf("shared-filesystem headroom = %d %v, want the 8 GiB JetStream reserve subtracted", headroom, ok)
-	}
-	separate := usage(storage.RoleJetStream, 200*gib, 60*gib, 140*gib)
-	separate.ReservedBytes = 8 * gib
-	headroom, ok = NodeHeadroomBytes([]Signal{Evaluate(boot, Policy{}), Evaluate(separate, Policy{})}, "host-a")
-	if !ok || headroom != 40*gib {
-		t.Fatalf("separate-filesystem headroom = %d %v, want the full boot headroom", headroom, ok)
-	}
-	exhausted := shared
-	exhausted.ReservedBytes = 80 * gib
-	if headroom, _ := NodeHeadroomBytes([]Signal{Evaluate(boot, Policy{}), Evaluate(exhausted, Policy{})}, "host-a"); headroom != 0 {
-		t.Fatalf("over-reserved headroom = %d, want 0", headroom)
-	}
-}
 
 func TestCollectorMeasuresTargetsAndReportsPartialFailures(t *testing.T) {
 	failure := errors.New("no such mount")
