@@ -173,7 +173,7 @@ func originalActorReadsPrerequisites(ctx context.Context, authority *HomeIAMAuth
 		if err != nil {
 			return record, etag, scopes, time.Time{}, err
 		}
-		expected, err := originalActorScope(record, index, *material.Startup, material.Config)
+		expected, err := originalActorScopeFromPrerequisites(record, index, *material.Startup, material.Config)
 		if err != nil || !sameOriginalSourceValue(actor.scopeOnly(), expected) {
 			return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 		}
@@ -209,7 +209,7 @@ func originalActorReadsPrerequisites(ctx context.Context, authority *HomeIAMAuth
 		if err != nil || !bytes.Equal(published, bundle) || digestSource(published) != birth.OriginalBundleSHA256 {
 			return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 		}
-		scopes[index], err = originalActorReadScope(record, index, selected, origin, key, deref(bucket.CompartmentId), int64(len(bundle)))
+		scopes[index], err = originalActorReadScopeFromPrerequisites(record, index, selected, origin, key, deref(bucket.CompartmentId), int64(len(bundle)))
 		if err != nil {
 			return record, etag, scopes, time.Time{}, err
 		}

@@ -305,17 +305,20 @@ func originalAdmissionReadPrerequisites(ctx context.Context, authority *HomeIAMA
 	if err != nil {
 		return record, etag, scopes, time.Time{}, err
 	}
+	if err := completeOriginalSourceIAMActors(record); err != nil {
+		return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
+	}
 	for index, regional := range record.OriginalFoundationCompartments.Regions {
 		// Reconstruct from independently verified signed material, not record fields.
 		material, err := originalActorMaterial(grant, regional.Cell)
 		if err != nil {
 			return record, etag, scopes, time.Time{}, err
 		}
-		actor, err := originalActorScope(record, index, *material.Startup, material.Config)
+		actor, err := originalActorScopeFromPrerequisites(record, index, *material.Startup, material.Config)
 		if err != nil || !sameOriginalSourceValue(actor, regional.Actor.scopeOnly()) {
 			return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 		}
-		source, err := originalSourceIAMScope(record, index)
+		source, err := originalSourceIAMScopeFromActors(record, index)
 		if err != nil || !sameOriginalSourceValue(source, regional.SourceIAM.scopeOnly()) {
 			return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 		}
@@ -327,7 +330,7 @@ func originalAdmissionReadPrerequisites(ctx context.Context, authority *HomeIAMA
 			!sameOriginalSourceValue(response.VersionDate, entry.Request.VersionDate) || !sameOriginalSourceValue(response.FreeformTags, entry.Request.FreeformTags) || !sameOriginalSourceValue(response.DefinedTags, entry.Request.DefinedTags) {
 			return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 		}
-		scopes[index], err = originalAdmissionReadScope(record, index, (*grant.OriginalActorAdmissionReads)[index])
+		scopes[index], err = originalAdmissionReadScopeFromPrerequisites(record, index, (*grant.OriginalActorAdmissionReads)[index])
 		if err != nil {
 			return record, etag, scopes, time.Time{}, err
 		}
