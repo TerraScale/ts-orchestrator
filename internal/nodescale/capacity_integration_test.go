@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -28,44 +29,31 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 const testCompartment = "ocid1.compartment.oc1..gru"
 
-var (
-	errNotFound     = errors.New("404 not found")
-	errPrecondition = errors.New("412 precondition failed")
-	errInUse        = errors.New("409 configuration is referenced by an instance pool")
-)
+var errNotFound = errors.New("404 not found")
 
-// capacityCloud backs a loopback OCI HTTP simulator. It enforces ETags, configurations in use,
-// and two-item pages. It has no TerminateInstance, so the code under test cannot call one.
+// capacityCloud serves explicitly seeded observation facts, not admitted births.
+// There is no mutation endpoint; every SDK write fails the test.
 type capacityCloud struct {
-	pools        map[string]*core.InstancePool
-	configs      map[string]*core.InstanceConfiguration
-	instances    map[string]*core.Instance
-	members      map[string]string // instance id -> pool id
-	attachments  map[string][]core.VnicAttachment
-	vnics        map[string]core.Vnic
-	etags        map[string]string
-	tokens       map[string]string // opc-retry-token -> the id it created
-	detaches     []core.DetachInstancePoolInstanceDetails
-	updates      int                                       // UpdateInstancePool calls
-	shrinks      int                                       // UpdateInstancePool calls that lowered a pool's size
-	applying     map[string]core.UpdateInstancePoolDetails // accepted configuration and placement updates; see settle
-	shapeRows    []core.Shape
-	rejectGrowth bool
-	staleWrite   bool
-	nextID       int
+	pools       map[string]*core.InstancePool
+	configs     map[string]*core.InstanceConfiguration
+	instances   map[string]*core.Instance
+	members     map[string]string
+	attachments map[string][]core.VnicAttachment
+	vnics       map[string]core.Vnic
+	shapeRows   []core.Shape
+	nextID      int
 }
 
 func newCapacityCloud() *capacityCloud {
 	return &capacityCloud{pools: map[string]*core.InstancePool{}, configs: map[string]*core.InstanceConfiguration{},
 		instances: map[string]*core.Instance{}, members: map[string]string{},
-		attachments: map[string][]core.VnicAttachment{}, vnics: map[string]core.Vnic{},
-		etags: map[string]string{}, tokens: map[string]string{}, applying: map[string]core.UpdateInstancePoolDetails{}}
+		attachments: map[string][]core.VnicAttachment{}, vnics: map[string]core.Vnic{}}
 }
 
 func (f *capacityCloud) id(kind string) string {
@@ -73,20 +61,6 @@ func (f *capacityCloud) id(kind string) string {
 	return "ocid1." + kind + ".oc1..test" + strconv.Itoa(f.nextID)
 }
 
-// touch records a new ETag for id, as every OCI write does.
-func (f *capacityCloud) touch(id string) {
-	f.nextID++
-	f.etags[id] = "etag-" + strconv.Itoa(f.nextID)
-}
-
-func (f *capacityCloud) fresh(id string, ifMatch *string) error {
-	if ifMatch != nil && *ifMatch != f.etags[id] {
-		return errPrecondition
-	}
-	return nil
-}
-
-// launch adds an instance with one primary VNIC at ip. A non-empty poolID makes it a member of that pool.
 func (f *capacityCloud) launch(name, poolID, ip string, state core.InstanceLifecycleStateEnum, tags map[string]string) string {
 	id := f.id("instance")
 	vnicID := f.id("vnic")
@@ -98,11 +72,9 @@ func (f *capacityCloud) launch(name, poolID, ip string, state core.InstanceLifec
 	if poolID != "" {
 		f.members[id] = poolID
 	}
-	f.touch(id)
 	return id
 }
 
-// pageOf returns the two-item page that token names, so every list takes more than one page.
 func pageOf[T any](items []T, token *string) ([]T, *string) {
 	start := 0
 	if token != nil {
@@ -116,7 +88,6 @@ func pageOf[T any](items []T, token *string) ([]T, *string) {
 	return items[start:end], &next
 }
 
-// sortedByID returns the values of m in key order, so pages are stable.
 func sortedByID[V any](m map[string]V) []V {
 	values := make([]V, 0, len(m))
 	for _, key := range slices.Sorted(maps.Keys(m)) {
@@ -144,70 +115,7 @@ func (f *capacityCloud) GetInstancePool(_ context.Context, request core.GetInsta
 	if !ok {
 		return core.GetInstancePoolResponse{}, errNotFound
 	}
-	return core.GetInstancePoolResponse{InstancePool: *pool, Etag: common.String(f.etags[id])}, nil
-}
-
-func (f *capacityCloud) CreateInstancePool(_ context.Context, request core.CreateInstancePoolRequest) (core.CreateInstancePoolResponse, error) {
-	if id, ok := f.tokens[deref(request.OpcRetryToken)]; ok {
-		return core.CreateInstancePoolResponse{InstancePool: *f.pools[id], Etag: common.String(f.etags[id])}, nil
-	}
-	details := request.CreateInstancePoolDetails
-	id := f.id("instancepool")
-	pool := &core.InstancePool{Id: common.String(id), CompartmentId: details.CompartmentId,
-		InstanceConfigurationId: details.InstanceConfigurationId, LifecycleState: core.InstancePoolLifecycleStateRunning,
-		Size: details.Size, DisplayName: details.DisplayName, FreeformTags: details.FreeformTags}
-	for _, placement := range details.PlacementConfigurations {
-		pool.PlacementConfigurations = append(pool.PlacementConfigurations, core.InstancePoolPlacementConfiguration{
-			AvailabilityDomain: placement.AvailabilityDomain, PrimaryVnicSubnets: placement.PrimaryVnicSubnets})
-	}
-	f.pools[id] = pool
-	f.tokens[deref(request.OpcRetryToken)] = id
-	f.touch(id)
-	return core.CreateInstancePoolResponse{InstancePool: *pool, Etag: common.String(f.etags[id])}, nil
-}
-
-func (f *capacityCloud) UpdateInstancePool(_ context.Context, request core.UpdateInstancePoolRequest) (core.UpdateInstancePoolResponse, error) {
-	id := deref(request.InstancePoolId)
-	pool, ok := f.pools[id]
-	if !ok {
-		return core.UpdateInstancePoolResponse{}, errNotFound
-	}
-	if err := f.fresh(id, request.IfMatch); err != nil {
-		return core.UpdateInstancePoolResponse{}, err
-	}
-	f.updates++
-	details := request.UpdateInstancePoolDetails
-	if details.InstanceConfigurationId != nil || details.PlacementConfigurations != nil {
-		// OCI applies a configuration or placement change later; the pool keeps its old ones until settle.
-		f.applying[id] = details
-	}
-	if details.Size != nil {
-		if *details.Size < deref(pool.Size) {
-			f.shrinks++
-		}
-		pool.Size = details.Size
-	}
-	f.touch(id)
-	return core.UpdateInstancePoolResponse{InstancePool: *pool, Etag: common.String(f.etags[id])}, nil
-}
-
-// settle applies the configuration and placement updates OCI has accepted, as OCI does once the pool is done updating.
-func (f *capacityCloud) settle() {
-	for id, details := range f.applying {
-		pool := f.pools[id]
-		if details.InstanceConfigurationId != nil {
-			pool.InstanceConfigurationId = details.InstanceConfigurationId
-		}
-		if details.PlacementConfigurations != nil {
-			pool.PlacementConfigurations = nil
-			for _, placement := range details.PlacementConfigurations {
-				pool.PlacementConfigurations = append(pool.PlacementConfigurations, core.InstancePoolPlacementConfiguration{
-					AvailabilityDomain: placement.AvailabilityDomain, PrimaryVnicSubnets: placement.PrimaryVnicSubnets})
-			}
-		}
-		delete(f.applying, id)
-		f.touch(id)
-	}
+	return core.GetInstancePoolResponse{InstancePool: *pool}, nil
 }
 
 func (f *capacityCloud) ListInstancePoolInstances(_ context.Context, request core.ListInstancePoolInstancesRequest) (core.ListInstancePoolInstancesResponse, error) {
@@ -223,24 +131,6 @@ func (f *capacityCloud) ListInstancePoolInstances(_ context.Context, request cor
 	return core.ListInstancePoolInstancesResponse{Items: page, OpcNextPage: next}, nil
 }
 
-// DetachInstancePoolInstance applies both flags the leader sends: the pool shrinks and the instance terminates.
-func (f *capacityCloud) DetachInstancePoolInstance(_ context.Context, request core.DetachInstancePoolInstanceRequest) (core.DetachInstancePoolInstanceResponse, error) {
-	details := request.DetachInstancePoolInstanceDetails
-	pool, ok := f.pools[deref(request.InstancePoolId)]
-	if !ok || f.members[deref(details.InstanceId)] != deref(pool.Id) {
-		return core.DetachInstancePoolInstanceResponse{}, errNotFound
-	}
-	f.detaches = append(f.detaches, details)
-	if deref(details.IsDecrementSize) {
-		pool.Size = common.Int(deref(pool.Size) - 1)
-	}
-	if deref(details.IsAutoTerminate) {
-		f.instances[deref(details.InstanceId)].LifecycleState = core.InstanceLifecycleStateTerminating
-	}
-	f.touch(deref(pool.Id))
-	return core.DetachInstancePoolInstanceResponse{}, nil
-}
-
 func (f *capacityCloud) ListInstanceConfigurations(_ context.Context, request core.ListInstanceConfigurationsRequest) (core.ListInstanceConfigurationsResponse, error) {
 	var items []core.InstanceConfigurationSummary
 	for _, config := range sortedByID(f.configs) {
@@ -253,18 +143,6 @@ func (f *capacityCloud) ListInstanceConfigurations(_ context.Context, request co
 	return core.ListInstanceConfigurationsResponse{Items: page, OpcNextPage: next}, nil
 }
 
-func (f *capacityCloud) CreateInstanceConfiguration(_ context.Context, request core.CreateInstanceConfigurationRequest) (core.CreateInstanceConfigurationResponse, error) {
-	if id, ok := f.tokens[deref(request.OpcRetryToken)]; ok {
-		return core.CreateInstanceConfigurationResponse{InstanceConfiguration: *f.configs[id]}, nil
-	}
-	details := request.CreateInstanceConfiguration.(core.CreateInstanceConfigurationDetails)
-	id := f.id("instanceconfiguration")
-	f.configs[id] = &core.InstanceConfiguration{Id: common.String(id), CompartmentId: details.CompartmentId,
-		DisplayName: details.DisplayName, FreeformTags: details.FreeformTags, InstanceDetails: details.InstanceDetails}
-	f.tokens[deref(request.OpcRetryToken)] = id
-	return core.CreateInstanceConfigurationResponse{InstanceConfiguration: *f.configs[id]}, nil
-}
-
 func (f *capacityCloud) GetInstanceConfiguration(_ context.Context, request core.GetInstanceConfigurationRequest) (core.GetInstanceConfigurationResponse, error) {
 	config, ok := f.configs[deref(request.InstanceConfigurationId)]
 	if !ok {
@@ -273,47 +151,13 @@ func (f *capacityCloud) GetInstanceConfiguration(_ context.Context, request core
 	return core.GetInstanceConfigurationResponse{InstanceConfiguration: *config}, nil
 }
 
-// DeleteInstanceConfiguration refuses a configuration a pool still references, as OCI does.
-func (f *capacityCloud) DeleteInstanceConfiguration(_ context.Context, request core.DeleteInstanceConfigurationRequest) (core.DeleteInstanceConfigurationResponse, error) {
-	id := deref(request.InstanceConfigurationId)
-	if _, ok := f.configs[id]; !ok {
-		return core.DeleteInstanceConfigurationResponse{}, errNotFound
-	}
-	for _, pool := range f.pools {
-		if deref(pool.InstanceConfigurationId) == id {
-			return core.DeleteInstanceConfigurationResponse{}, errInUse
-		}
-	}
-	delete(f.configs, id)
-	return core.DeleteInstanceConfigurationResponse{}, nil
-}
-
 func (f *capacityCloud) GetInstance(_ context.Context, request core.GetInstanceRequest) (core.GetInstanceResponse, error) {
 	id := deref(request.InstanceId)
 	instance, ok := f.instances[id]
 	if !ok {
 		return core.GetInstanceResponse{}, errNotFound
 	}
-	return core.GetInstanceResponse{Instance: *instance, Etag: common.String(f.etags[id])}, nil
-}
-
-func (f *capacityCloud) UpdateInstance(_ context.Context, request core.UpdateInstanceRequest) (core.UpdateInstanceResponse, error) {
-	id := deref(request.InstanceId)
-	instance, ok := f.instances[id]
-	if !ok {
-		return core.UpdateInstanceResponse{}, errNotFound
-	}
-	if err := f.fresh(id, request.IfMatch); err != nil {
-		return core.UpdateInstanceResponse{}, err
-	}
-	if request.DisplayName != nil {
-		instance.DisplayName = request.DisplayName
-	}
-	if request.FreeformTags != nil {
-		instance.FreeformTags = request.FreeformTags
-	}
-	f.touch(id)
-	return core.UpdateInstanceResponse{Instance: *instance, Etag: common.String(f.etags[id])}, nil
+	return core.GetInstanceResponse{Instance: *instance}, nil
 }
 
 func (f *capacityCloud) ListVnicAttachments(_ context.Context, request core.ListVnicAttachmentsRequest) (core.ListVnicAttachmentsResponse, error) {
@@ -328,16 +172,13 @@ func (f *capacityCloud) GetVnic(_ context.Context, request core.GetVnicRequest) 
 	return core.GetVnicResponse{Vnic: vnic}, nil
 }
 
-// capacitySigner keeps credentials out of this loopback-only protocol simulator.
+// The no-op signer is confined to a read-only loopback protocol fixture.
 type capacitySigner struct{}
 
 func (capacitySigner) Sign(*http.Request) error { return nil }
 
-func (f *capacityCloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (f *capacityCloud) serveRead(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodGet {
-		w.Header().Set("opc-request-id", "capacity-sdk-response")
-	}
 	path := strings.TrimPrefix(r.URL.Path, "/20160918")
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	id := ""
@@ -345,131 +186,57 @@ func (f *capacityCloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		id = parts[1]
 	}
 	query := r.URL.Query()
-	page := (*string)(nil)
+	var page *string
 	if query.Has("page") {
 		page = new(query.Get("page"))
 	}
-	ctx := r.Context()
 	var body any
+	var next *string
 	var err error
-	decode := func(v any) bool {
-		if err := json.UnmarshalRead(r.Body, v); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return false
-		}
-		return true
-	}
 	switch {
 	case path == "/shapes":
 		if query.Get("imageId") == "" || query.Get("availabilityDomain") == "" || query.Get("compartmentId") != testCompartment {
-			http.Error(w, "missing image compatibility scope", 400)
+			http.Error(w, "missing image compatibility scope", http.StatusBadRequest)
 			return
 		}
 		body = f.shapeRows
 		if f.shapeRows == nil {
 			body = []core.Shape{capacityShape("VM.Standard.A1.Flex", "Ampere Altra"), capacityShape("VM.Standard.E4.Flex", "AMD EPYC")}
 		}
-	case path == "/instancePools" && r.Method == "GET":
-		response, callErr := f.ListInstancePools(ctx, core.ListInstancePoolsRequest{CompartmentId: new(query.Get("compartmentId")), Page: page})
-		body, err = response.Items, callErr
-		if response.OpcNextPage != nil {
-			w.Header().Set("opc-next-page", *response.OpcNextPage)
-		}
-	case path == "/instancePools" && r.Method == "POST":
-		var details core.CreateInstancePoolDetails
-		if !decode(&details) {
-			return
-		}
-		response, callErr := f.CreateInstancePool(ctx, core.CreateInstancePoolRequest{CreateInstancePoolDetails: details, OpcRetryToken: new(r.Header.Get("opc-retry-token"))})
-		body, err = response.InstancePool, callErr
-		w.Header().Set("etag", deref(response.Etag))
-	case len(parts) == 2 && parts[0] == "instancePools" && r.Method == "GET":
-		response, callErr := f.GetInstancePool(ctx, core.GetInstancePoolRequest{InstancePoolId: new(id)})
-		body, err = response.InstancePool, callErr
-		w.Header().Set("etag", deref(response.Etag))
-	case len(parts) == 2 && parts[0] == "instancePools" && r.Method == "PUT":
-		if f.rejectGrowth {
-			w.WriteHeader(500)
-			json.MarshalWrite(w, map[string]string{"code": "OutOfHostCapacity", "message": "capacity unavailable"})
-			return
-		}
-		var details core.UpdateInstancePoolDetails
-		if f.staleWrite {
-			f.touch(id)
-			f.staleWrite = false
-		}
-		if !decode(&details) {
-			return
-		}
-		if r.Header.Get("if-match") == "" {
-			http.Error(w, "missing etag", 428)
-			return
-		}
-		response, callErr := f.UpdateInstancePool(ctx, core.UpdateInstancePoolRequest{InstancePoolId: new(id), IfMatch: new(r.Header.Get("if-match")), UpdateInstancePoolDetails: details})
+	case path == "/instancePools":
+		response, callErr := f.ListInstancePools(r.Context(), core.ListInstancePoolsRequest{CompartmentId: new(query.Get("compartmentId")), Page: page})
+		body, next, err = response.Items, response.OpcNextPage, callErr
+	case len(parts) == 2 && parts[0] == "instancePools":
+		response, callErr := f.GetInstancePool(r.Context(), core.GetInstancePoolRequest{InstancePoolId: new(id)})
 		body, err = response.InstancePool, callErr
 	case len(parts) == 3 && parts[0] == "instancePools" && parts[2] == "instances":
-		response, callErr := f.ListInstancePoolInstances(ctx, core.ListInstancePoolInstancesRequest{InstancePoolId: new(id), Page: page})
-		body, err = response.Items, callErr
-		if response.OpcNextPage != nil {
-			w.Header().Set("opc-next-page", *response.OpcNextPage)
-		}
-	case len(parts) == 4 && parts[0] == "instancePools" && parts[3] == "detachInstance":
-		var details core.DetachInstancePoolInstanceDetails
-		if !decode(&details) {
-			return
-		}
-		_, err = f.DetachInstancePoolInstance(ctx, core.DetachInstancePoolInstanceRequest{InstancePoolId: new(id), DetachInstancePoolInstanceDetails: details})
-		body = map[string]string{}
-	case path == "/instanceConfigurations" && r.Method == "GET":
-		response, callErr := f.ListInstanceConfigurations(ctx, core.ListInstanceConfigurationsRequest{CompartmentId: new(query.Get("compartmentId")), Page: page})
-		body, err = response.Items, callErr
-		if response.OpcNextPage != nil {
-			w.Header().Set("opc-next-page", *response.OpcNextPage)
-		}
-	case path == "/instanceConfigurations" && r.Method == "POST":
-		var details core.CreateInstanceConfigurationDetails
-		if !decode(&details) {
-			return
-		}
-		response, callErr := f.CreateInstanceConfiguration(ctx, core.CreateInstanceConfigurationRequest{CreateInstanceConfiguration: details, OpcRetryToken: new(r.Header.Get("opc-retry-token"))})
+		response, callErr := f.ListInstancePoolInstances(r.Context(), core.ListInstancePoolInstancesRequest{InstancePoolId: new(id), Page: page})
+		body, next, err = response.Items, response.OpcNextPage, callErr
+	case path == "/instanceConfigurations":
+		response, callErr := f.ListInstanceConfigurations(r.Context(), core.ListInstanceConfigurationsRequest{CompartmentId: new(query.Get("compartmentId")), Page: page})
+		body, next, err = response.Items, response.OpcNextPage, callErr
+	case len(parts) == 2 && parts[0] == "instanceConfigurations":
+		response, callErr := f.GetInstanceConfiguration(r.Context(), core.GetInstanceConfigurationRequest{InstanceConfigurationId: new(id)})
 		body, err = response.InstanceConfiguration, callErr
-	case len(parts) == 2 && parts[0] == "instanceConfigurations" && r.Method == "GET":
-		response, callErr := f.GetInstanceConfiguration(ctx, core.GetInstanceConfigurationRequest{InstanceConfigurationId: new(id)})
-		body, err = response.InstanceConfiguration, callErr
-	case parts[0] == "instanceConfigurations" && r.Method == "DELETE":
-		_, err = f.DeleteInstanceConfiguration(ctx, core.DeleteInstanceConfigurationRequest{InstanceConfigurationId: new(id)})
-		body = map[string]string{}
-	case parts[0] == "instances" && r.Method == "GET":
-		response, callErr := f.GetInstance(ctx, core.GetInstanceRequest{InstanceId: new(id)})
-		body, err = response.Instance, callErr
-		w.Header().Set("etag", deref(response.Etag))
-	case parts[0] == "instances" && r.Method == "PUT":
-		var details core.UpdateInstanceDetails
-		if !decode(&details) {
-			return
-		}
-		response, callErr := f.UpdateInstance(ctx, core.UpdateInstanceRequest{InstanceId: new(id), IfMatch: new(r.Header.Get("if-match")), UpdateInstanceDetails: details})
+	case len(parts) == 2 && parts[0] == "instances":
+		response, callErr := f.GetInstance(r.Context(), core.GetInstanceRequest{InstanceId: new(id)})
 		body, err = response.Instance, callErr
 	case path == "/vnicAttachments":
-		response, callErr := f.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{InstanceId: new(query.Get("instanceId"))})
+		response, callErr := f.ListVnicAttachments(r.Context(), core.ListVnicAttachmentsRequest{InstanceId: new(query.Get("instanceId"))})
 		body, err = response.Items, callErr
-	case parts[0] == "vnics":
-		response, callErr := f.GetVnic(ctx, core.GetVnicRequest{VnicId: new(id)})
+	case len(parts) == 2 && parts[0] == "vnics":
+		response, callErr := f.GetVnic(r.Context(), core.GetVnicRequest{VnicId: new(id)})
 		body, err = response.Vnic, callErr
 	default:
-		http.Error(w, "unexpected OCI operation: "+r.Method+" "+path, 400)
+		http.Error(w, "unexpected read: "+path, http.StatusBadRequest)
 		return
 	}
+	if next != nil {
+		w.Header().Set("opc-next-page", *next)
+	}
 	if err != nil {
-		status := 409
-		if errors.Is(err, errNotFound) {
-			status = 404
-		}
-		if errors.Is(err, errPrecondition) {
-			status = 412
-		}
-		w.WriteHeader(status)
-		body = map[string]string{"code": "Conflict", "message": err.Error()}
+		w.WriteHeader(http.StatusNotFound)
+		body = map[string]string{"code": "NotAuthorizedOrNotFound", "message": err.Error()}
 	}
 	if body == nil {
 		body = []any{}
@@ -487,7 +254,14 @@ func capacityRecipe() Recipe {
 
 func protocolPool(t *testing.T, cloud *capacityCloud, capacity Capacity) *OCIPool {
 	t.Helper()
-	srv := httptest.NewServer(cloud)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("read-only discovery attempted OCI mutation: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "read-only fixture", http.StatusMethodNotAllowed)
+			return
+		}
+		cloud.serveRead(w, r)
+	}))
 	t.Cleanup(srv.Close)
 	policy := common.NoRetryPolicy()
 	base := common.BaseClient{Host: srv.URL, BasePath: "20160918", UserAgent: "capacity-integration", HTTPClient: srv.Client(), Signer: capacitySigner{},
@@ -497,85 +271,24 @@ func protocolPool(t *testing.T, cloud *capacityCloud, capacity Capacity) *OCIPoo
 	if err != nil {
 		t.Fatal(err)
 	}
-	configureProtocolJournal(t, pool, nil)
-	pool.Admit = func(context.Context, Recipe) (func(), error) { return func() {}, nil }
 	return pool
 }
 
-// This fixture qualifies SDK/journal consistency; its receipt fields do not mint signed home or child authority.
-func configureProtocolJournal(t *testing.T, pool *OCIPool, records RecordStore) {
-	t.Helper()
-	journal := pool.Journal
-	if journal == nil {
-		var err error
-		journal, err = oci.OpenJournal(t.Context(), capacityJetStream(t), 1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		pool.Journal = journal
+// seedCapacityPool populates provider facts only; it records no launch admission or receipt.
+func seedCapacityPool(cloud *capacityCloud, recipe Recipe, size int) PoolState {
+	configurationID, poolID := cloud.id("instanceconfiguration"), cloud.id("instancepool")
+	cloud.configs[configurationID] = &core.InstanceConfiguration{Id: new(configurationID), CompartmentId: new(testCompartment),
+		DisplayName: new(ConfigurationName(recipe)), InstanceDetails: core.ComputeInstanceDetails{LaunchDetails: launchDetails(recipe, testCompartment, "")},
+		FreeformTags: poolTags(recipe.Cell, recipe.Capacity, roleNodeConfig)}
+	placements := make([]core.InstancePoolPlacementConfiguration, 0, len(recipe.AvailabilityDomains))
+	for _, ad := range recipe.AvailabilityDomains {
+		placements = append(placements, core.InstancePoolPlacementConfiguration{AvailabilityDomain: new(ad),
+			PrimaryVnicSubnets: &core.InstancePoolPlacementPrimarySubnet{SubnetId: new(recipe.SubnetID)}})
 	}
-	if pool.operationID == "" {
-		pool.operationID = entityid.New()
-	}
-	started := time.Now().UTC()
-	originalAction := func(ctx context.Context, recipe Recipe) (string, time.Time, error) {
-		if records == nil {
-			return pool.operationID, started, nil
-		}
-		record, _, err := records.Load(ctx)
-		if err != nil {
-			return "", time.Time{}, err
-		}
-		if record.Action == nil || record.Action.Kind != Up || !entityid.Valid(record.Action.ID) || record.Action.Started.IsZero() || record.Recipe == nil || record.Recipe.SHA256() != recipe.SHA256() ||
-			record.Reservation != nil && (record.Reservation.OperationID != record.Action.ID || record.Reservation.RecipeSHA256 != recipe.SHA256()) {
-			return "", time.Time{}, ErrCapacityPending
-		}
-		return record.Action.ID, record.Action.Started.UTC(), nil
-	}
-	pool.CheckpointCreate = func(ctx context.Context, recipe Recipe, request oci.PoolCreateRequest) (oci.PoolCreateRequest, error) {
-		operationID, started, err := originalAction(ctx, recipe)
-		if err != nil {
-			return request, err
-		}
-		request.OperationID, request.RecipeSHA256 = operationID, recipe.SHA256()
-		request.LogicalScopeSHA256, request.ResolvedScopeSHA256 = strings.Repeat("1", 64), strings.Repeat("1", 64)
-		request.GrantSHA256, request.GrantGeneration = strings.Repeat("2", 64), 7
-		request.TenancyID, request.Region, request.CompartmentID = "ocid1.tenancy.oc1..fixture", oci.RegionGRU, testCompartment
-		request.Role, request.Architecture, request.Shape = recipe.Capacity.Role, recipe.Capacity.Architecture, recipe.Capacity.Shape
-		request.Currency, request.ReservedMonthlyCents, request.QuoteSHA256 = "USD", 2147, strings.Repeat("3", 64)
-		request.StartedAt = started
-		return request, journal.RecordPoolCreateRequest(ctx, request)
-	}
-	pool.CheckpointGrowth = func(ctx context.Context, recipe Recipe, request core.UpdateInstancePoolRequest) (core.UpdateInstancePoolRequest, error) {
-		operationID, started, err := originalAction(ctx, recipe)
-		if err != nil {
-			return request, err
-		}
-		original, found, err := journal.GetCapacityRequest(ctx, operationID)
-		if err != nil {
-			return request, err
-		}
-		if found {
-			if deref(request.OpcRetryToken) != original.RetryToken {
-				return request, ErrCapacityPending
-			}
-			request.IfMatch, request.OpcRetryToken = new(original.IfMatch), new(original.RetryToken)
-		}
-		raw, err := request.HTTPRequest(http.MethodPut, "/instancePools/{instancePoolId}", nil, nil)
-		if err != nil {
-			return request, err
-		}
-		digest, err := poolCreateRequestSHA256(&raw)
-		if err != nil {
-			return request, err
-		}
-		checkpoint := oci.CapacityRequest{OperationID: operationID, RecipeSHA256: recipe.SHA256(),
-			LogicalScopeSHA256: strings.Repeat("1", 64), ResolvedScopeSHA256: strings.Repeat("1", 64), GrantSHA256: strings.Repeat("2", 64), GrantGeneration: 7,
-			TenancyID: "ocid1.tenancy.oc1..fixture", Region: oci.RegionGRU, CompartmentID: testCompartment, PoolID: deref(request.InstancePoolId),
-			RequestSHA256: digest, RetryToken: deref(request.OpcRetryToken), IfMatch: deref(request.IfMatch), Currency: "USD", ReservedMonthlyCents: 2147,
-			QuoteSHA256: strings.Repeat("3", 64), TargetSize: uint32(deref(request.Size)), StartedAt: started}
-		return request, journal.RecordCapacityRequest(ctx, checkpoint)
-	}
+	cloud.pools[poolID] = &core.InstancePool{Id: new(poolID), CompartmentId: new(testCompartment),
+		DisplayName: new(PoolName(recipe.Cell, recipe.Capacity)), InstanceConfigurationId: new(configurationID), Size: new(size),
+		LifecycleState: core.InstancePoolLifecycleStateRunning, FreeformTags: poolTags(recipe.Cell, recipe.Capacity, roleNodePool), PlacementConfigurations: placements}
+	return PoolState{Exists: true, PoolID: poolID, ConfigurationID: configurationID, Size: size}
 }
 
 func capacityShape(shape, processor string) core.Shape {
@@ -607,147 +320,10 @@ func capacityJetStream(t *testing.T) jetstream.JetStream {
 	return js
 }
 
-func TestCapacityPoolProtocolLifecycle(t *testing.T) {
-	ctx := t.Context()
-	cloud := newCapacityCloud()
-	recipe := capacityRecipe()
-	pool := protocolPool(t, cloud, recipe.Capacity)
-	first, err := pool.Ensure(ctx, recipe)
-	if err != nil {
-		t.Fatal(err)
-	}
-	again, err := pool.Ensure(ctx, recipe)
-	if err != nil || first.PoolID != again.PoolID || len(cloud.pools) != 1 || len(cloud.configs) != 1 {
-		t.Fatalf("ensure replay created duplicates: first=%+v again=%+v err=%v", first, again, err)
-	}
-	config := cloud.configs[first.ConfigurationID]
-	launch := config.InstanceDetails.(core.ComputeInstanceDetails).LaunchDetails
-	if deref(launch.Shape) != recipe.Capacity.Shape || deref(launch.ShapeConfig.Ocpus) != recipe.OCPUs ||
-		deref(launch.ShapeConfig.MemoryInGBs) != recipe.MemoryGB || deref(launch.CreateVnicDetails.AssignPublicIp) ||
-		!slices.Equal(launch.CreateVnicDetails.NsgIds, recipe.NSGIDs) {
-		t.Fatalf("wrong launch contract over OCI JSON: %+v", launch)
-	}
-	if err := pool.Grow(ctx, 0); err != nil {
-		t.Fatal(err)
-	}
-	updates := cloud.updates
-	if err := pool.Grow(ctx, 0); err != nil || cloud.updates != updates {
-		t.Fatalf("growth replay: updates=%d err=%v", cloud.updates, err)
-	}
-	if err := pool.Grow(ctx, 2); !errors.Is(err, ErrPoolChanged) {
-		t.Fatalf("unexpected size accepted: %v", err)
-	}
-	ids := []string{}
-	for i := range 3 {
-		ids = append(ids, cloud.launch(fmt.Sprintf("instance-%d", i), first.PoolID, fmt.Sprintf("10.0.0.%d", i+4), core.InstanceLifecycleStateRunning, map[string]string{"preserve": "tag"}))
-	}
-	observed, err := pool.Observe(ctx)
-	if err != nil || len(observed.Instances) != 3 || observed.Instances[2].PrivateIP == "" {
-		t.Fatalf("paginated observation: %+v err=%v", observed, err)
-	}
-	for _, err := range []error{pool.Name(ctx, ids[0], "ts-gru-4"), pool.Remove(ctx, ids[0])} {
-		if !errors.Is(err, ErrCapacityPending) {
-			t.Fatalf("pool membership minted child authority: %v", err)
-		}
-	}
-	if deref(cloud.instances[ids[0]].DisplayName) != "instance-0" || cloud.instances[ids[0]].FreeformTags["preserve"] != "tag" || len(cloud.detaches) != 0 || cloud.shrinks != 0 {
-		t.Fatal("unproven child was renamed, retagged or removed")
-	}
-	outsider := cloud.launch("outsider", "", "10.0.0.99", core.InstanceLifecycleStateRunning, nil)
-	if err := pool.Remove(ctx, outsider); !errors.Is(err, ErrNotPoolInstance) {
-		t.Fatalf("outsider removal: %v", err)
-	}
-	oldConfig := first.ConfigurationID
-	recipe.ImageID = "ocid1.image.v2"
-	if _, err := pool.Ensure(ctx, recipe); err == nil {
-		t.Fatal("changed recipe reused immutable original create authority")
-	}
-	if cloud.configs[oldConfig] == nil || len(cloud.configs) != 1 || len(cloud.applying) != 0 {
-		t.Fatal("changed recipe repointed or deleted the existing configuration")
-	}
-	cloud.settle()
-	if _, err := pool.Ensure(ctx, recipe); err == nil || cloud.configs[oldConfig] == nil {
-		t.Fatal("asynchronous readback minted replacement or pruning authority")
-	}
-
-}
-
 type capacityLeader struct{ snapshot authority.Snapshot }
 
-func (f *capacityLeader) Current() authority.Snapshot { return f.snapshot }
-
+func (f *capacityLeader) Current() authority.Snapshot         { return f.snapshot }
 func (f *capacityLeader) Guard(context.Context, uint64) error { return nil }
-
-func TestCapacityPoolProtocolIsolationAndValidation(t *testing.T) {
-	ctx := t.Context()
-	cloud := newCapacityCloud()
-	base := capacityRecipe()
-	for _, capacity := range []Capacity{base.Capacity, {Role: "wasm", Architecture: "arm64", Shape: base.Capacity.Shape}, {Role: "container", Architecture: "amd64", Shape: "VM.Standard.E4.Flex"}} {
-		recipe := base
-		recipe.Capacity = capacity
-		pool := protocolPool(t, cloud, capacity)
-		if _, err := pool.Ensure(ctx, recipe); err != nil && !errors.Is(err, ErrCapacityPending) {
-			t.Fatal(err)
-		}
-	}
-	if len(cloud.pools) != 3 || len(cloud.configs) != 3 {
-		t.Fatalf("capacity identities collide: pools=%d configs=%d", len(cloud.pools), len(cloud.configs))
-	}
-	pool := protocolPool(t, cloud, base.Capacity)
-	for name, mutate := range map[string]func(*Recipe){
-		"image architecture mismatch": func(r *Recipe) { r.Capacity.Architecture = "amd64" },
-		"unknown shape":               func(r *Recipe) { r.Capacity.Shape = "VM.Standard.Unknown.Flex" },
-		"missing metadata":            func(r *Recipe) { r.Metadata = nil },
-		"missing image":               func(r *Recipe) { r.ImageID = "" },
-	} {
-		recipe := base
-		mutate(&recipe)
-		candidate := protocolPool(t, cloud, recipe.Capacity)
-		if _, err := candidate.Ensure(ctx, recipe); err == nil {
-			t.Fatalf("%s accepted", name)
-		}
-	}
-	if len(cloud.pools) != 3 || len(cloud.configs) != 3 {
-		t.Fatal("invalid recipe mutated OCI resources")
-	}
-	cloud.shapeRows = []core.Shape{}
-	if _, err := pool.Ensure(ctx, base); err == nil {
-		t.Fatal("empty image-compatible shape list accepted")
-	}
-	cloud = newCapacityCloud()
-	pool = protocolPool(t, cloud, base.Capacity)
-	if _, err := pool.Ensure(ctx, base); err != nil {
-		t.Fatal(err)
-	}
-	cloud.rejectGrowth = true
-	if err := pool.Grow(ctx, 0); err == nil || !strings.Contains(err.Error(), "OutOfHostCapacity") {
-		t.Fatalf("capacity exhaustion not surfaced: %v", err)
-	}
-	cloud.rejectGrowth = false
-
-	cloud.staleWrite = true
-	if err := pool.Grow(ctx, 0); err == nil {
-		t.Fatal("OCI rejected stale etag but caller accepted growth")
-	}
-	state, err := pool.Observe(ctx)
-	if err != nil || state.Size != 0 {
-		t.Fatalf("stale etag changed size: %+v %v", state, err)
-	}
-	if err := pool.Grow(ctx, 0); err == nil || cloud.updates != 0 {
-		t.Fatalf("412 refreshed immutable original growth request: updates=%d err=%v", cloud.updates, err)
-	}
-	target, _, err := pool.pool(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	duplicate := *cloud.pools[deref(target.Id)]
-	duplicate.Id = new("ocid1.instancepool.oc1..duplicate")
-	cloud.pools[*duplicate.Id] = &duplicate
-	if _, err := pool.Observe(ctx); err == nil || !strings.Contains(err.Error(), "refusing to guess") {
-		t.Fatalf("ambiguous ownership accepted: %v", err)
-	}
-
-}
 
 func TestCapacityStoreReopenAndFencedWrites(t *testing.T) {
 	ctx := t.Context()
@@ -795,175 +371,6 @@ func TestCapacityStoreReopenAndFencedWrites(t *testing.T) {
 	}
 }
 
-func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
-	for _, scenario := range []string{"grow and restart", "launch timeout", "database drain hold", "backend drain timeout", "drain and revoke", "missing allowance", "stale loads", "request pressure", "missing host memory", "pending admission resume", "expired allowance resume", "follower"} {
-		t.Run(scenario, func(t *testing.T) {
-			ctx := t.Context()
-			now := time.Now().UTC().Truncate(time.Second)
-			cloud := newCapacityCloud()
-			recipe := capacityRecipe()
-			pool := protocolPool(t, cloud, recipe.Capacity)
-			state, err := pool.Ensure(ctx, recipe)
-			if err != nil {
-				t.Fatal(err)
-			}
-			store, err := OpenStore(ctx, capacityJetStream(t), 1)
-			if err != nil {
-				t.Fatal(err)
-			}
-			hosts := newSwarmHosts(t)
-			hosts.live = map[string]bool{"ts-gru-1": true, "ts-gru-2": true, "ts-gru-3": true}
-			leader := &capacityLeader{snapshot: authority.Snapshot{DeploymentID: entityid.New(), Leader: true, Ready: true, Epoch: 7, Revision: 3, ExpiresAt: time.Now().Add(time.Hour)}}
-			backendCount := 0
-			cpu := .9
-			stale := false
-			var revoked []string
-			var entries []decisionlog.Decision
-			scaler := &Scaler{Cell: "gru", Pool: pool, Store: store, Leader: leader, Control: hosts.control, CanRetire: func(context.Context, string, string) error { return oci.ErrPoolCreationLineagePending },
-				Recipe: func(context.Context) (Recipe, error) { return recipe, nil }, Now: func() time.Time { return now },
-				Allowance: func(time.Time) (int, bool) { return MaxNodes, scenario != "missing allowance" },
-				Loads: func() []NodeLoad {
-					var loads []NodeLoad
-					for node, live := range hosts.live {
-						if live {
-							at := now
-							if stale {
-								at = at.Add(-3 * time.Minute)
-							}
-							report := hostload.Report{SchemaVersion: hostload.SchemaVersion, Host: hostload.HostUsage{CPU: new(cpu), Memory: new(.1), Disk: new(.1), CPUCores: 2}}
-							if scenario == "missing host memory" {
-								report.Host.Memory = nil
-							}
-							if scenario == "request pressure" {
-								report.Roles = []hostload.RoleUsage{{TerraBase: &memberstatus.Load{WriteQPS: 450, Connections: 900}}, {TerraBase: &memberstatus.Load{WriteQPS: 450, Connections: 900}}}
-							}
-							if load, ok := FromHostLoad(hostload.NodeLoad{Origin: hostload.Origin{Node: node}, At: at, Report: report}); ok {
-								loads = append(loads, load)
-							}
-						}
-					}
-					return loads
-				}, Backends: func(context.Context, string, string) (int, error) { return backendCount, nil },
-				Revoke:  func(_ context.Context, id string) error { revoked = append(revoked, id); return nil },
-				Journal: func(_ context.Context, d decisionlog.Decision) { entries = append(entries, d) },
-			}
-			tick := func() Record {
-				t.Helper()
-				observed, err := pool.Observe(ctx)
-				if err != nil {
-					t.Fatal(err)
-				}
-				for _, instance := range observed.Instances {
-					hosts.instanceIDs[instance.Name] = instance.ID
-				}
-				hosts.sync(t)
-				if err := scaler.Tick(ctx); err != nil {
-					t.Fatal(err)
-				}
-				hosts.observe(t)
-				record, _, err := store.Load(ctx)
-				if err != nil {
-					t.Fatal(err)
-				}
-				return record
-			}
-			if scenario == "pending admission resume" || scenario == "expired allowance resume" {
-				pending := Record{Action: &InFlight{ID: entityid.New(), Kind: Up, Step: stepGrow, Started: now}, From: 0}
-				if _, err := store.Save(ctx, pending, 0); err != nil {
-					t.Fatal(err)
-				}
-				if scenario == "pending admission resume" {
-					pool.Admit = nil
-				} else {
-					scaler.Allowance = func(time.Time) (int, bool) { return 0, false }
-				}
-				resumed := tick()
-				if resumed.Action == nil || resumed.Action.ID != pending.Action.ID || resumed.Action.Step != stepGrow || cloud.updates != 0 || scaler.Status().Action != Hold {
-					t.Fatalf("pending resume mutated capacity or lost its durable operation: %+v updates=%d", resumed, cloud.updates)
-				}
-				return
-			}
-			if strings.Contains(scenario, "drain") {
-				backendCount = 1
-				cpu = .1
-				id := cloud.launch("ts-gru-4", state.PoolID, "10.0.0.4", core.InstanceLifecycleStateRunning, nil)
-				cloud.pools[state.PoolID].Size = new(1)
-				hosts.live["ts-gru-4"] = true
-				if scenario == "database drain hold" {
-					hosts.desired = []desiredTask{{Node: "ts-gru-4", Role: "terrabase"}}
-				}
-				for range int(DownWindow/Interval) + 1 {
-					tick()
-					now = now.Add(Interval)
-				}
-				record := tick()
-				if scenario == "database drain hold" {
-					if record.Action != nil || len(hosts.cordoned) != 0 || len(cloud.detaches) != 0 {
-						t.Fatal("database holder selected for removal")
-					}
-					return
-				}
-				// Original child lineage is unavailable, so refusal precedes drain and its timeout.
-				now = now.Add(DrainTimeout)
-				record = tick()
-				if record.Action != nil || len(hosts.cordoned) != 0 || len(hosts.unretired) != 0 || len(cloud.detaches) != 0 || len(revoked) != 0 || scaler.Status().Action != Hold {
-					t.Fatalf("unproven child entered drain or retirement: action=%+v cordoned=%v detach=%v revoked=%v", record.Action, hosts.cordoned, cloud.detaches, revoked)
-				}
-				if deref(cloud.instances[id].DisplayName) != "ts-gru-4" || deref(cloud.pools[state.PoolID].Size) != 1 {
-					t.Fatal("retirement refusal changed live capacity")
-				}
-				return
-			}
-			if scenario == "stale loads" {
-				stale = true
-			}
-			if scenario == "request pressure" {
-				cpu = .1
-			}
-			if scenario == "follower" {
-				leader.snapshot.Leader = false
-				tick()
-				_, revision, err := store.Load(ctx)
-				if err != nil || revision != 0 || cloud.updates != 0 {
-					t.Fatalf("follower mutated capacity: revision=%d updates=%d err=%v", revision, cloud.updates, err)
-				}
-				return
-			}
-			for range int(UpWindow/Interval) + 1 {
-				tick()
-				now = now.Add(Interval)
-			}
-			record := tick()
-			if scenario == "missing allowance" || scenario == "stale loads" || scenario == "missing host memory" {
-				if record.Action != nil || cloud.updates != 0 {
-					t.Fatalf("unsafe growth with %s: %+v", scenario, record)
-				}
-				return
-			}
-			if record.Action == nil || record.Action.Step != stepEnroll {
-				t.Fatalf("growth not persisted: %+v", record.Action)
-			}
-			updates := cloud.updates
-			scaler = &Scaler{Cell: scaler.Cell, Pool: scaler.Pool, Store: scaler.Store, Leader: scaler.Leader, Control: scaler.Control, CanRetire: scaler.CanRetire,
-				Recipe: scaler.Recipe, Now: scaler.Now, Allowance: scaler.Allowance, Loads: scaler.Loads, Backends: scaler.Backends, Revoke: scaler.Revoke, Journal: scaler.Journal}
-			id := cloud.launch("new-instance", state.PoolID, "10.0.0.4", core.InstanceLifecycleStateRunning, nil)
-			cloud.instances[id].TimeCreated = &common.SDKTime{Time: now}
-			if scenario == "launch timeout" {
-				now = now.Add(LaunchTimeout)
-			}
-			// Even after a restart/timeout, current membership cannot authorize naming or deleting this child.
-			err = scaler.Tick(ctx)
-			retained, _, loadErr := store.Load(ctx)
-			if !errors.Is(err, ErrCapacityPending) || loadErr != nil || retained.Action == nil || retained.Action.ID != record.Action.ID || retained.Action.Step != stepEnroll || cloud.updates != updates || len(cloud.detaches) != 0 || len(revoked) != 0 {
-				t.Fatalf("unproven recovered child lost its pending original action: action=%+v updates=%d err=%v loadErr=%v", retained.Action, cloud.updates, err, loadErr)
-			}
-			if deref(cloud.instances[id].DisplayName) != "new-instance" || slices.ContainsFunc(entries, func(d decisionlog.Decision) bool { return d.Kind == decisionlog.KindHostLaunched }) {
-				t.Fatal("membership observation minted enrollment or naming authority")
-			}
-		})
-	}
-}
-
 func TestCapacityProberUsesTCPAndKeepsLastOnCancel(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1007,101 +414,346 @@ func TestCapacityProberUsesTCPAndKeepsLastOnCancel(t *testing.T) {
 	}
 }
 
+func TestCapacityPoolProtocolObservation(t *testing.T) {
+	ctx := t.Context()
+	cloud := newCapacityCloud()
+	recipe := capacityRecipe()
+	seeded := seedCapacityPool(cloud, recipe, 3)
+	for i := range 3 {
+		cloud.launch(fmt.Sprintf("instance-%d", i), seeded.PoolID, fmt.Sprintf("10.0.0.%d", i+4), core.InstanceLifecycleStateRunning, map[string]string{"preserve": "tag"})
+	}
+	cloud.launch("terminated", seeded.PoolID, "10.0.0.99", core.InstanceLifecycleStateTerminated, nil)
+	pool := protocolPool(t, cloud, recipe.Capacity)
+	for range 2 {
+		state, err := pool.Observe(ctx)
+		if err != nil || state.Size != 3 || len(state.Instances) != 3 || state.PoolID != seeded.PoolID || state.ConfigurationID != seeded.ConfigurationID {
+			t.Fatalf("paginated SDK observation lost actual capacity: %+v err=%v", state, err)
+		}
+		for _, instance := range state.Instances {
+			if instance.PrivateIP == "" || instance.Birth != nil || cloud.instances[instance.ID].FreeformTags["preserve"] != "tag" {
+				t.Fatalf("observation lost private IP/tags or invented original birth: %+v", instance)
+			}
+		}
+	}
+	if size, err := pool.TargetSize(ctx, recipe); err != nil || size != 3 {
+		t.Fatalf("target=%d err=%v", size, err)
+	}
+	if len(cloud.pools) != 1 || len(cloud.configs) != 1 {
+		t.Fatal("observation changed provider facts")
+	}
+}
+
+func TestCapacityPoolProtocolIsolationAndValidation(t *testing.T) {
+	ctx := t.Context()
+	cloud := newCapacityCloud()
+	base := capacityRecipe()
+	for i, capacity := range []Capacity{base.Capacity, {Role: RoleWasm, Architecture: "arm64", Shape: base.Capacity.Shape}, {Role: RoleContainer, Architecture: "amd64", Shape: "VM.Standard.E4.Flex"}} {
+		recipe := base
+		recipe.Capacity = capacity
+		seedCapacityPool(cloud, recipe, i+1)
+		pool := protocolPool(t, cloud, capacity)
+		if size, err := pool.TargetSize(ctx, recipe); err != nil || size != i+1 {
+			t.Fatalf("isolation collision for %+v: size=%d err=%v", capacity, size, err)
+		}
+	}
+	pool := protocolPool(t, cloud, base.Capacity)
+	if state, err := pool.Observe(ctx); err != nil || state.Size != 6 || state.PoolID != "" {
+		t.Fatalf("heterogeneous capacity was collapsed: %+v %v", state, err)
+	}
+	if err := pool.validateImage(ctx, base); err != nil {
+		t.Fatalf("positive image validation: %v", err)
+	}
+	for name, mutate := range map[string]func(*Recipe){
+		"image architecture mismatch": func(r *Recipe) { r.Capacity.Architecture = "amd64" },
+		"unknown shape":               func(r *Recipe) { r.Capacity.Shape = "VM.Standard.Unknown.Flex" },
+		"missing metadata":            func(r *Recipe) { r.Metadata = nil },
+		"missing image":               func(r *Recipe) { r.ImageID = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			recipe := base
+			mutate(&recipe)
+			err := recipe.Validate()
+			if err == nil {
+				err = pool.validateImage(ctx, recipe)
+			}
+			if err == nil {
+				t.Fatalf("%s accepted", name)
+			}
+		})
+	}
+	cloud.shapeRows = []core.Shape{}
+	if err := pool.validateImage(ctx, base); err == nil {
+		t.Fatal("empty image-compatible shape list accepted")
+	}
+	target, _, err := pool.pool(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := *target
+	duplicate.Id = new("ocid1.instancepool.oc1..duplicate")
+	cloud.pools[*duplicate.Id] = &duplicate
+	if _, err := pool.Observe(ctx); err == nil || !strings.Contains(err.Error(), "refusing to guess") {
+		t.Fatalf("ambiguous ownership accepted: %v", err)
+	}
+}
+
+func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
+	for _, scenario := range []string{"grow preparation and restart", "launch timeout", "database drain hold", "backend drain timeout", "drain and revoke refusal", "missing allowance", "stale loads", "request pressure", "missing host memory", "pending selector resume", "expired allowance resume", "follower"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx := t.Context()
+			now := time.Now().UTC().Truncate(time.Second)
+			cloud := newCapacityCloud()
+			recipe := capacityEnrollmentRecipe(t)
+			seeded := seedCapacityPool(cloud, recipe, 0)
+			observed := protocolPool(t, cloud, recipe.Capacity)
+			js := capacityJetStream(t)
+			records, err := OpenStore(ctx, js, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selectors := capacitySelectors
+			if scenario == "pending selector resume" {
+				selectors = func(context.Context, Record) (rootoci.PoolChildExpectation, error) {
+					return rootoci.PoolChildExpectation{}, ErrCapacityPending
+				}
+			}
+			pool := chosenProtocolPool(t, observed, records, selectors)
+			hosts := newSwarmHosts(t)
+			hosts.live = map[string]bool{"ts-gru-1": true, "ts-gru-2": true, "ts-gru-3": true}
+			hosts.sync(t)
+			leader := &capacityLeader{snapshot: authority.Snapshot{DeploymentID: entityid.New(), Leader: true, Ready: true, Epoch: 7, Revision: 3, ExpiresAt: time.Now().Add(time.Hour)}}
+			var entries []decisionlog.Decision
+			revoked := 0
+			scaler := &Scaler{Cell: "gru", Pool: pool, Store: records, Leader: leader, Control: hosts.control,
+				CanRetire: func(context.Context, string, string) error { return ErrCapacityPending },
+				Recipe:    func(context.Context) (Recipe, error) { return recipe, nil }, Now: func() time.Time { return now },
+				Allowance: func(time.Time) (int, bool) {
+					return MaxNodes, scenario != "missing allowance" && scenario != "expired allowance resume"
+				},
+				Loads: func() []NodeLoad {
+					var loads []NodeLoad
+					for node := range hosts.live {
+						at := now
+						if scenario == "stale loads" {
+							at = at.Add(-3 * time.Minute)
+						}
+						cpu := .9
+						if scenario == "request pressure" {
+							cpu = .1
+						}
+						report := hostload.Report{SchemaVersion: hostload.SchemaVersion, Host: hostload.HostUsage{CPU: new(cpu), Memory: new(.1), Disk: new(.1), CPUCores: 2}}
+						if scenario == "missing host memory" {
+							report.Host.Memory = nil
+						}
+						if scenario == "request pressure" {
+							report.Roles = []hostload.RoleUsage{{TerraBase: &memberstatus.Load{WriteQPS: 450, Connections: 900}}, {TerraBase: &memberstatus.Load{WriteQPS: 450, Connections: 900}}}
+						}
+						if load, ok := FromHostLoad(hostload.NodeLoad{Origin: hostload.Origin{Node: node}, At: at, Report: report}); ok {
+							loads = append(loads, load)
+						}
+					}
+					return loads
+				},
+				Backends: func(context.Context, string, string) (int, error) { return 1, nil },
+				Revoke:   func(context.Context, string) error { revoked++; return nil },
+				Journal:  func(_ context.Context, d decisionlog.Decision) { entries = append(entries, d) },
+			}
+			if scenario == "launch timeout" || strings.Contains(scenario, "drain") {
+				id := cloud.launch("ts-gru-4", seeded.PoolID, "10.0.0.4", core.InstanceLifecycleStateRunning, nil)
+				cloud.pools[seeded.PoolID].Size = new(1)
+				hosts.live["ts-gru-4"], hosts.instanceIDs["ts-gru-4"] = true, id
+				if scenario == "database drain hold" {
+					hosts.desired = []desiredTask{{Node: "ts-gru-4", Role: "terrabase"}}
+				}
+				hosts.sync(t)
+				state, err := observed.Observe(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				nodes, err := hosts.control.ListNodes(ctx, &api.ListNodesRequest{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				pass := &tick{epoch: 7, now: now.Add(LaunchTimeout + DrainTimeout), pool: state, hosts: nodes.Nodes, loads: []NodeLoad{{Node: "ts-gru-4", CPU: .1}}}
+				pass.obs = scaler.observe(state, nodes.Nodes)
+				if pass.obs.counted["ts-gru-4"] || pass.obs.live["ts-gru-4"] {
+					t.Fatal("membership observation was treated as original birth")
+				}
+				if scenario == "launch timeout" {
+					record := capacityBirthRecord(recipe)
+					record.Action.Step = stepEnroll
+					if _, err := records.Save(ctx, record, 0); err != nil {
+						t.Fatal(err)
+					}
+					reopened, err := OpenStore(ctx, js, 1)
+					if err != nil {
+						t.Fatal(err)
+					}
+					pass.record, _, err = reopened.Load(ctx)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := scaler.enroll(ctx, pass); err != nil {
+						t.Fatal(err)
+					}
+					if pass.record.Action == nil || pass.record.Action.ID != record.Action.ID || pass.record.Action.Step != stepEnroll || pass.record.Retirement != nil ||
+						!strings.Contains(pass.pool.Pending, "not been positively reobserved") {
+						t.Fatalf("timeout adopted or retired unproven membership: %+v", pass)
+					}
+				} else if scenario == "backend drain timeout" {
+					// An already-draining Swarm observation exercises rollback, without a root retirement receipt.
+					pass.record = Record{Action: &InFlight{ID: entityid.New(), Kind: Down, Step: stepDrain, Node: "ts-gru-4", InstanceID: id, Started: now}}
+					if _, err := records.Save(ctx, pass.record, 0); err != nil {
+						t.Fatal(err)
+					}
+					pass.record, _, err = records.Load(ctx)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := scaler.setAvailability(ctx, "ts-gru-4", id, api.NodeAvailabilityDrain, 7); err != nil {
+						t.Fatal(err)
+					}
+					pass.now = now.Add(DrainTimeout - Interval)
+					if err := scaler.drain(ctx, pass); err != nil {
+						t.Fatal(err)
+					}
+					if pass.record.Action == nil || pass.record.Action.Step != stepDrain {
+						t.Fatal("registered backend did not hold drain")
+					}
+					pass.now = now.Add(DrainTimeout)
+					if err := scaler.drain(ctx, pass); err != nil {
+						t.Fatal(err)
+					}
+					node, err := hosts.control.GetNode(ctx, &api.GetNodeRequest{NodeID: "ts-gru-4"})
+					if err != nil || node.Node.Spec.Availability != api.NodeAvailabilityActive || pass.record.Action != nil || !pass.record.LastChange.Equal(pass.now) || pass.record.Retirement != nil {
+						t.Fatalf("drain timeout did not restore active capacity and cooldown: record=%+v err=%v", pass.record, err)
+					}
+				} else {
+					if scenario == "database drain hold" {
+						protected, err := scaler.protectedNodes(ctx)
+						if err != nil || !protected["ts-gru-4"] {
+							t.Fatalf("actual database task lost retirement protection: %v", err)
+						}
+						if safe, err := scaler.retireSafe(ctx, "ts-gru-4", id); err != nil || safe {
+							t.Fatalf("actual database holder admitted to drain: safe=%v err=%v", safe, err)
+						}
+					}
+					if _, found, err := scaler.pickDrain(ctx, pass); err != nil || found {
+						t.Fatalf("unproven worker entered retirement selection: found=%v err=%v", found, err)
+					}
+				}
+				hosts.observe(t)
+				if len(hosts.cordoned) != 0 || revoked != 0 || deref(cloud.instances[id].DisplayName) != "ts-gru-4" || deref(cloud.pools[seeded.PoolID].Size) != 1 ||
+					slices.ContainsFunc(entries, func(d decisionlog.Decision) bool {
+						return d.Kind == decisionlog.KindHostLaunched || d.Kind == decisionlog.KindHostReclaimed
+					}) {
+					t.Fatal("unproven observation produced lifecycle success or provider effects")
+				}
+				return
+			}
+			tickOnce := func() Record {
+				t.Helper()
+				if err := scaler.Tick(ctx); err != nil {
+					t.Fatal(err)
+				}
+				record, _, err := scaler.Store.Load(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return record
+			}
+			if scenario == "pending selector resume" || scenario == "expired allowance resume" {
+				pending := capacityBirthRecord(recipe)
+				if _, err := records.Save(ctx, pending, 0); err != nil {
+					t.Fatal(err)
+				}
+				resumed := tickOnce()
+				if resumed.Action == nil || resumed.Action.ID != pending.Action.ID || resumed.Action.Step != stepGrow || resumed.Child != nil || scaler.Status().Action != Hold {
+					t.Fatalf("unsafe resume lost original pending action: %+v", resumed)
+				}
+				return
+			}
+			if scenario == "follower" {
+				leader.snapshot.Leader = false
+				tickOnce()
+				_, revision, err := records.Load(ctx)
+				if err != nil || revision != 0 {
+					t.Fatalf("follower persisted capacity: revision=%d err=%v", revision, err)
+				}
+				return
+			}
+			for range int(UpWindow/Interval) + 1 {
+				tickOnce()
+				now = now.Add(Interval)
+			}
+			record := tickOnce()
+			if scenario == "missing allowance" || scenario == "stale loads" || scenario == "missing host memory" {
+				if record.Action != nil {
+					t.Fatalf("unsafe growth planned with %s: %+v", scenario, record)
+				}
+				return
+			}
+			if record.Action == nil || record.Action.Step != stepGrow || record.Child != nil || record.Reservation != nil {
+				t.Fatalf("pressure did not retain preparation before unavailable home authority: %+v", record)
+			}
+			originalID := record.Action.ID
+			reopened, err := OpenStore(ctx, js, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scaler.Store, scaler.Pool = reopened, chosenProtocolPool(t, observed, reopened, selectors)
+			retained := tickOnce()
+			if retained.Action == nil || retained.Action.ID != originalID || retained.Action.Step != stepGrow || retained.Child != nil || retained.Reservation != nil {
+				t.Fatalf("restart lost pending original preparation: %+v", retained)
+			}
+		})
+	}
+}
+
 func TestCapacityAdmissionAndLegacyObservationOverOCI(t *testing.T) {
 	ctx := t.Context()
 	cloud := newCapacityCloud()
 	recipe := capacityRecipe()
-	pool := protocolPool(t, cloud, recipe.Capacity)
-	pool.Admit = nil
-	if _, err := pool.Ensure(ctx, recipe); !errors.Is(err, ErrCapacityPending) || len(cloud.configs) != 0 || len(cloud.pools) != 0 {
-		t.Fatalf("missing admission mutated OCI: configs=%d pools=%d err=%v", len(cloud.configs), len(cloud.pools), err)
-	}
-	if err := pool.Grow(ctx, 0); !errors.Is(err, ErrCapacityPending) {
-		t.Fatalf("unadmitted growth: %v", err)
-	}
-	calls := 0
-	pool.Admit = func(context.Context, Recipe) (func(), error) {
-		calls++
-		if calls > 1 {
-			return nil, ErrCapacityPending
-		}
-		return func() {}, nil
-	}
-	if _, err := pool.Ensure(ctx, recipe); !errors.Is(err, ErrCapacityPending) || len(cloud.configs) != 0 {
-		t.Fatalf("admission revoked before configuration write: configs=%d err=%v", len(cloud.configs), err)
-	}
 	legacyID := "ocid1.instancepool.oc1..legacy"
 	cloud.pools[legacyID] = &core.InstancePool{Id: new(legacyID), CompartmentId: new(testCompartment), DisplayName: new("ts-gru-nodes"),
 		InstanceConfigurationId: new("ocid1.instanceconfiguration.old"), Size: new(1), LifecycleState: core.InstancePoolLifecycleStateRunning,
 		FreeformTags: map[string]string{tagCell: "gru", tagRole: roleNodePool}}
 	instanceID := cloud.launch("ts-gru-4", legacyID, "10.0.0.4", core.InstanceLifecycleStateRunning, nil)
-	pool.Admit = nil
+	pool := protocolPool(t, cloud, recipe.Capacity)
 	observed, err := pool.Observe(ctx)
-	if err != nil || observed.Size != 1 || len(observed.Instances) != 1 || observed.Instances[0].ID != instanceID || !strings.Contains(observed.Pending, "legacy pool") {
-		t.Fatalf("legacy capacity disappeared: %+v %v", observed, err)
+	if err != nil || observed.Size != 1 || len(observed.Instances) != 1 || observed.Instances[0].ID != instanceID || observed.Instances[0].Birth != nil || !strings.Contains(observed.Pending, "legacy pool") {
+		t.Fatalf("legacy capacity disappeared or gained birth authority: %+v %v", observed, err)
 	}
-	other := Capacity{Role: RoleContainer, Architecture: "amd64", Shape: "VM.Standard.E4.Flex"}
-	otherID := "ocid1.instancepool.oc1..other"
-	cloud.pools[otherID] = &core.InstancePool{Id: new(otherID), CompartmentId: new(testCompartment), DisplayName: new(PoolName("gru", other)), Size: new(1),
-		LifecycleState: core.InstancePoolLifecycleStateRunning, FreeformTags: poolTags("gru", other, roleNodePool)}
-	cloud.launch("ts-gru-5", otherID, "10.0.0.5", core.InstanceLifecycleStateRunning, nil)
+	other := recipe
+	other.Capacity = Capacity{Role: RoleContainer, Architecture: "amd64", Shape: "VM.Standard.E4.Flex"}
+	otherPool := seedCapacityPool(cloud, other, 1)
+	cloud.launch("ts-gru-5", otherPool.PoolID, "10.0.0.5", core.InstanceLifecycleStateRunning, nil)
 	observed, err = pool.Observe(ctx)
 	if err != nil || observed.Size != 2 || len(observed.Instances) != 2 || observed.PoolID != "" || observed.Pending == "" {
-		t.Fatalf("heterogeneous capacity was hidden or collapsed: %+v %v", observed, err)
+		t.Fatalf("heterogeneous legacy observation collapsed capacity: %+v %v", observed, err)
 	}
-	pool.Admit = func(context.Context, Recipe) (func(), error) { return func() {}, nil }
-	if _, err := pool.Ensure(ctx, recipe); err == nil || !strings.Contains(err.Error(), "legacy pool") || len(cloud.configs) != 0 || len(cloud.pools) != 2 {
-		t.Fatalf("legacy migration mutated OCI: configs=%d pools=%d err=%v", len(cloud.configs), len(cloud.pools), err)
-	}
-}
-
-func TestCapacityGrowthRechecksAdmissionAndPlacementOverOCI(t *testing.T) {
-	ctx := t.Context()
-	cloud := newCapacityCloud()
-	recipe := capacityRecipe()
-	pool := protocolPool(t, cloud, recipe.Capacity)
-	state, err := pool.Ensure(ctx, recipe)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pool.Admit = func(context.Context, Recipe) (func(), error) { return nil, ErrCapacityPending }
-	if err := pool.Grow(ctx, 0); !errors.Is(err, ErrCapacityPending) || cloud.updates != 0 {
-		t.Fatalf("growth reused expired admission: updates=%d err=%v", cloud.updates, err)
-	}
-	pool.Admit = func(context.Context, Recipe) (func(), error) { return func() {}, nil }
-	cloud.pools[state.PoolID].PlacementConfigurations[0].AvailabilityDomain = new("unqualified-AD")
-	if err := pool.Grow(ctx, 0); !errors.Is(err, ErrCapacityPending) || cloud.updates != 0 {
-		t.Fatalf("growth reused stale placement: updates=%d err=%v", cloud.updates, err)
-	}
-	reopened := protocolPool(t, cloud, recipe.Capacity)
-	if err := reopened.Grow(ctx, 0); !errors.Is(err, ErrCapacityPending) {
-		t.Fatalf("restart reused unpersisted admission: %v", err)
+	if _, err := pool.TargetSize(ctx, recipe); err == nil || !strings.Contains(err.Error(), "legacy pool") {
+		t.Fatalf("legacy pool admitted as a current target: %v", err)
 	}
 }
 
-func TestCapacityPruningRechecksAdmissionOverOCI(t *testing.T) {
-	ctx := t.Context()
+func TestCapacityDiscoveryDoesNotPruneTaggedConfigurations(t *testing.T) {
 	cloud := newCapacityCloud()
 	recipe := capacityRecipe()
-	pool := protocolPool(t, cloud, recipe.Capacity)
-	if _, err := pool.Ensure(ctx, recipe); err != nil {
-		t.Fatal(err)
-	}
+	seedCapacityPool(cloud, recipe, 0)
 	staleID := "ocid1.instanceconfiguration.oc1..stale"
 	cloud.configs[staleID] = &core.InstanceConfiguration{Id: new(staleID), CompartmentId: new(testCompartment),
 		DisplayName: new(configPrefix("gru", recipe.Capacity) + "stale"), FreeformTags: poolTags("gru", recipe.Capacity, roleNodeConfig)}
-	if _, err := pool.Ensure(ctx, recipe); !errors.Is(err, ErrCapacityPending) || cloud.configs[staleID] == nil || len(cloud.configs) != 2 || len(cloud.pools) != 1 {
-		t.Fatalf("matching ownership tags authorized pruning without original creation provenance: configs=%d err=%v", len(cloud.configs), err)
-	}
-	calls := 0
-	pool.Admit = func(context.Context, Recipe) (func(), error) {
-		calls++
-		if calls > 1 {
-			return nil, ErrCapacityPending
+	pool := protocolPool(t, cloud, recipe.Capacity)
+	for range 2 {
+		if _, err := pool.Observe(t.Context()); err != nil {
+			t.Fatal(err)
 		}
-		return func() {}, nil
+		if _, err := pool.TargetSize(t.Context(), recipe); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := pool.Ensure(ctx, recipe); !errors.Is(err, ErrCapacityPending) || cloud.configs[staleID] == nil || calls != 2 {
-		t.Fatalf("pruning reused revoked admission: calls=%d stale=%v err=%v", calls, cloud.configs[staleID] != nil, err)
+	if cloud.configs[staleID] == nil || len(cloud.configs) != 2 || len(cloud.pools) != 1 {
+		t.Fatal("discovery used matching tags as pruning authority")
 	}
 }

@@ -1,66 +1,39 @@
 package nodescale
 
 import (
-	"errors"
+	"strings"
 	"testing"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
-func TestCapacityChecksActualConfigurationBeforeGrowth(t *testing.T) {
-	for _, change := range []struct {
-		name string
-		edit func(*core.InstanceConfigurationLaunchInstanceDetails)
-	}{
-		{"image", func(launch *core.InstanceConfigurationLaunchInstanceDetails) {
-			launch.SourceDetails = core.InstanceConfigurationInstanceSourceViaImageDetails{ImageId: new("ocid1.image.unapproved")}
-		}},
-		{"network", func(launch *core.InstanceConfigurationLaunchInstanceDetails) {
-			launch.CreateVnicDetails.NsgIds = []string{"ocid1.networksecuritygroup.unapproved"}
-		}},
-		{"metadata", func(launch *core.InstanceConfigurationLaunchInstanceDetails) {
-			launch.Metadata["unapproved"] = "bootstrap"
-		}},
-		{"shape", func(launch *core.InstanceConfigurationLaunchInstanceDetails) {
-			launch.Shape = new("VM.Standard.E4.Flex")
-		}},
-		{"legacy IMDS", func(launch *core.InstanceConfigurationLaunchInstanceDetails) {
-			launch.InstanceOptions.AreLegacyImdsEndpointsDisabled = new(false)
-		}},
-	} {
-		t.Run(change.name, func(t *testing.T) {
+// Configuration-body authority is checked by rootcapacity's signed SDK readback regression.
+func TestCapacityObservesActualInstanceIMDSSecurity(t *testing.T) {
+	for _, scenario := range []string{"positively disabled", "legacy enabled", "missing setting", "missing options"} {
+		t.Run(scenario, func(t *testing.T) {
 			cloud := newCapacityCloud()
 			recipe := capacityRecipe()
-			pool := protocolPool(t, cloud, recipe.Capacity)
-			state, err := pool.Ensure(t.Context(), recipe)
-			if err != nil {
-				t.Fatal(err)
+			seeded := seedCapacityPool(cloud, recipe, 1)
+			instance := cloud.launch("ts-gru-4", seeded.PoolID, "10.0.0.4", core.InstanceLifecycleStateRunning, launchTags(recipe, roleNode, ""))
+			switch scenario {
+			case "legacy enabled":
+				cloud.instances[instance].InstanceOptions.AreLegacyImdsEndpointsDisabled = new(false)
+			case "missing setting":
+				cloud.instances[instance].InstanceOptions.AreLegacyImdsEndpointsDisabled = nil
+			case "missing options":
+				cloud.instances[instance].InstanceOptions = nil
 			}
-			config := cloud.configs[state.ConfigurationID]
-			launch := config.InstanceDetails.(core.ComputeInstanceDetails).LaunchDetails
-			if launch.InstanceOptions == nil || !deref(launch.InstanceOptions.AreLegacyImdsEndpointsDisabled) {
-				t.Fatal("actual creation omitted the required IMDS setting")
+			observed, err := protocolPool(t, cloud, recipe.Capacity).Observe(t.Context())
+			if err != nil || len(observed.Instances) != 1 || observed.Instances[0].ID != instance || observed.Instances[0].Birth != nil {
+				t.Fatalf("actual observation was hidden or gained birth authority: %+v err=%v", observed, err)
 			}
-			change.edit(launch)
-			if err := pool.Grow(t.Context(), 0); !errors.Is(err, ErrCapacityPending) || cloud.updates != 0 {
-				t.Fatalf("same tags and name admitted a different actual launch body: %v, updates=%d", err, cloud.updates)
+			if scenario == "positively disabled" {
+				if observed.Pending != "" {
+					t.Fatalf("safe actual IMDS configuration was held: %+v", observed)
+				}
+			} else if !strings.Contains(observed.Pending, "has not positively disabled legacy IMDS endpoints") {
+				t.Fatalf("unsafe actual IMDS setting was accepted: %+v", observed)
 			}
 		})
-	}
-}
-
-func TestCapacityObservesActualInstanceIMDSSecurity(t *testing.T) {
-	cloud := newCapacityCloud()
-	recipe := capacityRecipe()
-	pool := protocolPool(t, cloud, recipe.Capacity)
-	state, err := pool.Ensure(t.Context(), recipe)
-	if err != nil {
-		t.Fatal(err)
-	}
-	instance := cloud.launch("ts-gru-4", state.PoolID, "10.0.0.4", core.InstanceLifecycleStateRunning, launchTags(recipe, roleNode, ""))
-	cloud.instances[instance].InstanceOptions.AreLegacyImdsEndpointsDisabled = new(false)
-	observed, err := pool.Observe(t.Context())
-	if err != nil || observed.Pending == "" || len(observed.Instances) != 1 {
-		t.Fatalf("unsafe observed instance was accepted or hidden: %+v, %v", observed, err)
 	}
 }

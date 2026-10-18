@@ -3,146 +3,122 @@ package nodescale
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
-	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
-	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/core"
-
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
-func TestCapacityAdmissionRechecksEveryHTTPRetry(t *testing.T) {
-	for _, revoked := range []bool{false, true} {
-		name := "current"
-		if revoked {
-			name = "revoked"
+// Root operations replay explicitly; preparation must reread current selectors every time.
+func TestCapacityPreparationRechecksCurrentSelectors(t *testing.T) {
+	ctx := t.Context()
+	cloud := newCapacityCloud()
+	recipe := capacityEnrollmentRecipe(t)
+	record := capacityBirthRecord(recipe)
+	records, err := OpenStore(ctx, capacityJetStream(t), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoked := errors.New("current finite selectors revoked")
+	var currentErr error
+	pool := chosenProtocolPool(t, protocolPool(t, cloud, recipe.Capacity), records, func(ctx context.Context, r Record) (rootoci.PoolChildExpectation, error) {
+		if currentErr != nil {
+			return rootoci.PoolChildExpectation{}, currentErr
 		}
-		t.Run(name, func(t *testing.T) {
-			cloud := newCapacityCloud()
-			var writes, admissions, guards, checkpoints atomic.Int32
-			var originalToken atomic.Value
-			var holding, growing, denied atomic.Bool
-			var pool *OCIPool
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-				if request.Method == http.MethodPut && strings.Contains(request.URL.Path, "/instancePools/") && growing.Load() {
-					if token, ok := originalToken.Load().(string); !ok || token == "" || request.Header.Get("opc-retry-token") != token {
-						t.Error("wire attempt lost its original checkpointed retry token")
-					}
-					if !holding.Load() {
-						t.Error("wire mutation escaped its authority fence")
-					}
-					stored, found, err := pool.Journal.GetCapacityRequest(request.Context(), pool.operationID)
-					attempts, attemptErr := pool.Journal.ListPoolWireAttempts(request.Context(), pool.operationID, oci.PoolWireGrowth)
-					if err != nil || !found || stored.RetryToken != request.Header.Get("opc-retry-token") || attemptErr != nil || len(attempts) != int(writes.Load()+1) {
-						t.Errorf("wire preceded immutable growth request and attempt: found=%v attempts=%d requestErr=%v attemptErr=%v", found, len(attempts), err, attemptErr)
-					}
-					if writes.Add(1) == 1 {
-						denied.Store(revoked)
-						w.Header().Set("Content-Type", "application/json")
-						w.WriteHeader(http.StatusTooManyRequests)
-						_, _ = w.Write([]byte(`{"code":"TooManyRequests","message":"retry"}`))
-						return
-					}
-				}
-				cloud.ServeHTTP(w, request)
-			}))
-			defer server.Close()
-			factory, err := ociclient.New(common.NewRawConfigurationProvider("tenancy", "user", "region", "fingerprint", "", nil),
-				ociclient.Options{Region: "sa-saopaulo-1", Retry: ociclient.RetryOptions{
-					MaxAttempts: 3, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			base := common.BaseClient{Host: server.URL, BasePath: "20160918", UserAgent: "capacity-retry-integration",
-				HTTPClient: server.Client(), Signer: capacitySigner{}}
-			factory.Configure(&base, ociclient.ServiceComputeManagement)
-			pool, err = newOCIPool(core.ComputeManagementClient{BaseClient: base}, core.ComputeClient{BaseClient: base},
-				core.VirtualNetworkClient{BaseClient: base}, "gru", testCompartment, capacityRecipe().Capacity)
-			if err != nil {
-				t.Fatal(err)
-			}
-			configureProtocolJournal(t, pool, nil)
-			pool.Admit = func(context.Context, Recipe) (func(), error) {
-				admissions.Add(1)
-				if denied.Load() {
-					return nil, ErrCapacityPending
-				}
-				if !holding.CompareAndSwap(false, true) {
-					t.Error("retry nested the previous admission fence")
-					return nil, ErrCapacityPending
-				}
-				return func() { holding.Store(false) }, nil
-			}
-			checkpoint := pool.CheckpointGrowth
-			pool.CheckpointGrowth = func(ctx context.Context, recipe Recipe, request core.UpdateInstancePoolRequest) (core.UpdateInstancePoolRequest, error) {
-				checkpoints.Add(1)
-				prepared, err := checkpoint(ctx, recipe, request)
-				if err == nil {
-					originalToken.Store(deref(prepared.OpcRetryToken))
-				}
-				return prepared, err
-			}
-			ctx := ociclient.WithAuthority(t.Context(), func(ctx context.Context) error {
-				phase := guards.Add(1)
-				if growing.Load() {
-					// Each attempt checks authority before its durable begin and again before admission.
-					attempts, err := pool.Journal.ListPoolWireAttempts(ctx, pool.operationID, oci.PoolWireGrowth)
-					open := slices.ContainsFunc(attempts, func(attempt oci.PoolWireRecord) bool { return attempt.Outcome == nil })
-					if err != nil || len(attempts) != int(phase/2) || open != (phase%2 == 0) {
-						t.Errorf("authority phase %d: attempts=%d open=%v err=%v", phase, len(attempts), open, err)
-						return ErrCapacityPending
-					}
-				}
-				return nil
+		return capacitySelectors(ctx, r)
+	})
+	if size, err := pool.TargetSize(ctx, recipe); err != nil || size != 0 {
+		t.Fatalf("actual empty target read: size=%d err=%v", size, err)
+	}
+	revision, err := records.Save(ctx, record, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, _, err = records.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := pool.PrepareGrowth(ctx, record)
+	if err != nil {
+		t.Fatalf("valid request preparation failed: %v", err)
+	}
+	record.Child = new(first)
+	revision, err = records.Save(ctx, record, revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentErr = revoked
+	if err := pool.Grow(ctx, 0); !errors.Is(err, revoked) {
+		t.Fatalf("durable replay reused stale current selectors: %v", err)
+	}
+	currentErr = nil
+	again, err := pool.PrepareGrowth(ctx, record)
+	if err != nil || first.OperationID != again.OperationID || first.ReservationID != again.ReservationID || first.RecipeSHA256 != again.RecipeSHA256 {
+		t.Fatalf("fresh selectors replaced original request: %+v err=%v", again, err)
+	}
+	for _, change := range []struct {
+		name  string
+		apply func(*rootoci.PoolChildExpectation)
+		want  string
+	}{
+		{"wrong cell", func(s *rootoci.PoolChildExpectation) { s.Cell = "IAD" }, "current finite root capacity selectors are unavailable"},
+		{"missing grant", func(s *rootoci.PoolChildExpectation) { s.GrantSHA256 = "" }, "current finite root capacity selectors are unavailable"},
+		{"missing generation", func(s *rootoci.PoolChildExpectation) { s.Generation = 0 }, "current finite root capacity selectors are unavailable"},
+		{"missing epoch", func(s *rootoci.PoolChildExpectation) { s.Epoch = 0 }, "current finite root capacity selectors are unavailable"},
+		{"changed operation", func(s *rootoci.PoolChildExpectation) { s.OperationID = entityid.New() }, "cannot replace the original durable pool birth"},
+		{"changed reservation", func(s *rootoci.PoolChildExpectation) { s.ReservationID = entityid.New() }, "cannot replace the original durable pool birth"},
+		{"changed recipe", func(s *rootoci.PoolChildExpectation) { s.RecipeSHA256 = strings.Repeat("b", 64) }, "cannot replace the original durable pool birth"},
+		{"changed CA", func(s *rootoci.PoolChildExpectation) { s.PublicCAPEM = []byte("replacement") }, "cannot replace the original durable pool birth"},
+		{"changed AD", func(s *rootoci.PoolChildExpectation) { s.AvailabilityDomains = []string{"replacement"} }, "cannot replace the original durable pool birth"},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			chosen := chosenProtocolPool(t, pool.observed, records, func(ctx context.Context, r Record) (rootoci.PoolChildExpectation, error) {
+				s, err := capacitySelectors(ctx, r)
+				change.apply(&s)
+				return s, err
 			})
-			if _, err := pool.Ensure(ctx, capacityRecipe()); err != nil {
-				t.Fatal(err)
-			}
-			admissions.Store(0)
-			guards.Store(0)
-			growing.Store(true)
-			err = pool.Grow(ctx, 0)
-			wantWrites := int32(2)
-			if revoked {
-				wantWrites = 1
-				if !errors.Is(err, ErrCapacityPending) {
-					t.Fatalf("revoked retry did not remain pending: %v", err)
-				}
-			} else if err != nil {
-				t.Fatal(err)
-			}
-			if writes.Load() != wantWrites || admissions.Load() != 2 || guards.Load() != 4 || checkpoints.Load() != 1 || holding.Load() {
-				t.Fatalf("per-attempt fences: writes=%d admissions=%d authority phases=%d checkpoints=%d held=%v", writes.Load(), admissions.Load(), guards.Load(), checkpoints.Load(), holding.Load())
-			}
-			attempts, attemptErr := pool.Journal.ListPoolWireAttempts(t.Context(), pool.operationID, oci.PoolWireGrowth)
-			if attemptErr != nil || len(attempts) != 2 {
-				t.Fatalf("retry history: attempts=%d err=%v", len(attempts), attemptErr)
-			}
-			for _, attempt := range attempts {
-				if attempt.Outcome == nil {
-					t.Fatal("wire attempt lost its outcome")
-				}
-			}
-			_, accepted, resultErr := pool.Journal.GetCapacityResult(t.Context(), pool.operationID)
-			if resultErr != nil || accepted == revoked {
-				t.Fatalf("positive SDK receipt did not match dispatch outcome: accepted=%v err=%v", accepted, resultErr)
-			}
-			for _, observed := range cloud.pools {
-				wantSize := 1
-				if revoked {
-					wantSize = 0
-				}
-				if deref(observed.Size) != wantSize {
-					t.Fatalf("authority loss changed target size: %d", deref(observed.Size))
-				}
+			if err := chosen.Grow(ctx, 0); err == nil || !strings.Contains(err.Error(), change.want) {
+				t.Fatalf("malformed selector was not locally refused: %v", err)
 			}
 		})
+	}
+	for _, change := range []struct {
+		name  string
+		apply func(*Record)
+	}{
+		{"missing action", func(r *Record) { r.Action = nil }},
+		{"wrong action kind", func(r *Record) { r.Action.Kind = Down }},
+		{"invalid operation", func(r *Record) { r.Action.ID = "invalid" }},
+		{"missing recipe", func(r *Record) { r.Recipe = nil }},
+		{"missing reservation", func(r *Record) { r.Reservation = nil }},
+		{"changed reservation operation", func(r *Record) { r.Reservation.OperationID = entityid.New() }},
+		{"changed reservation recipe", func(r *Record) { r.Reservation.RecipeSHA256 = strings.Repeat("c", 64) }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			changed := record
+			changed.Action = new(*record.Action)
+			changed.Reservation = new(*record.Reservation)
+			change.apply(&changed)
+			var saveErr error
+			revision, saveErr = records.Save(ctx, changed, revision)
+			if saveErr != nil {
+				t.Fatal(saveErr)
+			}
+			if err := pool.Grow(ctx, 0); !errors.Is(err, ErrCapacityPending) || !strings.Contains(err.Error(), "exact original birth and reservation are not durable") {
+				t.Fatalf("malformed durable precondition reached selector/IPC validation: %v", err)
+			}
+		})
+	}
+	if _, err := records.Save(ctx, record, revision); err != nil {
+		t.Fatal(err)
+	}
+	for _, from := range []int{-1, 1, MaxPoolNodes} {
+		if err := pool.Grow(ctx, from); !errors.Is(err, ErrCapacityPending) || !strings.Contains(err.Error(), "exact original root birth is not durable") {
+			t.Fatalf("invalid original starting size %d reached IPC: %v", from, err)
+		}
+	}
+	if len(cloud.configs) != 0 || len(cloud.pools) != 0 {
+		t.Fatal("preparation changed OCI")
 	}
 }

@@ -24,27 +24,18 @@ func TestFunctionCapacityTracksManagerAndActualPoolSlots(t *testing.T) {
 	cloud := newCapacityCloud()
 	base := capacityRecipe()
 	observed := protocolPool(t, cloud, base.Capacity)
-	js := capacityJetStream(t)
-	records, err := OpenStore(ctx, js, 1)
+	records, err := OpenStore(ctx, capacityJetStream(t), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	configureProtocolJournal(t, observed, records)
-	pool, err := NewChosenPool(observed, records)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pool := chosenProtocolPool(t, observed, records, capacitySelectors)
 	now := time.Now().UTC()
-	pending := true
-	demandErr := error(nil)
+	var demandErr error
 	scaler := &Scaler{Cell: "gru", Pool: pool, Store: records, Control: hosts.control,
 		Leader: &capacityLeader{snapshot: authority.Snapshot{DeploymentID: entityid.New(), Leader: true, Ready: true, Epoch: 7, Revision: 3, ExpiresAt: now.Add(time.Hour)}},
 		Now:    func() time.Time { return now }, Recipe: func(context.Context) (Recipe, error) { return base, nil },
-		// Demand is supplied here; signed producer qualification is separate from the real manager/OCI slot observations.
+		// Signed demand-producer qualification is separate from these actual SDK/manager observations.
 		FunctionDemand: func(context.Context) ([]CapacityDemand, error) {
-			if !pending {
-				return nil, demandErr
-			}
 			return []CapacityDemand{{Architecture: "amd64", Slots: 1}}, demandErr
 		},
 		FunctionRecipe: func(_ context.Context, architecture string) (Recipe, error) {
@@ -55,50 +46,48 @@ func TestFunctionCapacityTracksManagerAndActualPoolSlots(t *testing.T) {
 		Allowance: func(time.Time) (int, bool) { return MaxNodes, true }, Loads: func() []NodeLoad { return nil },
 		Journal: func(context.Context, decisionlog.Decision) {},
 	}
-	tick := func() Record {
+	if err := scaler.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	chosen, revision, err := records.Load(ctx)
+	if err != nil || chosen.Action == nil || chosen.Action.Kind != Up || chosen.Action.Step != stepGrow || chosen.Recipe == nil ||
+		chosen.Recipe.Capacity.Role != RoleWasm || chosen.Recipe.Capacity.Architecture != "amd64" || chosen.Child != nil || chosen.Reservation != nil || len(cloud.pools) != 0 {
+		t.Fatalf("demand did not durably plan isolated preparation: %+v err=%v", chosen, err)
+	}
+	if _, err := records.Save(ctx, Record{}, revision); err != nil {
+		t.Fatal(err)
+	}
+	// Provider observations below are seeded independently; they are not successful scaler births.
+	seeded := seedCapacityPool(cloud, *chosen.Recipe, 1)
+	readDemand := func(t *testing.T) (*CapacityDemand, error) {
 		t.Helper()
-		if err := scaler.Tick(ctx); err != nil {
-			t.Fatal(err)
-		}
-		current, _, err := records.Load(ctx)
+		state, err := observed.Observe(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return current
-	}
-	chosen := tick()
-	if chosen.Action == nil || chosen.Action.Kind != Up || chosen.Recipe == nil || chosen.Recipe.Capacity.Role != RoleWasm || chosen.Recipe.Capacity.Architecture != "amd64" || len(cloud.pools) != 0 {
-		t.Fatalf("exact unassigned function demand did not plan isolated capacity without telemetry: %+v", chosen)
-	}
-	launched := tick()
-	if launched.Action == nil || launched.Action.Step != stepEnroll || len(cloud.pools) != 1 {
-		t.Fatalf("function capacity did not grow through durable selected pool: %+v", launched)
-	}
-	var poolID string
-	for id := range cloud.pools {
-		poolID = id
-	}
-	// The actual pool target already represents the slot before OCI returns an instance ID.
-	if _, err := records.Save(ctx, Record{Recipe: launched.Recipe}, revisionOf(t, records)); err != nil {
-		t.Fatal(err)
-	}
-	if current := tick(); current.Action != nil {
-		t.Fatal("one still-provisioning pool slot caused duplicate host growth")
-	}
-	instance := cloud.launch("ts-gru-4", poolID, "10.0.0.4", core.InstanceLifecycleStateRunning, launchTags(*launched.Recipe, roleNode, chosen.Action.ID))
-	cloud.instances[instance].CompartmentId = new(testCompartment)
-	for _, err := range []error{pool.Name(ctx, instance, "ts-gru-5"), pool.Remove(ctx, instance)} {
-		if !errors.Is(err, ErrCapacityPending) {
-			t.Fatalf("slot observation minted child mutation authority: %v", err)
+		for _, in := range state.Instances {
+			if in.Birth != nil {
+				t.Fatal("fixture observation invented an admitted birth")
+			}
 		}
+		nodes, err := hosts.control.ListNodes(ctx, &api.ListNodesRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return scaler.functionDemand(ctx, &tick{pool: state, hosts: nodes.Nodes})
 	}
-	if deref(cloud.instances[instance].DisplayName) != "ts-gru-4" || len(cloud.detaches) != 0 {
-		t.Fatal("unproven function child was renamed or removed")
+	if demand, err := readDemand(t); err != nil || demand != nil {
+		t.Fatalf("actual pool target caused duplicate provisioning: demand=%+v err=%v", demand, err)
+	}
+	instance := cloud.launch("ts-gru-4", seeded.PoolID, "10.0.0.4", core.InstanceLifecycleStateRunning, launchTags(*chosen.Recipe, roleNode, ""))
+	if demand, err := readDemand(t); err != nil || demand != nil {
+		t.Fatalf("actual unadmitted member caused duplicate provisioning: demand=%+v err=%v", demand, err)
 	}
 	hosts.live["ts-gru-4"], hosts.instanceIDs["ts-gru-4"] = true, instance
 	hosts.sync(t)
 	if err := hosts.store.Update(func(tx store.Tx) error {
 		node := store.GetNode(tx, "ts-gru-4")
+		node.Certificate.Role = api.NodeRoleWorker
 		node.Spec.Annotations.Labels["terrascale.host-role"] = RoleWasm
 		node.Spec.Annotations.Labels["terrascale.execution-scope"] = "tenant"
 		node.Description = &api.NodeDescription{Platform: &api.Platform{OS: "linux", Architecture: "amd64"},
@@ -107,31 +96,59 @@ func TestFunctionCapacityTracksManagerAndActualPoolSlots(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if current := tick(); current.Action != nil {
-		t.Fatal("observed free manager slot caused duplicate host growth")
+	if demand, err := readDemand(t); err != nil || demand != nil {
+		t.Fatalf("free exact manager slot caused duplicate capacity: demand=%+v err=%v", demand, err)
+	}
+	for _, change := range []struct {
+		name  string
+		apply func(*api.Node)
+	}{
+		{"wrong role", func(n *api.Node) { n.Spec.Annotations.Labels["terrascale.host-role"] = RoleContainer }},
+		{"wrong scope", func(n *api.Node) { n.Spec.Annotations.Labels["terrascale.execution-scope"] = "platform" }},
+		{"wrong architecture", func(n *api.Node) { n.Description.Platform.Architecture = "arm64" }},
+		{"missing slot", func(n *api.Node) { n.Description.Resources.Generic = nil }},
+		{"two slots", func(n *api.Node) {
+			n.Description.Resources.Generic = []*api.GenericResource{genericresource.NewDiscrete("terrascale.function-worker-slot", 2)}
+		}},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			original, err := hosts.control.GetNode(ctx, &api.GetNodeRequest{NodeID: "ts-gru-4"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := hosts.store.Update(func(tx store.Tx) error {
+				node := store.GetNode(tx, "ts-gru-4")
+				change.apply(node)
+				return store.UpdateNode(tx, node)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if demand, err := readDemand(t); err == nil || demand != nil {
+				t.Fatalf("malformed actual worker supplied capacity: demand=%+v err=%v", demand, err)
+			}
+			if err := hosts.store.Update(func(tx store.Tx) error {
+				node := store.GetNode(tx, "ts-gru-4")
+				node.Spec = original.Node.Spec
+				node.Description = original.Node.Description
+				return store.UpdateNode(tx, node)
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 	if err := hosts.store.Update(func(tx store.Tx) error {
 		return store.CreateTask(tx, &api.Task{ID: "occupied-worker", NodeID: "ts-gru-4", DesiredState: api.TaskStateRunning, Status: api.TaskStatus{State: api.TaskStateRunning}})
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if current := tick(); current.Action == nil || current.Recipe.Capacity.Role != RoleWasm || *current.TargetFrom != 1 || current.From != 1 {
-		t.Fatalf("occupied slot hid remaining unassigned function demand: %+v", current)
+	if demand, err := readDemand(t); err != nil || demand == nil || demand.Architecture != "amd64" || demand.Slots != 1 {
+		t.Fatalf("occupied actual worker hid remaining demand: demand=%+v err=%v", demand, err)
 	}
-	if _, err := records.Save(ctx, Record{Recipe: launched.Recipe}, revisionOf(t, records)); err != nil {
-		t.Fatal(err)
+	demandErr = errors.New("current signed function intent is unavailable")
+	if demand, err := readDemand(t); !errors.Is(err, demandErr) || demand != nil {
+		t.Fatalf("unavailable demand was accepted: demand=%+v err=%v", demand, err)
 	}
-	pending, demandErr = false, errors.New("current signed function intent is unavailable")
-	if current := tick(); current.Action != nil || scaler.Status().Action != Hold {
-		t.Fatal("missing current function authority created capacity")
+	if len(cloud.pools) != 1 || deref(cloud.pools[seeded.PoolID].Size) != 1 || deref(cloud.instances[instance].DisplayName) != "ts-gru-4" {
+		t.Fatal("slot observations changed actual capacity")
 	}
-}
-
-func revisionOf(t *testing.T, records RecordStore) uint64 {
-	t.Helper()
-	_, revision, err := records.Load(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return revision
 }
