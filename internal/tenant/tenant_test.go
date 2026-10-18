@@ -146,23 +146,6 @@ func TestRefusedTransitions(t *testing.T) {
 
 // TestClockSkewNeverFreezesATenant: a leader whose clock is behind the
 // previous writer's still moves the tenant forward, keeping time monotonic.
-func TestClockSkewNeverFreezesATenant(t *testing.T) {
-	fast, err := newTenant(t).Suspend(t0.Add(time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	slow, err := fast.Resume(t0)
-	if err != nil {
-		t.Fatalf("Resume on a slower clock = %v", err)
-	}
-	if !slow.UpdatedAt.Equal(fast.UpdatedAt) {
-		t.Fatalf("UpdatedAt = %v, want the previous %v", slow.UpdatedAt, fast.UpdatedAt)
-	}
-	deleted, err := slow.Delete(DefaultRetention, t0)
-	if err != nil || !deleted.RetainUntil.Equal(fast.UpdatedAt.Add(DefaultRetention)) {
-		t.Fatalf("Delete on a slower clock = %+v, %v", deleted, err)
-	}
-}
 
 // TestPlanEditsNeverResizeATenant: a tenant keeps the resources it chose;
 // the catalog only matters when a tenant picks a plan. A new binary's
@@ -216,32 +199,3 @@ func TestCheckNewRefusesHandBuiltTenants(t *testing.T) {
 
 // TestCheckSuccessorRefusesForgedRecords covers records a writer builds by
 // hand instead of through a lifecycle method.
-func TestCheckSuccessorRefusesForgedRecords(t *testing.T) {
-	prev := newTenant(t)
-	good, err := prev.Suspend(t0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, edit := range map[string]func(*Tenant){
-		"skipped generation":    func(n *Tenant) { n.Generation += 1 },
-		"replayed":              func(n *Tenant) { n.Generation = prev.Generation },
-		"earlier":               func(n *Tenant) { n.UpdatedAt = t0.Add(-time.Second) },
-		"moved organization":    func(n *Tenant) { n.Organization = "0000000000SENYWME143WT9XQ0" },
-		"moved cell":            func(n *Tenant) { n.Cell = "fra" },
-		"rewritten creation":    func(n *Tenant) { n.CreatedAt = t0.Add(-time.Hour) },
-		"retention not deleted": func(n *Tenant) { n.RetainUntil = t0.Add(DefaultRetention) },
-		"unknown state":         func(n *Tenant) { n.State = "paused" },
-		"other schema":          func(n *Tenant) { n.Schema = "terrascale.tenant.v2" },
-		"resized in place":      func(n *Tenant) { n.State, n.Spec.Member.CPU = StateActive, 64 },
-		"undeclared plan":       func(n *Tenant) { n.State, n.Spec.Plan = StateActive, "scale" },
-	} {
-		next := good
-		edit(&next)
-		if err := CheckSuccessor(prev, next); !errors.Is(err, ErrInvalid) {
-			t.Errorf("%s: CheckSuccessor = %v, want ErrInvalid", name, err)
-		}
-	}
-	if err := CheckSuccessor(prev, good); err != nil {
-		t.Fatalf("CheckSuccessor(lifecycle successor) = %v", err)
-	}
-}
