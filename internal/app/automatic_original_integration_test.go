@@ -36,6 +36,7 @@ func TestOriginalStartupRendersAllSlotsThroughGeneratedLinkAndConfigStore(t *tes
 		t.Fatal(err)
 	}
 	linkDirectory := filepath.Join(t.TempDir(), "link")
+	waitForLinkHomeClaimSecond(t, sourceDirectory)
 	linkRecord, err := bootstrapmaterial.GenerateLink(sourceDirectory, sourceDirectory, linkDirectory, linkDirectory, now)
 	if err != nil {
 		t.Fatal(err)

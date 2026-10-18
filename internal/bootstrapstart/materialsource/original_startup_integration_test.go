@@ -28,11 +28,41 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/nats-io/jwt/v2"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
+
+// NATS Encode stamps the wall clock even when material generation is backdated.
+func waitForLinkHomeClaimSecond(t *testing.T, directory string) {
+	t.Helper()
+	wire, err := os.ReadFile(filepath.Join(directory, "cell.jwt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := jwt.DecodeAccountClaims(string(wire))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := time.Now()
+	if claim.IssuedAt <= 0 || claim.IssuedAt > observed.Unix() {
+		t.Fatal("home cell claim has an invalid or future issuance time")
+	}
+	timer := time.NewTimer(time.Unix(claim.IssuedAt, 0).Add(time.Second).Sub(observed))
+	defer timer.Stop()
+	select {
+	case <-t.Context().Done():
+	case <-timer.C:
+	}
+	if err := t.Context().Err(); err != nil {
+		t.Fatal("wait for home cell claim issuance second:", err)
+	}
+	if time.Now().Unix() <= claim.IssuedAt {
+		t.Fatal("wall clock has not passed the home cell claim issuance second")
+	}
+}
 
 // These SDK/CAS/crypto scenarios qualify append mechanics only. They neither
 // manufacture sealed actors/templates nor qualify the public serving path.
@@ -214,6 +244,7 @@ func TestOrdinaryLinkPreservesDeploymentBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	homeLink := filepath.Join(root, "home-link")
+	waitForLinkHomeClaimSecond(t, home)
 	if _, err := bootstrapmaterial.GenerateLink(home, home, homeLink, homeLink, now.Add(time.Second)); err != nil {
 		t.Fatal("ordinary home positive control", err)
 	}
@@ -255,6 +286,7 @@ func TestOriginalLinkEightLeafSDKJournalRecovery(t *testing.T) {
 	if _, err := bootstrapmaterial.Generate(home, in.config, now); err != nil {
 		t.Fatal(err)
 	}
+	waitForLinkHomeClaimSecond(t, home)
 	record, err := bootstrapmaterial.GenerateLink(home, home, linkDirectory, linkDirectory, now.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)

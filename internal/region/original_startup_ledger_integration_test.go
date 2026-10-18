@@ -23,10 +23,40 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/nats-io/jwt/v2"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 const originalStartupTestUUID = "5f0d2d4c-a098-4cd1-882b-7854fba34b07"
+
+// NATS Encode stamps the wall clock even when material generation is backdated.
+func waitForLinkHomeClaimSecond(t *testing.T, directory string) {
+	t.Helper()
+	wire, err := os.ReadFile(filepath.Join(directory, "cell.jwt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := jwt.DecodeAccountClaims(string(wire))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := time.Now()
+	if claim.IssuedAt <= 0 || claim.IssuedAt > observed.Unix() {
+		t.Fatal("home cell claim has an invalid or future issuance time")
+	}
+	timer := time.NewTimer(time.Unix(claim.IssuedAt, 0).Add(time.Second).Sub(observed))
+	defer timer.Stop()
+	select {
+	case <-t.Context().Done():
+	case <-timer.C:
+	}
+	if err := t.Context().Err(); err != nil {
+		t.Fatal("wait for home cell claim issuance second:", err)
+	}
+	if time.Now().Unix() <= claim.IssuedAt {
+		t.Fatal("wall clock has not passed the home cell claim issuance second")
+	}
+}
 
 type originalStartupLedgerFixture struct {
 	producer  *originalMaterialIAMSDKFixture
@@ -185,8 +215,7 @@ func newOriginalStartupLedgerFixture(t *testing.T) *originalStartupLedgerFixture
 	client := originalStartupLedgerSDK(t, f, nil)
 	directory := filepath.Join(t.TempDir(), "material")
 	material := f.prepared.Grant.Regions[0].BootstrapMaterial
-	// Original grant issuance is one second before fixture now; generating then
-	// also satisfies the Link generator's immutable JWT issuance-second rule.
+	// Keep generated material within the signed template's validity interval.
 	issued := template.IssuedAt()
 	record, err := bootstrapmaterial.GenerateAdmissionCandidate(directory, material.Config, *material.AdmissionAttestor, issued)
 	if err != nil {
@@ -249,6 +278,7 @@ func newOriginalStartupLedgerFixture(t *testing.T) *originalStartupLedgerFixture
 		t.Fatalf("verify original HOME recipient: %v", err)
 	}
 	linkDirectory := filepath.Join(t.TempDir(), "link")
+	waitForLinkHomeClaimSecond(t, directory)
 	linkRecord, err := bootstrapmaterial.GenerateOriginalLink(t.Context(), template, directory, directory, linkDirectory, linkDirectory, f.now)
 	if err != nil {
 		t.Fatalf("generate real original Link: %v", err)

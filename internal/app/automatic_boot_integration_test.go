@@ -13,7 +13,37 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/jwt/v2"
 )
+
+// NATS Encode stamps the wall clock even when material generation is backdated.
+func waitForLinkHomeClaimSecond(t *testing.T, directory string) {
+	t.Helper()
+	wire, err := os.ReadFile(filepath.Join(directory, "cell.jwt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := jwt.DecodeAccountClaims(string(wire))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := time.Now()
+	if claim.IssuedAt <= 0 || claim.IssuedAt > observed.Unix() {
+		t.Fatal("home cell claim has an invalid or future issuance time")
+	}
+	timer := time.NewTimer(time.Unix(claim.IssuedAt, 0).Add(time.Second).Sub(observed))
+	defer timer.Stop()
+	select {
+	case <-t.Context().Done():
+	case <-timer.C:
+	}
+	if err := t.Context().Err(); err != nil {
+		t.Fatal("wait for home cell claim issuance second:", err)
+	}
+	if time.Now().Unix() <= claim.IssuedAt {
+		t.Fatal("wall clock has not passed the home cell claim issuance second")
+	}
+}
 
 func TestAutomaticControllerConfigLoadsFromGeneratedSource(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
@@ -36,6 +66,7 @@ func TestAutomaticControllerConfigLoadsFromGeneratedSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	linkDirectory := filepath.Join(t.TempDir(), "link")
+	waitForLinkHomeClaimSecond(t, sourceDirectory)
 	linkRecord, err := bootstrapmaterial.GenerateLink(sourceDirectory, sourceDirectory, linkDirectory, linkDirectory, now)
 	if err != nil {
 		t.Fatal(err)
