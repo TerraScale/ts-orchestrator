@@ -94,6 +94,30 @@ func (r *capacityReservations) qualify(ctx context.Context, input nodescale.Imag
 		}, time.Now())
 }
 
+func capacityImageShapeNames(ctx context.Context, compute core.ComputeClient, request core.ListShapesRequest) ([]string, error) {
+	var shapes []string
+	pages := map[string]bool{}
+	for {
+		response, err := compute.ListShapes(ctx, request)
+		if err != nil {
+			return nil, err
+		}
+		for _, shape := range response.Items {
+			if shape.Shape != nil {
+				shapes = append(shapes, *shape.Shape)
+			}
+		}
+		if response.OpcNextPage == nil || *response.OpcNextPage == "" {
+			return shapes, nil
+		}
+		if pages[*response.OpcNextPage] {
+			return nil, fmt.Errorf("OCI capacity image shape pagination repeated a page token")
+		}
+		pages[*response.OpcNextPage] = true
+		request.Page = response.OpcNextPage
+	}
+}
+
 // choose uses observed SDK compatibility and current tariffs across every native
 // candidate. The running controller's shape supplies no purchasing preference.
 func (r *capacityReservations) choose(ctx context.Context, base nodescale.Recipe, pool *nodescale.OCIPool,
@@ -142,23 +166,12 @@ func (r *capacityReservations) choose(ctx context.Context, base nodescale.Recipe
 			expires = deadline
 		}
 		for _, domain := range base.AvailabilityDomains {
-			var page *string
-			for {
-				response, err := compute.ListShapes(ctx, core.ListShapesRequest{CompartmentId: new(pool.CompartmentID()),
-					AvailabilityDomain: new(domain), ImageId: new(image.ID), Page: page})
-				if err != nil {
-					return nodescale.Recipe{}, fmt.Errorf("%w: current candidate compatibility: %v", nodescale.ErrCapacityPending, err)
-				}
-				for _, shape := range response.Items {
-					if shape.Shape != nil {
-						shapes = append(shapes, *shape.Shape)
-					}
-				}
-				if response.OpcNextPage == nil {
-					break
-				}
-				page = response.OpcNextPage
+			compatible, err := capacityImageShapeNames(ctx, compute, core.ListShapesRequest{CompartmentId: new(pool.CompartmentID()),
+				AvailabilityDomain: new(domain), ImageId: new(image.ID)})
+			if err != nil {
+				return nodescale.Recipe{}, fmt.Errorf("%w: current candidate compatibility: %v", nodescale.ErrCapacityPending, err)
 			}
+			shapes = append(shapes, compatible...)
 		}
 	}
 	prices, priceErr := reader.Prices(ctx, proof.Footprint(), shapes)
