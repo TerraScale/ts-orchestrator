@@ -186,7 +186,7 @@ func readOriginalSourceActor(ctx context.Context, factory *ociclient.Factory, in
 	for index, name := range [2]string{foundationRootChainObject, strings.TrimSuffix(locator.storage.Prefix, "/") + "/" + foundationGrantObject} {
 		limit := int64(trust.MaxRootChainBytes)
 		if index == 1 {
-			limit = foundationRecordLimit
+			limit = foundationGrantLimit
 		}
 		observed, etag, err := readOriginalSourceDocument(ctx, objects, original.Namespace, name, limit)
 		if err != nil {

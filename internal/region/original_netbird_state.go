@@ -79,7 +79,7 @@ func (s *SignedFootprint) originalNetBirdStateFromBundle(ctx context.Context, re
 	if s == nil || ctx == nil || s.factory == nil || s.factory.Region() != foundationHomeRegion || resolver.Footprint != s || resolver.Store == nil ||
 		s.scope.Cell != "GRU" || s.scope.Environment != "production" || s.home.GrantGeneration != 1 || bundle.TenancyID != s.tenancy || bundle.Namespace != s.storage.Namespace ||
 		len(bundle.RootChainWire) == 0 || len(bundle.RootChainWire) > trust.MaxRootChainBytes || len(bundle.AnchorWire) == 0 || len(bundle.AnchorWire) > bootstrap.MaxBootstrapAnchorBytes ||
-		len(bundle.GrantWire) == 0 || len(bundle.GrantWire) > foundationRecordLimit {
+		len(bundle.GrantWire) == 0 || len(bundle.GrantWire) > foundationGrantLimit {
 		return state, ErrOriginalSourceProducerHold
 	}
 	if err := ctx.Err(); err != nil {

@@ -62,7 +62,7 @@ func newGenericReachabilityFixture(t *testing.T) *genericReachabilityFixture {
 		t.Fatal(err)
 	}
 	f.bundle = signProvisionFoundation(t, f.prepared, f.base.bundle.RootChainWire, f.base.root, f.base.now)
-	if len(f.bundle.GrantWire) > foundationRecordLimit {
+	if len(f.bundle.GrantWire) > foundationGrantLimit {
 		t.Fatal("complete signed fixture exceeds current grant read bound")
 	}
 	f.publish(f.bundle)

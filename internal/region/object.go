@@ -23,7 +23,7 @@ import (
 const foundationRecordLimit = 128 << 10
 
 // The finite journal retains all three regions' requests, receipts and outcomes;
-// grants and individual policy requests keep their separate 128 KiB bound.
+// individual policy requests keep their separate 128 KiB bound.
 const foundationJournalLimit = 512 << 10
 const foundationObjectPrefix = "orchestrator/regions/v1/"
 

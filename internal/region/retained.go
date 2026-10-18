@@ -60,7 +60,7 @@ func verifyRetainedFoundation(ctx context.Context, snapshot RetainedFoundation, 
 		snapshot.Namespace == "" || len(snapshot.Namespace) > 255 || strings.ContainsAny(snapshot.Namespace, "/\\\r\n") ||
 		len(snapshot.RootChainWire) == 0 || len(snapshot.RootChainWire) > trust.MaxRootChainBytes ||
 		len(snapshot.AnchorWire) == 0 || len(snapshot.AnchorWire) > bootstrap.MaxBootstrapAnchorBytes ||
-		len(snapshot.GrantWire) == 0 || len(snapshot.GrantWire) > foundationRecordLimit {
+		len(snapshot.GrantWire) == 0 || len(snapshot.GrantWire) > foundationGrantLimit {
 		return FoundationResolver{}, errors.New("retained foundation has invalid locators or document bounds")
 	}
 	resolver, _, err := resolveCurrentFoundation(ctx, nil, snapshot.TenancyID, genesis, &snapshot)

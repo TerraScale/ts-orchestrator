@@ -149,7 +149,7 @@ func verifyWorkloadGenesisEvidence(wire []byte, independentGenesis trust.Keyring
 	if err := protocol.DecodeStrict(wire, &snapshot, MaxWorkloadGenesisEvidenceBytes); err != nil {
 		return release.VerifiedWorkloadGenesis{}, err
 	}
-	if expected.Validate() != nil || snapshot.TenancyID != expected.TenancyID || snapshot.Namespace != expected.Namespace || len(snapshot.GrantWire) > foundationRecordLimit {
+	if expected.Validate() != nil || snapshot.TenancyID != expected.TenancyID || snapshot.Namespace != expected.Namespace || len(snapshot.GrantWire) > foundationGrantLimit {
 		return release.VerifiedWorkloadGenesis{}, errors.New("original workload genesis differs from admitted tenancy and home store")
 	}
 	envelope, err := trust.DecodeEnvelope(snapshot.AnchorWire)

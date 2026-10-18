@@ -30,6 +30,9 @@ import (
 const foundationGrantDomain = "terrascale.foundation.scope"
 const foundationGrantObject = "foundation-scope-v1.json"
 
+// Signed grants include all three regions' bootstrap and producer recipes.
+const foundationGrantLimit = 256 << 10
+
 var ErrFoundationGrantPending = errors.New("authenticated foundation grant is pending")
 
 // FoundationGrant is a separate root authorization. A bootstrap anchor, region
@@ -400,6 +403,9 @@ func (s *SignedFootprint) readGrant(ctx context.Context) ([]byte, error) {
 		return nil, errors.New("foundation bootstrap authority expired")
 	}
 	if s.retainedGrant != nil {
+		if len(s.retainedGrant) == 0 || len(s.retainedGrant) > foundationGrantLimit {
+			return nil, errors.New("retained foundation scope object empty or oversized")
+		}
 		return bytes.Clone(s.retainedGrant), nil
 	}
 	domain := s.storage
@@ -417,8 +423,8 @@ func (s *SignedFootprint) readGrant(ctx context.Context) ([]byte, error) {
 		return nil, errors.New("foundation scope object has no content")
 	}
 	defer response.Content.Close()
-	wire, err := io.ReadAll(io.LimitReader(response.Content, foundationRecordLimit+1))
-	if err != nil || len(wire) > foundationRecordLimit {
+	wire, err := io.ReadAll(io.LimitReader(response.Content, foundationGrantLimit+1))
+	if err != nil || len(wire) == 0 || len(wire) > foundationGrantLimit {
 		return nil, errors.New("foundation scope object unreadable or oversized")
 	}
 	return wire, nil
@@ -458,6 +464,9 @@ func (s *SignedFootprint) verifyOriginalGrant(wire []byte) (ApprovedFootprint, t
 }
 
 func (s *SignedFootprint) verifyOriginalDocument(wire []byte) (FoundationGrant, time.Time, error) {
+	if len(wire) == 0 || len(wire) > foundationGrantLimit {
+		return FoundationGrant{}, time.Time{}, errors.New("foundation grant is empty or oversized")
+	}
 	if !time.Now().Before(s.expires) {
 		return FoundationGrant{}, time.Time{}, errors.New("foundation bootstrap authority expired")
 	}
