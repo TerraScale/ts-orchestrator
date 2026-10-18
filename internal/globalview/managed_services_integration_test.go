@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -74,4 +76,54 @@ func TestManagedServicesCrossSourceNATSAndHTTP(t *testing.T) {
 	}
 	publish()
 	read("/absent", 503, "truncated")
+
+	// Keep the listed-region fixture independent of the mutable service clock.
+	{
+		now := time.Now().UTC()
+		listedView, listedConn := followedTestView(t, "gru", func() []string { return []string{"sfo"} }, func() time.Time { return now })
+		listedLocal := NewView("gru", func() []string { return []string{"sfo"} }, func() time.Time { return now })
+		changed := listedView.Changed()
+		publishOnce(t.Context(), listedConn, "gru", func(context.Context) Rollup {
+			return Rollup{Version: Version, Cell: "gru", ObservedAt: now, Health: Health{Status: Healthy}}
+		}, listedLocal)
+		waitClosed(t, changed)
+		listedServer := httptest.NewServer(Handler(listedView))
+		defer listedServer.Close()
+
+		response, err := listedServer.Client().Get(listedServer.URL + "/v1/regions")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(response.Body)
+		closeErr := response.Body.Close()
+		if err != nil || closeErr != nil {
+			t.Fatalf("list body: read=%v close=%v", err, closeErr)
+		}
+		var entries []Region
+		if response.StatusCode != http.StatusOK || json.Unmarshal(body, &entries) != nil {
+			t.Fatalf("list = %d %s", response.StatusCode, body)
+		}
+		if len(entries) != 2 || entries[0].Cell != "gru" || entries[0].Rollup == nil || entries[1].Cell != "sfo" || entries[1].Rollup != nil {
+			t.Fatalf("entries = %+v", entries)
+		}
+		rollup := entries[0].Rollup
+		if rollup.Version != Version || rollup.Cell != "gru" || !rollup.ObservedAt.Equal(now) || rollup.Health.Status != Healthy {
+			t.Fatalf("received rollup = %+v", rollup)
+		}
+		for path, want := range map[string]int{"/v1/regions/GRU": http.StatusOK, "/v1/regions/sfo": http.StatusOK,
+			"/v1/regions/fra": http.StatusNotFound} {
+			response, err := listedServer.Client().Get(listedServer.URL + path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := io.ReadAll(response.Body)
+			closeErr := response.Body.Close()
+			if err != nil || closeErr != nil {
+				t.Fatalf("%s body: read=%v close=%v", path, err, closeErr)
+			}
+			if response.StatusCode != want {
+				t.Fatalf("%s = %d, want %d: %s", path, response.StatusCode, want, body)
+			}
+		}
+	}
 }

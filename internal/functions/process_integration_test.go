@@ -300,6 +300,42 @@ func TestFunctionWorkerProcess(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("worker process did not stop")
 	}
+
+	proof, materialDeployment, materialFiles := signedFunctionFixture(t, integrationArtifact(t, "echo"))
+	materialDeployment.BrokerURL = "tls://127.0.0.1:4222"
+	for name, expiry := range map[string]time.Time{"missing": {}, "expired": time.Now().Add(-time.Second), "beyond release": proof.ExpiresAt().Add(time.Second)} {
+		t.Run(name, func(t *testing.T) {
+			materialDeployment.ExpiresAt = expiry
+			wire, err := json.Marshal(materialDeployment)
+			if err != nil {
+				t.Fatal(err)
+			}
+			directory := t.TempDir()
+			for name, value := range materialFiles {
+				if err := os.WriteFile(filepath.Join(directory, name), value, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(directory, "deployment.json"), wire, 0600); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			child := exec.CommandContext(ctx, executable, "-test.run=^TestFunctionWorkerProcess$")
+			child.Env = append(os.Environ(), "TS_FUNCTION_TEST_PROCESS_DIR="+directory)
+			output, err := child.CombinedOutput()
+			if ctx.Err() != nil {
+				t.Fatalf("material rejection child timed out or was canceled: %v: %s", ctx.Err(), output)
+			}
+			exit, ok := errors.AsType[*exec.ExitError](err)
+			if !ok || exit.ExitCode() != 1 {
+				t.Fatalf("material rejection child exit = %v, output = %q", err, output)
+			}
+			if !bytes.Contains(output, []byte("material authority")) {
+				t.Fatalf("invalid material expiry was not rejected by worker: %s", output)
+			}
+		})
+	}
 }
 
 func processCertificates(t *testing.T, identityURI, serverDNS string) ([]byte, tls.Certificate, tls.Certificate, tls.Certificate) {

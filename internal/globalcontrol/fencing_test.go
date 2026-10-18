@@ -1,8 +1,10 @@
 package globalcontrol
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -214,6 +216,103 @@ func TestConcurrentReadsAndAppends(t *testing.T) {
 		}
 	})
 	wait.Wait()
+	{
+		js := newTestJetStream(t)
+		writer, err := OpenHome(ctx, js, "gru", nil, 1, &pausedFencer{epoch: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		encode := func(value any) []byte {
+			wire, err := protocol.EncodeJSON(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return wire
+		}
+		observe := func() []byte {
+			reader, err := OpenHomeReader(ctx, js, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value, sequence, err := reader.Roster(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stream, err := js.Stream(ctx, StreamName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, err := stream.GetLastMsgForSubject(ctx, subject(KindRoster, RosterKey))
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := stream.Info(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Config.Storage != jetstream.FileStorage || info.Config.Replicas != 1 || stored.Sequence != sequence {
+				t.Fatalf("roster storage or sequence changed: %+v, %d, %d", info.Config, stored.Sequence, sequence)
+			}
+			var entry record
+			if err := protocol.DecodeStrict(stored.Data, &entry, maxMessageBytes); err != nil || !bytes.Equal(entry.Payload, encode(value)) {
+				t.Fatalf("stored roster payload differs from independent reader: %s, %v", stored.Data, err)
+			}
+			return encode([]any{value, sequence, stored.Subject, stored.Sequence, stored.Data, stored.Header, info.State.LastSeq, info.State.Msgs})
+		}
+		if err := testRoster(1).Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if !testRoster(1).Active("sfo") || testRoster(1).Active("fra") || testRoster(1).Active("iad") {
+			t.Fatal("roster Active disagrees with entry states")
+		}
+		sequence, err := writer.PutRoster(ctx, 1, testRoster(1))
+		if err != nil || sequence == 0 {
+			t.Fatalf("valid roster write = %d, %v", sequence, err)
+		}
+		reader, err := OpenHomeReader(ctx, js, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stored, gotSequence, err := reader.Roster(ctx)
+		expected := testRoster(1)
+		if err != nil || gotSequence != sequence || stored.Generation != expected.Generation || stored.HomeRegion != expected.HomeRegion ||
+			!slices.Equal(stored.Regions, expected.Regions) || stored.Validate() != nil ||
+			!stored.Active("sfo") || stored.Active("fra") || stored.Active("iad") {
+			t.Fatalf("independent roster = %+v, %d, %v", stored, gotSequence, err)
+		}
+		cases := map[string]func(*Roster){
+			"zero generation": func(r *Roster) { r.Generation = 0 },
+			"empty":           func(r *Roster) { r.Regions = nil },
+			"unsorted":        func(r *Roster) { r.Regions[0], r.Regions[1] = r.Regions[1], r.Regions[0] },
+			"duplicate":       func(r *Roster) { r.Regions[2].Cell = "gru" },
+			"global cell":     func(r *Roster) { r.Regions[0].Cell = "global" },
+			"bad cell":        func(r *Roster) { r.Regions[0].Cell = "FRA" },
+			"bad OCI region":  func(r *Roster) { r.Regions[0].OCIRegion = "eu frankfurt" },
+			"unknown state":   func(r *Roster) { r.Regions[0].State = "paused" },
+			"missing home":    func(r *Roster) { r.HomeRegion = "iad" },
+			"home not active": func(r *Roster) { r.Regions[1].State = RegionRetiring },
+			"too many regions": func(r *Roster) {
+				r.Regions = make([]RosterEntry, maxRegions+1)
+			},
+		}
+		for name, mutate := range cases {
+			roster := testRoster(1)
+			roster.Regions = append([]RosterEntry(nil), roster.Regions...)
+			mutate(&roster)
+			validationErr := roster.Validate()
+			if validationErr == nil {
+				t.Errorf("%s roster validated", name)
+			}
+			before := observe()
+			if _, err := writer.PutRoster(ctx, 1, roster); err == nil || validationErr == nil || err.Error() != validationErr.Error() {
+				t.Fatalf("%s producer rejection = %v, want validation error %v", name, err, validationErr)
+			}
+			if after := observe(); !bytes.Equal(after, before) {
+				t.Fatalf("%s rejection changed persisted roster: before %s, after %s", name, before, after)
+			}
+		}
+	}
+
 }
 
 // TestForgedRecordsAreRejected: records without a matching epoch header and a
@@ -287,6 +386,134 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 	if _, err := stream.Consumer(ctx, "audit"); err != nil {
 		t.Fatalf("unrelated consumer was deleted: %v", err)
 	}
+	{
+		encode := func(value any) []byte {
+			wire, err := protocol.EncodeJSON(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return wire
+		}
+		observe := func(js jetstream.JetStream) (jetstream.StreamConfig, []byte) {
+			stream, err := js.Stream(ctx, StreamName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := stream.Info(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Config.Storage != jetstream.FileStorage || info.Config.Replicas != 1 {
+				t.Fatalf("stream is not FileStorage/R1: %+v", info.Config)
+			}
+			return info.Config, encode([]any{info.Config, info.State.LastSeq, info.State.Msgs})
+		}
+		for name, change := range map[string]func(*jetstream.StreamConfig){
+			"max msgs":             func(config *jetstream.StreamConfig) { config.MaxMsgs = 10 },
+			"max bytes":            func(config *jetstream.StreamConfig) { config.MaxBytes = 1 << 20 },
+			"max msgs per subject": func(config *jetstream.StreamConfig) { config.MaxMsgsPerSubject = 1 },
+		} {
+			config := MirrorStreamConfig("gru", "sfo", 1)
+			if err := verifyMirror(config, "gru", "sfo", 1); err != nil {
+				t.Fatalf("expected mirror config refused: %v", err)
+			}
+			js := newTestJetStream(t)
+			if _, err := js.CreateStream(ctx, config); err != nil {
+				t.Fatal(err)
+			}
+			baseline, _ := observe(js)
+			if err := verifyMirror(baseline, "gru", "sfo", 1); err != nil {
+				t.Fatalf("%s persisted valid mirror rejected: %v", name, err)
+			}
+			change(&config)
+			if err := verifyMirror(config, "gru", "sfo", 1); err == nil {
+				t.Errorf("%s: a mirror with a finite limit passed verification", name)
+			}
+			if _, err := js.UpdateStream(ctx, config); err != nil {
+				t.Fatalf("%s finite mirror config was not persisted: %v", name, err)
+			}
+			actual, before := observe(js)
+			if actual.MaxMsgs != config.MaxMsgs || actual.MaxBytes != config.MaxBytes || actual.MaxMsgsPerSubject != config.MaxMsgsPerSubject {
+				t.Fatalf("%s changed persisted limits: %+v", name, actual)
+			}
+			validationErr := verifyMirror(actual, "gru", "sfo", 1)
+			if validationErr == nil {
+				t.Fatalf("%s persisted finite mirror passed verification", name)
+			}
+			if _, err := OpenMirror(ctx, js, "gru", "sfo", 1); err == nil || err.Error() != validationErr.Error() {
+				t.Fatalf("%s mirror opener rejection = %v, want %v", name, err, validationErr)
+			}
+			if _, after := observe(js); !bytes.Equal(after, before) {
+				t.Fatalf("%s refused opener changed stored config: before %s, after %s", name, before, after)
+			}
+		}
+		{
+			home := HomeStreamConfig(1)
+			js := newTestJetStream(t)
+			if _, err := js.CreateStream(ctx, home); err != nil {
+				t.Fatal(err)
+			}
+			baseline, _ := observe(js)
+			if err := verifyHome(baseline, 1); err != nil {
+				t.Fatal(err)
+			}
+			home.SubjectTransform = &jetstream.SubjectTransformConfig{Source: "ts.global.v1.>", Destination: "elsewhere.>"}
+			if err := verifyHome(home, 1); err == nil {
+				t.Fatal("a home stream with a subject transform passed verification")
+			}
+			if _, err := js.UpdateStream(ctx, home); err != nil {
+				t.Fatal(err)
+			}
+			actual, before := observe(js)
+			if actual.SubjectTransform == nil || *actual.SubjectTransform != *home.SubjectTransform {
+				t.Fatalf("persisted transform = %+v, want %+v", actual.SubjectTransform, home.SubjectTransform)
+			}
+			validationErr := verifyHome(actual, 1)
+			if validationErr == nil {
+				t.Fatal("persisted transformed home passed verification")
+			}
+			if _, err := OpenHome(ctx, js, "gru", nil, 1, &pausedFencer{epoch: 1}); err == nil || err.Error() != validationErr.Error() {
+				t.Fatalf("transformed home opener = %v, want %v", err, validationErr)
+			}
+			if _, after := observe(js); !bytes.Equal(after, before) {
+				t.Fatalf("refused home opener changed stored config: before %s, after %s", before, after)
+			}
+		}
+		{
+			mirror := MirrorStreamConfig("gru", "sfo", 1)
+			js := newTestJetStream(t)
+			if _, err := js.CreateStream(ctx, mirror); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := OpenMirror(ctx, js, "gru", "sfo", 1); err != nil {
+				t.Fatal(err)
+			}
+			baseline, before := observe(js)
+			if err := verifyMirror(baseline, "gru", "sfo", 1); err != nil {
+				t.Fatal(err)
+			}
+			mirror.Mirror.OptStartSeq = 5
+			if err := verifyMirror(mirror, "gru", "sfo", 1); err == nil {
+				t.Fatal("a mirror starting past the first record passed verification")
+			}
+			_, err := js.UpdateStream(ctx, mirror)
+			apiErr, ok := errors.AsType[*jetstream.APIError](err)
+			if !ok || apiErr.ErrorCode != 10213 {
+				t.Fatalf("late pinned mirror update = %v, want selected broker API error 10213", err)
+			}
+			actual, after := observe(js)
+			if err := verifyMirror(actual, "gru", "sfo", 1); err != nil || !bytes.Equal(after, before) {
+				t.Fatalf("rejected late mirror update changed baseline: before %s, after %s, %v", before, after, err)
+			}
+			if _, err := OpenMirror(ctx, js, "gru", "sfo", 1); err != nil {
+				t.Fatalf("unchanged valid mirror no longer opens: %v", err)
+			}
+			if _, after := observe(js); !bytes.Equal(after, before) {
+				t.Fatalf("valid mirror reopen changed baseline: before %s, after %s", before, after)
+			}
+		}
+	}
+
 }
 
 // Headerless records are rejected even before the first term barrier.

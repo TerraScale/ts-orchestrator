@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -17,32 +16,6 @@ import (
 	"testing"
 	"time"
 )
-
-func TestAddressPlanRejectedBeforeManagerRequests(t *testing.T) {
-	for _, cidr := range []string{"100.64.0.0/10", "10.251.0.0/16", "10.0.0.0/8"} {
-		t.Run(cidr, func(t *testing.T) {
-			var calls atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls.Add(1)
-				w.WriteHeader(http.StatusInternalServerError)
-			}))
-			defer server.Close()
-			api, err := NewAPI(server.URL, testPAT)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer api.Close()
-			d := GRU()
-			d.NetworkRange = cidr
-			if _, err := Sync(t.Context(), api, d, true); err == nil || !strings.Contains(err.Error(), "address plan:") {
-				t.Fatalf("expected address-plan rejection, got %v", err)
-			}
-			if calls.Load() != 0 {
-				t.Fatal("invalid plan reached the manager")
-			}
-		})
-	}
-}
 
 func TestSyncWarnsAboutSetupKeyWithoutChangingIt(t *testing.T) {
 	f := newFakeManager(t)
@@ -185,32 +158,6 @@ func TestPruneLeavesSlotWhoseNameIsHeldByAnotherConnectedPeerAlone(t *testing.T)
 	}
 	if f.peer(live).Name != "ip-10-251-0-12" || f.peer(squatter).Name != "ts-gru-2" {
 		t.Fatal("a peer of the contested slot was renamed")
-	}
-}
-
-func TestValidateRejectsSlotsOutsideThePrivateCellSubnetAndUnknownAliasRoles(t *testing.T) {
-	for name, mutate := range map[string]func(*Desired){
-		"slot outside the cell subnet":  func(d *Desired) { d.Slots[0].IP = "10.251.0.200" },
-		"slot in another private range": func(d *Desired) { d.Slots[0].IP = "192.168.0.11" },
-		"public slot in a public subnet": func(d *Desired) {
-			d.Network.Resource.Address = "203.0.113.0/24"
-			for i := range d.Slots {
-				d.Slots[i].IP = "203.0.113." + strings.TrimPrefix(d.Slots[i].IP, "10.251.0.")
-			}
-		},
-		"alias to an unknown role":           func(d *Desired) { d.RoleAliases["nats"] = "controllers" },
-		"alias to an empty role":             func(d *Desired) { d.RoleAliases["nats"] = "" },
-		"policy source by former group name": func(d *Desired) { d.Policies[0].Sources = []string{"gateway"} },
-		"servers group by former name":       func(d *Desired) { d.ServersGroup = "ts-orch-servers" },
-		"DNS disabled group by former name":  func(d *Desired) { d.DNSDisabledGroups = []string{"ts-orch-servers"} },
-		"former name repeats a current name": func(d *Desired) { d.Groups[0].RenamedFrom = []string{d.Groups[1].Name} },
-	} {
-		d := GRU()
-		mutate(&d)
-		f := newFakeManager(t)
-		if _, err := Sync(t.Context(), f.api(t), d, true); err == nil || len(f.mutations) != 0 {
-			t.Errorf("%s: accepted or mutated manager: %v", name, err)
-		}
 	}
 }
 

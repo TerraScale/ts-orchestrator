@@ -7,6 +7,8 @@ import (
 	"crypto/rand"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -431,6 +433,112 @@ func TestSnapshotUploadsOnlyForwardChanges(t *testing.T) {
 	if got := fake.document(t, testBucket); !got.StreamCreated.Equal(newer.StreamCreated) {
 		t.Fatal("newer stream's snapshot was overwritten")
 	}
+
+	t.Run("authority gates durable uploads", func(t *testing.T) {
+		js := startJetStream(t)
+		kv := openBucket(t, js, testBucket)
+		put(t, kv, "a", []byte("1"))
+		controls := make([]*authority.Runtime, 2)
+		for index, candidate := range []string{"0000000000C66H81REBS854264", "000000000082B6JM3GHXKNG2CR"} {
+			control, err := authority.Start(t.Context(), js, authority.Config{Scope: testCell,
+				DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", CandidateID: candidate, Replicas: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			controls[index] = control
+			t.Cleanup(func() {
+				if err := control.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+		leader, follower := controls[0], controls[1]
+		if !leader.Current().CanMutate() || !follower.Current().Ready || follower.Current().Leader || follower.Current().CanMutate() {
+			t.Fatalf("authority leader = %+v, follower = %+v", leader.Current(), follower.Current())
+		}
+		storage := newObjectStorage(t)
+		observer := objectsFor(storage)
+		snapshotter := &Snapshotter{JS: js, Objects: objectsFor(storage), Buckets: []string{testBucket},
+			Leader: func() bool { return follower.Current().CanMutate() }}
+		runFollower := func() {
+			t.Helper()
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			defer cancel()
+			if err := snapshotter.Run(ctx); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("follower run = %v", err)
+			}
+		}
+		runFollower()
+		if storage.putCount() != 0 {
+			t.Fatalf("follower wrote %d snapshots", storage.putCount())
+		}
+		if _, _, found, err := observer.Get(t.Context(), testBucket); err != nil || found {
+			t.Fatalf("follower object found = %v, error = %v", found, err)
+		}
+		path := filepath.Join(storage.dir, objectName(testCell, testBucket))
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("follower object on disk = %v", err)
+		}
+
+		snapshotter.Leader = func() bool { return leader.Current().CanMutate() }
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		done := make(chan struct{})
+		var runErr error
+		go func() {
+			runErr = snapshotter.Run(ctx)
+			close(done)
+		}()
+		t.Cleanup(func() { cancel(); <-done })
+		var stored Document
+		for {
+			document, _, found, err := observer.Get(ctx, testBucket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if found {
+				stored = document
+				break
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("leader did not persist a snapshot before its deadline")
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+		cancel()
+		<-done
+		if !errors.Is(runErr, context.Canceled) {
+			t.Fatalf("leader run after cancellation = %v", runErr)
+		}
+		if storage.putCount() != 1 || stored.Version != 1 || stored.Cell != testCell || stored.Bucket != testBucket ||
+			stored.Sequence != 1 || stored.StreamCreated.IsZero() || stored.TakenAt.IsZero() ||
+			len(stored.Entries) != 1 || stored.Entries[0].Key != "a" || string(stored.Entries[0].Value) != "1" {
+			t.Fatalf("leader persisted %+v (%d puts)", stored, storage.putCount())
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := encodeDocument(stored)
+		if err != nil || !bytes.Equal(raw, encoded) {
+			t.Fatalf("disk snapshot differs from independent HTTP read: %v", err)
+		}
+
+		put(t, kv, "a", []byte("2"))
+		snapshotter.Leader = func() bool { return follower.Current().CanMutate() }
+		runFollower()
+		unchanged, err := os.ReadFile(path)
+		if err != nil || storage.putCount() != 1 || !bytes.Equal(raw, unchanged) {
+			t.Fatalf("follower changed disk snapshot (%d puts): %v", storage.putCount(), err)
+		}
+		document, _, found, err := observer.Get(t.Context(), testBucket)
+		if err != nil || !found || len(document.Entries) != 1 || document.Entries[0].Key != "a" || string(document.Entries[0].Value) != "1" {
+			t.Fatalf("follower changed HTTP snapshot: %+v, found=%v, error=%v", document, found, err)
+		}
+		if got, _ := value(t, kv, "a"); string(got) != "2" {
+			t.Fatalf("source value = %q", got)
+		}
+	})
 }
 
 // A snapshot object deleted behind the leader's cached ETag is written

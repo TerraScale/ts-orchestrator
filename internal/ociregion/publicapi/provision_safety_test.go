@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 )
 
 func TestLoadPlanMemberIdentityFollowsSlots(t *testing.T) {
@@ -178,6 +179,132 @@ func TestProvisionAcceptsReviewedNetworkWithoutChanges(t *testing.T) {
 	if err != nil || result["public_subnet"] != "subnet" || result["load_balancer_nsg"] != "nsg" || len(f.mutations()) != 0 {
 		t.Fatalf("reviewed edge changed or failed: result=%v mutations=%v err=%v", result, f.mutations(), err)
 	}
+
+	check := func(t *testing.T, d Desired, f *fakeOCI, p Provisioner, cloudflare Cloudflare, members, want string) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		defer cancel()
+		// Observe the fixture state through the production SDK and TLS readback.
+		readback, err := p.balancer(ctx, d)
+		if err != nil {
+			t.Fatalf("read load balancer: %v", err)
+		}
+		err = d.CheckBalancer(readback)
+		if want == "" {
+			if err != nil {
+				t.Fatalf("rejected native security default: %v", err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("accepted security drift; want %q: %v", want, err)
+		}
+		result, err := p.Provision(ctx, d, cloudflare, members, "")
+		if want == "" {
+			if err != nil || result["public_subnet"] != "subnet" || result["load_balancer_nsg"] != "nsg" {
+				t.Fatalf("reviewed edge failed: result=%v err=%v", result, err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("apply accepted security drift; want %q: %v", want, err)
+		}
+		if mutations := f.mutations(); len(mutations) != 0 {
+			t.Fatalf("security readback mutated OCI: %v", mutations)
+		}
+	}
+
+	t.Run("health TLS defaults", func(t *testing.T) {
+		d, f, p, cloudflare, members := reviewedEdge(t)
+		health := field(f.balancer, "backend-sets", "terrabase", "health-checker").(map[string]any)
+		for _, forcePlaintext := range []any{nil, false} {
+			health["is-force-plain-text"] = forcePlaintext
+			check(t, d, f, p, cloudflare, members, "")
+		}
+		delete(health, "is-force-plain-text")
+		check(t, d, f, p, cloudflare, members, "")
+		origin := field(f.balancer, "certificates", originCertificate).(map[string]any)
+		origin["public-certificate"] = origin["public-certificate"].(string) + testCA(t)
+		delete(origin, "private-key")
+		check(t, d, f, p, cloudflare, members, "")
+	})
+
+	t.Run("backend defaults", func(t *testing.T) {
+		d, f, p, cloudflare, members := reviewedEdge(t)
+		check(t, d, f, p, cloudflare, members, "")
+		for _, name := range []string{"terrabase", "ts-auth"} {
+			rows := field(f.balancer, "backend-sets", name, "backends").([]any)
+			for i, row := range rows {
+				rows[i] = f.render(loadbalancer.Backend{
+					IpAddress: new(field(row, "ip-address").(string)), Port: new(int(field(row, "port").(float64))),
+					Weight: new(1), Offline: new(false), Drain: new(false), Backup: new(false),
+				})
+			}
+		}
+		check(t, d, f, p, cloudflare, members, "")
+	})
+
+	t.Run("HTTP redirect", func(t *testing.T) {
+		for _, c := range []struct {
+			name, object, key string
+			value             any
+		}{
+			{"other default backend", "listener", "default-backend-set-name", "ts-auth"},
+			{"hostname restricted", "listener", "hostname-names", []any{"terrabase"}},
+			{"path routing", "listener", "path-route-set-name", "plaintext"},
+			{"routing policy", "listener", "routing-policy-name", "plaintext"},
+			{"missing redirect binding", "listener", "rule-set-names", nil},
+			{"additional rule binding", "listener", "rule-set-names", []any{"https-redirect", "0000000000V4MRM46HP1SNGDYW"}},
+			{"missing rule", "rule-set", "items", nil},
+			{"empty rules", "rule-set", "items", []any{}},
+			{"other action", "redirect", "action", "ADD_HTTP_RESPONSE_HEADER"},
+			{"temporary status", "redirect", "response-code", 302},
+			{"default status", "redirect", "response-code", nil},
+			{"missing conditions", "redirect", "conditions", nil},
+			{"empty conditions", "redirect", "conditions", []any{}},
+			{"additional condition", "redirect", "conditions", []any{
+				map[string]any{"attribute-name": "PATH", "attribute-value": "/", "operator": "PREFIX_MATCH"},
+				map[string]any{"attribute-name": "PATH", "attribute-value": "/readyz", "operator": "EXACT_MATCH"},
+			}},
+			{"narrow path", "condition", "attribute-value", "/readyz"},
+			{"exact root only", "condition", "operator", "EXACT_MATCH"},
+			{"other attribute", "condition", "attribute-name", "HOST"},
+			{"plaintext destination", "destination", "protocol", "HTTP"},
+			{"foreign host", "destination", "host", "other.terrascale.tech"},
+			{"missing host", "destination", "host", nil},
+			{"plaintext port", "destination", "port", 80},
+			{"retained plaintext port", "destination", "port", nil},
+			{"replaced path", "destination", "path", "/"},
+			{"missing path", "destination", "path", nil},
+			{"dropped query", "destination", "query", ""},
+			{"missing query", "destination", "query", nil},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				d, f, p, cloudflare, members := reviewedEdge(t)
+				set := field(f.balancer, "rule-sets", "https-redirect").(map[string]any)
+				redirect := set["items"].([]any)[0].(map[string]any)
+				objects := map[string]map[string]any{
+					"listener":    field(f.balancer, "listeners", "http").(map[string]any),
+					"rule-set":    set,
+					"redirect":    redirect,
+					"condition":   redirect["conditions"].([]any)[0].(map[string]any),
+					"destination": redirect["redirect-uri"].(map[string]any),
+				}
+				objects[c.object][c.key] = c.value
+				want := "https-redirect rule set"
+				if c.object == "listener" {
+					want = "listener http"
+				}
+				check(t, d, f, p, cloudflare, members, want)
+			})
+		}
+	})
+
+	t.Run("unrestricted HTTP defaults", func(t *testing.T) {
+		for i, hostnames := range []any{nil, []any{}} {
+			t.Run([]string{"nil hostnames", "empty hostnames"}[i], func(t *testing.T) {
+				d, f, p, cloudflare, members := reviewedEdge(t)
+				field(f.balancer, "listeners", "http").(map[string]any)["hostname-names"] = hostnames
+				check(t, d, f, p, cloudflare, members, "")
+			})
+		}
+	})
 }
 
 type attachmentDriftOCI struct {

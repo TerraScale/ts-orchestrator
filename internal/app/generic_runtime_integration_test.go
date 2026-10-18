@@ -338,7 +338,13 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	writer := new(genericRuntimeLegacyWriter)
 	var firstApplyError sync.Once
 	deliveries, err = delivery.Open(ctx, delivery.Config{Conn: broker.Conn(), JS: broker.JetStream(), Cell: identity.Cell, Replicas: 1,
-		Signer: codec, Verifier: codec, Fencer: fencer, Writer: writer, CaptureContainerProfile: history.CaptureContainerProfile,
+		Signer: codec, Verifier: codec, ArtifactVerifier: codec, Fencer: fencer, Writer: writer, CaptureContainerProfile: history.CaptureContainerProfile,
+		AuthorizeArtifact: func(_ context.Context, actor string, record delivery.ArtifactRecord) error {
+			if actor != "release" || record.Role != policy.Role || record.Environment != identity.Environment {
+				return delivery.ErrUnauthorized
+			}
+			return nil
+		},
 		Authorize: func(_ context.Context, actor string, proposed delivery.Intent) error {
 			if actor != "release" || proposed.Role != policy.Role || proposed.Environment != identity.Environment {
 				return delivery.ErrUnauthorized
@@ -409,7 +415,13 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 			if !reflect.DeepEqual(registration, session.registration) {
 				return errors.New("allocation observation differs from the actual signed host")
 			}
-			return verifyTask(ctx, task, true)
+			if err := verifyTask(ctx, task, true); err != nil {
+				return err
+			}
+			if err := probe(ctx, task); err != nil {
+				return err
+			}
+			return fencer.Guard(ctx, fencer.Current().Epoch)
 		})
 	for name, mutate := range map[string]func(*release.ContainerBundle){
 		"signature": func(candidate *release.ContainerBundle) {
@@ -570,51 +582,20 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		})
 		return view
 	}
+	if err := controller.refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
 	first := ready(1)
 	initialUsage := usageFixture.wait(t, ctx, genericRuntimeReadyTaskIDs(first), 3, 0)
 	if initialUsage.Observation.CoveredSequence == 0 || initialUsage.Observation.Requests[policy.Role] != (hostload.Request{CPUCores: float64(profile.Resources.CPU), MemoryBytes: profile.Resources.MemoryBytes}) {
 		t.Fatal("three stable signed load requests lost their prior manager interval or original signed resources")
 	}
 	usageFixture.assertExpiredAndThrottled(t, ctx, initialUsage)
-	assignment, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: first.Tasks[0].TaskID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	pin, err := swarmruntime.ContainerTaskFingerprint(assignment.Task)
-	if err != nil {
-		t.Fatal(err)
-	}
-	materialBinding := host.ContainerMaterialBinding{Region: managerConfig.Admission.Region, HostID: session.registration.ID,
-		InstanceID: managerConfig.Admission.InstanceID, NodeID: assignment.Task.NodeID, ServiceID: serviceID, TaskID: assignment.Task.ID, Fingerprint: pin}
-	materialProof, err := protocol.EncodeJSON(materialBinding)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var escaped context.Context
-	// This exercises the real signed task/SDK chain under the journal guard;
-	// the external production OCI recipient proof remains a separate gate.
-	genericRuntimeEventually(t, ctx, func() bool {
-		_, err := fencer.CommitHostMutationVerified(ctx, fencer.Current().Epoch, authority.MutationMaterialReceipt,
-			identity.Cell+"."+session.registration.Node, entityid.New(), 0, materialProof, func(check context.Context) error {
-				escaped = check
-				if err := probe(check, assignment.Task); err != nil {
-					return err
-				}
-				return fencer.Guard(check, fencer.Current().Epoch)
-			})
-		if errors.Is(err, authority.ErrConflict) {
-			return false
-		}
-		if err != nil {
-			t.Fatal("signed task/SDK verification under authority commit", err)
-		}
-		return true
-	})
+	usageFixture.mu.Lock()
+	escaped := usageFixture.guarded
+	usageFixture.mu.Unlock()
 	if escaped == nil || escaped.Err() == nil || !errors.Is(fencer.Guard(escaped, fencer.Current().Epoch), authority.ErrFenced) {
 		t.Fatal("task/SDK callback retained authority after its verified commit ended")
-	}
-	if err := controller.refresh(ctx); err != nil {
-		t.Fatal(err)
 	}
 	scaleTarget := autoscale.Target{Cell: identity.Cell, Environment: identity.Environment, Role: policy.Role}
 	scaleCtx, cancelScale := context.WithTimeout(ctx, 45*time.Second)
@@ -1046,6 +1027,7 @@ func genericRuntimeReadyTaskIDs(view swarmruntime.ServiceObservation) []string {
 type genericRuntimeUsage struct {
 	mu      sync.Mutex
 	escaped context.Context
+	guarded context.Context
 	err     error
 	session *genericRuntimeHostSession
 	history *nativeHistory
@@ -1085,10 +1067,21 @@ func startGenericRuntimeUsage(t *testing.T, ctx context.Context, session *generi
 		t.Fatal(err)
 	}
 	session.hosts.SetLoadObservationSink(func(requestCtx context.Context, origin hostload.Origin, report hostload.Report) error {
-		err := f.load.recordManaged(requestCtx, history, f.usage, client, observer, owns, verify, origin, report)
+		var guarded context.Context
+		err := f.load.recordManaged(requestCtx, history, f.usage, client, observer, owns,
+			func(check context.Context, registration host.Registration, task *api.Task) error {
+				if err := verify(check, registration, task); err != nil {
+					return err
+				}
+				guarded = check
+				return nil
+			}, origin, report)
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.err = err
+		if err == nil && guarded != nil {
+			f.guarded = guarded
+		}
 		if err == nil && f.escaped == nil {
 			f.escaped = context.WithoutCancel(requestCtx)
 		}
@@ -1160,9 +1153,34 @@ func (f *genericRuntimeUsage) assertExpiredAndThrottled(t *testing.T, ctx contex
 	if original.Kind != "host.load" {
 		t.Fatal("the real Agent did not send an observable signed load request")
 	}
+	// Host request fencing follows the current session, independently of the usage journal's authority epoch.
+	sessionKey := "session." + f.session.registration.Cell + "." + f.session.registration.Node
+	record, err := nativeLeaderGet(ctx, f.history.js, "TS_HOST_STATE", sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record == nil || record.Sequence == 0 || record.Subject != "$KV.TS_HOST_STATE."+sessionKey ||
+		record.Header.Get("KV-Operation") != "" || record.Header.Get(jetstream.MarkerReasonHeader) != "" {
+		t.Fatal("current authenticated host session state is unavailable")
+	}
+	var currentSession struct {
+		RegistrationGeneration uint64    `json:"registration_generation"`
+		SessionID              string    `json:"session_id"`
+		Epoch                  uint64    `json:"epoch"`
+		ExpiresAt              time.Time `json:"expires_at"`
+		LastNonce              string    `json:"last_nonce"`
+		LastIssuedAt           time.Time `json:"last_issued_at"`
+	}
+	if err := protocol.DecodeStrict(record.Data, &currentSession, 64<<10); err != nil {
+		t.Fatal(err)
+	}
+	if currentSession.RegistrationGeneration != f.session.registration.Generation || currentSession.SessionID != point.Observation.SessionID ||
+		currentSession.Epoch == 0 || !time.Now().Before(currentSession.ExpiresAt) {
+		t.Fatal("signed load observation differs from the current authenticated host session")
+	}
 	lifetime := original.ExpiresAt.Sub(original.IssuedAt)
 	if err := protocol.VerifyEnvelope(original, protocol.EnvelopeScope{Region: original.Region, Kind: "host.load", Actor: f.session.registration.Node,
-		OperationID: original.OperationID, Epoch: point.Observation.Epoch}, f.session.config.Identity.Public().(ed25519.PublicKey), time.Now().UTC(),
+		OperationID: original.OperationID, Epoch: currentSession.Epoch}, f.session.config.Identity.Public().(ed25519.PublicKey), time.Now().UTC(),
 		protocol.VerifyPolicy{MaxLifetime: lifetime, ClockSkew: time.Second}); err != nil {
 		t.Fatal(err)
 	}
@@ -1182,7 +1200,7 @@ func (f *genericRuntimeUsage) assertExpiredAndThrottled(t *testing.T, ctx contex
 	}
 	operation := entityid.Derive("host-request", nonce)
 	signed, err := protocol.SignEnvelope(wire, protocol.EnvelopeScope{Region: original.Region, Kind: "host.load", Actor: original.Actor,
-		OperationID: operation, Epoch: original.Epoch}, now, now.Add(lifetime), f.session.config.Identity)
+		OperationID: operation, Epoch: currentSession.Epoch}, now, now.Add(lifetime), f.session.config.Identity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1205,7 +1223,7 @@ func (f *genericRuntimeUsage) assertExpiredAndThrottled(t *testing.T, ctx contex
 		t.Fatal(err)
 	}
 	if err := protocol.VerifyEnvelope(response, protocol.EnvelopeScope{Region: original.Region, Kind: "host.response.load", Actor: "controller",
-		OperationID: operation, Epoch: original.Epoch}, f.session.config.ControllerPublicKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: lifetime, ClockSkew: time.Second}); err != nil {
+		OperationID: operation, Epoch: currentSession.Epoch}, f.session.config.ControllerPublicKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: lifetime, ClockSkew: time.Second}); err != nil {
 		t.Fatal(err)
 	}
 	var reply struct {
@@ -1220,7 +1238,7 @@ func (f *genericRuntimeUsage) assertExpiredAndThrottled(t *testing.T, ctx contex
 		} `json:"payload"`
 	}
 	if err := json.Unmarshal(response.Payload, &reply); err != nil || reply.Nonce != nonce || reply.Node != f.session.registration.Node ||
-		reply.SessionID != point.Observation.SessionID || reply.Epoch != original.Epoch || reply.Operation != "load" || reply.Error != "" || reply.Payload.Accepted {
+		reply.SessionID != point.Observation.SessionID || reply.Epoch != currentSession.Epoch || reply.Operation != "load" || reply.Error != "" || reply.Payload.Accepted {
 		t.Fatalf("fresh signed load inside the minimum interval was not throttled: %+v %v", reply, err)
 	}
 	if after := f.points(t, ctx); !reflect.DeepEqual(before, after) {

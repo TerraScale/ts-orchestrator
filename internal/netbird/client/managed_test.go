@@ -755,6 +755,71 @@ func TestManagedTransactionIdentityAndBootstrapOwnership(t *testing.T) {
 	if _, err := f.m.install(t.Context(), f.pin, f.cfg, f.options); err == nil {
 		t.Fatal("controller claimed bootstrap transaction")
 	}
+
+	for _, id := range []string{"bootstrap-old", "550e8400-e29b-41d4-a716-446655440000", "01m4eb0gdpphgjppvy77emzqkt"} {
+		t.Run(id, func(t *testing.T) {
+			f := newManagedFixture(t)
+			canonicalID := f.options.TransactionID
+			f.options.TransactionID = id
+			for _, operation := range []string{"install", "rollback"} {
+				var err error
+				if operation == "install" {
+					_, err = f.m.install(t.Context(), f.pin, f.cfg, f.options)
+				} else {
+					err = f.m.finish(t.Context(), id, true)
+				}
+				if err == nil || len(f.calls) != 0 {
+					t.Fatalf("invalid ID reached %s: %v %v", operation, err, f.calls)
+				}
+				for _, file := range []struct {
+					path string
+					body []byte
+					mode os.FileMode
+				}{{f.m.path(managedBinary), f.old, 0755}, {f.options.BinaryPath, f.next, 0700}} {
+					assertManagedFile(t, file.path, file.body)
+					info, err := os.Lstat(file.path)
+					if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != file.mode {
+						t.Fatalf("invalid ID changed %s metadata: %v", file.path, err)
+					}
+				}
+				for _, path := range []string{managedDirectory, managedDirectory + "/pending.json"} {
+					if _, err := os.Lstat(f.m.path(path)); !errors.Is(err, os.ErrNotExist) {
+						t.Fatalf("invalid ID created managed state %s: %v", path, err)
+					}
+				}
+				if transaction, err := f.m.readTransaction(); err != nil || transaction != (managedTransaction{}) {
+					t.Fatalf("invalid ID admitted a transaction: %+v %v", transaction, err)
+				}
+			}
+			lock, err := f.m.lock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lock.Close()
+			expected := managedTransaction{TransactionID: canonicalID, Bootstrap: true, Version: "0.80.0",
+				RollbackDeadline: time.Unix(1800000000, 0).UTC(),
+				BinarySHA256:     f.pin.Archives.AMD64.BinarySHA256, Architecture: "amd64"}
+			if err := f.m.writeTransaction(expected); err != nil {
+				t.Fatal(err)
+			}
+			persisted, err := f.m.readTransaction()
+			if err != nil || persisted != expected {
+				t.Fatalf("canonical transaction independent readback: %+v %v", persisted, err)
+			}
+			journal, err := os.ReadFile(f.m.path(managedDirectory + "/pending.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := lock.Close(); err != nil {
+				t.Fatal(err)
+			}
+			recovered, err := f.m.recover(t.Context())
+			if err != nil || recovered != expected || len(f.calls) != 0 {
+				t.Fatalf("completed canonical recovery changed state or service: %+v %v calls=%v", recovered, err, f.calls)
+			}
+			assertManagedFile(t, f.m.path(managedDirectory+"/pending.json"), journal)
+		})
+	}
 }
 
 func TestManagedTransactionRejectsNoncanonicalIDs(t *testing.T) {

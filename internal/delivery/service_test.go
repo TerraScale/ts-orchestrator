@@ -967,6 +967,54 @@ func TestStrictIntentRejectsDuplicateAndUnknownFields(t *testing.T) {
 
 func TestSignedUnadmittedIntentHasQueryVisibleRejection(t *testing.T) {
 	s, ctx := testService(t, &testWriter{})
+	// testCodec passes payloads through; these exact malformed bodies are not Ed25519-signed.
+	writer := s.config.Writer.(*testWriter)
+	reader := &Service{config: Config{Conn: s.config.Conn}}
+	for _, body := range []string{`{"schemaVersion":1,"schemaVersion":1}`, `{"unknown":1}`, `{"schemaVersion":1} {}`} {
+		before := writer.count()
+		published, err := s.js.Publish(ctx, IntentSubject(s.config.Cell), []byte(body))
+		if err != nil || published == nil || published.Sequence == 0 || published.Stream != IntentStream {
+			t.Fatalf("publish malformed intent %s: ack=%+v err=%v", body, published, err)
+		}
+		fetch, err := s.consumer.Fetch(1, jetstream.FetchMaxWait(time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		messages := 0
+		for msg := range fetch.Messages() {
+			messages++
+			metadata, err := msg.Metadata()
+			if err != nil || metadata == nil || metadata.Sequence.Stream != published.Sequence ||
+				msg.Subject() != IntentSubject(s.config.Cell) || !bytes.Equal(msg.Data(), []byte(body)) {
+				t.Fatalf("malformed intent readback %s: metadata=%+v err=%v", body, metadata, err)
+			}
+			if _, err := DecodeIntent(msg.Data()); err == nil {
+				t.Errorf("accepted %s", body)
+			}
+			if terminal, err := s.process(ctx, msg.Data()); !terminal || err != nil {
+				t.Fatalf("malformed intent processing %s: terminal=%t err=%v", body, terminal, err)
+			}
+			sum := sha256.Sum256(msg.Data())
+			fingerprint := hex.EncodeToString(sum[:])
+			entry, err := reader.getOperation(ctx, entityid.Derive("delivery-rejected", fingerprint))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var receipt Receipt
+			if err := json.Unmarshal(entry.Value(), &receipt); err != nil {
+				t.Fatal(err)
+			}
+			if receipt.Status != "rejected" || receipt.Fingerprint != fingerprint || writer.count() != before {
+				t.Fatalf("malformed intent receipt %s: receipt=%+v writes=%d, want %d", body, receipt, writer.count(), before)
+			}
+			if err := msg.Ack(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := fetch.Error(); err != nil || messages != 1 {
+			t.Fatalf("malformed intent fetch %s: messages=%d err=%v", body, messages, err)
+		}
+	}
 	i := Intent{SchemaVersion: SchemaVersion, OperationID: "0000000000NQMHCVBYP1N8ZHTR", Source: ArtifactSource{Repository: "https://github.com/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}, ArtifactDigest: hex.EncodeToString(sha256.New().Sum(nil)), ManifestDigest: hex.EncodeToString(sha256.New().Sum(nil)), Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
 	if err := s.Submit(ctx, i); err != nil {
 		t.Fatal(err)

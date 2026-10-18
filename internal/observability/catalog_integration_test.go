@@ -1,13 +1,17 @@
 package observability
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -162,6 +166,198 @@ func TestMetricCatalogHTTPRegistryAndHistoryIntegration(t *testing.T) {
 	server.HandleMetricHistory(NewHistory(HistoryConfig{}))
 	if code, body := get("/v1/history/metrics", "Bearer "+token); code != http.StatusOK || strings.TrimSpace(body) != "[]" {
 		t.Fatalf("replaced source status %d: %s", code, body)
+	}
+	// Append after the existing history replacement assertion, before this root closes.
+	{
+		start := func(t *testing.T, service *Server) (string, *http.Client) {
+			t.Helper()
+			probe := httptest.NewServer(http.NotFoundHandler())
+			address := strings.TrimPrefix(probe.URL, "http://")
+			probe.Close()
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			result, err := service.Start(ctx, Config{ListenAddress: address})
+			if err != nil {
+				cancel()
+				t.Fatalf("start loopback listener: %v", err)
+			}
+			client := &http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{}}
+			t.Cleanup(func() {
+				client.CloseIdleConnections()
+				cancel()
+				closed := make(chan error, 1)
+				go func() { closed <- service.Close() }()
+				select {
+				case err := <-closed:
+					if err != nil {
+						t.Errorf("close listener: %v", err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Error("listener cleanup did not finish within 5 seconds")
+				}
+				select {
+				case err := <-result:
+					if err != nil {
+						t.Errorf("serve result: %v", err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Error("serve result did not arrive within 5 seconds")
+				}
+			})
+			return "http://" + service.Addr().String(), client
+		}
+		request := func(t *testing.T, client *http.Client, base, method, path, authorization, host string, headers ...string) (int, string) {
+			t.Helper()
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, method, base+path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if authorization != "" {
+				req.Header.Set("Authorization", authorization)
+			}
+			if host != "" {
+				req.Host = host
+			}
+			for index := 0; index+1 < len(headers); index += 2 {
+				req.Header.Set(headers[index], headers[index+1])
+			}
+			response, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, readErr := io.ReadAll(response.Body)
+			closeErr := response.Body.Close()
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			return response.StatusCode, string(body)
+		}
+		t.Run("server private listeners and token files", func(t *testing.T) {
+			tokenFile := filepath.Join(t.TempDir(), "token")
+			token := strings.Repeat("t", 40)
+			if err := os.WriteFile(tokenFile, []byte(token), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			deps := ServerDeps{Registry: NewRegistry(false), Health: new(Health)}
+			for _, address := range []string{"127.0.0.1:9464", "[::1]:9464", "10.0.1.5:9464", "172.16.4.2:9464", "192.168.1.10:9464", "10.200.106.253:9464", "[fd00::1]:9464"} {
+				t.Run(address, func(t *testing.T) {
+					service, err := NewServer(Config{ListenAddress: address, BearerTokenFile: tokenFile}, deps)
+					if err != nil {
+						t.Fatalf("NewServer(%q): %v", address, err)
+					}
+					base, client := start(t, service)
+					if code, _ := request(t, client, base, http.MethodGet, "/metrics", "Bearer "+token, ""); code != http.StatusOK {
+						t.Fatalf("listener %q metrics = %d", address, code)
+					}
+				})
+			}
+			service, err := NewServer(Config{}, deps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, address := range []string{"0.0.0.0:9464", "[::]:9464", ":9464", "localhost:9464", "8.8.8.8:9464", "169.254.1.1:9464", "224.0.0.1:9464", "127.0.0.1:0", "127.0.0.1", "[fe80::1%eth0]:9464", "127.000.0.1:9464", "[::ffff:8.8.8.8]:9464", "100.90.12.3:9464", "off"} {
+				if _, err := service.Start(t.Context(), Config{ListenAddress: address}); err == nil {
+					_ = service.Close()
+					t.Fatalf("Start accepted %q", address)
+				}
+			}
+			for _, config := range []Config{{ListenAddress: "10.0.0.4:9464"}, {TLSCertFile: "/cert"}, {LogFormat: "xml"}, {LogLevel: "trace"}} {
+				if _, err := NewServer(config, deps); err == nil {
+					t.Fatalf("NewServer accepted %+v", config)
+				}
+			}
+		})
+		t.Run("server routes and bearer token", func(t *testing.T) {
+			tokenFile := filepath.Join(t.TempDir(), "token")
+			token := strings.Repeat("t", 40)
+			if err := os.WriteFile(tokenFile, []byte(token+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			registry := NewRegistry(false)
+			set := metrics.NewSet()
+			set.NewCounter(MetricPrefix + "test_total").Add(3)
+			registry.Register(set)
+			health := new(Health)
+			var ready atomic.Bool
+			health.Add(Check{Name: "nats", Run: func(context.Context) (bool, string) { return ready.Load(), "not connected" }})
+			bus := NewEventBus(8)
+			bus.Publish(Event{Message: "hello"})
+			service, err := NewServer(Config{ListenAddress: "10.0.0.4:9464", BearerTokenFile: tokenFile}, ServerDeps{Registry: registry, Health: health, Events: bus})
+			if err != nil {
+				t.Fatal(err)
+			}
+			base, client := start(t, service)
+			get := func(path, authorization string, headers ...string) (int, string) {
+				t.Helper()
+				return request(t, client, base, http.MethodGet, path, authorization, "", headers...)
+			}
+			if code, _ := get("/healthz", ""); code != http.StatusOK {
+				t.Fatalf("/healthz = %d", code)
+			}
+			if code, body := get("/readyz", ""); code != http.StatusServiceUnavailable || !strings.Contains(body, "nats failing: not connected") {
+				t.Fatalf("/readyz = %d %q", code, body)
+			}
+			ready.Store(true)
+			if code, _ := get("/readyz", ""); code != http.StatusOK {
+				t.Fatalf("ready /readyz = %d", code)
+			}
+			if code, _ := get("/metrics", ""); code != http.StatusUnauthorized {
+				t.Fatalf("unauthenticated /metrics = %d", code)
+			}
+			if code, _ := get("/metrics", "Bearer wrong"); code != http.StatusUnauthorized {
+				t.Fatalf("wrong token /metrics = %d", code)
+			}
+			if code, body := get("/metrics", "Bearer "+token); code != http.StatusOK || !strings.Contains(body, "ts_orch_test_total 3") {
+				t.Fatalf("/metrics = %d %q", code, body)
+			}
+			if code, _ := get("/metrics", "Bearer "+token, "X-Forwarded-For", "1.2.3.4"); code != http.StatusBadRequest {
+				t.Fatalf("proxied /metrics = %d", code)
+			}
+			_, body := get("/v1/events?limit=5", "Bearer "+token)
+			var events []Event
+			if err := json.Unmarshal([]byte(body), &events); err != nil || len(events) != 1 || events[0].Message != "hello" {
+				t.Fatalf("/v1/events = %q, %v", body, err)
+			}
+			if code, _ := get("/v1/cluster", "Bearer "+token); code != http.StatusNotFound {
+				t.Fatalf("unconfigured /v1/cluster = %d", code)
+			}
+			if code, _ := request(t, client, base, http.MethodPost, "/metrics", "", ""); code != http.StatusMethodNotAllowed && code != http.StatusUnauthorized {
+				t.Fatalf("POST /metrics = %d", code)
+			}
+		})
+		t.Run("server refuses tokenless network address", func(t *testing.T) {
+			service, err := NewServer(Config{}, ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.Start(t.Context(), Config{ListenAddress: "10.0.0.1:9464"}); err == nil || !strings.Contains(err.Error(), "bearer_token_file") {
+				_ = service.Close()
+				t.Fatalf("Start(tokenless private address) error = %v", err)
+			}
+			base, client := start(t, service)
+			if code, _ := request(t, client, base, http.MethodGet, "/metrics", "", ""); code != http.StatusOK {
+				t.Fatalf("tokenless loopback /metrics = %d", code)
+			}
+		})
+		t.Run("tokenless server refuses hostnames on every route", func(t *testing.T) {
+			service, err := NewServer(Config{}, ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			service.Handle("GET /v1/extra", http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { writer.WriteHeader(http.StatusOK) }))
+			base, client := start(t, service)
+			for _, path := range []string{"/metrics", "/healthz", "/v1/extra"} {
+				for host, want := range map[string]int{"rebind.attacker.example:9464": http.StatusMisdirectedRequest, "127.0.0.1:9464": http.StatusOK, "[::1]:9464": http.StatusOK, "localhost:9464": http.StatusOK} {
+					if code, _ := request(t, client, base, http.MethodGet, path, "", host); code != want {
+						t.Fatalf("GET %s with Host %q = %d, want %d", path, host, code, want)
+					}
+				}
+			}
+		})
 	}
 }
 
