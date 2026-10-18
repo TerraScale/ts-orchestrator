@@ -725,6 +725,74 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	if err := ProvisionFoundationBundle(t.Context(), factory, fixture.roots, foreign); err == nil || fixture.provider.reads.Load() != reads || fixture.cloud.requests != requests {
 		t.Fatalf("untrusted origin signer reached the operator/cloud boundary: %v", err)
 	}
+	t.Run("startup authority before provider access", func(t *testing.T) {
+		for _, test := range []struct {
+			name   string
+			cell   string
+			mutate func(*BootstrapStartupIntent)
+			want   string
+		}{
+			{"invalid GRU image signature", "GRU", func(startup *BootstrapStartupIntent) {
+				envelope, err := trust.DecodeEnvelope(startup.ReleaseImageReceiptWire)
+				if err != nil {
+					t.Fatal(err)
+				}
+				envelope.Signature = base64.RawURLEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
+				startup.ReleaseImageReceiptWire = provisionEnvelope(t, envelope)
+			}, "verify signed GRU startup image before provisioning"},
+			{"different SFO image architecture", "SFO", func(startup *BootstrapStartupIntent) {
+				startup.ImageArchitecture = "linux-amd64"
+			}, "verify signed SFO startup image before provisioning"},
+			{"FRA deadline exceeds current image", "FRA", func(startup *BootstrapStartupIntent) {
+				startup.FounderResources.LaunchDeadline = fixture.now.Add(90 * time.Minute)
+			}, "verify signed FRA startup deadline before provisioning"},
+			{"different GRU initial intent bytes", "GRU", func(startup *BootstrapStartupIntent) {
+				file := &startup.ControllerFiles[0]
+				file.Bytes = append(bytes.Clone(file.Bytes), '\n')
+				file.SHA256 = preparationDigest(file.Bytes)
+			}, "prepared GRU startup differs from its root-anchored scope"},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+				candidate := prepared
+				candidate.Grant = FoundationGrant{}
+				wire, err := json.Marshal(prepared.Grant)
+				if err != nil || json.Unmarshal(wire, &candidate.Grant) != nil {
+					t.Fatal("clone prepared startup authority")
+				}
+				for index := range candidate.Grant.Regions {
+					regional := &candidate.Grant.Regions[index]
+					if regional.Plan["cell"] != test.cell {
+						continue
+					}
+					test.mutate(regional.BootstrapMaterial.Startup)
+					recipe, err := ControllerBootstrapRecipeDigest(*regional.BootstrapMaterial.Startup)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for slot := range candidate.Grant.InfrastructureSpend.Bootstrap.Slots {
+						allocation := &candidate.Grant.InfrastructureSpend.Bootstrap.Slots[slot]
+						if allocation.Cell == test.cell && allocation.Role == "controller" {
+							allocation.RecipeSHA256 = recipe
+						}
+					}
+					purpose, err := originalSourceProducerIntent(candidate.Grant, fixture.approval.HomeStorageDomain, *regional)
+					if err != nil {
+						t.Fatal(err)
+					}
+					regional.BootstrapMaterial.OriginalSourceProducer = new(purpose)
+				}
+				if err := ValidatePreparedFoundation(candidate.Grant); err != nil {
+					t.Fatalf("startup refusal fixture did not pass structural preparation: %v", err)
+				}
+				invalid := signProvisionFoundation(t, candidate, bundle.RootChainWire, fixture.root, fixture.now)
+				reads, requests := fixture.provider.reads.Load(), fixture.cloud.requests
+				if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, invalid); err == nil || !strings.Contains(err.Error(), test.want) || fixture.provider.reads.Load() != reads || fixture.cloud.requests != requests {
+					t.Fatalf("startup authority reached the provider/cloud or failed at another gate: %v", err)
+				}
+			})
+		}
+	})
 	for name, mutate := range map[string]func(*FoundationGrant){
 		"historical schema with genesis": func(grant *FoundationGrant) { grant.SchemaVersion = 2 },
 		"missing original scope":         func(grant *FoundationGrant) { grant.WorkloadGenesis = grant.WorkloadGenesis[:8] },
@@ -850,7 +918,7 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 			t.Fatalf("unpublished current grant unexpectedly exists: %v", err)
 		}
 	}
-	assertMissingCurrentGrant(ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle))
+	fixture.provisionMaterial(t, bundle)
 	if fixture.cloud.lostOrigin || fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 || fixture.cloud.hasAnchor() {
 		t.Fatal("prospective publication failed uncertain-write recovery or preceded paid effects/startup")
 	}
@@ -868,7 +936,7 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 			t.Fatalf("origin did not retain original grant/anchor/root lineage at %s: %v", name, err)
 		}
 	}
-	assertMissingCurrentGrant(ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle))
+	fixture.provisionMaterial(t, bundle)
 	if fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 {
 		t.Fatal("identical origin replay initialized a runtime or purchased a resource")
 	}
@@ -1008,8 +1076,9 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		if original == nil {
 			t.Fatal("accepted unknown CAS lost complete original array")
 		}
-		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) || !sameOriginalSourceValue(original, fixture.cloud.journal("GRU").OriginalSourceProducers) {
-			t.Fatalf("unknown original birth was recreated or startup opened: %v", err)
+		fixture.provisionMaterial(t, bundle)
+		if !sameOriginalSourceValue(original, fixture.cloud.journal("GRU").OriginalSourceProducers) {
+			t.Fatal("unknown original birth was recreated")
 		}
 		fixture.assertMaterial(t)
 	})
@@ -1102,6 +1171,40 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	if err != nil || !bytes.Equal(actual, conflict) {
 		t.Fatal("conflicting origin bytes were overwritten")
 	}
+	t.Run("public first bootstrap reaches original writer", func(t *testing.T) {
+		fixture := newFoundationProvisionFixture(t)
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
+		fixture.cloud.bundle = bundle
+		err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle)
+		if err == nil || fixture.cloud.lostLaunch || fixture.cloud.hasAnchor() {
+			t.Fatalf("first bootstrap did not retain the accepted original writer response loss before discovery: %v", err)
+		}
+		for name, expected := range map[string][]byte{fixture.approval.HomeStorageDomain.Prefix + "/" + foundationGrantObject: bundle.GrantWire, foundationRootChainObject: bundle.RootChainWire} {
+			actual, err := os.ReadFile(fixture.cloud.objectPath("gru-1-head/" + name))
+			if err != nil || !bytes.Equal(actual, expected) {
+				t.Fatalf("first bootstrap lacks exact protected prerequisite %s: %v", name, err)
+			}
+		}
+		anchor, err := verifyDiscoveryAnchor(bundle.AnchorWire, fixture.roots, bundle.TenancyID, bundle.Namespace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA} {
+			record := fixture.cloud.journal(string(cell))
+			if record.Stage != "reconciled" || record.CompletedAt.IsZero() || len(record.ResourceIDs) == 0 {
+				t.Fatalf("first bootstrap reached writer admission before %s reconciliation", cell)
+			}
+			if _, err := bootstrap.VerifyBoundRegionalStartupTemplate(t.Context(), fixture.factoryFor(), bundle.GrantWire, fixture.roots, anchor, cell, time.Now()); err != nil {
+				t.Fatalf("first bootstrap lacks full current %s startup binding: %v", cell, err)
+			}
+		}
+		token, id := fixture.cloud.original("GRU")
+		writer := fixture.cloud.journal("GRU").FoundationWriter
+		if token == "" || id == "" || writer == nil || writer.OriginalQuote == nil || writer.OriginalQuote.Validate() != nil {
+			t.Fatal("public first bootstrap did not reach the original quoted SDK writer launch")
+		}
+	})
 }
 
 type provisionProvider struct {
@@ -1214,6 +1317,15 @@ func (c *provisionCloud) seedPrerequisites(input FoundationPreparationInput) {
 	}
 }
 
+func (fixture foundationProvisionFixture) provisionMaterial(t *testing.T, bundle RetainedFoundation) {
+	t.Helper()
+	stage, err := provisionFoundationMaterial(t.Context(), fixture.factoryFor(), fixture.roots, bundle)
+	if err != nil {
+		t.Fatalf("material-only preparation failed: %v", err)
+	}
+	stage.cancel()
+}
+
 func (fixture foundationProvisionFixture) assertMaterial(t *testing.T) {
 	t.Helper()
 	record := fixture.cloud.journal("GRU")
@@ -1282,9 +1394,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 		fixture.cloud.bundle, fixture.cloud.materialRoot = bundle, bytes.Repeat([]byte{'Q'}, 1024)
-		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
-			t.Fatalf("bounded opaque1024byte root failed material-only entrypoint: %v", err)
-		}
+		fixture.provisionMaterial(t, bundle)
 		fixture.assertMaterial(t)
 	})
 	for _, lost := range []int{0, 2} {
@@ -1300,9 +1410,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 			if before.SecretID != "" || before.FirstDispatchedAt.IsZero() || before.RequestSHA256 == "" || before.RetryToken == "" {
 				t.Fatal("lost material response lacked protected original dispatch")
 			}
-			if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
-				t.Fatalf("factory reopen did not finish material before unchanged startup refusal: %v", err)
-			}
+			fixture.provisionMaterial(t, bundle)
 			after := fixture.cloud.journal("GRU").NetBirdMaterial.Creates[lost]
 			if before.RequestSHA256 != after.RequestSHA256 || before.RetryToken != after.RetryToken || !before.FirstDispatchedAt.Equal(after.FirstDispatchedAt) || fixture.cloud.materialPosts != 5 {
 				t.Fatal("material recovery reset request/token/time or created replacement")
@@ -1375,9 +1483,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 		fixture.cloud.bundle = bundle
-		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
-			t.Fatalf("initial material-only preparation failed: %v", err)
-		}
+		fixture.provisionMaterial(t, bundle)
 		record := fixture.cloud.journal("GRU")
 		record.StartedAt = time.Now().Add(-25 * time.Hour).UTC()
 		record.NetBirdMaterial.BornAt = record.StartedAt
@@ -1393,8 +1499,9 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 		}
 		fixture.cloud.writeObject("gru-1-head/"+foundationObjectPrefix+"GRU.json", wire)
 		posts := fixture.cloud.materialPosts
-		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) || fixture.cloud.materialPosts != posts {
-			t.Fatalf("pinned exact material was replaced after retry-token lifetime: %v", err)
+		fixture.provisionMaterial(t, bundle)
+		if fixture.cloud.materialPosts != posts {
+			t.Fatal("pinned exact material was replaced after retry-token lifetime")
 		}
 		fixture.assertMaterial(t)
 	})
@@ -1404,9 +1511,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 			fixture.cloud.bundle = bundle
-			if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
-				t.Fatalf("initial material-only preparation failed: %v", err)
-			}
+			fixture.provisionMaterial(t, bundle)
 			record := fixture.cloud.journal("GRU")
 			switch failure {
 			case "missing journal and secrets", "retained origins without birth":
@@ -1450,9 +1555,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 		fixture.cloud.bundle = bundle
-		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
-			t.Fatalf("initial material-only preparation failed: %v", err)
-		}
+		fixture.provisionMaterial(t, bundle)
 		client, err := fixture.factoryFor().ObjectStorage()
 		if err != nil {
 			t.Fatal(err)

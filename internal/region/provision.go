@@ -1,13 +1,17 @@
 package region
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -20,9 +24,6 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 	}
 	defer stage.cancel()
 	ctx, authority, resolver := stage.ctx, stage.authority, stage.resolver
-	if err := authority.verifyFoundationWorkloadStartup(ctx); err != nil {
-		return err
-	}
 	reader := resolver.Footprint.(*SignedFootprint)
 	footprint, err := reader.AuthorizedRegions(ctx)
 	if err != nil {
@@ -54,6 +55,9 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 	// the discovery anchor remains unpublished until every writer is ready.
 	if err := authority.publishFoundationPrerequisites(ctx); err != nil {
 		return fmt.Errorf("publish signed foundation prerequisites: %w", err)
+	}
+	if err := authority.verifyFoundationWorkloadStartup(ctx); err != nil {
+		return err
 	}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		original, err := launchFoundationWriter(ctx, authority, resolver, bundle, cell)
@@ -137,8 +141,32 @@ func VerifyFoundationProvisionBundle(ctx context.Context, genesis trust.Keyring,
 	if !ok {
 		return errors.New("foundation provisioning lacks its independently verified grant reader")
 	}
-	if err := ValidateContainerReleaseAuthorities(grant, reader.roots, reader.storage, time.Now()); err != nil {
+	now := time.Now()
+	if err := ValidateContainerReleaseAuthorities(grant, reader.roots, reader.storage, now); err != nil {
 		return err
 	}
-	return ValidatePreparedFoundation(grant)
+	if err := ValidatePreparedFoundation(grant); err != nil {
+		return err
+	}
+	anchor := reader.bootstrapAnchor.Anchor()
+	for _, regional := range grant.Regions {
+		cell := regional.Plan["cell"].(string)
+		material := regional.BootstrapMaterial
+		startup := material.Startup
+		if material.Config.Environment != anchor.Environment || cell == "GRU" &&
+			(material.Config.DeploymentID != anchor.DeploymentID || material.Config.ClusterID != anchor.ClusterID ||
+				!bytes.Equal(startup.ControllerFiles[0].Bytes, anchor.InitialRegionIntentWire) || startup.ControllerFiles[0].SHA256 != anchor.InitialRegionIntentSHA256 ||
+				!sameOriginalSourceValue(material.SourceRegistration, anchor.InitialSourceRegistration)) {
+			return fmt.Errorf("prepared %s startup differs from its root-anchored scope", cell)
+		}
+		image, err := release.VerifyImageCurrent(startup.ReleaseImageReceiptWire, startup.ReleaseDelegationWire, reader.roots,
+			release.ImageExpectation{Environment: material.Config.Environment, LogicalRegion: cell, OCIImageOCID: startup.ImageOCID, Architecture: strings.TrimPrefix(startup.ImageArchitecture, "linux-")}, now)
+		if err != nil {
+			return fmt.Errorf("verify signed %s startup image before provisioning: %w", cell, err)
+		}
+		if startup.FounderResources.LaunchDeadline.After(envelope.ExpiresAt) || startup.FounderResources.LaunchDeadline.After(image.ExpiresAt()) {
+			return fmt.Errorf("verify signed %s startup deadline before provisioning: %w", cell, bootstrap.ErrFounderPlanInvalid)
+		}
+	}
+	return nil
 }
