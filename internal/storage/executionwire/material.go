@@ -25,6 +25,8 @@ type RetainedData struct {
 // task assignment from its authenticated registration, placement and OCI state.
 // The wire value alone carries no authority; WorkerSession seals verified grants.
 type WorkerGrantMaterial struct {
+	ManagedOwnerSequence uint64                       `json:"managed_owner_sequence"`
+	ManagedOwnerSHA256   string                       `json:"managed_owner_sha256"`
 	Desired              jsontext.Value               `json:"desired"`
 	Registration         jsontext.Value               `json:"registration"`
 	RuntimeRoot          string                       `json:"runtime_root"`

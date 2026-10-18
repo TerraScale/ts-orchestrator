@@ -1,12 +1,14 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
@@ -41,6 +43,17 @@ func (b *rootReleaseChannels) ContainerRelease(ctx context.Context, call rootoci
 	}
 	target := release.ContainerTarget{Cell: o.source.Identity().Cell, Environment: o.source.Identity().Environment, Role: request.Role, Architecture: request.Architecture}
 	roots := o.registry.roots.current()
+	var genesisResolver region.FoundationResolver
+	if len(bundle.Migration) == 0 {
+		genesisResolver, err = region.NewFoundationDiscovery(b.factory, o.source.Anchor(), roots)
+		if err != nil {
+			return rootoci.ContainerReleaseObservation{}, err
+		}
+		target.Genesis, result.OriginalProof, err = genesisResolver.WorkloadGenesis(ctx, target.Cell, target.Role, target.Environment)
+		if err != nil {
+			return rootoci.ContainerReleaseObservation{}, err
+		}
+	}
 	historical, err := release.VerifyContainerHistorical(bundle, roots, target)
 	if err != nil {
 		return rootoci.ContainerReleaseObservation{}, err
@@ -94,6 +107,15 @@ func (b *rootReleaseChannels) ContainerRelease(ctx context.Context, call rootoci
 	}
 	if err := o.guard(ctx); err != nil {
 		return rootoci.ContainerReleaseObservation{}, err
+	}
+	if target.Genesis.IsVerified() {
+		currentGenesis, originalProof, err := genesisResolver.WorkloadGenesis(ctx, target.Cell, target.Role, target.Environment)
+		if err != nil || currentGenesis.Fingerprint() != target.Genesis.Fingerprint() || !bytes.Equal(originalProof, result.OriginalProof) {
+			return rootoci.ContainerReleaseObservation{}, errors.Join(rootrelease.ErrPending, err)
+		}
+		if err := o.guard(ctx); err != nil {
+			return rootoci.ContainerReleaseObservation{}, err
+		}
 	}
 	result.Bundle, result.BundleSHA256, result.Fingerprint, result.ExpiresAt = bundle, verified.BundleSHA256(), verified.Fingerprint(), o.deadline
 	if !result.Valid(request, time.Now()) {

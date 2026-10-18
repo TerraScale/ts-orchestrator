@@ -39,25 +39,28 @@ const (
 var errSessionExecutionReserve = errors.New("host session execution reserve exhausted")
 
 type Agent struct {
-	cfg              AgentConfig
-	runner           Runner
-	mu               sync.RWMutex
-	session          session
-	sessionSafeUntil time.Time
-	processID        string
-	pending          map[string]pendingCycle
-	terraBase        map[string]terraBaseMember
-	sessionLost      atomic.Bool
-	sessionFailOnce  sync.Once
-	diagMu           sync.Mutex
-	diagAt           time.Time
-	diagClass        string
-	diagFailed       bool
-	nativeRootMu     sync.Mutex
-	nativeRoots      map[string]*managedNativeRoot
-	nativeDesired    map[string]nativeRootDesired
-	memoryCheck      func(Registration) error
-	wallNow          func() time.Time
+	cfg                  AgentConfig
+	runner               Runner
+	mu                   sync.RWMutex
+	session              session
+	sessionSafeUntil     time.Time
+	processID            string
+	pending              map[string]pendingCycle
+	terraBase            map[string]terraBaseMember
+	sessionLost          atomic.Bool
+	sessionFailOnce      sync.Once
+	diagMu               sync.Mutex
+	diagAt               time.Time
+	diagClass            string
+	diagFailed           bool
+	managedNativeMu      sync.Mutex
+	managedNativeGates   map[string]*managedNativeGate
+	managedNativeDesired map[string]Desired
+	nativeRootMu         sync.Mutex
+	nativeRoots          map[string]*managedNativeRoot
+	nativeDesired        map[string]nativeRootDesired
+	memoryCheck          func(Registration) error
+	wallNow              func() time.Time
 	// logsCommand, logsTick and logsPublish replace journalctl, the minute
 	// ticks and the publish in tests; nil means production.
 	logsCommand func(context.Context) (io.ReadCloser, error)
@@ -770,7 +773,13 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if err := validateDesired(d, a.cfg.Cell, *target.Registration); err != nil {
 		return errors.Join(err, a.revokeManagedNativeRoot(role))
 	}
-	if !d.Withdrawn && d.ManagedMember != nil {
+	if !d.Withdrawn && d.ManagedMember != nil && d.ManagedMember.Runtime != nil {
+		nativeContext, release, err := a.acquireManagedNative(ctx, d)
+		if err != nil {
+			return err
+		}
+		defer release()
+		ctx = nativeContext
 		fingerprint, err := desiredFingerprint(d)
 		if err != nil {
 			return errors.Join(err, a.revokeManagedNativeRoot(role))

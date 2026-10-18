@@ -381,7 +381,7 @@ func (a *currentTaskAdmission) originalProfileCurrent(ctx context.Context, roots
 	}
 	claim := a.verified.Claim()
 	historical, err := release.VerifyContainerHistorical(*intent.Container, roots.Historical, release.ContainerTarget{
-		Cell: claim.Cell, Environment: claim.Environment, Role: claim.Role, Architecture: claim.Architecture,
+		Cell: claim.Cell, Environment: claim.Environment, Role: claim.Role, Architecture: claim.Architecture, Genesis: a.verified.Genesis(),
 	})
 	if err != nil || VerifyContinuity(profile, historical, current, a.verified, time.Now().UTC()) != nil {
 		return ErrPending

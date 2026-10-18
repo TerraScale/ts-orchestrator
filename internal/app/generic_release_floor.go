@@ -8,9 +8,34 @@ import (
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 )
+
+func retainGenericGenesisOwners(ctx context.Context, foundation region.FoundationResolver, hosts *host.Controller, cell, environment string) error {
+	origins, err := foundation.GenericWorkloadGeneses(ctx, strings.ToUpper(cell), environment)
+	if err != nil {
+		return err
+	}
+	for _, original := range origins {
+		guard := func(check context.Context) error {
+			current, _, err := foundation.WorkloadGenesis(check, original.Origin().Cell, original.Origin().Role, original.Origin().Environment)
+			if err != nil {
+				return err
+			}
+			if current.Fingerprint() != original.Fingerprint() || current.Origin() != original.Origin() {
+				return errors.New("original generic genesis changed before native owner fencing")
+			}
+			return check.Err()
+		}
+		if err := hosts.ClaimGenesisContainer(ctx, original, guard); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // Retained native records and their original signed claims remain unchanged.
 func (history *nativeHistory) retainedContainerFloor(ctx context.Context, role, environment string) (release.SequenceFloor, error) {

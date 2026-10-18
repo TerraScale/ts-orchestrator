@@ -115,13 +115,19 @@ func (intent FunctionServiceIntent) verifyRetainedWorkerFloor(ctx context.Contex
 			return errors.New("retained function worker floor ownership differs")
 		}
 	}
-	migration, err := trust.DecodeEnvelope(floor.Spec.Data)
-	if err != nil {
-		return err
-	}
-	migrationFingerprint, err := trust.Fingerprint(migration)
-	if err != nil || migrationFingerprint != claim.SequenceMigrationSHA256 {
-		return errors.New("retained function worker ordering namespace differs")
+	if worker.Genesis().IsVerified() {
+		if err := authenticateReleaseFloor(ctx, client, workerIntent, worker, nil, floor); err != nil {
+			return err
+		}
+	} else {
+		migration, err := trust.DecodeEnvelope(floor.Spec.Data)
+		if err != nil {
+			return err
+		}
+		migrationFingerprint, err := trust.Fingerprint(migration)
+		if err != nil || migrationFingerprint != claim.SequenceMigrationSHA256 {
+			return errors.New("retained function worker ordering namespace differs")
+		}
 	}
 	labels := floor.Spec.Annotations.Labels
 	sequence, err := strconv.ParseUint(labels[labelReleaseSequence], 10, 64)

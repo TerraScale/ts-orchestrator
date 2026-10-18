@@ -23,8 +23,10 @@ import (
 // VerifiedContainerReleaseAuthority is constructed only from a current,
 // independently verified foundation grant pinned by its bootstrap anchor.
 type VerifiedContainerReleaseAuthority struct {
-	intent  ContainerReleaseAuthorityIntent
-	expires time.Time
+	intent        ContainerReleaseAuthorityIntent
+	expires       time.Time
+	genesis       release.VerifiedWorkloadGenesis
+	originalProof []byte
 }
 
 func (v VerifiedContainerReleaseAuthority) IsVerified() bool        { return !v.expires.IsZero() }
@@ -39,6 +41,12 @@ func (v VerifiedContainerReleaseAuthority) SequenceMigrationWire() []byte {
 	return bytes.Clone(v.intent.SequenceMigrationWire)
 }
 func (v VerifiedContainerReleaseAuthority) ExpiresAt() time.Time { return v.expires }
+func (v VerifiedContainerReleaseAuthority) WorkloadGenesis() release.VerifiedWorkloadGenesis {
+	return v.genesis
+}
+func (v VerifiedContainerReleaseAuthority) OriginalProof() []byte {
+	return bytes.Clone(v.originalProof)
+}
 func (v VerifiedContainerReleaseAuthority) Architectures() []string {
 	return slices.Clone(v.intent.Architectures)
 }
@@ -91,7 +99,17 @@ func (s *SignedFootprint) ContainerReleaseAuthority(ctx context.Context, cell, r
 		intent.Architectures = slices.Clone(intent.Architectures)
 		intent.DelegationWire = bytes.Clone(intent.DelegationWire)
 		intent.SequenceMigrationWire = bytes.Clone(intent.SequenceMigrationWire)
-		return VerifiedContainerReleaseAuthority{intent: intent, expires: expires}, nil
+		result := VerifiedContainerReleaseAuthority{intent: intent, expires: expires}
+		if grant.SchemaVersion == 3 {
+			result.genesis, result.originalProof, err = (FoundationResolver{Footprint: s}).WorkloadGenesis(ctx, cell, role, environment)
+			if err != nil {
+				return VerifiedContainerReleaseAuthority{}, err
+			}
+			if err := result.genesis.VerifyCurrentDelegation(delegation, s.roots, time.Now()); err != nil {
+				return VerifiedContainerReleaseAuthority{}, err
+			}
+		}
+		return result, nil
 	}
 	return VerifiedContainerReleaseAuthority{}, errors.New("signed foundation scope has no exact container release authority")
 }

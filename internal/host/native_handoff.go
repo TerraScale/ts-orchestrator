@@ -26,16 +26,18 @@ type nativeOwnerTarget struct {
 }
 
 type runtimeOwner struct {
-	Cell            string                `json:"cell"`
-	Environment     string                `json:"environment"`
-	Role            string                `json:"role"`
-	AuthorityEpoch  uint64                `json:"authority_epoch"`
-	Phase           string                `json:"phase"`
-	AuthorizedBy    string                `json:"authorized_by"`
-	MigrationSHA256 string                `json:"migration_sha256"`
-	Retained        release.SequenceFloor `json:"retained"`
-	Targets         []nativeOwnerTarget   `json:"targets"`
-	Stopped         []Report              `json:"stopped,omitempty"`
+	Cell                  string                  `json:"cell"`
+	Environment           string                  `json:"environment"`
+	Role                  string                  `json:"role"`
+	AuthorityEpoch        uint64                  `json:"authority_epoch"`
+	Phase                 string                  `json:"phase"`
+	AuthorizedBy          string                  `json:"authorized_by"`
+	MigrationSHA256       string                  `json:"migration_sha256"`
+	WorkloadGenesisSHA256 string                  `json:"workload_genesis_sha256,omitempty"`
+	Genesis               release.WorkloadGenesis `json:"genesis,omitzero"`
+	Retained              release.SequenceFloor   `json:"retained"`
+	Targets               []nativeOwnerTarget     `json:"targets"`
+	Stopped               []Report                `json:"stopped,omitempty"`
 }
 
 func runtimeOwnerKey(cell, environment, role string) string {
@@ -69,11 +71,18 @@ func (c *Controller) readRuntimeOwner(ctx context.Context, environment, role str
 	if entry.Kind != authority.MutationRuntimeOwner || entry.SubjectKey != key || entry.Sequence == 0 || entry.Epoch == 0 ||
 		owner.Cell != c.cell || owner.Environment != environment || owner.Role != role || owner.Role == terrabase.Role ||
 		owner.AuthorityEpoch != entry.Epoch || owner.Phase != "native-fenced" && owner.Phase != "container" ||
-		!lowerHex(owner.AuthorizedBy, 64) || !lowerHex(owner.MigrationSHA256, 64) ||
-		owner.Retained.Cell != strings.ToUpper(c.cell) || owner.Retained.RunNumber < 0 || owner.Retained.IssuedAt.IsZero() || !lowerHex(owner.Retained.EvidenceSHA256, 64) ||
-		len(owner.Targets) == 0 || len(owner.Targets) > 64 || owner.Phase == "native-fenced" && len(owner.Stopped) != 0 ||
+		!lowerHex(owner.AuthorizedBy, 64) || len(owner.Targets) > 64 || owner.Phase == "native-fenced" && len(owner.Stopped) != 0 ||
 		owner.Phase == "container" && len(owner.Stopped) != len(owner.Targets) {
 		return owner, entry, errors.New("runtime ownership record is invalid")
+	}
+	if owner.WorkloadGenesisSHA256 != "" {
+		if !lowerHex(owner.WorkloadGenesisSHA256, 64) || owner.AuthorizedBy != owner.WorkloadGenesisSHA256 || owner.MigrationSHA256 != "" || owner.Retained != (release.SequenceFloor{}) || len(owner.Targets) != 0 || len(owner.Stopped) != 0 || owner.Phase != "container" || owner.Genesis.Validate() != nil || owner.Genesis.Cell != strings.ToUpper(c.cell) || owner.Genesis.Environment != environment || owner.Genesis.Role != role {
+			return owner, entry, errors.New("genesis runtime ownership record is invalid")
+		}
+		return owner, entry, nil
+	}
+	if owner.Genesis != (release.WorkloadGenesis{}) || !lowerHex(owner.MigrationSHA256, 64) || owner.Retained.Cell != strings.ToUpper(c.cell) || owner.Retained.RunNumber < 0 || owner.Retained.IssuedAt.IsZero() || !lowerHex(owner.Retained.EvidenceSHA256, 64) || len(owner.Targets) == 0 {
+		return owner, entry, errors.New("native runtime ownership provenance is invalid")
 	}
 	for i, target := range owner.Targets {
 		if validateToken(target.Node, "node") != nil || target.Generation == 0 || !lowerHex(target.DesiredSHA256, 64) ||
@@ -189,7 +198,100 @@ func (c *Controller) GuardContainerOwner(ctx context.Context, environment, role 
 	if owner.Phase != "container" {
 		return errors.New("native runtime handoff has not completed")
 	}
+	if owner.WorkloadGenesisSHA256 != "" {
+		return c.genesisNativeAbsent(ctx, environment, role)
+	}
 	return c.ownerWithdrawals(ctx, owner)
+}
+
+func (c *Controller) genesisNativeAbsent(ctx context.Context, environment, role string) error {
+	desired, err := c.ListDesired(ctx, role)
+	if err != nil {
+		return err
+	}
+	for _, target := range desired {
+		if target.Environment == environment {
+			return errors.New("original genesis cannot replace existing native desired history")
+		}
+	}
+	return nil
+}
+
+// ClaimGenesisContainer fences generic native admission before its first start.
+// Zero native targets are authorized by the root genesis, never by empty inventory.
+func (c *Controller) ClaimGenesisContainer(ctx context.Context, genesis release.VerifiedWorkloadGenesis, guard func(context.Context) error) error {
+	origin := genesis.Origin()
+	if c == nil || c.readOnly || guard == nil || !genesis.IsVerified() || origin.Cell != strings.ToUpper(c.cell) || origin.Role == terrabase.Role || origin.Role != "ts-auth" && origin.Role != "function-worker" {
+		return errors.New("genesis owner requires authenticated generic original scope")
+	}
+	store, ok := c.mutations.(authority.VerifiedHostMutationStore)
+	if !ok {
+		return errors.New("genesis owner requires the final ordered mutation verifier")
+	}
+	if err := guard(ctx); err != nil {
+		return err
+	}
+	owner, _, err := c.readRuntimeOwner(ctx, origin.Environment, origin.Role)
+	if errors.Is(err, authority.ErrNotFound) {
+		epoch := c.authorityEpoch()
+		owner = runtimeOwner{Cell: c.cell, Environment: origin.Environment, Role: origin.Role, AuthorityEpoch: epoch, Phase: "container", AuthorizedBy: genesis.Fingerprint(), WorkloadGenesisSHA256: genesis.Fingerprint(), Genesis: origin}
+		wire, operation, err := mutationPayload(owner)
+		if err != nil {
+			return err
+		}
+		_, err = store.CommitHostMutationVerified(ctx, epoch, authority.MutationRuntimeOwner, runtimeOwnerKey(c.cell, origin.Environment, origin.Role), operation, 0, wire, func(check context.Context) error {
+			if err := guard(check); err != nil {
+				return err
+			}
+			if err := c.genesisNativeAbsent(check, origin.Environment, origin.Role); err != nil {
+				return err
+			}
+			return c.guard(check, epoch)
+		})
+		if err != nil {
+			return err
+		}
+		owner, _, err = c.readRuntimeOwner(ctx, origin.Environment, origin.Role)
+	}
+	if err != nil {
+		return err
+	}
+	if owner.WorkloadGenesisSHA256 != genesis.Fingerprint() || owner.Genesis != origin {
+		return errors.New("original genesis differs from permanent generic runtime owner")
+	}
+	if err := c.GuardContainerOwner(ctx, origin.Environment, origin.Role); err != nil {
+		return err
+	}
+	return guard(ctx)
+}
+
+// HandoffGenesisToContainer authenticates the previously installed origin owner.
+// It creates no native migration floor or fabricated stopped receipt.
+func (c *Controller) HandoffGenesisToContainer(ctx context.Context, verified release.VerifiedContainer, guard func(context.Context) error) (func(context.Context) error, error) {
+	genesis := verified.Genesis()
+	check := func(ctx context.Context) error {
+		if !verified.Valid(time.Now().UTC()) || !genesis.IsVerified() {
+			return errors.New("genesis handoff requires current verified release authority")
+		}
+		if err := guard(ctx); err != nil {
+			return err
+		}
+		owner, _, err := c.readRuntimeOwner(ctx, genesis.Origin().Environment, genesis.Origin().Role)
+		if err != nil {
+			return err
+		}
+		if owner.Genesis != genesis.Origin() || owner.WorkloadGenesisSHA256 != genesis.Fingerprint() {
+			return errors.New("genesis release lacks its original permanent generic runtime owner")
+		}
+		if err := c.GuardContainerOwner(ctx, genesis.Origin().Environment, genesis.Origin().Role); err != nil {
+			return err
+		}
+		return guard(ctx)
+	}
+	if c == nil || guard == nil {
+		return nil, errors.New("genesis handoff requires generic host authority")
+	}
+	return check, check(ctx)
 }
 
 // HandoffToContainer permanently fences native admission before withdrawing it.
@@ -205,6 +307,9 @@ func (c *Controller) HandoffToContainer(ctx context.Context, verified release.Ve
 		return nil, errors.New("native runtime handoff requires the final ordered verifier fence")
 	}
 	claim := verified.Claim()
+	if verified.Genesis().IsVerified() {
+		return nil, errors.New("genesis requires its explicit prospective ownership path")
+	}
 	if claim.Cell != strings.ToUpper(c.cell) || claim.Role == terrabase.Role || validateToken(claim.Role, "role") != nil || validateToken(claim.Environment, "environment") != nil {
 		return nil, errors.New("native runtime handoff target is invalid")
 	}

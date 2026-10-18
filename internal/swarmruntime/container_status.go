@@ -67,16 +67,8 @@ func VerifyCurrentContainerService(ctx context.Context, client api.ControlClient
 		labels[labelReleaseSequence] != strconv.FormatUint(verified.Claim().ReleaseSequence, 10) || labels[labelReleaseFingerprint] != verified.ReleaseIdentity() {
 		return nil, errors.New("current container release floor changed")
 	}
-	migration, err := trust.DecodeEnvelope(floor.Spec.Data)
-	if err != nil {
+	if err := authenticateReleaseFloor(ctx, client, intent, verified, roots, floor); err != nil {
 		return nil, err
-	}
-	if _, err := release.VerifySequenceMigrationHistorical(migration, roots, intent.Role, intent.Environment); err != nil {
-		return nil, err
-	}
-	digest, err := trust.Fingerprint(migration)
-	if err != nil || digest != verified.Claim().SequenceMigrationSHA256 || !verified.Valid(time.Now().UTC()) {
-		return nil, errors.New("current container ordering authority changed")
 	}
 	return service, ctx.Err()
 }

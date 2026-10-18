@@ -170,7 +170,7 @@ func (h *HostHistory) advance(ctx context.Context, stream jetstream.Stream, scop
 		if err != nil {
 			return err
 		}
-		if value.Kind == MutationUsageObservation || value.Kind == MutationRuntimeOwner {
+		if value.Kind == MutationUsageObservation || value.Kind == MutationRuntimeOwner || value.Kind == MutationManagedRuntimeOwner {
 			h.next = entry.Sequence + 1
 			continue
 		}

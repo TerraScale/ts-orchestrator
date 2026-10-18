@@ -46,7 +46,7 @@ func TestManagedNativeRootAuthorizesLiveRunnerAndRevokesStaleWitnesses(t *testin
 	newAgent := func(t *testing.T) (*Agent, *processRunner, *managedNativeRoot, Desired) {
 		t.Helper()
 		desired := Desired{Role: role, Digest: digest,
-			ManagedMember: &ManagedMemberLaunch{CgroupMemoryMaxBytes: limit}}
+			ManagedMember: &ManagedMemberLaunch{VolumeID: "fixture-volume", CgroupMemoryMaxBytes: limit}}
 		fingerprint, err := desiredFingerprint(desired)
 		if err != nil {
 			t.Fatal(err)
@@ -62,6 +62,7 @@ func TestManagedNativeRootAuthorizesLiveRunnerAndRevokesStaleWitnesses(t *testin
 			ExpiresAt: time.Now().Add(sessionTTL)}); err != nil {
 			t.Fatal(err)
 		}
+		agent.managedGate(desired)
 		if err := agent.pinManagedNativeRootDesired(role, fingerprint); err != nil {
 			t.Fatal(err)
 		}

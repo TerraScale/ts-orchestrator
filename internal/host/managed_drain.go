@@ -415,6 +415,9 @@ func (a *Agent) restoreManagedProcessForDrain(ctx context.Context, desired Desir
 	if err := a.ensureManagedNativeRoot(ctx, desired, fingerprint); err != nil {
 		return err
 	}
+	if err := a.checkManagedNative(ctx, desired); err != nil {
+		return err
+	}
 	if err := a.runner.Apply(ctx, workload); err != nil {
 		return err
 	}

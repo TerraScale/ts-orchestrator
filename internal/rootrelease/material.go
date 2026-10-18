@@ -16,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
@@ -26,12 +27,14 @@ import (
 var _ rootoci.ContainerMaterial = (*Backend)(nil)
 
 type materialScope struct {
-	intent   delivery.Intent
-	retained release.HistoricalContainer
-	roots    trust.Keyring
-	proof    release.ProductionQualification
-	expires  time.Time
-	guard    func(context.Context) error
+	target        release.ContainerTarget
+	originalProof []byte
+	intent        delivery.Intent
+	retained      release.HistoricalContainer
+	roots         trust.Keyring
+	proof         release.ProductionQualification
+	expires       time.Time
+	guard         func(context.Context) error
 }
 
 func (b *Backend) material(ctx context.Context, call rootoci.Call, operation rootoci.Operation, operationID, fingerprint string) (materialScope, error) {
@@ -128,6 +131,18 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		return materialScope{}, err
 	}
 	target := release.ContainerTarget{Cell: identity.Cell, Environment: identity.Environment, Role: intent.Role, Architecture: claim.Architecture}
+	var genesisResolver region.FoundationResolver
+	var originalProof []byte
+	if len(intent.Container.Migration) == 0 {
+		genesisResolver, err = region.NewFoundationDiscovery(b.factory, source.Anchor(), roots.Current)
+		if err != nil {
+			return materialScope{}, err
+		}
+		target.Genesis, originalProof, err = genesisResolver.WorkloadGenesis(ctx, target.Cell, target.Role, target.Environment)
+		if err != nil {
+			return materialScope{}, err
+		}
+	}
 	retained, err := release.VerifyContainerHistorical(*intent.Container, materialRoots, target)
 	if err != nil {
 		return materialScope{}, err
@@ -150,12 +165,14 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		if now.Before(verifyAt) {
 			return materialScope{}, trust.ErrExpired
 		}
-		migration, err := trust.DecodeEnvelope(intent.Container.Migration)
-		if err != nil {
-			return materialScope{}, err
-		}
-		if _, err := release.VerifySequenceMigrationCurrent(migration, materialRoots, intent.Role, intent.Environment, migration.IssuedAt); err != nil {
-			return materialScope{}, err
+		if !target.Genesis.IsVerified() {
+			migration, err := trust.DecodeEnvelope(intent.Container.Migration)
+			if err != nil {
+				return materialScope{}, err
+			}
+			if _, err := release.VerifySequenceMigrationCurrent(migration, materialRoots, intent.Role, intent.Environment, migration.IssuedAt); err != nil {
+				return materialScope{}, err
+			}
 		}
 	default:
 		expires = earlier(expires, envelope.ExpiresAt)
@@ -193,6 +210,11 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		if err != nil {
 			return err
 		}
+		if target.Genesis.IsVerified() {
+			if err := target.Genesis.VerifyCurrentDelegation(delegation, materialRoots, at); err != nil {
+				return err
+			}
+		}
 		grant, err := trust.VerifyDelegationCurrent(delegation, materialRoots, at, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime})
 		if err != nil {
 			return err
@@ -229,6 +251,12 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		// Scope validation may itself read OCI; retain the process/session guard
 		// while preventing those source reads from recursively validating scope.
 		ctx = ociclient.WithRequestGuard(ctx, call.Guard)
+		if target.Genesis.IsVerified() {
+			currentGenesis, evidence, err := genesisResolver.WorkloadGenesis(ctx, target.Cell, target.Role, target.Environment)
+			if err != nil || currentGenesis.Fingerprint() != target.Genesis.Fingerprint() || !bytes.Equal(evidence, originalProof) {
+				return errors.Join(ErrPending, err)
+			}
+		}
 		if err := call.Guard(ctx); err != nil {
 			return err
 		}
@@ -260,7 +288,7 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		}
 		return call.Guard(ctx)
 	}
-	return materialScope{intent: intent, retained: retained, roots: materialRoots, proof: proof, expires: expires, guard: guard}, guard(ctx)
+	return materialScope{target: target, originalProof: originalProof, intent: intent, retained: retained, roots: materialRoots, proof: proof, expires: expires, guard: guard}, guard(ctx)
 }
 
 func (b *Backend) ContainerEvidence(ctx context.Context, call rootoci.Call, request rootoci.ContainerEvidenceRequest) (rootoci.ContainerEvidenceChunk, error) {
@@ -354,7 +382,7 @@ func (b *Backend) containerAllocation(ctx context.Context, call rootoci.Call, op
 	defer expire()
 	ctx = ociclient.WithRequestGuard(ctx, scope.guard)
 	claim := scope.retained.Claim()
-	location, err := b.allocations(ctx, *scope.intent.Container, scope.roots, release.ContainerTarget{Cell: claim.Cell, Environment: claim.Environment, Role: claim.Role, Architecture: claim.Architecture})
+	location, err := b.allocations(ctx, *scope.intent.Container, scope.roots, scope.target)
 	if err != nil {
 		return result, err
 	}
@@ -365,7 +393,7 @@ func (b *Backend) containerAllocation(ctx context.Context, call rootoci.Call, op
 	if err := scope.guard(ctx); err != nil {
 		return result, err
 	}
-	return rootoci.ContainerAllocationObservation{OperationID: request.OperationID, Fingerprint: scope.retained.Fingerprint(), Namespace: location.Namespace, Bucket: location.Bucket, ObjectName: release.SequenceReservationObject(claim.Role, claim.Environment, claim.SequenceMigrationSHA256, claim.ReleaseSequence), Data: wire, ExpiresAt: scope.expires}, nil
+	return rootoci.ContainerAllocationObservation{OriginalProof: scope.originalProof, OperationID: request.OperationID, Fingerprint: scope.retained.Fingerprint(), Namespace: location.Namespace, Bucket: location.Bucket, ObjectName: release.SequenceReservationObject(claim.Role, claim.Environment, claim.OrderingSHA256(), claim.ReleaseSequence), Data: wire, ExpiresAt: scope.expires}, nil
 }
 
 func materialContext(ctx context.Context, call rootoci.Call) (context.Context, context.CancelFunc, error) {

@@ -80,7 +80,11 @@ func PublishContainer(ctx context.Context, location Location, bundle release.Con
 	if err != nil {
 		return err
 	}
-	if location.Bucket != bucket || location.Namespace != verified.Migration().Namespace {
+	namespace := verified.Migration().Namespace
+	if verified.Genesis().IsVerified() {
+		namespace = verified.Genesis().Origin().Namespace
+	}
+	if location.Bucket != bucket || location.Namespace != namespace {
 		return fmt.Errorf("%w: container publication target", ErrInvalid)
 	}
 	wire, err := json.Marshal(bundle, json.Deterministic(true))
@@ -112,7 +116,7 @@ func PublishContainer(ctx context.Context, location Location, bundle release.Con
 			if incoming.ReleaseSequence == floor.ReleaseSequence && verified.ReleaseIdentity() != previous.ReleaseIdentity() {
 				return fmt.Errorf("%w: container sequence already names different content", ErrInvalid)
 			}
-		} else {
+		} else if !verified.Genesis().IsVerified() {
 			if _, err := release.VerifySequenceMigrationCurrent(verified.MigrationEnvelope(), roots, target.Role, target.Environment, now); err != nil {
 				return err
 			}

@@ -21,6 +21,7 @@ import (
 )
 
 type statefulRuntimeConfig struct {
+	Hosts               *host.Controller
 	Client              api.ControlClient
 	Authority           *authority.Runtime
 	Members             placement.Store
@@ -47,7 +48,7 @@ func newStatefulRuntime(config statefulRuntimeConfig) (*statefulRuntime, error) 
 		return nil, errors.New("stateful runtime requires the current admitted manager session")
 	}
 	producer, err := executionleader.NewProducer(config.Client, config.Authority, config.Members, config.Delivery,
-		config.Volumes, config.Roots, config.Evidence, config.Cell, config.Environment, config.Allocations, config.RetainedEvidence, config.RetainedAllocations, config.HistoricalRoots)
+		config.Volumes, config.Roots, config.Evidence, config.Cell, config.Environment, config.Allocations, config.RetainedEvidence, config.RetainedAllocations, config.HistoricalRoots, config.Hosts)
 	if err != nil {
 		return nil, err
 	}

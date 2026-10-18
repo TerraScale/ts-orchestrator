@@ -10,10 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
@@ -71,6 +73,12 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 	ctx, cancel := context.WithDeadline(ctx, observation.ExpiresAt)
 	defer cancel()
 	target := release.ContainerTarget{Cell: strings.ToUpper(r.cell), Environment: r.environment, Role: role, Architecture: runtime.GOARCH}
+	if len(observation.Bundle.Migration) == 0 {
+		target.Genesis, err = verifyChannelWorkloadGenesis(ctx, observation.OriginalProof, registry.roots.genesis, target)
+		if err != nil {
+			return err
+		}
+	}
 	verified, err := release.VerifyContainerHistorical(observation.Bundle, roots, target)
 	if err != nil {
 		return err
@@ -195,7 +203,7 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 	}
 	observationGuard := func() error {
 		current, err := r.channel.readContainerRelease(ctx, role, target.Architecture)
-		if err != nil || !current.Found || current.BundleSHA256 != observation.BundleSHA256 || current.Fingerprint != observation.Fingerprint || current.Floor == nil || *current.Floor != *observation.Floor {
+		if err != nil || !current.Found || current.BundleSHA256 != observation.BundleSHA256 || current.Fingerprint != observation.Fingerprint || !bytes.Equal(current.OriginalProof, observation.OriginalProof) || current.Floor == nil || *current.Floor != *observation.Floor {
 			return errors.Join(containermaterial.ErrPending, err)
 		}
 		return ctx.Err()
@@ -362,7 +370,7 @@ func containerChannelIntent(state serviceReleaseState, observation rootoci.Conta
 			return delivery.Intent{}, containermaterial.ErrPending
 		}
 	} else {
-		prior, err := release.VerifyContainerHistorical(*previous.Container, roots, release.ContainerTarget{Cell: claim.Cell, Environment: claim.Environment, Role: claim.Role, Architecture: claim.Architecture})
+		prior, err := release.VerifyContainerHistorical(*previous.Container, roots, release.ContainerTarget{Cell: claim.Cell, Environment: claim.Environment, Role: claim.Role, Architecture: claim.Architecture, Genesis: verified.Genesis()})
 		if err != nil {
 			return delivery.Intent{}, err
 		}
@@ -386,4 +394,22 @@ func containerChannelIntent(state serviceReleaseState, observation rootoci.Conta
 		Cell:   cell, Role: claim.Role, Environment: claim.Environment, Generation: generation, DesiredReplicas: replicas,
 		ConfigDigest: config, AuthorityEpoch: epoch, Container: new(observation.Bundle)}
 	return intent, intent.Validate()
+}
+
+// verifyChannelWorkloadGenesis reauthenticates transported origin against the
+// installed identity and current founder authority, never the claim's locator.
+func verifyChannelWorkloadGenesis(ctx context.Context, wire []byte, genesis trust.Keyring, target release.ContainerTarget) (release.VerifiedWorkloadGenesis, error) {
+	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+	if err != nil {
+		return release.VerifiedWorkloadGenesis{}, err
+	}
+	founders, err := currentControllerHostReader(ctx)
+	if err != nil {
+		return release.VerifiedWorkloadGenesis{}, err
+	}
+	source, err := founders.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
+	if err != nil {
+		return release.VerifiedWorkloadGenesis{}, err
+	}
+	return region.VerifyWorkloadGenesisEvidence(wire, genesis, source.Anchor(), target.Cell, target.Role, target.Environment)
 }

@@ -19,12 +19,13 @@ func (r ContainerReleaseRequest) Valid() bool {
 }
 
 type ContainerReleaseObservation struct {
-	Found        bool
-	Bundle       release.ContainerBundle
-	BundleSHA256 string
-	Fingerprint  string
-	ExpiresAt    time.Time
-	Floor        *ContainerReleaseFloor
+	OriginalProof []byte
+	Found         bool
+	Bundle        release.ContainerBundle
+	BundleSHA256  string
+	Fingerprint   string
+	ExpiresAt     time.Time
+	Floor         *ContainerReleaseFloor
 }
 
 // ContainerReleaseFloor only locates retained provenance; it grants no execution authority.
@@ -46,7 +47,7 @@ func (f ContainerReleaseFloor) valid() bool {
 
 // Valid checks transport coherence; only root's current verifier grants admission.
 func (o ContainerReleaseObservation) Valid(request ContainerReleaseRequest, now time.Time) bool {
-	if !request.Valid() || now.IsZero() || !now.Before(o.ExpiresAt) {
+	if !request.Valid() || now.IsZero() || !now.Before(o.ExpiresAt) || len(o.OriginalProof) > MaxOriginalProofBytes {
 		return false
 	}
 	wire, err := json.Marshal(o.Bundle)
@@ -54,7 +55,7 @@ func (o ContainerReleaseObservation) Valid(request ContainerReleaseRequest, now 
 		return false
 	}
 	if !o.Found {
-		return len(o.Bundle.Claim) == 0 && len(o.Bundle.Index) == 0 && len(o.Bundle.Sequence) == 0 && len(o.Bundle.Delegation) == 0 && len(o.Bundle.Migration) == 0 && o.BundleSHA256 == "" && o.Fingerprint == "" && o.Floor == nil
+		return len(o.OriginalProof) == 0 && len(o.Bundle.Claim) == 0 && len(o.Bundle.Index) == 0 && len(o.Bundle.Sequence) == 0 && len(o.Bundle.Delegation) == 0 && len(o.Bundle.Migration) == 0 && o.BundleSHA256 == "" && o.Fingerprint == "" && o.Floor == nil
 	}
 	if o.Floor == nil || !o.Floor.valid() {
 		return false
@@ -73,6 +74,9 @@ func (o ContainerReleaseObservation) Valid(request ContainerReleaseRequest, now 
 	}
 	var claim release.ContainerClaim
 	if json.Unmarshal(envelope.Payload, &claim, json.RejectUnknownMembers(true)) != nil || claim.Validate() != nil {
+		return false
+	}
+	if (claim.WorkloadGenesisSHA256 != "") != (len(o.OriginalProof) != 0) {
 		return false
 	}
 	for _, wire := range [][]byte{o.Bundle.Delegation, claim.Production.Qualification, claim.Production.Delegation} {

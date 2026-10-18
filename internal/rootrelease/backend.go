@@ -23,6 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
@@ -215,11 +216,24 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if err != nil || digestErr != nil || channelDigest != intentDigest {
 		return pending(errors.Join(err, digestErr))
 	}
-	allocations, err := b.allocations(ctx, *intent.Container, roots.Current, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture})
+	target := release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture}
+	var genesisResolver region.FoundationResolver
+	var originalProof []byte
+	if len(intent.Container.Migration) == 0 {
+		genesisResolver, err = region.NewFoundationDiscovery(b.factory, source.Anchor(), roots.Current)
+		if err != nil {
+			return pending(err)
+		}
+		target.Genesis, originalProof, err = genesisResolver.WorkloadGenesis(ctx, target.Cell, target.Role, target.Environment)
+		if err != nil {
+			return pending(err)
+		}
+	}
+	allocations, err := b.allocations(ctx, *intent.Container, roots.Current, target)
 	if err != nil {
 		return pending(err)
 	}
-	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots.Current, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture}, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
+	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots.Current, target, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		return releasechannel.ReadContainerEvidence(ctx, location, intent.Role, digest)
 	}, allocations)
 	if err != nil {
@@ -249,7 +263,7 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if err != nil {
 		return pending(err)
 	}
-	historical, err := release.VerifyContainerHistorical(*original.Container, roots.Historical, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture})
+	historical, err := release.VerifyContainerHistorical(*original.Container, roots.Historical, target)
 	if err != nil {
 		return pending(err)
 	}
@@ -267,6 +281,12 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	}
 
 	currentSourceGuard := func(ctx context.Context) error {
+		if target.Genesis.IsVerified() {
+			currentGenesis, evidence, err := genesisResolver.WorkloadGenesis(ctx, target.Cell, target.Role, target.Environment)
+			if err != nil || currentGenesis.Fingerprint() != target.Genesis.Fingerprint() || !bytes.Equal(evidence, originalProof) {
+				return errors.Join(ErrPending, err)
+			}
+		}
 		if err := call.Guard(ctx); err != nil {
 			return err
 		}
@@ -449,15 +469,27 @@ func (b *Backend) location(ctx context.Context, cell string) (releasechannel.Loc
 	return releasechannel.Location{Client: sdkObjects{client}, Namespace: *namespace.Value, Bucket: bucket}, nil
 }
 func (b *Backend) allocations(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget) (release.SequenceLocation, error) {
-	envelope, err := trust.DecodeEnvelope(bundle.Migration)
-	if err != nil {
-		return release.SequenceLocation{}, err
+	var namespace, bucket, home string
+	var genesis release.VerifiedWorkloadGenesis
+	if len(bundle.Migration) == 0 {
+		if !target.Genesis.Allows(target) {
+			return release.SequenceLocation{}, errors.New("container allocation requires independently verified workload genesis")
+		}
+		origin := target.Genesis.Origin()
+		namespace, bucket, home, genesis = origin.Namespace, origin.Bucket, "GRU", target.Genesis
+	} else {
+		envelope, err := trust.DecodeEnvelope(bundle.Migration)
+		if err != nil {
+			return release.SequenceLocation{}, err
+		}
+		// Established migrations retain authority after their submission envelope expires.
+		migration, err := release.VerifySequenceMigrationHistorical(envelope, roots, target.Role, target.Environment)
+		if err != nil {
+			return release.SequenceLocation{}, err
+		}
+		namespace, bucket, home = migration.Namespace, migration.Bucket, migration.Region
 	}
-	migration, err := release.VerifySequenceMigrationHistorical(envelope, roots, target.Role, target.Environment)
-	if err != nil {
-		return release.SequenceLocation{}, err
-	}
-	entry, ok := catalog.Lookup(migration.Region)
+	entry, ok := catalog.Lookup(home)
 	if !ok {
 		return release.SequenceLocation{}, ErrPending
 	}
@@ -469,5 +501,5 @@ func (b *Backend) allocations(ctx context.Context, bundle release.ContainerBundl
 	if err != nil {
 		return release.SequenceLocation{}, err
 	}
-	return release.SequenceLocation{Client: sdkObjects{client}, Namespace: migration.Namespace, Bucket: migration.Bucket}, ctx.Err()
+	return release.SequenceLocation{Client: sdkObjects{client}, Namespace: namespace, Bucket: bucket, Genesis: genesis}, ctx.Err()
 }

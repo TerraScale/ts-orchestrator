@@ -22,6 +22,9 @@ func VerifyRetainedProvenance(ctx context.Context, bundle release.ContainerBundl
 	if ctx == nil || ctx.Err() != nil || target.Role != "terrabase" || evidence == nil {
 		return RetainedData{}, ErrUnsafe
 	}
+	if allocations.Genesis.IsVerified() {
+		target.Genesis = allocations.Genesis
+	}
 	previous, err := release.VerifyContainerHistorical(bundle, roots, target)
 	if err != nil {
 		return RetainedData{}, err
@@ -70,6 +73,9 @@ func VerifyRetainedProvenance(ctx context.Context, bundle release.ContainerBundl
 // independent qualifier supplies the disk format; retained artifact bytes prove
 // its architecture through the ELF header. No native binary is executed.
 func VerifyNativeRetainedProvenance(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, expected RetainedData, now, until time.Time, evidence func(context.Context, string) (io.ReadCloser, error), allocations release.SequenceLocation) (RetainedData, error) {
+	if allocations.Genesis.IsVerified() {
+		target.Genesis = allocations.Genesis
+	}
 	verified, err := VerifyStatefulDeclared(ctx, bundle, roots, target, now, until, evidence, allocations)
 	if err != nil {
 		return RetainedData{}, err

@@ -100,16 +100,8 @@ func verifyServiceTask(ctx context.Context, client api.ControlReader, task *api.
 	if claim.Role == "function-worker" && labels[labelReleaseArchitecture] != claim.Architecture {
 		return errors.New("registry release floor differs from admitted worker architecture")
 	}
-	migration, err := trust.DecodeEnvelope(floor.Spec.Data)
-	if err != nil {
+	if err := authenticateReleaseFloor(ctx, client, intent, verified, roots, floor); err != nil {
 		return err
-	}
-	if _, err := release.VerifySequenceMigrationHistorical(migration, roots, intent.Role, intent.Environment); err != nil {
-		return err
-	}
-	fingerprint, err := trust.Fingerprint(migration)
-	if err != nil || fingerprint != claim.SequenceMigrationSHA256 {
-		return errors.New("registry release differs from durable ordering namespace")
 	}
 	sequence, err := strconv.ParseUint(labels[labelReleaseSequence], 10, 64)
 	_, fingerprintErr := hex.DecodeString(labels[labelReleaseFingerprint])

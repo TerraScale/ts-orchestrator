@@ -35,6 +35,9 @@ type nativeRootDesired struct {
 // A successful, validated desired refresh may advance this bound. Session
 // renewal alone cannot extend authority to an old desired generation.
 func (a *Agent) pinManagedNativeRootDesired(role, fingerprint string) error {
+	if err := a.checkManagedNativeRole(role); err != nil {
+		return err
+	}
 	_, deadline, err := a.executionLease()
 	if err != nil {
 		return err
@@ -73,6 +76,9 @@ func (a *Agent) refreshNativeRootPin(ctx context.Context, target desiredReply, f
 // fingerprint to the current session deadline. It never recreates a revoked
 // pin or adopts a changed desired.
 func (a *Agent) extendManagedNativeRootPin(role, fingerprint string) error {
+	if err := a.checkManagedNativeRole(role); err != nil {
+		return err
+	}
 	_, deadline, err := a.executionLease()
 	if err != nil {
 		return err
@@ -99,6 +105,7 @@ func (a *Agent) refreshNativeRootPins(ctx context.Context) {
 		case <-ticker.C:
 		}
 		ctx := observability.StartTrace(ctx)
+		a.refreshManagedNativeOwners(ctx)
 		for _, role := range a.cfg.Roles {
 			a.nativeRootMu.Lock()
 			pin, pinned := a.nativeDesired[role]
@@ -165,6 +172,9 @@ func (a *Agent) managedNativeRootTarget(launch ManagedMemberLaunch) (nativerooto
 // ensureManagedNativeRoot starts the host-only native OCI socket before a
 // managed member is launched. Generic S3 members never start this capability.
 func (a *Agent) ensureManagedNativeRoot(ctx context.Context, desired Desired, fingerprint string) error {
+	if err := a.checkManagedNative(ctx, desired); err != nil {
+		return err
+	}
 	launch := desired.ManagedMember
 	if launch == nil {
 		return errors.New("native OCI root requires a signed managed member")
@@ -194,6 +204,17 @@ func (a *Agent) ensureManagedNativeRoot(ctx context.Context, desired Desired, fi
 			return err
 		}
 	}
+	rootContext, releaseRoot, err := a.acquireManagedNativeRoot(ctx, desired)
+	if err != nil {
+		return err
+	}
+	started := false
+	defer func() {
+		if !started {
+			releaseRoot()
+		}
+	}()
+	ctx = rootContext
 	if err := verifyManagedDirectory(paths.memberDir, a.cfg.WorkloadIdentity, 0750); err != nil {
 		return err
 	}
@@ -231,8 +252,10 @@ func (a *Agent) ensureManagedNativeRoot(ctx context.Context, desired Desired, fi
 	}
 	a.nativeRoots[desired.Role] = root
 	a.nativeRootMu.Unlock()
+	started = true
 	go func() {
 		defer close(root.done)
+		defer releaseRoot()
 		_ = nativerootoci.Serve(work, listener, service, func(ctx context.Context, peer nativerootoci.Peer) (time.Time, error) {
 			return a.authorizeManagedNativeRoot(ctx, peer, desired, root)
 		})
@@ -287,7 +310,7 @@ func listenManagedNativeRoot(path string, identity WorkloadIdentity) (*net.UnixL
 func (a *Agent) authorizeManagedNativeRoot(ctx context.Context, peer nativerootoci.Peer,
 	desired Desired, root *managedNativeRoot,
 ) (time.Time, error) {
-	if ctx.Err() != nil || a.sessionLost.Load() {
+	if ctx.Err() != nil || a.sessionLost.Load() || a.checkManagedNativeRole(desired.Role) != nil {
 		return time.Time{}, nativerootoci.AuthorizationError{Cause: "session_revoked",
 			Err: errors.New("managed native OCI root peer is unauthorized")}
 	}

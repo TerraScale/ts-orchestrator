@@ -828,6 +828,9 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if err := a.ensureManagedNativeRoot(ctx, d, fingerprint); err != nil {
 		return err
 	}
+	if err := a.checkManagedNative(ctx, d); err != nil {
+		return err
+	}
 	if err := a.runner.Apply(ctx, currentWorkload); err != nil {
 		return err
 	}

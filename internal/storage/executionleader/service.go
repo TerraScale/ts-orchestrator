@@ -172,6 +172,12 @@ func (p *Producer) Apply(ctx context.Context, requested delivery.Intent) error {
 					existing = service
 				}
 			}
+			if err := p.prepareManagedHandoff(ctx, intent, state); err != nil {
+				return err
+			}
+			if err := host.GuardManagedContainerOwner(ctx, p.authority, p.cell, state.VolumeID); err != nil {
+				return err
+			}
 			if err := p.authority.Guard(ctx, intent.AuthorityEpoch); err != nil {
 				return err
 			}

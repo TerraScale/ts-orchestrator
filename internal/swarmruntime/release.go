@@ -25,6 +25,7 @@ import (
 const labelReleaseBaseline = "terrascale.release-baseline"
 const labelReleaseArchitecture = "terrascale.release-architecture"
 const labelReleaseMigration = "terrascale.release-migration"
+const labelReleaseGenesis = "terrascale.release-genesis"
 
 // ApplySignedService admits a release and waits for actual application readiness.
 // The probe must resolve each task through independently admitted node inventory.
@@ -136,7 +137,7 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 	if !entityid.Valid(intent.OperationID) {
 		return nil, errors.New("signed service requires durable delivery operation locator")
 	}
-	target := release.ContainerTarget{Cell: region.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture}
+	target := release.ContainerTarget{Cell: region.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture, Genesis: allocations.Genesis}
 	verified, err := release.VerifyContainerCurrent(operation, bundle, roots, target, time.Now().UTC(), deadline, evidence, allocations)
 	if err != nil {
 		return nil, err
@@ -188,6 +189,9 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 		if current.Config.Spec.Annotations.Labels[LabelIntentGeneration] != strconv.FormatUint(intent.Generation, 10) && intent.Generation != 0 {
 			return errors.New("a newer intent superseded this operation")
 		}
+		if err := authenticateReleaseFloor(ctx, client, intent, verified, roots, current.Config); err != nil {
+			return err
+		}
 		if !verified.Valid(time.Now().UTC()) {
 			return errors.New("signed container authorization expired before service mutation")
 		}
@@ -229,6 +233,9 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 	if err != nil {
 		return nil, err
 	}
+	if err := ensureGenesisReleaseWitness(ctx, client, intent, verified, floor); err != nil {
+		return nil, err
+	}
 	// Family evidence cannot precede admission of the durable ordering floor.
 	if verified.Claim().Role == "function-worker" {
 		if err := reserveWorkerFamily(ctx, client, intent, verified, roots); err != nil {
@@ -259,15 +266,23 @@ func reserveReleaseFloorRecord(ctx context.Context, client api.ControlClient, in
 				return nil, errors.New("unpartitioned worker release floor requires root-authorized migration")
 			}
 		}
-		migration, err := release.VerifySequenceMigrationCurrent(verified.MigrationEnvelope(), roots, intent.Role, intent.Environment, time.Now().UTC())
-		if err != nil {
-			return nil, err
+		var wire []byte
+		if verified.Genesis().IsVerified() {
+			if retained != (release.SequenceFloor{}) {
+				return nil, errors.New("genesis cannot import a fabricated native release floor")
+			}
+			wire, err = genesisReleaseFloorData(verified)
+		} else {
+			migration, migrationErr := release.VerifySequenceMigrationCurrent(verified.MigrationEnvelope(), roots, intent.Role, intent.Environment, time.Now().UTC())
+			if migrationErr != nil {
+				return nil, migrationErr
+			}
+			_, digestErr := hex.DecodeString(retained.EvidenceSHA256)
+			if retained.Cell != claim.Cell || retained.RunNumber < 0 || retained.RunNumber == 0 && retained.IssuedAt.IsZero() || len(retained.EvidenceSHA256) != 64 || strings.ToLower(retained.EvidenceSHA256) != retained.EvidenceSHA256 || digestErr != nil || !migration.AdmitsLegacyFloor(retained.Cell, retained.RunNumber, retained.IssuedAt) {
+				return nil, errors.New("signed migration does not cover retained local legacy release floor")
+			}
+			wire, err = trust.EncodeEnvelope(verified.MigrationEnvelope())
 		}
-		_, digestErr := hex.DecodeString(retained.EvidenceSHA256)
-		if retained.Cell != claim.Cell || retained.RunNumber < 0 || retained.RunNumber == 0 && retained.IssuedAt.IsZero() || len(retained.EvidenceSHA256) != 64 || strings.ToLower(retained.EvidenceSHA256) != retained.EvidenceSHA256 || digestErr != nil || !migration.AdmitsLegacyFloor(retained.Cell, retained.RunNumber, retained.IssuedAt) {
-			return nil, errors.New("signed migration does not cover retained local legacy release floor")
-		}
-		wire, err := trust.EncodeEnvelope(verified.MigrationEnvelope())
 		if err != nil {
 			return nil, err
 		}
@@ -279,6 +294,12 @@ func reserveReleaseFloorRecord(ctx context.Context, client api.ControlClient, in
 		}
 		if claim.Role == "function-worker" {
 			labels[labelReleaseArchitecture] = claim.Architecture
+		}
+		if verified.Genesis().IsVerified() {
+			delete(labels, "terrascale.legacy-run")
+			delete(labels, "terrascale.legacy-issued")
+			delete(labels, "terrascale.legacy-evidence")
+			labels[labelReleaseGenesis] = claim.WorkloadGenesisSHA256
 		}
 		if !verified.Valid(time.Now().UTC()) {
 			return nil, errors.New("signed container authorization expired before floor reservation")
@@ -332,7 +353,7 @@ func reserveWorkerFamily(ctx context.Context, client api.ControlClient, intent S
 		return err
 	}
 	claim := verified.Claim()
-	identity := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%d", claim.SequenceMigrationSHA256, claim.Role, claim.Environment, claim.ReleaseSequence)))
+	identity := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%d", claim.OrderingSHA256(), claim.Role, claim.Environment, claim.ReleaseSequence)))
 	name := fmt.Sprintf("ts-worker-family-%x", identity[:16])
 	for range 3 {
 		listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{name}}})
@@ -348,7 +369,12 @@ func reserveWorkerFamily(ctx context.Context, client api.ControlClient, intent S
 		if !verified.Valid(time.Now().UTC()) {
 			return errors.New("worker authorization expired before family reservation")
 		}
-		_, err = client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: name, Labels: map[string]string{LabelIntentID: intent.ID, LabelRole: claim.Role, LabelRegion: intent.Region, LabelEnvironment: claim.Environment, labelReleaseSequence: strconv.FormatUint(claim.ReleaseSequence, 10), labelReleaseMigration: claim.SequenceMigrationSHA256}}, Data: wire}})
+		labels := map[string]string{LabelIntentID: intent.ID, LabelRole: claim.Role, LabelRegion: intent.Region, LabelEnvironment: claim.Environment, labelReleaseSequence: strconv.FormatUint(claim.ReleaseSequence, 10), labelReleaseMigration: claim.SequenceMigrationSHA256}
+		if verified.Genesis().IsVerified() {
+			delete(labels, labelReleaseMigration)
+			labels[labelReleaseGenesis] = claim.WorkloadGenesisSHA256
+		}
+		_, err = client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: name, Labels: labels}, Data: wire}})
 		if status.Code(err) != codes.AlreadyExists {
 			return err
 		}

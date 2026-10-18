@@ -823,6 +823,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return fmt.Errorf("discover capacity foundation: %w", err)
 	}
+	_, _, err = retryControllerOpen(runCtx, "retain generic genesis runtime owners", fullClusterReady, false,
+		func(attempt context.Context) (bool, error) {
+			return true, retainGenericGenesisOwners(attempt, capacityFoundation.foundations, hostController, cfg.NATS.Cell, services.identity.Environment)
+		}, nil)
+	if err != nil {
+		return err
+	}
 	acceptedRuntime, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	if err != nil {
 		return err
@@ -859,7 +866,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	statefulMaterial := statefulReleaseReader{client: workloadRoot, deliveries: service}
+	statefulMaterial := statefulReleaseReader{client: workloadRoot, deliveries: service, founders: containerFounders, accepted: acceptedRuntime}
 	containers, stopContainers, err := startContainerMaterial(runCtx, containerMaterialConfig{
 		Root: workloadRoot, Hosts: hostController, Authority: control, Client: functionClient, SnapshotMutations: functionClient,
 		Specs: services, Delivery: service, ContainerProfiles: nativeReleases, Founders: containerFounders, Accepted: acceptedRuntime, WorkerMembership: functionMembership,
@@ -892,6 +899,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		}
 	}
 	stateful, err := newStatefulRuntime(statefulRuntimeConfig{
+		Hosts:  hostController,
 		Client: functionClient, Authority: control, Members: statefulMembers, Delivery: service,
 		Volumes: statefulVolumes, Roots: services.roots.current(), HistoricalRoots: services.roots.historical(), Evidence: statefulMaterial.evidence, Allocations: statefulMaterial.allocations,
 		RetainedEvidence: statefulMaterial.retainedEvidence, RetainedAllocations: statefulMaterial.retainedAllocations,

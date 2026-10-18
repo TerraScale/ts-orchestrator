@@ -338,6 +338,7 @@ func (controller *containerMaterialController) recipientEvidence(ctx context.Con
 	if err != nil {
 		return containerMaterialEvidence{}, err
 	}
+	target.Genesis = allocations.Genesis
 	validUntil := time.Now().UTC().Add(30 * time.Second)
 	if deadline, ok := ctx.Deadline(); ok {
 		validUntil = earlier(validUntil, deadline)

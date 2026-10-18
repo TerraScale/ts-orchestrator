@@ -748,7 +748,7 @@ func sameReportMeaning(a, b Report) bool {
 
 // hostOperations are the host request subjects a leader serves.
 var hostOperations = []string{"session", "desired", "artifact", "material", "function-material", "cycle", "report",
-	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material", "registry-admission",
+	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "managed-native", "container-material", "registry-admission",
 	"role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary"}
 
 // hostLeaderPoll is how often Run follows authority leadership.
@@ -858,7 +858,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	switch req.Operation {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
-	case "desired", "artifact", "cycle", "report", "material", "function-material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material", "registry-admission",
+	case "desired", "artifact", "cycle", "report", "material", "function-material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "managed-native", "container-material", "registry-admission",
 		"role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
@@ -1266,6 +1266,8 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (payload
 		return c.serveVolumeInit(ctx, req, r, s)
 	case "runtime-effect":
 		return c.serveRuntimeEffect(ctx, req, r, s)
+	case "managed-native":
+		return c.serveManagedNative(ctx, req, r, s)
 	case "container-material":
 		return c.serveContainerMaterial(ctx, req, r, s)
 	case "registry-admission":

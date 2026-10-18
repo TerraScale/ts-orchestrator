@@ -138,12 +138,15 @@ func (runtime *genericRuntime) apply(ctx context.Context, intent delivery.Intent
 	if err != nil {
 		return err
 	}
-	retained, err := config.RetainedFloor(ctx, intent.Role, intent.Environment)
-	if err != nil {
-		return err
-	}
-	if retained.Cell != strings.ToUpper(intent.Cell) {
-		return errors.New("retained legacy floor names another region")
+	var retained release.SequenceFloor
+	if !allocations.Genesis.IsVerified() {
+		retained, err = config.RetainedFloor(ctx, intent.Role, intent.Environment)
+		if err != nil {
+			return err
+		}
+		if retained.Cell != strings.ToUpper(intent.Cell) {
+			return errors.New("retained legacy floor names another region")
+		}
 	}
 	fingerprint, err := intent.Fingerprint()
 	if err != nil {
@@ -194,12 +197,14 @@ func (runtime *genericRuntime) apply(ctx context.Context, intent delivery.Intent
 		if err := config.SessionGuard(ctx); err != nil {
 			return err
 		}
-		currentFloor, err := config.RetainedFloor(ctx, intent.Role, intent.Environment)
-		if err != nil {
-			return err
-		}
-		if currentFloor != retained {
-			return errors.New("authenticated retained native release floor changed")
+		if !allocations.Genesis.IsVerified() {
+			currentFloor, err := config.RetainedFloor(ctx, intent.Role, intent.Environment)
+			if err != nil {
+				return err
+			}
+			if currentFloor != retained {
+				return errors.New("authenticated retained native release floor changed")
+			}
 		}
 		confirmed, err = config.Delivery.ContainerIntent(ctx, intent.OperationID)
 		if err != nil {
@@ -218,14 +223,19 @@ func (runtime *genericRuntime) apply(ctx context.Context, intent delivery.Intent
 		return err
 	}
 	deadline, _ := ctx.Deadline()
-	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots, release.ContainerTarget{Cell: strings.ToUpper(intent.Cell), Environment: intent.Environment, Role: intent.Role, Architecture: expected.Architecture},
+	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots, release.ContainerTarget{Cell: strings.ToUpper(intent.Cell), Environment: intent.Environment, Role: intent.Role, Architecture: expected.Architecture, Genesis: allocations.Genesis},
 		time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
 			return config.Evidence(ctx, intent.OperationID, digest)
 		}, allocations)
 	if err != nil {
 		return err
 	}
-	ownerGuard, err := config.Hosts.HandoffToContainer(ctx, verified, roots, retained, guard)
+	var ownerGuard func(context.Context) error
+	if verified.Genesis().IsVerified() {
+		ownerGuard, err = config.Hosts.HandoffGenesisToContainer(ctx, verified, guard)
+	} else {
+		ownerGuard, err = config.Hosts.HandoffToContainer(ctx, verified, roots, retained, guard)
+	}
 	if err != nil {
 		return err
 	}

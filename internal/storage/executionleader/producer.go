@@ -37,6 +37,7 @@ type EvidenceReader func(context.Context, string, string) (io.ReadCloser, error)
 type AllocationResolver func(context.Context, string, release.ContainerBundle, trust.Keyring, release.ContainerTarget) (release.SequenceLocation, error)
 
 type Producer struct {
+	hosts               *host.Controller
 	control             api.ControlClient
 	authority           *authority.Runtime
 	members             placement.Store
@@ -51,8 +52,8 @@ type Producer struct {
 	cell, environment   string
 }
 
-func NewProducer(control api.ControlClient, fence *authority.Runtime, members placement.Store, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence EvidenceReader, cell, environment string, allocations AllocationResolver, retainedEvidence EvidenceReader, retainedAllocations AllocationResolver, historicalRoots trust.Keyring) (*Producer, error) {
-	if len(historicalRoots) == 0 || retainedEvidence == nil || retainedAllocations == nil || allocations == nil || control == nil || fence == nil || members == nil || releases == nil || volumes == nil || len(roots) == 0 || evidence == nil || !release.ValidRegion(strings.ToUpper(cell)) || cell != strings.ToLower(cell) || environment == "" {
+func NewProducer(control api.ControlClient, fence *authority.Runtime, members placement.Store, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence EvidenceReader, cell, environment string, allocations AllocationResolver, retainedEvidence EvidenceReader, retainedAllocations AllocationResolver, historicalRoots trust.Keyring, hosts *host.Controller) (*Producer, error) {
+	if hosts == nil || len(historicalRoots) == 0 || retainedEvidence == nil || retainedAllocations == nil || allocations == nil || control == nil || fence == nil || members == nil || releases == nil || volumes == nil || len(roots) == 0 || evidence == nil || !release.ValidRegion(strings.ToUpper(cell)) || cell != strings.ToLower(cell) || environment == "" {
 		return nil, execution.ErrUnsafe
 	}
 	keys := make(trust.Keyring, len(roots))
@@ -63,7 +64,7 @@ func NewProducer(control api.ControlClient, fence *authority.Runtime, members pl
 	for id, key := range historicalRoots {
 		historical[id] = slices.Clone(key)
 	}
-	return &Producer{historicalRoots: historical, control: control, authority: fence, members: members, releases: releases, volumes: volumes, roots: keys, evidence: evidence, allocations: allocations, retainedEvidence: retainedEvidence, retainedAllocations: retainedAllocations, cell: cell, environment: environment}, nil
+	return &Producer{hosts: hosts, historicalRoots: historical, control: control, authority: fence, members: members, releases: releases, volumes: volumes, roots: keys, evidence: evidence, allocations: allocations, retainedEvidence: retainedEvidence, retainedAllocations: retainedAllocations, cell: cell, environment: environment}, nil
 }
 
 func (p *Producer) open(operationID string) func(context.Context, string) (io.ReadCloser, error) {
@@ -165,6 +166,13 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 		return executionwire.WorkerGrantMaterial{}, err
 	}
 	state := versioned.State
+	if err := host.GuardManagedContainerOwner(ctx, p.authority, p.cell, state.VolumeID); err != nil {
+		return executionwire.WorkerGrantMaterial{}, err
+	}
+	_, ownerEntry, err := host.ReadManagedRuntimeOwner(ctx, p.authority, p.cell, state.VolumeID)
+	if err != nil {
+		return executionwire.WorkerGrantMaterial{}, err
+	}
 	if state.Validate() != nil || versioned.Revision == 0 || state.Region != oci.Region(strings.ToUpper(p.cell)) || state.HostNode != r.Node || state.InstanceID != r.ManagedOCI.InstanceID || state.CreateKey != r.ManagedOCI.CreateKey || state.HostGeneration != r.Generation || state.HostAttempt != r.ManagedMember.HostAttempt || state.IntentGeneration != intent.Generation || state.IntentPayloadDigest != intent.PayloadDigest() || state.CanonicalRosterDigest != pin.CanonicalRosterDigest || state.ManagedHostProfileDigest != pin.ManagedHostProfileDigest || state.CanonicalRosterRow.MemberID != r.ManagedMember.Scope.MemberID || state.CanonicalRosterRow.Incarnation != r.ManagedMember.Scope.Incarnation || state.Stage != placement.StageServing && state.Stage != placement.StageAwaitingHealthy && state.Stage != placement.StageDraining && state.Stage != placement.StageDrained {
 		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
 	}
@@ -257,7 +265,7 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 	if err := observed.Revalidate(ctx); err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
-	material := executionwire.WorkerGrantMaterial{Desired: desiredBytes, Registration: registered, RuntimeRoot: manifest.ManagedRuntimeRoot, BootDescriptorSHA256: observed.BootDescriptorSHA256(), Scope: memberstatus.Scope(launch.Member.Scope), MemberAuthority: memberstatus.Authority(launch.Authority), Volume: volume, Mount: hostvolume.MountPins{DevicePath: volume.Device, MountPath: launch.Runtime.MountPath, FileSystemUUID: volume.FileSystemUUID, FileSystemType: volume.FileSystemType, UID: uid, GID: gid}, Container: *deployment.Container, RetainedContainer: previous, Retained: retained, DesiredGeneration: desired.Generation, PlacementGeneration: intent.Generation, MemberRevision: versioned.Revision, HostAttempt: state.HostAttempt, PlacementSHA256: intent.PayloadDigest(), RosterSHA256: state.CanonicalRosterDigest, MemberSHA256: fmt.Sprintf("%x", sha256.Sum256(memberBytes)), OperationID: operationID, Survivor: survivor}
+	material := executionwire.WorkerGrantMaterial{ManagedOwnerSequence: ownerEntry.Sequence, ManagedOwnerSHA256: fmt.Sprintf("%x", sha256.Sum256(ownerEntry.Payload)), Desired: desiredBytes, Registration: registered, RuntimeRoot: manifest.ManagedRuntimeRoot, BootDescriptorSHA256: observed.BootDescriptorSHA256(), Scope: memberstatus.Scope(launch.Member.Scope), MemberAuthority: memberstatus.Authority(launch.Authority), Volume: volume, Mount: hostvolume.MountPins{DevicePath: volume.Device, MountPath: launch.Runtime.MountPath, FileSystemUUID: volume.FileSystemUUID, FileSystemType: volume.FileSystemType, UID: uid, GID: gid}, Container: *deployment.Container, RetainedContainer: previous, Retained: retained, DesiredGeneration: desired.Generation, PlacementGeneration: intent.Generation, MemberRevision: versioned.Revision, HostAttempt: state.HostAttempt, PlacementSHA256: intent.PayloadDigest(), RosterSHA256: state.CanonicalRosterDigest, MemberSHA256: fmt.Sprintf("%x", sha256.Sum256(memberBytes)), OperationID: operationID, Survivor: survivor}
 	if err := p.authority.Guard(ctx, caller.Epoch()); err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
@@ -313,6 +321,19 @@ func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadS
 		}
 	}
 	if latest == nil {
+		owner, _, err := host.ReadManagedRuntimeOwner(ctx, p.authority, p.cell, expected.VolumeID)
+		if err != nil {
+			return release.ContainerBundle{}, expected, err
+		}
+		retainedNative, err := nativeRetainedData(owner)
+		if err != nil {
+			return release.ContainerBundle{}, expected, err
+		}
+		if retainedNative.DatabaseID != expected.DatabaseID || retainedNative.PartitionID != expected.PartitionID ||
+			retainedNative.VolumeID != expected.VolumeID || retainedNative.FileSystemUUID != expected.FileSystemUUID || retainedNative.FileSystemType != expected.FileSystemType {
+			return release.ContainerBundle{}, expected, execution.ErrUnsafe
+		}
+		expected = retainedNative
 		currentAllocations, err := p.allocations(ctx, operationID, candidate, p.roots, target)
 		if err != nil {
 			return release.ContainerBundle{}, expected, err

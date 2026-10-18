@@ -13,10 +13,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 func (c command) containerBundle(args []string) error {
@@ -39,6 +42,7 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 	rootPath := flags.String("root-key", "", "existing trusted root public key PEM")
 	delegationPath := flags.String("delegation", "", "root-signed OCI release delegation")
 	migrationPath := flags.String("sequence-migration", "", "root-signed signer sequence migration")
+	genesisPath := flags.String("workload-genesis", "", "complete original root-signed foundation evidence")
 	evidenceDir := flags.String("production-evidence-dir", "", "retained independent production evidence")
 	keyPath := flags.String("signing-key", "", "owner-only delegated Ed25519 private key PEM")
 	keySecret := flags.String("signing-key-secret", "", "existing OCI Vault signing secret")
@@ -49,8 +53,8 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *directory == "" || *layout == "" || *image == "" || *role == "" || *repository == "" || !release.ValidSourceRevision(*commit) || *checkout == "" || !validEnvironment(*environment) || *rootPath == "" || *delegationPath == "" || *migrationPath == "" || *evidenceDir == "" || (*keyPath == "") == (*keySecret == "") || (*keySecret == "") != (*vaultID == "") || flags.NArg() != 0 {
-		return errors.New("container-bundle requires --dir, --oci-layout, --image, --role, --repository, --commit, --source-checkout, --environment, --root-key, --delegation, --sequence-migration, --production-evidence-dir and one signing key source")
+	if *directory == "" || *layout == "" || *image == "" || *role == "" || *repository == "" || !release.ValidSourceRevision(*commit) || *checkout == "" || !validEnvironment(*environment) || *rootPath == "" || *delegationPath == "" || (*migrationPath == "") == (*genesisPath == "") || *evidenceDir == "" || (*keyPath == "") == (*keySecret == "") || (*keySecret == "") != (*vaultID == "") || flags.NArg() != 0 {
+		return errors.New("container-bundle requires --dir, --oci-layout, --image, --role, --repository, --commit, --source-checkout, --environment, --root-key, --delegation, exactly one of --sequence-migration or --workload-genesis, --production-evidence-dir and one signing key source")
 	}
 	cells, err := deploymentCells(c.ctx, cells, env.discover)
 	if err != nil {
@@ -97,25 +101,37 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 	if err != nil {
 		return err
 	}
-	migrationWire, err := readBoundedRegular(*migrationPath, trust.MaxEnvelopeBytes)
-	if err != nil {
-		return err
-	}
-	migrationEnvelope, err := trust.DecodeEnvelope(migrationWire)
-	if err != nil {
-		return err
-	}
-	migration, err := release.VerifySequenceMigrationHistorical(migrationEnvelope, roots, *role, *environment)
-	if err != nil {
-		return err
-	}
-	migrationSHA, err := trust.Fingerprint(migrationEnvelope)
-	if err != nil {
-		return err
+	var genesisWire, migrationWire []byte
+	var migrationEnvelope trust.Envelope
+	var migration release.SequenceMigration
+	var migrationSHA string
+	if *genesisPath != "" {
+		genesisWire, err = readBoundedRegular(*genesisPath, region.MaxWorkloadGenesisEvidenceBytes)
+		if err != nil {
+			return err
+		}
+	} else {
+		migrationWire, err = readBoundedRegular(*migrationPath, trust.MaxEnvelopeBytes)
+		if err != nil {
+			return err
+		}
+		migrationEnvelope, err = trust.DecodeEnvelope(migrationWire)
+		if err != nil {
+			return err
+		}
+		migration, err = release.VerifySequenceMigrationHistorical(migrationEnvelope, roots, *role, *environment)
+		if err != nil {
+			return err
+		}
+		migrationSHA, err = trust.Fingerprint(migrationEnvelope)
+		if err != nil {
+			return err
+		}
 	}
 	type candidate struct {
 		claim  release.ContainerClaim
 		bundle release.ContainerBundle
+		scope  release.ContainerTarget
 	}
 	targets := make([]candidate, 0, len(cells)*len(architectures))
 	for _, architecture := range architectures {
@@ -129,8 +145,19 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 		}
 		for _, cell := range cells {
 			claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: inspected.Image, SourceRevision: *commit, SourceRepository: *repository, SourceTreeSHA256: tree, Cell: cell, Environment: *environment, Role: *role, Architecture: architecture, QualificationSHA256: qualification}
-			scope := release.ContainerScope(release.ContainerTarget{Cell: cell, Environment: *environment, Role: *role, Architecture: architecture})
-			if !containerDelegationAllows(delegation, scope) {
+			scope := release.ContainerTarget{Cell: cell, Environment: *environment, Role: *role, Architecture: architecture}
+			if *genesisPath != "" {
+				scope.Genesis, err = c.containerGenesis(genesisWire, roots, scope, env)
+				if err != nil {
+					return err
+				}
+				if err := scope.Genesis.VerifyCurrentDelegation(grant, roots, deadline); err != nil {
+					return err
+				}
+				claim.Schema = release.ContainerGenesisClaimSchema
+				claim.WorkloadGenesisSHA256 = scope.Genesis.Fingerprint()
+			}
+			if !containerDelegationAllows(delegation, release.ContainerScope(scope)) {
 				return errors.New("OCI candidate exceeds its root signing capability")
 			}
 			expected := release.ProductionExpectation{SourceRevision: *commit, ArtifactSHA256: inspected.ManifestSHA256, QualificationSHA256: qualification, Cell: cell, Environment: *environment, Runtime: release.ProductionRuntime, Architecture: architecture, Role: *role}
@@ -141,7 +168,7 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 			if err != nil {
 				return err
 			}
-			targets = append(targets, candidate{claim: claim, bundle: release.ContainerBundle{Index: inspected.Index, Delegation: delegationWire, Migration: migrationWire}})
+			targets = append(targets, candidate{claim: claim, bundle: release.ContainerBundle{Index: inspected.Index, Delegation: delegationWire, Migration: migrationWire}, scope: scope})
 		}
 	}
 	var private ed25519.PrivateKey
@@ -163,7 +190,11 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 	if err != nil {
 		return err
 	}
-	if signerID != delegation.SubjectKeyID() || signerID != migration.SignerKeyID {
+	orderingSigner := migration.SignerKeyID
+	if targets[0].scope.Genesis.IsVerified() {
+		orderingSigner = targets[0].scope.Genesis.SignerKeyID()
+	}
+	if signerID != delegation.SubjectKeyID() || signerID != orderingSigner {
 		return trust.ErrKeyMismatch
 	}
 	deadline = time.Now().UTC().Add(rollout.ObservationBudget)
@@ -171,19 +202,36 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 		return err
 	}
 	for _, target := range targets {
+		if target.scope.Genesis.IsVerified() {
+			if err := target.scope.Genesis.VerifyCurrentDelegation(grant, roots, deadline); err != nil {
+				return err
+			}
+		}
 		_, child, _ := strings.Cut(target.claim.Image, "@sha256:")
 		expected := release.ProductionExpectation{SourceRevision: target.claim.SourceRevision, ArtifactSHA256: child, QualificationSHA256: target.claim.QualificationSHA256, Cell: target.claim.Cell, Environment: target.claim.Environment, Runtime: release.ProductionRuntime, Architecture: target.claim.Architecture, Role: target.claim.Role}
 		if err := c.verifyProductionCandidate(*evidenceDir, roots, expected, deadline); err != nil {
 			return err
 		}
 	}
-	client, err := env.storage(migration.Region)
+	sequenceRegion, namespace, bucket := migration.Region, migration.Namespace, migration.Bucket
+	genesis := targets[0].scope.Genesis
+	if genesis.IsVerified() {
+		origin := genesis.Origin()
+		sequenceRegion, namespace, bucket = "GRU", origin.Namespace, origin.Bucket
+	}
+	client, err := env.storage(sequenceRegion)
 	if err != nil {
 		return err
 	}
-	location := release.SequenceLocation{Client: client, Namespace: migration.Namespace, Bucket: migration.Bucket}
-	if err := location.ImportMigration(c.ctx, migrationEnvelope, roots, *role, *environment, now); err != nil {
-		return err
+	location := release.SequenceLocation{Client: client, Namespace: namespace, Bucket: bucket, Genesis: genesis, Delegation: grant}
+	if genesis.IsVerified() {
+		if err := location.ImportGenesis(c.ctx, roots, *role, *environment, time.Now().UTC()); err != nil {
+			return err
+		}
+	} else {
+		if err := location.ImportMigration(c.ctx, migrationEnvelope, roots, *role, *environment, now); err != nil {
+			return err
+		}
 	}
 	family, err := targets[0].claim.WorkerFamilyDigest()
 	if err != nil {
@@ -216,7 +264,7 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 		if err != nil {
 			return err
 		}
-		scope := release.ContainerTarget{Cell: target.claim.Cell, Environment: *environment, Role: *role, Architecture: target.claim.Architecture}
+		scope := target.scope
 		envelope, err := trust.Sign(payload, release.ContainerScope(scope), issued, expires, private)
 		if err != nil {
 			return err
@@ -231,6 +279,11 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 	}
 	if err := os.MkdirAll(*directory, 0o700); err != nil {
 		return err
+	}
+	if genesis.IsVerified() {
+		if err := c.writeNew(filepath.Join(*directory, "workload-genesis.json"), genesisWire, 0o600); err != nil {
+			return err
+		}
 	}
 	for _, target := range targets {
 		destination := filepath.Join(*directory, target.claim.Cell, target.claim.Architecture)
@@ -260,6 +313,41 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 	}
 	_, err = fmt.Fprintf(c.output, "%s signed OCI container bundle: sequence %d %s\n", *role, sequence, *directory)
 	return err
+}
+
+func (c command) containerGenesis(wire []byte, roots trust.Keyring, target release.ContainerTarget, env deployEnv) (release.VerifiedWorkloadGenesis, error) {
+	genesis, err := region.VerifyOriginalWorkloadGenesisEvidence(wire, roots, target)
+	if err != nil {
+		return release.VerifiedWorkloadGenesis{}, err
+	}
+	origin := genesis.Origin()
+	name, err := release.WorkloadGenesisObject(origin.TenancyID, target.Cell, target.Environment, target.Role)
+	if err != nil {
+		return release.VerifiedWorkloadGenesis{}, err
+	}
+	client, err := env.storage("GRU")
+	if err != nil {
+		return release.VerifiedWorkloadGenesis{}, err
+	}
+	response, err := ociclient.ReadObject(c.ctx, client, objectstorage.GetObjectRequest{NamespaceName: new(origin.Namespace), BucketName: new(origin.Bucket), ObjectName: new(name)})
+	if err != nil {
+		return release.VerifiedWorkloadGenesis{}, err
+	}
+	if response.Content == nil {
+		return release.VerifiedWorkloadGenesis{}, errors.New("permanent workload genesis has no body")
+	}
+	retained, readErr := io.ReadAll(io.LimitReader(response.Content, region.MaxWorkloadGenesisEvidenceBytes+1))
+	if err := errors.Join(readErr, response.Content.Close()); err != nil {
+		return release.VerifiedWorkloadGenesis{}, err
+	}
+	permanent, err := region.VerifyOriginalWorkloadGenesisEvidence(retained, roots, target)
+	if err != nil {
+		return release.VerifiedWorkloadGenesis{}, err
+	}
+	if permanent.Fingerprint() != genesis.Fingerprint() || permanent.Origin() != origin {
+		return release.VerifiedWorkloadGenesis{}, errors.New("workload genesis differs from its permanent home object")
+	}
+	return genesis, nil
 }
 
 func containerDelegationAllows(delegation trust.VerifiedDelegation, scope trust.Scope) bool {

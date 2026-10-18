@@ -73,7 +73,7 @@ func verifyContinuity(original Profile, historical release.HistoricalContainer, 
 	if before.SourceRepository != after.SourceRepository || before.SourceRevision != after.SourceRevision || before.SourceTreeSHA256 != after.SourceTreeSHA256 ||
 		before.Cell != after.Cell || before.Environment != after.Environment || before.Role != after.Role || before.Architecture != after.Architecture ||
 		before.Image != after.Image || before.QualificationSHA256 != after.QualificationSHA256 || before.ReleaseSequence != after.ReleaseSequence ||
-		before.SequenceMigrationSHA256 != after.SequenceMigrationSHA256 {
+		before.SequenceMigrationSHA256 != after.SequenceMigrationSHA256 || before.WorkloadGenesisSHA256 != after.WorkloadGenesisSHA256 {
 		return ErrPending
 	}
 	return nil

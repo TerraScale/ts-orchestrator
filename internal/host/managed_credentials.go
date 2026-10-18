@@ -145,6 +145,9 @@ func installManagedCredentialState(directory string, data []byte, identity Workl
 }
 
 func (a *Agent) fetchManagedCredentials(ctx context.Context, desired Desired, registration Registration) (uint64, uint64, bool, error) {
+	if err := a.checkManagedNative(ctx, desired); err != nil {
+		return 0, 0, false, err
+	}
 	paths, err := runtimePaths(a.cfg.ManagedRuntimeRoot, *desired.ManagedMember)
 	if err != nil {
 		return 0, 0, false, err
@@ -161,6 +164,9 @@ func (a *Agent) fetchManagedCredentials(ctx context.Context, desired Desired, re
 	if err != nil {
 		return 0, 0, false, err
 	}
+	if err := a.checkManagedNative(ctx, desired); err != nil {
+		return 0, 0, false, err
+	}
 	generation, changed, err := installManagedCredentialState(paths.material, data, a.cfg.WorkloadIdentity)
 	return previous.Generation, generation, changed, err
 }
@@ -168,6 +174,9 @@ func (a *Agent) fetchManagedCredentials(ctx context.Context, desired Desired, re
 // The optional runner capability only signals the process recorded for this
 // role. Native status must then prove that same process installed the overlay.
 func (a *Agent) reloadManagedCredentials(ctx context.Context, desired Desired, socket string, generation uint64) error {
+	if err := a.checkManagedNative(ctx, desired); err != nil {
+		return err
+	}
 	reloader, ok := a.runner.(interface {
 		SignalManagedReload(context.Context, string) error
 	})

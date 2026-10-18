@@ -421,7 +421,7 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 		if err != nil {
 			return nil, err
 		}
-		if len(observation.Data) == 0 || len(observation.Data) > release.MaxWorkerFamilyEvidenceBytes {
+		if len(observation.Data) == 0 || len(observation.Data) > release.MaxWorkerFamilyEvidenceBytes || len(observation.OriginalProof) > MaxOriginalProofBytes {
 			return nil, ErrUnavailable
 		}
 		return observation, nil
@@ -448,7 +448,7 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 		if err != nil {
 			return nil, err
 		}
-		if len(observation.Data) == 0 || len(observation.Data) > release.MaxWorkerFamilyEvidenceBytes {
+		if len(observation.Data) == 0 || len(observation.Data) > release.MaxWorkerFamilyEvidenceBytes || len(observation.OriginalProof) > MaxOriginalProofBytes {
 			return nil, ErrUnavailable
 		}
 		return observation, nil

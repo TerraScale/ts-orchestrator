@@ -121,17 +121,22 @@ func (i FunctionServiceIntent) VerifyWorkerFloor(ctx context.Context, client api
 			return errors.New("worker release floor ownership or target mismatch")
 		}
 	}
-	// The exact immutable migration must match the already verified worker proof;
-	// mutable sequence labels alone cannot establish a release ordering namespace.
-	migration, err := trust.DecodeEnvelope(floor.Spec.Data)
-	if err != nil {
-		return err
+	if worker.Genesis().IsVerified() {
+		if err := authenticateReleaseFloor(ctx, client, workerIntent, worker, nil, floor); err != nil {
+			return err
+		}
+	} else {
+		// Mutable sequence labels cannot establish the ordering namespace.
+		migration, err := trust.DecodeEnvelope(floor.Spec.Data)
+		if err != nil {
+			return err
+		}
+		fingerprint, err := trust.Fingerprint(migration)
+		if err != nil || fingerprint != claim.SequenceMigrationSHA256 {
+			return errors.New("qualified worker release ordering namespace differs")
+		}
 	}
-	fingerprint, err := trust.Fingerprint(migration)
-	if err != nil {
-		return err
-	}
-	if fingerprint != claim.SequenceMigrationSHA256 || floor.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || floor.Spec.Annotations.Labels[labelReleaseFingerprint] != worker.ReleaseIdentity() {
+	if floor.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || floor.Spec.Annotations.Labels[labelReleaseFingerprint] != worker.ReleaseIdentity() {
 		return errors.New("qualified worker release floor differs or was superseded")
 	}
 	if !worker.Valid(time.Now().UTC()) {

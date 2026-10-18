@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
@@ -59,7 +60,7 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 	}
 	targets := make(map[string][]target)
 	var cells []string
-	var source, repository, tree, role, environment string
+	var source, repository, tree, role, environment, genesisSHA string
 	var sequence uint64
 	budget := rollout.ObservationBudget
 	if env.timeout > 0 {
@@ -96,29 +97,50 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 				return err
 			}
 			scope := release.ContainerTarget{Cell: entry.Name(), Environment: claim.Environment, Role: claim.Role, Architecture: architecture.Name()}
-			migrationEnvelope, err := trust.DecodeEnvelope(bundle.Migration)
-			if err != nil {
-				return err
+			var allocations release.SequenceLocation
+			if claim.WorkloadGenesisSHA256 != "" {
+				proof, err := readBoundedRegular(filepath.Join(*directory, "workload-genesis.json"), region.MaxWorkloadGenesisEvidenceBytes)
+				if err != nil {
+					return err
+				}
+				scope.Genesis, err = c.containerGenesis(proof, roots, scope, env)
+				if err != nil {
+					return err
+				}
+				origin := scope.Genesis.Origin()
+				if *namespace != origin.Namespace {
+					return errors.New("container namespace differs from original workload genesis")
+				}
+				client, err := env.storage("GRU")
+				if err != nil {
+					return err
+				}
+				allocations = release.SequenceLocation{Client: client, Namespace: origin.Namespace, Bucket: origin.Bucket, Genesis: scope.Genesis}
+			} else {
+				migrationEnvelope, err := trust.DecodeEnvelope(bundle.Migration)
+				if err != nil {
+					return err
+				}
+				migration, err := release.VerifySequenceMigrationHistorical(migrationEnvelope, roots, scope.Role, scope.Environment)
+				if err != nil {
+					return err
+				}
+				client, err := env.storage(migration.Region)
+				if err != nil {
+					return err
+				}
+				allocations = release.SequenceLocation{Client: client, Namespace: migration.Namespace, Bucket: migration.Bucket}
 			}
-			migration, err := release.VerifySequenceMigrationHistorical(migrationEnvelope, roots, scope.Role, scope.Environment)
-			if err != nil {
-				return err
-			}
-			client, err := env.storage(migration.Region)
-			if err != nil {
-				return err
-			}
-			allocations := release.SequenceLocation{Client: client, Namespace: migration.Namespace, Bucket: migration.Bucket}
 			verified, err := release.VerifyContainerCurrent(c.ctx, bundle, roots, scope, now, deadline, containerEvidenceReader(filepath.Join(*directory, "production")), allocations)
 			if err != nil {
 				return err
 			}
 			claim = verified.Claim()
 			if role == "" {
-				source, repository, tree, role, environment, sequence = claim.SourceRevision, claim.SourceRepository, claim.SourceTreeSHA256, claim.Role, claim.Environment, claim.ReleaseSequence
+				source, repository, tree, role, environment, sequence, genesisSHA = claim.SourceRevision, claim.SourceRepository, claim.SourceTreeSHA256, claim.Role, claim.Environment, claim.ReleaseSequence, claim.WorkloadGenesisSHA256
 			}
-			if source != claim.SourceRevision || repository != claim.SourceRepository || tree != claim.SourceTreeSHA256 || role != claim.Role || environment != claim.Environment || sequence != claim.ReleaseSequence {
-				return errors.New("container bundle mixes source identities, roles, environments or sequences")
+			if source != claim.SourceRevision || repository != claim.SourceRepository || tree != claim.SourceTreeSHA256 || role != claim.Role || environment != claim.Environment || sequence != claim.ReleaseSequence || genesisSHA != claim.WorkloadGenesisSHA256 {
+				return errors.New("container bundle mixes source identities, roles, environments, sequences or original genesis")
 			}
 			repositoryImage, _, ok := strings.Cut(claim.Image, "@sha256:")
 			if !ok {

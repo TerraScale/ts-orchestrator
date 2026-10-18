@@ -19,10 +19,14 @@ import (
 )
 
 const ContainerClaimSchema = "terrascale.release.container.v1"
+const ContainerGenesisClaimSchema = "terrascale.release.container.v2"
 const ContainerClaimDomain = "terrascale.release.container"
 
 // ContainerTarget is the consumer's admitted target, never read from the proof.
-type ContainerTarget struct{ Cell, Environment, Role, Architecture string }
+type ContainerTarget struct {
+	Cell, Environment, Role, Architecture string
+	Genesis                               VerifiedWorkloadGenesis
+}
 
 // ContainerClaim identifies an OCI child manifest, distinct from native binary
 // and tarball artifacts. Its independent qualifier binds this exact candidate.
@@ -38,6 +42,7 @@ type ContainerClaim struct {
 	Architecture            string `json:"architecture"`
 	ReleaseSequence         uint64 `json:"release_sequence"`
 	SequenceMigrationSHA256 string `json:"sequence_migration_sha256"`
+	WorkloadGenesisSHA256   string `json:"workload_genesis_sha256,omitempty"`
 	// QualificationSHA256 pins retained OCI root/index bytes (or a directly pinned manifest).
 	QualificationSHA256 string          `json:"qualification_sha256"`
 	Production          ProductionProof `json:"production"`
@@ -48,7 +53,7 @@ type ContainerBundle struct {
 	Index      []byte         `json:"index,omitempty"`
 	Sequence   []byte         `json:"sequence,omitempty"`
 	Delegation jsontext.Value `json:"delegation,omitempty"`
-	Migration  jsontext.Value `json:"sequence_migration"`
+	Migration  jsontext.Value `json:"sequence_migration,omitempty"`
 }
 
 // VerifiedContainer can only be populated by the signature/qualification verifier.
@@ -57,6 +62,7 @@ type VerifiedContainer struct {
 	familyEvidence    []byte
 	migration         SequenceMigration
 	migrationEnvelope trust.Envelope
+	genesis           VerifiedWorkloadGenesis
 	bundleSHA256      string
 	fingerprint       string
 	identity          string
@@ -70,10 +76,18 @@ func (c VerifiedContainer) Claim() ContainerClaim {
 	claim.Production.Delegation = slices.Clone(claim.Production.Delegation)
 	return claim
 }
-func (c VerifiedContainer) BundleSHA256() string    { return c.bundleSHA256 }
-func (c VerifiedContainer) Fingerprint() string     { return c.fingerprint }
-func (c VerifiedContainer) ReleaseIdentity() string { return c.identity }
-func (c VerifiedContainer) ExpiresAt() time.Time    { return c.expiresAt }
+func (c VerifiedContainer) BundleSHA256() string             { return c.bundleSHA256 }
+func (c VerifiedContainer) Fingerprint() string              { return c.fingerprint }
+func (c VerifiedContainer) ReleaseIdentity() string          { return c.identity }
+func (c VerifiedContainer) Genesis() VerifiedWorkloadGenesis { return c.genesis }
+func (c VerifiedContainer) OrderingSHA256() string           { return c.claim.OrderingSHA256() }
+func (claim ContainerClaim) OrderingSHA256() string {
+	if claim.WorkloadGenesisSHA256 != "" {
+		return claim.WorkloadGenesisSHA256
+	}
+	return claim.SequenceMigrationSHA256
+}
+func (c VerifiedContainer) ExpiresAt() time.Time { return c.expiresAt }
 func (c VerifiedContainer) Valid(now time.Time) bool {
 	return !now.IsZero() && c.fingerprint != "" && !now.Before(c.issuedAt) && now.Before(c.expiresAt)
 }
@@ -82,6 +96,7 @@ func (c VerifiedContainer) Valid(now time.Time) bool {
 func (claim ContainerClaim) ContentManifestDigest() (string, error) {
 	claim.ReleaseSequence = 0
 	claim.SequenceMigrationSHA256 = ""
+	claim.WorkloadGenesisSHA256 = ""
 	claim.Production = ProductionProof{}
 	wire, err := trust.EncodePayload(claim)
 	if err != nil {
@@ -110,7 +125,8 @@ func (claim ContainerClaim) Validate() error {
 		return errors.New("container release source requires HTTPS repository and exact SHA-256 tree")
 	}
 
-	if claim.Schema != ContainerClaimSchema || !ValidSourceRevision(claim.SourceRevision) || !ValidRegion(claim.Cell) || !ValidEnvironment(claim.Environment) || !serviceRolePattern.MatchString(claim.Role) || claim.Architecture != "arm64" && claim.Architecture != "amd64" || claim.ReleaseSequence == 0 || !digestPattern.MatchString(claim.SequenceMigrationSHA256) || !digestPattern.MatchString(claim.QualificationSHA256) {
+	ordering := claim.Schema == ContainerClaimSchema && digestPattern.MatchString(claim.SequenceMigrationSHA256) && claim.WorkloadGenesisSHA256 == "" || claim.Schema == ContainerGenesisClaimSchema && claim.SequenceMigrationSHA256 == "" && digestPattern.MatchString(claim.WorkloadGenesisSHA256)
+	if !ordering || !ValidSourceRevision(claim.SourceRevision) || !ValidRegion(claim.Cell) || !ValidEnvironment(claim.Environment) || !serviceRolePattern.MatchString(claim.Role) || claim.Architecture != "arm64" && claim.Architecture != "amd64" || claim.ReleaseSequence == 0 || !digestPattern.MatchString(claim.QualificationSHA256) {
 		return errors.New("invalid OCI container release claim")
 	}
 	ref, err := reference.ParseNormalizedNamed(claim.Image)
@@ -132,6 +148,12 @@ func (claim ContainerClaim) Validate() error {
 // present instant and operation deadline must remain authorized. The immutable
 // winning allocation must be read from the root-authorized signer store.
 func VerifyContainerCurrent(ctx context.Context, bundle ContainerBundle, roots trust.Keyring, expected ContainerTarget, now, validUntil time.Time, evidence func(context.Context, string) (io.ReadCloser, error), allocations SequenceLocation) (VerifiedContainer, error) {
+	if expected.Genesis.IsVerified() && allocations.Genesis.IsVerified() && expected.Genesis != allocations.Genesis {
+		return VerifiedContainer{}, errors.New("container target differs from independently verified allocation genesis")
+	}
+	if !expected.Genesis.IsVerified() {
+		expected.Genesis = allocations.Genesis
+	}
 	if now.IsZero() || validUntil.Before(now) || !ValidRegion(expected.Cell) || !ValidEnvironment(expected.Environment) || !serviceRolePattern.MatchString(expected.Role) || expected.Architecture != "arm64" && expected.Architecture != "amd64" || evidence == nil {
 		return VerifiedContainer{}, errors.New("container verification requires admitted target, current time, deadline and evidence store")
 	}
@@ -165,6 +187,18 @@ func VerifyContainerCurrent(ctx context.Context, bundle ContainerBundle, roots t
 	if err != nil {
 		return VerifiedContainer{}, err
 	}
+	if verified.genesis.IsVerified() {
+		delegation, err := trust.DecodeEnvelope(bundle.Delegation)
+		if err != nil {
+			return VerifiedContainer{}, err
+		}
+		for _, at := range []time.Time{now, validUntil} {
+			if err := verified.genesis.VerifyCurrentDelegation(delegation, roots, at); err != nil {
+				return VerifiedContainer{}, err
+			}
+		}
+	}
+	allocations.Genesis = expected.Genesis
 	verified.familyEvidence, err = allocations.readWorkerFamily(ctx, roots, verified)
 	if err != nil {
 		return VerifiedContainer{}, err
@@ -217,10 +251,11 @@ func VerifyContainerCurrent(ctx context.Context, bundle ContainerBundle, roots t
 // HistoricalContainer authenticates retained ordering evidence without granting runtime authority.
 type HistoricalContainer struct{ value VerifiedContainer }
 
-func (c HistoricalContainer) Claim() ContainerClaim   { return c.value.Claim() }
-func (c HistoricalContainer) Fingerprint() string     { return c.value.Fingerprint() }
-func (c HistoricalContainer) BundleSHA256() string    { return c.value.BundleSHA256() }
-func (c HistoricalContainer) ReleaseIdentity() string { return c.value.ReleaseIdentity() }
+func (c HistoricalContainer) Claim() ContainerClaim            { return c.value.Claim() }
+func (c HistoricalContainer) Fingerprint() string              { return c.value.Fingerprint() }
+func (c HistoricalContainer) BundleSHA256() string             { return c.value.BundleSHA256() }
+func (c HistoricalContainer) ReleaseIdentity() string          { return c.value.ReleaseIdentity() }
+func (c HistoricalContainer) Genesis() VerifiedWorkloadGenesis { return c.value.Genesis() }
 
 // VerifyContainerHistorical authenticates an immutable channel floor, including expired
 // release/delegation intervals. Runtime consumers must use VerifyContainerCurrent.
@@ -271,22 +306,33 @@ func verifyContainerIdentity(bundle ContainerBundle, roots trust.Keyring, expect
 	if claim.Cell != expected.Cell || claim.Environment != expected.Environment || claim.Role != expected.Role || claim.Architecture != expected.Architecture {
 		return VerifiedContainer{}, trust.ErrScopeMismatch
 	}
-	migrationEnvelope, err := trust.DecodeEnvelope(bundle.Migration)
-	if err != nil {
-		return VerifiedContainer{}, err
+	var migrationEnvelope trust.Envelope
+	var migration SequenceMigration
+	if claim.WorkloadGenesisSHA256 != "" {
+		if len(bundle.Migration) != 0 || !expected.Genesis.Allows(expected) || claim.WorkloadGenesisSHA256 != expected.Genesis.Fingerprint() || envelope.KeyID != expected.Genesis.SignerKeyID() || len(bundle.Delegation) == 0 {
+			return VerifiedContainer{}, errors.New("container release differs from authenticated original genesis")
+		}
+	} else {
+		if expected.Genesis.IsVerified() {
+			return VerifiedContainer{}, errors.New("migration cannot replace original genesis")
+		}
+		migrationEnvelope, err = trust.DecodeEnvelope(bundle.Migration)
+		if err != nil {
+			return VerifiedContainer{}, err
+		}
+		migration, err = VerifySequenceMigrationHistorical(migrationEnvelope, roots, expected.Role, expected.Environment)
+		if err != nil {
+			return VerifiedContainer{}, err
+		}
+		migrationDigest, err := trust.Fingerprint(migrationEnvelope)
+		if err != nil {
+			return VerifiedContainer{}, err
+		}
+		if claim.ReleaseSequence <= migration.SequenceFloor || claim.SequenceMigrationSHA256 != migrationDigest || envelope.KeyID != migration.SignerKeyID {
+			return VerifiedContainer{}, errors.New("container release differs from root-authorized sequence signer or migration")
+		}
 	}
-	migration, err := VerifySequenceMigrationHistorical(migrationEnvelope, roots, expected.Role, expected.Environment)
-	if err != nil {
-		return VerifiedContainer{}, err
-	}
-	migrationDigest, err := trust.Fingerprint(migrationEnvelope)
-	if err != nil {
-		return VerifiedContainer{}, err
-	}
-	if claim.ReleaseSequence <= migration.SequenceFloor || claim.SequenceMigrationSHA256 != migrationDigest || envelope.KeyID != migration.SignerKeyID {
-		return VerifiedContainer{}, errors.New("container release differs from root-authorized sequence signer or migration")
-	}
-	if err := verifyWorkerFamilyEvidence(bundle.Sequence, roots, claim); err != nil {
+	if err := verifyWorkerFamilyEvidence(bundle.Sequence, roots, claim, expected.Genesis); err != nil {
 		return VerifiedContainer{}, err
 	}
 	fingerprint, err := trust.Fingerprint(envelope)
@@ -301,8 +347,8 @@ func verifyContainerIdentity(bundle ContainerBundle, roots trust.Keyring, expect
 	if err != nil {
 		return VerifiedContainer{}, err
 	}
-	identity := fmt.Sprintf("%x", sha256.Sum256([]byte(content+"/"+claim.SequenceMigrationSHA256)))
-	return VerifiedContainer{claim: claim, bundleSHA256: bundleDigest, familyEvidence: slices.Clone(bundle.Sequence), migration: migration, migrationEnvelope: migrationEnvelope, fingerprint: fingerprint, identity: identity}, nil
+	identity := fmt.Sprintf("%x", sha256.Sum256([]byte(content+"/"+claim.OrderingSHA256())))
+	return VerifiedContainer{claim: claim, bundleSHA256: bundleDigest, familyEvidence: slices.Clone(bundle.Sequence), migration: migration, migrationEnvelope: migrationEnvelope, genesis: expected.Genesis, fingerprint: fingerprint, identity: identity}, nil
 }
 
 // ContainerBundleSHA256 identifies the complete retained bundle, including

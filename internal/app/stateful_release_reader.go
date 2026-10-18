@@ -9,7 +9,9 @@ import (
 	"io"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
@@ -20,6 +22,8 @@ import (
 // statefulReleaseReader consumes finite protected container root reads. It never
 // receives an OCI principal, SDK client, caller-selected bucket or object key.
 type statefulReleaseReader struct {
+	founders   *bootstrapstart.CurrentFounderAuthorityReader
+	accepted   bootstrapstart.AcceptedIdentity
 	client     *rootoci.Client
 	deliveries *delivery.Service
 }
@@ -127,23 +131,54 @@ func (reader statefulReleaseReader) readAllocation(ctx context.Context, operatio
 	if actualErr != nil || wantedErr != nil || actual != wanted {
 		return release.SequenceLocation{}, execution.ErrUnsafe
 	}
-	envelope, err := trust.DecodeEnvelope(bundle.Migration)
-	if err != nil {
-		return release.SequenceLocation{}, err
-	}
-	migration, err := release.VerifySequenceMigrationHistorical(envelope, roots, target.Role, target.Environment)
-	if err != nil {
-		return release.SequenceLocation{}, err
-	}
 	observed, err := read(ctx, rootoci.ContainerAllocationRequest{OperationID: operationID, ExpectedFingerprint: fingerprint})
 	if err != nil {
 		return release.SequenceLocation{}, err
 	}
-	if observed.OperationID != operationID || observed.Fingerprint != fingerprint || observed.Namespace != migration.Namespace || observed.Bucket != migration.Bucket ||
+	if len(observed.OriginalProof) > rootoci.MaxOriginalProofBytes {
+		return release.SequenceLocation{}, execution.ErrUnsafe
+	}
+	var namespace, bucket string
+	if len(bundle.Migration) == 0 {
+		if reader.founders == nil {
+			return release.SequenceLocation{}, execution.ErrUnsafe
+		}
+		source, err := reader.founders.ReadRuntimeAuthority(ctx, reader.accepted, time.Now().UTC())
+		if err != nil {
+			return release.SequenceLocation{}, err
+		}
+		installed, err := bootstrapstart.LoadTrustInputs(reader.accepted)
+		if err != nil {
+			return release.SequenceLocation{}, err
+		}
+		target.Genesis, err = region.VerifyWorkloadGenesisEvidence(observed.OriginalProof, installed.Genesis, source.Anchor(), target.Cell, target.Role, target.Environment)
+		if err != nil || !target.Genesis.Allows(target) {
+			return release.SequenceLocation{}, errors.Join(execution.ErrUnsafe, err)
+		}
+		origin := target.Genesis.Origin()
+		namespace, bucket = origin.Namespace, origin.Bucket
+	} else {
+		if len(observed.OriginalProof) != 0 || target.Genesis.IsVerified() {
+			return release.SequenceLocation{}, execution.ErrUnsafe
+		}
+		envelope, err := trust.DecodeEnvelope(bundle.Migration)
+		if err != nil {
+			return release.SequenceLocation{}, err
+		}
+		migration, err := release.VerifySequenceMigrationHistorical(envelope, roots, target.Role, target.Environment)
+		if err != nil {
+			return release.SequenceLocation{}, err
+		}
+		namespace, bucket = migration.Namespace, migration.Bucket
+	}
+	if _, err := release.VerifyContainerHistorical(bundle, roots, target); err != nil {
+		return release.SequenceLocation{}, err
+	}
+	if observed.OperationID != operationID || observed.Fingerprint != fingerprint || observed.Namespace != namespace || observed.Bucket != bucket ||
 		observed.ObjectName == "" || len(observed.Data) == 0 || len(observed.Data) > trust.MaxPayloadBytes || !time.Now().Before(observed.ExpiresAt) {
 		return release.SequenceLocation{}, execution.ErrUnsafe
 	}
-	return release.SequenceLocation{Client: statefulAllocationObject{observation: observed, ctx: ctx}, Namespace: observed.Namespace, Bucket: observed.Bucket}, nil
+	return release.SequenceLocation{Client: statefulAllocationObject{observation: observed, ctx: ctx}, Namespace: observed.Namespace, Bucket: observed.Bucket, Genesis: target.Genesis}, nil
 }
 
 func (reader statefulReleaseReader) currentBundle(ctx context.Context, role, architecture string) (release.ContainerBundle, time.Time, error) {

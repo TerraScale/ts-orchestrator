@@ -162,7 +162,7 @@ func (r *Runtime) CommitHostMutation(
 	expectedSubjectSequence uint64,
 	payload []byte,
 ) (uint64, error) {
-	if kind == MutationUsageObservation || kind == MutationRuntimeOwner {
+	if kind == MutationUsageObservation || kind == MutationRuntimeOwner || kind == MutationManagedRuntimeOwner {
 		return 0, errors.New("usage observations and runtime ownership require verified host authority")
 	}
 	if err := validateHostMutation(kind, subjectKey, operationID, payload); err != nil {
@@ -183,6 +183,9 @@ func (r *Runtime) CommitHostMutationVerified(
 ) (uint64, error) {
 	if err := validateHostMutation(kind, subjectKey, operationID, payload); err != nil {
 		return 0, err
+	}
+	if kind == MutationManagedRuntimeOwner && (r == nil || !strings.HasPrefix(subjectKey, r.config.Scope+".volume.")) {
+		return 0, errors.New("managed owner key differs from its authority scope")
 	}
 	if verify == nil {
 		return 0, errors.New("verified host mutation requires a verifier")
@@ -1223,7 +1226,7 @@ func decodeControlRecord(data []byte) (controlRecord, error) {
 }
 
 func validateHostMutation(kind HostMutationKind, subjectKey, operationID string, payload []byte) error {
-	if kind != MutationRegistration && kind != MutationDesired && kind != MutationRetirement && kind != MutationUsageObservation && kind != MutationRuntimeOwner {
+	if kind != MutationRegistration && kind != MutationDesired && kind != MutationRetirement && kind != MutationUsageObservation && kind != MutationRuntimeOwner && kind != MutationManagedRuntimeOwner {
 		return errors.New("host mutation kind is not allowed")
 	}
 	return validateMutation(kind, subjectKey, operationID, payload)
@@ -1249,6 +1252,16 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 	case MutationRegistration, MutationRetirement, MutationUsageObservation:
 		want = 2
 	case MutationDesired, MutationRuntimeOwner:
+		want = 3
+	case MutationManagedRuntimeOwner:
+		if len(parts) != 3 || parts[1] != "volume" || len(parts[2]) != 64 {
+			return errors.New("managed owner key must name one physical volume digest")
+		}
+		for _, digit := range parts[2] {
+			if digit < '0' || digit > '9' && digit < 'a' || digit > 'f' {
+				return errors.New("managed owner volume digest must be lowercase SHA256")
+			}
+		}
 		want = 3
 	case MutationPlacementIntent:
 		want = 2
