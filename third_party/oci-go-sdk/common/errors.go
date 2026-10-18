@@ -92,6 +92,7 @@ type servicefailure struct {
 }
 
 func newServiceFailureFromResponse(response *http.Response) error {
+	defer CloseBodyIfValid(response)
 	var err error
 	var timestamp SDKTime
 	t, err := tryParsingTimeWithValidFormatsForHeaders([]byte(response.Header.Get("Date")), "Date")
