@@ -159,6 +159,14 @@ func TestAuthenticatedAPIAndRegionalClient(t *testing.T) {
 	if err != nil || !result.Complete {
 		t.Fatalf("authenticated query: %+v %v", result, err)
 	}
+	if len(result.Nodes) != 2 || len(result.Replicas) != 2 || len(result.Services) != 1 {
+		t.Fatalf("window: %+v", result)
+	}
+	service := result.Services[0]
+	if service.CPU.Usage == nil || service.CPU.Limit == nil || service.Memory.Headroom == nil ||
+		service.CPU.Usage.Mean != 2 || service.CPU.Limit.Min != 8 || service.Memory.Headroom.Min != 600 {
+		t.Fatalf("totals: %+v", service)
+	}
 	var encoded bytes.Buffer
 	if err := json.NewEncoder(&encoded).Encode(result); err != nil {
 		t.Fatal(err)
@@ -188,6 +196,102 @@ func TestAuthenticatedAPIAndRegionalClient(t *testing.T) {
 			t.Fatalf("authenticated lifecycle query: %v", err)
 		}
 		return usage
+	}
+	// The original fixture values are controlled inputs; API and client are real.
+	{
+		missing := lifecycleUsage(t, s, from, to, fullWindowInventory(from, to, "production", "a", "b", "a/terrabase", "b/terrabase", "missing", "a/ts-auth"))
+		if missing.Complete || len(missing.Missing) != 2 {
+			t.Fatalf("missing data claimed complete: %+v", missing)
+		}
+		var out bytes.Buffer
+		if err := WriteTable(&out, missing); err != nil || !strings.Contains(out.String(), "production/terrabase") {
+			t.Fatalf("table: %s %v", out.String(), err)
+		}
+		if _, err := (Client{URLs: []string{httpServer.URL}, Token: token}).Query(t.Context(), "gru", from.Add(-2*time.Hour), to); err == nil {
+			t.Fatal("accepted expired window")
+		}
+		// Also require the authenticated API to reject that exact expired window.
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+			httpServer.URL+"/v1/usage?region=gru&from="+from.Add(-2*time.Hour).Format(time.RFC3339Nano)+"&to="+to.Format(time.RFC3339Nano), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body bytes.Buffer
+		_, readErr := body.ReadFrom(response.Body)
+		response.Body.Close()
+		if readErr != nil || response.StatusCode != http.StatusBadRequest || strings.TrimSpace(body.String()) != "from/to must be an increasing RFC3339 window within the last hour" {
+			t.Fatalf("expired API window: status %d, body %q, error %v", response.StatusCode, body.String(), readErr)
+		}
+	}
+	{
+		store, from, to := fixtureWithLimit(t, 32)
+		store.History.Append(from, []observability.Sample{{Metric: "capacity_cpu_usage", Labels: observability.L("node", "dropped"), Value: 1}})
+		lost := lifecycleUsage(t, store, from, to, nil)
+		if !lost.Truncated || lost.Complete {
+			t.Fatalf("lost coverage was hidden: %+v", lost)
+		}
+		healthyFrom := from.Truncate(time.Minute).Add(time.Minute)
+		recovered := lifecycleUsage(t, store, healthyFrom, to, nil)
+		if recovered.Truncated || !recovered.Complete || store.History.Stats().Dropped == 0 {
+			t.Fatalf("earlier overflow poisoned healthy coverage: %+v", recovered)
+		}
+		// A later drop must not conceal the earlier queried loss.
+		store.History.Append(to, []observability.Sample{{Metric: "capacity_cpu_usage", Labels: observability.L("node", "another"), Value: 1}})
+		lost = lifecycleUsage(t, store, from, healthyFrom, nil)
+		if !lost.Truncated {
+			t.Fatalf("only the latest drop was retained: %+v", lost)
+		}
+	}
+	for _, known := range []bool{true, false} {
+		t.Run("allocated requests/"+map[bool]string{true: "known request", false: "unknown request"}[known], func(t *testing.T) {
+			store := NewStore("gru")
+			report := hostload.Report{SchemaVersion: hostload.SchemaVersion,
+				Host:  hostload.HostUsage{CPUCores: 4, MemoryBytes: 8192, CPU: new(0.25), Memory: new(0.5)},
+				Roles: []hostload.RoleUsage{{Role: "terrabase"}, {Role: "api"}}}
+			requests := map[string]hostload.Request{"terrabase": {CPUCores: 2, MemoryBytes: 1024}}
+			if known {
+				requests["api"] = hostload.Request{CPUCores: 1, MemoryBytes: 512}
+			}
+			if err := store.Record(hostload.Origin{Cell: "gru", Node: "a", Environment: "production"}, report, requests); err != nil {
+				t.Fatal(err)
+			}
+			to := time.Now().UTC().Add(time.Second)
+			from := to.Add(-10 * time.Second)
+			result := lifecycleUsage(t, store, from, to, fullWindowInventory(from, to, "production", "a", "a/terrabase", "a/api"))
+			if len(result.Nodes) != 1 || result.Complete || len(result.Missing) != 2 || len(result.Replicas) != 2 || len(result.Services) != 2 {
+				t.Fatalf("missing measurements were concealed: %+v", result)
+			}
+			node := result.Nodes[0]
+			if known {
+				if node.CPU.Request == nil || node.CPU.Request.Mean != 3 || node.Memory.Request == nil || node.Memory.Request.Mean != 1536 {
+					t.Fatalf("allocated reservations disappeared: %+v", node)
+				}
+			} else if node.CPU.Request != nil || node.Memory.Request != nil {
+				t.Fatalf("partial reservations reported as a node total: %+v", node)
+			}
+			for _, replica := range result.Replicas {
+				if replica.CPU.Usage != nil || replica.Memory.Usage != nil || replica.CPU.Headroom != nil || replica.Memory.Headroom != nil {
+					t.Fatalf("missing measurements became spare capacity: %+v", replica)
+				}
+			}
+			terrabaseFound := false
+			for _, service := range result.Services {
+				if service.Service == "terrabase" {
+					terrabaseFound = true
+					if service.CPU.Request == nil || service.CPU.Request.Mean != 2 || service.CPU.Usage != nil {
+						t.Fatalf("known service requests were lost with unknown usage: %+v", service)
+					}
+				}
+			}
+			if !terrabaseFound {
+				t.Fatalf("known service disappeared: %+v", result.Services)
+			}
+		})
 	}
 	for _, test := range []struct {
 		name                string
