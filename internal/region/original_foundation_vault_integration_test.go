@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -360,8 +361,11 @@ func (f *originalVaultSDKFixture) assertVaultState(t *testing.T) {
 }
 
 func TestOriginalFoundationVaultSDK(t *testing.T) {
+	fixtureT := t
+	var completed *originalVaultSDKFixture
 	t.Run("four original KMS creates and selected GRU Get only", func(t *testing.T) {
-		f := newOriginalVaultSDKFixture(t, "", 0)
+		f := newOriginalVaultSDKFixture(fixtureT, "", 0)
+		completed = f
 		if err := f.run(t); err != nil {
 			t.Fatalf("original Vault prerequisites did not complete: %v", err)
 		}
@@ -556,14 +560,33 @@ func TestOriginalFoundationVaultSDK(t *testing.T) {
 		}
 		for _, drift := range []string{"missing selected Vault", "selected key shape", "missing accepted Vault", "missing accepted key", "Vault name", "Vault compartment", "Vault type", "key Vault", "key shape", "key protection", "key version", "endpoint", "external endpoint", "wrong user", "wrong tenancy", "expired original"} {
 			t.Run(drift, func(t *testing.T) {
-				f := newOriginalVaultSDKFixture(t, "", 0)
-				if err := f.run(t); err != nil {
-					t.Fatal(err)
+				if completed == nil {
+					completed = newOriginalVaultSDKFixture(fixtureT, "", 0)
+					if err := completed.run(t); err != nil {
+						t.Fatal(err)
+					}
 				}
+				f := completed
+				f.assertVaultState(t)
 				before := f.wire(t)
 				region := f.record(t).OriginalFoundationCompartments.Regions[1]
 				v := region.Vault
 				vaultID, keyID := originalVaultID(v.Vault.OriginalFoundationKMSCreate), originalVaultID(v.Key.OriginalFoundationKMSCreate)
+				bundle := f.bundle.clone()
+				rows := map[string]map[string]any{}
+				f.cloud.mu.Lock()
+				for _, id := range []string{f.approval.SourceVaultTarget.VaultOCID, f.approval.SourceVaultTarget.KMSKeyOCID, vaultID, keyID} {
+					rows[id] = maps.Clone(f.cloud.rows[id])
+				}
+				f.cloud.mu.Unlock()
+				t.Cleanup(func() {
+					f.cloud.mu.Lock()
+					for id, row := range rows {
+						f.cloud.rows[id] = row
+					}
+					f.cloud.mu.Unlock()
+					f.bundle = bundle
+				})
 				f.cloud.mu.Lock()
 				switch drift {
 				case "missing selected Vault":

@@ -592,6 +592,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 					if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationActorReadsPending) {
 						t.Fatal("interrupted READ operation reached downstream completion HOLD")
 					}
+					f.assertActorState(t)
 					first, record := f.readDispatches(), f.record(t)
 					entry := record.OriginalFoundationCompartments.Regions[slot].ActorReads
 					if fault == "scope checkpoint" {
@@ -801,6 +802,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 				if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 					t.Fatal("current physical refusal setup did not stop before READ scope retention")
 				}
+				f.assertActorState(t)
 				before := f.wire(t)
 				f.actorMu.Lock()
 				f.actorFault, f.actorSlot = actorFault, 0
@@ -820,6 +822,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 				if err := f.run(t); err == nil || len(f.readDispatches()) != 0 || f.cloud.creates != 30 {
 					t.Fatal("authority control lacks complete genuine actors before READ scopes")
 				}
+				f.assertActorState(t)
 				before, material := f.wire(t), f.cloud.materialPosts
 				var err error
 				if fault == "wrong user" || fault == "wrong tenancy" {
@@ -922,6 +925,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 			t.Fatal("lease test setup did not reach all-three actual actors before READ reservation")
 		}
+		f.assertActorState(t)
 		stage, err := provisionFoundationMaterial(t.Context(), f.factoryFor(), f.roots, f.bundle)
 		if err != nil {
 			t.Fatal(err)
@@ -997,6 +1001,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 			t.Fatal("selection controls lack genuine complete actors")
 		}
+		f.assertActorState(t)
 		if err := ValidateContainerReleaseAuthorities(f.prepared.Grant, f.roots, f.approval.HomeStorageDomain, time.Now()); err != nil {
 			t.Fatalf("unchanged genuine signed release scope is invalid: %v", err)
 		}
