@@ -995,7 +995,7 @@ func OriginalStartupIAMStatements(scopeWire []byte) ([]string, error) {
 		}
 	}
 	if scope.Recipe.Cell == "GRU" {
-		publish(startup.Producer.Escrow, escrowNames)
+		publish(startup.Producer.Escrow, escrowNames, "GetSecretBundle")
 	}
 	for _, key := range []string{"orchestrator/foundation/v1/root-chain.json", strings.TrimSuffix(startup.Producer.Home.Prefix, "/") + "/" + "foundation-scope-v1.json", "orchestrator/regions/v1/" + "GRU.json", "orchestrator/foundation/v1/anchor.json"} {
 		object(peer, startup.Producer.Home.HeadBucket, "'"+key+"'", "GetObject", "OBJECT_READ")
