@@ -1,6 +1,7 @@
 package region
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -47,6 +48,7 @@ type OriginalFoundationCompartmentRegion struct {
 	Network              *OriginalFoundationNetwork        `json:"network,omitempty"`
 	Vault                *OriginalFoundationVault          `json:"vault,omitempty"`
 	Actor                *OriginalFoundationActorLaunch    `json:"actor,omitempty"`
+	ActorReads           *OriginalFoundationActorReads     `json:"actorReads,omitempty"`
 	SourceIAM            *OriginalFoundationSourceIAM      `json:"sourceIam,omitempty"`
 	NetBirdManager       *OriginalFoundationNetBirdManager `json:"netbirdManager,omitempty"`
 }
@@ -139,7 +141,7 @@ func originalCompartmentScope(ctx context.Context, authority *HomeIAMAuthority) 
 	if !ok {
 		return scope, ErrOriginalSourceProducerHold
 	}
-	grant, _, err := reader.verifyOriginalDocument(authority.operator.bundle.GrantWire)
+	grant, expires, err := reader.verifyOriginalDocument(authority.operator.bundle.GrantWire)
 	if err != nil {
 		return scope, err
 	}
@@ -178,10 +180,6 @@ func originalCompartmentScope(ctx context.Context, authority *HomeIAMAuthority) 
 		GRUIntentSHA256: record.IntentDigest, Generation: record.Generation, OperationID: record.OperationID, BornAt: record.NetBirdMaterial.BornAt,
 		UserID: authority.operator.id, Currency: grant.Currency, MonthlyLimitMinor: grant.MonthlyLimitMinor, CleanupOwner: grant.CleanupOwner}
 	for index, cell := range [3]string{"GRU", "SFO", "FRA"} {
-		purpose, err := reader.OriginalSourceProducer(ctx, cell)
-		if err != nil || !purpose.IsVerified() || purpose.Intent().OriginalUserID != scope.UserID {
-			return OriginalFoundationCompartments{}, errors.Join(ErrOriginalSourceProducerHold, err)
-		}
 		var regional *FoundationIntent
 		for i := range grant.Regions {
 			if grant.Regions[i].Plan["cell"] == cell {
@@ -189,6 +187,27 @@ func originalCompartmentScope(ctx context.Context, authority *HomeIAMAuthority) 
 			}
 		}
 		if regional == nil {
+			return OriginalFoundationCompartments{}, ErrOriginalSourceProducerHold
+		}
+		var purpose OriginalSourceProducerIntent
+		// Reuse only the exact retained document; online readers still reread OCI.
+		if bytes.Equal(reader.retainedGrant, authority.operator.bundle.GrantWire) {
+			now := time.Now()
+			if ctx.Err() != nil || !now.Before(reader.expires) || !now.Before(expires) {
+				return OriginalFoundationCompartments{}, errors.Join(ErrOriginalSourceProducerHold, ctx.Err())
+			}
+			purpose, err = originalSourceProducerIntent(grant, reader.storage, *regional)
+			if err != nil || !sameOriginalSourceValue(purpose, regional.BootstrapMaterial.OriginalSourceProducer) {
+				return OriginalFoundationCompartments{}, errors.Join(ErrOriginalSourceProducerHold, err)
+			}
+		} else {
+			verified, err := reader.OriginalSourceProducer(ctx, cell)
+			if err != nil || !verified.IsVerified() {
+				return OriginalFoundationCompartments{}, errors.Join(ErrOriginalSourceProducerHold, err)
+			}
+			purpose = verified.Intent()
+		}
+		if purpose.OriginalUserID != scope.UserID {
 			return OriginalFoundationCompartments{}, ErrOriginalSourceProducerHold
 		}
 		intentDigest, err := FoundationIntentDigest(*regional)
@@ -427,6 +446,7 @@ func (scope OriginalFoundationCompartments) scopeOnly() OriginalFoundationCompar
 		scope.Regions[region].Network = nil
 		scope.Regions[region].Vault = nil
 		scope.Regions[region].Actor = nil
+		scope.Regions[region].ActorReads = nil
 		scope.Regions[region].SourceIAM = nil
 		scope.Regions[region].NetBirdManager = nil
 		for role := range scope.Regions[region].Compartments {
@@ -509,6 +529,9 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 	if err := r.validateOriginalFoundationActors(); err != nil {
 		return err
 	}
+	if err := r.validateOriginalFoundationActorReads(); err != nil {
+		return err
+	}
 	if err := r.validateOriginalFoundationSourceIAM(); err != nil {
 		return err
 	}
@@ -528,6 +551,9 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 			return err
 		}
 		if err := next.retainOriginalFoundationActors(previous); err != nil {
+			return err
+		}
+		if err := next.retainOriginalFoundationActorReads(previous); err != nil {
 			return err
 		}
 		if err := next.retainOriginalFoundationSourceIAM(previous); err != nil {
@@ -560,6 +586,9 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 		return err
 	}
 	if err := next.retainOriginalFoundationActors(previous); err != nil {
+		return err
+	}
+	if err := next.retainOriginalFoundationActorReads(previous); err != nil {
 		return err
 	}
 	if err := next.retainOriginalFoundationSourceIAM(previous); err != nil {

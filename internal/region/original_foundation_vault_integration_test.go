@@ -96,6 +96,7 @@ func originalVaultUpstream(record FoundationRecord) ([]byte, error) {
 	for index := range section.Regions {
 		section.Regions[index].Vault = nil
 		section.Regions[index].Actor = nil
+		section.Regions[index].ActorReads = nil
 	}
 	return json.Marshal(struct {
 		Material     *NetBirdMaterialJournal

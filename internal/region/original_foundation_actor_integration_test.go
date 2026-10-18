@@ -73,13 +73,33 @@ func newOriginalActorSDKFixture(t *testing.T, fault string, slot int) *originalA
 
 func (f *originalActorSDKFixture) run(t *testing.T) error {
 	t.Helper()
-	return provisionOriginalFoundationCompartments(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	stage, err := provisionFoundationMaterial(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	if err != nil {
+		return err
+	}
+	defer stage.cancel()
+	ctx, release, err := stage.authority.HomeWrite(stage.ctx, 0)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := retainOriginalFoundationCompartments(ctx, stage.authority); err != nil {
+		return err
+	}
+	if err := retainOriginalFoundationNetwork(ctx, stage.authority); err != nil {
+		return err
+	}
+	if err := retainOriginalFoundationVault(ctx, stage.authority); err != nil {
+		return err
+	}
+	return retainOriginalFoundationActorLaunches(ctx, stage.authority)
 }
 
 func originalActorUpstream(record FoundationRecord) ([]byte, error) {
 	section := *record.OriginalFoundationCompartments
 	for index := range section.Regions {
 		section.Regions[index].Actor = nil
+		section.Regions[index].ActorReads = nil
 	}
 	return json.Marshal(struct {
 		Material     *NetBirdMaterialJournal
@@ -709,8 +729,8 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		for _, fault := range []string{"", "complete pagination"} {
 			t.Run(fault, func(t *testing.T) {
 				f := newOriginalActorSDKFixture(t, fault, 0)
-				if err := f.run(t); !errors.Is(err, ErrOriginalFoundationActorPending) {
-					t.Fatalf("automatic coordinator did not reach explicit actor-custody/sourceIAM/archive HOLD: %v", err)
+				if err := f.run(t); err != nil {
+					t.Fatalf("actor component did not retain complete original physical history: %v", err)
 				}
 				network, rules := f.effects()
 				posts := f.actorDispatches()
@@ -724,7 +744,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 				}
 				f.assertActorState(t)
 				before, material := f.wire(t), f.cloud.materialPosts
-				if err := f.run(t); !errors.Is(err, ErrOriginalFoundationActorPending) {
+				if err := f.run(t); err != nil {
 					t.Fatal(err)
 				}
 				if len(f.actorDispatches()) != 3 || f.cloud.creates != 30 || f.cloud.launchPosts != 3 || f.cloud.materialPosts != material || !bytes.Equal(before, f.wire(t)) {
@@ -787,7 +807,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 					f.actorMu.Lock()
 					f.actorFault = ""
 					f.actorMu.Unlock()
-					if err := f.run(t); !errors.Is(err, ErrOriginalFoundationActorPending) {
+					if err := f.run(t); err != nil {
 						t.Fatalf("retained original actor did not recover: %v", err)
 					}
 					after := f.actorDispatches()
@@ -863,7 +883,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			f.cloud.mu.Lock()
 			f.cloud.tariff /= 2
 			f.cloud.mu.Unlock()
-			if err := f.run(t); !errors.Is(err, ErrOriginalFoundationActorPending) {
+			if err := f.run(t); err != nil {
 				t.Fatal(err)
 			}
 			if len(f.actorDispatches()) != 4 || f.cloud.creates != 30 || f.record(t).OriginalFoundationCompartments.Regions[0].Actor.OriginalQuote.SHA256() != quote.SHA256() {
@@ -955,7 +975,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 				t.Run(fmt.Sprintf("trusted journal %t", trusted), func(t *testing.T) {
 					f := newOriginalActorSDKFixture(t, "", 0)
 					if trusted {
-						if err := f.run(t); !errors.Is(err, ErrOriginalFoundationActorPending) {
+						if err := f.run(t); err != nil {
 							t.Fatal(err)
 						}
 						f.assertActorState(t)
@@ -1160,7 +1180,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 				f.actorMu.Lock()
 				f.actorFault = ""
 				f.actorMu.Unlock()
-				if err := f.run(t); !errors.Is(err, ErrOriginalFoundationActorPending) {
+				if err := f.run(t); err != nil {
 					t.Fatalf("same retained physical identity did not recover after exact readback: %v", err)
 				}
 				if len(f.actorDispatches()) != 3 || f.cloud.creates != 30 {
@@ -1173,7 +1193,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 
 	t.Run("protected CAS retains original scope request quote and physical proof", func(t *testing.T) {
 		f := newOriginalActorSDKFixture(t, "", 0)
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationActorPending) {
+		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
 		store, wire := f.store(t), f.wire(t)

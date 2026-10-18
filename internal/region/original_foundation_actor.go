@@ -46,7 +46,7 @@ func provisionOriginalFoundationActors(ctx context.Context, authority *HomeIAMAu
 	if err := retainOriginalFoundationActorLaunches(ctx, authority); err != nil {
 		return err
 	}
-	return ErrOriginalFoundationActorPending
+	return provisionOriginalFoundationActorReads(ctx, authority)
 }
 
 func retainOriginalFoundationActorLaunches(ctx context.Context, authority *HomeIAMAuthority) error {

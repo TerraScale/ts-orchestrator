@@ -231,7 +231,7 @@ func (c *Controller) verifyManagedEnrollmentHistory(ctx context.Context, native 
 		if count >= 16384 {
 			return errors.New("native enrollment exceeds supported history bound")
 		}
-		raw, err := c.controlLog.GetMsg(ctx, next, jetstream.WithGetMsgNextBySubject(filter))
+		raw, err := c.controlLog.GetMsg(ctx, next, jetstream.WithGetMsgSubject(filter))
 		if errors.Is(err, jetstream.ErrMsgNotFound) {
 			break
 		}

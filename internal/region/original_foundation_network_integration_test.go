@@ -94,6 +94,7 @@ func originalNetworkUpstream(record FoundationRecord) ([]byte, error) {
 		section.Regions[index].Network = nil
 		section.Regions[index].Vault = nil
 		section.Regions[index].Actor = nil
+		section.Regions[index].ActorReads = nil
 	}
 	return json.Marshal(struct {
 		Material     *NetBirdMaterialJournal
