@@ -133,11 +133,14 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 		}
 		reapply = !applied
 	}
-	// NetBird names a peer only when it first registers; later logins with the
-	// saved identity keep the manager's name. Resolve it before any down.
-	name, err := e.peerName(ctx, cfg)
-	if err != nil {
-		return err
+	// Saved reconnects retain the registered name; fresh login and reapply
+	// still resolve it before reading a setup key or bringing the identity down.
+	var name string
+	if !managerMatches || current.needsLogin() || reapply {
+		name, err = e.peerName(ctx, cfg)
+		if err != nil {
+			return err
+		}
 	}
 	if reapply {
 		// NetBird's up command returns early while already connected. Bring
@@ -147,7 +150,10 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 		}
 	}
 	args := append([]string{"up", "--config", netbirdConfig, "--management-url", cfg.ManagementURL,
-		"--hostname", name, "--no-browser"}, upSettings()...)
+		"--no-browser"}, upSettings()...)
+	if name != "" {
+		args = append(args, "--hostname", name)
+	}
 	if managerMatches && !current.needsLogin() {
 		// Login with the saved WireGuard identity first. A network outage must
 		// not consume a new setup key or replace an existing registration.
@@ -162,6 +168,13 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 			}
 			return e.waitReady(ctx, cfg.ManagementURL, &current)
 		}
+	}
+	if name == "" {
+		name, err = e.peerName(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		args = append(args, "--hostname", name)
 	}
 	key, err := e.readKey(ctx, cfg)
 	if err != nil {
