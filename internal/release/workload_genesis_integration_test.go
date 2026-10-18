@@ -427,6 +427,53 @@ func TestWorkloadGenesisHTTPOrderingAndContainerProvenance(t *testing.T) {
 				t.Fatalf("import %s/%s: %v", cell, role, err)
 			}
 		}
+		headPath := pathFor(SequenceObject(role, "production"))
+		lock.Lock()
+		zeroWire, readErr := os.ReadFile(headPath)
+		lock.Unlock()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		var zeroHead sequenceHead
+		if err := json.Unmarshal(zeroWire, &zeroHead); err != nil {
+			t.Fatal(err)
+		}
+		for _, test := range []struct {
+			name   string
+			mutate func(*sequenceHead)
+		}{
+			{"migration payload", func(head *sequenceHead) { head.Migration.Payload = []byte(`{}`) }},
+			{"migration signature", func(head *sequenceHead) { head.Migration.Signature = "unexpected" }},
+			{"reservation payload", func(head *sequenceHead) { head.Reservation.Payload = []byte(`{}`) }},
+			{"reservation scope", func(head *sequenceHead) { head.Reservation.Scope = f.scope }},
+		} {
+			invalid := zeroHead
+			test.mutate(&invalid)
+			invalidWire, err := json.Marshal(invalid, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			lock.Lock()
+			writeErr := os.WriteFile(headPath, invalidWire, 0600)
+			lock.Unlock()
+			if writeErr != nil {
+				t.Fatal(writeErr)
+			}
+			beforeWrites := writes.Load()
+			importErr := newLocation(proofs["SFO/"+role]).ImportGenesis(ctx, f.roots, role, "production", f.now)
+			lock.Lock()
+			retained, readErr := os.ReadFile(headPath)
+			lock.Unlock()
+			if importErr == nil || readErr != nil || writes.Load() != beforeWrites || !bytes.Equal(retained, invalidWire) {
+				t.Fatalf("%s/%s was accepted or changed stored head: import %v, read %v", role, test.name, importErr, readErr)
+			}
+		}
+		lock.Lock()
+		restoreErr := os.WriteFile(headPath, zeroWire, 0600)
+		lock.Unlock()
+		if restoreErr != nil {
+			t.Fatal(restoreErr)
+		}
 		sequence, wire, err := location.AllocateWithEvidence(ctx, identity, f.roots, f.signers[role])
 		if err != nil || sequence != 1 {
 			t.Fatalf("first %s sequence = %d: %v", role, sequence, err)

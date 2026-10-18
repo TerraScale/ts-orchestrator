@@ -392,7 +392,8 @@ func verifyGenesisSequenceHead(head sequenceHead, genesis VerifiedWorkloadGenesi
 }
 
 func emptySequenceEnvelope(envelope trust.Envelope) bool {
-	return envelope.SchemaVersion == 0 && envelope.KeyID == "" && envelope.Scope == (trust.Scope{}) && envelope.IssuedAt.IsZero() && envelope.ExpiresAt.IsZero() && len(envelope.Payload) == 0 && envelope.Signature == ""
+	// A nil raw JSON payload becomes the literal null after a persisted round trip.
+	return envelope.SchemaVersion == 0 && envelope.KeyID == "" && envelope.Scope == (trust.Scope{}) && envelope.IssuedAt.IsZero() && envelope.ExpiresAt.IsZero() && (len(envelope.Payload) == 0 || bytes.Equal(envelope.Payload, []byte("null"))) && envelope.Signature == ""
 }
 
 func (location SequenceLocation) retainReservation(ctx context.Context, head sequenceHead, roots trust.Keyring) ([]byte, error) {
