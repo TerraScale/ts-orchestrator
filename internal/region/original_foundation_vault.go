@@ -62,7 +62,7 @@ func provisionOriginalFoundationVault(ctx context.Context, authority *HomeIAMAut
 	if err := retainOriginalFoundationVault(ctx, authority); err != nil {
 		return err
 	}
-	return ErrOriginalFoundationVaultPending
+	return provisionOriginalFoundationActors(ctx, authority)
 }
 
 func retainOriginalFoundationVault(ctx context.Context, authority *HomeIAMAuthority) error {

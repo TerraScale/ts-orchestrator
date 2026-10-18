@@ -89,7 +89,7 @@ func validateBootstrapSpending(grant FoundationGrant, scope capacityinventory.Sc
 		return nil
 	}
 	allocation := spending.Bootstrap
-	if !entityid.Valid(grant.InstallationID) || grant.Generation == 0 || spending.MonthlyLimitMinor <= 0 || spending.MonthlyLimitMinor > grant.MonthlyLimitMinor || allocation.ReservedMinor <= 0 || allocation.ReservedMinor > spending.MonthlyLimitMinor || len(allocation.Slots) == 0 || len(allocation.Slots) > 64 {
+	if spending.Currency != grant.Currency || !entityid.Valid(grant.InstallationID) || grant.Generation == 0 || spending.MonthlyLimitMinor <= 0 || spending.MonthlyLimitMinor > grant.MonthlyLimitMinor || allocation.ReservedMinor <= 0 || allocation.ReservedMinor > spending.MonthlyLimitMinor || len(allocation.Slots) == 0 || len(allocation.Slots) > 64 {
 		return errors.New("bootstrap allocation lacks a finite positive slice within the same infrastructure ceiling")
 	}
 	seen := map[string]bool{}

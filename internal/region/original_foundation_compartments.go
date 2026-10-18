@@ -46,6 +46,7 @@ type OriginalFoundationCompartmentRegion struct {
 	Compartments         [2]OriginalFoundationCompartment `json:"compartments"`
 	Network              *OriginalFoundationNetwork       `json:"network,omitempty"`
 	Vault                *OriginalFoundationVault         `json:"vault,omitempty"`
+	Actor                *OriginalFoundationActorLaunch   `json:"actor,omitempty"`
 }
 
 type OriginalFoundationCompartment struct {
@@ -423,6 +424,7 @@ func (scope OriginalFoundationCompartments) scopeOnly() OriginalFoundationCompar
 	for region := range scope.Regions {
 		scope.Regions[region].Network = nil
 		scope.Regions[region].Vault = nil
+		scope.Regions[region].Actor = nil
 		for role := range scope.Regions[region].Compartments {
 			entry := &scope.Regions[region].Compartments[role]
 			entry.Pending, entry.Provenance = nil, nil
@@ -497,7 +499,10 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 	if err := r.validateOriginalFoundationNetwork(); err != nil {
 		return err
 	}
-	return r.validateOriginalFoundationVault()
+	if err := r.validateOriginalFoundationVault(); err != nil {
+		return err
+	}
+	return r.validateOriginalFoundationActors()
 }
 
 func (next FoundationRecord) retainOriginalFoundationCompartments(previous FoundationRecord) error {
@@ -506,7 +511,10 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 		if current != nil && (previous.Stage != "material" || !previous.netBirdMaterialOnly() || previous.NetBirdMaterial == nil || !previous.NetBirdMaterial.Complete) {
 			return ErrOriginalSourceProducerHold
 		}
-		return next.retainOriginalFoundationVault(previous)
+		if err := next.retainOriginalFoundationVault(previous); err != nil {
+			return err
+		}
+		return next.retainOriginalFoundationActors(previous)
 	}
 	if current == nil || !sameOriginalSourceValue(old.scopeOnly(), current.scopeOnly()) {
 		return ErrOriginalSourceProducerHold
@@ -526,5 +534,8 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 	if err := next.retainOriginalFoundationNetwork(previous); err != nil {
 		return err
 	}
-	return next.retainOriginalFoundationVault(previous)
+	if err := next.retainOriginalFoundationVault(previous); err != nil {
+		return err
+	}
+	return next.retainOriginalFoundationActors(previous)
 }

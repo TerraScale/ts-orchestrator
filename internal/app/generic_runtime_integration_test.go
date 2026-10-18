@@ -617,8 +617,56 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	scaleTarget := autoscale.Target{Cell: identity.Cell, Environment: identity.Environment, Role: policy.Role}
+	scaleCtx, cancelScale := context.WithTimeout(ctx, 45*time.Second)
+	scaleDone := make(chan struct{})
+	var scaleErr error
+	go func() {
+		scaleErr = controller.Run(scaleCtx)
+		close(scaleDone)
+	}()
+	stopScale := sync.OnceValue(func() error {
+		cancelScale()
+		select {
+		case <-scaleDone:
+			if !errors.Is(scaleErr, context.Canceled) {
+				return fmt.Errorf("stop generic scaling loop: %w", scaleErr)
+			}
+			return nil
+		case <-time.After(5 * time.Second):
+			return errors.New("generic scaling loop did not stop within five seconds")
+		}
+	})
+	t.Cleanup(func() {
+		if err := stopScale(); err != nil {
+			t.Error(err)
+		}
+	})
+	// Record load only after Run completes its startup pass, so its production
+	// ticker must drive the replica change rather than the immediate evaluation.
+	genericRuntimeEventually(t, scaleCtx, func() bool {
+		select {
+		case <-scaleDone:
+			t.Fatalf("generic scaling loop stopped before its startup pass: %v", scaleErr)
+		default:
+		}
+		result, ok := controller.scaler.Last()[scaleTarget]
+		return ok && result.Decision.From == 1 && result.Decision.To == 1 &&
+			result.Reason == autoscale.ReasonNoSignalData && len(result.Readings) == 1 && result.Readings[0].Samples == 0
+	})
 	signals.Record(scaleTarget, autoscale.SignalCPUUtilization, autoscale.Sample{At: time.Now(), Value: 1})
-	if err := controller.scaler.Tick(ctx); err != nil {
+	genericRuntimeEventually(t, scaleCtx, func() bool {
+		select {
+		case <-scaleDone:
+			t.Fatalf("generic scaling loop stopped before its scheduled scale-up: %v", scaleErr)
+		default:
+		}
+		result, ok := controller.scaler.Last()[scaleTarget]
+		return ok && result.Decision.From == 1 && result.Decision.To == 2 &&
+			result.Reason == autoscale.ReasonScaleUp && len(result.Readings) == 1 &&
+			result.Readings[0].Samples == 1 && result.Readings[0].Value == 1
+	})
+	// Join before waiting for ready tasks, which may outlast another scale tick.
+	if err := stopScale(); err != nil {
 		t.Fatal(err)
 	}
 	scaled := ready(2)

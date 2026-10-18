@@ -72,13 +72,30 @@ func newOriginalVaultSDKFixture(t *testing.T, fault string, slot int) *originalV
 
 func (f *originalVaultSDKFixture) run(t *testing.T) error {
 	t.Helper()
-	return provisionOriginalFoundationCompartments(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	stage, err := provisionFoundationMaterial(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	if err != nil {
+		return err
+	}
+	defer stage.cancel()
+	ctx, release, err := stage.authority.HomeWrite(stage.ctx, 0)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := retainOriginalFoundationCompartments(ctx, stage.authority); err != nil {
+		return err
+	}
+	if err := retainOriginalFoundationNetwork(ctx, stage.authority); err != nil {
+		return err
+	}
+	return retainOriginalFoundationVault(ctx, stage.authority)
 }
 
 func originalVaultUpstream(record FoundationRecord) ([]byte, error) {
 	section := *record.OriginalFoundationCompartments
 	for index := range section.Regions {
 		section.Regions[index].Vault = nil
+		section.Regions[index].Actor = nil
 	}
 	return json.Marshal(struct {
 		Material     *NetBirdMaterialJournal
@@ -344,8 +361,8 @@ func (f *originalVaultSDKFixture) assertVaultState(t *testing.T) {
 func TestOriginalFoundationVaultSDK(t *testing.T) {
 	t.Run("four original KMS creates and selected GRU Get only", func(t *testing.T) {
 		f := newOriginalVaultSDKFixture(t, "", 0)
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationVaultPending) {
-			t.Fatalf("automatic original path did not reach explicit actor/material HOLD: %v", err)
+		if err := f.run(t); err != nil {
+			t.Fatalf("original Vault prerequisites did not complete: %v", err)
 		}
 		posts := f.kmsDispatches()
 		network, sends := f.effects()
@@ -362,7 +379,7 @@ func TestOriginalFoundationVaultSDK(t *testing.T) {
 		}
 		f.assertVaultState(t)
 		before, material := f.wire(t), f.cloud.materialPosts
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationVaultPending) {
+		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
 		if len(f.kmsDispatches()) != 4 || f.cloud.creates != 27 || f.cloud.materialPosts != material || !bytes.Equal(before, f.wire(t)) {
@@ -395,7 +412,7 @@ func TestOriginalFoundationVaultSDK(t *testing.T) {
 						f.cloud.rows[entry.Provenance.ResourceID]["lifecycleState"] = [2]string{"ACTIVE", "ENABLED"}[slot]
 						f.cloud.mu.Unlock()
 					}
-					if err := f.run(t); !errors.Is(err, ErrOriginalFoundationVaultPending) {
+					if err := f.run(t); err != nil {
 						t.Fatalf("retained original KMS did not recover: %v", err)
 					}
 					after := f.kmsDispatches()
@@ -430,7 +447,7 @@ func TestOriginalFoundationVaultSDK(t *testing.T) {
 				f.cloud.mu.Lock()
 				f.cloud.rows[entry.SelectedID]["lifecycleState"] = [2]string{"ACTIVE", "ENABLED"}[slot]
 				f.cloud.mu.Unlock()
-				if err := f.run(t); !errors.Is(err, ErrOriginalFoundationVaultPending) {
+				if err := f.run(t); err != nil {
 					t.Fatal(err)
 				}
 				if len(f.kmsDispatches()) != 4 || f.cloud.creates != 27 {
@@ -539,7 +556,7 @@ func TestOriginalFoundationVaultSDK(t *testing.T) {
 		for _, drift := range []string{"missing selected Vault", "selected key shape", "missing accepted Vault", "missing accepted key", "Vault name", "Vault compartment", "Vault type", "key Vault", "key shape", "key protection", "key version", "endpoint", "external endpoint", "wrong user", "wrong tenancy", "expired original"} {
 			t.Run(drift, func(t *testing.T) {
 				f := newOriginalVaultSDKFixture(t, "", 0)
-				if err := f.run(t); !errors.Is(err, ErrOriginalFoundationVaultPending) {
+				if err := f.run(t); err != nil {
 					t.Fatal(err)
 				}
 				before := f.wire(t)
@@ -604,7 +621,7 @@ func TestOriginalFoundationVaultSDK(t *testing.T) {
 
 	t.Run("protected CAS retains original KMS scopes dependencies and proof", func(t *testing.T) {
 		f := newOriginalVaultSDKFixture(t, "", 0)
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationVaultPending) {
+		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
 		store, wire := f.store(t), f.wire(t)
