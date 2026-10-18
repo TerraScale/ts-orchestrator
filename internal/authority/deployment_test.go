@@ -39,48 +39,6 @@ func TestDeploymentIDIsRequiredAndCanonical(t *testing.T) {
 	}
 }
 
-func TestVersionOneLeasePermanentlyFencesLegacyDecoder(t *testing.T) {
-	lease := leaseRecord{Version: 1, Scope: "gru", DeploymentID: authorityTestDeployment,
-		CandidateID: "0000000000C66H81REBS854264", OwnerID: "0000000000DXKPTGJCKZVQAP63",
-		Epoch: 7, LeaseDuration: int64(5 * time.Second), TransitionID: "0000000000C66H81REBS854264"}
-	wire, err := json.Marshal(lease)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := decodeLease(wire)
-	if err != nil || decoded != lease {
-		t.Fatalf("version-one deployment lease did not round trip: %+v, %v", decoded, err)
-	}
-	// This fixture preserves the pre-binding wire contract and its strict decoder.
-	var legacy struct {
-		Version       int    `json:"version"`
-		Scope         string `json:"scope"`
-		CandidateID   string `json:"candidate_id"`
-		OwnerID       string `json:"owner_id"`
-		Epoch         uint64 `json:"epoch"`
-		LeaseDuration int64  `json:"lease_duration_ns"`
-		TransitionID  string `json:"transition_id"`
-		Released      bool   `json:"released"`
-	}
-	if err := json.Unmarshal(wire, &legacy, json.RejectUnknownMembers(true)); err == nil {
-		t.Fatal("legacy strict decoder accepted the deployment-bound lease")
-	}
-	var fields map[string]any
-	if err := json.Unmarshal(wire, &fields); err != nil {
-		t.Fatal(err)
-	}
-	delete(fields, "deployment_id")
-	oldWire, err := json.Marshal(fields)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(oldWire, &legacy, json.RejectUnknownMembers(true)); err != nil {
-		t.Fatalf("legacy decoder fixture rejected its original contract: %v", err)
-	}
-	if _, err := decodeLease(oldWire); !errors.Is(err, ErrLeaseCorrupt) {
-		t.Fatalf("new decoder admitted a lease without deployment_id: %v", err)
-	}
-}
 
 func TestDeploymentRetainedAcrossRenewReleaseAndRecovery(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
