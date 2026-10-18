@@ -134,7 +134,8 @@ func (f *originalCompartmentSDKFixture) prepareMaterialWithStartupRefusal(t *tes
 		t.Fatalf("unbound prospective startup lost its schema refusal: %v", err)
 	}
 	err = stage.authority.verifyFoundationWorkloadStartup(stage.ctx)
-	service, ok := errors.AsType[common.ServiceError](err)
+	var service common.ServiceError
+	ok := errors.As(err, &service)
 	if !ok || service.GetHTTPStatusCode() != http.StatusNotFound || !strings.Contains(err.Error(), "read current protected foundation grant") {
 		t.Fatalf("prospective startup bypassed its unpublished protected grant: %v", err)
 	}
