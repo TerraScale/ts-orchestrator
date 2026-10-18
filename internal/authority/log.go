@@ -1289,7 +1289,10 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 	if len(parts) != want {
 		return errors.New("host mutation subject key has the wrong shape")
 	}
-	for _, part := range parts {
+	for index, part := range parts {
+		if kind == MutationManagedRuntimeOwner && index == 2 {
+			continue
+		}
 		if !natsToken.MatchString(part) && !entityid.Valid(part) {
 			return errors.New("host mutation subject key contains an invalid token")
 		}

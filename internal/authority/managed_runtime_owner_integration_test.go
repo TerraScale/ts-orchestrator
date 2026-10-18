@@ -55,11 +55,26 @@ func TestManagedRuntimeOwnerPersistsVerifiedVolumeFloorAcrossAuthorityRestart(t 
 	}
 	for _, invalid := range []string{
 		"gru.volume", "gru.volume." + digest + ".terrabase", "gru.native." + digest,
-		"gru.volume." + digest[:63], "gru.volume." + strings.Repeat("g", 64),
-		"gru.volume." + strings.ToUpper(digest), "iad.volume." + digest,
+		"gru.volume." + digest[:63], "gru.volume." + digest + "0",
+		"gru.volume." + strings.Repeat("g", 64), "gru.volume." + digest[:63] + "-",
+		"gru.volume." + strings.ToUpper(digest), strings.Repeat("g", 64) + ".volume." + digest,
 	} {
 		if sequence, err := runtime.CommitHostMutationVerified(ctx, epoch, MutationManagedRuntimeOwner, invalid, entityid.New(), 0, initial, verify); err == nil || sequence != 0 {
 			t.Fatalf("invalid volume owner key %q committed: sequence=%d error=%v", invalid, sequence, err)
+		}
+		if _, err := runtime.ReadHostMutation(ctx, MutationManagedRuntimeOwner, invalid); err == nil || errors.Is(err, ErrNotFound) {
+			t.Fatalf("invalid volume owner key %q reached readback: %v", invalid, err)
+		}
+	}
+	if sequence, err := runtime.CommitHostMutationVerified(ctx, epoch, MutationManagedRuntimeOwner, "iad.volume."+digest, entityid.New(), 0, initial, verify); err == nil || sequence != 0 {
+		t.Fatalf("out-of-scope volume owner committed: sequence=%d error=%v", sequence, err)
+	}
+	for _, kind := range []HostMutationKind{MutationDesired, MutationRuntimeOwner} {
+		if sequence, err := runtime.CommitHostMutationVerified(ctx, epoch, kind, key, entityid.New(), 0, initial, verify); err == nil || sequence != 0 {
+			t.Fatalf("non-managed kind %q accepted a volume digest: sequence=%d error=%v", kind, sequence, err)
+		}
+		if _, err := runtime.ReadHostMutation(ctx, kind, key); err == nil || errors.Is(err, ErrNotFound) {
+			t.Fatalf("non-managed kind %q accepted a volume digest for readback: %v", kind, err)
 		}
 	}
 	if sequence, err := runtime.CommitHostMutationVerified(ctx, epoch+1, MutationManagedRuntimeOwner, key, entityid.New(), 0, initial, verify); !errors.Is(err, ErrFenced) || sequence != 0 {
