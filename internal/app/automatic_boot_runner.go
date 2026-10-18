@@ -39,6 +39,11 @@ func RunAutomaticBootstrap(ctx context.Context, args []string) error {
 		return fmt.Errorf("automatic controller startup NTP clock health: %w", err)
 	}
 	if err := region.DeliverOriginalFoundationPublic(ctx); err != nil {
+		if _, pending := errors.AsType[*region.OriginalFoundationAdmissionPendingError](err); pending {
+			if archiveErr := rootfoundation.EnsureOriginalSourceArchive(ctx); archiveErr != nil {
+				return fmt.Errorf("archive original foundation source: %w", archiveErr)
+			}
+		}
 		return fmt.Errorf("deliver original public foundation bundle: %w", err)
 	}
 	if err := bootstrapstart.InstallLaunchMaterial(ctx, bootstrapstart.NewIMDSClient(), time.Now().UTC()); errors.Is(err, bootstrapstart.ErrNotController) {
