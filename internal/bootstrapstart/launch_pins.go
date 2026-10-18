@@ -2,6 +2,7 @@ package bootstrapstart
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/identityrekey"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -31,10 +33,31 @@ func LoadAcceptedHostLaunchMaterial(accepted AcceptedIdentity) (LaunchMaterial, 
 	return store.loadAcceptedHostLaunchMaterial(accepted, NewMarkerStore())
 }
 
+func LoadAcceptedHostLaunchMaterialContext(ctx context.Context, accepted AcceptedIdentity) (LaunchMaterial, error) {
+	return (bakedStore{directory: BakedDirectory, chainFile: RootChainFile}).loadAcceptedHostLaunchMaterialContext(ctx, accepted, NewMarkerStore())
+}
+
 func (store bakedStore) loadAcceptedHostLaunchMaterial(accepted AcceptedIdentity, markers MarkerStore) (LaunchMaterial, error) {
-	wires, err := store.loadAcceptedLaunchFiles(accepted, markers, acceptedLaunchNames[:2])
+	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
+		return LaunchMaterial{}, ErrOriginalStartup
+	}
+	return store.loadAcceptedHostLaunchMaterialContext(context.Background(), accepted, markers)
+}
+
+func (store bakedStore) loadAcceptedHostLaunchMaterialContext(ctx context.Context, accepted AcceptedIdentity, markers MarkerStore) (LaunchMaterial, error) {
+	names, err := AcceptedLaunchFileNames(accepted)
 	if err != nil {
 		return LaunchMaterial{}, err
+	}
+	wires, err := store.loadAcceptedLaunchFilesContext(ctx, accepted, markers, names[:2])
+	if err != nil {
+		return LaunchMaterial{}, err
+	}
+	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
+		if err := validateHostEnrollment(wires[HostEnrollmentFilename], accepted.Cell, accepted.Environment); err != nil {
+			return LaunchMaterial{}, err
+		}
+		return LaunchMaterial{HostEnrollment: wires[HostEnrollmentFilename], OriginalOrigin: wires[OriginalStartupOriginFilename]}, nil
 	}
 	if err := validateHostLaunchInputs(wires[HostEnrollmentFilename], wires[OperatorSSHKeyFilename], accepted.Cell, accepted.Environment); err != nil {
 		return LaunchMaterial{}, err
@@ -49,8 +72,19 @@ func LoadAcceptedManagedImageMaterial(accepted AcceptedIdentity) (receipt, deleg
 	return store.loadAcceptedManagedImageMaterial(accepted, NewMarkerStore())
 }
 
+func LoadAcceptedManagedImageMaterialContext(ctx context.Context, accepted AcceptedIdentity) ([]byte, []byte, error) {
+	return (bakedStore{directory: BakedDirectory, chainFile: RootChainFile}).loadAcceptedManagedImageMaterialContext(ctx, accepted, NewMarkerStore())
+}
+
 func (store bakedStore) loadAcceptedManagedImageMaterial(accepted AcceptedIdentity, markers MarkerStore) ([]byte, []byte, error) {
-	wires, err := store.loadAcceptedLaunchFiles(accepted, markers, acceptedLaunchNames[2:])
+	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
+		return nil, nil, ErrOriginalStartup
+	}
+	return store.loadAcceptedManagedImageMaterialContext(context.Background(), accepted, markers)
+}
+
+func (store bakedStore) loadAcceptedManagedImageMaterialContext(ctx context.Context, accepted AcceptedIdentity, markers MarkerStore) ([]byte, []byte, error) {
+	wires, err := store.loadAcceptedLaunchFilesContext(ctx, accepted, markers, acceptedLaunchNames[2:])
 	if err != nil {
 		return nil, nil, err
 	}
@@ -58,6 +92,13 @@ func (store bakedStore) loadAcceptedManagedImageMaterial(accepted AcceptedIdenti
 }
 
 func (store bakedStore) loadAcceptedLaunchFiles(accepted AcceptedIdentity, markers MarkerStore, names []string) (map[string][]byte, error) {
+	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
+		return nil, ErrOriginalStartup
+	}
+	return store.loadAcceptedLaunchFilesContext(context.Background(), accepted, markers, names)
+}
+
+func (store bakedStore) loadAcceptedLaunchFilesContext(ctx context.Context, accepted AcceptedIdentity, markers MarkerStore, names []string) (map[string][]byte, error) {
 	if err := accepted.Validate(); err != nil {
 		return nil, err
 	}
@@ -89,6 +130,28 @@ func (store bakedStore) loadAcceptedLaunchFiles(accepted AcceptedIdentity, marke
 			return nil, fmt.Errorf("%w: accepted launch input %s differs", ErrLaunchMaterial, name)
 		}
 	}
+	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
+		originWire := wires[OriginalStartupOriginFilename]
+		if len(originWire) == 0 {
+			originFiles, err := store.readLaunchFiles([]string{OriginalStartupOriginFilename})
+			if err != nil {
+				return nil, err
+			}
+			originWire = originFiles[OriginalStartupOriginFilename]
+		}
+		if err := verifyAcceptedOriginalOrigin(ctx, accepted, originWire, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		dir, err := store.openDirectory(store.directory)
+		if err != nil {
+			return nil, err
+		}
+		err = rejectOriginalSSH(dir)
+		unix.Close(dir)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err := (Gate{Markers: markers, trustStore: &store}).checkAcceptedUnchanged(accepted); err != nil {
 		return nil, err
 	}
@@ -109,6 +172,8 @@ func (store bakedStore) readLaunchFiles(names []string) (map[string][]byte, erro
 			maximum = hostenroll.MaxPublicBundleBytes
 		case OperatorSSHKeyFilename:
 			maximum = maxOperatorSSHKey
+		case OriginalStartupOriginFilename:
+			maximum = maxOriginalStartupOriginBytes
 		case ManagedHostImageReceiptFilename, ManagedHostImageDelegationFilename:
 		default:
 			return nil, ErrLaunchMaterial
@@ -123,6 +188,13 @@ func (store bakedStore) readLaunchFiles(names []string) (map[string][]byte, erro
 }
 
 func validateHostLaunchInputs(enrollment, ssh []byte, cell, environment string) error {
+	if err := validateHostEnrollment(enrollment, cell, environment); err != nil {
+		return err
+	}
+	return validateOperatorSSHKey(ssh)
+}
+
+func validateHostEnrollment(enrollment []byte, cell, environment string) error {
 	bundle, err := hostenroll.ParsePublicBundle(enrollment)
 	if err != nil {
 		return err
@@ -133,10 +205,19 @@ func validateHostLaunchInputs(enrollment, ssh []byte, cell, environment string) 
 	if bundle.Cell != strings.ToLower(cell) || bundle.Region != cell || bundle.Environment != environment {
 		return ErrLaunchMaterial
 	}
-	return validateOperatorSSHKey(ssh)
+	return nil
 }
 
 func (store bakedStore) measureInitialLaunchMaterial(manifest bootstrap.StartupAuthority, roots trust.Keyring, now time.Time) (map[string]string, error) {
+	if derived, ok := manifest.(bootstrap.DerivedStartupAuthority); ok {
+		if _, err := derived.Template().OriginalLaunch(); err == nil {
+			return nil, ErrOriginalStartup
+		}
+	}
+	return store.measureInitialLaunchMaterialContext(context.Background(), manifest, roots, now)
+}
+
+func (store bakedStore) measureInitialLaunchMaterialContext(ctx context.Context, manifest bootstrap.StartupAuthority, roots trust.Keyring, now time.Time) (map[string]string, error) {
 	if manifest.Digest() == "" {
 		return nil, ErrLaunchMaterial
 	}
@@ -154,11 +235,39 @@ func (store bakedStore) measureInitialLaunchMaterial(manifest bootstrap.StartupA
 	if err != nil {
 		return nil, err
 	}
-	wires, err := store.readLaunchFiles(acceptedLaunchNames[:])
+	names := acceptedLaunchNames[:]
+	derived, isDerived := manifest.(bootstrap.DerivedStartupAuthority)
+	original := false
+	if isDerived {
+		_, err := derived.OriginalLaunch()
+		original = err == nil
+		if original {
+			names = originalAcceptedLaunchNames()
+		}
+	}
+	wires, err := store.readLaunchFiles(names)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateHostLaunchInputs(wires[HostEnrollmentFilename], wires[OperatorSSHKeyFilename], string(payload.Cell), payload.Environment); err != nil {
+	if original {
+		origin, err := originalOriginWire(derived)
+		if err != nil || !bytes.Equal(origin, wires[OriginalStartupOriginFilename]) || derived.VerifyCurrent(ctx, now) != nil {
+			return nil, ErrOriginalStartup
+		}
+		if err := validateHostEnrollment(wires[HostEnrollmentFilename], string(payload.Cell), payload.Environment); err != nil {
+			return nil, err
+		}
+		dir, err := store.openDirectory(store.directory)
+		if err != nil {
+			return nil, err
+		}
+		err = rejectOriginalSSH(dir)
+		unix.Close(dir)
+		if err != nil {
+			return nil, err
+		}
+		roots = derived.Template().Roots()
+	} else if err := validateHostLaunchInputs(wires[HostEnrollmentFilename], wires[OperatorSSHKeyFilename], string(payload.Cell), payload.Environment); err != nil {
 		return nil, err
 	}
 	if _, err := release.VerifyImageCurrent(wires[ManagedHostImageReceiptFilename], wires[ManagedHostImageDelegationFilename], roots,
@@ -179,4 +288,27 @@ func managedLaunchExpectation(regionWire []byte, cell, environment string) (rele
 	}
 	// Offline installation checks the signed image identity; launch observes its processor through OCI.
 	return release.ImageExpectation{Environment: environment, LogicalRegion: cell, OCIImageOCID: region.ImageID}, nil
+}
+
+func originalAcceptedLaunchNames() []string {
+	return []string{HostEnrollmentFilename, OriginalStartupOriginFilename, ManagedHostImageReceiptFilename, ManagedHostImageDelegationFilename}
+}
+
+// AcceptedLaunchFileNames selects an exact inventory from accepted pins. The
+// caller must verify the accepted record and companion before installation.
+func AcceptedLaunchFileNames(accepted AcceptedIdentity) ([]string, error) {
+	if err := accepted.Validate(); err != nil {
+		return nil, err
+	}
+	return acceptedLaunchFileNames(accepted.LaunchMaterialSHA256)
+}
+
+func acceptedLaunchFileNames(pins map[string]string) ([]string, error) {
+	if err := identityrekey.ValidateLaunchMaterialPins(pins); err != nil {
+		return nil, err
+	}
+	if _, present := pins[OriginalStartupOriginFilename]; present {
+		return originalAcceptedLaunchNames(), nil
+	}
+	return append([]string(nil), acceptedLaunchNames[:]...), nil
 }

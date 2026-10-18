@@ -98,7 +98,10 @@ func BuildExternalSeedReservation(request ExternalSeedReservationRequest) (Exter
 	if request.Manifest == nil {
 		return ExternalSeedReservationRecords{}, ErrExternalSeedRecord
 	}
-	anchor := request.Anchor.Anchor()
+	anchor, original, err := externalSeedIdentity(request.Manifest, request.Anchor)
+	if err != nil {
+		return ExternalSeedReservationRecords{}, err
+	}
 	manifest := request.Manifest.Manifest()
 	if !request.Anchor.IsVerified() || request.Manifest.Digest() == "" ||
 		request.Identity.DeploymentID != anchor.DeploymentID || request.Identity.Cell != anchor.Cell ||
@@ -134,6 +137,14 @@ func BuildExternalSeedReservation(request ExternalSeedReservationRequest) (Exter
 		AvailabilityDomain: profile.AvailabilityDomain, FaultDomain: profile.FaultDomain,
 		SubnetOCID: profile.SubnetOCID, NetworkSecurityGroupIDs: slices.Clone(profile.NetworkSecurityGroupOCIDs),
 		Shape: profile.Shape, Node: manifest.SeedSlot}
+	if original != nil {
+		create, err := bootstrap.OriginalLaunchCreateKey(*original)
+		if err != nil || create != request.CreateIdentity {
+			return ExternalSeedReservationRecords{}, ErrExternalSeedRecord
+		}
+		intent.SchemaVersion = 2
+		intent.OriginalLaunch = original
+	}
 	intentWire, err := signExternalSeedRecord(intent, "bootstrap-intent", manifest.SeedSlot, request.Identity,
 		request.LedgerPrivate, request.Anchor, request.Manifest, request.Now, request.ExpiresAt)
 	if err != nil {
@@ -157,7 +168,10 @@ func BuildExternalSeedCompletion(request ExternalSeedCompletionRequest) (Externa
 	if request.Manifest == nil {
 		return ExternalSeedCompletionRecords{}, ErrExternalSeedRecord
 	}
-	anchor := request.Anchor.Anchor()
+	anchor, _, err := externalSeedIdentity(request.Manifest, request.Anchor)
+	if err != nil {
+		return ExternalSeedCompletionRecords{}, err
+	}
 	if !request.Anchor.IsVerified() || request.Manifest.Digest() == "" ||
 		request.Identity.DeploymentID != anchor.DeploymentID || request.Identity.Cell != anchor.Cell ||
 		request.Identity.Environment != anchor.Environment || !request.ExpiresAt.After(request.Now) ||

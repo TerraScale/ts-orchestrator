@@ -35,6 +35,9 @@ func VerifyLinkRecipient(ctx context.Context, regional, home VerifiedRegionalSou
 	}
 	recipient, issuer := regional.Manifest(), home.Manifest()
 	rt, ht := regional.template, home.template
+	if rt.bindings != nil && rt.bindings.original != nil || ht.bindings != nil && ht.bindings.original != nil {
+		return verifyOriginalLinkRecipient(ctx, regional, home, now)
+	}
 	if issuer.Cell != oci.RegionGRU || recipient.Cell == oci.RegionGRU || rt.InstallationID() != ht.InstallationID() || rt.Generation() != ht.Generation() || rt.GrantDigest() != ht.GrantDigest() || recipient.DeploymentID != issuer.DeploymentID || recipient.Environment != issuer.Environment || regional.StorageDomain() != home.StorageDomain() || recipient.ClusterID == issuer.ClusterID || rt.startupIdentity().InitialSourceRegistration == nil || ht.startupIdentity().InitialSourceRegistration == nil {
 		return LinkRecipient{}, ErrManifestInvalid
 	}

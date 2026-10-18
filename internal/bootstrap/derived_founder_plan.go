@@ -249,6 +249,19 @@ func (verified DerivedFounderPlan) current(ctx context.Context, roots trust.Keyr
 		return DerivedFounderPlan{}, ErrFounderPlanAuthorization
 	}
 	seed := verified.seed
+	if seed.template.bindings != nil && seed.template.bindings.original != nil {
+		if err := seed.VerifyCurrent(ctx, now); err != nil {
+			return DerivedFounderPlan{}, err
+		}
+		current, err := NewDerivedFounderPlan(ctx, seed, now)
+		if err != nil {
+			return DerivedFounderPlan{}, err
+		}
+		if current.Digest() != verified.Digest() {
+			return DerivedFounderPlan{}, ErrFounderPlanAuthorization
+		}
+		return current, nil
+	}
 	home := seed.template.anchor.Anchor()
 	envelope, err := trust.DecodeEnvelope(seed.template.anchor.Wire())
 	if err != nil {

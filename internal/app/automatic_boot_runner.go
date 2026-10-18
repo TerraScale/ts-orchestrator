@@ -40,11 +40,14 @@ func RunAutomaticBootstrap(ctx context.Context, args []string) error {
 	}
 	if err := region.DeliverOriginalFoundationPublic(ctx); err != nil {
 		if _, pending := errors.AsType[*region.OriginalFoundationAdmissionPendingError](err); pending {
-			if archiveErr := rootfoundation.EnsureOriginalSourceArchive(ctx); archiveErr != nil {
-				return fmt.Errorf("archive original foundation source: %w", archiveErr)
-			}
+			return runAutomaticOriginalSeed(ctx)
 		}
 		return fmt.Errorf("deliver original public foundation bundle: %w", err)
+	}
+	if authority, err := bootstrapstart.LoadOriginalStartupAuthority(ctx, time.Now().UTC()); err == nil {
+		return runAutomaticOriginalController(ctx, authority)
+	} else if !errors.Is(err, bootstrapstart.ErrNotOriginalStartup) {
+		return fmt.Errorf("load original managed controller authority: %w", err)
 	}
 	if err := bootstrapstart.InstallLaunchMaterial(ctx, bootstrapstart.NewIMDSClient(), time.Now().UTC()); errors.Is(err, bootstrapstart.ErrNotController) {
 		return setupRuntimeWorker(ctx, os.Stdout)

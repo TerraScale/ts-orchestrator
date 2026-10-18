@@ -61,36 +61,37 @@ var (
 // Intent is the immutable founder-signed OCI launch request. CreatedAt is
 // signed once and must remain identical on every retry.
 type Intent struct {
-	SchemaVersion           int        `json:"schemaVersion"`
-	Mode                    IntentMode `json:"mode"`
-	DeploymentID            string     `json:"deploymentId"`
-	Cell                    string     `json:"cell"`
-	Environment             string     `json:"environment"`
-	Role                    string     `json:"role"`
-	Slot                    string     `json:"slot"`
-	Attempt                 uint64     `json:"attempt"`
-	Generation              uint64     `json:"generation"`
-	ManifestDigest          string     `json:"manifestDigest"`
-	ReleaseReceiptDigest    string     `json:"releaseReceiptDigest"`
-	RegionIntentGeneration  uint64     `json:"regionIntentGeneration"`
-	ImageOCID               string     `json:"imageOcid"`
-	RegionIntentDigest      string     `json:"regionIntentDigest"`
-	LaunchRequestDigest     string     `json:"launchRequestDigest"`
-	ReviewedPlanDigest      string     `json:"reviewedPlanDigest,omitzero"`
-	FounderPlanSHA256       string     `json:"founderPlanSha256,omitzero"`
-	PeerRowDigest           string     `json:"peerRowDigest,omitzero"`
-	RetirementDigest        string     `json:"retirementDigest,omitzero"`
-	CreateKey               string     `json:"createKey"`
-	RetryToken              string     `json:"retryToken,omitzero"`
-	CreatedAt               time.Time  `json:"createdAt"`
-	OCIRegion               string     `json:"ociRegion"`
-	CompartmentOCID         string     `json:"compartmentOcid"`
-	AvailabilityDomain      string     `json:"availabilityDomain"`
-	FaultDomain             string     `json:"faultDomain"`
-	SubnetOCID              string     `json:"subnetOcid"`
-	NetworkSecurityGroupIDs []string   `json:"networkSecurityGroupIds"`
-	Shape                   string     `json:"shape"`
-	Node                    string     `json:"node"`
+	OriginalLaunch          *OriginalLaunchIdentity `json:"originalLaunch,omitempty"`
+	SchemaVersion           int                     `json:"schemaVersion"`
+	Mode                    IntentMode              `json:"mode"`
+	DeploymentID            string                  `json:"deploymentId"`
+	Cell                    string                  `json:"cell"`
+	Environment             string                  `json:"environment"`
+	Role                    string                  `json:"role"`
+	Slot                    string                  `json:"slot"`
+	Attempt                 uint64                  `json:"attempt"`
+	Generation              uint64                  `json:"generation"`
+	ManifestDigest          string                  `json:"manifestDigest"`
+	ReleaseReceiptDigest    string                  `json:"releaseReceiptDigest"`
+	RegionIntentGeneration  uint64                  `json:"regionIntentGeneration"`
+	ImageOCID               string                  `json:"imageOcid"`
+	RegionIntentDigest      string                  `json:"regionIntentDigest"`
+	LaunchRequestDigest     string                  `json:"launchRequestDigest"`
+	ReviewedPlanDigest      string                  `json:"reviewedPlanDigest,omitzero"`
+	FounderPlanSHA256       string                  `json:"founderPlanSha256,omitzero"`
+	PeerRowDigest           string                  `json:"peerRowDigest,omitzero"`
+	RetirementDigest        string                  `json:"retirementDigest,omitzero"`
+	CreateKey               string                  `json:"createKey"`
+	RetryToken              string                  `json:"retryToken,omitzero"`
+	CreatedAt               time.Time               `json:"createdAt"`
+	OCIRegion               string                  `json:"ociRegion"`
+	CompartmentOCID         string                  `json:"compartmentOcid"`
+	AvailabilityDomain      string                  `json:"availabilityDomain"`
+	FaultDomain             string                  `json:"faultDomain"`
+	SubnetOCID              string                  `json:"subnetOcid"`
+	NetworkSecurityGroupIDs []string                `json:"networkSecurityGroupIds"`
+	Shape                   string                  `json:"shape"`
+	Node                    string                  `json:"node"`
 }
 
 // Result is the immutable founder-signed positive OCI reobservation for one
@@ -277,6 +278,9 @@ func (ledger *Ledger) decodeIntent(scope BootstrapScope, body []byte, current bo
 		return Intent{}, trust.Envelope{}, fmt.Errorf("%w: intent payload does not match signed scope", ErrInvalidRecord)
 	}
 	if err := validateIntent(intent); err != nil {
+		return Intent{}, trust.Envelope{}, err
+	}
+	if err := validateOriginalIntentForAuthority(intent, ledger.config.DerivedStartup); err != nil {
 		return Intent{}, trust.Envelope{}, err
 	}
 	if !intent.CreatedAt.Equal(envelope.IssuedAt) {
@@ -469,7 +473,16 @@ func decodeCanonicalPayload(data []byte, destination any) error {
 }
 
 func validateIntent(intent Intent) error {
-	if intent.SchemaVersion != 1 || intent.Attempt == 0 || intent.Generation == 0 || intent.RegionIntentGeneration == 0 ||
+	if intent.SchemaVersion == 1 && intent.OriginalLaunch != nil || intent.SchemaVersion == 2 && (intent.Mode != IntentModeExternalSeed || intent.OriginalLaunch == nil) {
+		return ErrInvalidRecord
+	}
+	if intent.SchemaVersion == 2 {
+		key, err := OriginalLaunchCreateKey(*intent.OriginalLaunch)
+		if err != nil || key != intent.CreateKey || intent.OriginalLaunch.Create.Region != intent.OCIRegion || intent.Attempt != 1 || intent.Generation != 1 {
+			return ErrInvalidRecord
+		}
+	}
+	if (intent.SchemaVersion != 1 && intent.SchemaVersion != 2) || intent.Attempt == 0 || intent.Generation == 0 || intent.RegionIntentGeneration == 0 ||
 		!validDigest(intent.ManifestDigest) || !validDigest(intent.ReleaseReceiptDigest) || !isOCID(intent.ImageOCID, "image") ||
 		!validDigest(intent.RegionIntentDigest) || !validDigest(intent.LaunchRequestDigest) || !createTokenPattern.MatchString(intent.CreateKey) ||
 		intent.CreatedAt.IsZero() || intent.CreatedAt.Location() != time.UTC ||

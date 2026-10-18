@@ -407,10 +407,6 @@ func (gate Gate) initialProofs(ctx context.Context, state bootstrap.SlotState, a
 	if state.Intent.ManifestDigest != state.ManifestRecord.SHA256 || state.Intent.ReleaseReceiptDigest == "" {
 		return nil, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, ErrAdmission
 	}
-	expected, err := anchor.ManifestExpectation(state.Intent.Slot, state.Intent.ImageOCID)
-	if err != nil {
-		return nil, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, err
-	}
 	manifestEnvelope, err := proofEnvelope(state.ManifestRecord.Bytes)
 	if err != nil {
 		return nil, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, err
@@ -422,6 +418,10 @@ func (gate Gate) initialProofs(ctx context.Context, state bootstrap.SlotState, a
 		}
 		manifest = *gate.derivedStartup
 	} else {
+		expected, expectationErr := anchor.ManifestExpectation(state.Intent.Slot, state.Intent.ImageOCID)
+		if expectationErr != nil {
+			return nil, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, expectationErr
+		}
 		manifest, err = bootstrap.VerifyManifest(manifestEnvelope, gate.Roots, expected, now, bootstrap.ManifestTrustPolicy())
 	}
 	if err != nil || manifest.Digest() != state.Intent.ManifestDigest {
@@ -432,8 +432,22 @@ func (gate Gate) initialProofs(ctx context.Context, state bootstrap.SlotState, a
 		payload.ImageOCID != state.Intent.ImageOCID || len(payload.ReleaseImageReceiptWire) == 0 {
 		return nil, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, ErrAdmission
 	}
+	imageRoots := gate.Roots
+	if gate.derivedStartup != nil {
+		if original, err := gate.derivedStartup.OriginalLaunch(); err == nil {
+			imageRoots = gate.derivedStartup.Template().Roots()
+			if payload.Slot == payload.SeedSlot {
+				createKey, err := bootstrap.OriginalLaunchCreateKey(original)
+				if err != nil || state.Intent.SchemaVersion != 2 || state.Intent.OriginalLaunch == nil || *state.Intent.OriginalLaunch != original || state.Intent.CreateKey != createKey || observed.InstanceOCID != original.InstanceOCID {
+					return nil, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, ErrOriginalStartup
+				}
+			} else if state.Intent.SchemaVersion != 1 || state.Intent.OriginalLaunch != nil {
+				return nil, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, ErrOriginalStartup
+			}
+		}
+	}
 	image, err := release.VerifyImageCurrent(payload.ReleaseImageReceiptWire, payload.ReleaseDelegationWire,
-		gate.Roots, release.ImageExpectation{Environment: payload.Environment, LogicalRegion: string(payload.Cell),
+		imageRoots, release.ImageExpectation{Environment: payload.Environment, LogicalRegion: string(payload.Cell),
 			OCIImageOCID: payload.ImageOCID, Architecture: strings.TrimPrefix(payload.ImageArchitecture, "linux-")}, now)
 	if err != nil {
 		return nil, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, fmt.Errorf("verify current release image: %w", err)
@@ -490,11 +504,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 	if pendingErr != nil && !errors.Is(pendingErr, os.ErrNotExist) || pendingErr == nil && priorErr != nil {
 		return AcceptedInstall{}, fmt.Errorf("%w: invalid initial export recovery state: %v", ErrAdmission, pendingErr)
 	}
-	anchorEnvelope, err := proofEnvelope(gate.AnchorWire)
-	if err != nil {
-		return AcceptedInstall{}, err
-	}
-	anchor, err := bootstrap.VerifyBootstrapAnchor(anchorEnvelope, gate.Roots, gate.Expected, now, bootstrap.BootstrapAnchorTrustPolicy())
+	anchor, err := gate.verifyInitialAnchor(ctx, now)
 	if err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify current baked anchor: %w", err)
 	}
@@ -508,7 +518,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 	if err != nil {
 		return AcceptedInstall{}, err
 	}
-	observed, err := gate.observe(ctx, instanceID, state, anchor.Anchor())
+	observed, err := gate.observe(ctx, instanceID, state, gate.startupIdentity(anchor))
 	if err != nil {
 		return AcceptedInstall{}, err
 	}
@@ -568,7 +578,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 	if gate.trustStore != nil {
 		launchStore = *gate.trustStore
 	}
-	launchPins, err := launchStore.measureInitialLaunchMaterial(manifest, gate.Roots, now)
+	launchPins, err := launchStore.measureInitialLaunchMaterialContext(ctx, manifest, gate.Roots, now)
 	if err != nil {
 		return AcceptedInstall{}, fmt.Errorf("measure current public host launch inputs: %w", err)
 	}
@@ -583,8 +593,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 		if err != nil {
 			return err
 		}
-		currentAnchor, err := bootstrap.VerifyBootstrapAnchor(anchorEnvelope, gate.Roots, gate.Expected,
-			at, bootstrap.BootstrapAnchorTrustPolicy())
+		currentAnchor, err := gate.verifyInitialAnchor(ctx, at)
 		if err != nil || currentAnchor.Digest() != anchor.Digest() {
 			return fmt.Errorf("%w: current baked anchor or ledger grant expired: %v", ErrAdmission, err)
 		}
@@ -592,7 +601,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 		if err != nil {
 			return fmt.Errorf("%w: current manifest, image, or instance receipt expired: %v", ErrAdmission, err)
 		}
-		currentPins, err := launchStore.measureInitialLaunchMaterial(manifest, gate.Roots, at)
+		currentPins, err := launchStore.measureInitialLaunchMaterialContext(ctx, manifest, gate.Roots, at)
 		if err != nil || !maps.Equal(launchPins, currentPins) {
 			return fmt.Errorf("%w: current public host launch inputs changed or expired: %v", ErrAdmission, err)
 		}

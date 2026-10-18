@@ -180,6 +180,7 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 	for index, component := range components {
 		approval.NetBirdComponents[index] = component.authority
 	}
+	cloud.seedPrerequisites(approval)
 	preparationRequests := cloud.requests
 	prepared, err := PrepareFoundationGrant(t.Context(), approval, images, func(_ context.Context, _ string, region string) (Live, error) {
 		entry, _ := catalog.CellForOCIRegion(region)
@@ -192,8 +193,8 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cloud.requests-preparationRequests != 3 || len(cloud.imageReads) != 3 || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
-		t.Fatal("image preparation did not remain three authenticated reads without effects or discovery")
+	if cloud.requests-preparationRequests != 5 || len(cloud.imageReads) != 3 || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
+		t.Fatal("preparation did not remain three image reads and two locked retention reads without effects or anchor discovery")
 	}
 	for index, regional := range prepared.Grant.Regions {
 		cell := regional.Plan["cell"].(string)
@@ -269,6 +270,7 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 		material := *prepared.Grant.Regions[index].BootstrapMaterial
 		material.AdmissionAttestor = nil
 		material.OriginalSourceProducer = nil
+		material.OriginalStartupAdmission = nil
 		prepared.Grant.Regions[index].BootstrapMaterial = &material
 		if manager := prepared.Grant.Regions[index].NetBirdManager; manager != nil {
 			legacy := *manager
@@ -298,7 +300,6 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 		t.Fatal(err)
 	}
 	cloud.bundle = bundle.clone()
-	cloud.seedPrerequisites(approval)
 	return foundationProvisionFixture{approval: approval, prepared: originPreparation, bundle: bundle, roots: roots, root: root, now: now, images: images, cloud: cloud, provider: provider, factoryFor: factoryFor}
 }
 
@@ -797,6 +798,11 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 						t.Fatal(err)
 					}
 					regional.BootstrapMaterial.OriginalSourceProducer = new(purpose)
+					startupPurpose, err := originalStartupAdmission(purpose, regional.BootstrapMaterial.OriginalStartupAdmission.LedgerRetentionRuleID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					regional.BootstrapMaterial.OriginalStartupAdmission = new(startupPurpose)
 				}
 				if err := ValidatePreparedFoundation(candidate.Grant); err != nil {
 					t.Fatalf("startup refusal fixture did not pass structural preparation: %v", err)
@@ -1267,6 +1273,9 @@ type provisionCloud struct {
 	tokens                         map[string]string
 	rules                          map[string][]any
 	retention                      map[string][]any
+	retentionPages                 map[string][]any
+	retentionNextPages             map[string]string
+	retentionDetails               map[string]map[string]any
 	launches                       map[string]string
 	tariff                         float64
 	lostLaunch, lostPolicy         bool
@@ -1309,6 +1318,7 @@ func (c *provisionCloud) original(cell string) (string, string) {
 	return "", ""
 }
 func (c *provisionCloud) seedPrerequisites(input FoundationPreparationInput) {
+	c.retention[input.HomeStorageDomain.LedgerBucket] = []any{map[string]any{"id": "ledger-indefinite-locked", "displayName": "ledger-indefinite-locked", "etag": "ledger-rule-etag", "timeCreated": "2026-01-01T00:00:00Z", "timeModified": "2026-01-01T00:00:00Z", "timeRuleLocked": "2026-01-02T00:00:00Z"}}
 	c.rows[input.SourceVaultTarget.CompartmentOCID] = map[string]any{"id": input.SourceVaultTarget.CompartmentOCID, "name": "gru-1-control", "compartmentId": input.ParentCompartmentID, "lifecycleState": "ACTIVE"}
 	c.collections[input.SourceVaultTarget.CompartmentOCID] = "compartments"
 	c.rows[input.ParentCompartmentID] = map[string]any{"id": input.ParentCompartmentID, "name": "parent", "compartmentId": input.TenancyID, "lifecycleState": "ACTIVE"}
@@ -2258,7 +2268,15 @@ func (c *provisionCloud) serveStorage(w http.ResponseWriter, r *http.Request) {
 	}
 	if suffix == "retentionRules" {
 		if r.Method == http.MethodGet {
-			json.MarshalWrite(w, map[string]any{"items": append([]any{}, c.retention[bucket]...)})
+			items := c.retention[bucket]
+			page := bucket + "|" + r.URL.Query().Get("page")
+			if c.retentionPages != nil {
+				items = c.retentionPages[page]
+			}
+			if next := c.retentionNextPages[page]; next != "" {
+				w.Header().Set("opc-next-page", next)
+			}
+			json.MarshalWrite(w, map[string]any{"items": append([]any{}, items...)})
 			return
 		}
 		if r.Method == http.MethodPost {
@@ -2274,6 +2292,21 @@ func (c *provisionCloud) serveStorage(w http.ResponseWriter, r *http.Request) {
 			json.MarshalWrite(w, body)
 			return
 		}
+	}
+	if ruleID, ok := strings.CutPrefix(suffix, "retentionRules/"); ok && r.Method == http.MethodGet {
+		for _, value := range c.retention[bucket] {
+			rule, ok := value.(map[string]any)
+			if ok && rule["id"] == ruleID {
+				if detail := c.retentionDetails[ruleID]; detail != nil {
+					rule = detail
+				}
+				w.Header().Set("etag", fmt.Sprint(rule["etag"]))
+				json.MarshalWrite(w, rule)
+				return
+			}
+		}
+		c.notFound(w)
+		return
 	}
 	c.unexpected(w, r)
 }

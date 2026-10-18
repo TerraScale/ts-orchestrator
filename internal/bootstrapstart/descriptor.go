@@ -183,7 +183,7 @@ func (imds IMDSClient) FetchLaunchMaterial(ctx context.Context) (LaunchMaterial,
 
 func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64) ([]byte, error) {
 	if imds.client == nil || endpoint != descriptorEndpoint && endpoint != identityEndpoint &&
-		endpoint != controllerManifestEndpoint && endpoint != identityMetadataEndpoint &&
+		endpoint != controllerManifestEndpoint && endpoint != originalStartupMetadataEndpoint && endpoint != identityMetadataEndpoint &&
 		endpoint != anchorMetadataEndpoint && endpoint != hostEnrollmentMetadataEndpoint &&
 		endpoint != operatorSSHKeyMetadataEndpoint && endpoint != availabilityDomainEndpoint &&
 		endpoint != managedHostImageReceiptMetadataEndpoint && endpoint != managedHostImageDelegationMetadataEndpoint &&

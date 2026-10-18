@@ -134,6 +134,24 @@ func RestoreMaterial(ctx context.Context, read SecretReader, removeDiskCopies, c
 		}
 		return "prepared initial controller credential directory in memory", nil
 	}
+	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
+		origin, err := (bakedStore{directory: BakedDirectory}).readOriginalOrigin()
+		if err != nil {
+			return "", err
+		}
+		if err := verifyAcceptedOriginalOrigin(ctx, accepted, origin, time.Now().UTC()); err != nil {
+			return "", err
+		}
+		dir, err := (bakedStore{directory: BakedDirectory}).openDirectory(BakedDirectory)
+		if err != nil {
+			return "", err
+		}
+		err = rejectOriginalSSH(dir)
+		unix.Close(dir)
+		if err != nil {
+			return "", err
+		}
+	}
 	if err := CheckIdentityRekeyPrestart(accepted); err != nil {
 		return "", err
 	}

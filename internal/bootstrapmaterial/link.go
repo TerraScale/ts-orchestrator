@@ -19,6 +19,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 	"golang.org/x/sys/unix"
@@ -39,12 +40,84 @@ type LinkRecord struct {
 // A spoke first recovers the home's immutable link source. Incomplete output
 // holds for inspection; it never causes replacement keys to be generated.
 func GenerateLink(materialDirectory, homeMaterialDirectory, homeLinkDirectory, directory string, now time.Time) (LinkRecord, error) {
+	return generateLink(materialDirectory, homeMaterialDirectory, homeLinkDirectory, directory, now, nil)
+}
+
+// GenerateOriginalLink preserves the ordinary generator's deployment rule and
+// admits a distinct original deployment only through sealed signed templates.
+func GenerateOriginalLink(ctx context.Context, template bootstrap.VerifiedStartupTemplate, materialDirectory, homeMaterialDirectory, homeLinkDirectory, directory string, now time.Time) (LinkRecord, error) {
+	pair, err := originalLinkTemplates(ctx, template, now)
+	if err != nil {
+		return LinkRecord{}, err
+	}
+	return generateLink(materialDirectory, homeMaterialDirectory, homeLinkDirectory, directory, now, pair)
+}
+
+type originalLinkPair struct {
+	ctx            context.Context
+	regional, home bootstrap.VerifiedStartupTemplate
+}
+
+func originalLinkTemplates(ctx context.Context, template bootstrap.VerifiedStartupTemplate, now time.Time) (*originalLinkPair, error) {
+	if ctx == nil || ctx.Err() != nil || !template.IsVerified() {
+		return nil, ErrMaterial
+	}
+	if _, err := template.OriginalLaunch(); err != nil {
+		return nil, err
+	}
+	home, err := template.ForCell(ctx, oci.RegionGRU, now)
+	if err != nil {
+		return nil, err
+	}
+	pair := &originalLinkPair{ctx: ctx, regional: template, home: home}
+	if err := pair.current(); err != nil {
+		return nil, err
+	}
+	return pair, nil
+}
+
+func (pair *originalLinkPair) current() error {
+	if pair == nil {
+		return nil
+	}
+	if pair.ctx == nil || pair.ctx.Err() != nil || pair.regional.GrantDigest() != pair.home.GrantDigest() || pair.regional.InstallationID() != pair.home.InstallationID() || pair.regional.Generation() != pair.home.Generation() || pair.home.StartupIdentity().Cell != oci.RegionGRU {
+		return ErrMaterial
+	}
+	if _, err := pair.regional.OriginalLaunch(); err != nil {
+		return err
+	}
+	if _, err := pair.home.OriginalLaunch(); err != nil {
+		return err
+	}
+	if err := pair.regional.VerifyCurrentContext(pair.ctx, time.Now()); err != nil {
+		return err
+	}
+	return pair.home.VerifyCurrentContext(pair.ctx, time.Now())
+}
+
+func (pair *originalLinkPair) matches(regional, home Config) bool {
+	if pair == nil {
+		return regional.DeploymentID == home.DeploymentID
+	}
+	a, err := json.Marshal(regional, json.Deterministic(true))
+	b, other := json.Marshal(home, json.Deterministic(true))
+	return err == nil && other == nil && digest(a) == pair.regional.PlanDigest() && digest(b) == pair.home.PlanDigest() && pair.current() == nil
+}
+
+func (pair *originalLinkPair) homePair() *originalLinkPair {
+	if pair == nil {
+		return nil
+	}
+	return &originalLinkPair{ctx: pair.ctx, regional: pair.home, home: pair.home}
+}
+
+func generateLink(materialDirectory, homeMaterialDirectory, homeLinkDirectory, directory string, now time.Time, pair *originalLinkPair) (LinkRecord, error) {
 	material, err := Load(materialDirectory)
 	if err != nil {
 		return LinkRecord{}, err
 	}
 	home, err := Load(homeMaterialDirectory)
-	if err != nil || home.Config.Cell != natscell.LinkHome || material.Config.Environment != home.Config.Environment || material.Config.DeploymentID != home.Config.DeploymentID || now.IsZero() || now.Before(material.IssuedAt) || now.Before(home.IssuedAt) || !now.Before(material.ExpiresAt) || !now.Before(home.ExpiresAt) {
+	if err != nil || home.Config.Cell != natscell.LinkHome || material.Config.Environment != home.Config.Environment || !pair.matches(material.Config, home.Config) || now.IsZero() || now.Before(material.IssuedAt) || now.Before(home.IssuedAt) || !now.Before(material.ExpiresAt) || !now.Before(home.ExpiresAt) {
 		return LinkRecord{}, ErrMaterial
 	}
 	isHome := material.Config.Cell == natscell.LinkHome
@@ -73,7 +146,7 @@ func GenerateLink(materialDirectory, homeMaterialDirectory, homeLinkDirectory, d
 	var homeLink LinkRecord
 	homeLinkDigest := ""
 	if !isHome {
-		homeLink, err = GenerateLink(homeMaterialDirectory, homeMaterialDirectory, homeLinkDirectory, homeLinkDirectory, now)
+		homeLink, err = generateLink(homeMaterialDirectory, homeMaterialDirectory, homeLinkDirectory, homeLinkDirectory, now, pair.homePair())
 		if err != nil {
 			return LinkRecord{}, err
 		}
@@ -215,13 +288,16 @@ func GenerateLink(materialDirectory, homeMaterialDirectory, homeLinkDirectory, d
 	if err := syncDirectory(staging); err != nil {
 		return LinkRecord{}, err
 	}
+	if err := pair.current(); err != nil {
+		return LinkRecord{}, err
+	}
 	if err := unix.Renameat2(unix.AT_FDCWD, staging, unix.AT_FDCWD, directory, unix.RENAME_NOREPLACE); err != nil && !errors.Is(err, unix.EEXIST) {
 		return LinkRecord{}, err
 	}
 	if err := syncDirectory(filepath.Dir(directory)); err != nil {
 		return LinkRecord{}, err
 	}
-	return GenerateLink(materialDirectory, homeMaterialDirectory, homeLinkDirectory, directory, now)
+	return generateLink(materialDirectory, homeMaterialDirectory, homeLinkDirectory, directory, now, pair)
 }
 
 func linkCA(certPEM []byte, keyPath string) (*x509.Certificate, *ecdsa.PrivateKey, error) {
@@ -475,4 +551,32 @@ func ValidateLinkPublication(directory string, publication Publication, journalW
 		return ErrProvision
 	}
 	return validatePublication(directory, record.Record, publication, journalWire)
+}
+
+// OriginalLinkPublicationSecretNames derives the finite eight-leaf roster before
+// generation. The home signer is escrow-only and has no publication name.
+func OriginalLinkPublicationSecretNames(cfg Config) ([8]string, error) {
+	var result [8]string
+	if cfg.Validate() != nil || len(cfg.Slots) != 3 {
+		return result, ErrMaterial
+	}
+	files := []string{"interregion-ca.pem"}
+	if cfg.Cell == natscell.LinkHome {
+		files = append(files, "link-cell.jwt")
+	} else {
+		files = append(files, bootstrap.LinkCredentialsFile)
+	}
+	for _, slot := range cfg.Slots {
+		cert, key := bootstrap.InterRegionTLSFiles(slot.Name)
+		files = append(files, cert, key)
+	}
+	slices.Sort(files)
+	if len(files) != len(result) {
+		return result, ErrMaterial
+	}
+	for index, name := range files {
+		purpose, slot := linkPurpose(name)
+		result[index] = secretName(cfg, File{Name: name, Purpose: purpose, Slot: slot})
+	}
+	return result, nil
 }

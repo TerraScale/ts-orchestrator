@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"golang.org/x/sys/unix"
 )
 
@@ -18,22 +20,31 @@ import (
 func NewDerivedCurrentFounderAuthorityReader(baked BakedInputs, accepted AcceptedInstall,
 	authority bootstrap.DerivedStartupAuthority, floor *FounderSelectionFloorStore,
 ) (*CurrentFounderAuthorityReader, error) {
+	if _, err := authority.Template().OriginalLaunch(); err == nil {
+		return nil, ErrOriginalStartup
+	}
+	return NewDerivedCurrentFounderAuthorityReaderContext(context.Background(), baked, accepted, authority, floor)
+}
+
+func NewDerivedCurrentFounderAuthorityReaderContext(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
+	authority bootstrap.DerivedStartupAuthority, floor *FounderSelectionFloorStore,
+) (*CurrentFounderAuthorityReader, error) {
 	if floor == nil || accepted.validate() != nil || !authority.IsVerified() ||
 		authority.AnchorDigest() != accepted.AnchorSHA256 || authority.Digest() != accepted.ManifestSHA256 ||
 		authority.Manifest().Slot != accepted.Slot || authority.Manifest().SeedSlot != accepted.SeedSlot ||
 		accepted.DeploymentID != baked.Identity.DeploymentID || accepted.Cell != string(baked.Identity.Cell) {
 		return nil, ErrFounderSelection
 	}
-	envelope, err := trust.DecodeEnvelope(baked.AnchorWire)
-	if err != nil {
-		return nil, err
-	}
-	anchor, err := bootstrap.VerifyHistoricalBootstrapAnchor(envelope, baked.Roots, baked.Identity.AnchorExpectation(), accepted.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
+	anchor, err := baked.verifyHistoricalOriginAnchor(ctx, accepted.AcceptedAt)
 	if err != nil || anchor.Digest() != accepted.AnchorSHA256 || !slices.Contains(anchor.Anchor().ControllerSlots, accepted.Slot) {
 		return nil, ErrFounderSelection
 	}
+	identity := anchor.Anchor()
+	if _, err := authority.OriginalLaunch(); err == nil {
+		identity = authority.Template().StartupIdentity()
+	}
 	return &CurrentFounderAuthorityReader{baked: baked, accepted: accepted,
-		acceptedClusterID: anchor.Anchor().ClusterID, acceptedSlots: anchor.Anchor().ControllerSlots,
+		acceptedClusterID: identity.ClusterID, acceptedSlots: identity.ControllerSlots,
 		domain: authority.StorageDomain(), floor: floor, derived: new(authority)}, nil
 }
 
@@ -41,11 +52,7 @@ func (reader *CurrentFounderAuthorityReader) readDerivedCurrent(ctx context.Cont
 	if reader == nil || reader.derived == nil || reader.floor == nil || now.IsZero() || now.Location() != time.UTC {
 		return CurrentFounderAuthority{}, ErrFounderSelection
 	}
-	envelope, err := trust.DecodeEnvelope(reader.baked.AnchorWire)
-	if err != nil {
-		return CurrentFounderAuthority{}, err
-	}
-	anchor, err := bootstrap.VerifyBootstrapAnchor(envelope, reader.baked.Roots, reader.baked.Identity.AnchorExpectation(), now, bootstrap.BootstrapAnchorTrustPolicy())
+	anchor, err := reader.baked.VerifyOriginAnchor(ctx, now)
 	if err != nil || anchor.Digest() != reader.accepted.AnchorSHA256 {
 		return CurrentFounderAuthority{}, ErrFounderSelection
 	}
@@ -115,7 +122,7 @@ func ProvisionInitialDerivedFounderFloor(ctx context.Context, baked BakedInputs,
 		serviceUID == 0 || serviceGID == 0 || floor == nil || floor.ownerUID != serviceUID || clockCheck == nil {
 		return ErrFounderProvision
 	}
-	reader, err := NewDerivedCurrentFounderAuthorityReader(baked, accepted, authority, floor)
+	reader, err := NewDerivedCurrentFounderAuthorityReaderContext(ctx, baked, accepted, authority, floor)
 	if err != nil {
 		return err
 	}
@@ -190,7 +197,7 @@ func RunAdmittedDerivedFounder(ctx context.Context, baked BakedInputs, accepted 
 	if floor.PeersComplete(accepted) {
 		return nil
 	}
-	reader, err := NewDerivedCurrentFounderAuthorityReader(baked, accepted, authority, floor)
+	reader, err := NewDerivedCurrentFounderAuthorityReaderContext(ctx, baked, accepted, authority, floor)
 	if err != nil {
 		return err
 	}
@@ -202,7 +209,14 @@ func RunAdmittedDerivedFounder(ctx context.Context, baked BakedInputs, accepted 
 	if err != nil {
 		return err
 	}
-	complete, err := founderPeersComplete(ctx, selected.Anchor.Anchor(), accepted, ledger)
+	identity := selected.Anchor.Anchor()
+	if selected.Derived != nil {
+		seed := selected.Derived.SeedAuthority()
+		if _, err := seed.OriginalLaunch(); err == nil {
+			identity = seed.Template().StartupIdentity()
+		}
+	}
+	complete, err := founderPeersComplete(ctx, identity, accepted, ledger)
 	if err != nil {
 		return err
 	}
@@ -214,11 +228,20 @@ func RunAdmittedDerivedFounder(ctx context.Context, baked BakedInputs, accepted 
 	if err != nil {
 		return err
 	}
-	provider, err := newOCIAdmissionProvider(config)
-	if err != nil {
-		return err
+	var provider common.ConfigurationProvider
+	if _, originalErr := authority.OriginalLaunch(); originalErr == nil {
+		factory, err := ociclient.InstancePrincipalContext(ctx, identity.OCIRegion)
+		if err != nil {
+			return err
+		}
+		provider = factory.Provider()
+	} else {
+		provider, err = newOCIAdmissionProvider(config)
+		if err != nil {
+			return err
+		}
 	}
-	material, err := LoadLaunchMaterial()
+	material, err := LoadLaunchMaterialContext(ctx)
 	if err != nil {
 		return err
 	}

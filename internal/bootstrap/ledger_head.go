@@ -584,6 +584,12 @@ func launchProfileForIntent(intent Intent) LaunchProfile {
 }
 
 func validateManagedFacts(ledger *Ledger, facts InstanceFacts, intent Intent, intentDigest string, result Result) error {
+	if err := validateOriginalIntentForAuthority(intent, ledger.config.DerivedStartup); err != nil {
+		return err
+	}
+	if intent.OriginalLaunch != nil && facts.InstanceOCID != intent.OriginalLaunch.InstanceOCID {
+		return ErrIdentityMismatch
+	}
 	profile := launchProfileForIntent(intent)
 	if facts.DeploymentID != ledger.config.DeploymentID || facts.Environment != ledger.config.Environment ||
 		facts.ClusterID != ledger.config.ClusterID || facts.Cell != ledger.config.Cell || facts.Slot != intent.Slot ||
@@ -2181,6 +2187,9 @@ func (ledger *Ledger) loadSeedProof(
 }
 
 func validateSeedReceiptForIntent(receipt Receipt, intent Intent, intentDigest string) error {
+	if intent.OriginalLaunch != nil && receipt.InstanceOCID != intent.OriginalLaunch.InstanceOCID {
+		return ErrInvalidRecord
+	}
 	if intent.Mode != IntentModeExternalSeed || receipt.DeploymentID != intent.DeploymentID ||
 		receipt.Environment != intent.Environment || string(receipt.Cell) != intent.Cell ||
 		receipt.OCIRegion != intent.OCIRegion || receipt.Role != intent.Role || receipt.Slot != intent.Slot ||
@@ -2287,6 +2296,9 @@ func (ledger *Ledger) headObjectName(scope BootstrapScope) string {
 }
 
 func validateResultForIntent(result Result, intent Intent, intentDigest string) error {
+	if intent.OriginalLaunch != nil && result.InstanceOCID != intent.OriginalLaunch.InstanceOCID {
+		return ErrInvalidRecord
+	}
 	if result.Mode != intent.Mode || result.Attempt != intent.Attempt || result.Generation != intent.Generation ||
 		result.RegionIntentGeneration != intent.RegionIntentGeneration || result.IntentDigest != intentDigest ||
 		result.OCIRegion != intent.OCIRegion || result.CompartmentOCID != intent.CompartmentOCID ||

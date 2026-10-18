@@ -23,13 +23,15 @@ const derivedStartupDomain = "terrascale.bootstrap.derived-startup"
 // DerivedStartupBinding is public evidence stored write-once in the original
 // source CAS. MaterialRecord contains public inventory, never source key bytes.
 type DerivedStartupBinding struct {
-	SchemaVersion  int                   `json:"schemaVersion"`
-	GrantSHA256    string                `json:"grantSha256"`
-	TemplateSHA256 string                `json:"templateSha256"`
-	SourceSHA256   string                `json:"sourceSha256"`
-	MaterialRecord []byte                `json:"materialRecord"`
-	Manifest       Manifest              `json:"manifest"`
-	Link           *RegionalLinkEvidence `json:"link,omitempty"`
+	OriginalLaunch *OriginalLaunchIdentity `json:"originalLaunch,omitempty"`
+	OriginalSource *OriginalSourceBinding  `json:"originalSource,omitempty"`
+	SchemaVersion  int                     `json:"schemaVersion"`
+	GrantSHA256    string                  `json:"grantSha256"`
+	TemplateSHA256 string                  `json:"templateSha256"`
+	SourceSHA256   string                  `json:"sourceSha256"`
+	MaterialRecord []byte                  `json:"materialRecord"`
+	Manifest       Manifest                `json:"manifest"`
+	Link           *RegionalLinkEvidence   `json:"link,omitempty"`
 }
 
 // DerivedStartupAuthority retains distinct provenance: the original signed
@@ -156,6 +158,9 @@ func LoadDerivedStartupAuthority(ctx context.Context, template VerifiedStartupTe
 }
 
 func startupSourceKey(template VerifiedStartupTemplate) string {
+	if template.bindings != nil && template.bindings.original != nil {
+		return template.bindings.original.resources.SourceObject
+	}
 	anchor := template.startupIdentity()
 	scopeHash := digestBytes([]byte(template.InstallationID() + "\x00" + strings.ToLower(string(anchor.Cell))))
 	return template.startupSourceDomain().Prefix + "/bootstrap/v2/material-source/" + scopeHash + ".json"
@@ -180,7 +185,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 		return deny("envelope")
 	}
 	var binding DerivedStartupBinding
-	if json.Unmarshal(envelope.Payload, &binding, json.RejectUnknownMembers(true)) != nil || binding.SchemaVersion != 1 || binding.GrantSHA256 != template.GrantDigest() || binding.TemplateSHA256 != template.TemplateDigest() || !validDigest(binding.SourceSHA256) || binding.Manifest.validateStructure(true) != nil {
+	if json.Unmarshal(envelope.Payload, &binding, json.RejectUnknownMembers(true)) != nil || !validDerivedBindingVersion(template, binding) || binding.GrantSHA256 != template.GrantDigest() || binding.TemplateSHA256 != template.TemplateDigest() || !validDigest(binding.SourceSHA256) || binding.Manifest.validateStructure(true) != nil {
 		return deny("binding")
 	}
 	manifest := binding.Manifest
@@ -268,6 +273,9 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 		Journal []byte             `json:"journal"`
 		Target  StartupVaultTarget `json:"target"`
 		Startup map[string][]byte  `json:"startup"`
+	}
+	if template.bindings != nil && template.bindings.original != nil {
+		return verifyOriginalDerivedSource(ctx, template, client, wire, stateWire, envelope, binding, ledgerKey, peerKey, now)
 	}
 	if json.Unmarshal(stateWire, &state) != nil || state.SchemaVersion != 1 || state.Kind != "" || state.Target != template.escrow || state.InstallationID != template.InstallationID() || state.Cell != strings.ToLower(string(anchor.Cell)) || state.Generation == 0 || state.Generation > template.Generation() || state.PlanSHA256 != template.PlanDigest() || !isOCID(state.Reference.SecretOCID, "vaultsecret") || state.Reference.SHA256 != binding.SourceSHA256 || state.Reference.MaxBytes <= 0 || state.Reference.MaxBytes > 25<<10 || len(state.Startup) != len(anchor.ControllerSlots) || !bytes.Equal(state.Startup[manifest.Slot], wire) {
 		return deny("immutable source binding")
@@ -436,6 +444,17 @@ func (authority DerivedStartupAuthority) OpenLedger(ctx context.Context, roots t
 	config, err := authority.LedgerConfig(roots)
 	if err != nil {
 		return nil, err
+	}
+	if authority.template.bindings != nil && authority.template.bindings.original != nil {
+		home, err := authority.template.bindings.original.factory.ForRegion("sa-saopaulo-1")
+		if err != nil {
+			return nil, err
+		}
+		objects, err := home.ObjectStorage()
+		if err != nil {
+			return nil, err
+		}
+		return NewLedger(&objects, config)
 	}
 	return NewInstancePrincipalLedger(config.Cell, config)
 }

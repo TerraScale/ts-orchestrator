@@ -67,19 +67,11 @@ func foundationDiscovery(ctx context.Context) (automaticFoundation, error) {
 	if baked.Identity.Cell != oci.Region(entry.Cell) {
 		return automaticFoundation{}, errors.New("local OCI instance region differs from bootstrap identity")
 	}
-	envelope, err := trust.DecodeEnvelope(baked.AnchorWire)
-	if err != nil {
-		return automaticFoundation{}, err
-	}
-	anchor, err := bootstrap.VerifyBootstrapAnchor(envelope, baked.Roots,
-		baked.Identity.AnchorExpectation(), time.Now().UTC(), bootstrap.BootstrapAnchorTrustPolicy())
+	anchor, err := baked.VerifyOriginAnchor(ctx, time.Now().UTC())
 	if err != nil {
 		return automaticFoundation{}, fmt.Errorf("verify foundation discovery anchor: %w", err)
 	}
-	if anchor.Anchor().OCIRegion != entry.OCIRegion || anchor.Anchor().Cell != oci.Region(entry.Cell) {
-		return automaticFoundation{}, errors.New("local OCI instance differs from signed bootstrap region")
-	}
-	factory, err := ociclient.InstancePrincipal(entry.OCIRegion)
+	factory, err := ociclient.InstancePrincipalContext(ctx, entry.OCIRegion)
 	if err != nil {
 		return automaticFoundation{}, err
 	}
@@ -94,7 +86,11 @@ func foundationDiscovery(ctx context.Context) (automaticFoundation, error) {
 	if observed.InstanceOCID != instanceID || observed.LifecycleState != "RUNNING" {
 		return automaticFoundation{}, bootstrapstart.ErrInstanceObservation
 	}
-	foundations, err := region.NewFoundationDiscovery(factory, anchor, baked.Roots)
+	originFactory, err := factory.ForRegion(anchor.Anchor().OCIRegion)
+	if err != nil {
+		return automaticFoundation{}, err
+	}
+	foundations, err := region.NewFoundationDiscovery(originFactory, anchor, baked.OriginRoots())
 	if err != nil {
 		return automaticFoundation{}, err
 	}
@@ -440,7 +436,15 @@ func installedAutomaticStartup(ctx context.Context) (automaticFoundation, bootst
 	if err != nil {
 		return fail(err)
 	}
-	derived, present, err := loadAutomaticStartupAuthority(ctx, local.factory, local.anchor, local.baked.Roots, &objects)
+	var derived bootstrap.DerivedStartupAuthority
+	if original, originalErr := bootstrapstart.LoadOriginalStartupAuthority(ctx, time.Now().UTC()); !errors.Is(originalErr, bootstrapstart.ErrNotOriginalStartup) {
+		if originalErr != nil {
+			return fail(originalErr)
+		}
+		derived, err = loadInstalledOriginalStartupAuthority(ctx, local, original)
+	} else {
+		derived, present, err = loadAutomaticStartupAuthority(ctx, local.factory, local.anchor, local.baked.Roots, &objects)
+	}
 	if err != nil {
 		return fail(err)
 	}

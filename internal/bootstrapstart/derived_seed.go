@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -19,6 +20,9 @@ type DerivedSeedJournal func(context.Context, *ExternalSeedCompletionRecords) (E
 // observed source founder. No root signing key or replacement store is used.
 func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstrap.VerifiedBootstrapAnchor, authority bootstrap.DerivedStartupAuthority, founder VerifiedSourceFounder, ledgerPrivate ed25519.PrivateKey, journal DerivedSeedJournal) (bootstrap.SlotState, error) {
 	manifest := authority.Manifest()
+	if _, err := authority.Template().OriginalLaunch(); err == nil {
+		return bootstrap.SlotState{}, ErrOriginalStartup
+	}
 	if journal == nil || !founder.IsVerified() || !authority.IsVerified() || authority.AnchorDigest() != anchor.Digest() || founder.GrantDigest() != digest(authority.GrantWire()) || founder.TemplateDigest() != authority.TemplateDigest() || founder.SeedSlot() != manifest.SeedSlot || manifest.Slot != manifest.SeedSlot || authority.VerifyLedgerKey(ledgerPrivatePublic(ledgerPrivate)) != nil {
 		return bootstrap.SlotState{}, ErrSourceFounder
 	}
@@ -34,7 +38,30 @@ func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstra
 	if observed.BootstrapCreateKey == "" {
 		return bootstrap.SlotState{}, ErrExternalSeedObservation
 	}
-	objects, err := factory.ObjectStorage()
+	expectedIP, err := founder.template.SlotPrivateIP(manifest.SeedSlot)
+	if err != nil {
+		return bootstrap.SlotState{}, err
+	}
+	return ensureObservedSeed(ctx, roots, anchor, authority, factory, observed, observed.BootstrapCreateKey, expectedIP, founder.InstanceID(), founder.ObserveCurrent, founder.VerifyCurrent, ledgerPrivate, journal)
+}
+
+// Both callers authenticate their distinct provenance and physical host before
+// entering the shared immutable reserve/receipt/result transaction.
+func ensureObservedSeed(ctx context.Context, roots trust.Keyring, anchor bootstrap.VerifiedBootstrapAnchor,
+	authority bootstrap.DerivedStartupAuthority, factory *ociclient.Factory, observed InstanceObservation,
+	createKey, expectedIP, instanceID string, observe func(context.Context) (InstanceObservation, error),
+	verifyCurrent func(context.Context) error, ledgerPrivate ed25519.PrivateKey, journal DerivedSeedJournal,
+) (bootstrap.SlotState, error) {
+	manifest := authority.Manifest()
+	storageFactory := factory
+	if _, err := authority.OriginalLaunch(); err == nil {
+		var err error
+		storageFactory, err = originalHomeFactory(authority, factory)
+		if err != nil {
+			return bootstrap.SlotState{}, err
+		}
+	}
+	objects, err := storageFactory.ObjectStorage()
 	if err != nil {
 		return bootstrap.SlotState{}, err
 	}
@@ -45,7 +72,7 @@ func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstra
 	scope := bootstrap.BootstrapScope{DeploymentID: manifest.DeploymentID, Cell: string(manifest.Cell), Slot: manifest.SeedSlot}
 	state, err := ledger.ReadSlot(ctx, scope)
 	if errors.Is(err, bootstrap.ErrRecordMissing) {
-		records, buildErr := BuildExternalSeedReservation(ExternalSeedReservationRequest{Identity: BakedIdentity{DeploymentID: manifest.DeploymentID, Cell: manifest.Cell, Environment: manifest.Environment}, Anchor: anchor, Manifest: authority, ReviewedPlanSHA256: authority.TemplateDigest(), CreateIdentity: observed.BootstrapCreateKey, LedgerPrivate: ledgerPrivate, Now: authority.IssuedAt(), ExpiresAt: authority.ExpiresAt()})
+		records, buildErr := BuildExternalSeedReservation(ExternalSeedReservationRequest{Identity: BakedIdentity{DeploymentID: manifest.DeploymentID, Cell: manifest.Cell, Environment: manifest.Environment}, Anchor: anchor, Manifest: authority, ReviewedPlanSHA256: authority.TemplateDigest(), CreateIdentity: createKey, LedgerPrivate: ledgerPrivate, Now: authority.IssuedAt(), ExpiresAt: authority.ExpiresAt()})
 		if buildErr != nil {
 			return bootstrap.SlotState{}, buildErr
 		}
@@ -54,15 +81,11 @@ func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstra
 	if err != nil {
 		return bootstrap.SlotState{}, err
 	}
-	expectedIP, err := founder.template.SlotPrivateIP(manifest.SeedSlot)
-	if err != nil {
-		return bootstrap.SlotState{}, err
-	}
 	if _, err := VerifyExternalSeedObservation(anchor, authority, state, observed, expectedIP); err != nil {
 		return bootstrap.SlotState{}, err
 	}
 	if state.Head.ResultDigest != "" && state.Result != nil {
-		if state.Result.InstanceOCID != founder.InstanceID() {
+		if state.Result.InstanceOCID != instanceID {
 			return bootstrap.SlotState{}, ErrExternalSeedObservation
 		}
 		return state, nil
@@ -76,7 +99,7 @@ func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstra
 		return bootstrap.SlotState{}, err
 	}
 	if len(records.ResultWire) == 0 {
-		observed, err = founder.ObserveCurrent(ctx)
+		observed, err = observe(ctx)
 		if err != nil {
 			return bootstrap.SlotState{}, err
 		}
@@ -113,7 +136,7 @@ func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstra
 			return bootstrap.SlotState{}, ErrExternalSeedObservation
 		}
 	}
-	if err := founder.VerifyCurrent(ctx); err != nil {
+	if err := verifyCurrent(ctx); err != nil {
 		return bootstrap.SlotState{}, err
 	}
 	if err := authority.VerifyCurrent(ctx, time.Now()); err != nil {

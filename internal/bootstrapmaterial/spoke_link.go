@@ -1,6 +1,7 @@
 package bootstrapmaterial
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -24,6 +25,20 @@ import (
 // The caller must authenticate the public recipient record through its current
 // bootstrap authority; no recipient private source is needed or accepted.
 func GenerateSpokeLink(homeMaterialDirectory, homeLinkDirectory string, recipient Record, sourceMetadataSHA, directory string, now time.Time) (LinkRecord, error) {
+	return generateSpokeLink(homeMaterialDirectory, homeLinkDirectory, recipient, sourceMetadataSHA, directory, now, nil)
+}
+
+// GenerateOriginalSpokeLink accepts no recipient source keys. The exact public
+// recipient config must match its independently current original template.
+func GenerateOriginalSpokeLink(ctx context.Context, template bootstrap.VerifiedStartupTemplate, homeMaterialDirectory, homeLinkDirectory string, recipient Record, sourceMetadataSHA, directory string, now time.Time) (LinkRecord, error) {
+	pair, err := originalLinkTemplates(ctx, template, now)
+	if err != nil {
+		return LinkRecord{}, err
+	}
+	return generateSpokeLink(homeMaterialDirectory, homeLinkDirectory, recipient, sourceMetadataSHA, directory, now, pair)
+}
+
+func generateSpokeLink(homeMaterialDirectory, homeLinkDirectory string, recipient Record, sourceMetadataSHA, directory string, now time.Time, pair *originalLinkPair) (LinkRecord, error) {
 	wire, err := json.Marshal(recipient)
 	if err != nil || digest(wire) != sourceMetadataSHA || recipient.SchemaVersion != 1 || recipient.Config.validate() != nil || recipient.Config.Cell == natscell.LinkHome || now.IsZero() || now.Before(recipient.IssuedAt) || !now.Before(recipient.ExpiresAt) || recipient.ExpiresAt.Sub(recipient.IssuedAt) != time.Duration(recipient.Config.ValidityHours)*time.Hour {
 		return LinkRecord{}, ErrMaterial
@@ -44,13 +59,13 @@ func GenerateSpokeLink(homeMaterialDirectory, homeLinkDirectory string, recipien
 		}
 	}
 	home, err := Load(homeMaterialDirectory)
-	if err != nil || home.Config.Cell != natscell.LinkHome || recipient.Config.Environment != home.Config.Environment || recipient.Config.DeploymentID != home.Config.DeploymentID || recipient.Public.CellAccountNKey == home.Public.CellAccountNKey || recipient.Public.OperatorNKey == home.Public.OperatorNKey {
+	if err != nil || home.Config.Cell != natscell.LinkHome || recipient.Config.Environment != home.Config.Environment || !pair.matches(recipient.Config, home.Config) || recipient.Public.CellAccountNKey == home.Public.CellAccountNKey || recipient.Public.OperatorNKey == home.Public.OperatorNKey {
 		return LinkRecord{}, ErrMaterial
 	}
 	if !filepath.IsAbs(directory) || secureParents(directory) != nil || nested(homeMaterialDirectory, directory) || nested(directory, homeMaterialDirectory) || nested(homeLinkDirectory, directory) || nested(directory, homeLinkDirectory) {
 		return LinkRecord{}, ErrMaterial
 	}
-	homeLink, err := GenerateLink(homeMaterialDirectory, homeMaterialDirectory, homeLinkDirectory, homeLinkDirectory, now)
+	homeLink, err := generateLink(homeMaterialDirectory, homeMaterialDirectory, homeLinkDirectory, homeLinkDirectory, now, pair.homePair())
 	if err != nil {
 		return LinkRecord{}, err
 	}
@@ -137,11 +152,14 @@ func GenerateSpokeLink(homeMaterialDirectory, homeLinkDirectory string, recipien
 	if err := syncDirectory(staging); err != nil {
 		return LinkRecord{}, err
 	}
+	if err := pair.current(); err != nil {
+		return LinkRecord{}, err
+	}
 	if err := unix.Renameat2(unix.AT_FDCWD, staging, unix.AT_FDCWD, directory, unix.RENAME_NOREPLACE); err != nil && !errors.Is(err, unix.EEXIST) {
 		return LinkRecord{}, err
 	}
 	if err := syncDirectory(filepath.Dir(directory)); err != nil {
 		return LinkRecord{}, err
 	}
-	return GenerateSpokeLink(homeMaterialDirectory, homeLinkDirectory, recipient, sourceMetadataSHA, directory, now)
+	return generateSpokeLink(homeMaterialDirectory, homeLinkDirectory, recipient, sourceMetadataSHA, directory, now, pair)
 }

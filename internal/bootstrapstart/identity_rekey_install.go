@@ -238,24 +238,45 @@ func verifyCommittedIdentityRekeyInstall(ctx context.Context, markers MarkerStor
 // VerifyIdentityRekeyLaunchMaterial checks the four exact public launch inputs
 // before installation. Their names never select a caller-owned destination.
 func VerifyIdentityRekeyLaunchMaterial(accepted AcceptedIdentity, regionWire []byte, files map[string][]byte, now time.Time) error {
+	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
+		return ErrOriginalStartup
+	}
+	return VerifyIdentityRekeyLaunchMaterialContext(context.Background(), accepted, regionWire, files, now)
+}
+
+func VerifyIdentityRekeyLaunchMaterialContext(ctx context.Context, accepted AcceptedIdentity, regionWire []byte, files map[string][]byte, now time.Time) error {
 	inputs, err := LoadTrustInputs(accepted)
 	if err != nil {
 		return err
 	}
-	return verifyIdentityRekeyLaunchMaterial(accepted, inputs, regionWire, files, now)
+	return verifyIdentityRekeyLaunchMaterialContext(ctx, accepted, inputs, regionWire, files, now)
 }
 
 func verifyIdentityRekeyLaunchMaterial(accepted AcceptedIdentity, inputs TrustInputs, regionWire []byte, files map[string][]byte, now time.Time) error {
-	if accepted.Validate() != nil || len(accepted.LaunchMaterialSHA256) != len(acceptedLaunchNames) || len(files) != len(acceptedLaunchNames) ||
-		digest(regionWire) != accepted.ConfigSHA256["oci-region.json"] {
+	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
+		return ErrOriginalStartup
+	}
+	return verifyIdentityRekeyLaunchMaterialContext(context.Background(), accepted, inputs, regionWire, files, now)
+}
+
+func verifyIdentityRekeyLaunchMaterialContext(ctx context.Context, accepted AcceptedIdentity, inputs TrustInputs, regionWire []byte, files map[string][]byte, now time.Time) error {
+	names, err := AcceptedLaunchFileNames(accepted)
+	if err != nil || len(files) != len(names) || digest(regionWire) != accepted.ConfigSHA256["oci-region.json"] {
 		return ErrLaunchMaterial
 	}
-	for _, name := range acceptedLaunchNames {
+	for _, name := range names {
 		if len(files[name]) == 0 || digest(files[name]) != accepted.LaunchMaterialSHA256[name] {
 			return ErrLaunchMaterial
 		}
 	}
-	if err := validateHostLaunchInputs(files[HostEnrollmentFilename], files[OperatorSSHKeyFilename], accepted.Cell, accepted.Environment); err != nil {
+	if _, original := accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
+		if err := verifyAcceptedOriginalOrigin(ctx, accepted, files[OriginalStartupOriginFilename], now); err != nil {
+			return err
+		}
+		if err := validateHostEnrollment(files[HostEnrollmentFilename], accepted.Cell, accepted.Environment); err != nil {
+			return err
+		}
+	} else if err := validateHostLaunchInputs(files[HostEnrollmentFilename], files[OperatorSSHKeyFilename], accepted.Cell, accepted.Environment); err != nil {
 		return err
 	}
 	expected, err := managedLaunchExpectation(regionWire, accepted.Cell, accepted.Environment)
@@ -383,10 +404,17 @@ func (store MaterialStore) VerifyIdentityRekeyInstalledMaterial(ctx context.Cont
 }
 
 func (verified VerifiedIdentityRekey) VerifyLaunchMaterial(inputs TrustInputs, regionWire []byte, files map[string][]byte, now time.Time) error {
+	if _, original := verified.Accepted().LaunchMaterialSHA256[OriginalStartupOriginFilename]; original {
+		return ErrOriginalStartup
+	}
+	return verified.VerifyLaunchMaterialContext(context.Background(), inputs, regionWire, files, now)
+}
+
+func (verified VerifiedIdentityRekey) VerifyLaunchMaterialContext(ctx context.Context, inputs TrustInputs, regionWire []byte, files map[string][]byte, now time.Time) error {
 	current, err := verified.VerifyCurrent(inputs, now)
 	if err != nil {
 		return err
 	}
 	inputs.Roots.Current = current.InstallationRoots(inputs)
-	return verifyIdentityRekeyLaunchMaterial(current.Accepted(), inputs, regionWire, files, current.InstallationTime(now))
+	return verifyIdentityRekeyLaunchMaterialContext(ctx, current.Accepted(), inputs, regionWire, files, current.InstallationTime(now))
 }

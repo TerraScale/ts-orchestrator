@@ -20,7 +20,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 const controllerServiceUser = "terrascale-orchestrator"
@@ -299,10 +298,6 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	checker.TerraBaseCACertFile = cfg.Controller.TerraBaseCACertFile
 	checker.TerraBaseCAKeyFile = cfg.Controller.TerraBaseCAKeyFile
 	checker.ControllerConfig = loadedWire
-	anchorEnvelope, err := trust.DecodeEnvelope(baked.AnchorWire)
-	if err != nil {
-		return fmt.Errorf("decode baked controller anchor: %w", err)
-	}
 	gate := bootstrapstart.Gate{
 		Roots: baked.Roots, AnchorWire: baked.AnchorWire, Expected: baked.Identity.AnchorExpectation(),
 		LoadedControllerConfigSHA256: controllerSHA256(loadedWire),
@@ -340,8 +335,7 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	if err := clockCheck(); err != nil {
 		return fmt.Errorf("production controller startup NTP clock health: %w", err)
 	}
-	anchor, err := bootstrap.VerifyBootstrapAnchor(anchorEnvelope, baked.Roots, gate.Expected,
-		time.Now(), bootstrap.BootstrapAnchorTrustPolicy())
+	anchor, err := baked.VerifyOriginAnchor(ctx, time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("verify current baked controller anchor: %w", err)
 	}
@@ -365,7 +359,7 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 			return bootstrapstart.ProvisionInitialDerivedFounderFloor(ctx, baked, marker, derived, floor, serviceUID, serviceGID, now, clockCheck)
 		}
 		gate.InitialPeerFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall, state bootstrap.SlotState, now time.Time) error {
-			continuation, err := bootstrapstart.NewDerivedFounderPeerContinuation(baked, marker, derived, serviceUID, serviceGID)
+			continuation, err := bootstrapstart.NewDerivedFounderPeerContinuationContext(ctx, baked, marker, derived, serviceUID, serviceGID)
 			if err != nil {
 				return err
 			}

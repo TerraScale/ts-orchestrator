@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
@@ -13,11 +14,15 @@ import (
 
 // OriginalMaterialPublicationScope is public DATA, never startup authority.
 type OriginalMaterialPublicationScope struct {
-	Target         bootstrapmaterial.VaultTarget `json:"target"`
-	PolicyID       string                        `json:"policyId"`
-	PolicyETag     string                        `json:"policyEtag"`
-	PolicySHA256   string                        `json:"policySha256"`
-	ReadbackSHA256 string                        `json:"readbackSha256"`
+	Target                 bootstrapmaterial.VaultTarget `json:"target"`
+	PolicyID               string                        `json:"policyId"`
+	PolicyETag             string                        `json:"policyEtag"`
+	PolicySHA256           string                        `json:"policySha256"`
+	ReadbackSHA256         string                        `json:"readbackSha256"`
+	SecretNames            [8]string                     `json:"secretNames,omitzero"`
+	OriginalLinkObject     string                        `json:"originalLinkObject,omitempty"`
+	OriginalLinkSecretName string                        `json:"originalLinkSecretName,omitempty"`
+	OriginalLinkEscrow     bootstrapmaterial.VaultTarget `json:"originalLinkEscrow,omitzero"`
 }
 
 func originalSourceMaterialPublication(grant FoundationGrant, record FoundationRecord, index int) (*OriginalFoundationMaterialIAM, error) {
@@ -26,7 +31,7 @@ func originalSourceMaterialPublication(grant FoundationGrant, record FoundationR
 	}
 	recipe := (*grant.OriginalMaterialPublicationIAM)[index]
 	// Historical seven-operation permission does not authorize policy readback.
-	if recipe.Purpose != originalMaterialIAMPurposeV2 {
+	if recipe.Purpose != originalMaterialIAMPurposeV2 && recipe.Purpose != originalMaterialIAMPurposeV3 {
 		return nil, nil
 	}
 	if record.validateOriginalFoundationMaterialIAM() != nil || record.OriginalFoundationCompartments == nil {
@@ -45,7 +50,7 @@ func originalSourceMaterialPublication(grant FoundationGrant, record FoundationR
 }
 
 func originalMaterialPublicationScope(entry OriginalFoundationMaterialIAM) (OriginalMaterialPublicationScope, error) {
-	if entry.Provenance == nil || entry.Recipe.Purpose != originalMaterialIAMPurposeV2 || !originalPublicationETag(entry.PolicyETag) {
+	if entry.Provenance == nil || (entry.Recipe.Purpose != originalMaterialIAMPurposeV2 && entry.Recipe.Purpose != originalMaterialIAMPurposeV3) || !originalPublicationETag(entry.PolicyETag) {
 		return OriginalMaterialPublicationScope{}, ErrOriginalSourceActorHold
 	}
 	body, err := foundationWriterPolicyBody(entry.Request)
@@ -73,12 +78,21 @@ func verifyOriginalMaterialPublicationPolicy(ctx context.Context, factory *ocicl
 	if err != nil {
 		return err
 	}
-	if deref(response.Id) != entry.Provenance.ResourceID || deref(response.CompartmentId) != entry.Target.CompartmentOCID ||
+	if deref(response.Id) != entry.Provenance.ResourceID || deref(response.CompartmentId) != deref(entry.Request.CompartmentId) ||
 		deref(response.Name) != deref(entry.Request.Name) || deref(response.Description) != deref(entry.Request.Description) ||
 		response.LifecycleState != identity.PolicyLifecycleStateActive || !slices.Equal(response.Statements, entry.Request.Statements) ||
 		!sameOriginalSourceValue(response.VersionDate, entry.Request.VersionDate) || !sameOriginalSourceValue(response.FreeformTags, entry.Request.FreeformTags) ||
 		!sameOriginalSourceValue(response.DefinedTags, entry.Request.DefinedTags) || deref(response.Etag) != entry.PolicyETag {
 		return ErrOriginalSourceActorHold
+	}
+	if entry.Recipe.Purpose == originalMaterialIAMPurposeV3 {
+		group := entry.PeerDynamicGroup
+		if group == nil || group.Pending == nil || group.Provenance == nil || group.VerifiedAt.IsZero() || group.HoldReason != "" {
+			return ErrOriginalSourceActorHold
+		}
+		if _, err := verifyOriginalMaterialPeerGroup(ctx, iam, *group); err != nil {
+			return errors.Join(ErrOriginalSourceActorHold, err)
+		}
 	}
 	return ctx.Err()
 }
@@ -116,4 +130,28 @@ func (v VerifiedOriginalSourceActor) MaterialPublication(ctx context.Context) (O
 		return OriginalMaterialPublicationScope{}, nil, nil, err
 	}
 	return scope, factory, ociclient.WithRequestGuard(ociclient.WithAuthority(guarded, guard), guard), nil
+}
+
+// OriginalLinkPublication selects one of the signed three recipient rosters;
+// only the genuine GRU original actor may publish Link leaves or private escrow.
+func (v VerifiedOriginalSourceActor) OriginalLinkPublication(ctx context.Context, requestedCell oci.Region) (OriginalMaterialPublicationScope, *ociclient.Factory, context.Context, error) {
+	if !v.IsVerified() || v.proof.scope.Cell != "GRU" || v.proof.materialPublication == nil || v.proof.materialPublication.Recipe.Purpose != originalMaterialIAMPurposeV3 || v.proof.materialPublication.Startup == nil {
+		return OriginalMaterialPublicationScope{}, nil, nil, ErrOriginalSourceActorHold
+	}
+	scope, factory, guarded, err := v.MaterialPublication(ctx)
+	if err != nil {
+		return OriginalMaterialPublicationScope{}, nil, nil, err
+	}
+	for _, recipient := range v.proof.materialPublication.Startup.Regions {
+		if recipient.Producer.Cell != string(requestedCell) {
+			continue
+		}
+		if recipient.Producer.InstallationID != v.proof.intent.InstallationID || recipient.Producer.Generation != v.proof.intent.Generation || recipient.Producer.Home != v.proof.intent.Home {
+			return OriginalMaterialPublicationScope{}, nil, nil, ErrOriginalSourceActorHold
+		}
+		scope.Target, scope.SecretNames = recipient.Target, recipient.LinkSecretNames
+		scope.OriginalLinkObject, scope.OriginalLinkSecretName, scope.OriginalLinkEscrow = recipient.LinkObject, recipient.LinkEscrowSecretName, recipient.Producer.Escrow
+		return scope, factory, guarded, nil
+	}
+	return OriginalMaterialPublicationScope{}, nil, nil, ErrOriginalSourceActorHold
 }

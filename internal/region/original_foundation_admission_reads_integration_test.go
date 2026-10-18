@@ -139,12 +139,16 @@ func (f *originalAdmissionReadsSDKFixture) expectedPolicy(t *testing.T, record F
 		return fmt.Sprintf("Allow any-user to %s %s in %s where all {%s%s}", verb, resource, compartment, condition, extra)
 	}
 	statements := []string{statement("read", "objectstorage-namespaces", "tenancy", "GetNamespace", "OBJECTSTORAGE_NAMESPACE_READ", "")}
+	policyRead := statement("read", "policies", "compartment id "+deref(region.SourceIAM.Request.CompartmentId), "GetPolicy", "POLICY_READ", "")
+	if entry.Recipe.Purpose == originalAdmissionReadPurpose {
+		policyRead = statement("inspect", "policies", "compartment id "+f.approval.SourceVaultTarget.CompartmentOCID, "GetPolicy", "POLICY_READ", fmt.Sprintf(", target.policy.id='%s'", region.SourceIAM.Provenance.ResourceID))
+	}
 	for _, object := range []string{"orchestrator/regions/v1/GRU.json", "orchestrator/foundation/v1/root-chain.json", strings.TrimSuffix(home.Prefix, "/") + "/foundation-scope-v1.json"} {
 		statements = append(statements, statement("read", "objects", "compartment id "+f.approval.SourceVaultTarget.CompartmentOCID, "GetObject", "OBJECT_READ", fmt.Sprintf(", target.bucket.name='%s', target.object.name='%s'", home.HeadBucket, object)))
 	}
 	statements = append(statements,
 		statement("read", "buckets", "compartment id "+f.approval.SourceVaultTarget.CompartmentOCID, "GetBucket", "BUCKET_READ", fmt.Sprintf(", target.bucket.name='%s'", home.HeadBucket)),
-		statement("inspect", "policies", "compartment id "+f.approval.SourceVaultTarget.CompartmentOCID, "GetPolicy", "POLICY_READ", fmt.Sprintf(", target.policy.id='%s'", region.SourceIAM.Provenance.ResourceID)),
+		policyRead,
 		statement("read", "instances", "compartment id "+control, "GetInstance", "INSTANCE_READ", ""),
 		statement("inspect", "instances", "compartment id "+control, "ListVnicAttachments", "INSTANCE_INSPECT", ""),
 		statement("inspect", "vnic-attachments", "compartment id "+control, "ListVnicAttachments", "VNIC_ATTACHMENT_READ", ""),
@@ -334,6 +338,37 @@ func (f *originalAdmissionReadsSDKFixture) assertComplete(t *testing.T) {
 		if err != nil || json.Unmarshal(body, &actual) != nil || !sameOriginalSourceValue(actual, f.expectedPolicy(t, record, index)) {
 			t.Fatal("retained admission policy differs from independent finite statement oracle")
 		}
+	}
+}
+
+func TestOriginalFoundationAdmissionReadVersionsSDK(t *testing.T) {
+	for _, version := range []string{originalAdmissionReadPurpose, originalAdmissionReadPurposeV2} {
+		t.Run(version, func(t *testing.T) {
+			t.Setenv(common.UsingExpectHeaderEnvVar, "false")
+			reads := newOriginalActorReadsSDKFixture(t, "", 0)
+			reads.prepared.Grant.OriginalMaterialPublicationIAM = nil
+			recipes := *reads.prepared.Grant.OriginalActorAdmissionReads
+			for index := range recipes {
+				recipes[index].Purpose = version
+			}
+			reads.prepared.Grant.OriginalActorAdmissionReads = &recipes
+			f := originalAdmissionReadsSDKFixtureFor(t, reads, "")
+			if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) {
+				t.Fatal(err)
+			}
+			f.assertComplete(t)
+			before, posts := bytes.Clone(f.wire(t)), len(f.posts)
+			for _, region := range f.record(t).OriginalFoundationCompartments.Regions {
+				entry := region.AdmissionReads
+				joined := strings.Join(entry.Request.Statements, "\n")
+				if entry.Recipe.Purpose != version || strings.Contains(joined, "target.policy.id") != (version == originalAdmissionReadPurpose) {
+					t.Fatal("admission policy changed versioned selector contract")
+				}
+			}
+			if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) || len(f.posts) != posts || !bytes.Equal(before, f.wire(t)) {
+				t.Fatal("versioned completed admission reads rewrote history", err)
+			}
+		})
 	}
 }
 

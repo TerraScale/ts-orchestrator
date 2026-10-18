@@ -212,6 +212,10 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 	if err != nil || tenancy != input.TenancyID {
 		return FoundationPreparation{}, errors.New("foundation preparation user belongs to a different tenancy")
 	}
+	retentionRuleID, err := discoverOriginalStartupRetention(ctx, factory, input.HomeStorageDomain)
+	if err != nil {
+		return FoundationPreparation{}, err
+	}
 	var template map[string]any
 	if err := json.Unmarshal([]byte(platform.FoundationTemplate()), &template); err != nil {
 		return FoundationPreparation{}, err
@@ -320,6 +324,11 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 			return FoundationPreparation{}, err
 		}
 		grant.Regions[index].BootstrapMaterial.OriginalSourceProducer = &purpose
+		startup, err := originalStartupAdmission(purpose, retentionRuleID)
+		if err != nil {
+			return FoundationPreparation{}, err
+		}
+		grant.Regions[index].BootstrapMaterial.OriginalStartupAdmission = &startup
 	}
 	recipes, err := originalAdmissionReadIntents(grant, input.HomeStorageDomain)
 	if err != nil {
@@ -425,7 +434,7 @@ func prepareFoundationMaterial(ctx context.Context, factory *ociclient.Factory, 
 		return BootstrapMaterialIntent{}, err
 	}
 	startup := bootstrap.StartupTemplate{SeedSlot: "controller-a", ImageOCID: image.Image.Receipt().OCIImageOCID, ImageArchitecture: "linux-arm64",
-		ReleaseImageReceiptWire: slices.Clone(image.ReceiptWire), ReleaseDelegationWire: slices.Clone(image.DelegationWire), TrustedSigners: slices.Clone(input.TrustedSigners), ControllerConfigDerivation: bootstrap.ControllerConfigDerivationV1,
+		ReleaseImageReceiptWire: slices.Clone(image.ReceiptWire), ReleaseDelegationWire: slices.Clone(image.DelegationWire), TrustedSigners: slices.Clone(input.TrustedSigners), ControllerConfigDerivation: bootstrap.ControllerConfigDerivationV2,
 		FounderResources: &bootstrap.StartupFounderResources{LaunchDeadline: image.ExpiresAt}}
 	for _, value := range plan["hosts"].([]any) {
 		hostPlan := value.(map[string]any)
@@ -617,6 +626,9 @@ func ValidatePreparedFoundation(grant FoundationGrant) error {
 		return err
 	}
 	if err := validateOriginalMaterialIAMIntents(grant, home); err != nil {
+		return err
+	}
+	if err := validateOriginalStartupAdmissions(grant); err != nil {
 		return err
 	}
 	if err := validateNetBirdComponentIdentities(grant, home); err != nil {

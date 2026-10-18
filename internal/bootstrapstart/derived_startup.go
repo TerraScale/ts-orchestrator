@@ -22,6 +22,21 @@ func (gate Gate) WithDerivedStartupAuthority(authority bootstrap.DerivedStartupA
 // NewDerivedOCIAdmissionClients uses the sealed source capability for new
 // registrations while retaining all original storage and instance boundaries.
 func NewDerivedOCIAdmissionClients(ctx context.Context, authority bootstrap.DerivedStartupAuthority, roots trust.Keyring) (InstanceObserver, LedgerOpener, *bootstrap.Vault, error) {
+	if _, err := authority.Template().OriginalLaunch(); err == nil {
+		current, factory, err := productionOriginalAuthority(ctx, authority, time.Now().UTC())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		observer, err := NewOCIInstanceObserverWithFactory(current.Manifest().Cell, factory)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		vault, err := bootstrap.NewInstancePrincipalVault(current.Manifest().Cell, factory.Provider())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return observer, derivedLedgerOpener{authority: current}, vault, nil
+	}
 	if err := authority.VerifyCurrent(ctx, time.Now()); err != nil {
 		return nil, nil, nil, err
 	}
@@ -57,4 +72,35 @@ func (opener derivedLedgerOpener) OpenCurrentLedger(ctx context.Context, anchor 
 		return nil, err
 	}
 	return admissionLedger{ledger: ledger}, nil
+}
+
+func (gate Gate) verifyInitialAnchor(ctx context.Context, now time.Time) (bootstrap.VerifiedBootstrapAnchor, error) {
+	if gate.derivedStartup != nil {
+		if _, err := gate.derivedStartup.Template().OriginalLaunch(); err == nil {
+			authority, _, err := productionOriginalAuthority(ctx, *gate.derivedStartup, now)
+			if err != nil {
+				return bootstrap.VerifiedBootstrapAnchor{}, err
+			}
+			identity := authority.Template().StartupIdentity()
+			anchor := authority.Template().OriginAnchor()
+			if identity.DeploymentID != gate.Expected.DeploymentID || identity.Cell != gate.Expected.Cell || identity.Environment != gate.Expected.Environment || anchor.Digest() != digest(gate.AnchorWire) {
+				return bootstrap.VerifiedBootstrapAnchor{}, ErrOriginalStartup
+			}
+			return anchor, nil
+		}
+	}
+	envelope, err := proofEnvelope(gate.AnchorWire)
+	if err != nil {
+		return bootstrap.VerifiedBootstrapAnchor{}, err
+	}
+	return bootstrap.VerifyBootstrapAnchor(envelope, gate.Roots, gate.Expected, now, bootstrap.BootstrapAnchorTrustPolicy())
+}
+
+func (gate Gate) startupIdentity(anchor bootstrap.VerifiedBootstrapAnchor) bootstrap.BootstrapAnchor {
+	if gate.derivedStartup != nil {
+		if _, err := gate.derivedStartup.OriginalLaunch(); err == nil {
+			return gate.derivedStartup.Template().StartupIdentity()
+		}
+	}
+	return anchor.Anchor()
 }

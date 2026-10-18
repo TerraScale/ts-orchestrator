@@ -66,6 +66,9 @@ func LinkDeliveryPayload(evidence RegionalLinkEvidence) ([]byte, error) {
 }
 
 func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, client ObjectStorageClient, evidence RegionalLinkEvidence, now time.Time) (VerifiedStartupLink, error) {
+	if template.bindings != nil && template.bindings.original != nil {
+		return verifyOriginalStartupLink(ctx, template, client, evidence, now)
+	}
 	deny := func() (VerifiedStartupLink, error) { return VerifiedStartupLink{}, ErrManifestInvalid }
 	if ctx.Err() != nil || client == nil || template.VerifyCurrentContext(ctx, now) != nil || !validDigest(evidence.SourceSHA256) || len(evidence.MaterialRecord) == 0 || len(evidence.MaterialRecord) > 48<<10 || len(evidence.Journal) == 0 || len(evidence.Journal) > 64<<10 {
 		return deny()
@@ -145,6 +148,11 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 	if json.Unmarshal(stateWire, &state) != nil || state.SchemaVersion != 1 || state.Actor != evidence.Actor || state.Actor.InstanceID != home.OriginalActor().InstanceID || !validDigest(state.Actor.GrantDigest) || !validDigest(state.Actor.TemplateDigest) || state.Generation == home.Template().Generation() && (state.Actor.GrantDigest != home.Template().GrantDigest() || state.Actor.TemplateDigest != home.Template().TemplateDigest()) || state.Kind != kind || state.BindingSHA256 != binding || state.InstallationID != template.InstallationID() || state.Cell != strings.ToLower(string(template.startupIdentity().Cell)) || state.Generation == 0 || state.Generation > template.Generation() || state.PlanSHA256 != template.PlanDigest() || state.Target != template.escrow || !isOCID(state.Reference.SecretOCID, "vaultsecret") || state.Reference.SHA256 != evidence.SourceSHA256 || state.Reference.MaxBytes <= 0 || state.Reference.MaxBytes > 25<<10 || !bytes.Equal(state.Journal, evidence.Journal) || !bytes.Equal(state.Delivery, evidence.Delivery) {
 		return deny()
 	}
+	return verifyStartupLinkContents(template, client, evidence, regional, home, isHome, now)
+}
+
+func verifyStartupLinkContents(template VerifiedStartupTemplate, client ObjectStorageClient, evidence RegionalLinkEvidence, regional, home VerifiedRegionalSource, isHome bool, now time.Time) (VerifiedStartupLink, error) {
+	deny := func() (VerifiedStartupLink, error) { return VerifiedStartupLink{}, ErrManifestInvalid }
 	var record struct {
 		SchemaVersion  int            `json:"schemaVersion"`
 		Config         jsontext.Value `json:"config"`

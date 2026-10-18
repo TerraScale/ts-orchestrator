@@ -3,6 +3,7 @@ package region
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json/v2"
 	"errors"
@@ -38,6 +39,8 @@ type originalMaterialIAMSDKFixture struct {
 	fault       string
 	faulted     bool
 	posts       []originalMaterialIAMDispatch
+	groupPosts  []originalMaterialIAMDispatch
+	groupRows   map[string]map[string]any
 	rows        map[string]map[string]any
 	gets        map[string]int
 	journalPuts int
@@ -57,7 +60,7 @@ func originalMaterialIAMSDKFixtureFor(t *testing.T, reads *originalActorReadsSDK
 	}
 	admission := originalAdmissionReadsSDKFixtureFor(t, reads, "")
 	publication := originalPublicationSDKFixtureFor(t, admission, "")
-	f := &originalMaterialIAMSDKFixture{originalPublicationSDKFixture: publication, fault: fault, rows: map[string]map[string]any{}, gets: map[string]int{}}
+	f := &originalMaterialIAMSDKFixture{originalPublicationSDKFixture: publication, fault: fault, rows: map[string]map[string]any{}, groupRows: map[string]map[string]any{}, gets: map[string]int{}}
 	server := httptest.NewTLSServer(http.HandlerFunc(f.serveHTTP))
 	t.Cleanup(server.Close)
 	listener, ok := server.Listener.Addr().(*net.TCPAddr)
@@ -108,6 +111,10 @@ func (f *originalMaterialIAMSDKFixture) expectedMaterialPolicy(t *testing.T, rec
 	t.Helper()
 	regional := record.OriginalFoundationCompartments.Regions[index]
 	entry := regional.MaterialPublicationIAM
+	if entry.Recipe.Purpose == originalMaterialIAMPurposeV3 {
+		assertOriginalMaterialV3Policy(t, record, index)
+		return map[string]any{"compartmentId": f.approval.TenancyID, "name": "ts-original-material-iam-" + entry.IdentitySHA256[:32], "description": "Prospectively authorized finite original startup and material publication", "statements": entry.Request.Statements, "freeformTags": map[string]any{}, "definedTags": map[string]any{}}
+	}
 	cfg := f.prepared.Grant.Regions[index].BootstrapMaterial.Config
 	names, err := bootstrapmaterial.OriginalPublicationSecretNames(cfg)
 	if err != nil || len(names) != 33 {
@@ -171,6 +178,18 @@ func (f *originalMaterialIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http
 			} else if before.VerifiedAt.IsZero() && !after.VerifiedAt.IsZero() {
 				phase = "completion checkpoint"
 			}
+			if before != nil && before.PeerDynamicGroup != nil && after.PeerDynamicGroup != nil {
+				old, current := before.PeerDynamicGroup, after.PeerDynamicGroup
+				if old.Pending == nil && current.Pending != nil {
+					phase = "group reservation checkpoint"
+				}
+				if old.Provenance == nil && current.Provenance != nil {
+					phase = "group receipt checkpoint"
+				}
+				if old.VerifiedAt.IsZero() && !current.VerifiedAt.IsZero() {
+					phase = "group completion checkpoint"
+				}
+			}
 		}
 		if phase != "" && !f.faulted && (f.fault == phase || f.fault == "lost "+phase) {
 			f.faulted = true
@@ -188,6 +207,77 @@ func (f *originalMaterialIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http
 		r.Body = io.NopCloser(bytes.NewReader(wire))
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) >= 2 && parts[1] == "dynamicGroups" {
+		if r.Host != "identity.sa-saopaulo-1.oci.oraclecloud.com" {
+			f.cloud.test.Error("peer group escaped HOME IAM")
+		}
+		if r.Method == http.MethodPost && len(parts) == 2 {
+			body, canonical, err := originalNetworkBody(r)
+			if err != nil {
+				f.cloud.test.Fatal(err)
+			}
+			index := slices.IndexFunc(record.OriginalFoundationCompartments.Regions[:], func(regional OriginalFoundationCompartmentRegion) bool {
+				return regional.MaterialPublicationIAM != nil && regional.MaterialPublicationIAM.PeerDynamicGroup != nil && deref(regional.MaterialPublicationIAM.PeerDynamicGroup.Request.Name) == body["name"]
+			})
+			if index < 0 {
+				f.cloud.test.Error("group lacks a retained scope")
+				originalCompartmentFailure(w, 400, "InvalidParameter")
+				return
+			}
+			regional := record.OriginalFoundationCompartments.Regions[index]
+			entry := regional.MaterialPublicationIAM
+			group := entry.PeerDynamicGroup
+			want := map[string]any{"compartmentId": f.approval.TenancyID, "name": "ts-original-peer-" + entry.IdentitySHA256[:32], "description": "Original regional controllers admitted by exact control compartment", "matchingRule": fmt.Sprintf("ALL {instance.compartment.id='%s'}", regional.Actor.ControlCompartmentID), "freeformTags": map[string]any{}, "definedTags": map[string]any{}}
+			if group.Pending == nil || group.Provenance != nil || entry.Pending != nil || group.Pending.Request.RequestDigest != digestSource(canonical) || group.Pending.Request.RetryToken != r.Header.Get("opc-retry-token") || !sameOriginalSourceValue(body, want) {
+				f.cloud.test.Error("group effect escaped acknowledged exact scope")
+				originalCompartmentFailure(w, 400, "InvalidParameter")
+				return
+			}
+			f.groupPosts = append(f.groupPosts, originalMaterialIAMDispatch{body: bytes.Clone(canonical), token: r.Header.Get("opc-retry-token"), pending: *group.Pending})
+			id := fmt.Sprintf("ocid1.dynamicgroup.oc1..originalpeer%d", index+1)
+			if f.fault == "group duplicate id" {
+				id = "ocid1.dynamicgroup.oc1..originalpeer1"
+			}
+			row := maps.Clone(body)
+			row["id"], row["lifecycleState"] = id, "ACTIVE"
+			f.groupRows[id] = row
+			if f.fault == "lost group create response" && !f.faulted {
+				f.faulted = true
+				originalCompartmentFailure(w, 503, "InternalError")
+				return
+			}
+			json.MarshalWrite(w, row)
+			return
+		}
+		if r.Method == http.MethodGet && len(parts) == 3 {
+			if row := f.groupRows[parts[2]]; row != nil {
+				index := slices.IndexFunc(record.OriginalFoundationCompartments.Regions[:], func(regional OriginalFoundationCompartmentRegion) bool {
+					return regional.MaterialPublicationIAM != nil && regional.MaterialPublicationIAM.PeerDynamicGroup != nil && regional.MaterialPublicationIAM.PeerDynamicGroup.Provenance != nil && regional.MaterialPublicationIAM.PeerDynamicGroup.Provenance.ResourceID == parts[2]
+				})
+				if index < 0 {
+					f.cloud.test.Error("group read before provider receipt")
+				}
+				f.gets[parts[2]]++
+				row = maps.Clone(row)
+				if f.fault == "group readback conflict" {
+					row["matchingRule"] = "ALL {instance.compartment.id='ocid1.compartment.oc1..foreign'}"
+				}
+				wire, err := json.Marshal(row, json.Deterministic(true))
+				if err != nil {
+					f.cloud.test.Fatal(err)
+				}
+				etag := digestSource(wire)
+				if f.fault == "group ETag changed" {
+					etag = "changed-group-etag"
+				}
+				if f.fault != "group ETag missing" {
+					w.Header().Set("etag", etag)
+				}
+				w.Write(wire)
+				return
+			}
+		}
+	}
 	if len(parts) >= 2 && parts[1] == "policies" {
 		if r.Host != "identity.sa-saopaulo-1.oci.oraclecloud.com" {
 			f.cloud.test.Error("material policy escaped HOME IAM")
@@ -209,6 +299,11 @@ func (f *originalMaterialIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http
 					return
 				}
 				entry := record.OriginalFoundationCompartments.Regions[index].MaterialPublicationIAM
+				if entry.Recipe.Purpose == originalMaterialIAMPurposeV3 && (entry.PeerDynamicGroup == nil || entry.PeerDynamicGroup.VerifiedAt.IsZero() || entry.PeerDynamicGroup.Provenance == nil || f.gets[entry.PeerDynamicGroup.Provenance.ResourceID] == 0) {
+					f.cloud.test.Error("policy preceded acknowledged actual group readback")
+					originalCompartmentFailure(w, 400, "InvalidParameter")
+					return
+				}
 				if entry.Pending == nil || entry.Provenance != nil || entry.Pending.Request.RequestDigest != digestSource(canonical) || entry.Pending.Request.RetryToken != r.Header.Get("opc-retry-token") || !sameOriginalSourceValue(body, f.expectedMaterialPolicy(f.cloud.test, record, index)) {
 					f.cloud.test.Error("material create escaped signed finite policy or acknowledged request")
 					originalCompartmentFailure(w, 400, "InvalidParameter")
@@ -296,6 +391,12 @@ func (f *originalMaterialIAMSDKFixture) assertMaterialIAM(t *testing.T) {
 	}
 	for index, regional := range record.OriginalFoundationCompartments.Regions {
 		entry := regional.MaterialPublicationIAM
+		if entry != nil && entry.Recipe.Purpose == originalMaterialIAMPurposeV3 {
+			group := entry.PeerDynamicGroup
+			if group == nil || group.Pending == nil || group.Provenance == nil || group.VerifiedAt.IsZero() || group.ETag == "" || group.ReadbackSHA256 == "" || group.HoldReason != "" || f.gets[group.Provenance.ResourceID] == 0 {
+				t.Fatal("v3 lacks independent actual peer group readback")
+			}
+		}
 		if entry == nil || entry.Pending == nil || entry.Provenance == nil || entry.PolicyETag == "" || entry.ReadbackSHA256 == "" || entry.VerifiedAt.IsZero() || entry.HoldReason != "" || f.gets[entry.Provenance.ResourceID] == 0 {
 			t.Fatal("material IAM lacks acknowledged policy and actual independent ETag readback")
 		}
@@ -304,6 +405,193 @@ func (f *originalMaterialIAMSDKFixture) assertMaterialIAM(t *testing.T) {
 		if !sameOriginalSourceValue(f.rows[entry.Provenance.ResourceID], expected) {
 			t.Fatal("retained material policy differs from exact finite actual instance and regional Vault target")
 		}
+	}
+}
+
+func assertOriginalMaterialV3Policy(t *testing.T, record FoundationRecord, index int) {
+	t.Helper()
+	entry := record.OriginalFoundationCompartments.Regions[index].MaterialPublicationIAM
+	if entry.Startup == nil || entry.PeerDynamicGroup == nil || len(entry.Request.Statements) == 0 || len(entry.Request.Statements) > 50 || deref(entry.Request.CompartmentId) != entry.Recipe.TenancyID {
+		t.Fatal("v3 policy lacks deployable root startup scope")
+	}
+	allowed := []string{"GetPolicy", "GetDynamicGroup", "GetCompartment", "GetNamespace", "GetBucket", "GetRetentionRule", "GetVault", "GetKey", "ListSecrets", "CreateSecret", "GetSecret", "GetSecretBundle", "GetVcn", "GetSubnet", "GetNetworkSecurityGroup", "LaunchInstance", "GetImage", "GetInstance", "ListVnicAttachments", "GetBootVolume", "ListBootVolumeAttachments", "GetVnic", "GetObject", "PutObject"}
+	actor := fmt.Sprintf("request.principal.type='instance', request.principal.id='%s'", entry.ActorID)
+	peer := "Allow dynamic-group " + deref(entry.PeerDynamicGroup.Request.Name) + " "
+	actorWrites := map[string]string{}
+	peerWrites := ""
+	for _, statement := range entry.Request.Statements {
+		if strings.Contains(statement, "target.policy.id") || strings.Contains(statement, "request.principal.compartment.id") || strings.Contains(statement, "target.instance.id") || strings.Contains(statement, "target.subnet.id") || strings.Contains(statement, "target.vnic.id") {
+			t.Fatal("unsupported selector in actual SDK policy", statement)
+		}
+		if !strings.Contains(statement, actor) && !strings.HasPrefix(statement, peer) {
+			t.Fatal("policy escaped exact actor or proven per-cell group", statement)
+		}
+		for _, suffix := range strings.Split(statement, "request.operation='")[1:] {
+			operation, _, ok := strings.Cut(suffix, "'")
+			if !ok || !slices.Contains(allowed, operation) {
+				t.Fatal("operation escaped finite signed startup roster", operation)
+			}
+		}
+		if strings.Contains(statement, "request.operation='LaunchInstance'") && !strings.Contains(statement, actor) {
+			t.Fatal("peer group gained founder launch authority")
+		}
+		if strings.HasPrefix(statement, peer) && strings.Contains(statement, "secret-bundles") && !strings.Contains(statement, "target.secret.name != /ts-bootstrap-source-*/") {
+			t.Fatal("peer bundle scope admitted private source escrow")
+		}
+		for _, branch := range strings.Split(statement, "all {request.operation='")[1:] {
+			if !strings.HasPrefix(branch, "PutObject'") {
+				continue
+			}
+			permission := "OBJECT_CREATE"
+			if strings.Contains(branch, "request.permission='OBJECT_OVERWRITE'") {
+				permission = "OBJECT_OVERWRITE"
+			}
+			if strings.HasPrefix(statement, peer) {
+				peerWrites += branch
+				if !strings.Contains(branch, "request.permission='OBJECT_CREATE'") || strings.Contains(branch, "request.permission='OBJECT_OVERWRITE'") || !strings.Contains(branch, "target.bucket.name='"+entry.Startup.Producer.Home.HeadBucket+"'") {
+					t.Fatal("peer gained private ledger or overwrite authority", branch)
+				}
+				selectors := strings.Split(branch, "target.object.name=")[1:]
+				if len(selectors) != 3 {
+					t.Fatal("peer writes escaped the exact3 accepted-install leaves", branch)
+				}
+				for _, selector := range selectors {
+					name, _, ok := strings.Cut(strings.TrimPrefix(selector, "'"), "'")
+					if !ok || !strings.HasSuffix(name, "/accepted-install.json") {
+						t.Fatal("peer gained allocator record write authority", selector)
+					}
+				}
+			} else {
+				actorWrites[permission] += branch
+			}
+		}
+	}
+	joined := strings.Join(entry.Request.Statements, "\n")
+	for _, operation := range []string{"GetRetentionRule", "GetDynamicGroup", "LaunchInstance", "GetSecretBundle", "PutObject"} {
+		if !strings.Contains(joined, "request.operation='"+operation+"'") {
+			t.Fatal("v3 omitted required operation", operation)
+		}
+	}
+	for _, slot := range []string{"controller-a", "controller-b", "controller-c"} {
+		digest := sha256.Sum256([]byte(entry.Recipe.Cell + "\x00controller\x00" + slot))
+		root := fmt.Sprintf("bootstrap/v1/%s/%x", entry.Startup.Producer.DeploymentID, digest)
+		if entry.Startup.Producer.Home.Prefix != "" {
+			root = entry.Startup.Producer.Home.Prefix + "/" + root
+		}
+		if !strings.Contains(peerWrites, "target.object.name='"+root+"/accepted-install.json'") {
+			t.Fatal("peer lacks exact accepted-install create", slot)
+		}
+		if !strings.Contains(actorWrites["OBJECT_CREATE"], "target.object.name=/"+root+"/*/") {
+			t.Fatal("original actor lacks immutable slot ledger create", slot)
+		}
+		for _, permission := range []string{"OBJECT_CREATE", "OBJECT_OVERWRITE"} {
+			for _, selector := range []string{"target.object.name='" + root + "/head.json'", "target.object.name=/" + root + "/attempt-*/"} {
+				if !strings.Contains(actorWrites[permission], selector) {
+					t.Fatal("original actor lacks mutable slot allocation write", slot, permission, selector)
+				}
+			}
+		}
+	}
+	if entry.Recipe.Cell == "GRU" {
+		for _, region := range entry.Startup.Regions {
+			for _, name := range region.LinkSecretNames {
+				if name == "" || !strings.Contains(joined, "target.secret.name='"+name+"'") {
+					t.Fatal("GRU Link publication omitted exact leaf", name)
+				}
+			}
+			if !strings.Contains(joined, region.LinkObject) || !strings.Contains(joined, region.LinkEscrowSecretName) {
+				t.Fatal("GRU lacks exact signed Link object or private escrow")
+			}
+			if region.Producer.Cell != "GRU" {
+				for _, name := range region.SecretNames {
+					if !slices.Contains(region.LinkSecretNames[:], name) && strings.Contains(joined, "target.secret.name='"+name+"'") {
+						t.Fatal("GRU gained remote original33 publication beyond Link8", name)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestOriginalFoundationMaterialIAMPeerGroupSDK(t *testing.T) {
+	for _, fault := range []string{"lost group create response", "group reservation checkpoint", "group receipt checkpoint", "group completion checkpoint"} {
+		t.Run(fault+" preserves retry", func(t *testing.T) {
+			f := newOriginalMaterialIAMSDKFixture(t, fault)
+			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || !f.faulted || len(f.posts) != 0 {
+				t.Fatal("uncertain group admitted policy or startup", err)
+			}
+			var first *originalMaterialIAMDispatch
+			if len(f.groupPosts) != 0 {
+				first = new(f.groupPosts[0])
+			}
+			if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
+				t.Fatal(err)
+			}
+			f.assertMaterialIAM(t)
+			if first != nil && fault == "lost group create response" && (len(f.groupPosts) != 4 || f.groupPosts[1].token != first.token || !bytes.Equal(f.groupPosts[1].body, first.body) || !sameOriginalSourceValue(f.groupPosts[1].pending, first.pending)) {
+				t.Fatal("unknown group outcome changed its acknowledged request")
+			}
+		})
+	}
+	for _, fault := range []string{"group readback conflict", "group ETag missing", "group duplicate id"} {
+		t.Run(fault+" holds", func(t *testing.T) {
+			f := newOriginalMaterialIAMSDKFixture(t, fault)
+			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
+				t.Fatal("unproven peer group completed", err)
+			}
+			if fault != "group duplicate id" && len(f.posts) != 0 {
+				t.Fatal("policy preceded exact group readback")
+			}
+		})
+	}
+	t.Run("current group drift blocks completed replay", func(t *testing.T) {
+		f := newOriginalMaterialIAMSDKFixture(t, "")
+		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
+			t.Fatal(err)
+		}
+		before, posts, groups := bytes.Clone(f.wire(t)), len(f.posts), len(f.groupPosts)
+		f.fault = "group ETag changed"
+		if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || len(f.posts) != posts || len(f.groupPosts) != groups || !bytes.Equal(before, f.wire(t)) {
+			t.Fatal("group drift changed history or admitted replay", err)
+		}
+	})
+}
+
+func TestOriginalFoundationMaterialIAMPeerGroupHistoryCannotResetSDK(t *testing.T) {
+	f := newOriginalMaterialIAMSDKFixture(t, "")
+	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
+		t.Fatal(err)
+	}
+	before := originalMaterialIAMSnapshot(t, f.cloud)
+	for _, change := range []string{"remove group", "remove reservation", "remove receipt", "remove readback", "change request", "reuse provider id"} {
+		t.Run(change, func(t *testing.T) {
+			store := f.store(t)
+			current, etag, err := store.Load(t.Context(), "GRU")
+			if err != nil || etag == "" {
+				t.Fatal("actual current journal unavailable", err)
+			}
+			entry := current.OriginalFoundationCompartments.Regions[0].MaterialPublicationIAM
+			switch change {
+			case "remove group":
+				entry.PeerDynamicGroup = nil
+			case "remove reservation":
+				entry.PeerDynamicGroup.Pending = nil
+			case "remove receipt":
+				entry.PeerDynamicGroup.Provenance = nil
+			case "remove readback":
+				entry.PeerDynamicGroup.ETag, entry.PeerDynamicGroup.ReadbackSHA256, entry.PeerDynamicGroup.VerifiedAt = "", "", time.Time{}
+			case "change request":
+				entry.PeerDynamicGroup.Request.MatchingRule = new("ALL {instance.compartment.id='ocid1.compartment.oc1..foreign'}")
+			case "reuse provider id":
+				entry.PeerDynamicGroup.Provenance.ResourceID = current.OriginalFoundationCompartments.Regions[1].MaterialPublicationIAM.PeerDynamicGroup.Provenance.ResourceID
+			}
+			if _, err := store.CompareAndSwap(t.Context(), current, etag); err == nil {
+				t.Fatal("actual protected CAS erased or replaced group history", change)
+			}
+			if !bytes.Equal(before, originalMaterialIAMSnapshot(t, f.cloud)) {
+				t.Fatal("rejected group mutation changed durable cloud objects")
+			}
+		})
 	}
 }
 
@@ -321,8 +609,8 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 		}
 		for _, regional := range f.record(t).OriginalFoundationCompartments.Regions {
 			entry := regional.MaterialPublicationIAM
-			if entry.Recipe.Purpose != "original-material-publication-iam/v2" || entry.Recipe.PolicyRead == nil || len(entry.Request.Statements) != 8 {
-				t.Fatal("fresh preparation did not prospectively sign the eighth policy-metadata read statement")
+			if entry.Recipe.Purpose != originalMaterialIAMPurposeV3 || entry.Recipe.PolicyRead == nil || entry.PeerDynamicGroup == nil || entry.PeerDynamicGroup.VerifiedAt.IsZero() || len(entry.Request.Statements) > 50 {
+				t.Fatal("fresh preparation lacks prospective v3, actual peer group or a deployable finite policy")
 			}
 		}
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || len(f.posts) != posts || f.journalPuts != puts || f.puts != public || !bytes.Equal(before, f.wire(t)) {
@@ -443,6 +731,11 @@ type originalMaterialIAMV1Wire struct {
 	Operations                   [7]OriginalActorAdmissionReadOperation `json:"operations"`
 }
 
+type originalMaterialIAMV2Wire struct {
+	originalMaterialIAMV1Wire
+	PolicyRead *OriginalActorAdmissionReadOperation `json:"policyRead,omitempty"`
+}
+
 func TestOriginalFoundationMaterialIAMV1Compatibility(t *testing.T) {
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
 	reads := newOriginalActorReadsSDKFixture(t, "", 0)
@@ -451,10 +744,11 @@ func TestOriginalFoundationMaterialIAMV1Compatibility(t *testing.T) {
 	}
 	recipes := *reads.prepared.Grant.OriginalMaterialPublicationIAM
 	for index := range recipes {
-		if recipes[index].Purpose != "original-material-publication-iam/v2" || recipes[index].PolicyRead == nil {
-			t.Fatal("fresh preparation did not produce v2")
+		if recipes[index].Purpose != originalMaterialIAMPurposeV3 || recipes[index].PolicyRead == nil {
+			t.Fatal("fresh preparation did not produce v3")
 		}
 		recipes[index].Purpose, recipes[index].PolicyRead = originalMaterialIAMPurpose, nil
+		recipes[index].LinkSecretNames, recipes[index].LinkObject, recipes[index].LinkEscrowSecretName = [8]string{}, "", ""
 	}
 	reads.prepared.Grant.OriginalMaterialPublicationIAM = &recipes
 	if err := validateOriginalMaterialIAMIntents(reads.prepared.Grant, reads.approval.HomeStorageDomain); err != nil {
@@ -505,6 +799,48 @@ func TestOriginalFoundationMaterialIAMV1Compatibility(t *testing.T) {
 	}
 	if !bytes.Equal(beforeCloud, originalMaterialIAMSnapshot(t, f.cloud)) || len(f.posts) != posts || f.journalPuts != puts || f.puts != public {
 		t.Fatal("rejected v1 upgrade changed durable objects or effects")
+	}
+}
+
+func TestOriginalFoundationMaterialIAMV2Compatibility(t *testing.T) {
+	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
+	reads := newOriginalActorReadsSDKFixture(t, "", 0)
+	recipes := *reads.prepared.Grant.OriginalMaterialPublicationIAM
+	for index := range recipes {
+		recipes[index].Purpose = originalMaterialIAMPurposeV2
+		recipes[index].LinkSecretNames, recipes[index].LinkObject, recipes[index].LinkEscrowSecretName = [8]string{}, "", ""
+		reads.prepared.Grant.Regions[index].BootstrapMaterial.OriginalStartupAdmission = nil
+	}
+	reads.prepared.Grant.OriginalMaterialPublicationIAM = &recipes
+	f := originalMaterialIAMSDKFixtureFor(t, reads, "")
+	wire, err := json.Marshal(recipes, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy [3]originalMaterialIAMV2Wire
+	if err := json.Unmarshal(wire, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacyWire, err := json.Marshal(legacy, json.Deterministic(true))
+	if err != nil || !bytes.Equal(wire, legacyWire) || digestSource(wire) != digestSource(legacyWire) {
+		t.Fatal("optional v3 fields changed historical v2 wire or digest", err)
+	}
+	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
+		t.Fatal(err)
+	}
+	f.assertMaterialIAM(t)
+	before, posts, puts := bytes.Clone(f.wire(t)), len(f.posts), f.journalPuts
+	for _, region := range f.record(t).OriginalFoundationCompartments.Regions {
+		entry := region.MaterialPublicationIAM
+		if entry.Recipe.Purpose != originalMaterialIAMPurposeV2 || entry.PeerDynamicGroup != nil || entry.Startup != nil || len(entry.Request.Statements) != 8 || deref(entry.Request.CompartmentId) != entry.Target.CompartmentOCID {
+			t.Fatal("historical v2 was reinterpreted as startup authority")
+		}
+	}
+	if len(f.groupPosts) != 0 {
+		t.Fatal("historical v2 created a prospective group")
+	}
+	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || len(f.posts) != posts || f.journalPuts != puts || !bytes.Equal(before, f.wire(t)) {
+		t.Fatal("v2 replay rewrote completed history", err)
 	}
 }
 

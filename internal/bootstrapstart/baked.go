@@ -2,6 +2,7 @@ package bootstrapstart
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/pem"
@@ -13,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
@@ -70,11 +72,13 @@ func (identity BakedIdentity) AnchorExpectation() bootstrap.BootstrapAnchorExpec
 // without a rebuild. Removing a genesis root from the image still removes
 // its authority; no stale key is recovered from a marker or manifest.
 type BakedInputs struct {
-	Identity   BakedIdentity
-	Genesis    trust.Keyring
-	Chain      trust.RootChain
-	Roots      trust.Keyring
-	AnchorWire []byte
+	Identity       BakedIdentity
+	Genesis        trust.Keyring
+	Chain          trust.RootChain
+	Roots          trust.Keyring
+	AnchorWire     []byte
+	originalOrigin []byte
+	originRoots    trust.Keyring
 }
 
 // LoadBakedInputs reads only the fixed production paths. Tests use the private
@@ -145,8 +149,28 @@ func (store bakedStore) load() (BakedInputs, error) {
 	if err != nil {
 		return BakedInputs{}, fmt.Errorf("verify adopted root chain: %w", err)
 	}
-	return BakedInputs{Identity: identity, Genesis: genesis, Chain: chain, Roots: verified.Historical,
-		AnchorWire: anchorWire}, nil
+	inputs := BakedInputs{Identity: identity, Genesis: genesis, Chain: chain, Roots: verified.Historical, AnchorWire: anchorWire}
+	originWire, err := store.readFile(dir, OriginalStartupOriginFilename, maxOriginalStartupOriginBytes)
+	if errors.Is(err, unix.ENOENT) {
+		return inputs, nil
+	}
+	if err != nil {
+		return BakedInputs{}, err
+	}
+	origin, err := parseOriginalStartupOrigin(originWire)
+	if err != nil || !bytes.Equal(origin.AnchorWire, anchorWire) {
+		return BakedInputs{}, ErrOriginalStartup
+	}
+	discoveryGenesis, err := trust.DiscoveryGenesis()
+	if err != nil {
+		return BakedInputs{}, err
+	}
+	_, originRoots, err := origin.verifyAnchor(discoveryGenesis, time.Now().UTC())
+	if err != nil {
+		return BakedInputs{}, err
+	}
+	inputs.originalOrigin, inputs.originRoots = bytes.Clone(originWire), cloneOriginRoots(originRoots)
+	return inputs, nil
 }
 
 // readRootChain reads the adopted chain; a controller that never adopted
@@ -304,4 +328,74 @@ func (store bakedStore) readFile(dir int, name string, maximum int64) ([]byte, e
 		return nil, ErrBakedInputs
 	}
 	return wire, nil
+}
+
+// OriginRoots returns an independent copy of HOME current roots for an original
+// installation; ordinary installations retain their regional trust lineage.
+func (baked BakedInputs) OriginRoots() trust.Keyring {
+	if len(baked.originalOrigin) != 0 {
+		return cloneOriginRoots(baked.originRoots)
+	}
+	return cloneOriginRoots(baked.Roots)
+}
+
+func (baked BakedInputs) VerifyOriginAnchor(ctx context.Context, now time.Time) (bootstrap.VerifiedBootstrapAnchor, error) {
+	if len(baked.originalOrigin) != 0 {
+		authority, err := baked.originalAuthority(ctx, now)
+		if err != nil {
+			return bootstrap.VerifiedBootstrapAnchor{}, err
+		}
+		return authority.Template().OriginAnchor(), nil
+	}
+	envelope, err := trust.DecodeEnvelope(baked.AnchorWire)
+	if err != nil {
+		return bootstrap.VerifiedBootstrapAnchor{}, err
+	}
+	return bootstrap.VerifyBootstrapAnchor(envelope, baked.Roots, baked.Identity.AnchorExpectation(), now, bootstrap.BootstrapAnchorTrustPolicy())
+}
+
+func (baked BakedInputs) originalAuthority(ctx context.Context, now time.Time) (bootstrap.DerivedStartupAuthority, error) {
+	origin, err := parseOriginalStartupOrigin(baked.originalOrigin)
+	if err != nil || origin.Cell != baked.Identity.Cell || !bytes.Equal(origin.AnchorWire, baked.AnchorWire) {
+		return bootstrap.DerivedStartupAuthority{}, ErrOriginalStartup
+	}
+	// The fixed production loader independently verifies the actual HOME
+	// grant and exact signed regional registration, not local JSON claims.
+	authority, err := LoadOriginalStartupAuthority(ctx, now)
+	if err != nil {
+		return bootstrap.DerivedStartupAuthority{}, err
+	}
+	manifest := authority.Manifest()
+	if manifest.DeploymentID != baked.Identity.DeploymentID || manifest.Cell != baked.Identity.Cell || manifest.Environment != baked.Identity.Environment ||
+		!bytes.Equal(authority.Wire(), origin.AuthorityWire) || !bytes.Equal(authority.GrantWire(), origin.GrantWire) ||
+		!bytes.Equal(authority.Template().OriginAnchor().Wire(), origin.AnchorWire) {
+		return bootstrap.DerivedStartupAuthority{}, ErrOriginalStartup
+	}
+	return authority, nil
+}
+
+func (baked BakedInputs) verifyHistoricalOriginAnchor(ctx context.Context, acceptedAt time.Time) (bootstrap.HistoricalBootstrapAnchor, error) {
+	if len(baked.originalOrigin) != 0 {
+		if _, err := baked.originalAuthority(ctx, time.Now().UTC()); err != nil {
+			return bootstrap.HistoricalBootstrapAnchor{}, err
+		}
+		origin, err := parseOriginalStartupOrigin(baked.originalOrigin)
+		if err != nil {
+			return bootstrap.HistoricalBootstrapAnchor{}, err
+		}
+		genesis, err := trust.DiscoveryGenesis()
+		if err != nil {
+			return bootstrap.HistoricalBootstrapAnchor{}, err
+		}
+		envelope, expected, roots, err := origin.anchorInputs(genesis)
+		if err != nil {
+			return bootstrap.HistoricalBootstrapAnchor{}, err
+		}
+		return bootstrap.VerifyHistoricalBootstrapAnchor(envelope, roots.Historical, expected, acceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
+	}
+	envelope, err := trust.DecodeEnvelope(baked.AnchorWire)
+	if err != nil {
+		return bootstrap.HistoricalBootstrapAnchor{}, err
+	}
+	return bootstrap.VerifyHistoricalBootstrapAnchor(envelope, baked.Roots, baked.Identity.AnchorExpectation(), acceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
 }

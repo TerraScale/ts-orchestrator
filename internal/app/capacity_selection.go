@@ -51,7 +51,7 @@ func (r *capacityReservations) imageInputs(ctx context.Context, role string) ([]
 	}
 	images = append(images, snapshot.images...)
 	if accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity(); err == nil {
-		if receipt, delegation, err := bootstrapstart.LoadAcceptedManagedImageMaterial(accepted); err == nil {
+		if receipt, delegation, err := bootstrapstart.LoadAcceptedManagedImageMaterialContext(ctx, accepted); err == nil {
 			images = append(images, cellspec.HostImage{Receipt: receipt, Delegation: delegation})
 		}
 	}

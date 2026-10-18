@@ -57,6 +57,8 @@ type originalSourceState struct {
 	Reference                    materialSourceReference           `json:"reference"`
 	OriginalAdmissionInventory   []byte                            `json:"originalAdmissionInventory,omitempty"`
 	Publication                  *originalMaterialPublicationState `json:"publication,omitempty"`
+	Startup                      map[string][]byte                 `json:"startup,omitempty"`
+	SeedCompletion               []byte                            `json:"seedCompletion,omitempty"`
 }
 
 type originalSourceInputs struct {
@@ -144,7 +146,7 @@ func originalState(in originalSourceInputs, now time.Time) originalSourceState {
 func validOriginalState(state originalSourceState, in originalSourceInputs) bool {
 	if state.SchemaVersion != 3 || state.Kind != originalSourceKind || state.Scope != in.scope || state.IntentSHA256 != in.intentSHA ||
 		state.AdmissionAuthorizationSHA256 != in.admissionSHA || state.Target != in.intent.Escrow || state.SecretName != in.intent.SourceSecretName ||
-		state.StartedAt.IsZero() || state.StartedAt.After(time.Now()) || !state.StartedAt.Before(in.scope.Deadline) || len(state.OriginalAdmissionInventory) > bootstrap.MaxManifestBytes || !validOriginalPublication(state, in) {
+		state.StartedAt.IsZero() || state.StartedAt.After(time.Now()) || !state.StartedAt.Before(in.scope.Deadline) || len(state.OriginalAdmissionInventory) > bootstrap.MaxManifestBytes || !validOriginalPublication(state, in) || !validOriginalStartupState(state, in) {
 		return false
 	}
 	if id, err := uuid.Parse(state.RetryToken); err != nil || id.String() != state.RetryToken {
@@ -169,7 +171,8 @@ func immutableOriginalState(prior, next originalSourceState) bool {
 	a.Reference, b.Reference = materialSourceReference{}, materialSourceReference{}
 	a.OriginalAdmissionInventory, b.OriginalAdmissionInventory = nil, nil
 	a.Publication, b.Publication = nil, nil
-	if !sameOriginalState(a, b) || !immutableOriginalPublication(prior, next) || prior.Candidate != (originalSourceCandidate{}) && prior.Candidate != next.Candidate ||
+	a.Startup, b.Startup, a.SeedCompletion, b.SeedCompletion = nil, nil, nil, nil
+	if !sameOriginalState(a, b) || !immutableOriginalPublication(prior, next) || !immutableOriginalStartup(prior, next) || prior.Candidate != (originalSourceCandidate{}) && prior.Candidate != next.Candidate ||
 		prior.Reference != (materialSourceReference{}) && prior.Reference != next.Reference ||
 		len(prior.OriginalAdmissionInventory) != 0 && !bytes.Equal(prior.OriginalAdmissionInventory, next.OriginalAdmissionInventory) {
 		return false
@@ -254,15 +257,23 @@ func writeOriginalState(ctx, readbackCtx context.Context, objects *objectstorage
 }
 
 func originalCreateRequest(state originalSourceState, body []byte) ocivault.CreateSecretRequest {
+	return originalEscrowRequest(state.Target, state.SecretName, state.RetryToken, body)
+}
+
+func originalEscrowRequest(target bootstrapmaterial.VaultTarget, name, token string, body []byte) ocivault.CreateSecretRequest {
 	policy := common.NoRetryPolicy()
-	return ocivault.CreateSecretRequest{CreateSecretDetails: ocivault.CreateSecretDetails{CompartmentId: new(state.Target.CompartmentOCID), VaultId: new(state.Target.VaultOCID), KeyId: new(state.Target.KMSKeyOCID), SecretName: new(state.SecretName),
+	return ocivault.CreateSecretRequest{CreateSecretDetails: ocivault.CreateSecretDetails{CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), KeyId: new(target.KMSKeyOCID), SecretName: new(name),
 		Description:   new("Founder-only immutable original regional bootstrap source; never deliver to ordinary hosts."),
 		SecretContent: ocivault.Base64SecretContentDetails{Content: new(base64.StdEncoding.EncodeToString(body)), Stage: ocivault.SecretContentDetailsStageCurrent}},
-		OpcRetryToken: new(state.RetryToken), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}}
+		OpcRetryToken: new(token), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}}
 }
 
 func originalCreateSHA(state originalSourceState, body []byte) (string, error) {
-	r, err := originalCreateRequest(state, body).HTTPRequest(http.MethodPost, "/20180608/secrets", nil, nil)
+	return originalEscrowSHA(state.Target, state.SecretName, state.RetryToken, body)
+}
+
+func originalEscrowSHA(target bootstrapmaterial.VaultTarget, name, token string, body []byte) (string, error) {
+	r, err := originalEscrowRequest(target, name, token, body).HTTPRequest(http.MethodPost, "/20180608/secrets", nil, nil)
 	if err != nil || r.Body == nil {
 		return "", ErrMaterialSource
 	}
@@ -278,7 +289,7 @@ func originalCreateSHA(state originalSourceState, body []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	bound := append([]byte(state.RetryToken+"\x00"), canonical...)
+	bound := append([]byte(token+"\x00"), canonical...)
 	defer clear(bound)
 	return digestWire(bound), nil
 }
@@ -299,10 +310,14 @@ func originalSecretID(id string) bool {
 // Recovery uses the exact named version, then independently reads its metadata.
 // No list, latest-version, or caller-selected secret ID is accepted.
 func readOriginalVault(ctx context.Context, clients originalSourceClients, state originalSourceState) ([]byte, string, error) {
+	return readOriginalEscrow(ctx, clients, state.Target, state.SecretName, state.RetryToken, state.Candidate, state.Reference)
+}
+
+func readOriginalEscrow(ctx context.Context, clients originalSourceClients, target bootstrapmaterial.VaultTarget, name, token string, candidate originalSourceCandidate, reference materialSourceReference) ([]byte, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	policy := common.NoRetryPolicy()
-	response, err := clients.bundles.GetSecretBundleByName(ociclient.RequestContext(ctx), ocisecrets.GetSecretBundleByNameRequest{SecretName: new(state.SecretName), VaultId: new(state.Target.VaultOCID), VersionNumber: new(int64(1)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}})
+	response, err := clients.bundles.GetSecretBundleByName(ociclient.RequestContext(ctx), ocisecrets.GetSecretBundleByNameRequest{SecretName: new(name), VaultId: new(target.VaultOCID), VersionNumber: new(int64(1)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}})
 	if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() == 404 {
 		return nil, "", os.ErrNotExist
 	}
@@ -323,18 +338,18 @@ func readOriginalVault(ctx context.Context, clients originalSourceClients, state
 		return nil, "", ErrMaterialSource
 	}
 	secret, err := clients.management.GetSecret(ociclient.RequestContext(ctx), ocivault.GetSecretRequest{SecretId: new(id), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}})
-	if err != nil || derefOriginal(secret.Id) != id || derefOriginal(secret.CompartmentId) != state.Target.CompartmentOCID || derefOriginal(secret.VaultId) != state.Target.VaultOCID ||
-		derefOriginal(secret.KeyId) != state.Target.KMSKeyOCID || derefOriginal(secret.SecretName) != state.SecretName || secret.LifecycleState != ocivault.SecretLifecycleStateActive || secret.CurrentVersionNumber == nil || *secret.CurrentVersionNumber != 1 {
+	if err != nil || derefOriginal(secret.Id) != id || derefOriginal(secret.CompartmentId) != target.CompartmentOCID || derefOriginal(secret.VaultId) != target.VaultOCID ||
+		derefOriginal(secret.KeyId) != target.KMSKeyOCID || derefOriginal(secret.SecretName) != name || secret.LifecycleState != ocivault.SecretLifecycleStateActive || secret.CurrentVersionNumber == nil || *secret.CurrentVersionNumber != 1 {
 		clear(body)
 		return nil, "", errors.Join(ErrMaterialSource, err)
 	}
-	if state.Candidate == (originalSourceCandidate{}) || digestWire(body) != state.Candidate.SHA256 || int64(len(body)) != state.Candidate.MaxBytes ||
-		state.Reference != (materialSourceReference{}) && state.Reference != (materialSourceReference{SecretOCID: id, SHA256: digestWire(body), MaxBytes: int64(len(body))}) {
+	if candidate == (originalSourceCandidate{}) || digestWire(body) != candidate.SHA256 || int64(len(body)) != candidate.MaxBytes ||
+		reference != (materialSourceReference{}) && reference != (materialSourceReference{SecretOCID: id, SHA256: digestWire(body), MaxBytes: int64(len(body))}) {
 		clear(body)
 		return nil, "", ErrMaterialSource
 	}
-	requestSHA, err := originalCreateSHA(state, body)
-	if err != nil || requestSHA != state.Candidate.CreateSHA256 {
+	requestSHA, err := originalEscrowSHA(target, name, token, body)
+	if err != nil || requestSHA != candidate.CreateSHA256 {
 		clear(body)
 		return nil, "", ErrMaterialSource
 	}
@@ -415,6 +430,7 @@ func readOriginalCandidate(dir int) ([]byte, error) {
 
 func originalReservationSHA(state originalSourceState) string {
 	state.Candidate, state.Reference, state.OriginalAdmissionInventory, state.Publication = originalSourceCandidate{}, materialSourceReference{}, nil, nil
+	state.Startup, state.SeedCompletion = nil, nil
 	wire, _ := json.Marshal(state, json.Deterministic(true))
 	return digestWire(wire)
 }

@@ -179,7 +179,7 @@ func runManagedRuntimeHostSession(ctx context.Context, controller Config, reader
 	if cfg.NATS.Embedded != nil || cfg.NATS.Cell != strings.ToLower(accepted.Cell) || cfg.Host.Environment != accepted.Environment {
 		return errors.New("controller ownhost configuration differs from its accepted region")
 	}
-	launch, err := bootstrapstart.LoadAcceptedHostLaunchMaterial(accepted)
+	launch, err := bootstrapstart.LoadAcceptedHostLaunchMaterialContext(ctx, accepted)
 	if err != nil {
 		return err
 	}

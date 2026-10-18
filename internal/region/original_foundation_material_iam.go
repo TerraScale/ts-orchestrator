@@ -6,12 +6,15 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -21,9 +24,12 @@ import (
 const (
 	originalMaterialIAMPurpose   = "original-material-publication-iam/v1"
 	originalMaterialIAMPurposeV2 = "original-material-publication-iam/v2"
+	originalMaterialIAMPurposeV3 = "original-material-publication-iam/v3"
 )
 
 var ErrOriginalFoundationMaterialIAMPending = fmt.Errorf("%w: original material-publication IAM retained; startup and runtime admission remain unavailable", ErrOriginalFoundationAdmissionReadsPending)
+
+var originalMaterialPeerGroupID = regexp.MustCompile(`^ocid1\.dynamicgroup\.oc1\.\.[a-zA-Z0-9]+$`)
 
 // OriginalMaterialPublicationIAMIntent is prospective root permission for the
 // original actor's finite material publication, never general startup authority.
@@ -44,6 +50,9 @@ type OriginalMaterialPublicationIAMIntent struct {
 	SecretNames                  []string                               `json:"secretNames"`
 	Operations                   [7]OriginalActorAdmissionReadOperation `json:"operations"`
 	PolicyRead                   *OriginalActorAdmissionReadOperation   `json:"policyRead,omitempty"`
+	LinkSecretNames              [8]string                              `json:"linkSecretNames,omitzero"`
+	LinkObject                   string                                 `json:"linkObject,omitempty"`
+	LinkEscrowSecretName         string                                 `json:"linkEscrowSecretName,omitempty"`
 }
 
 func originalMaterialIAMOperations() [7]OriginalActorAdmissionReadOperation {
@@ -63,7 +72,7 @@ func originalMaterialIAMRecipe(version string, purpose OriginalSourceProducerInt
 	var policyRead *OriginalActorAdmissionReadOperation
 	switch version {
 	case originalMaterialIAMPurpose:
-	case originalMaterialIAMPurposeV2:
+	case originalMaterialIAMPurposeV2, originalMaterialIAMPurposeV3:
 		policyRead = new(OriginalActorAdmissionReadOperation{"GetPolicy", "policies", "POLICY_READ", "regional-control-policy-read"})
 	default:
 		return recipe, ErrOriginalSourceProducerHold
@@ -76,11 +85,22 @@ func originalMaterialIAMRecipe(version string, purpose OriginalSourceProducerInt
 		control == "" || vault == "" || key == "" {
 		return recipe, ErrOriginalSourceProducerHold
 	}
-	return OriginalMaterialPublicationIAMIntent{Purpose: version, Cell: purpose.Cell, OCIRegion: purpose.OCIRegion,
+	recipe = OriginalMaterialPublicationIAMIntent{Purpose: version, Cell: purpose.Cell, OCIRegion: purpose.OCIRegion,
 		TenancyID: purpose.TenancyID, InstallationID: purpose.InstallationID, ProducerIntentSHA256: digestSource(wire),
 		PlanSHA256: purpose.PlanSHA256, AdmissionAuthorizationSHA256: purpose.AdmissionAuthorizationSHA256,
 		ActorOperationID: purpose.OperationID, ActorRecipeSHA256: purpose.Allocation.RecipeSHA256,
-		ControlCompartment: control, Vault: vault, Key: key, SecretNames: names, Operations: originalMaterialIAMOperations(), PolicyRead: policyRead}, nil
+		ControlCompartment: control, Vault: vault, Key: key, SecretNames: names, Operations: originalMaterialIAMOperations(), PolicyRead: policyRead}
+	if version == originalMaterialIAMPurposeV3 {
+		recipe.LinkSecretNames, err = bootstrapmaterial.OriginalLinkPublicationSecretNames(config)
+		if err != nil {
+			return OriginalMaterialPublicationIAMIntent{}, err
+		}
+		recipe.LinkObject, recipe.LinkEscrowSecretName, err = bootstrap.OriginalStartupLinkLocator(purpose.Home, purpose.InstallationID, oci.Region(purpose.Cell))
+		if err != nil {
+			return OriginalMaterialPublicationIAMIntent{}, err
+		}
+	}
+	return recipe, nil
 }
 
 func originalMaterialIAMIntents(grant FoundationGrant, home bootstrap.StorageDomain) ([3]OriginalMaterialPublicationIAMIntent, error) {
@@ -90,8 +110,24 @@ func originalMaterialIAMIntents(grant FoundationGrant, home bootstrap.StorageDom
 		return intents, ErrOriginalSourceProducerHold
 	}
 	version := originalMaterialIAMPurposeV2
+	if grant.Regions[0].BootstrapMaterial != nil && grant.Regions[0].BootstrapMaterial.OriginalStartupAdmission != nil {
+		if validateOriginalStartupAdmissions(grant) != nil {
+			return intents, ErrOriginalSourceProducerHold
+		}
+		version = originalMaterialIAMPurposeV3
+	}
 	if grant.OriginalMaterialPublicationIAM != nil {
 		version = (*grant.OriginalMaterialPublicationIAM)[0].Purpose
+	}
+	if version == originalMaterialIAMPurposeV3 && (validateOriginalStartupAdmissions(grant) != nil || grant.Regions[0].BootstrapMaterial == nil || grant.Regions[0].BootstrapMaterial.OriginalStartupAdmission == nil) {
+		return intents, ErrOriginalSourceProducerHold
+	}
+	if version == originalMaterialIAMPurposeV3 {
+		for _, recipe := range *grant.OriginalActorAdmissionReads {
+			if recipe.Purpose != originalAdmissionReadPurposeV2 {
+				return intents, ErrOriginalSourceProducerHold
+			}
+		}
 	}
 	for index, cell := range [3]string{"GRU", "SFO", "FRA"} {
 		found := false
@@ -161,12 +197,46 @@ type OriginalFoundationMaterialIAM struct {
 	Target            bootstrapmaterial.VaultTarget        `json:"target"`
 	IdentitySHA256    string                               `json:"identitySha256"`
 	Request           identity.CreatePolicyDetails         `json:"request"`
+	PeerDynamicGroup  *OriginalFoundationMaterialPeerGroup `json:"peerDynamicGroup,omitempty"`
+	Startup           *OriginalMaterialStartupIAMScope     `json:"startup,omitempty"`
 	Pending           *PendingFoundationCreate             `json:"pending,omitempty"`
 	Provenance        *FoundationResourceProvenance        `json:"provenance,omitempty"`
 	PolicyETag        string                               `json:"policyEtag,omitempty"`
 	ReadbackSHA256    string                               `json:"readbackSha256,omitempty"`
 	VerifiedAt        time.Time                            `json:"verifiedAt,omitzero"`
 	HoldReason        string                               `json:"holdReason,omitempty"`
+}
+
+type OriginalMaterialStartupIAMScope struct {
+	Producer                 OriginalSourceProducerIntent        `json:"producer"`
+	NetworkCompartmentID     string                              `json:"networkCompartmentId"`
+	HomeControlCompartmentID string                              `json:"homeControlCompartmentId"`
+	Regions                  [3]OriginalMaterialStartupIAMRegion `json:"regions"`
+}
+
+type OriginalMaterialStartupIAMRegion struct {
+	Producer             OriginalSourceProducerIntent  `json:"producer"`
+	Target               bootstrapmaterial.VaultTarget `json:"target"`
+	NetworkCompartmentID string                        `json:"networkCompartmentId"`
+	ImageCompartmentID   string                        `json:"imageCompartmentId"`
+	SecretNames          []string                      `json:"secretNames"`
+	LinkSecretNames      [8]string                     `json:"linkSecretNames"`
+	LinkObject           string                        `json:"linkObject"`
+	LinkEscrowSecretName string                        `json:"linkEscrowSecretName"`
+}
+
+type OriginalFoundationMaterialPeerGroup struct {
+	Request        identity.CreateDynamicGroupDetails `json:"request"`
+	Pending        *PendingFoundationCreate           `json:"pending,omitempty"`
+	Provenance     *FoundationResourceProvenance      `json:"provenance,omitempty"`
+	ETag           string                             `json:"etag,omitempty"`
+	ReadbackSHA256 string                             `json:"readbackSha256,omitempty"`
+	VerifiedAt     time.Time                          `json:"verifiedAt,omitzero"`
+	HoldReason     string                             `json:"holdReason,omitempty"`
+}
+
+func (group OriginalFoundationMaterialPeerGroup) scopeOnly() OriginalFoundationMaterialPeerGroup {
+	return OriginalFoundationMaterialPeerGroup{Request: group.Request}
 }
 
 func completeOriginalMaterialIAMPrerequisites(record FoundationRecord) error {
@@ -201,6 +271,30 @@ func originalMaterialIAMScope(record FoundationRecord, index int, recipe Origina
 	if scope.Target.Validate(regional.OCIRegion) != nil {
 		return OriginalFoundationMaterialIAM{}, ErrOriginalSourceProducerHold
 	}
+	if recipe.Purpose == originalMaterialIAMPurposeV3 {
+		if regional.Network == nil || root.Regions[0].Vault == nil || regional.AdmissionReads.Recipe.Purpose != originalAdmissionReadPurposeV2 {
+			return scope, ErrOriginalSourceProducerHold
+		}
+		scope.Startup = &OriginalMaterialStartupIAMScope{Producer: birth.Intent, NetworkCompartmentID: regional.Network.CompartmentID, HomeControlCompartmentID: root.Regions[0].Vault.ControlCompartmentID}
+		for i, peer := range root.Regions {
+			if peer.Actor == nil || peer.Network == nil || peer.Vault == nil || peer.Actor.Startup.FounderResources == nil || len(peer.Actor.Startup.FounderResources.Slots) != 3 {
+				return scope, ErrOriginalSourceProducerHold
+			}
+			names, err := bootstrapmaterial.OriginalPublicationSecretNames(peer.Actor.Config)
+			if err != nil {
+				return scope, err
+			}
+			scope.Startup.Regions[i] = OriginalMaterialStartupIAMRegion{Producer: (*record.OriginalSourceProducers)[i].Intent, Target: bootstrapmaterial.VaultTarget{CompartmentOCID: peer.Vault.ControlCompartmentID, VaultOCID: originalVaultID(peer.Vault.Vault.OriginalFoundationKMSCreate), KMSKeyOCID: originalVaultID(peer.Vault.Key.OriginalFoundationKMSCreate)}, NetworkCompartmentID: peer.Network.CompartmentID, ImageCompartmentID: peer.Actor.Startup.FounderResources.Slots[0].ImageCompartmentOCID, SecretNames: names}
+			scope.Startup.Regions[i].LinkSecretNames, err = bootstrapmaterial.OriginalLinkPublicationSecretNames(peer.Actor.Config)
+			if err != nil {
+				return scope, err
+			}
+			scope.Startup.Regions[i].LinkObject, scope.Startup.Regions[i].LinkEscrowSecretName, err = bootstrap.OriginalStartupLinkLocator(birth.Intent.Home, birth.Intent.InstallationID, oci.Region(peer.Cell))
+			if err != nil {
+				return scope, err
+			}
+		}
+	}
 	for _, pin := range []struct {
 		value any
 		out   *string
@@ -216,11 +310,31 @@ func originalMaterialIAMScope(record FoundationRecord, index int, recipe Origina
 		return scope, err
 	}
 	scope.IdentitySHA256 = digestSource(wire)
-	scope.Request = originalMaterialIAMPolicy(scope)
+	if recipe.Purpose == originalMaterialIAMPurposeV3 {
+		scope.PeerDynamicGroup = &OriginalFoundationMaterialPeerGroup{Request: identity.CreateDynamicGroupDetails{CompartmentId: new(recipe.TenancyID), Name: new("ts-original-peer-" + scope.IdentitySHA256[:32]), Description: new("Original regional controllers admitted by exact control compartment"), MatchingRule: new(fmt.Sprintf("ALL {instance.compartment.id='%s'}", scope.Target.CompartmentOCID)), FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}}
+	}
+	scope.Request, err = originalMaterialIAMPolicy(scope)
+	if err != nil {
+		return OriginalFoundationMaterialIAM{}, err
+	}
+	if len(scope.Request.Statements) > 50 {
+		return OriginalFoundationMaterialIAM{}, ErrOriginalSourceProducerHold
+	}
 	return scope, nil
 }
 
-func originalMaterialIAMPolicy(scope OriginalFoundationMaterialIAM) identity.CreatePolicyDetails {
+func originalMaterialIAMPolicy(scope OriginalFoundationMaterialIAM) (identity.CreatePolicyDetails, error) {
+	if scope.Recipe.Purpose == originalMaterialIAMPurposeV3 {
+		wire, err := json.Marshal(scope, json.Deterministic(true))
+		if err != nil {
+			return identity.CreatePolicyDetails{}, err
+		}
+		statements, err := foundationbinding.OriginalStartupIAMStatements(wire)
+		if err != nil {
+			return identity.CreatePolicyDetails{}, err
+		}
+		return identity.CreatePolicyDetails{CompartmentId: new(scope.Recipe.TenancyID), Name: new("ts-original-material-iam-" + scope.IdentitySHA256[:32]), Description: new("Prospectively authorized finite original startup and material publication"), Statements: statements, FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}, nil
+	}
 	principal := fmt.Sprintf("request.principal.type='instance', request.principal.id='%s'", scope.ActorID)
 	names := make([]string, len(scope.Recipe.SecretNames))
 	for index, name := range scope.Recipe.SecretNames {
@@ -251,7 +365,7 @@ func originalMaterialIAMPolicy(scope OriginalFoundationMaterialIAM) identity.Cre
 		// GetPolicy exposes regional policy metadata; the consumer still verifies the intended ID, body and ETag.
 		statements = append(statements, fmt.Sprintf("Allow any-user to read policies in compartment id %s where all {%s, request.operation='GetPolicy', request.permission='POLICY_READ'}", scope.Target.CompartmentOCID, principal))
 	}
-	return identity.CreatePolicyDetails{CompartmentId: new(scope.Target.CompartmentOCID), Name: new("ts-original-material-iam-" + scope.IdentitySHA256[:32]), Description: new("Prospectively authorized finite original material publication"), Statements: statements, FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}
+	return identity.CreatePolicyDetails{CompartmentId: new(scope.Target.CompartmentOCID), Name: new("ts-original-material-iam-" + scope.IdentitySHA256[:32]), Description: new("Prospectively authorized finite original material publication"), Statements: statements, FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}, nil
 }
 
 func originalMaterialIAMPrerequisites(ctx context.Context, authority *HomeIAMAuthority) (FoundationRecord, string, [3]OriginalFoundationMaterialIAM, time.Time, error) {
@@ -325,11 +439,158 @@ func provisionOriginalFoundationMaterialIAM(ctx context.Context, authority *Home
 func (entry OriginalFoundationMaterialIAM) scopeOnly() OriginalFoundationMaterialIAM {
 	entry.Pending, entry.Provenance = nil, nil
 	entry.PolicyETag, entry.ReadbackSHA256, entry.VerifiedAt, entry.HoldReason = "", "", time.Time{}, ""
+	if entry.PeerDynamicGroup != nil {
+		entry.PeerDynamicGroup = new(entry.PeerDynamicGroup.scopeOnly())
+	}
 	return entry
 }
 
 func originalMaterialIAMCreateIdentity(regional OriginalFoundationCompartmentRegion, digest string) foundation.CreateIdentity {
 	return foundation.CreateIdentity{Key: "original-material-publication-policy", Region: foundationHomeRegion, RequestDigest: digest, RetryToken: BootstrapRetryToken(regional.OperationID, digest)}
+}
+
+func originalMaterialPeerGroupIdentity(regional OriginalFoundationCompartmentRegion, group OriginalFoundationMaterialPeerGroup) (foundation.CreateIdentity, error) {
+	wire, err := json.Marshal(group.Request, json.Deterministic(true))
+	digest := digestSource(wire)
+	return foundation.CreateIdentity{Key: "original-startup-peer-dynamic-group", Region: foundationHomeRegion, RequestDigest: digest, RetryToken: BootstrapRetryToken(regional.OperationID, digest)}, err
+}
+
+func originalMaterialPeerGroupDuplicate(record FoundationRecord, index int, id string) bool {
+	for other, regional := range record.OriginalFoundationCompartments.Regions {
+		if other != index && regional.MaterialPublicationIAM != nil && regional.MaterialPublicationIAM.PeerDynamicGroup != nil && regional.MaterialPublicationIAM.PeerDynamicGroup.Provenance != nil && regional.MaterialPublicationIAM.PeerDynamicGroup.Provenance.ResourceID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func originalMaterialPeerGroupReadback(group OriginalFoundationMaterialPeerGroup) (string, error) {
+	if group.Pending == nil || group.Provenance == nil || !originalPublicationETag(group.ETag) {
+		return "", ErrOriginalSourceProducerHold
+	}
+	body, err := json.Marshal(group.Request, json.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
+	wire, err := json.Marshal([]string{group.Provenance.ResourceID, digestSource(body), group.ETag, "ACTIVE"}, json.Deterministic(true))
+	return digestSource(wire), err
+}
+
+func verifyOriginalMaterialPeerGroup(ctx context.Context, iam identity.IdentityClient, group OriginalFoundationMaterialPeerGroup) (string, error) {
+	if group.Provenance == nil {
+		return "", ErrOriginalSourceProducerHold
+	}
+	noRetry := common.NoRetryPolicy()
+	response, err := iam.GetDynamicGroup(ociclient.RequestContext(ctx), identity.GetDynamicGroupRequest{DynamicGroupId: new(group.Provenance.ResourceID), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
+	if err != nil {
+		return "", err
+	}
+	if deref(response.Id) != group.Provenance.ResourceID || deref(response.CompartmentId) != deref(group.Request.CompartmentId) || deref(response.Name) != deref(group.Request.Name) || deref(response.Description) != deref(group.Request.Description) || deref(response.MatchingRule) != deref(group.Request.MatchingRule) || response.LifecycleState != identity.DynamicGroupLifecycleStateActive || !sameOriginalSourceValue(response.FreeformTags, group.Request.FreeformTags) || !sameOriginalSourceValue(response.DefinedTags, group.Request.DefinedTags) || !originalPublicationETag(deref(response.Etag)) || group.ETag != "" && group.ETag != deref(response.Etag) {
+		return "", ErrOriginalSourceProducerHold
+	}
+	return deref(response.Etag), nil
+}
+
+func provisionOriginalMaterialPeerGroup(ctx context.Context, authority *HomeIAMAuthority, index int) error {
+	record, etag, scopes, _, err := originalMaterialIAMPrerequisites(ctx, authority)
+	if err != nil {
+		return err
+	}
+	regional := record.OriginalFoundationCompartments.Regions[index]
+	entry := regional.MaterialPublicationIAM
+	if entry == nil || entry.HoldReason != "" || !sameOriginalSourceValue(entry.scopeOnly(), scopes[index]) {
+		return ErrOriginalSourceProducerHold
+	}
+	if entry.Recipe.Purpose != originalMaterialIAMPurposeV3 {
+		return nil
+	}
+	group := entry.PeerDynamicGroup
+	if group == nil || group.HoldReason != "" {
+		return ErrOriginalSourceProducerHold
+	}
+	request, err := originalMaterialPeerGroupIdentity(regional, *group)
+	if err != nil {
+		return err
+	}
+	if group.Pending == nil {
+		group.Pending = &PendingFoundationCreate{OperationID: regional.OperationID, IntentDigest: regional.IntentSHA256, FirstAttemptAt: time.Now().UTC(), Request: request}
+		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
+			return err
+		}
+	}
+	if group.Provenance == nil && !time.Now().Before(group.Pending.FirstAttemptAt.Add(bootstrapRetryLifetime)) {
+		group.HoldReason = "retry-expired"
+		return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
+	}
+	guard := func(dispatchCtx context.Context) error {
+		current, _, expected, deadline, err := originalMaterialIAMPrerequisites(originalProviderCheckpointContext(dispatchCtx, ctx), authority)
+		if err != nil {
+			return err
+		}
+		saved := current.OriginalFoundationCompartments.Regions[index].MaterialPublicationIAM
+		if saved == nil || saved.HoldReason != "" || !sameOriginalSourceValue(saved, entry) || !sameOriginalSourceValue(saved.scopeOnly(), expected[index]) || saved.PeerDynamicGroup == nil || saved.PeerDynamicGroup.Pending == nil || saved.PeerDynamicGroup.Pending.Request != request {
+			return ErrOriginalSourceProducerHold
+		}
+		if saved.PeerDynamicGroup.Provenance == nil {
+			deadline = originalActorDeadline(deadline, saved.PeerDynamicGroup.Pending.FirstAttemptAt.Add(bootstrapRetryLifetime))
+		}
+		return ociclient.LimitAdmission(dispatchCtx, deadline)
+	}
+	if err := guard(ctx); err != nil {
+		return err
+	}
+	iam, err := authority.factory.Identity()
+	if err != nil {
+		return err
+	}
+	noRetry := common.NoRetryPolicy()
+	groupCtx := ociclient.WithRequestGuard(ociclient.WithAuthority(ctx, guard), guard)
+	if group.Provenance == nil {
+		createCtx := ociclient.WithAdmission(groupCtx, func(dispatchCtx context.Context) (func(), error) {
+			if err := guard(dispatchCtx); err != nil {
+				return nil, err
+			}
+			return func() {}, nil
+		})
+		response, err := iam.CreateDynamicGroup(ociclient.RequestContext(createCtx), identity.CreateDynamicGroupRequest{CreateDynamicGroupDetails: group.Request, OpcRetryToken: new(group.Pending.Request.RetryToken), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
+		if err != nil {
+			if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() >= 400 && service.GetHTTPStatusCode() < 500 && service.GetHTTPStatusCode() != 408 && service.GetHTTPStatusCode() != 429 {
+				group.HoldReason = "create-refused"
+				return errors.Join(err, checkpointOriginalCompartments(ctx, authority, &record, &etag))
+			}
+			return err
+		}
+		id := deref(response.Id)
+		if !originalMaterialPeerGroupID.MatchString(id) || len(id) > 255 || originalMaterialPeerGroupDuplicate(record, index, id) {
+			group.HoldReason = "create-unresolved"
+			return errors.Join(ErrOriginalSourceProducerHold, checkpointOriginalCompartments(ctx, authority, &record, &etag))
+		}
+		group.Provenance = &FoundationResourceProvenance{Create: *group.Pending, ResourceID: id, Generation: regional.Generation, GrantSHA256: entry.GrantSHA256}
+		if err := checkpointOriginalCompartments(ctx, authority, &record, &etag); err != nil {
+			return err
+		}
+	}
+	if err := guard(ctx); err != nil {
+		return err
+	}
+	groupETag, err := verifyOriginalMaterialPeerGroup(groupCtx, iam, *group)
+	if err != nil {
+		return err
+	}
+	observed := *group
+	observed.ETag = groupETag
+	readback, err := originalMaterialPeerGroupReadback(observed)
+	if err != nil || group.ReadbackSHA256 != "" && group.ReadbackSHA256 != readback {
+		return errors.Join(ErrOriginalSourceProducerHold, err)
+	}
+	if err := guard(ctx); err != nil {
+		return err
+	}
+	if group.VerifiedAt.IsZero() {
+		group.ETag, group.ReadbackSHA256, group.VerifiedAt = groupETag, readback, time.Now().UTC()
+		return checkpointOriginalCompartments(ctx, authority, &record, &etag)
+	}
+	return nil
 }
 
 func originalMaterialIAMDuplicate(record FoundationRecord, index int, id string) bool {
@@ -356,6 +617,9 @@ func originalMaterialIAMReadback(entry OriginalFoundationMaterialIAM) (string, e
 	return digestSource(wire), err
 }
 func provisionOriginalMaterialIAM(ctx context.Context, authority *HomeIAMAuthority, index int) error {
+	if err := provisionOriginalMaterialPeerGroup(ctx, authority, index); err != nil {
+		return err
+	}
 	record, etag, scopes, _, err := originalMaterialIAMPrerequisites(ctx, authority)
 	if err != nil {
 		return err
@@ -484,6 +748,9 @@ func (record FoundationRecord) validateOriginalFoundationMaterialIAM() error {
 		if err != nil || !sameOriginalSourceValue(entry.scopeOnly(), expected) {
 			return errors.Join(ErrOriginalSourceProducerHold, err)
 		}
+		if err := validateOriginalMaterialPeerGroup(record, index, *entry); err != nil {
+			return err
+		}
 		if entry.Pending == nil {
 			if entry.Provenance != nil || entry.PolicyETag != "" || entry.ReadbackSHA256 != "" || !entry.VerifiedAt.IsZero() || entry.HoldReason != "" {
 				return ErrOriginalSourceProducerHold
@@ -500,6 +767,9 @@ func (record FoundationRecord) validateOriginalFoundationMaterialIAM() error {
 			if pending.FirstAttemptAt.Before(upstream.AdmissionReads.VerifiedAt) || pending.FirstAttemptAt.Before(upstream.Vault.Vault.VerifiedAt) || pending.FirstAttemptAt.Before(upstream.Vault.Key.VerifiedAt) {
 				return ErrOriginalSourceProducerHold
 			}
+		}
+		if entry.PeerDynamicGroup != nil && (entry.PeerDynamicGroup.VerifiedAt.IsZero() || pending.FirstAttemptAt.Before(entry.PeerDynamicGroup.VerifiedAt) || entry.PeerDynamicGroup.HoldReason != "") {
+			return ErrOriginalSourceProducerHold
 		}
 		for _, readback := range *root.Publication.Readbacks {
 			if pending.FirstAttemptAt.Before(readback.VerifiedAt) {
@@ -567,9 +837,69 @@ func (next FoundationRecord) retainOriginalFoundationMaterialIAM(previous Founda
 			old.HoldReason != "" && old.HoldReason != current.HoldReason {
 			return ErrOriginalSourceProducerHold
 		}
+		if old.PeerDynamicGroup != nil {
+			before, after := old.PeerDynamicGroup, current.PeerDynamicGroup
+			if after == nil || before.Pending != nil && !sameOriginalSourceValue(before.Pending, after.Pending) || before.Provenance != nil && !sameOriginalSourceValue(before.Provenance, after.Provenance) || before.ETag != "" && before.ETag != after.ETag || before.ReadbackSHA256 != "" && before.ReadbackSHA256 != after.ReadbackSHA256 || !before.VerifiedAt.IsZero() && !before.VerifiedAt.Equal(after.VerifiedAt) || before.HoldReason != "" && before.HoldReason != after.HoldReason || before.Pending == nil && after.Provenance != nil || before.Provenance == nil && !after.VerifiedAt.IsZero() || before.VerifiedAt.IsZero() && current.Pending != nil {
+				return ErrOriginalSourceProducerHold
+			}
+		}
 		// Each effect transition needs its own acknowledged durable predecessor.
 		if old.Pending == nil && current.Provenance != nil || old.Provenance == nil && !current.VerifiedAt.IsZero() {
 			return ErrOriginalSourceProducerHold
+		}
+	}
+	return nil
+}
+
+func validateOriginalMaterialPeerGroup(record FoundationRecord, index int, entry OriginalFoundationMaterialIAM) error {
+	group := entry.PeerDynamicGroup
+	if entry.Recipe.Purpose != originalMaterialIAMPurposeV3 {
+		if group != nil || entry.Startup != nil {
+			return ErrOriginalSourceProducerHold
+		}
+		return nil
+	}
+	if group == nil || entry.Startup == nil {
+		return ErrOriginalSourceProducerHold
+	}
+	if group.Pending == nil {
+		if group.Provenance != nil || group.ETag != "" || group.ReadbackSHA256 != "" || !group.VerifiedAt.IsZero() || group.HoldReason != "" {
+			return ErrOriginalSourceProducerHold
+		}
+		return nil
+	}
+	regional := record.OriginalFoundationCompartments.Regions[index]
+	expected, err := originalMaterialPeerGroupIdentity(regional, *group)
+	pending := *group.Pending
+	if err != nil || pending.Request != expected || pending.OperationID != entry.OperationID || pending.IntentDigest != entry.IntentSHA256 || pending.FirstAttemptAt.IsZero() || pending.FirstAttemptAt.After(record.UpdatedAt) {
+		return errors.Join(ErrOriginalSourceProducerHold, err)
+	}
+	for _, upstream := range record.OriginalFoundationCompartments.Regions {
+		if pending.FirstAttemptAt.Before(upstream.AdmissionReads.VerifiedAt) || pending.FirstAttemptAt.Before(upstream.Vault.Vault.VerifiedAt) || pending.FirstAttemptAt.Before(upstream.Vault.Key.VerifiedAt) {
+			return ErrOriginalSourceProducerHold
+		}
+	}
+	for _, readback := range *record.OriginalFoundationCompartments.Publication.Readbacks {
+		if pending.FirstAttemptAt.Before(readback.VerifiedAt) {
+			return ErrOriginalSourceProducerHold
+		}
+	}
+	if group.HoldReason != "" && !slices.Contains([]string{"retry-expired", "create-refused", "create-unresolved", "readback-conflict"}, group.HoldReason) {
+		return ErrOriginalSourceProducerHold
+	}
+	if group.Provenance != nil {
+		proof := group.Provenance
+		if !sameOriginalSourceValue(proof.Create, pending) || proof.Generation != entry.Generation || proof.GrantSHA256 != entry.GrantSHA256 || !originalMaterialPeerGroupID.MatchString(proof.ResourceID) || len(proof.ResourceID) > 255 || originalMaterialPeerGroupDuplicate(record, index, proof.ResourceID) || group.HoldReason != "" && group.HoldReason != "readback-conflict" {
+			return ErrOriginalSourceProducerHold
+		}
+	}
+	if group.VerifiedAt.IsZero() != (group.ETag == "") || group.VerifiedAt.IsZero() != (group.ReadbackSHA256 == "") || !group.VerifiedAt.IsZero() && (group.Provenance == nil || group.VerifiedAt.Before(pending.FirstAttemptAt) || group.VerifiedAt.After(record.UpdatedAt)) {
+		return ErrOriginalSourceProducerHold
+	}
+	if group.ReadbackSHA256 != "" {
+		readback, err := originalMaterialPeerGroupReadback(*group)
+		if err != nil || group.ReadbackSHA256 != readback {
+			return errors.Join(ErrOriginalSourceProducerHold, err)
 		}
 	}
 	return nil

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -82,8 +84,17 @@ func (reader *CurrentFounderAuthorityReader) ReadRuntimeAuthority(ctx context.Co
 		anchor, expires, manifests = selected.Anchor, selected.SelectionExpiresAt, selected.ManifestWires
 		planDigest, selectionDigest, derived = selected.Plan.Digest(), selected.SelectionSHA256, selected.derived
 	}
+	identity := anchor.Anchor()
+	if derived != nil {
+		var err error
+		identity, _, err = externalSeedIdentity(derived.SeedAuthority(), anchor)
+		if err != nil {
+			return RuntimeAuthority{}, err
+		}
+	}
 	if !anchor.IsVerified() || anchor.Digest() != marker.AnchorSHA256 ||
-		anchor.Anchor().ClusterID != accepted.ClusterID || anchor.Anchor().Environment != accepted.Environment ||
+		identity.DeploymentID != accepted.DeploymentID || string(identity.Cell) != accepted.Cell ||
+		identity.ClusterID != accepted.ClusterID || identity.Environment != accepted.Environment ||
 		plan.SeedSlot != accepted.SeedSlot || digestWire(manifests[accepted.Slot]) != marker.ManifestSHA256 ||
 		!now.Before(expires) {
 		return RuntimeAuthority{}, errors.New("runtime scope differs from current signed controller authority")
@@ -103,7 +114,7 @@ func (reader *CurrentFounderAuthorityReader) ReadRuntimeAuthority(ctx context.Co
 	return RuntimeAuthority{identity: RuntimeIdentity{
 		DeploymentID: accepted.DeploymentID, ClusterID: accepted.ClusterID,
 		Environment: accepted.Environment, Cell: accepted.Cell,
-		OCIRegion: anchor.Anchor().OCIRegion,
+		OCIRegion: identity.OCIRegion,
 		Slot:      accepted.Slot, SeedSlot: accepted.SeedSlot, InstanceID: accepted.InstanceOCID,
 		PrivateIP: privateIP, SeedPrivateIP: plan.SeedPrivateIP,
 	}, anchor: anchor, expires: expires, plan: plan, planDigest: planDigest,
@@ -115,6 +126,15 @@ func (reader *CurrentFounderAuthorityReader) RuntimeInstanceObserver(ctx context
 	authority, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
 	if err != nil {
 		return nil, err
+	}
+	if authority.derived != nil {
+		if _, err := authority.derived.SeedAuthority().OriginalLaunch(); err == nil {
+			factory, err := ociclient.InstancePrincipalContext(ctx, authority.Identity().OCIRegion)
+			if err != nil {
+				return nil, err
+			}
+			return NewOCIInstanceObserverWithFactory(oci.Region(authority.Identity().Cell), factory)
+		}
 	}
 	config, err := currentLedgerConfig(authority.Anchor(), reader.baked.Roots)
 	if err != nil {

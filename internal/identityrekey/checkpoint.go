@@ -394,13 +394,17 @@ func ValidatePreviousMaterialPins(pins map[string]string) error {
 	return nil
 }
 
-// ValidateLaunchMaterialPins requires the exact public launch input inventory.
+// ValidateLaunchMaterialPins validates DATA inventories only; consumers must
+// authenticate an original companion before using its no-SSH provenance.
 func ValidateLaunchMaterialPins(pins map[string]string) error {
 	if len(pins) != 4 {
 		return fmt.Errorf("%w: complete public launch input pins are required", ErrCheckpointInvalid)
 	}
-	for _, name := range []string{"host-enrollment-public.json", "operator-ssh-key.pub",
-		"managed-host-image-receipt.json", "managed-host-image-delegation.json"} {
+	names := []string{"host-enrollment-public.json", "operator-ssh-key.pub", "managed-host-image-receipt.json", "managed-host-image-delegation.json"}
+	if _, present := pins["original-startup-origin.json"]; present {
+		names[1] = "original-startup-origin.json"
+	}
+	for _, name := range names {
 		if !digestRE.MatchString(pins[name]) {
 			return fmt.Errorf("%w: public launch input %s", ErrCheckpointInvalid, name)
 		}

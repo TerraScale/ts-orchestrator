@@ -37,6 +37,7 @@ type VerifiedStartupTemplate struct {
 
 // startupBindings retains independent logical birth proof and finite target observation.
 type startupBindings struct {
+	original         *originalStartupProof
 	logical          *foundationbinding.VerifiedBindings
 	vault            foundationbinding.VerifiedStartupVault
 	factory          *ociclient.Factory
@@ -44,6 +45,9 @@ type startupBindings struct {
 }
 
 func (bindings startupBindings) Revalidate(ctx context.Context) error {
+	if bindings.original != nil {
+		return ErrManifestInvalid
+	}
 	boundedCtx, cancel := context.WithDeadline(ctx, bindings.vault.ExpiresAt())
 	defer cancel()
 	if bindings.logical != nil {
@@ -55,6 +59,9 @@ func (bindings startupBindings) Revalidate(ctx context.Context) error {
 }
 
 func (bindings startupBindings) project(template StartupTemplate, cell string) (StartupTemplate, error) {
+	if bindings.original != nil {
+		return projectFoundationStartup(template, cell, bindings.original.resources.Resolve)
+	}
 	return projectFoundationStartup(template, cell, func(reference string) (string, error) {
 		actualCell, role, err := foundationbinding.Parse(reference)
 		if err != nil || actualCell != cell {
@@ -143,6 +150,9 @@ func (verified VerifiedStartupTemplate) VerifyCurrent(now time.Time) error {
 
 // VerifyCurrentContext repeats live protected grant and resource observations for bound startup.
 func (verified VerifiedStartupTemplate) VerifyCurrentContext(ctx context.Context, now time.Time) error {
+	if verified.bindings != nil && verified.bindings.original != nil {
+		return verified.bindings.original.current(ctx, verified, now)
+	}
 	if !verified.IsVerified() || !now.Before(verified.expiresAt) {
 		return ErrManifestInvalid
 	}
@@ -242,12 +252,13 @@ func verifyStartupTemplateForIdentityBindings(wire []byte, roots trust.Keyring, 
 				ResourceIDs startupResourceIDs `json:"resource_ids"`
 			} `json:"plan"`
 			BootstrapMaterial *struct {
-				InstallationID     string                     `json:"installationId"`
-				PlanSHA256         string                     `json:"planSha256"`
-				Config             jsontext.Value             `json:"config"`
-				SourceVaultTarget  StartupVaultTarget         `json:"sourceVaultTarget"`
-				Startup            *StartupTemplate           `json:"startup"`
-				SourceRegistration *InitialSourceRegistration `json:"sourceRegistration"`
+				InstallationID           string                     `json:"installationId"`
+				PlanSHA256               string                     `json:"planSha256"`
+				Config                   jsontext.Value             `json:"config"`
+				SourceVaultTarget        StartupVaultTarget         `json:"sourceVaultTarget"`
+				Startup                  *StartupTemplate           `json:"startup"`
+				SourceRegistration       *InitialSourceRegistration `json:"sourceRegistration"`
+				OriginalStartupAdmission jsontext.Value             `json:"originalStartupAdmission"`
 			} `json:"bootstrapMaterial"`
 		} `json:"regions"`
 	}
@@ -261,6 +272,9 @@ func verifyStartupTemplateForIdentityBindings(wire []byte, roots trust.Keyring, 
 		material := region.BootstrapMaterial
 		if material == nil || material.Startup == nil || material.InstallationID != home.InstallationID ||
 			!sha256RE.MatchString(material.PlanSHA256) || region.Generation != grant.Generation || region.Plan.Region != identity.OCIRegion {
+			return VerifiedStartupTemplate{}, ErrManifestInvalid
+		}
+		if len(material.OriginalStartupAdmission) != 0 && (bindings == nil || bindings.original == nil) {
 			return VerifiedStartupTemplate{}, ErrManifestInvalid
 		}
 		var cfg struct {
@@ -343,7 +357,12 @@ func verifyStartupTemplateForIdentityBindings(wire []byte, roots trust.Keyring, 
 		}
 		vault := StartupVaultTarget{CompartmentOCID: region.Plan.ResourceIDs.ControlCompartment, VaultOCID: region.Plan.ResourceIDs.Vault, KMSKeyOCID: region.Plan.ResourceIDs.Key}
 		if bindings != nil {
-			vault = StartupVaultTarget{CompartmentOCID: bindings.vault.CompartmentOCID(), VaultOCID: bindings.vault.VaultOCID(), KMSKeyOCID: bindings.vault.KMSKeyOCID()}
+			if bindings.original != nil {
+				ids := bindings.original.resources.ResourceIDs
+				vault = StartupVaultTarget{CompartmentOCID: ids["control_compartment"], VaultOCID: ids["vault"], KMSKeyOCID: ids["key"]}
+			} else {
+				vault = StartupVaultTarget{CompartmentOCID: bindings.vault.CompartmentOCID(), VaultOCID: bindings.vault.VaultOCID(), KMSKeyOCID: bindings.vault.KMSKeyOCID()}
+			}
 		}
 
 		if !isOCID(vault.CompartmentOCID, "compartment") || !strings.HasPrefix(vault.VaultOCID, "ocid1.vault.oc1."+identity.OCIRegion+".") || !strings.HasPrefix(vault.KMSKeyOCID, "ocid1.key.oc1."+identity.OCIRegion+".") {
@@ -354,11 +373,17 @@ func verifyStartupTemplateForIdentityBindings(wire []byte, roots trust.Keyring, 
 			expires = image.ExpiresAt()
 		}
 		if bindings != nil {
-			if bindings.vault.ExpiresAt().Before(expires) {
-				expires = bindings.vault.ExpiresAt()
-			}
-			if bindings.logical != nil && bindings.logical.ExpiresAt().Before(expires) {
-				expires = bindings.logical.ExpiresAt()
+			if bindings.original != nil {
+				if bindings.original.resources.ExpiresAt.Before(expires) {
+					expires = bindings.original.resources.ExpiresAt
+				}
+			} else {
+				if bindings.vault.ExpiresAt().Before(expires) {
+					expires = bindings.vault.ExpiresAt()
+				}
+				if bindings.logical != nil && bindings.logical.ExpiresAt().Before(expires) {
+					expires = bindings.logical.ExpiresAt()
+				}
 			}
 		}
 		clonedRoots := make(trust.Keyring, len(roots))
@@ -487,6 +512,12 @@ func verifyStartupBindings(ctx context.Context, factory *ociclient.Factory, wire
 
 // ForCell independently verifies a sibling region in the same original grant.
 func (verified VerifiedStartupTemplate) ForCell(ctx context.Context, cell oci.Region, now time.Time) (VerifiedStartupTemplate, error) {
+	if verified.bindings != nil && verified.bindings.original != nil {
+		if err := verified.VerifyCurrentContext(ctx, now); err != nil {
+			return VerifiedStartupTemplate{}, err
+		}
+		return VerifyBoundOriginalStartupTemplate(ctx, verified.bindings.factory, verified.grantWire, verified.bindings.original.genesis, verified.anchor, cell, now)
+	}
 	if err := verified.VerifyCurrentContext(ctx, now); err != nil {
 		return VerifiedStartupTemplate{}, err
 	}

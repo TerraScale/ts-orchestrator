@@ -39,16 +39,30 @@ func VerifyExternalSeedObservation(anchor bootstrap.VerifiedBootstrapAnchor,
 	manifest bootstrap.StartupAuthority, state bootstrap.SlotState,
 	observed InstanceObservation, expectedPrivateIP string,
 ) (bootstrap.InstanceFacts, error) {
+	identity, original, err := externalSeedIdentity(manifest, anchor)
+	if err != nil {
+		return bootstrap.InstanceFacts{}, err
+	}
+	validCreate := observed.BootstrapCreateKey == state.Intent.CreateKey
+	validSchema := state.Intent.SchemaVersion == 1 && state.Intent.OriginalLaunch == nil
+	if original != nil {
+		create, err := bootstrap.OriginalLaunchCreateKey(*original)
+		if err != nil {
+			return bootstrap.InstanceFacts{}, ErrExternalSeedObservation
+		}
+		validCreate = state.Intent.CreateKey == create && observed.InstanceOCID == original.InstanceOCID
+		validSchema = state.Intent.SchemaVersion == 2 && state.Intent.OriginalLaunch != nil && *state.Intent.OriginalLaunch == *original
+	}
 	if manifest == nil || !anchor.IsVerified() || manifest.Digest() == "" || state.IntentRecord.SHA256 == "" ||
-		state.Intent.Mode != bootstrap.IntentModeExternalSeed || state.Intent.SchemaVersion != 1 ||
+		state.Intent.Mode != bootstrap.IntentModeExternalSeed || !validSchema ||
 		state.Intent.Attempt != 1 || state.Intent.Generation != 1 ||
 		state.Head.Attempt != 1 || state.Head.Generation != 1 ||
 		state.Head.IntentDigest != state.IntentRecord.SHA256 ||
 		state.Intent.ManifestDigest != manifest.Digest() ||
 		state.Intent.Slot != manifest.Manifest().SeedSlot ||
-		state.Intent.DeploymentID != anchor.Anchor().DeploymentID ||
-		state.Intent.Cell != string(anchor.Anchor().Cell) ||
-		state.Intent.Environment != anchor.Anchor().Environment {
+		state.Intent.DeploymentID != identity.DeploymentID ||
+		state.Intent.Cell != string(identity.Cell) ||
+		state.Intent.Environment != identity.Environment {
 		return bootstrap.InstanceFacts{}, ErrExternalSeedObservation
 	}
 	intent := state.Intent
@@ -57,7 +71,7 @@ func VerifyExternalSeedObservation(anchor bootstrap.VerifiedBootstrapAnchor,
 		profile.AvailabilityDomain != intent.AvailabilityDomain ||
 		profile.FaultDomain != intent.FaultDomain || profile.SubnetOCID != intent.SubnetOCID ||
 		profile.Shape != intent.Shape || !sameOCIDSet(profile.NetworkSecurityGroupOCIDs, intent.NetworkSecurityGroupIDs) ||
-		observed.InstanceOCID == "" || observed.BootstrapCreateKey != intent.CreateKey ||
+		observed.InstanceOCID == "" || !validCreate ||
 		observed.CompartmentOCID != intent.CompartmentOCID || observed.ImageOCID != intent.ImageOCID ||
 		observed.AvailabilityDomain != intent.AvailabilityDomain || observed.FaultDomain != intent.FaultDomain ||
 		observed.Shape != intent.Shape || observed.SubnetOCID != intent.SubnetOCID ||
@@ -70,10 +84,24 @@ func VerifyExternalSeedObservation(anchor bootstrap.VerifiedBootstrapAnchor,
 	profile.NetworkSecurityGroupOCIDs = slices.Clone(profile.NetworkSecurityGroupOCIDs)
 	return bootstrap.InstanceFacts{
 		DeploymentID: intent.DeploymentID, Environment: intent.Environment,
-		ClusterID: anchor.Anchor().ClusterID, Cell: anchor.Anchor().Cell,
+		ClusterID: identity.ClusterID, Cell: identity.Cell,
 		OCIRegion: intent.OCIRegion, Role: intent.Role, Slot: intent.Slot,
 		InstanceOCID: observed.InstanceOCID, CompartmentOCID: observed.CompartmentOCID,
 		ImageOCID: observed.ImageOCID, CreateKey: intent.CreateKey,
 		IntentSHA256: state.IntentRecord.SHA256, Profile: profile,
 	}, nil
+}
+
+// Regional original identity is data from the sealed template, not a forged anchor.
+func externalSeedIdentity(authority bootstrap.StartupAuthority, anchor bootstrap.VerifiedBootstrapAnchor) (bootstrap.BootstrapAnchor, *bootstrap.OriginalLaunchIdentity, error) {
+	if derived, ok := authority.(bootstrap.DerivedStartupAuthority); ok {
+		if original, err := derived.Template().OriginalLaunch(); err == nil {
+			bound, err := derived.OriginalLaunch()
+			if err != nil || bound != original || derived.Template().OriginAnchor().Digest() != anchor.Digest() {
+				return bootstrap.BootstrapAnchor{}, nil, ErrExternalSeedObservation
+			}
+			return derived.Template().StartupIdentity(), new(original), nil
+		}
+	}
+	return anchor.Anchor(), nil, nil
 }

@@ -62,14 +62,15 @@ type FoundationGrant struct {
 // digest covers public generation inputs; secret output bytes are checkpointed
 // separately by the existing immutable source producer.
 type BootstrapMaterialIntent struct {
-	OriginalSourceProducer *OriginalSourceProducerIntent           `json:"originalSourceProducer,omitempty"`
-	InstallationID         string                                  `json:"installationId"`
-	PlanSHA256             string                                  `json:"planSha256"`
-	Config                 bootstrapmaterial.Config                `json:"config"`
-	SourceVaultTarget      bootstrapmaterial.VaultTarget           `json:"sourceVaultTarget"`
-	Startup                *BootstrapStartupIntent                 `json:"startup,omitempty"`
-	SourceRegistration     *bootstrap.InitialSourceRegistration    `json:"sourceRegistration,omitempty"`
-	AdmissionAttestor      *release.AdmissionAttestorAuthorization `json:"admissionAttestor,omitempty"`
+	OriginalStartupAdmission *bootstrap.OriginalStartupAdmissionIntent `json:"originalStartupAdmission,omitempty"`
+	OriginalSourceProducer   *OriginalSourceProducerIntent             `json:"originalSourceProducer,omitempty"`
+	InstallationID           string                                    `json:"installationId"`
+	PlanSHA256               string                                    `json:"planSha256"`
+	Config                   bootstrapmaterial.Config                  `json:"config"`
+	SourceVaultTarget        bootstrapmaterial.VaultTarget             `json:"sourceVaultTarget"`
+	Startup                  *BootstrapStartupIntent                   `json:"startup,omitempty"`
+	SourceRegistration       *bootstrap.InitialSourceRegistration      `json:"sourceRegistration,omitempty"`
+	AdmissionAttestor        *release.AdmissionAttestorAuthorization   `json:"admissionAttestor,omitempty"`
 }
 
 type BootstrapStartupIntent = bootstrap.StartupTemplate
@@ -509,6 +510,9 @@ func (s *SignedFootprint) verifyOriginalDocument(wire []byte) (FoundationGrant, 
 		return FoundationGrant{}, time.Time{}, err
 	}
 	if err := validateOriginalMaterialIAMIntents(grant, s.storage); err != nil {
+		return FoundationGrant{}, time.Time{}, err
+	}
+	if err := validateOriginalStartupAdmissions(grant); err != nil {
 		return FoundationGrant{}, time.Time{}, err
 	}
 	footprint := ApprovedFootprint{GrantSHA256: hex.EncodeToString(digest[:]), TenancyID: grant.TenancyID, ParentCompartmentID: grant.ParentCompartmentID,

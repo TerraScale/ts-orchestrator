@@ -233,7 +233,7 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 	if err != nil {
 		return fail(err)
 	}
-	launch, err := bootstrapstart.LoadAcceptedHostLaunchMaterial(accepted)
+	launch, err := bootstrapstart.LoadAcceptedHostLaunchMaterialContext(ctx, accepted)
 	if err != nil {
 		return fail(err)
 	}

@@ -808,10 +808,14 @@ func founderFactsFromObservation(snapshot founderSnapshot, manifest bootstrap.St
 	if !ok {
 		return bootstrap.InstanceFacts{}, ErrFounderRuntime
 	}
+	identity, _, err := externalSeedIdentity(manifest, snapshot.selected.Anchor)
+	if err != nil {
+		return bootstrap.InstanceFacts{}, err
+	}
 	state := snapshot.recovery.State()
 	return bootstrap.InstanceFacts{DeploymentID: state.Intent.DeploymentID,
-		Environment: state.Intent.Environment, ClusterID: snapshot.selected.Anchor.Anchor().ClusterID,
-		Cell: snapshot.selected.Anchor.Anchor().Cell, OCIRegion: state.Intent.OCIRegion,
+		Environment: state.Intent.Environment, ClusterID: identity.ClusterID,
+		Cell: identity.Cell, OCIRegion: state.Intent.OCIRegion,
 		Role: state.Intent.Role, Slot: state.Intent.Slot, InstanceOCID: observed.InstanceOCID,
 		CompartmentOCID: observed.CompartmentID, ImageOCID: observed.ImageID,
 		CreateKey: state.Intent.CreateKey, IntentSHA256: state.IntentRecord.SHA256, Profile: profile}, nil
@@ -930,6 +934,11 @@ func (keys FounderSigningKeys) signPeerReceipt(manifest bootstrap.StartupAuthori
 func (store FounderSignerStore) Load(current CurrentFounderAuthority, accepted AcceptedInstall,
 	roots trust.Keyring, now time.Time,
 ) (FounderSigningKeys, error) {
+	if current.Derived != nil {
+		if _, err := current.Derived.SeedAuthority().Template().OriginalLaunch(); err == nil {
+			return FounderSigningKeys{}, ErrOriginalStartup
+		}
+	}
 	return store.LoadContext(context.Background(), current, accepted, roots, now)
 }
 
@@ -1047,6 +1056,11 @@ func (store FounderSignerStore) readKey(fd int, reference bootstrap.SecretRefere
 func verifiedFounderManifest(current CurrentFounderAuthority, slot string, roots trust.Keyring,
 	now time.Time,
 ) (bootstrap.StartupAuthority, error) {
+	if current.Derived != nil {
+		if _, err := current.Derived.SeedAuthority().Template().OriginalLaunch(); err == nil {
+			return nil, ErrOriginalStartup
+		}
+	}
 	return verifiedFounderManifestContext(context.Background(), current, slot, roots, now)
 }
 

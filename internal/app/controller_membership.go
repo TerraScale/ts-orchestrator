@@ -243,18 +243,38 @@ func openMembershipLedger(ctx context.Context) (membershipLedger, error) {
 	if err != nil {
 		return membershipLedger{}, err
 	}
-	anchorEnvelope, err := trust.DecodeEnvelope(baked.AnchorWire)
+	local, derived, present, err := installedAutomaticStartup(ctx)
 	if err != nil {
 		return membershipLedger{}, err
 	}
-	anchor, err := bootstrap.VerifyHistoricalBootstrapAnchor(anchorEnvelope, baked.Roots,
-		baked.Identity.AnchorExpectation(), initial.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
-	if err != nil || anchor.Digest() != initial.AnchorSHA256 {
-		return membershipLedger{}, errors.New("current formation anchor differs from root-owned history")
+	original := false
+	if present {
+		if _, err := derived.OriginalLaunch(); err == nil {
+			original = true
+			anchor := derived.Template().OriginAnchor()
+			manifest := derived.Manifest()
+			if anchor.Digest() != initial.AnchorSHA256 || derived.Digest() != initial.ManifestSHA256 ||
+				!bytes.Equal(local.baked.AnchorWire, baked.AnchorWire) ||
+				manifest.DeploymentID != accepted.DeploymentID || manifest.ClusterID != accepted.ClusterID ||
+				manifest.Environment != accepted.Environment || string(manifest.Cell) != accepted.Cell ||
+				manifest.Slot != initial.Slot || manifest.SeedSlot != initial.SeedSlot || manifest.ImageOCID != initial.ImageOCID {
+				return membershipLedger{}, errors.New("original membership authority differs from accepted regional formation and HOME origin")
+			}
+		}
 	}
-	if _, derived, present, err := installedAutomaticStartup(ctx); err != nil {
-		return membershipLedger{}, err
-	} else if present {
+	var anchor bootstrap.HistoricalBootstrapAnchor
+	if !original {
+		anchorEnvelope, err := trust.DecodeEnvelope(baked.AnchorWire)
+		if err != nil {
+			return membershipLedger{}, err
+		}
+		anchor, err = bootstrap.VerifyHistoricalBootstrapAnchor(anchorEnvelope, baked.Roots,
+			baked.Identity.AnchorExpectation(), initial.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
+		if err != nil || anchor.Digest() != initial.AnchorSHA256 {
+			return membershipLedger{}, errors.New("current formation anchor differs from root-owned history")
+		}
+	}
+	if present {
 		instances, _, _, err := bootstrapstart.NewDerivedOCIAdmissionClients(ctx, derived, baked.Roots)
 		if err != nil {
 			return membershipLedger{}, err

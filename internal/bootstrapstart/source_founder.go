@@ -32,6 +32,9 @@ type VerifiedSourceFounder struct {
 // VerifySourceFounder uses fixed local metadata and authenticated OCI endpoints.
 // Matching an IMDS slot or a mutable instance tag alone grants no authority.
 func VerifySourceFounder(ctx context.Context, factory *ociclient.Factory, template bootstrap.VerifiedStartupTemplate) (VerifiedSourceFounder, error) {
+	if _, err := template.OriginalLaunch(); err == nil {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
 	if factory == nil {
 		return VerifiedSourceFounder{}, ErrSourceFounder
 	}
@@ -61,6 +64,9 @@ func VerifySourceFounder(ctx context.Context, factory *ociclient.Factory, templa
 }
 
 func verifySourceFounderWithSources(ctx context.Context, factory *ociclient.Factory, template bootstrap.VerifiedStartupTemplate, imds DescriptorSource, observer InstanceObserver) (VerifiedSourceFounder, error) {
+	if _, err := template.OriginalLaunch(); err == nil {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
 	if factory == nil || imds == nil || observer == nil {
 		return VerifiedSourceFounder{}, ErrSourceFounder
 	}

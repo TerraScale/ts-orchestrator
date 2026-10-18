@@ -19,7 +19,7 @@ func currentControllerFounderReader(ctx context.Context, baked bootstrapstart.Ba
 		if !bytes.Equal(local.baked.AnchorWire, baked.AnchorWire) {
 			return nil, errors.New("installed startup authority differs from the runtime anchor")
 		}
-		return bootstrapstart.NewDerivedCurrentFounderAuthorityReader(baked, initial, derived, floor)
+		return bootstrapstart.NewDerivedCurrentFounderAuthorityReaderContext(ctx, baked, initial, derived, floor)
 	}
 	return bootstrapstart.NewOCICurrentFounderAuthorityReader(baked, initial, floor)
 }

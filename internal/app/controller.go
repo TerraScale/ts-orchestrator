@@ -431,7 +431,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		if err != nil {
 			return err
 		}
-		launchMaterial, err := bootstrapstart.LoadAcceptedHostLaunchMaterial(acceptedLaunch)
+		launchMaterial, err := bootstrapstart.LoadAcceptedHostLaunchMaterialContext(ctx, acceptedLaunch)
 		if err != nil {
 			return fmt.Errorf("load host launch material: %w", err)
 		}
@@ -958,7 +958,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		if err != nil || !present {
 			return nil, errors.Join(errors.New("capacity requires authenticated automatic startup"), err)
 		}
-		template, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, local.factory, derived.GrantWire(), local.baked.Roots, local.anchor, oci.RegionGRU, time.Now().UTC())
+		template, err := derived.Template().ForCell(ctx, oci.RegionGRU, time.Now().UTC())
 		if err != nil {
 			return nil, err
 		}

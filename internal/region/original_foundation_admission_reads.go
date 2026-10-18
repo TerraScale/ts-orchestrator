@@ -18,6 +18,7 @@ import (
 )
 
 const originalAdmissionReadPurpose = "original-actor-admission-reads/v1"
+const originalAdmissionReadPurposeV2 = "original-actor-admission-reads/v2"
 
 var ErrOriginalFoundationAdmissionReadsPending = fmt.Errorf("%w: original actor admission reads retained; local original proof, custody, source archive and runtime admission remain unavailable", ErrOriginalSourceProducerHold)
 
@@ -69,11 +70,18 @@ func originalAdmissionReadOperations() [12]OriginalActorAdmissionReadOperation {
 }
 
 func originalAdmissionReadRecipe(purpose OriginalSourceProducerIntent, startup bootstrap.StartupTemplate, network string) (OriginalActorAdmissionReadIntent, error) {
+	return originalAdmissionReadRecipeVersion(originalAdmissionReadPurposeV2, purpose, startup, network)
+}
+
+func originalAdmissionReadRecipeVersion(version string, purpose OriginalSourceProducerIntent, startup bootstrap.StartupTemplate, network string) (OriginalActorAdmissionReadIntent, error) {
+	if version != originalAdmissionReadPurpose && version != originalAdmissionReadPurposeV2 {
+		return OriginalActorAdmissionReadIntent{}, ErrOriginalSourceProducerHold
+	}
 	wire, err := json.Marshal(purpose, json.Deterministic(true))
 	if err != nil || purpose.Home.Validate() != nil || purpose.JournalObject != foundationObjectPrefix+"GRU.json" || network == "" {
 		return OriginalActorAdmissionReadIntent{}, errors.Join(ErrOriginalSourceProducerHold, err)
 	}
-	return OriginalActorAdmissionReadIntent{Purpose: originalAdmissionReadPurpose, Cell: purpose.Cell, OCIRegion: purpose.OCIRegion,
+	return OriginalActorAdmissionReadIntent{Purpose: version, Cell: purpose.Cell, OCIRegion: purpose.OCIRegion,
 		TenancyID: purpose.TenancyID, InstallationID: purpose.InstallationID, ProducerIntentSHA256: digestSource(wire),
 		ActorOperationID: purpose.OperationID, ActorRecipeSHA256: purpose.Allocation.RecipeSHA256, Home: purpose.Home,
 		Objects:            [3]string{purpose.JournalObject, foundationRootChainObject, strings.TrimSuffix(purpose.Home.Prefix, "/") + "/" + foundationGrantObject},
@@ -86,6 +94,10 @@ func originalAdmissionReadIntents(grant FoundationGrant, home bootstrap.StorageD
 	var intents [3]OriginalActorAdmissionReadIntent
 	if grant.SchemaVersion != 3 || grant.Generation != 1 || len(grant.Regions) != 3 || requireOriginalSourceProducerPurposes(grant) != nil {
 		return intents, ErrOriginalSourceProducerHold
+	}
+	version := originalAdmissionReadPurposeV2
+	if grant.OriginalActorAdmissionReads != nil {
+		version = (*grant.OriginalActorAdmissionReads)[0].Purpose
 	}
 	for index, cell := range [3]string{"GRU", "SFO", "FRA"} {
 		found := false
@@ -101,7 +113,7 @@ func originalAdmissionReadIntents(grant FoundationGrant, home bootstrap.StorageD
 			if err != nil {
 				return intents, err
 			}
-			intents[index], err = originalAdmissionReadRecipe(*material.OriginalSourceProducer, *material.Startup, network)
+			intents[index], err = originalAdmissionReadRecipeVersion(version, *material.OriginalSourceProducer, *material.Startup, network)
 			if err != nil {
 				return intents, err
 			}
@@ -128,29 +140,30 @@ func validateOriginalAdmissionReadIntents(grant FoundationGrant, home bootstrap.
 // OriginalFoundationAdmissionReads records a separately acknowledged original
 // operator effect. It is not a local instance, startup or runtime capability.
 type OriginalFoundationAdmissionReads struct {
-	Recipe              OriginalActorAdmissionReadIntent `json:"recipe"`
-	GrantSHA256         string                           `json:"grantSha256"`
-	BundleSHA256        string                           `json:"bundleSha256"`
-	IntentSHA256        string                           `json:"intentSha256"`
-	Generation          uint64                           `json:"generation"`
-	OperationID         string                           `json:"operationId"`
-	ActorID             string                           `json:"actorId"`
-	ActorRequestSHA256  string                           `json:"actorRequestSha256"`
-	ActorReadbackSHA256 string                           `json:"actorReadbackSha256"`
-	SourceIAMSHA256     string                           `json:"sourceIamSha256"`
-	SourcePolicyID      string                           `json:"sourcePolicyId"`
-	BucketID            string                           `json:"bucketId"`
-	BucketCompartment   string                           `json:"bucketCompartment"`
-	ControlCompartment  string                           `json:"controlCompartment"`
-	NetworkCompartment  string                           `json:"networkCompartment"`
-	ImageCompartment    string                           `json:"imageCompartment"`
-	IdentitySHA256      string                           `json:"identitySha256"`
-	Request             identity.CreatePolicyDetails     `json:"request"`
-	Pending             *PendingFoundationCreate         `json:"pending,omitempty"`
-	Provenance          *FoundationResourceProvenance    `json:"provenance,omitempty"`
-	ReadbackSHA256      string                           `json:"readbackSha256,omitempty"`
-	VerifiedAt          time.Time                        `json:"verifiedAt,omitzero"`
-	HoldReason          string                           `json:"holdReason,omitempty"`
+	Recipe                  OriginalActorAdmissionReadIntent `json:"recipe"`
+	GrantSHA256             string                           `json:"grantSha256"`
+	BundleSHA256            string                           `json:"bundleSha256"`
+	IntentSHA256            string                           `json:"intentSha256"`
+	Generation              uint64                           `json:"generation"`
+	OperationID             string                           `json:"operationId"`
+	ActorID                 string                           `json:"actorId"`
+	ActorRequestSHA256      string                           `json:"actorRequestSha256"`
+	ActorReadbackSHA256     string                           `json:"actorReadbackSha256"`
+	SourceIAMSHA256         string                           `json:"sourceIamSha256"`
+	SourcePolicyID          string                           `json:"sourcePolicyId"`
+	SourcePolicyCompartment string                           `json:"sourcePolicyCompartment,omitempty"`
+	BucketID                string                           `json:"bucketId"`
+	BucketCompartment       string                           `json:"bucketCompartment"`
+	ControlCompartment      string                           `json:"controlCompartment"`
+	NetworkCompartment      string                           `json:"networkCompartment"`
+	ImageCompartment        string                           `json:"imageCompartment"`
+	IdentitySHA256          string                           `json:"identitySha256"`
+	Request                 identity.CreatePolicyDetails     `json:"request"`
+	Pending                 *PendingFoundationCreate         `json:"pending,omitempty"`
+	Provenance              *FoundationResourceProvenance    `json:"provenance,omitempty"`
+	ReadbackSHA256          string                           `json:"readbackSha256,omitempty"`
+	VerifiedAt              time.Time                        `json:"verifiedAt,omitzero"`
+	HoldReason              string                           `json:"holdReason,omitempty"`
 }
 
 func completeOriginalAdmissionReadPrerequisites(record FoundationRecord) error {
@@ -192,7 +205,7 @@ func originalAdmissionReadScope(record FoundationRecord, index int, recipe Origi
 	if err != nil {
 		return scope, err
 	}
-	expected, err := originalAdmissionReadRecipe(birth.Intent, actor.Startup, network)
+	expected, err := originalAdmissionReadRecipeVersion(recipe.Purpose, birth.Intent, actor.Startup, network)
 	if err != nil || !sameOriginalSourceValue(recipe, expected) || !originalActorRole(regional.Cell, "control_compartment", recipe.ControlCompartment, actor.ControlCompartmentID) ||
 		!originalActorRole(regional.Cell, "network_compartment", recipe.NetworkCompartment, regional.Network.CompartmentID) {
 		return scope, errors.Join(ErrOriginalSourceProducerHold, err)
@@ -211,6 +224,12 @@ func originalAdmissionReadScope(record FoundationRecord, index int, recipe Origi
 		SourceIAMSHA256: digestSource(sourceWire), SourcePolicyID: source.Provenance.ResourceID, BucketID: birth.HeadBucketID,
 		BucketCompartment: source.BucketCompartment, ControlCompartment: actor.ControlCompartmentID,
 		NetworkCompartment: regional.Network.CompartmentID, ImageCompartment: image}
+	if recipe.Purpose == originalAdmissionReadPurposeV2 {
+		scope.SourcePolicyCompartment = deref(source.Request.CompartmentId)
+		if !sourceCompartmentPattern.MatchString(scope.SourcePolicyCompartment) {
+			return scope, ErrOriginalSourceProducerHold
+		}
+	}
 	wire, err := json.Marshal(scope, json.Deterministic(true))
 	if err != nil {
 		return scope, err
@@ -241,8 +260,12 @@ func originalAdmissionReadPolicy(scope OriginalFoundationAdmissionReads) identit
 			verb, location = "read", "compartment id "+scope.BucketCompartment
 			conditions += fmt.Sprintf(", target.bucket.name='%s'", scope.Recipe.Home.HeadBucket)
 		case "original-source-policy":
-			location = "compartment id " + scope.BucketCompartment
-			conditions += fmt.Sprintf(", target.policy.id='%s'", scope.SourcePolicyID)
+			if scope.Recipe.Purpose == originalAdmissionReadPurpose {
+				location = "compartment id " + scope.BucketCompartment
+				conditions += fmt.Sprintf(", target.policy.id='%s'", scope.SourcePolicyID)
+			} else {
+				verb, location = "read", "compartment id "+scope.SourcePolicyCompartment
+			}
 		case "actor-network":
 			location = "compartment id " + scope.NetworkCompartment
 		case "actor-image":

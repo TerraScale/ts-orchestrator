@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -68,7 +70,7 @@ func NewAdmittedDerivedFounderReplacer(ctx context.Context, baked BakedInputs, a
 	if err := verifyExistingFounderFloor(floor); err != nil {
 		return nil, err
 	}
-	reader, err := NewDerivedCurrentFounderAuthorityReader(baked, accepted, authority, floor)
+	reader, err := NewDerivedCurrentFounderAuthorityReaderContext(ctx, baked, accepted, authority, floor)
 	if err != nil {
 		return nil, err
 	}
@@ -91,11 +93,23 @@ func newAdmittedFounderReplacer(ctx context.Context, baked BakedInputs, accepted
 	if err != nil {
 		return nil, err
 	}
-	provider, err := newOCIAdmissionProvider(config)
-	if err != nil {
-		return nil, err
+	var provider common.ConfigurationProvider
+	if selected.Derived != nil {
+		if _, err := selected.Derived.SeedAuthority().OriginalLaunch(); err == nil {
+			factory, err := ociclient.InstancePrincipalContext(ctx, selected.Derived.SeedAuthority().Template().StartupIdentity().OCIRegion)
+			if err != nil {
+				return nil, err
+			}
+			provider = factory.Provider()
+		}
 	}
-	material, err := LoadLaunchMaterial()
+	if provider == nil {
+		provider, err = newOCIAdmissionProvider(config)
+		if err != nil {
+			return nil, err
+		}
+	}
+	material, err := LoadLaunchMaterialContext(ctx)
 	if err != nil {
 		return nil, err
 	}

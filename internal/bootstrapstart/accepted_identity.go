@@ -133,7 +133,7 @@ func (identity AcceptedIdentity) Validate() error {
 			return ErrAcceptedIdentity
 		}
 	}
-	if identityrekey.ValidateLaunchMaterialPins(identity.LaunchMaterialSHA256) != nil {
+	if _, err := acceptedLaunchFileNames(identity.LaunchMaterialSHA256); err != nil {
 		return ErrAcceptedIdentity
 	}
 	return validateAcceptedReferences(identity)

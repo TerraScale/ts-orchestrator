@@ -50,6 +50,18 @@ func VerifyHistoricalDerivedStartupAuthority(ctx context.Context, grantWire []by
 }
 
 func (authority DerivedStartupAuthority) historical(ctx context.Context, wire []byte) (HistoricalDerivedStartupAuthority, error) {
+	if authority.template.bindings != nil && authority.template.bindings.original != nil {
+		envelope, err := trust.DecodeEnvelope(wire)
+		if err != nil {
+			return HistoricalDerivedStartupAuthority{}, err
+		}
+		proof := authority.template.bindings.original
+		source, err := RestoreBoundOriginalDerivedStartupAuthority(ctx, proof.factory, authority.GrantWire(), proof.genesis, authority.template.anchor, authority.template.identity.Cell, authority.client, wire, envelope.IssuedAt)
+		if err != nil {
+			return HistoricalDerivedStartupAuthority{}, err
+		}
+		return HistoricalDerivedStartupAuthority{source: source}, nil
+	}
 	identity := authority.template.anchor.Anchor()
 	envelope, err := trust.DecodeEnvelope(authority.template.anchor.Wire())
 	if err != nil {

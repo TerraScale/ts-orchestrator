@@ -79,6 +79,9 @@ func (source VerifiedRegionalSource) VerifyCurrent(ctx context.Context, now time
 // LoadRegionalSource uses only the exact public object named by the signed grant.
 // The existing founder registration admits its source key; no Vault read occurs.
 func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, client ObjectStorageClient, now time.Time) (VerifiedRegionalSource, error) {
+	if template.bindings != nil && template.bindings.original != nil {
+		return loadOriginalRegionalSource(ctx, template, client, now)
+	}
 	deny := func() (VerifiedRegionalSource, error) { return VerifiedRegionalSource{}, ErrManifestInvalid }
 	if client == nil || ctx.Err() != nil || template.VerifyCurrentContext(ctx, now) != nil || template.startupIdentity().InitialSourceRegistration == nil {
 		return deny()

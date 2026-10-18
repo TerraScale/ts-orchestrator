@@ -171,7 +171,7 @@ func newManagedImageVerifier(ctx context.Context, region oci.RegionConfig) (*man
 	if err != nil {
 		return nil, err
 	}
-	receipt, delegation, err := bootstrapstart.LoadAcceptedManagedImageMaterial(accepted)
+	receipt, delegation, err := bootstrapstart.LoadAcceptedManagedImageMaterialContext(ctx, accepted)
 	if err != nil {
 		return nil, err
 	}

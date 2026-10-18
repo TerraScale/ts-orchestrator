@@ -44,6 +44,20 @@ func NewOCIFounderPeerContinuation(baked BakedInputs, accepted AcceptedInstall,
 func NewDerivedFounderPeerContinuation(baked BakedInputs, accepted AcceptedInstall,
 	authority bootstrap.DerivedStartupAuthority, serviceUID, serviceGID uint32,
 ) (*FounderPeerContinuation, error) {
+	if _, err := authority.Template().OriginalLaunch(); err == nil {
+		return nil, ErrOriginalStartup
+	}
+	return NewDerivedFounderPeerContinuationContext(context.Background(), baked, accepted, authority, serviceUID, serviceGID)
+}
+
+// NewDerivedFounderPeerContinuationContext retains caller cancellation through
+// the original provenance and current physical host checks.
+func NewDerivedFounderPeerContinuationContext(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
+	authority bootstrap.DerivedStartupAuthority, serviceUID, serviceGID uint32,
+) (*FounderPeerContinuation, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if serviceUID == 0 || serviceGID == 0 || accepted.Slot == accepted.SeedSlot {
 		return nil, ErrFounderPeerContinuation
 	}
@@ -51,7 +65,7 @@ func NewDerivedFounderPeerContinuation(baked BakedInputs, accepted AcceptedInsta
 	if err != nil {
 		return nil, err
 	}
-	reader, err := NewDerivedCurrentFounderAuthorityReader(baked, accepted, authority, floor)
+	reader, err := NewDerivedCurrentFounderAuthorityReaderContext(ctx, baked, accepted, authority, floor)
 	if err != nil {
 		return nil, err
 	}

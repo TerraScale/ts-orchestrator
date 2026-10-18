@@ -1,6 +1,7 @@
 package bootstrapstart
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json/v2"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
@@ -38,19 +40,34 @@ func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader
 	if err != nil || scope.Validate() != nil {
 		return VerifiedRuntimeIAM{}, errors.Join(ErrSourceFounder, err)
 	}
-	config, err := currentLedgerConfig(current.Anchor(), reader.baked.Roots)
-	if err != nil {
-		return VerifiedRuntimeIAM{}, err
+	var factory *ociclient.Factory
+	var observer *OCIInstanceObserver
+	original := false
+	if current.derived != nil {
+		_, err := current.derived.SeedAuthority().OriginalLaunch()
+		original = err == nil
 	}
-	provider, err := newOCIAdmissionProvider(config)
-	if err != nil {
-		return VerifiedRuntimeIAM{}, err
+	if original {
+		factory, err = ociclient.InstancePrincipalContext(ctx, current.Identity().OCIRegion)
+		if err != nil {
+			return VerifiedRuntimeIAM{}, err
+		}
+		observer, err = NewOCIInstanceObserverWithFactory(oci.Region(current.Identity().Cell), factory)
+	} else {
+		config, configErr := currentLedgerConfig(current.Anchor(), reader.baked.Roots)
+		if configErr != nil {
+			return VerifiedRuntimeIAM{}, configErr
+		}
+		provider, providerErr := newOCIAdmissionProvider(config)
+		if providerErr != nil {
+			return VerifiedRuntimeIAM{}, providerErr
+		}
+		factory, err = ociclient.New(provider, ociclient.Options{Region: current.Identity().OCIRegion})
+		if err != nil {
+			return VerifiedRuntimeIAM{}, err
+		}
+		observer, err = NewOCIInstanceObserver(config.Cell, provider)
 	}
-	factory, err := ociclient.New(provider, ociclient.Options{Region: current.Identity().OCIRegion})
-	if err != nil {
-		return VerifiedRuntimeIAM{}, err
-	}
-	observer, err := NewOCIInstanceObserver(config.Cell, provider)
 	if err != nil {
 		return VerifiedRuntimeIAM{}, err
 	}
@@ -134,24 +151,44 @@ func (proof VerifiedRuntimeIAM) VerifyCurrent(ctx context.Context) error {
 
 func (proof VerifiedRuntimeIAM) currentManifest(ctx context.Context, now time.Time) (bootstrap.Manifest, error) {
 	var wire []byte
+	var derived *bootstrap.DerivedFounderPlan
 	if proof.accepted.Slot == proof.accepted.SeedSlot {
 		selected, err := proof.reader.ReadCurrent(ctx, now)
 		if err != nil || selected.Anchor.Digest() != proof.anchor {
 			return bootstrap.Manifest{}, errors.Join(ErrSourceFounder, err)
 		}
 		wire = selected.ManifestWires[proof.accepted.Slot]
+		derived = selected.Derived
 	} else {
 		selected, err := proof.reader.readCurrentCompletedPeer(ctx, now, true)
 		if err != nil || selected.Anchor.Digest() != proof.anchor {
 			return bootstrap.Manifest{}, errors.Join(ErrSourceFounder, err)
 		}
 		wire = selected.ManifestWires[proof.accepted.Slot]
+		derived = selected.derived
 	}
 	var manifest bootstrap.Manifest
-	envelope, err := trust.DecodeEnvelope(wire)
 	// The current selection reader verified these exact manifest bytes.
-	if err != nil || digestWire(wire) != proof.reader.accepted.ManifestSHA256 ||
-		protocol.DecodeStrict(envelope.Payload, &manifest, bootstrap.MaxManifestBytes) != nil || manifest.ImageOCID != proof.accepted.ImageOCID ||
+	if digestWire(wire) != proof.reader.accepted.ManifestSHA256 {
+		return bootstrap.Manifest{}, ErrSourceFounder
+	}
+	if derived != nil {
+		authority, ok := derived.Authority(proof.accepted.Slot)
+		if !ok || authority.Digest() != proof.reader.accepted.ManifestSHA256 || !bytes.Equal(authority.Wire(), wire) {
+			return bootstrap.Manifest{}, ErrSourceFounder
+		}
+		if err := authority.VerifyCurrent(ctx, now); err != nil {
+			return bootstrap.Manifest{}, err
+		}
+		manifest = authority.Manifest()
+	} else {
+		envelope, err := trust.DecodeEnvelope(wire)
+		if err != nil || protocol.DecodeStrict(envelope.Payload, &manifest, bootstrap.MaxManifestBytes) != nil {
+			return bootstrap.Manifest{}, ErrSourceFounder
+		}
+	}
+	if manifest.DeploymentID != proof.accepted.DeploymentID || manifest.ClusterID != proof.accepted.ClusterID ||
+		manifest.Environment != proof.accepted.Environment || string(manifest.Cell) != proof.accepted.Cell || manifest.ImageOCID != proof.accepted.ImageOCID ||
 		manifest.Slot != proof.accepted.Slot || manifest.OCIRegion != proof.factory.Region() {
 		return bootstrap.Manifest{}, ErrSourceFounder
 	}

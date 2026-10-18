@@ -107,7 +107,7 @@ func (b *rootReleaseChannels) Bind(ctx context.Context, conn *nats.Conn, sources
 	if err != nil {
 		return err
 	}
-	launch, err := bootstrapstart.LoadAcceptedHostLaunchMaterial(sources.Accepted)
+	launch, err := bootstrapstart.LoadAcceptedHostLaunchMaterialContext(ctx, sources.Accepted)
 	if err != nil {
 		return err
 	}
@@ -361,7 +361,7 @@ func (o *rootReleaseObservation) guard(ctx context.Context) error {
 	if _, _, _, err := loadSignedManagedControllerConfig(o.b.cfg); err != nil {
 		return err
 	}
-	if _, err := bootstrapstart.LoadAcceptedHostLaunchMaterial(o.b.sources.Accepted); err != nil {
+	if _, err := bootstrapstart.LoadAcceptedHostLaunchMaterialContext(ctx, o.b.sources.Accepted); err != nil {
 		return err
 	}
 	checkCtx, cancel := context.WithDeadline(o.scopeCtx, o.deadline)
@@ -524,7 +524,7 @@ func (b *rootReleaseChannels) ReconcileOrchestratorStatus(ctx context.Context, c
 			return rootoci.OrchestratorStatusReceipt{}, errors.Join(rootrelease.ErrPending, err)
 		}
 	}
-	if err := o.verifyRollbackPins(rollback, history); err != nil {
+	if err := o.verifyRollbackPins(ctx, rollback, history); err != nil {
 		return rootoci.OrchestratorStatusReceipt{}, err
 	}
 	status.Reason = releasechannel.Clip(status.Reason)
@@ -584,12 +584,12 @@ func (o *rootReleaseObservation) verifyRetained(retained rollout.Release) error 
 	return err
 }
 
-func (o *rootReleaseObservation) verifyRollbackPins(pins []string, history []rollout.Release) error {
+func (o *rootReleaseObservation) verifyRollbackPins(ctx context.Context, pins []string, history []rollout.Release) error {
 	for _, digest := range pins {
 		if slices.ContainsFunc(history, func(retained rollout.Release) bool { return retained.Digest == digest }) {
 			continue
 		}
-		receipt, delegation, err := bootstrapstart.LoadAcceptedManagedImageMaterial(o.b.sources.Accepted)
+		receipt, delegation, err := bootstrapstart.LoadAcceptedManagedImageMaterialContext(ctx, o.b.sources.Accepted)
 		if err != nil {
 			return errors.Join(rootrelease.ErrPending, err)
 		}
