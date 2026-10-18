@@ -124,15 +124,22 @@ func (f *originalSourceIAMSDKFixture) expectedPolicy(record FoundationRecord, in
 func (f *originalSourceIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
+		f.cloud.test.Error("source IAM operation was not authenticated by real OCI SDK signing")
+	}
+	// Origin discovery reads signed object bytes, not regional journal state.
+	originHome := f.approval.HomeStorageDomain
+	if r.Method == http.MethodGet && strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") && r.Host == "objectstorage."+foundationHomeRegion+".oraclecloud.com" && r.URL.RawQuery == "" &&
+		strings.HasPrefix(r.URL.Path, "/n/"+originHome.Namespace+"/b/"+originHome.HeadBucket+"/o/orchestrator/workload-genesis/v1/") {
+		f.originalCompartmentSDKFixture.serveHTTP(w, r)
+		return
+	}
 	record := f.record(f.cloud.test)
 	upstream, err := originalSourceIAMUpstream(record)
 	if err != nil || !bytes.Equal(upstream, f.upstream) {
 		f.cloud.test.Error("source IAM changed a preexisting original journal byte outside UpdatedAt")
 		originalCompartmentFailure(w, 400, "InvalidParameter")
 		return
-	}
-	if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
-		f.cloud.test.Error("source IAM operation was not authenticated by real OCI SDK signing")
 	}
 	for _, birth := range *record.OriginalSourceProducers {
 		if strings.HasSuffix(r.URL.Path, "/o/"+birth.Intent.SourceObject) {

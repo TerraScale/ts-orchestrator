@@ -217,6 +217,13 @@ func (f *originalAdmissionReadsSDKFixture) serveHTTP(w http.ResponseWriter, r *h
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
 		f.cloud.test.Error("admission read request lacked real OCI SDK signing")
 	}
+	// Origin discovery reads signed object bytes, not regional journal state.
+	originHome := f.approval.HomeStorageDomain
+	if r.Method == http.MethodGet && strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") && r.Host == "objectstorage."+foundationHomeRegion+".oraclecloud.com" && r.URL.RawQuery == "" &&
+		strings.HasPrefix(r.URL.Path, "/n/"+originHome.Namespace+"/b/"+originHome.HeadBucket+"/o/orchestrator/workload-genesis/v1/") {
+		f.originalCompartmentSDKFixture.serveHTTP(w, r)
+		return
+	}
 	f.cloud.mu.Lock()
 	wire, err := os.ReadFile(f.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + "GRU.json"))
 	var record FoundationRecord

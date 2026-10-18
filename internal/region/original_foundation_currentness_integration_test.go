@@ -16,6 +16,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
@@ -79,6 +81,13 @@ func (f *originalPublicationSDKFixture) serveHTTP(w http.ResponseWriter, r *http
 	defer f.publicationMu.Unlock()
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
 		f.cloud.test.Error("publication request lacks real OCI SDK authentication")
+	}
+	// Origin discovery reads signed object bytes, not regional journal state.
+	originHome := f.approval.HomeStorageDomain
+	if r.Method == http.MethodGet && strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") && r.Host == "objectstorage."+foundationHomeRegion+".oraclecloud.com" && r.URL.RawQuery == "" &&
+		strings.HasPrefix(r.URL.Path, "/n/"+originHome.Namespace+"/b/"+originHome.HeadBucket+"/o/orchestrator/workload-genesis/v1/") {
+		f.originalCompartmentSDKFixture.serveHTTP(w, r)
+		return
 	}
 	record := f.record(f.cloud.test)
 	if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/o/"+foundationObjectPrefix+"GRU.json") {
@@ -226,6 +235,85 @@ func TestOriginalFoundationCurrentnessSDK(t *testing.T) {
 		}
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) || f.puts != puts || !bytes.Equal(before, f.wire(t)) {
 			t.Fatal("completed replay repeated effects or changed protected publication history")
+		}
+	})
+	t.Run("origin discovery reads current signed bytes", func(t *testing.T) {
+		f := newOriginalPublicationSDKFixture(t, "")
+		authority, _, err := newOperatorHomeIAMAuthority(t.Context(), f.factoryFor(), f.roots, f.bundle)
+		if err != nil {
+			t.Fatal(err)
+		}
+		origin := f.prepared.Grant.WorkloadGenesis[0]
+		name, err := release.WorkloadGenesisObject(origin.TenancyID, origin.Cell, origin.Environment, origin.Role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := f.cloud.objectPath(f.approval.HomeStorageDomain.HeadBucket + "/" + name)
+		original, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restore := func() {
+			t.Helper()
+			if err := os.WriteFile(path, original, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Cleanup(restore)
+		before := bytes.Clone(f.wire(t))
+		creates, material, launches := f.cloud.creates, f.cloud.materialPosts, f.cloud.launchPosts
+		if err := authority.checkNetBirdMaterialOrigins(t.Context(), f.prepared.Grant); err != nil {
+			t.Fatal("genuine signed origin discovery failed", err)
+		}
+		for _, refusal := range []string{"missing origin", "wrong scope", "bad signature"} {
+			altered := f.bundle.clone()
+			switch refusal {
+			case "missing origin":
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+			case "wrong scope":
+				altered.Namespace = strings.Repeat("x", len(altered.Namespace))
+			case "bad signature":
+				envelope, err := trust.DecodeEnvelope(altered.GrantWire)
+				if err != nil {
+					t.Fatal(err)
+				}
+				envelope.Signature = strings.Repeat("A", len(envelope.Signature))
+				altered.GrantWire, err = trust.EncodeEnvelope(envelope)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if refusal != "missing origin" {
+				wire, err := json.Marshal(altered, json.Deterministic(true))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, wire, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := authority.checkNetBirdMaterialOrigins(t.Context(), f.prepared.Grant)
+			if err == nil {
+				t.Fatal("actual SDK accepted changed on-disk origin", refusal)
+			}
+			if refusal == "missing origin" {
+				var service common.ServiceError
+				if !errors.As(err, &service) || service.GetHTTPStatusCode() != http.StatusNotFound {
+					t.Fatal("missing origin did not reach actual SDK 404", err)
+				}
+			} else if !strings.Contains(err.Error(), "bytes differ") {
+				t.Fatal("changed origin did not reach exact signed-byte comparison", err)
+			}
+			restore()
+			if err := authority.checkNetBirdMaterialOrigins(t.Context(), f.prepared.Grant); err != nil {
+				t.Fatal("actual SDK did not recover freshly restored origin bytes", err)
+			}
+		}
+		if f.puts != [2]int{} || f.completions != 0 || f.cloud.hasAnchor() || !bytes.Equal(before, f.wire(t)) ||
+			f.cloud.creates != creates || f.cloud.materialPosts != material || f.cloud.launchPosts != launches {
+			t.Fatal("origin discovery changed protected publication history or emitted public effects")
 		}
 	})
 	for _, boundary := range []string{"provider drift after signing", "operation cancellation after signing"} {
