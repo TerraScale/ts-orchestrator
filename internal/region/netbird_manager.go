@@ -61,21 +61,22 @@ type NetBirdManagerIntent struct {
 // NetBirdManagerLaunch is an immutable singleton reservation in the existing
 // foundation journal. New grant generations cannot reset a pending launch.
 type NetBirdManagerLaunch struct {
-	SlotID              string                `json:"slotId"`
-	OperationID         string                `json:"operationId"`
-	ProfileSHA256       string                `json:"profileSha256"`
-	RecipeSHA256        string                `json:"recipeSha256"`
-	RequestDigest       string                `json:"requestDigest"`
-	RetryToken          string                `json:"retryToken"`
-	StartedAt           time.Time             `json:"startedAt"`
-	InstanceID          string                `json:"instanceId,omitempty"`
-	BootVolumeID        string                `json:"bootVolumeId,omitempty"`
-	StoreState          string                `json:"storeState"`
-	OriginGrantSHA256   string                `json:"originGrantSha256"`
-	OriginBindingSHA256 string                `json:"originBindingSha256,omitempty"`
-	OriginalScopeSHA256 string                `json:"originalScopeSha256"`
-	PhysicalScopeSHA256 string                `json:"physicalScopeSha256"`
-	OriginalQuote       *capacityledger.Quote `json:"originalQuote,omitempty"`
+	SlotID              string                    `json:"slotId"`
+	OperationID         string                    `json:"operationId"`
+	ProfileSHA256       string                    `json:"profileSha256"`
+	RecipeSHA256        string                    `json:"recipeSha256"`
+	RequestDigest       string                    `json:"requestDigest"`
+	RetryToken          string                    `json:"retryToken"`
+	StartedAt           time.Time                 `json:"startedAt"`
+	InstanceID          string                    `json:"instanceId,omitempty"`
+	BootVolumeID        string                    `json:"bootVolumeId,omitempty"`
+	StoreState          string                    `json:"storeState"`
+	OriginGrantSHA256   string                    `json:"originGrantSha256"`
+	OriginBindingSHA256 string                    `json:"originBindingSha256,omitempty"`
+	OriginalScopeSHA256 string                    `json:"originalScopeSha256"`
+	PhysicalScopeSHA256 string                    `json:"physicalScopeSha256"`
+	OriginalQuote       *capacityledger.Quote     `json:"originalQuote,omitempty"`
+	ComponentFloors     *[3]NetBirdComponentFloor `json:"componentFloors,omitempty"`
 }
 
 type verifiedNetBirdIntent struct {
@@ -378,6 +379,9 @@ func NetBirdManagerRecipeDigest(intent NetBirdManagerIntent, imageSHA256 string)
 }
 
 func (l NetBirdManagerLaunch) validate() error {
+	if err := validateNetBirdComponentFloors(l.ComponentFloors); err != nil {
+		return err
+	}
 	if !entityid.Valid(l.SlotID) || !entityid.Valid(l.OperationID) || l.StartedAt.IsZero() {
 		return errors.New("NetBird manager checkpoint lacks immutable slot identity")
 	}
@@ -413,6 +417,12 @@ func (next FoundationRecord) retainNetBirdManager(previous FoundationRecord) err
 		return errors.New("NetBird manager original reservation cannot be removed")
 	}
 	old, current := *previous.NetBirdManager, *next.NetBirdManager
+	if old.ComponentFloors == nil && current.ComponentFloors != nil && old.StoreState != "empty" {
+		return errNetBirdComponentFloor
+	}
+	if err := retainNetBirdComponentFloors(old.ComponentFloors, current.ComponentFloors); err != nil {
+		return err
+	}
 	if old.OriginalQuote == nil && current.OriginalQuote != nil {
 		return errors.New("historical NetBird manager cannot acquire a reconstructed original quote")
 	}
@@ -421,6 +431,7 @@ func (next FoundationRecord) retainNetBirdManager(previous FoundationRecord) err
 		return errors.New("NetBird manager cannot replace its original identities or reset its durable store")
 	}
 	current.InstanceID, current.BootVolumeID, current.StoreState = old.InstanceID, old.BootVolumeID, old.StoreState
+	current.ComponentFloors = old.ComponentFloors
 	if !sameCapacityValue(old, current) {
 		return errors.New("NetBird manager cannot replace its original quote or launch identity")
 	}

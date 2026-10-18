@@ -20,9 +20,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -651,6 +654,9 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if err := rotationMaterial.Check(t.Context()); err == nil {
 		t.Fatal("rotated CURRENT credential retained original component metadata")
 	}
+	if err := rotationMaterial.RetainReleaseFloors(t.Context()); err == nil {
+		t.Fatal("rotated CURRENT credential initialized component release floors")
+	}
 	mu.Lock()
 	secretVersions[issuerName] = 1
 	mu.Unlock()
@@ -672,6 +678,199 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	afterMaterial, afterETag, err := reopened.Load(t.Context(), "GRU")
 	if err != nil || beforeETag != afterETag || !sameCapacityValue(beforeMaterial, afterMaterial) || componentWrites != 0 || componentReads == 0 || creates != 6 || launchPosts != 2 {
 		t.Fatalf("component reads mutated journal/cloud or bypassed actual protocol: %v", err)
+	}
+	if err := (NetBirdComponents{}).RetainReleaseFloors(t.Context()); err == nil {
+		t.Fatal("zero material initialized durable release floors")
+	}
+	material, err = ReadNetBirdComponents(t.Context(), factory, resolver, claim)
+	if err != nil {
+		t.Fatalf("fresh complete component set before retaining floors: %v", err)
+	}
+	// The real SDK receives 502 only after the disk-backed CAS has committed.
+	var foundationPuts atomic.Int32
+	func() {
+		client := objects.(*objectstorage.ObjectStorageClient)
+		originalHost := client.Host
+		upstream, err := url.Parse(originalHost)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proxy := httputil.NewSingleHostReverseProxy(upstream)
+		proxy.ModifyResponse = func(response *http.Response) error {
+			if response.Request.Method == http.MethodPut && strings.Contains(response.Request.URL.Path, foundationObjectPrefix+"GRU.json") {
+				if foundationPuts.Add(1) == 1 && response.StatusCode == http.StatusOK {
+					return errors.New("fixture lost committed floor CAS response")
+				}
+			}
+			return nil
+		}
+		proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
+			w.WriteHeader(http.StatusBadGateway)
+			io.WriteString(w, `{"code":"BadGateway","message":"committed response lost"}`)
+		}
+		server := httptest.NewServer(proxy)
+		defer server.Close()
+		client.Host = server.URL
+		defer func() { client.Host = originalHost }()
+		if err := material.RetainReleaseFloors(t.Context()); err != nil {
+			t.Fatalf("lost committed floor response did not reobserve complete durable set: %v", err)
+		}
+		if err := material.RetainReleaseFloors(t.Context()); err != nil {
+			t.Fatalf("complete floor replay failed: %v", err)
+		}
+	}()
+	if foundationPuts.Load() != 1 {
+		t.Fatalf("lost response or complete replay dispatched %d floor writes; want one", foundationPuts.Load())
+	}
+	floorStore, err := NewObjectFoundationStore(objects, "ns", "heads")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withFloors, floorETag, err := floorStore.Load(t.Context(), "GRU")
+	if err != nil || withFloors.NetBirdManager.ComponentFloors == nil {
+		t.Fatalf("reopened store lost the complete component floors: %v", err)
+	}
+	originalFloors := *withFloors.NetBirdManager.ComponentFloors
+	for i, component := range material.state.components {
+		floor := originalFloors[i]
+		if floor.Role != component.Role() || floor.ReleaseSequence != component.Release().Claim().ReleaseSequence || floor.ReleaseIdentity != component.Release().ReleaseIdentity() ||
+			floor.Image != component.Release().Claim().Image || floor.BundleSHA256 != component.Release().BundleSHA256() || floor.SequenceMigrationSHA256 != component.Release().Claim().SequenceMigrationSHA256 {
+			t.Fatalf("floor %s lost original signed release evidence", floor.Role)
+		}
+	}
+	expectedLaunch := *afterMaterial.NetBirdManager
+	expectedLaunch.ComponentFloors = &originalFloors
+	if !sameCapacityValue(withFloors.NetBirdManager, &expectedLaunch) {
+		t.Fatal("retaining floors replaced original launch, physical store or financial metadata")
+	}
+	// A renewed current signature preserves the original bundle and performs no CAS.
+	renewedBundle := first.bundle
+	payload, err := trust.EncodePayload(first.claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewedEnvelope, err := trust.Sign(payload, release.ContainerScope(release.ContainerTarget{Cell: "GRU", Role: first.claim.Role, Environment: "production", Architecture: "arm64"}), now.Add(-30*time.Second), now.Add(25*time.Minute), first.signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewedBundle.Claim, err = trust.EncodeEnvelope(renewedEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewedWire, err := json.Marshal(renewedBundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	channelOverrides[channelName] = renewedWire
+	mu.Unlock()
+	renewedMaterial, err := ReadNetBirdComponents(t.Context(), factory, resolver, claim)
+	if err != nil {
+		t.Fatalf("renewed genuine component material: %v", err)
+	}
+	if renewedMaterial.state.components[0].Release().BundleSHA256() == originalFloors[0].BundleSHA256 {
+		t.Fatal("renewed fixture did not change signed bundle bytes")
+	}
+	if err := renewedMaterial.RetainReleaseFloors(t.Context()); err != nil {
+		t.Fatalf("equal signed release renewal failed: %v", err)
+	}
+	retainedFloors, retainedETag, err := floorStore.Load(t.Context(), "GRU")
+	if err != nil || retainedETag != floorETag || *retainedFloors.NetBirdManager.ComponentFloors != originalFloors {
+		t.Fatalf("renewal replaced original bundle evidence or dispatched CAS: %v", err)
+	}
+	mu.Lock()
+	delete(channelOverrides, channelName)
+	mu.Unlock()
+	// Allocate and publish a genuinely signed successor for just the server.
+	nextClaim := first.claim
+	nextClaim.SourceRevision = strings.Repeat("d", 40)
+	family, err := nextClaim.WorkerFamilyDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocations := release.SequenceLocation{Client: objects, Namespace: reader.storage.Namespace, Bucket: reader.storage.HeadBucket}
+	nextClaim.ReleaseSequence, payload, err = allocations.AllocateWithEvidence(t.Context(), release.SequenceIdentity{Role: nextClaim.Role, Environment: "production", SourceRevision: nextClaim.SourceRevision, ManifestSHA256: family}, roots, first.signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualificationEnvelope, err := trust.DecodeEnvelope(nextClaim.Production.Qualification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nextQualification release.ProductionQualification
+	if err := json.Unmarshal(qualificationEnvelope.Payload, &nextQualification); err != nil {
+		t.Fatal(err)
+	}
+	nextQualification.Candidate.SourceRevision = nextClaim.SourceRevision
+	nextClaim.Production.Qualification = sign(nextQualification, release.ProductionQualificationScope(nextQualification.Candidate), private)
+	nextBundle := first.bundle
+	nextBundle.Sequence = payload
+	nextBundle.Claim = sign(nextClaim, release.ContainerScope(release.ContainerTarget{Cell: "GRU", Role: nextClaim.Role, Environment: "production", Architecture: "arm64"}), first.signer)
+	location := releasechannel.Location{Client: objects, Namespace: reader.storage.Namespace, Bucket: reader.storage.HeadBucket}
+	if err := releasechannel.PublishContainer(t.Context(), location, nextBundle, roots, release.ContainerTarget{Cell: "GRU", Role: nextClaim.Role, Environment: "production", Architecture: "arm64"}, now, now.Add(time.Minute), func(ctx context.Context, digest string) (io.ReadCloser, error) {
+		return releasechannel.ReadContainerEvidence(ctx, location, nextClaim.Role, digest)
+	}, allocations); err != nil {
+		t.Fatal(err)
+	}
+	nextMaterial, err := ReadNetBirdComponents(t.Context(), factory, resolver, claim)
+	if err != nil {
+		t.Fatalf("higher genuine signed sequence: %v", err)
+	}
+	if err := nextMaterial.RetainReleaseFloors(t.Context()); err != nil {
+		t.Fatalf("higher sequence could not advance its floor: %v", err)
+	}
+	advanced, advancedETag, err := floorStore.Load(t.Context(), "GRU")
+	if err != nil || advancedETag == floorETag || advanced.NetBirdManager.ComponentFloors[0].ReleaseSequence <= originalFloors[0].ReleaseSequence ||
+		advanced.NetBirdManager.ComponentFloors[1] != originalFloors[1] || advanced.NetBirdManager.ComponentFloors[2] != originalFloors[2] {
+		t.Fatalf("successor reset unrelated role floors: %v", err)
+	}
+	oldWire, err := json.Marshal(first.bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	channelOverrides[channelName] = oldWire
+	mu.Unlock()
+	rollbackMaterial, err := ReadNetBirdComponents(t.Context(), factory, resolver, claim)
+	if err != nil {
+		t.Fatalf("historical still-current signed rollback fixture: %v", err)
+	}
+	if err := rollbackMaterial.RetainReleaseFloors(t.Context()); err == nil {
+		t.Fatal("genuine lower signed sequence replaced the durable release floor")
+	}
+	mu.Lock()
+	delete(channelOverrides, channelName)
+	mu.Unlock()
+	for fault, mutate := range map[string]func(*NetBirdManagerLaunch){
+		"remove all":              func(l *NetBirdManagerLaunch) { l.ComponentFloors = nil },
+		"partial set":             func(l *NetBirdManagerLaunch) { l.ComponentFloors[1] = NetBirdComponentFloor{} },
+		"lower sequence":          func(l *NetBirdManagerLaunch) { l.ComponentFloors[0].ReleaseSequence-- },
+		"equal sequence identity": func(l *NetBirdManagerLaunch) { l.ComponentFloors[0].ReleaseIdentity = strings.Repeat("f", 64) },
+		"equal sequence image": func(l *NetBirdManagerLaunch) {
+			l.ComponentFloors[0].Image = "gru.ocir.io/ns/netbird-server@sha256:" + strings.Repeat("f", 64)
+		},
+		"replace bundle evidence": func(l *NetBirdManagerLaunch) { l.ComponentFloors[0].BundleSHA256 = strings.Repeat("f", 64) },
+		"migration namespace": func(l *NetBirdManagerLaunch) {
+			l.ComponentFloors[0].SequenceNamespace += "other"
+			l.ComponentFloors[0].ReleaseSequence++
+		},
+		"migration identity": func(l *NetBirdManagerLaunch) {
+			l.ComponentFloors[0].SequenceMigrationSHA256 = strings.Repeat("f", 64)
+			l.ComponentFloors[0].ReleaseSequence++
+		},
+	} {
+		current, etag, err := floorStore.Load(t.Context(), "GRU")
+		if err != nil {
+			t.Fatal(err)
+		}
+		mutate(current.NetBirdManager)
+		if _, err := floorStore.CompareAndSwap(t.Context(), current, etag); err == nil {
+			t.Fatalf("floor journal accepted %s", fault)
+		}
+		retained, actualETag, err := floorStore.Load(t.Context(), "GRU")
+		if err != nil || actualETag != advancedETag || !sameCapacityValue(retained.NetBirdManager, advanced.NetBirdManager) {
+			t.Fatalf("refused %s changed the durable floor or launch: %v", fault, err)
+		}
 	}
 	mu.Lock()
 	observedImage += "OTHER"
@@ -712,6 +911,41 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	restartedMaterial, err := ReadNetBirdComponents(t.Context(), factory, resolver, restarted)
 	if err != nil {
 		t.Fatalf("restarted actual manager lost signed component material: %v", err)
+	}
+	if err := restartedMaterial.RetainReleaseFloors(t.Context()); err != nil {
+		t.Fatalf("ready store failed unchanged complete floor replay: %v", err)
+	}
+	// Historical initialized stores cannot invent missing release-floor evidence.
+	readyRecord, readyETag, err := floorStore.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{"initializing", "ready"} {
+		missing := readyRecord
+		launch := *missing.NetBirdManager
+		launch.ComponentFloors, launch.StoreState = nil, state
+		missing.NetBirdManager = &launch
+		wire, err := json.Marshal(missing, json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeOriginal(foundationObjectPrefix+"GRU.json", wire)
+		if err := restartedMaterial.RetainReleaseFloors(t.Context()); err == nil {
+			t.Fatalf("%s historical store synthesized missing release floors", state)
+		}
+		stillMissing, _, err := floorStore.Load(t.Context(), "GRU")
+		if err != nil || stillMissing.NetBirdManager.ComponentFloors != nil {
+			t.Fatalf("refused historical floor initialization mutated the journal: %v", err)
+		}
+	}
+	readyWire, err := json.Marshal(readyRecord, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeOriginal(foundationObjectPrefix+"GRU.json", readyWire)
+	_, restoredETag, err := floorStore.Load(t.Context(), "GRU")
+	if err != nil || restoredETag != readyETag {
+		t.Fatalf("historical fixtures did not restore the original ready record: %v", err)
 	}
 	for _, role := range netBirdComponentRoles() {
 		component, err := restartedMaterial.Component(t.Context(), role)

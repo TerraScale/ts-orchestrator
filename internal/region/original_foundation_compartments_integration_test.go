@@ -410,6 +410,15 @@ func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
 		if err := ProvisionFoundationBundle(t.Context(), f.factoryFor(), f.roots, f.bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) || f.cloud.creates != 0 {
 			t.Fatalf("ordinary prospective path changed its existing startup refusal: %v", err)
 		}
+		origin := f.prepared.Grant.WorkloadGenesis[0]
+		name, err := release.WorkloadGenesisObject(origin.TenancyID, origin.Cell, origin.Environment, origin.Role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		published, err := os.ReadFile(f.cloud.objectPath("gru-1-head/" + name))
+		if err != nil || len(published) <= foundationRecordLimit {
+			t.Fatalf("retained origin fixture must exceed journal bound: %d bytes: %v", len(published), err)
+		}
 		if err := f.run(t); err != nil {
 			t.Fatalf("original compartment component did not complete: %v", err)
 		}

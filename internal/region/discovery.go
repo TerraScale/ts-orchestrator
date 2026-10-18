@@ -238,7 +238,7 @@ func publishFoundationObject(ctx context.Context, client FoundationObjects, name
 	if writeErr == nil {
 		return nil
 	}
-	observed, readErr := readDiscoveryObject(ctx, client, namespace, name, foundationRecordLimit)
+	observed, readErr := readDiscoveryObject(ctx, client, namespace, name, int64(len(wire)))
 	if readErr != nil || !bytes.Equal(observed, wire) {
 		return fmt.Errorf("initial foundation publication did not establish the exact immutable object: %w", writeErr)
 	}
