@@ -47,6 +47,7 @@ type OriginalFoundationCompartmentRegion struct {
 	Network              *OriginalFoundationNetwork        `json:"network,omitempty"`
 	Vault                *OriginalFoundationVault          `json:"vault,omitempty"`
 	Actor                *OriginalFoundationActorLaunch    `json:"actor,omitempty"`
+	SourceIAM            *OriginalFoundationSourceIAM      `json:"sourceIam,omitempty"`
 	NetBirdManager       *OriginalFoundationNetBirdManager `json:"netbirdManager,omitempty"`
 }
 
@@ -426,6 +427,7 @@ func (scope OriginalFoundationCompartments) scopeOnly() OriginalFoundationCompar
 		scope.Regions[region].Network = nil
 		scope.Regions[region].Vault = nil
 		scope.Regions[region].Actor = nil
+		scope.Regions[region].SourceIAM = nil
 		scope.Regions[region].NetBirdManager = nil
 		for role := range scope.Regions[region].Compartments {
 			entry := &scope.Regions[region].Compartments[role]
@@ -507,6 +509,9 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 	if err := r.validateOriginalFoundationActors(); err != nil {
 		return err
 	}
+	if err := r.validateOriginalFoundationSourceIAM(); err != nil {
+		return err
+	}
 	if err := r.validateOriginalNetBirdManager(); err != nil {
 		return err
 	}
@@ -523,6 +528,9 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 			return err
 		}
 		if err := next.retainOriginalFoundationActors(previous); err != nil {
+			return err
+		}
+		if err := next.retainOriginalFoundationSourceIAM(previous); err != nil {
 			return err
 		}
 		if err := next.retainOriginalNetBirdManager(previous); err != nil {
@@ -552,6 +560,9 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 		return err
 	}
 	if err := next.retainOriginalFoundationActors(previous); err != nil {
+		return err
+	}
+	if err := next.retainOriginalFoundationSourceIAM(previous); err != nil {
 		return err
 	}
 	if err := next.retainOriginalNetBirdManager(previous); err != nil {
