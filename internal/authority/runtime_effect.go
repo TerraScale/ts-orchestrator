@@ -32,26 +32,27 @@ var runtimeObjectID = regexp.MustCompile(`^[a-z0-9]{25}$`)
 // RuntimeEffect is a retained execution hold, not task scheduling state. Epoch
 // is the original grant epoch, even when a later leader closes or settles it.
 type RuntimeEffect struct {
-	EffectID               string        `json:"effect_id"`
-	Scope                  WorkloadScope `json:"scope"`
-	RegistrationID         string        `json:"registration_id"`
-	HostSessionID          string        `json:"host_session_id"`
-	WorkerPublicKey        string        `json:"worker_public_key"`
-	NATSUserPublicKey      string        `json:"nats_user_public_key"`
-	RegistrationGeneration uint64        `json:"registration_generation"`
-	InstanceID             string        `json:"instance_id"`
-	NodeID                 string        `json:"node_id"`
-	TaskID                 string        `json:"task_id"`
-	ServiceID              string        `json:"service_id"`
-	TaskSHA256             string        `json:"task_sha256"`
-	AdmissionSHA256        string        `json:"admission_sha256"`
-	Material               []byte        `json:"material"`
-	MaterialSHA256         string        `json:"material_sha256"`
-	Epoch                  uint64        `json:"epoch"`
-	IssuedAt               time.Time     `json:"issued_at"`
-	ExpiresAt              time.Time     `json:"expires_at"`
-	Phase                  string        `json:"phase"`
-	Sequence               uint64        `json:"-"`
+	EffectID               string             `json:"effect_id"`
+	Scope                  WorkloadScope      `json:"scope"`
+	RegistrationID         string             `json:"registration_id"`
+	HostSessionID          string             `json:"host_session_id"`
+	WorkerPublicKey        string             `json:"worker_public_key"`
+	NATSUserPublicKey      string             `json:"nats_user_public_key"`
+	RegistrationGeneration uint64             `json:"registration_generation"`
+	InstanceID             string             `json:"instance_id"`
+	NodeID                 string             `json:"node_id"`
+	TaskID                 string             `json:"task_id"`
+	ServiceID              string             `json:"service_id"`
+	TaskSHA256             string             `json:"task_sha256"`
+	AdmissionSHA256        string             `json:"admission_sha256"`
+	Material               []byte             `json:"material"`
+	MaterialSHA256         string             `json:"material_sha256"`
+	Epoch                  uint64             `json:"epoch"`
+	IssuedAt               time.Time          `json:"issued_at"`
+	ExpiresAt              time.Time          `json:"expires_at"`
+	Phase                  string             `json:"phase"`
+	Stop                   *RuntimeStopRecord `json:"stop,omitzero"`
+	Sequence               uint64             `json:"-"`
 }
 
 func (effect RuntimeEffect) validate() error {
@@ -69,6 +70,9 @@ func (effect RuntimeEffect) validate() error {
 		effect.IssuedAt.IsZero() || effect.IssuedAt.Location() != time.UTC || effect.ExpiresAt.Location() != time.UTC || !effect.ExpiresAt.After(effect.IssuedAt) ||
 		effect.Phase != RuntimeEffectHeld && effect.Phase != RuntimeEffectClosing && effect.Phase != RuntimeEffectSettled {
 		return errors.New("runtime effect identity, lifetime or phase is invalid")
+	}
+	if effect.Stop != nil {
+		return effect.Stop.validate(effect)
 	}
 	return nil
 }
@@ -100,6 +104,9 @@ func decodeRuntimeEffect(entry LogEntry, scope WorkloadScope, effectID string) (
 		return RuntimeEffect{}, errors.New("runtime effect payload differs from its durable identity")
 	}
 	effect.Sequence = entry.Sequence
+	if effect.Stop != nil && (effect.Stop.ClosingSequence >= entry.Sequence || effect.Stop.ChallengeEpoch != entry.Epoch) {
+		return RuntimeEffect{}, errors.New("retained runtime stop differs from its settlement append")
+	}
 	return effect, nil
 }
 
@@ -235,6 +242,12 @@ func (r *Runtime) CloseRuntimeEffect(ctx context.Context, epoch uint64, scope Wo
 func (r *Runtime) SettleRuntimeEffect(ctx context.Context, epoch uint64, scope WorkloadScope, effectID string, expected uint64,
 	verifyStopped func(context.Context, RuntimeEffect) error,
 ) (uint64, error) {
+	return r.settleRuntimeEffect(ctx, epoch, scope, effectID, expected, nil, verifyStopped)
+}
+
+func (r *Runtime) settleRuntimeEffect(ctx context.Context, epoch uint64, scope WorkloadScope, effectID string, expected uint64,
+	stop *RuntimeStopRecord, verifyStopped func(context.Context, RuntimeEffect) error,
+) (uint64, error) {
 	if expected == 0 || verifyStopped == nil {
 		return 0, errors.New("runtime effect settlement requires its sequence and stopped verifier")
 	}
@@ -246,7 +259,13 @@ func (r *Runtime) SettleRuntimeEffect(ctx context.Context, epoch uint64, scope W
 		return 0, err
 	}
 	if effect.Phase == RuntimeEffectSettled {
+		if stop != nil && !reflect.DeepEqual(effect.Stop, stop) {
+			return 0, ErrOperationConflict
+		}
 		return effect.Sequence, nil
+	}
+	if stop != nil && effect.Phase != RuntimeEffectClosing {
+		return 0, ErrFenced
 	}
 	if effect.Sequence != expected {
 		return 0, ErrConflict
@@ -256,6 +275,7 @@ func (r *Runtime) SettleRuntimeEffect(ctx context.Context, epoch uint64, scope W
 	}
 	proof := effect
 	effect.Phase = RuntimeEffectSettled
+	effect.Stop = stop
 	return r.writeRuntimeEffect(ctx, epoch, effect, expected, func(check context.Context) error {
 		return verifyStopped(check, proof)
 	})
@@ -290,12 +310,42 @@ func (r *Runtime) listRuntimeEffects(ctx context.Context, scopeFilter string) ([
 	}
 	r.readMu.Lock()
 	defer r.readMu.Unlock()
-	prefix := fmt.Sprintf("%s.%s.placement.runtime.", controlSubjectRoot, r.config.Scope)
-	info, err := r.readStream.Info(ctx, jetstream.WithSubjectFilter(prefix+scopeFilter+">"))
+	return listRuntimeEffects(ctx, r.readStream, r.config.Scope, r.config.Replicas, scopeFilter)
+}
+
+// ListRuntimeEffectHistory reads the same canonical effects without write authority.
+func (r *Reader) ListRuntimeEffectHistory(ctx context.Context, scope WorkloadScope) ([]RuntimeEffect, error) {
+	if _, err := placementIntentSubjectKey(scope.DatabaseID, scope.PartitionID); err != nil {
+		return nil, err
+	}
+	return r.listRuntimeEffects(ctx, scope.DatabaseID+"."+scope.PartitionID+".")
+}
+
+func (r *Reader) ListAllUnresolvedRuntimeEffects(ctx context.Context) ([]RuntimeEffect, error) {
+	effects, err := r.listRuntimeEffects(ctx, "")
+	return slices.DeleteFunc(effects, func(effect RuntimeEffect) bool { return effect.Phase == RuntimeEffectSettled }), err
+}
+
+func (r *Reader) listRuntimeEffects(ctx context.Context, scopeFilter string) ([]RuntimeEffect, error) {
+	if r == nil || r.stream == nil {
+		return nil, ErrFenced
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	info, err := r.stream.Info(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := verifyControlStreamConfig(info.Config, r.config.Replicas); err != nil {
+	return listRuntimeEffects(ctx, r.stream, r.scope, info.Config.Replicas, scopeFilter)
+}
+
+func listRuntimeEffects(ctx context.Context, stream jetstream.Stream, cell string, replicas int, scopeFilter string) ([]RuntimeEffect, error) {
+	prefix := fmt.Sprintf("%s.%s.placement.runtime.", controlSubjectRoot, cell)
+	info, err := stream.Info(ctx, jetstream.WithSubjectFilter(prefix+scopeFilter+">"))
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyControlStreamConfig(info.Config, replicas); err != nil {
 		return nil, err
 	}
 	keys := make([]string, 0, len(info.State.Subjects))
@@ -311,7 +361,7 @@ func (r *Runtime) listRuntimeEffects(ctx context.Context, scopeFilter string) ([
 	for _, key := range keys {
 		parts := strings.Split(key, ".")
 		scope := WorkloadScope{DatabaseID: parts[0], PartitionID: parts[1]}
-		entry, err := readMutation(ctx, r.readStream, r.config.Scope, MutationRuntimeEffect, key)
+		entry, err := readMutation(ctx, stream, cell, MutationRuntimeEffect, key)
 		if err != nil {
 			return nil, err
 		}

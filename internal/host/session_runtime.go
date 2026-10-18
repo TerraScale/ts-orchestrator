@@ -1,6 +1,9 @@
 package host
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // RunSession owns the existing authenticated host transport while SwarmKit
 // owns workloads. It never recovers or reconciles the native process runner.
@@ -14,9 +17,12 @@ func (a *Agent) RunSession(ctx context.Context) error {
 		return err
 	}
 	lost := make(chan error, 1)
-	monitorDone := make(chan struct{})
-	go func() {
-		defer close(monitorDone)
+	var workers sync.WaitGroup
+	defer func() {
+		cancel()
+		workers.Wait()
+	}()
+	workers.Go(func() {
 		a.maintainSessionLease(work, func(reason error) {
 			a.sessionFailOnce.Do(func() {
 				a.sessionLost.Store(true)
@@ -24,15 +30,14 @@ func (a *Agent) RunSession(ctx context.Context) error {
 				lost <- reason
 			})
 		})
-	}()
-	defer func() { cancel(); <-monitorDone }()
-	go a.publishLoad(work)
-	go a.publishLogs(work)
+	})
+	workers.Go(func() { a.publishLoad(work) })
+	workers.Go(func() { a.publishLogs(work) })
 	if a.cfg.FollowRollouts != nil {
-		go a.cfg.FollowRollouts(work, a)
+		workers.Go(func() { a.cfg.FollowRollouts(work, a) })
 	}
 	if a.cfg.FollowNetBird != nil {
-		go a.cfg.FollowNetBird(work, a)
+		workers.Go(func() { a.cfg.FollowNetBird(work, a) })
 	}
 	if a.cfg.Initialized != nil {
 		a.cfg.Initialized()

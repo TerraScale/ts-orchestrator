@@ -16,18 +16,20 @@ import (
 // RuntimeEffectCaller is constructed only after the existing signed host request
 // and current registered session have passed controller authorization.
 type RuntimeEffectCaller struct {
-	registration Registration
-	sessionID    string
-	epoch        uint64
-	expiresAt    time.Time
-	nonce        string
+	registration  Registration
+	sessionID     string
+	epoch         uint64
+	expiresAt     time.Time
+	requestExpiry time.Time
+	nonce         string
 }
 
-func (c RuntimeEffectCaller) Registration() Registration { return c.registration }
-func (c RuntimeEffectCaller) SessionID() string          { return c.sessionID }
-func (c RuntimeEffectCaller) Epoch() uint64              { return c.epoch }
-func (c RuntimeEffectCaller) ExpiresAt() time.Time       { return c.expiresAt }
-func (c RuntimeEffectCaller) Nonce() string              { return c.nonce }
+func (c RuntimeEffectCaller) Registration() Registration  { return c.registration }
+func (c RuntimeEffectCaller) SessionID() string           { return c.sessionID }
+func (c RuntimeEffectCaller) Epoch() uint64               { return c.epoch }
+func (c RuntimeEffectCaller) ExpiresAt() time.Time        { return c.expiresAt }
+func (c RuntimeEffectCaller) RequestExpiresAt() time.Time { return c.requestExpiry }
+func (c RuntimeEffectCaller) Nonce() string               { return c.nonce }
 
 // RuntimeEffectHandler derives grants from current manager-side task and DATA
 // authority; this boundary supplies authenticated caller identity, never safety.
@@ -110,7 +112,7 @@ func (c *Controller) serveRuntimeEffect(ctx context.Context, req request, regist
 	if err := c.guard(ctx, epoch); err != nil {
 		return nil, err
 	}
-	caller := RuntimeEffectCaller{registration: registration, sessionID: req.SessionID, epoch: epoch, expiresAt: current.ExpiresAt, nonce: req.Nonce}
+	caller := RuntimeEffectCaller{registration: registration, sessionID: req.SessionID, epoch: epoch, expiresAt: current.ExpiresAt, requestExpiry: req.Envelope.ExpiresAt, nonce: req.Nonce}
 	payload, err := c.runtimeEffects.HandleRuntimeEffect(ctx, caller, query)
 	if err != nil {
 		return nil, err

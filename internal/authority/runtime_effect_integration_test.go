@@ -322,10 +322,27 @@ func TestRuntimeEffectR3Integration(t *testing.T) {
 	if err != nil || len(history) != 2 {
 		t.Fatalf("settled possible-writer history=%+v,%v", history, err)
 	}
+	rootHistory, err := leaseReader.ListRuntimeEffectHistory(ctx, scope)
+	if err != nil || !reflect.DeepEqual(rootHistory, history) {
+		t.Fatalf("readonly root history differs from canonical runtime history: %v", err)
+	}
+	rootUnresolved, err := leaseReader.ListAllUnresolvedRuntimeEffects(ctx)
+	if err != nil || len(rootUnresolved) != 0 {
+		t.Fatalf("readonly root retained settled effects as unresolved: %v", err)
+	}
 	for _, retained := range history {
 		if retained.Phase != RuntimeEffectSettled || retained.Epoch != effect.Epoch || !bytes.Equal(retained.Material, material) {
 			t.Fatalf("history lost settled provenance: %+v", retained)
 		}
+		if retained.Stop != nil {
+			t.Fatal("generic settlement manufactured a signed worker stop record")
+		}
+	}
+	readsBeforeReplay := proofReads.Load()
+	if _, err := current.SettleRuntimeEffectWithStop(ctx, epoch, scope, effect.EffectID, closing,
+		RuntimeStopRecord{ClosingSequence: closing, ChallengeEpoch: epoch, ChallengeIssuedAt: time.Now().UTC()}, verify,
+	); !errors.Is(err, ErrOperationConflict) || proofReads.Load() != readsBeforeReplay {
+		t.Fatalf("generic settlement was reclassified as a signed stop: %v", err)
 	}
 	expiring := effect
 	expiring.Scope = WorkloadScope{DatabaseID: entityid.New(), PartitionID: entityid.New()}
@@ -365,5 +382,11 @@ func TestRuntimeEffectR3Integration(t *testing.T) {
 	}
 	if _, err := current.ListAllUnresolvedRuntimeEffects(ctx); err == nil {
 		t.Fatal("recovery inventory ignored malformed retained history")
+	}
+	if _, err := leaseReader.ListRuntimeEffectHistory(ctx, scope); err == nil {
+		t.Fatal("readonly root accepted malformed canonical history")
+	}
+	if _, err := leaseReader.ListAllUnresolvedRuntimeEffects(ctx); err == nil {
+		t.Fatal("readonly root ignored malformed retained history")
 	}
 }

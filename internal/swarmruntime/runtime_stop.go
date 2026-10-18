@@ -29,6 +29,10 @@ func (n *Node) SignRuntimeStop(ctx context.Context, observed execution.ObservedR
 	if err != nil {
 		return executionwire.SignedRuntimeStop{}, err
 	}
+	closingGrant, err := observed.ClosingGrant()
+	if err != nil {
+		return executionwire.SignedRuntimeStop{}, err
+	}
 	now := time.Now().UTC()
 	if n == nil || n.upstream == nil || n.role != "container" || payload.NodeID != n.ID() || payload.InstanceID == "" ||
 		payload.Challenge == "" || payload.Deadline.IsZero() || now.Before(payload.Deadline) || payload.ObservedAt.Before(payload.Deadline) ||
@@ -55,7 +59,7 @@ func (n *Node) SignRuntimeStop(ctx context.Context, observed execution.ObservedR
 	if err != nil {
 		return executionwire.SignedRuntimeStop{}, err
 	}
-	digest := sha256.Sum256(append([]byte("TS-RUNTIME-STOP-V1\x00"), wire...))
+	digest := sha256.Sum256(append([]byte("TS-RUNTIME-STOP-V2\x00"), wire...))
 	if err := ctx.Err(); err != nil {
 		return executionwire.SignedRuntimeStop{}, err
 	}
@@ -63,5 +67,5 @@ func (n *Node) SignRuntimeStop(ctx context.Context, observed execution.ObservedR
 	if err != nil {
 		return executionwire.SignedRuntimeStop{}, err
 	}
-	return executionwire.SignedRuntimeStop{Payload: payload, CertificateChain: chain, Signature: signature}, nil
+	return executionwire.SignedRuntimeStop{ClosingGrant: closingGrant, Payload: payload, CertificateChain: chain, Signature: signature}, nil
 }

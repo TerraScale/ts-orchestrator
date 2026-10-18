@@ -1181,19 +1181,33 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (payload
 	if err != nil {
 		return nil, err
 	}
-	epoch := c.authorityEpoch()
-	if err := c.guard(ctx, epoch); err != nil {
-		return nil, err
-	}
+	var stopDeadline time.Time
 	requireActive := req.Operation == "material" || req.Operation == "container-material" || req.Operation == "registry-admission" || req.Operation == "function-material"
 	if req.Operation == "runtime-effect" {
 		var operation struct {
-			Action string `json:"action"`
+			Action    string           `json:"action"`
+			StopProof *json.RawMessage `json:"stop_proof,omitempty"`
 		}
 		if err := json.Unmarshal(req.Payload, &operation); err != nil {
 			return nil, err
 		}
 		requireActive = operation.Action != "close"
+		if operation.Action == "close" && operation.StopProof != nil {
+			stopDeadline = req.Envelope.ExpiresAt
+			if s.ExpiresAt.Before(stopDeadline) {
+				stopDeadline = s.ExpiresAt
+			}
+			if original, ok := ctx.Deadline(); ok && original.Before(stopDeadline) {
+				stopDeadline = original
+			}
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, stopDeadline)
+			defer cancel()
+		}
+	}
+	epoch := c.authorityEpoch()
+	if err := c.guard(ctx, epoch); err != nil {
+		return nil, err
 	}
 	defer func() {
 		if resultErr != nil {
@@ -1201,6 +1215,14 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (payload
 		}
 		if err := c.recheckReplyAuthority(ctx, epoch, req, r, requireActive); err != nil {
 			payload, resultErr = nil, err
+			return
+		}
+		if !stopDeadline.IsZero() {
+			if err := ctx.Err(); err != nil {
+				payload, resultErr = nil, err
+			} else if !time.Now().Before(stopDeadline) {
+				payload, resultErr = nil, context.DeadlineExceeded
+			}
 		}
 	}()
 	switch req.Operation {

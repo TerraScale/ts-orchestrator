@@ -45,7 +45,10 @@ func (a *Agent) publishLogs(ctx context.Context) {
 		minute:  a.wallTime().Truncate(time.Minute),
 		publish: publish,
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	windowDone := make(chan struct{})
 	go func() {
+		defer close(windowDone)
 		for {
 			select {
 			case <-ctx.Done():
@@ -55,6 +58,10 @@ func (a *Agent) publishLogs(ctx context.Context) {
 				windows.roll(ctx, a.wallTime())
 			}
 		}
+	}()
+	defer func() {
+		cancel()
+		<-windowDone
 	}()
 	retry := logRetry{wait: logMinBackoff}
 	for {
@@ -197,6 +204,9 @@ func (w *logWindows) roll(ctx context.Context, now time.Time) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for end := now.Truncate(time.Minute); w.minute.Before(end); w.minute = w.minute.Add(time.Minute) {
+		if ctx.Err() != nil {
+			return
+		}
 		w.send(ctx, w.counter.Flush(w.minute))
 	}
 }

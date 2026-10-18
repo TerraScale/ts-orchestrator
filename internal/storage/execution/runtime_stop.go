@@ -4,6 +4,8 @@ package execution
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/executionwire"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
@@ -21,8 +24,18 @@ import (
 
 // ObservedRuntimeStop can only be produced from this session's actual runtime.
 type ObservedRuntimeStop struct {
-	payload  executionwire.RuntimeStopPayload
-	observed bool
+	payload      executionwire.RuntimeStopPayload
+	closingGrant protocol.Envelope
+	observed     bool
+}
+
+func (o ObservedRuntimeStop) ClosingGrant() (protocol.Envelope, error) {
+	if !o.observed {
+		return protocol.Envelope{}, ErrUnsafe
+	}
+	grant := o.closingGrant
+	grant.Payload = grant.Payload.Clone()
+	return grant, nil
 }
 
 func (o ObservedRuntimeStop) Payload() (executionwire.RuntimeStopPayload, error) {
@@ -134,8 +147,15 @@ func (s *WorkerSession) ObserveRuntimeStop(ctx context.Context, task *api.Task, 
 	if ctx.Err() != nil || now.Before(grant.challengeIssuedAt) {
 		return ObservedRuntimeStop{}, ErrUnsafe
 	}
-	return ObservedRuntimeStop{observed: true, payload: executionwire.RuntimeStopPayload{
-		EffectID: grant.EffectID(), TaskSHA256: hash, InstanceID: s.identity.InstanceID, NodeID: s.identity.NodeID,
+	closingGrant := grant.envelope
+	closingGrant.Payload = closingGrant.Payload.Clone()
+	wire, err := json.Marshal(closingGrant, json.Deterministic(true))
+	if err != nil {
+		return ObservedRuntimeStop{}, err
+	}
+	return ObservedRuntimeStop{observed: true, closingGrant: closingGrant, payload: executionwire.RuntimeStopPayload{
+		ClosingGrantSHA256: fmt.Sprintf("%x", sha256.Sum256(wire)),
+		EffectID:           grant.EffectID(), TaskSHA256: hash, InstanceID: s.identity.InstanceID, NodeID: s.identity.NodeID,
 		ContainerID: observed.ContainerID, KernelStart: observed.Process.KernelStart, Cgroup: observed.Process.Cgroup,
 		Challenge: challenge, Epoch: grant.Epoch(), Revision: grant.Revision(), PIDNamespace: observed.PIDNamespace,
 		MountNamespace: observed.MountNamespace, HostPID: observed.Process.PID, Deadline: grant.Deadline(), ObservedAt: now,
