@@ -180,6 +180,47 @@ func TestFunctionChannelRejectsOversizedSourceAndCrossNamespaceModules(t *testin
 	if _, _, err := ReadFunctionChannel(t.Context(), location); err == nil {
 		t.Fatal("duplicate tenant/function index entry accepted")
 	}
+
+	t.Run("release pin validation and status bounds", func(t *testing.T) {
+		for _, pins := range []*ReleasePins{nil, {Rollback: []string{"short"}}, {KnownBad: []string{strings.Repeat("B", 64)}}, {KnownBad: []string{strings.Repeat("z", 64)}}} {
+			if err := pins.Validate(); err == nil {
+				t.Fatalf("accepted invalid pins: %+v", pins)
+			}
+		}
+		location, backend := functionObjectEndpoint(t)
+		location.Namespace = "ns"
+		pins := &ReleasePins{KnownBad: make([]string, 1200)}
+		for i := range pins.KnownBad {
+			pins.KnownBad[i] = fmt.Sprintf("%064x", i)
+		}
+		if err := WriteStatus(t.Context(), location, Status{Cell: "GRU", Pins: pins}); err != nil {
+			t.Fatal(err)
+		}
+		status, found, err := ReadStatus(t.Context(), location)
+		if err != nil || !found || !status.Pins.Equal(pins) {
+			t.Fatalf("large pin inventory lost: %+v %v", status.Pins, err)
+		}
+		if err := WriteServiceStatus(t.Context(), location, ServiceStatus{Cell: "GRU", Role: "terrabase", Pins: pins}); err != nil {
+			t.Fatal(err)
+		}
+		service, found, err := ReadServiceStatus(t.Context(), location, "terrabase")
+		if err != nil || !found || !service.Pins.Equal(pins) {
+			t.Fatalf("large service pin inventory lost: %+v %v", service.Pins, err)
+		}
+		backend.mu.Lock()
+		before := backend.puts
+		backend.mu.Unlock()
+		if before != 2 {
+			t.Fatalf("status/service PUT attempts = %d, want 2", before)
+		}
+		writeErr := location.write(t.Context(), StatusObject, make([]byte, maxStatusBytes+1))
+		backend.mu.Lock()
+		after := backend.puts
+		backend.mu.Unlock()
+		if !errors.Is(writeErr, ErrInvalid) || after != before {
+			t.Fatalf("oversized status write: %v, puts %d -> %d", writeErr, before, after)
+		}
+	})
 }
 
 func verifyFunctionChannelEntry(t *testing.T, location Location, entry FunctionRelease, roots trust.Keyring, floor uint64) {
@@ -268,6 +309,7 @@ type functionObject struct {
 type functionBucketBackend struct {
 	mu                      sync.Mutex
 	objects                 map[string]functionObject
+	puts                    int
 	dropModule, dropChannel bool
 	concurrent              []byte
 }
@@ -316,6 +358,7 @@ func (backend *functionBucketBackend) serve(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "method", 405)
 		return
 	}
+	backend.puts++
 	if name == FunctionChannelObject && len(backend.concurrent) > 0 {
 		backend.objects[name] = functionObject{data: bytes.Clone(backend.concurrent), version: object.version + 1}
 		backend.concurrent = nil

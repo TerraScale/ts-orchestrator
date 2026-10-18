@@ -245,4 +245,78 @@ func TestCollectWANLoopbackBoundsAndNoRedirect(t *testing.T) {
 			t.FailNow()
 		}
 	}
+
+	// Keep the original synthetic scrape time while parsing bytes received over HTTP.
+	at := time.Now().UTC().Add(-time.Minute)
+	for index, input := range []string{
+		wanMetricsFixture,
+		wanMetricsFixture + strings.ReplaceAll(wanMetricsFixture, "sfo-1", "new-native-zone"),
+		"dotnet_process_memory_working_set_bytes 100\n",
+		strings.ReplaceAll(strings.ReplaceAll(wanMetricsFixture, "} 3\n", "} 0\n"), "} 7\n", "} 0\n"),
+	} {
+		inputBody.Store(&input)
+		before := requests.Load()
+		scrapeCtx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+		request, err := http.NewRequestWithContext(scrapeCtx, http.MethodGet, server.URL+"/metrics", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := server.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, readErr := io.ReadAll(io.LimitReader(response.Body, wanBodyBytes+1))
+		closeErr := response.Body.Close()
+		if response.StatusCode != http.StatusOK || readErr != nil || closeErr != nil || string(data) != input {
+			t.Fatalf("native positive scrape: status=%d read=%v close=%v body matches=%v",
+				response.StatusCode, readErr, closeErr, string(data) == input)
+		}
+		select {
+		case receipt := <-served:
+			if receipt.method != http.MethodGet || receipt.path != "/metrics" || receipt.body != input ||
+				receipt.written != len(input) || receipt.err != nil {
+				t.Fatalf("native positive scrape receipt: method=%q path=%q body matches=%v written=%d want=%d error=%v",
+					receipt.method, receipt.path, receipt.body == input, receipt.written, len(input), receipt.err)
+			}
+		case <-scrapeCtx.Done():
+			t.Fatalf("native positive body write receipt canceled: %v", scrapeCtx.Err())
+		}
+		cancel()
+		if requests.Load() != before+1 {
+			t.Fatal("positive parser fixture did not make exactly one native request")
+		}
+
+		switch index {
+		case 0:
+			observation, err := ParseWANMetrics(data, "gru-native-region", at)
+			if err != nil || observation == nil || !observation.ObservedAt.Equal(at) || len(observation.Sources) != 1 {
+				t.Fatalf("WAN observation = %+v, %v", observation, err)
+			}
+			source := observation.Sources[0]
+			if source.SourceRegion != "sfo-1" || observation.ReceiverRegion != "gru-native-region" || *source.LagGroups != 7 ||
+				*source.StalenessSeconds != 12.5 || *source.Members != 3 || *source.Unregistered != 2 ||
+				*source.Conflicts != 1 || *source.AheadFailuresTotal != 4 {
+				t.Fatalf("source gauge values = %+v", source)
+			}
+			for _, region := range []string{"", "GRU", "1-gru", "gru.*"} {
+				if got, err := ParseWANMetrics(data, region, at); err == nil || got != nil {
+					t.Fatalf("invalid receiver region accepted: %+v, %v", got, err)
+				}
+			}
+		case 1:
+			if got, err := ParseWANMetrics(data, "gru-native-region", at); err != nil || got == nil || len(got.Sources) != 2 {
+				t.Fatalf("unmapped raw native source was not collected: %+v, %v", got, err)
+			}
+		case 2:
+			if got, err := ParseWANMetrics(data, "gru-1", at); err != nil || got != nil {
+				t.Fatalf("older runtime without WAN gauges = %+v, %v", got, err)
+			}
+		case 3:
+			got, err := ParseWANMetrics(data, "gru-1", at)
+			if err != nil || got == nil || *got.Sources[0].Members != 0 || *got.Sources[0].LagGroups != 0 {
+				t.Fatalf("unanswered evidence lost: %+v, %v", got, err)
+			}
+		}
+	}
 }
