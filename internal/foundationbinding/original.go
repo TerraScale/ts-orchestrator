@@ -20,6 +20,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -131,7 +132,7 @@ func ResolveOriginalStartup(ctx context.Context, factory *ociclient.Factory, aut
 			return deny()
 		}
 		if originalText(recipe, "cell") == authority.Cell {
-			if foundIAM || originalText(recipe, "purpose") != "original-material-publication-iam/v3" || originalText(recipe, "producerIntentSha256") != originalDigest(purpose) {
+			if foundIAM || (originalText(recipe, "purpose") != "original-material-publication-iam/v3" && originalText(recipe, "purpose") != "original-material-publication-iam/v4") || originalText(recipe, "producerIntentSha256") != originalDigest(purpose) {
 				return deny()
 			}
 			foundIAM = true
@@ -513,6 +514,7 @@ type originalVaultTarget struct {
 type originalIAMProducer struct {
 	Cell         string `json:"cell"`
 	DeploymentID string `json:"deploymentId"`
+	ClusterID    string `json:"clusterId"`
 	ImageOCID    string `json:"imageOcid"`
 	SourceObject string `json:"sourceObject"`
 	Home         struct {
@@ -526,8 +528,10 @@ type originalIAMProducer struct {
 }
 type originalIAMStatementsScope struct {
 	Recipe struct {
-		TenancyID string `json:"tenancyId"`
-		Cell      string `json:"cell"`
+		TenancyID             string `json:"tenancyId"`
+		Cell                  string `json:"cell"`
+		Purpose               string `json:"purpose"`
+		RuntimeJoinSecretName string `json:"runtimeJoinSecretName"`
 	} `json:"recipe"`
 	ActorID          string `json:"actorId"`
 	PeerDynamicGroup *struct {
@@ -664,7 +668,7 @@ func verifyOriginalMaterialScope(ctx context.Context, factory *ociclient.Factory
 			recipe = candidate
 		}
 	}
-	if recipe == nil || originalDigest(entry["recipe"]) != originalDigest(recipe) || originalText(recipe, "purpose") != "original-material-publication-iam/v3" || originalText(entry, "grantSha256") != authority.GrantSHA256 || originalText(entry, "bundleSha256") != originalText(root, "bundleSha256") || originalText(entry, "intentSha256") != originalText(regional, "intentSha256") || originalText(entry, "operationId") != originalText(regional, "operationId") || originalNumber(entry, "generation") != 1 || originalText(entry, "actorId") != originalText(originalMap(originalMap(regional, "actor"), "provenance"), "resourceId") || originalText(originalMap(originalMap(regional, "admissionReads"), "recipe"), "purpose") != "original-actor-admission-reads/v2" {
+	if recipe == nil || originalDigest(entry["recipe"]) != originalDigest(recipe) || (originalText(recipe, "purpose") != "original-material-publication-iam/v3" && originalText(recipe, "purpose") != "original-material-publication-iam/v4") || originalText(entry, "grantSha256") != authority.GrantSHA256 || originalText(entry, "bundleSha256") != originalText(root, "bundleSha256") || originalText(entry, "intentSha256") != originalText(regional, "intentSha256") || originalText(entry, "operationId") != originalText(regional, "operationId") || originalNumber(entry, "generation") != 1 || originalText(entry, "actorId") != originalText(originalMap(originalMap(regional, "actor"), "provenance"), "resourceId") || originalText(originalMap(originalMap(regional, "admissionReads"), "recipe"), "purpose") != "original-actor-admission-reads/v2" {
 		return deny()
 	}
 	for key, value := range map[string]any{"birthSha256": birth, "actorSha256": regional["actor"], "vaultSha256": regional["vault"], "admissionSha256": regional["admissionReads"], "publicationSha256": root["publication"]} {
@@ -674,6 +678,16 @@ func verifyOriginalMaterialScope(ctx context.Context, factory *ociclient.Factory
 	}
 	target := map[string]any{"compartmentOcid": ids["control_compartment"], "vaultOcid": ids["vault"], "kmsKeyOcid": ids["key"]}
 	if originalDigest(entry["target"]) != originalDigest(target) {
+		return deny()
+	}
+	if originalText(recipe, "purpose") == "original-material-publication-iam/v4" {
+		producer := originalMap(birth, "intent")
+		clusterID := originalText(producer, "clusterId")
+		name := vaultsecret.Name(strings.ToLower(authority.Cell)+"-"+strings.ToLower(clusterID), "TS_ORCHESTRATOR_SWARM_JOIN")
+		if clusterID == "" || originalText(recipe, "runtimeJoinSecretName") != name {
+			return deny()
+		}
+	} else if originalText(recipe, "runtimeJoinSecretName") != "" {
 		return deny()
 	}
 	startup := originalMap(entry, "startup")
@@ -805,6 +819,14 @@ func OriginalStartupIAMStatements(scopeWire []byte) ([]string, error) {
 		return nil, errors.New("original startup IAM DATA is incomplete")
 	}
 	startup := scope.Startup
+	if scope.Recipe.Purpose == "original-material-publication-iam/v4" {
+		name := vaultsecret.Name(strings.ToLower(startup.Producer.Cell)+"-"+strings.ToLower(startup.Producer.ClusterID), "TS_ORCHESTRATOR_SWARM_JOIN")
+		if startup.Producer.ClusterID == "" || startup.Producer.Cell != scope.Recipe.Cell || scope.Recipe.RuntimeJoinSecretName != name {
+			return nil, errors.New("original startup IAM runtime join name differs from signed producer")
+		}
+	} else if scope.Recipe.RuntimeJoinSecretName != "" {
+		return nil, errors.New("historical original startup IAM cannot acquire runtime join publication")
+	}
 	const actor = "any-user"
 	peer := "dynamic-group " + value(scope.PeerDynamicGroup.Request.Name)
 	type statementKey struct{ principal, compartment, verb, resource string }
@@ -862,12 +884,15 @@ func OriginalStartupIAMStatements(scopeWire []byte) ([]string, error) {
 			read(actor, startup.HomeControlCompartmentID, "GetKey", "KEY_READ", fmt.Sprintf("target.key.id='%s'", key))
 		}
 	}
-	publish := func(target originalVaultTarget, names []string) {
+	publish := func(target originalVaultTarget, names []string, bundleOperation string) {
 		selectors := make([]string, len(names))
 		for i, name := range names {
 			selectors[i] = fmt.Sprintf("target.secret.name='%s'", name)
 		}
 		for _, operation := range originalStartupPublicationOperations() {
+			if operation.Operation == "GetSecretBundle" {
+				operation.Operation = bundleOperation
+			}
 			extra, verb := "", "use"
 			switch operation.Scope {
 			case "regional-control-list":
@@ -907,7 +932,10 @@ func OriginalStartupIAMStatements(scopeWire []byte) ([]string, error) {
 			names = append(names, region.LinkSecretNames[:]...)
 		}
 		if !homeIssuer {
-			publish(region.Target, names)
+			publish(region.Target, names, "GetSecretBundle")
+		}
+		if region.Producer.Cell == scope.Recipe.Cell && scope.Recipe.Purpose == "original-material-publication-iam/v4" {
+			publish(region.Target, []string{scope.Recipe.RuntimeJoinSecretName}, "GetSecretBundleByName")
 		}
 		if region.Producer.Cell != scope.Recipe.Cell {
 			read(principal, region.ImageCompartmentID, "GetImage", "INSTANCE_IMAGE_INSPECT", fmt.Sprintf("target.image.id='%s'", region.Producer.ImageOCID))
@@ -929,6 +957,9 @@ func OriginalStartupIAMStatements(scopeWire []byte) ([]string, error) {
 		read(peer, region.NetworkCompartmentID, "GetVnic", "VNIC_READ", "")
 		// Every admitted compartment instance can read all non-source bundles, including founder names.
 		add(peer, region.Target.CompartmentOCID, "read", "secret-bundles", "GetSecretBundle", "SECRET_BUNDLE_READ", "target.secret.name != /ts-bootstrap-source-*/")
+		if scope.Recipe.Purpose == "original-material-publication-iam/v4" {
+			add(peer, region.Target.CompartmentOCID, "read", "secret-bundles", "GetSecretBundleByName", "SECRET_BUNDLE_READ", fmt.Sprintf("target.vault.id='%s', target.secret.name='%s'", region.Target.VaultOCID, scope.Recipe.RuntimeJoinSecretName))
+		}
 		add(peer, region.Target.CompartmentOCID, "inspect", "secrets", "ListSecrets", "SECRET_INSPECT", "")
 		add(peer, region.Target.CompartmentOCID, "read", "secrets", "GetSecret", "SECRET_READ", "target.secret.name != /ts-bootstrap-source-*/")
 	}

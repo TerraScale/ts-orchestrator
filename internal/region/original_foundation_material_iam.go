@@ -17,6 +17,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 )
@@ -25,6 +26,7 @@ const (
 	originalMaterialIAMPurpose   = "original-material-publication-iam/v1"
 	originalMaterialIAMPurposeV2 = "original-material-publication-iam/v2"
 	originalMaterialIAMPurposeV3 = "original-material-publication-iam/v3"
+	originalMaterialIAMPurposeV4 = "original-material-publication-iam/v4"
 )
 
 var ErrOriginalFoundationMaterialIAMPending = fmt.Errorf("%w: original material-publication IAM retained; startup and runtime admission remain unavailable", ErrOriginalFoundationAdmissionReadsPending)
@@ -48,6 +50,7 @@ type OriginalMaterialPublicationIAMIntent struct {
 	Vault                        string                                 `json:"vault"`
 	Key                          string                                 `json:"key"`
 	SecretNames                  []string                               `json:"secretNames"`
+	RuntimeJoinSecretName        string                                 `json:"runtimeJoinSecretName,omitempty"`
 	Operations                   [7]OriginalActorAdmissionReadOperation `json:"operations"`
 	PolicyRead                   *OriginalActorAdmissionReadOperation   `json:"policyRead,omitempty"`
 	LinkSecretNames              [8]string                              `json:"linkSecretNames,omitzero"`
@@ -72,7 +75,7 @@ func originalMaterialIAMRecipe(version string, purpose OriginalSourceProducerInt
 	var policyRead *OriginalActorAdmissionReadOperation
 	switch version {
 	case originalMaterialIAMPurpose:
-	case originalMaterialIAMPurposeV2, originalMaterialIAMPurposeV3:
+	case originalMaterialIAMPurposeV2, originalMaterialIAMPurposeV3, originalMaterialIAMPurposeV4:
 		policyRead = new(OriginalActorAdmissionReadOperation{"GetPolicy", "policies", "POLICY_READ", "regional-control-policy-read"})
 	default:
 		return recipe, ErrOriginalSourceProducerHold
@@ -90,7 +93,7 @@ func originalMaterialIAMRecipe(version string, purpose OriginalSourceProducerInt
 		PlanSHA256: purpose.PlanSHA256, AdmissionAuthorizationSHA256: purpose.AdmissionAuthorizationSHA256,
 		ActorOperationID: purpose.OperationID, ActorRecipeSHA256: purpose.Allocation.RecipeSHA256,
 		ControlCompartment: control, Vault: vault, Key: key, SecretNames: names, Operations: originalMaterialIAMOperations(), PolicyRead: policyRead}
-	if version == originalMaterialIAMPurposeV3 {
+	if version == originalMaterialIAMPurposeV3 || version == originalMaterialIAMPurposeV4 {
 		recipe.LinkSecretNames, err = bootstrapmaterial.OriginalLinkPublicationSecretNames(config)
 		if err != nil {
 			return OriginalMaterialPublicationIAMIntent{}, err
@@ -99,6 +102,12 @@ func originalMaterialIAMRecipe(version string, purpose OriginalSourceProducerInt
 		if err != nil {
 			return OriginalMaterialPublicationIAMIntent{}, err
 		}
+	}
+	if version == originalMaterialIAMPurposeV4 {
+		if purpose.ClusterID == "" || purpose.ClusterID != config.ClusterID {
+			return OriginalMaterialPublicationIAMIntent{}, ErrOriginalSourceProducerHold
+		}
+		recipe.RuntimeJoinSecretName = vaultsecret.Name(strings.ToLower(purpose.Cell)+"-"+strings.ToLower(purpose.ClusterID), "TS_ORCHESTRATOR_SWARM_JOIN")
 	}
 	return recipe, nil
 }
@@ -114,15 +123,15 @@ func originalMaterialIAMIntents(grant FoundationGrant, home bootstrap.StorageDom
 		if validateOriginalStartupAdmissions(grant) != nil {
 			return intents, ErrOriginalSourceProducerHold
 		}
-		version = originalMaterialIAMPurposeV3
+		version = originalMaterialIAMPurposeV4
 	}
 	if grant.OriginalMaterialPublicationIAM != nil {
 		version = (*grant.OriginalMaterialPublicationIAM)[0].Purpose
 	}
-	if version == originalMaterialIAMPurposeV3 && (validateOriginalStartupAdmissions(grant) != nil || grant.Regions[0].BootstrapMaterial == nil || grant.Regions[0].BootstrapMaterial.OriginalStartupAdmission == nil) {
+	if (version == originalMaterialIAMPurposeV3 || version == originalMaterialIAMPurposeV4) && (validateOriginalStartupAdmissions(grant) != nil || grant.Regions[0].BootstrapMaterial == nil || grant.Regions[0].BootstrapMaterial.OriginalStartupAdmission == nil) {
 		return intents, ErrOriginalSourceProducerHold
 	}
-	if version == originalMaterialIAMPurposeV3 {
+	if version == originalMaterialIAMPurposeV3 || version == originalMaterialIAMPurposeV4 {
 		for _, recipe := range *grant.OriginalActorAdmissionReads {
 			if recipe.Purpose != originalAdmissionReadPurposeV2 {
 				return intents, ErrOriginalSourceProducerHold
@@ -271,7 +280,7 @@ func originalMaterialIAMScope(record FoundationRecord, index int, recipe Origina
 	if scope.Target.Validate(regional.OCIRegion) != nil {
 		return OriginalFoundationMaterialIAM{}, ErrOriginalSourceProducerHold
 	}
-	if recipe.Purpose == originalMaterialIAMPurposeV3 {
+	if recipe.Purpose == originalMaterialIAMPurposeV3 || recipe.Purpose == originalMaterialIAMPurposeV4 {
 		if regional.Network == nil || root.Regions[0].Vault == nil || regional.AdmissionReads.Recipe.Purpose != originalAdmissionReadPurposeV2 {
 			return scope, ErrOriginalSourceProducerHold
 		}
@@ -310,7 +319,7 @@ func originalMaterialIAMScope(record FoundationRecord, index int, recipe Origina
 		return scope, err
 	}
 	scope.IdentitySHA256 = digestSource(wire)
-	if recipe.Purpose == originalMaterialIAMPurposeV3 {
+	if recipe.Purpose == originalMaterialIAMPurposeV3 || recipe.Purpose == originalMaterialIAMPurposeV4 {
 		scope.PeerDynamicGroup = &OriginalFoundationMaterialPeerGroup{Request: identity.CreateDynamicGroupDetails{CompartmentId: new(recipe.TenancyID), Name: new("ts-original-peer-" + scope.IdentitySHA256[:32]), Description: new("Original regional controllers admitted by exact control compartment"), MatchingRule: new(fmt.Sprintf("ALL {instance.compartment.id='%s'}", scope.Target.CompartmentOCID)), FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}}
 	}
 	scope.Request, err = originalMaterialIAMPolicy(scope)
@@ -324,7 +333,7 @@ func originalMaterialIAMScope(record FoundationRecord, index int, recipe Origina
 }
 
 func originalMaterialIAMPolicy(scope OriginalFoundationMaterialIAM) (identity.CreatePolicyDetails, error) {
-	if scope.Recipe.Purpose == originalMaterialIAMPurposeV3 {
+	if scope.Recipe.Purpose == originalMaterialIAMPurposeV3 || scope.Recipe.Purpose == originalMaterialIAMPurposeV4 {
 		wire, err := json.Marshal(scope, json.Deterministic(true))
 		if err != nil {
 			return identity.CreatePolicyDetails{}, err
@@ -501,7 +510,7 @@ func provisionOriginalMaterialPeerGroup(ctx context.Context, authority *HomeIAMA
 	if entry == nil || entry.HoldReason != "" || !sameOriginalSourceValue(entry.scopeOnly(), scopes[index]) {
 		return ErrOriginalSourceProducerHold
 	}
-	if entry.Recipe.Purpose != originalMaterialIAMPurposeV3 {
+	if entry.Recipe.Purpose != originalMaterialIAMPurposeV3 && entry.Recipe.Purpose != originalMaterialIAMPurposeV4 {
 		return nil
 	}
 	group := entry.PeerDynamicGroup
@@ -853,7 +862,7 @@ func (next FoundationRecord) retainOriginalFoundationMaterialIAM(previous Founda
 
 func validateOriginalMaterialPeerGroup(record FoundationRecord, index int, entry OriginalFoundationMaterialIAM) error {
 	group := entry.PeerDynamicGroup
-	if entry.Recipe.Purpose != originalMaterialIAMPurposeV3 {
+	if entry.Recipe.Purpose != originalMaterialIAMPurposeV3 && entry.Recipe.Purpose != originalMaterialIAMPurposeV4 {
 		if group != nil || entry.Startup != nil {
 			return ErrOriginalSourceProducerHold
 		}

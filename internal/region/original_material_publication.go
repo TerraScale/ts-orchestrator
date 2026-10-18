@@ -31,7 +31,7 @@ func originalSourceMaterialPublication(grant FoundationGrant, record FoundationR
 	}
 	recipe := (*grant.OriginalMaterialPublicationIAM)[index]
 	// Historical seven-operation permission does not authorize policy readback.
-	if recipe.Purpose != originalMaterialIAMPurposeV2 && recipe.Purpose != originalMaterialIAMPurposeV3 {
+	if recipe.Purpose != originalMaterialIAMPurposeV2 && recipe.Purpose != originalMaterialIAMPurposeV3 && recipe.Purpose != originalMaterialIAMPurposeV4 {
 		return nil, nil
 	}
 	if record.validateOriginalFoundationMaterialIAM() != nil || record.OriginalFoundationCompartments == nil {
@@ -50,7 +50,7 @@ func originalSourceMaterialPublication(grant FoundationGrant, record FoundationR
 }
 
 func originalMaterialPublicationScope(entry OriginalFoundationMaterialIAM) (OriginalMaterialPublicationScope, error) {
-	if entry.Provenance == nil || (entry.Recipe.Purpose != originalMaterialIAMPurposeV2 && entry.Recipe.Purpose != originalMaterialIAMPurposeV3) || !originalPublicationETag(entry.PolicyETag) {
+	if entry.Provenance == nil || (entry.Recipe.Purpose != originalMaterialIAMPurposeV2 && entry.Recipe.Purpose != originalMaterialIAMPurposeV3 && entry.Recipe.Purpose != originalMaterialIAMPurposeV4) || !originalPublicationETag(entry.PolicyETag) {
 		return OriginalMaterialPublicationScope{}, ErrOriginalSourceActorHold
 	}
 	body, err := foundationWriterPolicyBody(entry.Request)
@@ -85,7 +85,7 @@ func verifyOriginalMaterialPublicationPolicy(ctx context.Context, factory *ocicl
 		!sameOriginalSourceValue(response.DefinedTags, entry.Request.DefinedTags) || deref(response.Etag) != entry.PolicyETag {
 		return ErrOriginalSourceActorHold
 	}
-	if entry.Recipe.Purpose == originalMaterialIAMPurposeV3 {
+	if entry.Recipe.Purpose == originalMaterialIAMPurposeV3 || entry.Recipe.Purpose == originalMaterialIAMPurposeV4 {
 		group := entry.PeerDynamicGroup
 		if group == nil || group.Pending == nil || group.Provenance == nil || group.VerifiedAt.IsZero() || group.HoldReason != "" {
 			return ErrOriginalSourceActorHold
@@ -135,7 +135,7 @@ func (v VerifiedOriginalSourceActor) MaterialPublication(ctx context.Context) (O
 // OriginalLinkPublication selects one of the signed three recipient rosters;
 // only the genuine GRU original actor may publish Link leaves or private escrow.
 func (v VerifiedOriginalSourceActor) OriginalLinkPublication(ctx context.Context, requestedCell oci.Region) (OriginalMaterialPublicationScope, *ociclient.Factory, context.Context, error) {
-	if !v.IsVerified() || v.proof.scope.Cell != "GRU" || v.proof.materialPublication == nil || v.proof.materialPublication.Recipe.Purpose != originalMaterialIAMPurposeV3 || v.proof.materialPublication.Startup == nil {
+	if !v.IsVerified() || v.proof.scope.Cell != "GRU" || v.proof.materialPublication == nil || (v.proof.materialPublication.Recipe.Purpose != originalMaterialIAMPurposeV3 && v.proof.materialPublication.Recipe.Purpose != originalMaterialIAMPurposeV4) || v.proof.materialPublication.Startup == nil {
 		return OriginalMaterialPublicationScope{}, nil, nil, ErrOriginalSourceActorHold
 	}
 	scope, factory, guarded, err := v.MaterialPublication(ctx)
