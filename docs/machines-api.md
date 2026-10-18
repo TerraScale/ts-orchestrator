@@ -219,7 +219,8 @@ are stable:
 | 401 | `unauthenticated` | A missing or rejected token, or a client not in `clients` (`WWW-Authenticate: Bearer ... error="invalid_token"`) |
 | 403 | `insufficient_scope` | The token lacks the route's scope (`WWW-Authenticate` names it) |
 | 403 | `no_organization` | The subject is in no organization |
-| 404 | `not_found` | No such app or machine visible to the caller |
+| 404 | `not_found` | No such route, app or machine visible to the caller |
+| 405 | `method_not_allowed` | The route exists but does not support the method (`Allow: GET, HEAD`) |
 | 503 | `unavailable` | The controller cannot read the cell state |
 
 Responses carry `Cache-Control: no-store`.

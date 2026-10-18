@@ -171,6 +171,17 @@ func NewServer(config Config, apps *machines.Store, tenants *tenant.Store, links
 	s.mux.Handle("GET /v1/apps/{app}", s.authorized(ScopeRead, s.withApp(s.getApp)))
 	s.mux.Handle("GET /v1/apps/{app}/machines", s.authorized(ScopeRead, s.withApp(s.listMachines)))
 	s.mux.Handle("GET /v1/apps/{app}/machines/{id}", s.authorized(ScopeRead, s.withApp(s.getMachine)))
+	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Every registered route is GET, which also admits HEAD.
+		get := *r
+		get.Method = http.MethodGet
+		if _, pattern := s.mux.Handler(&get); pattern != "/" {
+			w.Header().Set("Allow", "GET, HEAD")
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "the method is not allowed for this route")
+			return
+		}
+		writeError(w, http.StatusNotFound, "not_found", "route not found")
+	})
 	return s, nil
 }
 
