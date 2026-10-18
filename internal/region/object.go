@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -41,6 +42,12 @@ func NewObjectFoundationStore(client FoundationObjects, namespace, bucket string
 		return nil, errors.New("regional foundation store requires an existing home bucket and namespace")
 	}
 	return &ObjectFoundationStore{client: client, namespace: namespace, bucket: bucket}, nil
+}
+
+// MarshalJSONTo preserves omitted OCI SDK fields across durable record roundtrips.
+func (r FoundationRecord) MarshalJSONTo(enc *jsontext.Encoder) error {
+	type foundationRecord FoundationRecord
+	return json.MarshalEncode(enc, foundationRecord(r), json.FormatNilSliceAsNull(true), json.FormatNilMapAsNull(true))
 }
 
 func (s *ObjectFoundationStore) Load(ctx context.Context, cell string) (FoundationRecord, string, error) {

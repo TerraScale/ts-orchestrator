@@ -163,7 +163,7 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 	installation := entityid.New()
 	slotID := BootstrapSlotID(installation, "GRU", "controller", "controller-a")
 	writer := FoundationWriterRecord{Cell: "GRU", Slot: "controller-a", InstallationID: installation, Generation: 1, GrantSHA256: strings.Repeat("a", 64), ProfileSHA256: strings.Repeat("b", 64), RecipeSHA256: strings.Repeat("c", 64), ScopeSHA256: strings.Repeat("d", 64), PhysicalScopeSHA256: strings.Repeat("e", 64), SlotID: slotID, OperationID: BootstrapOperationID(installation, slotID), Namespace: "ns", Bucket: "heads", BucketCompartment: "ocid1.compartment.oc1..home", KMSKeyID: "ocid1.key.oc1.sa-saopaulo-1.home", FirstAttemptAt: now,
-		Request: core.LaunchInstanceDetails{Metadata: foundationWriterMetadata("controller-a"), CompartmentId: new("ocid1.compartment.oc1..home"), Shape: new("VM.Standard.E4.Flex"), LaunchVolumeAttachments: []core.LaunchAttachVolumeDetails{}, LicensingConfigs: []core.LaunchInstanceLicensingConfig{}, DefinedTags: map[string]map[string]any{}, SecurityAttributes: map[string]map[string]any{}, ExtendedMetadata: map[string]any{}, FreeformTags: map[string]string{}, SourceDetails: core.InstanceSourceViaImageDetails{ImageId: new("ocid1.image.oc1.sa-saopaulo-1.seed")}}}
+		Request: core.LaunchInstanceDetails{Metadata: foundationWriterMetadata("controller-a"), CompartmentId: new("ocid1.compartment.oc1..home"), Shape: new("VM.Standard.E4.Flex"), LaunchVolumeAttachments: []core.LaunchAttachVolumeDetails{}, SecurityAttributes: map[string]map[string]any{}, ExtendedMetadata: map[string]any{}, SourceDetails: core.InstanceSourceViaImageDetails{ImageId: new("ocid1.image.oc1.sa-saopaulo-1.seed")}}}
 	writer.RequestDigest, err = netBirdRequestDigest(writer.Request)
 	if err != nil {
 		t.Fatal(err)
@@ -177,6 +177,16 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 	current, currentETag, err = restarted.Load(t.Context(), "GRU")
 	if err != nil || current.FoundationWriter == nil || current.FoundationWriter.RetryToken != writer.RetryToken || current.FoundationWriter.RequestDigest != writer.RequestDigest || current.FoundationWriter.InstanceID != "" {
 		t.Fatalf("original pending launch lost: %v", err)
+	}
+	persistedRequest := current.FoundationWriter.Request
+	if persistedRequest.LicensingConfigs != nil || persistedRequest.DefinedTags != nil || persistedRequest.FreeformTags != nil ||
+		persistedRequest.LaunchVolumeAttachments == nil || len(persistedRequest.LaunchVolumeAttachments) != 0 ||
+		persistedRequest.SecurityAttributes == nil || len(persistedRequest.SecurityAttributes) != 0 {
+		t.Fatal("journal roundtrip changed nil or intentionally empty SDK collections")
+	}
+	digest, err := netBirdRequestDigest(persistedRequest)
+	if err != nil || digest != writer.RequestDigest || current.FoundationWriter.RetryToken != BootstrapRetryToken(writer.OperationID, digest) {
+		t.Fatalf("journal roundtrip changed SDK body digest or retry token: %v", err)
 	}
 	// Only a positive original SDK result is checkpointed by production code.
 	original := "ocid1.instance.oc1.sa-saopaulo-1.original"
