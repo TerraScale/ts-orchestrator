@@ -3,7 +3,10 @@ package materialsource
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/ed25519"
+	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json/v2"
@@ -20,6 +23,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
@@ -296,11 +300,36 @@ func TestOriginalLinkEightLeafSDKJournalRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := in.intent.Escrow
+	_, escrowName, err := bootstrap.OriginalStartupLinkLocator(in.intent.Home, in.scope.InstallationID, oci.RegionGRU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	escrowBody, err := os.ReadFile(filepath.Join(linkDirectory, "material.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(escrowBody)
+	escrowToken := uuid.New().String()
+	escrowSHA, err := originalEscrowSHA(target, escrowName, escrowToken, escrowBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := *clients.management.ConfigurationProvider()
+	private, err := provider.PrivateRSAKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID, err := provider.KeyID()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var mu sync.Mutex
 	secrets := map[string]originalMaterialSecret{}
 	var journal []byte
 	revision, creates := 0, 0
 	lost := false
+	escrowCreates, escrowLists, escrowBundles, byNameDenied := 0, 0, 0, 0
+	escrowFault := ""
 	fail := func(w http.ResponseWriter, status int) {
 		w.WriteHeader(status)
 		io.WriteString(w, `{"code":"NotAuthorizedOrNotFound","message":"native Link primitive fixture"}`)
@@ -308,8 +337,32 @@ func TestOriginalLinkEightLeafSDKJournalRecovery(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
-		if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
-			t.Error("Link SDK request was not signed")
+		if err := verifyOriginalLinkSignature(r, &private.PublicKey, keyID); err != nil {
+			t.Error("Link SDK provider signature rejected", err)
+			fail(w, 403)
+			return
+		}
+		host := ""
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/n/"):
+			host = "objectstorage.sa-saopaulo-1.oraclecloud.com"
+		case strings.HasPrefix(r.URL.Path, "/20180608/secrets"):
+			host = "vaults.sa-saopaulo-1.oci.oraclecloud.com"
+		case strings.HasPrefix(r.URL.Path, "/20190301/secretbundles/"):
+			host = "secrets.vaults.sa-saopaulo-1.oci.oraclecloud.com"
+		}
+		if host == "" || r.Host != host {
+			t.Error("Link SDK request escaped fixed regional endpoints")
+			fail(w, 403)
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/20190301/secretbundles/actions/getByName" {
+			if r.URL.Query().Get("secretName") != escrowName || r.URL.Query().Get("vaultId") != target.VaultOCID || r.URL.Query().Get("versionNumber") != "1" || r.URL.Query().Get("stage") != "" {
+				t.Error("Link ByName escaped its exact denial boundary")
+			}
+			byNameDenied++
+			fail(w, 403)
+			return
 		}
 		objectPath := "/n/ns/b/gru-1-head/o/link-journal"
 		if r.URL.Path == objectPath {
@@ -348,7 +401,7 @@ func TestOriginalLinkEightLeafSDKJournalRecovery(t *testing.T) {
 		}
 		if r.URL.Path == "/20180608/secrets" && r.Method == http.MethodGet {
 			name := r.URL.Query().Get("name")
-			allowed := false
+			allowed := name == escrowName
 			for _, want := range names {
 				allowed = allowed || name == want
 			}
@@ -360,6 +413,28 @@ func TestOriginalLinkEightLeafSDKJournalRecovery(t *testing.T) {
 			items := []ocivault.SecretSummary{}
 			if secret, ok := secrets[name]; ok {
 				items = append(items, ocivault.SecretSummary{Id: new(secret.id), SecretName: new(secret.name), CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), LifecycleState: ocivault.SecretSummaryLifecycleStateActive})
+			}
+			if name == escrowName {
+				escrowLists++
+				switch escrowFault {
+				case "foreign summary":
+					items[0].SecretName = new("foreign")
+				case "ambiguous summary":
+					items = append(items, items[0])
+				case "cycle":
+					items = nil
+					w.Header().Set("opc-next-page", "same")
+				case "too many pages":
+					items = nil
+					w.Header().Set("opc-next-page", fmt.Sprintf("page-%d", escrowLists))
+				case "paged":
+					if r.URL.Query().Get("page") == "" {
+						items = nil
+						w.Header().Set("opc-next-page", "last")
+					} else if r.URL.Query().Get("page") != "last" {
+						t.Error("Link discovery changed continuation token")
+					}
+				}
 			}
 			json.MarshalWrite(w, items)
 			return
@@ -377,8 +452,26 @@ func TestOriginalLinkEightLeafSDKJournalRecovery(t *testing.T) {
 			}
 			wire, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 			var saved originalPublicationJournal
-			if err != nil || json.Unmarshal(wire, &request) != nil || json.Unmarshal(journal, &saved) != nil || request.CompartmentID != target.CompartmentOCID || request.VaultID != target.VaultOCID || request.KeyID != target.KMSKeyOCID {
+			if err != nil || json.Unmarshal(wire, &request) != nil || request.CompartmentID != target.CompartmentOCID || request.VaultID != target.VaultOCID || request.KeyID != target.KMSKeyOCID {
 				t.Error("Link create lacks exact durable journal target")
+				fail(w, 400)
+				return
+			}
+			if request.SecretName == escrowName {
+				body, err := base64.StdEncoding.Strict().DecodeString(request.SecretContent.Content)
+				if err != nil || !bytes.Equal(body, escrowBody) || request.SecretContent.Stage != "CURRENT" || r.Header.Get("opc-retry-token") != escrowToken || escrowCreates != 0 {
+					clear(body)
+					t.Error("Link escrow create changed exact candidate or retry identity")
+					fail(w, 400)
+					return
+				}
+				escrowCreates++
+				secrets[escrowName] = originalMaterialSecret{id: "ocid1.vaultsecret.oc1.sa-saopaulo-1.linkescrow", name: escrowName, body: body}
+				fail(w, 503)
+				return
+			}
+			if json.Unmarshal(journal, &saved) != nil {
+				t.Error("Link leaf create lacks durable journal")
 				fail(w, 400)
 				return
 			}
@@ -418,14 +511,30 @@ func TestOriginalLinkEightLeafSDKJournalRecovery(t *testing.T) {
 		}
 		for _, secret := range secrets {
 			if r.Method == http.MethodGet && r.URL.Path == "/20180608/secrets/"+secret.id {
-				json.MarshalWrite(w, ocivault.Secret{Id: new(secret.id), CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), KeyId: new(target.KMSKeyOCID), SecretName: new(secret.name), CurrentVersionNumber: new(int64(1)), LifecycleState: ocivault.SecretLifecycleStateActive})
+				metadata := ocivault.Secret{Id: new(secret.id), CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), KeyId: new(target.KMSKeyOCID), SecretName: new(secret.name), CurrentVersionNumber: new(int64(1)), LifecycleState: ocivault.SecretLifecycleStateActive}
+				if secret.name == escrowName && escrowFault == "wrong metadata" {
+					metadata.KeyId = new("ocid1.key.oc1.sa-saopaulo-1.foreign")
+				}
+				json.MarshalWrite(w, metadata)
 				return
 			}
 			if r.Method == http.MethodGet && r.URL.Path == "/20190301/secretbundles/"+secret.id {
 				if r.URL.Query().Get("versionNumber") != "1" {
 					t.Error("Link recovery read other than version one")
 				}
-				json.MarshalWrite(w, ocisecrets.SecretBundle{SecretId: new(secret.id), VersionNumber: new(int64(1)), SecretBundleContent: ocisecrets.Base64SecretBundleContentDetails{Content: new(base64.StdEncoding.EncodeToString(secret.body))}})
+				bundle := ocisecrets.SecretBundle{SecretId: new(secret.id), VersionNumber: new(int64(1)), SecretBundleContent: ocisecrets.Base64SecretBundleContentDetails{Content: new(base64.StdEncoding.EncodeToString(secret.body))}}
+				if secret.name == escrowName {
+					escrowBundles++
+					switch escrowFault {
+					case "wrong bundle ID":
+						bundle.SecretId = new("ocid1.vaultsecret.oc1.sa-saopaulo-1.foreign")
+					case "wrong version":
+						bundle.VersionNumber = new(int64(2))
+					case "wrong digest":
+						bundle.SecretBundleContent = ocisecrets.Base64SecretBundleContentDetails{Content: new(base64.StdEncoding.EncodeToString([]byte("foreign")))}
+					}
+				}
+				json.MarshalWrite(w, bundle)
 				return
 			}
 		}
@@ -448,6 +557,88 @@ func TestOriginalLinkEightLeafSDKJournalRecovery(t *testing.T) {
 	for _, client := range []*common.BaseClient{&clients.objects.BaseClient, &clients.management.BaseClient, &clients.bundles.BaseClient} {
 		client.HTTPClient = &http.Client{Transport: transport}
 	}
+	// This extends SDK mechanics; it does not qualify the sealed startup actor.
+	link := originalStartupLinkSource{clients: clients, state: originalStartupLinkState{Target: target, SecretName: escrowName, RetryToken: escrowToken,
+		Candidate: originalSourceCandidate{SHA256: digestWire(escrowBody), MaxBytes: int64(len(escrowBody)), CreateSHA256: escrowSHA}}}
+	policy := common.NoRetryPolicy()
+	_, err = clients.bundles.GetSecretBundleByName(ociclient.RequestContext(t.Context()), ocisecrets.GetSecretBundleByNameRequest{SecretName: new(escrowName), VaultId: new(target.VaultOCID), VersionNumber: new(int64(1)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}})
+	if service, ok := common.IsServiceError(err); !ok || service.GetHTTPStatusCode() != 403 {
+		t.Fatal("Link ByName was not denied", err)
+	}
+	if body, _, err := link.readEscrow(t.Context()); !errors.Is(err, os.ErrNotExist) || len(body) != 0 {
+		clear(body)
+		t.Fatal("absent Link escrow did not permit generation", err)
+	}
+	if _, err := clients.management.CreateSecret(ociclient.RequestContext(t.Context()), originalEscrowRequest(target, escrowName, escrowToken, escrowBody)); err == nil {
+		t.Fatal("Link escrow lost create response was not exercised")
+	}
+	body, escrowID, err := link.readEscrow(t.Context())
+	if err != nil || !bytes.Equal(body, escrowBody) || escrowID != "ocid1.vaultsecret.oc1.sa-saopaulo-1.linkescrow" {
+		clear(body)
+		t.Fatal("Link escrow did not recover actual created ID", err)
+	}
+	clear(body)
+	reference := materialSourceReference{SecretOCID: escrowID, SHA256: digestWire(escrowBody), MaxBytes: int64(len(escrowBody))}
+	link.state.Reference = reference
+	mu.Lock()
+	beforeLists := escrowLists
+	mu.Unlock()
+	body, resumedID, err := link.readEscrow(t.Context())
+	clear(body)
+	mu.Lock()
+	resumedDirectly := escrowLists == beforeLists && escrowCreates == 1 && byNameDenied == 1
+	mu.Unlock()
+	if err != nil || resumedID != escrowID || !resumedDirectly {
+		t.Fatal("retained Link reference did not resume directly without creation", err)
+	}
+	for _, fault := range []string{"wrong metadata", "wrong bundle ID", "wrong version", "wrong digest", "foreign summary", "ambiguous summary", "cycle", "too many pages", "paged"} {
+		mu.Lock()
+		escrowFault = fault
+		beforeBundles := escrowBundles
+		mu.Unlock()
+		link.state.Reference = materialSourceReference{}
+		body, id, err := link.readEscrow(t.Context())
+		if fault == "paged" {
+			if err != nil || id != escrowID || !bytes.Equal(body, escrowBody) {
+				t.Error("complete paginated Link discovery failed", err)
+			}
+		} else if err == nil || len(body) != 0 || id != "" {
+			t.Error("Link escrow accepted invalid service response", fault, err)
+		}
+		clear(body)
+		mu.Lock()
+		if fault == "wrong metadata" && escrowBundles != beforeBundles {
+			t.Error("Link escrow read bundle before validating exact metadata")
+		}
+		mu.Unlock()
+	}
+	mu.Lock()
+	escrowFault = ""
+	mu.Unlock()
+	for _, fault := range []string{"reference ID", "reference digest", "reference size", "candidate digest", "candidate size", "create SHA"} {
+		changed := link
+		changed.state.Reference = reference
+		switch fault {
+		case "reference ID":
+			changed.state.Reference.SecretOCID = "ocid1.vaultsecret.oc1.sa-saopaulo-1.foreign"
+		case "reference digest":
+			changed.state.Reference.SHA256 = strings.Repeat("a", 64)
+		case "reference size":
+			changed.state.Reference.MaxBytes++
+		case "candidate digest":
+			changed.state.Candidate.SHA256 = strings.Repeat("a", 64)
+		case "candidate size":
+			changed.state.Candidate.MaxBytes++
+		case "create SHA":
+			changed.state.Candidate.CreateSHA256 = strings.Repeat("a", 64)
+		}
+		body, id, err := changed.readEscrow(t.Context())
+		if err == nil || len(body) != 0 || id != "" {
+			t.Error("Link escrow accepted changed protected identity", fault, err)
+		}
+		clear(body)
+	}
+	link.state.Reference = reference
 	etag := ""
 	persist := func(wire []byte) error {
 		request := objectstorage.PutObjectRequest{NamespaceName: new("ns"), BucketName: new("gru-1-head"), ObjectName: new("link-journal"), ContentLength: new(int64(len(wire))), PutObjectBody: io.NopCloser(bytes.NewReader(wire))}
@@ -496,4 +687,45 @@ func TestOriginalLinkEightLeafSDKJournalRecovery(t *testing.T) {
 	if _, err := bootstrapmaterial.ProvisionLinkDurable(t.Context(), linkDirectory, target, clients.management, clients.bundles, time.Now(), persist); err != nil || creates != 8 {
 		t.Fatal("completed Link retry rotated leaves", err)
 	}
+}
+
+func verifyOriginalLinkSignature(request *http.Request, public *rsa.PublicKey, keyID string) error {
+	value, ok := strings.CutPrefix(request.Header.Get("Authorization"), "Signature ")
+	if !ok {
+		return errors.New("missing OCI SDK signature")
+	}
+	fields := map[string]string{}
+	for part := range strings.SplitSeq(value, ",") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok || fields[key] != "" {
+			return errors.New("invalid OCI signature fields")
+		}
+		fields[key] = strings.Trim(value, `"`)
+	}
+	headers := "date (request-target) host"
+	if request.Method == http.MethodPost {
+		headers += " content-length content-type x-content-sha256"
+	}
+	if fields["keyId"] != keyID || fields["algorithm"] != "rsa-sha256" || fields["headers"] != headers {
+		return errors.New("unexpected OCI signing identity, algorithm or headers")
+	}
+	signature, err := base64.StdEncoding.DecodeString(fields["signature"])
+	if err != nil {
+		return err
+	}
+	signed := "date: " + request.Header.Get("Date") + "\n(request-target): " + strings.ToLower(request.Method) + " " + request.URL.RequestURI() + "\nhost: " + request.Host
+	if request.Method == http.MethodPost {
+		body, err := io.ReadAll(io.LimitReader(request.Body, 1<<20))
+		if err != nil || len(body) >= 1<<20 {
+			return errors.New("invalid signed OCI body")
+		}
+		request.Body = io.NopCloser(bytes.NewReader(body))
+		digest := sha256.Sum256(body)
+		if request.Header.Get("X-Content-Sha256") != base64.StdEncoding.EncodeToString(digest[:]) || request.ContentLength != int64(len(body)) {
+			return errors.New("OCI body differs from signed digest or length")
+		}
+		signed += fmt.Sprintf("\ncontent-length: %d\ncontent-type: %s\nx-content-sha256: %s", request.ContentLength, request.Header.Get("Content-Type"), request.Header.Get("X-Content-Sha256"))
+	}
+	digest := sha256.Sum256([]byte(signed))
+	return rsa.VerifyPKCS1v15(public, crypto.SHA256, digest[:], signature)
 }

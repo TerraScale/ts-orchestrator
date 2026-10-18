@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
 	"io"
@@ -22,6 +23,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
+	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 	"golang.org/x/sys/unix"
 )
 
@@ -494,6 +497,93 @@ func restoreOriginalFiles(directory string, files map[string][]byte) error {
 	return validate()
 }
 
+// readEscrow uses the immutable Link policy's ID-based bundle operation.
+func (link *originalStartupLinkSource) readEscrow(ctx context.Context) ([]byte, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	state := link.state
+	target, name := state.Target, state.SecretName
+	policy := common.NoRetryPolicy()
+	id := state.Reference.SecretOCID
+	if state.Reference != (materialSourceReference{}) && !originalSecretID(id) {
+		return nil, "", ErrMaterialSource
+	}
+	if id == "" {
+		var page *string
+		pages := map[string]bool{}
+		complete := false
+		for range 32 {
+			response, err := link.clients.management.ListSecrets(ociclient.RequestContext(ctx), ocivault.ListSecretsRequest{
+				CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), Name: new(name), Page: page,
+				RequestMetadata: common.RequestMetadata{RetryPolicy: &policy},
+			})
+			if err != nil {
+				return nil, "", err
+			}
+			for _, item := range response.Items {
+				if id != "" || !originalSecretID(derefOriginal(item.Id)) || derefOriginal(item.SecretName) != name ||
+					derefOriginal(item.CompartmentId) != target.CompartmentOCID || derefOriginal(item.VaultId) != target.VaultOCID ||
+					item.LifecycleState != ocivault.SecretSummaryLifecycleStateActive && item.LifecycleState != ocivault.SecretSummaryLifecycleStateCreating {
+					return nil, "", ErrMaterialSource
+				}
+				id = *item.Id
+			}
+			if response.OpcNextPage == nil {
+				complete = true
+				break
+			}
+			next := *response.OpcNextPage
+			if next == "" || len(next) > 1024 || strings.ContainsAny(next, "\x00\r\n") || pages[next] {
+				return nil, "", ErrMaterialSource
+			}
+			pages[next] = true
+			page = response.OpcNextPage
+		}
+		if !complete {
+			return nil, "", ErrMaterialSource
+		}
+		if id == "" {
+			return nil, "", os.ErrNotExist
+		}
+	}
+	secret, err := link.clients.management.GetSecret(ociclient.RequestContext(ctx), ocivault.GetSecretRequest{
+		SecretId: new(id), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy},
+	})
+	if err != nil || derefOriginal(secret.Id) != id || derefOriginal(secret.CompartmentId) != target.CompartmentOCID ||
+		derefOriginal(secret.VaultId) != target.VaultOCID || derefOriginal(secret.KeyId) != target.KMSKeyOCID ||
+		derefOriginal(secret.SecretName) != name || secret.LifecycleState != ocivault.SecretLifecycleStateActive ||
+		secret.CurrentVersionNumber == nil || *secret.CurrentVersionNumber != 1 {
+		return nil, "", errors.Join(ErrMaterialSource, err)
+	}
+	response, err := link.clients.bundles.GetSecretBundle(ociclient.RequestContext(ctx), ocisecrets.GetSecretBundleRequest{
+		SecretId: new(id), VersionNumber: new(int64(1)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy},
+	})
+	if err != nil || derefOriginal(response.SecretId) != id || response.VersionNumber == nil || *response.VersionNumber != 1 {
+		return nil, "", errors.Join(ErrMaterialSource, err)
+	}
+	content, ok := response.SecretBundleContent.(ocisecrets.Base64SecretBundleContentDetails)
+	if !ok || content.Content == nil || len(*content.Content) > base64.StdEncoding.EncodedLen(materialSourceSecretLimit) {
+		return nil, "", ErrMaterialSource
+	}
+	body, err := base64.StdEncoding.Strict().DecodeString(*content.Content)
+	if err != nil || len(body) == 0 || len(body) > materialSourceSecretLimit {
+		clear(body)
+		return nil, "", ErrMaterialSource
+	}
+	candidate := state.Candidate
+	if candidate == (originalSourceCandidate{}) || digestWire(body) != candidate.SHA256 || int64(len(body)) != candidate.MaxBytes ||
+		state.Reference != (materialSourceReference{}) && state.Reference != (materialSourceReference{SecretOCID: id, SHA256: digestWire(body), MaxBytes: int64(len(body))}) {
+		clear(body)
+		return nil, "", ErrMaterialSource
+	}
+	requestSHA, err := originalEscrowSHA(target, name, state.RetryToken, body)
+	if err != nil || requestSHA != candidate.CreateSHA256 {
+		clear(body)
+		return nil, "", ErrMaterialSource
+	}
+	return body, id, nil
+}
+
 func (link *originalStartupLinkSource) issue(ctx context.Context, homeDirectory, homeLinkDirectory string, ledger ed25519.PrivateKey, now time.Time) (bootstrap.VerifiedStartupLink, error) {
 	deny := func() (bootstrap.VerifiedStartupLink, error) {
 		return bootstrap.VerifiedStartupLink{}, ErrMaterialSource
@@ -514,7 +604,7 @@ func (link *originalStartupLinkSource) issue(ctx context.Context, homeDirectory,
 	}
 	guarded := ociclient.WithRequestGuard(ociclient.WithAuthority(link.actorCtx, link.guard), link.guard)
 	materialDirectory := filepath.Join(link.directory, "material")
-	body, id, readErr := readOriginalEscrow(guarded, link.clients, link.state.Target, link.state.SecretName, link.state.RetryToken, link.state.Candidate, link.state.Reference)
+	body, id, readErr := link.readEscrow(guarded)
 	if link.state.Candidate == (originalSourceCandidate{}) {
 		if !errors.Is(readErr, os.ErrNotExist) {
 			clear(body)
@@ -578,7 +668,7 @@ func (link *originalStartupLinkSource) issue(ctx context.Context, homeDirectory,
 		dispatch, cancel := context.WithTimeout(guarded, 10*time.Second)
 		_, _ = link.clients.management.CreateSecret(ociclient.RequestContext(dispatch), originalEscrowRequest(link.state.Target, link.state.SecretName, link.state.RetryToken, candidate))
 		cancel()
-		body, id, readErr = readOriginalEscrow(guarded, link.clients, link.state.Target, link.state.SecretName, link.state.RetryToken, link.state.Candidate, link.state.Reference)
+		body, id, readErr = link.readEscrow(guarded)
 	}
 	if readErr != nil {
 		clear(body)
