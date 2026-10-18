@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +41,9 @@ func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
 		{"production host", host, "gru-1-db-1", func(_, public string) string {
 			return `{"version":2,"nats":{"cell":"gru"},"host":{"node":"gru-1-db-1","controller_public_key":"` + public + `"}}`
 		}, true},
+		{"production managed runtime", host, "gru-1-runtime-1", func(_, public string) string {
+			return `{"version":2,"nats":{"cell":"gru"},"host":{"node":"gru-1-runtime-1","controller_public_key":"` + public + `"}}`
+		}, true},
 		{"host on a controller's VM", host, "gru-1-ctl-1", func(_, public string) string {
 			return `{"version":2,"nats":{"cell":"gru"},"host":{"node":"gru-1-ctl-1","controller_public_key":"` + public + `"}}`
 		}, false},
@@ -64,7 +68,13 @@ func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
 				})
 				return output.String(), err
 			}
-			if _, err := invoke("prepare", "--root", root, "--owner", owner, "--unit", unit, "--baked-binary", baked); err != nil {
+			prepare := []string{"prepare", "--root", root, "--owner", owner, "--unit", unit, "--baked-binary", baked}
+			managed := ""
+			if tc.name == "production managed runtime" {
+				managed = managedRuntimeSystemd(t)
+				prepare = append(prepare, "--systemd-dir", managed)
+			}
+			if _, err := invoke(prepare...); err != nil {
 				t.Fatal(err)
 			}
 			previous, err := layout.Current()
@@ -165,6 +175,23 @@ func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
 			}
 			if owed, err := layout.RestartPending(unit); err != nil || owed {
 				t.Fatalf("the watchdog did not serve the restart the step owed: %v %v", owed, err)
+			}
+			if managed != "" {
+				// An expired managed-runtime activation rolls back the same owner.
+				if err := os.Remove(filepath.Join(spool, "step.json")); err != nil {
+					t.Fatal(err)
+				}
+				now = activation.Deadline.Add(time.Second)
+				if _, err := invoke("watchdog", "--root", root, "--owner", owner, "--unit", unit, "--config", config); err != nil {
+					t.Fatal(err)
+				}
+				if current, err := layout.Current(); err != nil || current != previous || len(restarted) != 2 || restarted[1] != selfupdate.HostUnit {
+					t.Fatalf("runtime rollback changed owner: current=%s restarts=%v error=%v", current, restarted, err)
+				}
+				contents, err := os.ReadFile(filepath.Join(managed, selfupdate.HostUnit+".d/90-managed-runtime.conf"))
+				if err != nil || !strings.Contains(string(contents), " managed-runtime-start\n") || strings.Contains(string(contents), " host --config ") {
+					t.Fatalf("runtime rollback selected native startup: %s, %v", contents, err)
+				}
 			}
 		})
 	}

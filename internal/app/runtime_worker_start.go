@@ -24,6 +24,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
+	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -291,6 +292,7 @@ func runRuntimeWorker(ctx context.Context, output io.Writer) error {
 	if err := notifier.Ready("accepted worker node and signed host session ready"); err != nil {
 		return err
 	}
+	emitSelfUpdateProofWithKey(cfg.Host.SelfUpdateProofFile, cfg.Host.SelfUpdateRoot, key, selfupdate.HostUnit, output)
 	defer func() { _ = notifier.Stopping() }()
 	if _, err := fmt.Fprintln(output, "accepted runtime worker ready"); err != nil {
 		return err

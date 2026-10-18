@@ -40,6 +40,7 @@ const usage = `Usage: ts-orch selfupdate <command> [flags]
 
 Commands:
   prepare    Seed the baked release and resolve an expired activation (ExecStartPre)
+  prepare-managed-runtime  Prepare the image's installed runtime service contract
   watchdog   Confirm or roll back a pending activation (timer)
   stage      Verify a release receipt and stage its binary
   activate   Flip the current link to a staged release
@@ -103,6 +104,8 @@ func run(ctx context.Context, args []string, output io.Writer, now func() time.T
 		err = checkAcceptedIdentity(os.Stdin, args[1:])
 	case "prepare":
 		err = c.prepare(args[1:])
+	case "prepare-managed-runtime":
+		err = c.prepareStep(args[0], args[1:])
 	case "watchdog":
 		err = c.watchdog(args[1:])
 	case "stage":
@@ -194,7 +197,11 @@ func parse(flags *flag.FlagSet, args []string) error {
 }
 
 func (c command) prepare(args []string) error {
-	flags := flag.NewFlagSet("prepare", flag.ContinueOnError)
+	return c.prepareStep("prepare", args)
+}
+
+func (c command) prepareStep(step string, args []string) error {
+	flags := flag.NewFlagSet(step, flag.ContinueOnError)
 	layout := addLayout(flags)
 	proof := addProof(flags)
 	unit := flags.String("unit", "", "systemd unit that executes the current release")
@@ -203,9 +210,25 @@ func (c command) prepare(args []string) error {
 	if err := parse(flags, args); err != nil {
 		return err
 	}
+	requestedUnit := *unit
+	resolved, managedRuntime, err := managedRuntimePrepareUnit(*systemd, *layout.owner, requestedUnit)
+	if err != nil {
+		return err
+	}
+	if step == "prepare-managed-runtime" && !managedRuntime {
+		return errors.New("managed runtime prepare requires the installed image service contract")
+	}
+	if resolved != *unit {
+		*unit = resolved
+		// Both processes share the accepted controller's canonical update owner.
+		args = append(args, "--unit", resolved)
+	}
 	accepted, inputs, err := controllerTrust(*unit)
 	if err != nil {
 		return err
+	}
+	if requestedUnit == selfupdate.HostUnit && *unit == selfupdate.ControllerUnit && accepted == nil {
+		return errors.New("accepted runtime controller identity disappeared during prepare")
 	}
 	rollbackOnly := false
 	if accepted != nil {
@@ -238,7 +261,12 @@ func (c command) prepare(args []string) error {
 			return err
 		}
 	}
-	if !rollbackOnly && c.delegate(layout.layout(), append([]string{"prepare"}, args...)) {
+	delegateStep := "prepare"
+	if managedRuntime {
+		// Older releases reject this verb before installing native host dependencies.
+		delegateStep = "prepare-managed-runtime"
+	}
+	if !rollbackOnly && c.delegate(layout.layout(), append([]string{delegateStep}, args...)) {
 		if err := c.backstopPrepare(layout.layout(), *unit); err != nil {
 			return err
 		}
@@ -247,6 +275,11 @@ func (c command) prepare(args []string) error {
 			return err
 		}
 		defer unlock()
+		if resolved, installed, err := managedRuntimePrepareUnit(*systemd, *layout.owner, requestedUnit); err != nil {
+			return err
+		} else if resolved != *unit || installed != managedRuntime {
+			return errors.New("managed runtime update owner changed during delegated prepare")
+		}
 		if err := c.installCurrentNetBirdAgent(layout.layout(), *systemd, *unit); err != nil {
 			slog.Warn("self-update could not prepare the NetBird worker", "error", err)
 		}
@@ -261,6 +294,11 @@ func (c command) prepare(args []string) error {
 		return err
 	}
 	defer unlock()
+	if resolved, installed, err := managedRuntimePrepareUnit(*systemd, *layout.owner, requestedUnit); err != nil {
+		return err
+	} else if resolved != *unit || installed != managedRuntime {
+		return errors.New("managed runtime update owner changed during prepare")
+	}
 	accepted, inputs, err = controllerTrust(*unit)
 	if err != nil {
 		return err
@@ -337,6 +375,27 @@ func (c command) prepare(args []string) error {
 		}
 	}
 	return nil
+}
+
+func managedRuntimePrepareUnit(systemdDir string, owner int, unit string) (string, bool, error) {
+	if unit != selfupdate.HostUnit && unit != selfupdate.ControllerUnit {
+		return unit, false, nil
+	}
+	installed, err := selfupdate.ManagedRuntimeInstalled(systemdDir, owner)
+	if err != nil || !installed {
+		return unit, false, err
+	}
+	accepted, _, err := controllerTrust(selfupdate.ControllerUnit)
+	if err != nil {
+		return "", false, err
+	}
+	if accepted != nil {
+		return selfupdate.ControllerUnit, true, nil
+	}
+	if unit == selfupdate.ControllerUnit {
+		return "", false, errors.New("managed worker prepare requires the canonical host owner")
+	}
+	return unit, true, nil
 }
 
 // daemonReload makes systemd read the installed drop-ins; tests replace it.

@@ -60,12 +60,19 @@ func InstallNetBirdAgent(systemdDir string) (bool, error) {
 	} else if err != nil {
 		return false, err
 	}
+	managedRuntime, err := ManagedRuntimeInstalled(systemdDir, os.Geteuid())
+	if err != nil {
+		return false, err
+	}
 	changed := false
 	for relative, contents := range map[string]string{
 		NetBirdAgentUnit: NetBirdAgentService,
 		"terrascale-orchestrator-host.service.d/65-netbird-agent.conf": NetBirdAgentHostDropin,
 		"terrascale-netbird-enroll.service.d/zz-selfupdate.conf":       NetBirdEnrollDropin,
 	} {
+		if managedRuntime && relative == HostUnit+".d/65-netbird-agent.conf" {
+			continue
+		}
 		path := filepath.Join(systemdDir, relative)
 		if current, err := os.ReadFile(path); err == nil && string(current) == contents {
 			continue

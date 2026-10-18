@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 )
 
 // HostSetupUnit enrolls a host before its host agent starts.
@@ -150,4 +151,141 @@ func installDropin(systemdDir, unit, file, dropin string) (bool, error) {
 		return false, err
 	}
 	return true, writeFileAtomic(path, []byte(dropin), 0o644)
+}
+
+// ManagedRuntimeUnit is an image-installed alias of the canonical host cgroup.
+const ManagedRuntimeUnit = "terrascale-orchestrator-managed-runtime.service"
+
+// ManagedRuntimeService matches the image's installed systemd file byte for byte.
+const ManagedRuntimeService = `[Unit]
+Description=TerraScale admitted regional Swarm runtime
+Wants=network-online.target
+Requires=containerd.service terrascale-orchestrator-managed-host-start.service
+After=network-online.target containerd.service terrascale-orchestrator-managed-host-start.service
+Before=terrascale-orchestrator-controller.service
+PartOf=terrascale-orchestrator-controller.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/local/bin/terrascale-orchestrator managed-runtime-start
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=10min
+TimeoutStopSec=90s
+KillMode=process
+LimitNOFILE=65536
+LimitCORE=0
+UMask=0077
+SupplementaryGroups=
+StateDirectory=terrascale-orchestrator-host
+StateDirectoryMode=0755
+RuntimeDirectory=terrascale-orchestrator-host-credentials
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+Delegate=yes
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=terrascale-orchestrator-controller.service
+Alias=terrascale-orchestrator-managed-runtime.service
+`
+
+// ManagedRuntimeHostDropin matches the image's installed systemd file byte for byte.
+const ManagedRuntimeHostDropin = `# The image installs the admitted runtime as host.service, preserving its
+# signed update owner and the native volume initializer's cgroup fence.
+[Service]
+# The native host's earlier 60 file must not restore its Agent command.
+ExecStartPre=
+ExecStartPre=+/usr/local/bin/terrascale-orchestrator selfupdate prepare --root /var/lib/terrascale-orchestrator --unit terrascale-orchestrator-host.service
+ExecStart=
+ExecStart=/var/lib/terrascale-orchestrator/current/terrascale-orchestrator managed-runtime-start
+KillMode=process
+InaccessiblePaths=
+`
+
+// ManagedRuntimeControllerDropin matches the image's installed systemd file byte for byte.
+const ManagedRuntimeControllerDropin = `# The required runtime prepares the shared release before either process starts.
+# A controller restart restarts that runtime through PartOf=controller.service.
+[Service]
+ExecStartPre=
+`
+
+// ManagedRuntimeWatchdogDropin matches the image's installed systemd file byte for byte.
+const ManagedRuntimeWatchdogDropin = `# An accepted controller's shared release belongs only to controller.service.
+[Unit]
+ConditionPathExists=!/var/lib/terrascale-orchestrator-bootstrap/accepted-install.json
+`
+
+// ManagedRuntimeInstalled recognizes only the image's fixed, exclusively owned
+// alias and complete service contract. A standalone native install stays native.
+func ManagedRuntimeInstalled(systemdDir string, owner int) (bool, error) {
+	layout := Layout{Root: systemdDir, Owner: owner}
+	if err := layout.validate(); err != nil {
+		return false, err
+	}
+	alias := filepath.Join(systemdDir, ManagedRuntimeUnit)
+	info, err := os.Lstat(alias)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.Mode().IsRegular() {
+		return false, nil
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || info.Mode()&os.ModeSymlink == 0 || int(stat.Uid) != owner || owner == 0 && stat.Gid != 0 {
+		return false, fmt.Errorf("%w: managed runtime alias", ErrUnsafe)
+	}
+	target, err := os.Readlink(alias)
+	if err != nil {
+		return false, err
+	}
+	if target != HostUnit && target != filepath.Join(systemdDir, HostUnit) {
+		return false, fmt.Errorf("%w: managed runtime alias target", ErrUnsafe)
+	}
+	// Native ordering waits for enrollment through the controller behind this runtime.
+	if _, err := os.Lstat(filepath.Join(systemdDir, HostUnit+".d/65-netbird-agent.conf")); !errors.Is(err, os.ErrNotExist) {
+		return false, errors.Join(fmt.Errorf("%w: native host dependency on managed runtime", ErrUnsafe), err)
+	}
+	// Parent directories must not let another principal replace the alias.
+	for directory := systemdDir; ; directory = filepath.Dir(directory) {
+		info, err := os.Lstat(directory)
+		if err != nil {
+			return false, err
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || !info.IsDir() || int(stat.Uid) != owner && stat.Uid != 0 ||
+			info.Mode().Perm()&0o022 != 0 && !(stat.Uid == 0 && info.Mode()&os.ModeSticky != 0) {
+			return false, fmt.Errorf("%w: managed runtime directory %s", ErrUnsafe, directory)
+		}
+		if directory == "/" {
+			break
+		}
+	}
+	for relative, contents := range map[string]string{
+		HostUnit:                                ManagedRuntimeService,
+		HostUnit + ".d/90-managed-runtime.conf": ManagedRuntimeHostDropin,
+		ControllerUnit + ".d/90-managed-runtime.conf":                                        ManagedRuntimeControllerDropin,
+		"terrascale-orchestrator-selfupdate-watchdog@host.service.d/90-managed-runtime.conf": ManagedRuntimeWatchdogDropin,
+	} {
+		file := filepath.Join(systemdDir, relative)
+		if err := layout.checkOwned(filepath.Dir(file), true); err != nil {
+			return false, err
+		}
+		if err := layout.checkOwned(file, false); err != nil {
+			return false, err
+		}
+		wire, err := readBounded(file, 16<<10)
+		if err != nil {
+			return false, err
+		}
+		if string(wire) != contents {
+			return false, fmt.Errorf("%w: managed runtime service contract %s", ErrUnsafe, relative)
+		}
+	}
+	return true, nil
 }

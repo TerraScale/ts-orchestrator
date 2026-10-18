@@ -37,14 +37,14 @@ var NetBirdUnits = []string{"netbird.service", "terrascale-netbird-enroll.servic
 
 const SSHUnit = "ssh.socket"
 
-var Units = []string{"containerd.service", "systemd-timesyncd.service", "systemd-time-wait-sync.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "netbird.service", "terrascale-netbird-enroll.service", "terrascale-netbird-agent.service", SSHUnit}
+var Units = []string{"containerd.service", "systemd-timesyncd.service", "systemd-time-wait-sync.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-host.service", "terrascale-orchestrator-controller.service", "netbird.service", "terrascale-netbird-enroll.service", "terrascale-netbird-agent.service", SSHUnit}
 var HostUnits = []string{"terrascale-orchestrator-host-setup.service", "terrascale-orchestrator-host-setup.timer", "terrascale-orchestrator-host-volume-init.socket"}
 var HostUnitFiles = append(append([]string{}, HostUnits...), "terrascale-orchestrator-host-volume-init.service")
 
-// SelfUpdateDropins install binary self-update and NetBird isolation from
+// SelfUpdateDropins install binary self-update and the fixed runtime contract from
 // deploy/systemd/selfupdate. The image enables SelfUpdateTimers, the watchdog
 // instances of SelfUpdateUnitFiles for each role.
-var SelfUpdateDropins = []string{"terrascale-orchestrator-controller.service.d/60-selfupdate.conf", "terrascale-orchestrator-host.service.d/60-selfupdate.conf", "terrascale-orchestrator-host.service.d/65-netbird-agent.conf", "terrascale-orchestrator-host-setup.service.d/60-selfupdate.conf", "terrascale-netbird-enroll.service.d/zz-selfupdate.conf"}
+var SelfUpdateDropins = []string{"terrascale-orchestrator-controller.service.d/60-selfupdate.conf", "terrascale-orchestrator-host.service.d/60-selfupdate.conf", "terrascale-orchestrator-host-setup.service.d/60-selfupdate.conf", "terrascale-netbird-enroll.service.d/zz-selfupdate.conf", "terrascale-orchestrator-host.service.d/90-managed-runtime.conf", "terrascale-orchestrator-controller.service.d/90-managed-runtime.conf", "terrascale-orchestrator-selfupdate-watchdog@host.service.d/90-managed-runtime.conf"}
 var SelfUpdateUnitFiles = []string{"terrascale-orchestrator-selfupdate-watchdog@.service", "terrascale-orchestrator-selfupdate-watchdog@.timer"}
 var SelfUpdateTimers = []string{"terrascale-orchestrator-selfupdate-watchdog@controller.timer", "terrascale-orchestrator-selfupdate-watchdog@host.timer"}
 var VolumeTools = []string{"/usr/sbin/mkfs.ext4", "/usr/sbin/blkid", "/usr/sbin/wipefs", "/usr/bin/mount"}
@@ -405,4 +405,12 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	}
 	_, e = io.Copy(output, source)
 	return errors.Join(e, output.Close(), os.Chmod(dst, mode))
+}
+
+// imageUnitSource keeps native host templates intact for existing installations.
+func imageUnitSource(name string) string {
+	if name == "terrascale-orchestrator-host.service" {
+		return "terrascale-orchestrator-managed-runtime.service"
+	}
+	return name
 }

@@ -147,7 +147,7 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 			return fmt.Errorf("installed application library parent has unexpected metadata: %s", AppLib)
 		}
 	}
-	for _, directory := range []string{App, Bootstrap, Bootstrap + "/trust-roots", "/etc/sysusers.d", "/etc/systemd", "/etc/systemd/system", "/etc/systemd/timesyncd.conf.d", "/etc/systemd/system/system.slice.d", "/etc/systemd/system/terrascale-orchestrator-host.service.d", "/etc/systemd/system/terrascale-orchestrator-controller.service.d", "/etc/systemd/system/terrascale-orchestrator-host-setup.service.d", path.Dir(TimeDropin), "/usr/local/bin", path.Dir(Helper), path.Dir(Native), "/etc/udev", path.Dir(OCIDevicePaths), "/var/lib/terrascale-orchestrator-bootstrap"} {
+	for _, directory := range []string{App, Bootstrap, Bootstrap + "/trust-roots", "/etc/sysusers.d", "/etc/systemd", "/etc/systemd/system", "/etc/systemd/timesyncd.conf.d", "/etc/systemd/system/system.slice.d", "/etc/systemd/system/terrascale-orchestrator-host.service.d", "/etc/systemd/system/terrascale-orchestrator-controller.service.d", "/etc/systemd/system/terrascale-orchestrator-host-setup.service.d", "/etc/systemd/system/terrascale-orchestrator-selfupdate-watchdog@host.service.d", path.Dir(TimeDropin), "/usr/local/bin", path.Dir(Helper), path.Dir(Native), "/etc/udev", path.Dir(OCIDevicePaths), "/var/lib/terrascale-orchestrator-bootstrap"} {
 		if e = g.Directory(directory, 0, 0, 0755); e != nil {
 			return e
 		}
@@ -172,8 +172,8 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 		return e
 	}
 	uploads := []upload{{o.Sysusers, "/etc/sysusers.d/terrascale-orchestrator.conf", 0644}, {o.Profile, Profile, 0644}, {o.Binary, Helper, 0755}, {o.Binary, "/usr/local/bin/terrascale-orchestrator", 0755}, {o.NetBirdBinary, NetBird, 0755}, {o.NetBirdBinary, NetBirdFallback, 0755}, {pinPath, NetBirdPin, 0644}, {o.NetBirdConfig, NetBirdConfig, 0644}, {o.NativeVerifier, Native, 0755}, {o.Timesyncd, TimeConfig, 0644}, {filepath.Join(repo, "deploy/udev", path.Base(OCIDevicePaths)), OCIDevicePaths, 0644}}
-	for _, name := range append(append([]string{"terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...), HostUnitFiles...) {
-		uploads = append(uploads, upload{filepath.Join(repo, "deploy/systemd", name), "/etc/systemd/system/" + name, 0644})
+	for _, name := range append(append([]string{"terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...), HostUnitFiles...) {
+		uploads = append(uploads, upload{filepath.Join(repo, "deploy/systemd", imageUnitSource(name)), "/etc/systemd/system/" + name, 0644})
 	}
 	for _, name := range append(append([]string{}, SelfUpdateDropins...), SelfUpdateUnitFiles...) {
 		uploads = append(uploads, upload{filepath.Join(repo, "deploy/systemd/selfupdate", name), "/etc/systemd/system/" + name, 0644})
@@ -614,7 +614,7 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 		{"containerd.service", filepath.Join(work, "containerd.service")},
 		{"terrascale-orchestrator-controller.service.d/70-containerd.conf", filepath.Join(work, "70-containerd.conf")},
 		{"terrascale-orchestrator-host.service.d/70-containerd.conf", filepath.Join(work, "70-containerd.conf")},
-		{"terrascale-orchestrator-managed-runtime.service", filepath.Join(repo, "deploy/systemd/terrascale-orchestrator-managed-runtime.service")},
+		{"terrascale-orchestrator-host.service", filepath.Join(repo, "deploy/systemd/terrascale-orchestrator-managed-runtime.service")},
 		{"terrascale-orchestrator-managed-host-start.service", filepath.Join(repo, "deploy/systemd/terrascale-orchestrator-managed-host-start.service")},
 		{"terrascale-orchestrator-controller.service", filepath.Join(repo, "deploy/systemd/terrascale-orchestrator-controller.service")},
 	} {
