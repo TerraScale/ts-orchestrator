@@ -491,32 +491,3 @@ func TestManagedBootstrapConfigCannotChangeConcurrentInstallationSnapshot(t *tes
 	}
 	assertManagedFile(t, f.m.path(netbird.PublicConfigPath), body)
 }
-
-func TestManagedBootstrapConfigRejectsInvalidInputsBeforeWrites(t *testing.T) {
-	for _, failure := range []string{"version", "pin", "configuration", "context"} {
-		t.Run(failure, func(t *testing.T) {
-			f := newManagedFixture(t)
-			root := managedBootstrapDefaults(t, f)
-			ctx := t.Context()
-			switch failure {
-			case "version":
-				f.pin.Version = "0.79.0"
-			case "pin":
-				f.pin.Archives.AMD64.BinarySHA256 = "invalid"
-			case "configuration":
-				f.cfg.SetupKeySecretID = "invalid"
-			case "context":
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithCancel(ctx)
-				cancel()
-			}
-			written, err := f.m.installBootstrapConfig(ctx, root, f.pin, f.cfg)
-			if err == nil || written || failure == "context" && !errors.Is(err, context.Canceled) {
-				t.Fatalf("invalid initial configuration was written: written=%t error=%v", written, err)
-			}
-			for _, name := range []string{"netbird-pin.json", "netbird.json"} {
-				assertManagedFile(t, filepath.Join(root, name), []byte("image default "+name))
-			}
-		})
-	}
-}

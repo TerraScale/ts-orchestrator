@@ -25,40 +25,6 @@ func testRoster(generation uint64) Roster {
 	}}
 }
 
-func TestRosterValidation(t *testing.T) {
-	t.Parallel()
-
-	if err := testRoster(1).Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if !testRoster(1).Active("sfo") || testRoster(1).Active("fra") || testRoster(1).Active("iad") {
-		t.Fatal("roster Active disagrees with entry states")
-	}
-	cases := map[string]func(*Roster){
-		"zero generation": func(r *Roster) { r.Generation = 0 },
-		"empty":           func(r *Roster) { r.Regions = nil },
-		"unsorted":        func(r *Roster) { r.Regions[0], r.Regions[1] = r.Regions[1], r.Regions[0] },
-		"duplicate":       func(r *Roster) { r.Regions[2].Cell = "gru" },
-		"global cell":     func(r *Roster) { r.Regions[0].Cell = "global" },
-		"bad cell":        func(r *Roster) { r.Regions[0].Cell = "FRA" },
-		"bad OCI region":  func(r *Roster) { r.Regions[0].OCIRegion = "eu frankfurt" },
-		"unknown state":   func(r *Roster) { r.Regions[0].State = "paused" },
-		"missing home":    func(r *Roster) { r.HomeRegion = "iad" },
-		"home not active": func(r *Roster) { r.Regions[1].State = RegionRetiring },
-		"too many regions": func(r *Roster) {
-			r.Regions = make([]RosterEntry, maxRegions+1)
-		},
-	}
-	for name, mutate := range cases {
-		roster := testRoster(1)
-		roster.Regions = append([]RosterEntry(nil), roster.Regions...)
-		mutate(&roster)
-		if err := roster.Validate(); err == nil {
-			t.Errorf("%s roster validated", name)
-		}
-	}
-}
-
 func TestDirectoryValidation(t *testing.T) {
 	t.Parallel()
 

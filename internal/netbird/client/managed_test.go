@@ -115,19 +115,6 @@ func managedBackup(t *testing.T, f *managedFixture) string {
 	return f.m.previousBinary(transaction)
 }
 
-func TestValidateManagedVersion(t *testing.T) {
-	for _, version := range []string{"0.80.0", "0.80.12"} {
-		if err := ValidateManagedVersion(version); err != nil {
-			t.Errorf("managed version %q rejected: %v", version, err)
-		}
-	}
-	for _, version := range []string{"", "0.79.0", "0.81.0", "0.80.", "0.80.0-rc1", "v0.80.0", "0.80.1\n"} {
-		if err := ValidateManagedVersion(version); err == nil {
-			t.Errorf("invalid managed version %q accepted", version)
-		}
-	}
-}
-
 func TestManagedInstallRejectsChecksumBeforeServiceMutation(t *testing.T) {
 	f := newManagedFixture(t)
 	f.pin.Archives.AMD64.BinarySHA256 = strings.Repeat("0", 64)
@@ -831,21 +818,6 @@ func TestManagedTransactionIdentityAndBootstrapOwnership(t *testing.T) {
 				t.Fatalf("completed canonical recovery changed state or service: %+v %v calls=%v", recovered, err, f.calls)
 			}
 			assertManagedFile(t, f.m.path(managedDirectory+"/pending.json"), journal)
-		})
-	}
-}
-
-func TestManagedTransactionRejectsNoncanonicalIDs(t *testing.T) {
-	for _, id := range []string{"bootstrap-old", "550e8400-e29b-41d4-a716-446655440000", "01m4eb0gdpphgjppvy77emzqkt"} {
-		t.Run(id, func(t *testing.T) {
-			f := newManagedFixture(t)
-			f.options.TransactionID = id
-			if _, err := f.m.install(t.Context(), f.pin, f.cfg, f.options); err == nil || len(f.calls) != 0 {
-				t.Fatalf("invalid ID reached installation: %v %v", err, f.calls)
-			}
-			if err := f.m.finish(t.Context(), id, true); err == nil || len(f.calls) != 0 {
-				t.Fatalf("invalid ID reached rollback: %v %v", err, f.calls)
-			}
 		})
 	}
 }

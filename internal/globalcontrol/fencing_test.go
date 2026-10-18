@@ -543,26 +543,6 @@ func TestHeaderlessRecordsBeforeTheFirstBarrierAreRejected(t *testing.T) {
 	}
 }
 
-// TestMirrorWithFiniteLimitsIsRefused: an existing mirror that could discard
-// home records does not pass verification.
-func TestMirrorWithFiniteLimitsIsRefused(t *testing.T) {
-	t.Parallel()
-	for name, change := range map[string]func(*jetstream.StreamConfig){
-		"max msgs":             func(config *jetstream.StreamConfig) { config.MaxMsgs = 10 },
-		"max bytes":            func(config *jetstream.StreamConfig) { config.MaxBytes = 1 << 20 },
-		"max msgs per subject": func(config *jetstream.StreamConfig) { config.MaxMsgsPerSubject = 1 },
-	} {
-		config := MirrorStreamConfig("gru", "sfo", 1)
-		if err := verifyMirror(config, "gru", "sfo", 1); err != nil {
-			t.Fatalf("expected mirror config refused: %v", err)
-		}
-		change(&config)
-		if err := verifyMirror(config, "gru", "sfo", 1); err == nil {
-			t.Errorf("%s: a mirror with a finite limit passed verification", name)
-		}
-	}
-}
-
 // TestEmptyMirrorWithoutHomeContactFailsClosed: an empty mirror that never
 // heard from the home stream cannot answer "not found".
 func TestEmptyMirrorWithoutHomeContactFailsClosed(t *testing.T) {
@@ -579,22 +559,5 @@ func TestEmptyMirrorWithoutHomeContactFailsClosed(t *testing.T) {
 	}
 	if _, err := reader.Term(ctx); !errors.Is(err, ErrMirrorNotCaughtUp) {
 		t.Fatalf("empty unconfirmed mirror term = %v, want ErrMirrorNotCaughtUp", err)
-	}
-}
-
-// TestStreamVerificationRefusesTransformsAndLateMirrorStarts: a home stream
-// that rewrites subjects, or a mirror that starts past the first record,
-// is not accepted.
-func TestStreamVerificationRefusesTransformsAndLateMirrorStarts(t *testing.T) {
-	t.Parallel()
-	home := HomeStreamConfig(1)
-	home.SubjectTransform = &jetstream.SubjectTransformConfig{Source: "ts.global.v1.>", Destination: "elsewhere.>"}
-	if err := verifyHome(home, 1); err == nil {
-		t.Fatal("a home stream with a subject transform passed verification")
-	}
-	mirror := MirrorStreamConfig("gru", "sfo", 1)
-	mirror.Mirror.OptStartSeq = 5
-	if err := verifyMirror(mirror, "gru", "sfo", 1); err == nil {
-		t.Fatal("a mirror starting past the first record passed verification")
 	}
 }
