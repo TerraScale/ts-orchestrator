@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,6 +34,7 @@ func TestRuntimeAuthorityHTTPIntegration(t *testing.T) {
 			return
 		}
 		w.Header().Set("ETag", digestWire(wire))
+		w.Header().Set("Content-Length", fmt.Sprint(len(wire)))
 		_, _ = w.Write(wire)
 	}))
 	t.Cleanup(server.Close)

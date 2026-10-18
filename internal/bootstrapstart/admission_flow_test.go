@@ -597,6 +597,11 @@ func admissionTrustStore(t *testing.T, roots trust.Keyring) bakedStore {
 	if err := os.MkdirAll(rootDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	for _, path := range []string{directory, rootDir} {
+		if err := os.Chmod(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	index := 0
 	for _, key := range roots {
 		index++
