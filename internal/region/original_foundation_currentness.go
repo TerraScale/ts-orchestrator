@@ -305,7 +305,22 @@ func (record FoundationRecord) validateOriginalFoundationPublication() error {
 		return nil
 	}
 	entry := root.Publication
-	expected, err := originalPublicationScope(record, entry.Intent, entry.RootChainSHA256)
+	if _, err := originalPublicationScope(record, entry.Intent, entry.RootChainSHA256); err != nil {
+		return errors.Join(ErrOriginalSourceProducerHold, err)
+	}
+	return record.validateOriginalFoundationPublicationFromValidatedAdmissionReads()
+}
+
+func (record FoundationRecord) validateOriginalFoundationPublicationFromValidatedAdmissionReads() error {
+	root := record.OriginalFoundationCompartments
+	if root == nil || root.Publication == nil {
+		return nil
+	}
+	if completeOriginalFoundationAdmissionReadsFromValidatedAdmissionReads(record) != nil {
+		return ErrOriginalSourceProducerHold
+	}
+	entry := root.Publication
+	expected, err := originalPublicationScopeFromAdmissionReads(record, entry.Intent, entry.RootChainSHA256)
 	if err != nil || !sameOriginalSourceValue(entry.scopeOnly(), expected) || entry.PendingAt.IsZero() || entry.PendingAt.Before(root.BornAt) || entry.PendingAt.After(record.UpdatedAt) {
 		return errors.Join(ErrOriginalSourceProducerHold, err)
 	}

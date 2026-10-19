@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
@@ -309,6 +310,14 @@ func TestOriginalFoundationCurrentnessSDK(t *testing.T) {
 			{"actor reads presence", func(record *FoundationRecord) { record.OriginalFoundationCompartments.Regions[0].ActorReads = nil }},
 			{"source IAM scope", func(record *FoundationRecord) {
 				record.OriginalFoundationCompartments.Regions[0].SourceIAM.Bucket = "changed-bucket"
+			}},
+			{"admission reads presence", func(record *FoundationRecord) { record.OriginalFoundationCompartments.Regions[0].AdmissionReads = nil }},
+			{"admission reads completion", func(record *FoundationRecord) {
+				entry := record.OriginalFoundationCompartments.Regions[0].AdmissionReads
+				entry.VerifiedAt, entry.ReadbackSHA256 = time.Time{}, ""
+			}},
+			{"publication readback verification", func(record *FoundationRecord) {
+				record.OriginalFoundationCompartments.Publication.Readbacks[0].VerifiedAt = time.Time{}
 			}},
 		} {
 			var changed FoundationRecord

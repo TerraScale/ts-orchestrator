@@ -191,6 +191,13 @@ func completeOriginalFoundationAdmissionReads(record FoundationRecord) error {
 	if completeOriginalAdmissionReadPrerequisites(record) != nil || record.validateOriginalFoundationAdmissionReads() != nil {
 		return ErrOriginalSourceProducerHold
 	}
+	return completeOriginalFoundationAdmissionReadsFromValidatedAdmissionReads(record)
+}
+
+func completeOriginalFoundationAdmissionReadsFromValidatedAdmissionReads(record FoundationRecord) error {
+	if completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record) != nil {
+		return ErrOriginalSourceProducerHold
+	}
 	for _, regional := range record.OriginalFoundationCompartments.Regions {
 		entry := regional.AdmissionReads
 		if entry == nil || entry.Pending == nil || entry.Provenance == nil || entry.ReadbackSHA256 == "" || entry.VerifiedAt.IsZero() || entry.HoldReason != "" {

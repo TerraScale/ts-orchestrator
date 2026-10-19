@@ -546,7 +546,7 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 	if err := r.validateOriginalFoundationAdmissionReadsFromValidatedActors(); err != nil {
 		return err
 	}
-	if err := r.validateOriginalFoundationPublication(); err != nil {
+	if err := r.validateOriginalFoundationPublicationFromValidatedAdmissionReads(); err != nil {
 		return err
 	}
 	if err := r.validateOriginalFoundationMaterialIAM(); err != nil {
