@@ -498,7 +498,7 @@ func (c *Client) KMSVaults() (keymanagement.KmsVaultClient, error) {
 		return client, fmt.Errorf("create OCI KMS vault client: %w", err)
 	}
 	client.SetRegion(c.factory.Region())
-	c.factory.Configure(&client.BaseClient, ociclient.ServiceKMS)
+	c.factory.ConfigureSDK(&client.BaseClient, ociclient.ServiceKMS)
 	c.pin(&client.BaseClient)
 	return client, nil
 }
@@ -545,7 +545,7 @@ func (c *Client) KMSManagement(endpoint string) (keymanagement.KmsManagementClie
 	if err != nil {
 		return client, fmt.Errorf("create OCI KMS management client: %w", err)
 	}
-	c.factory.Configure(&client.BaseClient, ociclient.ServiceKMS)
+	c.factory.ConfigureSDK(&client.BaseClient, ociclient.ServiceKMS)
 	c.pin(&client.BaseClient)
 	return client, nil
 }

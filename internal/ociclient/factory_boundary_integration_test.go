@@ -5,11 +5,13 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,9 +20,11 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
+	"github.com/oracle/oci-go-sdk/v65/keymanagement"
 )
 
 func TestOperationCardinalityThroughVerifiedTLSHTTP(t *testing.T) {
@@ -92,15 +96,31 @@ func TestOperationCardinalityThroughVerifiedTLSHTTP(t *testing.T) {
 func TestFactoryAdmissionThroughSignedSDKHTTP(t *testing.T) {
 	const instanceID = "ocid1.instance.oc1..a"
 	provider := factoryBoundaryProvider(t)
-	var received atomic.Int32
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+	var received, connections atomic.Int32
+	observed := make(chan string, 4)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		received.Add(1)
-		assertSignedFactoryBoundaryRequest(t, request, "/20160918/instances/"+instanceID)
+		path, id, state := "/20160918/instances/"+instanceID, instanceID, "RUNNING"
+		switch request.URL.Path {
+		case "/20180608/vaults/ocid1.vault.oc1..v":
+			path, id, state = request.URL.Path, "ocid1.vault.oc1..v", "ACTIVE"
+			observed <- request.RemoteAddr
+		case "/20180608/keys/ocid1.key.oc1..k":
+			path, id, state = request.URL.Path, "ocid1.key.oc1..k", "ENABLED"
+			observed <- request.RemoteAddr
+		}
+		assertSignedFactoryBoundaryRequest(t, request, path)
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.MarshalWrite(w, map[string]string{"id": instanceID, "lifecycleState": "RUNNING"}); err != nil {
+		if err := json.MarshalWrite(w, map[string]string{"id": id, "lifecycleState": state}); err != nil {
 			t.Error(err)
 		}
 	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			connections.Add(1)
+		}
+	}
+	server.StartTLS()
 	defer server.Close()
 	client := server.Client()
 	defer client.CloseIdleConnections()
@@ -144,6 +164,61 @@ func TestFactoryAdmissionThroughSignedSDKHTTP(t *testing.T) {
 			}
 		})
 	}
+	t.Run("independent_KMS_clients_reuse_TLS_connection", func(t *testing.T) {
+		listener, ok := server.Listener.Addr().(*net.TCPAddr)
+		if !ok || !listener.IP.IsLoopback() || listener.Port == 0 {
+			t.Fatal("SDK transport fixture requires literal loopback TLS")
+		}
+		previous := http.DefaultTransport
+		defer func() { http.DefaultTransport = previous }()
+		transport := previous.(*http.Transport).Clone()
+		defer transport.CloseIdleConnections()
+		transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
+			return nil, fmt.Errorf("fixture refuses plaintext dialing")
+		}
+		transport.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			if network != "tcp" && network != "tcp4" && network != "tcp6" {
+				return nil, fmt.Errorf("fixture refuses non-TCP network")
+			}
+			return (&tls.Dialer{Config: client.Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, "tcp", listener.String())
+		}
+		http.DefaultTransport = transport
+		factory, err := ociclient.New(provider, ociclient.Options{Region: "sa-saopaulo-1", Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader := sdkcli.NewClient(factory, server.URL)
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		before := connections.Load()
+		for range 2 {
+			vaults, err := reader.KMSVaults()
+			if err != nil {
+				t.Fatal(err)
+			}
+			vault, err := vaults.GetVault(ociclient.RequestContext(ctx), keymanagement.GetVaultRequest{VaultId: new("ocid1.vault.oc1..v")})
+			if err != nil || vault.Id == nil || *vault.Id != "ocid1.vault.oc1..v" {
+				t.Fatalf("signed SDK vault read failed: %v", err)
+			}
+			management, err := reader.KMSManagement("https://vault-management.kms.sa-saopaulo-1.oraclecloud.com")
+			if err != nil {
+				t.Fatal(err)
+			}
+			key, err := management.GetKey(ociclient.RequestContext(ctx), keymanagement.GetKeyRequest{KeyId: new("ocid1.key.oc1..k")})
+			if err != nil || key.Id == nil || *key.Id != "ocid1.key.oc1..k" {
+				t.Fatalf("signed SDK key read failed: %v", err)
+			}
+		}
+		remote := <-observed
+		for range 3 {
+			if next := <-observed; next != remote {
+				t.Fatalf("independent KMS clients used different TLS connections: %s and %s", remote, next)
+			}
+		}
+		if connections.Load() != before+1 || received.Load() != 5 {
+			t.Fatalf("KMS TLS connections=%d requests=%d, want 1/4 after the positive control", connections.Load()-before, received.Load()-1)
+		}
+	})
 }
 
 func TestTenancyHomeRegionThroughSignedSDKHTTP(t *testing.T) {
