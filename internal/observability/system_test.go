@@ -192,6 +192,29 @@ func TestSystemMalformedProcFilesAreReportedBySnapshotAPI(t *testing.T) {
 			t.Fatalf("view without net/dev = %+v", view)
 		}
 	})
+	t.Run("host", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("system statistics require Linux")
+		}
+		filesystems := []FilesystemRole{{Role: "tmp", Path: t.TempDir()}}
+		collector, _ := testCollector(t, "proc-host", nil)
+		collector.config.System = func() (SystemView, error) { return ReadSystem(filesystems) }
+		snapshot, err := snapshotOverHTTP(t, collector, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.System == nil {
+			t.Fatalf("host omitted system: %+v", snapshot)
+		}
+		if _, present := snapshot.Errors["system"]; present {
+			t.Fatalf("host reported a system error: %+v", snapshot)
+		}
+		view := snapshot.System
+		if view.CPUCount < 1 || view.MemTotalBytes == 0 || len(view.Filesystems) != 1 || view.Filesystems[0].SizeBytes == 0 ||
+			view.Clock == nil {
+			t.Fatalf("host view = %+v", view)
+		}
+	})
 }
 
 func TestReadSystemOnThisHost(t *testing.T) {
