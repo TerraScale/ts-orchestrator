@@ -185,6 +185,28 @@ func TestSystemMalformedProcFilesAreReportedBySnapshotAPI(t *testing.T) {
 			}
 		})
 	}
+	t.Run("missing net/dev", func(t *testing.T) {
+		root := writeProcFixture(t)
+		if err := os.Remove(filepath.Join(root, "net", "dev")); err != nil {
+			t.Fatal(err)
+		}
+		collector, _ := testCollector(t, "proc-without-network", nil)
+		collector.config.System = func() (SystemView, error) { return readSystem(root, nil, nil) }
+		snapshot, err := snapshotOverHTTP(t, collector, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.System == nil {
+			t.Fatalf("missing net/dev omitted system: %+v", snapshot)
+		}
+		if _, present := snapshot.Errors["system"]; present {
+			t.Fatalf("missing net/dev reported a system error: %+v", snapshot)
+		}
+		view := snapshot.System
+		if view.NetRxBytes != 0 || view.NetTxBytes != 0 || view.CPUCount != 2 || view.MemTotalBytes == 0 {
+			t.Fatalf("view without net/dev = %+v", view)
+		}
+	})
 }
 
 func TestReadSystemOnThisHost(t *testing.T) {
