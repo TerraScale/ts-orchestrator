@@ -304,7 +304,7 @@ func originalAdmissionReadPolicy(scope OriginalFoundationAdmissionReads) identit
 func originalAdmissionReadPrerequisites(ctx context.Context, authority *HomeIAMAuthority) (FoundationRecord, string, [3]OriginalFoundationAdmissionReads, time.Time, error) {
 	var scopes [3]OriginalFoundationAdmissionReads
 	record, etag, _, deadline, err := originalActorReadsPrerequisites(ctx, authority)
-	if err != nil || completeOriginalAdmissionReadPrerequisites(record) != nil {
+	if err != nil || completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record) != nil {
 		return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 	}
 	reader, ok := authority.resolver.Footprint.(*SignedFootprint)
@@ -319,7 +319,7 @@ func originalAdmissionReadPrerequisites(ctx context.Context, authority *HomeIAMA
 	if err != nil {
 		return record, etag, scopes, time.Time{}, err
 	}
-	if err := completeOriginalSourceIAMActors(record); err != nil {
+	if err := completeOriginalSourceIAMActorsFromValidatedActors(record); err != nil {
 		return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 	}
 	for index, regional := range record.OriginalFoundationCompartments.Regions {
