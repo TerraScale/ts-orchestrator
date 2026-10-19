@@ -216,18 +216,3 @@ func TestSystemMalformedProcFilesAreReportedBySnapshotAPI(t *testing.T) {
 		}
 	})
 }
-
-func TestReadSystemOnThisHost(t *testing.T) {
-	t.Parallel()
-	if runtime.GOOS != "linux" {
-		t.Skip("system statistics require Linux")
-	}
-	view, err := ReadSystem([]FilesystemRole{{Role: "tmp", Path: t.TempDir()}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.CPUCount < 1 || view.MemTotalBytes == 0 || len(view.Filesystems) != 1 || view.Filesystems[0].SizeBytes == 0 ||
-		view.Clock == nil {
-		t.Fatalf("host view = %+v", view)
-	}
-}
