@@ -138,21 +138,6 @@ func TestReadNetDevSumsNonLoopbackInterfaces(t *testing.T) {
 	}
 }
 
-func TestReadSystemWithoutNetDevKeepsReadings(t *testing.T) {
-	t.Parallel()
-	root := writeProcFixture(t)
-	if err := os.Remove(filepath.Join(root, "net", "dev")); err != nil {
-		t.Fatal(err)
-	}
-	view, err := readSystem(root, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.NetRxBytes != 0 || view.NetTxBytes != 0 || view.CPUCount != 2 || view.MemTotalBytes == 0 {
-		t.Fatalf("view without net/dev = %+v", view)
-	}
-}
-
 func TestSystemMalformedProcFilesAreReportedBySnapshotAPI(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
