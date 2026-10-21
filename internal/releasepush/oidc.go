@@ -44,6 +44,10 @@ var releaseWorkflows = []string{
 	owner + "/ts-orchestrator/.github/workflows/ci.yml@" + mainRef,
 }
 
+// meshWorkflow is the only workflow whose tokens may use the mesh bridge
+// (ts.release.mesh.>): it runs on main by schedule, by hand or after CI.
+const meshWorkflow = orchRepository + "/.github/workflows/multi-region.yml@" + mainRef
+
 // Claims are the GitHub Actions OIDC claims ts-orch acts on.
 type Claims struct {
 	Issuer          string   `json:"iss"`
@@ -98,6 +102,34 @@ func NewVerifier() *Verifier {
 // Verify returns the claims of a valid token from a release workflow's push
 // to main, audience ts-orch.
 func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
+	claims, err := v.verify(ctx, token)
+	switch {
+	case err != nil:
+		return Claims{}, err
+	case claims.EventName != "push":
+		return Claims{}, errors.New("token is not from a push to " + mainRef)
+	case !slices.Contains(releaseWorkflows, claims.JobWorkflowRef) ||
+		!strings.HasPrefix(claims.JobWorkflowRef, claims.Repository+"/.github/workflows/"):
+		return Claims{}, errors.New("token is not from a release workflow")
+	}
+	return claims, nil
+}
+
+// VerifyMesh returns the claims of a valid token from ts-orchestrator's
+// multi-region workflow on main, audience ts-orch.
+func (v *Verifier) VerifyMesh(ctx context.Context, token string) (Claims, error) {
+	claims, err := v.verify(ctx, token)
+	if err == nil && (claims.Repository != orchRepository || claims.JobWorkflowRef != meshWorkflow) {
+		err = errors.New("token is not from the multi-region workflow")
+	}
+	if err != nil {
+		return Claims{}, err
+	}
+	return claims, nil
+}
+
+// verify checks the signature and every claim except the event and workflow.
+func (v *Verifier) verify(ctx context.Context, token string) (Claims, error) {
 	if len(token) > maxTokenSize {
 		return Claims{}, errors.New("token too large")
 	}
@@ -140,11 +172,8 @@ func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 		return Claims{}, errors.New("token not yet valid")
 	case claims.RepositoryOwner != owner || !strings.HasPrefix(claims.Repository, owner+"/"):
 		return Claims{}, errors.New("token is not from a " + owner + " repository")
-	case claims.Ref != mainRef || claims.EventName != "push":
-		return Claims{}, errors.New("token is not from a push to " + mainRef)
-	case !slices.Contains(releaseWorkflows, claims.JobWorkflowRef) ||
-		!strings.HasPrefix(claims.JobWorkflowRef, claims.Repository+"/.github/workflows/"):
-		return Claims{}, errors.New("token is not from a release workflow")
+	case claims.Ref != mainRef:
+		return Claims{}, errors.New("token is not from " + mainRef)
 	case !runID.MatchString(claims.RunID):
 		return Claims{}, errors.New("token run_id is not a number")
 	}
