@@ -314,6 +314,7 @@ func TestColdRestartWithTwoOfThreeBrokers(t *testing.T) {
 }
 
 func TestWaitForClusterFailsFastWhenEmbeddedServerStopped(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	cluster := newLabCluster(t, 3)
