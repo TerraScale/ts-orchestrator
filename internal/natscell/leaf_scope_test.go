@@ -1,16 +1,21 @@
 package natscell
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
 
-func TestChildLeafPermissionsAreScopedToTheSubtree(t *testing.T) {
-	t.Parallel()
+func TestChildLeafScopeAdmissionIntegration(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
 
 	// IAD dials SFO; SFO and FRA dial GRU.
 	topology := HubAndSpoke("gru", []string{"fra", "iad", "sfo"}).WithSpokeParent("iad", "sfo")
@@ -45,11 +50,19 @@ func TestChildLeafPermissionsAreScopedToTheSubtree(t *testing.T) {
 		t.Fatalf("unknown child permissions = %+v", unknown)
 	}
 
-	keys := newTestRegionKeys(t)
-	system, cell, interregion := keys.claims(contract, 2)
-	if err := contract.verify(system, cell, interregion, 2); err != nil {
+	root := t.TempDir()
+	region := newTestRegion(t, filepath.Join(root, "gru"), "gru", topology)
+	region.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: freeClientPort(t), TLS: testBridgeTLS(t, filepath.Join(root, "leaf"))}
+	region.cfg.Embedded.InterRegion.Topology = &topology
+	baseline, err := Start(ctx, region.cfg)
+	if err != nil {
 		t.Fatal(err)
 	}
+	_, probeErr := baseline.JetStream().AccountInfo(ctx)
+	if err := baseline.Close(); err != nil || probeErr != nil {
+		t.Fatalf("production broker baseline failed: close=%v request=%v", err, probeErr)
+	}
+	_, _, interregion := region.claims(contract, 2)
 	if !denyAll(interregion.DefaultPermissions) {
 		t.Fatal("interregion defaults are not deny-all")
 	}
@@ -88,10 +101,23 @@ func TestChildLeafPermissionsAreScopedToTheSubtree(t *testing.T) {
 		},
 	}
 	for name, mutate := range mutations {
-		system, cell, interregion := keys.claims(contract, 2)
-		mutate(interregion)
-		if err := contract.verify(system, cell, interregion, 2); err == nil {
-			t.Errorf("%s: widened interregion account verified", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			_, _, interregion := region.claims(contract, 2)
+			mutate(interregion)
+			raw, err := interregion.Encode(region.operator)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(region.cfg.Embedded.InterRegion.AccountJWTFile, []byte(raw), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runtime, err := Start(ctx, region.cfg)
+			if runtime != nil {
+				_ = runtime.Close()
+			}
+			if err == nil {
+				t.Fatal("operator-signed widened child scope started a production broker")
+			}
+		})
 	}
 }
