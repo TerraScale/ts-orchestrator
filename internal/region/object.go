@@ -3,6 +3,7 @@ package region
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -39,13 +40,16 @@ type ObjectFoundationStore struct {
 	originalSourceBirth      *[3]OriginalSourceProducerBirth
 	client                   FoundationObjects
 	namespace, bucket        string
+	// validated remembers journal bytes that already passed record.validate,
+	// which depends only on those bytes.
+	validated *foundationVerificationMemo
 }
 
 func NewObjectFoundationStore(client FoundationObjects, namespace, bucket string) (*ObjectFoundationStore, error) {
 	if client == nil || namespace == "" || bucket == "" || strings.ContainsAny(namespace+bucket, "/\\\r\n") {
 		return nil, errors.New("regional foundation store requires an existing home bucket and namespace")
 	}
-	return &ObjectFoundationStore{client: client, namespace: namespace, bucket: bucket}, nil
+	return &ObjectFoundationStore{client: client, namespace: namespace, bucket: bucket, validated: newFoundationVerificationMemo()}, nil
 }
 
 // MarshalJSONTo preserves omitted OCI SDK fields across durable record roundtrips.
@@ -86,8 +90,12 @@ func (s *ObjectFoundationStore) Load(ctx context.Context, cell string) (Foundati
 	if err := json.Unmarshal(wire, &record, json.RejectUnknownMembers(true)); err != nil {
 		return FoundationRecord{}, "", errors.New("foundation record has invalid schema")
 	}
-	if err := record.validate(); err != nil {
-		return FoundationRecord{}, "", err
+	key := sha256.Sum256(wire)
+	if _, ok := s.validated.lookup(key); !ok {
+		if err := record.validate(); err != nil {
+			return FoundationRecord{}, "", err
+		}
+		s.validated.store(key, verifiedFoundationDocument{})
 	}
 	if record.Cell != cell {
 		return FoundationRecord{}, "", errors.New("foundation record differs from its object key")

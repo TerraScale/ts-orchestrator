@@ -92,7 +92,11 @@ func (f *originalPublicationSDKFixture) serveHTTP(w http.ResponseWriter, r *http
 		f.originalCompartmentSDKFixture.serveHTTP(w, r)
 		return
 	}
-	record := f.record(f.cloud.test)
+	// Only writes are checked against the journal.
+	var record FoundationRecord
+	if r.Method == http.MethodPut {
+		record = f.record(f.cloud.test)
+	}
 	if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/o/"+foundationObjectPrefix+"GRU.json") {
 		wire, err := io.ReadAll(io.LimitReader(r.Body, foundationJournalLimit+1))
 		var next FoundationRecord
