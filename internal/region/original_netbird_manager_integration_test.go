@@ -161,7 +161,7 @@ func (f *originalNetBirdManagerSDKFixture) serveHTTP(w http.ResponseWriter, r *h
 			originalCompartmentFailure(w, 404, "NotAuthorizedOrNotFound")
 			return
 		}
-		wire, err := json.Marshal(map[string]string{"username": "ns/fixture-ocir", "password": "fixture-only-issued-token"})
+		wire, err := json.Marshal(map[string]string{"username": "ns/fixture-ocir", "password": "fixture-only-issued-token"}, json.Deterministic(true))
 		if err != nil {
 			f.cloud.test.Error(err)
 			originalCompartmentFailure(w, 500, "InternalError")
