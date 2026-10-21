@@ -135,7 +135,8 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 	record(OperationIntent{Action: actionVolumeAttach, Key: entityid.New(), CreateKey: hostKey, ResourceID: instanceID, VolumeID: volumeID, Region: config.Region,
 		Generation: config.Generation, Owner: config.Owner, CreatedAt: now, Device: device, IsPvEncryptionInTransitEnabled: true}, attachmentID, "attachment-v1")
 	attachment := map[string]any{"id": attachmentID, "instanceId": instanceID, "volumeId": volumeID, "device": device, "lifecycleState": "ATTACHED", "attachmentType": "paravirtualized",
-		"isReadOnly": false, "isShareable": false, "isPvEncryptionInTransitEnabled": true}
+		"isReadOnly": false, "isShareable": false, "isPvEncryptionInTransitEnabled": true,
+		"compartmentId": config.CompartmentID, "availabilityDomain": config.AvailabilityDomain, "timeCreated": now.Add(-time.Minute)}
 	history := maps.Clone(attachment)
 	history["id"], history["instanceId"], history["lifecycleState"] = "ocid1.volumeattachment.oc1.sa-saopaulo-1.history", oldID, "DETACHED"
 	var mode, writes, calls atomic.Int32
@@ -190,6 +191,11 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 			value = map[string]any{"id": volumeID, "compartmentId": config.CompartmentID, "availabilityDomain": config.AvailabilityDomain, "lifecycleState": "AVAILABLE", "sizeInGBs": 50, "vpusPerGB": 10,
 				"freeformTags": volumeTags(config, VolumeCreateRequest{CreateKey: volumeKey, SizeGB: 50})}
 		case strings.Contains(r.URL.Path, "/volumeAttachments/"):
+			if mode.Load() == 16 {
+				w.WriteHeader(404)
+				w.Write([]byte(`{"code":"NotAuthorizedOrNotFound","message":"absent"}`))
+				return
+			}
 			w.Header().Set("etag", "attachment-v1")
 			current := maps.Clone(attachment)
 			switch mode.Load() {
@@ -199,10 +205,43 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 				current["volumeId"] = "ocid1.volume.oc1.sa-saopaulo-1.foreign"
 			case 3:
 				current["isShareable"] = true
+			case 10, 15:
+				current["timeCreated"] = now.Add(-time.Second)
+			case 11:
+				current["compartmentId"] = "ocid1.compartment.oc1..foreign"
+			case 12:
+				current["availabilityDomain"] = "foreign-AD-1"
+			case 13:
+				current["attachmentType"] = "iscsi"
+			case 14:
+				current["id"] = "ocid1.volumeattachment.oc1.sa-saopaulo-1.replacement"
+			case 19:
+				current["instanceId"] = oldID
 			}
 			value = current
 		case strings.HasSuffix(r.URL.Path, "/volumeAttachments"):
 			listed := []map[string]any{attachment}
+			if mode.Load() == 14 {
+				replacement := maps.Clone(attachment)
+				replacement["id"] = "ocid1.volumeattachment.oc1.sa-saopaulo-1.replacement"
+				listed = []map[string]any{replacement}
+			}
+			if mode.Load() == 15 {
+				replacement := maps.Clone(attachment)
+				replacement["timeCreated"] = now.Add(-time.Second)
+				listed = []map[string]any{replacement}
+			}
+			if mode.Load() == 17 {
+				listed = nil
+			}
+			if mode.Load() == 18 {
+				listed = append(listed, attachment)
+			}
+			if mode.Load() == 20 {
+				conflict := maps.Clone(attachment)
+				conflict["volumeId"] = "ocid1.volume.oc1.sa-saopaulo-1.foreign"
+				listed = []map[string]any{conflict}
+			}
 			if r.URL.Query().Get("volumeId") != "" {
 				if r.URL.Query().Get("volumeId") != volumeID {
 					t.Error("observer widened exact volume query")
@@ -278,6 +317,57 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 		t.Fatal("read-only fleet reused cached network verification during registration")
 	}
 	mode.Store(0)
+	terminalTarget := TerminalAttachmentTarget{DatabaseID: database, PartitionID: partition, InstanceID: instanceID,
+		VolumeID: volumeID, HostCreateKey: hostKey, DataCreateKey: volumeKey}
+	var terminalGuards atomic.Int32
+	terminalAdmission := ociclient.WithRequestGuard(t.Context(), func(context.Context) error {
+		terminalGuards.Add(1)
+		return nil
+	})
+	attachmentObservation, err := observer.ObserveTerminalAttachment(terminalAdmission, terminalTarget)
+	if err != nil || !attachmentObservation.IsVerified() || attachmentObservation.Pins().Target != terminalTarget ||
+		attachmentObservation.Pins().AttachmentID != attachmentID || attachmentObservation.Pins().CompartmentID != config.CompartmentID ||
+		attachmentObservation.Pins().AvailabilityDomain != config.AvailabilityDomain || attachmentObservation.Pins().Type != "paravirtualized" ||
+		!attachmentObservation.Pins().CreatedAt.Equal(now.Add(-time.Minute)) || attachmentObservation.ETag() != "attachment-v1" ||
+		attachmentObservation.BootDescriptorSHA256() != descriptorDigest {
+		t.Fatalf("terminal attachment did not retain exact native SDK identity: %v", err)
+	}
+	guards := terminalGuards.Load()
+	if err := attachmentObservation.Revalidate(t.Context()); err != nil || terminalGuards.Load() <= guards {
+		t.Fatalf("original native attachment failed revalidation: %v", err)
+	}
+	originalContext, cancelOriginal := context.WithCancel(terminalAdmission)
+	cancelableObservation, err := observer.ObserveTerminalAttachment(originalContext, terminalTarget)
+	cancelOriginal()
+	if err != nil || cancelableObservation.IsVerified() || cancelableObservation.Revalidate(t.Context()) == nil {
+		t.Fatalf("terminal observation replaced the canceled original caller lifetime: %v", err)
+	}
+	canceledContext, cancelCurrent := context.WithCancel(t.Context())
+	cancelCurrent()
+	if err := attachmentObservation.Revalidate(canceledContext); !errors.Is(err, context.Canceled) {
+		t.Fatalf("terminal revalidation ignored current caller cancellation: %v", err)
+	}
+	for _, scenario := range []int32{2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 16, 17, 18, 19, 20} {
+		mode.Store(scenario)
+		if observed, err := observer.ObserveTerminalAttachment(t.Context(), terminalTarget); err == nil || observed.IsVerified() {
+			t.Fatalf("terminal SDK observation admitted conflicting/absent identity scenario %d", scenario)
+		}
+	}
+	for _, scenario := range []int32{14, 15} {
+		mode.Store(scenario)
+		if err := attachmentObservation.Revalidate(t.Context()); err == nil {
+			t.Fatalf("terminal revalidation followed replacement attachment scenario %d", scenario)
+		}
+	}
+	mode.Store(1)
+	if err := attachmentObservation.Revalidate(t.Context()); err != nil {
+		t.Fatalf("mutable ETag replaced immutable native incarnation: %v", err)
+	}
+	mode.Store(8)
+	if _, err := observer.ObserveTerminalAttachment(cachedContext, terminalTarget); err == nil {
+		t.Fatal("terminal attachment reused the placement sweep's cached native checks")
+	}
+	mode.Store(0)
 	observation, err := observer.InspectVolumeMount(t.Context(), pins, oldID)
 	if err != nil || !observation.IsVerified() || observation.Pins() != pins || observation.PredecessorID() != oldID || observation.BootDescriptorSHA256() != descriptorDigest {
 		t.Fatalf("existing retained mount did not verify: %v", err)
@@ -316,6 +406,12 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 2*time.Second || calls.Load() <= count {
 		t.Fatalf("actual SDK read did not honor cancellation: %v", err)
 	}
+	terminalContext, cancelTerminal := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	_, err = observer.ObserveTerminalAttachment(terminalContext, terminalTarget)
+	cancelTerminal()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("terminal SDK read lost original caller deadline: %v", err)
+	}
 	mode.Store(0)
 	if err := journal.kv.Delete(t.Context(), ownershipKey("instance", instanceID)); err != nil {
 		t.Fatal(err)
@@ -327,6 +423,9 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 	if _, err := observer.InspectVolumeMount(t.Context(), pins, oldID); err == nil {
 		t.Fatal("missing ownership projection was repaired by a read-only observer")
 	}
+	if observed, err := observer.ObserveTerminalAttachment(t.Context(), terminalTarget); err == nil || observed.IsVerified() {
+		t.Fatal("terminal attachment admitted or repaired missing original durable ownership")
+	}
 	entry, err := journal.kv.Get(t.Context(), ownershipKey("instance", instanceID))
 	if err == nil || entry != nil {
 		t.Fatal("read-only observer recreated missing ownership projection")
@@ -334,7 +433,7 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 	if sequence != lastSequence() || writes.Load() != 0 {
 		t.Fatal("read-only observers changed the journal or OCI after missing ownership")
 	}
-	if (VerifiedVolumeObservation{}).IsVerified() || (VerifiedTerminatedInstance{}).IsVerified() || !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	if (VerifiedVolumeObservation{}).IsVerified() || (VerifiedTerminatedInstance{}).IsVerified() || (TerminalAttachmentObservation{}).IsVerified() || !errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		t.Fatal("zero or canceled observation acquired authority")
 	}
 }
