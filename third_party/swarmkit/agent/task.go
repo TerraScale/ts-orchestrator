@@ -166,6 +166,12 @@ func (tm *taskManager) run(ctx context.Context) {
 					continue // wait till getting pumped via update.
 				}
 			case exec.ErrTaskRetry:
+				// An update cancelled this operation (for example a running
+				// Wait when the task must shut down): act on it now. Updates
+				// arrive from the manager, so this cannot spin on its own.
+				if updated {
+					break
+				}
 				// TODO(stevvooe): Add exponential backoff with random jitter
 				// here. For now, this backoff is enough to keep the task
 				// manager from running away with the CPU.
