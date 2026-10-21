@@ -28,9 +28,6 @@ func TestM1ServiceSpecsValidate(t *testing.T) {
 		if spec.Name != strings.TrimSuffix(filepath.Base(path), ".json") {
 			t.Fatalf("%s: name %q differs from file name", path, spec.Name)
 		}
-		if len(spec.Mounts) != 0 {
-			continue // shortcut: the executor accepts bind mounts once W4 lands; recheck these then.
-		}
 		swarm, err := spec.SwarmSpec()
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
