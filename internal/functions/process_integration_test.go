@@ -92,6 +92,37 @@ func TestFunctionWorkerProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for name, expiry := range map[string]time.Time{"missing": {}, "expired": time.Now().Add(-time.Second), "beyond release": admitted.ExpiresAt().Add(time.Second)} {
+		t.Run("material "+name, func(t *testing.T) {
+			invalid := deployment
+			invalid.ExpiresAt = expiry
+			wire, err := json.Marshal(invalid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			directory := t.TempDir()
+			for name, value := range files {
+				if err := os.WriteFile(filepath.Join(directory, name), value, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(directory, "deployment.json"), wire, 0600); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, executable, "-test.run=^TestFunctionWorkerProcess$")
+			cmd.Env = append(os.Environ(), "TS_FUNCTION_TEST_PROCESS_DIR="+directory)
+			cmd.WaitDelay = time.Second
+			output, err := cmd.CombinedOutput()
+			exit, failed := errors.AsType[*exec.ExitError](err)
+			if ctx.Err() != nil || !failed || exit.ExitCode() <= 0 ||
+				!bytes.Contains(output, []byte("function material authority expired or exceeds signed release")) ||
+				bytes.Contains(output, []byte(`"State":"ready"`)) {
+				t.Fatalf("invalid material process: exit=%v deadline=%v output=%s", err, ctx.Err(), output)
+			}
+		})
+	}
 	cmd := exec.Command(executable, "-test.run=^TestFunctionWorkerProcess$")
 	cmd.Env = append(os.Environ(), "TS_FUNCTION_TEST_PROCESS_DIR="+directory)
 	var stderr bytes.Buffer
