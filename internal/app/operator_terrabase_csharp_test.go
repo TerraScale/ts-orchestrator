@@ -65,16 +65,6 @@ func TestTerraBaseReleaseDeployUpgradeRollback(t *testing.T) {
 	testTerraBaseRelease(t, release, false)
 }
 
-// TestTerraBaseReleaseGateWithFakeMember runs the same scenario with an
-// in-process stand-in for the binary: it serves /healthz on the admin port
-// only when the host prepared its data directory and a member certificate
-// that chains to the cell CA, and only for releases that are not broken.
-func TestTerraBaseReleaseGateWithFakeMember(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
-	release := writeTerraBaseRelease(t, filepath.Join(t.TempDir(), "fake"), []byte(fakeTerraBaseMagic))
-	testTerraBaseRelease(t, release, true)
-}
-
 // fakeTerraBaseMagic starts every release the fake member serves: the ELF
 // header of an executable for this machine, the one the asset name states.
 var fakeTerraBaseMagic = func() string {

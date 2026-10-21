@@ -20,8 +20,8 @@ import (
 
 // Even a publisher reaching a victim's reply subject cannot manufacture home authority.
 func TestCapacityReservationSignedReplyNATS(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
-	conn := testRolloutJetStream(t).Conn()
+	// An open broker: this proves the signed reply checks, not the broker grants.
+	conn := startEmbeddedNATS(t)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)

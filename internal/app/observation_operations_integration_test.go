@@ -137,7 +137,6 @@ func TestOperationObservationAuthenticatedHTTP(t *testing.T) {
 }
 
 func TestOperationObservationRejectsTokenlessLoopback(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	server, err := observability.NewServer(observability.Config{},
 		observability.ServerDeps{Registry: observability.NewRegistry(false), Health: new(observability.Health)})
 	if err != nil {
@@ -149,7 +148,7 @@ func TestOperationObservationRejectsTokenlessLoopback(t *testing.T) {
 		"/v1/operations/backups/0000000000WVSMBJNMAWCDJBSK/0000000000Z3WK359G2W66CVT8",
 		"/v1/operations/credentials/0000000000WVSMBJNMAWCDJBSK/0000000000Z3WK359G2W66CVT8"} {
 		response := httptest.NewRecorder()
-		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:9464"+path, nil))
 		if response.Code != http.StatusServiceUnavailable {
 			t.Fatalf("tokenless %s = %d", path, response.Code)
 		}

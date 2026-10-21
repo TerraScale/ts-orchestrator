@@ -29,7 +29,6 @@ type capacityCheckpointSigner struct{}
 func (capacityCheckpointSigner) Sign(*http.Request) error { return nil }
 
 func TestCapacityCheckpointPrecedesActualSDKRequestAndRetainsOriginalReceipt(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx := t.Context()
 	js, err := jetstream.New(startEmbeddedNATS(t))
 	if err != nil {
@@ -89,7 +88,7 @@ func TestCapacityCheckpointPrecedesActualSDKRequestAndRetainsOriginalReceipt(t *
 	}))
 	defer server.Close()
 	policy := common.NoRetryPolicy()
-	base := common.BaseClient{Host: server.URL, BasePath: "20160918", HTTPClient: server.Client(), Signer: capacityCheckpointSigner{},
+	base := common.BaseClient{Host: server.URL, BasePath: "20160918", UserAgent: "capacity-checkpoint-test", HTTPClient: server.Client(), Signer: capacityCheckpointSigner{},
 		Configuration: common.CustomClientConfiguration{RetryPolicy: &policy}}
 	ociclient.ConfigureRequestCancellation(&base)
 	client := core.ComputeManagementClient{BaseClient: base}
