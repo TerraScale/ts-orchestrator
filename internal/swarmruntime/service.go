@@ -17,6 +17,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/api"
@@ -380,21 +381,23 @@ const (
 
 var (
 	secretName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+	vaultID    = regexp.MustCompile(`^ocid1\.vault\.oc1\.[a-z0-9-]+\.[a-z0-9.]+$`)
+	vaultName  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,254}$`)
 	hostname   = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 )
 
 // ServiceSpec is one operator-declared single-host service, `deploy/m1/services/*.json`.
 type ServiceSpec struct {
-	Name      string            `json:"name"`
-	Image     string            `json:"image"`
-	Args      []string          `json:"args,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	Secrets   []string          `json:"secrets,omitempty"`
-	Mounts    []ServiceMount    `json:"mounts,omitempty"`
-	Port      uint32            `json:"port"`
-	ReadyPath string            `json:"readyPath,omitempty"`
-	Hostnames []string          `json:"hostnames,omitempty"`
-	Replicas  uint64            `json:"replicas"`
+	Name      string                     `json:"name"`
+	Image     string                     `json:"image"`
+	Args      []string                   `json:"args,omitempty"`
+	Env       map[string]string          `json:"env,omitempty"`
+	Secrets   map[string]vaultsecret.Ref `json:"secrets,omitempty"`
+	Mounts    []ServiceMount             `json:"mounts,omitempty"`
+	Port      uint32                     `json:"port"`
+	ReadyPath string                     `json:"readyPath,omitempty"`
+	Hostnames []string                   `json:"hostnames,omitempty"`
+	Replicas  uint64                     `json:"replicas"`
 }
 
 type ServiceMount struct {
@@ -421,14 +424,15 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	if !strings.HasPrefix(readyPath, "/") || strings.ContainsAny(readyPath, "?# \t\r\n") {
 		return nil, errors.New("readyPath must be an absolute URL path")
 	}
-	for _, list := range [][]string{s.Secrets, s.Hostnames} {
-		if len(list) != len(slices.Compact(slices.Sorted(slices.Values(list)))) {
-			return nil, errors.New("secrets and hostnames must not repeat")
-		}
+	if len(s.Hostnames) != len(slices.Compact(slices.Sorted(slices.Values(s.Hostnames)))) {
+		return nil, errors.New("hostnames must not repeat")
 	}
-	for _, name := range s.Secrets {
+	for name, ref := range s.Secrets {
 		if _, shadowed := s.Env[name]; shadowed || !secretName.MatchString(name) {
 			return nil, fmt.Errorf("invalid or env-shadowed secret name %q", name)
+		}
+		if !vaultID.MatchString(ref.Vault) || !vaultName.MatchString(ref.Name) {
+			return nil, fmt.Errorf("secret %s needs an OCI Vault OCID and a secret name", name)
 		}
 	}
 	for _, host := range s.Hostnames {
@@ -452,7 +456,12 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		labels[LabelHostnames] = strings.Join(s.Hostnames, ",")
 	}
 	if len(s.Secrets) != 0 {
-		labels[LabelSecrets] = strings.Join(s.Secrets, ",")
+		labels[LabelSecrets] = strings.Join(slices.Sorted(maps.Keys(s.Secrets)), ",")
+		refs, err := jsonv1.Marshal(s.Secrets) // v1 sorts map keys: the label is deterministic.
+		if err != nil {
+			return nil, err
+		}
+		labels[LabelSecretRefs] = string(refs)
 	}
 	// shortcut: fixed, fully reserved budget sized so the three M1 services fit one A1 host (3.75 schedulable CPUs); size per service when a host is added or one is starved.
 	limits := &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 4 << 30, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 10<<30)}}
