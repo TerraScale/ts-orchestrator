@@ -136,7 +136,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "root-oci-qualification-read", "root-oci-qualification-probe":
 		return app.RunRootOCIQualificationReader(ctx, args[0], args[1:], os.Stdin, output)
 	case "single-host":
-		return app.RunSingleHost(ctx, args[1:], output)
+		return app.RunSingleHostServing(ctx, args[1:], output)
 	case "observe":
 		return runObserve(ctx, args[1:], output)
 	case "usage":
