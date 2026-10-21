@@ -28,6 +28,31 @@ if [[ $(/usr/local/sbin/runc --version 2>/dev/null) != "runc version $runc_versi
 	install -m 0755 "$tmp/runc" /usr/local/sbin/runc
 fi
 
+# A fresh host has no distro containerd unit; install upstream's.
+if ! systemctl cat containerd.service >/dev/null 2>&1; then
+	cat > /etc/systemd/system/containerd.service <<'UNIT'
+[Unit]
+Description=containerd container runtime
+Documentation=https://containerd.io
+After=network.target
+
+[Service]
+ExecStartPre=-/sbin/modprobe overlay
+ExecStart=/usr/local/bin/containerd
+Type=notify
+Delegate=yes
+KillMode=process
+Restart=always
+RestartSec=5
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+OOMScoreAdjust=-999
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+fi
 install -d /etc/systemd/system/containerd.service.d
 printf '[Service]\nExecStart=\nExecStart=/usr/local/bin/containerd\n' > /etc/systemd/system/containerd.service.d/10-ts-orch.conf
 systemctl daemon-reload
