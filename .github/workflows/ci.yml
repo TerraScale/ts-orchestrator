@@ -54,6 +54,8 @@ jobs:
       contents: write
       actions: write
       statuses: write
+      # GitHub OIDC token: the release push credential (no stored secret).
+      id-token: write
     needs: [guard]
     name: verify/go + artifact/linux-amd64-arm64
     runs-on: ubuntu-24.04
@@ -180,11 +182,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/dispatch-image.sh
 
-      # A newly retained candidate starts fleet deployment after verification.
-      # Dispatch failure must be visible in CI.
-      - name: Start the fleet deployment for this revision
+      # Push the retained release to every region's ts-orch over NATS
+      # (deploy/m1/regions.json); fails when any region does not serve it.
+      - name: Push the release to every region
         if: ${{ steps.inputs.outputs.publication == 'required' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/dispatch-image.sh deploy.yml
+        run: |
+          set -euo pipefail
+          tag="ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}"
+          dist/terrascale-orchestrator-linux-amd64 release push --sha "${GITHUB_SHA}" --tag "${tag}" --dir dist \
+            | tee "${RUNNER_TEMP}/release-push.jsonl"
+          jq -r '"| \(.region) | \(.state) | \(.connect_ms) | \(.accepted_ms) | \(.serving_ms) |"' "${RUNNER_TEMP}/release-push.jsonl" \
+            | { printf '| Region | State | Connect ms | Accepted ms | Serving ms |\n|---|---|---|---|---|\n'; cat; } >> "${GITHUB_STEP_SUMMARY}"
