@@ -1,0 +1,59 @@
+name: Real containerd executor
+
+# The executor's bind mounts and readiness path run against the same
+# containerd as the vendored client (binary-v2 shim logging needs >= 2.3) and
+# the gru host runc, as root, on a disposable runner.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ts-orchestrator-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  executor:
+    name: verify/containerd-executor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: go.sum
+      - name: Install containerd 2.4.2 and runc 1.3.4
+        run: |
+          set -eu
+          work=$(mktemp -d)
+          curl -fsSL -o "$work/containerd.tar.gz" https://github.com/containerd/containerd/releases/download/v2.4.2/containerd-static-2.4.2-linux-amd64.tar.gz
+          curl -fsSL -o "$work/runc" https://github.com/opencontainers/runc/releases/download/v1.3.4/runc.amd64
+          printf '%s  %s\n' da656542e754c699a0f438eab925e6ffdbd6346a4428e659f83dc058f04dcffe "$work/containerd.tar.gz" 5966ca40b6187b30e33bfc299c5f1fe72e8c1aa01cf3fefdadf391668f47f103 "$work/runc" | sha256sum -c -
+          sudo systemctl stop containerd docker docker.socket 2>/dev/null || true
+          sudo tar -C /usr/local -xzf "$work/containerd.tar.gz"
+          sudo install -m 0755 "$work/runc" /usr/local/sbin/runc
+          sudo mkdir -p /run/ts-containerd
+          sudo sh -c '/usr/local/bin/containerd --address /run/ts-containerd/containerd.sock --root /var/lib/ts-containerd --state /run/ts-containerd/state > /tmp/containerd.log 2>&1 &'
+          for _ in $(seq 50); do sudo test -S /run/ts-containerd/containerd.sock && exit 0; sleep 0.2; done
+          cat /tmp/containerd.log
+          exit 1
+      - name: Run the executor tests as root
+        run: |
+          set -eu
+          go test -c -o "$RUNNER_TEMP/swarmruntime.test" ./internal/swarmruntime
+          cd internal/swarmruntime
+          sudo "$RUNNER_TEMP/swarmruntime.test" -test.v -test.count=1 -test.timeout=10m \
+            -test.run '^(TestContainerdBindMountSurvivesTaskRestart|TestContainerdReadinessUsesServicePath)$' \
+            -containerd-socket /run/ts-containerd/containerd.sock
+      - name: Show containerd log on failure
+        if: failure()
+        run: sudo cat /tmp/containerd.log || true

@@ -22,6 +22,13 @@ const FunctionWorkerSlot = "terrascale.function-worker-slot"
 const DiskResource = "terrascale.disk-bytes"
 const containerTypeURL = "terrascale.tech/runtime/container/v1"
 
+// DataRoot is the only host tree a container may bind; each source directory is owned by the container user.
+const DataRoot = "/var/lib/ts-data"
+
+// LabelReadyPath names the HTTP path probed for readiness; absent means DefaultReadyPath.
+const LabelReadyPath = "terrascale.ready-path"
+const DefaultReadyPath = "/readyz"
+
 // ContainerRuntime encodes the supported, stateless container contract.
 func ContainerRuntime(spec *api.ContainerSpec) (*api.TaskSpec_Generic, error) {
 	if err := validateContainer(spec); err != nil {
@@ -87,6 +94,9 @@ func decodeContainer(task *api.Task) (*api.ContainerSpec, error) {
 	function := task.ServiceAnnotations.Labels[LabelRole] == FunctionWorkerRole
 	if function && (!slot || r.Reservations == nil || !proto.Equal(r.Limits, r.Reservations)) {
 		return nil, fmt.Errorf("function worker requires one dedicated host slot and fully reserved resources")
+	}
+	if function && len(spec.Mounts) != 0 {
+		return nil, fmt.Errorf("function worker does not accept bind mounts")
 	}
 	if !function && slot || r.SwapBytes != nil || r.MemorySwappiness != nil {
 		return nil, fmt.Errorf("unsupported container resource controls")
@@ -210,11 +220,69 @@ func validateContainer(s *api.ContainerSpec) error {
 			return fmt.Errorf("invalid container command argument")
 		}
 	}
-	allowed := &api.ContainerSpec{Image: s.Image, Command: s.Command, Args: s.Args, Env: s.Env, Dir: s.Dir, User: s.User}
+	if err := validateMounts(s.Mounts); err != nil {
+		return err
+	}
+	if _, ok := s.Labels[LabelReadyPath]; len(s.Labels) > 1 || len(s.Labels) == 1 && !ok {
+		return fmt.Errorf("container labels accept only %s", LabelReadyPath)
+	}
+	if !validReadyPath(ReadyPath(s)) {
+		return fmt.Errorf("container readiness path must be a clean absolute URL path")
+	}
+	allowed := &api.ContainerSpec{Image: s.Image, Command: s.Command, Args: s.Args, Env: s.Env, Dir: s.Dir, User: s.User, Mounts: s.Mounts, Labels: s.Labels}
 	if !proto.Equal(s, allowed) {
-		return fmt.Errorf("unsupported container option; only image, command, args, env, dir and user are accepted")
+		return fmt.Errorf("unsupported container option; only image, command, args, env, dir, user, bind mounts and readiness path are accepted")
 	}
 	return nil
+}
+
+// validateMounts admits plain bind mounts of distinct, non-nested DataRoot directories.
+// Each target must already be a directory in the image: the rootfs is a read-only view.
+// Nesting is refused so a container cannot swap another mount's source for a symlink.
+func validateMounts(mounts []api.Mount) error {
+	if len(mounts) > 8 {
+		return fmt.Errorf("container supports at most 8 bind mounts")
+	}
+	for i, m := range mounts {
+		if m.Type != api.MountTypeBind || m.Consistency != api.MountConsistencyDefault || m.BindOptions != nil || m.VolumeOptions != nil || m.TmpfsOptions != nil {
+			return fmt.Errorf("container mounts must be plain bind mounts")
+		}
+		if !strings.HasPrefix(m.Source, DataRoot+"/") || path.Clean(m.Source) != m.Source || strings.ContainsAny(m.Source, ",:\x00") {
+			return fmt.Errorf("container bind mount source must be a clean directory under %s", DataRoot)
+		}
+		if !path.IsAbs(m.Target) || path.Clean(m.Target) != m.Target || m.Target == "/" || strings.ContainsAny(m.Target, ",:\x00") || nested(m.Target, "/run/ts-orch") || nested(m.Target, "/proc") || nested(m.Target, "/sys") || nested(m.Target, "/dev") {
+			return fmt.Errorf("container bind mount target must be a clean absolute application path")
+		}
+		for _, other := range mounts[:i] {
+			if nested(m.Source, other.Source) || nested(other.Source, m.Source) || nested(m.Target, other.Target) || nested(other.Target, m.Target) {
+				return fmt.Errorf("container bind mounts must not overlap")
+			}
+		}
+	}
+	return nil
+}
+
+// nested reports whether p is dir or below it.
+func nested(p, dir string) bool { return p == dir || strings.HasPrefix(p, dir+"/") }
+
+// ReadyPath is the HTTP path that reports the container ready with status 200.
+func ReadyPath(s *api.ContainerSpec) string {
+	if p, ok := s.Labels[LabelReadyPath]; ok {
+		return p
+	}
+	return DefaultReadyPath
+}
+
+func validReadyPath(p string) bool {
+	if len(p) > 256 || !path.IsAbs(p) || path.Clean(p) != p {
+		return false
+	}
+	for _, r := range p {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("/-._~", r)) {
+			return false
+		}
+	}
+	return true
 }
 
 // ContainerTaskFingerprint identifies the immutable executable task and its

@@ -16,9 +16,26 @@ import (
 )
 
 // ProbeTask checks the application on an independently admitted private host.
-// shortcut: stateless HTTP services use /readyz, qualify other protocols before admitting them.
+// shortcut: readiness is HTTP only, qualify other protocols before admitting them.
 func ProbeTask(ctx context.Context, task *api.Task, nodeAddress netip.Addr) error {
 	endpoint, err := taskEndpoint(task, nodeAddress)
+	if err != nil {
+		return err
+	}
+	return probeReady(ctx, task, endpoint)
+}
+
+// ProbeLocalTask checks a task on this host; host networking binds its port on loopback.
+func ProbeLocalTask(ctx context.Context, task *api.Task) error {
+	port, err := taskPort(task)
+	if err != nil {
+		return err
+	}
+	return probeReady(ctx, task, netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), port))
+}
+
+func probeReady(ctx context.Context, task *api.Task, endpoint netip.AddrPort) error {
+	spec, err := DecodeContainer(task)
 	if err != nil {
 		return err
 	}
@@ -32,7 +49,7 @@ func ProbeTask(ctx context.Context, task *api.Task, nodeAddress netip.Addr) erro
 	}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+endpoint.String()+"/readyz", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+endpoint.String()+ReadyPath(spec), nil)
 	if err != nil {
 		return errors.New("build task readiness request")
 	}
@@ -48,24 +65,32 @@ func ProbeTask(ctx context.Context, task *api.Task, nodeAddress netip.Addr) erro
 }
 
 func taskEndpoint(task *api.Task, nodeAddress netip.Addr) (netip.AddrPort, error) {
-	if _, err := DecodeContainer(task); err != nil {
-		return netip.AddrPort{}, err
-	}
-	if task.DesiredState != api.TaskStateRunning || task.Status.State != api.TaskStateRunning {
-		return netip.AddrPort{}, errors.New("task is not running with running intent")
-	}
 	if !nodeAddress.Is4() || !nodeAddress.IsPrivate() {
 		return netip.AddrPort{}, errors.New("task readiness requires an admitted private IPv4 host")
 	}
+	port, err := taskPort(task)
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+	return netip.AddrPortFrom(nodeAddress, port), nil
+}
+
+func taskPort(task *api.Task) (uint16, error) {
+	if _, err := DecodeContainer(task); err != nil {
+		return 0, err
+	}
+	if task.DesiredState != api.TaskStateRunning || task.Status.State != api.TaskStateRunning {
+		return 0, errors.New("task is not running with running intent")
+	}
 	if task.Endpoint == nil || task.Endpoint.Spec == nil || len(task.Endpoint.Spec.Ports) != 1 {
-		return netip.AddrPort{}, errors.New("task readiness requires one reserved host port")
+		return 0, errors.New("task readiness requires one reserved host port")
 	}
 	// Generic host ports remain in Spec; the executor owns their durable host reservations.
 	port := task.Endpoint.Spec.Ports[0]
 	if port == nil || port.PublishMode != api.PublishModeHost || port.Protocol != api.ProtocolTCP || port.PublishedPort < 1024 || port.PublishedPort > 65535 || port.TargetPort != port.PublishedPort {
-		return netip.AddrPort{}, errors.New("task readiness requires a non-privileged host TCP port")
+		return 0, errors.New("task readiness requires a non-privileged host TCP port")
 	}
-	return netip.AddrPortFrom(nodeAddress, uint16(port.PublishedPort)), nil
+	return uint16(port.PublishedPort), nil
 }
 
 // ServiceBackends derives ingress from current upstream tasks and real readiness.
