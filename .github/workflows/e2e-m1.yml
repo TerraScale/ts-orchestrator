@@ -1,0 +1,41 @@
+name: M1 end to end
+
+# The whole milestone 1 flow on a disposable arm64 host, like ts-gru-1:
+# install.sh, single-host, service apply, the HTTPS edge, restarts, service rm.
+# Step timings land in the job summary (test/e2e/m1/run.sh).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+concurrency:
+  group: ts-orchestrator-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  m1:
+    name: e2e/m1-arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: go.sum
+      - name: Build ts-orch
+        run: |
+          start=$(date +%s)
+          go build -trimpath -o "$RUNNER_TEMP/terrascale-orchestrator" ./cmd/terrascale-orchestrator
+          echo "build: $(($(date +%s) - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Run the M1 flow
+        run: test/e2e/m1/run.sh "$RUNNER_TEMP/terrascale-orchestrator"
