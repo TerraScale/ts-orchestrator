@@ -22,6 +22,7 @@ import (
 	"github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/api/genericresource"
+	"github.com/moby/swarmkit/v2/manager/orchestrator"
 )
 
 const (
@@ -612,9 +613,8 @@ func ListServiceSpecs(ctx context.Context, client api.ControlClient) ([]ServiceS
 			row.Image = container.Image
 		}
 		for _, task := range tasks.Tasks {
-			// A task of an older spec still running mid-update is not the current spec running.
-			current := task.SpecVersion == nil || service.SpecVersion == nil || task.SpecVersion.Index == service.SpecVersion.Index
-			if task.Status.State == api.TaskStateRunning && current {
+			// A task of an older spec still running mid-update does not count.
+			if task.Status.State == api.TaskStateRunning && !orchestrator.IsTaskDirty(service, task, nil) {
 				row.Running++
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -31,6 +32,37 @@ func TestDeriveCAIsDeterministic(t *testing.T) {
 	other, err := DeriveCA(bytes.Repeat([]byte{8}, 32))
 	if err != nil || bytes.Equal(a.Cert.Raw, other.Cert.Raw) {
 		t.Fatalf("a different secret must build a different CA: %v", err)
+	}
+}
+
+// Mesh TLS accepts a peer of the same CA in both directions and refuses a
+// peer of another CA, whatever name either presents.
+func TestMeshTLSTrustsOnlyItsCA(t *testing.T) {
+	handshake := func(server, client *CA) error {
+		a, b := net.Pipe()
+		defer a.Close()
+		defer b.Close()
+		done := make(chan error, 1)
+		go func() { done <- tls.Server(a, server.TLS("gru."+Domain)).Handshake() }()
+		clientErr := tls.Client(b, client.TLS("any.example")).Handshake()
+		if clientErr != nil {
+			_ = a.Close()
+		}
+		return errors.Join(clientErr, <-done)
+	}
+	mesh, err := DeriveCA(bytes.Repeat([]byte{1}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := DeriveCA(bytes.Repeat([]byte{2}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := handshake(mesh, mesh); err != nil {
+		t.Fatalf("same CA: %v", err)
+	}
+	if handshake(mesh, other) == nil || handshake(other, mesh) == nil {
+		t.Fatal("a peer of another CA was accepted")
 	}
 }
 
@@ -104,20 +136,20 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ports := freePorts(t, 9)
+	ports := freePorts(t, 6)
 	configs := map[string]config{}
 	appliers := map[string]*fakeApplier{}
 	for i, region := range regions {
 		gateways := map[string]string{}
 		for j, peer := range regions {
 			if peer != region {
-				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[3*j+1])
+				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
 			}
 		}
 		appliers[region] = &fakeApplier{running: map[string]int64{}}
 		configs[region] = config{
 			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
-			clientPort: ports[3*i], gatewayPort: ports[3*i+1], localPort: ports[3*i+2],
+			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
 			gateways: gateways, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
 		}
 	}
@@ -141,18 +173,8 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	gru, sjc, fra := nodes[regions[0]], nodes[regions[1]], regions[2]
 
 	// The root CLI's loopback listener needs the token.
-	if _, err := nats.Connect(fmt.Sprintf("ws://127.0.0.1:%d", configs[fra].localPort)); err == nil {
+	if _, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", configs[fra].localPort)); err == nil {
 		t.Fatal("loopback listener accepted a client without the token")
-	}
-	// The public listener accepts a CA-signed client and refuses any other.
-	public := fmt.Sprintf("tls://127.0.0.1:%d", configs[fra].clientPort)
-	if conn, err := nats.Connect(public, nats.Secure(ca.TLS("ci.mesh.terrascale.tech"))); err != nil {
-		t.Fatalf("public listener refused a mesh client: %v", err)
-	} else {
-		conn.Close()
-	}
-	if _, err := nats.Connect(public, nats.Secure(&tls.Config{InsecureSkipVerify: true})); err == nil {
-		t.Fatal("public listener accepted a client without a mesh certificate")
 	}
 
 	var out bytes.Buffer

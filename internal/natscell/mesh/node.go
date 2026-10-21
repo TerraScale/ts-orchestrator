@@ -3,10 +3,10 @@
 //
 // Each region is its own one-server NATS cluster named by its region token;
 // full-mesh gateways on 7222 link the regions, so any two keep talking while
-// a third is down. Gateways and the public client listener on 4222 accept only
-// peers holding a leaf of the mesh CA, which every node derives from one
-// shared OCI Vault secret. The root CLI on the host connects to a loopback
-// websocket listener with a token the node writes at start.
+// a third is down. Gateways accept only peers holding a leaf of the mesh CA,
+// which every node derives from one shared OCI Vault secret. The only client
+// listener is loopback: the root CLI and the node itself connect with a
+// token the node writes at start. (:4222 is the release listener, internal/releasepush.)
 //
 // Desired state is a last-writer-wins map of service name to generation and
 // spec (nil once removed), persisted in <state>/mesh/desired.json. A node
@@ -44,11 +44,9 @@ const (
 	StateSubject = protocol.MeshStateSubject
 	PingSubject  = protocol.MeshPingSubject
 
-	// PublicPort is the world-reachable mutual-TLS client listener.
-	PublicPort = 4222
 	// GatewayPort links regions; every node dials <region>.Domain on it.
 	GatewayPort = 7222
-	// LocalPort is the loopback websocket listener of the root CLI.
+	// LocalPort is the loopback client listener of the root CLI.
 	LocalPort = 4223
 	Domain    = "mesh.terrascale.tech"
 
@@ -108,13 +106,13 @@ type Applier interface {
 }
 
 type config struct {
-	region, server, dir, host          string
-	clientPort, gatewayPort, localPort int
-	gateways                           map[string]string // region -> gateway URL
-	ca                                 *CA
-	applier                            Applier
-	every                              time.Duration
-	logs                               bool
+	region, server, dir, host string
+	advertise                 string // host:port peers dial for this region's gateway
+	gatewayPort, localPort    int
+	gateways                  map[string]string // region -> gateway URL
+	ca                        *CA
+	applier                   Applier
+	every                     time.Duration
 }
 
 // Node is one region's running mesh server.
@@ -147,12 +145,10 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	tlsConfig := cfg.ca.TLS(cfg.region + "." + Domain)
 	options := &server.Options{
-		ServerName: cfg.server, Host: cfg.host, Port: cfg.clientPort,
-		TLSConfig: tlsConfig, TLSVerify: true, TLSTimeout: 5,
-		NoSigs: true, NoLog: !cfg.logs, MaxPayload: maxWire,
-		Websocket: server.WebsocketOpts{Host: "127.0.0.1", Port: cfg.localPort, NoTLS: true, Token: secret},
+		ServerName: cfg.server, Host: "127.0.0.1", Port: cfg.localPort, Authorization: secret,
+		NoSigs: true, MaxPayload: maxWire,
 		Gateway: server.GatewayOpts{
-			Name: cfg.region, Host: cfg.host, Port: cfg.gatewayPort,
+			Name: cfg.region, Host: cfg.host, Port: cfg.gatewayPort, Advertise: cfg.advertise,
 			TLSConfig: tlsConfig, TLSTimeout: 5, RejectUnknown: true,
 		},
 	}
@@ -168,9 +164,7 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if cfg.logs {
-		embedded.ConfigureLogger()
-	}
+	embedded.ConfigureLogger()
 	go embedded.Start()
 	defer func() {
 		if err != nil {
@@ -214,7 +208,7 @@ func start(cfg config) (_ *Node, err error) {
 }
 
 func dialLocal(port int, token string) (*nats.Conn, error) {
-	return nats.Connect(fmt.Sprintf("ws://127.0.0.1:%d", port), nats.Token(token),
+	return nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", port), nats.Token(token),
 		nats.MaxReconnects(-1), nats.ReconnectWait(time.Second))
 }
 

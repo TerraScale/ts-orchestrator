@@ -23,7 +23,7 @@ func Connect(state string) (*nats.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("mesh is not running on this host: %w", err)
 	}
-	return nats.Connect(fmt.Sprintf("ws://127.0.0.1:%d", LocalPort), nats.Token(strings.TrimSpace(string(token))))
+	return nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", LocalPort), nats.Token(strings.TrimSpace(string(token))))
 }
 
 // Apply sends spec to every ordered region as a new generation and prints

@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/moby/swarmkit/v2/api"
@@ -74,6 +75,10 @@ func startHost(ctx context.Context, state string) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := releasepush.OpenTCP(ctx, GatewayPort); err != nil {
+		// Peers cannot dial in until the next start; local serving and outbound gateways continue.
+		slog.WarnContext(ctx, "mesh gateway firewall", "error", err)
+	}
 	gateways := map[string]string{}
 	for _, peer := range Regions() {
 		if peer != region {
@@ -82,8 +87,9 @@ func startHost(ctx context.Context, state string) (*Node, error) {
 	}
 	return start(config{
 		region: region, server: name, dir: filepath.Join(state, "mesh"), host: "0.0.0.0",
-		clientPort: PublicPort, gatewayPort: GatewayPort, localPort: LocalPort,
-		gateways: gateways, ca: ca, applier: swarmApplier{state: state}, every: antiEntropyEvery, logs: true,
+		advertise:   fmt.Sprintf("%s.%s:%d", region, Domain, GatewayPort),
+		gatewayPort: GatewayPort, localPort: LocalPort,
+		gateways: gateways, ca: ca, applier: swarmApplier{state: state}, every: antiEntropyEvery,
 	})
 }
 
