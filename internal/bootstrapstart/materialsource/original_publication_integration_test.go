@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -203,6 +204,10 @@ func originalMaterialMechanicalFixture(t *testing.T) (*originalMechanicalSDK, or
 func originalMaterialMechanicalProvision(t *testing.T, f *originalMechanicalSDK, clients originalSourceClients, state *originalSourceState, etag *string, archive materialSourceArchive) (bootstrapmaterial.Publication, error) {
 	t.Helper()
 	directory := t.TempDir()
+	// t.TempDir creates with 0777 & umask; material directories must be exactly 0700.
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	for name, body := range archive.Files {
 		if err := writeSourceFile(filepath.Join(directory, name), body); err != nil {
 			t.Fatal(err)
