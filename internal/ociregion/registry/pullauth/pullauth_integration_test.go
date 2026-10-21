@@ -57,7 +57,8 @@ func setupPull(t *testing.T) (*PullSecrets, *pullVault, PullScope, PullSecret) {
 			_, _ = w.Write([]byte(`{"code":"NotAuthorizedOrNotFound","message":"` + vault.token + `"}`))
 			return
 		}
-		credential, err := json.Marshal(map[string]string{"username": vault.username, "password": vault.token})
+		// Vault returns stable bytes for one version; json/v2 map order is random unless deterministic.
+		credential, err := json.Marshal(map[string]string{"username": vault.username, "password": vault.token}, json.Deterministic(true))
 		if err != nil {
 			t.Error(err)
 			return
