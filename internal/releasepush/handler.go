@@ -24,9 +24,9 @@ import (
 )
 
 const (
-	SubjectVersion = "ts.release.version"
-	SubjectOrch    = "ts.release.ts-orch"
-	SubjectApp     = "ts.release.app"
+	SubjectVersion = protocol.ReleaseVersion
+	SubjectOrch    = protocol.ReleaseOrch
+	SubjectApp     = protocol.ReleaseApp
 
 	orchRepository = owner + "/ts-orchestrator"
 	downloadPrefix = "https://github.com/" + orchRepository + "/releases/download/"

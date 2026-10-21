@@ -21,6 +21,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 )
@@ -69,7 +71,7 @@ func (a *Auth) Check(c server.ClientAuthentication) bool {
 	c.RegisterUser(&server.User{
 		Username: "ci:" + claims.Repository + ":" + claims.RunID,
 		Permissions: &server.Permissions{
-			Publish: &server.SubjectPermission{Allow: []string{"ts.release.>"}},
+			Publish: &server.SubjectPermission{Allow: []string{protocol.ReleaseWildcard}},
 			// Each run sees only its own replies (the client sets this inbox prefix).
 			Subscribe: &server.SubjectPermission{Allow: []string{Inbox(claims.RunID) + ".>"}},
 		},
