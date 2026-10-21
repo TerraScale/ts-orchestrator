@@ -65,6 +65,7 @@ require (
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fernet/fernet-go v0.0.0-20211208181803-9f70042a33ee // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -80,8 +81,11 @@ require (
 	github.com/jackc/pgx/v5 v5.9.2 // indirect
 	github.com/jmoiron/sqlx v1.3.3 // indirect
 	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/letsencrypt/challtestsrv v1.4.2 // indirect
+	github.com/letsencrypt/pebble/v2 v2.10.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/miekg/dns v1.1.62 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/sys/mountinfo v0.7.2 // indirect

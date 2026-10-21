@@ -15,12 +15,16 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/moby/swarmkit/v2/api"
+
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
+	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
@@ -29,9 +33,77 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
+
+// RunSingleHostServing runs RunSingleHost together with the public HTTPS edge,
+// which routes each service's hostnames to its published loopback port.
+func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) error {
+	flags := flag.NewFlagSet("single-host", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	state := flags.String("state", "/var/lib/ts-orch", "")
+	_ = flags.Parse(args) // RunSingleHost reports flag errors.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	public := edge.New(*state)
+	edgeDone := make(chan error, 1)
+	go func() {
+		err := public.Run(ctx)
+		cancel() // a failed edge stops the node, so systemd restarts both
+		edgeDone <- err
+	}()
+	go syncEdgeRoutes(ctx, *state, public)
+	err := RunSingleHost(ctx, args, output)
+	cancel()
+	return errors.Join(err, <-edgeDone)
+}
+
+func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge) {
+	tick := time.NewTicker(5 * time.Second)
+	defer tick.Stop()
+	for {
+		// Dial errors are expected until the node opens its control socket.
+		if client, conn, err := swarmruntime.DialSingleHost(state); err == nil {
+			if list, err := client.ListServices(ctx, &api.ListServicesRequest{}); err == nil {
+				public.SetRoutes(edgeRoutes(list.Services))
+			} else {
+				slog.WarnContext(ctx, "edge route sync failed", "error", err)
+			}
+			_ = conn.Close()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// edgeRoutes maps every hostname a service declares to its published port.
+// The oldest service keeps a hostname another service also claims, so a later
+// spec cannot take over traffic (apply refuses that too).
+func edgeRoutes(services []*api.Service) map[string]int {
+	services = slices.Clone(services)
+	slices.SortStableFunc(services, func(a, b *api.Service) int {
+		at, bt := a.Meta.CreatedAt, b.Meta.CreatedAt
+		return cmp.Or(cmp.Compare(at.GetSeconds(), bt.GetSeconds()), cmp.Compare(at.GetNanos(), bt.GetNanos()), strings.Compare(a.ID, b.ID))
+	})
+	routes := map[string]int{}
+	for _, svc := range services {
+		hosts := svc.Spec.Annotations.Labels[swarmruntime.LabelHostnames]
+		if hosts == "" || svc.Spec.Endpoint == nil || len(svc.Spec.Endpoint.Ports) == 0 {
+			continue
+		}
+		for host := range strings.SplitSeq(hosts, ",") {
+			if _, owned := routes[host]; !owned {
+				routes[host] = int(svc.Spec.Endpoint.Ports[0].PublishedPort)
+			}
+		}
+	}
+	return routes
+}
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
