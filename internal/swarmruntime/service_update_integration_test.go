@@ -48,11 +48,16 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
-	// sh (PID 1) ignores SIGTERM; the runtime's kill-all SIGTERM ends nc, and wait returns.
+	// v1's sh (PID 1) ignores SIGTERM and runs until the grace SIGKILL; later
+	// versions trap it and exit at once, like a well-behaved service.
 	spec := func(version string) ServiceSpec {
+		trap := `trap 'kill $! 2>/dev/null; exit 0' TERM; `
+		if version == "v1" {
+			trap = ""
+		}
 		return ServiceSpec{Name: "update-live-port", Image: integrationImage, Port: port, Replicas: 1,
 			Env:  map[string]string{"HANDLER": `read -r line; printf 'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n` + version + `'`},
-			Args: []string{"/bin/sh", "-c", fmt.Sprintf(`nc -lk -p %d -e /bin/sh -c "$HANDLER" & wait`, port)}}
+			Args: []string{"/bin/sh", "-c", trap + fmt.Sprintf(`nc -lk -p %d -e /bin/sh -c "$HANDLER" & wait`, port)}}
 	}
 	apply := func(version string) (*api.Service, time.Duration, ServiceRollout) {
 		t.Helper()
@@ -93,7 +98,7 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 	var mu sync.Mutex
 	var down, longest time.Duration
 	var downSince time.Time
-	served := map[string]bool{}
+	first, last := map[string]time.Time{}, map[string]time.Time{}
 	probing, stopProbing := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
@@ -106,7 +111,10 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 				downSince = now
 			}
 			if body != "" {
-				served[body] = true
+				if first[body].IsZero() {
+					first[body] = now
+				}
+				last[body] = now
 				if !downSince.IsZero() {
 					gap := now.Sub(downSince)
 					down += gap
@@ -118,16 +126,22 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}()
-	for i, version := range []string{"v2", "v3"} {
+	previous := "v1"
+	for _, version := range []string{"v2", "v3"} {
+		start := time.Now()
 		_, pulled, updated := apply(version)
-		t.Logf("update %d (warm): pulled %s, running %s, ready %s", i+1, pulled, updated.Running, updated.Ready)
 		if body := getBody(port); body != version {
 			t.Fatalf("updated task serves %q, want %s", body, version)
 		}
+		mu.Lock()
+		t.Logf("update %s->%s (warm): pulled %s, running %s, ready %s; old served until %s, new served from %s",
+			previous, version, pulled, updated.Running, updated.Ready, last[previous].Sub(start), first[version].Sub(start))
+		mu.Unlock()
+		previous = version
 	}
 	stopProbing()
 	<-done
-	t.Logf("port refused HTTP for %s in total, longest window %s; served %v", down, longest, served)
+	t.Logf("port refused HTTP for %s in total, longest window %s", down, longest)
 
 	listed, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}}})
 	if err != nil {
