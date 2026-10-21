@@ -72,8 +72,8 @@ the exact bytes it tested on `ci-<sha>-run-<id>`; `publish` reads them back
 once Fast passes, checks them against the release job's manifest, uploads
 `qualification.json` and never rebuilds. It then pins the release in this
 repository's `deploy/image/image-inputs.json` through
-`scripts/ci/pin-terrabase.sh`, a data-only commit to `main` that runs
-stage 1 and images the new pin.
+`scripts/ci/pin-terrabase.sh`, a data-only pull request that the merge
+queue tests and merges to `main`, which runs stage 1 and images the new pin.
 
 ### 3. Image (`.github/workflows/image.yml`, `deploy/image/`)
 
