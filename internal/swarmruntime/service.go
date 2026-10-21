@@ -392,6 +392,8 @@ var sharedSecrets = map[string][]string{
 	"ts-auth-dashboard-client-secret": {"ts-dashboard"},
 	"cloudflare-account-id":           {"ts-auth"},
 	"cloudflare-email-token":          {"ts-auth"},
+	"stripe-secret-key":               {"ts-dashboard"},
+	"stripe-webhook-secret":           {"ts-dashboard"},
 }
 
 var (
