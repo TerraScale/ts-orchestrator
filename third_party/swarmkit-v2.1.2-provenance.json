@@ -194,7 +194,7 @@
       "rationale": "Re-run a task operation at once when a manager update cancelled it, instead of the 1 s retry backoff before shutdown.",
       "sha256": "17da170e6fd8e9871fe50c1a0ad85b7749aa25e6b01a2de1be56679efd710e49",
       "source_history": [
-        "aa5a228083fd4c8925904b0b698542d58665ec39 fix(swarmkit): run a task's update at once when it cancels the current operation"
+        "ee8f440a6ed720ced33c740ed13643b1ea1e3aad fix(swarmkit): run a task's update at once when it cancels the current operation"
       ],
       "upstream_bytes": 6464,
       "upstream_sha256": "6b1b7f3467c0ed2cd1d149504eb845353d7a3d88381ce85392951c2846ee419c"

@@ -554,7 +554,7 @@ const (
 type ServiceRollout struct{ Running, Ready time.Duration }
 
 // WaitServiceSpec waits until every replica of the service's current spec is
-// RUNNING and passes probe. A rollback or a paused update is an error.
+// RUNNING and passes probe (when given). A rollback or a paused update is an error.
 func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api.Service, probe func(context.Context, *api.Task) error) (ServiceRollout, error) {
 	ctx, cancel := context.WithTimeout(ctx, serviceRollout)
 	defer cancel()
@@ -598,7 +598,7 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 		}
 		ready := true
 		for _, task := range running {
-			ready = ready && probe(ctx, task) == nil
+			ready = ready && (probe == nil || probe(ctx, task) == nil)
 		}
 		if ready {
 			rollout.Ready = time.Since(start)
