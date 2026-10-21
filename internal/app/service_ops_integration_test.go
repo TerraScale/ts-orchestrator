@@ -47,6 +47,7 @@ func (b *lockedBuffer) String() string {
 
 // The operator commands run against a real single-host node and containerd.
 func TestContainerdSingleHostOperatorCommands(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-23, owner w17c: the running-task wait matches the DESIRED column while STATE is pending, so ps can run before a node is assigned")
 	if *containerdSocket == "" {
 		t.Skip("runs in the containerd workflow, which passes -containerd-socket")
 	}
