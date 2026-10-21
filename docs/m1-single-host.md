@@ -40,3 +40,34 @@ if err != nil { return err }
 defer conn.Close()
 services, err := client.ListServices(ctx, &api.ListServicesRequest{})
 ```
+
+## Operator commands
+
+Run on the host as root. Every command reads `/var/lib/ts-orch` over the
+control socket; none changes state. Known failures end in `. Fix: <next step>`.
+
+| Command | Shows |
+|---|---|
+| `ts-orch service ps <svc>` | Tasks newest first: ID, node, state, desired state, time in state, last error; then `Fix:` for the newest task's error |
+| `ts-orch service logs [-f] <svc>` | Newest task's container stdout then stderr (`<state>/runtime-logs/ts-<task>/`); `-f` follows appended output |
+| `ts-orch service inspect <svc>` | JSON: service ID, version, created/updated, image digest, and the declared spec. Secrets are names only; values never enter the spec |
+| `ts-orch events [-f]` | Latest 100 task and service state records, oldest first; `-f` streams changes from the manager's watch API |
+
+Single-host runs no NATS, so `events` reads SwarmKit's watch API.
+
+Deploy check: `service apply -f x.json`, then `events -f` until the task shows
+`running`, then `service logs <svc>`.
+
+Common errors and fixes:
+
+| Error contains | Fix |
+|---|---|
+| `swarm-root-ca.crt: permission denied` | Run with `sudo` |
+| `control.sock: connect: connection refused` | `sudo systemctl status ts-orch`; `sudo journalctl -u ts-orch -n 50` |
+| `signed container material is pending` | Check every name in `service inspect` `.spec.secrets` exists in OCI Vault and the host's ts-orch release delivers Vault secrets; re-apply |
+| `disk capacity or retained storage is unavailable` | Each task reserves 10 GiB: `df -h /var/lib/containerd /var/lib/ts-orch` |
+| `no suitable node` | The host is out of CPU, memory, disk or the port: `service ls`, remove or shrink a service |
+| `load admitted container image` | Registry unreachable or digest missing: `sudo ctr -n terrascale images pull <image>` |
+| `exited with status` / `non-zero exit` | `ts-orch service logs <svc>` |
+
+The full table is `operatorFixes` in `internal/app/service_ops_cli.go`.

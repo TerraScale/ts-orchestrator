@@ -76,6 +76,7 @@ Operator tooling:
   network                Check address and DNS coexistence of NetBird and Tailscale (read-only)
   verify                 Observe production health, persistence gaps and OIDC (read-only)
   log-scan               Count recent WARN and ERROR records per service and node (read-only)
+  events                 Print recent single-host task and service state changes; -f streams them (read-only)
   operator               Manage workloads through the regional controller
   get                    Print the running cell's spec (its signed desired state)
   diff                   Plan a cell spec file against the running cell's spec
@@ -140,6 +141,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return capacity.Run(ctx, args[1:], output)
 	case "cost":
 		return runCost(ctx, args[1:], output)
+	case "events":
+		return app.RunEventsCLI(ctx, args[1:], output)
 	case "bench":
 		return benchmark.CLI(ctx, args[1:], output)
 	case "dashboard":

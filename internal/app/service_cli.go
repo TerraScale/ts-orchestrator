@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -23,16 +24,22 @@ const serviceCLIUsage = `usage:
   ts-orch service apply -f <spec.json>
   ts-orch service ls
   ts-orch service rm <name>
+  ts-orch service ps <name>
+  ts-orch service logs [-f] <name>
+  ts-orch service inspect <name>
 `
 
 // RunServiceCLI manages single-host services declared by deploy/m1/services/*.json.
 func RunServiceCLI(ctx context.Context, args []string, output io.Writer) error {
 	// SwarmKit routes gRPC transport chatter to stderr; RPC errors are returned.
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
-	return runServiceCLI(ctx, args, output, singleHostState)
+	return explain(runServiceCLI(ctx, args, output, singleHostState))
 }
 
 func runServiceCLI(ctx context.Context, args []string, output io.Writer, state string) error {
+	if len(args) != 0 && slices.Contains([]string{"ps", "logs", "inspect"}, args[0]) {
+		return runServiceOps(ctx, args, output, state)
+	}
 	var run func(context.Context, api.ControlClient) error
 	switch {
 	case len(args) == 3 && args[0] == "apply" && args[1] == "-f":
