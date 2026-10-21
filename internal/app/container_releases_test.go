@@ -9,17 +9,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
-	"github.com/TerraScale/ts-orchestrator/internal/workload"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 func TestContainerChannelUnavailableNeverFallsBackToNative(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx := t.Context()
 	r, kv, bucket, _ := servicePinsSignedFixture(t)
 	identity := cellspec.Identity{DeploymentID: entityid.New(), Cell: r.cell, Environment: "canary"}
@@ -33,8 +30,10 @@ func TestContainerChannelUnavailableNeverFallsBackToNative(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := cellspec.Service{Role: tsauth.Role, Profile: cellspec.Profile{Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 1 << 30}},
-		Spec: &workload.ServiceSpec{Role: tsauth.Role, Environment: identity.Environment, Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3}}}
+	// A stored ts-auth service must be complete; the committed gru-1 one is.
+	profile, spec := tsAuthGRUConfig(t)
+	spec.Environment = identity.Environment
+	service := cellspec.Service{Role: tsauth.Role, Profile: profile, Spec: &spec}
 	wire, err := os.ReadFile(keys.signRoot(t, t.TempDir(), cellspec.Spec{Schema: cellspec.Schema, Identity: identity, Generation: 1, RequiresBinary: cellspec.BinaryLevel, Services: []cellspec.Service{service}}))
 	if err != nil {
 		t.Fatal(err)
