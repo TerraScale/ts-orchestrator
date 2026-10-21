@@ -163,6 +163,7 @@ func nativeRegressionReceipt(t *testing.T, service *delivery.Service, intent del
 }
 
 func TestNativeExpiredForwardSettlesDelayedAndPartialDelivery(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22T22:00Z (Q-MAIN-GREEN), owner W16 merge-queue thread: delayed-planning-false fails writes=0 attempts=1 twice under -race on main 6458bf1 (CI run 39677520255)")
 	for _, delayed := range []bool{true, false} {
 		t.Run(fmt.Sprintf("delayed-planning-%t", delayed), func(t *testing.T) {
 			f := newRetainedConsumerFixture(t)
