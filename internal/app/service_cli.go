@@ -2,11 +2,9 @@ package app
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -15,14 +13,11 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 )
 
-// singleHostControlSocket is the SwarmKit control API of `ts-orch single-host`
-// (node state dir /var/lib/ts-orch); only root can open it.
-const singleHostControlSocket = "/var/lib/ts-orch/control.sock"
+// singleHostState is the `ts-orch single-host` state directory.
+const singleHostState = "/var/lib/ts-orch"
 
 const serviceCLIUsage = `usage:
   ts-orch service apply -f <spec.json>
@@ -34,10 +29,10 @@ const serviceCLIUsage = `usage:
 func RunServiceCLI(ctx context.Context, args []string, output io.Writer) error {
 	// SwarmKit routes gRPC transport chatter to stderr; RPC errors are returned.
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
-	return runServiceCLI(ctx, args, output, singleHostControlSocket)
+	return runServiceCLI(ctx, args, output, singleHostState)
 }
 
-func runServiceCLI(ctx context.Context, args []string, output io.Writer, socket string) error {
+func runServiceCLI(ctx context.Context, args []string, output io.Writer, state string) error {
 	var run func(context.Context, api.ControlClient) error
 	switch {
 	case len(args) == 3 && args[0] == "apply" && args[1] == "-f":
@@ -85,17 +80,12 @@ func runServiceCLI(ctx context.Context, args []string, output io.Writer, socket 
 		}
 		return errors.Join(err, errors.New("unknown service command"))
 	}
-	// The manager serves its node TLS identity on the socket; root-only socket
-	// permissions, not the certificate, authorize this client (as SwarmKit's own).
-	conn, err := grpc.NewClient("passthrough:///single-host-control", grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})),
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
-		}))
+	client, conn, err := swarmruntime.DialSingleHost(state)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return run(ctx, api.NewControlClient(conn))
+	return run(ctx, client)
 }

@@ -367,13 +367,12 @@ func serviceIntentFingerprint(spec *api.ServiceSpec) (string, error) {
 	return fmt.Sprintf("%x", sha256.Sum256(wire)), nil
 }
 
-// Labels the single-host edge (hostnames), secret injection (secrets) and
-// readiness probe (ready path) read from a spec-owned service.
+// Labels the single-host edge (hostnames) and secret injection (secrets) read
+// from a spec-owned service; the probe reads LabelReadyPath.
 const (
 	LabelServiceSpec = "terrascale.service-spec"
 	LabelHostnames   = "terrascale.hostnames"
 	LabelSecrets     = "terrascale.secrets"
-	LabelReadyPath   = "terrascale.ready-path"
 )
 
 var (
@@ -414,7 +413,7 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	readyPath := s.ReadyPath
 	if readyPath == "" {
-		readyPath = "/readyz"
+		readyPath = DefaultReadyPath
 	}
 	if !strings.HasPrefix(readyPath, "/") || strings.ContainsAny(readyPath, "?# \t\r\n") {
 		return nil, errors.New("readyPath must be an absolute URL path")
