@@ -138,10 +138,14 @@ func ensureClient(ctx context.Context) error {
 		}
 		upgraded = true
 	}
-	if exec.CommandContext(ctx, "systemctl", "is-enabled", "--quiet", "netbird").Run() != nil {
+	// The daemon must run the pinned binary, not a distribution package's.
+	unit, _ := exec.CommandContext(ctx, "systemctl", "show", "--property", "ExecStart", "--value", "netbird").Output()
+	if !strings.Contains(string(unit), clientBinary) {
+		_ = exec.CommandContext(ctx, clientBinary, "service", "uninstall").Run()
 		if output, err := exec.CommandContext(ctx, clientBinary, "service", "install").CombinedOutput(); err != nil {
 			return fmt.Errorf("netbird service install: %w: %s", err, strings.TrimSpace(string(output)))
 		}
+		upgraded = true
 	}
 	action := "start"
 	if upgraded {
