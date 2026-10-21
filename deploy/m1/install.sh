@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Install or upgrade ts-orch on a milestone 1 host over ssh. Re-running with a
-# newer release is the upgrade path.
+# Install or upgrade ts-orch on a milestone 1 host over ssh: pinned containerd
+# and runc (host-runtime.sh), the NetBird client, the binary and the units.
+# Re-running with a newer release is the upgrade path.
 #   deploy/m1/install.sh <ssh-host> <binary-url> <sha256>
 # Example binary URL: the terrascale-orchestrator-linux-arm64 asset of a CI
 # release ci-<sha>-run-<id>.
@@ -17,6 +18,7 @@ host=$1 url=$2 sum=$3
 # Every unit beside this script and under services/ is installed, enabled and
 # restarted; ts-orch.service comes first because the others order after it.
 dir=$(dirname "$0")
+ssh "$host" sudo bash -s < "$dir/host-runtime.sh"
 units=""
 for unit in "$dir"/ts-orch.service "$dir"/services/*.service; do
 	[[ -e $unit ]] || continue
