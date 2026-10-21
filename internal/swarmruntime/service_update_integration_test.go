@@ -20,10 +20,12 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 	if *integrationSocket == "" {
 		t.Skip("runs in the containerd workflow, which passes -containerd-socket")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
-	defer cancel()
+	// Not t.Context(): the node must outlive the test body so cleanup can remove its containers.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	t.Cleanup(cancel)
 	state := t.TempDir()
-	e, err := NewExecutor(*integrationSocket, state)
+	// The fixture binds container material; a bare single host has none yet.
+	e, err := newIntegrationExecutor(*integrationSocket, state)
 	if err != nil {
 		t.Fatal(err)
 	}
