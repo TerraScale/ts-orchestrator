@@ -382,8 +382,20 @@ const (
 var (
 	secretName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
 	vaultID    = regexp.MustCompile(`^ocid1\.vault\.oc1\.[a-z0-9-]+\.[a-z0-9.]+$`)
-	vaultName  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,254}$`)
-	hostname   = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
+	// <cell>-<rest>, cell like gru-1; <rest> must start with the service name unless sharedSecrets allows it.
+	vaultName = regexp.MustCompile(`^([a-z]+-[0-9]+)-([a-z0-9][a-z0-9-]{0,200})$`)
+)
+
+// sharedSecrets lists the Vault secrets (name after the cell) another service may read, and which services.
+var sharedSecrets = map[string][]string{
+	"terrabase-peer-secret":           {"ts-auth", "ts-dashboard"},
+	"ts-auth-dashboard-client-secret": {"ts-dashboard"},
+	"cloudflare-account-id":           {"ts-auth"},
+	"cloudflare-email-token":          {"ts-auth"},
+}
+
+var (
+	hostname = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 )
 
 // ServiceSpec is one operator-declared single-host service, `deploy/m1/services/*.json`.
@@ -427,12 +439,23 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	if len(s.Hostnames) != len(slices.Compact(slices.Sorted(slices.Values(s.Hostnames)))) {
 		return nil, errors.New("hostnames must not repeat")
 	}
-	for name, ref := range s.Secrets {
+	var cell, vault string
+	for _, name := range slices.Sorted(maps.Keys(s.Secrets)) {
+		ref := s.Secrets[name]
 		if _, shadowed := s.Env[name]; shadowed || !secretName.MatchString(name) {
 			return nil, fmt.Errorf("invalid or env-shadowed secret name %q", name)
 		}
-		if !vaultID.MatchString(ref.Vault) || !vaultName.MatchString(ref.Name) {
-			return nil, fmt.Errorf("secret %s needs an OCI Vault OCID and a secret name", name)
+		parts := vaultName.FindStringSubmatch(ref.Name)
+		if !vaultID.MatchString(ref.Vault) || parts == nil {
+			return nil, fmt.Errorf("secret %s needs an OCI Vault OCID and a <cell>-<service>-<name> secret", name)
+		}
+		if cell == "" {
+			cell, vault = parts[1], ref.Vault
+		}
+		// One cell, one Vault per service; a service reads only its own secrets or an allowed shared one.
+		own := strings.HasPrefix(parts[2], s.Name+"-")
+		if parts[1] != cell || ref.Vault != vault || !own && !slices.Contains(sharedSecrets[parts[2]], s.Name) {
+			return nil, fmt.Errorf("secret %s: %s is not a %s-%s secret in this service's Vault", name, ref.Name, cell, s.Name)
 		}
 	}
 	for _, host := range s.Hostnames {

@@ -6,14 +6,6 @@
     "TS_DASHBOARD_TERRABASE_URL": "http://127.0.0.1:8081"
   },
   "secrets": {
-    "STRIPE_SECRET_KEY": {
-      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
-      "name": "gru-1-ts-dashboard-stripe-secret-key"
-    },
-    "STRIPE_WEBHOOK_SECRET": {
-      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
-      "name": "gru-1-ts-dashboard-stripe-webhook-secret"
-    },
     "TERRABASE_PEER_SECRET": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-terrabase-peer-secret"

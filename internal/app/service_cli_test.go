@@ -42,7 +42,7 @@ func TestM1ServiceSpecsValidate(t *testing.T) {
 }
 
 func TestServiceSpecRejects(t *testing.T) {
-	ref := vaultsecret.Ref{Vault: "ocid1.vault.oc1.sa-saopaulo-1.aa.bb", Name: "gru-1-a"}
+	ref := vaultsecret.Ref{Vault: "ocid1.vault.oc1.sa-saopaulo-1.aa.bb", Name: "gru-1-whoami-a"}
 	valid := swarmruntime.ServiceSpec{Name: "whoami", Image: "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764", Port: 8099, Replicas: 1}
 	if _, err := valid.SwarmSpec(); err != nil {
 		t.Fatal(err)
@@ -55,7 +55,21 @@ func TestServiceSpecRejects(t *testing.T) {
 		"shadowed secret": func(s *swarmruntime.ServiceSpec) {
 			s.Secrets, s.Env = map[string]vaultsecret.Ref{"A": ref}, map[string]string{"A": "x"}
 		},
-		"no vault":        func(s *swarmruntime.ServiceSpec) { s.Secrets = map[string]vaultsecret.Ref{"A": {Name: "a"}} },
+		"no vault": func(s *swarmruntime.ServiceSpec) {
+			s.Secrets = map[string]vaultsecret.Ref{"A": {Name: "gru-1-whoami-a"}}
+		},
+		"other service": func(s *swarmruntime.ServiceSpec) {
+			s.Secrets = map[string]vaultsecret.Ref{"A": {Vault: ref.Vault, Name: "gru-1-terrabase-master-key"}}
+		},
+		"not shared": func(s *swarmruntime.ServiceSpec) {
+			s.Secrets = map[string]vaultsecret.Ref{"A": {Vault: ref.Vault, Name: "gru-1-terrabase-peer-secret"}}
+		},
+		"two cells": func(s *swarmruntime.ServiceSpec) {
+			s.Secrets = map[string]vaultsecret.Ref{"A": ref, "B": {Vault: ref.Vault, Name: "sjc-1-whoami-b"}}
+		},
+		"two vaults": func(s *swarmruntime.ServiceSpec) {
+			s.Secrets = map[string]vaultsecret.Ref{"A": ref, "B": {Vault: ref.Vault + "x", Name: "gru-1-whoami-b"}}
+		},
 		"repeat hostname": func(s *swarmruntime.ServiceSpec) { s.Hostnames = []string{"a.example.com", "a.example.com"} },
 		"bad hostname":    func(s *swarmruntime.ServiceSpec) { s.Hostnames = []string{"https://a.example.com"} },
 		"relative ready":  func(s *swarmruntime.ServiceSpec) { s.ReadyPath = "readyz" },
