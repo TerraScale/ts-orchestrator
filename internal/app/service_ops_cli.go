@@ -25,7 +25,7 @@ var operatorFixes = []struct{ match, fix string }{
 	{"swarm-root-ca.crt: no such file", "no single-host node was ever started with this state: sudo systemctl start ts-orch"},
 	{"control.sock: connect: connection refused", "ts-orch single-host is not running: sudo systemctl status ts-orch; sudo journalctl -u ts-orch -n 50"},
 	{"control.sock: connect: no such file", "ts-orch single-host is not running: sudo systemctl status ts-orch; sudo journalctl -u ts-orch -n 50"},
-	{"signed container material is pending", "the host delivers no secrets for this task: check each name in `ts-orch service inspect <svc>` .spec.secrets exists in OCI Vault and this host runs a ts-orch release with Vault secret delivery, then re-apply"},
+	{"signed container material is pending", "the host delivers no secrets for this task: check each ref in `ts-orch service inspect <svc>` .spec.secrets exists in OCI Vault and this host runs a ts-orch release with Vault secret delivery, then re-apply"},
 	{"disk capacity or retained storage is unavailable", "the task reserves 10 GiB of disk: free space with `df -h /var/lib/containerd /var/lib/ts-orch` and `sudo ctr -n terrascale images prune --all`"},
 	{"no suitable node", "the host lacks CPU, memory, disk or the port for this task: check `ts-orch service ls` and remove or shrink another service"},
 	{"load admitted container image", "pulling the image failed: check the host reaches the registry and the digest exists: sudo ctr -n terrascale images pull <image>"},
