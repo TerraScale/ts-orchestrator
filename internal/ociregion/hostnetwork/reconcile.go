@@ -19,8 +19,9 @@ import (
 
 const usage = `Usage: ts-orch oci-region network CELL [--apply]
 
-Converges CELL's static-host network: the VCN and the role NSGs on the
-host's VNIC. Same-named resources are adopted and
+Converges CELL's static-host network: VCN, internet and service gateways,
+public and private route tables and subnets, empty subnet security lists and
+the role NSGs on the host's VNIC. Same-named resources are adopted and
 tagged; missing ones are created. Without --apply it only prints the drift.
 `
 
@@ -210,6 +211,24 @@ func (r *reconciler) reconcile() error {
 		}
 	}
 	n := network{reconciler: r, vcn: vcn.Id}
+	igw, err := n.internetGateway()
+	if err != nil {
+		return err
+	}
+	sgw, services, err := n.serviceGateway()
+	if err != nil {
+		return err
+	}
+	publicRoutes, err := n.routeTable("public-routes", vcn.DefaultRouteTableId, "", []core.RouteRule{{Destination: new("0.0.0.0/0"),
+		DestinationType: core.RouteRuleDestinationTypeCidrBlock, NetworkEntityId: igw}})
+	if err != nil {
+		return err
+	}
+	privateRoutes, err := n.routeTable("private-routes", nil, s.cell+"-private-routes", []core.RouteRule{{Destination: services,
+		DestinationType: core.RouteRuleDestinationTypeServiceCidrBlock, NetworkEntityId: sgw}})
+	if err != nil {
+		return err
+	}
 	var nsgIDs []string
 	for _, g := range s.nsgs {
 		id, err := n.nsg(g)
@@ -218,5 +237,20 @@ func (r *reconciler) reconcile() error {
 		}
 		nsgIDs = append(nsgIDs, deref(id))
 	}
-	return n.vnic(nsgIDs)
+	// The VNIC carries every role NSG before the security lists lose their
+	// rules, so 80/443 and SSH are never closed in between.
+	if err := n.vnic(nsgIDs); err != nil {
+		return err
+	}
+	hostList, err := n.securityList("host-security-list", nil, s.cell+"-host-sl")
+	if err != nil {
+		return err
+	}
+	if _, err := n.securityList("default-security-list", vcn.DefaultSecurityListId, ""); err != nil {
+		return err
+	}
+	if err := n.subnet("host-subnet", s.cell+"-host-subnet", "host", s.publicSubnet, false, publicRoutes, hostList); err != nil {
+		return err
+	}
+	return n.subnet("private-subnet", s.cell+"-private-subnet", "private", s.privateSubnet, true, privateRoutes, hostList)
 }
