@@ -112,7 +112,7 @@ func discoverOriginalStartupRetention(ctx context.Context, factory *ociclient.Fa
 // OriginalStartupTemplate rechecks the genuine actor and its prospective IAM
 // before crossing the bootstrap verifier's independent-genesis trust boundary.
 func (v VerifiedOriginalSourceActor) OriginalStartupTemplate(ctx context.Context) (bootstrap.VerifiedStartupTemplate, error) {
-	if ctx == nil || !v.IsVerified() || v.proof.attestor.source == nil || v.proof.materialPublication == nil || v.proof.materialPublication.Recipe.Purpose != originalMaterialIAMPurposeV3 {
+	if ctx == nil || !v.IsVerified() || v.proof.attestor.source == nil || v.proof.materialPublication == nil || (v.proof.materialPublication.Recipe.Purpose != originalMaterialIAMPurposeV3 && v.proof.materialPublication.Recipe.Purpose != originalMaterialIAMPurposeV4) {
 		return bootstrap.VerifiedStartupTemplate{}, ErrOriginalSourceActorHold
 	}
 	_, factory, guarded, err := v.MaterialPublication(ctx)

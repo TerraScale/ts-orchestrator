@@ -3,9 +3,15 @@ package region
 import (
 	"bytes"
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json/v2"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -15,13 +21,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
@@ -44,6 +53,7 @@ type originalMaterialIAMSDKFixture struct {
 	rows        map[string]map[string]any
 	gets        map[string]int
 	journalPuts int
+	joinHTTP    http.Handler
 }
 
 func newOriginalMaterialIAMSDKFixture(t *testing.T, fault string) *originalMaterialIAMSDKFixture {
@@ -111,7 +121,7 @@ func (f *originalMaterialIAMSDKFixture) expectedMaterialPolicy(t *testing.T, rec
 	t.Helper()
 	regional := record.OriginalFoundationCompartments.Regions[index]
 	entry := regional.MaterialPublicationIAM
-	if entry.Recipe.Purpose == originalMaterialIAMPurposeV3 {
+	if entry.Recipe.Purpose == originalMaterialIAMPurposeV3 || entry.Recipe.Purpose == originalMaterialIAMPurposeV4 {
 		assertOriginalMaterialV3Policy(t, record, index)
 		return map[string]any{"compartmentId": f.approval.TenancyID, "name": "ts-original-material-iam-" + entry.IdentitySHA256[:32], "description": "Prospectively authorized finite original startup and material publication", "statements": entry.Request.Statements, "freeformTags": map[string]any{}, "definedTags": map[string]any{}}
 	}
@@ -148,6 +158,13 @@ func (f *originalMaterialIAMSDKFixture) expectedMaterialPolicy(t *testing.T, rec
 }
 
 func (f *originalMaterialIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	f.materialMu.Lock()
+	joinHTTP := f.joinHTTP
+	f.materialMu.Unlock()
+	if joinHTTP != nil && (strings.HasPrefix(r.URL.Path, "/20180608/secrets") || r.URL.Path == "/20190301/secretbundles/actions/getByName") {
+		joinHTTP.ServeHTTP(w, r)
+		return
+	}
 	f.materialMu.Lock()
 	defer f.materialMu.Unlock()
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
@@ -299,7 +316,7 @@ func (f *originalMaterialIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http
 					return
 				}
 				entry := record.OriginalFoundationCompartments.Regions[index].MaterialPublicationIAM
-				if entry.Recipe.Purpose == originalMaterialIAMPurposeV3 && (entry.PeerDynamicGroup == nil || entry.PeerDynamicGroup.VerifiedAt.IsZero() || entry.PeerDynamicGroup.Provenance == nil || f.gets[entry.PeerDynamicGroup.Provenance.ResourceID] == 0) {
+				if (entry.Recipe.Purpose == originalMaterialIAMPurposeV3 || entry.Recipe.Purpose == originalMaterialIAMPurposeV4) && (entry.PeerDynamicGroup == nil || entry.PeerDynamicGroup.VerifiedAt.IsZero() || entry.PeerDynamicGroup.Provenance == nil || f.gets[entry.PeerDynamicGroup.Provenance.ResourceID] == 0) {
 					f.cloud.test.Error("policy preceded acknowledged actual group readback")
 					originalCompartmentFailure(w, 400, "InvalidParameter")
 					return
@@ -391,7 +408,7 @@ func (f *originalMaterialIAMSDKFixture) assertMaterialIAM(t *testing.T) {
 	}
 	for index, regional := range record.OriginalFoundationCompartments.Regions {
 		entry := regional.MaterialPublicationIAM
-		if entry != nil && entry.Recipe.Purpose == originalMaterialIAMPurposeV3 {
+		if entry != nil && (entry.Recipe.Purpose == originalMaterialIAMPurposeV3 || entry.Recipe.Purpose == originalMaterialIAMPurposeV4) {
 			group := entry.PeerDynamicGroup
 			if group == nil || group.Pending == nil || group.Provenance == nil || group.VerifiedAt.IsZero() || group.ETag == "" || group.ReadbackSHA256 == "" || group.HoldReason != "" || f.gets[group.Provenance.ResourceID] == 0 {
 				t.Fatal("v3 lacks independent actual peer group readback")
@@ -414,7 +431,7 @@ func assertOriginalMaterialV3Policy(t *testing.T, record FoundationRecord, index
 	if entry.Startup == nil || entry.PeerDynamicGroup == nil || len(entry.Request.Statements) == 0 || len(entry.Request.Statements) > 50 || deref(entry.Request.CompartmentId) != entry.Recipe.TenancyID {
 		t.Fatal("v3 policy lacks deployable root startup scope")
 	}
-	allowed := []string{"GetPolicy", "GetDynamicGroup", "GetCompartment", "GetNamespace", "GetBucket", "GetRetentionRule", "GetVault", "GetKey", "ListSecrets", "CreateSecret", "GetSecret", "GetSecretBundle", "GetVcn", "GetSubnet", "GetNetworkSecurityGroup", "LaunchInstance", "GetImage", "GetInstance", "ListVnicAttachments", "GetBootVolume", "ListBootVolumeAttachments", "GetVnic", "GetObject", "PutObject"}
+	allowed := []string{"GetPolicy", "GetDynamicGroup", "GetCompartment", "GetNamespace", "GetBucket", "GetRetentionRule", "GetVault", "GetKey", "ListSecrets", "CreateSecret", "GetSecret", "GetSecretBundle", "GetSecretBundleByName", "GetVcn", "GetSubnet", "GetNetworkSecurityGroup", "LaunchInstance", "GetImage", "GetInstance", "ListVnicAttachments", "GetBootVolume", "ListBootVolumeAttachments", "GetVnic", "GetObject", "PutObject"}
 	actor := fmt.Sprintf("request.principal.type='instance', request.principal.id='%s'", entry.ActorID)
 	peer := "Allow dynamic-group " + deref(entry.PeerDynamicGroup.Request.Name) + " "
 	actorWrites := map[string]string{}
@@ -435,7 +452,7 @@ func assertOriginalMaterialV3Policy(t *testing.T, record FoundationRecord, index
 		if strings.Contains(statement, "request.operation='LaunchInstance'") && !strings.Contains(statement, actor) {
 			t.Fatal("peer group gained founder launch authority")
 		}
-		if strings.HasPrefix(statement, peer) && strings.Contains(statement, "secret-bundles") && !strings.Contains(statement, "target.secret.name != /ts-bootstrap-source-*/") {
+		if strings.HasPrefix(statement, peer) && strings.Contains(statement, "secret-bundles") && !strings.Contains(statement, "target.secret.name != /ts-bootstrap-source-*/") && !(entry.Recipe.Purpose == originalMaterialIAMPurposeV4 && strings.Contains(statement, "target.secret.name='"+entry.Recipe.RuntimeJoinSecretName+"'") && strings.Contains(statement, "target.vault.id='"+entry.Target.VaultOCID+"'")) {
 			t.Fatal("peer bundle scope admitted private source escrow")
 		}
 		for _, branch := range strings.Split(statement, "all {request.operation='")[1:] {
@@ -595,6 +612,235 @@ func TestOriginalFoundationMaterialIAMPeerGroupHistoryCannotResetSDK(t *testing.
 	}
 }
 
+// This finite test origin checks emitted branches, not OCI's complete IAM language.
+func (f *originalMaterialIAMSDKFixture) assertRuntimeJoinSDK(t *testing.T, permitted bool) {
+	t.Helper()
+	entry := f.record(t).OriginalFoundationCompartments.Regions[0].MaterialPublicationIAM
+	name := vaultsecret.Name(strings.ToLower(entry.Startup.Producer.Cell)+"-"+strings.ToLower(entry.Startup.Producer.ClusterID), "TS_ORCHESTRATOR_SWARM_JOIN")
+	target := vaultsecret.Target{CompartmentID: entry.Target.CompartmentOCID, VaultID: entry.Target.VaultOCID, KeyID: entry.Target.KMSKeyOCID}
+	type signer struct {
+		principal string
+		public    *rsa.PublicKey
+	}
+	signers := map[string]signer{}
+	providers := map[string]common.ConfigurationProvider{}
+	for _, principal := range []string{entry.ActorID, "peer", "foreign"} {
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+		provider := common.NewRawConfigurationProvider(entry.Recipe.TenancyID, principal, entry.Recipe.OCIRegion, "runtime-join-fixture", string(wire), nil)
+		keyID, err := provider.KeyID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		signers[keyID] = signer{principal, &key.PublicKey}
+		providers[principal] = provider
+	}
+	fieldsRE := regexp.MustCompile(`([a-zA-Z]+)="([^"]*)"`)
+	verify := func(r *http.Request, body []byte) string {
+		fields := map[string]string{}
+		for _, match := range fieldsRE.FindAllStringSubmatch(r.Header.Get("Authorization"), -1) {
+			fields[match[1]] = match[2]
+		}
+		signer, ok := signers[fields["keyId"]]
+		if !ok || fields["algorithm"] != "rsa-sha256" {
+			return ""
+		}
+		seen := map[string]bool{}
+		var lines []string
+		for header := range strings.FieldsSeq(fields["headers"]) {
+			if seen[header] {
+				return ""
+			}
+			seen[header] = true
+			value := r.Header.Get(header)
+			switch header {
+			case "(request-target)":
+				value = strings.ToLower(r.Method) + " " + r.URL.RequestURI()
+			case "host":
+				value = r.Host
+			case "content-length":
+				value = strconv.FormatInt(r.ContentLength, 10)
+			}
+			lines = append(lines, header+": "+value)
+		}
+		if !seen["(request-target)"] || !seen["host"] || !seen["date"] && !seen["x-date"] {
+			return ""
+		}
+		if r.Method == http.MethodPost {
+			digest := sha256.Sum256(body)
+			if !seen["x-content-sha256"] || !seen["content-length"] || r.ContentLength != int64(len(body)) || r.Header.Get("X-Content-Sha256") != base64.StdEncoding.EncodeToString(digest[:]) {
+				return ""
+			}
+		}
+		signature, err := base64.StdEncoding.DecodeString(fields["signature"])
+		digest := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+		if err != nil || rsa.VerifyPKCS1v15(signer.public, crypto.SHA256, digest[:], signature) != nil {
+			return ""
+		}
+		return signer.principal
+	}
+	allows := func(principal, resource, operation, permission, compartment, vault, key, secret string) bool {
+		for _, statement := range entry.Request.Statements {
+			prefix := "Allow any-user to "
+			if principal == "peer" {
+				prefix = "Allow dynamic-group " + deref(entry.PeerDynamicGroup.Request.Name) + " "
+			} else if principal != entry.ActorID {
+				continue
+			}
+			if !strings.HasPrefix(statement, prefix) || !strings.Contains(statement, " "+resource+" in compartment id "+compartment+" where ") {
+				continue
+			}
+			if principal == entry.ActorID && !strings.Contains(statement, "request.principal.id='"+entry.ActorID+"'") {
+				continue
+			}
+			for _, branch := range strings.Split(statement, "all {request.operation='")[1:] {
+				if !strings.HasPrefix(branch, operation+"', request.permission='"+permission+"'") {
+					continue
+				}
+				matches := true
+				for selector, value := range map[string]string{"target.vault.id": vault, "target.key.id": key, "target.secret.name": secret} {
+					if strings.Contains(branch, selector+"=") && !strings.Contains(branch, selector+"='"+value+"'") {
+						matches = false
+					}
+				}
+				if matches {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	created, published, createAttempts, reads := false, false, 0, 0
+	content := base64.StdEncoding.EncodeToString([]byte("fixture-join-value"))
+	f.materialMu.Lock()
+	f.joinHTTP = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		principal := verify(r, body)
+		deny := func() { originalCompartmentFailure(w, http.StatusForbidden, "NotAuthorizedOrNotFound") }
+		if err != nil || principal == "" || !strings.Contains(r.Host, "."+entry.Recipe.OCIRegion+".") {
+			deny()
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/20180608/secrets" {
+			if !allows(principal, "secrets", "ListSecrets", "SECRET_INSPECT", r.URL.Query().Get("compartmentId"), "", "", "") {
+				deny()
+				return
+			}
+			json.MarshalWrite(w, []any{})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/20180608/secrets" {
+			createAttempts++
+			var request struct {
+				CompartmentID string `json:"compartmentId"`
+				VaultID       string `json:"vaultId"`
+				KeyID         string `json:"keyId"`
+				Name          string `json:"secretName"`
+				Content       struct {
+					Value string `json:"content"`
+				} `json:"secretContent"`
+			}
+			if json.Unmarshal(body, &request) != nil {
+				deny()
+				return
+			}
+			for _, required := range [][2]string{{"secrets", "SECRET_CREATE"}, {"vaults", "VAULT_CREATE_SECRET"}, {"keys", "KEY_ENCRYPT"}, {"keys", "KEY_DECRYPT"}} {
+				if !allows(principal, required[0], "CreateSecret", required[1], request.CompartmentID, request.VaultID, request.KeyID, request.Name) {
+					deny()
+					return
+				}
+			}
+			created, published, content = true, true, request.Content.Value
+			json.MarshalWrite(w, map[string]any{"id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.runtimejoin", "secretName": request.Name, "lifecycleState": "ACTIVE"})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/20190301/secretbundles/actions/getByName" {
+			reads++
+			if !created || !allows(principal, "secret-bundles", "GetSecretBundleByName", "SECRET_BUNDLE_READ", target.CompartmentID, r.URL.Query().Get("vaultId"), "", r.URL.Query().Get("secretName")) {
+				deny()
+				return
+			}
+			json.MarshalWrite(w, map[string]any{"secretId": "ocid1.vaultsecret.oc1.sa-saopaulo-1.runtimejoin", "versionNumber": 1, "secretBundleContent": map[string]any{"contentType": "BASE64", "content": content}})
+			return
+		}
+		t.Errorf("unexpected runtime join SDK route %s %s", r.Method, r.URL.Path)
+		deny()
+	})
+	f.materialMu.Unlock()
+	defer func() { f.materialMu.Lock(); f.joinHTTP = nil; f.materialMu.Unlock() }()
+	clients := func(principal, region string) (ocivault.VaultsClient, ocisecrets.SecretsClient) {
+		management, err := ocivault.NewVaultsClientWithConfigurationProvider(providers[principal])
+		if err != nil {
+			t.Fatal(err)
+		}
+		bundles, err := ocisecrets.NewSecretsClientWithConfigurationProvider(providers[principal])
+		if err != nil {
+			t.Fatal(err)
+		}
+		management.Host = "https://vaults." + region + ".oci.oraclecloud.com"
+		bundles.Host = "https://secrets.vaults." + region + ".oci.oraclecloud.com"
+		return management, bundles
+	}
+	for _, change := range []string{"none", "principal", "name", "vault", "key", "compartment", "region", "peer"} {
+		principal, region, selected, selectedName := entry.ActorID, entry.Recipe.OCIRegion, target, name
+		switch change {
+		case "principal":
+			principal = "foreign"
+		case "peer":
+			principal = "peer"
+		case "name":
+			selectedName += "-foreign"
+		case "vault":
+			selected.VaultID += "foreign"
+		case "key":
+			selected.KeyID += "foreign"
+		case "compartment":
+			selected.CompartmentID += "foreign"
+		case "region":
+			region = "us-ashburn-1"
+		}
+		management, _ := clients(principal, region)
+		created = false
+		stored, err := vaultsecret.Ensure(t.Context(), management, selected, selectedName, "runtime join fixture", func(context.Context) (string, error) { return "fixture-join-value", nil })
+		want := permitted && change == "none"
+		if (err == nil) != want || created != want || stored.Created != want {
+			t.Fatalf("runtime join create %s: accepted=%v want=%v", change, err == nil, want)
+		}
+	}
+	// Historical read refusal also holds when the exact secret already exists.
+	if permitted && !published {
+		t.Fatal("actual actor never published join material")
+	}
+	created = true
+	for _, change := range []string{"actor", "peer", "principal", "name", "vault", "region"} {
+		principal, region, selectedVault, selectedName := entry.ActorID, entry.Recipe.OCIRegion, target.VaultID, name
+		switch change {
+		case "peer":
+			principal = "peer"
+		case "principal":
+			principal = "foreign"
+		case "name":
+			selectedName += "-foreign"
+		case "vault":
+			selectedVault += "foreign"
+		case "region":
+			region = "us-ashburn-1"
+		}
+		_, bundles := clients(principal, region)
+		value, err := vaultsecret.Read(t.Context(), bundles, selectedVault, selectedName)
+		want := permitted && (change == "actor" || change == "peer")
+		if (err == nil) != want || want && value != "fixture-join-value" {
+			t.Fatalf("runtime join by-name read %s: accepted=%v want=%v", change, err == nil, want)
+		}
+	}
+	if createAttempts == 0 || reads == 0 {
+		t.Fatal("runtime join assertions missed actual signed SDK routes")
+	}
+}
+
 func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 	t.Run("automatic completion and unchanged restart", func(t *testing.T) {
 		f := newOriginalMaterialIAMSDKFixture(t, "")
@@ -602,6 +848,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 			t.Fatal(err)
 		}
 		f.assertMaterialIAM(t)
+		f.assertRuntimeJoinSDK(t, true)
 		before, posts, puts := bytes.Clone(f.wire(t)), len(f.posts), f.journalPuts
 		public := f.puts
 		if posts != 3 {
@@ -609,8 +856,8 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 		}
 		for _, regional := range f.record(t).OriginalFoundationCompartments.Regions {
 			entry := regional.MaterialPublicationIAM
-			if entry.Recipe.Purpose != originalMaterialIAMPurposeV3 || entry.Recipe.PolicyRead == nil || entry.PeerDynamicGroup == nil || entry.PeerDynamicGroup.VerifiedAt.IsZero() || len(entry.Request.Statements) > 50 {
-				t.Fatal("fresh preparation lacks prospective v3, actual peer group or a deployable finite policy")
+			if entry.Recipe.Purpose != originalMaterialIAMPurposeV4 || entry.Recipe.RuntimeJoinSecretName == "" || entry.Recipe.PolicyRead == nil || entry.PeerDynamicGroup == nil || entry.PeerDynamicGroup.VerifiedAt.IsZero() || len(entry.Request.Statements) > 50 {
+				t.Fatal("fresh preparation lacks prospective v4, actual peer group or a deployable finite policy")
 			}
 		}
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || len(f.posts) != posts || f.journalPuts != puts || f.puts != public || !bytes.Equal(before, f.wire(t)) {
@@ -695,6 +942,43 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 			t.Fatal("retained receipt replaced current exact policy ETag or recreated policy", err)
 		}
 	})
+	t.Run("historical v3 retains exact policy without join authority", func(t *testing.T) {
+		reads := newOriginalActorReadsSDKFixture(t, "", 0)
+		recipes := *reads.prepared.Grant.OriginalMaterialPublicationIAM
+		for index := range recipes {
+			recipes[index].Purpose = originalMaterialIAMPurposeV3
+			recipes[index].RuntimeJoinSecretName = ""
+		}
+		reads.prepared.Grant.OriginalMaterialPublicationIAM = &recipes
+		f := originalMaterialIAMSDKFixtureFor(t, reads, "")
+		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
+			t.Fatal(err)
+		}
+		f.assertMaterialIAM(t)
+		f.assertRuntimeJoinSDK(t, false)
+		for _, regional := range f.record(t).OriginalFoundationCompartments.Regions {
+			entry := regional.MaterialPublicationIAM
+			if entry.Recipe.Purpose != originalMaterialIAMPurposeV3 || entry.Recipe.RuntimeJoinSecretName != "" || strings.Contains(strings.Join(entry.Request.Statements, "\n"), "ts-orchestrator-swarm-join") {
+				t.Fatal("historical v3 acquired join authority")
+			}
+		}
+		before, posts, puts := bytes.Clone(f.wire(t)), len(f.posts), f.journalPuts
+		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || len(f.posts) != posts || f.journalPuts != puts || !bytes.Equal(before, f.wire(t)) {
+			t.Fatal("historical v3 restart rewrote policy or journal", err)
+		}
+		beforeCloud := originalMaterialIAMSnapshot(t, f.cloud)
+		store := f.store(t)
+		current, etag, err := store.Load(t.Context(), "GRU")
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := current.OriginalFoundationCompartments.Regions[0].MaterialPublicationIAM
+		entry.Recipe.Purpose = originalMaterialIAMPurposeV4
+		entry.Recipe.RuntimeJoinSecretName = vaultsecret.Name(strings.ToLower(entry.Startup.Producer.Cell)+"-"+strings.ToLower(entry.Startup.Producer.ClusterID), "TS_ORCHESTRATOR_SWARM_JOIN")
+		if _, err := store.CompareAndSwap(t.Context(), current, etag); err == nil || !bytes.Equal(beforeCloud, originalMaterialIAMSnapshot(t, f.cloud)) {
+			t.Fatal("protected CAS upgraded retained v3 history", err)
+		}
+	})
 	t.Run("signed historical absence retains old HOLD", func(t *testing.T) {
 		f := newOriginalPublicationSDKFixture(t, "")
 		if f.prepared.Grant.OriginalMaterialPublicationIAM != nil {
@@ -744,10 +1028,11 @@ func TestOriginalFoundationMaterialIAMV1Compatibility(t *testing.T) {
 	}
 	recipes := *reads.prepared.Grant.OriginalMaterialPublicationIAM
 	for index := range recipes {
-		if recipes[index].Purpose != originalMaterialIAMPurposeV3 || recipes[index].PolicyRead == nil {
-			t.Fatal("fresh preparation did not produce v3")
+		if recipes[index].Purpose != originalMaterialIAMPurposeV4 || recipes[index].PolicyRead == nil {
+			t.Fatal("fresh preparation did not produce v4")
 		}
 		recipes[index].Purpose, recipes[index].PolicyRead = originalMaterialIAMPurpose, nil
+		recipes[index].RuntimeJoinSecretName = ""
 		recipes[index].LinkSecretNames, recipes[index].LinkObject, recipes[index].LinkEscrowSecretName = [8]string{}, "", ""
 	}
 	reads.prepared.Grant.OriginalMaterialPublicationIAM = &recipes
@@ -808,6 +1093,7 @@ func TestOriginalFoundationMaterialIAMV2Compatibility(t *testing.T) {
 	recipes := *reads.prepared.Grant.OriginalMaterialPublicationIAM
 	for index := range recipes {
 		recipes[index].Purpose = originalMaterialIAMPurposeV2
+		recipes[index].RuntimeJoinSecretName = ""
 		recipes[index].LinkSecretNames, recipes[index].LinkObject, recipes[index].LinkEscrowSecretName = [8]string{}, "", ""
 		reads.prepared.Grant.Regions[index].BootstrapMaterial.OriginalStartupAdmission = nil
 	}
@@ -847,7 +1133,7 @@ func TestOriginalFoundationMaterialIAMV2Compatibility(t *testing.T) {
 func TestOriginalFoundationMaterialIAMSignedContract(t *testing.T) {
 	// Preserve the fixture's literal loopback transport through SDK client construction.
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
-	for _, change := range []string{"purpose", "name", "owner name", "vault", "key", "control", "actor recipe", "permission", "key encrypt operation", "key decrypt operation", "LIST scope", "missing policy read", "policy list", "policy resource", "policy permission", "policy scope", "v1 policy read", "mixed version"} {
+	for _, change := range []string{"purpose", "join name", "missing join name", "historical join name", "name", "owner name", "vault", "key", "control", "actor recipe", "permission", "key encrypt operation", "key decrypt operation", "LIST scope", "missing policy read", "policy list", "policy resource", "policy permission", "policy scope", "v1 policy read", "mixed version"} {
 		t.Run(change, func(t *testing.T) {
 			f := newOriginalActorReadsSDKFixture(t, "", 0)
 			prepared := f.prepared
@@ -865,6 +1151,14 @@ func TestOriginalFoundationMaterialIAMSignedContract(t *testing.T) {
 			switch change {
 			case "purpose":
 				recipes[0].Purpose = "publish-arbitrary-material"
+			case "join name":
+				recipes[0].RuntimeJoinSecretName += "-foreign"
+			case "missing join name":
+				recipes[0].RuntimeJoinSecretName = ""
+			case "historical join name":
+				for index := range recipes {
+					recipes[index].Purpose = originalMaterialIAMPurposeV3
+				}
 			case "name":
 				recipes[0].SecretNames[0] += "-foreign"
 			case "owner name":
@@ -933,7 +1227,7 @@ func TestOriginalFoundationMaterialIAMRetainedContract(t *testing.T) {
 	}
 	f.assertMaterialIAM(t)
 	store := f.store(t)
-	for _, change := range []string{"remove", "actor", "vault", "name", "statement", "token", "receipt", "ETag", "completion", "policy read", "purpose downgrade"} {
+	for _, change := range []string{"remove", "actor", "vault", "join name", "missing join name", "historical join name", "name", "statement", "token", "receipt", "ETag", "completion", "policy read", "purpose downgrade"} {
 		t.Run(change, func(t *testing.T) {
 			current, etag, err := store.Load(t.Context(), "GRU")
 			if err != nil || etag == "" {
@@ -948,6 +1242,12 @@ func TestOriginalFoundationMaterialIAMRetainedContract(t *testing.T) {
 				entry.ActorID = current.OriginalFoundationCompartments.Regions[1].Actor.Provenance.ResourceID
 			case "vault":
 				entry.Target.VaultOCID = current.OriginalFoundationCompartments.Regions[1].MaterialPublicationIAM.Target.VaultOCID
+			case "join name":
+				entry.Recipe.RuntimeJoinSecretName += "-foreign"
+			case "missing join name":
+				entry.Recipe.RuntimeJoinSecretName = ""
+			case "historical join name":
+				entry.Recipe.Purpose = originalMaterialIAMPurposeV3
 			case "name":
 				entry.Recipe.SecretNames[0] += "-different"
 			case "statement":
