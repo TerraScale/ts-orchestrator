@@ -199,6 +199,34 @@ func TestTenancy(t *testing.T) {
 	t.Cleanup(public.Close)
 	client := public.Client()
 	client.Timeout = 2 * time.Second
+	for _, route := range []struct {
+		method, path, code, allow string
+		status                    int
+	}{
+		{http.MethodPost, "/v1/apps", "method_not_allowed", "GET, HEAD", http.StatusMethodNotAllowed},
+		{http.MethodGet, "/v1/unknown", "not_found", "", http.StatusNotFound},
+		{http.MethodPost, "/v1/unknown", "not_found", "", http.StatusNotFound},
+	} {
+		request, err := http.NewRequestWithContext(t.Context(), route.method, public.URL+route.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var failure apiError
+		err = json.UnmarshalRead(response.Body, &failure)
+		response.Body.Close()
+		if err != nil {
+			t.Fatalf("%s %s did not return a JSON error over TCP: %v", route.method, route.path, err)
+		}
+		if response.StatusCode != route.status || failure.Error != route.code || failure.Message == "" ||
+			response.Header.Get("Allow") != route.allow || response.Header.Get("Content-Type") != "application/json" ||
+			response.Header.Get("Cache-Control") != "no-store" || response.Header.Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatalf("%s %s over TCP: status %d, error %+v, headers %v", route.method, route.path, response.StatusCode, failure, response.Header)
+		}
+	}
 	getPublic := func(path string) (int, map[string]any) {
 		t.Helper()
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, public.URL+path, nil)
@@ -389,7 +417,6 @@ func TestStoreOutageIsUnavailable(t *testing.T) {
 		}
 	}
 }
-
 
 func TestConfigValidate(t *testing.T) {
 	valid := Config{ListenAddress: "10.0.0.1:8444", TLSCertFile: "cert.pem", TLSKeyFile: "key.pem", Issuer: testIssuer, Audience: testAudience,
