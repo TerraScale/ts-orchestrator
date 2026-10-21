@@ -13,7 +13,9 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/ca"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 )
 
 // singleHostID is fixed so a hostname change never alters the stored admission.
@@ -52,7 +54,34 @@ func StartSingleHost(ctx context.Context, stateDir string, executor exec.Executo
 	if err := os.Symlink(filepath.Join("swarm", "control.sock"), link); err != nil {
 		return nil, errors.Join(err, node.Stop(context.WithoutCancel(ctx)))
 	}
+	if err := removeIngressNetwork(ctx, stateDir); err != nil {
+		return nil, errors.Join(err, node.Stop(context.WithoutCancel(ctx)))
+	}
 	return node, nil
+}
+
+// removeIngressNetwork deletes the routing-mesh network SwarmKit creates in
+// every fresh cluster. The inert allocator cannot attach the node to it and
+// logs a failure on every node update; services here use the host network.
+func removeIngressNetwork(ctx context.Context, stateDir string) error {
+	client, conn, err := DialSingleHost(stateDir)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	networks, err := client.ListNetworks(ctx, &api.ListNetworksRequest{})
+	if err != nil {
+		return err
+	}
+	for _, network := range networks.Networks {
+		if !network.Spec.Ingress {
+			continue
+		}
+		if _, err := client.RemoveNetwork(ctx, &api.RemoveNetworkRequest{NetworkID: network.ID}); err != nil && status.Code(err) != codes.NotFound {
+			return err
+		}
+	}
+	return nil
 }
 
 // DialSingleHost connects to a single host's control socket over TLS pinned to
