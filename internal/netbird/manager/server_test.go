@@ -62,7 +62,7 @@ func TestServerBootstrapClaimsOnceAndStoresSecretsWithoutLeakingThem(t *testing.
 		t.Fatal(err)
 	}
 	for _, name := range []string{"gru-1-netbird-relay-auth-secret", "gru-1-netbird-session-cookie-key",
-		"gru-1-netbird-store-encryption-key", "gru-1-netbird-owner-password"} {
+		"gru-1-netbird-datastore-encryption-key", "gru-1-netbird-owner-password"} {
 		if _, ok := vault.bundles[name]; !ok {
 			t.Fatalf("PrepareServer did not store %s", name)
 		}

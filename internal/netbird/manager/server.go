@@ -41,7 +41,7 @@ const ServerConfigTemplate = `server:
     cliRedirectURIs: ["http://localhost:53000/"]
   store:
     engine: "sqlite"
-    encryptionKey: {{NETBIRD_STORE_ENCRYPTION_KEY}}
+    encryptionKey: {{NETBIRD_DATASTORE_ENCRYPTION_KEY}}
 `
 
 // Vault secrets of the NetBird server, scope gru-1.
@@ -54,7 +54,7 @@ const (
 )
 
 // generatedServerSecrets are the config keys made once from 32 random bytes.
-var generatedServerSecrets = []string{"NETBIRD_RELAY_AUTH_SECRET", "NETBIRD_SESSION_COOKIE_KEY", "NETBIRD_STORE_ENCRYPTION_KEY"}
+var generatedServerSecrets = []string{"NETBIRD_RELAY_AUTH_SECRET", "NETBIRD_SESSION_COOKIE_KEY", "NETBIRD_DATASTORE_ENCRYPTION_KEY"}
 
 // ServerVault stores the server's secrets once and reads them back.
 type ServerVault struct {
