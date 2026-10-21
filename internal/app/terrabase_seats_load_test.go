@@ -528,7 +528,8 @@ func (e *fakeEdge) ListBackends(context.Context, string, string) ([]lb.Backend, 
 	for key, backend := range e.backends {
 		ip, port, _ := net.SplitHostPort(key)
 		number, _ := strconv.Atoi(port)
-		out = append(out, lb.Backend{IP: ip, Port: number, Drain: backend.drain})
+		// OCI reports every managed backend at weight 1, never as a backup.
+		out = append(out, lb.Backend{IP: ip, Port: number, Drain: backend.drain}.Shaped(1, false))
 	}
 	return out, nil
 }
