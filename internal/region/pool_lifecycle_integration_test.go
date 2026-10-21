@@ -71,14 +71,11 @@ func testKnownPoolLifecycle(t *testing.T, resolver FoundationResolver, original 
 	if _, err := resolver.PoolLifecycle(ctx, record.Cell, child.OperationID, "ocid1.instance.oc1..foreign"); err == nil {
 		t.Fatal("rebound an original birth to another instance")
 	}
-	encoded, err := json.Marshal(proof)
-	if err != nil {
-		t.Fatal(err)
+	// json/v2 refuses opaque proofs; only the zero value can be fabricated.
+	if encoded, err := json.Marshal(proof); err == nil {
+		t.Fatalf("opaque proof serialized: %s", encoded)
 	}
 	var fabricated VerifiedPoolLifecycle
-	if err := json.Unmarshal(encoded, &fabricated); err != nil {
-		t.Fatal(err)
-	}
 	if fabricated.IsVerified() || fabricated.Revalidate(ctx) == nil {
 		t.Fatal("public JSON minted known-child lifecycle authority")
 	}

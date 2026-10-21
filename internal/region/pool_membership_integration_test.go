@@ -126,14 +126,11 @@ func TestPoolMembershipUsesSignedPermissionAndOriginalProtectedBirth(t *testing.
 	if _, err := resolver.PoolMembership(ctx, "GRU", "ocid1.instancepool.oc1.sa-saopaulo-1.discovered", configurationID); err == nil {
 		t.Fatal("adopted a discovered pool")
 	}
-	encoded, err := json.Marshal(proof)
-	if err != nil {
-		t.Fatal(err)
+	// json/v2 refuses opaque proofs; only the zero value can be fabricated.
+	if encoded, err := json.Marshal(proof); err == nil {
+		t.Fatalf("opaque proof serialized: %s", encoded)
 	}
 	var fabricated VerifiedPoolMembership
-	if err := json.Unmarshal(encoded, &fabricated); err != nil {
-		t.Fatal(err)
-	}
 	if fabricated.IsVerified() || fabricated.Revalidate(ctx) == nil {
 		t.Fatal("JSON minted membership authority")
 	}
