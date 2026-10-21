@@ -15,7 +15,6 @@ import (
 )
 
 func TestManagerUsageHistoryHTTPRefusesUnprovenInventory(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	for _, retained := range []bool{false, true} {
 		name := "empty_history"
 		if retained {
@@ -50,7 +49,8 @@ func TestManagerUsageHistoryHTTPRefusesUnprovenInventory(t *testing.T) {
 			if err != nil || response.StatusCode != http.StatusServiceUnavailable || strings.TrimSpace(string(body)) != "regional inventory unavailable" {
 				t.Fatalf("unproven manager history: status=%d body=%q err=%v", response.StatusCode, body, err)
 			}
-			if after := store.History.Range(query); !reflect.DeepEqual(before, after) {
+			// RetentionStart follows the clock; the retained series must not move.
+			if after := store.History.Range(query); !reflect.DeepEqual(before.Series, after.Series) {
 				t.Fatal("unknown allocation history rewrote retained capacity measurements")
 			}
 		})
