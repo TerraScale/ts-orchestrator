@@ -915,7 +915,9 @@ func Retry(ctx context.Context, request OCIRetryableRequest, operation OCIOperat
 
 	select {
 	case <-ctx.Done():
-		return response, ctx.Err()
+		// The retrier goroutine may still be writing response; returning it
+		// here is a data race (TerraScale patch).
+		return nil, ctx.Err()
 	case result := <-retrierChannel:
 		return result.response, result.err
 	}
