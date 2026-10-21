@@ -16,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	qualificationhost "github.com/TerraScale/ts-orchestrator/tests/imagequalification/host"
 )
 
 // These ephemeral keys exercise source trust checks, never native acceptance.
@@ -58,6 +59,20 @@ func TestSignedMaterialFixtureBoundary(t *testing.T) {
 	proof, err := containermaterial.VerifyProfile(fixture.SignedProfile, roots, spec.Identity, intent)
 	if err != nil || !proof.NoSecrets() {
 		t.Fatal("signed no-secret authority rejected", err)
+	}
+	candidate := release.ProductionExpectation{Cell: "GRU", Environment: "production"}
+	if err := qualificationhost.ValidateProfileIdentity(candidate, spec.Identity); err != nil {
+		t.Fatal("catalog mapping rejected the genuine signed lower-case profile", err)
+	}
+	for _, cell := range []string{"fra", "GRU", "GrU", "unknown", "gru "} {
+		changed := spec.Identity
+		changed.Cell = cell
+		if err := qualificationhost.ValidateProfileIdentity(candidate, changed); err == nil {
+			t.Fatalf("nonmatching signed cell %q accepted", cell)
+		}
+	}
+	if _, err := containermaterial.VerifyProfile(fixture.SignedProfile, roots, spec.Identity, intent); err != nil {
+		t.Fatal("catalog comparison changed the signed profile bytes", err)
 	}
 	mapped, err := containermaterial.ServiceIntent(proof, "arm64")
 	if err != nil || len(mapped.Container.Command) != 0 || strings.Join(mapped.Container.Args, " ") != "/bin/sh -c exit 17" {
