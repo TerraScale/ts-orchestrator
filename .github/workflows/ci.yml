@@ -14,11 +14,12 @@ on:
   schedule:
     - cron: '17 3 * * 1'
 
-# A newer push supersedes a running check of the same branch. On main the
-# newer revision contains the older one and becomes the candidate.
+# A newer push to a pull request cancels its running check. Other runs
+# finish, so main always completes a check; a newer main revision waiting
+# behind it replaces any older one still waiting.
 concurrency:
   group: ts-orchestrator-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
