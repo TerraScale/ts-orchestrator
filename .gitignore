@@ -14,3 +14,4 @@ coverage.out
 # Private generated CI release candidates and signatures
 /.terrascale-develop-release/
 __pycache__/
+/terrascale-orchestrator

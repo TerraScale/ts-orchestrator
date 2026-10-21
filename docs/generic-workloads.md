@@ -1,5 +1,12 @@
 # Generic workloads
 
+Historical design; its native/podman drivers and custom scheduler are superseded
+by [the SwarmKit/containerd replacement](../REFACTOR.md). The unwired Machines
+planner has been removed. The contracts below describe retained schema and
+original proposals, not a working generic deployment or qualified runtime.
+SwarmKit service mapping must preserve required validation and database safety;
+do not implement the old scheduling/runtime slices described here.
+
 TS-572 lets ts-orch deploy any service with its own requirements: a
 TerraScale service such as ts-dashboard, a tenant's service, or third-party
 software that only ships as an image. A new service deploys with

@@ -65,8 +65,40 @@ installation is authorized by this planning document.
 
 ## Parallel execution plan (user decision)
 
+### Primary agent: orchestrator and advisor only (user decision)
+
+The primary agent reading this plan coordinates the refactor; it never performs
+implementation itself. All stream owners, implementers, reviewers, QA workers
+and integrators below are delegated subagents, not roles the primary may assume.
+The mandatory GPT 6.1 Sol/high rule applies to the primary and every subagent.
+
+1. **Coordinate and advise only.** Read and inspect results, break down work,
+   assign ownership, explain contracts, resolve priorities and report progress.
+   Delegate every file edit, implementation, test/check execution, integration,
+   conflict resolution, ledger/evidence update, commit and push to subagents.
+   The primary reviews their evidence and requests corrections through them.
+2. **Use as much independent parallel work as possible.** Fill available worker
+   slots up to the runtime's actual concurrency limit with ready, nonconflicting
+   tasks. Start separate discovery, implementation, review and qualification
+   tasks wherever their inputs permit; preserve file claims and safety gates.
+   Independent streams must not wait merely because one worker is blocked.
+3. **Replenish and reuse workers.** At each handoff or blocker, reuse idle agents
+   or release completed agents and assign the next ready task. When slots are
+   fewer than streams, queue the remaining work and rotate workers as inputs
+   arrive; reserve an integrator slot when a handoff is ready. Never exceed
+   runtime limits or invent dependencies to serialize independent work.
+4. **Delegate integration and evidence explicitly.** Assign a QA/integrator
+   subagent to shared-file integration, exact-candidate checks, evidence/ledger
+   maintenance and serialized commit/push. Stream workers supply their own
+   focused checks and evidence. The primary coordinates these handoffs without
+   editing the tree or publishing it itself.
+5. **Never fall back to self-implementation.** If delegation is unavailable or
+   every slot is occupied, continue advisory work, queue tasks or wait for a
+   worker. Report the specific delegation blocker when no worker can proceed;
+   limited capacity, urgency or a small task never changes the primary's role.
+
 **Every section below belongs to a parallel workstream. Document order and
-numbered acceptance checks do not impose implementation order.** Start discovery,
+numbered acceptance checks do not impose implementation order.** Delegate discovery,
 contract design, implementation, test-only fixtures and baseline collection in
 every stream immediately. Block only the work item that consumes an unavailable
 contract, resource or safety proof. A blocked live exercise does not block its
@@ -74,10 +106,12 @@ stream's remaining implementation work or another region's independent work.
 
 ### Startup checks: parallel tasks with local blockers
 
-Start these five tasks together, following the model rule at the top.
-Record actual owner names, ETA/model, claimed files, outputs and evidence in the
-existing work ledger. A pending check blocks only the action named in its last
-column. It does not create a repository-wide approval or design freeze.
+Dispatch these five tasks concurrently as runtime slots permit, following the
+model rule at the top; queue and replenish remaining tasks without a phase barrier.
+Have QA's delegated integrator record actual owner names, ETA/model, claimed files,
+outputs and evidence in the existing work ledger. A pending check blocks only
+the action named in its last column. It does not create a repository-wide
+approval or design freeze.
 
 | Task / accountable owner | Concrete check and output | What waits for this result |
 | --- | --- | --- |
@@ -140,7 +174,7 @@ Vault and ownership records before compute launch, unblocking NET/REL work.
    blocker. Split work at feature/file boundaries. Use isolated branches/worktrees
    when several implementers share the checkout; do not concurrently commit the
    same tree.
-2. **Keep shared edits short.** QA's integrator owns shared `go.mod`/`go.sum`,
+2. **Keep shared edits short.** QA's integrator subagent owns shared `go.mod`/`go.sum`,
    entrypoints, `internal/app` wiring files, shared workflow files and this plan
    unless ownership is explicitly handed to a stream. Streams submit focused
    integration diffs; independent package work continues during that handoff.
@@ -154,8 +188,9 @@ Vault and ownership records before compute launch, unblocking NET/REL work.
    consumer when its required contract slice lands; do not wait for an entire
    stream or a repository-wide contract freeze. This ledger belongs in existing
    docs/operation evidence, not a new runtime coordination service.
-5. **Publish through one main integrator.** Commit and push completed slices to
-   `main` directly, per the user decision; no PR is required. Serialize only
+5. **Publish through one main integrator subagent.** That subagent commits and
+   pushes completed slices to `main` directly, per the user decision; no PR is
+   required. Serialize only
    conflicting file updates and main publication, preserve CI/qualification and
    production authorization gates, and never force-push or bypass protections.
    Existing CI can trigger deployment on a main push; record the actual outcome.

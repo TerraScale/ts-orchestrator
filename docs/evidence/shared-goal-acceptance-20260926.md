@@ -24,6 +24,21 @@ START-STORE compares existing OCI semantics with Tigris before any backend
 change; no cost advantage is claimed. CONNECT, RUNTIME, FUNCTIONS, STATEFUL and
 COMPLETE remain open; package tests cannot qualify their live requirements.
 
+Additional integrator claim: `internal/machines/{schedule.go,schedule_test.go}`
+and `docs/{apps-machines.md,generic-workloads.md}`. ETA 10 minutes. Remove the
+unwired custom planner and its private helpers/unit cases after verifying no
+production callers; retain API/store validation and database safety. SwarmKit
+owns replacement placement; this deletion does not establish its integration.
+
+Integrated locally (not runtime-published): image-import partial checkpoints
+and SDK/HTTP retry scenario (`39e0134c`); one embedded stylesheet (`7af2fb38`);
+NetBird HTTP authority cancellation/recovery (`f92acc79`); independent signed
+regional apply (`7a7abb41`). Image-import race suite and dashboard stylesheet/
+budget HTTP scenarios pass. Six dashboard history/rollout tests also fail on
+the unchanged baseline; they are not hidden by the focused checks. Full
+integration-only conversion remains open (3,900 internal Test functions at the
+initial inventory, before classification).
+
 **Overall: IN PROGRESS.** No milestone is complete. This ledger records the
 workspace goal against the current shared worktrees; it does not qualify a
 deployed candidate. Historical reports and component tests retain only their
