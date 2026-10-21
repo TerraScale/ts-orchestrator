@@ -103,6 +103,9 @@ func operatorNode(ctx context.Context, cfg Config, runtime *natscell.Runtime, co
 
 func requestNode(ctx context.Context, cfg Config, runtime *natscell.Runtime, kind string, request nodeOpRequest,
 ) (nodeOpReply, error) {
+	if kind == nodeOpSubmitKind {
+		request.ExecutionDeadline = time.Now().UTC().Add(nodeOperationExecutionLifetime)
+	}
 	encoded, err := protocol.EncodeJSON(request)
 	if err != nil {
 		return nodeOpReply{}, err
