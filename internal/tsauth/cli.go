@@ -28,7 +28,7 @@ const cliUsage = `Usage: ts-orch ts-auth <command> [flags]
       TS_AUTH_DASHBOARD_CLIENT_SECRET once into the cell's Vault (operator
       ~/.oci/config). Existing secrets are kept.
   metadata-rules
-      Render host nftables rules reserving instance metadata for root and the controller.
+      Render host nftables rules reserving instance metadata for host root.
 
 ts-orch ouroboros bootstrap stores TS_AUTH_TERRASCALE_PROJECT_ID and
 TS_AUTH_TERRASCALE_API_KEY.

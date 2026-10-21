@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -67,23 +68,45 @@ func TestRenderedMetadataRulesReserveMetadataForRootAndController(t *testing.T) 
 	if err := Run(t.Context(), []string{"metadata-rules"}, &rules, nil); err != nil {
 		t.Fatal(err)
 	}
-	if want := "destroy table inet terrascale_metadata\ntable inet terrascale_metadata {\n" +
+	if want := "destroy table inet terrascale_metadata\ndestroy table bridge terrascale_metadata\ntable inet terrascale_metadata {\n" +
+		"    chain prerouting {\n        type filter hook prerouting priority -300; policy accept;\n" +
+		"        ip daddr 169.254.169.254 counter drop\n    }\n" +
 		"    chain output {\n        type filter hook output priority 0; policy accept;\n" +
 		"        ip daddr 169.254.169.254 meta skuid \"systemd-timesync\" udp dport 123 accept\n" +
 		"        ip daddr 169.254.169.254 meta skuid \"systemd-resolve\" meta l4proto { tcp, udp } th dport 53 accept\n" +
-		"        ip daddr 169.254.169.254 meta skuid != { 0, \"terrascale-orchestrator\" } counter drop\n    }\n}\n"; rules.String() != want {
+		"        ip daddr 169.254.169.254 meta skuid 0 accept\n" +
+		"        ip daddr 169.254.169.254 counter drop\n    }\n" +
+		"    chain forward {\n        type filter hook forward priority 0; policy accept;\n" +
+		"        ip daddr 169.254.169.254 counter drop\n    }\n}\n" +
+		"table bridge terrascale_metadata {\n    chain forward {\n" +
+		"        type filter hook forward priority 0; policy accept;\n" +
+		"        ip daddr 169.254.169.254 counter drop\n    }\n}\n"; rules.String() != want {
 		t.Fatalf("metadata rules:\n%s", rules.String())
 	}
 	unit, err := os.ReadFile(filepath.Join("..", "..", "deploy", "systemd", "terrascale-ts-auth-metadata.service"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, directive := range []string{"Before=terrascale-orchestrator-host.service\n", "Type=oneshot\n",
+	for _, directive := range []string{"DefaultDependencies=no\n", "Before=network-pre.target shutdown.target\n", "Type=oneshot\n",
 		"ExecStartPre=/bin/sh -c '/usr/sbin/nft list table inet terrascale_metadata >/dev/null 2>&1 || /usr/sbin/nft add table inet terrascale_metadata'\n",
 		"ExecStart=/usr/sbin/nft -f /etc/terrascale-orchestrator/ts-auth-metadata.nft\n",
-		"RemainAfterExit=no\n", "RequiredBy=terrascale-orchestrator-host.service\n"} {
+		"ExecStartPre=/bin/sh -c '/usr/sbin/nft list table bridge terrascale_metadata >/dev/null 2>&1 || /usr/sbin/nft add table bridge terrascale_metadata'\n",
+		"RemainAfterExit=no\n"} {
 		if !strings.Contains(string(unit), directive) {
 			t.Fatalf("metadata unit missing %q", directive)
+		}
+	}
+	for _, name := range []string{"network-pre.target", "containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host-setup.service", "terrascale-orchestrator-host.service"} {
+		for _, relationship := range []string{"Before", "RequiredBy"} {
+			found := false
+			for line := range strings.SplitSeq(string(unit), "\n") {
+				if value, ok := strings.CutPrefix(line, relationship+"="); ok && slices.Contains(strings.Fields(value), name) {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("metadata unit lacks %s=%s", relationship, name)
+			}
 		}
 	}
 	if strings.Contains(string(unit), "ExecStop=") {

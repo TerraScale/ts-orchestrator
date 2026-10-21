@@ -14,17 +14,22 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
+	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
 func TestManagedRuntimeImageIntegration(t *testing.T) {
+	// Offline verification must not run the host's environment generators.
+	t.Setenv("SYSTEMD_ENVIRONMENT_GENERATOR_PATH", t.TempDir())
 	for _, architecture := range []string{"arm64", "amd64"} {
 		t.Run(architecture, func(t *testing.T) {
 			containerd := runtimeFixtureELF(architecture, "github.com/containerd/containerd/v2", "v"+containerdVersion)
@@ -115,7 +120,7 @@ func TestManagedRuntimeImageIntegration(t *testing.T) {
 							t.Fatalf("runtime license %s differs: %v", notice.Name(), err)
 						}
 					}
-					runtimeFixtureSystemd(t, g, root, work, &output)
+					runtimeFixtureSystemd(t, g, root, work, architecture, &output)
 				})
 			}
 		})
@@ -236,6 +241,27 @@ func runtimeFixtureHTTP(t *testing.T, architecture string, archive, runc []byte)
 	t.Cleanup(func() { http.DefaultTransport = original })
 }
 
+// Keep real offline tools in the QA runner's process group so its cleanup owns them.
+func runtimeFixtureExecute(ctx context.Context, dir string, env []string, command ...string) (string, error) {
+	if len(command) == 0 {
+		return "", errors.New("empty command")
+	}
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = env
+	}
+	cmd.WaitDelay = 2 * time.Second
+	var output, stderr bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		action := strings.Join(command[:min(2, len(command))], " ")
+		return "", fmt.Errorf("%s failed: %s: %w", action, strings.TrimSpace(stderr.String()+output.String()), err)
+	}
+	return strings.TrimSpace(output.String()), nil
+}
+
 // guestfish protocol operations use real files; guest root ownership is virtualized for rootless tests.
 func runtimeFixtureGuest(t *testing.T) (*Guest, string) {
 	t.Helper()
@@ -254,7 +280,7 @@ func runtimeFixtureGuest(t *testing.T) (*Guest, string) {
 	guestPath := func(p string) string { return filepath.Join(root, p) }
 	g.exec = func(ctx context.Context, dir string, env []string, command ...string) (string, error) {
 		if len(command) < 3 || command[0] != "guestfish" || command[1] != "--remote" {
-			return Execute(ctx, dir, env, command...)
+			return runtimeFixtureExecute(ctx, dir, env, command...)
 		}
 		args := command[3:]
 		switch command[2] {
@@ -298,6 +324,16 @@ func runtimeFixtureGuest(t *testing.T) (*Guest, string) {
 			return "", os.Symlink(args[0], guestPath(args[1]))
 		case "readlink":
 			return os.Readlink(guestPath(args[0]))
+		case "realpath":
+			resolved, err := filepath.EvalSymlinks(guestPath(args[0]))
+			if err != nil {
+				return "", err
+			}
+			relative, err := filepath.Rel(root, resolved)
+			if err != nil || !filepath.IsLocal(relative) {
+				return "", errors.New("fixture runtime escaped guest root")
+			}
+			return "/" + filepath.ToSlash(relative), nil
 		default:
 			return "", fmt.Errorf("unexpected guestfish operation: %v", command)
 		}
@@ -305,7 +341,7 @@ func runtimeFixtureGuest(t *testing.T) (*Guest, string) {
 	return g, root
 }
 
-func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Writer) {
+func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work, architecture string, out io.Writer) {
 	t.Helper()
 	repo, err := filepath.Abs("../..")
 	if err != nil {
@@ -335,11 +371,12 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Wri
 			t.Fatal(err)
 		}
 	}
+	runtimeFixtureMetadataFence(t, g, repo, root, work, architecture, out)
 	if err := installLinks(g, work, repo, out); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-host.service", "terrascale-orchestrator-controller.service"} {
-		state, err := Execute(t.Context(), "", append(os.Environ(), "SYSTEMD_OFFLINE=1"), "systemctl", "--root="+root, "is-enabled", name)
+	for _, name := range []string{MetadataUnit, "containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-host.service", "terrascale-orchestrator-controller.service"} {
+		state, err := runtimeFixtureExecute(t.Context(), "", append(os.Environ(), "SYSTEMD_OFFLINE=1"), "systemctl", "--root="+root, "is-enabled", name)
 		if err != nil || state != "enabled" {
 			t.Fatalf("guest %s is not enabled: %s, %v", name, state, err)
 		}
@@ -358,7 +395,7 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Wri
 		t.Fatalf("legacy native host installation changed: %s, %v", native, err)
 	}
 	// Supply distribution targets and inert executable files so systemd verifies the real project dependency graph offline.
-	for _, name := range []string{"basic", "sysinit", "sockets", "shutdown", "network", "network-online", "local-fs", "multi-user"} {
+	for _, name := range []string{"basic", "sysinit", "sockets", "shutdown", "network-pre", "network", "network-online", "local-fs", "multi-user"} {
 		if err := os.WriteFile(filepath.Join(root, "usr/lib/systemd/system", name+".target"), []byte("[Unit]\nDescription=Fixture distribution target\nDefaultDependencies=no\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -372,7 +409,7 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Wri
 			t.Fatal(err)
 		}
 	}
-	if _, err := Execute(t.Context(), "", append(os.Environ(), "SYSTEMD_OFFLINE=1"), "systemd-analyze", "--root="+root, "--generators=no", "--man=no", "verify", "containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service"); err != nil {
+	if _, err := runtimeFixtureExecute(t.Context(), "", append(os.Environ(), "SYSTEMD_OFFLINE=1"), "systemd-analyze", "--root="+root, "--generators=no", "--man=no", "verify", MetadataUnit, "containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service", "terrascale-orchestrator-bootstrap.service"); err != nil {
 		t.Fatal(err)
 	}
 	for _, edge := range []struct{ unit, dependency string }{
@@ -437,4 +474,184 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Wri
 			t.Fatalf("%s boot lacks required containerd ordering: %s, %v", role, data, err)
 		}
 	}
+	unit, err := os.ReadFile(filepath.Join(root, "etc/systemd/system", MetadataUnit))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"network-pre.target", "containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host-setup.service", "terrascale-orchestrator-host.service"} {
+		link := filepath.Join(root, "etc/systemd/system", name+".requires", MetadataUnit)
+		target, err := os.Readlink(link)
+		if err != nil || resolveLink(name+".requires/"+MetadataUnit, target) != "/etc/systemd/system/"+MetadataUnit {
+			t.Fatalf("%s starts without a required metadata fence: %s, %v", name, target, err)
+		}
+		ordered := false
+		for line := range strings.SplitSeq(string(unit), "\n") {
+			if value, ok := strings.CutPrefix(line, "Before="); ok && slices.Contains(strings.Fields(value), name) {
+				ordered = true
+			}
+		}
+		if !ordered {
+			t.Fatalf("%s may start before the metadata fence", name)
+		}
+	}
+}
+
+func runtimeFixtureMetadataFence(t *testing.T, g *Guest, repo, root, work, architecture string, out io.Writer) {
+	t.Helper()
+	nft := filepath.Join(root, MetadataTool)
+	status := filepath.Join(root, "var/lib/dpkg/status")
+	for _, directory := range []string{filepath.Dir(nft), filepath.Dir(status)} {
+		if err := os.MkdirAll(directory, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	packages := []byte("Package: nftables\nStatus: install ok installed\nVersion: 1.0.9-1ubuntu0.1\n\nPackage: libnftables1\nStatus: install ok installed\nVersion: 1.0.9-1ubuntu0.1\n")
+	libraryDirectory := "/usr/lib/" + map[string]string{"arm64": "aarch64-linux-gnu", "amd64": "x86_64-linux-gnu"}[architecture]
+	interpreter := libraryDirectory + "/ld-linux-fixture.so.2"
+	if err := os.MkdirAll(filepath.Join(root, libraryDirectory), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []string{"missing-tool", "writable-tool", "writable-parent", "symlink-tool", "wrong-architecture", "missing-package", "missing-library", "install"} {
+		if err := os.WriteFile(status, packages, 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(nft); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(filepath.Dir(nft), 0755); err != nil {
+			t.Fatal(err)
+		}
+		toolArchitecture := architecture
+		if scenario == "wrong-architecture" {
+			toolArchitecture = "arm64"
+			if architecture == toolArchitecture {
+				toolArchitecture = "amd64"
+			}
+		}
+		if err := os.WriteFile(nft, runtimeFixtureMetadataELF(toolArchitecture, interpreter, []string{"libnftables.so.1"}), 0755); err != nil {
+			t.Fatal(err)
+		}
+		for _, library := range []struct {
+			name   string
+			needed []string
+		}{{"libnftables.so.1", []string{"libc.so.6"}}, {"libc.so.6", nil}, {filepath.Base(interpreter), nil}} {
+			mode := os.FileMode(0644)
+			if library.name == filepath.Base(interpreter) {
+				mode = 0755
+			}
+			if err := os.WriteFile(filepath.Join(root, libraryDirectory, library.name), runtimeFixtureMetadataELF(architecture, "", library.needed), mode); err != nil {
+				t.Fatal(err)
+			}
+		}
+		switch scenario {
+		case "missing-tool":
+			if err := os.Remove(nft); err != nil {
+				t.Fatal(err)
+			}
+		case "writable-tool":
+			if err := os.Chmod(nft, 0777); err != nil {
+				t.Fatal(err)
+			}
+		case "writable-parent":
+			if err := os.Chmod(filepath.Dir(nft), 0777); err != nil {
+				t.Fatal(err)
+			}
+		case "symlink-tool":
+			if err := os.Remove(nft); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("/usr/local/bin/containerd", nft); err != nil {
+				t.Fatal(err)
+			}
+		case "missing-package":
+			if err := os.WriteFile(status, []byte("Package: nftables\nStatus: deinstall ok config-files\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+		case "missing-library":
+			if err := os.Remove(filepath.Join(root, libraryDirectory, "libc.so.6")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		err := installMetadataFence(t.Context(), g, repo, architecture, work, out)
+		if scenario != "install" {
+			if err == nil {
+				t.Fatalf("metadata fence accepted %s", scenario)
+			}
+			for _, name := range []string{MetadataRules, "/etc/systemd/system/" + MetadataUnit} {
+				if _, err := os.Lstat(filepath.Join(root, name)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("rejected metadata tool installed %s: %v", name, err)
+				}
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var expected bytes.Buffer
+	if err := tsauth.Run(t.Context(), []string{"metadata-rules"}, &expected, nil); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := os.ReadFile(filepath.Join(root, MetadataRules))
+	if err != nil || !bytes.Equal(actual, expected.Bytes()) {
+		t.Fatalf("image did not install exact root-only metadata rules: %v", err)
+	}
+	for _, name := range []string{MetadataRules, "/etc/systemd/system/" + MetadataUnit} {
+		if err := g.AssertFile(name, 0, 0, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readback, err := os.ReadFile(filepath.Join(work, "metadata-runtime.readback"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{MetadataTool, interpreter, libraryDirectory + "/libnftables.so.1", libraryDirectory + "/libc.so.6"} {
+		digest, err := fileHash(filepath.Join(root, name))
+		if err != nil || !strings.Contains(string(readback), name+"="+digest+"\n") {
+			t.Fatalf("image readback omits nft runtime closure %s: %v", name, err)
+		}
+	}
+}
+
+// Minimal nonexecuted native ELF with a real interpreter and dependency table.
+func runtimeFixtureMetadataELF(architecture, interpreter string, libraries []string) []byte {
+	file := make([]byte, 1024)
+	copy(file, "\x7fELF\x02\x01\x01")
+	put16, put32, put64 := binary.LittleEndian.PutUint16, binary.LittleEndian.PutUint32, binary.LittleEndian.PutUint64
+	put16(file[16:], 3)
+	machine := uint16(183)
+	if architecture == "amd64" {
+		machine = 62
+	}
+	put16(file[18:], machine)
+	put32(file[20:], 1)
+	put16(file[52:], 64)
+	put64(file[40:], 128)
+	put16(file[58:], 64)
+	put16(file[60:], 3)
+	if interpreter != "" {
+		put64(file[32:], 64)
+		put16(file[54:], 56)
+		put16(file[56:], 1)
+		put32(file[64:], 3)
+		put64(file[72:], 384)
+		put64(file[96:], uint64(len(interpreter)+1))
+		copy(file[384:], interpreter)
+	}
+	put32(file[196:], 6)
+	put64(file[216:], 512)
+	put64(file[224:], uint64((len(libraries)+1)*16))
+	put32(file[232:], 2)
+	put64(file[248:], 16)
+	put32(file[260:], 3)
+	put64(file[280:], 768)
+	stringsSize := 1
+	for i, library := range libraries {
+		put64(file[512+i*16:], 1)
+		put64(file[520+i*16:], uint64(stringsSize))
+		copy(file[768+stringsSize:], library)
+		stringsSize += len(library) + 1
+	}
+	put64(file[288:], uint64(stringsSize))
+	return file
 }

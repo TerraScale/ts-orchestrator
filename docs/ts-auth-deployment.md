@@ -237,28 +237,45 @@ binary skips the member instead of refusing the config.
 
 ### Instance metadata firewall
 
-COS chose to block ts-auth's metadata access on 2026-10-05. The
-`metadata-rules` command renders a dedicated nftables `inet` table with an
-output hook at priority 0, after destination NAT. COS approved metadata access
-for root and `terrascale-orchestrator`, the controller service account, so its
-OCI autoscaling client retains its instance principal. All other users,
-including ts-auth and its descendants, are blocked. Native workloads cannot
-assume those host UIDs or modify the firewall. `systemd-timesync` also retains
-UDP/123 to the same address, OCI's NTP server, and `systemd-resolve` retains
-port 53, OCI's DNS resolver, which every process (ts-auth too) reaches only
-through resolved's stub. Without that exception the host loses DNS and the
-controller its instance principal. Neither exception grants HTTP metadata
-access or gives ts-auth one.
+The controller/worker image installs the `metadata-rules` renderer's root-only
+IMDS fence and its mandatory systemd unit. The pinned Ubuntu base must contain
+the audited native `/usr/sbin/nft` executable and nftables libraries; the builder
+rejects missing tools, unexpected packages, symlinks, modes or architectures.
+It follows ELF interpreter and transitive library dependencies through the
+pinned Noble system directories, checks their native architecture and protected
+ownership, and rejects preloads or custom library search paths.
+Installed rules and unit are root-owned 0644 files, and the finished image
+readback verifies their bytes and the complete inspected nft runtime.
+
+Only host root may access OCI instance metadata at `169.254.169.254`. The
+ordinary `terrascale-orchestrator` account, ts-auth and other workloads cannot
+obtain its certificates or private key. The `inet` output hook runs at priority
+0 after destination NAT, with no established-connection bypass. IPv4-mapped
+sockets produce IPv4 packets and hit the same rule. Routed namespace traffic
+is blocked before destination NAT and again at forwarding; a `bridge` forward
+hook blocks layer-2 forwarding even without `br_netfilter`. The inspected OCI
+clients use that IPv4 IMDS endpoint; no separate IPv6 endpoint is configured.
+`systemd-timesync` retains only UDP/123 to OCI's NTP service, and
+`systemd-resolve` retains only TCP/UDP port 53 to OCI's DNS resolver. Workloads
+use the host resolved stub and host clock, not direct forwarded access.
 
 The rule applies to existing connections as well as new ones. Reloading
-atomically replaces only `terrascale_metadata`, leaving NetBird and other
-firewall tables intact. A root oneshot unit loads it before the host service:
-enabling the unit adds a required dependency, so a missing nft executable,
-missing controller/timesync account or rejected ruleset prevents host startup. It
-returns inactive after loading, so every host start (including after reboot)
-reloads the rules. Stopping the unit leaves the rule installed.
-Start ts-auth through that host service; a manually started agent bypasses
-the systemd dependency. Do not flush the global nftables ruleset.
+atomically replaces only the owned `inet` and `bridge` tables named
+`terrascale_metadata`, leaving NetBird and other firewall tables intact.
+The root oneshot runs before network-pre, containerd, managed host startup,
+controller installation/admission (including dropped children), managed
+runtime, the ordinary controller and worker host services. Required dependency
+links and explicit ordering make a missing executable, missing DNS/time
+account or rejected ruleset prevent those startup paths. It returns inactive
+after loading, so every dependent start reloads the rules.
+Stopping the unit leaves the rule installed. Do not flush the global nftables ruleset.
+
+This source change must not activate before APP migrates every legitimate
+ordinary OCI SDK/Vault consumer to concrete authenticated root operations.
+Previously cached tokens, copied IMDS certificates/private keys and exposed
+root material need their separate controlled cutover and rotation; installing
+a firewall does not revoke previously acquired credentials. Image construction,
+kernel packet checks and live activation require their own QA authorization.
 
 ### Health, readiness and drain
 

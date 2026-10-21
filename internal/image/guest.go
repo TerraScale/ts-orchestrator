@@ -31,13 +31,16 @@ const Profile = App + "/runtime-priority.json"
 const Helper = AppLib + "/runtime-priority/qualify"
 const VolumeState = "/var/lib/terrascale-orchestrator-volume-init"
 const OCIDevicePaths = "/etc/udev/rules.d/65-terrascale-oci-device-paths.rules"
+const MetadataUnit = "terrascale-ts-auth-metadata.service"
+const MetadataRules = App + "/ts-auth-metadata.nft"
+const MetadataTool = "/usr/sbin/nft"
 
 var Dropins = []string{"/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf", "/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf", "/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf"}
 var NetBirdUnits = []string{"netbird.service", "terrascale-netbird-enroll.service", "terrascale-netbird-agent.service"}
 
 const SSHUnit = "ssh.socket"
 
-var Units = []string{"containerd.service", "systemd-timesyncd.service", "systemd-time-wait-sync.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-host.service", "terrascale-orchestrator-controller.service", "netbird.service", "terrascale-netbird-enroll.service", "terrascale-netbird-agent.service", SSHUnit}
+var Units = []string{MetadataUnit, "containerd.service", "systemd-timesyncd.service", "systemd-time-wait-sync.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-host.service", "terrascale-orchestrator-controller.service", "netbird.service", "terrascale-netbird-enroll.service", "terrascale-netbird-agent.service", SSHUnit}
 var HostUnits = []string{"terrascale-orchestrator-host-setup.service", "terrascale-orchestrator-host-setup.timer", "terrascale-orchestrator-host-volume-init.socket"}
 var HostUnitFiles = append(append([]string{}, HostUnits...), "terrascale-orchestrator-host-volume-init.service")
 

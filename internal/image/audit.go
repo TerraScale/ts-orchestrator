@@ -3,6 +3,7 @@ package image
 import (
 	"bytes"
 	"compress/gzip"
+	"debug/elf"
 	"errors"
 	"fmt"
 	"io"
@@ -153,6 +154,156 @@ func auditSSHServer(g *Guest, work string, out io.Writer) error {
 	}
 	_, err = fmt.Fprintf(out, "offline OpenSSH server verified package=openssh-server unit=%s\n", SSHUnit)
 	return err
+}
+
+func auditMetadataTool(g *Guest, architecture, work string, out io.Writer) error {
+	status, err := g.Read("/var/lib/dpkg/status", filepath.Join(work, "metadata-dpkg-status"))
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"nftables", "libnftables1"} {
+		installed := 0
+		for _, p := range packages(status) {
+			if p["Package"] == name && p["Status"] == "install ok installed" && p["Version"] == "1.0.9-1ubuntu0.1" {
+				installed++
+			}
+		}
+		if installed != 1 {
+			return fmt.Errorf("image metadata fence requires pinned base package %s 1.0.9-1ubuntu0.1", name)
+		}
+	}
+	if err := g.AssertDirectParents(MetadataTool); err != nil {
+		return err
+	}
+	if err := g.AssertFile(MetadataTool, 0, 0, 0755); err != nil {
+		return err
+	}
+	if err := g.AssertAbsent("/etc/ld.so.preload", "metadata fence loader override"); err != nil {
+		return err
+	}
+	if err := auditMetadataELFs(g, architecture, work, out); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "offline metadata fence verified executable=%s architecture=%s packages=nftables,libnftables1 version=1.0.9-1ubuntu0.1\n", MetadataTool, architecture)
+	return err
+}
+
+// Inspect the pinned guest's loader and transitive libraries without executing it.
+func auditMetadataELFs(g *Guest, architecture, work string, out io.Writer) error {
+	triplet := map[string]string{"arm64": "aarch64-linux-gnu", "amd64": "x86_64-linux-gnu"}[architecture]
+	if triplet == "" {
+		return errors.New("metadata fence has no native loader profile")
+	}
+	pending, seen := []string{MetadataTool}, map[string]bool{}
+	var readback strings.Builder
+	for len(pending) > 0 {
+		name := pending[0]
+		pending = pending[1:]
+		resolved, err := g.Call("realpath", name)
+		if err != nil {
+			return err
+		}
+		if !strings.HasPrefix(resolved, "/usr/lib/") && resolved != MetadataTool {
+			return fmt.Errorf("metadata fence runtime resolves outside pinned system libraries: %s", resolved)
+		}
+		if strings.ContainsAny(resolved, "\x00\r\n=") {
+			return errors.New("metadata fence runtime has an invalid path")
+		}
+		if seen[resolved] {
+			continue
+		}
+		if len(seen) >= 64 {
+			return errors.New("metadata fence runtime exceeds the library bound")
+		}
+		seen[resolved] = true
+		if err := g.AssertDirectParents(resolved); err != nil {
+			return err
+		}
+		kind, err := g.Kind(resolved)
+		if err != nil || kind != "file" {
+			return errors.Join(fmt.Errorf("metadata fence runtime is not a regular file: %s", resolved), err)
+		}
+		for _, p := range append(parents(resolved), resolved) {
+			meta, err := g.Metadata(p)
+			if err != nil {
+				return err
+			}
+			if meta["st_uid"] != 0 || meta["st_gid"] != 0 || meta["st_mode"]&022 != 0 {
+				return fmt.Errorf("image metadata fence runtime path is not protected: %s", p)
+			}
+		}
+		staged := filepath.Join(work, fmt.Sprintf("metadata-runtime-%03d", len(seen)))
+		if resolved == MetadataTool {
+			staged = filepath.Join(work, "metadata-nft")
+		}
+		if _, err := g.Read(resolved, staged); err != nil {
+			return err
+		}
+		actual, err := binaryArchitecture(staged)
+		if err != nil || actual != architecture {
+			return errors.Join(fmt.Errorf("metadata fence runtime is not native: %s", resolved), err)
+		}
+		f, err := elf.Open(staged)
+		if err != nil {
+			return err
+		}
+		libraries, err := f.ImportedLibraries()
+		for _, tag := range []elf.DynTag{elf.DT_RPATH, elf.DT_RUNPATH} {
+			values, readErr := f.DynString(tag)
+			if err = errors.Join(err, readErr); len(values) > 0 {
+				err = errors.Join(err, errors.New("metadata fence runtime has a nonstandard library search path"))
+			}
+		}
+		for _, program := range f.Progs {
+			if program.Type != elf.PT_INTERP {
+				continue
+			}
+			wire, readErr := io.ReadAll(io.LimitReader(program.Open(), 4097))
+			interpreter := strings.TrimSuffix(string(wire), "\x00")
+			if err = errors.Join(err, readErr); len(wire) > 4096 || !bytes.HasSuffix(wire, []byte{0}) || !path.IsAbs(interpreter) || strings.ContainsRune(interpreter, 0) {
+				err = errors.Join(err, errors.New("metadata fence runtime has an invalid interpreter"))
+			}
+			loader, loadErr := g.Call("realpath", interpreter)
+			if loadErr == nil {
+				loadErr = g.AssertFile(loader, 0, 0, 0755)
+			}
+			err = errors.Join(err, loadErr)
+			pending = append(pending, interpreter)
+		}
+		if err = errors.Join(err, f.Close()); err != nil {
+			return err
+		}
+		for _, library := range libraries {
+			if strings.ContainsAny(library, "/\x00") {
+				return errors.New("metadata fence runtime has an invalid library name")
+			}
+			found := false
+			for _, directory := range []string{"/usr/lib/" + triplet, "/usr/lib"} {
+				candidate := path.Join(directory, library)
+				kind, err := g.Kind(candidate)
+				if err != nil {
+					return err
+				}
+				if kind != "" {
+					pending = append(pending, candidate)
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("metadata fence runtime library is missing: %s", library)
+			}
+		}
+		digest, err := fileHash(staged)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "offline metadata runtime verified path=%s sha256=%s\n", resolved, digest); err != nil {
+			return err
+		}
+		fmt.Fprintf(&readback, "%s=%s\n", resolved, digest)
+	}
+	return os.WriteFile(filepath.Join(work, "metadata-runtime.readback"), []byte(readback.String()), 0644)
 }
 
 func auditVolumeTools(g *Guest, work string, out io.Writer) error {
