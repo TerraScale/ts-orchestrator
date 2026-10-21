@@ -112,8 +112,8 @@ func TestPrepareInitialInstallationIdentityPreservesCurrentStore(t *testing.T) {
 	}{
 		{cell: "gru", name: "gru-1-ctl-1"},
 		{cell: "gru", name: "gru-1-ctl-1", existing: true},
-		{cell: "sfo", name: "ts-sfo-1"},
-		{cell: "sfo", name: "ts-sfo-1", existing: true},
+		{cell: "sjc", name: "ts-sjc-1"},
+		{cell: "sjc", name: "ts-sjc-1", existing: true},
 	} {
 		state := "new nested store"
 		if test.existing {
@@ -260,7 +260,7 @@ func TestPrepareInitialInstallationIdentityRejectsUnsafePinsWithoutMutation(t *t
 				case "mismatch":
 					wire := []byte(ServerName(cfg.Cell, cfg.Instance) + "\nextra")
 					if name == nodeIdentityFile {
-						wire = []byte(`{"version":1,"cell":"sfo","instance":"broker-a","node_id":"abc123XY"}`)
+						wire = []byte(`{"version":1,"cell":"sjc","instance":"broker-a","node_id":"abc123XY"}`)
 					}
 					if err := os.WriteFile(path, wire, 0o600); err != nil {
 						t.Fatal(err)

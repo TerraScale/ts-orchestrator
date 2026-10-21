@@ -7,14 +7,14 @@ import (
 
 func TestHeartbeatValidation(t *testing.T) {
 	t.Parallel()
-	valid := Heartbeat{Version: 1, Cell: "sfo", OCIRegion: "us-sanjose-1", SentAt: time.Now()}
+	valid := Heartbeat{Version: 1, Cell: "sjc", OCIRegion: "us-sanjose-1", SentAt: time.Now()}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*Heartbeat){
 		"version":    func(h *Heartbeat) { h.Version = 2 },
 		"global":     func(h *Heartbeat) { h.Cell = "global" },
-		"cell":       func(h *Heartbeat) { h.Cell = "SFO" },
+		"cell":       func(h *Heartbeat) { h.Cell = "SJC" },
 		"oci region": func(h *Heartbeat) { h.OCIRegion = "" },
 		"long":       func(h *Heartbeat) { h.OCIRegion = string(make([]byte, 65)) },
 		"charset":    func(h *Heartbeat) { h.OCIRegion = "US_SANJOSE 1" },
@@ -37,7 +37,7 @@ func TestNextRosterFollowsHeartbeats(t *testing.T) {
 	}
 	seen := map[string]Heartbeat{
 		"gru": heard("gru", "sa-saopaulo-1", 0),
-		"sfo": heard("sfo", "us-sanjose-1", time.Second),
+		"sjc": heard("sjc", "us-sanjose-1", time.Second),
 		"fra": heard("fra", "eu-frankfurt-1", RegionSilence),
 	}
 
@@ -45,8 +45,8 @@ func TestNextRosterFollowsHeartbeats(t *testing.T) {
 	if !changed || first.Generation != 1 || first.HomeRegion != "gru" || first.Validate() != nil {
 		t.Fatalf("first roster = %+v, changed %v", first, changed)
 	}
-	if len(first.Regions) != 2 || first.Regions[0].Cell != "gru" || first.Regions[1].Cell != "sfo" ||
-		!first.Active("sfo") || first.Active("fra") {
+	if len(first.Regions) != 2 || first.Regions[0].Cell != "gru" || first.Regions[1].Cell != "sjc" ||
+		!first.Active("sjc") || first.Active("fra") {
 		t.Fatalf("regions = %+v", first.Regions)
 	}
 

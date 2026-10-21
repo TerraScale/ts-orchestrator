@@ -319,8 +319,8 @@ func TestLoopPrunesEvenWhenSyncRefuses(t *testing.T) {
 	ids := f.seedLegacy(t)
 	now := time.Now()
 	// Duplicate admitted region groups refuse policy sync while peer cleanup continues.
-	f.addGroup("sfo-servers")
-	f.addGroup("sfo-servers")
+	f.addGroup("sjc-servers")
+	f.addGroup("sjc-servers")
 	stale := f.addPeer("ts-gru-2", "10.251.0.12", false, now.Add(-2*time.Hour), ids.servers)
 	f.addPeer("ts-gru-2", "10.251.0.12", true, now, ids.servers)
 	loop := Loop{
@@ -329,7 +329,7 @@ func TestLoopPrunesEvenWhenSyncRefuses(t *testing.T) {
 		ManagementURL: f.server.URL, Desired: GRU(),
 	}.withDefaults()
 	err := loop.cycle(t.Context(), map[string]bool{})
-	if err == nil || !strings.Contains(err.Error(), "sfo-servers") {
+	if err == nil || !strings.Contains(err.Error(), "sjc-servers") {
 		t.Fatalf("sync refusal was not reported: %v", err)
 	}
 	if f.peer(stale) != nil {
@@ -440,10 +440,10 @@ func TestSetupKeyCommandWritesTheKeyOnlyToANewOwnerOnlyFile(t *testing.T) {
 		t.Fatalf("existing file: %v %v", f.mutations, err)
 	}
 	// Another region's key auto-assigns only its own servers group.
-	if err := run("--out", filepath.Join(t.TempDir(), "sfo.key"), "--servers-group", "sfo-servers", "--apply"); err != nil {
+	if err := run("--out", filepath.Join(t.TempDir(), "sjc.key"), "--servers-group", "sjc-servers", "--apply"); err != nil {
 		t.Fatalf("other servers group: %q %v", stdout.String(), err)
 	}
-	if key := f.setupKeys[len(f.setupKeys)-1]; key["name"] != "sfo-servers" || !slices.Equal(key["auto_groups"].([]string), []string{f.groupByName("sfo-servers").ID}) {
+	if key := f.setupKeys[len(f.setupKeys)-1]; key["name"] != "sjc-servers" || !slices.Equal(key["auto_groups"].([]string), []string{f.groupByName("sjc-servers").ID}) {
 		t.Fatalf("created key %v", key)
 	}
 	if err := run("--out", filepath.Join(t.TempDir(), "x.key"), "--servers-group", "nobody", "--apply"); err == nil {

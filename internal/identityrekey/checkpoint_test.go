@@ -62,7 +62,7 @@ func TestCheckpointRejectsWrongExpectations(t *testing.T) {
 		{"deployment", func(e *CheckpointExpectation) { e.DeploymentID = entityid.Derive("other-deployment") }},
 		{"cluster", func(e *CheckpointExpectation) { e.ClusterID = entityid.Derive("other-cluster") }},
 		{"environment", func(e *CheckpointExpectation) { e.Environment = "production" }},
-		{"cell", func(e *CheckpointExpectation) { e.Cell = "SFO" }},
+		{"cell", func(e *CheckpointExpectation) { e.Cell = "SJC" }},
 		{"slot", func(e *CheckpointExpectation) { e.Slot.Slot = "controller-b" }},
 		{"unknown slot", func(e *CheckpointExpectation) { e.Slot.Slot = "controller-d" }},
 		{"instance", func(e *CheckpointExpectation) { e.Slot.InstanceOCID += "other" }},
@@ -343,7 +343,7 @@ func TestSlotAcceptanceDigestIsAcyclicAndBindsIdentity(t *testing.T) {
 		{"environment", func(c *AcceptedIdentityCheckpoint) { c.Environment = "production" }},
 		{"seed slot", func(c *AcceptedIdentityCheckpoint) { c.SeedSlot = "controller-b" }},
 		{"cell", func(c *AcceptedIdentityCheckpoint) {
-			c.Cell = "SFO"
+			c.Cell = "SJC"
 			for i := range c.Slots {
 				c.Slots[i].InstanceOCID = strings.ReplaceAll(c.Slots[i].InstanceOCID, "sa-saopaulo-1", "us-sanjose-1")
 				c.Slots[i].ImageOCID = strings.ReplaceAll(c.Slots[i].ImageOCID, "sa-saopaulo-1", "us-sanjose-1")

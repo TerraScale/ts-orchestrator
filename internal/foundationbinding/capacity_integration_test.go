@@ -74,7 +74,7 @@ func TestCapacityLedgerRequiresCurrentSignedGrantAndProtectedSDKRecord(t *testin
 	}
 	metadata := additive[receipt.OperationID]
 	metadata["publicCaPem"], metadata["availabilityDomains"] = []byte("original public CA"), []string{"original AD"}
-	metadata["node"], metadata["descriptor"] = "ts-sfo-4", "original descriptor"
+	metadata["node"], metadata["descriptor"] = "ts-sjc-4", "original descriptor"
 	metadata["launch"].(map[string]any)["pendingAttemptId"] = entityid.New()
 	s.record.PoolChildren, err = json.Marshal(additive)
 	if err != nil {

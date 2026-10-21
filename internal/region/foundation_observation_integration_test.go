@@ -160,7 +160,7 @@ func TestFoundationObservationDurableProgress(t *testing.T) {
 			}
 		})
 	}
-	if _, err := resolver.ObserveFoundation(t.Context(), "SFO"); err == nil {
+	if _, err := resolver.ObserveFoundation(t.Context(), "SJC"); err == nil {
 		t.Fatal("unsigned region was exposed")
 	}
 	// Changing a signed field outside Plan must invalidate the old observation.

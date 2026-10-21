@@ -14,7 +14,6 @@ import (
 )
 
 func TestVolumeBackupSDKRechecksRequestGuard(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	denied := errors.New("original root session revoked")
 	for name, run := range map[string]func(context.Context, *sdkProvider) error{
 		"create": func(ctx context.Context, provider *sdkProvider) error {
@@ -40,7 +39,7 @@ func TestVolumeBackupSDKRechecksRequestGuard(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			config, _ := testRegionConfig()
 			recorder := &terminalSDKRecorder{}
-			base := common.BaseClient{Host: "https://sdk.test.invalid", BasePath: "20160918",
+			base := common.BaseClient{Host: "https://sdk.test.invalid", BasePath: "20160918", UserAgent: "oci-backup-guard-test",
 				Signer: observeSDKSigner{}, HTTPClient: recorder}
 			ociclient.ConfigureRequestCancellation(&base)
 			provider := &sdkProvider{config: config, storage: core.BlockstorageClient{BaseClient: base}}
@@ -64,14 +63,13 @@ func (sdk terminatedBackupSDK) Do(request *http.Request) (*http.Response, error)
 }
 
 func TestVolumeBackupTerminationCheckpointRechecksAuthority(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	config, _ := testRegionConfig()
 	journal, err := NewKVJournal(testJournalBucket(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	denied := errors.New("original backup authority revoked after observation")
-	base := common.BaseClient{Host: "https://sdk.test.invalid", BasePath: "20160918",
+	base := common.BaseClient{Host: "https://sdk.test.invalid", BasePath: "20160918", UserAgent: "oci-backup-guard-test",
 		Signer: observeSDKSigner{}, HTTPClient: terminatedBackupSDK{config}}
 	ociclient.ConfigureRequestCancellation(&base)
 	provider := &sdkProvider{config: config, terminations: journal,

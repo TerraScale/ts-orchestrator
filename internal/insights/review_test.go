@@ -127,8 +127,8 @@ func TestRepeatedHoldRuleReadsOnlyHoldsAndRejectsIncompleteInput(t *testing.T) {
 func TestSummaryQualifiesPartialHistoryAndScope(t *testing.T) {
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	empty := Summarize(SummaryInput{Now: now, Window: time.Hour, Scope: "all regions", DecisionsPartial: true,
-		Unanswered: []string{"sfo"}, AttentionScope: "GRU"})
-	if strings.Contains(empty.Text, "made no recorded decisions") || !strings.Contains(empty.Text, "SFO did not answer") ||
+		Unanswered: []string{"sjc"}, AttentionScope: "GRU"})
+	if strings.Contains(empty.Text, "made no recorded decisions") || !strings.Contains(empty.Text, "SJC did not answer") ||
 		!strings.Contains(empty.Text, "Nothing needs attention in GRU") || !empty.Partial {
 		t.Fatalf("partial empty summary = %q", empty.Text)
 	}

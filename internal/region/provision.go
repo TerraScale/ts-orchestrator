@@ -32,7 +32,7 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 	controller := &FoundationController{Footprint: reader, Authority: authority, Store: resolver.Store, Foundations: SDKFoundations{Factory: authority.factory}, initialGRUAuxiliary: authority.operator.buckets}
 	// Sequential initial provisioning also uses the shared home IAM lease.
 	// The protected regional record supplies its fencing epoch, never a CLI knob.
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		var intent *FoundationIntent
 		for index := range footprint.Regions {
 			if footprint.Regions[index].Plan["cell"] == cell {
@@ -59,7 +59,7 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 	if err := authority.verifyFoundationWorkloadStartup(ctx); err != nil {
 		return err
 	}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		original, err := launchFoundationWriter(ctx, authority, resolver, bundle, cell)
 		if err != nil {
 			return fmt.Errorf("launch signed original %s writer: %w", cell, err)

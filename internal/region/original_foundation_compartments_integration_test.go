@@ -218,7 +218,7 @@ func (f *originalCompartmentSDKFixture) serveHTTP(w http.ResponseWriter, r *http
 		return
 	}
 	validHost := false
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		validHost = validHost || r.Host == "identity."+catalog.OCIRegion(cell)+".oci.oraclecloud.com"
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/20160918/compartments"), "/")

@@ -23,7 +23,7 @@ No cell is re-founded and no serving node is re-enrolled from scratch.
    Check `ts-orch rollout status --config "$OPERATOR"` reports the release
    healthy before changing the pin.
 2. Check `ts-orch node status --config "$OPERATOR"` and the current spec's
-   `host_grants` against the actual GRU or SFO instances. The cell needs a
+   `host_grants` against the actual GRU or SJC instances. The cell needs a
    `release_fence`, healthy peers satisfying every set's `min_serving`, and
    ordinary SSH on each node's OCI VCN address. Keep the public/OCI recovery
    path available throughout. Resolve existing maintenance, rename, release
@@ -102,7 +102,7 @@ then verify the extracted ELF separately. The reviewed GRU section is:
 ```
 
 `enrollment` contains public Vault references, never setup-key or PAT values.
-Use `deploy/image/inputs/netbird-sfo.json` for SFO, with its own input hash,
+Use `deploy/image/inputs/netbird-sjc.json` for SJC, with its own input hash,
 `us-sanjose-1` Vault secret and peer names. The enrollment region and names
 must belong to the cell. New nodes receive this configuration in their
 authenticated enrollment response; a missing agent is installed and enrolled
@@ -132,7 +132,7 @@ section of the live spec and increment its generation exactly once.
    ```
 
 2. Get the live spec and prepare the next generation. This example uses GRU;
-   select SFO's enrollment input when targeting SFO:
+   select SJC's enrollment input when targeting SJC:
 
    ```sh
    ENROLLMENT=deploy/image/inputs/netbird-gru.json

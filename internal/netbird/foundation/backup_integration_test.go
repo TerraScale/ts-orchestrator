@@ -58,7 +58,7 @@ with sqlite3.connect(root / 'store.db') as db:
     db.execute("INSERT INTO peers VALUES ('peer-original', 'wireguard-original')")
 with sqlite3.connect(root / 'idp.db') as db:
     db.execute('CREATE TABLE policy (id TEXT, source TEXT, destination TEXT)')
-    db.execute("INSERT INTO policy VALUES ('policy-original', 'gru', 'sfo')")
+    db.execute("INSERT INTO policy VALUES ('policy-original', 'gru', 'sjc')")
 `)
 	// The writer has uncommitted changes in both stores. Graceful shutdown
 	// commits them before the snapshot may read either file.
@@ -105,7 +105,7 @@ policy.close()
 	var resumed atomic.Bool
 	var public atomic.Bool
 	var unlocked atomic.Bool
-	var failSFO atomic.Bool
+	var failSJC atomic.Bool
 	var puts atomic.Int32
 	var requests atomic.Int32
 	var foreignInventory atomic.Bool
@@ -114,12 +114,12 @@ policy.close()
 		requests.Add(1)
 		parts := strings.SplitN(strings.TrimPrefix(request.URL.Path, "/n/tenancy/b/"), "/", 3)
 		bucket := parts[0]
-		if bucket != "netbird-gru" && bucket != "netbird-sfo" {
+		if bucket != "netbird-gru" && bucket != "netbird-sjc" {
 			http.Error(w, "wrong admitted bucket", 400)
 			return
 		}
 		region := "sa-saopaulo-1"
-		if bucket == "netbird-sfo" {
+		if bucket == "netbird-sjc" {
 			region = "us-sanjose-1"
 		}
 		bucketID, kmsID := "ocid1.bucket.oc1."+region+"."+bucket, "ocid1.key.oc1."+region+"."+bucket
@@ -191,7 +191,7 @@ policy.close()
 			if !resumed.Load() {
 				t.Error("server remained stopped during the remote upload")
 			}
-			if failSFO.Load() && bucket == "netbird-sfo" {
+			if failSJC.Load() && bucket == "netbird-sjc" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(403)
 				_, _ = io.WriteString(w, `{"code":"NotAuthorized","message":"scope refused"}`)
@@ -243,7 +243,7 @@ policy.close()
 	installation := entityid.Derive("netbird-backup-integration", "installation")
 	scope := backupScope{InstallationID: installation, StoreGeneration: entityid.Derive("netbird-foundation-store", installation) + ":1", TenancyID: "ocid1.tenancy.oc1..t", Namespace: "tenancy"}
 	for i, region := range [2]string{"sa-saopaulo-1", "us-sanjose-1"} {
-		bucket := [2]string{"netbird-gru", "netbird-sfo"}[i]
+		bucket := [2]string{"netbird-gru", "netbird-sjc"}[i]
 		scope.Destinations[i] = backupDestination{Region: region, Bucket: bucket, BucketID: "ocid1.bucket.oc1." + region + "." + bucket, CompartmentID: "ocid1.compartment.oc1..control", KMSKeyID: "ocid1.key.oc1." + region + "." + bucket}
 	}
 	var targets [2]BackupTarget
@@ -331,7 +331,7 @@ policy.close()
 		{"tenancy", func(s *backupScope) { s.TenancyID = "ocid1.tenancy.oc1..foreign" }},
 		{"namespace", func(s *backupScope) { s.Namespace = "foreign" }},
 		{"GRU destination", func(s *backupScope) { s.Destinations[0].BucketID += "foreign" }},
-		{"SFO destination", func(s *backupScope) { s.Destinations[1].BucketID += "foreign" }},
+		{"SJC destination", func(s *backupScope) { s.Destinations[1].BucketID += "foreign" }},
 	} {
 		t.Run(mutate.name, func(t *testing.T) {
 			foreign := targets[1]
@@ -341,7 +341,7 @@ policy.close()
 				t.Fatal("foreign object scope reached remote GET")
 			}
 			// Rehashing/renaming the original archive cannot replace its manifest scope.
-			archive, err := os.Open(filepath.Join(objects, "netbird-sfo", record.Object))
+			archive, err := os.Open(filepath.Join(objects, "netbird-sjc", record.Object))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -455,7 +455,7 @@ for name in ('store.db', 'idp.db'):
 with sqlite3.connect(root / 'store.db') as db:
     assert db.execute('SELECT id, public_key FROM peers ORDER BY id').fetchall() == [('peer-at-shutdown', 'wireguard-at-shutdown'), ('peer-original', 'wireguard-original')]
 with sqlite3.connect(root / 'idp.db') as db:
-    assert db.execute('SELECT id, source, destination FROM policy ORDER BY id').fetchall() == [('policy-at-shutdown', 'fra', 'gru'), ('policy-original', 'gru', 'sfo')]
+    assert db.execute('SELECT id, source, destination FROM policy ORDER BY id').fetchall() == [('policy-at-shutdown', 'fra', 'gru'), ('policy-original', 'gru', 'sjc')]
 `)
 	t.Logf("isolated persistent-store recovery=%s recoverable-data-age=%s source-bytes=%d", time.Since(started), time.Since(created), record.Bytes)
 	if _, err := restoreArchiveFixture(t, ctx, targets[1], record.Object, replacement); err == nil {
@@ -491,7 +491,7 @@ with sqlite3.connect(root / 'idp.db') as db:
 		t.Fatalf("unencrypted archive remained after cancellation: %v", err)
 	}
 	// Partial remote failure keeps the successful copy and returns an error.
-	failSFO.Store(true)
+	failSJC.Store(true)
 	partial, err := backupArchiveFixture(t, ctx, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets, quiesce)
 	if err == nil || !resumed.Load() {
 		t.Fatal("partial copy failure claimed success or left the service stopped")
@@ -500,7 +500,7 @@ with sqlite3.connect(root / 'idp.db') as db:
 		t.Fatal("partial failure lost its successful regional copy")
 	}
 	// A damaged remote body is never installed on a replacement.
-	objectPath := filepath.Join(objects, "netbird-sfo", record.Object)
+	objectPath := filepath.Join(objects, "netbird-sjc", record.Object)
 	wire, err := os.ReadFile(objectPath)
 	if err != nil {
 		t.Fatal(err)
@@ -540,7 +540,7 @@ with sqlite3.connect(root / 'idp.db') as db:
 		t.Fatal(err)
 	}
 	maliciousObject := prefix + record.CreatedAt.Format("20060102T150405.000000000Z") + "/" + hex.EncodeToString(digest[:]) + ".tar"
-	if err := os.WriteFile(filepath.Join(objects, "netbird-sfo", maliciousObject), malicious.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(objects, "netbird-sjc", maliciousObject), malicious.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := restoreArchiveFixture(t, ctx, targets[1], maliciousObject, badReplacement); err == nil {
@@ -549,7 +549,7 @@ with sqlite3.connect(root / 'idp.db') as db:
 	if _, err := os.Lstat(filepath.Join(root, "escaped")); !os.IsNotExist(err) {
 		t.Fatal("recovery escaped its isolated root")
 	}
-	failSFO.Store(false)
+	failSJC.Store(false)
 	newest, err := backupArchiveFixture(t, ctx, filepath.Join(replacement, "data"), filepath.Join(replacement, "config.yaml"), targets, quiesce)
 	if err != nil {
 		t.Fatal(err)

@@ -245,7 +245,7 @@ func TestRegionalFoundationReceiptRequiresExactCompleteScope(t *testing.T) {
 			current := receipt
 			switch scenario {
 			case "cell":
-				current.Cell = "SFO"
+				current.Cell = "SJC"
 			case "grant":
 				current.GrantDigest = ""
 			case "operation":

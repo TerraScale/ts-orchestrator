@@ -104,7 +104,7 @@ were requested or printed.
 
 `TestProductionEvidenceReleaseTransport` crosses the retained-release CLI process
 and filesystem boundary, then invokes the real candidate/signature verifier. It checks immutable producer uploads/readback, rejects changed retained records,
-checks complete GRU admission alongside unavailable oversized SFO evidence and
+checks complete GRU admission alongside unavailable oversized SJC evidence and
 rejects evidence bytes changed after retrieval. The retained-artifact integration
 matrix additionally rejects source/digest/manifest/scope/runtime/architecture/role
 mismatches, missing gates, expiry, foreign signers and release-only delegation.

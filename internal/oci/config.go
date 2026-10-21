@@ -23,7 +23,7 @@ type Region string
 
 const (
 	RegionGRU Region = catalog.GRU
-	RegionSFO Region = catalog.SFO
+	RegionSJC Region = catalog.SJC
 	RegionFRA Region = catalog.FRA
 )
 

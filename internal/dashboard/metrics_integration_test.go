@@ -401,7 +401,7 @@ func TestDetailMetricHistoryHTTPGapsAndCoverage(t *testing.T) {
 	if len(catalog) != 1 || len(catalog[0].Series) != 2 || len(catalog[0].Series[1].Points) != 2 || catalog[0].Series[1].Points[1][1] != 0 {
 		t.Fatalf("shared catalog lost gap or zero parity: %+v", catalog)
 	}
-	if remote := get("/regions/sfo/hosts/host-a?range=15m"); len(charts(remote)) != 0 {
+	if remote := get("/regions/sjc/hosts/host-a?range=15m"); len(charts(remote)) != 0 {
 		t.Fatal("remote host page rendered local regional history")
 	}
 }

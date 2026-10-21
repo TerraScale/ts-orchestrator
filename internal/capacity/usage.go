@@ -205,8 +205,8 @@ func (s *Store) recordAt(now time.Time, origin hostload.Origin, report hostload.
 }
 
 func ValidateWindow(region string, from, to, now time.Time) error {
-	if region != "gru" && region != "sfo" {
-		return errors.New("region must be gru or sfo")
+	if region != "gru" && region != "sjc" {
+		return errors.New("region must be gru or sjc")
 	}
 	if from.IsZero() || !from.Before(to) || from.Before(now.Add(-Retention)) || to.After(now.Add(5*time.Second)) {
 		return errors.New("from/to must be an increasing RFC3339 window within the last hour")

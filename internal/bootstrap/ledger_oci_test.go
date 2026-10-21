@@ -28,7 +28,7 @@ func TestInstancePrincipalLedgerPinsCanonicalRegionAndBoundsSDKHTTP(t *testing.T
 		host   string
 	}{
 		{region: oci.RegionGRU, oci: "sa-saopaulo-1", host: "https://objectstorage.sa-saopaulo-1.{dualStack?ds.oci.:}oraclecloud.com"},
-		{region: oci.RegionSFO, oci: "us-sanjose-1", host: "https://objectstorage.us-sanjose-1.{dualStack?ds.oci.:}oraclecloud.com"},
+		{region: oci.RegionSJC, oci: "us-sanjose-1", host: "https://objectstorage.us-sanjose-1.{dualStack?ds.oci.:}oraclecloud.com"},
 		{region: oci.RegionFRA, oci: "eu-frankfurt-1", host: "https://objectstorage.eu-frankfurt-1.{dualStack?ds.oci.:}oraclecloud.com"},
 	}
 	for _, test := range tests {
@@ -122,7 +122,7 @@ func TestInstancePrincipalLedgerRejectsInvalidInputBeforeProvider(t *testing.T) 
 			config.ControllerSlots = nil
 			return config
 		}()},
-		{name: "region does not match anchor cell", region: oci.RegionSFO, config: fixture.ledger.config},
+		{name: "region does not match anchor cell", region: oci.RegionSJC, config: fixture.ledger.config},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

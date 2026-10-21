@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/image"
 	"github.com/TerraScale/ts-orchestrator/internal/liveverify"
 	"github.com/TerraScale/ts-orchestrator/internal/logscan"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	netbirdclient "github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	netbirddns "github.com/TerraScale/ts-orchestrator/internal/netbird/dns"
 	netbirdmanager "github.com/TerraScale/ts-orchestrator/internal/netbird/manager"
@@ -74,7 +75,7 @@ Operator tooling:
   usage                  Print regional node and service CPU/memory for a time window
   cost                   Print a region's OCI spend and month forecast (read-only)
   bench                  Run isolated in-region benchmark clients and save capacity reports
-  dashboard              Check every GRU and SFO dashboard over NetBird (read-only)
+  dashboard              Check every GRU and SJC dashboard over NetBird (read-only)
   network                Check address and DNS coexistence of NetBird and Tailscale (read-only)
   verify                 Observe production health, persistence gaps and OIDC (read-only)
   log-scan               Count recent WARN and ERROR records per service and node (read-only)
@@ -83,7 +84,8 @@ Operator tooling:
   get                    Print the running cell's spec (its signed desired state)
   diff                   Plan a cell spec file against the running cell's spec
   apply                  Apply a signed cell spec to the running cell
-  service                Apply, list and remove single-host services (apply -f FILE | ls | rm NAME)
+  service                Apply and remove services in every region, list this host's (apply -f FILE | ls | rm NAME)
+  mesh                   Show which regions answer on the cross-region mesh (ping)
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
   node                   Drain, reboot, resize, add and retire a cell's nodes, one at a time behind the load balancer
   bootstrap              Prepare, sign, verify, and publish bootstrap material
@@ -143,6 +145,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return app.RunSingleHostServing(ctx, args[1:], output)
 	case "service":
 		return app.RunServiceCLI(ctx, args[1:], output)
+	case "mesh":
+		return mesh.RunCLI(ctx, args[1:], "/var/lib/ts-orch", output)
 	case "observe":
 		return runObserve(ctx, args[1:], output)
 	case "usage":

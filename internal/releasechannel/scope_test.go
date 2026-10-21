@@ -9,9 +9,9 @@ func TestDeploymentScopeAcceptsFreshInventoryRegardlessOfRolloutProgress(t *test
 	now := time.Now().UTC()
 	for _, state := range []State{StateRolling, StateFailed, StateComplete} {
 		for _, environment := range []string{"canary", "production"} {
-			status := Status{Schema: StatusSchema, Cell: "SFO", Environment: environment,
+			status := Status{Schema: StatusSchema, Cell: "SJC", Environment: environment,
 				Architectures: []string{"amd64", "arm64"}, State: state, UpdatedAt: now}
-			if err := status.ValidateDeploymentScope("SFO", now); err != nil {
+			if err := status.ValidateDeploymentScope("SJC", now); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -34,9 +34,9 @@ func TestDeploymentScopeRejectsMissingStaleOrWrongRegionInventory(t *testing.T) 
 		"future clock":             func(s *Status) { s.UpdatedAt = now.Add(PinRefreshInterval + time.Second) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			status := Status{Schema: StatusSchema, Cell: "SFO", Environment: "canary", Architectures: []string{"arm64"}, UpdatedAt: now}
+			status := Status{Schema: StatusSchema, Cell: "SJC", Environment: "canary", Architectures: []string{"arm64"}, UpdatedAt: now}
 			change(&status)
-			if err := status.ValidateDeploymentScope("SFO", now); err == nil {
+			if err := status.ValidateDeploymentScope("SJC", now); err == nil {
 				t.Fatal("invalid deployment inventory accepted")
 			}
 		})

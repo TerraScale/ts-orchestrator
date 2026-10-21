@@ -106,7 +106,7 @@ func TestContainerdSingleHostOperatorCommands(t *testing.T) {
 		"amd64": "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764",
 		"arm64": "docker.io/library/alpine@sha256:2e1a7aa4cbc4e9e5222bb4c24a839aa1a6170ea5492d644777ce7b178824e44f",
 	}[runtime.GOARCH]
-	spec := fmt.Sprintf(`{"name":"opsproof","image":%q,"args":["/bin/sh","-c","echo hello from opsproof; echo warn from opsproof >&2; exec sleep 600"],"port":%d,"replicas":1,"secrets":["OPS_TOKEN"]}`, image, port)
+	spec := fmt.Sprintf(`{"name":"opsproof","image":%q,"args":["/bin/sh","-c","echo hello from opsproof; echo warn from opsproof >&2; exec sleep 600"],"port":%d,"replicas":1,"secrets":{"OPS_TOKEN_FILE":{"vault":"ocid1.vault.oc1.sa-saopaulo-1.aa.bb","name":"gru-1-opsproof-token"}}}`, image, port)
 	path := filepath.Join(t.TempDir(), "opsproof.json")
 	if err := os.WriteFile(path, []byte(spec), 0o600); err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestContainerdSingleHostOperatorCommands(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(out), &inspection) != nil {
 		t.Fatalf("inspect: %s%v", out, err)
 	}
-	if _, digest, _ := strings.Cut(image, "@"); inspection.ImageDigest != digest || strings.Join(inspection.Spec.Secrets, ",") != "OPS_TOKEN" || inspection.Spec.Port != uint32(port) {
+	if _, digest, _ := strings.Cut(image, "@"); inspection.ImageDigest != digest || inspection.Spec.Secrets["OPS_TOKEN_FILE"].Name != "gru-1-opsproof-token" || inspection.Spec.Port != uint32(port) {
 		t.Fatalf("inspect: %s", out)
 	}
 

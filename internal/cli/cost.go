@@ -29,7 +29,7 @@ func runCost(ctx context.Context, args []string, out io.Writer) error {
 	}
 	flags := flag.NewFlagSet("cost report", flag.ContinueOnError)
 	flags.SetOutput(out)
-	region := flags.String("region", "", "cell token such as gru or sfo (required)")
+	region := flags.String("region", "", "cell token such as gru or sjc (required)")
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil

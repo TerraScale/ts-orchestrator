@@ -140,7 +140,7 @@ func TestInspectRequiresLiveConsistentDaemonEvidence(t *testing.T) {
 func TestAuditContinuesAfterFailureButCannotPassMissingOrMixedNodes(t *testing.T) {
 	var visited []string
 	var out bytes.Buffer
-	err := Audit(t.Context(), &out, []string{"ts-gru-1", "ts-sfo-1"}, netip.MustParseAddr("10.250.10.155"),
+	err := Audit(t.Context(), &out, []string{"ts-gru-1", "ts-sjc-1"}, netip.MustParseAddr("10.250.10.155"),
 		func(ctx context.Context, node string) ([]byte, error) {
 			if _, ok := ctx.Deadline(); !ok {
 				t.Fatal("SSH has no deadline")

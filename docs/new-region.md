@@ -53,7 +53,7 @@ region's evidence PR.
 
 | Step | Effect | Runs |
 | --- | --- | --- |
-| plan | Derives the plan from `--from` (default `deploy/oci-region/sfo-1-plan.json`): names `<cell>-*` and `ts-<label>-<n>`, the network `10.<251+catalog index>.0.0/24`, the region's first availability domain and its service gateway service; every resource ID unbound | in process |
+| plan | Derives the plan from `--from` (default `deploy/oci-region/sjc-1-plan.json`): names `<cell>-*` and `ts-<label>-<n>`, the network `10.<251+catalog index>.0.0/24`, the region's first availability domain and its service gateway service; every resource ID unbound | in process |
 | foundation | Compartments, VCN, subnets, gateways, NSGs, Vault and key, buckets and IAM, by name; writes `bound-plan.json` | `oci-region foundation --apply` |
 | netbird | The region's servers group and SSH policies, a setup key stored as `<cell>-netbird-setup-key`, the image's `netbird.json` | `netbird sync`, `setup-key`, `vault put`, `netbird image-input` |
 | ts-auth-secrets | ts-auth's generated Vault secrets | `ts-auth secrets` |
@@ -100,7 +100,7 @@ in both regions' signed controller configs (TS-643).
 
 ## Wall time
 
-sfo-1 by hand, 2026-10-07, from the retained TS-640 and TS-662 timestamps:
+sjc-1 by hand, 2026-10-07, from the retained TS-640 and TS-662 timestamps:
 
 | Phase | From | To | Wall time |
 | --- | --- | --- | --- |
@@ -110,5 +110,5 @@ sfo-1 by hand, 2026-10-07, from the retained TS-640 and TS-662 timestamps:
 | Host agents, specs by hand; TS-640 closed without an edge | 13:16Z | 14:02Z | 46 min |
 | Edge, TerraBase, ts-auth, Atlas (TS-662) | 14:45Z | 17:14Z | 2 h 29 min |
 
-That is 6 h 32 min from the decision to `region verify sfo` passing. The next region's
+That is 6 h 32 min from the decision to `region verify sjc` passing. The next region's
 `create` journal gives its numbers; record them here.

@@ -30,13 +30,13 @@ func wanTestSummary(region string, now time.Time) regionview.Summary {
 
 func TestLinkRecoveryRequiresFreshWANAndPublishesMetrics(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
-	remote := wanTestSummary("sfo", now)
+	remote := wanTestSummary("sjc", now)
 	recorder := new(linkTestRecorder)
 	history := observability.NewHistory(observability.HistoryConfig{})
 	provider := &regionview.Provider{Cell: "gru", Now: func() time.Time { return now }, History: history, NativeRegion: func() string { return "gru-1" },
 		Nodes: func(context.Context) []regionview.Node { return wanTestSummary("gru", now).Nodes }}
 	fail := true
-	provider.Links = regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sfo"},
+	provider.Links = regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sjc"},
 		Handler: func(context.Context, string, string, []byte) ([]byte, error) {
 			if fail {
 				return nil, context.DeadlineExceeded
@@ -47,11 +47,11 @@ func TestLinkRecoveryRequiresFreshWANAndPublishesMetrics(t *testing.T) {
 	supervisor := &regionLinkSupervisor{cell: "gru", member: "a", source: provider, recorder: recorder,
 		now: func() time.Time { return now }, reconnect: func(context.Context) (int, error) { return 1, nil }}
 	supervisor.round(t.Context())
-	failure := supervisor.failures["sfo"]
+	failure := supervisor.failures["sjc"]
 	fail = false
 	now = now.Add(time.Minute)
 	supervisor.round(t.Context())
-	if supervisor.failures["sfo"] != failure || !supervisor.snapshot()[0].LastSuccessAt.IsZero() {
+	if supervisor.failures["sjc"] != failure || !supervisor.snapshot()[0].LastSuccessAt.IsZero() {
 		t.Fatal("successful NATS with missing WAN claimed recovery")
 	}
 	for _, node := range remote.Nodes {
@@ -59,7 +59,7 @@ func TestLinkRecoveryRequiresFreshWANAndPublishesMetrics(t *testing.T) {
 			Node: node.Name, ObservedAt: now, Members: 2, StalenessSeconds: 1})
 	}
 	supervisor.round(t.Context())
-	if supervisor.failures["sfo"] != "" || !supervisor.snapshot()[0].LastSuccessAt.Equal(now) {
+	if supervisor.failures["sjc"] != "" || !supervisor.snapshot()[0].LastSuccessAt.Equal(now) {
 		t.Fatal("fresh authenticated telemetry and complete WAN did not recover")
 	}
 	last := recorder.decisions[len(recorder.decisions)-1]
@@ -68,8 +68,8 @@ func TestLinkRecoveryRequiresFreshWANAndPublishesMetrics(t *testing.T) {
 	}
 	var metrics bytes.Buffer
 	supervisor.writeMetrics(&metrics)
-	for _, want := range []string{`ts_orch_region_link_probe_success{peer="sfo",member="a"} 1`,
-		`ts_orch_region_wan_healthy{peer="sfo",member="a"} 1`, `ts_orch_region_wan_lag_groups{peer="sfo",member="a"} 0`} {
+	for _, want := range []string{`ts_orch_region_link_probe_success{peer="sjc",member="a"} 1`,
+		`ts_orch_region_wan_healthy{peer="sjc",member="a"} 1`, `ts_orch_region_wan_lag_groups{peer="sjc",member="a"} 0`} {
 		if !strings.Contains(metrics.String(), want) {
 			t.Fatalf("metrics omit %q: %s", want, &metrics)
 		}
@@ -78,7 +78,7 @@ func TestLinkRecoveryRequiresFreshWANAndPublishesMetrics(t *testing.T) {
 	metrics.Reset()
 	supervisor.writeMetrics(&metrics)
 	if strings.Contains(metrics.String(), "ts_orch_region_wan_lag_groups{") ||
-		!strings.Contains(metrics.String(), `ts_orch_region_link_probe_success{peer="sfo",member="a"} 0`) {
+		!strings.Contains(metrics.String(), `ts_orch_region_link_probe_success{peer="sjc",member="a"} 0`) {
 		t.Fatalf("stopped probe metrics retained health: %s", &metrics)
 	}
 }
@@ -86,8 +86,8 @@ func TestLinkRecoveryRequiresFreshWANAndPublishesMetrics(t *testing.T) {
 func TestWANAheadFailuresRequireNewCounterEvidence(t *testing.T) {
 	now := time.Now().UTC()
 	supervisor := &regionLinkSupervisor{cell: "gru"}
-	remote := wanTestSummary("sfo", now)
-	remote.TerraBase.WAN = []regionview.WANPeer{{SourceRegion: "gru-1", Node: "sfo-1", ObservedAt: now,
+	remote := wanTestSummary("sjc", now)
+	remote.TerraBase.WAN = []regionview.WANPeer{{SourceRegion: "gru-1", Node: "sjc-1", ObservedAt: now,
 		AheadFailures: new(5.0)}}
 	if supervisor.newAheadFailures(remote, "gru-1", now) {
 		t.Fatal("historical counter was treated as a new failure")
@@ -112,9 +112,9 @@ func TestWANAheadFailuresRequireNewCounterEvidence(t *testing.T) {
 
 func TestWANRequiresEveryReceiverAndExactSourceCoverage(t *testing.T) {
 	now := time.Now().UTC()
-	local, remote := wanTestSummary("gru", now), wanTestSummary("sfo", now)
-	rows := []regionview.WANPeer{{SourceRegion: "gru-1", Node: "sfo-1", ObservedAt: now,
-		Members: 2, StalenessSeconds: 1}, {SourceRegion: "gru-1", Node: "sfo-2", ObservedAt: now,
+	local, remote := wanTestSummary("gru", now), wanTestSummary("sjc", now)
+	rows := []regionview.WANPeer{{SourceRegion: "gru-1", Node: "sjc-1", ObservedAt: now,
+		Members: 2, StalenessSeconds: 1}, {SourceRegion: "gru-1", Node: "sjc-2", ObservedAt: now,
 		Members: 2, StalenessSeconds: 1}}
 	for name, change := range map[string]func([]regionview.WANPeer) []regionview.WANPeer{
 		"healthy":            func(rows []regionview.WANPeer) []regionview.WANPeer { return rows },
@@ -164,7 +164,7 @@ func TestWANRequiresEveryReceiverAndExactSourceCoverage(t *testing.T) {
 
 func TestWANArchiveAgeDoesNotEstablishReplicationFailure(t *testing.T) {
 	now := time.Now().UTC()
-	local, remote := wanTestSummary("gru", now), wanTestSummary("sfo", now)
+	local, remote := wanTestSummary("gru", now), wanTestSummary("sjc", now)
 	for _, node := range remote.Nodes {
 		remote.TerraBase.WAN = append(remote.TerraBase.WAN, regionview.WANPeer{SourceRegion: "gru-1",
 			Node: node.Name, ObservedAt: now.Add(-65 * time.Second), Members: 2, StalenessSeconds: 1})
@@ -199,10 +199,10 @@ func TestLinkSupervisorRunsEveryMinuteWithoutDashboardReaders(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		var calls atomic.Int32
-		provider := &regionview.Provider{Cell: "gru", Links: regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sfo"},
+		provider := &regionview.Provider{Cell: "gru", Links: regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sjc"},
 			Handler: func(_ context.Context, _, _ string, _ []byte) ([]byte, error) {
 				calls.Add(1)
-				return json.Marshal(wanTestSummary("sfo", time.Now().UTC()))
+				return json.Marshal(wanTestSummary("sjc", time.Now().UTC()))
 			}}}
 		supervisor := &regionLinkSupervisor{cell: "gru", member: "a", source: provider, recorder: decisionlog.Discard{},
 			reconnect: func(context.Context) (int, error) {
@@ -244,7 +244,7 @@ func TestLinkRepairIsCoalescedAndDoesNotClaimRecovery(t *testing.T) {
 		now: func() time.Time { return now }, reconnect: func(context.Context) (int, error) { repairs++; return 1, nil }}
 	// Requests are concurrent, so count them atomically in the fixture.
 	var requests atomic.Int32
-	provider.Links = regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sfo", "fra"},
+	provider.Links = regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sjc", "fra"},
 		Handler: func(context.Context, string, string, []byte) ([]byte, error) {
 			requests.Add(1)
 			return nil, context.DeadlineExceeded
@@ -290,12 +290,12 @@ func TestLinkRepairCooldownSurvivesInterveningRounds(t *testing.T) {
 			provider := &regionview.Provider{Cell: "gru", Now: func() time.Time { return now },
 				NativeRegion: func() string { return "gru-1" },
 				Nodes:        func(context.Context) []regionview.Node { return wanTestSummary("gru", now).Nodes }}
-			provider.Links = regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sfo"},
+			provider.Links = regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sjc"},
 				Handler: func(context.Context, string, string, []byte) ([]byte, error) {
 					if failed {
 						return nil, context.DeadlineExceeded
 					}
-					remote := wanTestSummary("sfo", now)
+					remote := wanTestSummary("sjc", now)
 					if intermediateWAN == "ok" {
 						for _, node := range remote.Nodes {
 							remote.TerraBase.WAN = append(remote.TerraBase.WAN, regionview.WANPeer{SourceRegion: "gru-1",
@@ -329,13 +329,13 @@ func TestLinkRepairCooldownSurvivesInterveningRounds(t *testing.T) {
 
 type partiallyLinkedTestRegions struct{ regionlink.Static }
 
-func (links partiallyLinkedTestRegions) Linked(region string) bool { return region == "sfo" }
+func (links partiallyLinkedTestRegions) Linked(region string) bool { return region == "sjc" }
 
 func TestLinkRepairJournalNamesTheFailedAdmittedPeer(t *testing.T) {
 	now := time.Now().UTC()
 	recorder := new(linkTestRecorder)
 	provider := &regionview.Provider{Cell: "gru", Links: partiallyLinkedTestRegions{regionlink.Static{
-		LocalRegion: "gru", All: []string{"gru", "fra", "sfo"},
+		LocalRegion: "gru", All: []string{"gru", "fra", "sjc"},
 		Handler: func(_ context.Context, region, _ string, _ []byte) ([]byte, error) {
 			if region == "fra" {
 				return nil, regionlink.ErrNotLinked
@@ -347,7 +347,7 @@ func TestLinkRepairJournalNamesTheFailedAdmittedPeer(t *testing.T) {
 		reconnect: func(context.Context) (int, error) { return 1, nil }}
 	supervisor.round(t.Context())
 	for _, decision := range recorder.decisions {
-		if decision.Subject.ID != "sfo" {
+		if decision.Subject.ID != "sjc" {
 			t.Fatalf("failure or repair attributed to an unlinked peer: %+v", decision)
 		}
 	}
@@ -371,9 +371,9 @@ func TestIncompleteOrCatchingUpWANDoesNotStartFailureEpisode(t *testing.T) {
 			provider := &regionview.Provider{Cell: "gru", Now: func() time.Time { return now },
 				NativeRegion: func() string { return "gru-1" },
 				Nodes:        func(context.Context) []regionview.Node { return wanTestSummary("gru", now).Nodes }}
-			provider.Links = regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sfo"},
+			provider.Links = regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sjc"},
 				Handler: func(context.Context, string, string, []byte) ([]byte, error) {
-					remote := wanTestSummary("sfo", now)
+					remote := wanTestSummary("sjc", now)
 					if state == regionlink.WANCatchingUp {
 						for _, node := range remote.Nodes {
 							remote.TerraBase.WAN = append(remote.TerraBase.WAN, regionview.WANPeer{SourceRegion: "gru-1",
@@ -415,10 +415,10 @@ func TestLinkRepairRequiresCurrentPeerAdmission(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			now := time.Now().UTC()
 			recorder := new(linkTestRecorder)
-			links := &changingLinkedTestRegions{Static: regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sfo"}}}
+			links := &changingLinkedTestRegions{Static: regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sjc"}}}
 			links.linked.Store(true)
 			links.Handler = func(context.Context, string, string, []byte) ([]byte, error) {
-				remote := wanTestSummary("sfo", now)
+				remote := wanTestSummary("sjc", now)
 				for _, node := range remote.Nodes {
 					remote.TerraBase.WAN = append(remote.TerraBase.WAN, regionview.WANPeer{SourceRegion: "gru-1",
 						Node: node.Name, ObservedAt: now, Members: 2, StalenessSeconds: 61})
@@ -457,7 +457,7 @@ func TestLinkRepairRequiresCurrentPeerAdmission(t *testing.T) {
 			}
 			failed, repair, outcome := recorder.decisions[0], recorder.decisions[1], recorder.decisions[2]
 			if failed.Kind != "region_link_failed" || repair.ParentID != failed.ID || outcome.ParentID != repair.ID ||
-				outcome.Status != decisionlog.StatusFailed || supervisor.failures["sfo"] != failed.ID || !probe.LastSuccessAt.IsZero() {
+				outcome.Status != decisionlog.StatusFailed || supervisor.failures["sjc"] != failed.ID || !probe.LastSuccessAt.IsZero() {
 				t.Fatalf("zero physical leaves lost the failure chain or claimed recovery: probe=%+v decisions=%+v", probe, recorder.decisions)
 			}
 		})
@@ -473,9 +473,9 @@ func TestWANAheadFailuresPreserveUnknownEvidence(t *testing.T) {
 			provider := &regionview.Provider{Cell: "gru", Now: func() time.Time { return now },
 				NativeRegion: func() string { return "gru-1" },
 				Nodes:        func(context.Context) []regionview.Node { return wanTestSummary("gru", now).Nodes }}
-			provider.Links = regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sfo"},
+			provider.Links = regionlink.Static{LocalRegion: "gru", All: []string{"gru", "sjc"},
 				Handler: func(context.Context, string, string, []byte) ([]byte, error) {
-					remote := wanTestSummary("sfo", now)
+					remote := wanTestSummary("sjc", now)
 					for _, node := range remote.Nodes {
 						remote.TerraBase.WAN = append(remote.TerraBase.WAN, regionview.WANPeer{SourceRegion: "gru-1",
 							Node: node.Name, ObservedAt: now, Members: 2, StalenessSeconds: 1, AheadFailures: new(counter)})

@@ -403,7 +403,7 @@ func TestTerraBaseStopsOnATamperedChecksumOrABadCommit(t *testing.T) {
 // The image is imported into the plan's own region under its cell's static
 // name, and every release record names that cell.
 func TestImageImportsTheStaticCellImageName(t *testing.T) {
-	for cell, want := range map[string][2]string{"GRU": {"gru-1-arm64", "sa-saopaulo-1"}, "SFO": {"sfo-1-arm64", "us-sanjose-1"}} {
+	for cell, want := range map[string][2]string{"GRU": {"gru-1-arm64", "sa-saopaulo-1"}, "SJC": {"sjc-1-arm64", "us-sanjose-1"}} {
 		a := smallAttempt(t)
 		a.Config["orchestrator"] = Object{"source_revision": terrabaseCommit}
 		a.Config["namespace"] = "ns"
@@ -645,8 +645,8 @@ func TestAttemptOCIConfigDefaultsToTheOperatorsConfig(t *testing.T) {
 	if got := a.ociConfig(); got != filepath.Join(home, ".oci", "config") {
 		t.Fatal(got)
 	}
-	a.Config["oci_config"] = "/operator/oci-config-sfo"
-	if got := a.ociConfig(); got != "/operator/oci-config-sfo" {
+	a.Config["oci_config"] = "/operator/oci-config-sjc"
+	if got := a.ociConfig(); got != "/operator/oci-config-sjc" {
 		t.Fatal(got)
 	}
 }

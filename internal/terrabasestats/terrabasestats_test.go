@@ -126,11 +126,11 @@ func TestDatabasesMergeRatesPeersStorageAndOps(t *testing.T) {
 	// Each window is 5 s, so every counter divides by 5 to a rate.
 	publish(t, conn, "gru", member("gru-1-db-1", start, entry{Database: "db-1", SentBytes: 5000, ReceivedBytes: 10000,
 		Reads: 500, Writes: 250, StorageBytes: 300, Peers: []peer{
-			{Region: "sfo", SentBytes: 5000, ReceivedBytes: 10000},
+			{Region: "sjc", SentBytes: 5000, ReceivedBytes: 10000},
 			{Region: "lhr", ReceivedBytes: 5000},
 		}}))
 	publish(t, conn, "gru", member("gru-1-db-2", start, entry{Database: "db-1", ReceivedBytes: 5000,
-		Reads: 1000, StorageBytes: 700, Peers: []peer{{Region: "sfo", SentBytes: 2500, ReceivedBytes: 5000}}}))
+		Reads: 1000, StorageBytes: 700, Peers: []peer{{Region: "sjc", SentBytes: 2500, ReceivedBytes: 5000}}}))
 
 	list := awaitDatabases(t, f, func(list []globalview.Database) bool {
 		return len(list) == 1 && list[0].ReceivedBytesPerSecond == 3000
@@ -146,9 +146,9 @@ func TestDatabasesMergeRatesPeersStorageAndOps(t *testing.T) {
 	for _, p := range d.Peers {
 		peers[p.Region] = p
 	}
-	if len(peers) != 2 || peers["sfo"].SentBytesPerSecond != 1500 || peers["sfo"].ReceivedBytesPerSecond != 3000 ||
+	if len(peers) != 2 || peers["sjc"].SentBytesPerSecond != 1500 || peers["sjc"].ReceivedBytesPerSecond != 3000 ||
 		peers["lhr"].SentBytesPerSecond != 0 || peers["lhr"].ReceivedBytesPerSecond != 1000 {
-		t.Fatalf("peers = %+v, want sfo 1500/3000 and lhr 0/1000", d.Peers)
+		t.Fatalf("peers = %+v, want sjc 1500/3000 and lhr 0/1000", d.Peers)
 	}
 }
 

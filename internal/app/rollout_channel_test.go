@@ -32,7 +32,7 @@ import (
 )
 
 // releaseSigner is CI's signing side: an offline root, its scoped update
-// delegation for GRU and SFO in production, and the online leaf.
+// delegation for GRU and SJC in production, and the online leaf.
 type releaseSigner struct {
 	roots      trust.Keyring
 	delegation trust.Envelope
@@ -571,7 +571,7 @@ func TestReleaseChannelFailsUntrustedOrExcessivelyFutureReceipt(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				envelope.Scope.Cell = "SFO"
+				envelope.Scope.Cell = "SJC"
 				channel.Receipts[0], err = trust.EncodeEnvelope(envelope)
 				if err != nil {
 					t.Fatal(err)
@@ -591,7 +591,7 @@ func TestReleaseChannelFailsUntrustedOrExcessivelyFutureReceipt(t *testing.T) {
 func TestReleaseChannelRefusesATamperedChannel(t *testing.T) {
 	for name, tamper := range map[string]func(t *testing.T, signer releaseSigner) releasechannel.Channel{
 		"another cell's receipts": func(t *testing.T, signer releaseSigner) releasechannel.Channel {
-			channel := signer.channel(t, "SFO", 620, []byte("run 620"))
+			channel := signer.channel(t, "SJC", 620, []byte("run 620"))
 			channel.Cell = "GRU"
 			return channel
 		},

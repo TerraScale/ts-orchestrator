@@ -126,11 +126,12 @@ func TestScaleStatusIsTheLeadersOwn(t *testing.T) {
 // The release fence names the pool nodes the scaler observes beside the cell
 // spec's nodes, and the cell spec wins a node both name.
 func TestReleaseFenceNamesThePoolNodes(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx := t.Context()
+	// Only an instance with a root-verified birth names a pool node.
 	pool := fakeScalePool{instances: []nodescale.PoolInstance{
-		{ID: "ocid1.instance.a", Name: "ts-gru-4", State: "RUNNING", PrivateIP: "10.0.0.4"},
-		{ID: "ocid1.instance.b", Name: "ts-gru-5", State: "RUNNING", PrivateIP: "10.0.0.5"}}}
+		{ID: "ocid1.instance.a", Name: "ts-gru-4", State: "RUNNING", PrivateIP: "10.0.0.4", Birth: &rootoci.PoolChildView{}},
+		{ID: "ocid1.instance.b", Name: "ts-gru-5", State: "RUNNING", PrivateIP: "10.0.0.5", Birth: &rootoci.PoolChildView{}},
+		{ID: "ocid1.instance.c", Name: "ts-gru-6", State: "RUNNING", PrivateIP: "10.0.0.6"}}}
 	scaler := newFakeScaler(t, pool, &fakeScaleRecords{}, &fakeScaleLeader{leader: true})
 	if err := scaler.Tick(ctx); err != nil {
 		t.Fatal(err)

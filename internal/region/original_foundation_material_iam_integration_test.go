@@ -245,7 +245,9 @@ func (f *originalMaterialIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http
 			entry := regional.MaterialPublicationIAM
 			group := entry.PeerDynamicGroup
 			want := map[string]any{"compartmentId": f.approval.TenancyID, "name": "ts-original-peer-" + entry.IdentitySHA256[:32], "description": "Original regional controllers admitted by exact control compartment", "matchingRule": fmt.Sprintf("ALL {instance.compartment.id='%s'}", regional.Actor.ControlCompartmentID), "freeformTags": map[string]any{}, "definedTags": map[string]any{}}
-			if group.Pending == nil || group.Provenance != nil || entry.Pending != nil || group.Pending.Request.RequestDigest != digestSource(canonical) || group.Pending.Request.RetryToken != r.Header.Get("opc-retry-token") || !sameOriginalSourceValue(body, want) {
+			// The peer group identity digests the retained SDK details, not the re-sorted wire.
+			retained, err := json.Marshal(group.Request, json.Deterministic(true))
+			if err != nil || group.Pending == nil || group.Provenance != nil || entry.Pending != nil || group.Pending.Request.RequestDigest != digestSource(retained) || group.Pending.Request.RetryToken != r.Header.Get("opc-retry-token") || !sameOriginalSourceValue(body, want) {
 				f.cloud.test.Error("group effect escaped acknowledged exact scope")
 				originalCompartmentFailure(w, 400, "InvalidParameter")
 				return
@@ -1136,7 +1138,6 @@ func TestOriginalFoundationMaterialIAMV2Compatibility(t *testing.T) {
 }
 
 func TestOriginalFoundationMaterialIAMSignedContract(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	// Preserve the fixture's literal loopback transport through SDK client construction.
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
 	for _, change := range []string{"purpose", "join name", "missing join name", "historical join name", "name", "owner name", "vault", "key", "control", "actor recipe", "permission", "key encrypt operation", "key decrypt operation", "LIST scope", "missing policy read", "policy list", "policy resource", "policy permission", "policy scope", "v1 policy read", "mixed version"} {
@@ -1363,7 +1364,6 @@ func TestOriginalFoundationMaterialIAMRequiresOwningLease(t *testing.T) {
 }
 
 func TestOriginalMaterialPublicationNamesMatchActualProducer(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	// The existing vendor setting keeps factory transports within literal loopback TLS.
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
 	f := newOriginalActorReadsSDKFixture(t, "", 0)

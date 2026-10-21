@@ -200,7 +200,7 @@ func TestSchema3GenericReachabilitySignedSDK(t *testing.T) {
 	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newGenericReachabilityFixture(t)
 	ctx := t.Context()
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		record, err := f.resolver.Resolve(ctx, cell)
 		if err != nil || record.IntentDigest != f.records[cell].IntentDigest {
 			t.Fatalf("Resolve %s: %v", cell, err)
@@ -246,7 +246,7 @@ func TestSchema3GenericReachabilitySignedSDK(t *testing.T) {
 		}
 	}
 	cells, err := f.resolver.CapacityPoolCells(ctx)
-	if err != nil || !slices.Equal(cells, []string{"FRA", "GRU", "SFO"}) {
+	if err != nil || !slices.Equal(cells, []string{"FRA", "GRU", "SJC"}) {
 		t.Fatalf("routing: %v %v", cells, err)
 	}
 	if err := f.resolver.VerifyNativeWorkloadAdmission(ctx, "GRU", "production"); err == nil {
@@ -515,7 +515,7 @@ func TestNativeAdmissionCurrentLegacyLineagePredicate(t *testing.T) {
 			if err := resolver.VerifyNativeWorkloadAdmission(t.Context(), "GRU", "production"); err != nil {
 				t.Fatalf("current legacy refused: %v", err)
 			}
-			for _, target := range []struct{ cell, environment string }{{"SFO", "production"}, {"GRU", "staging"}} {
+			for _, target := range []struct{ cell, environment string }{{"SJC", "production"}, {"GRU", "staging"}} {
 				if err := resolver.VerifyNativeWorkloadAdmission(t.Context(), target.cell, target.environment); err == nil {
 					t.Fatal("native target substitution accepted")
 				}

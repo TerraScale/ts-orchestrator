@@ -43,7 +43,7 @@ func TestAggregatorGathersMembersAndReportsMissing(t *testing.T) {
 	// A reply claiming another cell, and an unknown member, are ignored.
 	subject := "ts.orch.v1.gru.obs.snapshot"
 	if _, err := conn.Subscribe(subject, func(message *nats.Msg) {
-		for _, forged := range []MemberSnapshot{{Version: 1, Cell: "sfo", Member: "three"}, {Version: 1, Cell: "gru", Member: "rogue"}} {
+		for _, forged := range []MemberSnapshot{{Version: 1, Cell: "sjc", Member: "three"}, {Version: 1, Cell: "gru", Member: "rogue"}} {
 			data, _ := json.Marshal(forged)
 			_ = conn.Publish(message.Reply, data)
 		}

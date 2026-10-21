@@ -22,7 +22,7 @@ workload hosts after the explicit handoff. See the
 
 ## Controller inputs
 
-The material generator maps canonical lower-case `gru`, `sfo`, and `fra` cells
+The material generator maps canonical lower-case `gru`, `sjc`, and `fra` cells
 to `sa-saopaulo-1`, `us-sanjose-1`, and `eu-frankfurt-1`, respectively. The
 checked-in regional plan is the GRU example and needs a separately reviewed,
 fully populated copy for either other mapped cell.
@@ -53,17 +53,17 @@ proofs exist. Do not substitute example OCIDs or keys.
 
 Generate a public enrollment bundle from the reviewed material record and the
 matching owner-only material directory created from that cell's reviewed
-`generate-controller-material` configuration. For example, with SFO-specific
+`generate-controller-material` configuration. For example, with SJC-specific
 material:
 
 ```sh
-material_record=/ABSOLUTE/PATH/sfo/controller-material-record.json
+material_record=/ABSOLUTE/PATH/sjc/controller-material-record.json
 material_record_sha256=REVIEWED_RECORD_SHA256
 sudo /ABSOLUTE/PATH/ts-orch bootstrap render-host-enrollment-public \
   --material-record "$material_record" \
   --material-record-sha256 "$material_record_sha256" \
-  --material-directory /ABSOLUTE/PATH/sfo/controller-material \
-  --out /ABSOLUTE/PATH/sfo/host-enrollment-public.json
+  --material-directory /ABSOLUTE/PATH/sjc/controller-material \
+  --out /ABSOLUTE/PATH/sjc/host-enrollment-public.json
 ```
 
 Set the record digest to the separately reviewed SHA-256 of that record. Run the

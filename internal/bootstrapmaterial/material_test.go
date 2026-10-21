@@ -57,7 +57,7 @@ func TestMaterialValidityAllowsOneYear(t *testing.T) {
 
 func TestMaterialConfigUsesMappedCellRegion(t *testing.T) {
 	for _, test := range []struct{ cell, region string }{
-		{"gru", "sa-saopaulo-1"}, {"sfo", "us-sanjose-1"}, {"fra", "eu-frankfurt-1"},
+		{"gru", "sa-saopaulo-1"}, {"sjc", "us-sanjose-1"}, {"fra", "eu-frankfurt-1"},
 	} {
 		t.Run(test.cell, func(t *testing.T) {
 			cfg := testConfig()
@@ -76,7 +76,7 @@ func TestMaterialConfigUsesMappedCellRegion(t *testing.T) {
 			}
 		})
 	}
-	for _, cell := range []string{"GRU", "unknown", "sfo-extra"} {
+	for _, cell := range []string{"GRU", "unknown", "sjc-extra"} {
 		cfg := testConfig()
 		cfg.Cell = cell
 		if cfg.Validate() == nil {

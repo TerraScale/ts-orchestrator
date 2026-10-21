@@ -18,7 +18,7 @@ before tax, credits, negotiated rates and operational effort.
 | --- | --- |
 | Signed release channels and binaries: `internal/releasechannel/{channel,service}.go`, `internal/release/cli/{commands,apply}.go` | Regional bucket locations; digest-named immutable binaries, conditional create, exact SHA-256 readback, ETag CAS for channel updates, bounded retries, status writes/polls and host downloads. A successful upload can include a full verification GET even when the object already exists. Preserve signature/size/digest admission and anti-rollback ordering. |
 | Controller configuration: `internal/kvsnapshot/{objects,snapshot,restore}.go`, [storage runbook](storage.md#configuration-snapshots) | Changed KV buckets become complete JSON snapshot objects; GET + conditional PUT with SHA-256, version history and complete restore reads. Only an actual `ObjectNotFound` means absent; denied access or a missing bucket must fail. Retained overwritten versions consume storage. Cadence/config cleanup is separate refactor work; no unmeasured production rate is assumed here. |
-| TerraBase DR: `internal/disasterrecovery/objects.go`, [DR runbook](disaster-recovery.md) | GRU and SFO each have `backup` and `head` source buckets, a read-only mirror in the other region and a separate writable versioned seed. List pagination, destination identity checks, metadata GETs closed without consuming the body, asynchronous copy polling and checksum readback all generate requests. Missing/multipart MD5 can trigger full source and destination SHA-256 reads. |
+| TerraBase DR: `internal/disasterrecovery/objects.go`, [DR runbook](disaster-recovery.md) | GRU and SJC each have `backup` and `head` source buckets, a read-only mirror in the other region and a separate writable versioned seed. List pagination, destination identity checks, metadata GETs closed without consuming the body, asynchronous copy polling and checksum readback all generate requests. Missing/multipart MD5 can trigger full source and destination SHA-256 reads. |
 | NetBird recovery: [refactor recovery requirement](../REFACTOR.md) | A consistent off-host backup with its encryption/identity material, plus a copy outside GRU. Those are required future costs; the plan does not supply measured backup sizes, churn or recovery time. |
 | Separate storage products: `internal/delivery/artifact_gc.go`, [storage policy](storage.md) | `TS_ARTIFACTS` is a NATS object store, not an OCI bucket. OCI boot/block volumes, native volume backups, OCIR images and their retention also remain separate. Replacing object storage does not remove these costs or qualify cross-CPU/database recovery. |
 
@@ -35,19 +35,19 @@ contains these source observations before its copy runs:
 | Bucket | Current objects | Recorded bytes |
 | --- | ---: | ---: |
 | `gru-1-backup` | 58,726 | About 12.2 GB; unit/rounding not specified in the record |
-| `sfo-1-dr-gru-1-backup` mirror | 47,018 | About 9.9 GB |
+| `sjc-1-dr-gru-1-backup` mirror | 47,018 | About 9.9 GB |
 | `gru-1-head` | 75 | 3,448,972,510 |
-| `sfo-1-head` | 17 | 86,688,232 |
-| `sfo-1-backup` | 0 | 0 |
+| `sjc-1-head` | 17 | 86,688,232 |
+| `sjc-1-backup` | 0 | 0 |
 
 That observation also reports about 2.3 GB missing from the GRU backup mirror.
 Subsequent runs copied seeds and observed changed inventories; adding those
 counts to the earlier snapshot would manufacture a simultaneous inventory.
 There are no current byte-hours, version bytes, request totals, billed transfer
 or full-restore measurements in this comparison. The record proves copied key
-unwrap and authenticated sample chunks in SFO, **not** a full-cell restore or
+unwrap and authenticated sample chunks in SJC, **not** a full-cell restore or
 measured RTO/RPO. FRA is a required milestone region, not an evidenced third
-copy of those GRU/SFO buckets.
+copy of those GRU/SJC buckets.
 
 ## Published prices and official sources
 
@@ -83,7 +83,7 @@ page supplies the different multi/dual-region rates. Its dual-region table also
 shows a three-region billing example ($0.06/GiB-month, $0.015/1,000 A), while
 the location documentation describes selecting **two** regions. A three-region
 product/placement must be confirmed with the provider; that pricing example
-does not prove it can place GRU/SFO/FRA copies.
+does not prove it can place GRU/SJC/FRA copies.
 
 ## Reliability and placement are different contracts
 
@@ -92,7 +92,7 @@ does not prove it can place GRU/SFO/FRA copies.
 | OCI regional bucket | Regional redundant storage, strong consistency; [FAQ](https://www.oracle.com/cloud/storage/object-storage/faq/) states designed annual durability of 99.999999999%. | Internal redundancy is included in one bucket's price. It does not establish survival of complete regional loss or count as another customer-controlled regional copy. |
 | OCI source + mirror + seed | [Replication](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingreplication.htm) is asynchronous, starts with subsequent uploads, copies deletes, and permits one replication policy per source. Destination is read-only. | Count source, mirror and actual seed/version bytes separately. Seed fills the pre-policy gap; it is not necessarily a complete third copy. One native source policy does not directly produce two cross-region mirrors. Application fan-out/another copy mechanism would add traffic and qualification work. |
 | Tigris global default | [Locations](https://www.tigrisdata.com/docs/buckets/locations/) describes a single placement copy, metadata everywhere, and data pulled/cached on demand. Cross-region consistency is eventual. | Reachability and cached bytes do not establish retained regional durability. This mode is not demonstrated equivalent to the DR contract. |
-| Tigris multi-region | 2+ regional copies within USA or EUR, automatically chosen; strong consistency globally; documentation says it survives regional failures within that geography. | Potential candidate for shared mutable channel metadata, but it does not specify copies in GRU, SFO and FRA or prove the workload's restore RPO/RTO. |
+| Tigris multi-region | 2+ regional copies within USA or EUR, automatically chosen; strong consistency globally; documentation says it survives regional failures within that geography. | Potential candidate for shared mutable channel metadata, but it does not specify copies in GRU, SJC and FRA or prove the workload's restore RPO/RTO. |
 | Tigris dual / single-region | Dual pins two regions, eager data replication, eventual cross-region consistency; single has in-region redundancy and routes all requests there with strong global consistency. | Dual's cross-region CAS needs do not meet the existing globally current precondition contract by assumption. Single-region lacks regional outage availability. Split buckets or additional copies must be priced and qualified, not assumed free. |
 
 [Tigris conditional-operation documentation](https://www.tigrisdata.com/docs/objects/conditionals/)
@@ -104,7 +104,7 @@ bytes prevent tampering; they do not replace atomic channel publication.
 [Tigris regions](https://www.tigrisdata.com/docs/concepts/regions/) lists `sjc`
 and `fra` on `t3.storage.dev`, but lists `gru` only in the separate Fly.io region
 table. Establish product/account availability and placement in São Paulo before
-assuming local GRU storage. Keep OCI product token `sfo` mapped to
+assuming local GRU storage. Keep OCI product token `sjc` mapped to
 `us-sanjose-1`; Tigris's `sjc` is a different provider's identifier.
 
 Durability describes protection against losing stored bytes. Availability
@@ -155,7 +155,7 @@ table does not establish the exact metering treatment of each native copy path;
 verify it from the applicable service terms and billing export. Do not silently
 price unverified paths at zero or subtract a second free allowance. For an
 internet transfer known to use the listed SKU after its allowance is consumed,
-use the source geography's rate: GRU $0.025/GB; SFO/FRA $0.0085/GB.
+use the source geography's rate: GRU $0.025/GB; SJC/FRA $0.0085/GB.
 
 For Tigris, let `S_t` be daily-peak-averaged GiB-month including retained
 versions/backup generations, `A/B` its billed request classes, and `N` events:
@@ -184,7 +184,7 @@ compute still cost money.
 Illustrative arithmetic, **not measured workload savings**: 1,000 billing
 GB-month in each of three OCI buckets costs $76.50 in gross Standard storage.
 One 1,000 GiB-month Tigris multi-region bucket costs $25, but supplies its own
-USA/EUR placement rather than three exact GRU/SFO/FRA copies or historical
+USA/EUR placement rather than three exact GRU/SJC/FRA copies or historical
 backup generations. Three independently retained single-region Tigris buckets
 would cost $60 in storage and need their own copy/verification logic; their
 placement availability and resulting recovery semantics remain unqualified.

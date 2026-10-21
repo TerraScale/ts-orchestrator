@@ -10,12 +10,12 @@ type ObservabilityRegionForTest struct {
 // ObservabilityLinkFixture reuses the issued regional material and reviewed link inputs across the package boundary.
 func ObservabilityLinkFixture(t *testing.T) (ObservabilityRegionForTest, ObservabilityRegionForTest, *ParentLink) {
 	t.Helper()
-	gru, sfo, _ := linkedRegions(t)
+	gru, sjc, _ := linkedRegions(t)
 	wire, reviewed := receipt(t, nil)
 	link := &ParentLink{Record: gru.record, Receipt: Readback{wire, reviewed}, NetBird: netbirdReadback(t, nil),
-		CredentialsFile: childCredentials(t, gru, "sfo")}
+		CredentialsFile: childCredentials(t, gru, "sjc")}
 	return ObservabilityRegionForTest{gru.material, gru.directory, gru.record},
-		ObservabilityRegionForTest{sfo.material, sfo.directory, sfo.record}, link
+		ObservabilityRegionForTest{sjc.material, sjc.directory, sjc.record}, link
 }
 
 var CredentialsForTest = credentials

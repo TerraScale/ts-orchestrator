@@ -58,7 +58,7 @@ func TestCollectorKeepsOnlyVerifiedNewestProofsOnTheirOwnSubject(t *testing.T) {
 		},
 		"other cell": func() error {
 			proof := testProof("ctl-a", fromDigest, now)
-			proof.Cell = "sfo"
+			proof.Cell = "sjc"
 			return collector.Observe(subject, sign(proof, key))
 		},
 	} {

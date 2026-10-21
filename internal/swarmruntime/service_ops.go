@@ -3,6 +3,7 @@ package swarmruntime
 import (
 	"cmp"
 	"context"
+	jsonv1 "encoding/json"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -88,7 +89,12 @@ func InspectService(service *api.Service) (ServiceInspection, error) {
 	}
 	labels := service.Spec.Annotations.Labels
 	spec := ServiceSpec{Name: service.Spec.Annotations.Name, Image: container.Image, Args: container.Args,
-		ReadyPath: labels[LabelReadyPath], Secrets: splitLabel(labels[LabelSecrets]), Hostnames: splitLabel(labels[LabelHostnames])}
+		ReadyPath: labels[LabelReadyPath], Hostnames: splitLabel(labels[LabelHostnames])}
+	if refs := labels[LabelSecretRefs]; refs != "" {
+		if err := jsonv1.Unmarshal([]byte(refs), &spec.Secrets); err != nil {
+			return ServiceInspection{}, fmt.Errorf("decode %s: %w", LabelSecretRefs, err)
+		}
+	}
 	if replicated := service.Spec.GetReplicated(); replicated != nil {
 		spec.Replicas = replicated.Replicas
 	}

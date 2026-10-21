@@ -153,8 +153,8 @@ func TestScanCountsPerServiceAndNodeAndFailsOnAnUnreadableNode(t *testing.T) {
 	fetch, _ := logscanFiles(t)
 	var out bytes.Buffer
 	now := time.Date(2026, 10, 7, 15, 0, 0, 0, time.UTC)
-	err := Scan(t.Context(), &out, []string{"gru-1-ctl-1", "gru-1-ctl-2", "ts-sfo-1"}, []string{"ts-dashboard"}, 20*time.Minute, 2, now, fetch)
-	if err == nil || !strings.Contains(err.Error(), "node ts-sfo-1: exit status 1") || !strings.Contains(err.Error(), "No such file or directory") {
+	err := Scan(t.Context(), &out, []string{"gru-1-ctl-1", "gru-1-ctl-2", "ts-sjc-1"}, []string{"ts-dashboard"}, 20*time.Minute, 2, now, fetch)
+	if err == nil || !strings.Contains(err.Error(), "node ts-sjc-1: exit status 1") || !strings.Contains(err.Error(), "No such file or directory") {
 		t.Fatalf("error %v", err)
 	}
 	report := regexp.MustCompile(` +`).ReplaceAllString(out.String(), " ")
@@ -164,7 +164,7 @@ func TestScanCountsPerServiceAndNodeAndFailsOnAnUnreadableNode(t *testing.T) {
 		"ts-orchestrator gru-1-ctl-1 1 1\n",
 		"ts-orchestrator gru-1-ctl-2 0 0\n",
 		"ts-dashboard fly 1 2\n",
-		"unreadable ts-sfo-1 - -\n",
+		"unreadable ts-sjc-1 - -\n",
 		"TOTAL 4 4\n",
 		" 2 WARN terrabase TerraBase.Features.Replication.ReplicationSender: Replication of N databases to peer #N failed; retrying within N ms [gru-1-ctl-1]\n",
 	} {
@@ -212,7 +212,7 @@ func TestRunRejectsBadArguments(t *testing.T) {
 func TestServersAreThePeersNamedLikeCellServers(t *testing.T) {
 	fetch, dir := logscanFiles(t)
 	var details []map[string]string
-	for _, name := range []string{"ts-gru-1", "ts-sfo-3", "gru-1-ctl-2", "gru-1-db-1", "gru-1-pool-app-3",
+	for _, name := range []string{"ts-gru-1", "ts-sjc-3", "gru-1-ctl-2", "gru-1-db-1", "gru-1-pool-app-3",
 		"gru-1", "ts-ops", "delta", "mariogk-dev-ops", "ts-xyz-1"} {
 		details = append(details, map[string]string{"fqdn": name + ".nb.ts.internal", "netbirdIp": "10.200.0.1"})
 	}
@@ -236,7 +236,7 @@ exec cat "$LOGSCAN_FIXTURES/netbird.json"
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"gru-1-ctl-2", "gru-1-db-1", "gru-1-pool-app-3", "ts-gru-1", "ts-sfo-3"}
+	want := []string{"gru-1-ctl-2", "gru-1-db-1", "gru-1-pool-app-3", "ts-gru-1", "ts-sjc-3"}
 	got := Servers(peers)
 	if !slices.Equal(got, want) {
 		t.Fatalf("Servers = %q, want %q", got, want)

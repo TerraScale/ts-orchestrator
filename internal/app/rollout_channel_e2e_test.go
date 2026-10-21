@@ -56,7 +56,7 @@ func TestReleaseChannelRollsCIReleasesOutRegionByRegion(t *testing.T) {
 		}
 	}
 	starts := &rolloutStartLog{}
-	regions := []string{"gru", "sfo"}
+	regions := []string{"gru", "sjc"}
 	buckets := map[string]*channelBucket{}
 	cells := map[string]*rolloutTestCell{}
 	for _, region := range regions {
@@ -143,11 +143,11 @@ func TestReleaseChannelRollsCIReleasesOutRegionByRegion(t *testing.T) {
 	if status.RunNumber != 2 || status.State != releasechannel.StateFailed || !strings.Contains(status.Reason, "rolled-back") {
 		t.Fatalf("canary status = %+v", status)
 	}
-	sfo := releasechannel.Location{Client: buckets["sfo"], Namespace: "ns", Bucket: "sfo-1-head"}
-	if channel, _, err := releasechannel.ReadChannel(ctx, sfo); err != nil || channel.RunNumber != 1 {
+	sjc := releasechannel.Location{Client: buckets["sjc"], Namespace: "ns", Bucket: "sjc-1-head"}
+	if channel, _, err := releasechannel.ReadChannel(ctx, sjc); err != nil || channel.RunNumber != 1 {
 		t.Fatalf("the next region saw the failed run: %+v %v", channel, err)
 	}
-	settled("sfo", "good")
+	settled("sjc", "good")
 	for published := false; !published; {
 		message, err := reports.NextMsg(10 * time.Second)
 		if err != nil {

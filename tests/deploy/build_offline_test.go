@@ -3,6 +3,7 @@ package deploy_test
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/binary"
 	"encoding/json/v2"
 	"fmt"
 	"io/fs"
@@ -149,6 +150,14 @@ func TestOfflineCommand(t *testing.T) {
 			s, err := os.Readlink(guestPath(args[0]))
 			must(err)
 			fmt.Println(s)
+		case "realpath":
+			resolved, err := filepath.EvalSymlinks(guestPath(args[0]))
+			must(err)
+			relative, err := filepath.Rel(guestRoot, resolved)
+			if err != nil || !filepath.IsLocal(relative) {
+				fail("fake guestfish realpath escaped the guest root: " + args[0])
+			}
+			fmt.Println("/" + filepath.ToSlash(relative))
 		case "download":
 			if ro && args[0] == os.Getenv("GUESTFISH_CORRUPT_READBACK") {
 				writeFile(args[1], []byte("corrupt guest bytes"))
@@ -315,7 +324,7 @@ func newOffline(t *testing.T) *offlineFixture {
 		return path
 	}
 	f.base = file("base image.qcow2", []byte("mock qcow2 bytes"))
-	f.binary = file("orchestrator binary", []byte("mock verified binary"))
+	f.binary = file("orchestrator binary", elf("arm64", "mock verified binary"))
 	native := elf("arm64", "mock native verifier")
 	native[16] = 3
 	f.verifier = file("tb-server-linux-arm64", native)
@@ -337,11 +346,15 @@ func newOffline(t *testing.T) *offlineFixture {
 	f.rootB = file("bootstrap root b.pem", []byte("bootstrap public key b"))
 	f.timesync = file("timesyncd config.conf", []byte("[Time]\nNTP=ntp.deployment.example\n"))
 	f.priority = map[string]string{"--runtime-priority-profile-id": profileID, "--runtime-priority-system-reserve-bytes": "1073741824", "--host-memory-min-bytes": "67108864", "--host-memory-low-bytes": "134217728", "--controller-memory-min-bytes": "67108864", "--controller-memory-low-bytes": "134217728", "--system-slice-memory-min-bytes": "134217728", "--system-slice-memory-low-bytes": "268435456"}
-	f.kernel = make([]byte, 64)
+	f.kernel = make([]byte, 0x206) // a gzip kernel's header is read as 0x206 bytes
 	copy(f.kernel[56:], []byte{'A', 'R', 'M', 0x64})
 	f.kernel = append(f.kernel, []byte("mock arm64 kernel")...)
 	for _, path := range []string{"/etc/systemd/system", "/usr/lib/systemd/system", "/usr/local/lib/terrascale-orchestrator", "/etc/sysusers.d", "/usr/local/bin", "/var/lib", "/srv", "/boot", "/lib/modules/" + offlineKernelRelease, "/usr/bin", "/usr/sbin"} {
 		if err := os.MkdirAll(f.path(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		// The builder checks guest modes; do not inherit the caller's umask.
+		if err := os.Chmod(f.path(path), 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -349,7 +362,7 @@ func newOffline(t *testing.T) *offlineFixture {
 	if err := os.Symlink("vmlinuz-"+offlineKernelRelease, f.path("/boot/vmlinuz")); err != nil {
 		t.Fatal(err)
 	}
-	write(t, f.path("/var/lib/dpkg/status"), []byte("Package: systemd\nStatus: install ok installed\nVersion: 255.4-1ubuntu8.12\n\nPackage: e2fsprogs\nStatus: install ok installed\nVersion: 1.47.0-2.4~exp1ubuntu4.1\n\nPackage: util-linux\nStatus: install ok installed\nVersion: 2.39.3-9ubuntu6.6\n\nPackage: openssh-server\nStatus: install ok installed\nVersion: 1:9.6p1-3ubuntu13.14\n\n"), 0644)
+	write(t, f.path("/var/lib/dpkg/status"), []byte("Package: systemd\nStatus: install ok installed\nVersion: 255.4-1ubuntu8.12\n\nPackage: e2fsprogs\nStatus: install ok installed\nVersion: 1.47.0-2.4~exp1ubuntu4.1\n\nPackage: util-linux\nStatus: install ok installed\nVersion: 2.39.3-9ubuntu6.6\n\nPackage: openssh-server\nStatus: install ok installed\nVersion: 1:9.6p1-3ubuntu13.14\n\nPackage: nftables\nStatus: install ok installed\nVersion: 1.0.9-1ubuntu0.1\n\nPackage: libnftables1\nStatus: install ok installed\nVersion: 1.0.9-1ubuntu0.1\n\n"), 0644)
 	for _, path := range []string{"/usr/sbin/mkfs.ext4", "/usr/sbin/blkid", "/usr/sbin/wipefs", "/usr/bin/mount"} {
 		write(t, f.path(path), []byte("pinned base image volume tool fixture"), 0755)
 	}
@@ -373,6 +386,12 @@ func newOffline(t *testing.T) *offlineFixture {
 			t.Fatal(err)
 		}
 	}
+	// The pinned nft metadata fence and its loader chain, read but never run.
+	libraries := "/usr/lib/aarch64-linux-gnu/"
+	write(t, f.path("/usr/sbin/nft"), metadataELF(libraries+"ld-linux-aarch64.so.1", "libnftables.so.1"), 0755)
+	write(t, f.path(libraries+"libnftables.so.1"), metadataELF("", "libc.so.6"), 0644)
+	write(t, f.path(libraries+"libc.so.6"), metadataELF(""), 0644)
+	write(t, f.path(libraries+"ld-linux-aarch64.so.1"), metadataELF(""), 0755)
 	exe := fakeToolBinary(t)
 	for _, kind := range []string{"qemu-img", "guestfish", "systemd-sysusers", "systemctl", "release"} {
 		path := filepath.Join(f.shims, kind)
@@ -386,6 +405,47 @@ func newOffline(t *testing.T) *offlineFixture {
 	}
 	return f
 }
+
+// metadataELF is a minimal ARM64 ELF with an optional PT_INTERP and a
+// DT_NEEDED entry per library, mirroring internal/image's runtime fixture.
+func metadataELF(interpreter string, libraries ...string) []byte {
+	file := make([]byte, 1024)
+	copy(file, "\x7fELF\x02\x01\x01")
+	put16, put32, put64 := binary.LittleEndian.PutUint16, binary.LittleEndian.PutUint32, binary.LittleEndian.PutUint64
+	put16(file[16:], 3)
+	put16(file[18:], 183)
+	put32(file[20:], 1)
+	put16(file[52:], 64)
+	put64(file[40:], 128)
+	put16(file[58:], 64)
+	put16(file[60:], 3)
+	if interpreter != "" {
+		put64(file[32:], 64)
+		put16(file[54:], 56)
+		put16(file[56:], 1)
+		put32(file[64:], 3)
+		put64(file[72:], 384)
+		put64(file[96:], uint64(len(interpreter)+1))
+		copy(file[384:], interpreter)
+	}
+	put32(file[196:], 6)
+	put64(file[216:], 512)
+	put64(file[224:], uint64((len(libraries)+1)*16))
+	put32(file[232:], 2)
+	put64(file[248:], 16)
+	put32(file[260:], 3)
+	put64(file[280:], 768)
+	size := 1
+	for i, library := range libraries {
+		put64(file[512+i*16:], 1)
+		put64(file[520+i*16:], uint64(size))
+		copy(file[768+size:], library)
+		size += len(library) + 1
+	}
+	put64(file[288:], uint64(size))
+	return file
+}
+
 func (f *offlineFixture) path(guest string) string {
 	return filepath.Join(f.guest, strings.TrimPrefix(guest, "/"))
 }
@@ -482,7 +542,6 @@ func representative(t *testing.T, fast bool) {
 }
 
 func TestOfflineVerifiedInputsInstalled(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	f := newOffline(t)
 	r := f.run(nil, nil, nil)
@@ -560,7 +619,6 @@ func TestOfflineRequiresNativeVerifier(t *testing.T) {
 }
 
 func TestOfflineRejectsBadPublicInputsBeforeImageEffects(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	for _, tc := range []struct {
 		name, message string
@@ -569,7 +627,7 @@ func TestOfflineRejectsBadPublicInputsBeforeImageEffects(t *testing.T) {
 		env           map[string]string
 	}{
 		{"native-digest", "native verifier bytes do not match", func(*offlineFixture) {}, map[string]string{"--native-verifier-sha256": strings.Repeat("0", 64)}, nil},
-		{"native-architecture", "ELF64 little-endian AArch64", func(f *offlineFixture) { b := read(f.t, f.verifier); b[18] = 62; write(f.t, f.verifier, b, 0644) }, nil, nil},
+		{"native-architecture", "native verifier and orchestrator architectures differ", func(f *offlineFixture) { b := read(f.t, f.verifier); b[18] = 62; write(f.t, f.verifier, b, 0644) }, nil, nil},
 		{"netbird-digest", "supplied NetBird SHA-256 differs from the image pin", func(*offlineFixture) {}, map[string]string{"--netbird-sha256": strings.Repeat("0", 64)}, nil},
 		{"netbird-self-pinned", "supplied NetBird SHA-256 differs from the image pin", func(f *offlineFixture) {
 			write(f.t, f.netbird, append(read(f.t, f.netbird), []byte("different client")...), 0644)
@@ -599,7 +657,6 @@ func TestOfflineRejectsBadPublicInputsBeforeImageEffects(t *testing.T) {
 	}
 }
 func TestOfflineReadbackMismatchDiscardsCandidate(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	for _, guest := range []string{netbirdGuest, netbirdConfigGuest, "/usr/local/bin/terrascale-orchestrator", verifierGuest, ociRuleGuest, kernelGuest} {
 		t.Run(guestName(guest), func(t *testing.T) {
@@ -614,7 +671,6 @@ func TestOfflineReadbackMismatchDiscardsCandidate(t *testing.T) {
 	}
 }
 func TestOfflineRejectsBaseArtifacts(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	paths := append([]string{ociRuleGuest}, deploymentPaths...)
 	paths = append(paths, priorityProfileGuest)
@@ -650,7 +706,6 @@ func TestOfflineRejectsBaseArtifacts(t *testing.T) {
 }
 
 func TestOfflineRejectsPersistedSelfUpdateState(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	f := newOffline(t)
 	state := "/var/lib/terrascale-orchestrator"
@@ -665,7 +720,6 @@ func TestOfflineRejectsPersistedSelfUpdateState(t *testing.T) {
 	f.cleanTemp()
 }
 func TestOfflineDeploymentMaterialNeverBaked(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	f := newOffline(t)
 	successful(t, f.run(nil, nil, nil))
@@ -715,7 +769,6 @@ func TestOfflineValidatesRevisionAndKernelReleaseBeforeEffects(t *testing.T) {
 	}
 }
 func TestOfflineBaseKernelMustBeOneARM64ImageWithModules(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	for i, tc := range []struct {
 		name, message string
@@ -729,7 +782,7 @@ func TestOfflineBaseKernelMustBeOneARM64ImageWithModules(t *testing.T) {
 				f.t.Fatal(err)
 			}
 		}, nil},
-		{"wrong-image", "base guest kernel is not an AArch64 Linux boot Image", func(f *offlineFixture) {
+		{"wrong-image", "base guest kernel is not a Linux arm64 boot image", func(f *offlineFixture) {
 			write(f.t, f.path(kernelGuest), append(make([]byte, 64), []byte("x86 kernel")...), 0644)
 		}, nil},
 	} {
@@ -761,7 +814,6 @@ func TestOfflineBaseKernelMustBeOneARM64ImageWithModules(t *testing.T) {
 	})
 }
 func TestOfflineCreatesMissingUploadParents(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	for i, tc := range []struct {
 		name  string
@@ -813,7 +865,6 @@ func TestOfflineCreatesMissingUploadParents(t *testing.T) {
 	}
 }
 func TestOfflineRejectsUnsafeNativeVerifierParents(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	for i, tc := range []struct {
 		name, message string
@@ -869,7 +920,6 @@ func TestOfflineRejectsUnsafeNativeVerifierParents(t *testing.T) {
 	}
 }
 func TestOfflineRejectsReservedWorkloadIdentityBeforeInstall(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	f := newOffline(t)
 	p := f.path("/etc/passwd")
@@ -878,7 +928,6 @@ func TestOfflineRejectsReservedWorkloadIdentityBeforeInstall(t *testing.T) {
 	absent(t, f.path(verifierGuest))
 }
 func TestOfflineRejectsSymlinkedUploadParents(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	for i, guest := range []string{"/etc/sysusers.d", "/usr/local/bin"} {
 		t.Run(guestName(guest), func(t *testing.T) {
@@ -897,7 +946,6 @@ func TestOfflineRejectsSymlinkedUploadParents(t *testing.T) {
 	}
 }
 func TestOfflineRequiresAuditedSystemdAndInstallDirectives(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	t.Run("version", func(t *testing.T) {
 		t.Parallel()
@@ -915,7 +963,6 @@ func TestOfflineRequiresAuditedSystemdAndInstallDirectives(t *testing.T) {
 }
 
 func TestOfflineEveryImageRequiresEnabledOpenSSHServer(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	for i, tc := range []struct {
 		name, message string
@@ -946,7 +993,6 @@ func TestOfflineEveryImageRequiresEnabledOpenSSHServer(t *testing.T) {
 }
 
 func TestOfflineManagedRootAndVolumeInitUnits(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	f := newOffline(t)
 	host := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-host.service")))
@@ -979,7 +1025,6 @@ func TestOfflineManagedRootAndVolumeInitUnits(t *testing.T) {
 // Self-update needs no node-local file: the image bakes both drop-ins and
 // the watchdog template and enables one watchdog timer per role (TS-553).
 func TestOfflineInstallsSelfUpdateEnabled(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	f := newOffline(t)
 	successful(t, f.run(nil, nil, nil))
@@ -997,7 +1042,6 @@ func TestOfflineInstallsSelfUpdateEnabled(t *testing.T) {
 	}
 }
 func TestOfflineRejectsMaskedOrConflictingSelfUpdate(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	for i, tc := range []struct{ name, guest, message string }{
 		{"masked-instance", "/etc/systemd/system/terrascale-orchestrator-selfupdate-watchdog@host.timer", "required systemd unit is masked: terrascale-orchestrator-selfupdate-watchdog@host.timer"},
@@ -1021,7 +1065,6 @@ func TestOfflineRejectsMaskedOrConflictingSelfUpdate(t *testing.T) {
 	}
 }
 func TestOfflineRequiresPinnedVolumeTools(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	for i, tc := range []struct {
 		name, message string
@@ -1081,7 +1124,6 @@ func TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange(t *testing.T) 
 	})
 }
 func TestOfflineRejectsCompetingTimesyncConfiguration(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	for i, tc := range []struct{ name, path, contents string }{{"endpoint", "/etc/systemd/timesyncd.conf.d/20-base.conf", "[Time]\nNTP=base.example\n"}, {"poll", "/etc/systemd/timesyncd.conf.d/zz-base.conf", "[Time]\nPollIntervalMaxSec=2048\n"}} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1147,19 +1189,25 @@ func unitDirectives(source, selectedSection string) map[string]string {
 	return out
 }
 func TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	f := newOffline(t)
 	successful(t, f.run(nil, nil, nil))
 	for _, unit := range []string{"terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"} {
 		t.Run(unit, func(t *testing.T) {
-			source := read(t, filepath.Join(deployRoot(t), "deploy/systemd", unit))
+			name, runtime := unit, unit == "terrascale-orchestrator-host.service"
+			if runtime {
+				name = "terrascale-orchestrator-managed-runtime.service" // the image installs the managed runtime as the host unit
+			}
+			source := read(t, filepath.Join(deployRoot(t), "deploy/systemd", name))
 			equal(t, read(t, f.path("/etc/systemd/system/"+unit)), source)
 			d := unitDirectives(string(source), "")
 			for _, name := range []string{"ProtectClock", "SystemCallFilter"} {
 				if _, found := d[name]; found {
 					t.Fatalf("unit has %s", name)
 				}
+			}
+			if runtime {
+				return // the root Swarm runtime delegates its cgroup to containerd; it has no privilege sandbox
 			}
 			equal(t, d["NoNewPrivileges"], "yes")
 			if d["User"] == "root" {

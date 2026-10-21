@@ -20,7 +20,7 @@ func TestDesiredSeatsContainsExactlyTwoAntiAffineMembersPerSelectedRegion(t *tes
 	faultDomains := map[oci.Region][]string{
 		oci.RegionGRU: {"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
 		oci.RegionFRA: {"FAULT-DOMAIN-2", "FAULT-DOMAIN-3"},
-		oci.RegionSFO: {"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
+		oci.RegionSJC: {"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
 	}
 
 	seats, err := DesiredSeats(intent, faultDomains)
@@ -98,7 +98,7 @@ func TestManagedIntentRoundTripsCanonicalPayloadAndRegionProfileDigest(t *testin
 	if err != nil || gotProfileDigest != hex.EncodeToString(wantProfileDigest[:]) {
 		t.Fatalf("profile digest = %q, %v; want %x", gotProfileDigest, err, wantProfileDigest)
 	}
-	if _, err := decoded.ProfileDigest(oci.RegionSFO); err == nil {
+	if _, err := decoded.ProfileDigest(oci.RegionSJC); err == nil {
 		t.Fatal("profile lookup accepted an unselected region")
 	}
 }
@@ -166,7 +166,7 @@ func TestManagedIntentRejectsIncompleteForeignDuplicateAndUnsafeProfiles(t *test
 		mutate func(*Intent)
 	}{
 		{name: "missing profile", mutate: func(intent *Intent) { intent.ManagedHostProfiles = intent.ManagedHostProfiles[:1] }},
-		{name: "foreign profile", mutate: func(intent *Intent) { intent.ManagedHostProfiles[1].Region = oci.RegionSFO }},
+		{name: "foreign profile", mutate: func(intent *Intent) { intent.ManagedHostProfiles[1].Region = oci.RegionSJC }},
 		{name: "duplicate profile", mutate: func(intent *Intent) { intent.ManagedHostProfiles[1] = intent.ManagedHostProfiles[0] }},
 		{name: "unsorted selected regions", mutate: func(intent *Intent) {
 			intent.ActiveRegions[0], intent.ActiveRegions[1] = intent.ActiveRegions[1], intent.ActiveRegions[0]
@@ -320,7 +320,7 @@ func TestMemberStateManagedProfilePinsAreAdditiveAndValidated(t *testing.T) {
 		{name: "partial pins", mutate: func(state *MemberState) { state.ManagedHostProfileDigest = "" }},
 		{name: "uppercase payload digest", mutate: func(state *MemberState) { state.IntentPayloadDigest = "A" + strings.Repeat("a", 63) }},
 		{name: "profile digest mismatch", mutate: func(state *MemberState) { state.ManagedHostProfileDigest = strings.Repeat("0", 64) }},
-		{name: "foreign profile region", mutate: func(state *MemberState) { state.ManagedHostProfile.Region = oci.RegionSFO }},
+		{name: "foreign profile region", mutate: func(state *MemberState) { state.ManagedHostProfile.Region = oci.RegionSJC }},
 		{name: "invalid profile values", mutate: func(state *MemberState) { state.ManagedHostProfile.SystemReserveBytes = 0 }},
 		{name: "missing roster digest", mutate: func(state *MemberState) { state.CanonicalRosterDigest = "" }},
 		{name: "changed roster seat", mutate: func(state *MemberState) { state.CanonicalRosterRow.SeatID = elasticMember(oci.RegionGRU) }},
@@ -344,13 +344,13 @@ func validMemberStateForPins(t *testing.T) MemberState {
 }
 
 func TestCanRetireRequiresEveryIndependentSafetyProof(t *testing.T) {
-	intent := validIntent(oci.RegionGRU, oci.RegionSFO)
+	intent := validIntent(oci.RegionGRU, oci.RegionSJC)
 	candidate := testCandidate()
 	survivors := healthyMembers(
 		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
 		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-b"},
-		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSFO, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSFO, FailureDomain: "fd-c"},
+		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSJC, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSJC, FailureDomain: "fd-c"},
 	)
 	complete := RetirementEvidence{
 		DatabaseID:         candidate.DatabaseID,
@@ -393,7 +393,7 @@ func TestCanRetireRequiresEveryIndependentSafetyProof(t *testing.T) {
 }
 
 func TestCanRetireHoldsWhenReplicaFloorOrAntiAffinityIsLost(t *testing.T) {
-	intent := validIntent(oci.RegionGRU, oci.RegionSFO)
+	intent := validIntent(oci.RegionGRU, oci.RegionSJC)
 	candidate := testCandidate()
 	proof := RetirementEvidence{
 		DatabaseID:         candidate.DatabaseID,
@@ -411,8 +411,8 @@ func TestCanRetireHoldsWhenReplicaFloorOrAntiAffinityIsLost(t *testing.T) {
 
 	oneShort := healthyMembers(
 		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSFO, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSFO, FailureDomain: "fd-c"},
+		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSJC, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSJC, FailureDomain: "fd-c"},
 	)
 	if allowed, reason := CanRetire(intent, candidate, oneShort, proof); allowed || reason != "replica-floor-or-health-not-met" {
 		t.Fatalf("replica floor gate = (%v, %q)", allowed, reason)
@@ -421,8 +421,8 @@ func TestCanRetireHoldsWhenReplicaFloorOrAntiAffinityIsLost(t *testing.T) {
 	duplicateDomain := healthyMembers(
 		MemberObservation{MemberID: "000000000082AXF7GZQT1D126Y", Region: oci.RegionGRU, FailureDomain: "fd-a"},
 		MemberObservation{MemberID: "0000000000XG8SBD7XGE97V28G", Region: oci.RegionGRU, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSFO, FailureDomain: "fd-a"},
-		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSFO, FailureDomain: "fd-c"},
+		MemberObservation{MemberID: "000000000031KRKJZMCK6VE679", Region: oci.RegionSJC, FailureDomain: "fd-a"},
+		MemberObservation{MemberID: "0000000000684PWEEY0RSW7AJQ", Region: oci.RegionSJC, FailureDomain: "fd-c"},
 	)
 	if allowed, reason := CanRetire(intent, candidate, duplicateDomain, proof); allowed || reason != "survivor-anti-affinity-violated" {
 		t.Fatalf("anti-affinity gate = (%v, %q)", allowed, reason)

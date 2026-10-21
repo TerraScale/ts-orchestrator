@@ -1,19 +1,32 @@
 {
   "name": "terrabase",
-  "image": "ghcr.io/terrascale/terrabase@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "image": "ghcr.io/terrascale/terrabase@sha256:154713cce2cf362ad616a984203da4aa35c1f0fab36b8e6dd3ad6e125fa4a257",
   "env": {
     "TERRABASE_AUTH_AUDIENCE": "https://api.terrascale.tech",
     "TERRABASE_AUTH_ISSUER": "https://auth.terrascale.tech/terrascale",
-    "AWS_REGION": "auto"
+    "AWS_ENDPOINT_URL_S3": "https://fly.storage.tigris.dev",
+    "AWS_REGION": "auto",
+    "BUCKET_NAME": "terrascale-gru-terrabase-backups",
+    "TERRABASE_BACKUP_RETENTION_DAYS": "hobby=7,pro=7,enterprise=7"
   },
-  "secrets": [
-    "TERRABASE_PEER_SECRET",
-    "TERRABASE_MASTER_KEY",
-    "AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY",
-    "AWS_ENDPOINT_URL_S3",
-    "BUCKET_NAME"
-  ],
+  "secrets": {
+    "AWS_ACCESS_KEY_ID_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-backup-access-key-id"
+    },
+    "AWS_SECRET_ACCESS_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-backup-secret-key"
+    },
+    "TERRABASE_MASTER_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-master-key"
+    },
+    "TERRABASE_PEER_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-peer-secret"
+    }
+  },
   "mounts": [
     {
       "source": "/var/lib/ts-data/terrabase",
@@ -25,5 +38,6 @@
   "hostnames": [
     "api.terrascale.tech"
   ],
-  "replicas": 1
+  "replicas": 1,
+  "regions": ["gru"]
 }

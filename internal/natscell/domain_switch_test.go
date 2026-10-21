@@ -22,7 +22,7 @@ func TestRollingInterRegionMaterialKeepsRegionalDomainAndData(t *testing.T) {
 	tier.Integration(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
-	const domain = "sfo"
+	const domain = "sjc"
 	root := t.TempDir()
 	region := newTestRegion(t, filepath.Join(root, domain), domain, HubAndSpoke("gru", []string{domain}))
 	// The parent never runs: the remote dials a closed port, so only the
@@ -30,7 +30,7 @@ func TestRollingInterRegionMaterialKeepsRegionalDomainAndData(t *testing.T) {
 	gru := &testRegion{testRegionKeys: newTestRegionKeys(t)}
 	region.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{Peer: "gru", ServerName: testLeafServerName,
 		URLs:            []string{fmt.Sprintf("nats-leaf://127.0.0.1:%d", freeClientPort(t))},
-		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", domain), PeerAccount: gru.interregionID,
+		CredentialsFile: gru.childLeafCredentials(t, "sjc-leaf.creds", domain), PeerAccount: gru.interregionID,
 		TLS: region.cfg.TLS}}
 	// Isolated topology uses plain cell and system claims; linked topology
 	// uses the contract-bearing reissues. Both keep the same regional domain.

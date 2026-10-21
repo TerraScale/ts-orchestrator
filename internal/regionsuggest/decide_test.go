@@ -36,13 +36,13 @@ func statusIdle() *nodescale.Status {
 }
 
 // testRegions is a home at gru that measures two candidate OCI regions, and
-// two serving regions, fra and sfo.
-func testRegions(gru, fra, sfo *nodescale.Status) []Region {
+// two serving regions, fra and sjc.
+func testRegions(gru, fra, sjc *nodescale.Status) []Region {
 	return []Region{
 		{Cell: "fra", OCIRegion: "eu-frankfurt-1", Status: fra},
 		{Cell: "gru", OCIRegion: "sa-saopaulo-1", Home: true, Status: gru, RTT: map[string]time.Duration{
 			"uk-london-1": 150 * time.Millisecond, "eu-amsterdam-1": 120 * time.Millisecond}},
-		{Cell: "sfo", OCIRegion: "us-sanjose-1", Status: sfo},
+		{Cell: "sjc", OCIRegion: "us-sanjose-1", Status: sjc},
 	}
 }
 
@@ -56,7 +56,7 @@ func TestSuggestRules(t *testing.T) {
 	t.Parallel()
 
 	saturatedLongEnough := Memory{SaturatedSince: map[string]time.Time{"gru": testNow.Add(-2 * time.Hour)}}
-	idleLongEnough := Memory{IdleSince: map[string]time.Time{"sfo": testNow.Add(-IdleFor - time.Hour)}}
+	idleLongEnough := Memory{IdleSince: map[string]time.Time{"sjc": testNow.Add(-IdleFor - time.Hour)}}
 	noMeasurement := testRegions(statusSaturated(), statusBusy(), statusBusy())
 	noMeasurement[1].RTT = nil
 	cases := []struct {
@@ -89,11 +89,11 @@ func TestSuggestRules(t *testing.T) {
 			candidates: lhrOnly, memory: saturatedLongEnough, headroom: testHeadroom, price: 0,
 			action: ActionNone, reason: "the node price is unknown"},
 		{name: "idle region is suggested for removal", regions: testRegions(statusBusy(), statusBusy(), statusIdle()),
-			memory: idleLongEnough, action: ActionRemove, cell: "sfo", reason: "sfo has been idle at 3 nodes"},
+			memory: idleLongEnough, action: ActionRemove, cell: "sjc", reason: "sjc has been idle at 3 nodes"},
 		{name: "never suggests removing below two serving regions", regions: testRegions(statusBusy(), nil, statusIdle())[1:],
 			memory: idleLongEnough, action: ActionNone, reason: "only 2 regions serve and never fewer than 2"},
 		{name: "idle needs IdleFor", regions: testRegions(statusBusy(), statusBusy(), statusIdle()),
-			memory: Memory{IdleSince: map[string]time.Time{"sfo": testNow.Add(-IdleFor + time.Hour)}},
+			memory: Memory{IdleSince: map[string]time.Time{"sjc": testNow.Add(-IdleFor + time.Hour)}},
 			action: ActionNone, reason: "every region is within its load band"},
 		{name: "never suggests removing the home", regions: testRegions(statusIdle(), statusBusy(), statusBusy()),
 			memory: Memory{IdleSince: map[string]time.Time{"gru": testNow.Add(-IdleFor - time.Hour)}},

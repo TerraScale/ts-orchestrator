@@ -93,7 +93,7 @@ tenancy policy, with the same fields as above minus the listener:
 ```json
 "machines_api": {
   "issuer": "https://gru.auth.terrascale.tech/terrascale",
-  "audience": "https://sfo.orch.terrascale.tech",
+  "audience": "https://sjc.orch.terrascale.tech",
   "jwks_urls": ["https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"],
   "clients": ["01M4EQ2FRJ8S8B29E8TQVWNW4J"],
   "platform_organization_id": "<platform organization ULID>",
@@ -112,7 +112,7 @@ tenancy policy, with the same fields as above minus the listener:
   [public API](region-bootstrap.md#public-terrabase-api)): backend set
   `ts-orch` sends HTTPS to every controller at 8444, verified against the
   cell CA (`apply --cell-ca`), with `GET /healthz` health checks.
-- A region without its own ts-auth (sfo-1) fetches the issuer's key set over
+- A region without its own ts-auth (sjc-1) fetches the issuer's key set over
   HTTPS through its NAT gateway.
 
 ## Authentication

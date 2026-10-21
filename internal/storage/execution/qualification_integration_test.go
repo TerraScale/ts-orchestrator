@@ -99,7 +99,7 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 		return wire
 	}
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "fixture", Bucket: "gru-1-head", Region: "GRU", SignerKeyID: signerID, SignerPublicKey: base64.RawURLEncoding.EncodeToString(signerPublic), Role: target.Role, Environment: target.Environment, SequenceFloor: 100}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)})
 	}
 	migrationEnvelope, err := release.SignSequenceMigration(migration, now, root)

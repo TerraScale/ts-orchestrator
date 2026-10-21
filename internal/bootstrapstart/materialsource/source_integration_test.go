@@ -371,14 +371,14 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	intent := &region.BootstrapMaterialIntent{InstallationID: "0000000000YTR4D9RJ6W8NG1HC", PlanSHA256: digestWire(wire), Config: cfg, SourceVaultTarget: target}
 	grant := region.FoundationGrant{InstallationID: intent.InstallationID, SchemaVersion: 1, Generation: 1, TenancyID: "ocid1.tenancy.oc1..test", ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared", Currency: "USD", MonthlyLimitMinor: 10000, CleanupOwner: "integration", Regions: []region.FoundationIntent{{Generation: 1, Plan: map[string]any{"cell": "GRU", "region": "sa-saopaulo-1", "tenancy_id": "ocid1.tenancy.oc1..test", "parent_compartment_id": "ocid1.compartment.oc1..parent", "shared_compartment_id": "ocid1.compartment.oc1..shared", "resource_ids": map[string]any{"control": target.CompartmentOCID, "control_compartment": target.CompartmentOCID, "vault": target.VaultOCID, "key": target.KMSKeyOCID}}}}}
 	spokeConfig := cfg
-	spokeConfig.Cell, spokeConfig.Region, spokeConfig.ClusterID = "sfo", "us-sanjose-1", "0000000000F9PR1WNVDTEXS31Z"
+	spokeConfig.Cell, spokeConfig.Region, spokeConfig.ClusterID = "sjc", "us-sanjose-1", "0000000000F9PR1WNVDTEXS31Z"
 	spokeWire, err := json.Marshal(spokeConfig, json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
 	spokeIntent := &region.BootstrapMaterialIntent{InstallationID: intent.InstallationID, PlanSHA256: digestWire(spokeWire), Config: spokeConfig, SourceVaultTarget: target}
 	spokePlan := maps.Clone(grant.Regions[0].Plan)
-	spokePlan["cell"], spokePlan["region"] = "SFO", "us-sanjose-1"
+	spokePlan["cell"], spokePlan["region"] = "SJC", "us-sanjose-1"
 	spokePlan["resource_ids"] = map[string]any{"control_compartment": "ocid1.compartment.oc1..sfocontrol", "vault": "ocid1.vault.oc1.us-sanjose-1.vault", "key": "ocid1.key.oc1.us-sanjose-1.key"}
 	grant.Regions = append(grant.Regions, region.FoundationIntent{Generation: 1, Plan: spokePlan})
 	pinnedLedgerWire := bytes.Clone(anchor.Anchor().LedgerDelegationWire)
@@ -450,8 +450,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		startup, _ := sourceImageRecipe(t, private, roots, now, material.Config, ids, anchor.Anchor().InitialRegionIntentWire)
 		material.Startup = &startup
 		material.SourceRegistration = &bootstrap.InitialSourceRegistration{InstallationID: material.InstallationID, DeploymentID: material.Config.DeploymentID, Environment: material.Config.Environment, ClusterID: material.Config.ClusterID, Cell: oci.Region(strings.ToUpper(material.Config.Cell)), Generation: 1, PlanSHA256: material.PlanSHA256, SeedSlot: startup.SeedSlot, ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}, StorageDomain: anchor.StorageDomain(), LedgerRecordDomains: bootstrap.BootstrapLedgerCapabilityDomains()}
-		if material.Config.Cell == "sfo" {
-			material.SourceRegistration.StorageDomain = bootstrap.StorageDomain{Namespace: "namespace-sfo", LedgerBucket: "sfo-ledger", HeadBucket: "sfo-head", LedgerKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.ledger", HeadKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.head", Prefix: "regional/sfo"}
+		if material.Config.Cell == "sjc" {
+			material.SourceRegistration.StorageDomain = bootstrap.StorageDomain{Namespace: "namespace-sjc", LedgerBucket: "sjc-ledger", HeadBucket: "sjc-head", LedgerKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.ledger", HeadKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.head", Prefix: "regional/sjc"}
 		}
 	}
 	publish()
@@ -625,7 +625,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := ResolveLinkSource(t.Context(), replacement, replacement, new(LinkSource), &objects, &management, &bundles, filepath.Join(t.TempDir(), "invalid-link"), now); err == nil {
 		t.Fatal("empty home Link proof admitted")
 	}
-	spokeGrant, err := reader.AuthorizedBootstrapMaterial(t.Context(), "SFO")
+	spokeGrant, err := reader.AuthorizedBootstrapMaterial(t.Context(), "SJC")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -710,7 +710,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatalf("matching pinned source recovery: %v", err)
 	}
 	// Regional ledger storage deliberately differs from the foundation source
-	// bucket; the public proof must read home while preserving SFO ledger pins.
+	// bucket; the public proof must read home while preserving SJC ledger pins.
 	protocol.target = bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..sfocontrol", VaultOCID: "ocid1.vault.oc1.us-sanjose-1.vault", KMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.key"}
 	if _, err := spokeSource.Provision(t.Context(), protocol.target, &management, &bundles, now); err != nil {
 		t.Fatal(err)
@@ -729,7 +729,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	}
 	configs := map[string][]byte{}
 	for _, slot := range spokeAnchor.Anchor().ControllerSlots {
-		configs[slot], err = json.Marshal(map[string]any{"nats": map[string]any{}, "controller": map[string]string{"cell": "sfo", "slot": slot}})
+		configs[slot], err = json.Marshal(map[string]any{"nats": map[string]any{}, "controller": map[string]string{"cell": "sjc", "slot": slot}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -739,7 +739,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded, err := bootstrap.LoadDerivedStartupAuthority(t.Context(), spokeTemplate, &objects, "controller-a", now)
-	if err != nil || loaded.Digest() != bound.Digest() || loaded.StorageDomain() != spokeAnchor.StorageDomain() || !strings.HasPrefix(spokeSource.key, "private/bootstrap/") || strings.HasPrefix(spokeSource.key, "regional/sfo/") {
+	if err != nil || loaded.Digest() != bound.Digest() || loaded.StorageDomain() != spokeAnchor.StorageDomain() || !strings.HasPrefix(spokeSource.key, "private/bootstrap/") || strings.HasPrefix(spokeSource.key, "regional/sjc/") {
 		t.Fatalf("independent home source and regional ledger domains: %v", err)
 	}
 }

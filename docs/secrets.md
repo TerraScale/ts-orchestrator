@@ -1,7 +1,7 @@
 # Secrets in OCI Vault
 
 TerraScale production secrets belong in the Vault of their serving region:
-`gru` (`sa-saopaulo-1`) or `sfo` (`us-sanjose-1`). The
+`gru` (`sa-saopaulo-1`) or `sjc` (`us-sanjose-1`). The
 [TS-745 inventory](secrets-inventory.md) distinguishes verified Vault records
 from consumers and plaintext copies that still need migration. Production
 OpenBao reads are retired; homelab ts-router/ts-reviewer stay on OpenBao.
@@ -17,8 +17,8 @@ the secret, and receipts and evidence carry names, OCIDs and checksums only.
 ## Names
 
 A secret is named `<scope>-<service>-<key>`, lowercase words joined by
-hyphens. New secrets use the region, `gru` or `sfo`, as their scope. Existing signed
-`gru-1` / `sfo-1` names remain valid. The service is the consumer
+hyphens. New secrets use the region, `gru` or `sjc`, as their scope. Existing signed
+`gru-1` / `sjc-1` names remain valid. The service is the consumer
 (`ts-auth`, `netbird`, `cloudflare`, `trust`); the key says what it holds.
 Code derives a name from an environment-style key `SERVICE_KEY` by lowering
 it and turning `_` into `-`: `NETBIRD_RELAY_AUTH_SECRET` of `gru-1` is
@@ -82,10 +82,10 @@ retrying a signing-ring mutation. Existing history is not discarded automaticall
 ## TS-703 signing publisher
 
 Each region has an API-key-only IAM user and group named
-`gru-ts-auth-signing` or `sfo-ts-auth-signing`. The regional ring secret is
-`gru-ts-auth-signing-key-ring` or `sfo-ts-auth-signing-key-ring`. The API private
+`gru-ts-auth-signing` or `sjc-ts-auth-signing`. The regional ring secret is
+`gru-ts-auth-signing-key-ring` or `sjc-ts-auth-signing-key-ring`. The API private
 key is retained in the same regional Vault as `gru-ts-auth-oci-signing-key` or
-`sfo-ts-auth-oci-signing-key`; no private key belongs in a profile or env file.
+`sjc-ts-auth-oci-signing-key`; no private key belongs in a profile or env file.
 The [inventory](secrets-inventory.md) records the secret OCIDs and live checks.
 
 Each group's policy grants `read secret-bundles` only on its ring OCID and
@@ -119,7 +119,7 @@ primary controller/host services stayed active; profile application and auth
 deployment remain pending.
 
 The regional [GRU profile](../deploy/oci-region/ts-auth-gru-1-profile.json) and
-[SFO profile](../deploy/oci-region/ts-auth-sfo-1-profile.json) carry the six
+[SJC profile](../deploy/oci-region/ts-auth-sjc-1-profile.json) carry the six
 non-secret `TS_AUTH_SIGNING_KEY_*` / `TS_AUTH_OCI_*` settings and the
 `TS_AUTH_OCI_PRIVATE_KEY` Vault reference. The host resolves that reference into
 the process environment in memory at start. ts-auth owns ring bootstrap,
@@ -284,7 +284,7 @@ the controller may already have committed.
 
 **TerraBase.** GRU's Management credential is the Vault secret
 `gru-1-terrabase-management-credential`, delivered as a `_FILE` secret like
-SFO's; no profile names a file on disk.
+SJC's; no profile names a file on disk.
 
 ## Give a workload a secret
 

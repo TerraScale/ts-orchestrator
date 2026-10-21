@@ -156,7 +156,7 @@ func TestValidateProfile(t *testing.T) {
 		t.Fatal("gru endpoints changed")
 	}
 	// Every catalog cell serves ts-auth at its own endpoints and only there.
-	for _, cell := range []string{"sfo", "fra"} {
+	for _, cell := range []string{"sjc", "fra"} {
 		if err := ValidateProfile(cell, nil, cellProfile(cell), validRefs()); err != nil {
 			t.Fatalf("%s: %v", cell, err)
 		}

@@ -68,7 +68,7 @@ func TestFinalImageProductionAdmissionBoundary(t *testing.T) {
 			case "wrong runtime":
 				record.Candidate.Runtime = "old-runtime"
 			case "wrong cell":
-				record.Candidate.Cell = "SFO"
+				record.Candidate.Cell = "SJC"
 			case "wrong role":
 				record.Candidate.Role = "terrabase"
 			case "ordinary release signer":

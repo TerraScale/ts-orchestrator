@@ -313,11 +313,11 @@ func TestOptionalProviderRules(t *testing.T) {
 			t.Errorf("%s = %+v", name, got)
 		}
 	}
-	inputs.Reachability = []RegionReach{{Region: "sfo", State: decisionlog.RegionUnreachable},
+	inputs.Reachability = []RegionReach{{Region: "sjc", State: decisionlog.RegionUnreachable},
 		{Region: "fra", State: decisionlog.RegionNotLinked}}
-	inputs.conditions = map[string]time.Time{"region:sfo": now.Add(-2 * time.Minute)}
+	inputs.conditions = map[string]time.Time{"region:sjc": now.Add(-2 * time.Minute)}
 	inputs.touched = map[string]struct{}{}
-	if got := regionUnreachable(inputs); len(got) != 1 || got[0].Region != "sfo" {
+	if got := regionUnreachable(inputs); len(got) != 1 || got[0].Region != "sjc" {
 		t.Fatalf("regions = %+v", got)
 	}
 }

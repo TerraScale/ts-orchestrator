@@ -292,7 +292,7 @@ func TestValidateRefs(t *testing.T) {
 		env  map[string]string
 	}{
 		"other role":       {refs: map[string]Ref{"K": ref("gru-1-netbird-admin-pat")}},
-		"other cell":       {refs: map[string]Ref{"K": ref("sfo-1-ts-auth-master-key")}},
+		"other cell":       {refs: map[string]Ref{"K": ref("sjc-1-ts-auth-master-key")}},
 		"zero index":       {refs: map[string]Ref{"K": ref("gru-01-ts-auth-master-key")}},
 		"no key":           {refs: map[string]Ref{"K": ref("gru-1-ts-auth")}},
 		"role only prefix": {refs: map[string]Ref{"K": ref("gru-1-ts-authx-key")}},

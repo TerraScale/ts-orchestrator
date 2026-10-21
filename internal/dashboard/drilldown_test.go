@@ -11,16 +11,16 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 )
 
-// drillView is the drill-down fixture: local gru and sfo report four nodes
-// each, sfo a minute late so it is stale. fra is listed but has no rollup.
+// drillView is the drill-down fixture: local gru and sjc report four nodes
+// each, sjc a minute late so it is stale. fra is listed but has no rollup.
 func drillView(now time.Time) *globalview.View {
-	global := globalview.NewView("gru", func() []string { return []string{"sfo", "fra"} }, func() time.Time { return now })
-	for _, cell := range []string{"gru", "sfo"} {
+	global := globalview.NewView("gru", func() []string { return []string{"sjc", "fra"} }, func() time.Time { return now })
+	for _, cell := range []string{"gru", "sjc"} {
 		observed := now
-		if cell == "sfo" {
+		if cell == "sjc" {
 			observed = now.Add(-time.Minute)
 		}
-		peers := slices.DeleteFunc([]string{"gru", "sfo", "fra"}, func(peer string) bool { return peer == cell })
+		peers := slices.DeleteFunc([]string{"gru", "sjc", "fra"}, func(peer string) bool { return peer == cell })
 		rollup := overviewRollup(cell, observed, peers)
 		rollup.Nodes = rollup.Nodes[:4]
 		rollup.Totals.Nodes, rollup.Totals.Ready = 4, 4
@@ -46,7 +46,7 @@ func TestDrillRegionPage(t *testing.T) {
 	body := get(t, drillDashboard(t, drillView(testNow)), "/regions/gru").Body.String()
 	for _, want := range []string{"<h1>", "GRU", "Nodes ready", "4 / 4", "/regions/gru/nodes/gru-n00",
 		"/regions/gru/volumes/gru-vol-0", "gru-ctl-0", "0.4 ms, lag 0", "lease renewal slow", "worker",
-		`href="/regions/sfo"`, "40 ms"} {
+		`href="/regions/sjc"`, "40 ms"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /regions/gru lacks %q", want)
 		}
@@ -66,17 +66,17 @@ func TestDrillRegionNodeScaling(t *testing.T) {
 			t.Errorf("GET /regions/gru lacks scaling row %q", want)
 		}
 	}
-	if body := get(t, handler, "/regions/sfo").Body.String(); !strings.Contains(body, "This region runs no node scaler yet.") {
-		t.Error("GET /regions/sfo lacks the empty node scaling note")
+	if body := get(t, handler, "/regions/sjc").Body.String(); !strings.Contains(body, "This region runs no node scaler yet.") {
+		t.Error("GET /regions/sjc lacks the empty node scaling note")
 	}
 }
 
 func TestDrillStaleAndNoDataRegions(t *testing.T) {
 	t.Parallel()
 	handler := drillDashboard(t, drillView(testNow))
-	if body := get(t, handler, "/regions/sfo").Body.String(); !strings.Contains(body, "stale · last seen 1m ago") ||
+	if body := get(t, handler, "/regions/sjc").Body.String(); !strings.Contains(body, "stale · last seen 1m ago") ||
 		!strings.Contains(body, "values are last-known") {
-		t.Errorf("GET /regions/sfo lacks its stale badge")
+		t.Errorf("GET /regions/sjc lacks its stale badge")
 	}
 	if body := get(t, handler, "/regions/fra").Body.String(); !strings.Contains(body, "No data from this region yet") {
 		t.Errorf("GET /regions/fra lacks the no-data state")
@@ -89,7 +89,7 @@ func TestDrillNodeVolumeServicePages(t *testing.T) {
 	for path, wants := range map[string][]string{
 		"/regions/gru/nodes/gru-n01": {"Report age", "Filesystems", "root", "sha256:abc",
 			"/regions/gru/nodes/gru-n01/services/controller", "/regions/gru/volumes/gru-vol-1"},
-		"/regions/sfo/nodes/sfo-n00": {"values are last-known", ">stale<"},
+		"/regions/sjc/nodes/sjc-n00": {"values are last-known", ">stale<"},
 		"/regions/gru/volumes/gru-vol-0": {"attached", `href="/regions/gru/nodes/gru-n00"`,
 			"/regions/gru/nodes/gru-n00/services/controller"},
 		"/regions/gru/nodes/gru-n00/services/controller": {"sha256:abc", "not autoscaled",
@@ -131,7 +131,7 @@ func TestDrilldownNeverAsksRegions(t *testing.T) {
 	handler := newTestDashboard(Options{Snapshots: fixedSnapshots{snapshot: memberSnapshot()},
 		Journal: &Journal{Local: neverLocal(t), Global: global}}).Handler()
 	for _, path := range []string{"/nodes", "/nodes?region=gru&sort=cpu", "/volumes", "/regions/gru",
-		"/regions/sfo", "/regions/fra", "/regions/gru/nodes/gru-n00", "/regions/gru/volumes/gru-vol-0",
+		"/regions/sjc", "/regions/fra", "/regions/gru/nodes/gru-n00", "/regions/gru/volumes/gru-vol-0",
 		"/regions/gru/nodes/gru-n00/services/controller"} {
 		if response := get(t, handler, path); response.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d", path, response.Code)
@@ -142,7 +142,7 @@ func TestDrilldownNeverAsksRegions(t *testing.T) {
 func TestUnreadVolumesAreNotShownAsNone(t *testing.T) {
 	t.Parallel()
 	global := drillView(testNow)
-	rollup := overviewRollup("gru", testNow.Add(time.Second), []string{"sfo", "fra"})
+	rollup := overviewRollup("gru", testNow.Add(time.Second), []string{"sjc", "fra"})
 	rollup.Volumes, rollup.VolumesUnavailable = nil, true
 	global.Accept(rollup)
 	handler := drillDashboard(t, global)
@@ -157,7 +157,7 @@ func TestUnreadVolumesAreNotShownAsNone(t *testing.T) {
 func TestDrillIncompleteObservationsKeepAbsenceUnknown(t *testing.T) {
 	t.Parallel()
 	global := drillView(testNow)
-	rollup := overviewRollup("gru", testNow.Add(time.Second), []string{"sfo", "fra"})
+	rollup := overviewRollup("gru", testNow.Add(time.Second), []string{"sjc", "fra"})
 	rollup.Truncated = true
 	if !global.Accept(rollup) {
 		t.Fatal("regional producer rejected truncated observation")
@@ -167,9 +167,9 @@ func TestDrillIncompleteObservationsKeepAbsenceUnknown(t *testing.T) {
 		{"/regions/gru/nodes/absent", "truncated"},
 		{"/regions/gru/volumes/absent", "truncated"},
 		{"/regions/gru/nodes/gru-n00/services/absent", "truncated"},
-		{"/regions/sfo/nodes/absent", "stale"},
-		{"/regions/sfo/volumes/absent", "stale"},
-		{"/regions/sfo/nodes/sfo-n00/services/absent", "stale"},
+		{"/regions/sjc/nodes/absent", "stale"},
+		{"/regions/sjc/volumes/absent", "stale"},
+		{"/regions/sjc/nodes/sjc-n00/services/absent", "stale"},
 		{"/regions/fra/nodes/absent", "no regional observation"},
 	} {
 		body := get(t, handler, scenario.path).Body.String()

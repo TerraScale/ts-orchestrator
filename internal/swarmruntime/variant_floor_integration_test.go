@@ -147,7 +147,7 @@ func TestFunctionWorkerVariantFloorIntegration(t *testing.T) {
 	roots := trust.Keyring{rootID: rootPublic}
 	now := time.Now().UTC().Truncate(time.Second)
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "worker-variants", Bucket: "gru-1-head", Region: "GRU", SignerKeyID: keyID, SignerPublicKey: base64.RawURLEncoding.EncodeToString(public), Role: "function-worker", Environment: "production", SequenceFloor: 100}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)})
 	}
 	signedMigration, err := release.SignSequenceMigration(migration, now, rootKey)
@@ -313,7 +313,7 @@ func TestFunctionWorkerVariantFloorIntegration(t *testing.T) {
 		t.Fatal("variant highwater regressed")
 	}
 	legacyIntent, legacyProof := admit("arm64", 103, "us-sanjose-1", strings.Repeat("d", 40))
-	retained.Cell = "SFO"
+	retained.Cell = "SJC"
 	original, err := reserveReleaseFloor(ctx, client, legacyIntent, legacyProof, roots, retained, 0)
 	if err != nil {
 		t.Fatal(err)

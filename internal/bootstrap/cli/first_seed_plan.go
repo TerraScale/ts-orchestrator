@@ -62,7 +62,7 @@ func readReviewedSeedPlan(path, expectedSHA, createIdentity string, inputs seedI
 		reviewed.FaultDomain != profile.FaultDomain || reviewed.SubnetID != profile.SubnetOCID ||
 		!slices.Equal(reviewed.NetworkSecurityGroupIDs, profile.NetworkSecurityGroupOCIDs) ||
 		reviewed.ImageID != manifest.ImageOCID || reviewed.AssignPublicIP ||
-		// 1 OCPU with 4 GB (sfo-1, gru-1 since TS-627) to 6 GB (gru-1 founding).
+		// 1 OCPU with 4 GB (sjc-1, gru-1 since TS-627) to 6 GB (gru-1 founding).
 		reviewed.OCPUs != 1 || reviewed.MemoryGB < 4 || reviewed.MemoryGB > 6 || reviewed.BootGB != 50 ||
 		reviewed.BootVPUsPerGB != 10 || !seedDigestRE.MatchString(reviewed.AdmissionSHA256) ||
 		!seedDigestRE.MatchString(reviewed.InventorySHA256) || reviewed.AdmissionAdmittedAt.IsZero() ||

@@ -327,7 +327,7 @@ func (c command) signLedgerDelegationAt(args []string, now time.Time) error {
 	flags := flag.NewFlagSet("sign-ledger-delegation", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	deploymentID := flags.String("deployment", "", "reviewed deployment identity")
-	cell := flags.String("cell", "", "reviewed region cell: GRU, SFO, or FRA")
+	cell := flags.String("cell", "", "reviewed region cell: GRU, SJC, or FRA")
 	environment := flags.String("environment", "", "reviewed environment: production or canary")
 	var slots stringListFlag
 	flags.Var(&slots, "slot", "reviewed controller slot, in ascending order (repeatable)")

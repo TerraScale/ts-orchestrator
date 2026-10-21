@@ -83,7 +83,7 @@ merely naming an environment does not establish protection.
    installed by this migration. Public source/releases need no manually copied
    provider token for operators; CI uses the repository's scoped `GITHUB_TOKEN`.
 5. Implement and exercise the independent GRU A1 NetBird foundation and the
-   four-VM GRU/SFO/FRA connectivity milestone in `REFACTOR.md`.
+   four-VM GRU/SJC/FRA connectivity milestone in `REFACTOR.md`.
 
 ## Retained infrastructure and historical evidence
 

@@ -98,7 +98,7 @@ func TestRoleClaimAddsTheControllersRoleSigner(t *testing.T) {
 		t.Fatalf("the controllers refuse the role claim (signer %s): %v", signer, err)
 	}
 
-	// A claim whose role signer has an older scope (gru-1 and sfo-1 before
+	// A claim whose role signer has an older scope (gru-1 and sjc-1 before
 	// TS-668's query grants): the controllers refuse it, and role-claim
 	// replaces the scope in place.
 	stale := mustDecode(t, raw)

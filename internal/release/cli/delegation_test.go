@@ -90,13 +90,13 @@ func TestSignDelegationImageOfAnotherCatalogCell(t *testing.T) {
 	}
 	image := filepath.Join(fixture.directory, "image-delegation.json")
 	for _, args := range [][]string{{"--image-cell", "LHR", "--image-ocid", testDelegationImageOCID},
-		{"--image-cell", "SFO", "--image-ocid", testDelegationImageOCID}} {
+		{"--image-cell", "SJC", "--image-ocid", testDelegationImageOCID}} {
 		if err := signDelegationAt(append(fixture.args(image), append(args, "--previous-delegation", first)...), fixture.now); err == nil {
 			t.Fatal("signed an image delegation outside its cell's region", args)
 		}
 	}
-	sfo := "ocid1.image.oc1.us-sanjose-1.ABC123"
-	if err := signDelegationAt(append(fixture.args(image), "--image-cell", "SFO", "--image-ocid", sfo, "--previous-delegation", first), fixture.now); err != nil {
+	sjc := "ocid1.image.oc1.us-sanjose-1.ABC123"
+	if err := signDelegationAt(append(fixture.args(image), "--image-cell", "SJC", "--image-ocid", sjc, "--previous-delegation", first), fixture.now); err != nil {
 		t.Fatal(err)
 	}
 	wire, err := os.ReadFile(image)
@@ -113,7 +113,7 @@ func TestSignDelegationImageOfAnotherCatalogCell(t *testing.T) {
 	}
 	delegation, err := trust.VerifyDelegationCurrent(envelope, roots, fixture.now,
 		trust.Policy{MaxLifetime: release.MaxDelegationLifetime, ClockSkew: time.Minute})
-	want := capabilityForScope(release.ImageScope(release.ImageReceipt{SourceRevision: testRevision, OCIRegion: "SFO", OCIImageOCID: sfo}, "canary"))
+	want := capabilityForScope(release.ImageScope(release.ImageReceipt{SourceRevision: testRevision, OCIRegion: "SJC", OCIImageOCID: sjc}, "canary"))
 	if err != nil || !slices.ContainsFunc(delegation.Capabilities(), func(c trust.Capability) bool { return reflect.DeepEqual(c, want) }) {
 		t.Fatal(err, delegation.Capabilities())
 	}
@@ -339,7 +339,7 @@ func TestSignDelegationRejectsInvalidScopeTimeKeysAndOverwrite(t *testing.T) {
 		{"architecture", []string{"--arch", "riscv64"}},
 		{"duplicate architecture", []string{"--arch", "amd64"}},
 		{"wildcard architecture", []string{"--arch", "*"}},
-		{"foreign image", []string{"--image-cell", "SFO", "--image-ocid", testDelegationImageOCID}},
+		{"foreign image", []string{"--image-cell", "SJC", "--image-ocid", testDelegationImageOCID}},
 		{"missing image pair", []string{"--image-cell", "GRU"}},
 		{"malformed image", []string{"--image-cell", "GRU", "--image-ocid", "ocid1.image.invalid"}},
 		{"non UTC", []string{"--issued-at", fixture.now.Add(-time.Minute).Format("2006-01-02T15:04:05-03:00")}},

@@ -20,16 +20,16 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
-const hostWANMetrics = `terrabase_wan_lag{region="sfo-1"} 0
-terrabase_wan_staleness_seconds{region="sfo-1"} 2.5
-terrabase_wan_members{region="sfo-1"} 3
-terrabase_wan_unregistered{region="sfo-1"} 0
-terrabase_wan_conflicts{region="sfo-1"} 0
+const hostWANMetrics = `terrabase_wan_lag{region="sjc-1"} 0
+terrabase_wan_staleness_seconds{region="sjc-1"} 2.5
+terrabase_wan_members{region="sjc-1"} 3
+terrabase_wan_unregistered{region="sjc-1"} 0
+terrabase_wan_conflicts{region="sjc-1"} 0
 `
 
 func hostWANFixture(at time.Time, receiverRegion string) *terrabase.WANObservation {
 	return &terrabase.WANObservation{ObservedAt: at, ReceiverRegion: receiverRegion, Sources: []terrabase.WANSource{{
-		SourceRegion: "sfo-1", LagGroups: new(0.0), StalenessSeconds: new(2.5),
+		SourceRegion: "sjc-1", LagGroups: new(0.0), StalenessSeconds: new(2.5),
 		Members: new(3.0), Unregistered: new(0.0), Conflicts: new(0.0),
 	}}}
 }
@@ -100,11 +100,11 @@ func TestNativeWANCollectionRequiresTheSameRunningProcess(t *testing.T) {
 			runner.observed[terrabase.Role] = process
 			runner.mu.Unlock()
 		}
-		fmt.Fprint(w, `terrabase_wan_lag{region="sfo-1"} 0
-terrabase_wan_staleness_seconds{region="sfo-1"} 2.5
-terrabase_wan_members{region="sfo-1"} 3
-terrabase_wan_unregistered{region="sfo-1"} 0
-terrabase_wan_conflicts{region="sfo-1"} 0
+		fmt.Fprint(w, `terrabase_wan_lag{region="sjc-1"} 0
+terrabase_wan_staleness_seconds{region="sjc-1"} 2.5
+terrabase_wan_members{region="sjc-1"} 3
+terrabase_wan_unregistered{region="sjc-1"} 0
+terrabase_wan_conflicts{region="sjc-1"} 0
 `)
 	}))
 	defer server.Close()
@@ -306,7 +306,7 @@ func TestNativeWANLogsChangedOutcomesAndRecovery(t *testing.T) {
 						w.WriteHeader(http.StatusServiceUnavailable)
 						return
 					case "metrics_invalid":
-						fmt.Fprint(w, `terrabase_wan_lag{region="sfo-1"} invalid`)
+						fmt.Fprint(w, `terrabase_wan_lag{region="sjc-1"} invalid`)
 						return
 					case "process_replaced":
 						processChange()

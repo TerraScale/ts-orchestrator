@@ -1,13 +1,37 @@
 {
   "name": "ts-dashboard",
-  "image": "ghcr.io/terrascale/ts-dashboard@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "image": "ghcr.io/terrascale/ts-dashboard@sha256:5c011ba30d26e3106c9e30ef6281a32320764bd6d9f2ecbb775b3b077e6a7df3",
   "env": {
     "ASPNETCORE_URLS": "http://127.0.0.1:8085",
     "TS_DASHBOARD_TERRABASE_URL": "http://127.0.0.1:8081"
   },
-  "secrets": ["TS_AUTH_DASHBOARD_CLIENT_SECRET", "TS_DASHBOARD_SESSION_ENCRYPTION_KEY", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "TERRABASE_PEER_SECRET"],
+  "secrets": {
+    "STRIPE_SECRET_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-stripe-secret-key"
+    },
+    "STRIPE_WEBHOOK_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-stripe-webhook-secret"
+    },
+    "TERRABASE_PEER_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-peer-secret"
+    },
+    "TS_AUTH_DASHBOARD_CLIENT_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-dashboard-client-secret"
+    },
+    "TS_DASHBOARD_SESSION_ENCRYPTION_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-dashboard-session-encryption-key"
+    }
+  },
   "port": 8085,
   "readyPath": "/readyz",
-  "hostnames": ["dash.terrascale.tech"],
-  "replicas": 1
+  "hostnames": [
+    "dash.terrascale.tech"
+  ],
+  "replicas": 1,
+  "regions": ["gru"]
 }

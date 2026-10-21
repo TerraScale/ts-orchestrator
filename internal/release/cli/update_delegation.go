@@ -236,7 +236,7 @@ func (c command) signBinaryUpdateWith(args []string, check func(release.Qualific
 	rootPath := flags.String("root-key", "", "baked root public key PEM")
 	privatePath := flags.String("signing-key", "", "delegated Ed25519 PKCS#8 private key PEM")
 	environment := flags.String("environment", "", "production or canary")
-	cell := flags.String("cell", "", "logical cell GRU, SFO or FRA")
+	cell := flags.String("cell", "", "logical cell GRU, SJC or FRA")
 	checkout := flags.String("source-checkout", "", "repository checkout used to prove lineage")
 	validFor := flags.Duration("valid-for", 7*24*time.Hour, "receipt validity, bounded by delegation expiry")
 	output := flags.String("out", "", "new signed update receipt path")

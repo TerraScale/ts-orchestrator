@@ -41,9 +41,9 @@ type nsg struct {
 
 // spec is a cell's whole desired network.
 type spec struct {
-	cell, code, region, compartment, host string
-	vcn, publicSubnet, privateSubnet      string
-	nsgs                                  []nsg
+	cell, code, region, compartment, host, node string
+	vcn, publicSubnet, privateSubnet            string
+	nsgs                                        []nsg
 }
 
 func desired(cellName string) (spec, error) {
@@ -59,6 +59,10 @@ func desired(cellName string) (spec, error) {
 	if err != nil {
 		return spec{}, err
 	}
+	node, err := naming.RegionCell(entry.Cell).Node(1)
+	if err != nil {
+		return spec{}, err
+	}
 	p := netip.MustParsePrefix(vcn)
 	// The first /25 is public hosts, .128/26 stays reserved for the planned
 	// public API load balancer and .192/26 holds private workload hosts.
@@ -69,7 +73,7 @@ func desired(cellName string) (spec, error) {
 	tcp := func(port int) rule { return rule{proto: "6", cidr: "0.0.0.0/0", port: port} }
 	udp := func(port int) rule { return rule{proto: "17", cidr: "0.0.0.0/0", port: port} }
 	return spec{
-		cell: cellName, code: entry.Cell, region: entry.OCIRegion, compartment: cellName + "-control", host: host,
+		cell: cellName, code: entry.Cell, region: entry.OCIRegion, compartment: cellName + "-control", host: host, node: node,
 		vcn: vcn, publicSubnet: public, privateSubnet: private.String(),
 		nsgs: []nsg{
 			// Every host: the VCN, path MTU discovery and the egress image
@@ -81,8 +85,9 @@ func desired(cellName string) (spec, error) {
 				{egress: true, proto: "17", cidr: "0.0.0.0/0"}, {egress: true, proto: "1", cidr: "0.0.0.0/0"},
 			}},
 			// The public edge: HTTPS, ACME, the NetBird ports in docs/netbird-m1.md
-			// and release pushes over NATS (docs/m1-single-host.md).
-			{cellName + "-edge-nsg", []rule{tcp(80), tcp(443), udp(3478), udp(51820), tcp(4222)}},
+			// and release pushes over NATS (docs/m1-single-host.md) on 4222, and the
+			// cross-region mesh gateways (mutual TLS, internal/natscell/mesh) on 7222.
+			{cellName + "-edge-nsg", []rule{tcp(80), tcp(443), udp(3478), udp(51820), tcp(4222), tcp(7222)}},
 			// shortcut: operator SSH from the internet, remove once SSH over NetBird is proven.
 			{cellName + "-operator-ssh-nsg", []rule{{proto: "6", cidr: operatorEgress, port: 22}}},
 		},

@@ -165,7 +165,7 @@ func VerifyWorkloadGenesis(wire []byte, roots trust.Keyring, originalScope trust
 			}
 		}
 	}
-	if !cells["GRU"] || !cells["SFO"] || !cells["FRA"] {
+	if !cells["GRU"] || !cells["SJC"] || !cells["FRA"] {
 		return deny()
 	}
 	var verified VerifiedWorkloadGenesis

@@ -23,7 +23,7 @@ func TestSubjectFamiliesKeepWireFormat(t *testing.T) {
 		BackupOperationSubject("gru"):                          "ts.orch.v1.gru.backup.operation",
 		BrokerClaimApplySubject("gru"):                         "ts.orch.v1.gru.broker.claim.apply",
 		MembershipReplaceSubject("gru"):                        "ts.orch.v1.gru.membership.replace",
-		PlacementApplySubject("sfo"):                           "ts.orch.v1.sfo.placement.apply",
+		PlacementApplySubject("sjc"):                           "ts.orch.v1.sjc.placement.apply",
 		ManagedUpdatePrepareSubject("gru"):                     "ts.orch.v1.gru.managed-update.prepare",
 		MaterialPrepareSubject("gru"):                          "ts.orch.v1.gru.material.prepare",
 		TerminalSubject("gru", "plan"):                         "ts.orch.v1.gru.terminal.plan",
@@ -54,10 +54,10 @@ func TestSubjectFamiliesKeepWireFormat(t *testing.T) {
 		GlobalStateStreamSubject():                             "ts.global.v1.>",
 		GlobalControlRequest("directory-put"):                  "ts.orch.v1.global.control.directory-put",
 		JSDomainAPIPrefix("gru"):                               "$JS.gru.API",
-		InterRegionGlobalDeliverSubject("sfo"):                 "ts.interregion.v1.sfo.global",
-		GlobalMirrorConsumer("SFO"):                            "global-mirror-sfo",
-		JSConsumerResetSubject(JSLocalAPIPrefix, GlobalControlStream, "global-mirror-sfo"): "$JS.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
-		JSFlowControlSubject(GlobalControlStream, "global-mirror-sfo"):                     "$JS.FC.TS_GLOBAL_CONTROL.global-mirror-sfo.*",
+		InterRegionGlobalDeliverSubject("sjc"):                 "ts.interregion.v1.sjc.global",
+		GlobalMirrorConsumer("SJC"):                            "global-mirror-sjc",
+		JSConsumerResetSubject(JSLocalAPIPrefix, GlobalControlStream, "global-mirror-sjc"): "$JS.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sjc",
+		JSFlowControlSubject(GlobalControlStream, "global-mirror-sjc"):                     "$JS.FC.TS_GLOBAL_CONTROL.global-mirror-sjc.*",
 	}
 	for got, want := range cases {
 		if got != want {
@@ -76,7 +76,7 @@ func TestSubjectFamiliesFailClosed(t *testing.T) {
 		"global regional root": Regional("global", "x"),
 		"global broker root":   Broker("global", "ticket", ">"),
 		"empty cell":           HostRegisterSubject(""),
-		"bad cell":             PlacementApplySubject("gru.sfo"),
+		"bad cell":             PlacementApplySubject("gru.sjc"),
 		"inner full wildcard":  Regional("gru", ">", "x"),
 		"dotted wildcard":      Regional("gru", "terminal.>.x"),
 		"whitespace token":     TerminalSubject("gru", "a b"),

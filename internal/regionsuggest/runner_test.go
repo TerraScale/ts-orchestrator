@@ -39,7 +39,7 @@ func TestSuggestSavesTheAddSuggestion(t *testing.T) {
 	saturated := statusSaturated()
 	saturated.RTTMillis = map[string]int{"uk-london-1": 150}
 	runner := newTestRunner(t, []globalview.Region{summary("gru", saturated),
-		summary("fra", statusBusy()), summary("sfo", statusBusy())})
+		summary("fra", statusBusy()), summary("sjc", statusBusy())})
 	saturatedSince := testNow.Add(-2 * time.Hour)
 	if _, err := runner.State.Save(ctx, 1, State{Memory: Memory{SaturatedSince: map[string]time.Time{"gru": saturatedSince}}}, 0); err != nil {
 		t.Fatal(err)
@@ -138,7 +138,7 @@ func TestSuggestSavesTheAddSuggestion(t *testing.T) {
 		}
 		suggestion, memory = Suggest(regions, nil, state.Memory, testBudget(0, 0), testNow.Add(IdleFor))
 		state, _ = persist(t, writer, reader, State{Memory: memory, Suggestion: suggestion}, revision)
-		if state.Suggestion.Action != ActionRemove || state.Suggestion.Cell != "sfo" || state.Suggestion.OCIRegion != "us-sanjose-1" {
+		if state.Suggestion.Action != ActionRemove || state.Suggestion.Cell != "sjc" || state.Suggestion.OCIRegion != "us-sanjose-1" {
 			t.Fatalf("idle for IdleFor = %+v", state.Suggestion)
 		}
 	})
@@ -154,15 +154,15 @@ func TestSuggestSavesTheAddSuggestion(t *testing.T) {
 			t.Fatal(err)
 		}
 		state, revision := persist(t, writer, reader, State{
-			Memory: Memory{IdleSince: map[string]time.Time{"sfo": testNow.Add(-time.Hour)}},
+			Memory: Memory{IdleSince: map[string]time.Time{"sjc": testNow.Add(-time.Hour)}},
 		}, 0)
-		if at, ok := state.Memory.IdleSince["sfo"]; !ok || !at.Equal(testNow.Add(-time.Hour)) {
+		if at, ok := state.Memory.IdleSince["sjc"]; !ok || !at.Equal(testNow.Add(-time.Hour)) {
 			t.Fatalf("initial idle clock = %v, present=%v", at, ok)
 		}
 		regions := testRegions(statusBusy(), statusBusy(), nil)
 		suggestion, memory := Suggest(regions, nil, state.Memory, testBudget(0, 0), testNow)
 		state, _ = persist(t, writer, reader, State{Memory: memory, Suggestion: suggestion}, revision)
-		if _, ok := state.Memory.IdleSince["sfo"]; ok {
+		if _, ok := state.Memory.IdleSince["sjc"]; ok {
 			t.Fatalf("an unknown status kept the idle clock: %+v", state.Memory)
 		}
 	})
@@ -171,11 +171,11 @@ func TestSuggestSavesTheAddSuggestion(t *testing.T) {
 func TestCandidatesAreTheCatalogRegionsThatServeNothing(t *testing.T) {
 	t.Parallel()
 
-	regions := []Region{{Cell: "gru", Home: true}, {Cell: "sfo"}, {Cell: "fra"}}
+	regions := []Region{{Cell: "gru", Home: true}, {Cell: "sjc"}, {Cell: "fra"}}
 	var names []string
 	for _, candidate := range candidates(regions) {
 		names = append(names, candidate.Cell)
-		if candidate.Cell == "gru" || candidate.Cell == "sfo" || candidate.Cell == "fra" {
+		if candidate.Cell == "gru" || candidate.Cell == "sjc" || candidate.Cell == "fra" {
 			t.Fatalf("candidates = %v; a serving or bootstrap region is a candidate", names)
 		}
 	}
@@ -189,20 +189,20 @@ func TestRegionsReadTheMeasuredRoundTrips(t *testing.T) {
 
 	status := statusIdle()
 	status.RTTMillis = map[string]int{"us-sanjose-1": 171, "eu-frankfurt-1": 197}
-	runner := newTestRunner(t, []globalview.Region{summary("sfo", status)})
+	runner := newTestRunner(t, []globalview.Region{summary("sjc", status)})
 	regions, err := runner.regions(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, region := range regions {
-		if region.Cell != "sfo" {
+		if region.Cell != "sjc" {
 			continue
 		}
 		if len(region.RTT) != 2 || region.RTT["us-sanjose-1"] != 171*time.Millisecond ||
 			region.RTT["eu-frankfurt-1"] != 197*time.Millisecond {
-			t.Fatalf("sfo RTT = %v; want 171ms and 197ms", region.RTT)
+			t.Fatalf("sjc RTT = %v; want 171ms and 197ms", region.RTT)
 		}
 		return
 	}
-	t.Fatal("sfo is not in the regions")
+	t.Fatal("sjc is not in the regions")
 }

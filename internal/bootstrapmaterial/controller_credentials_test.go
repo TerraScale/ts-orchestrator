@@ -59,7 +59,7 @@ func TestCheckControllerCredentialsRequiresExactRoleGrants(t *testing.T) {
 		return creds
 	}
 	for name, change := range map[string]func(*jwt.UserClaims){
-		"extra publish grant": func(c *jwt.UserClaims) { c.Pub.Allow.Add("ts.orch.v1.sfo.obs.region") },
+		"extra publish grant": func(c *jwt.UserClaims) { c.Pub.Allow.Add("ts.orch.v1.sjc.obs.region") },
 		"missing pattern grant": func(c *jwt.UserClaims) {
 			c.Pub.Allow.Remove(protocol.AnyRegionObservabilitySubject(protocol.ObservabilityRegionLeaf))
 		},

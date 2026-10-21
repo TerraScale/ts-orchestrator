@@ -16,7 +16,7 @@ import (
 
 const usage = `Usage: ts-orch disaster-recovery replicate --config FILE [--apply]
 
-Prepare gru-1 <-> sfo-1 Object Storage mirrors, verified historical backfills
+Prepare gru-1 <-> sjc-1 Object Storage mirrors, verified historical backfills
 and Vault key replicas. Without --apply, inspect and print the plan. With
 --apply, create only missing DR resources. Never changes nodes, cell specs,
 load balancers, DNS, or source objects. See docs/disaster-recovery.md.
@@ -71,7 +71,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	sfo, err := ociclient.OperatorConfig(catalog.OCIRegion(catalog.SFO))
+	sjc, err := ociclient.OperatorConfig(catalog.OCIRegion(catalog.SJC))
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	if err := requireVaultKey(ctx, gru, config.GRU); err != nil {
 		return err
 	}
-	if err := requireVaultKey(ctx, sfo, config.SFO); err != nil {
+	if err := requireVaultKey(ctx, sjc, config.SJC); err != nil {
 		return err
 	}
 	// Print the complete scope before any mutation, including the fact that
@@ -96,7 +96,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 		source, target             *ociclient.Factory
 		sourceCell, targetCell     string
 		sourceConfig, targetConfig Region
-	}{{gru, sfo, "gru", "sfo", config.GRU, config.SFO}, {sfo, gru, "sfo", "gru", config.SFO, config.GRU}} {
+	}{{gru, sjc, "gru", "sjc", config.GRU, config.SJC}, {sjc, gru, "sjc", "gru", config.SJC, config.GRU}} {
 		replica, err := EnsureVaultReplica(ctx, direction.source, direction.sourceConfig.VaultID, direction.target.Region(), *apply)
 		if outputErr := writeJSON(out, replica); outputErr != nil {
 			return errors.Join(err, outputErr)

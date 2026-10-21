@@ -353,7 +353,7 @@ func (r region) nodes(context.Context) []regionview.Node {
 		node := regionview.Node{Name: host, Address: fmt.Sprintf("10.251.1.%d", 21+index),
 			Services: []regionview.Service{{Role: "terrabase", Digest: digest, State: "running"}},
 			Backends: []regionview.Backend{{Set: "terrabase"}}}
-		if r.name == "sfo" && index == 1 {
+		if r.name == "sjc" && index == 1 {
 			node.Fence, node.Operation = []string{"drain"}, "drain: fence"
 			node.Backends[0].Offline = true
 		}

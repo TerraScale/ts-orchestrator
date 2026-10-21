@@ -69,7 +69,7 @@ func (r FoundationResolver) OriginalNetBirdBackup(ctx context.Context, manager V
 	authority = VerifiedOriginalNetBirdBackupAuthority{installationID: journal.InstallationID, storeGeneration: journal.StoreGeneration,
 		tenancyID: state.record.TenancyID, namespace: journal.Namespace, grantDigest: state.intent.grantDigest, expires: state.intent.expires}
 	for i, destination := range journal.Destinations {
-		if destination.Cell != [2]string{"GRU", "SFO"}[i] || destination.OCIRegion != [2]string{"sa-saopaulo-1", "us-sanjose-1"}[i] || destination.Bucket.Provenance == nil {
+		if destination.Cell != [2]string{"GRU", "SJC"}[i] || destination.OCIRegion != [2]string{"sa-saopaulo-1", "us-sanjose-1"}[i] || destination.Bucket.Provenance == nil {
 			return VerifiedOriginalNetBirdBackupAuthority{}, ErrOriginalSourceProducerHold
 		}
 		target := vaultsecret.Target{CompartmentID: destination.CompartmentID, VaultID: destination.VaultID, KeyID: destination.KMSKeyID}

@@ -788,18 +788,18 @@ func TestLoadBalancerRoutesByHostnameAndRequiresCloudflare(t *testing.T) {
 	}
 }
 
-// The checked-in sfo-1 plan serves sfo.orch: the controllers' Machines API
+// The checked-in sjc-1 plan serves sjc.orch: the controllers' Machines API
 // over TLS verified against the cell CA, health-checked on /healthz, beside
 // TerraBase on the colocated nodes.
 func TestSFOPlanServesTheMachinesAPI(t *testing.T) {
-	d, err := LoadPlan(filepath.Join("..", "..", "..", "deploy", "oci-region", "sfo-1-plan.json"))
+	d, err := LoadPlan(filepath.Join("..", "..", "..", "deploy", "oci-region", "sjc-1-plan.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if OrchPort != cellspec.MachinesAPIPort || d.OrchHost != "sfo.orch.terrascale.tech" ||
-		!slices.Equal(d.hostNames(), []string{"sfo.api.terrascale.tech", "sfo.auth.terrascale.tech", "sfo.orch.terrascale.tech"}) ||
-		names(d.Orch) != "ts-sfo-1 10.252.0.11:8444, ts-sfo-2 10.252.0.12:8444, ts-sfo-3 10.252.0.13:8444" ||
-		names(d.TerraBase) != "ts-sfo-1 10.252.0.11:9465, ts-sfo-2 10.252.0.12:9465, ts-sfo-3 10.252.0.13:9465" ||
+	if OrchPort != cellspec.MachinesAPIPort || d.OrchHost != "sjc.orch.terrascale.tech" ||
+		!slices.Equal(d.hostNames(), []string{"sjc.api.terrascale.tech", "sjc.auth.terrascale.tech", "sjc.orch.terrascale.tech"}) ||
+		names(d.Orch) != "ts-sjc-1 10.252.0.11:8444, ts-sjc-2 10.252.0.12:8444, ts-sjc-3 10.252.0.13:8444" ||
+		names(d.TerraBase) != "ts-sjc-1 10.252.0.11:9465, ts-sjc-2 10.252.0.12:9465, ts-sjc-3 10.252.0.13:9465" ||
 		!slices.Contains(d.Egress(), Rule{"10.252.0.0/25", OrchPort}) {
 		t.Fatalf("desired %+v", d)
 	}
@@ -825,17 +825,17 @@ func TestSFOPlanServesTheMachinesAPI(t *testing.T) {
 		certificates[cellCA]["caCertificate"] != "CELL" {
 		t.Fatalf("ts-orch %+v %v %v %v", orch, listeners["ts-orch"], hostnames["ts-orch"], certificates[cellCA])
 	}
-	if preview := strings.Join(d.Preview(), "\n"); !strings.Contains(preview, "dns-record sfo.orch.terrascale.tech") ||
+	if preview := strings.Join(d.Preview(), "\n"); !strings.Contains(preview, "dns-record sjc.orch.terrascale.tech") ||
 		!strings.Contains(preview, "tcp/8444 from 10.252.0.128/26") {
 		t.Fatal(preview)
 	}
 }
 
-// sfo-1, the first cell serving the Machines API, comes up through cert,
+// sjc-1, the first cell serving the Machines API, comes up through cert,
 // apply and dns against fake resource IDs, reads back as planned, and a
 // rotated origin certificate reaches every HTTPS listener, ts-orch included.
 func TestSFOEdgeComesUpAndRotatesItsOrigin(t *testing.T) {
-	wire, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "oci-region", "sfo-1-plan.json"))
+	wire, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "oci-region", "sjc-1-plan.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -867,7 +867,7 @@ func TestSFOEdgeComesUpAndRotatesItsOrigin(t *testing.T) {
 			t.Fatalf("%s records %v", name, records)
 		}
 	}
-	// A Vault bundle missing a planned name, here sfo.orch, gets a new version.
+	// A Vault bundle missing a planned name, here sjc.orch, gets a new version.
 	certificate, key, _, err := issueOrigin(t.Context(), cloudflare, d.hostNames()[:2])
 	if err != nil {
 		t.Fatal(err)

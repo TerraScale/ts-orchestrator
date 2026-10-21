@@ -24,7 +24,7 @@ func TestFreshRoleSequenceAuthoritySDK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		proof, err := VerifyFreshRoleBaselineCurrent(envelope, fixture.roots, "function-worker", "production", cell, fixture.now)
 		if err != nil {
 			t.Fatal(err)
@@ -86,7 +86,7 @@ func TestFreshRoleSequenceRejectsMixedAuthority(t *testing.T) {
 	fixture := freshRoleSequenceFixture(t)
 	legacy := fixture.migration
 	legacy.Schema, legacy.Purpose, legacy.FreshCells = SequenceMigrationSchema, "", nil
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		legacy.Regions = append(legacy.Regions, SequenceFloor{Cell: cell, RunNumber: 100, EvidenceSHA256: strings.Repeat("a", 64)})
 	}
 	cases := []struct {
@@ -115,14 +115,14 @@ func TestFreshRoleSequenceRejectsMixedAuthority(t *testing.T) {
 			m.Regions = []SequenceFloor{{Cell: "GRU", RunNumber: 100, EvidenceSHA256: strings.Repeat("a", 64)}}
 		}},
 		{"missing_cells", func(m *SequenceMigration, _ *trust.Scope) { m.FreshCells = nil }},
-		{"incomplete_cells", func(m *SequenceMigration, _ *trust.Scope) { m.FreshCells = []string{"GRU", "SFO"} }},
+		{"incomplete_cells", func(m *SequenceMigration, _ *trust.Scope) { m.FreshCells = []string{"GRU", "SJC"} }},
 		{"duplicate_cells", func(m *SequenceMigration, _ *trust.Scope) { m.FreshCells = []string{"GRU", "GRU", "FRA"} }},
-		{"unknown_cell", func(m *SequenceMigration, _ *trust.Scope) { m.FreshCells = []string{"GRU", "SFO", "UNKNOWN"} }},
-		{"lowercase_cell", func(m *SequenceMigration, _ *trust.Scope) { m.FreshCells = []string{"gru", "SFO", "FRA"} }},
+		{"unknown_cell", func(m *SequenceMigration, _ *trust.Scope) { m.FreshCells = []string{"GRU", "SJC", "UNKNOWN"} }},
+		{"lowercase_cell", func(m *SequenceMigration, _ *trust.Scope) { m.FreshCells = []string{"gru", "SJC", "FRA"} }},
 		{"zero_floor", func(m *SequenceMigration, _ *trust.Scope) { m.SequenceFloor = 0 }},
 		{"missing_namespace", func(m *SequenceMigration, _ *trust.Scope) { m.Namespace = "" }},
 		{"wrong_bucket", func(m *SequenceMigration, _ *trust.Scope) { m.Bucket = "other" }},
-		{"wrong_allocator_region", func(m *SequenceMigration, _ *trust.Scope) { m.Region = "SFO" }},
+		{"wrong_allocator_region", func(m *SequenceMigration, _ *trust.Scope) { m.Region = "SJC" }},
 		{"wrong_role", func(m *SequenceMigration, _ *trust.Scope) { m.Role = "ts-auth" }},
 		{"wrong_environment", func(m *SequenceMigration, _ *trust.Scope) { m.Environment = "staging" }},
 		{"signer_is_root", func(m *SequenceMigration, _ *trust.Scope) {
@@ -208,7 +208,7 @@ func TestFreshRoleSequenceProofRetainsOriginalScope(t *testing.T) {
 	}{
 		{"other_role", "ts-auth", "production", "GRU", fingerprint, verifiedAt},
 		{"other_environment", "function-worker", "staging", "GRU", fingerprint, verifiedAt},
-		{"other_cell", "function-worker", "production", "SFO", fingerprint, verifiedAt},
+		{"other_cell", "function-worker", "production", "SJC", fingerprint, verifiedAt},
 		{"other_migration", "function-worker", "production", "GRU", strings.Repeat("f", 64), verifiedAt},
 		{"backdated", "function-worker", "production", "GRU", fingerprint, verifiedAt.Add(-time.Nanosecond)},
 		{"expired", "function-worker", "production", "GRU", fingerprint, envelope.ExpiresAt},
@@ -264,6 +264,6 @@ func freshRoleSequenceFixture(t *testing.T) freshRoleSequenceData {
 	}
 	return freshRoleSequenceData{migration: SequenceMigration{Schema: SequenceFreshRoleSchema, Purpose: SequenceFreshRolePurpose,
 		Namespace: "ns", Bucket: "gru-1-head", Region: "GRU", Role: "function-worker", Environment: "production", SequenceFloor: 100,
-		SignerKeyID: id, SignerPublicKey: encoded, FreshCells: []string{"GRU", "SFO", "FRA"}},
+		SignerKeyID: id, SignerPublicKey: encoded, FreshCells: []string{"GRU", "SJC", "FRA"}},
 		root: root, signer: signer, roots: roots, now: time.Now().UTC().Truncate(time.Second)}
 }

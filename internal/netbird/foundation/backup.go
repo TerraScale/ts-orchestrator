@@ -67,7 +67,7 @@ func (scope backupScope) validate() error {
 			!strings.HasPrefix(destination.BucketID, "ocid1.bucket.oc1."+destination.Region+".") ||
 			!strings.HasPrefix(destination.KMSKeyID, "ocid1.key.oc1."+destination.Region+".") ||
 			!strings.HasPrefix(destination.CompartmentID, "ocid1.compartment.oc1..") {
-			return errors.New("NetBird recovery requires the exact admitted GRU and SFO destination set")
+			return errors.New("NetBird recovery requires the exact admitted GRU and SJC destination set")
 		}
 	}
 	return nil
@@ -128,7 +128,7 @@ func NewBackupTargets(ctx context.Context, factory *ociclient.Factory, resolver 
 			return targets, err
 		}
 		scope = backupScope{InstallationID: material.InstallationID(), StoreGeneration: manager.StoreGeneration(), TenancyID: tenancy, Namespace: material.StorageDomain().Namespace}
-		for i, cell := range [2]string{"GRU", "SFO"} {
+		for i, cell := range [2]string{"GRU", "SJC"} {
 			record, err := resolver.Resolve(ctx, cell)
 			if err != nil {
 				return targets, err
@@ -240,7 +240,7 @@ func Backup(ctx context.Context, dataDir, configPath string, targets [2]BackupTa
 	quiesce func(context.Context) (func(context.Context) error, error),
 ) (record BackupRecord, err error) {
 	if quiesce == nil || targets[0].index != 0 || targets[1].index != 1 || targets[0].scope != targets[1].scope {
-		return record, errors.New("NetBird backup requires quiescence and admitted GRU and SFO targets")
+		return record, errors.New("NetBird backup requires quiescence and admitted GRU and SJC targets")
 	}
 	for _, target := range targets {
 		if err := target.protected(ctx); err != nil {

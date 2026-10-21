@@ -60,7 +60,7 @@ func TestValidateServiceRefs(t *testing.T) {
 		"path key":                 {"ts-auth", map[string]Ref{"../X_FILE": ref("gru-1-ts-auth-master-key")}},
 		"other Vault":              {"ts-auth", map[string]Ref{"KEY_FILE": ref("gru-1-ts-auth-master-key"), "B_FILE": {"ocid1.vault.oc1.sa-saopaulo-1.other", "gru-1-ts-auth-b"}}},
 		"other region's Vault":     {"ts-auth", map[string]Ref{"KEY_FILE": {"ocid1.vault.oc1.us-sanjose-1.vault", "gru-1-ts-auth-master-key"}}},
-		"other cell's secret":      {"ts-auth", map[string]Ref{"KEY_FILE": ref("sfo-1-ts-auth-master-key")}},
+		"other cell's secret":      {"ts-auth", map[string]Ref{"KEY_FILE": ref("sjc-1-ts-auth-master-key")}},
 	}
 	for name, c := range refused {
 		if err := ValidateServiceRefs("gru", "", c.service, c.refs); err == nil {

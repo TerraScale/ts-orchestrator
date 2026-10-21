@@ -15,7 +15,7 @@ func TestNodeIdentityPinsCellSlotAndRaftID(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ cell, slot, id string }{
-		{"sfo", "controller-a", "abc123XY"},
+		{"sjc", "controller-a", "abc123XY"},
 		{"gru", "controller-b", "abc123XY"},
 		{"gru", "controller-a", "xyz456AB"},
 		{"gru", "controller-a", "bad/id!!"},
@@ -130,7 +130,7 @@ func readNodeIdentity(t *testing.T, dir string) nodeIdentity {
 
 func TestStartRejectsConflictingNodeIdentityBeforeListening(t *testing.T) {
 	dir := t.TempDir()
-	if err := pinNodeIdentity(dir, "sfo", "controller-a", "abc123XY"); err != nil {
+	if err := pinNodeIdentity(dir, "sjc", "controller-a", "abc123XY"); err != nil {
 		t.Fatal(err)
 	}
 	runtime, err := Start(t.Context(), labController(t, "controller-a", dir))

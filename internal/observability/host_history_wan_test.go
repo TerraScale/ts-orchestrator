@@ -38,7 +38,7 @@ func TestHostMetricWANValidatesLabelsCountsAndOriginalFreshness(t *testing.T) {
 		"missing label":      func(b *HostMetricBatch) { b.Samples[2].Labels = b.Samples[2].Labels[:4] },
 		"duplicate label":    func(b *HostMetricBatch) { b.Samples[2].Labels = append(b.Samples[2].Labels, b.Samples[2].Labels[0]) },
 		"extra label": func(b *HostMetricBatch) {
-			b.Samples[2].Labels = append(b.Samples[2].Labels, Label{Name: "source_cell", Value: "sfo"})
+			b.Samples[2].Labels = append(b.Samples[2].Labels, Label{Name: "source_cell", Value: "sjc"})
 		},
 		"different node":        func(b *HostMetricBatch) { b.Samples[2].Labels[1].Value = "node-b" },
 		"different role":        func(b *HostMetricBatch) { b.Samples[2].Labels[2].Value = "api" },

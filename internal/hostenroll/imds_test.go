@@ -180,7 +180,7 @@ func TestReadControllerHostMetadataNamesTheControllerSlot(t *testing.T) {
 		t.Fatalf("controller host metadata = %+v, %v", metadata, err)
 	}
 	// A node the rename named keeps its name; another region's does not.
-	for display, want := range map[string]string{"ts-gru-2": "ts-gru-2", "ts-sfo-2": "gru-1-ctl-2", "gru-1-ctl-9": "gru-1-ctl-2"} {
+	for display, want := range map[string]string{"ts-gru-2": "ts-gru-2", "ts-sjc-2": "gru-1-ctl-2", "gru-1-ctl-9": "gru-1-ctl-2"} {
 		name = []byte(display)
 		if metadata, err := ReadControllerHostMetadata(t.Context(), client, "gru", "GRU"); err != nil ||
 			metadata.Descriptor != hostboot.Static("gru", "GRU", want) || !metadata.Descriptor.IsController() {
@@ -228,7 +228,7 @@ func TestReadPoolNodeMetadataWaitsForTheLeaderToName(t *testing.T) {
 	if _, err := ReadPoolNodeMetadata(t.Context(), client, "gru", "GRU"); !errors.Is(err, ErrNodeNotNamed) {
 		t.Fatalf("an unnamed pool instance: %v", err)
 	}
-	name = []byte("ts-sfo-4")
+	name = []byte("ts-sjc-4")
 	if _, err := ReadPoolNodeMetadata(t.Context(), client, "gru", "GRU"); !errors.Is(err, ErrNodeNotNamed) {
 		t.Fatalf("another region's name: %v", err)
 	}

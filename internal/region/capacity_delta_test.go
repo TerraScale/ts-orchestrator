@@ -7,7 +7,7 @@ import (
 )
 
 func TestCapacityDeltaCannotAcquireRegionalOwnershipOrMintDrain(t *testing.T) {
-	original := FoundationRecord{Cell: "SFO", OperationID: "regional-foundation-owner", Epoch: 17, ResourceIDs: map[string]string{"subnet": "original-subnet"}}
+	original := FoundationRecord{Cell: "SJC", OperationID: "regional-foundation-owner", Epoch: 17, ResourceIDs: map[string]string{"subnet": "original-subnet"}}
 	if err := validateCapacityOnlyDelta(original, original); err != nil {
 		t.Fatal(err)
 	}

@@ -6,7 +6,7 @@ foundation creation and the controller-A launch, see the
 the signed founder objects and seed transaction used by that runbook.
 
 The seed slot is `controller-a`, the only operator-started controller. The
-material and first-seed commands accept GRU / `sa-saopaulo-1`, SFO /
+material and first-seed commands accept GRU / `sa-saopaulo-1`, SJC /
 `us-sanjose-1`, and FRA / `eu-frankfurt-1`; each cell needs its own reviewed
 plan and signed genesis. After A's signed admission and identity/authority
 handoff, `ts-orchestrator` uses the selected founder plan to launch

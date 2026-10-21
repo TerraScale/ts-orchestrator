@@ -1,14 +1,42 @@
 {
   "name": "ts-auth",
-  "image": "ghcr.io/terrascale/ts-auth@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "image": "ghcr.io/terrascale/ts-auth@sha256:6b1937d632bf0d8e725d6e9c1471afdb1ddf50aa6fb144ef43650f25cde79b5b",
   "env": {
     "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login",
     "TS_AUTH_DASHBOARD_REDIRECT_URIS": "https://dash.terrascale.tech/login/callback",
     "TS_AUTH_TERRABASE_URL": "http://127.0.0.1:8081"
   },
-  "secrets": ["TS_AUTH_MASTER_KEY", "TS_AUTH_AUDIT_SIGNING_KEY", "TS_AUTH_DASHBOARD_CLIENT_SECRET", "TERRABASE_PEER_SECRET", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_EMAIL_TOKEN"],
+  "secrets": {
+    "CLOUDFLARE_ACCOUNT_ID_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-cloudflare-account-id"
+    },
+    "CLOUDFLARE_EMAIL_TOKEN_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-cloudflare-email-token"
+    },
+    "TERRABASE_PEER_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-peer-secret"
+    },
+    "TS_AUTH_AUDIT_SIGNING_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-audit-signing-key"
+    },
+    "TS_AUTH_DASHBOARD_CLIENT_SECRET_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-dashboard-client-secret"
+    },
+    "TS_AUTH_MASTER_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-master-key"
+    }
+  },
   "port": 8090,
   "readyPath": "/readyz",
-  "hostnames": ["auth.terrascale.tech"],
-  "replicas": 1
+  "hostnames": [
+    "auth.terrascale.tech"
+  ],
+  "replicas": 1,
+  "regions": ["gru"]
 }

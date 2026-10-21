@@ -28,12 +28,12 @@ func TestCapacityRegionsMapRollupStatuses(t *testing.T) {
 		NodeMonthlyCents: 4100, ProjectedCents: 21000, Currency: "BRL", CostAt: at}
 	got := capacityRegions([]globalview.Region{
 		{Cell: "gru", Rollup: &globalview.Rollup{Cell: "gru", Scale: status}},
-		{Cell: "sfo", Rollup: &globalview.Rollup{Cell: "sfo"}},
+		{Cell: "sjc", Rollup: &globalview.Rollup{Cell: "sjc"}},
 		{Cell: "fra"},
 	})
 	want := []budget.Region{
 		{Cell: "gru", Nodes: 4, Want: 5, Pressure: 0.82, At: at},
-		{Cell: "sfo"},
+		{Cell: "sjc"},
 		{Cell: "fra"},
 	}
 	if !slices.Equal(got, want) {

@@ -69,11 +69,11 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 	if err := sendHeartbeat(conn, "gru", "sa-saopaulo-1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := sendHeartbeat(conn, "sfo", "us-sanjose-1", time.Now()); err != nil {
+	if err := sendHeartbeat(conn, "sjc", "us-sanjose-1", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	// A heartbeat claiming sfo, published on fra's subject, is dropped.
-	spoofed, err := protocol.EncodeJSON(globalcontrol.Heartbeat{Version: 1, Cell: "sfo", OCIRegion: "us-sanjose-1", SentAt: time.Now()})
+	// A heartbeat claiming sjc, published on fra's subject, is dropped.
+	spoofed, err := protocol.EncodeJSON(globalcontrol.Heartbeat{Version: 1, Cell: "sjc", OCIRegion: "us-sanjose-1", SentAt: time.Now()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,13 +88,13 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 		defer keeper.mu.Unlock()
 		return len(keeper.seen)
 	}
-	waitRegistry(ctx, t, "heartbeats of gru and sfo", func() bool { return heard() == 2 })
+	waitRegistry(ctx, t, "heartbeats of gru and sjc", func() bool { return heard() == 2 })
 
 	if err := keeper.refresh(ctx, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	roster, _, err := writer.Roster(ctx)
-	if err != nil || roster.Generation != 1 || len(roster.Regions) != 2 || !roster.Active("sfo") || roster.Active("fra") {
+	if err != nil || roster.Generation != 1 || len(roster.Regions) != 2 || !roster.Active("sjc") || roster.Active("fra") {
 		t.Fatalf("roster = %+v, %v", roster, err)
 	}
 	if err := keeper.refresh(ctx, time.Now()); err != nil {
@@ -105,7 +105,7 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 	}
 
 	peers := &rosterPeers{}
-	links, err := regionlink.New("sfo", conn, nil, time.Second)
+	links, err := regionlink.New("sjc", conn, nil, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,9 +114,9 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 	followed := make(chan struct{})
 	go func() {
 		defer close(followed)
-		followRoster(followCtx, &writer.Reader, "sfo", peers.apply)
+		followRoster(followCtx, &writer.Reader, "sjc", peers.apply)
 	}()
-	waitRegistry(ctx, t, "gru as the only peer of sfo", func() bool {
+	waitRegistry(ctx, t, "gru as the only peer of sjc", func() bool {
 		return slices.Equal(peers.current(), []string{"gru"}) && links.Linked("gru")
 	})
 	stopFollow()
@@ -229,7 +229,7 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 			}
 			return decoded
 		}
-		valid := globalcontrol.Heartbeat{Version: 1, Cell: "sfo", OCIRegion: "us-sanjose-1", SentAt: time.Now()}
+		valid := globalcontrol.Heartbeat{Version: 1, Cell: "sjc", OCIRegion: "us-sanjose-1", SentAt: time.Now()}
 		if err := valid.Validate(); err != nil {
 			t.Fatal(err)
 		}
@@ -237,7 +237,7 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 			t.Fatalf("valid heartbeat was invalid after network delivery: %+v", decoded)
 		}
 		keeper.mu.Lock()
-		accepted, present := keeper.seen["sfo"]
+		accepted, present := keeper.seen["sjc"]
 		keeper.mu.Unlock()
 		if !present || accepted.Version != valid.Version || accepted.Cell != valid.Cell || accepted.OCIRegion != valid.OCIRegion || accepted.SentAt.IsZero() {
 			t.Fatalf("production callback did not admit the valid heartbeat: %+v", accepted)
@@ -248,9 +248,9 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 		stored, sequence, _ := readRoster()
 		expected := globalcontrol.Roster{Generation: 3, HomeRegion: "gru", Regions: []globalcontrol.RosterEntry{
 			{Cell: "gru", OCIRegion: "sa-saopaulo-1", State: globalcontrol.RegionActive},
-			{Cell: "sfo", OCIRegion: "us-sanjose-1", State: globalcontrol.RegionActive},
+			{Cell: "sjc", OCIRegion: "us-sanjose-1", State: globalcontrol.RegionActive},
 		}}
-		if sequence <= silentSequence || stored.Validate() != nil || !stored.Active("sfo") || !bytes.Equal(encode(stored), encode(expected)) {
+		if sequence <= silentSequence || stored.Validate() != nil || !stored.Active("sjc") || !bytes.Equal(encode(stored), encode(expected)) {
 			t.Fatalf("valid heartbeat persisted roster = %+v, %d, want %+v after %d", stored, sequence, expected, silentSequence)
 		}
 		seenBytes := func() []byte {
@@ -261,7 +261,7 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 		for name, mutate := range map[string]func(*globalcontrol.Heartbeat){
 			"version":    func(h *globalcontrol.Heartbeat) { h.Version = 2 },
 			"global":     func(h *globalcontrol.Heartbeat) { h.Cell = "global" },
-			"cell":       func(h *globalcontrol.Heartbeat) { h.Cell = "SFO" },
+			"cell":       func(h *globalcontrol.Heartbeat) { h.Cell = "SJC" },
 			"oci region": func(h *globalcontrol.Heartbeat) { h.OCIRegion = "" },
 			"long":       func(h *globalcontrol.Heartbeat) { h.OCIRegion = string(make([]byte, 65)) },
 			"charset":    func(h *globalcontrol.Heartbeat) { h.OCIRegion = "US_SANJOSE 1" },
@@ -325,7 +325,7 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 		baseline, baselineSequence, err := reader.Roster(ctx)
 		wantBaseline := globalcontrol.Roster{Generation: 3, HomeRegion: "gru", Regions: []globalcontrol.RosterEntry{
 			{Cell: "gru", OCIRegion: "sa-saopaulo-1", State: globalcontrol.RegionActive},
-			{Cell: "sfo", OCIRegion: "us-sanjose-1", State: globalcontrol.RegionActive},
+			{Cell: "sjc", OCIRegion: "us-sanjose-1", State: globalcontrol.RegionActive},
 		}}
 		if err != nil || baselineSequence == 0 || baseline.Generation != wantBaseline.Generation || baseline.HomeRegion != wantBaseline.HomeRegion || !slices.Equal(baseline.Regions, wantBaseline.Regions) {
 			t.Fatalf("persisted baseline = %+v at %d: %v", baseline, baselineSequence, err)
@@ -345,7 +345,7 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 		expanded := globalcontrol.Roster{Generation: 4, HomeRegion: "gru", Regions: []globalcontrol.RosterEntry{
 			{Cell: "fra", OCIRegion: "eu-frankfurt-1", State: globalcontrol.RegionActive},
 			{Cell: "gru", OCIRegion: "sa-saopaulo-1", State: globalcontrol.RegionActive},
-			{Cell: "sfo", OCIRegion: "us-sanjose-1", State: globalcontrol.RegionActive},
+			{Cell: "sjc", OCIRegion: "us-sanjose-1", State: globalcontrol.RegionActive},
 		}}
 		// Publish roster records only: the earlier heartbeat observer remains subscribed.
 		expandedSequence, err := writer.PutRoster(ctx, global.Current().Epoch, expanded)
@@ -364,26 +364,26 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 			}
 			cells = append(cells, cell)
 		}
-		if !slices.Equal(cells, []string{"fra-1", "gru-1", "sfo-1"}) {
+		if !slices.Equal(cells, []string{"fra-1", "gru-1", "sjc-1"}) {
 			t.Fatalf("stored Atlas cells = %v", cells)
 		}
 		// Reverse the observed roster to retain the original unsorted WithRegions input.
 		slices.Reverse(cells)
-		if !slices.Equal(cells, []string{"sfo-1", "gru-1", "fra-1"}) {
+		if !slices.Equal(cells, []string{"sjc-1", "gru-1", "fra-1"}) {
 			t.Fatalf("original Atlas input changed: %v", cells)
 		}
 		next, err := gru.WithRegions(cells)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !slices.Equal(ids(next), []string{"gru-1", "sfo-1", "fra-1"}) {
+		if !slices.Equal(ids(next), []string{"gru-1", "sjc-1", "fra-1"}) {
 			t.Fatalf("regions = %v", ids(next))
 		}
 		if next.Regions[0] != gru.Regions[0] {
 			t.Fatalf("spec entry replaced: %+v", next.Regions[0])
 		}
-		if want, _ := atlas.RegionFor("sfo-1"); next.Regions[1] != want {
-			t.Fatalf("derived sfo-1 = %+v", next.Regions[1])
+		if want, _ := atlas.RegionFor("sjc-1"); next.Regions[1] != want {
+			t.Fatalf("derived sjc-1 = %+v", next.Regions[1])
 		}
 		if len(gru.Regions) != 1 {
 			t.Fatal("WithRegions changed its receiver's regions")
@@ -415,7 +415,7 @@ func TestRegionRegistryBuildsAndFollowsRoster(t *testing.T) {
 			t.Fatalf("original Atlas shrink input changed: %v", shrinkCells)
 		}
 		if shrunk, err := next.WithRegions(shrinkCells); err != nil || !slices.Equal(ids(shrunk), []string{"gru-1"}) {
-			t.Fatalf("roster without sfo-1 and fra-1 = %v %v", ids(shrunk), err)
+			t.Fatalf("roster without sjc-1 and fra-1 = %v %v", ids(shrunk), err)
 		}
 	}
 
@@ -454,8 +454,8 @@ func TestAtlasRosterListsTheLiveRoster(t *testing.T) {
 	if got := config(); !slices.Equal(ids(got), []string{"gru-1"}) || got.Regions[0].Name != "Sao Paulo (reviewed)" {
 		t.Fatalf("alone: %+v", got.Regions)
 	}
-	peers.apply([]string{"sfo", "fra"})
-	if got := config(); !slices.Equal(ids(got), []string{"gru-1", "sfo-1", "fra-1"}) || got.Regions[0].Name != "Sao Paulo (reviewed)" {
+	peers.apply([]string{"sjc", "fra"})
+	if got := config(); !slices.Equal(ids(got), []string{"gru-1", "sjc-1", "fra-1"}) || got.Regions[0].Name != "Sao Paulo (reviewed)" {
 		t.Fatalf("with roster: %+v", got.Regions)
 	}
 	peers.apply([]string{"zzz"})

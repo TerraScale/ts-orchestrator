@@ -42,7 +42,7 @@ func TestTerraBaseReleaseFenceUnderLoad(t *testing.T) {
 			spec.Canary = &cellspec.Canary{Project: "traffic-test"}
 			writer := &releaseLoadWriter{fenceCell: cell}
 			if scenario == "member failure" {
-				writer.failNode = "ctl-2"
+				writer.failNode = "gru-1-ctl-2"
 			}
 			public, private, err := ed25519.GenerateKey(nil)
 			if err != nil {
@@ -161,7 +161,7 @@ func TestTerraBaseReleaseFenceUnderLoad(t *testing.T) {
 				cell.mu.Lock()
 				defer cell.mu.Unlock()
 				gateCalls++
-				if target.Role != terrabase.Role || target.Node != "ctl-1" || len(cell.restarts) > 1 {
+				if target.Role != terrabase.Role || target.Node != "gru-1-ctl-1" || len(cell.restarts) > 1 {
 					t.Errorf("canary %+v ran after restarts %v", target, cell.restarts)
 				}
 				if scenario == "canary failure" && len(cell.restarts) == 1 {
@@ -241,12 +241,12 @@ func TestTerraBaseReleaseFenceUnderLoad(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantState, wantDigest := releasechannel.StateComplete, candidate.Digest
-			wantRestarts := []string{"ctl-1/7", "ctl-2/7", "ctl-3/7"}
+			wantRestarts := []string{"gru-1-ctl-1/7", "gru-1-ctl-2/7", "gru-1-ctl-3/7"}
 			if scenario != "upgrade" {
 				wantState, wantDigest = releasechannel.StateFailed, previous.Digest
-				wantRestarts = []string{"ctl-1/7", "ctl-1/8", "ctl-2/8", "ctl-3/8"}
+				wantRestarts = []string{"gru-1-ctl-1/7", "gru-1-ctl-1/8", "gru-1-ctl-2/8", "gru-1-ctl-3/8"}
 				if scenario == "member failure" {
-					wantRestarts = []string{"ctl-1/7", "ctl-2/7", "ctl-2/8", "ctl-1/8", "ctl-3/8"}
+					wantRestarts = []string{"gru-1-ctl-1/7", "gru-1-ctl-2/7", "gru-1-ctl-2/8", "gru-1-ctl-1/8", "gru-1-ctl-3/8"}
 				}
 				if state.Rollback == nil || state.Rollback.ArtifactDigest != previous.Digest ||
 					!strings.Contains(state.Reason, "was rolled back to "+previous.Digest) {

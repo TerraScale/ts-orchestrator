@@ -263,7 +263,7 @@ func TestConcurrentReadsAndAppends(t *testing.T) {
 		if err := testRoster(1).Validate(); err != nil {
 			t.Fatal(err)
 		}
-		if !testRoster(1).Active("sfo") || testRoster(1).Active("fra") || testRoster(1).Active("iad") {
+		if !testRoster(1).Active("sjc") || testRoster(1).Active("fra") || testRoster(1).Active("iad") {
 			t.Fatal("roster Active disagrees with entry states")
 		}
 		sequence, err := writer.PutRoster(ctx, 1, testRoster(1))
@@ -278,7 +278,7 @@ func TestConcurrentReadsAndAppends(t *testing.T) {
 		expected := testRoster(1)
 		if err != nil || gotSequence != sequence || stored.Generation != expected.Generation || stored.HomeRegion != expected.HomeRegion ||
 			!slices.Equal(stored.Regions, expected.Regions) || stored.Validate() != nil ||
-			!stored.Active("sfo") || stored.Active("fra") || stored.Active("iad") {
+			!stored.Active("sjc") || stored.Active("fra") || stored.Active("iad") {
 			t.Fatalf("independent roster = %+v, %d, %v", stored, gotSequence, err)
 		}
 		cases := map[string]func(*Roster){
@@ -361,10 +361,10 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 	defer cancel()
 	js := newTestJetStream(t)
 	fencer := &pausedFencer{epoch: 1}
-	if _, err := OpenHome(ctx, js, "gru", []string{"fra", "iad", "sfo"}, 1, fencer); err != nil {
+	if _, err := OpenHome(ctx, js, "gru", []string{"fra", "iad", "sjc"}, 1, fencer); err != nil {
 		t.Fatal(err)
 	}
-	assertMirrorConsumers(ctx, t, js, []string{"fra", "iad", "sfo"})
+	assertMirrorConsumers(ctx, t, js, []string{"fra", "iad", "sjc"})
 	stream, err := js.Stream(ctx, StreamName)
 	if err != nil {
 		t.Fatal(err)
@@ -373,7 +373,7 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 	if _, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{Durable: "audit", AckPolicy: jetstream.AckExplicitPolicy}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := OpenHome(ctx, js, "gru", []string{"sfo"}, 1, fencer); err != nil {
+	if _, err := OpenHome(ctx, js, "gru", []string{"sjc"}, 1, fencer); err != nil {
 		t.Fatal(err)
 	}
 	for _, peer := range []string{"fra", "iad"} {
@@ -381,7 +381,7 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 			t.Fatalf("removed peer %s consumer = %v", peer, err)
 		}
 	}
-	if _, err := stream.PushConsumer(ctx, protocol.GlobalMirrorConsumer("sfo")); err != nil {
+	if _, err := stream.PushConsumer(ctx, protocol.GlobalMirrorConsumer("sjc")); err != nil {
 		t.Fatalf("kept peer consumer: %v", err)
 	}
 	if _, err := stream.Consumer(ctx, "audit"); err != nil {
@@ -414,8 +414,8 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 			"max bytes":            func(config *jetstream.StreamConfig) { config.MaxBytes = 1 << 20 },
 			"max msgs per subject": func(config *jetstream.StreamConfig) { config.MaxMsgsPerSubject = 1 },
 		} {
-			config := MirrorStreamConfig("gru", "sfo", 1)
-			if err := verifyMirror(config, "gru", "sfo", 1); err != nil {
+			config := MirrorStreamConfig("gru", "sjc", 1)
+			if err := verifyMirror(config, "gru", "sjc", 1); err != nil {
 				t.Fatalf("expected mirror config refused: %v", err)
 			}
 			js := newTestJetStream(t)
@@ -423,11 +423,11 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 				t.Fatal(err)
 			}
 			baseline, _ := observe(js)
-			if err := verifyMirror(baseline, "gru", "sfo", 1); err != nil {
+			if err := verifyMirror(baseline, "gru", "sjc", 1); err != nil {
 				t.Fatalf("%s persisted valid mirror rejected: %v", name, err)
 			}
 			change(&config)
-			if err := verifyMirror(config, "gru", "sfo", 1); err == nil {
+			if err := verifyMirror(config, "gru", "sjc", 1); err == nil {
 				t.Errorf("%s: a mirror with a finite limit passed verification", name)
 			}
 			if _, err := js.UpdateStream(ctx, config); err != nil {
@@ -437,11 +437,11 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 			if actual.MaxMsgs != config.MaxMsgs || actual.MaxBytes != config.MaxBytes || actual.MaxMsgsPerSubject != config.MaxMsgsPerSubject {
 				t.Fatalf("%s changed persisted limits: %+v", name, actual)
 			}
-			validationErr := verifyMirror(actual, "gru", "sfo", 1)
+			validationErr := verifyMirror(actual, "gru", "sjc", 1)
 			if validationErr == nil {
 				t.Fatalf("%s persisted finite mirror passed verification", name)
 			}
-			if _, err := OpenMirror(ctx, js, "gru", "sfo", 1); err == nil || err.Error() != validationErr.Error() {
+			if _, err := OpenMirror(ctx, js, "gru", "sjc", 1); err == nil || err.Error() != validationErr.Error() {
 				t.Fatalf("%s mirror opener rejection = %v, want %v", name, err, validationErr)
 			}
 			if _, after := observe(js); !bytes.Equal(after, before) {
@@ -481,20 +481,20 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 			}
 		}
 		{
-			mirror := MirrorStreamConfig("gru", "sfo", 1)
+			mirror := MirrorStreamConfig("gru", "sjc", 1)
 			js := newTestJetStream(t)
 			if _, err := js.CreateStream(ctx, mirror); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := OpenMirror(ctx, js, "gru", "sfo", 1); err != nil {
+			if _, err := OpenMirror(ctx, js, "gru", "sjc", 1); err != nil {
 				t.Fatal(err)
 			}
 			baseline, before := observe(js)
-			if err := verifyMirror(baseline, "gru", "sfo", 1); err != nil {
+			if err := verifyMirror(baseline, "gru", "sjc", 1); err != nil {
 				t.Fatal(err)
 			}
 			mirror.Mirror.OptStartSeq = 5
-			if err := verifyMirror(mirror, "gru", "sfo", 1); err == nil {
+			if err := verifyMirror(mirror, "gru", "sjc", 1); err == nil {
 				t.Fatal("a mirror starting past the first record passed verification")
 			}
 			_, err := js.UpdateStream(ctx, mirror)
@@ -503,10 +503,10 @@ func TestHomeRemovesMirrorConsumersOfRemovedPeers(t *testing.T) {
 				t.Fatalf("late pinned mirror update = %v, want selected broker API error 10213", err)
 			}
 			actual, after := observe(js)
-			if err := verifyMirror(actual, "gru", "sfo", 1); err != nil || !bytes.Equal(after, before) {
+			if err := verifyMirror(actual, "gru", "sjc", 1); err != nil || !bytes.Equal(after, before) {
 				t.Fatalf("rejected late mirror update changed baseline: before %s, after %s, %v", before, after, err)
 			}
-			if _, err := OpenMirror(ctx, js, "gru", "sfo", 1); err != nil {
+			if _, err := OpenMirror(ctx, js, "gru", "sjc", 1); err != nil {
 				t.Fatalf("unchanged valid mirror no longer opens: %v", err)
 			}
 			if _, after := observe(js); !bytes.Equal(after, before) {

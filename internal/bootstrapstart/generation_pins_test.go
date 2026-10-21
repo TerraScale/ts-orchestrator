@@ -487,7 +487,7 @@ func embeddedBlock(t *testing.T, config []byte, dir string) *natscell.Embedded {
 	return loaded.NATS.Embedded
 }
 
-// The v1 contract as gru-1 and sfo-1 adopt it (TS-668). Without controller issuers
+// The v1 contract as gru-1 and sjc-1 adopt it (TS-668). Without controller issuers
 // nothing is issued: the slot's manifest-era leaf (placeholder bytes no
 // issuance rule accepts) keeps its manifest pin, and no issuer file is read,
 // since none is installed. The interregion files have their role in the

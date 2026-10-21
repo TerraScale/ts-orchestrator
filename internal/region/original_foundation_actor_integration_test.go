@@ -744,7 +744,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 					t.Fatal("original path must make exactly5 compartments+18 network+4 KMS+3 instances and3NSG adds")
 				}
 				for index, post := range posts {
-					if post.cell != []string{"GRU", "SFO", "FRA"}[index] {
+					if post.cell != []string{"GRU", "SJC", "FRA"}[index] {
 						t.Fatal("original actor launch escaped finite cell order")
 					}
 				}
@@ -1031,7 +1031,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 				g.Regions[0].BootstrapMaterial.OriginalSourceProducer.PlanSHA256 = strings.Repeat("a", 64)
 			},
 			"wrong-cell control ref": func(g *FoundationGrant) {
-				g.Regions[0].BootstrapMaterial.Startup.Profiles[0].CompartmentOCID = "foundation:SFO:control_compartment"
+				g.Regions[0].BootstrapMaterial.Startup.Profiles[0].CompartmentOCID = "foundation:SJC:control_compartment"
 			},
 			"NSG journal alias": func(g *FoundationGrant) {
 				g.Regions[0].BootstrapMaterial.Startup.Profiles[0].NetworkSecurityGroupOCIDs = []string{"foundation:GRU:controller_nsg"}

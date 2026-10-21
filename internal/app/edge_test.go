@@ -11,7 +11,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 )
 
-// newEdgeTest owns both sets: terrabase and ts-auth run on ctl-1..3.
+// newEdgeTest owns both sets: terrabase and ts-auth run on gru-1-ctl-1..3.
 func newEdgeTest(t *testing.T) (*edgeReconciler, *nodeOps, *fenceLB, *nodeInstances) {
 	t.Helper()
 	ops, balancer, instances := newNodeOpsTest(t)
@@ -56,17 +56,17 @@ func TestEdgeLeavesAServingSetAlone(t *testing.T) {
 func TestEdgeAddsAMissingReplicaOutOfRotation(t *testing.T) {
 	edge, _, balancer, _ := newEdgeTest(t)
 	balancer.sets["ts-auth"] = balancer.sets["ts-auth"][:2]
-	edge.fence.hosts.(*nodeHosts).states["ctl-3/ts-auth"] = "starting"
+	edge.fence.hosts.(*nodeHosts).states["gru-1-ctl-3/ts-auth"] = "starting"
 	edge.passes(t, 2)
 	if backend, ok := backendOf(balancer, "ts-auth", "10.0.0.13:8080"); !ok || backend.Serving() {
 		t.Fatalf("added %+v %v", backend, ok)
 	}
-	edge.fence.hosts.(*nodeHosts).states["ctl-3/ts-auth"] = ""
+	edge.fence.hosts.(*nodeHosts).states["gru-1-ctl-3/ts-auth"] = ""
 	edge.passes(t, 1)
 	if backend, _ := backendOf(balancer, "ts-auth", "10.0.0.13:8080"); !backend.Serving() {
 		t.Fatalf("a serving replica stayed out: %q", balancer.log)
 	}
-	if _, found, _ := edge.fence.record(t.Context(), "ctl-3"); found {
+	if _, found, _ := edge.fence.record(t.Context(), "gru-1-ctl-3"); found {
 		t.Fatal("the health hold was left")
 	}
 }
@@ -75,7 +75,7 @@ func TestEdgeAddsAMissingReplicaOutOfRotation(t *testing.T) {
 // returns once it serves.
 func TestEdgeTakesANonServingReplicaOutAndBack(t *testing.T) {
 	edge, _, balancer, _ := newEdgeTest(t)
-	edge.fence.hosts.(*nodeHosts).states["ctl-2/ts-auth"] = "failed"
+	edge.fence.hosts.(*nodeHosts).states["gru-1-ctl-2/ts-auth"] = "failed"
 	edge.passes(t, 2)
 	if backend, _ := backendOf(balancer, "ts-auth", "10.0.0.12:8080"); backend.Serving() {
 		t.Fatalf("a failed replica serves: %q", balancer.log)
@@ -83,7 +83,7 @@ func TestEdgeTakesANonServingReplicaOutAndBack(t *testing.T) {
 	if backend, _ := backendOf(balancer, "terrabase", "10.0.0.12:9465"); !backend.Serving() {
 		t.Fatal("the node's other set was fenced")
 	}
-	edge.fence.hosts.(*nodeHosts).states["ctl-2/ts-auth"] = ""
+	edge.fence.hosts.(*nodeHosts).states["gru-1-ctl-2/ts-auth"] = ""
 	edge.passes(t, 1)
 	if backend, _ := backendOf(balancer, "ts-auth", "10.0.0.12:8080"); !backend.Serving() {
 		t.Fatalf("a recovered replica stayed out: %q", balancer.log)
@@ -94,10 +94,9 @@ func TestEdgeTakesANonServingReplicaOutAndBack(t *testing.T) {
 // out again, a backend drained by hand returns once its node serves, and a
 // backup becomes a plain backend.
 func TestEdgeUndoesHandEdits(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	edge, ops, balancer, _ := newEdgeTest(t)
 	ctx := t.Context()
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpDrain}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpDrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -130,7 +129,7 @@ func TestEdgeUndoesHandEdits(t *testing.T) {
 func TestEdgeRemovesUnallocatedAndReportsAmbiguous(t *testing.T) {
 	edge, _, balancer, instances := newEdgeTest(t)
 	addresses := maps.Clone(fenceAddresses)
-	addresses["ctl-4"], addresses["ctl-5"] = "10.0.0.14", "10.0.0.15"
+	addresses["gru-1-ctl-4"], addresses["gru-1-ctl-5"] = "10.0.0.14", "10.0.0.15"
 	spec, _ := edge.fence.spec()
 	edge.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, addresses }
 	balancer.mu.Lock()
@@ -138,7 +137,7 @@ func TestEdgeRemovesUnallocatedAndReportsAmbiguous(t *testing.T) {
 		lb.Backend{IP: "10.0.0.15", Port: 8080}, lb.Backend{IP: "10.9.9.9", Port: 8080})
 	balancer.down["10.0.0.14:8080"] = true
 	balancer.mu.Unlock()
-	instances.names = map[string]string{"ctl-2": "gru-1-ctl-2"}
+	instances.names = map[string]string{"gru-1-ctl-2": "ts-gru-2"}
 	edge.passes(t, 2)
 	if _, ok := backendOf(balancer, "ts-auth", "10.0.0.14:8080"); ok {
 		t.Fatal("an unallocated backend that serves nothing was kept")
@@ -149,8 +148,8 @@ func TestEdgeRemovesUnallocatedAndReportsAmbiguous(t *testing.T) {
 		}
 	}
 	alerts := strings.Join(slices.Sorted(maps.Keys(edge.alerted)), "\n")
-	for _, want := range []string{"10.9.9.9:8080 is no node", "ctl-5 serves without a ts-auth replica", "0 instances are named ctl-2",
-		"0 instances are named ctl-4"} {
+	for _, want := range []string{"10.9.9.9:8080 is no node", "gru-1-ctl-5 serves without a ts-auth replica", "0 instances are named gru-1-ctl-2",
+		"0 instances are named gru-1-ctl-4"} {
 		if !strings.Contains(alerts, want) {
 			t.Errorf("alerts miss %q:\n%s", want, alerts)
 		}

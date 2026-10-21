@@ -96,7 +96,7 @@ channel. A serving cell is never re-founded to enable this feature.
 
 ```sh
 nice -n 19 ts-orch usage --region gru --from 2026-10-08T18:00:00Z --to 2026-10-08T18:10:00Z
-nice -n 19 ts-orch usage --region sfo --from 2026-10-08T18:00:00Z --to 2026-10-08T18:10:00Z --format json
+nice -n 19 ts-orch usage --region sjc --from 2026-10-08T18:00:00Z --to 2026-10-08T18:10:00Z --format json
 ```
 
 Usage and benchmark reads discover endpoints from the current signed regional
@@ -119,7 +119,7 @@ statistics and replica rows for Slice 1 to attach to its run.
 
 ```sh
 nice -n 19 ts-orch bench run --region gru --workload point-reads --clients go,dotnet,rust
-nice -n 19 ts-orch bench run --region sfo --workload ramp --clients go,dotnet,rust
+nice -n 19 ts-orch bench run --region sjc --workload ramp --clients go,dotnet,rust
 ```
 
 The config points to Slice 1's `ts-benchmark/workloads` directory and to
@@ -131,7 +131,7 @@ principal and passed as `TS_BENCH_CLIENT_ID` / `TS_BENCH_CLIENT_SECRET` through
 an inherited environment pipe. They never enter argv, logs or files.
 
 Each generator must be an existing non-serving OCI instance tagged
-`ts-benchmark=load-generator` and `ts-benchmark-region=gru|sfo`. Cell names,
+`ts-benchmark=load-generator` and `ts-benchmark-region=gru|sjc`. Cell names,
 cell/pool tags and all `terrascale-*` ownership tags are rejected, including
 drained serving nodes. The parent verifies the SSH address against the
 instance's private VNIC IP. The worker independently verifies its IMDS
@@ -230,7 +230,7 @@ capacity. Generator saturation has not been qualified on live hardware.
 
 ## Config shape
 
-All secret entries below are **references**, not secret values. Configure SFO
+All secret entries below are **references**, not secret values. Configure SJC
 with its own regional generator and Vault references. Controller read access is
 discovered automatically and has no configuration fields. Remove the retired
 `usage_urls` and `usage_token` fields from existing benchmark files; strict
@@ -273,10 +273,10 @@ with the shared JWT client contract. The Rust client's
 records corresponding ULID, database-delete and indexed-query blockers.
 Slice 1's shared workloads/images are not published in the observed checkout.
 SDK persistence and client database cleanup are therefore not live-qualified;
-those contracts must be exercised together before a complete GRU/SFO run.
+those contracts must be exercised together before a complete GRU/SJC run.
 
 Read-only OCI inventory on 2026-10-08 found three serving controllers and
-`ts-ops` in GRU, and three serving controllers in SFO. There was no dedicated
+`ts-ops` in GRU, and three serving controllers in SJC. There was no dedicated
 benchmark generator. No benchmark ran, no temporary instance was created,
 no serving cell was changed, and measured throughput/latency are unavailable.
 Temporary-instance cost for this work: **USD 0.00**. This implementation uses

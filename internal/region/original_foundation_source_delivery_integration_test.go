@@ -53,7 +53,6 @@ func originalDeliveryToken(t *testing.T, instance, tenancy string, expiry int64)
 }
 
 func TestOriginalFoundationPublicDeliverySDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	// Vendor DefaultTransport otherwise replaces the fixture's proxy with environment routing.
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
 	f := newOriginalActorReadsSDKFixture(t, "", 0)
@@ -237,6 +236,12 @@ func TestOriginalFoundationPublicDeliverySDK(t *testing.T) {
 				prepared.Grant = grant
 				if fault == "signed environment" {
 					prepared.Anchor.Environment = "canary"
+					// The anchor must stay self-consistent so the delivery verifier, not signing, refuses it.
+					if registration := prepared.Anchor.InitialSourceRegistration; registration != nil {
+						changed := *registration
+						changed.Environment = "canary"
+						prepared.Anchor.InitialSourceRegistration = &changed
+					}
 				}
 				bundle = signProvisionFoundation(t, prepared, bundle.RootChainWire, f.root, f.now)
 			}

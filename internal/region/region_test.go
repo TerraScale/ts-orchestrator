@@ -28,12 +28,12 @@ import (
 )
 
 const (
-	sfoPlan  = "../../deploy/oci-region/sfo-1-plan.json"
+	sjcPlan  = "../../deploy/oci-region/sjc-1-plan.json"
 	homePlan = "../../deploy/oci-region/plan.json"
 )
 
 var (
-	sfoLive = Live{AvailabilityDomain: "YDvv:US-SANJOSE-1-AD-1",
+	sjcLive = Live{AvailabilityDomain: "YDvv:US-SANJOSE-1-AD-1",
 		ServiceID:   "ocid1.service.oc1.us-sanjose-1.aaaaaaaa7w72lnqlnse4zc5vubcjv6mhsooz3jlaazcbzq7hnzih26qqiw6a",
 		ServiceCIDR: "all-sjc-services-in-oracle-services-network"}
 	fraLive = Live{AvailabilityDomain: "YDvv:EU-FRANKFURT-1-AD-1",
@@ -52,7 +52,7 @@ func load(t *testing.T, path string) map[string]any {
 }
 
 func TestNetworkFollowsTheCatalog(t *testing.T) {
-	for cell, want := range map[string]string{"GRU": "10.251.0.0/24", "SFO": "10.252.0.0/24", "FRA": "10.253.0.0/24"} {
+	for cell, want := range map[string]string{"GRU": "10.251.0.0/24", "SJC": "10.252.0.0/24", "FRA": "10.253.0.0/24"} {
 		if got, err := Network(cell); err != nil || got != want {
 			t.Fatalf("%s: %q %v", cell, got, err)
 		}
@@ -62,11 +62,11 @@ func TestNetworkFollowsTheCatalog(t *testing.T) {
 	}
 }
 
-// Deriving fra from sfo-1 and sfo back from fra must give sfo-1's reviewed
+// Deriving fra from sjc-1 and sjc back from fra must give sjc-1's reviewed
 // plan: every field is either derived or kept, none hand-edited.
 func TestDeriveRoundTripsTheReviewedPlan(t *testing.T) {
-	sfo := load(t, sfoPlan)
-	fra, err := Derive(load(t, sfoPlan), "fra", "eu-frankfurt-1", fraLive)
+	sjc := load(t, sjcPlan)
+	fra, err := Derive(load(t, sjcPlan), "fra", "eu-frankfurt-1", fraLive)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestDeriveRoundTripsTheReviewedPlan(t *testing.T) {
 	delete(fra, "purpose") // names its template
 	data, _ := json.Marshal(fra)
 	text := string(data)
-	for _, gone := range []string{"sfo-1", "ts-sfo", "10.252.", "all-sjc", "us-sanjose-1"} {
+	for _, gone := range []string{"sjc-1", "ts-sjc", "10.252.", "all-sjc", "us-sanjose-1"} {
 		if strings.Contains(text, gone) {
 			t.Fatalf("fra plan still names %q", gone)
 		}
@@ -89,16 +89,16 @@ func TestDeriveRoundTripsTheReviewedPlan(t *testing.T) {
 		public["subnet_cidr"] != "10.253.0.128/26" || !reflect.DeepEqual(public["terrabase_members"], []any{"ts-fra-1", "ts-fra-2", "ts-fra-3"}) ||
 		fra["preview_compartment_names"].(map[string]any)["control"] != "fra-1-control" ||
 		fra["hosts"].([]any)[2].(map[string]any)["private_ip"] != "10.253.0.13" ||
-		!reflect.DeepEqual(fra["existing_operations_host"], sfo["existing_operations_host"]) || !reflect.DeepEqual(public["origin_pull"], sfo["public_api"].(map[string]any)["origin_pull"]) {
+		!reflect.DeepEqual(fra["existing_operations_host"], sjc["existing_operations_host"]) || !reflect.DeepEqual(public["origin_pull"], sjc["public_api"].(map[string]any)["origin_pull"]) {
 		t.Fatalf("fra plan: %s", text)
 	}
 	fra["purpose"] = purpose
-	back, err := Derive(fra, "sfo", "us-sanjose-1", sfoLive)
+	back, err := Derive(fra, "sjc", "us-sanjose-1", sjcLive)
 	if err != nil {
 		t.Fatal(err)
 	}
-	back["purpose"] = sfo["purpose"]
-	want, _ := json.Marshal(sfo, json.Deterministic(true))
+	back["purpose"] = sjc["purpose"]
+	want, _ := json.Marshal(sjc, json.Deterministic(true))
 	got, _ := json.Marshal(back, json.Deterministic(true))
 	if string(got) != string(want) {
 		t.Fatalf("round trip differs\nwant %s\n got %s", want, got)
@@ -108,12 +108,12 @@ func TestDeriveRoundTripsTheReviewedPlan(t *testing.T) {
 func TestDeriveRefuses(t *testing.T) {
 	gru := load(t, "../../deploy/oci-region/plan.json")
 	for name, run := range map[string]func() error{
-		"home region":       func() error { _, err := Derive(load(t, sfoPlan), "gru", "sa-saopaulo-1", fraLive); return err },
-		"wrong OCI region":  func() error { _, err := Derive(load(t, sfoPlan), "fra", "us-sanjose-1", fraLive); return err },
-		"not in catalog":    func() error { _, err := Derive(load(t, sfoPlan), "nrt", "ap-tokyo-1", fraLive); return err },
-		"same region":       func() error { _, err := Derive(load(t, sfoPlan), "sfo", "us-sanjose-1", sfoLive); return err },
+		"home region":       func() error { _, err := Derive(load(t, sjcPlan), "gru", "sa-saopaulo-1", fraLive); return err },
+		"wrong OCI region":  func() error { _, err := Derive(load(t, sjcPlan), "fra", "us-sanjose-1", fraLive); return err },
+		"not in catalog":    func() error { _, err := Derive(load(t, sjcPlan), "nrt", "ap-tokyo-1", fraLive); return err },
+		"same region":       func() error { _, err := Derive(load(t, sjcPlan), "sjc", "us-sanjose-1", sjcLive); return err },
 		"home template":     func() error { _, err := Derive(gru, "fra", "eu-frankfurt-1", fraLive); return err },
-		"no live lookup":    func() error { _, err := Derive(load(t, sfoPlan), "fra", "eu-frankfurt-1", Live{}); return err },
+		"no live lookup":    func() error { _, err := Derive(load(t, sjcPlan), "fra", "eu-frankfurt-1", Live{}); return err },
 		"existing out file": func() error { return writePlan("/dev/null/x", map[string]any{}) },
 	} {
 		if run() == nil {
@@ -202,7 +202,7 @@ func newCreation(t *testing.T) *creation {
 	}
 	clock := time.Date(2026, 10, 7, 16, 0, 0, 0, time.UTC)
 	c := &creation{subs: &fakeSubscriptions{status: identity.RegionSubscriptionStatusReady}, secretReads: map[string]int{}}
-	c.Creation = &Creation{Label: "eu-frankfurt-1", State: filepath.Join(dir, "state"), Template: sfoPlan,
+	c.Creation = &Creation{Label: "eu-frankfurt-1", State: filepath.Join(dir, "state"), Template: sjcPlan,
 		AttemptBase: base, HomePlan: homeBound, Wait: time.Minute, Out: &bytes.Buffer{},
 		Now:           func() time.Time { clock = clock.Add(time.Minute); return clock },
 		Lookup:        func(_ context.Context, tenancy, region string) (Live, error) { return fraLive, nil },
@@ -429,7 +429,7 @@ func TestCreateRefusesBeforeSpending(t *testing.T) {
 		t.Fatalf("ran without the NetBird PAT: %v %v", err, c.calls)
 	}
 	c.missing = ""
-	for _, plan := range []string{"", sfoPlan} {
+	for _, plan := range []string{"", sjcPlan} {
 		c.HomePlan = plan
 		if err := c.Create(t.Context()); err == nil || !strings.Contains(err.Error(), "home") || len(c.calls) != 0 {
 			t.Fatalf("ran with --home-plan %q: %v", plan, err)

@@ -174,7 +174,7 @@ func TestAuthenticatedAPIAndRegionalClient(t *testing.T) {
 	if strings.Contains(encoded.String(), token) {
 		t.Fatal("token leaked in usage")
 	}
-	if _, err := (Client{URLs: []string{httpServer.URL}, Token: token}).Query(t.Context(), "sfo", from, to); err == nil {
+	if _, err := (Client{URLs: []string{httpServer.URL}, Token: token}).Query(t.Context(), "sjc", from, to); err == nil {
 		t.Fatal("accepted mismatched region")
 	}
 
@@ -408,7 +408,7 @@ func TestAuthenticatedAPIAndRegionalClient(t *testing.T) {
 func TestRecordRejectsSpoofedRegionAndThrottles(t *testing.T) {
 	s := NewStore("gru")
 	report := hostload.Report{SchemaVersion: hostload.SchemaVersion}
-	if err := s.Record(hostload.Origin{Cell: "sfo", Node: "a"}, report, nil); err == nil {
+	if err := s.Record(hostload.Origin{Cell: "sjc", Node: "a"}, report, nil); err == nil {
 		t.Fatal("accepted cross-region report")
 	}
 	origin := hostload.Origin{Cell: "gru", Node: "a"}

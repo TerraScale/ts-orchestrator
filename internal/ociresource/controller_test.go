@@ -353,7 +353,7 @@ func TestKVStoreRoundTripAndCompareAndSet(t *testing.T) {
 	if !slices.Equal(names, []string{"a", "b"}) || records[0].Generation != 2 || records[0].SpecDigest != second.SpecDigest {
 		t.Fatalf("records=%+v", records)
 	}
-	if other, err := store.List(ctx, "SFO", "widget"); err != nil || len(other) != 0 {
+	if other, err := store.List(ctx, "SJC", "widget"); err != nil || len(other) != 0 {
 		t.Fatalf("other region=%v err=%v", other, err)
 	}
 

@@ -125,32 +125,32 @@ func publishUntil(t *testing.T, ch <-chan struct{}, publish func()) {
 
 func TestViewAccept(t *testing.T) {
 	c := &fakeClock{now: start}
-	view, conn := followedTestView(t, "gru", func() []string { return []string{"sfo"} }, c.Now)
+	view, conn := followedTestView(t, "gru", func() []string { return []string{"sjc"} }, c.Now)
 
 	ch := view.Changed()
-	publishTestRollup(t, conn, rollupAt("SFO", start))
-	publishTestRollup(t, conn, rollupAt("sfo", start.Add(2*time.Minute)))
+	publishTestRollup(t, conn, rollupAt("SJC", start))
+	publishTestRollup(t, conn, rollupAt("sjc", start.Add(2*time.Minute)))
 	if closed(ch) {
 		t.Fatal("Changed closed on a rejected rollup")
 	}
 
-	publishTestRollup(t, conn, rollupAt("sfo", start))
+	publishTestRollup(t, conn, rollupAt("sjc", start))
 	if !closed(ch) {
 		t.Fatal("Changed not closed on accept")
 	}
 	ch = view.Changed()
 
-	publishTestRollup(t, conn, rollupAt("sfo", start.Add(-time.Second)))
-	publishTestRollup(t, conn, rollupAt("sfo", start))
+	publishTestRollup(t, conn, rollupAt("sjc", start.Add(-time.Second)))
+	publishTestRollup(t, conn, rollupAt("sjc", start))
 	if closed(ch) {
 		t.Fatal("Changed closed on a rejected rollup")
 	}
 
-	publishTestRollup(t, conn, rollupAt("sfo", start.Add(time.Second)))
+	publishTestRollup(t, conn, rollupAt("sjc", start.Add(time.Second)))
 	if !closed(ch) {
 		t.Fatal("Changed not closed on newer accept")
 	}
-	region := readTestRegion(t, view, "sfo")
+	region := readTestRegion(t, view, "sjc")
 	if !region.Rollup.ObservedAt.Equal(start.Add(time.Second)) {
 		t.Fatalf("held ObservedAt = %s, want the newer one", region.Rollup.ObservedAt)
 	}
@@ -158,23 +158,23 @@ func TestViewAccept(t *testing.T) {
 
 func TestViewRegions(t *testing.T) {
 	c := &fakeClock{now: start}
-	regions := []string{"zrh", "SFO", "ams", "bogus!", "gru"}
+	regions := []string{"zrh", "SJC", "ams", "bogus!", "gru"}
 	view, conn := followedTestView(t, "gru", func() []string { return regions }, c.Now)
-	publishTestRollup(t, conn, rollupAt("sfo", start))
+	publishTestRollup(t, conn, rollupAt("sjc", start))
 	publishTestRollup(t, conn, rollupAt("hidden", start))
 
 	var cells []string
 	for _, region := range readTestRegions(t, view) {
 		cells = append(cells, region.Cell)
 	}
-	if got := strings.Join(cells, ","); got != "gru,ams,sfo,zrh" {
-		t.Fatalf("Regions() = %s, want gru,ams,sfo,zrh", got)
+	if got := strings.Join(cells, ","); got != "gru,ams,sjc,zrh" {
+		t.Fatalf("Regions() = %s, want gru,ams,sjc,zrh", got)
 	}
 	if _, ok := view.Region("hidden"); ok {
 		t.Fatal("Region reported an unlisted cell")
 	}
-	if region := readTestRegion(t, view, "SFO"); region.Rollup == nil {
-		t.Fatal("Region did not find listed cell sfo")
+	if region := readTestRegion(t, view, "SJC"); region.Rollup == nil {
+		t.Fatal("Region did not find listed cell sjc")
 	}
 	if region := readTestRegion(t, view, "gru"); region.Rollup != nil {
 		t.Fatal("local region has a rollup before any arrived")
@@ -183,15 +183,15 @@ func TestViewRegions(t *testing.T) {
 
 func TestViewRegionsStale(t *testing.T) {
 	c := &fakeClock{now: start}
-	view, conn := followedTestView(t, "gru", func() []string { return []string{"sfo"} }, c.Now)
-	publishTestRollup(t, conn, rollupAt("sfo", start))
+	view, conn := followedTestView(t, "gru", func() []string { return []string{"sjc"} }, c.Now)
+	publishTestRollup(t, conn, rollupAt("sjc", start))
 
 	c.now = start.Add(StaleAfter)
-	if region := readTestRegion(t, view, "sfo"); region.Stale {
+	if region := readTestRegion(t, view, "sjc"); region.Stale {
 		t.Fatal("rollup stale at exactly StaleAfter")
 	}
 	c.now = start.Add(StaleAfter + time.Second)
-	if region := readTestRegion(t, view, "sfo"); !region.Stale {
+	if region := readTestRegion(t, view, "sjc"); !region.Stale {
 		t.Fatal("rollup not stale after StaleAfter")
 	}
 }
@@ -206,22 +206,22 @@ func TestDecodeRejectsInvalidRollups(t *testing.T) {
 		}
 		return data
 	}
-	sfo := protocol.RegionRollupSubject("sfo")
+	sjc := protocol.RegionRollupSubject("sjc")
 	tests := map[string]struct {
 		subject string
 		data    []byte
 	}{
-		"wrong version":    {sfo, encode(t, Rollup{Version: Version + 1, Cell: "sfo", ObservedAt: now})},
-		"subject mismatch": {protocol.RegionRollupSubject("lhr"), encode(t, rollupAt("sfo", now))},
-		"uppercase cell":   {sfo, encode(t, rollupAt("SFO", now))},
-		"future observed":  {sfo, encode(t, rollupAt("sfo", now.Add(2*time.Minute)))},
-		"missing observed": {sfo, encode(t, rollupAt("sfo", time.Time{}))},
-		"oversize":         {sfo, []byte(strings.Repeat(" ", MaxBytes+1))},
-		"malformed JSON":   {sfo, []byte(`{"version":`)},
+		"wrong version":    {sjc, encode(t, Rollup{Version: Version + 1, Cell: "sjc", ObservedAt: now})},
+		"subject mismatch": {protocol.RegionRollupSubject("lhr"), encode(t, rollupAt("sjc", now))},
+		"uppercase cell":   {sjc, encode(t, rollupAt("SJC", now))},
+		"future observed":  {sjc, encode(t, rollupAt("sjc", now.Add(2*time.Minute)))},
+		"missing observed": {sjc, encode(t, rollupAt("sjc", time.Time{}))},
+		"oversize":         {sjc, []byte(strings.Repeat(" ", MaxBytes+1))},
+		"malformed JSON":   {sjc, []byte(`{"version":`)},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			view, conn := followedTestView(t, "gru", func() []string { return []string{"sfo", "lhr"} }, func() time.Time { return now })
+			view, conn := followedTestView(t, "gru", func() []string { return []string{"sjc", "lhr"} }, func() time.Time { return now })
 			publishTestRaw(t, conn, tc.subject, tc.data)
 			for _, region := range readTestRegions(t, view) {
 				if region.Rollup != nil {
@@ -233,15 +233,15 @@ func TestDecodeRejectsInvalidRollups(t *testing.T) {
 }
 
 func TestDecodeAcceptsUnknownField(t *testing.T) {
-	data, err := json.Marshal(rollupAt("sfo", time.Now()))
+	data, err := json.Marshal(rollupAt("sjc", time.Now()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	data = append([]byte(`{"future_field":true,`), data[1:]...)
-	view, conn := followedTestView(t, "gru", func() []string { return []string{"sfo"} }, time.Now)
-	publishTestRaw(t, conn, protocol.RegionRollupSubject("sfo"), data)
-	region := readTestRegion(t, view, "sfo")
-	if region.Rollup == nil || region.Rollup.Cell != "sfo" {
+	view, conn := followedTestView(t, "gru", func() []string { return []string{"sjc"} }, time.Now)
+	publishTestRaw(t, conn, protocol.RegionRollupSubject("sjc"), data)
+	region := readTestRegion(t, view, "sjc")
+	if region.Rollup == nil || region.Rollup.Cell != "sjc" {
 		t.Fatalf("newer wire field prevented observation: %+v", region)
 	}
 }
@@ -283,37 +283,37 @@ func TestFollowLoadsAndFollows(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	last, err := json.Marshal(rollupAt("sfo", now.Add(-time.Second)))
+	last, err := json.Marshal(rollupAt("sjc", now.Add(-time.Second)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := kv.Put(ctx, "sfo", last); err != nil {
+	if _, err := kv.Put(ctx, "sjc", last); err != nil {
 		t.Fatal(err)
 	}
 
-	view := NewView("gru", func() []string { return []string{"sfo"} }, nil)
+	view := NewView("gru", func() []string { return []string{"sjc"} }, nil)
 	ch := view.Changed()
 	done := make(chan error, 1)
 	go view.KeepLastKnown(ctx, kv, func() bool { return false })
 	go func() { done <- view.Follow(ctx, conn) }()
 	waitClosed(t, ch)
-	region, _ := view.Region("sfo")
+	region, _ := view.Region("sjc")
 	if region.Rollup == nil || !region.Rollup.ObservedAt.Equal(now.Add(-time.Second)) {
 		t.Fatal("last-known rollup from the bucket not loaded")
 	}
 
-	newer := rollupAt("sfo", now)
+	newer := rollupAt("sjc", now)
 	newer.Health = Health{Status: Degraded}
 	data, err := json.Marshal(newer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	publishUntil(t, view.Changed(), func() {
-		if err := conn.Publish(protocol.RegionRollupSubject("sfo"), data); err != nil {
+		if err := conn.Publish(protocol.RegionRollupSubject("sjc"), data); err != nil {
 			t.Fatal(err)
 		}
 	})
-	region, _ = view.Region("sfo")
+	region, _ = view.Region("sjc")
 	if region.Rollup.Health.Status != Degraded {
 		t.Fatalf("held health %q, want the newer %q", region.Rollup.Health.Status, Degraded)
 	}
@@ -332,7 +332,7 @@ func TestKeepLastKnownPersistsWhileLeading(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view := NewView("gru", func() []string { return []string{"sfo"} }, nil)
+	view := NewView("gru", func() []string { return []string{"sjc"} }, nil)
 	view.Accept(rollupAt("gru", time.Now()))
 	go view.KeepLastKnown(ctx, kv, func() bool { return true })
 	for {
@@ -355,23 +355,23 @@ func TestPersistWritesOnCadence(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &fakeClock{now: start}
-	view := NewView("gru", func() []string { return []string{"sfo"} }, c.Now)
-	view.Accept(rollupAt("sfo", start))
+	view := NewView("gru", func() []string { return []string{"sjc"} }, c.Now)
+	view.Accept(rollupAt("sjc", start))
 
 	if err := view.Persist(ctx, kv); err != nil {
 		t.Fatal(err)
 	}
-	first, err := kv.Get(ctx, "sfo")
+	first, err := kv.Get(ctx, "sjc")
 	if err != nil {
 		t.Fatalf("first Persist wrote nothing: %v", err)
 	}
 
 	c.now = start.Add(time.Second)
-	view.Accept(rollupAt("sfo", start.Add(time.Second)))
+	view.Accept(rollupAt("sjc", start.Add(time.Second)))
 	if err := view.Persist(ctx, kv); err != nil {
 		t.Fatal(err)
 	}
-	if again, _ := kv.Get(ctx, "sfo"); again.Revision() != first.Revision() {
+	if again, _ := kv.Get(ctx, "sjc"); again.Revision() != first.Revision() {
 		t.Fatal("Persist wrote again within PersistEvery")
 	}
 
@@ -379,7 +379,7 @@ func TestPersistWritesOnCadence(t *testing.T) {
 	if err := view.Persist(ctx, kv); err != nil {
 		t.Fatal(err)
 	}
-	later, err := kv.Get(ctx, "sfo")
+	later, err := kv.Get(ctx, "sjc")
 	if err != nil || later.Revision() == first.Revision() {
 		t.Fatalf("Persist did not write the newer rollup after PersistEvery: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestPersistKeepsKeysBeforeTheRegistryIsRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := kv.Put(ctx, "sfo", []byte("{}")); err != nil {
+	if _, err := kv.Put(ctx, "sjc", []byte("{}")); err != nil {
 		t.Fatal(err)
 	}
 	view := NewView("gru", func() []string { return nil }, nil)
@@ -410,14 +410,14 @@ func TestPersistKeepsKeysBeforeTheRegistryIsRead(t *testing.T) {
 	if err := view.Persist(ctx, kv); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := kv.Get(ctx, "sfo"); err != nil {
+	if _, err := kv.Get(ctx, "sjc"); err != nil {
 		t.Fatalf("last-known key deleted before the registry listed any region: %v", err)
 	}
 }
 
 func TestTwentyRegionsFollow(t *testing.T) {
 	cells := []string{
-		"gru", "sfo", "fra", "lhr", "nrt", "iad", "phx", "ams", "cdg", "mad",
+		"gru", "sjc", "fra", "lhr", "nrt", "iad", "phx", "ams", "cdg", "mad",
 		"mil", "zrh", "arn", "sin", "bom", "syd", "mel", "icn", "yyz", "jnb",
 	}
 	conn, _ := startNATS(t)
@@ -480,7 +480,7 @@ func allHeld(view *View) bool {
 
 func TestPublishWhileLeading(t *testing.T) {
 	conn, _ := startNATS(t)
-	sub, err := conn.SubscribeSync(protocol.RegionRollupSubject("sfo"))
+	sub, err := conn.SubscribeSync(protocol.RegionRollupSubject("sjc"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,15 +488,15 @@ func TestPublishWhileLeading(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	view := NewView("sfo", nil, nil)
+	view := NewView("sjc", nil, nil)
 	ch := view.Changed()
 	var leading atomic.Bool
-	build := func(context.Context) Rollup { return rollupAt("sfo", time.Now()) }
+	build := func(context.Context) Rollup { return rollupAt("sjc", time.Now()) }
 	ctx, cancel := context.WithTimeout(t.Context(), 7*time.Second)
 	defer cancel()
 	done := make(chan struct{})
 	go func() {
-		Publish(ctx, conn, "sfo", leading.Load, build, view)
+		Publish(ctx, conn, "sjc", leading.Load, build, view)
 		close(done)
 	}()
 
@@ -508,7 +508,7 @@ func TestPublishWhileLeading(t *testing.T) {
 		t.Fatalf("no rollup published while leading: %v", err)
 	}
 	waitClosed(t, ch)
-	if region, _ := view.Region("sfo"); region.Rollup == nil {
+	if region, _ := view.Region("sjc"); region.Rollup == nil {
 		t.Fatal("view does not hold the published rollup")
 	}
 	cancel()
@@ -517,7 +517,7 @@ func TestPublishWhileLeading(t *testing.T) {
 
 func TestDecodeKeepsOnlyTheRegionsOwnScaleStatus(t *testing.T) {
 	now := time.Now().UTC()
-	own := nodescale.Status{Schema: nodescale.StatusSchema, Cell: "sfo", At: now, Nodes: 3, QuorumNodes: 3,
+	own := nodescale.Status{Schema: nodescale.StatusSchema, Cell: "sjc", At: now, Nodes: 3, QuorumNodes: 3,
 		Want: 3, Allowance: 3, Action: nodescale.Hold, Reason: "load within band"}
 	other := own
 	other.Cell = "gru"
@@ -528,15 +528,15 @@ func TestDecodeKeepsOnlyTheRegionsOwnScaleStatus(t *testing.T) {
 		kept  bool
 	}{"own": {own, true}, "another region's": {other, false}, "invalid": {invalid, false}} {
 		t.Run(name, func(t *testing.T) {
-			rollup := rollupAt("sfo", now)
+			rollup := rollupAt("sjc", now)
 			rollup.Scale = &tc.scale
 			data, err := json.Marshal(rollup)
 			if err != nil {
 				t.Fatal(err)
 			}
-			view, conn := followedTestView(t, "gru", func() []string { return []string{"sfo"} }, func() time.Time { return now })
-			publishTestRaw(t, conn, protocol.RegionRollupSubject("sfo"), data)
-			r := readTestRegion(t, view, "sfo")
+			view, conn := followedTestView(t, "gru", func() []string { return []string{"sjc"} }, func() time.Time { return now })
+			publishTestRaw(t, conn, protocol.RegionRollupSubject("sjc"), data)
+			r := readTestRegion(t, view, "sjc")
 			if r.Rollup == nil || (r.Rollup.Scale != nil) != tc.kept {
 				t.Fatalf("regional API = %+v; want scale kept %v", r, tc.kept)
 			}

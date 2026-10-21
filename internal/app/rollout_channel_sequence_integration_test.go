@@ -26,7 +26,7 @@ func TestDirectChannelPublicationRetainsSignerOrderingAcrossRollback(t *testing.
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema,
 		Namespace: "channel-order", Bucket: "gru-1-head", Region: "GRU", Role: "orchestrator",
 		Environment: "production", SignerKeyID: keyID, SignerPublicKey: public, SequenceFloor: 1000}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 1000,
 			IssuedAt: f.signer.now, EvidenceSHA256: strings.Repeat("b", 64)})
 	}

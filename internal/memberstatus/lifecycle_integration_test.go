@@ -352,7 +352,16 @@ func startMemberFixtureNamespace(t *testing.T, namespaces uintptr) *memberFixtur
 }
 
 func TestMemberPIDNamespaceIntegration(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	if os.Geteuid() != 0 {
+		// Real PID/mount namespaces need root; rerun this test alone through passwordless sudo like the control fixture.
+		// umask 022 keeps the fixture binary and config readable by the member UID under sudo's restrictive umask.
+		output, err := exec.CommandContext(t.Context(), "sudo", "-n", "/bin/sh", "-c", `umask 022 && exec "$0" "$@"`,
+			os.Args[0], "-test.run=^"+t.Name()+"$", "-test.count=1", "-test.v").CombinedOutput()
+		if err != nil || !strings.Contains(string(output), "--- PASS: "+t.Name()) {
+			t.Fatalf("root PID namespace fixture: %v\n%s", err, output)
+		}
+		return
+	}
 	f := startMemberFixtureNamespace(t, syscall.CLONE_NEWPID|syscall.CLONE_NEWNS)
 	observation, err := f.client.observe(t.Context())
 	if err != nil || observation.PID != f.process.Process.Pid || observation.PID < 2 || observation.ProtocolPID() != 1 {

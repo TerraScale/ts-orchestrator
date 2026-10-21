@@ -80,8 +80,8 @@ func TestManagedServicesCrossSourceNATSAndHTTP(t *testing.T) {
 	// Keep the listed-region fixture independent of the mutable service clock.
 	{
 		now := time.Now().UTC()
-		listedView, listedConn := followedTestView(t, "gru", func() []string { return []string{"sfo"} }, func() time.Time { return now })
-		listedLocal := NewView("gru", func() []string { return []string{"sfo"} }, func() time.Time { return now })
+		listedView, listedConn := followedTestView(t, "gru", func() []string { return []string{"sjc"} }, func() time.Time { return now })
+		listedLocal := NewView("gru", func() []string { return []string{"sjc"} }, func() time.Time { return now })
 		changed := listedView.Changed()
 		publishOnce(t.Context(), listedConn, "gru", func(context.Context) Rollup {
 			return Rollup{Version: Version, Cell: "gru", ObservedAt: now, Health: Health{Status: Healthy}}
@@ -103,14 +103,14 @@ func TestManagedServicesCrossSourceNATSAndHTTP(t *testing.T) {
 		if response.StatusCode != http.StatusOK || json.Unmarshal(body, &entries) != nil {
 			t.Fatalf("list = %d %s", response.StatusCode, body)
 		}
-		if len(entries) != 2 || entries[0].Cell != "gru" || entries[0].Rollup == nil || entries[1].Cell != "sfo" || entries[1].Rollup != nil {
+		if len(entries) != 2 || entries[0].Cell != "gru" || entries[0].Rollup == nil || entries[1].Cell != "sjc" || entries[1].Rollup != nil {
 			t.Fatalf("entries = %+v", entries)
 		}
 		rollup := entries[0].Rollup
 		if rollup.Version != Version || rollup.Cell != "gru" || !rollup.ObservedAt.Equal(now) || rollup.Health.Status != Healthy {
 			t.Fatalf("received rollup = %+v", rollup)
 		}
-		for path, want := range map[string]int{"/v1/regions/GRU": http.StatusOK, "/v1/regions/sfo": http.StatusOK,
+		for path, want := range map[string]int{"/v1/regions/GRU": http.StatusOK, "/v1/regions/sjc": http.StatusOK,
 			"/v1/regions/fra": http.StatusNotFound} {
 			response, err := listedServer.Client().Get(listedServer.URL + path)
 			if err != nil {

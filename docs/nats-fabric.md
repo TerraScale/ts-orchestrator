@@ -10,7 +10,7 @@ PR as the code that needs the change.
 ## Topology
 
 - One NATS and JetStream cluster per region (the **cell**, token `gru`,
-  `sfo`, ...). JetStream quorums never span regions.
+  `sjc`, ...). JetStream quorums never span regions.
 - Regions link by mutual-TLS leafnodes in a tree rooted at the global home
   (GRU), bound to a dedicated interregion account
   ([multi-region](multi-region.md#topology)). Only the subjects of

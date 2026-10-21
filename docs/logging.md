@@ -17,7 +17,7 @@ Nothing is configured: no format, level or summary setting exists.
 | `level` | `DEBUG`, `INFO`, `WARN` or `ERROR` |
 | `msg` | Constant text: never interpolate values into it |
 | `service` | `ts-orchestrator`, `terrabase`, `ts-auth`, ... |
-| `region` | Cell token (`gru`, `sfo`), the region registry's name |
+| `region` | Cell token (`gru`, `sjc`), the region registry's name |
 | `node` | Host name (`ts-gru-1`, [canonical names](node-names.md)) |
 | `process` | ts-orchestrator only: `controller`, `host`, `watchdog`, `netbird-agent`, ... |
 | `trace_id` | W3C trace ID (32 lowercase hex) when the record belongs to a request or a loop pass |
@@ -135,14 +135,14 @@ time, nodes and component. It does no I/O.
 
 `ts-orch log-scan --since 24h` reads every node's journal over NetBird SSH
 and prints counts per service, node and level and the top classes. TS-808
-posts its output before the fixes and after they reach GRU and SFO.
+posts its output before the fixes and after they reach GRU and SJC.
 
 ## Slices
 
 1. This design.
 2. Record v1 in ts-orchestrator: logger keys, journal priority, embedded NATS
    and nats.go output, workload `TS_*` environment, and the recurring noise
-   found in GRU and SFO.
+   found in GRU and SJC.
 3. Trace IDs: `traceparent` on HTTP and NATS, loop passes, `Context` calls.
 4. Log summary: `internal/logs`, the host follower and windows, the stream,
    `logs.View`, `query.logs.v1`, `/v1/logs` and the `errors` source.

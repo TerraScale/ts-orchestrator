@@ -68,7 +68,7 @@ func newSequenceFixture(t *testing.T) sequenceFixture {
 		t.Fatal(err)
 	}
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "ns", Bucket: "gru-1-head", Region: "GRU", Role: "orchestrator", Environment: "production", SequenceFloor: 1000, SignerKeyID: keyID, SignerPublicKey: encoded}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 1000, IssuedAt: now, EvidenceSHA256: strings.Repeat("b", 64)})
 	}
 	signed, err := release.SignSequenceMigration(migration, now, root)

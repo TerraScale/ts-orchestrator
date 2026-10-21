@@ -95,7 +95,7 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 	}
 	cloud := &provisionCloud{test: t, directory: t.TempDir(), rows: map[string]map[string]any{}, collections: map[string]string{}, tokens: map[string]string{}, rules: map[string][]any{}, retention: map[string][]any{}, launches: map[string]string{}, tariff: 0.0001, lostLaunch: true, lostPolicy: true, lostMaterialIndex: -1, materialRoot: bytes.Repeat([]byte{'Q'}, 64)}
 	images := map[string]releasechannel.CurrentImage{}
-	for _, role := range []string{"GRU", "SFO", "FRA", "netbird-manager"} {
+	for _, role := range []string{"GRU", "SJC", "FRA", "netbird-manager"} {
 		cell := role
 		if role == "netbird-manager" {
 			cell = "GRU"
@@ -402,7 +402,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		for name, mutate := range map[string]func(*releasechannel.CurrentImage){
 			"unqualified base image":   func(image *releasechannel.CurrentImage) { *image = releasechannel.CurrentImage{} },
 			"expired qualification":    func(image *releasechannel.CurrentImage) { image.ExpiresAt = time.Now().Add(-time.Second) },
-			"different signed receipt": func(image *releasechannel.CurrentImage) { image.ReceiptWire = fixture.images["SFO"].ReceiptWire },
+			"different signed receipt": func(image *releasechannel.CurrentImage) { image.ReceiptWire = fixture.images["SJC"].ReceiptWire },
 		} {
 			t.Run(name, func(t *testing.T) {
 				selected := maps.Clone(fixture.images)
@@ -416,7 +416,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 				}
 			})
 		}
-		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, cell := range []string{"GRU", "SJC", "FRA"} {
 			if _, err := os.Stat(cloud.objectPath("gru-1-head/" + foundationObjectPrefix + cell + ".json")); !os.IsNotExist(err) {
 				t.Fatalf("image preparation created a %s foundation/writer journal: %v", cell, err)
 			}
@@ -505,7 +505,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if err := ProvisionFoundationBundle(t.Context(), factoryFor(), roots, bundle); err != nil {
 		t.Fatalf("restart full provisioning: %v", err)
 	}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		saved := cloud.journal(cell)
 		if cell == "GRU" {
 			for _, role := range []string{"control_compartment", "vault", "key"} {
@@ -548,7 +548,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if startup.VaultTarget().VaultOCID != approval.SourceVaultTarget.VaultOCID || !bytes.Equal(startup.GrantWire(), bundle.GrantWire) {
 		t.Fatal("pinned startup lost original target or signed bytes")
 	}
-	for _, cell := range []oci.Region{oci.RegionSFO, oci.RegionFRA} {
+	for _, cell := range []oci.Region{oci.RegionSJC, oci.RegionFRA} {
 		sibling, err := startup.ForCell(t.Context(), cell, time.Now())
 		if err != nil {
 			t.Fatalf("independent %s startup from original GRU anchor: %v", cell, err)
@@ -725,7 +725,7 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		if err != nil {
 			t.Fatalf("historical schema3 document validation changed: %v", err)
 		}
-		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, cell := range []string{"GRU", "SJC", "FRA"} {
 			proof, err := resolver.Footprint.(*SignedFootprint).OriginalSourceProducer(t.Context(), cell)
 			if err == nil || proof.IsVerified() {
 				t.Fatal("already signed schema3 gained retrofitted producer purpose")
@@ -757,9 +757,9 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 				envelope.Signature = base64.RawURLEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
 				startup.ReleaseImageReceiptWire = provisionEnvelope(t, envelope)
 			}, "verify signed GRU startup image before provisioning"},
-			{"different SFO image architecture", "SFO", func(startup *BootstrapStartupIntent) {
+			{"different SJC image architecture", "SJC", func(startup *BootstrapStartupIntent) {
 				startup.ImageArchitecture = "linux-amd64"
-			}, "verify signed SFO startup image before provisioning"},
+			}, "verify signed SJC startup image before provisioning"},
 			{"FRA deadline exceeds current image", "FRA", func(startup *BootstrapStartupIntent) {
 				startup.FounderResources.LaunchDeadline = fixture.now.Add(90 * time.Minute)
 			}, "verify signed FRA startup deadline before provisioning"},
@@ -980,7 +980,7 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		for name, mutate := range map[string]func(*FoundationRecord){
 			"remove array": func(r *FoundationRecord) { r.OriginalSourceProducers = nil },
 			"remove GRU":   func(r *FoundationRecord) { r.OriginalSourceProducers[0] = OriginalSourceProducerBirth{} },
-			"remove SFO":   func(r *FoundationRecord) { r.OriginalSourceProducers[1] = OriginalSourceProducerBirth{} },
+			"remove SJC":   func(r *FoundationRecord) { r.OriginalSourceProducers[1] = OriginalSourceProducerBirth{} },
 			"remove FRA":   func(r *FoundationRecord) { r.OriginalSourceProducers[2] = OriginalSourceProducerBirth{} },
 			"replace user": func(r *FoundationRecord) {
 				r.OriginalSourceProducers[0].Intent.OriginalUserID = "ocid1.user.oc1..foreign"
@@ -1172,7 +1172,7 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA} {
+	for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSJC, oci.RegionFRA} {
 		if _, err := bootstrap.VerifyRegionalStartupTemplate(bundle.GrantWire, fixture.roots, anchor, cell, time.Now()); !errors.Is(err, bootstrap.ErrManifestInvalid) {
 			t.Fatalf("unbound %s parser ignored the signed prospective schema: %v", cell, err)
 		}
@@ -1212,7 +1212,7 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA} {
+		for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSJC, oci.RegionFRA} {
 			record := fixture.cloud.journal(string(cell))
 			if record.Stage != "reconciled" || record.CompletedAt.IsZero() || len(record.ResourceIDs) == 0 {
 				t.Fatalf("first bootstrap reached writer admission before %s reconciliation", cell)
@@ -1802,7 +1802,7 @@ func (c *provisionCloud) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	collection := parts[0]
 	if collection == "images" {
 		if r.Method != http.MethodGet || len(parts) != 2 || r.URL.Path != "/20160918/images/"+parts[1] ||
-			!release.ValidOCIImageIDForRegion(parts[1], "GRU") && !release.ValidOCIImageIDForRegion(parts[1], "SFO") && !release.ValidOCIImageIDForRegion(parts[1], "FRA") ||
+			!release.ValidOCIImageIDForRegion(parts[1], "GRU") && !release.ValidOCIImageIDForRegion(parts[1], "SJC") && !release.ValidOCIImageIDForRegion(parts[1], "FRA") ||
 			r.Host != "iaas."+strings.Split(parts[1], ".")[3]+".oraclecloud.com" {
 			c.unexpected(w, r)
 			return
@@ -1972,7 +1972,7 @@ func (c *provisionCloud) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	json.MarshalWrite(w, body)
 }
 func (c *provisionCloud) region(r *http.Request) string {
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		region := catalog.OCIRegion(cell)
 		if strings.Contains(r.Host, region) {
 			return region
@@ -2012,7 +2012,7 @@ func provisionReleaseAuthorities(t *testing.T, root ed25519.PrivateKey, public e
 		delegation := trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: keyWire}
 		migration := release.SequenceMigration{Namespace: home.Namespace, Bucket: home.HeadBucket, Region: "GRU", Schema: release.SequenceMigrationSchema,
 			SignerKeyID: keyID, SignerPublicKey: keyWire, Role: role, Environment: "production", SequenceFloor: 42}
-		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, cell := range []string{"GRU", "SJC", "FRA"} {
 			scope := release.ContainerScope(release.ContainerTarget{Cell: cell, Role: role, Environment: "production", Architecture: "arm64"})
 			delegation.Capabilities = append(delegation.Capabilities, trust.Capability{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
 				Environment: scope.Environment, Role: scope.Role, Slots: []string{"linux-arm64", "linux-amd64"}, Actions: []string{"sign"}})
@@ -2027,7 +2027,7 @@ func provisionReleaseAuthorities(t *testing.T, root ed25519.PrivateKey, public e
 			t.Fatal(err)
 		}
 		authorities = append(authorities, ContainerReleaseAuthorityIntent{Role: role, Environment: "production", ImageRepository: "gru.ocir.io/ns/" + role,
-			SourceRepository: "https://github.com/TerraScale/" + role, Cells: []string{"GRU", "SFO", "FRA"}, Architectures: []string{"arm64", "amd64"},
+			SourceRepository: "https://github.com/TerraScale/" + role, Cells: []string{"GRU", "SJC", "FRA"}, Architectures: []string{"arm64", "amd64"},
 			DelegationWire: provisionEnvelope(t, delegated), SequenceMigrationWire: provisionEnvelope(t, migrated)})
 	}
 	return authorities
@@ -2200,7 +2200,7 @@ func (c *provisionCloud) serveStorage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if object == foundationDiscoveryObject {
-			for _, cell := range []string{"GRU", "SFO", "FRA"} {
+			for _, cell := range []string{"GRU", "SJC", "FRA"} {
 				saved := c.journal(cell).FoundationWriter
 				if saved == nil || saved.InstanceID == "" || saved.Policy == nil || saved.Policy.PolicyID == "" || saved.Policy.VerifiedAt.IsZero() {
 					c.test.Errorf("anchor published before %s original policy readback", cell)
@@ -2381,7 +2381,7 @@ func (c *provisionCloud) checkLaunchReservation(r *http.Request, body map[string
 			c.test.Errorf("original launch lacks exact protected prerequisite %s: %v", expected.name, err)
 		}
 	}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		if c.journal(cell).Stage != "reconciled" {
 			c.test.Errorf("original launch preceded %s foundation reconciliation", cell)
 		}
@@ -2399,7 +2399,7 @@ func (c *provisionCloud) checkPolicyReservation(body map[string]any, token strin
 	if c.hasAnchor() {
 		c.test.Error("original policy followed public anchor")
 	}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		pending := c.journal(cell).FoundationWriter
 		if pending == nil || pending.Policy == nil || pending.Policy.Request.Name == nil || *pending.Policy.Request.Name != body["name"] {
 			continue

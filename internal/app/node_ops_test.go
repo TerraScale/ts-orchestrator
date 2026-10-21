@@ -41,7 +41,7 @@ func (h *nodeHosts) ListDesired(_ context.Context, role string) ([]host.Desired,
 	var desired []host.Desired
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for _, node := range []string{"ctl-1", "ctl-2", "ctl-3"} {
+	for _, node := range []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"} {
 		desired = append(desired, host.Desired{Node: node, Role: role, Generation: 7, Withdrawn: h.withdrawn[node]})
 	}
 	return desired, nil
@@ -51,7 +51,7 @@ func (h *nodeHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var statuses []host.HostStatus
-	for _, node := range []string{"ctl-1", "ctl-2", "ctl-3"} {
+	for _, node := range []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"} {
 		status := host.HostStatus{Registration: host.Registration{Node: node, Roles: []string{"terrabase", "ts-auth"}}}
 		if !h.down[node] {
 			for _, role := range status.Registration.Roles {
@@ -123,7 +123,7 @@ func (c *nodeInstances) Terminate(_ context.Context, id string) error {
 
 func (c *nodeInstances) Instances(context.Context) ([]nodeInstance, error) {
 	var instances []nodeInstance
-	for _, node := range []string{"ctl-1", "ctl-2", "ctl-3"} {
+	for _, node := range []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"} {
 		name, renamed := c.names[node]
 		if !renamed {
 			name = node
@@ -179,11 +179,11 @@ func newNodeOpsTest(t *testing.T) (*nodeOps, *fenceLB, *nodeInstances) {
 	t.Helper()
 	fence, _, balancer, _, _ := newFenceTest(t)
 	// Every node serves in both sets; the default quorum guard keeps two.
-	balancer.sets["ts-auth"][0] = lb.Backend{IP: fenceAddresses["ctl-1"], Port: 8080}
+	balancer.sets["ts-auth"][0] = lb.Backend{IP: fenceAddresses["gru-1-ctl-1"], Port: 8080}
 	spec := &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..x",
 		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465}, {Name: "ts-auth", Port: 8080}}}
 	fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, fenceAddresses }
-	hosts := &nodeHosts{sessions: map[string]string{"ctl-1": "s1", "ctl-2": "s2", "ctl-3": "s3"}, down: map[string]bool{},
+	hosts := &nodeHosts{sessions: map[string]string{"gru-1-ctl-1": "s1", "gru-1-ctl-2": "s2", "gru-1-ctl-3": "s3"}, down: map[string]bool{},
 		states: map[string]string{}, withdrawn: map[string]bool{}}
 	fence.hosts = hosts
 	instances := &nodeInstances{hosts: hosts, lb: balancer, t: t, shape: map[string][2]float32{}}
@@ -205,16 +205,15 @@ func (o *nodeOps) operation(t *testing.T, node string) nodeOp {
 // serves, waits for its new host agent to report every role running and
 // returns it; the record is gone afterwards.
 func TestNodeRebootDrainsActsChecksAndReturns(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ops, balancer, instances := newNodeOpsTest(t)
 	ctx := t.Context()
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-2", Op: nodeOpReboot}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-2", Op: nodeOpReboot}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if op := ops.operation(t, "ctl-2"); op.State != nodeOpDone || op.ActedAt.IsZero() || op.Session != "s2" {
+	if op := ops.operation(t, "gru-1-ctl-2"); op.State != nodeOpDone || op.ActedAt.IsZero() || op.Session != "s2" {
 		t.Fatalf("operation %+v", op)
 	}
 	want := []string{
@@ -222,10 +221,10 @@ func TestNodeRebootDrainsActsChecksAndReturns(t *testing.T) {
 		"terrabase 10.0.0.12:9465 offline", "ts-auth 10.0.0.12:8080 offline",
 		"terrabase 10.0.0.12:9465 active", "ts-auth 10.0.0.12:8080 active",
 	}
-	if !slices.Equal(balancer.log, want) || !slices.Equal(instances.calls, []string{"reboot ctl-2"}) {
+	if !slices.Equal(balancer.log, want) || !slices.Equal(instances.calls, []string{"reboot gru-1-ctl-2"}) {
 		t.Fatalf("load balancer\n%s\ninstances %q", strings.Join(balancer.log, "\n"), instances.calls)
 	}
-	if _, found, _ := ops.fence.record(ctx, "ctl-2"); found {
+	if _, found, _ := ops.fence.record(ctx, "gru-1-ctl-2"); found {
 		t.Fatal("the fence record was left")
 	}
 }
@@ -233,12 +232,11 @@ func TestNodeRebootDrainsActsChecksAndReturns(t *testing.T) {
 // A rebooted node whose roles do not serve again keeps its backends out,
 // and the operation fails.
 func TestNodeRebootKeepsANodeThatDoesNotServeOut(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ops, balancer, _ := newNodeOpsTest(t)
-	ops.fence.hosts.(*nodeHosts).down["ctl-3"] = true
+	ops.fence.hosts.(*nodeHosts).down["gru-1-ctl-3"] = true
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
-	op := nodeOp{ID: entityid.New(), Node: "ctl-3", Op: nodeOpReboot, State: nodeOpQueued}
+	op := nodeOp{ID: entityid.New(), Node: "gru-1-ctl-3", Op: nodeOpReboot, State: nodeOpQueued}
 	ops.seedOriginalTest(t, ctx, 3, &op)
 	err := ops.execute(ctx, 3, &op)
 	if err == nil || !strings.Contains(err.Error(), "does not serve") {
@@ -252,8 +250,8 @@ func TestNodeRebootKeepsANodeThatDoesNotServeOut(t *testing.T) {
 	if err := ops.save(t.Context(), 3, op); err != nil {
 		t.Fatal(err)
 	}
-	ops.fence.hosts.(*nodeHosts).down["ctl-3"] = false
-	if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-3", Op: nodeOpUndrain}); err != nil {
+	ops.fence.hosts.(*nodeHosts).down["gru-1-ctl-3"] = false
+	if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-3", Op: nodeOpUndrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(t.Context()); err != nil {
@@ -267,11 +265,10 @@ func TestNodeRebootKeepsANodeThatDoesNotServeOut(t *testing.T) {
 // A resize changes the shape and checks the new one; a node already at the
 // shape is not restarted.
 func TestNodeResizeChangesTheShapeOnce(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ops, _, instances := newNodeOpsTest(t)
 	ctx := t.Context()
-	instances.shape["ctl-3"] = [2]float32{1, 4}
-	for _, node := range []string{"ctl-1", "ctl-3"} {
+	instances.shape["gru-1-ctl-3"] = [2]float32{1, 4}
+	for _, node := range []string{"gru-1-ctl-1", "gru-1-ctl-3"} {
 		if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: node, Op: nodeOpResize, OCPUs: 1, MemoryGB: 4}); err != nil {
 			t.Fatal(err)
 		}
@@ -282,7 +279,7 @@ func TestNodeResizeChangesTheShapeOnce(t *testing.T) {
 			t.Fatalf("%s: %+v", node, op)
 		}
 	}
-	if !slices.Equal(instances.calls, []string{"resize ctl-1"}) || instances.shape["ctl-1"] != [2]float32{1, 4} {
+	if !slices.Equal(instances.calls, []string{"resize gru-1-ctl-1"}) || instances.shape["gru-1-ctl-1"] != [2]float32{1, 4} {
 		t.Fatalf("instances %q %v", instances.calls, instances.shape)
 	}
 }
@@ -291,29 +288,28 @@ func TestNodeResizeChangesTheShapeOnce(t *testing.T) {
 // reboot; undrain returns it. Another node is refused while the quorum
 // guard (two serving) would break.
 func TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ops, balancer, _ := newNodeOpsTest(t)
 	ctx := t.Context()
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpDrain}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpDrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-2", Op: nodeOpReboot}); err == nil ||
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-2", Op: nodeOpReboot}); err == nil ||
 		!strings.Contains(err.Error(), "keeps at least 2") {
 		t.Fatalf("broke the quorum: %v", err)
 	}
-	// A release and a reboot fence and return ctl-1; it stays out.
+	// A release and a reboot fence and return gru-1-ctl-1; it stays out.
 	api, _ := ops.fence.client(ctx)
 	spec, _ := ops.fence.spec()
-	if err := ops.fence.fence(ctx, api, 3, *spec, "ctl-1", fenceAddresses["ctl-1"], 0, holdRelease); err != nil {
+	if err := ops.fence.fence(ctx, api, 3, *spec, "gru-1-ctl-1", fenceAddresses["gru-1-ctl-1"], 0, holdRelease); err != nil {
 		t.Fatal(err)
 	}
-	if returned, err := ops.fence.restore(ctx, api, 3, "ctl-1", holdRelease, true); err != nil || returned {
+	if returned, err := ops.fence.restore(ctx, api, 3, "gru-1-ctl-1", holdRelease, true); err != nil || returned {
 		t.Fatalf("a release returned a drained node: %v %v", returned, err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpReboot}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -322,11 +318,11 @@ func TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum(t *testing.T) {
 	if balancer.sets["terrabase"][0].Serving() {
 		t.Fatal("a reboot returned a drained node")
 	}
-	record, _, _ := ops.fence.record(ctx, "ctl-1")
+	record, _, _ := ops.fence.record(ctx, "gru-1-ctl-1")
 	if !slices.Equal(record.holders(), []string{holdMaintenance}) {
 		t.Fatalf("holders %q", record.holders())
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpUndrain}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpUndrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -338,7 +334,6 @@ func TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum(t *testing.T) {
 }
 
 func TestNodeSubmitRefusals(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ops, _, _ := newNodeOpsTest(t)
 	ctx := t.Context()
 	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
@@ -356,7 +351,7 @@ func TestNodeSubmitRefusals(t *testing.T) {
 		"extended": now.Add(30*time.Minute + time.Second),
 		"expired":  now.Add(-time.Second),
 	} {
-		payload, err := protocol.EncodeJSON(nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot, ExecutionDeadline: deadline})
+		payload, err := protocol.EncodeJSON(nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpReboot, ExecutionDeadline: deadline})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -380,7 +375,7 @@ func TestNodeSubmitRefusals(t *testing.T) {
 		"later millis":      entityid.NewAt(now.Add(time.Millisecond)),
 		"resigned newer ID": entityid.NewAt(now.Add(-time.Second)),
 	} {
-		payload, err := protocol.EncodeJSON(nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot, ExecutionDeadline: now.Add(nodeOperationExecutionLifetime)})
+		payload, err := protocol.EncodeJSON(nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpReboot, ExecutionDeadline: now.Add(nodeOperationExecutionLifetime)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -398,20 +393,20 @@ func TestNodeSubmitRefusals(t *testing.T) {
 		}
 	}
 	for name, request := range map[string]nodeOpRequest{
-		"unknown node":    {Node: "ctl-9", Op: nodeOpDrain},
-		"unknown op":      {Node: "ctl-1", Op: "rename"},
-		"resize no shape": {Node: "ctl-1", Op: nodeOpResize},
-		"reboot shape":    {Node: "ctl-1", Op: nodeOpReboot, OCPUs: 1},
-		"not drained":     {Node: "ctl-1", Op: nodeOpUndrain},
+		"unknown node":    {Node: "gru-1-ctl-9", Op: nodeOpDrain},
+		"unknown op":      {Node: "gru-1-ctl-1", Op: "rename"},
+		"resize no shape": {Node: "gru-1-ctl-1", Op: nodeOpResize},
+		"reboot shape":    {Node: "gru-1-ctl-1", Op: nodeOpReboot, OCPUs: 1},
+		"not drained":     {Node: "gru-1-ctl-1", Op: nodeOpUndrain},
 	} {
 		if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpReboot}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err == nil ||
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpReboot}); err == nil ||
 		!strings.Contains(err.Error(), "already has") {
 		t.Fatalf("a second operation on one node: %v", err)
 	}
@@ -420,20 +415,19 @@ func TestNodeSubmitRefusals(t *testing.T) {
 // Pool nodes belong to the node scaler: no operation takes one, by its name
 // or as a rename's new name.
 func TestNodeSubmitRefusesPoolNodes(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ops, _, _ := newNodeOpsTest(t)
-	ops.pool = func(node string) bool { return node == "ctl-2" || node == "ts-gru-4" }
+	ops.pool = func(node string) bool { return node == "gru-1-ctl-2" || node == "ts-gru-4" }
 	for name, request := range map[string]nodeOpRequest{
-		"reboot": {Node: "ctl-2", Op: nodeOpReboot},
-		"resize": {Node: "ctl-2", Op: nodeOpResize, OCPUs: 2, MemoryGB: 8},
-		"rename": {Node: "ctl-1", To: "ts-gru-4", Op: nodeOpRename},
+		"reboot": {Node: "gru-1-ctl-2", Op: nodeOpReboot},
+		"resize": {Node: "gru-1-ctl-2", Op: nodeOpResize, OCPUs: 2, MemoryGB: 8},
+		"rename": {Node: "gru-1-ctl-1", To: "ts-gru-4", Op: nodeOpRename},
 	} {
 		if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.New(), request); err == nil ||
 			!strings.Contains(err.Error(), "pool node") {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
+	if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpReboot}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -454,7 +448,7 @@ func TestFenceWaitsForTheQuorumGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec, _ := ops.fence.spec()
-	err = ops.fence.fence(ctx, api, 3, *spec, "ctl-1", fenceAddresses["ctl-1"], 0, holdMaintenance)
+	err = ops.fence.fence(ctx, api, 3, *spec, "gru-1-ctl-1", fenceAddresses["gru-1-ctl-1"], 0, holdMaintenance)
 	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "keeps at least 2") || len(balancer.log) != 0 {
 		t.Fatalf("fence: %v, load balancer %q", err, balancer.log)
 	}
@@ -474,8 +468,8 @@ func (p proofs) Latest(unit string) (rolloutexec.HealthProof, bool) {
 func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 	ops, balancer, _ := newNodeOpsTest(t)
 	ctx := t.Context()
-	fences := newRolloutFence(ctx, ops.fence, func(unit string) string { return strings.Replace(unit, "controller-", "ctl-", 1) },
-		func(node string) string { return strings.Replace(node, "ctl-", "controller-", 1) })
+	fences := newRolloutFence(ctx, ops.fence, func(unit string) string { return strings.Replace(unit, "controller-", "gru-1-ctl-", 1) },
+		func(node string) string { return strings.Replace(node, "gru-1-ctl-", "controller-", 1) })
 	gate := func(unit string) error {
 		for range 200 {
 			err := fences.check(ctx, unit)
@@ -492,40 +486,40 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 	if balancer.sets["terrabase"][0].Serving() || balancer.sets["ts-auth"][0].Serving() {
 		t.Fatal("the gate passed a serving node")
 	}
-	if err := fences.check(ctx, "controller-2"); err == nil || !strings.Contains(err.Error(), "ctl-1 is still out") {
+	if err := fences.check(ctx, "controller-2"); err == nil || !strings.Contains(err.Error(), "gru-1-ctl-1 is still out") {
 		t.Fatalf("a second node: %v", err)
 	}
 	record := rollout.Record{ToDigest: "new", FromDigest: "old", Units: map[string]rollout.UnitProgress{
 		"controller-1": {State: rollout.UnitPreparing}}}
 	sources := proofs{"controller-1": {BinarySHA256: "old", StartNonce: "000000000000ae0e535d50ddd92a6c00", ReceivedAt: time.Now()}}
-	since, ready := fences.unitServes("ctl-1", record, true, sources)
+	since, ready := fences.unitServes("gru-1-ctl-1", record, true, sources)
 	if ready {
 		t.Fatal("a unit being stepped is ready")
 	}
 	record.Units["controller-1"] = rollout.UnitProgress{State: rollout.UnitSoaking}
-	if _, ready = fences.unitServes("ctl-1", record, true, sources); ready {
+	if _, ready = fences.unitServes("gru-1-ctl-1", record, true, sources); ready {
 		t.Fatal("a unit on the old release is ready")
 	}
 	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
-	if since, ready = fences.unitServes("ctl-1", record, true, sources); !ready || since.IsZero() {
+	if since, ready = fences.unitServes("gru-1-ctl-1", record, true, sources); !ready || since.IsZero() {
 		t.Fatal("a unit that proves the target is not ready")
 	}
 	record.Phase, record.Units["controller-1"] = rollout.PhaseFrozen, rollout.UnitProgress{State: rollout.UnitRollingBack}
 	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "0000000000V4MRM46HP1SNGDYW", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
-	if _, ready = fences.unitServes("ctl-1", record, true, sources); !ready {
+	if _, ready = fences.unitServes("gru-1-ctl-1", record, true, sources); !ready {
 		t.Fatal("a frozen rollout held its node although the node serves")
 	}
 	record.Phase = rollout.PhaseRollingBack
-	if _, ready = fences.unitServes("ctl-1", record, true, sources); ready {
+	if _, ready = fences.unitServes("gru-1-ctl-1", record, true, sources); ready {
 		t.Fatal("a unit rolling back is ready")
 	}
 	record.Phase, record.Units["controller-1"] = "", rollout.UnitProgress{State: rollout.UnitSoaking}
 	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
-	if reason, err := nodeRolesServing(ctx, ops.fence.hosts, "ctl-1", since.Add(-time.Second)); err != nil || reason != "" {
+	if reason, err := nodeRolesServing(ctx, ops.fence.hosts, "gru-1-ctl-1", since.Add(-time.Second)); err != nil || reason != "" {
 		t.Fatalf("roles: %q %v", reason, err)
 	}
 	api, _ := ops.fence.client(ctx)
-	if _, err := ops.fence.restore(ctx, api, 3, "ctl-1", holdRollout, true); err != nil {
+	if _, err := ops.fence.restore(ctx, api, 3, "gru-1-ctl-1", holdRollout, true); err != nil {
 		t.Fatal(err)
 	}
 	if !balancer.sets["terrabase"][0].Serving() {
@@ -539,29 +533,28 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 // retire takes only a node without replicas or a controller, and leaves it
 // with no backend, a backup and no instance.
 func TestNodeRetireRemovesBacksUpAndTerminates(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ops, balancer, instances := newNodeOpsTest(t)
 	ctx := t.Context()
-	ops.controllers = func(node string) bool { return node == "ctl-1" }
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpRetire}); err == nil ||
+	ops.controllers = func(node string) bool { return node == "gru-1-ctl-1" }
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpRetire}); err == nil ||
 		!strings.Contains(err.Error(), "controller") {
 		t.Fatalf("retired a controller: %v", err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err == nil ||
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-3", Op: nodeOpRetire}); err == nil ||
 		!strings.Contains(err.Error(), "replica") {
 		t.Fatalf("retired a node with replicas: %v", err)
 	}
-	ops.fence.hosts.(*nodeHosts).withdrawn["ctl-3"] = true
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err != nil {
+	ops.fence.hosts.(*nodeHosts).withdrawn["gru-1-ctl-3"] = true
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-3", Op: nodeOpRetire}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if op := ops.operation(t, "ctl-3"); op.State != nodeOpDone || op.Backup != "ocid1.bootvolumebackup.ctl-3" {
+	if op := ops.operation(t, "gru-1-ctl-3"); op.State != nodeOpDone || op.Backup != "ocid1.bootvolumebackup.gru-1-ctl-3" {
 		t.Fatalf("operation %+v", op)
 	}
-	if !slices.Equal(instances.calls, []string{"backup ctl-3", "terminate ctl-3"}) {
+	if !slices.Equal(instances.calls, []string{"backup gru-1-ctl-3", "terminate gru-1-ctl-3"}) {
 		t.Fatalf("instances %q", instances.calls)
 	}
 	for set := range balancer.sets {
@@ -569,7 +562,7 @@ func TestNodeRetireRemovesBacksUpAndTerminates(t *testing.T) {
 			t.Fatalf("%s kept a backend", set)
 		}
 	}
-	if _, found, _ := ops.fence.record(ctx, "ctl-3"); found {
+	if _, found, _ := ops.fence.record(ctx, "gru-1-ctl-3"); found {
 		t.Fatal("the fence record was left")
 	}
 }
@@ -577,21 +570,20 @@ func TestNodeRetireRemovesBacksUpAndTerminates(t *testing.T) {
 // add creates a replica's missing backend out of rotation and returns it
 // once the node serves.
 func TestNodeAddJoinsAMissingBackend(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	_, ops, balancer, _ := newEdgeTest(t)
 	ctx := t.Context()
 	balancer.sets["ts-auth"] = balancer.sets["ts-auth"][:2]
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-3", Op: nodeOpAdd}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-3", Op: nodeOpAdd}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if op := ops.operation(t, "ctl-3"); op.State != nodeOpDone {
+	if op := ops.operation(t, "gru-1-ctl-3"); op.State != nodeOpDone {
 		t.Fatalf("operation %+v", op)
 	}
 	if backend, ok := backendOf(balancer, "ts-auth", "10.0.0.13:8080"); !ok || !backend.Serving() {
-		t.Fatalf("ctl-3's ts-auth backend %+v %v: %q", backend, ok, balancer.log)
+		t.Fatalf("gru-1-ctl-3's ts-auth backend %+v %v: %q", backend, ok, balancer.log)
 	}
 	if !slices.Contains(balancer.log, "ts-auth 10.0.0.13:8080 created") {
 		t.Fatalf("load balancer %q", balancer.log)
@@ -611,8 +603,8 @@ type renameHosts struct {
 }
 
 func newRenameHosts() *renameHosts {
-	h := &renameHosts{nodes: []string{"ctl-1", "ctl-2", "ctl-3"}, down: map[string]bool{},
-		sessions: map[string]string{"ctl-1": "s1", "ctl-2": "s2", "ctl-3": "s3"}, desired: map[string]host.Desired{}}
+	h := &renameHosts{nodes: []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"}, down: map[string]bool{},
+		sessions: map[string]string{"gru-1-ctl-1": "s1", "gru-1-ctl-2": "s2", "gru-1-ctl-3": "s3"}, desired: map[string]host.Desired{}}
 	for _, node := range h.nodes {
 		for _, role := range []string{"terrabase", "ts-auth"} {
 			h.desired[node+"/"+role] = host.Desired{Node: node, Role: role, Generation: 15,
@@ -691,7 +683,6 @@ func (h *renameHosts) RetireIdle(_ context.Context, node string) (bool, error) {
 // once the host enrolled under the new name, the old name's roles move to
 // it, the old name retires, and the node returns once they serve (TS-609).
 func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ops, balancer, instances := newNodeOpsTest(t)
 	ctx := t.Context()
 	hosts := newRenameHosts()
@@ -701,35 +692,35 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 		return nil
 	}
 	instances.rebooted = func(node string) { hosts.enroll(node, "ts-gru-1") }
-	request := nodeOpRequest{Node: "ctl-1", To: "ts-gru-1", Op: nodeOpRename}
+	request := nodeOpRequest{Node: "gru-1-ctl-1", To: "ts-gru-1", Op: nodeOpRename}
 	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err == nil || !strings.Contains(err.Error(), "no host grant") {
 		t.Fatalf("renamed to an ungranted name: %v", err)
 	}
 	spec, _ := ops.fence.spec()
-	both := map[string]string{"ctl-1": "10.0.0.11", "ts-gru-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
+	both := map[string]string{"gru-1-ctl-1": "10.0.0.11", "ts-gru-1": "10.0.0.11", "gru-1-ctl-2": "10.0.0.12", "gru-1-ctl-3": "10.0.0.13"}
 	ops.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, both }
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err == nil || !strings.Contains(err.Error(), "still grants ctl-1") {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err == nil || !strings.Contains(err.Error(), "still grants gru-1-ctl-1") {
 		t.Fatalf("renamed while the old name keeps its grant: %v", err)
 	}
-	ops.controllers = func(node string) bool { return node == "ctl-1" }
-	renamed := map[string]string{"ts-gru-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
+	ops.controllers = func(node string) bool { return node == "gru-1-ctl-1" }
+	renamed := map[string]string{"ts-gru-1": "10.0.0.11", "gru-1-ctl-2": "10.0.0.12", "gru-1-ctl-3": "10.0.0.13"}
 	ops.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, renamed }
 	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err == nil || !strings.Contains(err.Error(), "controller slot") {
 		t.Fatalf("renamed a controller node without its slot: %v", err)
 	}
 	ops.controllers = func(node string) bool { return node == "ts-gru-1" }
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpRename}); err == nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpRename}); err == nil {
 		t.Fatal("a rename without --new-name was queued")
 	}
-	// ctl-1 ran TerraBase release 15 on its permit, and a failed operation
+	// gru-1-ctl-1 ran TerraBase release 15 on its permit, and a failed operation
 	// left it held out under its old name.
-	for _, key := range []string{sequencedKey("terrabase", 15), permitKey("terrabase", 15, "ctl-1")} {
+	for _, key := range []string{sequencedKey("terrabase", 15), permitKey("terrabase", 15, "gru-1-ctl-1")} {
 		if _, err := ops.fence.kv.Put(ctx, key, []byte("{}")); err != nil {
 			t.Fatal(err)
 		}
 	}
 	api, _ := ops.fence.client(ctx)
-	if err := ops.fence.fence(ctx, api, 3, *spec, "ctl-1", "10.0.0.11", time.Millisecond, holdOperation); err != nil {
+	if err := ops.fence.fence(ctx, api, 3, *spec, "gru-1-ctl-1", "10.0.0.11", time.Millisecond, holdOperation); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err != nil {
@@ -741,23 +732,23 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 	if _, err := ops.fence.kv.Get(ctx, permitKey("terrabase", 15, "ts-gru-1")); err != nil {
 		t.Fatalf("the renamed node has no permit for the release it runs: %v", err)
 	}
-	if _, found, _ := ops.fence.record(ctx, "ctl-1"); found {
+	if _, found, _ := ops.fence.record(ctx, "gru-1-ctl-1"); found {
 		t.Fatal("the old name's fence record was left")
 	}
-	if op := ops.operation(t, "ts-gru-1"); op.State != nodeOpDone || op.From != "ctl-1" || op.Instance != "ocid1.instance.ctl-1" ||
+	if op := ops.operation(t, "ts-gru-1"); op.State != nodeOpDone || op.From != "gru-1-ctl-1" || op.Instance != "ocid1.instance.gru-1-ctl-1" ||
 		op.Session != "s1" {
 		t.Fatalf("operation %+v", op)
 	}
-	if want := []string{"rename ctl-1 ts-gru-1", "forget ocid1.instance.ctl-1", "reboot ctl-1"}; !slices.Equal(instances.calls, want) {
+	if want := []string{"rename gru-1-ctl-1 ts-gru-1", "forget ocid1.instance.gru-1-ctl-1", "reboot gru-1-ctl-1"}; !slices.Equal(instances.calls, want) {
 		t.Fatalf("instances %q, want %q", instances.calls, want)
 	}
 	for _, role := range []string{"terrabase", "ts-auth"} {
-		if moved, old := hosts.desired["ts-gru-1/"+role], hosts.desired["ctl-1/"+role]; moved.Withdrawn || moved.Generation != 15 ||
+		if moved, old := hosts.desired["ts-gru-1/"+role], hosts.desired["gru-1-ctl-1/"+role]; moved.Withdrawn || moved.Generation != 15 ||
 			moved.AuthorityEpoch != 3 || moved.Digest == "" || !old.Withdrawn || old.Generation != 16 || old.Digest != "" {
 			t.Fatalf("%s desired: new %+v, old %+v", role, moved, old)
 		}
 	}
-	if !slices.Equal(hosts.retired, []string{"ctl-1"}) {
+	if !slices.Equal(hosts.retired, []string{"gru-1-ctl-1"}) {
 		t.Fatalf("retired %v", hosts.retired)
 	}
 	if !balancer.sets["terrabase"][0].Serving() || !balancer.sets["ts-auth"][0].Serving() {
@@ -777,14 +768,14 @@ func TestNodeRenameMovesRolesOnlyToALiveSession(t *testing.T) {
 	hosts := newRenameHosts()
 	ops.fence.hosts, ops.desired = hosts, hosts
 	hosts.nodes = append(hosts.nodes, "ts-gru-1")
-	if moved, err := ops.moveDesired(ctx, 3, "ctl-1", "ts-gru-1"); err != nil || moved {
+	if moved, err := ops.moveDesired(ctx, 3, "gru-1-ctl-1", "ts-gru-1"); err != nil || moved {
 		t.Fatalf("moved %t (%v) to a stale registration", moved, err)
 	}
-	if _, found := hosts.desired["ts-gru-1/terrabase"]; found || hosts.desired["ctl-1/terrabase"].Withdrawn {
+	if _, found := hosts.desired["ts-gru-1/terrabase"]; found || hosts.desired["gru-1-ctl-1/terrabase"].Withdrawn {
 		t.Fatalf("desired %+v", hosts.desired)
 	}
-	hosts.enroll("ctl-1", "ts-gru-1")
-	if moved, err := ops.moveDesired(ctx, 3, "ctl-1", "ts-gru-1"); err != nil || !moved {
+	hosts.enroll("gru-1-ctl-1", "ts-gru-1")
+	if moved, err := ops.moveDesired(ctx, 3, "gru-1-ctl-1", "ts-gru-1"); err != nil || !moved {
 		t.Fatalf("moved %t (%v) after the host enrolled", moved, err)
 	}
 	if d := hosts.desired["ts-gru-1/terrabase"]; d.Withdrawn || d.Digest == "" {
@@ -796,38 +787,37 @@ func TestNodeRenameMovesRolesOnlyToALiveSession(t *testing.T) {
 // which no grant holds: undrain of the node at that address releases it
 // (TS-632, gru-1 2026-10-07), and undrain of the stray name stays refused.
 func TestNodeUndrainReleasesAFenceAFailedRenameLeftAtItsAddress(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ops, balancer, _ := newNodeOpsTest(t)
 	ctx := t.Context()
 	spec, addresses := ops.fence.spec()
 	api, _ := ops.fence.client(ctx)
-	if err := ops.fence.fence(ctx, api, 3, *spec, "ts-gru-1", addresses["ctl-1"], time.Millisecond, holdOperation); err != nil {
+	if err := ops.fence.fence(ctx, api, 3, *spec, "ts-gru-1", addresses["gru-1-ctl-1"], time.Millisecond, holdOperation); err != nil {
 		t.Fatal(err)
 	}
 	if balancer.sets["terrabase"][0].Serving() {
-		t.Fatal("the stray fence did not take ctl-1's address out")
+		t.Fatal("the stray fence did not take gru-1-ctl-1's address out")
 	}
 	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ts-gru-1", Op: nodeOpUndrain}); err == nil ||
 		!strings.Contains(err.Error(), "no host grant") {
 		t.Fatalf("undrain of the ungranted name: %v", err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-2", Op: nodeOpUndrain}); err == nil ||
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-2", Op: nodeOpUndrain}); err == nil ||
 		!strings.Contains(err.Error(), "not drained") {
 		t.Fatalf("undrain of a node with no fence at its address: %v", err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpUndrain}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpUndrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if op := ops.operation(t, "ctl-1"); op.State != nodeOpDone {
+	if op := ops.operation(t, "gru-1-ctl-1"); op.State != nodeOpDone {
 		t.Fatalf("operation %+v", op)
 	}
 	if !balancer.sets["terrabase"][0].Serving() || !balancer.sets["ts-auth"][0].Serving() {
 		t.Fatal("undrain did not return the address the stray fence held")
 	}
-	for _, node := range []string{"ts-gru-1", "ctl-1"} {
+	for _, node := range []string{"ts-gru-1", "gru-1-ctl-1"} {
 		if _, found, _ := ops.fence.record(ctx, node); found {
 			t.Fatalf("the fence record of %s was left", node)
 		}

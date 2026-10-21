@@ -248,7 +248,7 @@ func TestRegionalProbeIncludesFutureCatalogRegions(t *testing.T) {
 
 func TestServerProbeSkipsSplitCellControllers(t *testing.T) {
 	s := goodSnapshot(t)
-	s.nb.Name = "ts-sfo-1.nb.ts.internal"
+	s.nb.Name = "ts-sjc-1.nb.ts.internal"
 	peer := s.nb.Peers.Details[0]
 	s.nb.Peers.Details = nil
 	for i, name := range []string{"gru-1-ctl-1", "gru-1-gw-1", "gru-1-db-1-data", "gru-1-db-0", "gru-1-db-1"} {
@@ -264,14 +264,14 @@ func TestServerProbeSkipsSplitCellControllers(t *testing.T) {
 		}
 		return nil, nil
 	}
-	if err := check(t.Context(), target{name: "ts-sfo-1", node: true}, s, read); err != nil {
+	if err := check(t.Context(), target{name: "ts-sjc-1", node: true}, s, read); err != nil {
 		t.Fatal(err)
 	}
 	if len(commands) != 1 {
 		t.Fatalf("unexpected probes: %v", commands)
 	}
 	s.nb.Peers.Details = s.nb.Peers.Details[:4]
-	if err := check(t.Context(), target{name: "ts-sfo-1", node: true}, s, read); err == nil || !strings.Contains(err.Error(), "no connected regional") {
+	if err := check(t.Context(), target{name: "ts-sjc-1", node: true}, s, read); err == nil || !strings.Contains(err.Error(), "no connected regional") {
 		t.Fatalf("non-serving peers accepted as TerraBase endpoints: %v", err)
 	}
 }

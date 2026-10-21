@@ -137,16 +137,16 @@ An idle audit alone would not prove this: the installing rollout itself
 creates an active reservation. Lost historical generation/attempt ownership
 cannot authorize a refund. This slice changes no live rollout data and starts
 no update. The [raw rollout-store audit](evidence/ts783-rollout-storage-20261010.md)
-records additional deployment boundaries in the actual GRU/SFO stores.
+records additional deployment boundaries in the actual GRU/SJC stores.
 
-Read-only inspection on 2026-10-09 around 21:02 UTC found all six GRU/SFO
+Read-only inspection on 2026-10-09 around 21:02 UTC found all six GRU/SJC
 controllers healthy and ready, with 24/24 authenticated dashboard checks
-passing. GRU reported mixed builds (`1e57e6c17362` and `93c6b7e3df4f`); SFO
+passing. GRU reported mixed builds (`1e57e6c17362` and `93c6b7e3df4f`); SJC
 reported `107e060af74f`. GRU's mixed predecessor blocks a normal agreed-source
 rollout. These are target checks, not TS-783 rollout/rollback evidence.
 The [live configuration audit](evidence/ts783-policy-config-20261009.md) at
 22:02:06 UTC verified all six installed signed config pins and actual current
-KV records: GRU generation 14/revision 26 and SFO generation 10/revision 10.
+KV records: GRU generation 14/revision 26 and SJC generation 10/revision 10.
 No retired policy members are present; no signed replacement is needed for
 that state. Explicit persisted signer restrictions remain intact.
 

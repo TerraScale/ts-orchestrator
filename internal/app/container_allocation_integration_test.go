@@ -34,7 +34,7 @@ func TestContainerAllocationSourceIntegration(t *testing.T) {
 	signerID, _ := trust.KeyID(public)
 	signerPublic, _ := trust.EncodeDelegatedPublicKey(public)
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "signed-namespace", Bucket: "gru-1-head", Region: "GRU", Role: "ts-auth", Environment: "production", SequenceFloor: 100, SignerKeyID: signerID, SignerPublicKey: signerPublic}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 100, EvidenceSHA256: strings.Repeat("a", 64)})
 	}
 	envelope, err := release.SignSequenceMigration(migration, time.Now().UTC().Add(-2*release.MaxSequenceMigrationLifetime), root)
@@ -55,7 +55,7 @@ func TestContainerAllocationSourceIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	bundle := release.ContainerBundle{Migration: wire}
-	target := release.ContainerTarget{Cell: "SFO", Role: migration.Role, Environment: migration.Environment, Architecture: "arm64"}
+	target := release.ContainerTarget{Cell: "SJC", Role: migration.Role, Environment: migration.Environment, Architecture: "arm64"}
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)

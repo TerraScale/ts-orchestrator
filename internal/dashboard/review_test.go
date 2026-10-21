@@ -90,27 +90,27 @@ func completedRelease(regions ...string) []decisionlog.Decision {
 
 func TestPartialReleaseHistoryIsNotCompleteEverywhere(t *testing.T) {
 	t.Parallel()
-	global := []globalview.Region{{Cell: "fra"}, {Cell: "sfo"}}
+	global := []globalview.Region{{Cell: "fra"}, {Cell: "sjc"}}
 	journal := &Journal{Decisions: &fakeDecisions{}}
 	label := func(result decisionlog.Result) string {
 		return fixturePage(t, view{Journal: journal, Decisions: &result, Global: global}, "/releases")
 	}
 
-	// FRA completed and SFO did not answer: completion covers FRA only.
+	// FRA completed and SJC did not answer: completion covers FRA only.
 	partial := decisionlog.Result{Decisions: completedRelease("fra"), Partial: true,
 		Regions: []decisionlog.RegionStatus{{Region: "fra", State: decisionlog.RegionOK},
-			{Region: "sfo", State: decisionlog.RegionUnreachable}}}
+			{Region: "sjc", State: decisionlog.RegionUnreachable}}}
 	if got := label(partial); strings.Contains(got, "everywhere") || !strings.Contains(got, "observed") ||
 		!strings.Contains(got, `pill s-warn`) {
 		t.Fatalf("partial history = %q", got)
 	}
-	// Every region answered, but SFO never started the release.
+	// Every region answered, but SJC never started the release.
 	answered := decisionlog.Result{Decisions: completedRelease("fra"),
-		Regions: []decisionlog.RegionStatus{{Region: "fra", State: decisionlog.RegionOK}, {Region: "sfo", State: decisionlog.RegionOK}}}
+		Regions: []decisionlog.RegionStatus{{Region: "fra", State: decisionlog.RegionOK}, {Region: "sjc", State: decisionlog.RegionOK}}}
 	if got := label(answered); strings.Contains(got, "everywhere") || !strings.Contains(got, "1 with no activity in the queried window") {
 		t.Fatalf("release missing a region = %q", got)
 	}
-	everywhere := decisionlog.Result{Decisions: completedRelease("fra", "sfo"), Regions: answered.Regions}
+	everywhere := decisionlog.Result{Decisions: completedRelease("fra", "sjc"), Regions: answered.Regions}
 	if got := label(everywhere); !strings.Contains(got, `pill s-ok">complete everywhere</span>`) {
 		t.Fatalf("complete release = %q", got)
 	}
@@ -146,9 +146,9 @@ func TestTargetVersionSkipsRolledBackReleasesAndUsesReleaseAge(t *testing.T) {
 	// v2 started after v1, but v1's last activity (its completion in
 	// another region) is newer: the target stays v2.
 	progress := decisionlog.Result{Decisions: []decisionlog.Decision{
-		{ID: "v1-done", Time: testNow, Region: "sfo", Kind: decisionlog.KindRolloutCompleted, Subject: v1},
+		{ID: "v1-done", Time: testNow, Region: "sjc", Kind: decisionlog.KindRolloutCompleted, Subject: v1},
 		{ID: "v2-start", Time: testNow.Add(-10 * time.Minute), Region: "fra", Kind: decisionlog.KindReleaseAdmitted, Subject: v2},
-		{ID: "v1-start", Time: testNow.Add(-2 * time.Hour), Region: "sfo", Kind: decisionlog.KindReleaseAdmitted, Subject: v1},
+		{ID: "v1-start", Time: testNow.Add(-2 * time.Hour), Region: "sjc", Kind: decisionlog.KindReleaseAdmitted, Subject: v1},
 	}}
 	current = view{Decisions: &progress, Versions: units("v1", "v2")}
 
@@ -238,8 +238,8 @@ func TestInsightIdentityIsRegionScoped(t *testing.T) {
 	t.Parallel()
 	dashboard, source, _ := journalDashboard(Options{})
 	source.evaluation.Insights = append(source.evaluation.Insights,
-		testInsight("oci_throttled:sfo", "Same key in FRA", insights.SeverityWarning, "fra"))
-	fraID := entityid.Derive("insight", "fra", "oci_throttled:sfo")
+		testInsight("oci_throttled:sjc", "Same key in FRA", insights.SeverityWarning, "fra"))
+	fraID := entityid.Derive("insight", "fra", "oci_throttled:sjc")
 	body := get(t, dashboard.Handler(), "/insights?id="+fraID).Body.String()
 	if !strings.Contains(body, `id="insight-`+fraID+`"`) {
 		t.Fatal("the insight card id does not name its region")
@@ -265,7 +265,7 @@ func TestInsightsPageEmptyStatesAreHonest(t *testing.T) {
 		{"unavailable", view{Journal: &Journal{}}, "unavailable", "Every rule is quiet"},
 		{"not run", view{Evaluation: &insights.Evaluation{}}, "unavailable", "Every rule is quiet"},
 		{"quiet", view{Evaluation: &insights.Evaluation{At: testNow}}, "Every rule is quiet", ""},
-		{"missing region", view{Evaluation: &insights.Evaluation{At: testNow}, Global: []globalview.Region{{Cell: "fra", Rollup: &globalview.Rollup{}}, {Cell: "sfo"}}}, "SFO", "Every rule is quiet"},
+		{"missing region", view{Evaluation: &insights.Evaluation{At: testNow}, Global: []globalview.Region{{Cell: "fra", Rollup: &globalview.Rollup{}}, {Cell: "sjc"}}}, "SJC", "Every rule is quiet"},
 		{"missing inputs", view{Evaluation: &insights.Evaluation{At: testNow, Unavailable: []string{"volumes"}}}, "volumes", "Every rule is quiet"},
 		{"filtered", view{State: parseState(url.Values{"severity": {"critical"}}), Evaluation: &insights.Evaluation{At: testNow, Insights: []insights.Insight{testInsight("k", "t", insights.SeverityInfo, "fra")}}}, "No insight matches these filters", ""},
 	} {
@@ -283,14 +283,14 @@ func TestEntityLinksUseTheEntitysRegion(t *testing.T) {
 	dashboard, source, _ := journalDashboard(Options{})
 	gru := testInsight("nats:gru", "GRU stream", insights.SeverityWarning, "gru")
 	gru.Entity = insights.Entity{Kind: "stream", ID: "TS_X", Href: "/nats?stream=TS_X"}
-	unreachable := testInsight("region_unreachable:sfo", "SFO unreachable", insights.SeverityWarning, "sfo")
-	unreachable.Entity = insights.Entity{Kind: "region", ID: "sfo", Href: "/regions/sfo"}
+	unreachable := testInsight("region_unreachable:sjc", "SJC unreachable", insights.SeverityWarning, "sjc")
+	unreachable.Entity = insights.Entity{Kind: "region", ID: "sjc", Href: "/regions/sjc"}
 	unreachable.Actions = []insights.Action{{Label: "Open the global view", Href: "/regions"}}
 	held := testInsight("held:x", "Held", insights.SeverityWarning, "fra")
 	held.Entity = insights.Entity{Kind: "subject", ID: "seat/s1", Href: "/decisions?subject=seat/s1"}
 	source.evaluation.Insights = append(source.evaluation.Insights, gru, unreachable, held)
-	body := get(t, dashboard.Handler(), "/insights?r=sfo&region=all").Body.String()
-	for _, want := range []string{`href="/nats?r=gru&amp;stream=TS_X"`, `href="/region?r=sfo"`, `href="/?r=sfo"`,
+	body := get(t, dashboard.Handler(), "/insights?r=sjc&region=all").Body.String()
+	for _, want := range []string{`href="/nats?r=gru&amp;stream=TS_X"`, `href="/region?r=sjc"`, `href="/?r=sjc"`,
 		`href="/decisions?q=s1"`, `href="/members?host=ctl-1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("insights page lacks %s", want)
@@ -301,11 +301,11 @@ func TestEntityLinksUseTheEntitysRegion(t *testing.T) {
 func TestRegionFiltersFollowTheSelectedRegion(t *testing.T) {
 	t.Parallel()
 	dashboard, _, _ := journalDashboard(Options{})
-	body := get(t, dashboard.Handler(), "/decisions?r=sfo").Body.String()
-	if !strings.Contains(body, `<option value="sfo" selected>`) || strings.Contains(body, `<option value="all" selected>`) {
+	body := get(t, dashboard.Handler(), "/decisions?r=sjc").Body.String()
+	if !strings.Contains(body, `<option value="sjc" selected>`) || strings.Contains(body, `<option value="all" selected>`) {
 		t.Fatal("the region select does not show the effective region")
 	}
-	body = get(t, dashboard.Handler(), "/insights?r=sfo").Body.String()
+	body = get(t, dashboard.Handler(), "/insights?r=sjc").Body.String()
 	if strings.Contains(body, `id="insight-`+entityid.Derive("insight", "fra", "disk:ctl-1")) {
 		t.Fatal("the insights page ignores the selected region")
 	}
@@ -326,7 +326,7 @@ func TestSwitcherOnlyOffersViewsThePageRenders(t *testing.T) {
 	t.Parallel()
 	for _, path := range []string{"/topology", "/releases", "/members", "/nats", "/insights"} {
 		board, _, _ := journalDashboard(Options{})
-		body := get(t, board.Handler(), path+"?r=sfo").Body.String()
+		body := get(t, board.Handler(), path+"?r=sjc").Body.String()
 		if !strings.Contains(body, `href="/regions/fra"`) {
 			t.Errorf("%s switcher lost regional drilldown", path)
 		}
@@ -336,9 +336,9 @@ func TestSwitcherOnlyOffersViewsThePageRenders(t *testing.T) {
 func TestRemoteSelectionLabelsLocalSections(t *testing.T) {
 	t.Parallel()
 	dashboard, _, _ := journalDashboard(Options{})
-	body := get(t, dashboard.Handler(), "/nats?r=sfo").Body.String()
+	body := get(t, dashboard.Handler(), "/nats?r=sjc").Body.String()
 	if !strings.Contains(body, "Live metrics and member detail on this page are from") ||
-		strings.Contains(body, "Current JetStream meta leader") || !strings.Contains(body, "SFO · 24h at least") {
+		strings.Contains(body, "Current JetStream meta leader") || !strings.Contains(body, "SJC · 24h at least") {
 		t.Fatal("the NATS page mixes regions without saying so")
 	}
 	if body := get(t, dashboard.Handler(), "/nats").Body.String(); strings.Contains(body, "Live metrics and member detail") {
@@ -350,10 +350,10 @@ func TestDerivedVersionsKeepTheLocalSnapshot(t *testing.T) {
 	t.Parallel()
 	snapshot := memberSnapshot()
 	current := view{Local: &snapshot, Journal: &Journal{}, LocalSummary: &regionview.Summary{Region: "fra", Local: true},
-		Global: []globalview.Region{{Cell: "fra"}, {Cell: "sfo", Rollup: &globalview.Rollup{Cell: "sfo",
-			Versions: []globalview.BuildCount{{Version: "v1", Count: 1, Members: []string{"sfo-1"}}}}}}}
+		Global: []globalview.Region{{Cell: "fra"}, {Cell: "sjc", Rollup: &globalview.Rollup{Cell: "sjc",
+			Versions: []globalview.BuildCount{{Version: "v1", Count: 1, Members: []string{"sjc-1"}}}}}}}
 	body := fixturePage(t, current, "/releases")
-	for _, want := range []string{"abc123def456", "SFO"} {
+	for _, want := range []string{"abc123def456", "SJC"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("version matrix lacks %q", want)
 		}
@@ -364,10 +364,10 @@ func TestReleaseMatrixShowsRemoteControllers(t *testing.T) {
 	t.Parallel()
 	snapshot := memberSnapshot()
 	current := view{Local: &snapshot, Journal: &Journal{}, LocalSummary: &regionview.Summary{Region: "fra", Local: true},
-		Global: []globalview.Region{{Cell: "fra"}, {Cell: "sfo", Rollup: &globalview.Rollup{Cell: "sfo",
-			Versions: []globalview.BuildCount{{Version: "v0.43.0", Count: 1, Members: []string{"sfo-ctl-1"}}}}}}}
+		Global: []globalview.Region{{Cell: "fra"}, {Cell: "sjc", Rollup: &globalview.Rollup{Cell: "sjc",
+			Versions: []globalview.BuildCount{{Version: "v0.43.0", Count: 1, Members: []string{"sjc-ctl-1"}}}}}}}
 	body := fixturePage(t, current, "/releases")
-	for _, want := range []string{"abc123def456", "SFO"} {
+	for _, want := range []string{"abc123def456", "SJC"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("version matrix lacks %q", want)
 		}
@@ -386,13 +386,13 @@ func TestChainPanelClosesOnItsOwnPage(t *testing.T) {
 func TestPartialHistoryIsNotBlamedOnRegions(t *testing.T) {
 	t.Parallel()
 	for _, state := range []string{decisionlog.RegionOK, decisionlog.RegionUnreachable} {
-		result := decisionlog.Result{Partial: true, Regions: []decisionlog.RegionStatus{{Region: "sfo", State: state}}}
+		result := decisionlog.Result{Partial: true, Regions: []decisionlog.RegionStatus{{Region: "sjc", State: state}}}
 		body := fixturePage(t, view{Decisions: &result}, "/decisions")
 		if state == decisionlog.RegionOK {
 			if strings.Contains(body, "did not answer") || !strings.Contains(body, "could not be searched") {
 				t.Fatal("partial history was blamed on a responding region")
 			}
-		} else if !strings.Contains(body, "did not answer") || !strings.Contains(body, "SFO") {
+		} else if !strings.Contains(body, "did not answer") || !strings.Contains(body, "SJC") {
 			t.Fatal("unreachable region evidence missing")
 		}
 	}

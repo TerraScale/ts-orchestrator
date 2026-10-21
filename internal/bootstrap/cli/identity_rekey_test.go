@@ -681,7 +681,7 @@ func TestIdentityRekeyPrecommitConnectionRejectsLegacyAndServerModes(t *testing.
 				}
 				return
 			case "wrong cell":
-				changed.NATS.Cell = "sfo"
+				changed.NATS.Cell = "sjc"
 			case "wrong slot":
 				changed.NATS.Instance = "controller-b"
 			case "wrong quorum":

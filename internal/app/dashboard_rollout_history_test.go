@@ -342,7 +342,7 @@ func TestDashboardRolloutStoreFailuresStayUnavailable(t *testing.T) {
 			readCtx := t.Context()
 			altered := record.Clone()
 			if failure == "wrong-cell" {
-				altered.Cell = "sfo"
+				altered.Cell = "sjc"
 			}
 			if failure == "wrong-id" {
 				altered.RolloutID = missing

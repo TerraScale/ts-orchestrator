@@ -65,10 +65,10 @@ func TestStartupVaultObservesExactPinsWithoutCreatingLogicalBirth(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := logical.Resolve("foundation:SFO:key"); err == nil {
+			if _, err := logical.Resolve("foundation:SJC:key"); err == nil {
 				t.Fatal("finite startup projection exposed pinned key")
 			}
-			if _, err := logical.ForCell(t.Context(), "SFO"); err == nil {
+			if _, err := logical.ForCell(t.Context(), "SJC"); err == nil {
 				t.Fatal("generic ForCell lost full missing-birth refusal")
 			}
 			for _, role := range []string{"control_compartment", "vault", "key"} {
@@ -150,7 +150,7 @@ func TestStartupVaultRefusesAuthorityRecordAndLiveDrift(t *testing.T) {
 			}},
 			{"logical target lacks birth", func(s *bindingScenario) { delete(s.intent.Plan["resource_ids"].(map[string]any), "key"); s.publish() }},
 			{"wrong logical target role", func(s *bindingScenario) {
-				s.intent.Plan["resource_ids"].(map[string]any)["key"] = "foundation:SFO:vault"
+				s.intent.Plan["resource_ids"].(map[string]any)["key"] = "foundation:SJC:vault"
 				s.publish()
 			}},
 			{"cross-cell logical target", func(s *bindingScenario) {
@@ -158,7 +158,7 @@ func TestStartupVaultRefusesAuthorityRecordAndLiveDrift(t *testing.T) {
 				s.publish()
 			}},
 			{"noncanonical logical target", func(s *bindingScenario) {
-				s.intent.Plan["resource_ids"].(map[string]any)["key"] = "foundation:sfo:key"
+				s.intent.Plan["resource_ids"].(map[string]any)["key"] = "foundation:sjc:key"
 				s.publish()
 			}},
 		} {
@@ -245,7 +245,7 @@ func TestStartupVaultDynamicTargetStillRequiresOriginalBirth(t *testing.T) {
 			}
 			for _, logical := range []bool{false, true} {
 				if logical {
-					s.intent.Plan["resource_ids"].(map[string]any)["key"] = "foundation:SFO:key"
+					s.intent.Plan["resource_ids"].(map[string]any)["key"] = "foundation:SJC:key"
 					s.publish()
 				}
 				if _, err := VerifyStartupVault(t.Context(), s.factory, s.authority, s.wire, time.Now().Add(time.Minute)); err != nil {

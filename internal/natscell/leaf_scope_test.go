@@ -17,33 +17,33 @@ func TestChildLeafScopeAdmissionIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	// IAD dials SFO; SFO and FRA dial GRU.
-	topology := HubAndSpoke("gru", []string{"fra", "iad", "sfo"}).WithSpokeParent("iad", "sfo")
+	// IAD dials SJC; SJC and FRA dial GRU.
+	topology := HubAndSpoke("gru", []string{"fra", "iad", "sjc"}).WithSpokeParent("iad", "sjc")
 	subtrees := topology.Subtrees("gru")
-	if !slices.Equal(subtrees["sfo"], []string{"iad", "sfo"}) || !slices.Equal(subtrees["fra"], []string{"fra"}) || len(subtrees) != 2 {
+	if !slices.Equal(subtrees["sjc"], []string{"iad", "sjc"}) || !slices.Equal(subtrees["fra"], []string{"fra"}) || len(subtrees) != 2 {
 		t.Fatalf("subtrees = %v", subtrees)
 	}
-	if spoke := topology.Subtrees("sfo"); len(spoke) != 1 || !slices.Equal(spoke["iad"], []string{"iad"}) {
-		t.Fatalf("sfo subtrees = %v", spoke)
+	if spoke := topology.Subtrees("sjc"); len(spoke) != 1 || !slices.Equal(spoke["iad"], []string{"iad"}) {
+		t.Fatalf("sjc subtrees = %v", spoke)
 	}
 	contract := InterRegionContract{Cell: "gru", Peers: topology.Peers("gru"), GlobalHome: "gru", Subtrees: subtrees}
-	sfo := contract.ChildLeafPermissions("sfo")
+	sjc := contract.ChildLeafPermissions("sjc")
 	reset := func(region string) string {
 		return protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix("gru"), protocol.GlobalControlStream,
 			protocol.GlobalMirrorConsumer(region))
 	}
-	for _, own := range []string{"sfo", "iad"} {
-		if !slices.Contains(sfo.Pub.Allow, protocol.RegionHealthSubject(own)) || !slices.Contains(sfo.Pub.Allow, reset(own)) ||
-			!slices.Contains(sfo.Sub.Allow, protocol.Regional(own, "query", ">")) ||
-			!slices.Contains(sfo.Sub.Allow, protocol.InterRegionGlobalDeliverSubject(own)) {
-			t.Errorf("SFO's leaf lacks its subtree region %s", own)
+	for _, own := range []string{"sjc", "iad"} {
+		if !slices.Contains(sjc.Pub.Allow, protocol.RegionHealthSubject(own)) || !slices.Contains(sjc.Pub.Allow, reset(own)) ||
+			!slices.Contains(sjc.Sub.Allow, protocol.Regional(own, "query", ">")) ||
+			!slices.Contains(sjc.Sub.Allow, protocol.InterRegionGlobalDeliverSubject(own)) {
+			t.Errorf("SJC's leaf lacks its subtree region %s", own)
 		}
 	}
 	for _, foreign := range []string{"fra", "gru"} {
-		if slices.Contains(sfo.Pub.Allow, protocol.RegionHealthSubject(foreign)) || slices.Contains(sfo.Pub.Allow, reset(foreign)) ||
-			slices.Contains(sfo.Sub.Allow, protocol.Regional(foreign, "query", ">")) ||
-			slices.Contains(sfo.Sub.Allow, protocol.InterRegionGlobalDeliverSubject(foreign)) {
-			t.Errorf("SFO's leaf may act for %s", foreign)
+		if slices.Contains(sjc.Pub.Allow, protocol.RegionHealthSubject(foreign)) || slices.Contains(sjc.Pub.Allow, reset(foreign)) ||
+			slices.Contains(sjc.Sub.Allow, protocol.Regional(foreign, "query", ">")) ||
+			slices.Contains(sjc.Sub.Allow, protocol.InterRegionGlobalDeliverSubject(foreign)) {
+			t.Errorf("SJC's leaf may act for %s", foreign)
 		}
 	}
 	if unknown := contract.ChildLeafPermissions("lhr"); !denyAll(unknown) {
@@ -85,17 +85,17 @@ func TestChildLeafScopeAdmissionIntegration(t *testing.T) {
 			delete(claim.SigningKeys, scopeOf(claim, "fra").Key)
 		},
 		"widened template": func(claim *jwt.AccountClaims) {
-			scopeOf(claim, "fra").Template.Pub.Allow.Add(protocol.RegionHealthSubject("sfo"))
+			scopeOf(claim, "fra").Template.Pub.Allow.Add(protocol.RegionHealthSubject("sjc"))
 		},
 		"sibling template": func(claim *jwt.AccountClaims) {
-			scopeOf(claim, "fra").Template.Permissions = contract.ChildLeafPermissions("sfo")
+			scopeOf(claim, "fra").Template.Permissions = contract.ChildLeafPermissions("sjc")
 		},
 		"client connections": func(claim *jwt.AccountClaims) {
 			scopeOf(claim, "fra").Template.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeStandard}
 		},
 		"bearer users":   func(claim *jwt.AccountClaims) { scopeOf(claim, "fra").Template.BearerToken = true },
 		"unknown role":   func(claim *jwt.AccountClaims) { scopeOf(claim, "fra").Role = "lhr" },
-		"duplicate role": func(claim *jwt.AccountClaims) { scopeOf(claim, "fra").Role = "sfo" },
+		"duplicate role": func(claim *jwt.AccountClaims) { scopeOf(claim, "fra").Role = "sjc" },
 		"permissive defaults": func(claim *jwt.AccountClaims) {
 			claim.DefaultPermissions = contract.LeafPermissions()
 		},

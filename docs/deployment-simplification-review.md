@@ -6,7 +6,7 @@ are the operator interface. SwarmKit is the selected replacement for the current
 custom scheduling and execution engine; that replacement is not implemented yet.
 
 Reviewed 2026-10-16 at `35fde887`. Expected load: concurrent bootstrap and release
-across GRU, San Jose (`sfo`) and FRA, controller restarts, overlapping retries and
+across GRU, San Jose (`sjc`) and FRA, controller restarts, overlapping retries and
 one unavailable region. Healthy regions must progress independently within the
 authorized footprint. More regions must not introduce unbounded API fanout.
 
@@ -30,7 +30,7 @@ baseline and may move as implementation proceeds.
 region's deployment scope serially before starting concurrent publication.
 
 **Problem:** If FRA's status is missing, stale or unreadable, the command returns
-before publishing GRU or SFO. The observation deadline already runs during this
+before publishing GRU or SJC. The observation deadline already runs during this
 preflight. Existing [regional isolation tests](../internal/release/cli/discovery_test.go#L26)
 cover the older deploy/service-deploy paths, not this new apply path.
 

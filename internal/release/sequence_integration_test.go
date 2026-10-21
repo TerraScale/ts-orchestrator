@@ -43,7 +43,7 @@ func TestSequenceSignerHTTPDurableMigrationAndConcurrentProducers(t *testing.T) 
 	encoded, _ := trust.EncodeDelegatedPublicKey(public)
 	now := time.Now().UTC().Truncate(time.Second)
 	migration := SequenceMigration{Schema: SequenceMigrationSchema, Namespace: "ns", Bucket: "gru-1-head", Region: "GRU", Role: "orchestrator", Environment: "production", SequenceFloor: 900, SignerKeyID: keyID, SignerPublicKey: encoded}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		migration.Regions = append(migration.Regions, SequenceFloor{Cell: cell, RunNumber: 900, IssuedAt: now, EvidenceSHA256: strings.Repeat("a", 64)})
 	}
 	envelope, err := SignSequenceMigration(migration, now, root)
@@ -160,7 +160,7 @@ func TestSequenceSignerHTTPDurableMigrationAndConcurrentProducers(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !verified.AdmitsLegacyFloor("GRU", 900, now) || verified.AdmitsLegacyFloor("GRU", 901, now) || verified.AdmitsLegacyFloor("SFO", 0, now.Add(time.Second)) {
+	if !verified.AdmitsLegacyFloor("GRU", 900, now) || verified.AdmitsLegacyFloor("GRU", 901, now) || verified.AdmitsLegacyFloor("SJC", 0, now.Add(time.Second)) {
 		t.Fatal("migration erased a retained floor")
 	}
 	// Unsigned head edits must fail even when they keep a plausible floor.

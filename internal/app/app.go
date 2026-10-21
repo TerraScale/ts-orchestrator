@@ -28,6 +28,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
@@ -39,7 +40,8 @@ import (
 )
 
 // RunSingleHostServing runs RunSingleHost together with the public HTTPS edge,
-// which routes each service's hostnames to its published loopback port.
+// which routes each service's hostnames to its published loopback port, and
+// the cross-region mesh that applies services in every region.
 func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("single-host", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -55,8 +57,12 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 		edgeDone <- err
 	}()
 	go syncEdgeRoutes(ctx, *state, public)
+	// The mesh never stops local serving; it retries until it reaches Vault and peers.
+	meshDone := make(chan struct{})
+	go func() { mesh.Run(ctx, *state); close(meshDone) }()
 	err := RunSingleHost(ctx, args, output)
 	cancel()
+	<-meshDone
 	return errors.Join(err, <-edgeDone)
 }
 

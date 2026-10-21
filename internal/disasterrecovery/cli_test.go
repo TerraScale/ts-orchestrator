@@ -14,7 +14,7 @@ import (
 func TestReplicateRefusesUnsafeSDKEnvironmentBeforeCloudAccess(t *testing.T) {
 	config := Config{Version: 1, Namespace: "namespace",
 		GRU: Region{CompartmentID: "ocid1.compartment.oc1..gru", VaultID: "ocid1.vault.oc1.sa-saopaulo-1.gru", KeyID: "ocid1.key.oc1.sa-saopaulo-1.gru"},
-		SFO: Region{CompartmentID: "ocid1.compartment.oc1..sfo", VaultID: "ocid1.vault.oc1.us-sanjose-1.sfo", KeyID: "ocid1.key.oc1.us-sanjose-1.sfo"}}
+		SJC: Region{CompartmentID: "ocid1.compartment.oc1..sjc", VaultID: "ocid1.vault.oc1.us-sanjose-1.sjc", KeyID: "ocid1.key.oc1.us-sanjose-1.sjc"}}
 	data, err := json.Marshal(config)
 	if err != nil {
 		t.Fatal(err)

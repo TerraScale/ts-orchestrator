@@ -27,26 +27,26 @@ func TestDeployDiscoversEveryCellAndKeepsBadRegionalScopeIndependent(t *testing.
 	for _, broken := range []string{"", "missing", "stale", "environment", "architecture"} {
 		t.Run(broken, func(t *testing.T) {
 			f := newDeployFixture(t)
-			for _, cell := range []string{"GRU", "SFO"} {
+			for _, cell := range []string{"GRU", "SJC"} {
 				f.buckets[cell].scope = &releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: cell,
 					Environment: "production", Architectures: []string{"amd64"}, State: releasechannel.StateFailed, UpdatedAt: time.Now().UTC()}
 			}
 			switch broken {
 			case "missing":
-				f.buckets["SFO"].scope = nil
+				f.buckets["SJC"].scope = nil
 			case "stale":
-				f.buckets["SFO"].scope.UpdatedAt = time.Now().Add(-time.Hour)
+				f.buckets["SJC"].scope.UpdatedAt = time.Now().Add(-time.Hour)
 			case "environment":
-				f.buckets["SFO"].scope.Environment = "canary"
+				f.buckets["SJC"].scope.Environment = "canary"
 			case "architecture":
-				f.buckets["SFO"].scope.Architectures = []string{"arm64"}
+				f.buckets["SJC"].scope.Architectures = []string{"arm64"}
 			}
 			args := omitDeploymentFlags(f.args(), "--environment", "--arch")
 			err := (command{ctx: t.Context(), output: io.Discard}).deployWith(args, f.env)
-			if (err != nil) != (broken != "") || !f.touched("GRU") || f.touched("SFO") != (broken == "") || f.touched("FRA") {
+			if (err != nil) != (broken != "") || !f.touched("GRU") || f.touched("SJC") != (broken == "") || f.touched("FRA") {
 				t.Fatalf("scope failure blocked/skipped a required region or deployed unfounded FRA: broken=%s err=%v log=%v", broken, err, f.log)
 			}
-			if broken != "" && !strings.Contains(err.Error(), "SFO") {
+			if broken != "" && !strings.Contains(err.Error(), "SJC") {
 				t.Fatal(err)
 			}
 		})
@@ -54,9 +54,9 @@ func TestDeployDiscoversEveryCellAndKeepsBadRegionalScopeIndependent(t *testing.
 }
 
 func TestServiceDeployDiscoversPerCellEnvironmentsAndReportsMissingScope(t *testing.T) {
-	for _, missingSFO := range []bool{false, true} {
+	for _, missingSJC := range []bool{false, true} {
 		f := newServiceDeployFixture(t)
-		for cell, environment := range map[string]string{"GRU": "canary", "SFO": "production"} {
+		for cell, environment := range map[string]string{"GRU": "canary", "SJC": "production"} {
 			f.buckets[cell].environment = environment
 			scope := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: cell,
 				Environment: environment, Architectures: []string{"arm64"}, UpdatedAt: time.Now().UTC()}
@@ -66,13 +66,13 @@ func TestServiceDeployDiscoversPerCellEnvironmentsAndReportsMissingScope(t *test
 			}
 			f.buckets[cell].objects[releasechannel.StatusObject] = wire
 		}
-		if missingSFO {
-			delete(f.buckets["SFO"].objects, releasechannel.StatusObject)
+		if missingSJC {
+			delete(f.buckets["SJC"].objects, releasechannel.StatusObject)
 		}
 		err := (command{ctx: t.Context(), output: io.Discard}).serviceDeployWith(omitDeploymentFlags(f.args(), "--environment"), f.env)
-		if (err != nil) != missingSFO || !slices.Contains(f.log, "put GRU "+releasechannel.ServiceReleaseObject("ts-auth")) ||
-			slices.Contains(f.log, "put SFO "+releasechannel.ServiceReleaseObject("ts-auth")) == missingSFO {
-			t.Fatalf("per-cell environment or failure isolation lost: missing=%v err=%v log=%v", missingSFO, err, f.log)
+		if (err != nil) != missingSJC || !slices.Contains(f.log, "put GRU "+releasechannel.ServiceReleaseObject("ts-auth")) ||
+			slices.Contains(f.log, "put SJC "+releasechannel.ServiceReleaseObject("ts-auth")) == missingSJC {
+			t.Fatalf("per-cell environment or failure isolation lost: missing=%v err=%v log=%v", missingSJC, err, f.log)
 		}
 	}
 }

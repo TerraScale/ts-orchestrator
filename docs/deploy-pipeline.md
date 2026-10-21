@@ -26,7 +26,7 @@ deployment always finishes; workflows never cancel it to deploy a newer build.
 the delegated release leaf from OCI Vault, and signs each region within its
 independent worker. A delegation outside a required cell, architecture or
 environment fails that region visibly. Source qualification and lineage remain
-required for every signature. GRU and SFO sign, upload, publish and roll
+required for every signature. GRU and SJC sign, upload, publish and roll
 concurrently. A signing, storage, publication or rollout failure
 in one region does not interrupt another region's healthy rollout; the command
 waits for all started regions and returns failure if any failed.
@@ -42,7 +42,7 @@ than treating the entire supported-region catalog as a serving fleet.
 `--environment` to use each region's admitted environment; orchestrator deploy
 also omits `--arch` to select each region's architectures. Scope reads and
 binary inspection happen inside independent region workers. An unreadable
-SFO inventory does not prevent GRU from deploying.
+SJC inventory does not prevent GRU from deploying.
 
 The regional leader now includes `environment` and sorted `architectures` in
 `releases/orchestrator/status.json`. These come from its admitted trust
@@ -93,7 +93,7 @@ Required variables:
 There is no deployment switch or repository-maintained region list. The script
 downloads the qualification manifest's binary assets and delegates serving-cell,
 environment and architecture discovery to ts-orch. The verified initial fleet
-is GRU and SFO, with three ARM64 controllers in each cell and admitted `canary`
+is GRU and SJC, with three ARM64 controllers in each cell and admitted `canary`
 environments. Future cells use their own reported scope and signing authority.
 
 Required secrets are `TS_DEPLOY_OCI_KEY` and `TS_DEPLOY_READ_TOKEN`. The OCI key
@@ -120,7 +120,7 @@ also fails visibly instead of restarting the 30-minute clock.
 
 Native services must report the expected source revision, complete, and a
 heartbeat within two minutes. Atlas, Status and Dashboard are observed through
-Status's GRU/SFO vantage bindings at `/api/v1/deployments`; both Status
+Status's GRU/SJC vantage bindings at `/api/v1/deployments`; both Status
 vantage Workers also prove their own revision. The guard discovers membership
 through the same orch-published topology and requires proofs for every region;
 a newly admitted region without its vantage proof raises an alert. The guard opens or updates one

@@ -137,7 +137,7 @@ func TestDeliveryNamespaceAndFileAliases(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"sfo-ts-auth-key", "gru-netbird-pat", "gru-01-ts-auth-key", "gru-ts-auth-"} {
+	for _, name := range []string{"sjc-ts-auth-key", "gru-netbird-pat", "gru-01-ts-auth-key", "gru-ts-auth-"} {
 		if err := ValidateDeliveryRefs("gru", "ts-auth", map[string]Ref{"KEY_FILE": {Vault: testTarget.VaultID, Name: name}}, nil); err == nil {
 			t.Fatalf("accepted %s", name)
 		}
