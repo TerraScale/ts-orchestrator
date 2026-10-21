@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -144,9 +145,21 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn net.Listener) error {
 	return err
 }
 
+const netbirdHost = "netbird.terrascale.tech"
+
 func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	if _, ok := e.port(r.Host); !ok {
 		http.NotFound(w, r)
+		return
+	}
+	// NetBird's unauthenticated owner claim is only for ts-orch on loopback
+	// (manager.BootstrapServer); the public route never offers it.
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if strings.EqualFold(host, netbirdHost) && path.Clean("/"+r.URL.Path) == "/api/setup" {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	if !isGRPC(r) {

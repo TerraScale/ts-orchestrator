@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
@@ -27,6 +26,7 @@ const ServerConfigTemplate = `server:
   listenAddress: "127.0.0.1:8095"
   exposedAddress: "https://netbird.terrascale.tech:443"
   stunPorts: [3478]
+  # Upstream binds metrics on every interface; only loopback and the VCN reach it.
   metricsPort: 9096
   healthcheckAddress: "127.0.0.1:9095"
   logLevel: "info"
@@ -60,6 +60,7 @@ var generatedServerSecrets = []string{"NETBIRD_RELAY_AUTH_SECRET", "NETBIRD_SESS
 type ServerVault struct {
 	Target     vaultsecret.Target
 	Management vaultsecret.VaultClient
+	Versions   vaultsecret.VersionClient
 	Bundles    vaultsecret.BundleClient
 }
 
@@ -129,7 +130,7 @@ func BootstrapServer(ctx context.Context, vault ServerVault, base string) error 
 			PAT string `json:"personal_access_token"`
 		}
 		err = anonymous(ctx, base, "POST", "/setup", map[string]any{"email": ownerEmail, "password": password,
-			"name": "TerraScale owner", "create_pat": true, "pat_expire_in": 365}, &setup)
+			"name": "TerraScale owner", "create_pat": true, "pat_expire_in": credentialDays}, &setup)
 		if err != nil {
 			return err
 		}
@@ -177,40 +178,134 @@ func BootstrapServer(ctx context.Context, vault ServerVault, base string) error 
 	if _, err := Sync(ctx, api, d, true); err != nil {
 		return err
 	}
-	if err := vault.ensure(ctx, serversKeySecret, func(ctx context.Context) (string, error) {
-		var key bytes.Buffer
-		_, err := CreateServerSetupKey(ctx, api, d, &key, true)
-		return strings.TrimSpace(key.String()), err
-	}); err != nil {
+	if err := rotateSetupKey(ctx, api, vault, d.ServersGroup, serversKeySecret); err != nil {
 		return err
 	}
-	return vault.ensure(ctx, operatorsKeySecret, func(ctx context.Context) (string, error) {
-		return createGroupSetupKey(ctx, api, "operators")
-	})
+	if err := rotateSetupKey(ctx, api, vault, "operators", operatorsKeySecret); err != nil {
+		return err
+	}
+	return rotateAdminPAT(ctx, api, vault)
 }
 
-// createGroupSetupKey creates a reusable, never expiring key named and
-// auto-assigning group.
-func createGroupSetupKey(ctx context.Context, api *API, group string) (string, error) {
+// Credentials live credentialDays and get a successor within rotateBefore of
+// expiry, so a stopped loop surfaces as an expiry instead of a forever key.
+const (
+	credentialDays = 90
+	rotateBefore   = 30 * 24 * time.Hour
+)
+
+// store keeps value as the CURRENT version of secret name, creating it first.
+func (v ServerVault) store(ctx context.Context, name, value string) error {
+	ref := vaultsecret.Ref{Vault: v.Target.VaultID, Name: name}
+	current, err := vaultsecret.ReadCurrent(ctx, v.Bundles, ref)
+	if vaultsecret.Absent(err) {
+		return v.ensure(ctx, name, func(context.Context) (string, error) { return value, nil })
+	}
+	if err != nil {
+		return err
+	}
+	_, err = vaultsecret.PublishVersion(ctx, v.Versions, ref, current.ID, current.Version, []byte(value))
+	return err
+}
+
+// rotateSetupKey keeps a reusable key named and auto-assigning group valid:
+// when no live key outlives rotateBefore it creates one, stores it in Vault and
+// then revokes the older keys. Enrolled peers do not depend on the key.
+func rotateSetupKey(ctx context.Context, api *API, vault ServerVault, group, secret string) error {
+	var keys []apiSetupKey
+	if err := api.do(ctx, "GET", "/setup-keys", nil, &keys); err != nil {
+		return err
+	}
+	var live []apiSetupKey
+	for _, key := range keys {
+		if key.Name == group && key.Valid && !key.Revoked {
+			if key.Expires.After(time.Now().Add(rotateBefore)) {
+				return nil
+			}
+			live = append(live, key)
+		}
+	}
 	var groups []apiGroup
 	if err := api.do(ctx, "GET", "/groups", nil, &groups); err != nil {
-		return "", err
+		return err
 	}
 	match, err := matchName(groups, func(g apiGroup) string { return g.Name }, group, nil, "group")
 	if err != nil || match == nil {
-		return "", errors.Join(fmt.Errorf("NetBird group %s is missing", group), err)
+		return errors.Join(fmt.Errorf("NetBird group %s is missing", group), err)
 	}
-	var response struct {
+	var created struct {
 		Key string `json:"key"`
 	}
 	if err := api.do(ctx, "POST", "/setup-keys", setupKeyRequest{Name: group, Type: "reusable",
-		AutoGroups: []string{match.ID}}, &response); err != nil {
-		return "", err
+		ExpiresIn: credentialDays * 24 * 3600, AutoGroups: []string{match.ID}}, &created); err != nil {
+		return err
 	}
-	if response.Key == "" {
-		return "", fmt.Errorf("manager returned no value for setup key %s; revoke it", group)
+	if created.Key == "" {
+		return fmt.Errorf("manager returned no value for setup key %s; revoke it", group)
 	}
-	return response.Key, nil
+	if err := vault.store(ctx, secret, created.Key); err != nil {
+		return fmt.Errorf("setup key %s was created but not stored; it lapses in %d days: %w", group, credentialDays, err)
+	}
+	for _, key := range live {
+		if err := api.do(ctx, "PUT", "/setup-keys/"+key.ID, map[string]any{"revoked": true, "auto_groups": key.AutoGroups}, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type apiToken struct {
+	ID         string    `json:"id"`
+	Expiration time.Time `json:"expiration_date"`
+}
+
+// rotateAdminPAT gives the owner a successor PAT within rotateBefore of the
+// newest one's expiry, stores it in Vault, then deletes the older tokens.
+func rotateAdminPAT(ctx context.Context, api *API, vault ServerVault) error {
+	var users []struct {
+		ID   string `json:"id"`
+		Role string `json:"role"`
+	}
+	if err := api.do(ctx, "GET", "/users?service_user=false", nil, &users); err != nil {
+		return err
+	}
+	owner := ""
+	for _, user := range users {
+		if user.Role == "owner" {
+			owner = user.ID
+		}
+	}
+	if owner == "" {
+		return errors.New("NetBird account has no owner")
+	}
+	var tokens []apiToken
+	if err := api.do(ctx, "GET", "/users/"+owner+"/tokens", nil, &tokens); err != nil {
+		return err
+	}
+	for _, token := range tokens {
+		if token.Expiration.After(time.Now().Add(rotateBefore)) {
+			return nil
+		}
+	}
+	var created struct {
+		Plain string   `json:"plain_token"`
+		Token apiToken `json:"personal_access_token"`
+	}
+	if err := api.do(ctx, "POST", "/users/"+owner+"/tokens", map[string]any{"name": "ts-orchestrator", "expires_in": credentialDays}, &created); err != nil {
+		return err
+	}
+	if !netbird.ValidAdminPAT([]byte(created.Plain)) {
+		return errors.New("NetBird returned no valid successor PAT; delete it")
+	}
+	if err := vault.store(ctx, adminPATSecret, created.Plain); err != nil {
+		return err
+	}
+	for _, token := range tokens {
+		if err := api.do(ctx, "DELETE", "/users/"+owner+"/tokens/"+token.ID, nil, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // anonymous calls the unauthenticated instance API.

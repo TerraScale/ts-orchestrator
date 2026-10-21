@@ -64,7 +64,7 @@ func runServer(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	vault := ServerVault{Target: vaultsecret.Target{CompartmentID: *compartmentID, VaultID: *vaultID, KeyID: *keyID},
-		Management: management, Bundles: bundles}
+		Management: management, Versions: management, Bundles: bundles}
 	logf := func(format string, args ...any) { fmt.Fprintf(stdout, "netbird server: "+format+"\n", args...) }
 	for {
 		err := serveOnce(ctx, vault, *dir)
