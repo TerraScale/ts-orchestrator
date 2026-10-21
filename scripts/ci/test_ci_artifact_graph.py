@@ -24,7 +24,7 @@ class ArtifactGraph(unittest.TestCase):
         self.root = self.work / "repo"
         self.root.mkdir()
         for name in ("qualified_release.py", "release-inputs-changed.py",
-                     "image-inputs-changed.sh", "image-superseded.sh", "deploy-fleet.sh"):
+                     "image-inputs-changed.sh", "image-superseded.sh"):
             self.write("scripts/ci/" + name, (SCRIPTS / name).read_text())
         for name, content in {
             "go.mod": "module example.invalid/fixture\n",
@@ -186,13 +186,6 @@ class ArtifactGraph(unittest.TestCase):
         self.state["graph_failure"] = False
         self.state["runs"]["1"]["conclusion"] = "cancelled"
         self.classification(0)
-
-    def test_tool_bytes_are_admitted_before_execution_without_build(self):
-        result = self.run_script("deploy-fleet.sh", "qualify")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        executed = (self.work / "executed").read_text()
-        self.assertIn("release verify-production", executed)
-        self.assertTrue((self.work / f"production-{self.base}-run-1/qualification.sha256").exists())
 
     def test_wrong_digest_manifest_or_job_refuses_tool_before_execution(self):
         tag = f"ci-{self.base}-run-1"

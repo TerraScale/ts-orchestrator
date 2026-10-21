@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start WORKFLOW (default image.yml, or deploy.yml) for the revision this
+# Start WORKFLOW (image.yml) for the revision this
 # ci.yml run is checking. Called as the last ci.yml steps on main, after the
 # release is retained, so the dispatched job never holds a builder slot while
 # the checks run; it still confirms this run succeeded and skips itself if
@@ -7,7 +7,7 @@
 set -euo pipefail
 
 workflow=${1:-image.yml}
-[[ $workflow == image.yml || $workflow == deploy.yml ]] || { echo "usage: $0 [image.yml|deploy.yml]" >&2; exit 2; }
+[[ $workflow == image.yml ]] || { echo "usage: $0 [image.yml]" >&2; exit 2; }
 
 : "${GH_TOKEN:?GitHub Actions token is required}"
 export GH_HOST=github.com
