@@ -62,7 +62,21 @@ func TestRetainedMountKernelIntegration(t *testing.T) {
 	t.Cleanup(func() { fixtureCommand(t, "losetup", "--detach", device) })
 	const uuid = "0d370616-bf07-48e3-90a4-75e58c799c01"
 	fixtureCommand(t, "mkfs.ext4", "-q", "-F", "-U", uuid, device)
-	uuidPath := filepath.Join("/dev/disk/by-uuid", uuid)
+	// udev may link the fresh filesystem in the shared /dev first; a tmpfs in this
+	// private mount namespace keeps the fixture's link race-free and off the host.
+	byUUID := "/dev/disk/by-uuid"
+	if err := os.MkdirAll(byUUID, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mount("tmpfs", byUUID, "tmpfs", 0, "mode=0755"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := unix.Unmount(byUUID, unix.MNT_DETACH); err != nil {
+			t.Error(err)
+		}
+	})
+	uuidPath := filepath.Join(byUUID, uuid)
 	if err := os.Symlink(device, uuidPath); err != nil {
 		t.Fatal(err)
 	}
