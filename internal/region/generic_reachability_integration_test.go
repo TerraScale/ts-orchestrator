@@ -206,21 +206,10 @@ func TestSchema3GenericReachabilitySignedSDK(t *testing.T) {
 		if err != nil || record.IntentDigest != f.records[cell].IntentDigest {
 			t.Fatalf("Resolve %s: %v", cell, err)
 		}
-		material, err := f.resolver.BootstrapMaterial(ctx, cell)
-		if err != nil {
-			t.Fatalf("bound startup %s: %v", cell, err)
-		}
-		if !material.IsVerified() || material.startupAuthority == nil {
-			t.Fatalf("%s escaped bound schema3 startup", cell)
-		}
-		if _, err := material.Startup(); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := material.SourceRegistration(); err != nil {
-			t.Fatal(err)
-		}
-		if err := material.Revalidate(ctx); err != nil {
-			t.Fatalf("startup revalidation %s: %v", cell, err)
+		// Schema3 startup is bound to the protected original birth this read
+		// fixture must not invent; positive startup is the original startup suite's.
+		if material, err := f.resolver.BootstrapMaterial(ctx, cell); err == nil || material.IsVerified() || !strings.Contains(err.Error(), "original startup protected birth") {
+			t.Fatalf("%s escaped bound schema3 startup without its original birth: %v", cell, err)
 		}
 		origins, err := f.resolver.GenericWorkloadGeneses(ctx, cell, "production")
 		if err != nil || len(origins) != 2 {
