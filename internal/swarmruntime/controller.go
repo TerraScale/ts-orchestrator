@@ -104,6 +104,10 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	if err != nil {
 		return err
 	}
+	dataMounts, err := c.dataMounts()
+	if err != nil {
+		return err
+	}
 	resolver := c.executor.registry
 	if resolver == nil {
 		resolver = publicRegistryResolver
@@ -192,6 +196,9 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 		}
 		if len(containerMounts) != 0 {
 			opts = append(opts, oci.WithMounts(containerMounts), oci.WithEnv(containerEnv))
+		}
+		if len(dataMounts) != 0 {
+			opts = append(opts, oci.WithMounts(dataMounts))
 		}
 		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports, credentialExpiryLabel: c.credentialExpiryLabel()}
 		if c.diskAccounted() {
@@ -350,6 +357,47 @@ func (c *controller) Start(ctx context.Context) (operationErr error) {
 	default:
 		return fmt.Errorf("unexpected runtime state %s", status.Status)
 	}
+}
+
+// dataMounts ensures each bind source is a directory owned by the non-root container user.
+// os.Root keeps symlinks planted under DataRoot from redirecting the mkdir or chown.
+func (c *controller) dataMounts() ([]runtimespec.Mount, error) {
+	if len(c.spec.Mounts) == 0 {
+		return nil, nil
+	}
+	if c.stateful != nil {
+		return nil, errors.New("stateful tasks receive volumes only through their qualified hooks")
+	}
+	if err := os.MkdirAll(DataRoot, 0o755); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(DataRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	uid, gid, _ := strings.Cut(c.spec.User, ":")
+	u, _ := strconv.Atoi(uid)
+	g, _ := strconv.Atoi(gid)
+	mounts := make([]runtimespec.Mount, 0, len(c.spec.Mounts))
+	for _, m := range c.spec.Mounts {
+		name := strings.TrimPrefix(m.Source, DataRoot+"/")
+		if err := root.MkdirAll(name, 0o700); err != nil {
+			return nil, fmt.Errorf("create bind mount source: %w", err)
+		}
+		if info, err := root.Lstat(name); err != nil || !info.IsDir() {
+			return nil, errors.New("bind mount source is not a directory")
+		}
+		if err := root.Lchown(name, u, g); err != nil {
+			return nil, fmt.Errorf("own bind mount source: %w", err)
+		}
+		mode := "rw"
+		if m.ReadOnly {
+			mode = "ro"
+		}
+		mounts = append(mounts, runtimespec.Mount{Destination: m.Target, Type: "bind", Source: m.Source, Options: []string{"rbind", mode, "nosuid", "nodev"}})
+	}
+	return mounts, nil
 }
 
 func (c *controller) runtimeTask(ctx context.Context) (containerd.Task, error) {
