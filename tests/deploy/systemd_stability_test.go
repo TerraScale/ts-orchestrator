@@ -54,3 +54,12 @@ func TestControllerCanCollectNodeResources(t *testing.T) {
 	}
 	equal(t, service["ProtectProc"], "invisible")
 }
+
+// ts-orch runs as root on a public host; keep its systemd sandbox in place.
+func TestSingleHostUnitIsSandboxed(t *testing.T) {
+	service := unitDirectives(string(read(t, filepath.Join(deployRoot(t), "deploy/m1/ts-orch.service"))), "Service")
+	for key, value := range map[string]string{"UMask": "0077", "NoNewPrivileges": "yes", "ProtectSystem": "full",
+		"ReadWritePaths": "/usr/local/bin", "ProtectHome": "yes", "PrivateTmp": "yes", "RestrictSUIDSGID": "yes"} {
+		equal(t, service[key], value)
+	}
+}
