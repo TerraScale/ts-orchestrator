@@ -353,7 +353,6 @@ func TestServiceReleaseInventoryReadErrorsDoNotPublish(t *testing.T) {
 }
 
 func TestServiceReleaseInventoryFailedRefreshPreservesTimestamp(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	for _, failure := range []string{"watcher", "incomplete", "invalid key", "object write"} {
 		t.Run(failure, func(t *testing.T) {
 			r, kv, bucket, location := servicePinsFixture(t)
