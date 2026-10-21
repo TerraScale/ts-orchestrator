@@ -34,14 +34,14 @@ func assertObservabilityCrossesNarrowly(ctx context.Context, t *testing.T, hub, 
 		}
 	}
 	for _, leaf := range []string{protocol.ObservabilityRegionLeaf, protocol.ObservabilityDecisionsLeaf, "snapshot", "journal"} {
-		respond(spoke, "sfo", leaf)
+		respond(spoke, "sjc", leaf)
 		respond(hub, "gru", leaf)
 	}
 	for _, leaf := range protocol.InterRegionObservabilityLeaves() {
 		for _, direction := range []struct {
 			from   *Runtime
 			region string
-		}{{hub, "sfo"}, {spoke, "gru"}} {
+		}{{hub, "sjc"}, {spoke, "gru"}} {
 			subject, _ := protocol.ObservabilitySubject(direction.region, leaf)
 			reply := requestUntil(ctx, t, direction.from.Conn(), subject)
 			if string(reply.Data) != direction.region+"/"+leaf {
@@ -53,7 +53,7 @@ func assertObservabilityCrossesNarrowly(ctx context.Context, t *testing.T, hub, 
 		for _, direction := range []struct {
 			from   *Runtime
 			region string
-		}{{hub, "sfo"}, {spoke, "gru"}} {
+		}{{hub, "sjc"}, {spoke, "gru"}} {
 			subject, _ := protocol.ObservabilitySubject(direction.region, leaf)
 			requestCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 			msg, err := direction.from.Conn().RequestWithContext(requestCtx, subject, []byte("x"))
@@ -68,8 +68,8 @@ func assertObservabilityCrossesNarrowly(ctx context.Context, t *testing.T, hub, 
 func TestObservabilityContractIsExactRequestReply(t *testing.T) {
 	t.Parallel()
 
-	contract := InterRegionContract{Cell: "gru", Peers: []string{"sfo"}, GlobalHome: "gru",
-		Subtrees: map[string][]string{"sfo": {"sfo"}}}
+	contract := InterRegionContract{Cell: "gru", Peers: []string{"sjc"}, GlobalHome: "gru",
+		Subtrees: map[string][]string{"sjc": {"sjc"}}}
 	for _, export := range contract.CellExports() {
 		subject := string(export.Subject)
 		if strings.Contains(subject, ".obs.") {
@@ -81,12 +81,12 @@ func TestObservabilityContractIsExactRequestReply(t *testing.T) {
 			}
 		}
 	}
-	permissions := contract.ChildLeafPermissions("sfo")
+	permissions := contract.ChildLeafPermissions("sjc")
 	gruRegion, _ := protocol.ObservabilitySubject("gru", protocol.ObservabilityRegionLeaf)
-	sfoRegion, _ := protocol.ObservabilitySubject("sfo", protocol.ObservabilityRegionLeaf)
+	sjcRegion, _ := protocol.ObservabilitySubject("sjc", protocol.ObservabilityRegionLeaf)
 	gruSnapshot, _ := protocol.ObservabilitySubject("gru", "snapshot")
 	if !permissions.Pub.Allow.Contains(gruRegion) || permissions.Sub.Allow.Contains(gruRegion) ||
-		!permissions.Sub.Allow.Contains(sfoRegion) || permissions.Pub.Allow.Contains(gruSnapshot) {
+		!permissions.Sub.Allow.Contains(sjcRegion) || permissions.Pub.Allow.Contains(gruSnapshot) {
 		t.Fatalf("child observability permissions = %+v", permissions)
 	}
 }

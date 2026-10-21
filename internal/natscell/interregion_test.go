@@ -27,42 +27,42 @@ import (
 func TestLeafTopologyIsARootedTree(t *testing.T) {
 	t.Parallel()
 
-	topology := HubAndSpoke("gru", []string{"sfo", "fra"})
+	topology := HubAndSpoke("gru", []string{"sjc", "fra"})
 	if err := topology.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if got := topology.Regions(); strings.Join(got, ",") != "gru,fra,sfo" {
+	if got := topology.Regions(); strings.Join(got, ",") != "gru,fra,sjc" {
 		t.Fatalf("regions = %v", got)
 	}
-	if got := topology.Children("gru"); strings.Join(got, ",") != "fra,sfo" {
+	if got := topology.Children("gru"); strings.Join(got, ",") != "fra,sjc" {
 		t.Fatalf("hub children = %v", got)
 	}
-	if parent, ok := topology.Parent("sfo"); !ok || parent != "gru" {
-		t.Fatalf("sfo parent = %q, %v", parent, ok)
+	if parent, ok := topology.Parent("sjc"); !ok || parent != "gru" {
+		t.Fatalf("sjc parent = %q, %v", parent, ok)
 	}
 	if _, ok := topology.Parent("gru"); ok {
 		t.Fatal("hub dials a parent")
 	}
-	if got := topology.Peers("sfo"); strings.Join(got, ",") != "fra,gru" {
-		t.Fatalf("sfo peers = %v", got)
+	if got := topology.Peers("sjc"); strings.Join(got, ",") != "fra,gru" {
+		t.Fatalf("sjc peers = %v", got)
 	}
-	// FRA prefers a direct spoke link to SFO; the graph stays a tree.
-	direct := topology.WithSpokeParent("fra", "sfo")
+	// FRA prefers a direct spoke link to SJC; the graph stays a tree.
+	direct := topology.WithSpokeParent("fra", "sjc")
 	if err := direct.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	if topology.Parents["fra"] != "gru" {
 		t.Fatal("WithSpokeParent mutated the original topology")
 	}
-	if direct.Links("sfo") != 2 || direct.Links("gru") != 1 || direct.Links("fra") != 1 {
-		t.Fatalf("links = sfo:%d gru:%d fra:%d", direct.Links("sfo"), direct.Links("gru"), direct.Links("fra"))
+	if direct.Links("sjc") != 2 || direct.Links("gru") != 1 || direct.Links("fra") != 1 {
+		t.Fatalf("links = sjc:%d gru:%d fra:%d", direct.Links("sjc"), direct.Links("gru"), direct.Links("fra"))
 	}
 	for name, invalid := range map[string]LeafTopology{
-		"cycle":          direct.WithSpokeParent("sfo", "fra"),
-		"self":           topology.WithSpokeParent("sfo", "sfo"),
-		"unknown parent": topology.WithSpokeParent("sfo", "iad"),
-		"hub dials":      topology.WithSpokeParent("gru", "sfo"),
-		"bad hub":        HubAndSpoke("GRU", []string{"sfo"}),
+		"cycle":          direct.WithSpokeParent("sjc", "fra"),
+		"self":           topology.WithSpokeParent("sjc", "sjc"),
+		"unknown parent": topology.WithSpokeParent("sjc", "iad"),
+		"hub dials":      topology.WithSpokeParent("gru", "sjc"),
+		"bad hub":        HubAndSpoke("GRU", []string{"sjc"}),
 		"bad spoke":      HubAndSpoke("gru", []string{"s.fo"}),
 	} {
 		if err := invalid.Validate(); err == nil {
@@ -75,7 +75,7 @@ func TestInterRegionContractIsExplicitAndExact(t *testing.T) {
 	t.Parallel()
 
 	region := newTestRegionKeys(t)
-	contract := InterRegionContract{Cell: "gru", Peers: []string{"fra", "sfo"}}
+	contract := InterRegionContract{Cell: "gru", Peers: []string{"fra", "sjc"}}
 	system, cell, interregion := region.claims(contract, 2)
 	if err := contract.verify(system, cell, interregion, 2); err != nil {
 		t.Fatal(err)
@@ -101,7 +101,7 @@ func TestInterRegionContractIsExplicitAndExact(t *testing.T) {
 			interregion.Imports.Add(&jwt.Import{Account: cell.Subject, Subject: jwt.Subject(protocol.PlacementApplySubject("gru")), Type: jwt.Service})
 		},
 		"interregion exports wildcard": func(_, _, interregion *jwt.AccountClaims) {
-			interregion.Exports[0].Subject = jwt.Subject(protocol.Regional("sfo", ">"))
+			interregion.Exports[0].Subject = jwt.Subject(protocol.Regional("sjc", ">"))
 		},
 		"interregion has JetStream": func(_, _, interregion *jwt.AccountClaims) {
 			interregion.Limits.JetStreamLimits = jwt.JetStreamLimits{DiskStorage: 1 << 20, Streams: 1}
@@ -119,7 +119,7 @@ func TestInterRegionContractIsExplicitAndExact(t *testing.T) {
 			}}
 		},
 		"interregion mapping": func(_, _, interregion *jwt.AccountClaims) {
-			interregion.Mappings = jwt.Mapping{"peer.relay": {{Subject: "ts.orch.v1.sfo.health", Weight: 100}}}
+			interregion.Mappings = jwt.Mapping{"peer.relay": {{Subject: "ts.orch.v1.sjc.health", Weight: 100}}}
 		},
 		"leaf defaults missing": func(_, _, interregion *jwt.AccountClaims) {
 			interregion.DefaultPermissions = jwt.Permissions{}
@@ -157,8 +157,8 @@ func TestInterRegionContractIsExplicitAndExact(t *testing.T) {
 func TestGlobalMirrorContractExportsNoConsumerCreation(t *testing.T) {
 	t.Parallel()
 
-	home := InterRegionContract{Cell: "gru", Peers: []string{"fra", "sfo"}, GlobalHome: "gru"}
-	spoke := InterRegionContract{Cell: "sfo", Peers: []string{"fra", "gru"}, GlobalHome: "gru"}
+	home := InterRegionContract{Cell: "gru", Peers: []string{"fra", "sjc"}, GlobalHome: "gru"}
+	spoke := InterRegionContract{Cell: "sjc", Peers: []string{"fra", "gru"}, GlobalHome: "gru"}
 	var homeJS []string
 	for _, export := range home.CellExports() {
 		subject := string(export.Subject)
@@ -172,9 +172,9 @@ func TestGlobalMirrorContractExportsNoConsumerCreation(t *testing.T) {
 	}
 	wantJS := []string{
 		"$JS.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-fra",
-		"$JS.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
+		"$JS.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sjc",
 		"$JS.FC.TS_GLOBAL_CONTROL.global-mirror-fra.*",
-		"$JS.FC.TS_GLOBAL_CONTROL.global-mirror-sfo.*",
+		"$JS.FC.TS_GLOBAL_CONTROL.global-mirror-sjc.*",
 	}
 	slices.Sort(homeJS)
 	if !slices.Equal(homeJS, wantJS) {
@@ -190,19 +190,19 @@ func TestGlobalMirrorContractExportsNoConsumerCreation(t *testing.T) {
 	slices.Sort(linked)
 	if !slices.Equal(linked, []string{
 		"$JS.gru.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-fra",
-		"$JS.gru.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
+		"$JS.gru.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sjc",
 	}) {
 		t.Fatalf("home linked JetStream subjects = %v", linked)
 	}
-	// SFO imports only its own mirror's subjects, never another peer's.
+	// SJC imports only its own mirror's subjects, never another peer's.
 	var spokeImports []string
 	for _, imported := range spoke.CellImports("AINTER") {
 		spokeImports = append(spokeImports, string(imported.Subject))
 	}
 	for _, want := range []string{
-		"ts.interregion.v1.sfo.global",
-		"$JS.gru.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
-		"$JS.FC.TS_GLOBAL_CONTROL.global-mirror-sfo.*",
+		"ts.interregion.v1.sjc.global",
+		"$JS.gru.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sjc",
+		"$JS.FC.TS_GLOBAL_CONTROL.global-mirror-sjc.*",
 	} {
 		if !slices.Contains(spokeImports, want) {
 			t.Errorf("spoke lacks mirror import %q in %v", want, spokeImports)
@@ -216,7 +216,7 @@ func TestGlobalMirrorContractExportsNoConsumerCreation(t *testing.T) {
 	}
 	// Deny by default: the leaf permissions are link subjects of the roster's
 	// contracts (transit through a spoke included) plus the reply namespace.
-	fra := InterRegionContract{Cell: "fra", Peers: []string{"gru", "sfo"}, GlobalHome: "gru"}
+	fra := InterRegionContract{Cell: "fra", Peers: []string{"gru", "sjc"}, GlobalHome: "gru"}
 	var links []string
 	for _, contract := range []InterRegionContract{home, spoke, fra} {
 		for _, flow := range append(contract.inbound(), contract.outbound()...) {
@@ -238,29 +238,29 @@ func TestGlobalMirrorContractExportsNoConsumerCreation(t *testing.T) {
 		}
 	}
 	homeDefaults := home.LeafPermissions()
-	if !slices.Contains(homeDefaults.Sub.Allow, "ts.interregion.v1.sfo.global") ||
-		slices.Contains(homeDefaults.Pub.Allow, "ts.interregion.v1.sfo.global") {
+	if !slices.Contains(homeDefaults.Sub.Allow, "ts.interregion.v1.sjc.global") ||
+		slices.Contains(homeDefaults.Pub.Allow, "ts.interregion.v1.sjc.global") {
 		t.Fatal("a peer may publish onto another peer's mirror feed")
 	}
-	if !slices.Contains(homeDefaults.Pub.Allow, protocol.RegionHealthSubject("sfo")) ||
+	if !slices.Contains(homeDefaults.Pub.Allow, protocol.RegionHealthSubject("sjc")) ||
 		slices.Contains(homeDefaults.Pub.Allow, protocol.RegionHealthSubject("gru")) {
 		t.Fatal("home leaf defaults let a peer impersonate the home health stream")
 	}
 	if slices.Contains(homeDefaults.Sub.Allow, protocol.Regional("gru", "query", ">")) ||
 		slices.Contains(homeDefaults.Sub.Allow, protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix("gru"),
-			protocol.GlobalControlStream, protocol.GlobalMirrorConsumer("sfo"))) {
+			protocol.GlobalControlStream, protocol.GlobalMirrorConsumer("sjc"))) {
 		t.Fatal("home leaf defaults let a peer take the home's own requests")
 	}
-	// A spoke with a child (FRA dialing SFO) relays FRA's traffic to and from
-	// GRU, but its child can never speak for SFO or GRU, nor feed a mirror.
+	// A spoke with a child (FRA dialing SJC) relays FRA's traffic to and from
+	// GRU, but its child can never speak for SJC or GRU, nor feed a mirror.
 	spokeDefaults := spoke.LeafPermissions()
 	ownReset := protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix("gru"), protocol.GlobalControlStream,
-		protocol.GlobalMirrorConsumer("sfo"))
+		protocol.GlobalMirrorConsumer("sjc"))
 	childReset := protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix("gru"), protocol.GlobalControlStream,
 		protocol.GlobalMirrorConsumer("fra"))
 	for _, denied := range []string{
-		protocol.RegionHealthSubject("sfo"), protocol.RegionHealthSubject("gru"), ownReset,
-		protocol.InterRegionGlobalDeliverSubject("fra"), protocol.InterRegionGlobalDeliverSubject("sfo"),
+		protocol.RegionHealthSubject("sjc"), protocol.RegionHealthSubject("gru"), ownReset,
+		protocol.InterRegionGlobalDeliverSubject("fra"), protocol.InterRegionGlobalDeliverSubject("sjc"),
 	} {
 		if slices.Contains(spokeDefaults.Pub.Allow, denied) {
 			t.Errorf("spoke child may publish %q", denied)
@@ -276,8 +276,8 @@ func TestGlobalMirrorContractExportsNoConsumerCreation(t *testing.T) {
 			t.Errorf("spoke cannot relay %q down to its child", relayed)
 		}
 	}
-	if slices.Contains(spokeDefaults.Sub.Allow, protocol.InterRegionGlobalDeliverSubject("sfo")) ||
-		slices.Contains(spokeDefaults.Sub.Allow, protocol.Regional("sfo", "query", ">")) {
+	if slices.Contains(spokeDefaults.Sub.Allow, protocol.InterRegionGlobalDeliverSubject("sjc")) ||
+		slices.Contains(spokeDefaults.Sub.Allow, protocol.Regional("sjc", "query", ">")) {
 		t.Error("spoke hands its own feed or requests to a child")
 	}
 }
@@ -292,10 +292,10 @@ func TestInterRegionLeafFailsOverToTheNextURLInOrder(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	root := t.TempDir()
-	topology := HubAndSpoke("gru", []string{"sfo"})
+	topology := HubAndSpoke("gru", []string{"sjc"})
 	leafTLS := testTLSFor(t, filepath.Join(root, "leaf-tls"))
 	gru := newTestRegion(t, filepath.Join(root, "gru"), "gru", topology)
-	sfo := newTestRegion(t, filepath.Join(root, "sfo"), "sfo", topology)
+	sjc := newTestRegion(t, filepath.Join(root, "sjc"), "sjc", topology)
 	leafPort := freeClientPort(t)
 	gru.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: leafPort, TLS: leafTLS}
 	hub := net.JoinHostPort("127.0.0.1", strconv.Itoa(leafPort))
@@ -304,43 +304,43 @@ func TestInterRegionLeafFailsOverToTheNextURLInOrder(t *testing.T) {
 	defer netbird.Close()
 	remote := LeafRemote{
 		Peer: "gru", URLs: []string{"nats-leaf://" + private.Addr(), "nats-leaf://" + netbird.Addr()},
-		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", "sfo"), PeerAccount: gru.interregionID, TLS: leafTLS,
+		CredentialsFile: gru.childLeafCredentials(t, "sjc-leaf.creds", "sjc"), PeerAccount: gru.interregionID, TLS: leafTLS,
 	}
 	for _, name := range []string{"", "127.0.0.1"} {
 		remote.ServerName = name
-		sfo.cfg.Embedded.InterRegion.Remotes = []LeafRemote{remote}
-		if err := sfo.cfg.validate(); err == nil {
+		sjc.cfg.Embedded.InterRegion.Remotes = []LeafRemote{remote}
+		if err := sjc.cfg.validate(); err == nil {
 			t.Fatalf("remote with server_name %q accepted", name)
 		}
 	}
 	remote.ServerName = testLeafServerName
-	sfo.cfg.Embedded.InterRegion.Remotes = []LeafRemote{remote}
+	sjc.cfg.Embedded.InterRegion.Remotes = []LeafRemote{remote}
 
 	gruRuntime, err := Start(ctx, gru.cfg)
 	if err != nil {
 		t.Fatalf("start gru: %v", err)
 	}
 	defer gruRuntime.Close()
-	sfoRuntime, err := Start(ctx, sfo.cfg)
+	sjcRuntime, err := Start(ctx, sjc.cfg)
 	if err != nil {
-		t.Fatalf("start sfo: %v", err)
+		t.Fatalf("start sjc: %v", err)
 	}
-	defer sfoRuntime.Close()
-	sfoQuery, err := sfoRuntime.Conn().Subscribe(protocol.Regional("sfo", "query", "status"), func(msg *nats.Msg) {
-		_ = msg.Respond([]byte("sfo-ok"))
+	defer sjcRuntime.Close()
+	sjcQuery, err := sjcRuntime.Conn().Subscribe(protocol.Regional("sjc", "query", "status"), func(msg *nats.Msg) {
+		_ = msg.Respond([]byte("sjc-ok"))
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sfoQuery.Unsubscribe()
-	if err := sfoRuntime.Conn().Flush(); err != nil {
+	defer sjcQuery.Unsubscribe()
+	if err := sjcRuntime.Conn().Flush(); err != nil {
 		t.Fatal(err)
 	}
-	// linkedThrough waits until SFO's only leaf connection goes through proxy.
+	// linkedThrough waits until SJC's only leaf connection goes through proxy.
 	linkedThrough := func(ctx context.Context, proxy *tcpProxy) {
 		t.Helper()
 		for {
-			leafz, err := sfoRuntime.server.Leafz(nil)
+			leafz, err := sjcRuntime.server.Leafz(nil)
 			if err == nil && len(leafz.Leafs) == 1 &&
 				net.JoinHostPort(leafz.Leafs[0].IP, strconv.Itoa(leafz.Leafs[0].Port)) == proxy.Addr() {
 				return
@@ -352,7 +352,7 @@ func TestInterRegionLeafFailsOverToTheNextURLInOrder(t *testing.T) {
 		}
 	}
 	linkedThrough(ctx, private)
-	if reply := requestUntil(ctx, t, gruRuntime.Conn(), protocol.Regional("sfo", "query", "status")); string(reply.Data) != "sfo-ok" {
+	if reply := requestUntil(ctx, t, gruRuntime.Conn(), protocol.Regional("sjc", "query", "status")); string(reply.Data) != "sjc-ok" {
 		t.Fatalf("query over the private path = %q", reply.Data)
 	}
 
@@ -365,7 +365,7 @@ func TestInterRegionLeafFailsOverToTheNextURLInOrder(t *testing.T) {
 	// The hub saw no close either; its own pings or the new connection
 	// retire the old one.
 	waitLeafCount(failover, t, gruRuntime, 1)
-	if reply := requestUntil(failover, t, gruRuntime.Conn(), protocol.Regional("sfo", "query", "status")); string(reply.Data) != "sfo-ok" {
+	if reply := requestUntil(failover, t, gruRuntime.Conn(), protocol.Regional("sjc", "query", "status")); string(reply.Data) != "sjc-ok" {
 		t.Fatalf("query over the NetBird path = %q", reply.Data)
 	}
 }

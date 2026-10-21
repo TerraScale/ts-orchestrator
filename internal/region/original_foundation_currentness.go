@@ -44,7 +44,7 @@ func originalPublicationRecipe(purposes [3]OriginalSourceProducerIntent, recipes
 		return intent, ErrOriginalSourceProducerHold
 	}
 	for index, purpose := range purposes {
-		if purpose.Cell != [3]string{"GRU", "SFO", "FRA"}[index] || purpose.TenancyID != q.TenancyID || purpose.InstallationID != q.InstallationID ||
+		if purpose.Cell != [3]string{"GRU", "SJC", "FRA"}[index] || purpose.TenancyID != q.TenancyID || purpose.InstallationID != q.InstallationID ||
 			purpose.Generation != q.Generation || purpose.OriginalUserID != q.OriginalUserID || purpose.Home != q.Home || recipes[index].Home != q.Home {
 			return intent, ErrOriginalSourceProducerHold
 		}
@@ -68,7 +68,7 @@ func originalFoundationPublicationIntent(grant FoundationGrant, home bootstrap.S
 	if requireOriginalSourceProducerPurposes(grant) != nil || grant.OriginalActorAdmissionReads == nil || validateOriginalAdmissionReadIntents(grant, home) != nil {
 		return OriginalFoundationPublicationIntent{}, ErrOriginalSourceProducerHold
 	}
-	for index, cell := range [3]string{"GRU", "SFO", "FRA"} {
+	for index, cell := range [3]string{"GRU", "SJC", "FRA"} {
 		for _, regional := range grant.Regions {
 			if regional.Plan["cell"] == cell && regional.BootstrapMaterial != nil && regional.BootstrapMaterial.OriginalSourceProducer != nil {
 				purposes[index] = *regional.BootstrapMaterial.OriginalSourceProducer

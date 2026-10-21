@@ -13,7 +13,7 @@ func TestDesiredGRU(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.region != "sa-saopaulo-1" || s.compartment != "gru-1-control" || s.host != "gru-1-ctl-1" ||
+	if s.region != "sa-saopaulo-1" || s.compartment != "gru-1-control" || s.host != "gru-1-ctl-1" || s.node != "ts-gru-1" ||
 		s.vcn != "10.251.0.0/24" || s.publicSubnet != "10.251.0.0/25" || s.privateSubnet != "10.251.0.192/26" {
 		t.Fatalf("spec = %+v", s)
 	}
@@ -53,5 +53,22 @@ func TestDiff(t *testing.T) {
 	}
 	if add, remove := diff(live[:len(live)-1], want[1:]); len(add)+len(remove) != 0 {
 		t.Fatalf("converged rules drift: add %v remove %v", add, remove)
+	}
+}
+
+// A default route table inherits the VCN's claim and is re-keyed; another
+// owner's claim is refused.
+func TestTagsInheritedFromVCN(t *testing.T) {
+	r := &reconciler{s: spec{code: "SJC"}}
+	vcn, err := r.tags("vcn", "vcn", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.tags("route-table", "public-routes", vcn)
+	if err != nil || got["terrascale-resource-key"] == vcn["terrascale-resource-key"] {
+		t.Fatalf("tags = %v, %v", got, err)
+	}
+	if _, err := r.tags("route-table", "public-routes", map[string]string{"terrascale-managed-by": "someone"}); err == nil {
+		t.Fatal("foreign claim adopted")
 	}
 }

@@ -36,7 +36,7 @@ func TestNetBirdProductionQualificationPurpose(t *testing.T) {
 		{name: "duplicate foundation gate", gates: [2]string{"netbird-foundation", "netbird-foundation"}},
 		{name: "NetBird role cannot use Swarm runtime", alter: func(c *ProductionExpectation) { c.Runtime = ProductionRuntime }},
 		{name: "NetBird runtime cannot qualify ordinary role", alter: func(c *ProductionExpectation) { c.Role = "orchestrator" }},
-		{name: "dedicated cell is fixed", alter: func(c *ProductionExpectation) { c.Cell = "SFO" }},
+		{name: "dedicated cell is fixed", alter: func(c *ProductionExpectation) { c.Cell = "SJC" }},
 		{name: "dedicated native architecture is fixed", alter: func(c *ProductionExpectation) { c.Architecture = "amd64" }},
 		{name: "ordinary proof retains ordinary gates", alter: func(c *ProductionExpectation) {
 			c.Runtime, c.Role, c.Architecture = ProductionRuntime, "orchestrator", "amd64"

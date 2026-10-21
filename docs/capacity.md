@@ -326,7 +326,7 @@ information only. Nothing acts on it and nothing journals it.
 
 ## Live
 
-GRU and SFO run it in place as soon as a release reaches them (TS-803's
+GRU and SJC run it in place as soon as a release reaches them (TS-803's
 adoption). Proof for one region: a scale-up to 4 nodes under synthetic CPU
 load and the drain-first scale-down back to 3, with the OCI pool, instance
 and work request IDs and the decision journal entries, plus the current

@@ -40,8 +40,8 @@ type Job struct {
 
 func ociRegion(region string) (string, error) {
 	entry, ok := catalog.LookupName(region)
-	if !ok || (region != "gru" && region != "sfo") {
-		return "", errors.New("region must be gru or sfo")
+	if !ok || (region != "gru" && region != "sjc") {
+		return "", errors.New("region must be gru or sjc")
 	}
 	return entry.OCIRegion, nil
 }
@@ -61,7 +61,7 @@ func admitInstance(instance core.Instance, region, id string) error {
 		}
 	}
 	name := strings.ToLower(*instance.DisplayName)
-	if strings.HasPrefix(name, "ts-gru-") || strings.HasPrefix(name, "ts-sfo-") || strings.HasPrefix(name, "gru-1-") || strings.HasPrefix(name, "sfo-1-") {
+	if strings.HasPrefix(name, "ts-gru-") || strings.HasPrefix(name, "ts-sjc-") || strings.HasPrefix(name, "gru-1-") || strings.HasPrefix(name, "sjc-1-") {
 		return errors.New("cell node names are forbidden for generators")
 	}
 	return nil

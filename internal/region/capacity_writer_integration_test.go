@@ -50,7 +50,7 @@ func capacityJournalSDKScenario(t *testing.T, store *ObjectFoundationStore) {
 	}
 	// This is descriptive durable evidence, not an admitted HOME actor or IAM
 	// installation. A map-only record must validate and survive real SDK/disk CAS.
-	fourCells := []string{"AMS", "FRA", "GRU", "SFO"}
+	fourCells := []string{"AMS", "FRA", "GRU", "SJC"}
 	fourScope, four := capacityScopePersistenceFixture(t, writer, digestSource(purpose), fourCells, base.VerifiedAt.Add(100*time.Millisecond))
 	writer.CapacityJournalScopes = map[string]CapacityJournalPolicy{fourScope: four}
 	record.FoundationWriter, record.UpdatedAt = &writer, four.Policy.VerifiedAt
@@ -113,7 +113,7 @@ func capacityJournalSDKScenario(t *testing.T, store *ObjectFoundationStore) {
 			t.Fatal("new scope policy escaped its canonical exact object")
 		}
 	}
-	for _, cells := range [][]string{nil, {"gru"}, {"ZZZ"}, {"GRU", "GRU"}, {"SFO", "GRU"}} {
+	for _, cells := range [][]string{nil, {"gru"}, {"ZZZ"}, {"GRU", "GRU"}, {"SJC", "GRU"}} {
 		if _, _, err := capacityScopePolicy(writer, digestSource(purpose), cells); err == nil {
 			t.Fatalf("noncanonical policy scope accepted: %v", cells)
 		}
@@ -121,7 +121,7 @@ func capacityJournalSDKScenario(t *testing.T, store *ObjectFoundationStore) {
 	if _, _, err := capacityScopePolicy(writer, digestSource(purpose), []string{"GRU"}); err != nil {
 		t.Fatal(err)
 	}
-	for i, cell := range []string{"GRU", "SFO", "FRA"} {
+	for i, cell := range []string{"GRU", "SJC", "FRA"} {
 		if !strings.Contains(details.Statements[i], foundationObjectPrefix+cell+".json") {
 			t.Fatal("legacy statement order changed")
 		}
@@ -198,7 +198,7 @@ func capacityJournalSDKScenario(t *testing.T, store *ObjectFoundationStore) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	smallScope, small := capacityScopePersistenceFixture(t, *retained.FoundationWriter, digestSource(purpose), []string{"SFO"}, first.Add(4*time.Second))
+	smallScope, small := capacityScopePersistenceFixture(t, *retained.FoundationWriter, digestSource(purpose), []string{"SJC"}, first.Add(4*time.Second))
 	small.ObservedPolicyID, small.ObservedAt = "", time.Time{}
 	small.Policy.PolicyID, small.Policy.VerifiedAt = "", time.Time{}
 	retained.FoundationWriter.CapacityJournalScopes[smallScope] = small

@@ -1,7 +1,7 @@
 # TerraScale address plan (TS-675)
 
 Keep the verified, disjoint live allocations: NetBird `10.200.0.0/16`,
-GRU `10.251.0.0/24`, SFO `10.252.0.0/24`, and Fly
+GRU `10.251.0.0/24`, SJC `10.252.0.0/24`, and Fly
 `fdaa:2:ebb9::/48`. Reserve a stable `/16` for each region under
 `10.240.0.0/12`; the current `/24` VCNs occupy only part of their reservations.
 Changing a reservation does not change a live VCN or subnet.
@@ -27,7 +27,7 @@ be disjoint. A route to an existing subnet is not another allocated network.
 | NetBird account mesh | `10.200.0.0/16` | `fd9c:200:2182:65f2::/64` | Live, shared by all account peers; never use the default CGNAT range |
 | OCI regional parent pool | `10.240.0.0/12` | No OCI IPv6 allocation today | Reserve individual `/16`s below; never advertise the entire parent pool |
 | GRU region | `10.251.0.0/16` | None | Live VCN `10.251.0.0/24`; private `10.251.0.0/25`; API `10.251.0.128/26` |
-| SFO region | `10.252.0.0/16` | None | Live VCN `10.252.0.0/24`; private `10.252.0.0/25`; API `10.252.0.128/26` |
+| SJC region | `10.252.0.0/16` | None | Live VCN `10.252.0.0/24`; private `10.252.0.0/25`; API `10.252.0.128/26` |
 | FRA region | `10.253.0.0/16` | None | Reserved; derived initial VCN `10.253.0.0/24`; this ticket does not claim a live FRA audit |
 | Shared ts-ops infrastructure | `10.250.0.0/16` | None in OCI | Excluded dependency; live subnet `10.250.10.0/24`; never mutate for TS-675 |
 | Additional regional reservations | `10.240.0.0/16` through `10.249.0.0/16`, `10.254.0.0/16`, `10.255.0.0/16` | Not assigned | Twelve free `/16`s; add explicit reviewed mappings before use |
@@ -97,7 +97,7 @@ TerraScale networks. Default routes are forwarding entries, not reservations.
 
 | Audited scope | Ranges / observations | Evidence |
 | --- | --- | --- |
-| GRU + SFO OCI APIs | All accessible active compartments and tenancy root: three VCNs, five subnets, two DRGs, reciprocal PEERED RPCs; no OCI IPv6 | [OCI inventory and object IDs](../evidence/ts-675-oci-audit-20261007.md) |
+| GRU + SJC OCI APIs | All accessible active compartments and tenancy root: three VCNs, five subnets, two DRGs, reciprocal PEERED RPCs; no OCI IPv6 | [OCI inventory and object IDs](../evidence/ts-675-oci-audit-20261007.md) |
 | Six regional nodes | VCN private `/25`s, mesh IPv4/IPv6; NATS4222/6222 on private VNICs; no active bridges or Tailscale; no7422 listener at cutoff | Same OCI/node inventory |
 | delta + beta + mariogk-dev | LAN10.10.10/24; dev10.11.99/24; NetBird10.200/16; Tailscale CGNAT; IPv6 scopes disjoint; six unused Podman defaults | [Host, route, DNS and client inventory](../evidence/ts-675-host-audit-20261007.md) |
 | mariogk-desktop, refreshed audit | LAN10.10.10/24; both meshes; Docker172.17/16,172.18/16,172.19/16 are dormant without endpoints | Same refreshed host inventory |
@@ -204,7 +204,7 @@ does not introduce an untested live-subnet migration command when no CIDR move
 is necessary.
 
 At the initial audit, GRU was held by TS-632 with two of three serving members.
-Both public readyz endpoints passed; GRU1↔SFO1 TCP9443 passed over OCI and
+Both public readyz endpoints passed; GRU1↔SJC1 TCP9443 passed over OCI and
 NetBird. These are availability and transport checks, **not** cross-region
 replication proof. NATS7422 was not running, so replication acceptance remains
 dependent on TS-668/TS-660. No regional mutation is safe while the hold remains.

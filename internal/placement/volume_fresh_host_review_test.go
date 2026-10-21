@@ -140,7 +140,7 @@ func TestControllerPreparedVolumeRejectsFreshHostMismatch(t *testing.T) {
 		{"node", func(instance *oci.Instance) { instance.Node = "other-node" }},
 		{"create key", func(instance *oci.Instance) { instance.CreateKey = "other-create-key" }},
 		{"private IP", func(instance *oci.Instance) { instance.PrivateIP = "10.0.0.99" }},
-		{"region", func(instance *oci.Instance) { instance.Region = oci.RegionSFO }},
+		{"region", func(instance *oci.Instance) { instance.Region = oci.RegionSJC }},
 		{"failure domain", func(instance *oci.Instance) { instance.FaultDomain = "FAULT-DOMAIN-2" }},
 		{"owner", func(instance *oci.Instance) { instance.Owner = "other-owner" }},
 		{"fleet generation", func(instance *oci.Instance) { instance.Generation++ }},

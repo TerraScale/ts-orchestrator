@@ -20,7 +20,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-const usage = `Usage: ts-orch dashboard check --gru-token-file FILE --sfo-token-file FILE [--netbird COMMAND] [--timeout 5s]
+const usage = `Usage: ts-orch dashboard check --gru-token-file FILE --sjc-token-file FILE [--netbird COMMAND] [--timeout 5s]
 
 Read the six controller addresses from the local NetBird client, then curl
 /healthz and every authenticated dashboard page by NetBird IP and native DNS.
@@ -30,7 +30,7 @@ Exit 0 requires HTTP 200 with rendered content on every page, at least three
 topology nodes and three observed controllers in each /members view.
 `
 
-// Run checks GRU and SFO from this device without changing network configuration.
+// Run checks GRU and SJC from this device without changing network configuration.
 func Run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" || args[0] == "-h" {
 		_, err := io.WriteString(out, usage)
@@ -42,7 +42,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("dashboard check", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	gru := flags.String("gru-token-file", "", "owner-only file holding the GRU dashboard token")
-	sfo := flags.String("sfo-token-file", "", "owner-only file holding the SFO dashboard token")
+	sjc := flags.String("sjc-token-file", "", "owner-only file holding the SJC dashboard token")
 	netbird := flags.String("netbird", "netbird", "local NetBird command, split on spaces")
 	timeout := flags.Duration("timeout", 5*time.Second, "timeout per request")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -51,11 +51,11 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 		}
 		return err
 	}
-	if flags.NArg() != 0 || *timeout <= 0 || *gru == "" || *sfo == "" {
-		return errors.New("dashboard check requires --gru-token-file, --sfo-token-file, a positive --timeout and no positional arguments")
+	if flags.NArg() != 0 || *timeout <= 0 || *gru == "" || *sjc == "" {
+		return errors.New("dashboard check requires --gru-token-file, --sjc-token-file, a positive --timeout and no positional arguments")
 	}
 	tokens := map[string]string{}
-	for region, path := range map[string]string{"gru": *gru, "sfo": *sfo} {
+	for region, path := range map[string]string{"gru": *gru, "sjc": *sjc} {
 		file, err := os.Open(path)
 		if err != nil {
 			return err
@@ -89,7 +89,7 @@ var paths = []string{"/healthz", "/", "/region", "/insights", "/decisions", "/re
 func check(ctx context.Context, out io.Writer, peers map[string]sshlogin.PeerAddress, tokens map[string]string, timeout time.Duration, get fetch) error {
 	var failures []error
 	network := netip.MustParsePrefix("10.200.0.0/16")
-	for _, region := range []string{"gru", "sfo"} {
+	for _, region := range []string{"gru", "sjc"} {
 		for n := 1; n <= 3; n++ {
 			name := fmt.Sprintf("ts-%s-%d", region, n)
 			peer := peers[name]

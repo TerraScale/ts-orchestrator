@@ -19,7 +19,7 @@ func gruSection(t *testing.T) Config {
 	if err := protocol.DecodeStrict(data, &config, 64<<10); err != nil {
 		t.Fatal(err)
 	}
-	config.Regions = config.Regions[:1] // only gru-1, as before sfo-1
+	config.Regions = config.Regions[:1] // only gru-1, as before sjc-1
 	return config
 }
 
@@ -41,13 +41,13 @@ func TestAddRegionListsTheCatalogRegion(t *testing.T) {
 	if next, added, err := gru.AddRegion("gru-1"); err != nil || added || !slices.Equal(next.Regions, gru.Regions) {
 		t.Fatalf("listed gru-1 must plan nothing: %v %v", added, err)
 	}
-	next, added, err := gru.AddRegion("sfo-1")
+	next, added, err := gru.AddRegion("sjc-1")
 	if err != nil || !added {
 		t.Fatal(added, err)
 	}
-	want := Region{ID: "sfo-1", Name: "San Jose", Country: "US", Lat: 37.34, Lon: -121.89,
-		API: "https://sfo.api.terrascale.tech", Auth: "https://sfo.auth.terrascale.tech"}
-	if !slices.Equal(ids(next), []string{"gru-1", "sfo-1"}) || next.Regions[1] != want {
+	want := Region{ID: "sjc-1", Name: "San Jose", Country: "US", Lat: 37.34, Lon: -121.89,
+		API: "https://sjc.api.terrascale.tech", Auth: "https://sjc.auth.terrascale.tech"}
+	if !slices.Equal(ids(next), []string{"gru-1", "sjc-1"}) || next.Regions[1] != want {
 		t.Fatalf("regions = %+v", next.Regions)
 	}
 	if len(gru.Regions) != 1 {
@@ -56,13 +56,13 @@ func TestAddRegionListsTheCatalogRegion(t *testing.T) {
 	if err := next.Validate("gru"); err != nil {
 		t.Fatal(err)
 	}
-	if again, added, err := next.AddRegion("sfo-1"); err != nil || added || !slices.Equal(again.Regions, next.Regions) {
+	if again, added, err := next.AddRegion("sjc-1"); err != nil || added || !slices.Equal(again.Regions, next.Regions) {
 		t.Fatalf("rerun must plan nothing: %v %v", added, err)
 	}
 	// Catalog order, whatever order the regions are added in.
 	fra, _, _ := gru.AddRegion("fra-1")
-	both, _, _ := fra.AddRegion("sfo-1")
-	if !slices.Equal(ids(both), []string{"gru-1", "sfo-1", "fra-1"}) {
+	both, _, _ := fra.AddRegion("sjc-1")
+	if !slices.Equal(ids(both), []string{"gru-1", "sjc-1", "fra-1"}) {
 		t.Fatalf("order = %v", ids(both))
 	}
 }
@@ -70,12 +70,12 @@ func TestAddRegionListsTheCatalogRegion(t *testing.T) {
 func TestAddRegionRefusesConflictsAndUnknownCells(t *testing.T) {
 	gru := gruSection(t)
 	conflicting := gru
-	conflicting.Regions = append(slices.Clone(gru.Regions), Region{ID: "sfo-1", Name: "San Francisco", Country: "US",
-		API: "https://sfo.api.terrascale.tech", Auth: "https://sfo.auth.terrascale.tech"})
-	if _, _, err := conflicting.AddRegion("sfo-1"); err == nil || !strings.Contains(err.Error(), "already lists") {
+	conflicting.Regions = append(slices.Clone(gru.Regions), Region{ID: "sjc-1", Name: "San Francisco", Country: "US",
+		API: "https://sjc.api.terrascale.tech", Auth: "https://sjc.auth.terrascale.tech"})
+	if _, _, err := conflicting.AddRegion("sjc-1"); err == nil || !strings.Contains(err.Error(), "already lists") {
 		t.Fatalf("conflicting entry: %v", err)
 	}
-	for _, cell := range []string{"xxx-1", "sfo", "sfo-0", "sfo-01", "SFO-1", "sfo-1-a", ""} {
+	for _, cell := range []string{"xxx-1", "sjc", "sjc-0", "sjc-01", "SJC-1", "sjc-1-a", ""} {
 		if _, _, err := gru.AddRegion(cell); err == nil {
 			t.Errorf("%q was accepted", cell)
 		}

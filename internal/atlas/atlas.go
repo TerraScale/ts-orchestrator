@@ -108,7 +108,7 @@ func (c Config) Validate(cell string) error {
 	return nil
 }
 
-// AddRegion returns c with region cell (sfo-1) listed as the catalog
+// AddRegion returns c with region cell (sjc-1) listed as the catalog
 // describes it, with its regional API and auth origins, in catalog order.
 // added is false when cell is already listed exactly so; a different entry
 // for cell is refused.

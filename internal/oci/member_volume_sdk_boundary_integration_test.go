@@ -612,7 +612,7 @@ func memberSDKVerifyRestoredAttachmentFailsClosedOnWrongVolumeScopeStateAndAttac
 			case "wrong owner tag":
 				volume.FreeformTags[tagOwner] = "0000000000V4MRM46HP1SNGDYW"
 			case "wrong region tag":
-				volume.FreeformTags[tagRegion] = "SFO"
+				volume.FreeformTags[tagRegion] = "SJC"
 			case "wrong generation tag":
 				volume.FreeformTags[tagGeneration] = "2"
 			case "wrong managed tag":

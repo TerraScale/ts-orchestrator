@@ -44,7 +44,7 @@ type Config struct {
 
 func CLI(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
-		_, err := fmt.Fprintln(out, "Usage: ts-orch bench run --region <gru|sfo> --workload <name> --clients go,dotnet,rust [--config FILE] [--reports reports]")
+		_, err := fmt.Fprintln(out, "Usage: ts-orch bench run --region <gru|sjc> --workload <name> --clients go,dotnet,rust [--config FILE] [--reports reports]")
 		return err
 	}
 	if args[0] == "worker" {
@@ -62,7 +62,7 @@ func CLI(ctx context.Context, args []string, out io.Writer) error {
 	}
 	flags := flag.NewFlagSet("bench run", flag.ContinueOnError)
 	flags.SetOutput(out)
-	region := flags.String("region", "", "gru or sfo")
+	region := flags.String("region", "", "gru or sjc")
 	workloadName := flags.String("workload", "", "workload name")
 	clientNames := flags.String("clients", "go,dotnet,rust", "comma-separated clients")
 	configFile := flags.String("config", "", "benchmark config, default ~/.config/ts-orch/benchmark.json")
@@ -73,8 +73,8 @@ func CLI(ctx context.Context, args []string, out io.Writer) error {
 		}
 		return err
 	}
-	if flags.NArg() != 0 || (*region != "gru" && *region != "sfo") || !namePattern.MatchString(*workloadName) {
-		return errors.New("bench run requires region gru/sfo and a workload name")
+	if flags.NArg() != 0 || (*region != "gru" && *region != "sjc") || !namePattern.MatchString(*workloadName) {
+		return errors.New("bench run requires region gru/sjc and a workload name")
 	}
 	clients := strings.Split(*clientNames, ",")
 	for i, client := range clients {

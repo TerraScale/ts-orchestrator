@@ -69,7 +69,7 @@ func TestStateRoundTripsAndRefusesStaleWrites(t *testing.T) {
 		t.Fatalf("empty store has a suggestion: %v, %v", ok, err)
 	}
 	saved := State{
-		Memory:     Memory{IdleSince: map[string]time.Time{"sfo": testNow}},
+		Memory:     Memory{IdleSince: map[string]time.Time{"sjc": testNow}},
 		Suggestion: Suggestion{Action: ActionNone, Reason: "every region is within its load band", At: testNow},
 	}
 	revision, err := store.Save(ctx, 1, saved, 0)

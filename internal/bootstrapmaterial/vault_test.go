@@ -156,7 +156,7 @@ func TestVaultTargetAcceptsActualMultisegmentOCID(t *testing.T) {
 
 func TestMappedRegionalVaultPublicationAndCrossRegionRejection(t *testing.T) {
 	for _, test := range []struct{ cell, region string }{
-		{"sfo", "us-sanjose-1"}, {"fra", "eu-frankfurt-1"},
+		{"sjc", "us-sanjose-1"}, {"fra", "eu-frankfurt-1"},
 	} {
 		t.Run(test.cell, func(t *testing.T) {
 			cfg := testConfig()

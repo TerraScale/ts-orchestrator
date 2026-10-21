@@ -215,7 +215,7 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 		t.Fatal("restart transferred the original writer or IAM reservation")
 	}
 	for _, statement := range current.FoundationWriter.Policy.Request.Statements {
-		if strings.Contains(statement, "SFO.json") || strings.Contains(statement, "FRA.json") {
+		if strings.Contains(statement, "SJC.json") || strings.Contains(statement, "FRA.json") {
 			if strings.Contains(statement, "OBJECT_CREATE") || strings.Contains(statement, "OBJECT_OVERWRITE") {
 				t.Fatal("cross-cell writer permission")
 			}

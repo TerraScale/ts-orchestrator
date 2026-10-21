@@ -60,7 +60,7 @@ func TestProtectedResourceJournalSharesFoundationCASAndByteBound(t *testing.T) {
 	if _, err := restarted.CompareAndSwap(t.Context(), unsigned, loadedETag); err == nil {
 		t.Fatal("unsigned removal provenance entered protected object")
 	}
-	if err := loaded.OCIResources.Validate("SFO"); err == nil {
+	if err := loaded.OCIResources.Validate("SJC"); err == nil {
 		t.Fatal("cross-cell protected journal accepted")
 	}
 	loaded.Epoch = 2

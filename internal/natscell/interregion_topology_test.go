@@ -12,7 +12,7 @@ func TestInterRegionConfigMatchesItsTopology(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	tree := HubAndSpoke("gru", []string{"sfo", "fra"}).WithSpokeParent("fra", "sfo")
+	tree := HubAndSpoke("gru", []string{"sjc", "fra"}).WithSpokeParent("fra", "sjc")
 	region := newTestRegion(t, root, "gru", tree)
 	leafTLS := testBridgeTLS(t, filepath.Join(root, "leaf"))
 	region.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: 7422, TLS: leafTLS}
@@ -22,16 +22,16 @@ func TestInterRegionConfigMatchesItsTopology(t *testing.T) {
 	}
 	remote := LeafRemote{Peer: "gru", URLs: []string{"nats-leaf://10.0.0.1:7422"}, CredentialsFile: "x.creds",
 		PeerAccount: region.interregionID, TLS: leafTLS, ServerName: testLeafServerName}
-	// sfo is a spoke with its own child fra: it dials gru and accepts fra.
+	// sjc is a spoke with its own child fra: it dials gru and accepts fra.
 	spoke := InterRegion{Peers: []string{"gru", "fra"}, AccountJWTFile: "x.jwt", GlobalHome: "gru",
 		Listen: &LeafListen{Host: "0.0.0.0", Port: 7422, TLS: leafTLS}, Subtrees: map[string][]string{"fra": {"fra"}},
 		Remotes: []LeafRemote{remote}, Topology: &tree}
 	spokeCfg := region.cfg
-	spokeCfg.Cell = "sfo"
+	spokeCfg.Cell = "sjc"
 	if err := spoke.validate(spokeCfg); err != nil {
 		t.Fatalf("spoke matching its topology rejected: %v", err)
 	}
-	cyclic := LeafTopology{Hub: "gru", Parents: map[string]string{"sfo": "fra", "fra": "sfo"}}
+	cyclic := LeafTopology{Hub: "gru", Parents: map[string]string{"sjc": "fra", "fra": "sjc"}}
 	cases := map[string]func(ir *InterRegion){
 		"cyclic tree":          func(ir *InterRegion) { ir.Topology = &cyclic },
 		"region not in tree":   func(ir *InterRegion) { other := HubAndSpoke("gru", []string{"fra"}); ir.Topology = &other },
@@ -47,7 +47,7 @@ func TestInterRegionConfigMatchesItsTopology(t *testing.T) {
 		candidate := spoke
 		candidate.Peers = append([]string(nil), spoke.Peers...)
 		mutate(&candidate)
-		if err := candidate.matchTopology("sfo", *candidate.Topology); err == nil {
+		if err := candidate.matchTopology("sjc", *candidate.Topology); err == nil {
 			t.Errorf("%s: config that differs from its topology accepted", name)
 		}
 	}

@@ -33,8 +33,8 @@ func TestNetBirdPinValidationAndAmendment(t *testing.T) {
 	if err := defaultRegion.Validate("gru"); err != nil {
 		t.Fatalf("documented default region rejected for GRU: %v", err)
 	}
-	if err := defaultRegion.Validate("sfo"); err == nil || !strings.Contains(err.Error(), "region differs") {
-		t.Fatalf("default GRU region accepted for SFO: %v", err)
+	if err := defaultRegion.Validate("sjc"); err == nil || !strings.Contains(err.Error(), "region differs") {
+		t.Fatalf("default GRU region accepted for SJC: %v", err)
 	}
 	if err := managed.Validate("lab"); err == nil || !strings.Contains(err.Error(), "requires a catalog cell") {
 		t.Fatalf("unknown cell did not identify its missing catalog region: %v", err)

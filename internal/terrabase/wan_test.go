@@ -17,13 +17,13 @@ import (
 
 // Names and scope labels match the native C# WanMetrics/OpenTelemetry exporter.
 const wanMetricsFixture = `# TYPE terrabase_wan_lag gauge
-terrabase_wan_lag{region="sfo-1",otel_scope_name="TerraScale.TerraBase",otel_scope_version=""} 7
-terrabase_wan_staleness_seconds{region="sfo-1"} 12.5
-terrabase_wan_members{region="sfo-1"} 3
-terrabase_wan_unregistered{region="sfo-1"} 2
-terrabase_wan_conflicts{region="sfo-1"} 1
-terrabase_wan_failures_total{region="sfo-1",reason="ahead"} 4
-terrabase_wan_failures_total{region="sfo-1",reason="pull"} 2
+terrabase_wan_lag{region="sjc-1",otel_scope_name="TerraScale.TerraBase",otel_scope_version=""} 7
+terrabase_wan_staleness_seconds{region="sjc-1"} 12.5
+terrabase_wan_members{region="sjc-1"} 3
+terrabase_wan_unregistered{region="sjc-1"} 2
+terrabase_wan_conflicts{region="sjc-1"} 1
+terrabase_wan_failures_total{region="sjc-1",reason="ahead"} 4
+terrabase_wan_failures_total{region="sjc-1",reason="pull"} 2
 dotnet_process_memory_working_set_bytes 100
 `
 
@@ -84,7 +84,7 @@ func TestCollectWANLoopbackBoundsAndNoRedirect(t *testing.T) {
 	env := map[string]string{EnvAdminPort: address.Port(), EnvPeerPort: "9443", EnvPeers: "node-a=127.0.0.1:9443", EnvRegion: "gru-native-region"}
 	started := time.Now().UTC()
 	got, err := CollectWAN(t.Context(), env)
-	if err != nil || got == nil || got.ReceiverRegion != "gru-native-region" || got.Sources[0].SourceRegion != "sfo-1" ||
+	if err != nil || got == nil || got.ReceiverRegion != "gru-native-region" || got.Sources[0].SourceRegion != "sjc-1" ||
 		got.ObservedAt.Before(started) || got.ObservedAt.After(time.Now()) {
 		t.Fatalf("loopback scrape = %+v, %v", got, err)
 	}
@@ -124,25 +124,25 @@ func TestCollectWANLoopbackBoundsAndNoRedirect(t *testing.T) {
 	mode.Store(4)
 	var tooMany strings.Builder
 	for i := range MaxWANRegions + 1 {
-		tooMany.WriteString(strings.ReplaceAll(wanMetricsFixture, "sfo-1", fmt.Sprintf("native-%d", i)))
+		tooMany.WriteString(strings.ReplaceAll(wanMetricsFixture, "sjc-1", fmt.Sprintf("native-%d", i)))
 	}
 	for name, input := range map[string]string{
-		"missing gauge":         strings.ReplaceAll(wanMetricsFixture, "terrabase_wan_conflicts{region=\"sfo-1\"} 1\n", ""),
-		"duplicate":             wanMetricsFixture + "terrabase_wan_lag{region=\"sfo-1\"} 7\n",
+		"missing gauge":         strings.ReplaceAll(wanMetricsFixture, "terrabase_wan_conflicts{region=\"sjc-1\"} 1\n", ""),
+		"duplicate":             wanMetricsFixture + "terrabase_wan_lag{region=\"sjc-1\"} 7\n",
 		"bare duplicate":        wanMetricsFixture + "terrabase_wan_lag\n",
 		"NaN":                   strings.ReplaceAll(wanMetricsFixture, "} 7\n", "} NaN\n"),
 		"infinity":              strings.ReplaceAll(wanMetricsFixture, "} 12.5\n", "} +Inf\n"),
 		"negative":              strings.ReplaceAll(wanMetricsFixture, "} 7\n", "} -1\n"),
 		"fractional count":      strings.ReplaceAll(wanMetricsFixture, "} 3\n", "} 1.5\n"),
 		"inexact count":         strings.ReplaceAll(wanMetricsFixture, "} 7\n", "} 9007199254740992\n"),
-		"unknown label":         strings.ReplaceAll(wanMetricsFixture, "region=\"sfo-1\"", "region=\"sfo-1\",database=\"x\""),
-		"duplicate label":       strings.ReplaceAll(wanMetricsFixture, "region=\"sfo-1\"", "region=\"sfo-1\",region=\"sfo-1\""),
-		"bad token":             strings.ReplaceAll(wanMetricsFixture, "sfo-1", "sfo.*"),
+		"unknown label":         strings.ReplaceAll(wanMetricsFixture, "region=\"sjc-1\"", "region=\"sjc-1\",database=\"x\""),
+		"duplicate label":       strings.ReplaceAll(wanMetricsFixture, "region=\"sjc-1\"", "region=\"sjc-1\",region=\"sjc-1\""),
+		"bad token":             strings.ReplaceAll(wanMetricsFixture, "sjc-1", "sjc.*"),
 		"foreign scope":         strings.ReplaceAll(wanMetricsFixture, "TerraScale.TerraBase", "foreign"),
 		"timestamp":             strings.ReplaceAll(wanMetricsFixture, "} 7\n", "} 7 1234\n"),
-		"empty reason on gauge": strings.ReplaceAll(wanMetricsFixture, "region=\"sfo-1\"", "region=\"sfo-1\",reason=\"\""),
+		"empty reason on gauge": strings.ReplaceAll(wanMetricsFixture, "region=\"sjc-1\"", "region=\"sjc-1\",reason=\"\""),
 		"unknown reason":        strings.ReplaceAll(wanMetricsFixture, "reason=\"ahead\"", "reason=\"other\""),
-		"truncated labels":      wanMetricsFixture + "terrabase_wan_lag{region=\"sfo-1\" 7\n",
+		"truncated labels":      wanMetricsFixture + "terrabase_wan_lag{region=\"sjc-1\" 7\n",
 		"body bound":            strings.Repeat("#", wanBodyBytes+1),
 		"line bound":            strings.Repeat("#", 16<<10),
 		"source bound":          tooMany.String(),
@@ -184,7 +184,7 @@ func TestCollectWANLoopbackBoundsAndNoRedirect(t *testing.T) {
 	at := time.Now().UTC().Add(-time.Minute)
 	for index, input := range []string{
 		wanMetricsFixture,
-		wanMetricsFixture + strings.ReplaceAll(wanMetricsFixture, "sfo-1", "new-native-zone"),
+		wanMetricsFixture + strings.ReplaceAll(wanMetricsFixture, "sjc-1", "new-native-zone"),
 		"dotnet_process_memory_working_set_bytes 100\n",
 		strings.ReplaceAll(strings.ReplaceAll(wanMetricsFixture, "} 3\n", "} 0\n"), "} 7\n", "} 0\n"),
 	} {
@@ -228,7 +228,7 @@ func TestCollectWANLoopbackBoundsAndNoRedirect(t *testing.T) {
 				t.Fatalf("WAN observation = %+v, %v", observation, err)
 			}
 			source := observation.Sources[0]
-			if source.SourceRegion != "sfo-1" || observation.ReceiverRegion != "gru-native-region" || *source.LagGroups != 7 ||
+			if source.SourceRegion != "sjc-1" || observation.ReceiverRegion != "gru-native-region" || *source.LagGroups != 7 ||
 				*source.StalenessSeconds != 12.5 || *source.Members != 3 || *source.Unregistered != 2 ||
 				*source.Conflicts != 1 || *source.AheadFailuresTotal != 4 {
 				t.Fatalf("source gauge values = %+v", source)

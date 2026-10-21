@@ -132,7 +132,7 @@ func TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH(t *testing.T) {
 			case "environment":
 				bundle.Environment = "canary"
 			case "cell":
-				bundle.Cell, bundle.Region = "sfo", "SFO"
+				bundle.Cell, bundle.Region = "sjc", "SJC"
 			case "layout":
 				bundle.InstallRoot = "/different/install/root"
 			case "SSH":
@@ -224,7 +224,7 @@ func TestInitialLaunchMaterialUsesIndependentPinnedRegionImageAndCurrentProof(t 
 			if fault == "image" {
 				region.ImageID += "-other"
 			} else {
-				region.Region = oci.RegionSFO
+				region.Region = oci.RegionSJC
 			}
 			wire, err := protocol.EncodeJSON(region)
 			if err != nil {

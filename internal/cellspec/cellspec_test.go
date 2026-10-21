@@ -187,7 +187,7 @@ func TestVerifyRejects(t *testing.T) {
 	invalidReleaser.Services[0].Releasers = []string{"Ops"}
 	otherDeployment, otherCell, otherEnvironment := f.id, f.id, f.id
 	otherDeployment.DeploymentID = "0000000000J8QE4K9GHPJS0ZBW"
-	otherCell.Cell = "sfo"
+	otherCell.Cell = "sjc"
 	otherEnvironment.Environment = "canary"
 
 	cases := []struct {
@@ -1193,7 +1193,7 @@ func TestReleaseFenceLevelValidateAndDiff(t *testing.T) {
 // or changed one needs a root: it decides who reads the cell.
 func TestMachinesAPILevelValidateAndDiff(t *testing.T) {
 	f := newFixture(t)
-	api := MachinesAPI{PlatformOrganizationID: "01M4EB0GDPPHGJPPVY77EMZQKT", Issuer: "https://gru.auth.terrascale.tech/terrascale", Audience: "https://sfo.orch.terrascale.tech",
+	api := MachinesAPI{PlatformOrganizationID: "01M4EB0GDPPHGJPPVY77EMZQKT", Issuer: "https://gru.auth.terrascale.tech/terrascale", Audience: "https://sjc.orch.terrascale.tech",
 		JWKSURLs: []string{"https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"}, Clients: []string{"0000000000NY47MDQEXMPZDJR7"}}
 	spec := testSpec(f.id, 1)
 	spec.MachinesAPI, spec.RequiresBinary = &api, 21
@@ -1271,7 +1271,7 @@ func TestDashboardSection(t *testing.T) {
 	}
 	for name, ref := range map[string]vaultsecret.Ref{
 		"another role":   {Vault: vault, Name: "gru-1-ts-auth-token"},
-		"another cell":   {Vault: vault, Name: "sfo-1-orch-dashboard-token"},
+		"another cell":   {Vault: vault, Name: "sjc-1-orch-dashboard-token"},
 		"another region": {Vault: "ocid1.vault.oc1.us-sanjose-1.vault", Name: "gru-1-orch-dashboard-token"},
 	} {
 		invalid := spec

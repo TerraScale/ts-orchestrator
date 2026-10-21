@@ -90,7 +90,7 @@ func TestOriginalStartupTrustSDKAllRegions(t *testing.T) {
 			originalStartupLedgerSDK(t, f, func(*http.Request) { sdkRequests.Add(1) })
 			home := originalStartupTemplate(t, f, anchor, oci.RegionGRU)
 			record := f.record(t)
-			for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA} {
+			for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSJC, oci.RegionFRA} {
 				t.Run(string(cell), func(t *testing.T) {
 					template := originalStartupTemplate(t, f, anchor, cell)
 					selected, err := home.ForCell(t.Context(), cell, f.now)

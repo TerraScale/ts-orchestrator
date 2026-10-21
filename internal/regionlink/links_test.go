@@ -31,18 +31,18 @@ func TestLinksRegionsAndRequests(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	links, err := New("GRU", conn, []string{"sfo", "FRA", "global", "bad region"}, time.Second)
+	links, err := New("GRU", conn, []string{"sjc", "FRA", "global", "bad region"}, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := links.Regions(); !slices.Equal(got, []string{"gru", "fra", "sfo"}) {
+	if got := links.Regions(); !slices.Equal(got, []string{"gru", "fra", "sjc"}) {
 		t.Fatalf("regions = %v", got)
 	}
 	reply, err := links.Request(t.Context(), "GRU", "ping", []byte("x"))
 	if err != nil || string(reply) != "pong:x" {
 		t.Fatalf("reply = %q err=%v", reply, err)
 	}
-	if _, err := links.Request(t.Context(), "sfo", "ping", nil); !errors.Is(err, ErrNotLinked) {
+	if _, err := links.Request(t.Context(), "sjc", "ping", nil); !errors.Is(err, ErrNotLinked) {
 		t.Fatalf("unlinked err = %v", err)
 	}
 	if _, err := links.Request(t.Context(), "mia", "ping", nil); !errors.Is(err, ErrUnknownRegion) {
@@ -108,7 +108,7 @@ func TestLinkTimeoutAppliesUnderALaterCallerDeadline(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(responder.Close)
-		const subject = "ts.orch.v1.sfo.obs.ping"
+		const subject = "ts.orch.v1.sjc.obs.ping"
 		type observation struct {
 			subject string
 			payload string
@@ -129,14 +129,14 @@ func TestLinkTimeoutAppliesUnderALaterCallerDeadline(t *testing.T) {
 		if err := responder.FlushTimeout(time.Second); err != nil {
 			t.Fatal(err)
 		}
-		links, err := New("gru", nil, []string{"sfo", "fra"}, time.Second)
+		links, err := New("gru", nil, []string{"sjc", "fra"}, time.Second)
 		if err != nil {
 			t.Fatal(err)
 		}
 		state := func(want []string, linked bool) {
 			t.Helper()
-			if got := links.Regions(); !slices.Equal(got, want) || links.Linked("sfo") != linked || links.Linked("gru") {
-				t.Fatalf("regions = %v, linked sfo=%v gru=%v; want %v, sfo=%v gru=false", got, links.Linked("sfo"), links.Linked("gru"), want, linked)
+			if got := links.Regions(); !slices.Equal(got, want) || links.Linked("sjc") != linked || links.Linked("gru") {
+				t.Fatalf("regions = %v, linked sjc=%v gru=%v; want %v, sjc=%v gru=false", got, links.Linked("sjc"), links.Linked("gru"), want, linked)
 			}
 		}
 		observe := func(payload string) {
@@ -154,30 +154,30 @@ func TestLinkTimeoutAppliesUnderALaterCallerDeadline(t *testing.T) {
 		}
 		ping := func(payload string) {
 			t.Helper()
-			reply, err := links.Request(ctx, "SFO", "ping", []byte(payload))
+			reply, err := links.Request(ctx, "SJC", "ping", []byte(payload))
 			if err != nil || string(reply) != "pong:"+payload {
 				t.Fatalf("peer request %q = %q, %v", payload, reply, err)
 			}
 			observe(payload)
 		}
 		links.Unlink("GRU")
-		state([]string{"gru", "fra", "sfo"}, false)
+		state([]string{"gru", "fra", "sjc"}, false)
 		links.Unlink("mia")
-		state([]string{"gru", "fra", "sfo"}, false)
-		if err := links.Link("sfo", conn); err != nil || !links.Linked("sfo") {
-			t.Fatalf("link sfo: %v", err)
+		state([]string{"gru", "fra", "sjc"}, false)
+		if err := links.Link("sjc", conn); err != nil || !links.Linked("sjc") {
+			t.Fatalf("link sjc: %v", err)
 		}
-		state([]string{"gru", "fra", "sfo"}, true)
+		state([]string{"gru", "fra", "sjc"}, true)
 		ping("linked")
 		links.Unlink("GRU")
-		state([]string{"gru", "fra", "sfo"}, true)
+		state([]string{"gru", "fra", "sjc"}, true)
 		ping("local-kept")
 		links.Unlink("mia")
-		state([]string{"gru", "fra", "sfo"}, true)
+		state([]string{"gru", "fra", "sjc"}, true)
 		ping("unknown-kept")
-		links.Unlink("SFO")
+		links.Unlink("SJC")
 		state([]string{"gru", "fra"}, false)
-		if reply, err := links.Request(ctx, "sfo", "ping", []byte("removed")); !errors.Is(err, ErrUnknownRegion) || reply != nil {
+		if reply, err := links.Request(ctx, "sjc", "ping", []byte("removed")); !errors.Is(err, ErrUnknownRegion) || reply != nil {
 			t.Fatalf("removed peer request = %q, %v; want nil, ErrUnknownRegion", reply, err)
 		}
 		// The same-connection probe orders earlier sends before the final observation.

@@ -38,7 +38,7 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 	for _, failure := range []string{"unreachable", "missing", "stale", "environment", "architecture", "storage", "qualification"} {
 		t.Run(failure, func(t *testing.T) {
 			fixture.reset(failure)
-			qualificationPath := filepath.Join(filepath.Dir(filepath.Dir(fixture.binaryPath)), "production", "SFO", "amd64", "production.json")
+			qualificationPath := filepath.Join(filepath.Dir(filepath.Dir(fixture.binaryPath)), "production", "SJC", "amd64", "production.json")
 			var qualificationWire []byte
 			if failure == "qualification" {
 				var err error
@@ -53,7 +53,7 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 			var output bytes.Buffer
 			c := command{ctx: t.Context(), output: &output}
 			err := c.applyWith(fixture.args, fixture.env)
-			if err == nil || !strings.Contains(err.Error(), "SFO") {
+			if err == nil || !strings.Contains(err.Error(), "SJC") {
 				t.Fatalf("missing regional failure: %v\n%s", err, output.String())
 			}
 			fixture.mu.Lock()
@@ -62,7 +62,7 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 					t.Errorf("healthy %s did not publish independently: %v", cell, fixture.channelWrites)
 				}
 			}
-			if fixture.channelWrites["SFO"] != 0 {
+			if fixture.channelWrites["SJC"] != 0 {
 				t.Errorf("failed region published a channel: %v", fixture.channelWrites)
 			}
 			fixture.failure = ""
@@ -83,7 +83,7 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 			}
 			fixture.mu.Lock()
 			defer fixture.mu.Unlock()
-			for _, cell := range []string{"FRA", "GRU", "SFO"} {
+			for _, cell := range []string{"FRA", "GRU", "SJC"} {
 				if fixture.binaryCreates[cell] != 1 || len(fixture.objects[cell]) != 2 {
 					t.Errorf("retry lost/duplicated %s immutable bytes: creates=%v objects=%d", cell, fixture.binaryCreates, len(fixture.objects[cell]))
 				}
@@ -240,7 +240,7 @@ func newApplyHTTPFixture(t *testing.T) *applyHTTPFixture {
 	if err := os.WriteFile(binaryPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, cell := range []string{"FRA", "GRU", "SFO"} {
+	for _, cell := range []string{"FRA", "GRU", "SJC"} {
 		for _, evidenceDir := range []string{filepath.Join(bundle, "production"), filepath.Join(retainedDir, "production")} {
 			record := writeProductionEvidence(t, evidenceDir, productionCandidate(binary, cell))
 			writeProductionRecord(t, filepath.Join(evidenceDir, cell, "amd64", "production.json"), record, rootPrivate,
@@ -321,13 +321,13 @@ func (f *applyHTTPFixture) serve(w http.ResponseWriter, r *http.Request) {
 	if f.objects[cell] == nil {
 		f.objects[cell] = make(map[string][]byte)
 	}
-	if cell == "SFO" && f.failure == "unreachable" && name == releasechannel.StatusObject {
+	if cell == "SJC" && f.failure == "unreachable" && name == releasechannel.StatusObject {
 		f.mu.Unlock()
 		<-r.Context().Done()
 		f.mu.Lock()
 		return
 	}
-	if cell == "SFO" && f.failure == "storage" && r.Method == http.MethodPut {
+	if cell == "SJC" && f.failure == "storage" && r.Method == http.MethodPut {
 		http.Error(w, "unavailable", http.StatusForbidden)
 		return
 	}
@@ -355,7 +355,7 @@ func (f *applyHTTPFixture) serve(w http.ResponseWriter, r *http.Request) {
 	if name == releasechannel.StatusObject {
 		status := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: cell, Environment: "production",
 			Architectures: []string{"amd64"}, UpdatedAt: time.Now().UTC()}
-		if cell == "SFO" {
+		if cell == "SJC" {
 			switch f.failure {
 			case "missing":
 				w.WriteHeader(http.StatusNotFound)

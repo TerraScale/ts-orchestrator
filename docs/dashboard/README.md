@@ -30,9 +30,9 @@ LINKS: controller topology URLs (verified from mariogk-dev, 2026-10-07 23:03 UTC
 | GRU 1 | http://10.200.87.215:9463/topology | http://ts-gru-1.nb.ts.internal:9463/topology |
 | GRU 2 | http://10.200.38.135:9463/topology | http://ts-gru-2.nb.ts.internal:9463/topology |
 | GRU 3 | http://10.200.168.164:9463/topology | http://ts-gru-3.nb.ts.internal:9463/topology |
-| SFO 1 | http://10.200.112.213:9463/topology | http://ts-sfo-1.nb.ts.internal:9463/topology |
-| SFO 2 | http://10.200.122.37:9463/topology | http://ts-sfo-2.nb.ts.internal:9463/topology |
-| SFO 3 | http://10.200.63.195:9463/topology | http://ts-sfo-3.nb.ts.internal:9463/topology |
+| SJC 1 | http://10.200.112.213:9463/topology | http://ts-sjc-1.nb.ts.internal:9463/topology |
+| SJC 2 | http://10.200.122.37:9463/topology | http://ts-sjc-2.nb.ts.internal:9463/topology |
+| SJC 3 | http://10.200.63.195:9463/topology | http://ts-sjc-3.nb.ts.internal:9463/topology |
 
 ### Automatic operator credential delivery
 
@@ -51,7 +51,7 @@ satisfy it. Its allowed-host, private-network and identity checks remain binding
 ```sh
 scripts/check-dashboard-access.sh \
   --gru-token-file "$HOME/.config/ts-orch/dashboard-gru-token" \
-  --sfo-token-file "$HOME/.config/ts-orch/dashboard-sfo-token"
+  --sjc-token-file "$HOME/.config/ts-orch/dashboard-sjc-token"
 ```
 
 The thin wrapper runs `ts-orch dashboard check`. It reads current IPs from
@@ -194,7 +194,7 @@ opens the command palette.
 nice -n 19 mise exec -- go test ./internal/dashboard/devfake
 ```
 
-The moving three-region fixtures (GRU, SFO, FRA) drive the real history sampler,
+The moving three-region fixtures (GRU, SJC, FRA) drive the real history sampler,
 insight engine, region provider and summarizer in tests. All fixture sources
 live in `_test.go` files; executable builds cannot import them.
 

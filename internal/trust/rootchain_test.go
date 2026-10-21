@@ -209,7 +209,7 @@ func TestRootChainRejectsTampering(t *testing.T) {
 	}
 	// Another cell's rotation does not apply here.
 	other := testChainID
-	other.Cell = "sfo"
+	other.Cell = "sjc"
 	foreign := rotate(t, other, start, []ed25519.PrivateKey{r1}, r0, r1)
 	if _, err := VerifyRootChain(genesis, testChainID, RootChain{Version: 1, Rotations: []SignedRotation{foreign}}); !errors.Is(err, ErrScopeMismatch) {
 		t.Errorf("foreign cell: %v", err)

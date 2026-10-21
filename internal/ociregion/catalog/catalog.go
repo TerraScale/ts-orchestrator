@@ -1,8 +1,7 @@
 // Package catalog is the table of OCI commercial regions TerraScale can run
 // in. It holds facts about Oracle, not inventory: any listed region is a valid
 // cell, and which regions serve is the live roster (docs/region-registry.md).
-// A cell code is the upper-case OCI short region code, except the legacy
-// product code SFO for us-sanjose-1 (there is no SJC cell).
+// A cell code is the upper-case OCI short region code.
 //
 // The catalog authorizes nothing by itself, and a region absent from it is
 // rejected everywhere it is consulted.
@@ -17,7 +16,7 @@ type Entry struct {
 	// OCIRegion is the canonical OCI region identifier, for example sa-saopaulo-1.
 	OCIRegion string
 	// OCIRegionKey is the OCI region key a tenancy subscribes with, for
-	// example SJC for us-sanjose-1; it differs from the product cell code.
+	// example SJC for us-sanjose-1.
 	OCIRegionKey string
 	// City, Country (ISO 3166-1 alpha-2), Latitude and Longitude are display
 	// metadata for operator views (the dashboard world map) and the cell's
@@ -32,7 +31,7 @@ func (e Entry) Name() string { return strings.ToLower(e.Cell) }
 
 const (
 	GRU = "GRU"
-	SFO = "SFO"
+	SJC = "SJC"
 	FRA = "FRA"
 	// Bootstrap is the only cell that may found a deployment until a
 	// separately reviewed migration exists.
@@ -42,7 +41,7 @@ const (
 // entries is ordered: placement assigns permanent members in this order.
 var entries = [...]Entry{
 	{Cell: GRU, OCIRegion: "sa-saopaulo-1", OCIRegionKey: "GRU", City: "São Paulo", Country: "BR", Latitude: -23.43, Longitude: -46.47},
-	{Cell: SFO, OCIRegion: "us-sanjose-1", OCIRegionKey: "SJC", City: "San Jose", Country: "US", Latitude: 37.34, Longitude: -121.89},
+	{Cell: SJC, OCIRegion: "us-sanjose-1", OCIRegionKey: "SJC", City: "San Jose", Country: "US", Latitude: 37.34, Longitude: -121.89},
 	{Cell: FRA, OCIRegion: "eu-frankfurt-1", OCIRegionKey: "FRA", City: "Frankfurt", Country: "DE", Latitude: 50.11, Longitude: 8.68},
 	{Cell: "AMS", OCIRegion: "eu-amsterdam-1", OCIRegionKey: "AMS", City: "Amsterdam", Country: "NL", Latitude: 52.37, Longitude: 4.90},
 	{Cell: "ARN", OCIRegion: "eu-stockholm-1", OCIRegionKey: "ARN", City: "Stockholm", Country: "SE", Latitude: 59.33, Longitude: 18.07},
@@ -157,7 +156,7 @@ func CellForOCIRegion(region string) (Entry, bool) {
 }
 
 // CellOf names the cell of an OCI region: the catalog's name when the region is
-// in the catalog (us-sanjose-1 is sfo), otherwise its lower-case OCI key.
+// in the catalog, otherwise its lower-case OCI key.
 func CellOf(name, key string) string {
 	if entry, ok := CellForOCIRegion(name); ok {
 		return entry.Name()

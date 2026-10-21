@@ -85,7 +85,7 @@ breaks these rules:
 
 | Key | Rule |
 | --- | --- |
-| `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://<cell>.auth.terrascale.tech`, the cell's regional host, `https://gru.auth.terrascale.tech` in gru-1 (user decision 2026-10-05; `auth.terrascale.tech` stays the ts-atlas proxy). `<cell>` is the lower-case catalog cell (`gru`, `sfo`, `fra`); a cell outside the catalog, or another cell's URLs, are refused. ts-auth's issuer is `<origin>/terrascale`. |
+| `TS_AUTH_PUBLIC_ORIGIN` | Exactly `https://<cell>.auth.terrascale.tech`, the cell's regional host, `https://gru.auth.terrascale.tech` in gru-1 (user decision 2026-10-05; `auth.terrascale.tech` stays the ts-atlas proxy). `<cell>` is the lower-case catalog cell (`gru`, `sjc`, `fra`); a cell outside the catalog, or another cell's URLs, are refused. ts-auth's issuer is `<origin>/terrascale`. |
 | `TS_AUTH_TERRASCALE_API_URL` | Exactly `https://<cell>.api.terrascale.tech`, `https://gru.api.terrascale.tech` in gru-1. |
 | `TS_AUTH_TERRASCALE_API_ENDPOINTS`, `TS_AUTH_TERRASCALE_API_CA`, `TS_AUTH_TERRASCALE_API_FAILOVER` | Optional, endpoints and CA together: the [private TerraBase path](#private-terrabase-path). Each endpoint is `https://<IP>:<TERRABASE_CLIENT_PORT>` of a member the cell's `terrabase` profile lists in `TERRABASE_PEERS`, at most once, `;`-separated; the CA is 1 to 4 PEM CA certificates. Several endpoints need `TS_AUTH_TERRASCALE_API_FAILOVER=true`. Checked by the controller against the cell's current `terrabase` profile, so a spec that drops a member ts-auth still names is refused. |
 | `TS_AUTH_DATABASE` | Exactly `auth`, the database `ouroboros bootstrap` creates. The host passes ts-auth `<project-ulid>/auth`, the project from the Vault. |

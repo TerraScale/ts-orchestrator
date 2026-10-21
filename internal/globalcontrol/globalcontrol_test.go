@@ -21,14 +21,14 @@ func testRoster(generation uint64) Roster {
 	return Roster{Generation: generation, HomeRegion: "gru", Regions: []RosterEntry{
 		{Cell: "fra", OCIRegion: "eu-frankfurt-1", State: RegionProvisioning},
 		{Cell: "gru", OCIRegion: "sa-saopaulo-1", State: RegionActive},
-		{Cell: "sfo", OCIRegion: "us-sanjose-1", State: RegionActive},
+		{Cell: "sjc", OCIRegion: "us-sanjose-1", State: RegionActive},
 	}}
 }
 
 func TestDirectoryValidation(t *testing.T) {
 	t.Parallel()
 
-	entry := DirectoryEntry{DatabaseID: "00000000004SJMRETVW39JX054", PartitionID: "00000000003K6TBW31R91GBDRD", HomeRegion: "gru", ActiveRegions: []string{"gru", "sfo"}, Generation: 1}
+	entry := DirectoryEntry{DatabaseID: "00000000004SJMRETVW39JX054", PartitionID: "00000000003K6TBW31R91GBDRD", HomeRegion: "gru", ActiveRegions: []string{"gru", "sjc"}, Generation: 1}
 	if err := entry.ValidateAgainst(testRoster(1)); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestDirectoryValidation(t *testing.T) {
 		"bad database":    func(d *DirectoryEntry) { d.DatabaseID = "DB" },
 		"dotted database": func(d *DirectoryEntry) { d.DatabaseID = "db.1" },
 		"home not active": func(d *DirectoryEntry) { d.HomeRegion = "fra" },
-		"unsorted":        func(d *DirectoryEntry) { d.ActiveRegions = []string{"sfo", "gru"} },
+		"unsorted":        func(d *DirectoryEntry) { d.ActiveRegions = []string{"sjc", "gru"} },
 		"duplicate":       func(d *DirectoryEntry) { d.ActiveRegions = []string{"gru", "gru"} },
 		"empty":           func(d *DirectoryEntry) { d.ActiveRegions = nil },
 		"too many":        func(d *DirectoryEntry) { d.ActiveRegions = []string{"a", "b", "c", "d", "e", "gru"} },
@@ -63,15 +63,15 @@ func TestDirectoryValidation(t *testing.T) {
 func TestMirrorConfigIsReadOnlyAndPinnedToHome(t *testing.T) {
 	t.Parallel()
 
-	config := MirrorStreamConfig("gru", "sfo", 3)
+	config := MirrorStreamConfig("gru", "sjc", 3)
 	if len(config.Subjects) != 0 || config.Mirror == nil ||
 		config.Mirror.External.APIPrefix != "$JS.gru.API" ||
 		config.Mirror.External.DeliverPrefix != "" || config.Mirror.Consumer == nil ||
-		config.Mirror.Consumer.Name != "global-mirror-sfo" ||
-		config.Mirror.Consumer.DeliverSubject != "ts.interregion.v1.sfo.global" {
+		config.Mirror.Consumer.Name != "global-mirror-sjc" ||
+		config.Mirror.Consumer.DeliverSubject != "ts.interregion.v1.sjc.global" {
 		t.Fatalf("mirror config = %+v", config)
 	}
-	if err := verifyMirror(config, "gru", "sfo", 3); err != nil {
+	if err := verifyMirror(config, "gru", "sjc", 3); err != nil {
 		t.Fatal(err)
 	}
 	if err := verifyHome(HomeStreamConfig(3), 3); err != nil {
@@ -82,25 +82,25 @@ func TestMirrorConfigIsReadOnlyAndPinnedToHome(t *testing.T) {
 	}
 	tampered := []func(*jetstream.StreamConfig){
 		func(c *jetstream.StreamConfig) { c.Subjects = []string{protocol.GlobalStateStreamSubject()} },
-		func(c *jetstream.StreamConfig) { c.Mirror.External.APIPrefix = "$JS.sfo.API" },
-		func(c *jetstream.StreamConfig) { c.Mirror.External.DeliverPrefix = "ts.interregion.v1.sfo.global" },
+		func(c *jetstream.StreamConfig) { c.Mirror.External.APIPrefix = "$JS.sjc.API" },
+		func(c *jetstream.StreamConfig) { c.Mirror.External.DeliverPrefix = "ts.interregion.v1.sjc.global" },
 		func(c *jetstream.StreamConfig) { c.Mirror.Consumer = nil },
 		func(c *jetstream.StreamConfig) {
-			c.Mirror.Consumer = &jetstream.StreamConsumerSource{Name: "global-mirror-fra", DeliverSubject: "ts.interregion.v1.sfo.global"}
+			c.Mirror.Consumer = &jetstream.StreamConsumerSource{Name: "global-mirror-fra", DeliverSubject: "ts.interregion.v1.sjc.global"}
 		},
 		func(c *jetstream.StreamConfig) {
-			c.Mirror.Consumer = &jetstream.StreamConsumerSource{Name: "global-mirror-sfo", DeliverSubject: "ts.orch.v1.sfo.placement.apply"}
+			c.Mirror.Consumer = &jetstream.StreamConsumerSource{Name: "global-mirror-sjc", DeliverSubject: "ts.orch.v1.sjc.placement.apply"}
 		},
 		func(c *jetstream.StreamConfig) { c.Mirror.FilterSubject = "ts.global.v1.roster.>" },
 		func(c *jetstream.StreamConfig) { c.DenyPurge = false },
 		func(c *jetstream.StreamConfig) {
-			c.Metadata = map[string]string{"terrascale-contract": contract, "terrascale-role": "mirror", "terrascale-home": "sfo"}
+			c.Metadata = map[string]string{"terrascale-contract": contract, "terrascale-role": "mirror", "terrascale-home": "sjc"}
 		},
 	}
 	for index, mutate := range tampered {
-		candidate := MirrorStreamConfig("gru", "sfo", 3)
+		candidate := MirrorStreamConfig("gru", "sjc", 3)
 		mutate(&candidate)
-		if err := verifyMirror(candidate, "gru", "sfo", 3); err == nil {
+		if err := verifyMirror(candidate, "gru", "sjc", 3); err == nil {
 			t.Errorf("tampered mirror %d verified", index)
 		}
 	}
@@ -123,15 +123,15 @@ func TestHomeWriterGuardsAndCompareAndSets(t *testing.T) {
 			t.Fatalf("home accepted mirror peers %v", peers)
 		}
 	}
-	writer, err := OpenHome(ctx, js, "gru", []string{"fra", "sfo"}, 1, global)
+	writer, err := OpenHome(ctx, js, "gru", []string{"fra", "sjc"}, 1, global)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Reopening is idempotent and keeps exactly one contract consumer per peer.
-	if _, err := OpenHome(ctx, js, "gru", []string{"fra", "sfo"}, 1, global); err != nil {
+	if _, err := OpenHome(ctx, js, "gru", []string{"fra", "sjc"}, 1, global); err != nil {
 		t.Fatalf("reopen home: %v", err)
 	}
-	assertMirrorConsumers(ctx, t, js, []string{"fra", "sfo"})
+	assertMirrorConsumers(ctx, t, js, []string{"fra", "sjc"})
 	epoch := global.Current().Epoch
 	entry := DirectoryEntry{DatabaseID: "00000000004SJMRETVW39JX054", PartitionID: "00000000003K6TBW31R91GBDRD", HomeRegion: "gru", ActiveRegions: []string{"gru"}, Generation: 1}
 	if _, err := writer.PutDirectory(ctx, epoch, entry); !errors.Is(err, ErrRosterRequired) {
@@ -151,7 +151,7 @@ func TestHomeWriterGuardsAndCompareAndSets(t *testing.T) {
 		t.Fatalf("same generation with different content = %v", err)
 	}
 	moved := testRoster(2)
-	moved.HomeRegion = "sfo"
+	moved.HomeRegion = "sjc"
 	if _, err := writer.PutRoster(ctx, epoch, moved); !errors.Is(err, ErrNotHomeRegion) {
 		t.Fatalf("home move through roster write = %v", err)
 	}
@@ -216,7 +216,7 @@ func TestHomeWriterGuardsAndCompareAndSets(t *testing.T) {
 		}
 		seen := map[string]Heartbeat{
 			"gru": heard("gru", "sa-saopaulo-1", 0),
-			"sfo": heard("sfo", "us-sanjose-1", time.Second),
+			"sjc": heard("sjc", "us-sanjose-1", time.Second),
 			"fra": heard("fra", "eu-frankfurt-1", RegionSilence),
 		}
 
@@ -224,8 +224,8 @@ func TestHomeWriterGuardsAndCompareAndSets(t *testing.T) {
 		if !changed || first.Generation != 1 || first.HomeRegion != "gru" || first.Validate() != nil {
 			t.Fatalf("first roster = %+v, changed %v", first, changed)
 		}
-		if len(first.Regions) != 2 || first.Regions[0].Cell != "gru" || first.Regions[1].Cell != "sfo" ||
-			!first.Active("sfo") || first.Active("fra") {
+		if len(first.Regions) != 2 || first.Regions[0].Cell != "gru" || first.Regions[1].Cell != "sjc" ||
+			!first.Active("sjc") || first.Active("fra") {
 			t.Fatalf("regions = %+v", first.Regions)
 		}
 		sequence, err := writer.PutRoster(ctx, epoch, first)
@@ -238,8 +238,8 @@ func TestHomeWriterGuardsAndCompareAndSets(t *testing.T) {
 			t.Fatalf("stored first roster = %+v, %d, %v", stored, gotSequence, err)
 		}
 		if stored.Generation != 1 || stored.HomeRegion != "gru" || stored.Validate() != nil ||
-			len(stored.Regions) != 2 || stored.Regions[0].Cell != "gru" || stored.Regions[1].Cell != "sfo" ||
-			!stored.Active("sfo") || stored.Active("fra") {
+			len(stored.Regions) != 2 || stored.Regions[0].Cell != "gru" || stored.Regions[1].Cell != "sjc" ||
+			!stored.Active("sjc") || stored.Active("fra") {
 			t.Fatalf("stored first roster changed heartbeat predicates: %+v", stored)
 		}
 
@@ -337,15 +337,15 @@ func TestHomeRefusesADriftedMirrorConsumer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	drifted := MirrorConsumerConfig("sfo", 1)
+	drifted := MirrorConsumerConfig("sjc", 1)
 	drifted.DeliverSubject = protocol.PlacementApplySubject("gru")
 	if _, err := stream.CreatePushConsumer(ctx, drifted); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := OpenHome(ctx, js, "gru", []string{"sfo"}, 1, global); err == nil {
+	if _, err := OpenHome(ctx, js, "gru", []string{"sjc"}, 1, global); err == nil {
 		t.Fatal("home adopted a mirror consumer delivering outside the contract")
 	}
-	if err := verifyMirrorConsumer(MirrorConsumerConfig("sfo", 1), "fra", 1); err == nil {
+	if err := verifyMirrorConsumer(MirrorConsumerConfig("sjc", 1), "fra", 1); err == nil {
 		t.Fatal("one peer's consumer verified as another's")
 	}
 }

@@ -28,7 +28,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
-// This extends the real generation/publication fixture across a signed SFO
+// This extends the real generation/publication fixture across a signed SJC
 // anchor and a public-only SDK endpoint. Config markers exercise proof binding;
 // house-rendered controller startup remains the app/CLI scenario's contract.
 func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, material VerifiedColdStartMaterial, home bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, root ed25519.PrivateKey, server *materialProtocol, now time.Time) bootstrap.VerifiedBootstrapAnchor {
@@ -60,12 +60,12 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	}
 	var registration *bootstrap.InitialSourceRegistration
 	for _, item := range grant.Regions {
-		if item.BootstrapMaterial != nil && item.BootstrapMaterial.Config.Cell == "sfo" {
+		if item.BootstrapMaterial != nil && item.BootstrapMaterial.Config.Cell == "sjc" {
 			registration = item.BootstrapMaterial.SourceRegistration
 		}
 	}
 	if registration == nil {
-		t.Fatal("signed SFO registration missing")
+		t.Fatal("signed SJC registration missing")
 	}
 	spoke := home.Anchor()
 	spoke.Cell, spoke.OCIRegion, spoke.ClusterID = registration.Cell, "us-sanjose-1", registration.ClusterID
@@ -75,7 +75,7 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent.Regions = append(intent.Regions, oci.RegionMapping{Cell: oci.RegionSFO, OCIRegion: spoke.OCIRegion})
+	intent.Regions = append(intent.Regions, oci.RegionMapping{Cell: oci.RegionSJC, OCIRegion: spoke.OCIRegion})
 	spoke.InitialRegionIntentWire, err = trust.EncodePayload(intent)
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	ociclient.ConfigureRequestCancellation(&publicObjects.BaseClient)
 	authority, err := bootstrap.LoadHomeStartupAuthority(t.Context(), grantWire, anchor, roots, &publicObjects, now)
 	if err != nil || authority.Manifest().Cell != oci.RegionGRU || authority.Digest() != bound.Digest() {
-		t.Fatalf("public SFO to GRU startup proof: %v", err)
+		t.Fatalf("public SJC to GRU startup proof: %v", err)
 	}
 	public, err := authority.ControllerResponsePublicKey()
 	if err != nil || base64.StdEncoding.EncodeToString(public) != material.Record().Public.ControllerResponsePublicKey {

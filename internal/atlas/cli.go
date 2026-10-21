@@ -20,7 +20,7 @@ import (
 const usage = `Usage: ts-orch atlas <command> [flags]
 
   add-region  --config OPERATOR_JSON --cell CELL [--out FILE]
-      Plan listing CELL (sfo-1) in the global home's cell spec atlas section
+      Plan listing CELL (sjc-1) in the global home's cell spec atlas section
       from the region catalog, with https://<region>.api and .auth
       .terrascale.tech; --out writes the unsigned candidate for
       ts-orch release sign-spec --root, then ts-orch apply. A region already

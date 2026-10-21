@@ -108,7 +108,7 @@ helper validate only the three mappings listed above. The checked-in
 `deploy/oci-region/plan.json` remains populated for GRU, including its existing
 ts-ops resources. Its [operator gateway](#operator-gateway-peering)
 and NetBird enrollment use ts-ops at `10.250.10.155`, with all fresh LPG,
-secret and IAM IDs deliberately unset until approved creation. For SFO or FRA,
+secret and IAM IDs deliberately unset until approved creation. For SJC or FRA,
 copy it to a separate reviewed plan and fill
 the cell, region, tenancy, availability domain, compartments, network, Vault,
 key, buckets, IAM identities, host credential secret, resource inventory, and
@@ -124,10 +124,10 @@ cells. It derives the public bundle's cell, environment, region, and
 controller/NATS endpoints from the material record; the CA comes from its
 matching owner-only source and must match the digest in that record. Use a
 separate reviewed plan and matching material for each cell; do not reuse the
-GRU example for SFO or FRA. See the
+GRU example for SJC or FRA. See the
 [Managed host image](production-role-config.md#managed-host-image) section for
 the renderer invocation and image binding. The bundle is public JSON pinned by
-SHA-256 during the image build, not a signed envelope. The GRU/SFO
+SHA-256 during the image build, not a signed envelope. The GRU/SJC
 managed-enrollment integration uses local NATS and a fake OCI provider; it is
 not live OCI or VM qualification, and rendering a bundle does not show that a
 cell has been deployed.
@@ -159,7 +159,7 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
 ## Before creating resources
 
 1. Select one of the three fixed cell-to-region mappings above. Start from a
-   reviewed copy of `deploy/oci-region/plan.json`; for SFO or FRA, populate the
+   reviewed copy of `deploy/oci-region/plan.json`; for SJC or FRA, populate the
    complete mapped-cell plan and do not edit the shared GRU example in place.
    Identify the tenancy, compartments, availability domain, owner, resource
    namespace, and exact IDs. Preserve unrelated and existing resources.
@@ -252,12 +252,12 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
 
 ## Second region
 
-SFO (`sfo-1`, `us-sanjose-1`, TS-640) is founded with the same tools as GRU.
+SJC (`sjc-1`, `us-sanjose-1`, TS-640) is founded with the same tools as GRU.
 The next region runs them all with one command, `ts-orch region create`
 ([new region](new-region.md)). What differs from GRU:
 
-- **Plan.** `deploy/oci-region/sfo-1-plan.json`: three colocated nodes
-  `ts-sfo-1`..`3` (controller, TerraBase member and ts-auth on each, no
+- **Plan.** `deploy/oci-region/sjc-1-plan.json`: three colocated nodes
+  `ts-sjc-1`..`3` (controller, TerraBase member and ts-auth on each, no
   `member-*` hosts, `database_members` 0) in `10.252.0.0/25`, the load
   balancer's public subnet `10.252.0.128/26`, and `public_api.terrabase_members`
   naming the nodes. The controller NSG admits the TerraBase client port from
@@ -268,7 +268,7 @@ The next region runs them all with one command, `ts-orch region create`
 - **No operator gateway.** A local peering gateway only peers VCNs of one
   region, and ts-ops is in `sa-saopaulo-1`. The plan sets `operator_gateway`
   and `netbird` to null. The nodes enroll in NetBird through the cell's NAT
-  gateway to the manager's public address (group `sfo-servers`, NetBird SSH
+  gateway to the manager's public address (group `sjc-servers`, NetBird SSH
   only); operators reach NATS through an OCI Bastion port-forwarding session
   to each node's private address.
 - **Cost.** Always Free covers A1 compute and block storage only in the home
@@ -284,30 +284,30 @@ The next region runs them all with one command, `ts-orch region create`
   publisher is provisioned; the plan cannot derive its IAM identity. See
   [the signing publisher](secrets.md#ts-703-signing-publisher). It installs
   the operator material of a cell other than GRU in
-  `/var/lib/terrascale-operator-<cell>` (`-sfo`), never over GRU's.
+  `/var/lib/terrascale-operator-<cell>` (`-sjc`), never over GRU's.
 - **Trust.** The cell uses the same root, release leaf, operator key and
   recipient signer as GRU, so one update delegation scoped to both cells
   covers CI auto-deploy.
-- **Edge (TS-662).** `public-api cert` and `apply` built `sfo-1-api` like
+- **Edge (TS-662).** `public-api cert` and `apply` built `sjc-1-api` like
   `gru-1-api`, including `terrabase-primary` and its Management route, plus
-  `sfo.orch` for the Machines API. Vault's `gru-1-cloudflare-dns-edit-token`
+  `sjc.orch` for the Machines API. Vault's `gru-1-cloudflare-dns-edit-token`
   cannot read the zone's configuration rules, so the `dns` steps (the
-  `ts-orch-sfo-1-api-ssl-strict` rule and the proxied records) were made with
-  the `cf` CLI; see the [evidence](evidence/ts-662-sfo-public-edge-20261007.md).
+  `ts-orch-sjc-1-api-ssl-strict` rule and the proxied records) were made with
+  the `cf` CLI; see the [evidence](evidence/ts-662-sjc-public-edge-20261007.md).
 - **Host setup.** The image's `host-setup` ran its baked binary, which
-  refused `ts-sfo-N` names, so the nodes never enrolled. sfo-1's nodes got
+  refused `ts-sjc-N` names, so the nodes never enrolled. sjc-1's nodes got
   the self-update drop-in (`60-selfupdate.conf`) by hand before #283 made
   `selfupdate prepare` install it.
 - **Fabric.** The NATS link to GRU (TS-562) needs `nats.embedded.interregion`
   in both regions' signed controller configs, and only a re-found changes a
-  signed config today. sfo-1 runs as its own cell until an in-place path
+  signed config today. sjc-1 runs as its own cell until an in-place path
   exists.
 
 ## Static names
 
 Every cell server has one static name from `internal/naming`. A cell is
 `<region>-<index>` (`gru-1`; every region runs cell 1 today). A node is
-`ts-<region>-<n>` (`ts-gru-1`, `ts-sfo-2`), with no role in the name: every
+`ts-<region>-<n>` (`ts-gru-1`, `ts-sjc-2`), with no role in the name: every
 node runs the colocated controller, TerraBase member and ts-auth (TS-609).
 Its retained data volume is `<node>-data` (`ts-gru-1-data`).
 
@@ -320,7 +320,7 @@ is the OCI L7 Load Balancer `gru-1-api`. `naming.Validate` rejects any other
 name, such as `gru-controller-a`, `controller-b`, a deployment- or
 digest-derived name, or an unknown region. No cell server takes the `gw` role
 yet. A region other than GRU is founded on node names: its controller slots
-`controller-a`, `-b` and `-c` are `ts-sfo-1`..`3` for the seed launch, the
+`controller-a`, `-b` and `-c` are `ts-sjc-1`..`3` for the seed launch, the
 founder, NATS server and TLS names, NetBird peers and the public API
 backends. GRU keeps `gru-1-ctl-1`..`3` until its servers are renamed (TS-632):
 a controller refuses a NATS store of another server name. Node pools and the
@@ -1040,7 +1040,7 @@ read's ETag, and a conflicting live rule is refused, never removed.
 
    ```json
    {"schema_version": 1, "tenancy_id": "ocid1.tenancy.oc1..…", "realm": "oc1", "allowed_tcp_ports": [7422],
-    "cells": {"SFO": {"plan_sha256": "…", "monthly_cross_region_egress_gb": 10,
+    "cells": {"SJC": {"plan_sha256": "…", "monthly_cross_region_egress_gb": 10,
                       "drg_id": null, "vcn_attachment_id": null, "rpc_id": null, "rpc_attachment_id": null,
                       "vcn_drg_route_table_id": null, "rpc_drg_route_table_id": null,
                       "vcn_import_distribution_id": null, "rpc_import_distribution_id": null},
@@ -1050,7 +1050,7 @@ read's ETag, and a conflicting live rule is refused, never removed.
 2. Review the changes; nothing is written:
 
    ```sh
-   ts-orch oci-region peer --pair-intent pair.json --left-plan sfo-1-bound.json \
+   ts-orch oci-region peer --pair-intent pair.json --left-plan sjc-1-bound.json \
      --right-plan gru-1-bound.json --out pair-bound.json
    ```
 
@@ -1068,7 +1068,7 @@ removals. The NSG is stateful, so connections already open stay up until they
 reconnect. Rerun step 3 to restore the rules.
 
 `inspect-foundation` still compares each cell's rules exactly with its plan,
-so it reports the peer rules, and sfo-1's hand-added NAT route and egress, as
+so it reports the peer rules, and sjc-1's hand-added NAT route and egress, as
 drift until the plans carry them.
 
 ## Bootstrap sequence
@@ -1089,7 +1089,7 @@ drift until the plans carry them.
 
    It finds each resource by its static name in its compartment and creates
    only what is missing, so a rerun creates nothing and an interrupted run
-   resumes. For cell `<cell>` (`sfo-1`) the names are the plan's
+   resumes. For cell `<cell>` (`sjc-1`) the names are the plan's
    `preview_compartment_names` under `parent_compartment_id`; in the network
    compartment `<cell>-vcn` (DNS label `<cell>` without the dash),
    `<cell>-service-gateway` (the plan's `service_gateway_service_id`, all
@@ -1397,7 +1397,7 @@ the resource or signed plan.
 This procedure covers one cell's manual first-controller boundary for the
 three fixed mappings above, subject to the host-enrollment limitation. It does
 not establish cross-region replication, continuous management during controller
-loss, database serving, a live SFO/FRA deployment, or production readiness.
+loss, database serving, a live SJC/FRA deployment, or production readiness.
 Those require their own current source and runtime evidence.
 
 The post-handoff owner for ARM workload hosts and TerraBase also owns their

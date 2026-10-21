@@ -42,7 +42,7 @@ func TestEnvelopeRoundTripAndCanonicalWire(t *testing.T) {
 	if err != nil || !bytes.Equal(verified, envelope.Payload) {
 		t.Fatalf("VerifyCurrent() = %s, %v", verified, err)
 	}
-	if _, err := VerifyCurrent(decoded, testScopeWithCell("SFO"), testKeyring(t, rootPublic), now, testPolicy()); !errors.Is(err, ErrScopeMismatch) {
+	if _, err := VerifyCurrent(decoded, testScopeWithCell("SJC"), testKeyring(t, rootPublic), now, testPolicy()); !errors.Is(err, ErrScopeMismatch) {
 		t.Fatalf("wrong-cell verification error = %v, want ErrScopeMismatch", err)
 	}
 	if _, err := VerifyCurrent(decoded, scope, testKeyring(t, rootPublic), now.Add(time.Minute), testPolicy()); !errors.Is(err, ErrExpired) {
@@ -194,7 +194,7 @@ func TestDelegationRestrictsPurposeCellRoleAndSlot(t *testing.T) {
 	}
 	for _, denied := range []Scope{
 		{Domain: "terrascale.bootstrap.seed-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-1"},
-		{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "SFO", Environment: "production", Role: "controller", Slot: "controller-1"},
+		{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "SJC", Environment: "production", Role: "controller", Slot: "controller-1"},
 		{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "GRU", Environment: "production", Role: "operator", Slot: "controller-1"},
 		{Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: "0000000000KAHFE3RAB6316KW8", Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-3"},
 	} {

@@ -40,7 +40,7 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	}
 	linkSignerID, _ := linkSigner.PublicKey()
 	gru := newLinkRegion(t, filepath.Join(root, "gru"), "gru", linkSignerID)
-	sfo := newLinkRegion(t, filepath.Join(root, "sfo"), "sfo", linkSignerID)
+	sjc := newLinkRegion(t, filepath.Join(root, "sjc"), "sjc", linkSignerID)
 	linkTLS := testBridgeTLS(t, filepath.Join(root, "link-tls"))
 	linkPort := freeClientPort(t)
 	useLinkListener(t, linkPort)
@@ -48,19 +48,19 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	defer proxy.Close()
 	linkHomeURLs = []string{"nats-leaf://" + proxy.Addr()}
 	gru.cfg.Embedded.Link = &Link{TLS: linkTLS}
-	sfo.cfg.Embedded.Link = &Link{CredentialsFile: linkUserCredentials(t, root, "sfo-link.creds", linkSigner, gru.cellID, "sfo"), TLS: linkTLS}
+	sjc.cfg.Embedded.Link = &Link{CredentialsFile: linkUserCredentials(t, root, "sjc-link.creds", linkSigner, gru.cellID, "sjc"), TLS: linkTLS}
 	gru.cfg.CredentialsFile = testJWTUserCredentials(t, root, "gru-controller.creds", gru.cell, gru.cellID, nil, nil)
-	sfo.cfg.CredentialsFile = testJWTUserCredentials(t, root, "sfo-controller.creds", sfo.cell, sfo.cellID, nil, nil)
+	sjc.cfg.CredentialsFile = testJWTUserCredentials(t, root, "sjc-controller.creds", sjc.cell, sjc.cellID, nil, nil)
 	gruRuntime, err := Start(ctx, gru.cfg)
 	if err != nil {
 		t.Fatalf("start gru: %v", err)
 	}
 	defer gruRuntime.Close()
-	sfoRuntime, err := Start(ctx, sfo.cfg)
+	sjcRuntime, err := Start(ctx, sjc.cfg)
 	if err != nil {
-		t.Fatalf("start sfo: %v", err)
+		t.Fatalf("start sjc: %v", err)
 	}
-	defer sfoRuntime.Close()
+	defer sjcRuntime.Close()
 	waitLeafCount(ctx, t, gruRuntime, 1)
 
 	global, err := authority.Start(ctx, gruRuntime.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -78,16 +78,16 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	epoch := global.Current().Epoch
-	writer, err := globalcontrol.OpenHome(ctx, gruRuntime.JetStream(), "gru", []string{"sfo"}, 1, global)
+	writer, err := globalcontrol.OpenHome(ctx, gruRuntime.JetStream(), "gru", []string{"sjc"}, 1, global)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader, err := globalcontrol.OpenMirror(ctx, sfoRuntime.JetStream(), "gru", "sfo", 1)
+	reader, err := globalcontrol.OpenMirror(ctx, sjcRuntime.JetStream(), "gru", "sjc", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// SFO's own roots; GRU never holds them and only relays bytes.
+	// SJC's own roots; GRU never holds them and only relays bytes.
 	rootPublic, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +96,7 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identity := cellspec.Identity{DeploymentID: "0000000000EKYENDPQ5JG1M4A1", Cell: "sfo", Environment: "production"}
+	identity := cellspec.Identity{DeploymentID: "0000000000EKYENDPQ5JG1M4A1", Cell: "sjc", Environment: "production"}
 	sign := func(id cellspec.Identity, generation uint64, signer ed25519.PrivateKey) []byte {
 		t.Helper()
 		spec := cellspec.Spec{Schema: cellspec.Schema, Identity: id, Generation: generation, RequiresBinary: 1}
@@ -116,7 +116,7 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	refused := make(chan error, 8)
 	go func() {
 		var current, lastRefused uint64
-		_ = reader.Follow(ctx, globalcontrol.KindCellSpec, "sfo", time.Second,
+		_ = reader.Follow(ctx, globalcontrol.KindCellSpec, "sjc", time.Second,
 			func(_ context.Context, document globalcontrol.Document) {
 				verified, err := cellspec.VerifyCurrent(document.Payload, roots, identity, time.Now())
 				switch {
@@ -131,7 +131,7 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	}()
 	publish := func(wire []byte) time.Time {
 		t.Helper()
-		if _, err := writer.PutDocument(ctx, epoch, globalcontrol.KindCellSpec, "sfo", wire, nil); err != nil {
+		if _, err := writer.PutDocument(ctx, epoch, globalcontrol.KindCellSpec, "sjc", wire, nil); err != nil {
 			t.Fatal(err)
 		}
 		return time.Now()
@@ -159,10 +159,10 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	// Partition: the home keeps writing, the spoke keeps serving its replica.
 	proxy.Close()
 	waitLeafCount(ctx, t, gruRuntime, 0)
-	waitLeafCount(ctx, t, sfoRuntime, 0)
+	waitLeafCount(ctx, t, sjcRuntime, 0)
 	second := sign(identity, 2, rootPrivate)
 	written := publish(second)
-	held, err := reader.Document(ctx, globalcontrol.KindCellSpec, "sfo")
+	held, err := reader.Document(ctx, globalcontrol.KindCellSpec, "sjc")
 	if err != nil {
 		t.Fatalf("spoke cannot read its replica during the partition: %v", err)
 	}
@@ -180,8 +180,8 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 		t.Fatalf("heal took %s", time.Since(written))
 	}
 
-	// Tamper: a spec signed by anything but SFO's roots, or for another
-	// cell, arrives through the relay and is refused; SFO keeps generation 2.
+	// Tamper: a spec signed by anything but SJC's roots, or for another
+	// cell, arrives through the relay and is refused; SJC keeps generation 2.
 	_, rogue, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -204,17 +204,17 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	// The replica is read-only: a write in the spoke has no stream, and the
 	// subject never crosses the link to the home stream.
 	forged := sign(identity, 9, rootPrivate)
-	if _, err := sfoRuntime.JetStream().Publish(ctx, protocol.GlobalState(string(globalcontrol.KindCellSpec), "sfo"), forged); err == nil {
+	if _, err := sjcRuntime.JetStream().Publish(ctx, protocol.GlobalState(string(globalcontrol.KindCellSpec), "sjc"), forged); err == nil {
 		t.Fatal("spoke wrote into its read-only replica")
 	}
-	if err := sfoRuntime.Conn().Publish(protocol.GlobalState(string(globalcontrol.KindCellSpec), "sfo"), forged); err != nil {
+	if err := sjcRuntime.Conn().Publish(protocol.GlobalState(string(globalcontrol.KindCellSpec), "sjc"), forged); err != nil {
 		t.Fatal(err)
 	}
-	if err := sfoRuntime.Conn().Flush(); err != nil {
+	if err := sjcRuntime.Conn().Flush(); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(500 * time.Millisecond)
-	if home, err := writer.Document(ctx, globalcontrol.KindCellSpec, "sfo"); err != nil || bytes.Equal(home.Payload, forged) {
+	if home, err := writer.Document(ctx, globalcontrol.KindCellSpec, "sjc"); err != nil || bytes.Equal(home.Payload, forged) {
 		t.Fatalf("a spoke write reached the home stream: %v", err)
 	}
 	select {

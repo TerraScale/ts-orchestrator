@@ -47,7 +47,7 @@ func newLinkFixture(t *testing.T) linkFixture {
 	if _, err := Generate(f.home, cfg, f.now); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Cell, cfg.Region, cfg.ClusterID = "sfo", "us-sanjose-1", "00000000000000000000000002"
+	cfg.Cell, cfg.Region, cfg.ClusterID = "sjc", "us-sanjose-1", "00000000000000000000000002"
 	if _, err := Generate(f.spoke, cfg, f.now); err != nil {
 		t.Fatal(err)
 	}
@@ -229,8 +229,8 @@ func TestLinkMaterialAuthenticatesEmbeddedNATS(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(client.Close)
-	subject, _ := protocol.QuerySubject("sfo", "material")
-	if _, err := client.Subscribe(subject, func(msg *nats.Msg) { _ = msg.Respond([]byte("sfo")) }); err != nil {
+	subject, _ := protocol.QuerySubject("sjc", "material")
+	if _, err := client.Subscribe(subject, func(msg *nats.Msg) { _ = msg.Respond([]byte("sjc")) }); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.Flush(); err != nil {
@@ -241,7 +241,7 @@ func TestLinkMaterialAuthenticatesEmbeddedNATS(t *testing.T) {
 	for {
 		reply, err := home.Conn().Request(subject, nil, 100*time.Millisecond)
 		if err == nil {
-			if string(reply.Data) != "sfo" {
+			if string(reply.Data) != "sjc" {
 				t.Fatalf("wrong region %q", reply.Data)
 			}
 			break

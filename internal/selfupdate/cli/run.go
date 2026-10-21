@@ -574,7 +574,7 @@ func (c command) stage(args []string) error {
 	delegation := flags.String("delegation", "", "root-signed release or binary update delegation")
 	rootKey := flags.String("root-key", "", "offline root Ed25519 PKIX public key PEM")
 	environment := flags.String("environment", "", "this node's release environment")
-	cell := flags.String("cell", "", "this node's logical cell: GRU, SFO or FRA")
+	cell := flags.String("cell", "", "this node's logical cell: GRU, SJC or FRA")
 	architecture := flags.String("arch", runtime.GOARCH, "this node's architecture")
 	if err := parse(flags, args); err != nil {
 		return err

@@ -16,13 +16,13 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
 
-var regionNames = []string{"gru", "sfo", "fra"}
+var regionNames = []string{"gru", "sjc", "fra"}
 
 // sampleEvery is the live history sampling interval.
 const sampleEvery = 10 * time.Second
 
 // World is the fake three-region world. GRU is "this" region: the dashboard
-// renders its live snapshot, history and insight engine; SFO and FRA answer
+// renders its live snapshot, history and insight engine; SJC and FRA answer
 // summaries as if over the region links.
 type World struct {
 	start   time.Time
@@ -62,10 +62,10 @@ func New() *World {
 				{id: entityid.Derive("preview-database", "ledger"), name: "ledger", seats: 3, rollout: &observability.RolloutView{OperationID: entityid.Derive("preview-rollout", "terrabase-3.8.2", "gru"),
 					ArtifactDigest: "sha256:3b81c9e2d0f4", Seats: 3, Completed: 1, Phases: map[string]int{"done": 1, "pending": 2}}},
 				{id: entityid.Derive("preview-database", "search"), name: "search", seats: 3}}},
-		{name: "sfo", controllers: []string{"sfo-ctl-1", "sfo-ctl-2", "sfo-ctl-3"},
-			hosts:    []string{"sfo-host-a", "sfo-host-b", "sfo-host-c", "sfo-host-d"},
-			versions: map[string]string{"sfo-ctl-1": "v0.43.0", "sfo-ctl-2": "v0.42.1", "sfo-ctl-3": "v0.42.1"},
-			leader:   "sfo-ctl-2", epoch: 17, throttled: true,
+		{name: "sjc", controllers: []string{"sjc-ctl-1", "sjc-ctl-2", "sjc-ctl-3"},
+			hosts:    []string{"sjc-host-a", "sjc-host-b", "sjc-host-c", "sjc-host-d"},
+			versions: map[string]string{"sjc-ctl-1": "v0.43.0", "sjc-ctl-2": "v0.42.1", "sjc-ctl-3": "v0.42.1"},
+			leader:   "sjc-ctl-2", epoch: 17, throttled: true,
 			databases: []database{{id: entityid.Derive("preview-database", "orders"), name: "orders", seats: 3}, {id: entityid.Derive("preview-database", "analytics"), name: "analytics", seats: 3,
 				stages: []string{"serving", "draining", "awaiting-healthy"}}, {id: entityid.Derive("preview-database", "catalog"), name: "catalog", seats: 3}, {id: entityid.Derive("preview-database", "media"), name: "media", seats: 3}}},
 		{name: "fra", controllers: []string{"fra-ctl-1", "fra-ctl-2"}, missing: []string{"fra-ctl-3"},
@@ -237,10 +237,10 @@ func (world *World) tickEvent(at time.Time, random *rand.Rand) {
 		Message: eventMessage(component, level, "orders-2"), Attrs: map[string]string{"region": "gru"}})
 }
 
-// Reachability reports SFO and FRA as linked and answering.
+// Reachability reports SJC and FRA as linked and answering.
 func (world *World) Reachability(context.Context) []insights.RegionReach {
 	now := time.Now()
-	return []insights.RegionReach{{Region: "sfo", State: decisionlog.RegionOK, LastSeen: now},
+	return []insights.RegionReach{{Region: "sjc", State: decisionlog.RegionOK, LastSeen: now},
 		{Region: "fra", State: decisionlog.RegionOK, LastSeen: now}}
 }
 

@@ -51,8 +51,8 @@ func hostStateFixture(t *testing.T, cell string) (HostStateObservation, ed25519.
 		EpochFloor: 9, Epoch: 10, PreviousResponseKey: base64.StdEncoding.EncodeToString(oldSigner), ResponseKey: base64.StdEncoding.EncodeToString(newSigner),
 		AgentsStoppedAt: now.Add(-HostStateQuiescence), ObservedAt: now}
 	nodes := []string{"gru-1-ctl-1", "ts-gru-2", "gru-1-ctl-3", "gru-1-ctl-2"}
-	if cell == "SFO" {
-		nodes = []string{"ts-sfo-1", "ts-sfo-2", "ts-sfo-3"}
+	if cell == "SJC" {
+		nodes = []string{"ts-sjc-1", "ts-sjc-2", "ts-sjc-3"}
 	}
 	token := strings.ToLower(cell)
 	for i, node := range nodes {
@@ -155,7 +155,7 @@ func cloneHostStateObservation(t *testing.T, o HostStateObservation) HostStateOb
 }
 
 func TestHostStateHandoffCanonicalRootPins(t *testing.T) {
-	for _, cell := range []string{"GRU", "SFO"} {
+	for _, cell := range []string{"GRU", "SJC"} {
 		t.Run(cell, func(t *testing.T) {
 			o, root, roots, now := hostStateFixture(t, cell)
 			plan, err := BuildHostStateHandoffPlan(o, now)
@@ -229,7 +229,7 @@ func TestHostStateHandoffRequiresRetirementPredecessorOrAbsence(t *testing.T) {
 }
 
 func TestHostStateHandoffStaticTerraBaseWithoutBlockVolume(t *testing.T) {
-	for _, cell := range []string{"GRU", "SFO"} {
+	for _, cell := range []string{"GRU", "SJC"} {
 		t.Run(cell, func(t *testing.T) {
 			observed, root, roots, now := hostStateFixture(t, cell)
 			volumeKeys := map[string]bool{}

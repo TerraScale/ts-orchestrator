@@ -219,7 +219,7 @@ func (generation MaterialGeneration) Validate() error {
 			return fmt.Errorf("%w: a generation pins every renewable file", ErrMaterialGenerationInvalid)
 		}
 	}
-	// gru-1 and sfo-1 were founded without controller issuers (TS-668).
+	// gru-1 and sjc-1 were founded without controller issuers (TS-668).
 	issuing := issuers != 0
 	if issuers != 0 && issuers != 3 || issuing != (generation.AccountSigner != "") ||
 		issuing != (generation.IssuedLifetimeHours != 0) || generation.IssuedLifetimeHours < 0 ||

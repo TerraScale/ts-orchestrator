@@ -20,7 +20,7 @@ import (
 const terraBasePeerPort, terraBaseClientPort = 9443, 9465
 
 // apiURL and authOrigin are a cell's regional TerraBase API and ts-auth
-// origins, sfo.api.terrascale.tech and sfo.auth.terrascale.tech.
+// origins, sjc.api.terrascale.tech and sjc.auth.terrascale.tech.
 func apiURL(cell catalog.Entry) string { return "https://" + cell.Name() + ".api.terrascale.tech" }
 func authOrigin(cell catalog.Entry) string {
 	return "https://" + cell.Name() + ".auth.terrascale.tech"

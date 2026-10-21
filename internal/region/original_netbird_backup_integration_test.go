@@ -40,7 +40,7 @@ func TestOriginalNetBirdBackupRefusesPendingProtection(t *testing.T) {
 		if _, err := resolver.BootstrapMaterial(ctx, "GRU"); err == nil {
 			t.Fatal("generic bootstrap material accepted original schema3")
 		}
-		for _, cell := range [2]string{"GRU", "SFO"} {
+		for _, cell := range [2]string{"GRU", "SJC"} {
 			if _, err := resolver.Resolve(ctx, cell); err == nil {
 				t.Fatalf("generic resolver accepted original %s", cell)
 			}

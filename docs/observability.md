@@ -291,7 +291,7 @@ ssh`: the controller, the host agent, embedded NATS (`[WRN]`, `[ERR]`) and
 the TerraBase and ts-auth members (`warn:`, `fail:`, `crit:`), attributed by
 process name. Fly app `ts-dashboard` comes from `fly logs --no-tail`, which
 holds only its last 100 lines. The nodes are every peer the host's NetBird
-client lists under a cell node or server name (`ts-gru-1`, `ts-sfo-2`,
+client lists under a cell node or server name (`ts-gru-1`, `ts-sjc-2`,
 `gru-1-ctl-1`); `TS_LOG_SCAN_NODES` names them instead. A node it cannot
 read prints `unreadable` and fails the command; warnings and errors do not.
 The host agent's per-minute log windows share this classification in
@@ -428,7 +428,7 @@ interfaces carry) at port 9463, beside the signed listener:
   changes and every 5 minutes, so a rotated secret takes effect without a new
   spec; while Vault is unavailable the listener keeps the token read last.
 - The listener requires the token (bearer header or browser login, as
-  above), accepts DNS names such as `ts-sfo-1.nb.ts.internal:9463`, and serves
+  above), accepts DNS names such as `ts-sjc-1.nb.ts.internal:9463`, and serves
   `/healthz`, `/readyz`, `/metrics`, `/v1/events` and the dashboard. The
   NetBird policy `operators-to-<cell>-servers-dashboard` opens TCP 9463 to
   operators only (`deploy/netbird/README.md`).

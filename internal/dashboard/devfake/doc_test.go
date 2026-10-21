@@ -1,4 +1,4 @@
-// Package devfake generates a moving, three-region world (GRU, SFO, FRA)
+// Package devfake generates a moving, three-region world (GRU, SJC, FRA)
 // for dashboard tests: cluster snapshots with
 // controllers, NATS and JetStream, TerraBase placement, OCI API counters, a
 // day of metric history, release rollouts, decision chains, insights and

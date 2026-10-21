@@ -219,7 +219,7 @@ func TestSeedRefusesRequestsOutsideTheCurrentTermOrScope(t *testing.T) {
 		"stale epoch":           func(r *SeedReplaceRequest) { r.Epoch = seedTermEpoch - 1 },
 		"other candidate":       func(r *SeedReplaceRequest) { r.CandidateID = "0000000000RQQB0PSJ84MK6YCM" },
 		"other owner":           func(r *SeedReplaceRequest) { r.OwnerID = "0000000000DKT0SAM6NFTCGPGT" },
-		"other cell":            func(r *SeedReplaceRequest) { r.Cell = "sfo" },
+		"other cell":            func(r *SeedReplaceRequest) { r.Cell = "sjc" },
 		"seed slot":             func(r *SeedReplaceRequest) { r.Slot = "controller-a" },
 		"unknown slot":          func(r *SeedReplaceRequest) { r.Slot = "controller-z" },
 		"schema":                func(r *SeedReplaceRequest) { r.Version = 2 },

@@ -158,8 +158,8 @@ func TestSpokeLinkPublicRecipientAuthenticatesAndRecovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(client.Close)
-	subject, _ := protocol.QuerySubject("sfo", "public-recipient")
-	if _, err := client.Subscribe(subject, func(message *nats.Msg) { _ = message.Respond([]byte("sfo")) }); err != nil {
+	subject, _ := protocol.QuerySubject("sjc", "public-recipient")
+	if _, err := client.Subscribe(subject, func(message *nats.Msg) { _ = message.Respond([]byte("sjc")) }); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.Flush(); err != nil {
@@ -168,7 +168,7 @@ func TestSpokeLinkPublicRecipientAuthenticatesAndRecovers(t *testing.T) {
 	for {
 		reply, err := home.Conn().Request(subject, nil, 100*time.Millisecond)
 		if err == nil {
-			if string(reply.Data) != "sfo" {
+			if string(reply.Data) != "sjc" {
 				t.Fatalf("wrong responding region %q", reply.Data)
 			}
 			break

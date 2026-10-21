@@ -102,7 +102,7 @@ func TestOriginalStartupRendersAllSlotsThroughGeneratedLinkAndConfigStore(t *tes
 			}
 		})
 	}
-	if _, err := originalStartupLinkReferences(oci.RegionSFO, regional, linked); err == nil {
+	if _, err := originalStartupLinkReferences(oci.RegionSJC, regional, linked); err == nil {
 		t.Fatal("spoke replaced the regional cell JWT")
 	}
 	conflicting := append(slices.Clone(linked), regional[0])

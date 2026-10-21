@@ -25,8 +25,8 @@ func (source rollouts) Rollouts(context.Context) ([]insights.Rollout, error) {
 			{ID: entityid.Derive("preview-rollout", "terrabase-3.8.2", "gru"), Release: "terrabase 3.8.2", Phase: "canary-soak", PhaseStarted: now.Add(-26 * time.Minute),
 				PhaseDeadline: now.Add(4 * time.Minute)},
 		}, nil
-	case "sfo":
-		return []insights.Rollout{{ID: entityid.Derive("preview-rollout", "v0.43.0", "sfo"), Release: "v0.43.0", Phase: "batch",
+	case "sjc":
+		return []insights.Rollout{{ID: entityid.Derive("preview-rollout", "v0.43.0", "sjc"), Release: "v0.43.0", Phase: "batch",
 			PhaseStarted: now.Add(-30 * time.Minute), PhaseDeadline: now.Add(-5 * time.Minute)}}, nil
 	case "fra":
 		return []insights.Rollout{{ID: entityid.Derive("preview-rollout", "v0.43.0", "fra"), Release: "v0.43.0", Phase: "frozen",
@@ -119,7 +119,7 @@ func (budgets) Budgets(context.Context) ([]insights.Budget, error) {
 }
 
 // Versions reports controllers, hosts and TerraBase seats in every region,
-// mid-rollout: SFO is mixed, FRA still runs the previous release.
+// mid-rollout: SJC is mixed, FRA still runs the previous release.
 func (world *World) Versions(context.Context) ([]dashboard.UnitVersion, error) {
 	now := time.Now().UTC()
 	var out []dashboard.UnitVersion
@@ -134,7 +134,7 @@ func (world *World) Versions(context.Context) ([]dashboard.UnitVersion, error) {
 		}
 		for index, host := range region.hosts {
 			version := "v0.43.0"
-			if region.name == "fra" || region.name == "sfo" && index > 0 {
+			if region.name == "fra" || region.name == "sjc" && index > 0 {
 				version = "v0.42.1"
 			}
 			out = append(out, dashboard.UnitVersion{Region: region.name, Kind: "host", Unit: host, Version: version,

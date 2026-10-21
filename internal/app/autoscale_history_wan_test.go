@@ -28,7 +28,7 @@ func TestWANHistorySamplesPreserveDirectionTimeAndUnknowns(t *testing.T) {
 			clock := now
 			load := hostload.NewAggregator(hostload.AggregatorConfig{Now: func() time.Time { return clock }})
 			wan := &terrabase.WANObservation{ObservedAt: test.at, ReceiverRegion: "gru-native-region", Sources: []terrabase.WANSource{{
-				SourceRegion: "sfo-1", LagGroups: new(7.0), StalenessSeconds: new(12.5),
+				SourceRegion: "sjc-1", LagGroups: new(7.0), StalenessSeconds: new(12.5),
 				Members: new(test.members), Unregistered: new(2.0), Conflicts: new(1.0), AheadFailuresTotal: new(4.0),
 			}}}
 			report := hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: terrabase.Role, WAN: wan,
@@ -59,7 +59,7 @@ func TestWANHistorySamplesPreserveDirectionTimeAndUnknowns(t *testing.T) {
 					labels[label.Name] = label.Value
 				}
 				if len(labels) != 5 || labels["member"] != "host-a" || labels["node"] != "Host-A" ||
-					labels["role"] != terrabase.Role || labels["receiver_region"] != "gru-native-region" || labels["source_region"] != "sfo-1" {
+					labels["role"] != terrabase.Role || labels["receiver_region"] != "gru-native-region" || labels["source_region"] != "sjc-1" {
 					t.Fatalf("WAN attribution = %v", labels)
 				}
 				found[sample.Metric] = sample.Value

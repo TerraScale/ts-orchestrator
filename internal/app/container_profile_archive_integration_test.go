@@ -75,7 +75,7 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 	releaseSigner := newFunctionPublicationSigner(t)
 	target := release.ContainerTarget{Cell: "GRU", Environment: identity.Environment, Role: policy.Role, Architecture: "arm64"}
 	var floors []release.SequenceFloor
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		floors = append(floors, release.SequenceFloor{Cell: cell, IssuedAt: time.Now().UTC().Add(-time.Hour), EvidenceSHA256: strings.Repeat("d", 64)})
 	}
 	currentBundle, currentEvidence := genericRuntimeContainerRelease(t, releaseSigner, target, floors, 101, nil)

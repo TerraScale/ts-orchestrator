@@ -72,7 +72,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	scope := flags.String("scope", "", "the secret name prefix, a cell such as gru-1")
 	template := flags.String("template", "", "the template to render")
 	out := flags.String("out", "", "the rendered file")
-	cell := flags.String("cell", "", "the region name, gru or sfo")
+	cell := flags.String("cell", "", "the region name, gru or sjc")
 	service := flags.String("service", "", "the owner service")
 	refs := flags.String("refs", "", "the public Vault reference JSON file")
 	directory := flags.String("dir", "", "the private tmpfs delivery directory")

@@ -76,7 +76,7 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 	if err := w.Validate(); err != nil {
 		return run, err
 	}
-	if region != "gru" && region != "sfo" || len(clients) == 0 || len(clients) > 3 || r.Generator == nil || r.Repository == nil || r.Usage == nil {
+	if region != "gru" && region != "sjc" || len(clients) == 0 || len(clients) > 3 || r.Generator == nil || r.Repository == nil || r.Usage == nil {
 		return run, errors.New("benchmark requires region, clients, generator, SDK storage and usage")
 	}
 	for i, client := range clients {

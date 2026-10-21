@@ -54,7 +54,7 @@ controller credentials. Breaking changes update v1 in place; obsolete identity-s
   role signer ([role identities](nats-fabric.md#role-identities)).
   `cell.jwt` must carry exactly the host scope and the role scope, plus the
   unscoped account signer when the controller issuers are pinned.
-- **Controller issuers all or none.** gru-1 and sfo-1 were founded without
+- **Controller issuers all or none.** gru-1 and sjc-1 were founded without
   controller issuers. Without them, `accountSigner` is empty,
   `issuedLifetimeHours` is 0, and the cell issues nothing under the
   generation. Every other renewable file is still required.
@@ -231,7 +231,7 @@ first publish:
 - **Release.** Every controller runs a known-good release with this
   install. Its `selfupdate prepare` installs.
 
-Then, for gru-1 or sfo-1:
+Then, for gru-1 or sjc-1:
 
 1. **Publish** the chain and every slot's pinned config:
 

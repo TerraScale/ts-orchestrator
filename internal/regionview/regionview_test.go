@@ -167,26 +167,26 @@ func TestRegionsAcrossLinks(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	remoteJournal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "sfo"})
+	remoteJournal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "sjc"})
 	remoteJournal.Record(ctx, decisionlog.Decision{Kind: decisionlog.KindScaleUp})
 	remoteJournal.Ingest(decisionlog.Decision{ID: "forged", Region: "gru", Kind: decisionlog.KindRollback,
 		Time: time.Now()})
-	remote := &Provider{Cell: "sfo", Cluster: staticCluster{cluster(member("s1", "v2", true))},
+	remote := &Provider{Cell: "sjc", Cluster: staticCluster{cluster(member("s1", "v2", true))},
 		Decisions: remoteJournal}
-	if _, err := Serve(ctx, conn, "sfo", remote); err != nil {
+	if _, err := Serve(ctx, conn, "sjc", remote); err != nil {
 		t.Fatal(err)
 	}
-	links, err := regionlink.New("gru", conn, []string{"GRU", "SFO", "FRA", "MIA"}, 500*time.Millisecond)
+	links, err := regionlink.New("gru", conn, []string{"GRU", "SJC", "FRA", "MIA"}, 500*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = links.Link("sfo", conn)
+	_ = links.Link("sjc", conn)
 	_ = links.Link("mia", conn)
 	local := &Provider{Cell: "gru", Cluster: staticCluster{cluster(member("c1", "v1", true))}, Links: links}
-	sfo := local.Probe(ctx, "sfo")
-	if sfo.Reach != decisionlog.RegionOK || sfo.Local || len(sfo.Versions) != 1 ||
-		sfo.Versions[0].Version != "v2" || len(sfo.Decisions) != 1 {
-		t.Fatalf("sfo = %+v", sfo)
+	sjc := local.Probe(ctx, "sjc")
+	if sjc.Reach != decisionlog.RegionOK || sjc.Local || len(sjc.Versions) != 1 ||
+		sjc.Versions[0].Version != "v2" || len(sjc.Decisions) != 1 {
+		t.Fatalf("sjc = %+v", sjc)
 	}
 	if fra := local.Probe(ctx, "fra"); fra.Reach != decisionlog.RegionNotLinked || fra.Health.Status != StatusUnknown {
 		t.Fatalf("fra = %+v", fra)
@@ -201,7 +201,7 @@ func TestRegionsAcrossLinks(t *testing.T) {
 	}
 
 	observedAt := time.Now().UTC()
-	reverse, err := regionlink.New("sfo", conn, []string{"gru", "lab", "sfo"}, 500*time.Millisecond)
+	reverse, err := regionlink.New("sjc", conn, []string{"gru", "lab", "sjc"}, 500*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestRegionsAcrossLinks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	requester := &Provider{Cell: "sfo", Links: reverse, Now: func() time.Time { return observedAt }}
+	requester := &Provider{Cell: "sjc", Links: reverse, Now: func() time.Time { return observedAt }}
 	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "gru"})
 	for range 7 {
 		journal.Record(ctx, decisionlog.Decision{Kind: decisionlog.KindHeld})
@@ -245,7 +245,7 @@ func TestRegionsAcrossLinks(t *testing.T) {
 			{Rule: "disk_time_to_full", Severity: insights.SeverityWarning}, {Rule: "quorum_at_risk", Severity: insights.SeverityWarning}}}}},
 		{"insight region", "gru", &Provider{Cell: "gru", Cluster: staticCluster{cluster(member("c1", "v1", true), member("c2", "v1", false),
 			member("c3", "v1", false))}, Insights: staticInsights{[]insights.Insight{
-			{Rule: "region_unreachable", Region: "sfo", Severity: insights.SeverityCritical},
+			{Rule: "region_unreachable", Region: "sjc", Severity: insights.SeverityCritical},
 			{Rule: "disk_time_to_full", Region: "gru", Severity: insights.SeverityWarning}}}}},
 		{"leader first", "gru", &Provider{Cell: "gru", Cluster: staticCluster{cluster(oldLeader, follower)}}},
 		{"follower first", "gru", &Provider{Cell: "gru", Cluster: staticCluster{cluster(follower, oldLeader)}}},

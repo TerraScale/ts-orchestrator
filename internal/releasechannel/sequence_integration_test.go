@@ -38,7 +38,7 @@ func TestSequenceChannelHTTPMigrationPreservesLegacyFloors(t *testing.T) {
 	signerID, _ := trust.KeyID(signer)
 	encoded, _ := trust.EncodeDelegatedPublicKey(signer)
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "ns", Bucket: "gru-1-head", Region: "GRU", Role: "orchestrator", Environment: "production", SequenceFloor: 1000, SignerKeyID: signerID, SignerPublicKey: encoded}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		legacyWire, err := trust.EncodePayload(fixture.channel(t, cell))
 		if err != nil {
 			t.Fatal(err)

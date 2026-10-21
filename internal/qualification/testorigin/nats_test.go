@@ -329,7 +329,7 @@ func startNATSWorldLocal(ctx context.Context, wire []byte) (_ *natsWorld, err er
 	if !world.regional.Current().CanMutate() || !world.global.Current().CanMutate() {
 		return nil, authority.ErrNotLeader
 	}
-	world.home, err = globalcontrol.OpenHome(world.ctx, js, "gru", []string{"fra", "sfo"}, 3, world.global)
+	world.home, err = globalcontrol.OpenHome(world.ctx, js, "gru", []string{"fra", "sjc"}, 3, world.global)
 	if err != nil {
 		return nil, err
 	}
@@ -370,9 +370,9 @@ func (wire natsWire) validate() error {
 		!slices.Equal(wire.Roster.Regions, []globalcontrol.RosterEntry{
 			{Cell: "fra", OCIRegion: "eu-frankfurt-1", State: globalcontrol.RegionActive},
 			{Cell: "gru", OCIRegion: "sa-saopaulo-1", State: globalcontrol.RegionActive},
-			{Cell: "sfo", OCIRegion: "us-sanjose-1", State: globalcontrol.RegionActive},
+			{Cell: "sjc", OCIRegion: "us-sanjose-1", State: globalcontrol.RegionActive},
 		}) {
-		return errors.New("test-origin NATS requires the fixed GRU/SFO/FRA R3 world")
+		return errors.New("test-origin NATS requires the fixed GRU/SJC/FRA R3 world")
 	}
 	material := make(map[string]bool, len(wire.Material))
 	for _, entry := range wire.Material {

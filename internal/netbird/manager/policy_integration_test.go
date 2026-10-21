@@ -23,8 +23,8 @@ func TestDirectPeerPolicyAndDNSConvergeWithoutTSOps(t *testing.T) {
 	}
 	foreign := f.addPeer("ts-gru-9", "198.51.100.1", true, time.Now(), ids.operators)
 	fresh := f.addPeer("ts-gru-8", "10.251.0.38", true, time.Now(), ids.servers)
-	sfo := f.addGroup("sfo-servers")
-	seedHistoricalFabric(f, ids.servers, sfo)
+	sjc := f.addGroup("sjc-servers")
+	seedHistoricalFabric(f, ids.servers, sjc)
 	f.addGroup("fra-servers")
 	api := f.api(t)
 	if _, err := Sync(t.Context(), api, GRU(), true); err != nil {
@@ -41,7 +41,7 @@ func TestDirectPeerPolicyAndDNSConvergeWithoutTSOps(t *testing.T) {
 		string(f.account["lazy_connection_enabled"]) != "true" || string(f.account["extra"]) != `{"user_approval_required":false}` {
 		t.Fatal("reconciliation changed retained group identity or unmanaged account settings")
 	}
-	for _, group := range []string{"sfo-servers", "fra-servers"} {
+	for _, group := range []string{"sjc-servers", "fra-servers"} {
 		index := slices.IndexFunc(f.policies, func(policy apiPolicy) bool { return policy.Name == group+"-to-gru-servers-fabric" })
 		if index < 0 {
 			t.Fatalf("missing spoke leaf policy for %s", group)
@@ -133,8 +133,8 @@ func TestDirectPeerDNSRefusesAmbiguousOrInvalidAdmissionBeforeWrites(t *testing.
 
 func seedHistoricalFabric(f *fakeManager, home, spoke string) {
 	for _, direction := range []struct{ name, description, source, destination string }{
-		{"gru-servers-to-sfo-servers-fabric", "GRU servers → SFO servers: NATS leafnodes 7422, TerraBase peers 9443", home, spoke},
-		{"sfo-servers-to-gru-servers-fabric", "SFO servers → GRU servers: NATS leafnodes 7422, TerraBase peers 9443", spoke, home},
+		{"gru-servers-to-sjc-servers-fabric", "GRU servers → SJC servers: NATS leafnodes 7422, TerraBase peers 9443", home, spoke},
+		{"sjc-servers-to-gru-servers-fabric", "SJC servers → GRU servers: NATS leafnodes 7422, TerraBase peers 9443", spoke, home},
 	} {
 		f.policies = append(f.policies, f.policyFrom(f.id("pol"), policyRequest{Name: direction.name, Description: direction.description, Enabled: true, Rules: []ruleRequest{{Name: direction.name, Description: direction.description, Enabled: true, Action: "accept", Protocol: "tcp", Ports: []string{"7422", "9443"}, Sources: []string{direction.source}, Destinations: []string{direction.destination}}}}))
 	}
@@ -145,7 +145,7 @@ func TestHistoricalFabricConflictStopsBeforeAccountWrites(t *testing.T) {
 		t.Run(strings.Join(ports, "-"), func(t *testing.T) {
 			f := newFakeManager(t)
 			ids := f.seedLegacy(t)
-			spoke := f.addGroup("sfo-servers")
+			spoke := f.addGroup("sjc-servers")
 			seedHistoricalFabric(f, ids.servers, spoke)
 			f.policies[len(f.policies)-1].Rules[0].Ports = ports
 			if _, err := Sync(t.Context(), f.api(t), GRU(), true); err == nil || !strings.Contains(err.Error(), "conflicting shape") || len(f.mutations) != 0 {
@@ -156,7 +156,7 @@ func TestHistoricalFabricConflictStopsBeforeAccountWrites(t *testing.T) {
 }
 
 func TestImageInputCLIWritesAllRegionsWithoutPeerMaps(t *testing.T) {
-	for _, region := range []struct{ cell, oci string }{{"GRU", "sa-saopaulo-1"}, {"SFO", "us-sanjose-1"}} {
+	for _, region := range []struct{ cell, oci string }{{"GRU", "sa-saopaulo-1"}, {"SJC", "us-sanjose-1"}} {
 		t.Run(region.cell, func(t *testing.T) {
 			dir := t.TempDir()
 			plan, out := filepath.Join(dir, "plan.json"), filepath.Join(dir, "netbird.json")

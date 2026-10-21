@@ -55,7 +55,7 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	region := newTestRegion(t, root, "gru", HubAndSpoke("gru", []string{"sfo"}))
+	region := newTestRegion(t, root, "gru", HubAndSpoke("gru", []string{"sjc"}))
 	leafTLS := testBridgeTLS(t, filepath.Join(root, "leaf"))
 	region.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: 7422, TLS: leafTLS}
 	if err := region.cfg.validate(); err != nil {
@@ -68,21 +68,21 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 	if err := empty.validate(); err == nil {
 		t.Fatal("empty interregion material silently admitted")
 	}
-	remote := LeafRemote{Peer: "sfo", URLs: []string{"nats-leaf://10.0.0.1:7422"}, CredentialsFile: "x.creds",
+	remote := LeafRemote{Peer: "sjc", URLs: []string{"nats-leaf://10.0.0.1:7422"}, CredentialsFile: "x.creds",
 		PeerAccount: region.interregionID, TLS: leafTLS, ServerName: testLeafServerName}
 	// gru is the global home in this fixture and the home never dials, so the
-	// remote cases move the home to sfo to reach the remote checks themselves.
+	// remote cases move the home to sjc to reach the remote checks themselves.
 	withRemote := func(mutate func(*LeafRemote)) func(*InterRegion, *Config) {
 		return func(ir *InterRegion, _ *Config) {
 			bad := remote
 			mutate(&bad)
 			ir.Remotes = []LeafRemote{bad}
-			ir.GlobalHome = "sfo"
+			ir.GlobalHome = "sjc"
 			ir.Listen, ir.Subtrees = nil, nil
 		}
 	}
 	dialing := *region.cfg.Embedded.InterRegion
-	dialing.Remotes, dialing.GlobalHome = []LeafRemote{remote}, "sfo"
+	dialing.Remotes, dialing.GlobalHome = []LeafRemote{remote}, "sjc"
 	dialing.Listen, dialing.Subtrees = nil, nil
 	if err := dialing.validate(region.cfg); err != nil {
 		t.Fatalf("valid remote of a non-home region rejected: %v", err)
@@ -99,16 +99,16 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 		"no peers":                func(ir *InterRegion, _ *Config) { ir.Peers = nil },
 		"self peer":               func(ir *InterRegion, _ *Config) { ir.Peers = []string{"gru"} },
 		"global peer":             func(ir *InterRegion, _ *Config) { ir.Peers = []string{"global"} },
-		"repeated peer":           func(ir *InterRegion, _ *Config) { ir.Peers = []string{"sfo", "sfo"} },
+		"repeated peer":           func(ir *InterRegion, _ *Config) { ir.Peers = []string{"sjc", "sjc"} },
 		"no links":                func(ir *InterRegion, _ *Config) { ir.Listen, ir.Subtrees = nil, nil },
 		"listener sans subtrees":  func(ir *InterRegion, _ *Config) { ir.Subtrees = nil },
 		"subtrees sans listener":  func(ir *InterRegion, _ *Config) { ir.Listen = nil },
-		"subtree lacks its child": func(ir *InterRegion, _ *Config) { ir.Subtrees = map[string][]string{"sfo": {"fra"}} },
-		"subtree names the home":  func(ir *InterRegion, _ *Config) { ir.Subtrees = map[string][]string{"sfo": {"gru", "sfo"}} },
-		"subtree outside roster":  func(ir *InterRegion, _ *Config) { ir.Subtrees = map[string][]string{"sfo": {"iad", "sfo"}} },
+		"subtree lacks its child": func(ir *InterRegion, _ *Config) { ir.Subtrees = map[string][]string{"sjc": {"fra"}} },
+		"subtree names the home":  func(ir *InterRegion, _ *Config) { ir.Subtrees = map[string][]string{"sjc": {"gru", "sjc"}} },
+		"subtree outside roster":  func(ir *InterRegion, _ *Config) { ir.Subtrees = map[string][]string{"sjc": {"iad", "sjc"}} },
 		"region in two subtrees": func(ir *InterRegion, _ *Config) {
-			ir.Peers = []string{"fra", "sfo"}
-			ir.Subtrees = map[string][]string{"sfo": {"fra", "sfo"}, "fra": {"fra"}}
+			ir.Peers = []string{"fra", "sjc"}
+			ir.Subtrees = map[string][]string{"sjc": {"fra", "sjc"}, "fra": {"fra"}}
 		},
 		"listener sans mTLS":      func(ir *InterRegion, _ *Config) { ir.Listen.TLS = TLSFiles{} },
 		"remote not a peer":       withRemote(func(r *LeafRemote) { r.Peer = "fra" }),
@@ -117,7 +117,7 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 		"remote unpinned account": withRemote(func(r *LeafRemote) { r.PeerAccount = "" }),
 		"remote without mTLS":     withRemote(func(r *LeafRemote) { r.TLS = TLSFiles{} }),
 		"remote repeated": func(ir *InterRegion, _ *Config) {
-			ir.Remotes, ir.GlobalHome = []LeafRemote{remote, remote}, "sfo"
+			ir.Remotes, ir.GlobalHome = []LeafRemote{remote, remote}, "sjc"
 		},
 		"global home dials": func(ir *InterRegion, _ *Config) { ir.Remotes = []LeafRemote{remote} },
 		// The root reaches every peer through a child subtree.
@@ -149,8 +149,8 @@ func TestLeafCredentialsMustBeLeafOnlyPeerUsers(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	region := newTestRegion(t, root, "gru", HubAndSpoke("gru", []string{"sfo"}))
-	leaf := region.childLeafCredentials(t, "leaf.creds", "sfo")
+	region := newTestRegion(t, root, "gru", HubAndSpoke("gru", []string{"sjc"}))
+	leaf := region.childLeafCredentials(t, "leaf.creds", "sjc")
 	if err := validateLeafCredentials(leaf, region.interregionID); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestLeafCredentialsMustBeLeafOnlyPeerUsers(t *testing.T) {
 		},
 		"bearer": func(claim *jwt.UserClaims) { claim.BearerToken = true },
 	} {
-		path := region.leafCredentialsWith(t, name+".creds", region.childKey(t, "sfo"), region.interregionID, mutate)
+		path := region.leafCredentialsWith(t, name+".creds", region.childKey(t, "sjc"), region.interregionID, mutate)
 		if err := validateLeafCredentials(path, region.interregionID); err == nil {
 			t.Errorf("%s: leaf credentials overriding the contract defaults accepted", name)
 		}
@@ -188,7 +188,7 @@ func TestResolverRefusesCellClaimThatWidensInterRegionContract(t *testing.T) {
 	t.Parallel()
 
 	keys := newTestRegionKeys(t)
-	contract := InterRegionContract{Cell: "gru", Peers: []string{"sfo"}}
+	contract := InterRegionContract{Cell: "gru", Peers: []string{"sjc"}}
 	system, cell, interregion := keys.claims(contract, 1)
 	encode := func(claim *jwt.AccountClaims) string {
 		t.Helper()

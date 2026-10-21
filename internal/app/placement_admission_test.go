@@ -271,7 +271,7 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 	active := make([]oci.Region, 0, len(selected))
 	profiles := make([]placement.ManagedHostProfile, 0, len(selected))
 	rows := make([]placement.CanonicalRosterRow, 0, len(selected)*2)
-	regionOrder := [...]oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA}
+	regionOrder := [...]oci.Region{oci.RegionGRU, oci.RegionSJC, oci.RegionFRA}
 	for _, region := range regionOrder {
 		if _, exists := selected[region]; !exists {
 			continue

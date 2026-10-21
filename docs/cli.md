@@ -88,7 +88,7 @@ Without `--apply` these commands only read.
 | `ts-orch netbird sync [--apply] [--pat-file FILE]` | Plan, or with `--apply` reconcile, groups, policies, network, DNS and settings |
 | `ts-orch netbird prune-peers [--apply] [--offline-for DURATION]` | List, or with `--apply` delete, offline GRU server peers of replaced revisions |
 | `ts-orch netbird remove-peers (--slot NAME... \| --all) [--apply]` | List, or with `--apply` delete, the disconnected GRU server peers of decommissioned slots |
-| `ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply]` | Plan, or with `--apply` create, the GRU (or GROUP, e.g. `sfo-servers`) server setup key; its value goes only to the new owner-only FILE |
+| `ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply]` | Plan, or with `--apply` create, the GRU (or GROUP, e.g. `sjc-servers`) server setup key; its value goes only to the new owner-only FILE |
 | `ts-orch netbird inventory` | Print the manager's groups, policies, networks, DNS and peers |
 | `ts-orch netbird dns [enable] [--apply] --netbird COMMAND` | Plan, or install, native operator DNS with a brief overlay reconnect; use another SSH transport or a detached invocation |
 | `ts-orch netbird dns --config-dir /etc/netbird-wt0/config.d --netbird netbird-wt0 --apply` | Enable NixOS operator DNS and persist an owned `90-ts-orchestrator-dns.json` override |
@@ -162,9 +162,9 @@ without a rebuild; see [root rotation](root-rotation.md).
 
 ## Feature boundaries
 
-`ts-orch usage --region <gru|sfo> --from <RFC3339> --to <RFC3339>
+`ts-orch usage --region <gru|sjc> --from <RFC3339> --to <RFC3339>
 [--format json|table]` reads authenticated node and service CPU/memory history.
-`ts-orch bench run --region <gru|sfo> --workload <name> --clients go,dotnet,rust`
+`ts-orch bench run --region <gru|sjc> --workload <name> --clients go,dotnet,rust`
 runs isolated load-generator jobs and attaches that usage window. See
 [capacity benchmarking](capacity-benchmarking.md) for setup, current SDK
 blockers, bounds and cleanup guarantees.

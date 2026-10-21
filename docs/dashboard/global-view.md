@@ -153,5 +153,5 @@ use it.
    `/volumes`, gzip, and the budget test.
 4. Delete the region fan-out and the old global page, and move
    `/v1/regions` and insights to the view.
-5. Live proof from the GRU and SFO URLs with timings, after the TS-803
+5. Live proof from the GRU and SJC URLs with timings, after the TS-803
    adoption links both regions.

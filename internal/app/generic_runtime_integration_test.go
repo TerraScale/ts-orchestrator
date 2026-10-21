@@ -241,7 +241,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	}
 	originalNativeEvidence := nativeEvidence()
 	floors := []release.SequenceFloor{legacyFloor}
-	for _, cell := range []string{"sfo", "fra"} {
+	for _, cell := range []string{"sjc", "fra"} {
 		regionalCodec := codec
 		regionalCodec.Cell = cell
 		floors = append(floors, retainGenericRuntimeRegionalClaim(t, ctx, regionalCodec, policy.Role, identity.Environment))

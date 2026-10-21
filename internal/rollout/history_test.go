@@ -166,7 +166,7 @@ func TestRecentRolloutsAbandonedStagesAndReadFailures(t *testing.T) {
 					t.Fatal(err)
 				}
 				if failure == "wrong-cell" {
-					record.Cell = "sfo"
+					record.Cell = "sjc"
 				} else {
 					record.RolloutID = testStageID(2)
 				}

@@ -54,7 +54,7 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	now := time.Now().UTC()
 	role := "ts-auth"
 	caps := make([]trust.Capability, 0, 6)
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		for _, architecture := range []string{"amd64", "arm64"} {
 			scope := release.ContainerScope(release.ContainerTarget{Cell: cell, Environment: "production", Role: role, Architecture: architecture})
 			caps = append(caps, trust.Capability{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}})
@@ -72,7 +72,7 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	layout, pin, children := containerCLIImageLayout(t)
 	child := children["amd64"]
 	evidenceDirectory := t.TempDir()
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		_, rootDigest, _ := strings.Cut(pin, "@sha256:")
 		for architecture, child := range children {
 			expected := release.ProductionExpectation{SourceRevision: base.binary.SourceRevision, ArtifactSHA256: child, QualificationSHA256: rootDigest, Cell: cell, Environment: "production", Runtime: release.ProductionRuntime, Architecture: architecture, Role: role}
@@ -81,7 +81,7 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 		}
 	}
 	outputDirectory := t.TempDir()
-	producerArgs := []string{"--dir", outputDirectory, "--oci-layout", layout, "--image", pin, "--role", role, "--repository", "https://source.example.invalid/ts-auth", "--commit", base.binary.SourceRevision, "--source-checkout", base.sourceDir, "--environment", "production", "--root-key", base.rootPath, "--delegation", delegationPath, "--sequence-migration", migrationPath, "--production-evidence-dir", evidenceDirectory, "--signing-key", base.leafPath, "--cell", "GRU", "--cell", "SFO", "--cell", "FRA"}
+	producerArgs := []string{"--dir", outputDirectory, "--oci-layout", layout, "--image", pin, "--role", role, "--repository", "https://source.example.invalid/ts-auth", "--commit", base.binary.SourceRevision, "--source-checkout", base.sourceDir, "--environment", "production", "--root-key", base.rootPath, "--delegation", delegationPath, "--sequence-migration", migrationPath, "--production-evidence-dir", evidenceDirectory, "--signing-key", base.leafPath, "--cell", "GRU", "--cell", "SJC", "--cell", "FRA"}
 	c := command{ctx: t.Context(), output: io.Discard}
 	if err := c.containerBundleWith(producerArgs, env); err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		for architecture := range children {
 			wire, err := os.ReadFile(filepath.Join(outputDirectory, cell, architecture, "container.json"))
 			if err != nil {
@@ -109,11 +109,11 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	f.mu.Lock()
 	f.failure = "storage"
 	f.mu.Unlock()
-	if err := c.containerApplyWith(applyArgs, env); err == nil || !strings.Contains(err.Error(), "SFO") {
+	if err := c.containerApplyWith(applyArgs, env); err == nil || !strings.Contains(err.Error(), "SJC") {
 		t.Fatalf("regional failure: %v", err)
 	}
 	f.mu.Lock()
-	if f.channelWrites["GRU"] != 2 || f.channelWrites["FRA"] != 2 || f.channelWrites["SFO"] != 0 {
+	if f.channelWrites["GRU"] != 2 || f.channelWrites["FRA"] != 2 || f.channelWrites["SJC"] != 0 {
 		t.Fatal("regional independence", f.channelWrites)
 	}
 	f.failure = ""
@@ -132,7 +132,7 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	if err := json.Unmarshal(originalBundleWire, &originalBundle); err != nil {
 		t.Fatal(err)
 	}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		_, rootDigest, _ := strings.Cut(pin, "@sha256:")
 		for architecture, child := range children {
 			expected := release.ProductionExpectation{SourceRevision: base.binary.SourceRevision, ArtifactSHA256: child, QualificationSHA256: rootDigest, Cell: cell, Environment: "production", Runtime: release.ProductionRuntime, Architecture: architecture, Role: role}
@@ -189,7 +189,7 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.mu.Lock()
-	before := f.channelWrites["GRU"] + f.channelWrites["SFO"] + f.channelWrites["FRA"]
+	before := f.channelWrites["GRU"] + f.channelWrites["SJC"] + f.channelWrites["FRA"]
 	f.mu.Unlock()
 	if err := c.containerApplyWith(applyArgs, env); err == nil {
 		t.Fatal("tampered OCI graph accepted")
@@ -198,7 +198,7 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.mu.Lock()
-	after := f.channelWrites["GRU"] + f.channelWrites["SFO"] + f.channelWrites["FRA"]
+	after := f.channelWrites["GRU"] + f.channelWrites["SJC"] + f.channelWrites["FRA"]
 	f.mu.Unlock()
 	if before != after {
 		t.Fatal("local tamper detected after publication")
@@ -236,7 +236,7 @@ func (f *containerHTTPFixture) serveContainer(w http.ResponseWriter, r *http.Req
 		f.objects[cell] = map[string][]byte{}
 	}
 	if r.Method == http.MethodPut {
-		if cell == "SFO" && f.failure == "storage" {
+		if cell == "SJC" && f.failure == "storage" {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}

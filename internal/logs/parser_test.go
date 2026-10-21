@@ -214,7 +214,7 @@ func TestJournalFieldsAndInvalidLinesThroughHTTP(t *testing.T) {
 
 func TestPermissionViolationsOfOneCauseShareAClass(t *testing.T) {
 	a := journalRecords(t, Entry{Comm: "terrascale-orch", Message: `[976] [WRN] Publish Violation for client "ts-gru-1" in account ACME with JWT eyJhbGciOi`})[0]
-	b := journalRecords(t, Entry{Comm: "terrascale-orch", Message: `[977] [WRN] Publish Violation for client "ts-sfo-2" in account BETA with JWT eyJzdWIiOi`})[0]
+	b := journalRecords(t, Entry{Comm: "terrascale-orch", Message: `[977] [WRN] Publish Violation for client "ts-sjc-2" in account BETA with JWT eyJzdWIiOi`})[0]
 	if a.Message != b.Message {
 		t.Fatalf("violation classes %q and %q differ", a.Message, b.Message)
 	}

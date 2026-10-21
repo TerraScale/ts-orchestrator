@@ -80,7 +80,7 @@ func TestRunDeliversAlertAfterCollectionContextEnds(t *testing.T) {
 	delivered := false
 	a := api{readToken: "read", writeToken: "write", client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path == "/v1/discovery" {
-			body := fmt.Sprintf(`{"v":1,"updated":%d,"regions":[{"id":"gru-1"},{"id":"sfo-1"}]}`, time.Now().Unix())
+			body := fmt.Sprintf(`{"v":1,"updated":%d,"regions":[{"id":"gru-1"},{"id":"sjc-1"}]}`, time.Now().Unix())
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
 		}
 		if r.URL.Path == "/api/v1/deployments" {
@@ -237,7 +237,7 @@ func TestRunValidatesCurrentProofsBeforeClosingAnIncident(t *testing.T) {
 	latest, deployed := strings.Repeat("a", 40), strings.Repeat("b", 40)
 	for _, broken := range []string{"", "new region", "discovery missing", "native missing", "native stale", "edge missing", "edge stale", "edge non-200", "edge invalid revision"} {
 		t.Run(broken, func(t *testing.T) {
-			regions := []string{"GRU", "SFO"}
+			regions := []string{"GRU", "SJC"}
 			if broken == "new region" {
 				regions = append(regions, "FRA")
 			}
@@ -277,7 +277,7 @@ func TestRunValidatesCurrentProofsBeforeClosingAnIncident(t *testing.T) {
 							}
 							for _, target := range targets {
 								status, version, observedAt := 200, deployed, now()
-								if service == "ts-atlas" && region == "SFO" {
+								if service == "ts-atlas" && region == "SJC" {
 									switch broken {
 									case "edge missing":
 										continue

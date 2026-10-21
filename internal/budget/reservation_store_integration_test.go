@@ -405,7 +405,7 @@ func TestReservationLedgerSurvivesPeriodicWritesThroughHomeCAS(t *testing.T) {
 	}
 	regions := []Region{
 		{Cell: "gru", Nodes: 1, Want: 2, Pressure: .9, NodeMonthlyCents: 300, ProjectedCents: 100, Currency: "USD", At: now},
-		{Cell: "sfo", Nodes: 1, Want: 2, Pressure: .5, NodeMonthlyCents: 300, ProjectedCents: 100, Currency: "USD", At: now},
+		{Cell: "sjc", Nodes: 1, Want: 2, Pressure: .5, NodeMonthlyCents: 300, ProjectedCents: 100, Currency: "USD", At: now},
 	}
 	allocated := Allocate(&monthly, regions, nil, now)
 	if err := WriteCapacity(ctx, writer, epoch, allocated); err != nil {

@@ -314,7 +314,7 @@ func TestNetBirdRecoveryRejectsUnverifiedOrUnsafeManagedIdentity(t *testing.T) {
 			case "generation":
 				instance.Generation++
 			case "region":
-				instance.Region = oci.RegionSFO
+				instance.Region = oci.RegionSJC
 			case "stopped":
 				instance.State = "STOPPED"
 			case "mesh-ip":

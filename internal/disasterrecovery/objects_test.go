@@ -131,7 +131,7 @@ func (f *fakeObjects) GetObject(_ context.Context, r objectstorage.GetObjectRequ
 		}
 	}
 	heads := f.heads
-	if *r.BucketName == "sfo-1-dr-gru-1-backup" {
+	if *r.BucketName == "sjc-1-dr-gru-1-backup" {
 		heads = f.mirror
 	}
 	if h, ok := heads[*r.ObjectName]; ok {
@@ -171,8 +171,8 @@ func objectFixture() (*copier, *fakeObjects, *fakeObjects) {
 	t := &fakeObjects{buckets: map[string]objectstorage.Bucket{}, heads: s.heads, mu: mu}
 	s.remote = t
 	c := &copier{source: s, target: t, namespace: "namespace", sourceRegion: "sa-saopaulo-1", targetRegion: "us-sanjose-1",
-		sourceCell: "gru", targetCell: "sfo", sourceConfig: Region{CompartmentID: "gru-control", KeyID: "gru-key"},
-		targetConfig: Region{CompartmentID: "sfo-control", KeyID: "sfo-key"}, Pause: func(context.Context, time.Duration) error { return nil }}
+		sourceCell: "gru", targetCell: "sjc", sourceConfig: Region{CompartmentID: "gru-control", KeyID: "gru-key"},
+		targetConfig: Region{CompartmentID: "sjc-control", KeyID: "sjc-key"}, Pause: func(context.Context, time.Duration) error { return nil }}
 	s.buckets["gru-1-backup"] = objectstorage.Bucket{Name: new("gru-1-backup"), Namespace: &c.namespace, CompartmentId: &c.sourceConfig.CompartmentID,
 		KmsKeyId: &c.sourceConfig.KeyID, PublicAccessType: objectstorage.BucketPublicAccessTypeNopublicaccess,
 		StorageTier: objectstorage.BucketStorageTierStandard, IsReadOnly: new(false)}
@@ -199,7 +199,7 @@ func TestCopyActivatesMirrorBeforeBackfillAndVerifiesAllPages(t *testing.T) {
 	if !same(d.buckets[r.MirrorBucket].Id, r.MirrorBucketID) || !same(d.buckets[r.SeedBucket].Id, r.SeedBucketID) {
 		t.Fatalf("created bucket IDs missing from report: %+v", r)
 	}
-	if !same(d.buckets[r.MirrorBucket].KmsKeyId, "sfo-key") || !same(d.buckets[r.SeedBucket].KmsKeyId, "sfo-key") {
+	if !same(d.buckets[r.MirrorBucket].KmsKeyId, "sjc-key") || !same(d.buckets[r.SeedBucket].KmsKeyId, "sjc-key") {
 		t.Fatal("destination buckets must pin the target region's encryption key")
 	}
 	for _, copy := range s.copies {
@@ -290,7 +290,7 @@ func TestBackfillRechecksTheMirrorBeforeSuccess(t *testing.T) {
 	s.pages = [][]objectstorage.ObjectSummary{{{Name: new("v1/db/wal/0"), Size: new(int64(8)), Md5: new("checksum"), Etag: new("source")}}}
 	d.mirror = map[string]objectstorage.HeadObjectResponse{"v1/db/wal/0": {ContentLength: new(int64(8)), ContentMd5: new("checksum"), ETag: new("mirror")}}
 	s.afterList = func() {
-		mirror := d.buckets["sfo-1-dr-gru-1-backup"]
+		mirror := d.buckets["sjc-1-dr-gru-1-backup"]
 		mirror.Id = new("ocid1.bucket.oc1.us-sanjose-1.replacement")
 		d.buckets[*mirror.Name] = mirror
 	}
@@ -313,13 +313,13 @@ func TestCopyRefusesConflictingResourcesBeforeMutation(t *testing.T) {
 			case "existing policy":
 				s.policy = &objectstorage.ReplicationPolicySummary{Id: new("0000000000V4MRM46HP1SNGDYW"), Name: new("0000000000V4MRM46HP1SNGDYW")}
 			case "destination ownership":
-				d.buckets["sfo-1-dr-gru-1-backup"] = objectstorage.Bucket{Name: new("sfo-1-dr-gru-1-backup")}
+				d.buckets["sjc-1-dr-gru-1-backup"] = objectstorage.Bucket{Name: new("sjc-1-dr-gru-1-backup")}
 			case "retention":
-				id, err := c.bucket(t.Context(), "sfo-1-dr-gru-1-backup", "", false, true)
+				id, err := c.bucket(t.Context(), "sjc-1-dr-gru-1-backup", "", false, true)
 				if err != nil {
 					t.Fatal(err)
 				}
-				c.targetConfig.BucketIDs = map[string]string{"sfo-1-dr-gru-1-backup": id}
+				c.targetConfig.BucketIDs = map[string]string{"sjc-1-dr-gru-1-backup": id}
 				d.creates = 0
 				d.retention = true
 			}
@@ -474,11 +474,11 @@ func TestCopyRechecksDestinationIDsAcrossProvisioningSteps(t *testing.T) {
 			if resource == "mirror" {
 				d.afterCreate = func() {
 					if d.creates == 2 {
-						replace("sfo-1-dr-gru-1-backup")
+						replace("sjc-1-dr-gru-1-backup")
 					}
 				}
 			} else {
-				s.afterCreate = func() { replace("sfo-1-dr-gru-1-backup-seed") }
+				s.afterCreate = func() { replace("sjc-1-dr-gru-1-backup-seed") }
 			}
 			r, err := c.copy(t.Context(), "backup")
 			if err == nil || len(s.copies) != 0 || s.list != 0 {
@@ -502,7 +502,7 @@ func TestCopyRechecksSeedIDDuringInventoryAndBetweenCopies(t *testing.T) {
 			}
 			s.pages = [][]objectstorage.ObjectSummary{objects}
 			replace := func() {
-				bucket := d.buckets["sfo-1-dr-gru-1-backup-seed"]
+				bucket := d.buckets["sjc-1-dr-gru-1-backup-seed"]
 				bucket.Id = new("ocid1.bucket.oc1.us-sanjose-1.replacement")
 				d.buckets[*bucket.Name] = bucket
 			}
@@ -565,7 +565,7 @@ func TestCopyReportsSuccessfulCreateIDsAfterLaterFailure(t *testing.T) {
 				d.afterCreate = func() { d.retention = true }
 			case "mirror replacement":
 				d.afterCreate = func() {
-					b := d.buckets["sfo-1-dr-gru-1-backup"]
+					b := d.buckets["sjc-1-dr-gru-1-backup"]
 					b.Id = new("ocid1.bucket.oc1.us-sanjose-1.replacement")
 					d.buckets[*b.Name] = b
 				}
@@ -616,7 +616,7 @@ func TestConfigRejectsCrossedRegionsAndSharedCompartments(t *testing.T) {
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for _, mutate := range []func(*Config){func(c *Config) { c.SFO.KeyID = c.GRU.KeyID }, func(c *Config) { c.SFO.CompartmentID = c.GRU.CompartmentID }, func(c *Config) { c.Version = 2 }} {
+	for _, mutate := range []func(*Config){func(c *Config) { c.SJC.KeyID = c.GRU.KeyID }, func(c *Config) { c.SJC.CompartmentID = c.GRU.CompartmentID }, func(c *Config) { c.Version = 2 }} {
 		c := valid
 		mutate(&c)
 		if err := c.Validate(); err == nil {
@@ -630,16 +630,16 @@ func TestConfigRejectsCrossedRegionsAndSharedCompartments(t *testing.T) {
 
 func configFixture() Config {
 	return Config{Version: 1, Namespace: "namespace", GRU: Region{CompartmentID: "ocid1.compartment.oc1..gru", VaultID: "ocid1.vault.oc1.sa-saopaulo-1.gru", KeyID: "ocid1.key.oc1.sa-saopaulo-1.gru"},
-		SFO: Region{CompartmentID: "ocid1.compartment.oc1..sfo", VaultID: "ocid1.vault.oc1.us-sanjose-1.sfo", KeyID: "ocid1.key.oc1.us-sanjose-1.sfo"}}
+		SJC: Region{CompartmentID: "ocid1.compartment.oc1..sjc", VaultID: "ocid1.vault.oc1.us-sanjose-1.sjc", KeyID: "ocid1.key.oc1.us-sanjose-1.sjc"}}
 }
 
 func TestConfigValidatesReviewedResourceNamesAndIDs(t *testing.T) {
 	valid := func() Config {
 		c := configFixture()
-		c.GRU.BucketIDs = map[string]string{"gru-1-dr-sfo-1-backup": "ocid1.bucket.oc1.sa-saopaulo-1.mirror", "gru-1-dr-sfo-1-backup-seed": "ocid1.bucket.oc1.sa-saopaulo-1.seed"}
-		c.SFO.BucketIDs = map[string]string{"sfo-1-dr-gru-1-head": "ocid1.bucket.oc1.us-sanjose-1.mirror", "sfo-1-dr-gru-1-head-seed": "ocid1.bucket.oc1.us-sanjose-1.seed"}
+		c.GRU.BucketIDs = map[string]string{"gru-1-dr-sjc-1-backup": "ocid1.bucket.oc1.sa-saopaulo-1.mirror", "gru-1-dr-sjc-1-backup-seed": "ocid1.bucket.oc1.sa-saopaulo-1.seed"}
+		c.SJC.BucketIDs = map[string]string{"sjc-1-dr-gru-1-head": "ocid1.bucket.oc1.us-sanjose-1.mirror", "sjc-1-dr-gru-1-head-seed": "ocid1.bucket.oc1.us-sanjose-1.seed"}
 		c.GRU.PolicyIDs = map[string]string{"TS-641-gru-1-backup": "0J6HB7G4HM28T14D0J6HB7H6NW"}
-		c.SFO.PolicyIDs = map[string]string{"TS-641-sfo-1-head": "47CN1J24HM28T14D0J6HB7H6NW"}
+		c.SJC.PolicyIDs = map[string]string{"TS-641-sjc-1-head": "47CN1J24HM28T14D0J6HB7H6NW"}
 		return c
 	}
 	if err := valid().Validate(); err != nil {
@@ -647,15 +647,15 @@ func TestConfigValidatesReviewedResourceNamesAndIDs(t *testing.T) {
 	}
 	for name, mutate := range map[string]func(*Config){
 		"serving bucket":           func(c *Config) { c.GRU.BucketIDs["gru-1-backup"] = "ocid1.bucket.oc1.sa-saopaulo-1.other" },
-		"crossed destination name": func(c *Config) { c.GRU.BucketIDs["sfo-1-dr-gru-1-backup"] = "ocid1.bucket.oc1.sa-saopaulo-1.other" },
-		"wrong bucket region":      func(c *Config) { c.GRU.BucketIDs["gru-1-dr-sfo-1-backup"] = "ocid1.bucket.oc1.us-sanjose-1.other" },
-		"wrong bucket type":        func(c *Config) { c.GRU.BucketIDs["gru-1-dr-sfo-1-backup"] = c.GRU.KeyID },
-		"empty bucket ID":          func(c *Config) { c.GRU.BucketIDs["gru-1-dr-sfo-1-backup"] = "" },
+		"crossed destination name": func(c *Config) { c.GRU.BucketIDs["sjc-1-dr-gru-1-backup"] = "ocid1.bucket.oc1.sa-saopaulo-1.other" },
+		"wrong bucket region":      func(c *Config) { c.GRU.BucketIDs["gru-1-dr-sjc-1-backup"] = "ocid1.bucket.oc1.us-sanjose-1.other" },
+		"wrong bucket type":        func(c *Config) { c.GRU.BucketIDs["gru-1-dr-sjc-1-backup"] = c.GRU.KeyID },
+		"empty bucket ID":          func(c *Config) { c.GRU.BucketIDs["gru-1-dr-sjc-1-backup"] = "" },
 		"duplicate bucket ID": func(c *Config) {
-			c.GRU.BucketIDs["gru-1-dr-sfo-1-backup-seed"] = c.GRU.BucketIDs["gru-1-dr-sfo-1-backup"]
+			c.GRU.BucketIDs["gru-1-dr-sjc-1-backup-seed"] = c.GRU.BucketIDs["gru-1-dr-sjc-1-backup"]
 		},
 		"unexpected policy name": func(c *Config) { c.GRU.PolicyIDs["0000000000V4MRM46HP1SNGDYW"] = "policy-2" },
-		"crossed policy name":    func(c *Config) { c.GRU.PolicyIDs["TS-641-sfo-1-head"] = "policy-2" },
+		"crossed policy name":    func(c *Config) { c.GRU.PolicyIDs["TS-641-sjc-1-head"] = "policy-2" },
 		"empty policy ID":        func(c *Config) { c.GRU.PolicyIDs["TS-641-gru-1-backup"] = "" },
 		"malformed policy ID":    func(c *Config) { c.GRU.PolicyIDs["TS-641-gru-1-backup"] = "policy\nreplacement" },
 		"duplicate policy ID":    func(c *Config) { c.GRU.PolicyIDs["TS-641-gru-1-head"] = c.GRU.PolicyIDs["TS-641-gru-1-backup"] },

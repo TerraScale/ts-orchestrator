@@ -118,7 +118,7 @@ approval or design freeze.
 | **START-OWN — assignments and integration** / QA + every stream | Name the shared-file/main integrator and each initial implementer. Give every first task an exact file claim, independently complete output, integration scenario, ETA/model and isolated worktree. Resolve overlapping claims before editing those files. | Only edits to unclaimed/conflicting files and publication without an assigned integrator; independent claimed work starts immediately. |
 | **START-EXEC — disposable runtime prototype** / CORE + CAP | Pin SwarmKit/containerd/runc versions. On disposable authorized capacity, prove one real container can prepare/start, report readiness, stop/remove and recover its task identity after agent restart without launching a duplicate. Publish the narrow executor/image contract and observed limitations. | Production use and consumers freezing unproven executor semantics. Other streams develop against agreed boundaries, while CORE/CAP build and run the prototype together. |
 | **START-DEPLOY — current main-to-production path** / REL + QA | Inspect actual main CI triggers, deployment targets, production-environment protection, credential scopes and artifact promotion. Record how each incomplete slice is qualified on disposable targets and how only qualified runtime revisions reach production. Existing main pushes can auto-dispatch fleet deployment; workflow names alone are not protection evidence. Preserve always-on operation without kill switches, disabled checks or a legacy-engine selector. | The first runtime-affecting main publication that could reach an unqualified production target. Documentation, isolated implementation and integration-scenario preparation proceed concurrently. |
-| **START-SCOPE — cloud footprint and budget** / OCI + CAP | Record approved tenancy/compartments, GRU/SFO/FRA footprint, numerical spending envelope, four-VM sizes, storage/transfer costs and cleanup ownership. Identify existing IAM/Vault authority and any separately required permission/credential approvals. Pending authority remains explicit; do not assume capacity is free or create credentials to complete the check. | Paid provisioning and mutations outside existing authority. Source work, inventory of authorized non-secret metadata and scenario design proceed independently. |
+| **START-SCOPE — cloud footprint and budget** / OCI + CAP | Record approved tenancy/compartments, GRU/SJC/FRA footprint, numerical spending envelope, four-VM sizes, storage/transfer costs and cleanup ownership. Identify existing IAM/Vault authority and any separately required permission/credential approvals. Pending authority remains explicit; do not assume capacity is free or create credentials to complete the check. | Paid provisioning and mutations outside existing authority. Source work, inventory of authorized non-secret metadata and scenario design proceed independently. |
 | **START-STORE — storage comparison** / QA + CAP | Assign an independent OCI Object Storage versus Tigris cost/reliability comparison using actual copies, placement, requests, transfer, backup and restore traffic. Report price sources, workload assumptions and unknowns. A globally reachable endpoint does not establish regional durability. | A storage-backend change or a claim that one provider is cheaper. Existing OCI adapter work and the initial milestone continue without waiting for this research. |
 
 Each stream also begins its own integration-test migration from the start. QA
@@ -220,7 +220,7 @@ flowchart TD
 
 NET bootstrap, regional host preparation, executor development, artifact
 publication and visibility implementation overlap. After NetBird and required
-regional foundations are ready, GRU/SFO/FRA joining proceeds independently;
+regional foundations are ready, GRU/SJC/FRA joining proceeds independently;
 global link reconciliation overlaps local workload admission/readiness. Wasm
 prototypes, DATA safety qualification, alternative-shape work and cost research
 continue throughout and do not block the A1 connectivity milestone. Full mixed
@@ -389,7 +389,7 @@ credentials, scripts, workflows and dependencies before declaring completion.
 | --- | --- |
 | Operator effort and dependencies | Before/after inventory of commands, manual inputs, credential handoffs, external executables and services required for cold bootstrap, routine release and recovery. Production targets: no per-region setup commands, no manually copied first-party secrets, no source/CI dependency at apply time and no operational Python OCI CLI. |
 | Deployment time and repeated work | Retain stage timings for cold region creation, warm release and interrupted retry. Report sample count, p50/p95/p99 when meaningful, slowest region and fleet completion; break out API waits, network join, artifact transfer, image pull and readiness. Record repeated builds, inspections, hashes and bytes transferred. Set numeric targets from a measured baseline; publish no assumed speedup. |
-| Regional independence | In GRU / San Jose (`sfo`) / FRA, make one region's scope/status/storage unreachable or stale. Healthy regions still deploy safely; the failed region reports its blocked stage and catches up after recovery. A live Atlas/CI API is not required to apply an already admitted release from trusted membership. |
+| Regional independence | In GRU / San Jose (`sjc`) / FRA, make one region's scope/status/storage unreachable or stale. Healthy regions still deploy safely; the failed region reports its blocked stage and catches up after recovery. A live Atlas/CI API is not required to apply an already admitted release from trusted membership. |
 | Restart and partial failure | Interrupt after resource creation, Vault setup-key storage, image import and channel publication; restart or transfer ownership. Reconcile existing identities without duplicate foundations, competing founders, key replacement or lost successful-region results. Show pending global operations during a partition; do not invent global authority. |
 | Trust, safety and ownership | Refuse wrong scope/architecture, tampered bytes, expired admission and stale release order. Prove producer changes retain the signed sequence floor, and SwarmKit is the only task owner. Retain quorum, database writer/volume fencing and restore evidence. CLI/dashboard expose real progress, timings, partial errors and stale/missing metrics through the shared API. |
 
@@ -528,10 +528,10 @@ All three regions must pass before claiming the complete milestone.
 | Display location | OCI region | Existing product token |
 | --- | --- | --- |
 | GRU / São Paulo | `sa-saopaulo-1` | `gru` |
-| San Francisco Bay Area (OCI San Jose) | `us-sanjose-1` | `sfo` |
+| San Francisco Bay Area (OCI San Jose) | `us-sanjose-1` | `sjc` |
 | FRA / Frankfurt | `eu-frankfurt-1` | `fra` |
 
-Keep the existing `sfo` product token; OCI's region key is `SJC`. Fly's `sjc`
+Keep the existing `sjc` product token; OCI's region key is `SJC`. Fly's `sjc`
 identifier is a different provider's naming convention. Do not substitute
 Phoenix or rename stored identities to make the display name match.
 

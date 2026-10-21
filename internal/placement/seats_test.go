@@ -46,18 +46,18 @@ func TestRegionSeatsGeneralizesTheTwoSeatTopology(t *testing.T) {
 }
 
 func TestSeatMemberNamesFollowPlacementOrderAndIgnoreAttempts(t *testing.T) {
-	seats, err := RegionSeats(oci.RegionSFO, []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"}, 3)
+	seats, err := RegionSeats(oci.RegionSJC, []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"}, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i, seat := range seats {
 		name, err := seatMemberName(seat.Region, seat.MemberID)
-		if want := []string{"sfo-1-db-1", "sfo-1-db-2", "sfo-1-db-3"}[i]; err != nil || name != want {
+		if want := []string{"sjc-1-db-1", "sjc-1-db-2", "sjc-1-db-3"}[i]; err != nil || name != want {
 			t.Fatalf("seat %s is %q, %v; want %q", seat.MemberID, name, err, want)
 		}
 	}
-	for _, rejected := range []string{"", "000000000082AXF7GZQT1D126Y", "elastic-sfo-1", "elastic-sfo-0", "elastic-sfo-02", "elastic-sfo--2", "0000000000XG8SBD7XGE97V28G"} {
-		if name, err := seatMemberName(oci.RegionSFO, rejected); !errors.Is(err, ErrInvalidIntent) || name != "" {
+	for _, rejected := range []string{"", "000000000082AXF7GZQT1D126Y", "elastic-sjc-1", "elastic-sjc-0", "elastic-sjc-02", "elastic-sjc--2", "0000000000XG8SBD7XGE97V28G"} {
+		if name, err := seatMemberName(oci.RegionSJC, rejected); !errors.Is(err, ErrInvalidIntent) || name != "" {
 			t.Fatalf("seat %q got name %q, %v", rejected, name, err)
 		}
 	}

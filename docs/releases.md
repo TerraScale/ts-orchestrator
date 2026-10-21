@@ -15,7 +15,7 @@ existing OCI channel. OCI access authorization is still required.
 ```text
 BUNDLE/
   GRU/channel.json
-  SFO/channel.json
+  SJC/channel.json
   FRA/channel.json
   binaries/<sha256>
 ```

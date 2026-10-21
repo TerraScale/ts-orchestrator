@@ -15,13 +15,13 @@
       "auth": "https://gru.auth.terrascale.tech"
     },
     {
-      "id": "sfo-1",
+      "id": "sjc-1",
       "name": "San Francisco",
       "country": "US",
       "lat": 37.62,
       "lon": -122.38,
-      "api": "https://sfo.api.terrascale.tech",
-      "auth": "https://sfo.auth.terrascale.tech"
+      "api": "https://sjc.api.terrascale.tech",
+      "auth": "https://sjc.auth.terrascale.tech"
     }
   ],
   "services": [

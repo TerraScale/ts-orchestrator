@@ -288,7 +288,7 @@ func (material Material) withRoleSigner(t testing.TB) Material {
 }
 
 // WithoutIssuers drops the controller issuers and the account signer, as
-// gru-1 and sfo-1 were founded.
+// gru-1 and sjc-1 were founded.
 func (material Material) WithoutIssuers(t testing.TB) Material {
 	t.Helper()
 	cell := material.Account(t, "cell.jwt", func(claims *jwt.AccountClaims) { delete(claims.SigningKeys, material.SignerID) })
@@ -302,15 +302,15 @@ func (material Material) WithoutIssuers(t testing.TB) Material {
 }
 
 // InterRegion adds cell gru's leaf fabric (TS-668) in the tree
-// sfo <- gru <- fra, so gru both dials a parent and accepts a child:
+// sjc <- gru <- fra, so gru both dials a parent and accepts a child:
 // system.jwt and cell.jwt with the contract, interregion.jwt, the
-// interregion CA, each slot's leaf TLS, leaf-sfo.creds and each slot's
+// interregion CA, each slot's leaf TLS, leaf-sjc.creds and each slot's
 // controller config.
 func (material Material) InterRegion(t testing.TB, now time.Time, slots []string) Material {
 	t.Helper()
 	year := now.AddDate(1, 0, 0)
-	topology := natscell.LeafTopology{Hub: "sfo", Parents: map[string]string{"gru": "sfo", "fra": "gru"}}
-	contract := natscell.InterRegionContract{Cell: "gru", Peers: topology.Peers("gru"), GlobalHome: "sfo",
+	topology := natscell.LeafTopology{Hub: "sjc", Parents: map[string]string{"gru": "sjc", "fra": "gru"}}
+	contract := natscell.InterRegionContract{Cell: "gru", Peers: topology.Peers("gru"), GlobalHome: "sjc",
 		Subtrees: topology.Subtrees("gru")}
 	account, _ := nkeys.CreateAccount()
 	accountID, _ := account.PublicKey()
@@ -344,7 +344,7 @@ func (material Material) InterRegion(t testing.TB, now time.Time, slots []string
 		"cell.jwt": material.Account(t, "cell.jwt", func(claims *jwt.AccountClaims) {
 			contract.ApplyCell(claims, accountID)
 		}),
-		"interregion.jwt": []byte(interregionJWT + "\n"), "interregion-ca.pem": caPEM, "leaf-sfo.creds": leafCreds,
+		"interregion.jwt": []byte(interregionJWT + "\n"), "interregion-ca.pem": caPEM, "leaf-sjc.creds": leafCreds,
 	}
 	const directory = bootstrap.MaterialDirectory + "/"
 	for _, slot := range slots {
@@ -358,12 +358,12 @@ func (material Material) InterRegion(t testing.TB, now time.Time, slots []string
 		config, err := json.Marshal(map[string]any{"version": roleconfig.Version, "controller": map[string]any{"candidate_id": slot},
 			"nats": natscell.Config{Cell: "gru", Instance: slot, Embedded: &natscell.Embedded{
 				CellJWTFile: directory + "cell.jwt", SystemJWTFile: directory + "system.jwt",
-				InterRegion: &natscell.InterRegion{Peers: contract.Peers, GlobalHome: "sfo",
+				InterRegion: &natscell.InterRegion{Peers: contract.Peers, GlobalHome: "sjc",
 					AccountJWTFile: directory + "interregion.jwt", Subtrees: contract.Subtrees, Topology: &topology,
 					Listen: &natscell.LeafListen{Host: "0.0.0.0", Port: 7422, TLS: leafTLS},
-					Remotes: []natscell.LeafRemote{{Peer: "sfo", URLs: []string{"nats-leaf://10.1.0.10:7422"},
+					Remotes: []natscell.LeafRemote{{Peer: "sjc", URLs: []string{"nats-leaf://10.1.0.10:7422"},
 						ServerName:      "leaf.gru.interregion.terrascale.internal",
-						CredentialsFile: directory + "leaf-sfo.creds", PeerAccount: parentID, TLS: leafTLS}}}}}},
+						CredentialsFile: directory + "leaf-sjc.creds", PeerAccount: parentID, TLS: leafTLS}}}}}},
 			json.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)

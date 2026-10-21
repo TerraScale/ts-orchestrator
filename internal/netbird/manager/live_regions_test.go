@@ -15,7 +15,7 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
 	operator := f.addPeer("ts-fra-1", "203.0.113.8", true, time.Now(), ids.operators)
-	ungrouped := f.addPeer("ts-sfo-1", "203.0.113.9", true, time.Now())
+	ungrouped := f.addPeer("ts-sjc-1", "203.0.113.9", true, time.Now())
 	api := f.api(t)
 	if _, err := Sync(t.Context(), api, GRU(), true); err != nil {
 		t.Fatal(err)
@@ -24,15 +24,15 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	if len(f.groups) != len(GRU().Groups)+1 || len(f.policies) != len(GRU().Policies) {
 		t.Fatal("peer names or the compiled catalog created regional access")
 	}
-	sfo := f.addGroup("sfo-servers")
-	f.group(sfo).Resources = []resourceRef{{ID: "retained-resource", Type: "host"}}
-	offline := f.addPeer("ts-sfo-2", "203.0.113.10", false, time.Now().Add(-48*time.Hour), sfo)
+	sjc := f.addGroup("sjc-servers")
+	f.group(sjc).Resources = []resourceRef{{ID: "retained-resource", Type: "host"}}
+	offline := f.addPeer("ts-sjc-2", "203.0.113.10", false, time.Now().Add(-48*time.Hour), sjc)
 	t.Setenv("NB_PAT", testPAT)
 	if err := Run(t.Context(), []string{"sync", "--apply", "--management-url", f.server.URL}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.policies) != len(GRU().Policies)+8 {
-		t.Fatalf("SFO access policies: %d", len(f.policies))
+		t.Fatalf("SJC access policies: %d", len(f.policies))
 	}
 	// A new empty region is seen on the next controller cycle, before its
 	// first peer, leaf connection or heartbeat exists.
@@ -46,7 +46,7 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	if len(f.policies) != len(GRU().Policies)+16 {
 		t.Fatalf("new region access policies: %d", len(f.policies))
 	}
-	for group, groupID := range map[string]string{"sfo-servers": sfo, "fra-servers": fra} {
+	for group, groupID := range map[string]string{"sjc-servers": sjc, "fra-servers": fra} {
 		for _, expected := range []struct {
 			name, protocol               string
 			ports, sources, destinations []string
@@ -72,8 +72,8 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 			}
 		}
 	}
-	if f.peer(offline) == nil || len(f.group(sfo).Peers) != 1 || f.group(sfo).Peers[0].ID != offline ||
-		len(f.group(sfo).Resources) != 1 || len(f.group(fra).Peers) != 0 {
+	if f.peer(offline) == nil || len(f.group(sjc).Peers) != 1 || f.group(sjc).Peers[0].ID != offline ||
+		len(f.group(sjc).Resources) != 1 || len(f.group(fra).Peers) != 0 {
 		t.Fatal("regional group IDs, members/resources or remote offline peer changed")
 	}
 	if groups := f.peerView(f.peer(operator)).Groups; len(groups) != 1 || groups[0].ID != ids.operators {
@@ -93,9 +93,9 @@ func TestSyncRefusesUntrustedOrAmbiguousRegionalGroupsBeforeMutation(t *testing.
 		t.Run(issuer, func(t *testing.T) {
 			f := newFakeManager(t)
 			f.seedLegacy(t)
-			group := f.addGroup("sfo-servers")
+			group := f.addGroup("sjc-servers")
 			if issuer == "duplicate" {
-				f.addGroup("sfo-servers")
+				f.addGroup("sjc-servers")
 			} else {
 				f.group(group).Issued = issuer
 			}
@@ -121,7 +121,7 @@ func TestSetupKeyCreatesOnlyItsCanonicalRegionalGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(f.mutations) != 2 || !strings.HasPrefix(f.mutations[0], "POST groups") ||
-		!strings.HasPrefix(f.mutations[1], "POST setup-keys") || f.groupByName("sfo-servers") != nil {
+		!strings.HasPrefix(f.mutations[1], "POST setup-keys") || f.groupByName("sjc-servers") != nil {
 		t.Fatalf("regional group was not created before the scoped key: %v", f.mutations)
 	}
 	key := f.setupKeys[len(f.setupKeys)-1]

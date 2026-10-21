@@ -24,33 +24,33 @@ func TestFleetCheckRequiresEveryAddressEndpointAndRegionToken(t *testing.T) {
 	for _, failure := range []string{"", "ipv6", "missing", "dns", "unauthorized", "redirect", "wrong-address", "wrong-ipv6", "missing-ipv6", "empty", "local-only", "duplicate-nodes", "duplicate-members"} {
 		t.Run(failure, func(t *testing.T) {
 			peers := map[string]sshlogin.PeerAddress{}
-			for i, region := range []string{"gru", "sfo"} {
+			for i, region := range []string{"gru", "sjc"} {
 				for n := 1; n <= 3; n++ {
 					peers[fmt.Sprintf("ts-%s-%d", region, n)] = sshlogin.PeerAddress{IP: fmt.Sprintf("10.200.%d.%d", i, n), IPv6: fmt.Sprintf("fd9c:200::%d:%d", i, n)}
 				}
 			}
 			if failure == "missing" {
-				delete(peers, "ts-sfo-3")
+				delete(peers, "ts-sjc-3")
 			}
 			if failure == "missing-ipv6" {
-				peer := peers["ts-sfo-3"]
+				peer := peers["ts-sjc-3"]
 				peer.IPv6 = ""
-				peers["ts-sfo-3"] = peer
+				peers["ts-sjc-3"] = peer
 			}
-			tokens := map[string]string{"gru": "gru-secret", "sfo": "sfo-secret"}
+			tokens := map[string]string{"gru": "gru-secret", "sjc": "sjc-secret"}
 			calls := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
 				region := "gru"
-				if strings.Contains(r.Host, "sfo") || strings.Contains(r.Host, "10.200.1.") {
-					region = "sfo"
+				if strings.Contains(r.Host, "sjc") || strings.Contains(r.Host, "10.200.1.") {
+					region = "sjc"
 				}
 				if r.Header.Get("Authorization") != "Bearer "+tokens[region] {
 					t.Error("wrong region token at HTTP boundary")
 					w.WriteHeader(http.StatusUnauthorized)
 					return
 				}
-				if r.Host == "ts-sfo-3.nb.ts.internal:9463" && r.URL.Path == "/topology" {
+				if r.Host == "ts-sjc-3.nb.ts.internal:9463" && r.URL.Path == "/topology" {
 					if failure == "unauthorized" {
 						w.WriteHeader(http.StatusUnauthorized)
 						return
@@ -115,7 +115,7 @@ func TestFleetCheckRequiresEveryAddressEndpointAndRegionToken(t *testing.T) {
 						}
 					}
 				}
-				if parsed.Hostname() == "ts-sfo-3.nb.ts.internal" && parsed.Path == "/topology" {
+				if parsed.Hostname() == "ts-sjc-3.nb.ts.internal" && parsed.Path == "/topology" {
 					switch failure {
 					case "dns":
 						return "000", "", "", errors.New("DNS lookup failed")
@@ -267,7 +267,7 @@ func TestCurlReturnsBodyAndBoundsResponseSize(t *testing.T) {
 	}
 	var out bytes.Buffer
 	err = check(t.Context(), &out, map[string]sshlogin.PeerAddress{"ts-gru-1": {IP: "10.200.0.1"}},
-		map[string]string{"gru": "secret", "sfo": "secret"}, 5*time.Second, getLarge)
+		map[string]string{"gru": "secret", "sjc": "secret"}, 5*time.Second, getLarge)
 	if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 63 ||
 		!strings.Contains(out.String(), "FAIL dashboard response exceeds 2 MiB") || strings.Contains(out.String(), "secret") {
 		t.Fatalf("oversized response diagnostic: %v; output: %s", err, &out)

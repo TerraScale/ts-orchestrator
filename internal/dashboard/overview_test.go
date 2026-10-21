@@ -75,14 +75,14 @@ func overviewRollup(cell string, observed time.Time, peers []string) globalview.
 
 func TestGlobalMapPlacesKnownRegionsOnly(t *testing.T) {
 	t.Parallel()
-	gru := overviewRollup("gru", testNow, []string{"sfo", "lab"})
+	gru := overviewRollup("gru", testNow, []string{"sjc", "lab"})
 	gru.Links[0].RTTMillis = floatPtr(45)
 	gru.Links[0].LagSeconds = floatPtr(2)
-	sfo := overviewRollup("sfo", testNow, nil)
-	sfo.Links = nil
+	sjc := overviewRollup("sjc", testNow, nil)
+	sjc.Links = nil
 	lab := overviewRollup("lab", testNow, nil)
 	current := view{Now: testNow, Local: &observability.MemberSnapshot{Cell: "gru"}, Global: []globalview.Region{
-		{Cell: "gru", Rollup: &gru}, {Cell: "sfo", Rollup: &sfo}, {Cell: "lab", Rollup: &lab}}}
+		{Cell: "gru", Rollup: &gru}, {Cell: "sjc", Rollup: &sjc}, {Cell: "lab", Rollup: &lab}}}
 	var spec mapSpec
 	if err := json.Unmarshal([]byte(pageMapJSON(t, fixturePage(t, current, "/"))), &spec); err != nil {
 		t.Fatal(err)
@@ -90,22 +90,22 @@ func TestGlobalMapPlacesKnownRegionsOnly(t *testing.T) {
 	if len(spec.Regions) != 2 || spec.Regions[0].ID != "gru" || !spec.Regions[0].Current || spec.Regions[0].Href != "/regions/gru" {
 		t.Fatalf("placed regions = %+v", spec.Regions)
 	}
-	if len(spec.Links) != 1 || spec.Links[0].Label != "GRU → SFO 45 ms, lag 2 s" || spec.Links[0].State != "ok" {
+	if len(spec.Links) != 1 || spec.Links[0].Label != "GRU → SJC 45 ms, lag 2 s" || spec.Links[0].State != "ok" {
 		t.Fatalf("links = %+v", spec.Links)
 	}
 }
 
 func TestGlobalMapWorseDirectionWins(t *testing.T) {
 	t.Parallel()
-	gru := overviewRollup("gru", testNow, []string{"sfo"})
-	sfo := overviewRollup("sfo", testNow, nil)
-	sfo.Links = []globalview.Link{{Region: "gru", Reach: "error", Error: "tls handshake failed"}}
-	current := view{Now: testNow, Global: []globalview.Region{{Cell: "gru", Rollup: &gru}, {Cell: "sfo", Rollup: &sfo}}}
+	gru := overviewRollup("gru", testNow, []string{"sjc"})
+	sjc := overviewRollup("sjc", testNow, nil)
+	sjc.Links = []globalview.Link{{Region: "gru", Reach: "error", Error: "tls handshake failed"}}
+	current := view{Now: testNow, Global: []globalview.Region{{Cell: "gru", Rollup: &gru}, {Cell: "sjc", Rollup: &sjc}}}
 	var spec mapSpec
 	if err := json.Unmarshal([]byte(pageMapJSON(t, fixturePage(t, current, "/"))), &spec); err != nil {
 		t.Fatal(err)
 	}
-	if len(spec.Links) != 1 || spec.Links[0].Label != "SFO → GRU tls handshake failed" || spec.Links[0].State != "bad" {
+	if len(spec.Links) != 1 || spec.Links[0].Label != "SJC → GRU tls handshake failed" || spec.Links[0].State != "bad" {
 		t.Fatalf("links = %+v", spec.Links)
 	}
 }
@@ -121,7 +121,7 @@ func neverLocal(t *testing.T) func(context.Context) regionview.Summary {
 func TestOverviewNeverAsksRegions(t *testing.T) {
 	t.Parallel()
 	rollup := overviewRollup("gru", testNow, nil)
-	global := globalview.NewView("gru", func() []string { return []string{"sfo"} }, func() time.Time { return testNow })
+	global := globalview.NewView("gru", func() []string { return []string{"sjc"} }, func() time.Time { return testNow })
 	global.Accept(rollup)
 	dashboard := newTestDashboard(Options{Snapshots: fixedSnapshots{snapshot: memberSnapshot()},
 		Journal: &Journal{Local: neverLocal(t), Global: global}})
@@ -135,7 +135,7 @@ func TestOverviewNeverAsksRegions(t *testing.T) {
 }
 
 // budgetCells are the twenty regions of the budget fixture, local gru first.
-var budgetCells = strings.Fields("gru sfo fra lhr nrt iad phx ams cdg mad mil zrh arn sin bom syd mel icn yyz jnb")
+var budgetCells = strings.Fields("gru sjc fra lhr nrt iad phx ams cdg mad mil zrh arn sin bom syd mel icn yyz jnb")
 
 // twentyRegionView is the TS-805 budget fixture: local gru and nineteen peers,
 // each with a full rollup. mel is stale.
@@ -286,15 +286,15 @@ func TestOverviewBudgetTwentyRegions(t *testing.T) {
 
 func TestOverviewHTTPPreservesRegionalEvidence(t *testing.T) {
 	t.Parallel()
-	gru := overviewRollup("gru", testNow, []string{"sfo"})
+	gru := overviewRollup("gru", testNow, []string{"sjc"})
 	gru.Health = globalview.Health{Status: globalview.Degraded, Reasons: []string{"disk 90%", "lag"}}
 	gru.Cost = &globalview.Cost{Currency: "USD", PerHour: 2, MonthForecast: 1000}
 	gru.Totals = globalview.Totals{Nodes: 2, Ready: 1, CPUCores: 4, CPUUsedCores: 1.5}
 	gru.Scale = &nodescale.Status{Nodes: 12, Want: 14, Action: nodescale.Up, Reason: "cpu above target", InFlight: &nodescale.InFlight{Kind: nodescale.Up}}
-	stale := overviewRollup("sfo", testNow.Add(-time.Minute), nil)
+	stale := overviewRollup("sjc", testNow.Add(-time.Minute), nil)
 	stale.Databases = []globalview.Database{{ID: "stale-database", ReplicationBytesPerSecond: 1 << 50}}
 	stale.Errors = []globalview.Error{{At: testNow, Level: "ERROR", Message: "stale-error"}}
-	current := view{Now: testNow, Global: []globalview.Region{{Cell: "gru", Rollup: &gru}, {Cell: "sfo", Rollup: &stale, Stale: true}, {Cell: "fra"}}}
+	current := view{Now: testNow, Global: []globalview.Region{{Cell: "gru", Rollup: &gru}, {Cell: "sjc", Rollup: &stale, Stale: true}, {Cell: "fra"}}}
 	body := fixturePage(t, current, "/")
 	for _, want := range []string{"1 stale · 1 no data", "2.00 USD", "1 of 1 fresh regions report cost", "disk 90%; lag", "stale · last seen", "no data", "12 → 14", "cpu above target", "Scaling", "40 ms, lag 2 s"} {
 		if !strings.Contains(body, want) {
@@ -319,7 +319,7 @@ func TestOverviewHTTPShowsDatabaseAndErrorFields(t *testing.T) {
 	t.Parallel()
 	gru := overviewRollup("gru", testNow, nil)
 	gru.Databases = []globalview.Database{{ID: "01HZDB4Q7MXYABCDEFGHJKMNPQ", Project: "01HZPRJ0000000000000000000", ReplicationBytesPerSecond: 3072, SentBytesPerSecond: 2048, ReceivedBytesPerSecond: 1024, StorageBytes: 3 << 30, ReadsPerSecond: 12.5, WritesPerSecond: 2, LagSeconds: 1.5,
-		Peers: []globalview.DatabasePeer{{Region: "sfo", SentBytesPerSecond: 2048, ReceivedBytesPerSecond: 1024}, {Region: "lhr", SentBytesPerSecond: 1024}, {Region: "gru", SentBytesPerSecond: 1024}, {Region: "nrt", SentBytesPerSecond: 1024}}}}
+		Peers: []globalview.DatabasePeer{{Region: "sjc", SentBytesPerSecond: 2048, ReceivedBytesPerSecond: 1024}, {Region: "lhr", SentBytesPerSecond: 1024}, {Region: "gru", SentBytesPerSecond: 1024}, {Region: "nrt", SentBytesPerSecond: 1024}}}}
 	gru.Errors = []globalview.Error{{At: testNow, Level: "WARN", Service: "terrabase", Component: "wan", Message: "lag rising", Count: 7, Nodes: []string{"gru-n01", "gru-n02"}}, {At: testNow.Add(-time.Minute), Level: "ERROR", Message: "boom", Count: 1}}
 	body := fixturePage(t, view{Global: []globalview.Region{{Cell: "gru", Rollup: &gru}}}, "/")
 	for _, want := range []string{"01HZDB4Q7MXY", "01HZDB4Q7MXYABCDEFGHJKMNPQ", "01HZPRJ00000", "2.0 KiB/s", "1.0 KiB/s", "3.0 GiB", "12.5 / 2", "1.5 s", "WARN", "ERROR", "lag rising", "boom", "gru-n01, gru-n02", "NRT 1.0 KiB/s"} {

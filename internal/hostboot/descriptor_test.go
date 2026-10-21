@@ -116,7 +116,7 @@ func TestDescriptorRejectsInvalidBindingsAndSecretLikeValues(t *testing.T) {
 		mutate func(*Descriptor)
 	}{
 		{name: "schema", mutate: func(descriptor *Descriptor) { descriptor.SchemaVersion++ }},
-		{name: "cell region mismatch", mutate: func(descriptor *Descriptor) { descriptor.Cell = "sfo" }},
+		{name: "cell region mismatch", mutate: func(descriptor *Descriptor) { descriptor.Cell = "sjc" }},
 		{name: "unknown region", mutate: func(descriptor *Descriptor) { descriptor.Region = "XXX" }},
 		{name: "node", mutate: func(descriptor *Descriptor) { descriptor.Node = "https://host.invalid" }},
 		{name: "owner", mutate: func(descriptor *Descriptor) { descriptor.Owner = "private key" }},
@@ -186,7 +186,7 @@ func TestStaticDescriptorNamesOnlyACellDatabaseOrControllerServer(t *testing.T) 
 	if controller := Static("gru", "GRU", "gru-1-ctl-1"); controller.Validate() != nil || !controller.IsController() {
 		t.Fatalf("controller descriptor %+v is refused or not a controller", controller)
 	}
-	if node := Static("sfo", "SFO", "ts-sfo-2"); node.Validate() != nil || !node.IsController() {
+	if node := Static("sjc", "SJC", "ts-sjc-2"); node.Validate() != nil || !node.IsController() {
 		t.Fatalf("node descriptor %+v is refused or not a controller", node)
 	}
 	if pool := Static("gru", "GRU", "gru-1-pool-app-3"); pool.Validate() != nil || pool.IsController() {
@@ -196,10 +196,10 @@ func TestStaticDescriptorNamesOnlyACellDatabaseOrControllerServer(t *testing.T) 
 	withOwner.Owner = "terrascale"
 	for _, candidate := range []Descriptor{
 		Static("gru", "GRU", "gru-1-ctl-1-data"), Static("gru", "GRU", "gru-1-gw-1"), Static("gru", "GRU", "gru-1-db-1-data"),
-		Static("gru", "GRU", "sfo-1-db-1"), Static("gru", "GRU", "gru-2-db-1"),
-		Static("sfo", "GRU", "gru-1-db-1"), Static("gru", "GRU", "host-0123456789abcdef01234567"), withOwner,
-		Static("gru", "GRU", "gru-1-pool-app"), Static("gru", "GRU", "sfo-1-pool-app-1"), Static("gru", "GRU", "gru-1-pool-app-0"),
-		Static("sfo", "SFO", "ts-gru-1"), Static("sfo", "SFO", "ts-sfo-1-data"), Static("sfo", "SFO", "ts-sfo-0"),
+		Static("gru", "GRU", "sjc-1-db-1"), Static("gru", "GRU", "gru-2-db-1"),
+		Static("sjc", "GRU", "gru-1-db-1"), Static("gru", "GRU", "host-0123456789abcdef01234567"), withOwner,
+		Static("gru", "GRU", "gru-1-pool-app"), Static("gru", "GRU", "sjc-1-pool-app-1"), Static("gru", "GRU", "gru-1-pool-app-0"),
+		Static("sjc", "SJC", "ts-gru-1"), Static("sjc", "SJC", "ts-sjc-1-data"), Static("sjc", "SJC", "ts-sjc-0"),
 	} {
 		if err := candidate.Validate(); err == nil {
 			t.Fatalf("accepted static descriptor %+v", candidate)

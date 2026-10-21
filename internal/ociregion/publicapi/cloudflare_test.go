@@ -277,8 +277,8 @@ func TestEdgeStepsKeepEachCellsStrictRule(t *testing.T) {
 	f, cloudflare := newFakeCloudflare(t)
 	address := netip.MustParseAddr("203.0.113.10")
 	cells := map[string][]string{"gru-1": {"gru.api.terrascale.tech", "gru.auth.terrascale.tech"},
-		"sfo-1": {"sfo.api.terrascale.tech", "sfo.auth.terrascale.tech", "sfo.orch.terrascale.tech"}}
-	for _, cell := range []string{"gru-1", "sfo-1"} {
+		"sjc-1": {"sjc.api.terrascale.tech", "sjc.auth.terrascale.tech", "sjc.orch.terrascale.tech"}}
+	for _, cell := range []string{"gru-1", "sjc-1"} {
 		steps, err := cloudflare.edgeSteps(t.Context(), cells[cell], address, cell, testOriginPull(t))
 		if err != nil || run(t.Context(), steps, true, io.Discard) != nil {
 			t.Fatal(cell, err)

@@ -264,20 +264,20 @@ func TestFederationAcrossRegions(t *testing.T) {
 	defer cancel()
 	base := time.Now().Add(-time.Minute).UTC()
 	local := NewJournal(JournalConfig{Region: "gru", Member: "gru-1"})
-	remote := NewJournal(JournalConfig{Region: "sfo", Member: "sfo-1"})
+	remote := NewJournal(JournalConfig{Region: "sjc", Member: "sjc-1"})
 	local.Record(ctx, Decision{Kind: KindHeld, Time: base, Actor: Actor{Slice: "placement"}})
 	remoteID := remote.Record(ctx, Decision{Kind: KindScaleUp, Time: base.Add(time.Second),
 		Actor: Actor{Slice: "autoscale"}})
 	// A misbehaving responder must not answer for another region.
 	remote.Ingest(Decision{ID: "0000000000RPYNQGXVXJSC20CX", Region: "gru", Kind: KindRollback, Time: base}.Normalize(base))
-	if _, err := ServeQueries(ctx, conn, "sfo", remote); err != nil {
+	if _, err := ServeQueries(ctx, conn, "sjc", remote); err != nil {
 		t.Fatal(err)
 	}
-	links, err := regionlink.New("GRU", conn, []string{"GRU", "SFO", "FRA", "MIA"}, time.Second)
+	links, err := regionlink.New("GRU", conn, []string{"GRU", "SJC", "FRA", "MIA"}, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := links.Link("sfo", conn); err != nil {
+	if err := links.Link("sjc", conn); err != nil {
 		t.Fatal(err)
 	}
 	if err := links.Link("mia", conn); err != nil { // linked but nobody answers
@@ -288,21 +288,21 @@ func TestFederationAcrossRegions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Decisions) != 2 || result.Decisions[0].Region != "sfo" || result.Decisions[1].Region != "gru" {
+	if len(result.Decisions) != 2 || result.Decisions[0].Region != "sjc" || result.Decisions[1].Region != "gru" {
 		t.Fatalf("decisions = %+v", result.Decisions)
 	}
 	states := map[string]string{}
 	for _, status := range result.Regions {
 		states[status.Region] = status.State
 	}
-	if states["gru"] != RegionOK || states["sfo"] != RegionOK || states["fra"] != RegionNotLinked ||
+	if states["gru"] != RegionOK || states["sjc"] != RegionOK || states["fra"] != RegionNotLinked ||
 		states["mia"] != RegionUnreachable {
 		t.Fatalf("states = %v", states)
 	}
 	if !result.Partial {
 		t.Fatal("an unreachable region must mark the result partial")
 	}
-	filtered, _ := federation.Query(ctx, Query{Regions: []string{"SFO"}, Actors: []string{"autoscale"}})
+	filtered, _ := federation.Query(ctx, Query{Regions: []string{"SJC"}, Actors: []string{"autoscale"}})
 	if len(filtered.Decisions) != 1 || len(filtered.Regions) != 1 {
 		t.Fatalf("filtered = %+v", filtered)
 	}
@@ -367,16 +367,16 @@ func TestFederatedChainSearchesPastAnUnavailableLocalJournal(t *testing.T) {
 	defer cancel()
 	local := NewJournal(JournalConfig{Region: "gru", Member: "gru-1"})
 	local.beginReplay()
-	remote := NewJournal(JournalConfig{Region: "sfo", Member: "sfo-1"})
+	remote := NewJournal(JournalConfig{Region: "sjc", Member: "sjc-1"})
 	remoteID := remote.Record(ctx, Decision{Kind: KindScaleUp, Actor: Actor{Slice: "autoscale"}})
-	if _, err := ServeQueries(ctx, conn, "sfo", remote); err != nil {
+	if _, err := ServeQueries(ctx, conn, "sjc", remote); err != nil {
 		t.Fatal(err)
 	}
-	links, err := regionlink.New("GRU", conn, []string{"GRU", "SFO"}, time.Second)
+	links, err := regionlink.New("GRU", conn, []string{"GRU", "SJC"}, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := links.Link("sfo", conn); err != nil {
+	if err := links.Link("sjc", conn); err != nil {
 		t.Fatal(err)
 	}
 	federation := Federation{Local: local, Links: links}
@@ -397,7 +397,7 @@ func TestFederatedChainSearchesPastAnUnavailableLocalJournal(t *testing.T) {
 func TestFederatedChainMissWithUnlinkedRegionIsUnavailable(t *testing.T) {
 	conn := startJetStream(t)
 	local := NewJournal(JournalConfig{Region: "gru", Member: "gru-1"})
-	links, err := regionlink.New("GRU", conn, []string{"GRU", "SFO"}, time.Second)
+	links, err := regionlink.New("GRU", conn, []string{"GRU", "SJC"}, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

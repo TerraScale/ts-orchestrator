@@ -187,7 +187,7 @@ func TestAdmissionRejectsServingNodesAndOtherRegions(t *testing.T) {
 		}
 		delete(instance.FreeformTags, key)
 	}
-	if admitInstance(instance, "sfo", id) == nil {
+	if admitInstance(instance, "sjc", id) == nil {
 		t.Fatal("accepted cross-region instance")
 	}
 	name = "mariogk-desktop"

@@ -216,7 +216,7 @@ func TestCheckGenerationFilesWithRoleSigner(t *testing.T) {
 			"interregion-tls-controller-a-key.pem": strangerKey},
 		"a leaf key of another slot": {
 			"interregion-tls-controller-a-key.pem": material.Files["interregion-tls-controller-b-key.pem"]},
-		"a regional user as leaf credentials": {"leaf-sfo.creds": material.Files["system.creds"]},
+		"a regional user as leaf credentials": {"leaf-sjc.creds": material.Files["system.creds"]},
 		"a config pointing at an unpinned account JWT": {"controller-controller-a.json": []byte(
 			strings.Replace(config, `secrets/interregion.jwt"`, `secrets/cell-interregion.jwt"`, 1))},
 		"a remote pinning another account": {"controller-controller-a.json": []byte(
@@ -419,9 +419,9 @@ func TestCheckGenerationFilesRefusesFutureJWTs(t *testing.T) {
 func TestCheckGenerationFilesWithLink(t *testing.T) {
 	slots := generationExpectation().ControllerSlots
 	spokeExpectation := generationExpectation()
-	spokeExpectation.Cell = "SFO"
+	spokeExpectation.Cell = "SJC"
 	home := generationtest.New(t, generationNow).WithoutIssuers(t).Link(t, generationNow, slots)
-	spoke := generationtest.NewCell(t, generationNow, "sfo").WithoutIssuers(t).Link(t, generationNow, slots)
+	spoke := generationtest.NewCell(t, generationNow, "sjc").WithoutIssuers(t).Link(t, generationNow, slots)
 	checkSpoke := func(material generationtest.Material) error {
 		_, err := bootstrapmaterial.CheckGenerationFiles(material.Generation(spokeExpectation, 1, ""), material.Read, time.Now())
 		return err

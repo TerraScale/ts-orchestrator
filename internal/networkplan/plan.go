@@ -23,7 +23,7 @@ func RegionReservation(cell string) (netip.Prefix, error) {
 	switch cell {
 	case "GRU":
 		cidr = "10.251.0.0/16"
-	case "SFO":
+	case "SJC":
 		cidr = "10.252.0.0/16"
 	case "FRA":
 		cidr = "10.253.0.0/16"

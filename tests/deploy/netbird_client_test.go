@@ -400,12 +400,12 @@ func TestGRUNetbirdInputNamesEveryCellSlotStably(t *testing.T) {
 	}
 }
 
-// sfo-1's servers enroll under their node names through the manager's public
+// sjc-1's servers enroll under their node names through the manager's public
 // address: no management_ip pins a private operator gateway, and no admin PAT
 // makes them reconcile the manager.
 func TestSFONetbirdInputNamesEveryNode(t *testing.T) {
 	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
-	path := filepath.Join(deployRoot(t), "deploy/image/inputs/netbird-sfo.json")
+	path := filepath.Join(deployRoot(t), "deploy/image/inputs/netbird-sjc.json")
 	config, err := client.ValidateConfig(path)
 	if err != nil {
 		t.Fatal(err)
@@ -417,10 +417,10 @@ func TestSFONetbirdInputNamesEveryNode(t *testing.T) {
 			PrivateIP string `json:"private_ip"`
 		} `json:"hosts"`
 	}
-	if err := json.Unmarshal(read(t, filepath.Join(deployRoot(t), "deploy/oci-region/sfo-1-plan.json")), &plan); err != nil {
+	if err := json.Unmarshal(read(t, filepath.Join(deployRoot(t), "deploy/oci-region/sjc-1-plan.json")), &plan); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"controller-a": "ts-sfo-1", "controller-b": "ts-sfo-2", "controller-c": "ts-sfo-3"}
+	want := map[string]string{"controller-a": "ts-sjc-1", "controller-b": "ts-sjc-2", "controller-c": "ts-sjc-3"}
 	if config.Region != plan.Region || config.ManagementIP != "" || config.AdminPATSecretID != "" ||
 		len(plan.Hosts) != len(want) || len(config.PeerNames) != len(want) {
 		t.Fatalf("config %+v, plan %+v", config, plan)

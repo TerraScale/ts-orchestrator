@@ -173,7 +173,7 @@ func TestControllerCredentialsRequireScopedTerminalSubscription(t *testing.T) {
 			t.Fatal("controller credentials without backup operation subscription accepted")
 		}
 	})
-	for _, extra := range []string{"ts.orch.v1.sfo.backup.operation", "ts.orch.v1.gru.backup.>"} {
+	for _, extra := range []string{"ts.orch.v1.sjc.backup.operation", "ts.orch.v1.gru.backup.>"} {
 		t.Run("extra "+extra, func(t *testing.T) {
 			controller.Sub.Allow = append(slices.Clone(original), extra)
 			writeControllerPreflightCredentials(t, filepath.Dir(cfg.CredentialsFile), controller, cellKey, controllerUser)
@@ -224,7 +224,7 @@ func TestOperatorCredentialsRequireExactTerminalPublishes(t *testing.T) {
 			}
 		})
 	}
-	for _, unscoped := range []string{"ts.orch.v1.gru.backup.>", "ts.orch.v1.sfo.backup.operation", "ts.orch.v1.gru.terminal.>", "ts.orch.v1.gru.>", "ts.orch.v1.gru.terminal.delete"} {
+	for _, unscoped := range []string{"ts.orch.v1.gru.backup.>", "ts.orch.v1.sjc.backup.operation", "ts.orch.v1.gru.terminal.>", "ts.orch.v1.gru.>", "ts.orch.v1.gru.terminal.delete"} {
 		t.Run(unscoped, func(t *testing.T) {
 			allowed := append(slices.Clone(claim.Pub.Allow), unscoped)
 			testJWTUserCredentialsWithKey(t, root, "operator.creds", cellKey, cellID,

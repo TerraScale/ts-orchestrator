@@ -496,7 +496,7 @@ func TestToastLinksTheRegionScopedInsight(t *testing.T) {
 	server := newStreamServer(t, board)
 	reader, _ := openStream(t, server, "/insights/stream?r=fra")
 	reader.next()
-	insight := testInsight("oci:x", "OCI errors", insights.SeverityWarning, "sfo")
+	insight := testInsight("oci:x", "OCI errors", insights.SeverityWarning, "sjc")
 	source.push(insights.Change{Time: testNow.Add(time.Second), Type: insights.ChangeOpened, Insight: insight})
 	_, body := reader.next()
 	if !strings.Contains(body, "id="+insight.Key) || !strings.Contains(body, "region=all") || !strings.Contains(body, "#insight-"+insight.Key) {

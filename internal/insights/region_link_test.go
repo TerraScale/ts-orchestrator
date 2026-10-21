@@ -12,7 +12,7 @@ import (
 func TestRegionWANFailurePersistsAndRecovers(t *testing.T) {
 	now := time.Now().UTC()
 	inputs := &Inputs{Now: now, Thresholds: (Thresholds{}).withDefaults(),
-		Reachability: []RegionReach{{Region: "sfo", State: decisionlog.RegionOK, WAN: "failed", Detail: "WAN has conflicts"}},
+		Reachability: []RegionReach{{Region: "sjc", State: decisionlog.RegionOK, WAN: "failed", Detail: "WAN has conflicts"}},
 		conditions:   map[string]time.Time{}, touched: map[string]struct{}{}}
 	if got := regionUnreachable(inputs); len(got) != 0 {
 		t.Fatal("WAN insight skipped its persistence window")
@@ -32,13 +32,13 @@ func TestRegionWANFailurePersistsAndRecovers(t *testing.T) {
 func TestRegionWANTransientStatesDoNotRaiseCriticalInsights(t *testing.T) {
 	now := time.Now().UTC()
 	for _, reach := range []RegionReach{
-		{Region: "sfo", State: decisionlog.RegionOK, WAN: "unknown"},
-		{Region: "sfo", State: decisionlog.RegionOK, WAN: "catching_up"},
-		{Region: "sfo", State: decisionlog.RegionOK, WAN: "ok"},
-		{Region: "sfo", State: decisionlog.RegionNotLinked, WAN: "failed"},
+		{Region: "sjc", State: decisionlog.RegionOK, WAN: "unknown"},
+		{Region: "sjc", State: decisionlog.RegionOK, WAN: "catching_up"},
+		{Region: "sjc", State: decisionlog.RegionOK, WAN: "ok"},
+		{Region: "sjc", State: decisionlog.RegionNotLinked, WAN: "failed"},
 	} {
 		inputs := &Inputs{Now: now, Thresholds: (Thresholds{}).withDefaults(), Reachability: []RegionReach{reach},
-			conditions: map[string]time.Time{"region:sfo": now.Add(-10 * time.Minute), "region-wan:sfo": now.Add(-10 * time.Minute)},
+			conditions: map[string]time.Time{"region:sjc": now.Add(-10 * time.Minute), "region-wan:sjc": now.Add(-10 * time.Minute)},
 			touched:    map[string]struct{}{}}
 		if got := regionUnreachable(inputs); len(got) != 0 {
 			t.Fatalf("unobserved or normal replication became critical: %+v => %+v", reach, got)
@@ -51,8 +51,8 @@ type regionLinkInsightSource []RegionReach
 func (source regionLinkInsightSource) Reachability(context.Context) []RegionReach { return source }
 
 func TestRegionFailureTimersTrackCurrentCause(t *testing.T) {
-	unreachable := RegionReach{Region: "sfo", State: decisionlog.RegionUnreachable}
-	wanFailed := RegionReach{Region: "sfo", State: decisionlog.RegionOK, WAN: "failed", Detail: "WAN has conflicts"}
+	unreachable := RegionReach{Region: "sjc", State: decisionlog.RegionUnreachable}
+	wanFailed := RegionReach{Region: "sjc", State: decisionlog.RegionOK, WAN: "failed", Detail: "WAN has conflicts"}
 	for _, first := range []RegionReach{unreachable, wanFailed} {
 		t.Run(first.State, func(t *testing.T) {
 			now := time.Now().UTC()

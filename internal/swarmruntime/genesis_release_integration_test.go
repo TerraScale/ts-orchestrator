@@ -319,7 +319,7 @@ func newGenesisFloorAuthority(t *testing.T) genesisFloorAuthority {
 	installation := entityid.Derive("genesis-floor-installation")
 	var origins []release.WorkloadGenesis
 	var regions, authorities []any
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		deployment, cluster := entityid.Derive("genesis-floor-deployment", cell), entityid.Derive("genesis-floor-cluster", cell)
 		regions = append(regions, map[string]any{"plan": map[string]any{"cell": cell}, "bootstrapMaterial": map[string]any{"installationId": installation,
 			"config": map[string]any{"deploymentId": deployment, "clusterId": cluster, "cell": strings.ToLower(cell), "environment": "production"}}})
@@ -338,7 +338,7 @@ func newGenesisFloorAuthority(t *testing.T) genesisFloorAuthority {
 			t.Fatal(err)
 		}
 		delegation := trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: base64.RawURLEncoding.EncodeToString(public)}
-		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, cell := range []string{"GRU", "SJC", "FRA"} {
 			scope := release.ContainerScope(release.ContainerTarget{Cell: cell, Environment: "production", Role: role, Architecture: "arm64"})
 			delegation.Capabilities = append(delegation.Capabilities, trust.Capability{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: cell,
 				Environment: "production", Role: role, Slots: []string{"linux-amd64", "linux-arm64"}, Actions: []string{"sign"}})
@@ -351,7 +351,7 @@ func newGenesisFloorAuthority(t *testing.T) genesisFloorAuthority {
 		if err != nil {
 			t.Fatal(err)
 		}
-		authorities = append(authorities, map[string]any{"role": role, "environment": "production", "cells": []string{"GRU", "SFO", "FRA"}, "architectures": []string{"amd64", "arm64"}, "delegationWire": wire})
+		authorities = append(authorities, map[string]any{"role": role, "environment": "production", "cells": []string{"GRU", "SJC", "FRA"}, "architectures": []string{"amd64", "arm64"}, "delegationWire": wire})
 		if role == "function-worker" {
 			f.signer, f.delegation = key, signed
 		}

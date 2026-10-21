@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	sfo  = "us-sanjose-1"
+	sjc  = "us-sanjose-1"
 	home = "sa-saopaulo-1"
 )
 
@@ -311,7 +311,7 @@ func kebab(v any) any {
 
 func loadPlan(t *testing.T) Object {
 	t.Helper()
-	plan, err := ociregion.LoadPlan(filepath.Join("..", "..", "..", "deploy", "oci-region", "sfo-1-plan.json"))
+	plan, err := ociregion.LoadPlan(filepath.Join("..", "..", "..", "deploy", "oci-region", "sjc-1-plan.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func run(t *testing.T, f *fakeOCI, apply bool, out string, plans ...Object) (str
 		plan = plans[0]
 	}
 	var log bytes.Buffer
-	foundation := &Foundation{Region: client{f, sfo}, Home: client{f, home}, Apply: apply, Out: &log,
+	foundation := &Foundation{Region: client{f, sjc}, Home: client{f, home}, Apply: apply, Out: &log,
 		BeforeWrite: allowWrite, Guard: allowGuard, Checkpoint: func(context.Context, string, string) error { return nil },
 		CheckpointAuxiliary: func(context.Context, string, string) error { return nil },
 		Pause:               func(context.Context, time.Duration) error { return nil },
@@ -339,7 +339,7 @@ func run(t *testing.T, f *fakeOCI, apply bool, out string, plans ...Object) (str
 	return log.String(), err
 }
 
-// creates are the writes a first apply of sfo-1's plan makes, each once.
+// creates are the writes a first apply of sjc-1's plan makes, each once.
 var creates = []string{
 	"iam compartment create", "iam compartment create", "iam compartment create",
 	"network vcn create", "network service-gateway create", "network route-table create", "network security-list create",
@@ -370,8 +370,8 @@ func TestDryRunMakesNoWrite(t *testing.T) {
 	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("dry run wrote the bound plan: %v", err)
 	}
-	for _, want := range []string{"plan: create compartment sfo-1-control", "plan: create VCN sfo-1-vcn", "plan: create HSM key sfo-1-key",
-		"plan: create policy sfo-1-netbird-enrollment", "plan: create retention rule ledger-retention on bucket sfo-1-ledger",
+	for _, want := range []string{"plan: create compartment sjc-1-control", "plan: create VCN sjc-1-vcn", "plan: create HSM key sjc-1-key",
+		"plan: create policy sjc-1-netbird-enrollment", "plan: create retention rule ledger-retention on bucket sjc-1-ledger",
 		fmt.Sprintf("%d changes planned", len(creates))} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("dry run output lacks %q:\n%s", want, log)
@@ -408,13 +408,13 @@ func TestApplyCreatesEveryResourceOnceAndUncheckpointedRerunIsRefused(t *testing
 			t.Fatalf("bound plan lacks %s: %v", key, bound["resource_ids"])
 		}
 	}
-	netbird := f.find("policy", home, func(o Object) bool { return o["name"] == "sfo-1-netbird-enrollment" })
-	if len(netbird) != 1 || !strings.Contains(fmt.Sprint(netbird[0].data["statements"]), "target.secret.name = 'sfo-1-netbird-setup-key'") {
+	netbird := f.find("policy", home, func(o Object) bool { return o["name"] == "sjc-1-netbird-enrollment" })
+	if len(netbird) != 1 || !strings.Contains(fmt.Sprint(netbird[0].data["statements"]), "target.secret.name = 'sjc-1-netbird-setup-key'") {
 		t.Fatalf("NetBird enrollment policy: %v", netbird)
 	}
-	usage := f.find("policy", home, func(o Object) bool { return o["name"] == "sfo-1-controller-usage" })
+	usage := f.find("policy", home, func(o Object) bool { return o["name"] == "sjc-1-controller-usage" })
 	if len(usage) != 1 || usage[0].data["compartment-id"] != loadPlan(t)["tenancy_id"] ||
-		!slices.Equal(clone(usage[0].data["statements"]).([]any), []any{"Allow dynamic-group sfo-1-controllers to read usage-report in tenancy"}) {
+		!slices.Equal(clone(usage[0].data["statements"]).([]any), []any{"Allow dynamic-group sjc-1-controllers to read usage-report in tenancy"}) {
 		t.Fatalf("usage policy is not a tenancy-root statement for the controllers: %v", usage)
 	}
 	before, _ := os.ReadFile(out)
@@ -438,7 +438,7 @@ func TestIAMWritesGoToTheHomeRegion(t *testing.T) {
 	}
 	for _, w := range f.writes {
 		region, path, _ := strings.Cut(w, " ")
-		if want := map[bool]string{true: home, false: sfo}[strings.HasPrefix(path, "iam ")]; region != want {
+		if want := map[bool]string{true: home, false: sjc}[strings.HasPrefix(path, "iam ")]; region != want {
 			t.Fatalf("%s went to %s, want %s", path, region, want)
 		}
 	}
@@ -472,9 +472,9 @@ func TestDifferingResourcesAreRefusedNotAdopted(t *testing.T) {
 	parent := plan["parent_compartment_id"]
 	seed := func(f *fakeOCI) string {
 		var network string
-		for _, name := range []string{"sfo-1-control", "sfo-1-network", "sfo-1-workload"} {
-			id := f.add("compartment", "", Object{"name": name, "compartment-id": parent, "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sfo-1"}})
-			if name == "sfo-1-network" {
+		for _, name := range []string{"sjc-1-control", "sjc-1-network", "sjc-1-workload"} {
+			id := f.add("compartment", "", Object{"name": name, "compartment-id": parent, "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sjc-1"}})
+			if name == "sjc-1-network" {
 				network = id
 			}
 		}
@@ -485,15 +485,15 @@ func TestDifferingResourcesAreRefusedNotAdopted(t *testing.T) {
 		want  string
 	}{
 		"VCN with another CIDR": {func(f *fakeOCI) {
-			f.add("vcn", sfo, Object{"display-name": "sfo-1-vcn", "compartment-id": seed(f), "cidr-block": "10.9.0.0/24", "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sfo-1"}})
-		}, "VCN sfo-1-vcn exists but differs from the plan"},
+			f.add("vcn", sjc, Object{"display-name": "sjc-1-vcn", "compartment-id": seed(f), "cidr-block": "10.9.0.0/24", "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sjc-1"}})
+		}, "VCN sjc-1-vcn exists but differs from the plan"},
 		"bucket in another compartment": {func(f *fakeOCI) {
 			seed(f)
-			f.add("bucket", sfo, Object{"name": "sfo-1-ledger", "compartment-id": "ocid1.compartment.oc1..elsewhere"})
-		}, "create bucket sfo-1-ledger: 409 BucketAlreadyExists"},
+			f.add("bucket", sjc, Object{"name": "sjc-1-ledger", "compartment-id": "ocid1.compartment.oc1..elsewhere"})
+		}, "create bucket sjc-1-ledger: 409 BucketAlreadyExists"},
 		"dynamic group matching other instances": {func(f *fakeOCI) {
-			f.add("dynamic-group", "", Object{"name": "sfo-1-controllers", "compartment-id": plan["tenancy_id"], "matching-rule": "ANY {instance.compartment.id = 'x'}", "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sfo-1"}})
-		}, "dynamic group sfo-1-controllers exists but differs from the plan"},
+			f.add("dynamic-group", "", Object{"name": "sjc-1-controllers", "compartment-id": plan["tenancy_id"], "matching-rule": "ANY {instance.compartment.id = 'x'}", "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sjc-1"}})
+		}, "dynamic group sjc-1-controllers exists but differs from the plan"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFake()
@@ -502,7 +502,7 @@ func TestDifferingResourcesAreRefusedNotAdopted(t *testing.T) {
 			// These fixture IDs stand for an authenticated journal; tags alone
 			// cannot move the shape-validation scenarios past discovery.
 			for id, row := range f.rows {
-				key := map[string]string{"sfo-1-control": "control_compartment", "sfo-1-network": "network_compartment", "sfo-1-workload": "workload_compartment", "sfo-1-vcn": "vcn", "sfo-1-controllers": "controller_dynamic_group"}[text(row.data["name"])]
+				key := map[string]string{"sjc-1-control": "control_compartment", "sjc-1-network": "network_compartment", "sjc-1-workload": "workload_compartment", "sjc-1-vcn": "vcn", "sjc-1-controllers": "controller_dynamic_group"}[text(row.data["name"])]
 				if row.kind == "vcn" {
 					key = "vcn"
 				}

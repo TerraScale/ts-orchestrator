@@ -739,7 +739,7 @@ func TestIdentityResetCompletionRequiresItsCommittedBarrierAndCompletion(t *test
 		}
 	}
 	// An unrelated append cannot masquerade as this operation's completion.
-	if _, err := f.js.Publish(t.Context(), controlSubjectRoot+".sfo.lease", []byte("another scope")); err != nil {
+	if _, err := f.js.Publish(t.Context(), controlSubjectRoot+".sjc.lease", []byte("another scope")); err != nil {
 		t.Fatal(err)
 	}
 	wire, err := identityResetLease(f.reset, "")

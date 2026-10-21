@@ -109,7 +109,7 @@ A member without a grant still enrolls through the TerraBase profile.
 `controller` (optional, binary level 17) names the controller slot, such as
 `controller-a`, whose VM the host is, once the node no longer carries the
 slot's NATS server name. Without it the slot's VM is the node of that name
-(`gru-1-ctl-1` for controller-a in GRU, `ts-sfo-1` in SFO). Rollouts, their
+(`gru-1-ctl-1` for controller-a in GRU, `ts-sjc-1` in SJC). Rollouts, their
 drain and node operations find a controller's node this way. TS-609 renames
 gru-1's nodes to `ts-gru-N`: their NATS server names, certificate CNs and
 TerraBase member names stay `gru-1-ctl-N`, internal peer IDs that are not
@@ -122,7 +122,7 @@ gives a host credentials, so a root must sign it; revoking one is ordinary.
 
 Controllers run ts-auth this way. A controller VM carries no host
 descriptor, so its `host-setup` names itself after its launch slot
-(`controller-b` is `gru-1-ctl-2`, or `ts-sfo-2` in sfo-1). Grant each
+(`controller-b` is `gru-1-ctl-2`, or `ts-sjc-2` in sjc-1). Grant each
 controller its own address:
 
 ```sh
@@ -387,14 +387,14 @@ in `services`, the phase derives the profile from the attempt's bound plan
 and writes it to `services/<role>.profile.json` (ts-auth's spec to
 `services/ts-auth.service.json`), then applies it as a configured one:
 
-- **TerraBase:** `TERRABASE_REGION` the cell (`sfo-1`), peer port 9443,
+- **TerraBase:** `TERRABASE_REGION` the cell (`sjc-1`), peer port 9443,
   client port 9465, `TERRABASE_PEERS` the plan's database hosts, or in a
-  colocated cell its controller nodes (`ts-sfo-1=10.252.0.11:9443,...`), and
+  colocated cell its controller nodes (`ts-sjc-1=10.252.0.11:9443,...`), and
   the first of them as `TERRABASE_CATALOG_PRIMARY`. A cell other than the
   home cell (GRU) trusts the home ts-auth, which already serves:
   `TERRABASE_AUTH_ISSUER` `https://gru.auth.terrascale.tech/terrascale` and
   `TERRABASE_AUTH_AUDIENCE` its own API and GRU's
-  (`https://sfo.api.terrascale.tech,https://gru.api.terrascale.tech`). The
+  (`https://sjc.api.terrascale.tech,https://gru.api.terrascale.tech`). The
   home cell's issuer is its own ts-auth, which cannot be ready before
   TerraBase is, while TerraBase is not ready before it fetched the issuer's
   keys; its derived profile carries `TERRABASE_MANAGEMENT_CREDENTIAL_FILE`

@@ -290,8 +290,8 @@ func TestSubjectBuildersUseVersionedRegionalAndHashedAgentScopes(t *testing.T) {
 	if want := "ts.orch.v1.gru.query.status"; query != want {
 		t.Fatalf("QuerySubject() = %q, want %q", query, want)
 	}
-	command, err := CommandSubject("sfo", "scale-down")
-	if err != nil || command != "ts.orch.v1.sfo.command.scale-down" {
+	command, err := CommandSubject("sjc", "scale-down")
+	if err != nil || command != "ts.orch.v1.sjc.command.scale-down" {
 		t.Fatalf("CommandSubject() = %q, %v", command, err)
 	}
 	global, err := GlobalControlSubject("promote")

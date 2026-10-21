@@ -183,7 +183,7 @@ func originalCompartmentScope(ctx context.Context, authority *HomeIAMAuthority) 
 	scope = OriginalFoundationCompartments{GrantSHA256: digestSource(authority.operator.bundle.GrantWire), BundleSHA256: digestSource(bundleWire),
 		GRUIntentSHA256: record.IntentDigest, Generation: record.Generation, OperationID: record.OperationID, BornAt: record.NetBirdMaterial.BornAt,
 		UserID: authority.operator.id, Currency: grant.Currency, MonthlyLimitMinor: grant.MonthlyLimitMinor, CleanupOwner: grant.CleanupOwner}
-	for index, cell := range [3]string{"GRU", "SFO", "FRA"} {
+	for index, cell := range [3]string{"GRU", "SJC", "FRA"} {
 		var regional *FoundationIntent
 		for i := range grant.Regions {
 			if grant.Regions[i].Plan["cell"] == cell {
@@ -481,7 +481,7 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 	}
 	for index, region := range j.Regions {
 		birth := (*r.OriginalSourceProducers)[index]
-		if region.Cell != [3]string{"GRU", "SFO", "FRA"}[index] || region.OCIRegion != birth.Intent.OCIRegion || region.Generation != j.Generation ||
+		if region.Cell != [3]string{"GRU", "SJC", "FRA"}[index] || region.OCIRegion != birth.Intent.OCIRegion || region.Generation != j.Generation ||
 			region.ProducerIntentSHA256 != birth.IntentSHA256 || !validFoundationDigest(region.IntentSHA256) || region.OperationID != entityid.Derive("regional-foundation", r.TenancyID, region.Cell, fmt.Sprint(region.Generation)) ||
 			index == 0 && (region.IntentSHA256 != j.GRUIntentSHA256 || region.OperationID != j.OperationID) {
 			return ErrOriginalSourceProducerHold

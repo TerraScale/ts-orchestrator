@@ -40,7 +40,7 @@ func TestCostSnapshotThroughAuthenticatedControllerHTTP(t *testing.T) {
 			return &partial
 		case 3:
 			wrong := *view
-			wrong.Cell = "sfo"
+			wrong.Cell = "sjc"
 			return &wrong
 		default:
 			return view
@@ -103,7 +103,7 @@ func TestCostSnapshotHTTPFailoverCancellationAndRefusals(t *testing.T) {
 		case 2:
 			snapshot.SchemaVersion = 2
 		case 3:
-			snapshot.Region = "sfo"
+			snapshot.Region = "sjc"
 		case 4:
 			snapshot.ObservedAt = at.Add(time.Second)
 		case 5:

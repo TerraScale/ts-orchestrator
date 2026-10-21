@@ -118,7 +118,7 @@ func (c command) publish(args []string) error {
 	flags := flag.NewFlagSet("publish", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	path := flags.String("file", "", "release asset to publish")
-	region := flags.String("region", "", "OCI region cell: GRU, SFO, or FRA")
+	region := flags.String("region", "", "OCI region cell: GRU, SJC, or FRA")
 	namespace := flags.String("namespace", "", "Object Storage namespace")
 	bucket := flags.String("bucket", "", "pre-provisioned immutable release bucket")
 	object := flags.String("object", "", "immutable release object name")

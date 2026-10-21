@@ -31,7 +31,7 @@ func interRegionFixture(t *testing.T) (string, string, InterRegionConfig, time.T
 	if _, err := Generate(material, testConfig(), now); err != nil {
 		t.Fatal(err)
 	}
-	topology := natscell.HubAndSpoke("gru", []string{"sfo", "fra"}).WithSpokeParent("fra", "sfo")
+	topology := natscell.HubAndSpoke("gru", []string{"sjc", "fra"}).WithSpokeParent("fra", "sjc")
 	nextSecond()
 	return material, filepath.Join(root, "interregion"), InterRegionConfig{Topology: topology, ListenPort: 7422}, now
 }
@@ -54,18 +54,18 @@ func TestInterRegionMaterialMatchesTheContract(t *testing.T) {
 	for _, file := range record.Files {
 		names = append(names, file.Name)
 		// The CA key and child seeds are never published.
-		if owner := file.Name == "interregion-ca.key" || file.Name == "child-sfo.seed"; owner != (file.Purpose == "owner-only") {
+		if owner := file.Name == "interregion-ca.key" || file.Name == "child-sjc.seed"; owner != (file.Purpose == "owner-only") {
 			t.Errorf("%s has purpose %q", file.Name, file.Purpose)
 		}
 		if info, err := os.Lstat(filepath.Join(directory, file.Name)); err != nil || info.Mode().Perm() != 0o600 {
 			t.Errorf("%s is not owner-only: %v", file.Name, err)
 		}
 	}
-	if !slices.Equal(names, []string{"cell-interregion.jwt", "child-sfo.seed", "interregion-ca.key", "interregion-ca.pem",
+	if !slices.Equal(names, []string{"cell-interregion.jwt", "child-sjc.seed", "interregion-ca.key", "interregion-ca.pem",
 		"interregion-tls-controller-a-cert.pem", "interregion-tls-controller-a-key.pem",
 		"interregion-tls-controller-b-cert.pem", "interregion-tls-controller-b-key.pem",
 		"interregion-tls-controller-c-cert.pem", "interregion-tls-controller-c-key.pem",
-		"interregion.jwt", "leaf-sfo.creds", "system-interregion.jwt"}) {
+		"interregion.jwt", "leaf-sjc.creds", "system-interregion.jwt"}) {
 		t.Fatalf("files = %v", names)
 	}
 	base, err := Load(material)
@@ -94,8 +94,8 @@ func TestInterRegionMaterialMatchesTheContract(t *testing.T) {
 	if err != nil || len(baseCell.SigningKeys) != 3 {
 		t.Fatalf("material cell account %+v: %v", baseCell, err)
 	}
-	contract := natscell.InterRegionContract{Cell: "gru", Peers: []string{"fra", "sfo"}, GlobalHome: "gru",
-		Subtrees: map[string][]string{"sfo": {"fra", "sfo"}}}
+	contract := natscell.InterRegionContract{Cell: "gru", Peers: []string{"fra", "sjc"}, GlobalHome: "gru",
+		Subtrees: map[string][]string{"sjc": {"fra", "sjc"}}}
 	if err := contract.VerifyClaims(system, cell, interregion, 1); err != nil {
 		t.Fatalf("issued claims fail the startup check: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestInterRegionMaterialMatchesTheContract(t *testing.T) {
 		interregion.Subject != record.InterRegionAccountNKey || interregion.Expires != base.ExpiresAt.Unix() {
 		t.Fatalf("claims: interregion %+v cell %+v", interregion.Limits, cell.Limits)
 	}
-	if err := natscell.ValidateLeafCredentials(filepath.Join(directory, "leaf-sfo.creds"),
+	if err := natscell.ValidateLeafCredentials(filepath.Join(directory, "leaf-sjc.creds"),
 		record.InterRegionAccountNKey); err != nil {
 		t.Fatal(err)
 	}
@@ -115,13 +115,13 @@ func TestInterRegionMaterialMatchesTheContract(t *testing.T) {
 		t.Fatalf("regenerate = %v", err)
 	}
 	other := cfg
-	other.Topology = natscell.HubAndSpoke("gru", []string{"sfo", "fra"})
+	other.Topology = natscell.HubAndSpoke("gru", []string{"sjc", "fra"})
 	if _, err := GenerateInterRegion(material, directory, other, InterRegionInputs{}, now); err == nil {
 		t.Fatal("material for another topology replaced existing material")
 	}
 
 	// Any changed byte fails loading.
-	path := filepath.Join(directory, "leaf-sfo.creds")
+	path := filepath.Join(directory, "leaf-sjc.creds")
 	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -206,12 +206,12 @@ func TestInterRegionConfigNeedsAPortExactlyWithChildren(t *testing.T) {
 	for name, mutate := range map[string]func(*InterRegionConfig){
 		"no port with children": func(c *InterRegionConfig) { c.ListenPort = 0 },
 		"port out of range":     func(c *InterRegionConfig) { c.ListenPort = 70000 },
-		"region not in tree":    func(c *InterRegionConfig) { c.Topology = natscell.HubAndSpoke("sfo", []string{"fra"}) },
+		"region not in tree":    func(c *InterRegionConfig) { c.Topology = natscell.HubAndSpoke("sjc", []string{"fra"}) },
 		"cyclic tree": func(c *InterRegionConfig) {
-			c.Topology = natscell.LeafTopology{Hub: "gru", Parents: map[string]string{"sfo": "fra", "fra": "sfo"}}
+			c.Topology = natscell.LeafTopology{Hub: "gru", Parents: map[string]string{"sjc": "fra", "fra": "sjc"}}
 		},
 		"port on a leaf region": func(c *InterRegionConfig) {
-			c.Topology = natscell.HubAndSpoke("sfo", []string{"gru"})
+			c.Topology = natscell.HubAndSpoke("sjc", []string{"gru"})
 		},
 	} {
 		candidate := cfg
@@ -265,7 +265,7 @@ func receipt(t *testing.T, mutate func(map[string]any)) ([]byte, string) {
 		"readback_expires_at": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 		"allowed_tcp_ports":   []int{4222, 7422},
 		"cells": map[string]any{"gru": map[string]any{"subnet_cidr": "10.251.0.0/24", "vcn_id": "x"},
-			"sfo": map[string]any{"subnet_cidr": "10.252.0.0/24"}},
+			"sjc": map[string]any{"subnet_cidr": "10.252.0.0/24"}},
 		"dataplane_reachability": "not_tested",
 	}
 	if mutate != nil {
@@ -286,7 +286,7 @@ func TestLeafRemotePrivateURLsComeFromTheReviewedReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The child's private copy of its credentials.
-	body, err := os.ReadFile(filepath.Join(directory, "leaf-sfo.creds"))
+	body, err := os.ReadFile(filepath.Join(directory, "leaf-sjc.creds"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestLeafRemotePrivateURLsComeFromTheReviewedReceipt(t *testing.T) {
 	}
 	tls := natscell.TLSFiles{CAFile: "ca.pem", CertFile: "cert.pem", KeyFile: "key.pem"}
 	wire, reviewed := receipt(t, nil)
-	remote, err := LeafRemote(parent, "sfo", 0, Readback{wire, reviewed}, Readback{}, creds, tls, time.Now())
+	remote, err := LeafRemote(parent, "sjc", 0, Readback{wire, reviewed}, Readback{}, creds, tls, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestLeafRemotePrivateURLsComeFromTheReviewedReceipt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := LeafRemote(candidate, "sfo", 0, Readback{wire, reviewed}, Readback{}, creds, tls, time.Now()); err == nil {
+		if _, err := LeafRemote(candidate, "sjc", 0, Readback{wire, reviewed}, Readback{}, creds, tls, time.Now()); err == nil {
 			t.Fatalf("parent schema %d admitted", version)
 		}
 	}
@@ -317,7 +317,7 @@ func TestLeafRemotePrivateURLsComeFromTheReviewedReceipt(t *testing.T) {
 		t.Fatalf("remote = %+v", remote)
 	}
 	// Each child broker starts at the parent controller of its own index.
-	if remote, err := LeafRemote(parent, "sfo", 2, Readback{wire, reviewed}, Readback{}, creds, tls, time.Now()); err != nil ||
+	if remote, err := LeafRemote(parent, "sjc", 2, Readback{wire, reviewed}, Readback{}, creds, tls, time.Now()); err != nil ||
 		!slices.Equal(remote.URLs, []string{"nats-leaf://10.251.0.12:7422", "nats-leaf://10.251.0.10:7422",
 			"nats-leaf://10.251.0.11:7422"}) {
 		t.Fatalf("controller-c remote = %+v, %v", remote, err)
@@ -325,35 +325,35 @@ func TestLeafRemotePrivateURLsComeFromTheReviewedReceipt(t *testing.T) {
 	cases := map[string]func() ([]byte, string, string, string){
 		"unreviewed receipt": func() ([]byte, string, string, string) {
 			other, _ := receipt(t, func(d map[string]any) { d["dataplane_reachability"] = "ok" })
-			return other, reviewed, "sfo", creds
+			return other, reviewed, "sjc", creds
 		},
 		"failed readback": func() ([]byte, string, string, string) {
 			w, d := receipt(t, func(d map[string]any) { d["status"] = "configuration_readback_fail" })
-			return w, d, "sfo", creds
+			return w, d, "sjc", creds
 		},
 		"expired readback": func() ([]byte, string, string, string) {
 			w, d := receipt(t, func(d map[string]any) {
 				d["readback_expires_at"] = time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
 			})
-			return w, d, "sfo", creds
+			return w, d, "sjc", creds
 		},
 		"leaf port not allowed": func() ([]byte, string, string, string) {
 			w, d := receipt(t, func(d map[string]any) { d["allowed_tcp_ports"] = []int{4222} })
-			return w, d, "sfo", creds
+			return w, d, "sjc", creds
 		},
 		"controllers outside the peered subnet": func() ([]byte, string, string, string) {
 			w, d := receipt(t, func(d map[string]any) {
 				d["cells"].(map[string]any)["gru"] = map[string]any{"subnet_cidr": "10.9.0.0/24"}
 			})
-			return w, d, "sfo", creds
+			return w, d, "sjc", creds
 		},
 		"another peering": func() ([]byte, string, string, string) {
 			w, d := receipt(t, func(d map[string]any) {
 				cells := d["cells"].(map[string]any)
-				cells["fra"] = cells["sfo"]
-				delete(cells, "sfo")
+				cells["fra"] = cells["sjc"]
+				delete(cells, "sjc")
 			})
-			return w, d, "sfo", creds
+			return w, d, "sjc", creds
 		},
 		"child that does not dial the parent": func() ([]byte, string, string, string) {
 			return wire, reviewed, "fra", creds
@@ -363,7 +363,7 @@ func TestLeafRemotePrivateURLsComeFromTheReviewedReceipt(t *testing.T) {
 			if err := os.WriteFile(forged, append(body[:len(body)-2], 'x', '\n'), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			return wire, reviewed, "sfo", forged
+			return wire, reviewed, "sjc", forged
 		},
 	}
 	for name, input := range cases {
@@ -378,10 +378,10 @@ func TestLeafRemotePrivateURLsComeFromTheReviewedReceipt(t *testing.T) {
 	edited := parent
 	edited.Slots = slices.Clone(parent.Slots)
 	edited.Slots[0].PrivateIP = "10.251.0.99"
-	if _, err := LeafRemote(edited, "sfo", 0, Readback{wire, reviewed}, Readback{}, creds, tls, time.Now()); err == nil {
+	if _, err := LeafRemote(edited, "sjc", 0, Readback{wire, reviewed}, Readback{}, creds, tls, time.Now()); err == nil {
 		t.Error("a parent inventory edited after issue was accepted")
 	}
-	if _, err := LeafRemote(parent, "sfo", 0, Readback{wire, reviewed}, Readback{}, creds, tls, parent.ExpiresAt); err == nil {
+	if _, err := LeafRemote(parent, "sjc", 0, Readback{wire, reviewed}, Readback{}, creds, tls, parent.ExpiresAt); err == nil {
 		t.Error("expired parent material was accepted")
 	}
 }
@@ -445,8 +445,8 @@ func TestInterRegionCellClaimStartsFromTheBrokersClaim(t *testing.T) {
 		cell.Limits.JetStreamLimits.Streams != 77 || cell.Expires != held.Expires || record.CellJWTSHA256 != digest([]byte(heldRaw)) {
 		t.Fatalf("cell claim %+v, record %s", cell, record.CellJWTSHA256)
 	}
-	contract := natscell.InterRegionContract{Cell: "gru", Peers: []string{"fra", "sfo"}, GlobalHome: "gru",
-		Subtrees: map[string][]string{"sfo": {"fra", "sfo"}}}
+	contract := natscell.InterRegionContract{Cell: "gru", Peers: []string{"fra", "sjc"}, GlobalHome: "gru",
+		Subtrees: map[string][]string{"sjc": {"fra", "sjc"}}}
 	if err := contract.VerifyClaims(claim("system-interregion.jwt"), cell, claim("interregion.jwt"), 1); err != nil {
 		t.Fatal(err)
 	}
@@ -465,37 +465,37 @@ type linkedRegion struct {
 	record              InterRegionRecord
 }
 
-// linkedRegions issues gru's interregion material as the hub of a gru/sfo
-// tree and sfo's as its child, with gru's interregion CA.
+// linkedRegions issues gru's interregion material as the hub of a gru/sjc
+// tree and sjc's as its child, with gru's interregion CA.
 func linkedRegions(t *testing.T) (linkedRegion, linkedRegion, time.Time) {
 	t.Helper()
 	root := t.TempDir()
 	now := time.Now().UTC().Truncate(time.Second)
-	sfoConfig := testConfig()
-	sfoConfig.Region, sfoConfig.Cell, sfoConfig.ClusterID, sfoConfig.SubnetCIDR = "us-sanjose-1", "sfo", "00000000000000000000000002", "10.252.0.0/24"
-	sfoConfig.Slots = []Slot{{"controller-a", "10.252.0.10"}, {"controller-b", "10.252.0.11"}, {"controller-c", "10.252.0.12"}}
+	sjcConfig := testConfig()
+	sjcConfig.Region, sjcConfig.Cell, sjcConfig.ClusterID, sjcConfig.SubnetCIDR = "us-sanjose-1", "sjc", "00000000000000000000000002", "10.252.0.0/24"
+	sjcConfig.Slots = []Slot{{"controller-a", "10.252.0.10"}, {"controller-b", "10.252.0.11"}, {"controller-c", "10.252.0.12"}}
 	gru := linkedRegion{material: filepath.Join(root, "gru"), directory: filepath.Join(root, "gru-interregion")}
-	sfo := linkedRegion{material: filepath.Join(root, "sfo"), directory: filepath.Join(root, "sfo-interregion")}
+	sjc := linkedRegion{material: filepath.Join(root, "sjc"), directory: filepath.Join(root, "sjc-interregion")}
 	for _, region := range []struct {
 		directory string
 		cfg       Config
-	}{{gru.material, testConfig()}, {sfo.material, sfoConfig}} {
+	}{{gru.material, testConfig()}, {sjc.material, sjcConfig}} {
 		if _, err := Generate(region.directory, region.cfg, now); err != nil {
 			t.Fatal(err)
 		}
 	}
 	nextSecond()
-	topology := natscell.HubAndSpoke("gru", []string{"sfo"})
+	topology := natscell.HubAndSpoke("gru", []string{"sjc"})
 	var err error
 	if gru.record, err = GenerateInterRegion(gru.material, gru.directory, InterRegionConfig{Topology: topology, ListenPort: 7422},
 		InterRegionInputs{}, now); err != nil {
 		t.Fatal(err)
 	}
-	if sfo.record, err = GenerateInterRegion(sfo.material, sfo.directory, InterRegionConfig{Topology: topology},
+	if sjc.record, err = GenerateInterRegion(sjc.material, sjc.directory, InterRegionConfig{Topology: topology},
 		hubCA(t, gru), now); err != nil {
 		t.Fatal(err)
 	}
-	return gru, sfo, now
+	return gru, sjc, now
 }
 
 func hubCA(t *testing.T, hub linkedRegion) InterRegionInputs {
@@ -511,7 +511,7 @@ func hubCA(t *testing.T, hub linkedRegion) InterRegionInputs {
 // under the one name-constrained CA the hub created, and they complete
 // mutual TLS as the leaf listener and remote use them.
 func TestInterRegionTLSChainsToTheHubCA(t *testing.T) {
-	gru, sfo, _ := linkedRegions(t)
+	gru, sjc, _ := linkedRegions(t)
 	read := func(region linkedRegion, name string) []byte {
 		t.Helper()
 		body, err := os.ReadFile(filepath.Join(region.directory, name))
@@ -525,10 +525,10 @@ func TestInterRegionTLSChainsToTheHubCA(t *testing.T) {
 	ca, err := x509.ParseCertificate(block.Bytes)
 	if err != nil || !ca.IsCA || !ca.MaxPathLenZero || !ca.PermittedDNSDomainsCritical ||
 		!slices.Equal(ca.PermittedDNSDomains, []string{".interregion.terrascale.internal"}) ||
-		!bytes.Equal(caPEM, read(sfo, "interregion-ca.pem")) {
+		!bytes.Equal(caPEM, read(sjc, "interregion-ca.pem")) {
 		t.Fatalf("interregion CA %+v: %v", ca, err)
 	}
-	if _, err := os.Lstat(filepath.Join(sfo.directory, "interregion-ca.key")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(sjc.directory, "interregion-ca.key")); !os.IsNotExist(err) {
 		t.Fatalf("the child holds the CA key: %v", err)
 	}
 	roots := x509.NewCertPool()
@@ -537,7 +537,7 @@ func TestInterRegionTLSChainsToTheHubCA(t *testing.T) {
 	for _, region := range []struct {
 		linkedRegion
 		server bool
-	}{{gru, true}, {sfo, false}} {
+	}{{gru, true}, {sjc, false}} {
 		for _, slot := range region.record.Slots {
 			prefix := "interregion-tls-" + slot.Name
 			pair, err := tls.X509KeyPair(read(region.linkedRegion, prefix+"-cert.pem"), read(region.linkedRegion, prefix+"-key.pem"))
@@ -562,7 +562,7 @@ func TestInterRegionTLSChainsToTheHubCA(t *testing.T) {
 		ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert})
 	done := make(chan error, 1)
 	go func() { done <- server.HandshakeContext(t.Context()) }()
-	client := tls.Client(clientConn, &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{pairs["sfo/controller-b"]},
+	client := tls.Client(clientConn, &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{pairs["sjc/controller-b"]},
 		RootCAs: roots, ServerName: "leaf.gru.interregion.terrascale.internal"})
 	if err := client.HandshakeContext(t.Context()); err != nil {
 		t.Fatal(err)
@@ -575,12 +575,12 @@ func TestInterRegionTLSChainsToTheHubCA(t *testing.T) {
 // Only the hub creates the CA; every other region signs with exactly the
 // hub's, whose key must be owner-only.
 func TestInterRegionChildNeedsTheHubsCA(t *testing.T) {
-	gru, sfo, now := linkedRegions(t)
-	topology := natscell.HubAndSpoke("gru", []string{"sfo"})
+	gru, sjc, now := linkedRegions(t)
+	topology := natscell.HubAndSpoke("gru", []string{"sjc"})
 	child := InterRegionConfig{Topology: topology}
 	inputs := hubCA(t, gru)
-	if again, err := GenerateInterRegion(sfo.material, sfo.directory, child, inputs, now); err != nil ||
-		again.LedgerDigest != sfo.record.LedgerDigest {
+	if again, err := GenerateInterRegion(sjc.material, sjc.directory, child, inputs, now); err != nil ||
+		again.LedgerDigest != sjc.record.LedgerDigest {
 		t.Fatalf("rerun = %v", err)
 	}
 	keyPEM, err := os.ReadFile(inputs.CAKeyFile)
@@ -614,11 +614,11 @@ func TestInterRegionChildNeedsTheHubsCA(t *testing.T) {
 	} {
 		candidate := hubCA(t, gru)
 		mutate(&candidate)
-		target := sfo.directory + "-" + strings.ReplaceAll(name, " ", "-")
+		target := sjc.directory + "-" + strings.ReplaceAll(name, " ", "-")
 		if name == "another CA on the rerun" {
-			target = sfo.directory
+			target = sjc.directory
 		}
-		if _, err := GenerateInterRegion(sfo.material, target, child, candidate, now); err == nil {
+		if _, err := GenerateInterRegion(sjc.material, target, child, candidate, now); err == nil {
 			t.Errorf("%s: child material issued", name)
 		}
 	}
@@ -631,7 +631,7 @@ func TestInterRegionChildNeedsTheHubsCA(t *testing.T) {
 
 // netbirdReadback is a reviewed NetBird inventory in which every gru
 // controller has one connected gru-servers peer (slot a also a replaced,
-// disconnected revision) and sfo's servers may reach gru's on 7422.
+// disconnected revision) and sjc's servers may reach gru's on 7422.
 func netbirdReadback(t *testing.T, mutate func(*manager.Inventory)) Readback {
 	t.Helper()
 	servers := []string{"gru-servers"}
@@ -641,11 +641,11 @@ func netbirdReadback(t *testing.T, mutate func(*manager.Inventory)) Readback {
 			{Name: "ts-gru-1-old", IP: "10.200.0.99", ConnectionIP: "10.251.0.10", Groups: servers},
 			{Name: "ts-gru-2", IP: "10.200.0.12", ConnectionIP: "10.251.0.11", Connected: true, Groups: servers},
 			{Name: "ts-gru-3", IP: "10.200.0.13", ConnectionIP: "10.251.0.12", Connected: true, Groups: servers},
-			{Name: "ts-sfo-1", IP: "10.200.1.11", ConnectionIP: "10.252.0.10", Connected: true, Groups: []string{"sfo-servers"}},
+			{Name: "ts-sjc-1", IP: "10.200.1.11", ConnectionIP: "10.252.0.10", Connected: true, Groups: []string{"sjc-servers"}},
 		},
-		Policies: []manager.InventoryPolicy{{Name: "sfo-servers-to-gru-servers-fabric", Enabled: true,
-			Rules: []manager.InventoryRule{{Name: "sfo-servers-to-gru-servers-fabric", Enabled: true, Action: "accept",
-				Protocol: "tcp", Ports: []string{"7422", "9443"}, Sources: []string{"sfo-servers"}, Destinations: servers}}}},
+		Policies: []manager.InventoryPolicy{{Name: "sjc-servers-to-gru-servers-fabric", Enabled: true,
+			Rules: []manager.InventoryRule{{Name: "sjc-servers-to-gru-servers-fabric", Enabled: true, Action: "accept",
+				Protocol: "tcp", Ports: []string{"7422", "9443"}, Sources: []string{"sjc-servers"}, Destinations: servers}}}},
 	}
 	if mutate != nil {
 		mutate(&inventory)
@@ -677,11 +677,11 @@ func childCredentials(t *testing.T, parent linkedRegion, child string) string {
 // inventory is refused rather than dropped.
 func TestLeafRemoteFallsBackToReviewedNetBirdAddresses(t *testing.T) {
 	gru, _, _ := linkedRegions(t)
-	creds := childCredentials(t, gru, "sfo")
+	creds := childCredentials(t, gru, "sjc")
 	wire, reviewed := receipt(t, nil)
 	private := Readback{wire, reviewed}
 	tls := natscell.TLSFiles{CAFile: "ca.pem", CertFile: "cert.pem", KeyFile: "key.pem"}
-	remote, err := LeafRemote(gru.record, "sfo", 1, private, netbirdReadback(t, nil), creds, tls, time.Now())
+	remote, err := LeafRemote(gru.record, "sjc", 1, private, netbirdReadback(t, nil), creds, tls, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -698,7 +698,7 @@ func TestLeafRemoteFallsBackToReviewedNetBirdAddresses(t *testing.T) {
 		"controller peer disconnected":    func(i *manager.Inventory) { i.Peers[2].Connected = false },
 		"controller peer missing":         func(i *manager.Inventory) { i.Peers = i.Peers[:3] },
 		"peer registered from elsewhere":  func(i *manager.Inventory) { i.Peers[3].ConnectionIP = "10.251.0.99" },
-		"peer outside the servers group":  func(i *manager.Inventory) { i.Peers[2].Groups = []string{"sfo-servers"} },
+		"peer outside the servers group":  func(i *manager.Inventory) { i.Peers[2].Groups = []string{"sjc-servers"} },
 		"two connected peers":             func(i *manager.Inventory) { i.Peers[1].Connected = true },
 		"NetBird address outside range":   func(i *manager.Inventory) { i.Peers[0].IP = "100.64.0.1" },
 		"no fabric policy":                func(i *manager.Inventory) { i.Policies = nil },
@@ -709,7 +709,7 @@ func TestLeafRemoteFallsBackToReviewedNetBirdAddresses(t *testing.T) {
 		cases[name] = netbirdReadback(t, mutate)
 	}
 	for name, netbird := range cases {
-		if remote, err := LeafRemote(gru.record, "sfo", 1, private, netbird, creds, tls, time.Now()); err == nil {
+		if remote, err := LeafRemote(gru.record, "sjc", 1, private, netbird, creds, tls, time.Now()); err == nil {
 			t.Errorf("%s: remote %v accepted", name, remote.URLs)
 		}
 	}
@@ -718,7 +718,7 @@ func TestLeafRemoteFallsBackToReviewedNetBirdAddresses(t *testing.T) {
 // The rendered blocks of the hub and the child pass the broker's startup
 // check, with every file at its installed path.
 func TestRenderInterRegionPassesTheBrokerCheck(t *testing.T) {
-	gru, sfo, _ := linkedRegions(t)
+	gru, sjc, _ := linkedRegions(t)
 	const installed = "/var/lib/terrascale-orchestrator-secrets"
 	now := time.Now()
 	hub, err := RenderInterRegion(gru.record, "controller-b", installed, nil, now)
@@ -728,15 +728,15 @@ func TestRenderInterRegionPassesTheBrokerCheck(t *testing.T) {
 	gruTLS := natscell.TLSFiles{CAFile: installed + "/interregion-ca.pem",
 		CertFile: installed + "/interregion-tls-controller-b-cert.pem", KeyFile: installed + "/interregion-tls-controller-b-key.pem"}
 	if hub.AccountJWTFile != installed+"/interregion.jwt" || hub.GlobalHome != "gru" ||
-		!slices.Equal(hub.Peers, []string{"sfo"}) || len(hub.Remotes) != 0 || hub.Topology == nil ||
+		!slices.Equal(hub.Peers, []string{"sjc"}) || len(hub.Remotes) != 0 || hub.Topology == nil ||
 		!reflect.DeepEqual(hub.Listen, &natscell.LeafListen{Host: "0.0.0.0", Port: 7422, TLS: gruTLS}) ||
-		!reflect.DeepEqual(hub.Subtrees, map[string][]string{"sfo": {"sfo"}}) || hub.Validate("gru") != nil {
+		!reflect.DeepEqual(hub.Subtrees, map[string][]string{"sjc": {"sjc"}}) || hub.Validate("gru") != nil {
 		t.Fatalf("hub block = %+v", hub)
 	}
 	wire, reviewed := receipt(t, nil)
 	link := &ParentLink{Record: gru.record, Receipt: Readback{wire, reviewed}, NetBird: netbirdReadback(t, nil),
-		CredentialsFile: childCredentials(t, gru, "sfo")}
-	child, err := RenderInterRegion(sfo.record, "controller-c", installed, link, now)
+		CredentialsFile: childCredentials(t, gru, "sjc")}
+	child, err := RenderInterRegion(sjc.record, "controller-c", installed, link, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -747,12 +747,12 @@ func TestRenderInterRegionPassesTheBrokerCheck(t *testing.T) {
 		TLS: natscell.TLSFiles{CAFile: installed + "/interregion-ca.pem",
 			CertFile: installed + "/interregion-tls-controller-c-cert.pem", KeyFile: installed + "/interregion-tls-controller-c-key.pem"}}
 	if child.Listen != nil || len(child.Subtrees) != 0 || child.GlobalHome != "gru" || len(child.Remotes) != 1 ||
-		!reflect.DeepEqual(child.Remotes[0], want) || child.Validate("sfo") != nil {
+		!reflect.DeepEqual(child.Remotes[0], want) || child.Validate("sjc") != nil {
 		t.Fatalf("child block = %+v", child)
 	}
 	for name, render := range map[string]func() error{
 		"child without its parent": func() error {
-			_, err := RenderInterRegion(sfo.record, "controller-a", installed, nil, now)
+			_, err := RenderInterRegion(sjc.record, "controller-a", installed, nil, now)
 			return err
 		},
 		"hub with a parent": func() error {

@@ -100,13 +100,30 @@ func (n network) nsg(g nsg) (*string, error) {
 // vnic sets the host's primary VNIC NSGs to exactly the role NSGs.
 func (n network) vnic(nsgs []string) error {
 	ctx := n.ctx
-	list, err := n.compute.ListInstances(ctx, core.ListInstancesRequest{CompartmentId: &n.compartment, DisplayName: &n.s.host})
-	if err != nil {
-		return err
+	// The host is named by its controller slot (gru-1-ctl-1) or as node 1
+	// (ts-sjc-1).
+	var host *core.Instance
+	for _, name := range []string{n.s.host, n.s.node} {
+		list, err := n.compute.ListInstances(ctx, core.ListInstancesRequest{CompartmentId: &n.compartment, DisplayName: &name})
+		if err != nil {
+			return err
+		}
+		found, err := one(list.Items, name, func(i core.Instance) (string, string) { return deref(i.DisplayName), string(i.LifecycleState) })
+		if err != nil {
+			return err
+		}
+		if found != nil && host != nil {
+			return fmt.Errorf("both %s and %s are live", n.s.host, n.s.node)
+		}
+		if found != nil {
+			host = found
+		}
 	}
-	host, err := one(list.Items, n.s.host, func(i core.Instance) (string, string) { return deref(i.DisplayName), string(i.LifecycleState) })
-	if err != nil || host == nil {
-		return errors.Join(err, fmt.Errorf("host %s is not running", n.s.host))
+	if host == nil {
+		// A new cell launches its host into the subnet created below, with
+		// these NSGs; the next run attaches them if it did not.
+		_, err := fmt.Fprintf(n.out, "skip: no host %s or %s yet\n", n.s.host, n.s.node)
+		return err
 	}
 	attachments, err := n.compute.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{CompartmentId: &n.compartment, InstanceId: host.Id})
 	if err != nil {

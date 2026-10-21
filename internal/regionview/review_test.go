@@ -26,13 +26,13 @@ func (source staticSnapshot) Snapshot(context.Context, bool) (observability.Memb
 
 func TestRemoteRegionInsightsDoNotScoreThisRegion(t *testing.T) {
 	t.Parallel()
-	open := []insights.Insight{{Rule: "region_unreachable", Region: "sfo", Severity: insights.SeverityCritical},
+	open := []insights.Insight{{Rule: "region_unreachable", Region: "sjc", Severity: insights.SeverityCritical},
 		{Rule: "disk_time_to_full", Region: "gru", Severity: insights.SeverityWarning}}
 	provider := &Provider{Cell: "gru", Cluster: staticCluster{cluster(member("c1", "v1", true), member("c2", "v1", false),
 		member("c3", "v1", false))}, Insights: staticInsights{open}}
 	summary := provider.Local(t.Context())
 	if summary.Counts.Critical != 0 || summary.Counts.Warning != 1 || len(summary.Insights) != 1 || summary.Health.Score != 92 {
-		t.Fatalf("an unreachable SFO scored GRU: counts=%+v health=%+v", summary.Counts, summary.Health)
+		t.Fatalf("an unreachable SJC scored GRU: counts=%+v health=%+v", summary.Counts, summary.Health)
 	}
 }
 

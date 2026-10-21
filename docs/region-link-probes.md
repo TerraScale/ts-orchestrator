@@ -64,5 +64,5 @@ This endpoint is the producer contract. ts-status consumption, independent expir
 and automatic incidents remain the next slice. Credential renewal needs TS-803's
 issuing authority to publish and sign a successor, then the existing privileged
 installer to adopt it in place; refetching expired Vault bytes is insufficient.
-Live GRU/SFO acceptance waits
+Live GRU/SJC acceptance waits
 for TS-803's completed linking and qualified deployment handoff.

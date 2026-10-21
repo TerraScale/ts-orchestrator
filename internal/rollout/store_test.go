@@ -248,7 +248,7 @@ func TestStoreCommitIsCASFencedAndRecordsKnownBad(t *testing.T) {
 		t.Fatalf("immutable target changed: %v", err)
 	}
 	moved := started.Clone()
-	moved.Cell = "sfo"
+	moved.Cell = "sjc"
 	if _, err := store.Commit(ctx, newRevision, moved); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("immutable cell changed: %v", err)
 	}

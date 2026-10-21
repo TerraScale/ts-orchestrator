@@ -6,7 +6,7 @@ The [sanitized live readback](../evidence/ts-676-control-plane-baseline-20261007
 records every peer's observed sockets, OCI DNS answer, TLS probes and the
 relevant OCI route/egress metadata.
 
-## Why GRU is private and SFO is public
+## Why GRU is private and SJC is public
 
 The control plane runs on the `ts-ops` OCI VM in `sa-saopaulo-1`, in
 `ts-ops-vcn` (`10.250.0.0/16`), subnet `ts-ops-public`
@@ -24,19 +24,19 @@ The GRU image input sets `management_ip: 10.250.10.155`.
 10.250.10.155 netbird.terrascale.tech # terrascale-netbird-manager
 ```
 
-SFO's input omits `management_ip`; `netbird image-input` explicitly generates
+SJC's input omits `management_ip`; `netbird image-input` explicitly generates
 public enrollment for non-home regions. Both use
 `https://netbird.terrascale.tech`. Direct OCI DNS queries return the public
 address from both regions. The current difference is a host override, **not
 OCI split-horizon DNS**. GRU's private traffic uses its same-region LPG to the
-ts-ops VCN; SFO uses its NAT gateway. The dashboard's SFO source
+ts-ops VCN; SJC uses its NAT gateway. The dashboard's SJC source
 `64.181.243.47` is the NAT public IP, not a controller's public VNIC address.
 
-The live audit found six peers, including SFO-2 and SFO-3 beyond the ticket's
+The live audit found six peers, including SJC-2 and SJC-3 beyond the ticket's
 initial four. Every peer answered NetBird SSH and reported management,
 signal, STUN and secure WebSocket relay available. Established daemon TCP
 443 sockets went to `10.250.10.155` from all three GRU nodes and
-`163.176.73.79` from all three SFO nodes. NetBird geolocates the connection's
+`163.176.73.79` from all three SJC nodes. NetBird geolocates the connection's
 source IP: private sources `10.251.0.11`–`.13` have no public location, so
 Unknown/no country flag is expected. A flag is not a connectivity check.
 
@@ -52,7 +52,7 @@ it cannot be strictly laptop-only then.
 This requires three things that are currently absent:
 
 1. **Manager transit and return path.** TS-668's DRG/RPC link routes the cell
-   subnets `10.251.0.0/25` and `10.252.0.0/25`, admitting TCP 7422/9443. SFO
+   subnets `10.251.0.0/25` and `10.252.0.0/25`, admitting TCP 7422/9443. SJC
    has no private route to `10.250.10.155/32`. GRU's LPG is not proof that the
    DRG transits through it. A reviewed manager-VCN attachment/transit and
    return-path design is needed. Changing the manager's VCN would need an
@@ -61,7 +61,7 @@ This requires three things that are currently absent:
    (`163.176.30.185`) and a default route, despite the older foundation
    runbook. Its security list permits private manager TCP 443/UDP 3478 but
    omits the public manager `/32`. Verified public TLS attempts time out on
-   all three GRU nodes; SFO's public TLS succeeds. Add narrow, owned egress
+   all three GRU nodes; SJC's public TLS succeeds. Add narrow, owned egress
    rather than assuming a DNS change creates a working fallback.
 3. **Health-based resolution and reconnect.** A private-only hosts entry
    has no public fallback. Two DNS answers do not enforce private preference
@@ -94,7 +94,7 @@ nice -n 19 make build
 NB='sudo -n netbird-wt0' scripts/netbird-control-plane-audit.sh \
   --vault-id <automation-vault-ocid> --expected-ip 10.250.10.155 \
   --node ts-gru-1 --node ts-gru-2 --node ts-gru-3 \
-  --node ts-sfo-1 --node ts-sfo-2 --node ts-sfo-3
+  --node ts-sjc-1 --node ts-sjc-2 --node ts-sjc-3
 ```
 
 Use current NetBird peer names if a rename is incomplete. Without `--node`,
@@ -112,7 +112,7 @@ explicitly against the complete cell inventory for acceptance coverage.
 An available QUIC/unknown relay transport fails because this audit cannot
 prove its UDP destination. The baseline full selection fails for either destination because the
 regions currently differ. Separate regional audits can establish the
-current private GRU and public SFO paths.
+current private GRU and public SJC paths.
 
 This audit does **not** prove STUN packet routing, mesh ICMP, TerraBase
 replication or failover. It must not be used as the full TS-676 acceptance
@@ -136,7 +136,7 @@ after each change:
 2. NetBird SSH and literal mesh ping in both directions. Current desired
    policies admit SSH and TCP 7422/9443, not server ICMP; a narrowly scoped
    ICMP policy is a prerequisite, not a reason to call a TCP probe a ping.
-3. In-region TerraBase replication and the GRU/SFO two-way write/read
+3. In-region TerraBase replication and the GRU/SJC two-way write/read
    checks. Latest TS-668/TS-643 evidence says the interregion NATS leaf/WAN
    replication is not yet live. A green WAN baseline is required first.
    Do not route replication checks through ts-ops.

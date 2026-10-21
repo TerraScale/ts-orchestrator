@@ -24,7 +24,7 @@ const usage = `Usage: ts-orch region <command> [flags]
 
   plan    REGION --out FILE [--from PLAN]
       Derive the region's plan from another non-home region's reviewed plan
-      (default deploy/oci-region/sfo-1-plan.json): names, addresses, the
+      (default deploy/oci-region/sjc-1-plan.json): names, addresses, the
       availability domain and the service gateway of the new region, every
       resource ID unbound. Reads OCI; changes nothing. REGION is a cell
       token (fra) or an OCI region (eu-frankfurt-1).
@@ -54,7 +54,7 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	label, args := args[0], args[1:]
 	flags := flag.NewFlagSet("region "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	from := flags.String("from", "deploy/oci-region/sfo-1-plan.json", "reviewed plan of another non-home region")
+	from := flags.String("from", "deploy/oci-region/sjc-1-plan.json", "reviewed plan of another non-home region")
 	output := flags.String("out", "", "new plan file")
 	plan := flags.String("plan", "", "the region's bound plan")
 	wait := flags.Duration("wait", 30*time.Minute, "how long verification retries")

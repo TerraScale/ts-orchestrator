@@ -236,7 +236,7 @@ func TestManagedNativeAdmissionIsSeparateFromRegistrationProvenance(t *testing.T
 		t.Fatal("constructor accepted a missing mandatory native policy")
 	}
 	for _, mutate := range []func(*host.Desired){
-		func(d *host.Desired) { d.Cell = "sfo" },
+		func(d *host.Desired) { d.Cell = "sjc" },
 		func(d *host.Desired) { d.Environment = "canary" },
 		func(d *host.Desired) { d.Node = "foreign-node" },
 		func(d *host.Desired) { d.Role = "ts-auth" },

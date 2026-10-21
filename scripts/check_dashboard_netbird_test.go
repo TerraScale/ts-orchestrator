@@ -48,7 +48,7 @@ func TestDashboardNetbirdCheck(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, token := range []string{"fixture-gru-secret", "fixture-sfo-secret"} {
+			for _, token := range []string{"fixture-gru-secret", "fixture-sjc-secret"} {
 				if strings.Contains(string(output)+string(args), token) {
 					t.Fatal("token leaked into output or argv")
 				}
@@ -158,7 +158,7 @@ case $tool in
     [[ $CHECK_MODE != inventory-no-ipv6 ]] || ipv6=
     [[ $CHECK_MODE != equivalent-aaaa ]] || ipv6=FD9C:0200:0000:0000:0000:0000:0000:0001/64
     [[ $CHECK_MODE != missing-peer ]] || { printf ' ]}}'; exit; }
-    for pair in ts-gru-1:10.200.87.215 ts-gru-2:10.200.38.135 ts-gru-3:10.200.168.164 ts-sfo-1:10.200.112.213 ts-sfo-2:10.200.122.37 ts-sfo-3:10.200.63.195; do
+    for pair in ts-gru-1:10.200.87.215 ts-gru-2:10.200.38.135 ts-gru-3:10.200.168.164 ts-sjc-1:10.200.112.213 ts-sjc-2:10.200.122.37 ts-sjc-3:10.200.63.195; do
       ip=${pair#*:}
       [[ $CHECK_MODE != inventory-mismatch ]] || ip=10.200.0.1
       printf '%s{"fqdn":"%s.nb.ts.internal","netbirdIp":"%s","netbirdIpv6":"%s"}' "$separator" "${pair%%:*}" "$ip" "$ipv6"
@@ -190,7 +190,7 @@ case $tool in
     if [[ $* == *gru-1-orch-dashboard-token* ]]; then
       printf fixture-gru-secret | base64
     else
-      printf fixture-sfo-secret | base64
+      printf fixture-sjc-secret | base64
     fi
     ;;
   getent)
@@ -214,9 +214,9 @@ case $tool in
         ts-gru-1.*) ip=10.200.87.215 ;;
         ts-gru-2.*) ip=10.200.38.135 ;;
         ts-gru-3.*) ip=10.200.168.164 ;;
-        ts-sfo-1.*) ip=10.200.112.213 ;;
-        ts-sfo-2.*) ip=10.200.122.37 ;;
-        ts-sfo-3.*) ip=10.200.63.195 ;;
+        ts-sjc-1.*) ip=10.200.112.213 ;;
+        ts-sjc-2.*) ip=10.200.122.37 ;;
+        ts-sjc-3.*) ip=10.200.63.195 ;;
       esac
       [[ $CHECK_MODE != bad-a ]] || ip=10.200.0.1
       printf '%s STREAM %s\n' "$ip" "$2"
@@ -254,9 +254,9 @@ case $tool in
           ts-gru-1.*) remote=10.200.87.215 ;;
           ts-gru-2.*) remote=10.200.38.135 ;;
           ts-gru-3.*) remote=10.200.168.164 ;;
-          ts-sfo-1.*) remote=10.200.112.213 ;;
-          ts-sfo-2.*) remote=10.200.122.37 ;;
-          ts-sfo-3.*) remote=10.200.63.195 ;;
+          ts-sjc-1.*) remote=10.200.112.213 ;;
+          ts-sjc-2.*) remote=10.200.122.37 ;;
+          ts-sjc-3.*) remote=10.200.63.195 ;;
         esac
         [[ $CHECK_MODE != name-ipv6 ]] || remote=fd9c:200::1
         if [[ $url == */topology ]]; then
@@ -280,7 +280,7 @@ case $tool in
       if [[ $header == *gru-1-orch-dashboard-token.header ]]; then
         token=fixture-gru-secret
       else
-        token=fixture-sfo-secret
+        token=fixture-sjc-secret
       fi
       if [[ $(cat "$header") != "Authorization: Bearer $token" || $(stat -c %a "$header") != 600 ]]; then
         printf 'BAD-AUTH\n' >> "$CHECK_LOG"

@@ -363,7 +363,7 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 	next := updated
 	next.Generation = 3
 	foreign := newTestSpecTrust(t, root, keys.identity)
-	other := newTestSpecTrust(t, root, cellspec.Identity{DeploymentID: "0000000000TV3Q06FF4VNZW415", Cell: "sfo", Environment: "test"})
+	other := newTestSpecTrust(t, root, cellspec.Identity{DeploymentID: "0000000000TV3Q06FF4VNZW415", Cell: "sjc", Environment: "test"})
 	otherSet := next
 	otherSet.Identity = other.identity
 	// Only a root may change TerraBase's resources.
@@ -375,7 +375,7 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 	// A spec for another cell goes to the global leader, which relays only
 	// to interregion peers; a standalone home has none.
 	if _, err := service("apply", "--file", other.sign(t, root, otherSet)); err == nil ||
-		!strings.Contains(err.Error(), `cell "SFO" is not an interregion peer`) {
+		!strings.Contains(err.Error(), `cell "SJC" is not an interregion peer`) {
 		t.Errorf("another cell: %v", err)
 	}
 	for name, path := range map[string]string{

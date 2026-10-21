@@ -177,8 +177,8 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := common.NewRawConfigurationProvider(text(plan["tenancy_id"]), "ocid1.user.oc1..test", sfo, "test", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
-	factory, err := ociclient.New(provider, ociclient.Options{Region: sfo, Retry: ociclient.RetryOptions{BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}, Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceIdentity: {PerSecond: 10000, Burst: 10000}}})
+	provider := common.NewRawConfigurationProvider(text(plan["tenancy_id"]), "ocid1.user.oc1..test", sjc, "test", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
+	factory, err := ociclient.New(provider, ociclient.Options{Region: sjc, Retry: ociclient.RetryOptions{BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}, Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceIdentity: {PerSecond: 10000, Burst: 10000}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	if _, err := foundation.Home.Call(t.Context(), "iam", "policy", "create", "--compartment-id", resourceID, "--name", "exact-founder-source", "--description", "test-only source IAM", "--statements", command.JSON(sourceStatements)); err != nil {
 		t.Fatal(err)
 	}
-	foundation.OperationID = "durable-sfo-foundation"
+	foundation.OperationID = "durable-sjc-foundation"
 	pending := map[string]CreateIdentity{}
 	foundation.PrepareCreate = func(_ context.Context, identity CreateIdentity, recovery bool) error {
 		old, exists := pending[identity.Key]
@@ -228,8 +228,8 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	}
 	parent = text(plan["parent_compartment_id"])
 	// Even exact ownership tags cannot authorize an uncheckpointed resource.
-	setLive(Object{"id": resourceID, "name": "sfo-1-control", "compartmentId": parent, "lifecycleState": "ACTIVE", "freeformTags": Object{
-		"terrascale.owner": "ts-orch", "terrascale.cell": "sfo-1", "terrascale.operation": foundation.OperationID,
+	setLive(Object{"id": resourceID, "name": "sjc-1-control", "compartmentId": parent, "lifecycleState": "ACTIVE", "freeformTags": Object{
+		"terrascale.owner": "ts-orch", "terrascale.cell": "sjc-1", "terrascale.operation": foundation.OperationID,
 	}})
 	if _, err := foundation.Reconcile(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "ownership") || numWrites() != 0 {
 		t.Fatalf("foreign adoption: writes=%d err=%v", numWrites(), err)
@@ -240,7 +240,7 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	}
 	state.Lock()
 	tags := obj(live["freeformTags"])
-	owned := tags["terrascale.owner"] == "ts-orch" && tags["terrascale.cell"] == "sfo-1" && tags["terrascale.operation"] == foundation.OperationID
+	owned := tags["terrascale.owner"] == "ts-orch" && tags["terrascale.cell"] == "sjc-1" && tags["terrascale.operation"] == foundation.OperationID
 	state.Unlock()
 	if !owned {
 		t.Fatalf("creation omitted ownership: %v", tags)

@@ -519,7 +519,7 @@ func TestInstalledControllerConfigRequiresCurrentSchema(t *testing.T) {
 		"physical slot":    manifest.Slot,
 		"other domain":     entityid.Derive("host", manifest.DeploymentID, string(manifest.Cell), manifest.Slot),
 		"other deployment": entityid.Derive("controller", entityid.Derive("other-deployment"), string(manifest.Cell), manifest.Slot),
-		"other cell":       entityid.Derive("controller", manifest.DeploymentID, "SFO", manifest.Slot),
+		"other cell":       entityid.Derive("controller", manifest.DeploymentID, "SJC", manifest.Slot),
 		"lowercase cell":   entityid.Derive("controller", manifest.DeploymentID, strings.ToLower(string(manifest.Cell)), manifest.Slot),
 		"other slot":       entityid.Derive("controller", manifest.DeploymentID, string(manifest.Cell), "controller-b"),
 	} {

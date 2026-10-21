@@ -15,7 +15,7 @@ domain and NATS cluster name stay the lower-case cell token (`gru`). The
 existing interregion path, still guarded by `nats.embedded.interregion.enabled`,
 has these transport properties:
 
-- The JetStream domain is the cell name (`gru`, `sfo`, `fra`).
+- The JetStream domain is the cell name (`gru`, `sjc`, `fra`).
 - Regions link by NATS leafnodes over mutual TLS, never gateways. The links
   form a tree rooted at the global home region (GRU): each spoke dials one
   parent, the hub by default or another spoke for a shorter path

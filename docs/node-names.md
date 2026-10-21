@@ -45,5 +45,5 @@ stores, messages and durable consumer acknowledgements before deploying.
 Then remove role-based naming generators and admission, fix every node/DNS
 consumer, add the naming regression guard, and rename verified live targets
 in place. Delete obsolete records only after their replacement is serving.
-TS-776 acceptance requires final deployment evidence from GRU and SFO and
+TS-776 acceptance requires final deployment evidence from GRU and SJC and
 canonical names in the dashboard and APIs; preparation evidence is insufficient.

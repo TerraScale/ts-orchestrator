@@ -42,7 +42,7 @@ func (c *compartmentFlags) Set(value string) error {
 func runTag(ctx context.Context, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("cost tag", flag.ContinueOnError)
 	flags.SetOutput(out)
-	cell := flags.String("region", "", "cell token such as gru or sfo (required)")
+	cell := flags.String("region", "", "cell token such as gru or sjc (required)")
 	var compartments compartmentFlags
 	flags.Var(&compartments, "compartment", "compartment OCID to tag; repeat for each (at least one required)")
 	apply := flags.Bool("apply", false, "stamp the tags; without it the command only plans")

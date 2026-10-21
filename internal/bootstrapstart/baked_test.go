@@ -194,7 +194,7 @@ func TestBakedInputsExtendGenesisWithTheAdoptedRootChain(t *testing.T) {
 	}
 
 	foreign := loaded.Identity.ChainIdentity()
-	foreign.Cell = "sfo"
+	foreign.Cell = "sjc"
 	for name, wire := range map[string][]byte{"another cell's chain": signChain(foreign), "damaged chain": []byte("{")} {
 		if err := os.WriteFile(store.chainFile, wire, 0o600); err != nil {
 			t.Fatal(err)

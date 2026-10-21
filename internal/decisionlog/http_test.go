@@ -11,7 +11,7 @@ import (
 
 func TestParseQuery(t *testing.T) {
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
-	values := url.Values{"region": {"GRU,sfo"}, "kind": {"held", "scale_up"}, "actor": {"placement"},
+	values := url.Values{"region": {"GRU,sjc"}, "kind": {"held", "scale_up"}, "actor": {"placement"},
 		"status": {"failed"}, "subject": {"Orders"}, "since": {"1h"}, "until": {"2026-10-02T11:30:00Z"},
 		"limit": {"5000"}, "parent": {"p"}}
 	query, err := ParseQuery(values, now)

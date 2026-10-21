@@ -153,7 +153,7 @@ func newDeployFixture(t *testing.T) *deployFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		fixture.buckets[cell] = &regionBucket{cell: cell, roots: roots, outcome: releasechannel.StateComplete,
 			objects: map[string][]byte{}, log: &fixture.log, logMu: &fixture.logMu,
 			scope: &releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: cell, Environment: "production",
@@ -165,7 +165,7 @@ func newDeployFixture(t *testing.T) *deployFixture {
 	}
 	fixture.env = deployEnv{
 		timeout:  2 * time.Second,
-		discover: func(context.Context) ([]string, error) { return []string{"GRU", "SFO"}, nil },
+		discover: func(context.Context) ([]string, error) { return []string{"GRU", "SJC"}, nil },
 		check:    func(release.Qualification, string) error { return nil },
 		inspect:  func(string, string, string) (binaryReceipt, error) { return testBinaryReceipt(), nil },
 		git: func(_ context.Context, args ...string) (string, error) {
@@ -206,28 +206,28 @@ func TestDeployRollsOutEveryRegion(t *testing.T) {
 	fixture := newDeployFixture(t)
 	var output bytes.Buffer
 	c := command{ctx: t.Context(), output: &output}
-	if err := c.deployWith(fixture.args("GRU", "SFO"), fixture.env); err != nil {
+	if err := c.deployWith(fixture.args("GRU", "SJC"), fixture.env); err != nil {
 		t.Fatalf("deploy: %v\n%s", err, output.String())
 	}
 	binary := releasechannel.BinaryObject(testBinaryReceipt().SHA256)
 	want := []string{"put GRU " + binary, "put GRU " + releasechannel.ChannelObject,
-		"put SFO " + binary, "put SFO " + releasechannel.ChannelObject}
+		"put SJC " + binary, "put SJC " + releasechannel.ChannelObject}
 	slices.Sort(fixture.log)
 	slices.Sort(want)
 	if !slices.Equal(fixture.log, want) {
 		t.Fatalf("writes = %q, want %q", fixture.log, want)
 	}
 	text := output.String()
-	if !strings.Contains(text, "GRU complete") || !strings.Contains(text, "SFO complete") ||
+	if !strings.Contains(text, "GRU complete") || !strings.Contains(text, "SJC complete") ||
 		!strings.Contains(text, "fleet complete: run 620") {
 		t.Fatalf("output:\n%s", text)
 	}
 
 	// Deploying the same run again only renews the channels' receipts.
 	fixture.log = nil
-	err := c.deployWith(fixture.args("GRU", "SFO"), fixture.env)
+	err := c.deployWith(fixture.args("GRU", "SJC"), fixture.env)
 	slices.Sort(fixture.log)
-	if err != nil || !slices.Equal(fixture.log, []string{"put GRU " + releasechannel.ChannelObject, "put SFO " + releasechannel.ChannelObject}) {
+	if err != nil || !slices.Equal(fixture.log, []string{"put GRU " + releasechannel.ChannelObject, "put SJC " + releasechannel.ChannelObject}) {
 		t.Fatalf("repeated deploy: %v, writes %q", err, fixture.log)
 	}
 
@@ -243,10 +243,10 @@ func TestDeployRollsOutEveryRegion(t *testing.T) {
 
 	// --role reads only that role's service status, as the release
 	// retention job does with the role's own scoped key.
-	fixture.buckets["SFO"].objects[releasechannel.ServiceStatusObject("terrabase")] =
-		[]byte(`{"cell":"SFO","role":"terrabase","digest":"` + strings.Repeat("ab", 32) + `","state":"complete"}`)
+	fixture.buckets["SJC"].objects[releasechannel.ServiceStatusObject("terrabase")] =
+		[]byte(`{"cell":"SJC","role":"terrabase","digest":"` + strings.Repeat("ab", 32) + `","state":"complete"}`)
 	output.Reset()
-	if err := c.fleetStatusWith([]string{"--namespace", "ns", "--cell", "GRU", "--cell", "SFO", "--role", "terrabase"},
+	if err := c.fleetStatusWith([]string{"--namespace", "ns", "--cell", "GRU", "--cell", "SJC", "--role", "terrabase"},
 		fixture.env); err != nil {
 		t.Fatalf("fleet-status --role: %v", err)
 	}
@@ -294,11 +294,11 @@ func TestDeployFinishesOtherRegionsWhenOneRollsBack(t *testing.T) {
 	fixture.buckets["GRU"].outcome = releasechannel.StateFailed
 	var output bytes.Buffer
 	c := command{ctx: t.Context(), output: &output}
-	err := c.deployWith(fixture.args("GRU", "SFO"), fixture.env)
+	err := c.deployWith(fixture.args("GRU", "SJC"), fixture.env)
 	if !errors.Is(err, releasechannel.ErrFailed) || !strings.Contains(err.Error(), "GRU rolled back run 620") {
 		t.Fatalf("deploy = %v", err)
 	}
-	if !fixture.touched("SFO") || !strings.Contains(output.String(), "SFO complete") {
+	if !fixture.touched("SJC") || !strings.Contains(output.String(), "SJC complete") {
 		t.Fatalf("the healthy region did not finish: %q\n%s", fixture.log, output.String())
 	}
 }
@@ -309,7 +309,7 @@ func TestDeployWaitsForRegionsConcurrently(t *testing.T) {
 	defer cancel()
 	reading := make(chan string, 2)
 	proceed := make(chan struct{})
-	for _, cell := range []string{"GRU", "SFO"} {
+	for _, cell := range []string{"GRU", "SJC"} {
 		fixture.buckets[cell].wait = func(ctx context.Context) error {
 			reading <- cell
 			select {
@@ -322,7 +322,7 @@ func TestDeployWaitsForRegionsConcurrently(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- (command{ctx: ctx, output: io.Discard}).deployWith(fixture.args("GRU", "SFO"), fixture.env)
+		done <- (command{ctx: ctx, output: io.Discard}).deployWith(fixture.args("GRU", "SJC"), fixture.env)
 	}()
 	seen := map[string]bool{}
 	for len(seen) < 2 {
@@ -346,22 +346,22 @@ func TestDeployStorageFailuresAreRegionalAndAllReported(t *testing.T) {
 		t.Run(fmt.Sprint(failBoth), func(t *testing.T) {
 			fixture := newDeployFixture(t)
 			storage := fixture.env.storage
-			gruError, sfoError := errors.New("GRU storage unavailable"), errors.New("SFO storage unavailable")
+			gruError, sjcError := errors.New("GRU storage unavailable"), errors.New("SJC storage unavailable")
 			fixture.env.storage = func(cell string) (releasechannel.ObjectClient, error) {
 				if cell == "GRU" {
 					return nil, gruError
 				}
-				if failBoth && cell == "SFO" {
-					return nil, sfoError
+				if failBoth && cell == "SJC" {
+					return nil, sjcError
 				}
 				return storage(cell)
 			}
 			var output bytes.Buffer
-			err := (command{ctx: t.Context(), output: &output}).deployWith(fixture.args("GRU", "SFO"), fixture.env)
-			if !errors.Is(err, gruError) || errors.Is(err, sfoError) != failBoth ||
-				fixture.touched("GRU") || fixture.touched("SFO") == failBoth || !strings.Contains(output.String(), "GRU qualification refused:") ||
-				strings.Contains(output.String(), "SFO qualification refused:") != failBoth ||
-				strings.Contains(output.String(), "SFO complete:") == failBoth {
+			err := (command{ctx: t.Context(), output: &output}).deployWith(fixture.args("GRU", "SJC"), fixture.env)
+			if !errors.Is(err, gruError) || errors.Is(err, sjcError) != failBoth ||
+				fixture.touched("GRU") || fixture.touched("SJC") == failBoth || !strings.Contains(output.String(), "GRU qualification refused:") ||
+				strings.Contains(output.String(), "SJC qualification refused:") != failBoth ||
+				strings.Contains(output.String(), "SJC complete:") == failBoth {
 				t.Fatalf("deploy = %v, writes %q\n%s", err, fixture.log, output.String())
 			}
 		})
@@ -378,7 +378,7 @@ func TestDeploySharesLineageFetchAcrossRegions(t *testing.T) {
 		}
 		return git(ctx, args...)
 	}
-	if err := (command{ctx: t.Context(), output: io.Discard}).deployWith(fixture.args("GRU", "SFO"), fixture.env); err != nil {
+	if err := (command{ctx: t.Context(), output: io.Discard}).deployWith(fixture.args("GRU", "SJC"), fixture.env); err != nil {
 		t.Fatal(err)
 	}
 	if fetches.Load() != 1 {
@@ -504,7 +504,7 @@ func TestFleetStatusRequiresLeaderPinsBeforePruning(t *testing.T) {
 			statuses := []string{
 				"",
 				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"state":"complete"}`, schema, role),
-				fmt.Sprintf(`{"schema":%q,"cell":"SFO","role":%q,"pins":{}}`, schema, role),
+				fmt.Sprintf(`{"schema":%q,"cell":"SJC","role":%q,"pins":{}}`, schema, role),
 				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"updated_at":%q,"pins":{"rollback":[%q],"known_bad":[%q]}}`, schema, role, updated, rollback, bad),
 				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"updated_at":%q,"pins":{"rollback":[],"known_bad":[]}}`, schema, role, updated),
 			}
@@ -543,14 +543,14 @@ func TestFleetStatusRejectsStaleLeaderPins(t *testing.T) {
 		} {
 			t.Run(role+"/"+tc.name, func(t *testing.T) {
 				name, schema := releasechannel.StatusObject, releasechannel.StatusSchema
-				args := []string{"--namespace", "ns", "--cell", "GRU", "--cell", "SFO"}
+				args := []string{"--namespace", "ns", "--cell", "GRU", "--cell", "SJC"}
 				if role != "" {
 					name, schema = releasechannel.ServiceStatusObject(role), releasechannel.ServiceStatusSchema
 					args = append(args, "--role", role)
 				}
-				for _, cell := range []string{"GRU", "SFO"} {
+				for _, cell := range []string{"GRU", "SJC"} {
 					at := now
-					if cell == "SFO" {
+					if cell == "SJC" {
 						at = tc.at
 					}
 					f.buckets[cell].objects[name] = []byte(fmt.Sprintf(`{"schema":%q,"cell":%q,"role":%q,"updated_at":%q,"pins":{"rollback":[],"known_bad":[]}}`,

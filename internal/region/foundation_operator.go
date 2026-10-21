@@ -107,7 +107,7 @@ func (operator *foundationOperator) guardWorkloadOrigin(ctx context.Context, rea
 	if err := json.Unmarshal(envelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
 		return err
 	}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		for _, role := range []string{"terrabase", "ts-auth", "function-worker"} {
 			name, err := release.WorkloadGenesisObject(operator.bundle.TenancyID, cell, reader.scope.Environment, role)
 			if err != nil {
