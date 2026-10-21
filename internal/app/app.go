@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -81,7 +82,14 @@ func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge) {
 }
 
 // edgeRoutes maps every hostname a service declares to its published port.
+// The oldest service keeps a hostname another service also claims, so a later
+// spec cannot take over traffic (apply refuses that too).
 func edgeRoutes(services []*api.Service) map[string]int {
+	services = slices.Clone(services)
+	slices.SortStableFunc(services, func(a, b *api.Service) int {
+		at, bt := a.Meta.CreatedAt, b.Meta.CreatedAt
+		return cmp.Or(cmp.Compare(at.GetSeconds(), bt.GetSeconds()), cmp.Compare(at.GetNanos(), bt.GetNanos()), strings.Compare(a.ID, b.ID))
+	})
 	routes := map[string]int{}
 	for _, svc := range services {
 		hosts := svc.Spec.Annotations.Labels[swarmruntime.LabelHostnames]
@@ -89,7 +97,9 @@ func edgeRoutes(services []*api.Service) map[string]int {
 			continue
 		}
 		for host := range strings.SplitSeq(hosts, ",") {
-			routes[host] = int(svc.Spec.Endpoint.Ports[0].PublishedPort)
+			if _, owned := routes[host]; !owned {
+				routes[host] = int(svc.Spec.Endpoint.Ports[0].PublishedPort)
+			}
 		}
 	}
 	return routes
