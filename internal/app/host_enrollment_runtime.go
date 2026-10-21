@@ -84,6 +84,9 @@ type managedHostEnrollment struct {
 	runtimeIdentity       bootstrapstart.AcceptedIdentity
 	registrationMutations *authority.Reader
 	registrations         *host.Reader
+	// prepareWorker stands in for the root SwarmKit management process in
+	// tests, which cannot reach its root-owned socket. Nil calls it.
+	prepareWorker func(ctx context.Context, request, response []byte) ([]byte, error)
 }
 
 var errStaleUnclaimedRenewal = errors.New("stale unclaimed host renewal")

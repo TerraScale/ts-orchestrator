@@ -34,7 +34,6 @@ import (
 )
 
 func TestStaticHostSetupRenewsResetGrantUnderRotatedResponseAuthority(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx := t.Context()
 	lab := startStaticEnrollmentLab(t, ctx, staticTerraBaseWorkloads())
 	metadata := lab.launch(t, "ocid1.instance.oc1.sa-saopaulo-1.db1", "gru-1-db-1", "10.251.0.21")
@@ -191,7 +190,8 @@ func startStaticEnrollmentLab(t *testing.T, ctx context.Context, workloads map[s
 	return staticEnrollmentLab{enrollment: &managedHostEnrollment{cell: "gru", region: oci.RegionGRU,
 		owner: "regional-owner", generation: 1, environment: "production", fleet: fleet,
 		controller: hostController, grants: grants, issuer: issuer, responseKey: controllerPrivate,
-		fencer: control, services: services},
+		fencer: control, services: services, js: broker.JetStream(),
+		prepareWorker: func(_ context.Context, _, response []byte) ([]byte, error) { return response, nil }},
 		controller: hostController, fleet: fleet, bundle: bundle, epoch: control.Current().Epoch, js: broker.JetStream()}
 }
 
@@ -276,7 +276,6 @@ func staticTerraBaseWorkloads() map[string]WorkloadProfile {
 }
 
 func TestStaticTerraBaseHostEnrollsAsAListedMemberWithoutManagedBindings(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	lab := startStaticEnrollmentLab(t, ctx, staticTerraBaseWorkloads())
@@ -411,7 +410,6 @@ func TestStaticTerraBaseHostEnrollmentRefusesUnlistedOrMismatchedHosts(t *testin
 // list once adopted: a member it adds enrolls and one it drops is refused,
 // on the running controller, without a restart or a re-found.
 func TestStaticTerraBaseMembershipFollowsTheCellSpec(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	lab := startStaticEnrollmentLab(t, ctx, staticTerraBaseWorkloads())
@@ -551,7 +549,6 @@ func TestStaticRegistrationReplacesKeysOnlyAfterTheSessionEnds(t *testing.T) {
 }
 
 func TestStaticTerraBaseHostRevocationStopsRenewalAndReenrollment(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	lab := startStaticEnrollmentLab(t, ctx, staticTerraBaseWorkloads())
@@ -607,7 +604,6 @@ func (fence fenceAfterCommit) Guard(ctx context.Context, epoch uint64) error {
 // commit are not released by it; the host retries and gets the committed
 // response from a controller that holds authority.
 func TestStaticEnrollmentReleasesCredentialsOnlyUnderCurrentAuthority(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	lab := startStaticEnrollmentLab(t, ctx, staticTerraBaseWorkloads())
@@ -645,7 +641,6 @@ func controllerGrant(node, ip string) cellspec.HostGrant {
 // A controller VM's host agent enrolls through its cell spec host grant, from
 // the granted address under the controller's name, with the grant's roles.
 func TestGrantedControllerHostEnrollsWithItsGrantRoles(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	lab := startStaticEnrollmentLab(t, ctx, controllerHostWorkloads())
@@ -689,7 +684,6 @@ func TestGrantedControllerHostEnrollsWithItsGrantRoles(t *testing.T) {
 // grant, since a controller VM carries no host descriptor for the member
 // checks, with both roles' capacity, and host-setup gives it both roots.
 func TestGrantedControllerHostColocatesATerraBaseMember(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	workloads := controllerHostWorkloads()
