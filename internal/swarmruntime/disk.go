@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/TerraScale/ts-orchestrator/internal/storage/capacity"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -148,7 +149,9 @@ func (e *Executor) retainedImageDisk(ctx context.Context, image containerd.Image
 	}
 	storeSnapshots := e.client.SnapshotService("native")
 	parent := ""
-	for _, chain := range identity.ChainIDs(diffIDs) {
+	// ChainIDs rewrites its argument, and containerd caches this slice in the
+	// image: chaining it in place corrupts every later RootFS of a multi-layer image.
+	for _, chain := range identity.ChainIDs(slices.Clone(diffIDs)) {
 		info, err := storeSnapshots.Stat(ctx, chain.String())
 		if err != nil || info.Kind != snapshots.KindCommitted || info.Name != chain.String() || info.Parent != parent {
 			return 0, errors.Join(ErrDiskPending, err)

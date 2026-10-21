@@ -75,6 +75,7 @@ func (c *controller) container(ctx context.Context) (containerd.Container, error
 
 func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStatePreparing, operationErr) }()
+	defer func() { c.releaseFailedPorts(ctx, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -247,7 +248,8 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 			return err
 		}
 		// Metadata owns the identity before snapshot creation, so an interrupted prepare can resume.
-		err = ctr.Update(ctx, containerd.UpdateContainerOpts(containerd.WithNewSnapshotView(c.id, image, snapshots.WithLabels(map[string]string{"terrascale.task": c.task.ID, "terrascale.spec": c.fingerprint}))))
+		// Active, not a view: runc creates bind-mount targets in it before remounting the root read-only.
+		err = ctr.Update(ctx, containerd.UpdateContainerOpts(containerd.WithNewSnapshot(c.id, image, snapshots.WithLabels(map[string]string{"terrascale.task": c.task.ID, "terrascale.spec": c.fingerprint}))))
 		if errdefs.IsAlreadyExists(err) {
 			store := c.executor.client.SnapshotService(info.Snapshotter)
 			snapshot, statErr := store.Stat(ctx, c.id)
@@ -258,7 +260,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 			if rootErr != nil {
 				return rootErr
 			}
-			if snapshot.Labels["terrascale.task"] != c.task.ID || snapshot.Labels["terrascale.spec"] != c.fingerprint || snapshot.Kind != snapshots.KindView || snapshot.Parent != identity.ChainID(rootfs).String() {
+			if snapshot.Labels["terrascale.task"] != c.task.ID || snapshot.Labels["terrascale.spec"] != c.fingerprint || snapshot.Kind != snapshots.KindActive || snapshot.Parent != identity.ChainID(rootfs).String() {
 				return fmt.Errorf("snapshot ownership or image conflicts with task")
 			}
 			err = ctr.Update(ctx, containerd.UpdateContainerOpts(containerd.WithSnapshot(c.id)))
@@ -272,6 +274,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 
 func (c *controller) Start(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStateStarting, operationErr) }()
+	defer func() { c.releaseFailedPorts(ctx, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe

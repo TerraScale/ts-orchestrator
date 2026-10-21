@@ -232,7 +232,7 @@ func (c *controller) verifyDisk(ctx context.Context, ctr containerd.Container) e
 		return ErrDiskPending
 	}
 	snapshot, err := c.executor.client.SnapshotService("native").Stat(ctx, c.id)
-	if err != nil || snapshot.Kind != snapshots.KindView || snapshot.Parent != witness.SnapshotParent ||
+	if err != nil || snapshot.Kind != snapshots.KindActive || snapshot.Parent != witness.SnapshotParent ||
 		snapshot.Labels["terrascale.task"] != c.task.ID || snapshot.Labels["terrascale.spec"] != c.fingerprint {
 		return errors.Join(ErrDiskPending, err)
 	}

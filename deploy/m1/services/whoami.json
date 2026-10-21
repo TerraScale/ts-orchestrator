@@ -1,6 +1,6 @@
 {
   "name": "whoami",
-  "image": "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764",
+  "image": "docker.io/library/alpine@sha256:2e1a7aa4cbc4e9e5222bb4c24a839aa1a6170ea5492d644777ce7b178824e44f",
   "args": ["/bin/sh", "-c", "exec nc -lk -p 8099 -e /bin/sh -c \"printf 'HTTP/1.1 200 OK\\r\\nContent-Length: 6\\r\\nConnection: close\\r\\n\\r\\nwhoami'\""],
   "port": 8099,
   "readyPath": "/readyz",
