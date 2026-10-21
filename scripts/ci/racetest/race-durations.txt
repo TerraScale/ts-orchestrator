@@ -57,9 +57,7 @@ rest - 1
 # Multi-process controller labs: real 10-30s lease and session
 # timers, little CPU. tier.Integration skips them under -short.
 ./internal/app TestBrokerGateR3TicketRevocationAndOfflineFence 40/1 idle
-./internal/app TestCellSpecAddsTSAuthToARunningCell 20/1 idle
 ./internal/app TestRolloutExecutorUpdatesARunningCell 30/1 idle
-./internal/app TestReleaseChannelRollsCIReleasesOutRegionByRegion 30/1 idle
 ./internal/app TestRootRotationOnARunningController 5
 ./internal/app TestTerraBaseReleaseUnderLoadServesNoErrors 6 idle
 ./internal/app TestTerraBaseReleaseFenceUnderLoad 8 idle
