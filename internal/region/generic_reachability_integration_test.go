@@ -197,7 +197,6 @@ func (f *genericReachabilityFixture) readerFor(bundle RetainedFoundation) Founda
 }
 
 func TestSchema3GenericReachabilitySignedSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newGenericReachabilityFixture(t)
 	ctx := t.Context()
 	for _, cell := range []string{"GRU", "SJC", "FRA"} {
@@ -262,7 +261,6 @@ func TestSchema3GenericReachabilitySignedSDK(t *testing.T) {
 }
 
 func TestSchema3FullGrantRefusalsReachRoutingConsumers(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newGenericReachabilityFixture(t)
 	cases := []struct {
 		name   string
@@ -331,7 +329,6 @@ func TestSchema3FullGrantRefusalsReachRoutingConsumers(t *testing.T) {
 }
 
 func TestSchema3CurrentRootHomeWireAndOriginalEvidenceRefusals(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newGenericReachabilityFixture(t)
 	reader := f.resolver.Footprint.(*SignedFootprint)
 	t.Run("independent foreign root", func(t *testing.T) {
@@ -436,7 +433,6 @@ func TestSchema3CurrentRootHomeWireAndOriginalEvidenceRefusals(t *testing.T) {
 }
 
 func TestSchema3TransportedMetadataConfersNoEffects(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newGenericReachabilityFixture(t)
 	ctx := t.Context()
 	reader := f.resolver.Footprint.(*SignedFootprint)

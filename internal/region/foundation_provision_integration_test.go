@@ -395,7 +395,8 @@ func foundationProvisionSDKScenario(t *testing.T) {
 				defer func() { cloud.rows[imageID], cloud.imageFault = original, false }()
 				requests, reads := cloud.requests, len(cloud.imageReads)
 				result, err := prepare(fixture.images)
-				if err == nil || result.Grant.InstallationID != "" || cloud.requests != requests+1 || len(cloud.imageReads) != reads+1 || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
+				// Two locked retention reads precede the single image GET.
+				if err == nil || result.Grant.InstallationID != "" || cloud.requests != requests+3 || len(cloud.imageReads) != reads+1 || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
 					t.Fatalf("invalid image observation prepared authority or performed effects: %v", err)
 				}
 			})
@@ -412,7 +413,8 @@ func foundationProvisionSDKScenario(t *testing.T) {
 				selected["GRU"] = image
 				requests, reads := cloud.requests, len(cloud.imageReads)
 				result, err := prepare(selected)
-				if err == nil || result.Grant.InstallationID != "" || cloud.requests != requests || len(cloud.imageReads) != reads || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
+				// Only the two locked retention reads precede the qualification refusal.
+				if err == nil || result.Grant.InstallationID != "" || cloud.requests != requests+2 ||len(cloud.imageReads) != reads || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
 					t.Fatalf("invalid independent qualification reached image GET or effects: %v", err)
 				}
 			})

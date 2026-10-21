@@ -17,7 +17,6 @@ import (
 )
 
 func TestOriginalStartupRetentionUsesActualHomeSDKRule(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	fixture := newFoundationProvisionFixture(t)
 	beforeCreates, beforeLaunches, beforeMaterial := fixture.cloud.creates, fixture.cloud.launchPosts, fixture.cloud.materialPosts
 	ruleID, err := discoverOriginalStartupRetention(t.Context(), fixture.factoryFor(), fixture.approval.HomeStorageDomain)
@@ -37,7 +36,6 @@ func TestOriginalStartupRetentionUsesActualHomeSDKRule(t *testing.T) {
 }
 
 func TestOriginalStartupRetentionRejectsAmbiguousOrMutableRulesSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	fixture := newFoundationProvisionFixture(t)
 	bucket := fixture.approval.HomeStorageDomain.LedgerBucket
 	locked := func() map[string]any {
@@ -75,7 +73,6 @@ func TestOriginalStartupRetentionRejectsAmbiguousOrMutableRulesSDK(t *testing.T)
 }
 
 func TestOriginalStartupAdmissionRejectsPartialAndChangedPurpose(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	fixture := newFoundationProvisionFixture(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	factory := fixture.factoryFor()
@@ -157,7 +154,6 @@ func TestOriginalStartupAdmissionRejectsPartialAndChangedPurpose(t *testing.T) {
 }
 
 func TestOriginalStartupRetentionPaginationAndReadbackSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	fixture := newFoundationProvisionFixture(t)
 	bucket := fixture.approval.HomeStorageDomain.LedgerBucket
 	rule := fixture.cloud.retention[bucket][0]
@@ -195,7 +191,6 @@ func TestOriginalStartupRetentionPaginationAndReadbackSDK(t *testing.T) {
 }
 
 func TestOriginalStartupCompleteSignedGrantFitsBound(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	fixture := newFoundationProvisionFixture(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
@@ -208,7 +203,6 @@ func TestOriginalStartupCompleteSignedGrantFitsBound(t *testing.T) {
 }
 
 func TestOriginalStartupActorCannotBypassRunningBinarySDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalMaterialIAMSDKFixture(t, "")
 	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 		t.Fatal(err)
