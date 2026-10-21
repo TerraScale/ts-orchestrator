@@ -99,7 +99,9 @@ func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationOb
 	}
 	provider := common.NewRawConfigurationProvider("ocid1.tenancy.oc1..test", "ocid1.user.oc1..test", "sa-saopaulo-1", "test",
 		string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
-	factory, err := ociclient.New(provider, ociclient.Options{Region: "sa-saopaulo-1", Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+	// The local fake is not OCI: production pacing would only stretch guarded reads past their budgets.
+	factory, err := ociclient.New(provider, ociclient.Options{Region: "sa-saopaulo-1", Retry: ociclient.RetryOptions{MaxAttempts: 1},
+		Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceObjectStorage: {PerSecond: 100000, Burst: 100000}}})
 	if err != nil {
 		t.Fatal(err)
 	}

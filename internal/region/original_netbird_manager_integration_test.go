@@ -306,7 +306,7 @@ func (f *originalNetBirdManagerSDKFixture) admission(t *testing.T) (*ociclient.F
 		t.Fatal(err)
 	}
 	resolver := FoundationResolver{Footprint: reader, Store: store}
-	observer, err := bootstrapstart.NewOCIInstanceObserver(oci.RegionGRU, factory.Provider())
+	observer, err := bootstrapstart.NewOCIInstanceObserverWithFactory(oci.RegionGRU, factory)
 	if err != nil {
 		t.Fatal(err)
 	}
