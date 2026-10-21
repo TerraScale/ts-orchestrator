@@ -681,7 +681,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			}
 			return "", false
 		}
-		policy.nodes = newNodeOps(fences, func(context.Context) (nodeCompute, error) { return newOCINodeCompute(region) },
+		nodeRoot := rootoci.NewClient(rootoci.Expectations{Cell: cfg.NATS.Cell})
+		defer nodeRoot.Close()
+		policy.nodes = newNodeOps(fences, func(context.Context) (nodeCompute, error) { return newOCINodeCompute(nodeRoot) },
 			func(ctx context.Context, node string) error {
 				server, controller := serverOf(node)
 				gate := rolloutexec.ClusterGate{Cluster: runtime, ServerOf: func(string) (string, bool) { return server, true }}
@@ -689,7 +691,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 					return gate.Check(ctx, rollout.Record{Kind: rollout.KindHost}, "")
 				}
 				return gate.Check(ctx, rollout.Record{Kind: rollout.KindController}, node)
-			})
+			}, cfg, runtime.JetStream())
 		policy.nodes.controllers = func(node string) bool {
 			_, controller := serverOf(node)
 			return controller

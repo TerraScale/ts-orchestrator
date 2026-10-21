@@ -88,6 +88,8 @@ type rootNodeOperationSource struct {
 	operations     []rootNodeOperationAdmission
 	journalCreated time.Time
 	journalConfig  jetstream.StreamConfig
+	// release ends the shortened lifetimes; they otherwise end at their own deadlines.
+	release []context.CancelFunc
 }
 
 // These exact-key reads always reach the stream leader, including negative reads.
@@ -273,11 +275,15 @@ func (producer *rootMaterialAdmission) nodeOperation(ctx context.Context, call r
 	}
 	source.deadline = earlier(source.deadline, original.ExpiresAt)
 	ctx, cancel := context.WithDeadline(ctx, source.deadline)
+	defer func() {
+		if !success {
+			cancel()
+		}
+	}()
 	context.AfterFunc(ctx, source.credentials.Conn().Close)
 	source.lifetime = ctx
 	admitted := rootNodeOperationAdmission{source: source, op: op, original: original}
 	if err := admitted.Revalidate(ctx); err != nil {
-		cancel()
 		return rootNodeOperationAdmission{}, err
 	}
 	success = true
@@ -293,6 +299,9 @@ func (producer *rootMaterialAdmission) nodeOperations(ctx context.Context, call 
 	success := false
 	defer func() {
 		if !success {
+			for _, release := range source.release {
+				release()
+			}
 			source.credentials.Conn().Close()
 		}
 	}()
@@ -305,7 +314,6 @@ func (producer *rootMaterialAdmission) nodeOperations(ctx context.Context, call 
 	}
 	ctx = source.lifetime
 	cfg, snapshot, observed, conn := source.cfg, source.snapshot, source.lease, source.credentials.Conn()
-	var sourceCancel context.CancelFunc
 	// Only the finite node names from the authenticated current spec can select work.
 	for node := range addresses {
 		progress, err := source.read(ctx, nodeOpKey(node))
@@ -360,7 +368,9 @@ func (producer *rootMaterialAdmission) nodeOperations(ctx context.Context, call 
 		}
 		if original.ExpiresAt.Before(source.deadline) {
 			source.deadline = original.ExpiresAt
-			ctx, sourceCancel = context.WithDeadline(ctx, original.ExpiresAt)
+			var release context.CancelFunc
+			ctx, release = context.WithDeadline(ctx, original.ExpiresAt)
+			source.release = append(source.release, release)
 			context.AfterFunc(ctx, conn.Close)
 			source.lifetime = ctx
 		}
@@ -385,9 +395,6 @@ func (producer *rootMaterialAdmission) nodeOperations(ctx context.Context, call 
 		source.operations = append(source.operations, rootNodeOperationAdmission{source: source, op: op, original: original})
 	}
 	if err := source.revalidate(ctx); err != nil {
-		if sourceCancel != nil {
-			sourceCancel()
-		}
 		return fail(err)
 	}
 	success = true
