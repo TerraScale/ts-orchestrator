@@ -35,6 +35,15 @@ func TestSingleHostIntegration(t *testing.T) {
 	if err != nil || len(services.Services) != 0 {
 		t.Fatalf("fresh single host services: %v, %v", services, err)
 	}
+	networks, err := client.ListNetworks(ctx, &api.ListNetworksRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, network := range networks.Networks {
+		if network.Spec.Ingress {
+			t.Fatalf("single host kept the ingress network %s", network.ID)
+		}
+	}
 	created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: &api.ServiceSpec{
 		Annotations: api.Annotations{Name: "single-host-persistence"},
 		Task:        api.TaskSpec{Runtime: &api.TaskSpec_Container{Container: &api.ContainerSpec{Image: "example.invalid/proof"}}},

@@ -16,6 +16,7 @@ import (
 )
 
 // A replacement task must read what its predecessor wrote under DataRoot as the same non-root user.
+// The target is absent from the image: runc creates it in the read-only root.
 func TestContainerdBindMountSurvivesTaskRestart(t *testing.T) {
 	if *integrationSocket == "" {
 		t.Skip("runs in the containerd workflow, which passes -containerd-socket")
@@ -32,7 +33,7 @@ func TestContainerdBindMountSurvivesTaskRestart(t *testing.T) {
 	run := func(name, script string) {
 		t.Helper()
 		runtime, err := ContainerRuntime(&api.ContainerSpec{Image: integrationImage, User: "65532:65532", Command: []string{"/bin/sh", "-c", script},
-			Mounts: []api.Mount{{Type: api.MountTypeBind, Source: source, Target: "/mnt"}}})
+			Mounts: []api.Mount{{Type: api.MountTypeBind, Source: source, Target: "/data"}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -58,8 +59,8 @@ func TestContainerdBindMountSurvivesTaskRestart(t *testing.T) {
 			t.Fatalf("%s task: %v", name, err)
 		}
 	}
-	run("writer", `set -eu; test "$(id -u)" = 65532; printf persisted > /mnt/value`)
-	run("reader", `set -eu; test "$(cat /mnt/value)" = persisted; printf again >> /mnt/value`)
+	run("writer", `set -eu; test "$(id -u)" = 65532; printf persisted > /data/value`)
+	run("reader", `set -eu; test "$(cat /data/value)" = persisted; printf again >> /data/value`)
 	data, err := os.ReadFile(filepath.Join(source, "value"))
 	if err != nil || string(data) != "persistedagain" {
 		t.Fatalf("host data = %q, %v", data, err)
