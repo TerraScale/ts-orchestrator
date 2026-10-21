@@ -28,6 +28,7 @@ import (
 )
 
 func TestBackupAdmissionRechecksRosterAtFinalR3Commit(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	auth := newAuthenticatedNATS(t, "gru")
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()

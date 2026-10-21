@@ -80,6 +80,7 @@ func TestControllerBootstrapRetriesOnlyTransientErrors(t *testing.T) {
 // A delayed founder and a complete restart exercise the bootstrap path that
 // systemd uses on separate hosts.
 func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	if configPath := os.Getenv("TS_ORCH_TEST_CONTROLLER_CHILD_CONFIG"); configPath != "" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()

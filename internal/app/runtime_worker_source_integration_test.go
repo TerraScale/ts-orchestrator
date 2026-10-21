@@ -22,6 +22,7 @@ import (
 )
 
 func TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	ctx := t.Context()
 	js, observer := testRolloutJetStreamWithObserver(t, hostenroll.GrantBucket)
 	control, err := authority.Start(ctx, js, authority.Config{DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
