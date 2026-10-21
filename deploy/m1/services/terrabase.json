@@ -1,0 +1,14 @@
+{
+  "name": "terrabase",
+  "image": "ghcr.io/terrascale/terrabase@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "env": {
+    "TERRABASE_AUTH_AUDIENCE": "https://api.terrascale.tech",
+    "TERRABASE_AUTH_ISSUER": "https://auth.terrascale.tech/terrascale"
+  },
+  "secrets": ["TERRABASE_PEER_SECRET", "TERRABASE_MASTER_KEY"],
+  "mounts": [{"source": "/var/lib/ts-data/terrabase", "target": "/data"}],
+  "port": 8080,
+  "readyPath": "/readyz",
+  "hostnames": ["api.terrascale.tech"],
+  "replicas": 1
+}

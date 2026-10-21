@@ -25,7 +25,7 @@ func platformServiceIntent(intent delivery.Intent, profile WorkloadProfile, ociR
 	}
 	region, ok := catalog.CellForOCIRegion(ociRegion)
 	if intent.Validate() != nil || intent.Container == nil || !ok || region.Cell != strings.ToUpper(intent.Cell) ||
-		intent.ConfigDigest != delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets) || intent.Role == "terrabase" ||
+		intent.ConfigDigest != delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets) ||
 		profile.Resources.CPU < 1 || profile.Resources.CPU > 1000 || profile.Resources.MemoryBytes < 16<<20 {
 		return fail()
 	}
@@ -54,9 +54,6 @@ func platformServiceIntent(intent delivery.Intent, profile WorkloadProfile, ociR
 		Replicas:  uint64(intent.DesiredReplicas),
 		Container: &api.ContainerSpec{Image: claim.Image, User: "65532:65532", Args: slices.Clone(profile.Args), Env: environment},
 		Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()},
-	}
-	if intent.Role == "ts-auth" {
-		service.Ports = []*api.PortConfig{{Protocol: api.ProtocolTCP, TargetPort: 8080, PublishedPort: 8080, PublishMode: api.PublishModeHost}}
 	}
 	return service, nil
 }

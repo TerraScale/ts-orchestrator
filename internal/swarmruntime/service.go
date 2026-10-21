@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"slices"
@@ -68,9 +69,6 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 	}
 	if i.Architecture != "arm64" && i.Architecture != "amd64" {
 		return nil, errors.New("unsupported container architecture")
-	}
-	if i.Role == "terrabase" {
-		return nil, errors.New("stateful services require qualified fencing and volume hooks")
 	}
 	// shortcut: one application endpoint is qualified, extend after multiport routing and collision scenarios.
 	if len(i.Ports) > 1 {
@@ -334,12 +332,8 @@ func ObserveService(ctx context.Context, client api.ControlClient, serviceID str
 }
 
 func runtimeDigest(spec api.ServiceSpec) string {
-	g := spec.Task.GetGeneric()
-	if g == nil || g.Kind != ContainerKind || g.Payload == nil {
-		return ""
-	}
-	c := new(api.ContainerSpec)
-	if c.Unmarshal(g.Payload.Value) != nil {
+	c, err := containerOf(spec)
+	if err != nil {
 		return ""
 	}
 	_, digest, _ := strings.Cut(c.Image, "@")
@@ -371,4 +365,201 @@ func serviceIntentFingerprint(spec *api.ServiceSpec) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%x", sha256.Sum256(wire)), nil
+}
+
+// Labels the single-host edge (hostnames) and secret injection (secrets) read
+// from a spec-owned service; the probe reads LabelReadyPath.
+const (
+	LabelServiceSpec = "terrascale.service-spec"
+	LabelHostnames   = "terrascale.hostnames"
+	LabelSecrets     = "terrascale.secrets"
+)
+
+var (
+	secretName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+	hostname   = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
+)
+
+// ServiceSpec is one operator-declared single-host service, `deploy/m1/services/*.json`.
+type ServiceSpec struct {
+	Name      string            `json:"name"`
+	Image     string            `json:"image"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	Secrets   []string          `json:"secrets,omitempty"`
+	Mounts    []ServiceMount    `json:"mounts,omitempty"`
+	Port      uint32            `json:"port"`
+	ReadyPath string            `json:"readyPath,omitempty"`
+	Hostnames []string          `json:"hostnames,omitempty"`
+	Replicas  uint64            `json:"replicas"`
+}
+
+type ServiceMount struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+}
+
+// SwarmSpec maps the declaration to an upstream service; the executor
+// re-validates the container on every task.
+func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
+	if !intentName.MatchString(s.Name) {
+		return nil, errors.New("service name must match ^[a-z][a-z0-9-]{0,62}$")
+	}
+	if s.Replicas != 1 {
+		return nil, errors.New("single-host services run exactly one replica")
+	}
+	if s.Port < 1024 || s.Port > 65535 {
+		return nil, errors.New("service port must be in 1024..65535")
+	}
+	readyPath := s.ReadyPath
+	if readyPath == "" {
+		readyPath = DefaultReadyPath
+	}
+	if !strings.HasPrefix(readyPath, "/") || strings.ContainsAny(readyPath, "?# \t\r\n") {
+		return nil, errors.New("readyPath must be an absolute URL path")
+	}
+	for _, list := range [][]string{s.Secrets, s.Hostnames} {
+		if len(list) != len(slices.Compact(slices.Sorted(slices.Values(list)))) {
+			return nil, errors.New("secrets and hostnames must not repeat")
+		}
+	}
+	for _, name := range s.Secrets {
+		if _, shadowed := s.Env[name]; shadowed || !secretName.MatchString(name) {
+			return nil, fmt.Errorf("invalid or env-shadowed secret name %q", name)
+		}
+	}
+	for _, host := range s.Hostnames {
+		if len(host) > 253 || !hostname.MatchString(host) {
+			return nil, fmt.Errorf("invalid hostname %q", host)
+		}
+	}
+	container := &api.ContainerSpec{Image: s.Image, User: "65532:65532", Args: slices.Clone(s.Args)}
+	for _, key := range slices.Sorted(maps.Keys(s.Env)) {
+		container.Env = append(container.Env, key+"="+s.Env[key])
+	}
+	for _, m := range s.Mounts {
+		container.Mounts = append(container.Mounts, api.Mount{Type: api.MountTypeBind, Source: m.Source, Target: m.Target})
+	}
+	runtime, err := ContainerRuntime(container)
+	if err != nil {
+		return nil, err
+	}
+	labels := map[string]string{LabelServiceSpec: s.Name, LabelReadyPath: readyPath}
+	if len(s.Hostnames) != 0 {
+		labels[LabelHostnames] = strings.Join(s.Hostnames, ",")
+	}
+	if len(s.Secrets) != 0 {
+		labels[LabelSecrets] = strings.Join(s.Secrets, ",")
+	}
+	// shortcut: fixed limits, no reservations; size per service when a second host or OOM appears.
+	limits := &api.Resources{NanoCPUs: 2_000_000_000, MemoryBytes: 4 << 30}
+	return &api.ServiceSpec{
+		Annotations: api.Annotations{Name: s.Name, Labels: labels},
+		Task: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: limits},
+			Restart: &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(5 * time.Second)}},
+		Mode:     &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: s.Replicas}},
+		Update:   &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_STOP_FIRST},
+		Endpoint: &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: []*api.PortConfig{{Protocol: api.ProtocolTCP, TargetPort: s.Port, PublishedPort: s.Port, PublishMode: api.PublishModeHost}}},
+	}, nil
+}
+
+// ApplyServiceSpec creates the named service or replaces its spec in place.
+func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec) (*api.Service, error) {
+	spec, err := s.SwarmSpec()
+	if err != nil {
+		return nil, err
+	}
+	current, err := specService(ctx, client, s.Name)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: spec})
+		if err != nil {
+			return nil, err
+		}
+		return created.Service, nil
+	}
+	if proto.Equal(&current.Spec, spec) {
+		return current, nil
+	}
+	updated, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: current.ID, ServiceVersion: &current.Meta.Version, Spec: spec})
+	if err != nil {
+		return nil, err
+	}
+	return updated.Service, nil
+}
+
+// RemoveServiceSpec deletes the named service; SwarmKit stops its tasks.
+func RemoveServiceSpec(ctx context.Context, client api.ControlClient, name string) error {
+	current, err := specService(ctx, client, name)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return fmt.Errorf("service %q not found", name)
+	}
+	_, err = client.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: current.ID})
+	return err
+}
+
+// ServiceSpecStatus is one `service ls` row.
+type ServiceSpecStatus struct {
+	Name, Image       string
+	Running, Replicas uint64
+}
+
+func ListServiceSpecs(ctx context.Context, client api.ControlClient) ([]ServiceSpecStatus, error) {
+	listed, err := client.ListServices(ctx, &api.ListServicesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	rows := []ServiceSpecStatus{}
+	for _, service := range listed.Services {
+		if service.Spec.Annotations.Labels[LabelServiceSpec] == "" || service.Spec.GetReplicated() == nil {
+			continue
+		}
+		tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+		if err != nil {
+			return nil, err
+		}
+		row := ServiceSpecStatus{Name: service.Spec.Annotations.Name, Replicas: service.Spec.GetReplicated().Replicas}
+		if container, err := containerOf(service.Spec); err == nil {
+			row.Image = container.Image
+		}
+		for _, task := range tasks.Tasks {
+			if task.Status.State == api.TaskStateRunning {
+				row.Running++
+			}
+		}
+		rows = append(rows, row)
+	}
+	slices.SortFunc(rows, func(a, b ServiceSpecStatus) int { return strings.Compare(a.Name, b.Name) })
+	return rows, nil
+}
+
+func specService(ctx context.Context, client api.ControlClient, name string) (*api.Service, error) {
+	listed, err := client.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{name}}})
+	if err != nil {
+		return nil, err
+	}
+	for _, service := range listed.Services {
+		if service.Spec.Annotations.Name != name {
+			continue
+		}
+		if service.Spec.Annotations.Labels[LabelServiceSpec] != name {
+			return nil, fmt.Errorf("service %q is not owned by a service spec", name)
+		}
+		return service, nil
+	}
+	return nil, nil
+}
+
+func containerOf(spec api.ServiceSpec) (*api.ContainerSpec, error) {
+	g := spec.Task.GetGeneric()
+	if g == nil || g.Kind != ContainerKind || g.Payload == nil {
+		return nil, errors.New("not a container service")
+	}
+	c := new(api.ContainerSpec)
+	return c, c.Unmarshal(g.Payload.Value)
 }

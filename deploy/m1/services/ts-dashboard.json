@@ -1,0 +1,13 @@
+{
+  "name": "ts-dashboard",
+  "image": "ghcr.io/terrascale/ts-dashboard@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "env": {
+    "ASPNETCORE_URLS": "http://127.0.0.1:8085",
+    "TS_DASHBOARD_TERRABASE_URL": "http://127.0.0.1:8081"
+  },
+  "secrets": ["TS_AUTH_DASHBOARD_CLIENT_SECRET", "TS_DASHBOARD_SESSION_ENCRYPTION_KEY", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "TERRABASE_PEER_SECRET"],
+  "port": 8085,
+  "readyPath": "/readyz",
+  "hostnames": ["dash.terrascale.tech"],
+  "replicas": 1
+}
