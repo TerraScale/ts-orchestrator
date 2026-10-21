@@ -356,12 +356,16 @@ func foundationWriterPolicy(record FoundationWriterRecord) (identity.CreatePolic
 
 func foundationWriterPolicyBody(details identity.CreatePolicyDetails) ([]byte, error) {
 	request := identity.CreatePolicyRequest{CreatePolicyDetails: details}
-	httpRequest, err := request.HTTPRequest(http.MethodPost, "/20160918/policies", nil, nil)
+	return canonicalSDKCreateBody(request.HTTPRequest(http.MethodPost, "/20160918/policies", nil, nil))
+}
+
+// canonicalSDKCreateBody digests the exact SDK wire body in canonical key order.
+func canonicalSDKCreateBody(httpRequest http.Request, err error) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
 	if httpRequest.Body == nil {
-		return nil, errors.New("home writer SDK policy request has no body")
+		return nil, errors.New("home writer SDK create request has no body")
 	}
 	defer httpRequest.Body.Close()
 	wire, err := io.ReadAll(io.LimitReader(httpRequest.Body, foundationRecordLimit+1))
@@ -369,7 +373,7 @@ func foundationWriterPolicyBody(details identity.CreatePolicyDetails) ([]byte, e
 		return nil, err
 	}
 	if len(wire) > foundationRecordLimit {
-		return nil, errors.New("home writer SDK policy request exceeds size bound")
+		return nil, errors.New("home writer SDK create request exceeds size bound")
 	}
 	var object map[string]any
 	if err := json.Unmarshal(wire, &object); err != nil {
