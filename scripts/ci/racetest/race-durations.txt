@@ -3,6 +3,7 @@
 # on these numbers; every listed test runs whatever they say. Columns:
 #
 #   <package> <test or glob> <seconds>[/<seconds under -short>] [cpu|solo|idle|norace]
+#   <package> - <seconds>[/<seconds under -short>]
 #   rest - <seconds>[/<seconds under -short>]
 
 #
@@ -12,7 +13,8 @@
 # detector: mark only tests whose code paths start no goroutine, and give
 # their cost without it.
 # The first matching line wins; a test no line matches costs one second.
-# "rest" is the one shard of every package that is not sharded.
+# Packages that are not sharded are packed into one group per CI machine
+# by their "<package> -" cost; "rest" is the cost of each one without a line.
 #
 # Refreshed from CI run 883 (main, 2026-10-03) and local timings at
 # GOMAXPROCS=2 scaled to the builder. After a
@@ -21,7 +23,33 @@
 # times one test. Keep the numbers rounded; changing a cpu estimate can move
 # tests between shards, which re-runs those shards once.
 
-rest - 130/60
+rest - 1
+
+# Unsharded packages, from CI run 39670774526 (pull request, 2026-10-21).
+./internal/authority - 96
+./internal/bootstrapmaterial - 68
+./internal/region - 55
+./internal/oci - 53
+./tests/imagequalification - 35
+./internal/bootstrap/cli - 32
+./internal/functions - 27
+./internal/release/cli - 23
+./tests/firecracker/production/fixturegen - 20
+./internal/ociclient - 19
+./internal/bootstrapstart/materialsource - 18
+./internal/selfupdate/cli - 15
+./internal/dashboard/devfake - 13
+./internal/placement - 10
+./internal/dashboard - 9
+
+# Swarm manager integration suites run one after another; local -race timings
+# (2026-10-21). -short skips none of them.
+./internal/swarmruntime TestSignedReleaseRaftIntegration 185 solo
+./internal/swarmruntime TestFunctionServiceManagerIntegration 40
+./internal/swarmruntime TestServiceManagerIntegration 37
+./internal/swarmruntime TestBootstrapVaultIntegration 15
+./internal/swarmruntime TestAutoscaleHistoryManagerIntegration 15
+./internal/swarmruntime TestFunctionRegistryManagerIntegration 14
 
 ./internal/natscell TestPrepareNodeIdentityPreservesR3State 35/1 idle
 ./internal/natscell TestEmbeddedRouteRTTFlowsToMetricsAndHistory 5 idle

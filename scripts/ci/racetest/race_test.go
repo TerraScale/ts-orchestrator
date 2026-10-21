@@ -181,6 +181,8 @@ func record(name string){f,err:=os.OpenFile(os.Getenv("TEST_RECORD"),os.O_CREATE
 			source += fmt.Sprintf("func %s(t *testing.T){record(%q);", name, identity)
 			if name == "TestFail" {
 				source += `if os.Getenv("FAIL_TEST")!=""{t.Fatal("intentional gate failure")};`
+				// FLAKE_MARK fails the first run only.
+				source += `if m:=os.Getenv("FLAKE_MARK");m!=""{if _,err:=os.Stat(m);err!=nil{os.WriteFile(m,nil,0600);t.Fatal("intentional flake")}};`
 			}
 			source += "}\n"
 		}
@@ -214,6 +216,7 @@ func FuzzSeed(f *testing.F){f.Add(1);f.Fuzz(func(t *testing.T,n int){record("app
 	// must not leak into the scheduler under test.
 	f.env = map[string]string{"GO": wrapper, "REAL_GO": realGo, "SCHEDULER_TEST_BINARY": executable, "TS_SCHEDULER_WRAPPER": "1", "GOFLAGS": "-p=2", "GOMAXPROCS": "2", "GORACE": "halt_on_error=1",
 		"TS_RACE_SHARDS": "3", "TS_RACE_JOBS": "2", "TS_RACE_IDLE_JOBS": "1", "TS_RACE_PACKAGE_JOBS": "2", "TS_RACE_TEST_JOBS": "2", "TS_TEST_TIER": "full", "TS_RACE_DURATIONS": durations,
+		"TS_CI_SHARD": "1/1", "TS_CHANGE_BASE": "",
 		"SCHEDULER_STATE": f.state, "TEST_RECORD": f.record}
 	slices.Sort(f.expected)
 	return f
@@ -442,6 +445,65 @@ func TestRaceScheduler(t *testing.T) {
 		}
 		requireText(t, r.Stdout, "race queue deploy-"+solo+" pool=cpu estimate=60s")
 	})
+	// Machines split the one plan: together they run every test once.
+	t.Run("ci_shards", func(t *testing.T) {
+		t.Parallel()
+		f := newScheduler(t)
+		var shards []string
+		for i := 1; i <= 3; i++ {
+			r := f.run(t, map[string]string{"TS_CI_SHARD": fmt.Sprintf("%d/3", i)})
+			if r.Code != 0 {
+				t.Fatalf("machine %d exit %d: %s %s", i, r.Code, r.Stdout, r.Stderr)
+			}
+			requireText(t, r.Stdout, fmt.Sprintf("machine=%d/3", i))
+			shards = append(shards, lines(r.Stdout, "race start ")...)
+		}
+		tests := strings.Fields(string(script.Read(t, f.record)))
+		slices.Sort(tests)
+		if !reflect.DeepEqual(tests, f.expected) || len(shards) != 14 {
+			t.Fatalf("machines must run each test once: got %v want %v, shards %v", tests, f.expected, shards)
+		}
+		r := f.run(t, map[string]string{"TS_CI_SHARD": "4/3"})
+		if r.Code != 2 {
+			t.Fatalf("exit %d", r.Code)
+		}
+		requireText(t, r.Stderr, "TS_CI_SHARD must be <index>/<count>")
+	})
+	// A failure outside the changed packages re-runs once; inside, it is final.
+	for name, touch := range map[string]string{"untouched": "README", "touched": "internal/app/notes.txt"} {
+		t.Run("flaky_"+name, func(t *testing.T) {
+			t.Parallel()
+			f := newScheduler(t)
+			git := func(args ...string) string {
+				t.Helper()
+				r := script.Exec(t, f.root, map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}, "git", args...)
+				if r.Code != 0 {
+					t.Fatalf("git %v: %s", args, r.Stderr)
+				}
+				return strings.TrimSpace(r.Stdout)
+			}
+			git("init", "-q")
+			git("add", ".")
+			git("commit", "-q", "-m", "base")
+			base := git("rev-parse", "HEAD")
+			script.Write(t, filepath.Join(f.root, touch), []byte("change\n"), 0o644)
+			git("add", ".")
+			git("commit", "-q", "-m", "change")
+			r := f.run(t, map[string]string{"TS_CHANGE_BASE": base, "FLAKE_MARK": filepath.Join(t.TempDir(), "flaked")})
+			if name == "touched" {
+				if r.Code == 0 {
+					t.Fatalf("a failure in a changed package passed: %s", r.Stdout)
+				}
+				forbidText(t, r.Stdout, "race flaky ")
+				return
+			}
+			if r.Code != 0 {
+				t.Fatalf("exit %d: %s %s", r.Code, r.Stdout, r.Stderr)
+			}
+			requireText(t, r.Stdout, "race flaky example.test/scheduler/internal/app TestFail\n")
+			requireText(t, r.Stdout, ": flaky\n")
+		})
+	}
 	for setting, value := range map[string]string{"TS_RACE_SHARDS": "0", "TS_RACE_NORACE_SHARDS": "0", "TS_RACE_JOBS": "0", "TS_RACE_IDLE_JOBS": "0", "TS_RACE_PACKAGE_JOBS": "0", "TS_RACE_TEST_JOBS": "0", "TS_TEST_TIER": "qualification"} {
 		t.Run("invalid_"+setting, func(t *testing.T) {
 			t.Parallel()
