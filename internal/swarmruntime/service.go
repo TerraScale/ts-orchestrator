@@ -447,6 +447,10 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		if _, shadowed := s.Env[name]; shadowed || !secretName.MatchString(name) {
 			return nil, fmt.Errorf("invalid or env-shadowed secret name %q", name)
 		}
+		// Vault values reach the container only as files (W20 M5): the key names the path variable.
+		if !vaultsecret.FileKey(name) {
+			return nil, fmt.Errorf("secret %s must end in _FILE: Vault values are delivered as files", name)
+		}
 		parts := vaultName.FindStringSubmatch(ref.Name)
 		if !vaultID.MatchString(ref.Vault) || parts == nil {
 			return nil, fmt.Errorf("secret %s needs an OCI Vault OCID and a <cell>-<service>-<name> secret", name)

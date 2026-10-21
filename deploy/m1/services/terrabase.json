@@ -10,19 +10,19 @@
     "TERRABASE_BACKUP_RETENTION_DAYS": "hobby=7,pro=7,enterprise=7"
   },
   "secrets": {
-    "AWS_ACCESS_KEY_ID": {
+    "AWS_ACCESS_KEY_ID_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-terrabase-backup-access-key-id"
     },
-    "AWS_SECRET_ACCESS_KEY": {
+    "AWS_SECRET_ACCESS_KEY_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-terrabase-backup-secret-key"
     },
-    "TERRABASE_MASTER_KEY": {
+    "TERRABASE_MASTER_KEY_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-terrabase-master-key"
     },
-    "TERRABASE_PEER_SECRET": {
+    "TERRABASE_PEER_SECRET_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-terrabase-peer-secret"
     }

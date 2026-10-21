@@ -53,22 +53,23 @@ func TestServiceSpecRejects(t *testing.T) {
 		"privileged port": func(s *swarmruntime.ServiceSpec) { s.Port = 80 },
 		"bad secret":      func(s *swarmruntime.ServiceSpec) { s.Secrets = map[string]vaultsecret.Ref{"lower": ref} },
 		"shadowed secret": func(s *swarmruntime.ServiceSpec) {
-			s.Secrets, s.Env = map[string]vaultsecret.Ref{"A": ref}, map[string]string{"A": "x"}
+			s.Secrets, s.Env = map[string]vaultsecret.Ref{"A_FILE": ref}, map[string]string{"A_FILE": "x"}
 		},
+		"plain key": func(s *swarmruntime.ServiceSpec) { s.Secrets = map[string]vaultsecret.Ref{"A": ref} },
 		"no vault": func(s *swarmruntime.ServiceSpec) {
-			s.Secrets = map[string]vaultsecret.Ref{"A": {Name: "gru-1-whoami-a"}}
+			s.Secrets = map[string]vaultsecret.Ref{"A_FILE": {Name: "gru-1-whoami-a"}}
 		},
 		"other service": func(s *swarmruntime.ServiceSpec) {
-			s.Secrets = map[string]vaultsecret.Ref{"A": {Vault: ref.Vault, Name: "gru-1-terrabase-master-key"}}
+			s.Secrets = map[string]vaultsecret.Ref{"A_FILE": {Vault: ref.Vault, Name: "gru-1-terrabase-master-key"}}
 		},
 		"not shared": func(s *swarmruntime.ServiceSpec) {
-			s.Secrets = map[string]vaultsecret.Ref{"A": {Vault: ref.Vault, Name: "gru-1-terrabase-peer-secret"}}
+			s.Secrets = map[string]vaultsecret.Ref{"A_FILE": {Vault: ref.Vault, Name: "gru-1-terrabase-peer-secret"}}
 		},
 		"two cells": func(s *swarmruntime.ServiceSpec) {
-			s.Secrets = map[string]vaultsecret.Ref{"A": ref, "B": {Vault: ref.Vault, Name: "sjc-1-whoami-b"}}
+			s.Secrets = map[string]vaultsecret.Ref{"A_FILE": ref, "B_FILE": {Vault: ref.Vault, Name: "sjc-1-whoami-b"}}
 		},
 		"two vaults": func(s *swarmruntime.ServiceSpec) {
-			s.Secrets = map[string]vaultsecret.Ref{"A": ref, "B": {Vault: ref.Vault + "x", Name: "gru-1-whoami-b"}}
+			s.Secrets = map[string]vaultsecret.Ref{"A_FILE": ref, "B_FILE": {Vault: ref.Vault + "x", Name: "gru-1-whoami-b"}}
 		},
 		"repeat hostname": func(s *swarmruntime.ServiceSpec) { s.Hostnames = []string{"a.example.com", "a.example.com"} },
 		"bad hostname":    func(s *swarmruntime.ServiceSpec) { s.Hostnames = []string{"https://a.example.com"} },

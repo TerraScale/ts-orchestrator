@@ -7,27 +7,27 @@
     "TS_AUTH_TERRABASE_URL": "http://127.0.0.1:8081"
   },
   "secrets": {
-    "CLOUDFLARE_ACCOUNT_ID": {
+    "CLOUDFLARE_ACCOUNT_ID_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-cloudflare-account-id"
     },
-    "CLOUDFLARE_EMAIL_TOKEN": {
+    "CLOUDFLARE_EMAIL_TOKEN_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-cloudflare-email-token"
     },
-    "TERRABASE_PEER_SECRET": {
+    "TERRABASE_PEER_SECRET_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-terrabase-peer-secret"
     },
-    "TS_AUTH_AUDIT_SIGNING_KEY": {
+    "TS_AUTH_AUDIT_SIGNING_KEY_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-ts-auth-audit-signing-key"
     },
-    "TS_AUTH_DASHBOARD_CLIENT_SECRET": {
+    "TS_AUTH_DASHBOARD_CLIENT_SECRET_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-ts-auth-dashboard-client-secret"
     },
-    "TS_AUTH_MASTER_KEY": {
+    "TS_AUTH_MASTER_KEY_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-ts-auth-master-key"
     }

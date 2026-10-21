@@ -36,7 +36,7 @@ func (c opsControlClient) GetNode(_ context.Context, r *api.GetNodeRequest, _ ..
 
 func opsFixture(t *testing.T) (opsControlClient, *api.Service) {
 	spec, err := swarmruntime.ServiceSpec{Name: "whoami", Image: "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764",
-		Port: 8099, Replicas: 1, Secrets: map[string]vaultsecret.Ref{"API_KEY": {Vault: "ocid1.vault.oc1.sa-saopaulo-1.aa.bb", Name: "gru-1-whoami-api-key"}}, Env: map[string]string{"MODE": "demo"}, Hostnames: []string{"who.example.com"}}.SwarmSpec()
+		Port: 8099, Replicas: 1, Secrets: map[string]vaultsecret.Ref{"API_KEY_FILE": {Vault: "ocid1.vault.oc1.sa-saopaulo-1.aa.bb", Name: "gru-1-whoami-api-key"}}, Env: map[string]string{"MODE": "demo"}, Hostnames: []string{"who.example.com"}}.SwarmSpec()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestServiceInspectShowsSecretNamesOnly(t *testing.T) {
 	spec := got["spec"].(map[string]any)
 	if got["imageDigest"] != "sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764" || got["version"] != float64(7) ||
 		spec["name"] != "whoami" || spec["port"] != float64(8099) || spec["readyPath"] != "/readyz" ||
-		spec["secrets"].(map[string]any)["API_KEY"].(map[string]any)["name"] != "gru-1-whoami-api-key" || spec["env"].(map[string]any)["MODE"] != "demo" {
+		spec["secrets"].(map[string]any)["API_KEY_FILE"].(map[string]any)["name"] != "gru-1-whoami-api-key" || spec["env"].(map[string]any)["MODE"] != "demo" {
 		t.Fatalf("inspect: %s", data)
 	}
 	// The round trip is the declaration `service apply` accepted.
