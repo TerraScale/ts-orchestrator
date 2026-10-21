@@ -533,7 +533,6 @@ func assertOriginalMaterialV3Policy(t *testing.T, record FoundationRecord, index
 }
 
 func TestOriginalFoundationMaterialIAMPeerGroupSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	for _, fault := range []string{"lost group create response", "group reservation checkpoint", "group receipt checkpoint", "group completion checkpoint"} {
 		t.Run(fault+" preserves retry", func(t *testing.T) {
 			f := newOriginalMaterialIAMSDKFixture(t, fault)
@@ -578,7 +577,6 @@ func TestOriginalFoundationMaterialIAMPeerGroupSDK(t *testing.T) {
 }
 
 func TestOriginalFoundationMaterialIAMPeerGroupHistoryCannotResetSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalMaterialIAMSDKFixture(t, "")
 	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 		t.Fatal(err)
@@ -846,7 +844,6 @@ func (f *originalMaterialIAMSDKFixture) assertRuntimeJoinSDK(t *testing.T, permi
 }
 
 func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Run("automatic completion and unchanged restart", func(t *testing.T) {
 		f := newOriginalMaterialIAMSDKFixture(t, "")
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
@@ -1026,7 +1023,6 @@ type originalMaterialIAMV2Wire struct {
 }
 
 func TestOriginalFoundationMaterialIAMV1Compatibility(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
 	reads := newOriginalActorReadsSDKFixture(t, "", 0)
 	if reads.prepared.Grant.OriginalMaterialPublicationIAM == nil {
@@ -1094,7 +1090,6 @@ func TestOriginalFoundationMaterialIAMV1Compatibility(t *testing.T) {
 }
 
 func TestOriginalFoundationMaterialIAMV2Compatibility(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
 	reads := newOriginalActorReadsSDKFixture(t, "", 0)
 	recipes := *reads.prepared.Grant.OriginalMaterialPublicationIAM
@@ -1228,7 +1223,6 @@ func TestOriginalFoundationMaterialIAMSignedContract(t *testing.T) {
 }
 
 func TestOriginalFoundationMaterialIAMRetainedContract(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalMaterialIAMSDKFixture(t, "")
 	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 		t.Fatal(err)
@@ -1288,7 +1282,6 @@ func TestOriginalFoundationMaterialIAMRetainedContract(t *testing.T) {
 }
 
 func TestOriginalFoundationMaterialIAMEffectPredecessors(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	for _, fault := range []string{"reservation checkpoint", "receipt checkpoint"} {
 		t.Run(fault, func(t *testing.T) {
 			f := newOriginalMaterialIAMSDKFixture(t, fault)
@@ -1342,7 +1335,6 @@ func TestOriginalFoundationMaterialIAMEffectPredecessors(t *testing.T) {
 }
 
 func TestOriginalFoundationMaterialIAMRequiresOwningLease(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	if err := provisionOriginalFoundationMaterialIAM(t.Context(), nil); err == nil {
 		t.Fatal("nil original operator acquired material IAM")
 	}
