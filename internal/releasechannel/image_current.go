@@ -31,6 +31,8 @@ type CurrentImage struct {
 	Image                                          release.VerifiedImage
 	FoundationWriter                               release.VerifiedFoundationWriterImage
 	ExpiresAt                                      time.Time
+	ManifestSHA256                                 string
+	ManifestLastModified                           time.Time
 	ReceiptWire, DelegationWire                    []byte
 	QualificationWire, QualificationDelegationWire []byte
 }
@@ -96,29 +98,37 @@ func currentImageLocation(location Location, expected CurrentImageExpectation) e
 
 // ReadCurrentImageSDK preserves authenticated OCI identity and derives the source region and bucket in code.
 func ReadCurrentImageSDK(ctx context.Context, factory *ociclient.Factory, namespace string, roots trust.Keyring, expected CurrentImageExpectation, now time.Time) (CurrentImage, bool, error) {
-	if err := expected.validate(); err != nil {
+	location, err := imageLocationSDK(factory, namespace, expected)
+	if err != nil {
 		return CurrentImage{}, false, err
 	}
+	return ReadCurrentImage(ctx, location, roots, expected, now)
+}
+
+func imageLocationSDK(factory *ociclient.Factory, namespace string, expected CurrentImageExpectation) (Location, error) {
+	if err := expected.validate(); err != nil {
+		return Location{}, err
+	}
 	if factory == nil || namespace == "" {
-		return CurrentImage{}, false, fmt.Errorf("%w: current image OCI identity", ErrInvalid)
+		return Location{}, fmt.Errorf("%w: current image OCI identity", ErrInvalid)
 	}
 	region, ok := catalog.Lookup(expected.Cell)
 	if !ok {
-		return CurrentImage{}, false, fmt.Errorf("%w: current image region", ErrInvalid)
+		return Location{}, fmt.Errorf("%w: current image region", ErrInvalid)
 	}
 	regional, err := factory.ForRegion(region.OCIRegion)
 	if err != nil {
-		return CurrentImage{}, false, err
+		return Location{}, err
 	}
 	client, err := regional.ObjectStorage()
 	if err != nil {
-		return CurrentImage{}, false, err
+		return Location{}, err
 	}
 	bucket, err := BucketName(expected.Cell)
 	if err != nil {
-		return CurrentImage{}, false, err
+		return Location{}, err
 	}
-	return ReadCurrentImage(ctx, Location{Client: client, Namespace: namespace, Bucket: bucket}, roots, expected, now)
+	return Location{Client: client, Namespace: namespace, Bucket: bucket}, nil
 }
 
 // ReadCurrentImage verifies every authority and retained evidence byte selected by a locator.
@@ -148,7 +158,11 @@ func ReadCurrentImage(ctx context.Context, location Location, roots trust.Keyrin
 	if err := protocol.DecodeStrict(wire, &manifest, MaxChannelBytes); err != nil {
 		return CurrentImage{}, false, err
 	}
-	return verifyCurrentImageManifest(ctx, location, manifest, roots, expected, now)
+	current, found, err := verifyCurrentImageManifest(ctx, location, manifest, roots, expected, now)
+	if err == nil && found {
+		current.ManifestSHA256 = locator.ManifestSHA256
+	}
+	return current, found, err
 }
 
 func verifyCurrentImageManifest(ctx context.Context, location Location, manifest imageCurrentManifest, roots trust.Keyring, expected CurrentImageExpectation, now time.Time) (CurrentImage, bool, error) {

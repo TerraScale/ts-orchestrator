@@ -303,8 +303,9 @@ func (fixture functionChannelFixture) proof(t *testing.T, tenant, function strin
 }
 
 type functionObject struct {
-	data    []byte
-	version int
+	data     []byte
+	version  int
+	modified time.Time
 }
 type functionBucketBackend struct {
 	mu                      sync.Mutex
@@ -312,6 +313,7 @@ type functionBucketBackend struct {
 	puts                    int
 	dropModule, dropChannel bool
 	concurrent              []byte
+	modifiedAt              time.Time
 }
 
 func functionObjectEndpoint(t *testing.T) (Location, *functionBucketBackend) {
@@ -349,7 +351,12 @@ func (backend *functionBucketBackend) serve(w http.ResponseWriter, r *http.Reque
 			_, _ = io.WriteString(w, `{"code":"ObjectNotFound","message":"absent"}`)
 			return
 		}
-		w.Header().Set("ETag", fmt.Sprint(object.version))
+		if object.version != 0 {
+			w.Header().Set("ETag", fmt.Sprint(object.version))
+		}
+		if !object.modified.IsZero() {
+			w.Header().Set("Last-Modified", object.modified.UTC().Format(http.TimeFormat))
+		}
 		w.Header().Set("Content-Length", fmt.Sprint(len(object.data)))
 		_, _ = w.Write(object.data)
 		return
@@ -378,7 +385,7 @@ func (backend *functionBucketBackend) serve(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "module type", 400)
 		return
 	}
-	backend.objects[name] = functionObject{data: body, version: object.version + 1}
+	backend.objects[name] = functionObject{data: body, version: object.version + 1, modified: backend.modifiedAt}
 	drop := name == FunctionChannelObject && backend.dropChannel || strings.HasPrefix(name, "releases/functions/modules/") && backend.dropModule
 	if drop {
 		if name == FunctionChannelObject {
