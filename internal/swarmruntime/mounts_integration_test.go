@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/containerd/errdefs"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -125,12 +124,13 @@ func TestContainerdReadinessUsesServicePath(t *testing.T) {
 		cleanup, stop := context.WithTimeout(context.Background(), 20*time.Second)
 		defer stop()
 		_, _ = client.RemoveService(cleanup, &api.RemoveServiceRequest{ServiceID: service.ID})
-		// The agent must remove the container before the node stops, or the shim outlives the test.
-		for ready != nil && cleanup.Err() == nil {
-			if _, err := e.client.LoadContainer(runtimeContext(cleanup), "ts-"+ready.ID); errdefs.IsNotFound(err) {
-				return
+		// Remove the container before the node stops, or its shim outlives the test.
+		if ready != nil {
+			if c, err := e.Controller(ready); err != nil {
+				t.Error(err)
+			} else if err := c.Remove(cleanup); err != nil {
+				t.Error(err)
 			}
-			time.Sleep(100 * time.Millisecond)
 		}
 	})
 	waitRuntime(t, ctx, func() (bool, error) {
@@ -155,8 +155,9 @@ func TestContainerdReadinessUsesServicePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ready.Spec.Runtime = defaultPath
-	if err := ProbeLocalTask(ctx, ready); err == nil {
+	probed := ready.Copy()
+	probed.Spec.Runtime = defaultPath
+	if err := ProbeLocalTask(ctx, probed); err == nil {
 		t.Fatal("image without /readyz was ready at the default path")
 	}
 }
