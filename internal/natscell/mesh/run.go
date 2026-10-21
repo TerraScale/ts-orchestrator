@@ -201,10 +201,34 @@ func (a swarmApplier) Remove(ctx context.Context, name string) (removed bool, er
 	return removed, err
 }
 
-func (a swarmApplier) Running(ctx context.Context, name string) (running bool, err error) {
-	err = a.rows(ctx, name, func(row swarmruntime.ServiceSpecStatus, found bool, _ api.ControlClient) error {
-		running = found && row.Replicas > 0 && row.Running >= row.Replicas
-		return nil
-	})
-	return running, err
+func (a swarmApplier) PrePull(ctx context.Context, image string) error {
+	executor, err := swarmruntime.NewExecutor(swarmruntime.HostContainerdSocket, a.state)
+	if err != nil {
+		return err
+	}
+	defer executor.Close()
+	return executor.PrePull(ctx, image)
+}
+
+func (a swarmApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error) {
+	client, conn, err := swarmruntime.DialSingleHost(a.state)
+	if err != nil {
+		return swarmruntime.ServiceRollout{}, err
+	}
+	defer conn.Close()
+	listed, err := client.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{spec.Name}}})
+	if err != nil {
+		return swarmruntime.ServiceRollout{}, err
+	}
+	for _, service := range listed.Services {
+		if service.Spec.Annotations.Name == spec.Name {
+			// Only a spec that names its ready path promises to answer it.
+			var probe func(context.Context, *api.Task) error
+			if spec.ReadyPath != "" {
+				probe = swarmruntime.ProbeLocalTask
+			}
+			return swarmruntime.WaitServiceSpec(ctx, client, service, probe)
+		}
+	}
+	return swarmruntime.ServiceRollout{}, fmt.Errorf("service %q is not on this host", spec.Name)
 }

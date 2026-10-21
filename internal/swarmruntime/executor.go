@@ -34,6 +34,9 @@ const logSegmentBytes = 1 << 20
 // snapshot copies the whole rootfs per layer and per container.
 const imageSnapshotter = "overlayfs"
 
+// HostContainerdSocket is the host containerd a single host executes on.
+const HostContainerdSocket = "/run/containerd/containerd.sock"
+
 // Executor translates upstream SwarmKit tasks directly into containerd objects.
 type Executor struct {
 	client            *containerd.Client

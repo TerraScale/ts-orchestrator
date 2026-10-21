@@ -91,6 +91,15 @@ func (f *fakeApplier) Remove(_ context.Context, name string) (bool, error) {
 	return ok, nil
 }
 
+func (f *fakeApplier) PrePull(context.Context, string) error { return nil }
+
+func (f *fakeApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error) {
+	if ok, err := f.Running(ctx, spec.Name); err != nil || !ok {
+		return swarmruntime.ServiceRollout{}, errors.Join(errors.New("not running"), err)
+	}
+	return swarmruntime.ServiceRollout{}, nil
+}
+
 func (f *fakeApplier) Running(_ context.Context, name string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
