@@ -252,7 +252,7 @@ func TestNetBirdDrainDeadlineIncludesGraceAndAllowsRecoveryRetries(t *testing.T)
 			if tc.expired {
 				deadline = time.Now().Add(-time.Minute)
 			}
-			if err := saveNetBirdTestRecord(t.Context(), &n, 3, network.Record{ID: "4H828TAVQA1MJ7WHF4634YW4B6", Node: "ctl-1", Phase: tc.phase, Deadline: deadline}); err != nil {
+			if err := saveNetBirdTestRecord(t.Context(), &n, 3, network.Record{ID: "4H828TAVQA1MJ7WHF4634YW4B6", Node: "gru-1-ctl-1", Phase: tc.phase, Deadline: deadline}); err != nil {
 				t.Fatal(err)
 			}
 			stopped := errors.New("captured bounded drain context")
@@ -263,7 +263,7 @@ func TestNetBirdDrainDeadlineIncludesGraceAndAllowsRecoveryRetries(t *testing.T)
 				}
 				return nil, stopped
 			}
-			if err := n.drainNode(t.Context(), 3, "ctl-1"); !errors.Is(err, stopped) {
+			if err := n.drainNode(t.Context(), 3, "gru-1-ctl-1"); !errors.Is(err, stopped) {
 				t.Fatalf("drain did not reach bounded provider call: %v", err)
 			}
 		})
@@ -273,14 +273,14 @@ func TestNetBirdDrainDeadlineIncludesGraceAndAllowsRecoveryRetries(t *testing.T)
 func TestNetBirdPartialDrainExpiresWithoutRelaxingQuorumAndCanRecover(t *testing.T) {
 	f, _, api, _, _ := newFenceTest(t)
 	n := netbirdRollout{fence: f}
-	// TerraBase can drain, but ts-auth has no healthy alternative to ctl-2.
-	api.down[lb.Backend{IP: fenceAddresses["ctl-3"], Port: 8080}.Name()] = true
-	record := network.Record{ID: "4H828TAVQA1MJ7WHF4634YW4B6", Node: "ctl-2", Phase: "drain", Deadline: time.Now().Add(100 * time.Millisecond)}
+	// TerraBase can drain, but ts-auth has no healthy alternative to gru-1-ctl-2.
+	api.down[lb.Backend{IP: fenceAddresses["gru-1-ctl-3"], Port: 8080}.Name()] = true
+	record := network.Record{ID: "4H828TAVQA1MJ7WHF4634YW4B6", Node: "gru-1-ctl-2", Phase: "drain", Deadline: time.Now().Add(100 * time.Millisecond)}
 	if err := saveNetBirdTestRecord(t.Context(), &n, 3, record); err != nil {
 		t.Fatal(err)
 	}
 	result := make(chan error, 1)
-	go func() { result <- n.drainNode(t.Context(), 3, "ctl-2") }()
+	go func() { result <- n.drainNode(t.Context(), 3, "gru-1-ctl-2") }()
 	select {
 	case err := <-result:
 		if !errors.Is(err, context.DeadlineExceeded) {
@@ -300,7 +300,7 @@ func TestNetBirdPartialDrainExpiresWithoutRelaxingQuorumAndCanRecover(t *testing
 	clear(api.down)
 	var grace time.Duration
 	f.sleep = func(ctx context.Context, d time.Duration) error { grace = d; return ctx.Err() }
-	if err := n.drainNode(t.Context(), 3, "ctl-2"); err != nil {
+	if err := n.drainNode(t.Context(), 3, "gru-1-ctl-2"); err != nil {
 		t.Fatalf("repaired quorum could not re-establish the rollback fence: %v", err)
 	}
 	if grace != defaultFenceGrace {
@@ -308,7 +308,7 @@ func TestNetBirdPartialDrainExpiresWithoutRelaxingQuorumAndCanRecover(t *testing
 	}
 	for _, set := range api.sets {
 		for _, backend := range set {
-			if backend.IP == fenceAddresses["ctl-2"] && backend != backend.Fenced(true, true) {
+			if backend.IP == fenceAddresses["gru-1-ctl-2"] && backend != backend.Fenced(true, true) {
 				t.Fatalf("rollback would restart an undrained backend: %+v", backend)
 			}
 		}

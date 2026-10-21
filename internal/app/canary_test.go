@@ -25,7 +25,7 @@ import (
 )
 
 // gatedFenceTest is newFenceTest with a canary: gate answers failing for
-// each call, after ctl-1 restarted or before.
+// each call, after gru-1-ctl-1 restarted or before.
 func gatedFenceTest(t *testing.T, before, after map[string]string) (*releaseFence, *fenceCell, *fenceLB, canaryGate, *[]string) {
 	fence, cell, balancer, _, intent := newFenceTest(t)
 	spec, _ := fence.spec()
@@ -68,7 +68,7 @@ func TestReleaseCanaryGatesTheFirstNode(t *testing.T) {
 	if err := fence.sequence(ctx, intent, gate); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(*calls, []string{"ctl-1 before", "ctl-1 after"}) || len(cell.restarts) != 3 {
+	if !slices.Equal(*calls, []string{"gru-1-ctl-1 before", "gru-1-ctl-1 after"}) || len(cell.restarts) != 3 {
 		t.Fatalf("calls %q, restarts %q", *calls, cell.restarts)
 	}
 	// A rollback, or a release without a gate, is not gated.
@@ -91,12 +91,12 @@ func TestReleaseCanaryFailureStopsTheRelease(t *testing.T) {
 	if !errors.Is(err, errBadRelease) || !strings.Contains(err.Error(), "failed release 7's gate") || !strings.Contains(err.Error(), "412 expected") {
 		t.Fatalf("a failing canary: %v", err)
 	}
-	if !slices.Equal(cell.restarts, []string{"ctl-1"}) || balancer.sets["terrabase"][0].Serving() {
+	if !slices.Equal(cell.restarts, []string{"gru-1-ctl-1"}) || balancer.sets["terrabase"][0].Serving() {
 		t.Fatalf("restarts %q, canary backend %+v", cell.restarts, balancer.sets["terrabase"][0])
 	}
-	want := []string{"ctl-1 before"}
+	want := []string{"gru-1-ctl-1 before"}
 	for range canaryAttempts {
-		want = append(want, "ctl-1 after")
+		want = append(want, "gru-1-ctl-1 after")
 	}
 	if !slices.Equal(*calls, want) {
 		t.Fatalf("calls %q", *calls)
@@ -104,11 +104,11 @@ func TestReleaseCanaryFailureStopsTheRelease(t *testing.T) {
 	// A new leader resumes with the recorded baseline and gates the canary
 	// again, never another node.
 	record, err := fence.canary(ctx, "ts-auth", 7)
-	if err != nil || record.Node != "ctl-1" || record.Passed || len(record.Baseline) != 0 {
+	if err != nil || record.Node != "gru-1-ctl-1" || record.Passed || len(record.Baseline) != 0 {
 		t.Fatalf("canary record %+v %v", record, err)
 	}
 	*calls = nil
-	if err := fence.sequence(ctx, intent, gate); err == nil || slices.Contains(*calls, "ctl-1 before") {
+	if err := fence.sequence(ctx, intent, gate); err == nil || slices.Contains(*calls, "gru-1-ctl-1 before") {
 		t.Fatalf("resumed: %v %q", err, *calls)
 	}
 }
@@ -234,9 +234,9 @@ func TestSmokeGateChecksTheCanary(t *testing.T) {
 	canary := cellspec.Canary{Project: "p", Database: "db", AuthURL: auth.URL, APIURL: api.URL,
 		DashboardLoginURL: dashboard.URL + "/login"}
 	host, _, _ := net.SplitHostPort(apiURL.Host)
-	profile := WorkloadProfile{Env: map[string]string{terrabase.EnvPeerPort: "9466", terrabase.EnvPeers: "ctl-1=127.0.0.1:9466", terrabase.EnvClientPort: strconv.Itoa(apiPort)}}
+	profile := WorkloadProfile{Env: map[string]string{terrabase.EnvPeerPort: "9466", terrabase.EnvPeers: "gru-1-ctl-1=127.0.0.1:9466", terrabase.EnvClientPort: strconv.Itoa(apiPort)}}
 	for _, role := range []string{tsauth.Role, terrabase.Role} {
-		target := canaryTarget{Role: role, Node: "ctl-1", Address: host, Canary: canary, Profile: profile}
+		target := canaryTarget{Role: role, Node: "gru-1-ctl-1", Address: host, Canary: canary, Profile: profile}
 		if failed := gate.check(t.Context(), target); len(failed) != 0 {
 			t.Fatalf("%s canary: %v", role, failed)
 		}
@@ -244,7 +244,7 @@ func TestSmokeGateChecksTheCanary(t *testing.T) {
 	if len(cell.documents) != 0 {
 		t.Fatalf("left documents %v", cell.documents)
 	}
-	target := canaryTarget{Role: terrabase.Role, Node: "ctl-1", Address: host, Canary: canary, Profile: profile}
+	target := canaryTarget{Role: terrabase.Role, Node: "gru-1-ctl-1", Address: host, Canary: canary, Profile: profile}
 	cell.ignoreIfMatch, cell.hosted = true, true
 	failed := gate.check(t.Context(), target)
 	if !strings.Contains(failed[checkDocuments], "stale If-Match answered 200") ||
@@ -314,7 +314,7 @@ func TestNativeCanaryUsesPredecessorAndSelectedPorts(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				return WorkloadProfile{Env: map[string]string{terrabase.EnvPeerPort: "9466", terrabase.EnvPeers: "ctl-1=127.0.0.1:9466", terrabase.EnvClientPort: u.Port()}}
+				return WorkloadProfile{Env: map[string]string{terrabase.EnvPeerPort: "9466", terrabase.EnvPeers: "gru-1-ctl-1=127.0.0.1:9466", terrabase.EnvClientPort: u.Port()}}
 			}
 			profileA, profileB, profileC := profile(apiA), profile(apiB), profile(apiC)
 			spec, _ := fence.spec()
@@ -344,7 +344,7 @@ func TestNativeCanaryUsesPredecessorAndSelectedPorts(t *testing.T) {
 			}
 			if broken {
 				record, err := fence.canary(t.Context(), intent.Role, intent.Generation)
-				if err != nil || record.Passed || slices.Contains(record.Baseline, checkDocuments) || !slices.Equal(cell.restarts, []string{"ctl-1"}) {
+				if err != nil || record.Passed || slices.Contains(record.Baseline, checkDocuments) || !slices.Equal(cell.restarts, []string{"gru-1-ctl-1"}) {
 					t.Fatalf("candidate regression was suppressed by baseline: %+v, restarts=%v, err=%v", record, cell.restarts, err)
 				}
 			} else if len(cell.restarts) != 3 {

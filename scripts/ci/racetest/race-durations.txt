@@ -32,7 +32,6 @@ rest - 130/60
 ./internal/app TestCellSpecAddsTSAuthToARunningCell 20/1 idle
 ./internal/app TestRolloutExecutorUpdatesARunningCell 30/1 idle
 ./internal/app TestReleaseChannelRollsCIReleasesOutRegionByRegion 30/1 idle
-./internal/app TestRunControllerOperatorBrokerClaimApply 15
 ./internal/app TestTerraBaseReleaseGateWithFakeMember 20
 ./internal/app TestCellSpecAmendsARunningController 8
 ./internal/app TestRootRotationOnARunningController 5

@@ -25,6 +25,9 @@ func (enrollment *managedHostEnrollment) prepareRuntimeWorker(ctx context.Contex
 	if err := enrollment.fencer.Guard(ctx, epoch); err != nil {
 		return nil, err
 	}
+	if enrollment.prepareWorker != nil {
+		return enrollment.prepareWorker(ctx, request, response)
+	}
 	if enrollment.runtimeIdentity.Validate() != nil {
 		return nil, errors.New("accepted root runtime identity is unavailable for worker enrollment")
 	}
