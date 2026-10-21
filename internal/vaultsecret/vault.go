@@ -195,7 +195,12 @@ type readError struct {
 	cause error
 }
 
-func (e *readError) Error() string    { return "read Vault secret " + e.name + " failed" }
+func (e *readError) Error() string {
+	if Absent(e.cause) {
+		return "Vault secret " + e.name + " does not exist"
+	}
+	return "read Vault secret " + e.name + " failed"
+}
 func (e *readError) Unwrap() error    { return e.cause }
 func (e *readError) GoString() string { return e.Error() }
 

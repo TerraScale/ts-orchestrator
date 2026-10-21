@@ -36,6 +36,7 @@ type Executor struct {
 	mu                sync.Mutex
 	functionMaterial  FunctionMaterialProvider
 	containerMaterial ContainerMaterialProvider
+	vaultSecrets      SecretResolver
 	containerIdentity ContainerTaskBinding
 	functionIdentity  FunctionTaskBinding
 	functionNodeID    string
