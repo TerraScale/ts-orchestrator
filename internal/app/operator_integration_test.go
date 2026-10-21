@@ -111,7 +111,6 @@ func (w *readyWriter) Write(data []byte) (int, error) {
 }
 
 func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	auth := newAuthenticatedNATS(t, "gru")
 	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Second)
 	defer cancel()

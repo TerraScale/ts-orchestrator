@@ -60,7 +60,6 @@ type deployTestCellServices struct {
 }
 
 func TestTerraBaseDeployDrivesManagedPlacementToDesiredState(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: data race under -race since the 2026-10-21 integration-line merge")
 	cell := startDeployTestCell(t, true, true)
 	ctx := t.Context()
 	plan, state := writeDeployTestPlan(t, cell.root, 9465)
