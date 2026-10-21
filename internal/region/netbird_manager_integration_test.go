@@ -410,7 +410,12 @@ func withNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory, Founda
 		t.Fatal(err)
 	}
 	provider := common.NewRawConfigurationProvider(reader.tenancy, "ocid1.user.oc1..test", foundationHomeRegion, "test", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(rsaKey)})), nil)
-	factory, err := ociclient.New(provider, ociclient.Options{Region: foundationHomeRegion, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+	// The local fake is not OCI: production pacing would only stretch every guarded read past its budget.
+	limits := map[ociclient.Service]ociclient.Limit{}
+	for service := range ociclient.DefaultLimits {
+		limits[service] = ociclient.Limit{PerSecond: 100000, Burst: 100000}
+	}
+	factory, err := ociclient.New(provider, ociclient.Options{Region: foundationHomeRegion, Limits: limits, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +517,7 @@ func withNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory, Founda
 		t.Fatal(err)
 	}
 	resolver := FoundationResolver{Footprint: reader, Store: store}
-	observer, err := bootstrapstart.NewOCIInstanceObserver(oci.RegionGRU, factory.Provider())
+	observer, err := bootstrapstart.NewOCIInstanceObserverWithFactory(oci.RegionGRU, factory)
 	if err != nil {
 		t.Fatal(err)
 	}
