@@ -80,7 +80,7 @@ and release it like any other change.
 | `ts-orch netbird sync [--apply] [--pat-file FILE]` | Compares the manager with the desired state and prints the plan; `--apply` reconciles it |
 | `ts-orch netbird prune-peers [--apply] [--offline-for DURATION]` | Plans peer hygiene for `gru-servers`: deletes disconnected peers that hold a live slot's IP or name, deletes unmatched peers offline longer than the threshold (default `24h`, minimum `1h`), and renames each slot's live peer to its slot name; `--apply` performs it |
 | `ts-orch netbird remove-peers (--slot NAME... \| --all) [--apply]` | Plans deleting the disconnected `gru-servers` peers of decommissioned slots (matched by slot IP or slot peer name, e.g. `--slot ts-gru-1`), or every disconnected server peer with `--all`; connected peers are reported and kept |
-| `ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply]` | Plans the server setup key `gru-servers` (or GROUP, e.g. `sfo-servers`): reusable, never expiring, auto-assigning only that group; `--apply` creates it and writes its value only to FILE, a new `0600` file |
+| `ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply]` | Plans the server setup key `gru-servers` (or GROUP, e.g. `sjc-servers`): reusable, never expiring, auto-assigning only that group; `--apply` creates it and writes its value only to FILE, a new `0600` file |
 | `ts-orch netbird inventory` | Prints groups, policies, networks, DNS and peers as the manager reports them |
 | `ts-orch netbird image-input --plan PLAN --setup-key-secret-id OCID --out FILE` | Writes another region's image `netbird.json` to the new FILE from its reviewed plan: OCI region, setup key secret and each host's node name as its peer name. Offline; no PAT |
 
@@ -141,7 +141,7 @@ reconciliation never sets group membership.
 | `operators` | Operator devices | User auto-group, or a one-off setup key |
 | `ts-ops-gateway` | ts-ops only | One-off gateway setup key |
 | `gru-servers` | GRU controllers and managed hosts | Reusable server setup key |
-| `<cell>-servers`: `sfo-servers`, `fra-servers` | The nodes of every catalog region other than GRU, e.g. `ts-sfo-1`..`3` | Reusable server setup key `<cell>-servers` (`setup-key --servers-group <cell>-servers`) |
+| `<cell>-servers`: `sjc-servers`, `fra-servers` | The nodes of every catalog region other than GRU, e.g. `ts-sjc-1`..`3` | Reusable server setup key `<cell>-servers` (`setup-key --servers-group <cell>-servers`) |
 | `ops-automation` | [Operator automation peers](#operator-automation-peer) | One-off setup key |
 
 Network `gru-cell` ("TerraScale GRU private cell") holds resource
@@ -382,10 +382,10 @@ ts-orch netbird ssh --vault-id "$VAULT" --netbird "$NB" -- -L 19464:127.0.0.1:94
 ```
 
 The destination may name any peer, as `gru-1-ctl-1.nb.ts.internal` or
-`ts-sfo-1`: the command connects to the NetBird IP that `$NB status --json`
+`ts-sjc-1`: the command connects to the NetBird IP that `$NB status --json`
 lists for it, so names work on devices with NetBird DNS off. On 2026-10-07
 delta, beta (both `sudo netbird-wt0`) and mariogk-dev-ops each opened a
-session on gru-1-ctl-1..3 and ts-sfo-1..3 by name.
+session on gru-1-ctl-1..3 and ts-sjc-1..3 by name.
 
 `NB` runs the container's NetBird CLI in the container's mount namespace
 (its daemon socket and `resolv.conf`) as a direct child of `sudo`, so stopping

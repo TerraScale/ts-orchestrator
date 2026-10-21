@@ -15,7 +15,7 @@ import (
 )
 
 func TestRegionIntentUsesFixedProductMapping(t *testing.T) {
-	valid := []byte(`{"schemaVersion":1,"generation":8,"bootstrapRegion":"GRU","regions":[{"cell":"GRU","ociRegion":"sa-saopaulo-1"},{"cell":"SFO","ociRegion":"us-sanjose-1"}]}`)
+	valid := []byte(`{"schemaVersion":1,"generation":8,"bootstrapRegion":"GRU","regions":[{"cell":"GRU","ociRegion":"sa-saopaulo-1"},{"cell":"SJC","ociRegion":"us-sanjose-1"}]}`)
 	intent, err := ParseRegionIntent(valid)
 	if err != nil {
 		t.Fatal(err)

@@ -225,7 +225,7 @@ func readOriginalSourceActor(ctx context.Context, factory *ociclient.Factory, in
 	if err != nil {
 		return deny(err)
 	}
-	index := slices.Index([]string{"GRU", "SFO", "FRA"}, cell)
+	index := slices.Index([]string{"GRU", "SJC", "FRA"}, cell)
 	if index < 0 {
 		return deny(nil)
 	}

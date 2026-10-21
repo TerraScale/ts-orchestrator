@@ -107,7 +107,7 @@ func TestFoundationWriterImageRejectsOtherAuthority(t *testing.T) {
 		{"missing final OCI identity", func(f *writerImageFixture) { f.qualification.Candidate.ImageOCID = "" }},
 		{"different final OCI identity", func(f *writerImageFixture) { f.qualification.Candidate.ImageOCID += "other" }},
 		{"wrong architecture", func(f *writerImageFixture) { f.qualification.Candidate.Architecture = "arm64" }},
-		{"wrong region", func(f *writerImageFixture) { f.qualification.Candidate.Cell = "SFO" }},
+		{"wrong region", func(f *writerImageFixture) { f.qualification.Candidate.Cell = "SJC" }},
 		{"wrong environment", func(f *writerImageFixture) { f.qualification.Candidate.Environment = "canary" }},
 		{"wrong runtime", func(f *writerImageFixture) { f.qualification.Candidate.Runtime = release.NetBirdProductionRuntime }},
 		{"wrong gate order", func(f *writerImageFixture) {

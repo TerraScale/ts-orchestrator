@@ -393,7 +393,7 @@ func TestCurrentFounderSelectionRejectsTornAndWrongPins(t *testing.T) {
 	}{
 		{name: "plan digest", mutate: func(f *founderSelectionFixture) { f.selection.PlanSHA256 = strings.Repeat("a", 64) }},
 		{name: "manifest digest", mutate: func(f *founderSelectionFixture) { f.selection.Manifests[0].SHA256 = strings.Repeat("b", 64) }},
-		{name: "wrong scope", mutate: func(f *founderSelectionFixture) { f.selection.Cell = "SFO" }},
+		{name: "wrong scope", mutate: func(f *founderSelectionFixture) { f.selection.Cell = "SJC" }},
 		{name: "missing manifest", mutate: func(f *founderSelectionFixture) { f.selection.Manifests = f.selection.Manifests[:2] }},
 		{name: "torn selector", mutate: func(f *founderSelectionFixture) {
 			key := f.domain.HeadBucket + "/" + FounderSelectionObjectName(f.domain, "0000000000F9PR1WNVDTEXS31Z", "GRU", "production")

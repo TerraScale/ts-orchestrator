@@ -17,7 +17,7 @@ import (
 // marked done.
 type Verifier struct {
 	HTTP *http.Client
-	// Cell is the region's cell, e.g. sfo-1: TerraBase's region and
+	// Cell is the region's cell, e.g. sjc-1: TerraBase's region and
 	// Atlas' region ID.
 	Cell string
 	// API, Auth and Atlas are origins without a path.

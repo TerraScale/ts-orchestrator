@@ -113,7 +113,7 @@ func TestInitialDeploymentRendersAdmittedPlacementFromReceipt(t *testing.T) {
 	}{
 		{"artifact", func(_ *InitialDeployment, a *RuntimeArtifact, _ *placement.ManagedHostProfile) { a.Digest = "bad" }},
 		{"profile region", func(_ *InitialDeployment, _ *RuntimeArtifact, p *placement.ManagedHostProfile) {
-			p.Region = oci.RegionSFO
+			p.Region = oci.RegionSJC
 		}},
 		{"memory", func(_ *InitialDeployment, _ *RuntimeArtifact, p *placement.ManagedHostProfile) {
 			p.AllocatableMemoryBytes = 6 << 30

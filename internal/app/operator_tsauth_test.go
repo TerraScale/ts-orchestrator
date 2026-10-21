@@ -41,8 +41,8 @@ func TestTSAuthGRUConfigIsValid(t *testing.T) {
 	if err := validateWorkloadProfiles("gru", profiles); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateWorkloadProfiles("sfo", profiles); err == nil {
-		t.Fatal("sfo accepted gru-1's ts-auth endpoints")
+	if err := validateWorkloadProfiles("sjc", profiles); err == nil {
+		t.Fatal("sjc accepted gru-1's ts-auth endpoints")
 	}
 	if err := validateAutoscaleConfig(&AutoscaleConfig{Services: []workload.ServiceSpec{spec}}, profiles); err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestWorkloadProfileSecretsStayWithTheirRole(t *testing.T) {
 
 func TestTSAuthProfileRejectsOtherCell(t *testing.T) {
 	profile, _ := tsAuthGRUConfig(t)
-	if err := validateWorkloadProfiles("sfo", map[string]WorkloadProfile{tsauth.Role: profile}); err == nil {
+	if err := validateWorkloadProfiles("sjc", map[string]WorkloadProfile{tsauth.Role: profile}); err == nil {
 		t.Fatal("accepted a GRU ts-auth profile for another cell")
 	}
 }
@@ -138,22 +138,22 @@ func TestTSAuthAutoscaleBoundsAreFixed(t *testing.T) {
 	}
 }
 
-// TestSFOProfilesAreValid checks the committed sfo-1 TerraBase and ts-auth
-// profiles together, as the sfo controllers validate them (TS-662).
+// TestSFOProfilesAreValid checks the committed sjc-1 TerraBase and ts-auth
+// profiles together, as the sjc controllers validate them (TS-662).
 func TestSFOProfilesAreValid(t *testing.T) {
 	profiles := map[string]WorkloadProfile{}
-	for role, file := range map[string]string{terrabase.Role: "terrabase-sfo-1-profile.json", tsauth.Role: "ts-auth-sfo-1-profile.json"} {
+	for role, file := range map[string]string{terrabase.Role: "terrabase-sjc-1-profile.json", tsauth.Role: "ts-auth-sjc-1-profile.json"} {
 		profile, err := readReleaseProfile("../../deploy/oci-region/" + file)
 		if err != nil {
 			t.Fatal(err)
 		}
 		profiles[role] = profile
 	}
-	if err := validateWorkloadProfiles("sfo", profiles); err != nil {
+	if err := validateWorkloadProfiles("sjc", profiles); err != nil {
 		t.Fatal(err)
 	}
 	if err := validateWorkloadProfiles("gru", profiles); err == nil {
-		t.Fatal("gru accepted sfo's ts-auth profile")
+		t.Fatal("gru accepted sjc's ts-auth profile")
 	}
 }
 

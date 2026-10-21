@@ -188,7 +188,7 @@ func TestLinkStarRelaysEveryRegionThroughTheHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	signerID, _ := signer.PublicKey()
-	names := []string{"gru", "sfo", "fra"}
+	names := []string{"gru", "sjc", "fra"}
 	regions := map[string]*testRegion{}
 	for _, name := range names {
 		regions[name] = newLinkRegion(t, filepath.Join(root, name), name, signerID)
@@ -198,7 +198,7 @@ func TestLinkStarRelaysEveryRegionThroughTheHome(t *testing.T) {
 	useLinkListener(t, port)
 	regions["gru"].cfg.Embedded.Link = &Link{TLS: tlsFiles}
 	spokeCreds := map[string]string{}
-	for _, name := range []string{"sfo", "fra"} {
+	for _, name := range []string{"sjc", "fra"} {
 		spokeCreds[name] = linkUserCredentials(t, root, name+"-link.creds", signer, regions["gru"].cellID, name)
 		regions[name].cfg.Embedded.Link = &Link{CredentialsFile: spokeCreds[name], TLS: tlsFiles}
 	}
@@ -237,7 +237,7 @@ func TestLinkStarRelaysEveryRegionThroughTheHome(t *testing.T) {
 		}
 	}
 
-	// b: a query from SFO is answered by FRA alone.
+	// b: a query from SJC is answered by FRA alone.
 	if _, err := runtimes["fra"].Conn().Subscribe(protocol.SubjectRoot+".fra.query.>",
 		func(msg *nats.Msg) { _ = msg.Respond([]byte("fra-query")) }); err != nil {
 		t.Fatal(err)
@@ -245,52 +245,52 @@ func TestLinkStarRelaysEveryRegionThroughTheHome(t *testing.T) {
 	if err := runtimes["fra"].Conn().Flush(); err != nil {
 		t.Fatal(err)
 	}
-	if reply := requestUntil(ctx, t, runtimes["sfo"].Conn(), protocol.Regional("fra", "query", "terrabase-wan", "x")); string(reply.Data) != "fra-query" {
-		t.Fatalf("query from sfo answered by %q", reply.Data)
+	if reply := requestUntil(ctx, t, runtimes["sjc"].Conn(), protocol.Regional("fra", "query", "terrabase-wan", "x")); string(reply.Data) != "fra-query" {
+		t.Fatalf("query from sjc answered by %q", reply.Data)
 	}
 
 	// c: every region receives every region's health.
 	awaitEveryBroadcast(ctx, t, runtimes, names, protocol.RegionHealthSubject, protocol.SubjectRoot+".*.region.health")
 	awaitEveryBroadcast(ctx, t, runtimes, names, protocol.RegionRollupSubject, protocol.RegionRollupGrant)
 
-	// d: a raw leaf with SFO's link user cannot receive FRA's requests and
+	// d: a raw leaf with SJC's link user cannot receive FRA's requests and
 	// cannot publish outside its own region.
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	spoke := dialRawLeaf(ctx, t, addr, tlsFiles, spokeCreds["sfo"])
+	spoke := dialRawLeaf(ctx, t, addr, tlsFiles, spokeCreds["sjc"])
 	defer spoke.close()
 	spoke.subscribe(t, protocol.SubjectRoot+".fra.>")
 	time.Sleep(200 * time.Millisecond)
-	// Requests only: SFO's leaf does receive FRA's health, which it may.
+	// Requests only: SJC's leaf does receive FRA's health, which it may.
 	for range 5 {
 		requestCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 		_, _ = runtimes["gru"].Conn().RequestWithContext(requestCtx, protocol.Regional("fra", "query", "terrabase-wan", "raw"), []byte("q"))
 		cancel()
 	}
 	if subject, got := spoke.awaitMessage(t, protocol.SubjectRoot+".fra.query.", 300*time.Millisecond); got {
-		t.Fatalf("SFO's leaf received FRA's request %q", subject)
+		t.Fatalf("SJC's leaf received FRA's request %q", subject)
 	}
 	for _, forbidden := range []string{protocol.RegionHealthSubject("fra"), protocol.HostRegisterSubject(LinkHome), "$KV.TS_X.k"} {
-		intruder := dialRawLeaf(ctx, t, addr, tlsFiles, spokeCreds["sfo"])
+		intruder := dialRawLeaf(ctx, t, addr, tlsFiles, spokeCreds["sjc"])
 		intruder.publish(t, forbidden, "", []byte("forged"))
 		if reason := intruder.awaitClose(t); !strings.Contains(reason, "Permissions Violation for Publish") {
-			t.Fatalf("SFO's leaf published %q; link closed with %q", forbidden, reason)
+			t.Fatalf("SJC's leaf published %q; link closed with %q", forbidden, reason)
 		}
 	}
 
-	// e: a command published in GRU never reaches SFO. The admin user is
+	// e: a command published in GRU never reaches SJC. The admin user is
 	// test-only: a controller may not publish another region's commands.
 	admin := linkAdminConnection(t, root, runtimes["gru"], regions["gru"])
 	commands := make(chan *nats.Msg, 8)
-	commandSub, err := runtimes["sfo"].Conn().ChanSubscribe(protocol.HostRegisterSubject("sfo"), commands)
+	commandSub, err := runtimes["sjc"].Conn().ChanSubscribe(protocol.HostRegisterSubject("sjc"), commands)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer commandSub.Unsubscribe()
-	if err := runtimes["sfo"].Conn().Flush(); err != nil {
+	if err := runtimes["sjc"].Conn().Flush(); err != nil {
 		t.Fatal(err)
 	}
 	for range 5 {
-		if err := admin.Publish(protocol.HostRegisterSubject("sfo"), []byte("command")); err != nil {
+		if err := admin.Publish(protocol.HostRegisterSubject("sjc"), []byte("command")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -299,7 +299,7 @@ func TestLinkStarRelaysEveryRegionThroughTheHome(t *testing.T) {
 	}
 	time.Sleep(500 * time.Millisecond)
 	if len(commands) != 0 {
-		t.Fatalf("a command published in GRU reached SFO: %d messages", len(commands))
+		t.Fatalf("a command published in GRU reached SJC: %d messages", len(commands))
 	}
 }
 

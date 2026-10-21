@@ -74,7 +74,7 @@ Operator tooling:
   usage                  Print regional node and service CPU/memory for a time window
   cost                   Print a region's OCI spend and month forecast (read-only)
   bench                  Run isolated in-region benchmark clients and save capacity reports
-  dashboard              Check every GRU and SFO dashboard over NetBird (read-only)
+  dashboard              Check every GRU and SJC dashboard over NetBird (read-only)
   network                Check address and DNS coexistence of NetBird and Tailscale (read-only)
   verify                 Observe production health, persistence gaps and OIDC (read-only)
   log-scan               Count recent WARN and ERROR records per service and node (read-only)

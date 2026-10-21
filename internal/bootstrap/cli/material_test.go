@@ -94,7 +94,7 @@ func TestControllerPublicationGateRequiresFreshManualReadbackAndBudget(t *testin
 	}
 	admission.Estimate.Limit, admission.Estimate.Total, admission.Estimate.Headroom = "100", "89.55", "10.45"
 	for _, test := range []struct{ cell, region string }{
-		{"sfo", "us-sanjose-1"}, {"fra", "eu-frankfurt-1"},
+		{"sjc", "us-sanjose-1"}, {"fra", "eu-frankfurt-1"},
 	} {
 		cell, readback.Cell, readback.OCIRegion = test.cell, strings.ToUpper(test.cell), test.region
 		readback.VaultID = "ocid1.vault.oc1." + test.region + ".aaaaaa"

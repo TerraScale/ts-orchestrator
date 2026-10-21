@@ -53,7 +53,7 @@ func Derive(template map[string]any, label, ociRegion string, live Live) (map[st
 	}
 	from, ok := catalog.Lookup(fmt.Sprint(template["cell"]))
 	if !ok || from.Cell == entry.Cell || from.Cell == catalog.Bootstrap {
-		return nil, errors.New("the template must be another non-home region's plan, such as deploy/oci-region/sfo-1-plan.json")
+		return nil, errors.New("the template must be another non-home region's plan, such as deploy/oci-region/sjc-1-plan.json")
 	}
 	if template["operator_gateway"] != nil || template["netbird"] != nil {
 		return nil, errors.New("the template declares the home region's operator gateway or NetBird routing")

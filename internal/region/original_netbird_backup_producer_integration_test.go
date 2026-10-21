@@ -329,13 +329,13 @@ func (f *originalNetBirdBackupSDKFixture) serveHTTP(w http.ResponseWriter, r *ht
 			originalCompartmentFailure(w, 400, "InvalidParameter")
 			return
 		}
-		for i, name := range [2]string{"gru-1-backup", "sfo-1-backup"} {
+		for i, name := range [2]string{"gru-1-backup", "sjc-1-backup"} {
 			if body["name"] == name {
 				index = i
 			}
 		}
 	} else if len(parts) >= 4 && parts[0] == "n" && parts[1] == "ns" && parts[2] == "b" {
-		for i, name := range [2]string{"gru-1-backup", "sfo-1-backup"} {
+		for i, name := range [2]string{"gru-1-backup", "sjc-1-backup"} {
 			if parts[3] == name {
 				index = i
 			}

@@ -30,7 +30,7 @@ func TestMeshHubRecoveryPreservesLocalServing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	names := []string{"gru", "sfo", "fra"}
+	names := []string{"gru", "sjc", "fra"}
 	regions := map[string]*testRegion{}
 	runtimes := map[string]*Runtime{}
 	for _, name := range names {
@@ -138,7 +138,7 @@ func TestMeshHubRecoveryPreservesLocalServing(t *testing.T) {
 			}}
 		},
 		"cross-account import": func(claim *jwt.AccountClaims) {
-			claim.Imports.Add(&jwt.Import{Account: regions["sfo"].cellID, Subject: jwt.Subject(protocol.HostRegisterSubject("sfo")), Type: jwt.Service})
+			claim.Imports.Add(&jwt.Import{Account: regions["sjc"].cellID, Subject: jwt.Subject(protocol.HostRegisterSubject("sjc")), Type: jwt.Service})
 		},
 		"cross-account export": func(claim *jwt.AccountClaims) {
 			claim.Exports.Add(&jwt.Export{Subject: jwt.Subject(protocol.HostRegisterSubject("gru")), Type: jwt.Service})
@@ -248,7 +248,7 @@ func TestMeshStartupRejectsInvalidLinkAdmission(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			home := newLinkRegion(t, filepath.Join(root, "gru"), "gru", signerID)
-			region := newLinkRegion(t, filepath.Join(root, "sfo"), "sfo", signerID)
+			region := newLinkRegion(t, filepath.Join(root, "sjc"), "sjc", signerID)
 			leafTLS := testBridgeTLS(t, filepath.Join(root, "leaf-tls"))
 			if name == "home credentials" || name == "home missing signer" || name == "home widened template" || name == "home unlimited leaves" {
 				region = home
@@ -256,7 +256,7 @@ func TestMeshStartupRejectsInvalidLinkAdmission(t *testing.T) {
 			region.cfg.CredentialsFile = linkControllerCredentials(t, root, "controller.creds", region)
 			region.cfg.Embedded.Link = &Link{TLS: leafTLS}
 			if region != home {
-				region.cfg.Embedded.Link.CredentialsFile = linkUserCredentials(t, root, "leaf.creds", signer, home.cellID, "sfo")
+				region.cfg.Embedded.Link.CredentialsFile = linkUserCredentials(t, root, "leaf.creds", signer, home.cellID, "sjc")
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
@@ -270,7 +270,7 @@ func TestMeshStartupRejectsInvalidLinkAdmission(t *testing.T) {
 				t.Fatalf("valid production JetStream request before invalid replacement: %v", probeErr)
 			}
 			if name == "home credentials" {
-				region.cfg.Embedded.Link.CredentialsFile = linkUserCredentials(t, root, "leaf.creds", signer, home.cellID, "sfo")
+				region.cfg.Embedded.Link.CredentialsFile = linkUserCredentials(t, root, "leaf.creds", signer, home.cellID, "sjc")
 			}
 			mutateUser := func(mutate func(*jwt.UserClaims)) {
 				t.Helper()
@@ -336,7 +336,7 @@ func TestMeshStartupRejectsInvalidLinkAdmission(t *testing.T) {
 			case "wrong user seed":
 				mutateUser(func(*jwt.UserClaims) {})
 			case "uppercase region":
-				region.cfg.Cell = "SFO"
+				region.cfg.Cell = "SJC"
 			case "invalid home account":
 				mutateUser(func(claim *jwt.UserClaims) { claim.IssuerAccount = home.cellID + "x" })
 			case "home missing signer", "home widened template", "home unlimited leaves":

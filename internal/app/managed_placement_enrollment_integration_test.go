@@ -44,7 +44,7 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 		region oci.Region
 	}{
 		{cell: "gru", region: oci.RegionGRU},
-		{cell: "sfo", region: oci.RegionSFO},
+		{cell: "sjc", region: oci.RegionSJC},
 	} {
 		t.Run(testCase.cell, func(t *testing.T) {
 			testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t, testCase.cell, testCase.region, nil)
@@ -57,13 +57,13 @@ func TestManagedPlacementEnrollmentFromRenderedSFOBundle(t *testing.T) {
 	materialDirectory, materialSet := os.LookupEnv("TS_TEST_RENDERED_HOST_MATERIAL")
 	expectedBundleSHA256, hashSet := os.LookupEnv("TS_TEST_RENDERED_HOST_BUNDLE_SHA256")
 	if !bundleSet && !materialSet && !hashSet {
-		tier.Unavailable(t, "rendered SFO enrollment bundle fixture was not supplied")
+		tier.Unavailable(t, "rendered SJC enrollment bundle fixture was not supplied")
 	}
 	if !bundleSet || !materialSet || !hashSet || bundlePath == "" || materialDirectory == "" || expectedBundleSHA256 == "" {
-		t.Fatal("rendered SFO enrollment requires bundle, material directory, and bundle SHA-256 together")
+		t.Fatal("rendered SJC enrollment requires bundle, material directory, and bundle SHA-256 together")
 	}
 	fixture := loadRenderedSFOEnrollmentFixture(t, bundlePath, materialDirectory, expectedBundleSHA256)
-	testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t, "sfo", oci.RegionSFO, fixture)
+	testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t, "sjc", oci.RegionSJC, fixture)
 }
 
 type renderedSFOEnrollmentFixture struct {
@@ -78,39 +78,39 @@ func loadRenderedSFOEnrollmentFixture(t *testing.T, bundlePath, materialDirector
 	t.Helper()
 	if !filepath.IsAbs(bundlePath) || filepath.Clean(bundlePath) != bundlePath ||
 		!filepath.IsAbs(materialDirectory) || filepath.Clean(materialDirectory) != materialDirectory {
-		t.Fatal("rendered SFO bundle and material paths must be clean and absolute")
+		t.Fatal("rendered SJC bundle and material paths must be clean and absolute")
 	}
 	if len(expectedBundleSHA256) != sha256.Size*2 {
-		t.Fatalf("rendered SFO bundle SHA-256 has invalid length: %d", len(expectedBundleSHA256))
+		t.Fatalf("rendered SJC bundle SHA-256 has invalid length: %d", len(expectedBundleSHA256))
 	}
 	if _, err := hex.DecodeString(expectedBundleSHA256); err != nil || strings.ToLower(expectedBundleSHA256) != expectedBundleSHA256 {
-		t.Fatal("rendered SFO bundle SHA-256 must be lowercase hexadecimal")
+		t.Fatal("rendered SJC bundle SHA-256 must be lowercase hexadecimal")
 	}
 	bundleWire, err := os.ReadFile(bundlePath)
 	if err != nil {
-		t.Fatalf("read exact rendered SFO public bundle bytes: %v", err)
+		t.Fatalf("read exact rendered SJC public bundle bytes: %v", err)
 	}
 	digest := sha256.Sum256(bundleWire)
 	gotBundleSHA256 := hex.EncodeToString(digest[:])
 	if gotBundleSHA256 != expectedBundleSHA256 {
-		t.Fatalf("rendered SFO public bundle hash mismatch: got %s, want %s", gotBundleSHA256, expectedBundleSHA256)
+		t.Fatalf("rendered SJC public bundle hash mismatch: got %s, want %s", gotBundleSHA256, expectedBundleSHA256)
 	}
 	bundle, err := hostenroll.ReadPublicBundle(bundlePath)
 	if err != nil {
-		t.Fatalf("read root-owned rendered SFO public bundle: %v", err)
+		t.Fatalf("read root-owned rendered SJC public bundle: %v", err)
 	}
 	canonical, err := protocol.EncodeJSON(bundle)
 	if err != nil || !bytes.Equal(bundleWire, canonical) {
-		t.Fatalf("rendered SFO public bundle bytes are not the exact parsed image input: %v", err)
+		t.Fatalf("rendered SJC public bundle bytes are not the exact parsed image input: %v", err)
 	}
 	wantControllers := []string{"10.0.0.11:8443", "10.0.0.12:8443", "10.0.0.13:8443"}
 	wantNATS := []string{"tls://10.0.0.11:4222", "tls://10.0.0.12:4222", "tls://10.0.0.13:4222"}
-	if bundle.SchemaVersion != 1 || bundle.Cell != "sfo" || bundle.Region != "SFO" || bundle.Environment != "production" ||
+	if bundle.SchemaVersion != 1 || bundle.Cell != "sjc" || bundle.Region != "SJC" || bundle.Environment != "production" ||
 		!slices.Equal(bundle.ControllerEndpoints, wantControllers) || !slices.Equal(bundle.NATSURLs, wantNATS) ||
 		bundle.InstallRoot != "/var/lib/terrascale-orchestrator-host/install" ||
 		bundle.StateRoot != "/var/lib/terrascale-orchestrator-host/state" || bundle.ManagedRuntimeRoot != "/srv/ts-managed" ||
 		bundle.WorkloadUID != 2000 || bundle.WorkloadGID != 2000 {
-		t.Fatalf("rendered SFO public bundle has unexpected image identity or configuration: %+v", bundle)
+		t.Fatalf("rendered SJC public bundle has unexpected image identity or configuration: %+v", bundle)
 	}
 	caWire, err := os.ReadFile(filepath.Join(materialDirectory, "ca.pem"))
 	if err != nil || !bytes.Equal(caWire, []byte(bundle.CAPEM)) {
@@ -125,13 +125,13 @@ func loadRenderedSFOEnrollmentFixture(t *testing.T, bundlePath, materialDirector
 		clear(responsePrivate)
 		t.Fatalf("rendered bundle response key does not match generated material: %v", err)
 	}
-	issuer, err := hostenroll.LoadIssuer("sfo", bundle.CellAccountNKey,
+	issuer, err := hostenroll.LoadIssuer("sjc", bundle.CellAccountNKey,
 		filepath.Join(materialDirectory, "host-nats-issuer.seed"),
 		filepath.Join(materialDirectory, "host-tls-issuer-key.pem"),
 		filepath.Join(materialDirectory, "host-tls-issuer-cert.pem"), caWire)
 	if err != nil {
 		clear(responsePrivate)
-		t.Fatalf("load matching generated SFO host issuer: %v", err)
+		t.Fatalf("load matching generated SJC host issuer: %v", err)
 	}
 	t.Cleanup(func() {
 		issuer.NATSKey.Wipe()
@@ -139,18 +139,18 @@ func loadRenderedSFOEnrollmentFixture(t *testing.T, bundlePath, materialDirector
 	})
 	cellJWT, err := os.ReadFile(filepath.Join(materialDirectory, "cell.jwt"))
 	if err != nil {
-		t.Fatalf("generated SFO cell account does not authorize the host issuer: %v", err)
+		t.Fatalf("generated SJC cell account does not authorize the host issuer: %v", err)
 	}
 	if err := issuer.ValidateAccountScope(strings.TrimSpace(string(cellJWT))); err != nil {
-		t.Fatalf("generated SFO cell account does not authorize the host issuer: %v", err)
+		t.Fatalf("generated SJC cell account does not authorize the host issuer: %v", err)
 	}
 	serverCertificate, err := tls.LoadX509KeyPair(
 		filepath.Join(materialDirectory, "controller-a-tls-cert.pem"),
 		filepath.Join(materialDirectory, "controller-a-tls-key.pem"))
 	if err != nil {
-		t.Fatalf("load matching generated SFO controller TLS identity: %v", err)
+		t.Fatalf("load matching generated SJC controller TLS identity: %v", err)
 	}
-	t.Logf("using rendered SFO enrollment public bundle sha256=%s", gotBundleSHA256)
+	t.Logf("using rendered SJC enrollment public bundle sha256=%s", gotBundleSHA256)
 	return &renderedSFOEnrollmentFixture{bundle: bundle, issuer: issuer, serverCertificate: serverCertificate,
 		responsePublic: responsePublic, responsePrivate: responsePrivate}
 }
@@ -364,7 +364,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 		t.Fatalf("first same-cell controller endpoint %q does not match launched host private IP %q",
 			bundle.ControllerEndpoints[0], observed[0].PrivateIP)
 	}
-	if regionID == oci.RegionSFO {
+	if regionID == oci.RegionSJC {
 		gruDescriptor := descriptor
 		gruDescriptor.Cell = "gru"
 		gruDescriptor.Region = string(oci.RegionGRU)
@@ -381,7 +381,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 				return nil, errors.New("mismatched descriptor reached the enrollment endpoint")
 			}})
 		if mismatchErr == nil || !strings.Contains(mismatchErr.Error(), "differs from image-pinned regional bundle") || postCalls != 0 {
-			t.Fatalf("SFO bundle accepted a GRU descriptor: err=%v post calls=%d", mismatchErr, postCalls)
+			t.Fatalf("SJC bundle accepted a GRU descriptor: err=%v post calls=%d", mismatchErr, postCalls)
 		}
 	}
 	csrKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -547,7 +547,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 		if err := json.Unmarshal(installedConfig, &installed); err != nil {
 			t.Fatalf("decode installed host configuration from rendered bundle: %v", err)
 		}
-		if installed.NATS.Cell != "sfo" || installed.NATS.Instance != descriptor.Node ||
+		if installed.NATS.Cell != "sjc" || installed.NATS.Instance != descriptor.Node ||
 			installed.NATS.URL != strings.Join(bundle.NATSURLs, ",") || installed.NATS.Replicas != 3 ||
 			installed.Host.Node != descriptor.Node || installed.Host.Environment != "production" ||
 			!slices.Equal(installed.Host.Roles, []string{"terrabase"}) ||
@@ -555,7 +555,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 			installed.Host.InstallRoot != "/var/lib/terrascale-orchestrator-host/install" ||
 			installed.Host.StateRoot != "/var/lib/terrascale-orchestrator-host/state" ||
 			installed.Host.ManagedRuntimeRoot != "/srv/ts-managed" || installed.Host.WorkloadUID != 2000 || installed.Host.WorkloadGID != 2000 {
-			t.Fatalf("installed host configuration differs from rendered SFO image fields: %+v", installed)
+			t.Fatalf("installed host configuration differs from rendered SJC image fields: %+v", installed)
 		}
 	}
 	row := member.State.CanonicalRosterRow
@@ -635,7 +635,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 	}
 	if rendered != nil {
 		// The rendered fixture uses fresh 48-hour credentials, outside the renewal
-		// window. The original GRU/SFO fixtures continue through renewal, replay,
+		// window. The original GRU/SJC fixtures continue through renewal, replay,
 		// outage, OCI-retirement, and revoke coverage below.
 		cancel()
 		if err := <-hostRunDone; !errors.Is(err, context.Canceled) {

@@ -225,7 +225,7 @@ func (f *originalNetworkSDKFixture) serveHTTP(w http.ResponseWriter, r *http.Req
 		return
 	}
 	cell, index := "", -1
-	for candidate, name := range []string{"GRU", "SFO", "FRA"} {
+	for candidate, name := range []string{"GRU", "SJC", "FRA"} {
 		if r.Host == "iaas."+catalog.OCIRegion(name)+".oraclecloud.com" {
 			cell, index = name, candidate
 		}

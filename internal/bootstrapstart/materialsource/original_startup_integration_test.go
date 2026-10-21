@@ -243,7 +243,7 @@ func TestOrdinaryLinkPreservesDeploymentBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := in.config
-	cfg.Cell, cfg.Region, cfg.ClusterID, cfg.DeploymentID = "sfo", "us-sanjose-1", "00000000000000000000000002", "00000000000000000000000003"
+	cfg.Cell, cfg.Region, cfg.ClusterID, cfg.DeploymentID = "sjc", "us-sanjose-1", "00000000000000000000000002", "00000000000000000000000003"
 	recipient, err := bootstrapmaterial.Generate(spoke, cfg, now)
 	if err != nil {
 		t.Fatal(err)

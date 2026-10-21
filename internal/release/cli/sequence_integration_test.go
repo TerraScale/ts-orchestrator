@@ -24,7 +24,7 @@ func TestSequenceMigrationOfflineSigningFilesystem(t *testing.T) {
 	id, _ := trust.KeyID(signer)
 	encoded, _ := trust.EncodeDelegatedPublicKey(signer)
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "ns", Bucket: "gru-1-head", Region: "GRU", Role: "orchestrator", Environment: "production", SequenceFloor: 900, SignerKeyID: id, SignerPublicKey: encoded}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 900, EvidenceSHA256: strings.Repeat("a", 64)})
 	}
 	candidate := filepath.Join(directory, "migration.json")

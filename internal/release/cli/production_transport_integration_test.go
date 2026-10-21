@@ -48,8 +48,8 @@ func TestProductionEvidenceReleaseTransport(t *testing.T) {
 		}
 		writeFixtureFile(t, filepath.Join(store, "production-evidence-"+object.Name()), data, 0o600)
 	}
-	// Unavailable SFO evidence must not cancel the complete GRU record set.
-	writeFixtureFile(t, filepath.Join(store, "production-SFO-amd64.json"), []byte("{}"), 0o600)
+	// Unavailable SJC evidence must not cancel the complete GRU record set.
+	writeFixtureFile(t, filepath.Join(store, "production-SJC-amd64.json"), []byte("{}"), 0o600)
 	entries, err := os.ReadDir(store)
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestProductionEvidenceReleaseTransport(t *testing.T) {
 			t.Fatal(err)
 		}
 		size := info.Size()
-		if strings.Contains(entry.Name(), "SFO") {
+		if strings.Contains(entry.Name(), "SJC") {
 			size = 1064961
 		}
 		assets = append(assets, asset{entry.Name(), size})
@@ -158,12 +158,12 @@ exec "$PRODUCTION_TEST_EXECUTABLE" -test.run '^TestProductionEvidenceCLIProcess$
 		t.Fatalf("fetch retained release: %v\n%s", err, output)
 	}
 	evidenceDir := filepath.Join(destination, "production")
-	if _, err := os.Stat(filepath.Join(evidenceDir, "SFO", "amd64", "production.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(evidenceDir, "SJC", "amd64", "production.json")); !os.IsNotExist(err) {
 		t.Fatalf("oversized regional record was downloaded: %v", err)
 	}
 	var output bytes.Buffer
 	err = Run(t.Context(), []string{"verify-production", "--dir", f.releaseDir, "--evidence-dir", evidenceDir,
-		"--root-key", f.rootPath, "--cell", "GRU", "--cell", "SFO"}, &output)
+		"--root-key", f.rootPath, "--cell", "GRU", "--cell", "SJC"}, &output)
 	if err == nil || !strings.Contains(output.String(), `"cell":"GRU"`) ||
 		!strings.Contains(output.String(), `"state":"qualified"`) || !strings.Contains(output.String(), `"state":"refused"`) {
 		t.Fatalf("lost independent admission after transport: %v\n%s", err, output.String())

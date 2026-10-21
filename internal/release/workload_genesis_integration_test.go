@@ -91,7 +91,7 @@ func newWorkloadGenesisFixture(t *testing.T) workloadGenesisFixture {
 		signers: make(map[string]ed25519.PrivateKey), delegations: make(map[string]trust.Envelope)}
 	f.grant = workloadGenesisGrantFixture{SchemaVersion: 3, Generation: 1,
 		TenancyID: "ocid1.tenancy.oc1..genesisfixture", InstallationID: entityid.Derive("genesis-fixture", "installation"), CleanupOwner: "foundation-fixture"}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		region := workloadGenesisRegionFixture{}
 		region.Plan.Cell = cell
 		region.BootstrapMaterial.InstallationID = f.grant.InstallationID
@@ -119,7 +119,7 @@ func newWorkloadGenesisFixture(t *testing.T) workloadGenesisFixture {
 			t.Fatal(err)
 		}
 		delegation := trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: base64.RawURLEncoding.EncodeToString(public)}
-		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, cell := range []string{"GRU", "SJC", "FRA"} {
 			scope := ContainerScope(ContainerTarget{Cell: cell, Environment: "production", Role: role, Architecture: "arm64"})
 			delegation.Capabilities = append(delegation.Capabilities, trust.Capability{Domain: scope.Domain, DeploymentID: scope.DeploymentID,
 				Cell: cell, Environment: scope.Environment, Role: role, Slots: []string{"linux-amd64", "linux-arm64"}, Actions: []string{"sign"}})
@@ -130,7 +130,7 @@ func newWorkloadGenesisFixture(t *testing.T) workloadGenesisFixture {
 		}
 		f.signers[role], f.delegations[role] = signer, envelope
 		f.grant.ReleaseAuthorities = append(f.grant.ReleaseAuthorities, workloadGenesisAuthorityFixture{Role: role, Environment: "production",
-			Cells: []string{"GRU", "SFO", "FRA"}, Architectures: []string{"amd64", "arm64"}, DelegationWire: encodeEnvelope(t, envelope)})
+			Cells: []string{"GRU", "SJC", "FRA"}, Architectures: []string{"amd64", "arm64"}, DelegationWire: encodeEnvelope(t, envelope)})
 	}
 	f.wire = f.signGrant(t, f.grant)
 	return f
@@ -209,7 +209,7 @@ func TestWorkloadGenesisCompleteOriginalAuthority(t *testing.T) {
 			g.ReleaseAuthorities[0].DelegationWire = encodeEnvelope(t, envelope)
 		}},
 		{"unselected authority missing architecture", func(g *workloadGenesisGrantFixture) { g.ReleaseAuthorities[0].Architectures = []string{"arm64"} }},
-		{"unselected authority missing cell", func(g *workloadGenesisGrantFixture) { g.ReleaseAuthorities[2].Cells = []string{"GRU", "SFO", "SFO"} }},
+		{"unselected authority missing cell", func(g *workloadGenesisGrantFixture) { g.ReleaseAuthorities[2].Cells = []string{"GRU", "SJC", "SJC"} }},
 		{"legacy migration mixed into original", func(g *workloadGenesisGrantFixture) { g.ReleaseAuthorities[0].SequenceMigrationWire = []byte("legacy") }},
 	}
 	for _, test := range mutations {
@@ -422,7 +422,7 @@ func TestWorkloadGenesisHTTPOrderingAndContainerProvenance(t *testing.T) {
 		if _, _, err := location.AllocateWithEvidence(ctx, identity, f.roots, f.signers[role]); err != ErrSequenceMigrationRequired {
 			t.Fatalf("unsigned zero for %s: %v", role, err)
 		}
-		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, cell := range []string{"GRU", "SJC", "FRA"} {
 			if err := newLocation(proofs[cell+"/"+role]).ImportGenesis(ctx, f.roots, role, "production", f.now); err != nil {
 				t.Fatalf("import %s/%s: %v", cell, role, err)
 			}
@@ -460,7 +460,7 @@ func TestWorkloadGenesisHTTPOrderingAndContainerProvenance(t *testing.T) {
 				t.Fatal(writeErr)
 			}
 			beforeWrites := writes.Load()
-			importErr := newLocation(proofs["SFO/"+role]).ImportGenesis(ctx, f.roots, role, "production", f.now)
+			importErr := newLocation(proofs["SJC/"+role]).ImportGenesis(ctx, f.roots, role, "production", f.now)
 			lock.Lock()
 			retained, readErr := os.ReadFile(headPath)
 			lock.Unlock()
@@ -478,11 +478,11 @@ func TestWorkloadGenesisHTTPOrderingAndContainerProvenance(t *testing.T) {
 		if err != nil || sequence != 1 {
 			t.Fatalf("first %s sequence = %d: %v", role, sequence, err)
 		}
-		retry, retryWire, err := newLocation(proofs["SFO/"+role]).AllocateWithEvidence(ctx, identity, f.roots, f.signers[role])
+		retry, retryWire, err := newLocation(proofs["SJC/"+role]).AllocateWithEvidence(ctx, identity, f.roots, f.signers[role])
 		if err != nil || retry != sequence || !bytes.Equal(wire, retryWire) {
 			t.Fatalf("restart/cross-cell retry %s = %d: %v", role, retry, err)
 		}
-		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, cell := range []string{"GRU", "SJC", "FRA"} {
 			proof := proofs[cell+"/"+role]
 			target := ContainerTarget{Cell: cell, Environment: "production", Role: role, Architecture: "arm64", Genesis: proof}
 			bundle := bundleFor(claimFor(role, cell), sequence, wire)
@@ -498,7 +498,7 @@ func TestWorkloadGenesisHTTPOrderingAndContainerProvenance(t *testing.T) {
 			}
 			foreignCell := "GRU"
 			if cell == foreignCell {
-				foreignCell = "SFO"
+				foreignCell = "SJC"
 			}
 			foreignProof := proofs[foreignCell+"/"+role]
 			if foreignProof.Fingerprint() != proof.Fingerprint() {

@@ -99,7 +99,7 @@ func TestCollectorPreservesOriginalLinkEvidence(t *testing.T) {
 	collector, _ := testCollector(t, "one", nil)
 	observed := time.Now().UTC().Add(-3 * time.Minute)
 	collector.config.Links = func() []RegionLinkProbe {
-		return []RegionLinkProbe{{Region: "sfo", ObservedAt: observed, Reach: "ok", WAN: "ok", LagGroups: new(0.0)}}
+		return []RegionLinkProbe{{Region: "sjc", ObservedAt: observed, Reach: "ok", WAN: "ok", LagGroups: new(0.0)}}
 	}
 	for range 2 {
 		snapshot, err := snapshotOverHTTP(t, collector, false)

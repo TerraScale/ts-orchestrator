@@ -108,7 +108,7 @@ func TestPoolNodeEnrollmentRefusesUnprovenNodes(t *testing.T) {
 			instance.PrivateIP = "10.251.0.99"
 		}},
 		{name: "another cell", pool: poolOf(member), mutate: func(instance *oci.CloudInstance) {
-			instance.FreeformTags["ts-cell"] = "sfo"
+			instance.FreeformTags["ts-cell"] = "sjc"
 		}},
 		{name: "not a node", pool: poolOf(member), mutate: func(instance *oci.CloudInstance) {
 			instance.FreeformTags["ts-role"] = "node-pool"

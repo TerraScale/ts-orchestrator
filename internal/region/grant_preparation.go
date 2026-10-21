@@ -65,7 +65,7 @@ type FoundationPreparationInput struct {
 	ReleaseAuthorities              []ContainerReleaseAuthorityIntent  `json:"releaseAuthorities"`
 	NetBirdComponents               [3]ContainerReleaseAuthorityIntent `json:"netbirdComponents"`
 	GRUController                   FoundationHostApproval             `json:"gruController"`
-	SFOController                   FoundationHostApproval             `json:"sfoController"`
+	SFOController                   FoundationHostApproval             `json:"sjcController"`
 	FRAController                   FoundationHostApproval             `json:"fraController"`
 	NetBirdManager                  FoundationHostApproval             `json:"netbirdManager"`
 }
@@ -104,7 +104,7 @@ func validatePreparedReleaseAuthorities(authorities []ContainerReleaseAuthorityI
 		covered := false
 		for _, authority := range authorities {
 			if authority.Role == role && authority.Environment == "production" &&
-				slices.Contains(authority.Cells, "GRU") && slices.Contains(authority.Cells, "SFO") && slices.Contains(authority.Cells, "FRA") &&
+				slices.Contains(authority.Cells, "GRU") && slices.Contains(authority.Cells, "SJC") && slices.Contains(authority.Cells, "FRA") &&
 				slices.Contains(authority.Architectures, "arm64") && slices.Contains(authority.Architectures, "amd64") {
 				covered = true
 			}
@@ -156,7 +156,7 @@ func PrepareFoundationGrantSDK(ctx context.Context, input FoundationPreparationI
 	}
 	roots = lineage.Current
 	images := make(map[string]releasechannel.CurrentImage, 4)
-	for _, cell := range []string{"GRU", "SFO", "FRA", "netbird-manager"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA", "netbird-manager"} {
 		role, region := "controller", cell
 		if cell == "netbird-manager" {
 			role, region = cell, "GRU"
@@ -226,7 +226,7 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		ReleaseAuthorities:  input.ReleaseAuthorities,
 		InfrastructureSpend: &InfrastructureSpendIntent{BudgetID: entityid.Derive("foundation-infrastructure-budget", installation), Currency: input.Currency, MonthlyLimitMinor: input.InfrastructureMonthlyLimitMinor, Bootstrap: &BootstrapSpendingIntent{ReservedMinor: input.BootstrapReservedMinor}}}
 	regionIntent := oci.RegionIntent{SchemaVersion: 1, Generation: 1, BootstrapRegion: oci.RegionGRU}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		regionIntent.Regions = append(regionIntent.Regions, oci.RegionMapping{Cell: oci.Region(cell), OCIRegion: catalog.OCIRegion(cell)})
 	}
 	intentWire, err := trust.EncodePayload(regionIntent)
@@ -234,7 +234,7 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		return FoundationPreparation{}, err
 	}
 	var anchor bootstrap.BootstrapAnchor
-	for index, cell := range []string{"GRU", "SFO", "FRA"} {
+	for index, cell := range []string{"GRU", "SJC", "FRA"} {
 		if err := ctx.Err(); err != nil {
 			return FoundationPreparation{}, err
 		}
@@ -666,7 +666,7 @@ func ValidatePreparedFoundation(grant FoundationGrant) error {
 	seen := map[string]bool{}
 	for _, regional := range grant.Regions {
 		cell, _ := regional.Plan["cell"].(string)
-		if !slices.Contains([]string{"GRU", "SFO", "FRA"}, cell) || seen[cell] || regional.BootstrapMaterial == nil || regional.BootstrapMaterial.Startup == nil {
+		if !slices.Contains([]string{"GRU", "SJC", "FRA"}, cell) || seen[cell] || regional.BootstrapMaterial == nil || regional.BootstrapMaterial.Startup == nil {
 			return errors.New("prepared foundation differs from the fixed bootstrap footprint")
 		}
 		seen[cell] = true

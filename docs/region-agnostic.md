@@ -11,16 +11,16 @@ Adding a region must never require a change in any other region: no
 re-issued credential, re-signed account, edited inventory, IAM statement or
 release grant. Removing a region is equally automatic.
 
-## Why GRU and SFO did not link
+## Why GRU and SJC did not link
 
 | Root cause | Fixed by |
 | --- | --- |
 | Telemetry aggregation was a config switch that was off. | Always on since TS-796 (#360). |
 | Controller NATS credentials listed exact peer subjects, so every new region meant re-issuing credentials in every region. The serving credentials predate even those grants. | [Role and pattern permissions](#nats-roles-and-subject-patterns) |
 | The interregion account listed every peer's subjects, one signing key per child and a reviewed leaf tree, all signed offline per region. | [One link, one link signer](#links) |
-| Release trust was per cell: SFO's cell spec did not list the CI key GRU trusts, so SFO refused every CI claim (`the claim does not verify in this cell`). | [One release identity](#trust) |
-| Every signed scope bound a per-cell deployment ID chosen at founding. GRU and SFO still carry pre-ULID IDs (`ts-550-gru-refound-6`, `ts-640-sfo-found-1`), which current binaries refuse, so no release since TS-754 can reach them. | [Derived identity](#trust) and the [one-time adoption](#one-time-adoption-of-gru-and-sfo) |
-| Deploy limited regions to a compiled GRU/SFO/FRA allowlist, scoped the update delegation to listed cells and needed a hand-written IAM statement per region. | [Deploy targets](#deploy-targets) |
+| Release trust was per cell: SJC's cell spec did not list the CI key GRU trusts, so SJC refused every CI claim (`the claim does not verify in this cell`). | [One release identity](#trust) |
+| Every signed scope bound a per-cell deployment ID chosen at founding. GRU and SJC still carry pre-ULID IDs (`ts-550-gru-refound-6`, `ts-640-sjc-found-1`), which current binaries refuse, so no release since TS-754 can reach them. | [Derived identity](#trust) and the [one-time adoption](#one-time-adoption-of-gru-and-sjc) |
+| Deploy limited regions to a compiled GRU/SJC/FRA allowlist, scoped the update delegation to listed cells and needed a hand-written IAM statement per region. | [Deploy targets](#deploy-targets) |
 | Nothing exercised two or more regions before merge. | [Tests](#tests) |
 
 ## Rules
@@ -57,7 +57,7 @@ service claim. A controller admits a claim when:
 - the delegation verifies with the cell's current roots and is unexpired;
 - the claim's role, repository and environment are in the delegation;
 - the claim names this cell (the per-cell claim binding is unchanged, so a
-  claim for SFO can never be replayed into GRU).
+  claim for SJC can never be replayed into GRU).
 
 Cell-spec `signers` keep operator-request authority (who may send operator
 commands), but no longer grant release rights; `releasers` are deleted.
@@ -160,7 +160,7 @@ Slice: deploy targets.
   Vault publish key; `release deploy` keeps discovering serving cells from
   Atlas `/v1/discovery`. Publishing is always on. Atlas lists the roster's
   regions; the spec's `atlas.regions` only overrides display details.
-- A cell token is the OCI short region code (legacy alias `sfo` for
+- A cell token is the OCI short region code (legacy alias `sjc` for
   `us-sanjose-1`) and maps to its OCI region through the OCI SDK's region
   table (`common.StringToRegion`), not a compiled allowlist, so any OCI region
   is a valid target.
@@ -168,7 +168,7 @@ Slice: deploy targets.
   `releases/*` in every `*-head` bucket; no statement names a region.
 - CI scripts set no home OCI region.
 
-## One-time adoption of GRU and SFO
+## One-time adoption of GRU and SJC
 
 Slice: adoption. It runs once per region and is then deleted with the TS-774
 re-key code. Nothing is re-founded: instances, NATS server names, Raft IDs,

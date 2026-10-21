@@ -73,7 +73,7 @@ type FoundationWriterPolicy struct {
 // launchFoundationWriter buys only the same-grant regional seed slot. A lost response
 // retains its original bounded token and never adopts a discovered instance.
 func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, resolver FoundationResolver, bundle RetainedFoundation, cell string) (OriginalFoundationWriter, error) {
-	if !slices.Contains([]string{"GRU", "SFO", "FRA"}, cell) {
+	if !slices.Contains([]string{"GRU", "SJC", "FRA"}, cell) {
 		return OriginalFoundationWriter{}, errors.New("writer cell is outside the fixed footprint")
 	}
 	ctx, release, err := authority.HomeWrite(ctx, 0)
@@ -339,7 +339,7 @@ func foundationWriterPolicy(record FoundationWriterRecord) (identity.CreatePolic
 	}
 	principal := fmt.Sprintf("request.principal.type='instance', request.principal.id='%s'", record.InstanceID)
 	statements := make([]string, 0, 5)
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		key := "orchestrator/regions/v1/" + cell + ".json"
 		permissions := "request.permission='OBJECT_READ'"
 		if cell == record.Cell {
@@ -612,7 +612,7 @@ func (authority *HomeIAMAuthority) VerifyFoundationWriter(ctx context.Context) e
 func (record FoundationWriterRecord) validate() error {
 	digest, err := netBirdRequestDigest(record.Request)
 	entry, ok := catalog.Lookup(record.Cell)
-	if err != nil || !ok || !slices.Contains([]string{"GRU", "SFO", "FRA"}, record.Cell) || !entityid.Valid(record.InstallationID) || record.SlotID != BootstrapSlotID(record.InstallationID, record.Cell, "controller", record.Slot) || record.OperationID != BootstrapOperationID(record.InstallationID, record.SlotID) || record.InstanceID != "" && !strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1."+entry.OCIRegion+".") || record.Generation == 0 || !sourceDigest(record.GrantSHA256) || !sourceDigest(record.ProfileSHA256) || !sourceDigest(record.RecipeSHA256) || !sourceDigest(record.ScopeSHA256) || !sourceDigest(record.PhysicalScopeSHA256) || record.BindingSHA256 != "" && !sourceDigest(record.BindingSHA256) || record.RequestDigest != digest || record.RetryToken != BootstrapRetryToken(record.OperationID, digest) || record.FirstAttemptAt.IsZero() || !bootstrapSlotName.MatchString(record.Slot) || !foundationWriterKeyPattern.MatchString(record.KMSKeyID) || !sourceStoragePattern.MatchString(record.Namespace) || !sourceStoragePattern.MatchString(record.Bucket) || !sourceCompartmentPattern.MatchString(record.BucketCompartment) || record.InstanceID != "" && !sourceInstancePattern.MatchString(record.InstanceID) || record.Request.CompartmentId == nil || !sourceCompartmentPattern.MatchString(*record.Request.CompartmentId) || !maps.Equal(record.Request.Metadata, foundationWriterMetadata(record.Slot)) || len(record.Request.ExtendedMetadata) != 0 {
+	if err != nil || !ok || !slices.Contains([]string{"GRU", "SJC", "FRA"}, record.Cell) || !entityid.Valid(record.InstallationID) || record.SlotID != BootstrapSlotID(record.InstallationID, record.Cell, "controller", record.Slot) || record.OperationID != BootstrapOperationID(record.InstallationID, record.SlotID) || record.InstanceID != "" && !strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1."+entry.OCIRegion+".") || record.Generation == 0 || !sourceDigest(record.GrantSHA256) || !sourceDigest(record.ProfileSHA256) || !sourceDigest(record.RecipeSHA256) || !sourceDigest(record.ScopeSHA256) || !sourceDigest(record.PhysicalScopeSHA256) || record.BindingSHA256 != "" && !sourceDigest(record.BindingSHA256) || record.RequestDigest != digest || record.RetryToken != BootstrapRetryToken(record.OperationID, digest) || record.FirstAttemptAt.IsZero() || !bootstrapSlotName.MatchString(record.Slot) || !foundationWriterKeyPattern.MatchString(record.KMSKeyID) || !sourceStoragePattern.MatchString(record.Namespace) || !sourceStoragePattern.MatchString(record.Bucket) || !sourceCompartmentPattern.MatchString(record.BucketCompartment) || record.InstanceID != "" && !sourceInstancePattern.MatchString(record.InstanceID) || record.Request.CompartmentId == nil || !sourceCompartmentPattern.MatchString(*record.Request.CompartmentId) || !maps.Equal(record.Request.Metadata, foundationWriterMetadata(record.Slot)) || len(record.Request.ExtendedMetadata) != 0 {
 		return errors.New("home writer original launch reservation is invalid")
 	}
 	if q := record.OriginalQuote; q != nil {

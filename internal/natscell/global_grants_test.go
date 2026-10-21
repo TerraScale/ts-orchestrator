@@ -124,13 +124,13 @@ func TestGlobalHomeNeedsGlobalGrantsUnderRestrictedCredentials(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	writer, err := globalcontrol.OpenHome(ctx, js, "gru", []string{"sfo"}, 1, global)
+	writer, err := globalcontrol.OpenHome(ctx, js, "gru", []string{"sjc"}, 1, global)
 	if err != nil {
 		t.Fatalf("home controller opened the global stream: %v", err)
 	}
 	roster := globalcontrol.Roster{Generation: 1, HomeRegion: "gru", Regions: []globalcontrol.RosterEntry{
 		{Cell: "gru", OCIRegion: "sa-saopaulo-1", State: globalcontrol.RegionActive},
-		{Cell: "sfo", OCIRegion: "us-sanjose-1", State: globalcontrol.RegionActive},
+		{Cell: "sjc", OCIRegion: "us-sanjose-1", State: globalcontrol.RegionActive},
 	}}
 	if _, err := writer.PutRoster(ctx, global.Current().Epoch, roster); err != nil {
 		t.Fatalf("home controller global write: %v", err)
@@ -139,8 +139,8 @@ func TestGlobalHomeNeedsGlobalGrantsUnderRestrictedCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	consumer, err := stream.PushConsumer(ctx, protocol.GlobalMirrorConsumer("sfo"))
-	if err != nil || consumer.CachedInfo().Config.DeliverSubject != protocol.InterRegionGlobalDeliverSubject("sfo") {
+	consumer, err := stream.PushConsumer(ctx, protocol.GlobalMirrorConsumer("sjc"))
+	if err != nil || consumer.CachedInfo().Config.DeliverSubject != protocol.InterRegionGlobalDeliverSubject("sjc") {
 		t.Fatalf("home did not create the fixed-delivery mirror consumer: %v", err)
 	}
 

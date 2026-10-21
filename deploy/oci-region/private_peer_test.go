@@ -55,7 +55,7 @@ func ppNew(t *testing.T) *ppFixture {
 	t.Helper()
 	f := &ppFixture{plans: map[string]ppObject{}, inventories: map[string]ppObject{}, ids: map[string]ppObject{}, paths: map[string][]string{}, responses: map[string]any{}}
 	dir := t.TempDir()
-	cells := []string{"GRU", "SFO"}
+	cells := []string{"GRU", "SJC"}
 	regions := []string{"sa-saopaulo-1", "us-sanjose-1"}
 	for i, cell := range cells {
 		p := ppDecode(t, script.Read(t, filepath.Join(script.Root(t), "deploy/oci-region/plan.json")))
@@ -208,11 +208,11 @@ func ppLiveRules(rows []any) []any {
 	return result
 }
 func (f *ppFixture) makeResponses() {
-	for _, cell := range []string{"GRU", "SFO"} {
+	for _, cell := range []string{"GRU", "SJC"} {
 		p := f.plans[cell]
 		peer := "GRU"
 		if cell == peer {
-			peer = "SFO"
+			peer = "SJC"
 		}
 		other := f.plans[peer]
 		ids := ppMap(p["resource_ids"])
@@ -304,7 +304,7 @@ func (f *ppFixture) observe(t *testing.T, cli bool) ppObject {
 	t.Helper()
 	paths := []string{f.intentPath}
 	paths = append(paths, f.paths["GRU"]...)
-	paths = append(paths, f.paths["SFO"]...)
+	paths = append(paths, f.paths["SJC"]...)
 	calls := []any{}
 	engine := &ociregion.Engine{Context: t.Context(), Dependency: func(name string, args []any, kwargs ppObject) (any, error) {
 		if name != "oci" {
@@ -376,11 +376,11 @@ func TestPrivatePeerConfigurationReceipt(t *testing.T) {
 		t.Fatal(r)
 	}
 	cells := ppMap(r["cells"])
-	if len(cells) != 2 || cells["GRU"] == nil || cells["SFO"] == nil {
+	if len(cells) != 2 || cells["GRU"] == nil || cells["SJC"] == nil {
 		t.Fatal(cells)
 	}
 	evidence := ppMap(r["source_evidence"])
-	if ppMap(evidence["GRU"])["plan_sha256"] != ppHash(t, f.paths["GRU"][0]) || ppMap(evidence["SFO"])["inventory_sha256"] != ppHash(t, f.paths["SFO"][1]) {
+	if ppMap(evidence["GRU"])["plan_sha256"] != ppHash(t, f.paths["GRU"][0]) || ppMap(evidence["SJC"])["inventory_sha256"] != ppHash(t, f.paths["SJC"][1]) {
 		t.Fatal(evidence)
 	}
 	for _, v := range evidence {
@@ -519,13 +519,13 @@ func ppChangeCIDR(p ppObject, cidr, subnet, ip string) {
 	}
 }
 func TestPrivatePeerInputSecurityMatrix(t *testing.T) {
-	cases := []struct{ name, error string }{{"stale_plan", "stale for the SFO plan"}, {"overlap", "CIDRs must not overlap"}, {"wrong_tenancy", "do not share the exact tenancy and realm"}, {"missing_cell", "cell map differs"}, {"wrong_rpc_region", "invalid remotepeeringconnection OCID"}, {"wrong_route_kind", "invalid drgroutetable OCID"}, {"documentation_range", "address plan:"}, {"stale_inventory", "budget admission is stale"}, {"public_proof", "unexpected or missing fields"}, {"excess_egress", "exceeds the regional plan's priced egress reserve"}, {"duplicate_ports", "sorted, unique, exact TCP ports"}}
+	cases := []struct{ name, error string }{{"stale_plan", "stale for the SJC plan"}, {"overlap", "CIDRs must not overlap"}, {"wrong_tenancy", "do not share the exact tenancy and realm"}, {"missing_cell", "cell map differs"}, {"wrong_rpc_region", "invalid remotepeeringconnection OCID"}, {"wrong_route_kind", "invalid drgroutetable OCID"}, {"documentation_range", "address plan:"}, {"stale_inventory", "budget admission is stale"}, {"public_proof", "unexpected or missing fields"}, {"excess_egress", "exceeds the regional plan's priced egress reserve"}, {"duplicate_ports", "sorted, unique, exact TCP ports"}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := ppNew(t)
-			p := f.plans["SFO"]
+			p := f.plans["SJC"]
 			mapping := ppMap(f.intent["cells"])
-			sfo := ppMap(mapping["SFO"])
+			sjc := ppMap(mapping["SJC"])
 			gru := ppMap(mapping["GRU"])
 			switch tc.name {
 			case "stale_plan", "overlap":
@@ -534,24 +534,24 @@ func TestPrivatePeerInputSecurityMatrix(t *testing.T) {
 				} else {
 					ppChangeCIDR(p, "10.251.0.0/24", "10.251.0.0/25", "10.251.0.10")
 				}
-				script.Write(t, f.paths["SFO"][0], ppJSON(t, p), 0600)
+				script.Write(t, f.paths["SJC"][0], ppJSON(t, p), 0600)
 				if tc.name == "overlap" {
-					sfo["plan_sha256"] = ppHash(t, f.paths["SFO"][0])
+					sjc["plan_sha256"] = ppHash(t, f.paths["SJC"][0])
 				}
 			case "wrong_tenancy":
 				p["tenancy_id"] = "ocid1.tenancy.oc1..differenttenancy"
-				script.Write(t, f.paths["SFO"][0], ppJSON(t, p), 0600)
-				sfo["plan_sha256"] = ppHash(t, f.paths["SFO"][0])
+				script.Write(t, f.paths["SJC"][0], ppJSON(t, p), 0600)
+				sjc["plan_sha256"] = ppHash(t, f.paths["SJC"][0])
 			case "missing_cell":
-				delete(mapping, "SFO")
+				delete(mapping, "SJC")
 			case "wrong_rpc_region":
 				gru["rpc_id"] = "ocid1.remotepeeringconnection.oc1.us-sanjose-1.wrongregion"
 			case "wrong_route_kind":
 				gru["vcn_drg_route_table_id"] = "ocid1.drgroute.oc1.sa-saopaulo-1.wrongkind"
 			case "documentation_range":
 				ppChangeCIDR(p, "203.0.113.0/24", "203.0.113.0/25", "203.0.113.10")
-				script.Write(t, f.paths["SFO"][0], ppJSON(t, p), 0600)
-				sfo["plan_sha256"] = ppHash(t, f.paths["SFO"][0])
+				script.Write(t, f.paths["SJC"][0], ppJSON(t, p), 0600)
+				sjc["plan_sha256"] = ppHash(t, f.paths["SJC"][0])
 			case "stale_inventory":
 				inv := f.inventories["GRU"]
 				inv["captured_at"] = time.Now().UTC().Format(time.RFC3339Nano)

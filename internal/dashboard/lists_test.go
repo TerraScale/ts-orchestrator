@@ -37,10 +37,10 @@ func TestNodesPageSortsResourceColumns(t *testing.T) {
 func TestNodesListFilterAndSort(t *testing.T) {
 	t.Parallel()
 	handler := drillDashboard(t, drillView(testNow))
-	if body := get(t, handler, "/nodes?region=sfo").Body.String(); !strings.Contains(body, "/regions/sfo/nodes/sfo-n00") ||
+	if body := get(t, handler, "/nodes?region=sjc").Body.String(); !strings.Contains(body, "/regions/sjc/nodes/sjc-n00") ||
 		strings.Contains(body, "/regions/gru/nodes/") || !strings.Contains(body, "Rows 1 – 4 of 4") ||
 		!strings.Contains(body, ">stale<") {
-		t.Error("GET /nodes?region=sfo does not list only the stale sfo nodes")
+		t.Error("GET /nodes?region=sjc does not list only the stale sjc nodes")
 	}
 	body := get(t, handler, "/nodes?sort=bogus&region=gru!").Body.String()
 	if !strings.Contains(body, "Rows 1 – 8 of 8") || !strings.Contains(body, "/regions/gru/nodes/gru-n00") {
@@ -85,9 +85,9 @@ func TestVolumesListFilterAndRoutes(t *testing.T) {
 		!strings.Contains(list, "Rows 1 – 8 of 8") {
 		t.Fatal("GET /volumes does not list every region's volumes")
 	}
-	if sfo := get(t, handler, "/volumes?region=sfo").Body.String(); strings.Contains(sfo, "/regions/gru/volumes/") ||
-		!strings.Contains(sfo, "/regions/sfo/volumes/sfo-vol-0") {
-		t.Fatal("GET /volumes?region=sfo does not filter to sfo")
+	if sjc := get(t, handler, "/volumes?region=sjc").Body.String(); strings.Contains(sjc, "/regions/gru/volumes/") ||
+		!strings.Contains(sjc, "/regions/sjc/volumes/sjc-vol-0") {
+		t.Fatal("GET /volumes?region=sjc does not filter to sjc")
 	}
 
 	server := newStreamServer(t, dashboard)

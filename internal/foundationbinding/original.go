@@ -159,7 +159,7 @@ func ResolveOriginalStartup(ctx context.Context, factory *ociclient.Factory, aut
 	if !ok || len(rootRegions) != 3 {
 		return deny()
 	}
-	index := slices.Index([]string{"GRU", "SFO", "FRA"}, authority.Cell)
+	index := slices.Index([]string{"GRU", "SJC", "FRA"}, authority.Cell)
 	regional, ok := rootRegions[index].(map[string]any)
 	if !ok || originalText(regional, "cell") != authority.Cell || originalText(regional, "ociRegion") != catalog.OCIRegion(authority.Cell) || originalNumber(regional, "generation") != 1 {
 		return deny()
@@ -712,7 +712,7 @@ func verifyOriginalMaterialScope(ctx context.Context, factory *ociclient.Factory
 		if !ok {
 			return deny()
 		}
-		cell := []string{"GRU", "SFO", "FRA"}[i]
+		cell := []string{"GRU", "SJC", "FRA"}[i]
 		var signed map[string]any
 		for _, rawRecipe := range recipes {
 			item, _ := rawRecipe.(map[string]any)

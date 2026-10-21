@@ -6,29 +6,29 @@
         "vault_id": "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq",
         "key_id": "ocid1.key.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr57gu27ray2ukib2irijktpd6eqa6ou5zeqstsmasvqcr7hmfu2ia",
         "bucket_ids": {
-            "gru-1-dr-sfo-1-backup": "ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaauxof72ckl7yqcri5cp5f3tgqfzdnlh4e6g6g4wk7xkvv46uprwga",
-            "gru-1-dr-sfo-1-backup-seed": "ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaafgbp3sojqf5ng3u2vofnd6e4vv2gbsm7y3ihu7wzbwetjaao2qia",
-            "gru-1-dr-sfo-1-head": "ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaahl6qdqr5gqwn35wwkzmzlgwkjgbmudfuapxzmjdhemcnlja62aka",
-            "gru-1-dr-sfo-1-head-seed": "ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaaoqwhlcsxvboccmi22odx3th2trkjka3cxwchzpdkj3bo5pkbxrbq"
+            "gru-1-dr-sjc-1-backup": "ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaauxof72ckl7yqcri5cp5f3tgqfzdnlh4e6g6g4wk7xkvv46uprwga",
+            "gru-1-dr-sjc-1-backup-seed": "ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaafgbp3sojqf5ng3u2vofnd6e4vv2gbsm7y3ihu7wzbwetjaao2qia",
+            "gru-1-dr-sjc-1-head": "ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaahl6qdqr5gqwn35wwkzmzlgwkjgbmudfuapxzmjdhemcnlja62aka",
+            "gru-1-dr-sjc-1-head-seed": "ocid1.bucket.oc1.sa-saopaulo-1.aaaaaaaaoqwhlcsxvboccmi22odx3th2trkjka3cxwchzpdkj3bo5pkbxrbq"
         },
         "policy_ids": {
             "TS-641-gru-1-backup": "13d06611-adab-4443-afd0-4a57eaca82f3",
             "TS-641-gru-1-head": "5c7f0c59-a1a7-4e8a-a5ed-7610cc481248"
         }
     },
-    "sfo": {
+    "sjc": {
         "compartment_id": "ocid1.compartment.oc1..aaaaaaaafwid62t6kwfqqw765ymv44y6z7bnpciudyhpob3eo5xkkacglqna",
         "vault_id": "ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a",
         "key_id": "ocid1.key.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrouiqfow5c2hwfmopv6y2ncanvp3ftxafijawe3uc3w6gc6sv4uuq",
         "bucket_ids": {
-            "sfo-1-dr-gru-1-backup": "ocid1.bucket.oc1.us-sanjose-1.aaaaaaaawentiemlb37auxpbox42dvkczszzs7tlariqgzbfobu4psm3stzq",
-            "sfo-1-dr-gru-1-backup-seed": "ocid1.bucket.oc1.us-sanjose-1.aaaaaaaa4ibijpgbydhpzif2x4vyi5meqg3xjxh4w3exakiv7pwngonopbza",
-            "sfo-1-dr-gru-1-head": "ocid1.bucket.oc1.us-sanjose-1.aaaaaaaa75xeihnaml6bkey6fyszmqpssxs3cnn2mh4loygvricoqsxkz2ta",
-            "sfo-1-dr-gru-1-head-seed": "ocid1.bucket.oc1.us-sanjose-1.aaaaaaaap3luzjlrkymchbieckwflychxqoyxobmcqgxijn2hwwd2bdcn42q"
+            "sjc-1-dr-gru-1-backup": "ocid1.bucket.oc1.us-sanjose-1.aaaaaaaawentiemlb37auxpbox42dvkczszzs7tlariqgzbfobu4psm3stzq",
+            "sjc-1-dr-gru-1-backup-seed": "ocid1.bucket.oc1.us-sanjose-1.aaaaaaaa4ibijpgbydhpzif2x4vyi5meqg3xjxh4w3exakiv7pwngonopbza",
+            "sjc-1-dr-gru-1-head": "ocid1.bucket.oc1.us-sanjose-1.aaaaaaaa75xeihnaml6bkey6fyszmqpssxs3cnn2mh4loygvricoqsxkz2ta",
+            "sjc-1-dr-gru-1-head-seed": "ocid1.bucket.oc1.us-sanjose-1.aaaaaaaap3luzjlrkymchbieckwflychxqoyxobmcqgxijn2hwwd2bdcn42q"
         },
         "policy_ids": {
-            "TS-641-sfo-1-backup": "facc64ad-2071-497f-97dd-56b76b4554ae",
-            "TS-641-sfo-1-head": "ba0d7d3a-acb4-4711-9dec-8ae8022458ab"
+            "TS-641-sjc-1-backup": "facc64ad-2071-497f-97dd-56b76b4554ae",
+            "TS-641-sjc-1-head": "ba0d7d3a-acb4-4711-9dec-8ae8022458ab"
         }
     }
 }

@@ -95,14 +95,14 @@ func TestFleetRejectsNamesOutsideItsCellBeforeAnyEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"", "orchestrator-host-0123456789abcdef01234567", "gru-controller-a", "gru-1-ctl-1", "sfo-1-db-1", "gru-1-db-1-data"} {
+	for _, name := range []string{"", "orchestrator-host-0123456789abcdef01234567", "gru-controller-a", "gru-1-ctl-1", "sjc-1-db-1", "gru-1-db-1-data"} {
 		request := testEnsureRequest(entityid.Derive("test-operation", "node-bad-name"))
 		request.Name = name
 		if _, err := fleet.EnsureHost(t.Context(), request); err == nil {
 			t.Fatalf("host name %q was accepted", name)
 		}
 	}
-	for _, name := range []string{"", "ts-member-data-0123456789ab", "gru-1-db-1", "sfo-1-db-1-data"} {
+	for _, name := range []string{"", "ts-member-data-0123456789ab", "gru-1-db-1", "sjc-1-db-1-data"} {
 		request := VolumeCreateRequest{Name: name, DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ", CreateKey: entityid.Derive("test-operation", "data-bad-name"), SizeGB: 50}
 		if _, err := fleet.CreateRetainedVolume(t.Context(), request); err == nil {
 			t.Fatalf("volume name %q was accepted", name)

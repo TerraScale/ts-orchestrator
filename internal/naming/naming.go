@@ -3,7 +3,7 @@
 // <region>-<index> (gru-1), where region is a catalog cell code in lower case
 // and index and n count from 1.
 //
-// A node is ts-<region>-<n> (ts-gru-1, ts-sfo-2), with no role in the name:
+// A node is ts-<region>-<n> (ts-gru-1, ts-sjc-2), with no role in the name:
 // every node runs the colocated controller, TerraBase member and ts-auth
 // (TS-609). Its retained data volume adds -data (ts-gru-1-data).
 //
@@ -87,7 +87,7 @@ func (c Cell) PoolServer(pool string, n int) (string, error) {
 }
 
 // ControllerSlot returns the server name of a signed controller slot:
-// controller-a, -b and -c are the region's nodes 1, 2 and 3 (ts-sfo-1). GRU
+// controller-a, -b and -c are the region's nodes 1, 2 and 3 (ts-sjc-1). GRU
 // keeps ctl-1, -2 and -3 (gru-1-ctl-1) until its servers are renamed: a
 // controller refuses a NATS store of another server name.
 func (c Cell) ControllerSlot(slot string) (string, error) {

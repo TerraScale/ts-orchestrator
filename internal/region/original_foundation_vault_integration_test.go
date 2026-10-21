@@ -403,7 +403,7 @@ func TestOriginalFoundationVaultSDK(t *testing.T) {
 					}
 					before := f.kmsDispatches()
 					if len(before) != slot+1 || f.cloud.creates != 24+slot {
-						t.Fatal("KMS recovery fault did not follow actual accepted SFO create")
+						t.Fatal("KMS recovery fault did not follow actual accepted SJC create")
 					}
 					v := f.record(t).OriginalFoundationCompartments.Regions[1].Vault
 					entry := originalVaultEntry(v, slot)

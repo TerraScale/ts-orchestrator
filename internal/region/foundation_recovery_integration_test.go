@@ -47,7 +47,7 @@ func (recoveryAuthority) HomeWrite(ctx context.Context, _ uint64) (context.Conte
 // Object Storage boundary, then resume from a newly constructed owner.
 func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T) {
 	store, _, _ := foundationProtocolStore(t)
-	plan, err := ociregion.LoadPlan(filepath.Join("..", "..", "deploy", "oci-region", "sfo-1-plan.json"))
+	plan, err := ociregion.LoadPlan(filepath.Join("..", "..", "deploy", "oci-region", "sjc-1-plan.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,9 +126,9 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 	intentWire, _ := json.Marshal(plan, json.Deterministic(true))
 	intentHash := sha256.Sum256(intentWire)
 	now := time.Now().UTC()
-	record := FoundationRecord{SchemaVersion: 1, Cell: "SFO", OCIRegion: plan["region"].(string), TenancyID: plan["tenancy_id"].(string),
+	record := FoundationRecord{SchemaVersion: 1, Cell: "SJC", OCIRegion: plan["region"].(string), TenancyID: plan["tenancy_id"].(string),
 		ParentCompartmentID: plan["parent_compartment_id"].(string), SharedCompartmentID: plan["shared_compartment_id"].(string), Generation: 1,
-		IntentDigest: hex.EncodeToString(intentHash[:]), GrantSHA256: strings.Repeat("a", 64), OperationID: entityid.Derive("regional-foundation", plan["tenancy_id"].(string), "SFO", "1"), Epoch: 1, LeaseID: entityid.New(), ExpiresAt: now.Add(foundationLease),
+		IntentDigest: hex.EncodeToString(intentHash[:]), GrantSHA256: strings.Repeat("a", 64), OperationID: entityid.Derive("regional-foundation", plan["tenancy_id"].(string), "SJC", "1"), Epoch: 1, LeaseID: entityid.New(), ExpiresAt: now.Add(foundationLease),
 		Stage: "foundation", StartedAt: now, UpdatedAt: now, ResourceIDs: map[string]string{}, AuxiliaryIDs: map[string]string{}, PendingCreates: map[string]PendingFoundationCreate{}, ResourceProvenance: map[string]FoundationResourceProvenance{}}
 	etag, err := store.CompareAndSwap(t.Context(), record, "")
 	if err != nil {
@@ -153,7 +153,7 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 	if _, err := client.ReconcileFoundation(t.Context(), plan, progress(first)); err == nil {
 		t.Fatal("lost accepted response succeeded")
 	}
-	saved, etag, err := store.Load(t.Context(), "SFO")
+	saved, etag, err := store.Load(t.Context(), "SJC")
 	if err != nil || len(saved.ResourceIDs) != 0 || len(saved.PendingCreates) != 1 {
 		t.Fatalf("accepted create was not durably prepared: record=%+v err=%v", saved, err)
 	}
@@ -204,7 +204,7 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 	if _, err := client.ReconcileFoundation(t.Context(), plan, progress(second)); !errors.Is(err, stop) {
 		t.Fatalf("new owner could not recover accepted create: %v", err)
 	}
-	got, _, err := store.Load(t.Context(), "SFO")
+	got, _, err := store.Load(t.Context(), "SJC")
 	if err != nil || got.ResourceIDs["control_compartment"] != resourceID || len(got.PendingCreates) != 0 {
 		t.Fatalf("recovered identity not checkpointed: record=%+v err=%v", got, err)
 	}
@@ -217,14 +217,14 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 	got.OperationID = entityid.Derive("regional-foundation", got.TenancyID, got.Cell, "2")
 	got.IntentDigest = strings.Repeat("c", 64)
 	got.UpdatedAt, got.ExpiresAt = time.Now().UTC(), time.Now().UTC().Add(foundationLease)
-	_, currentETag, err := store.Load(t.Context(), "SFO")
+	_, currentETag, err := store.Load(t.Context(), "SJC")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.CompareAndSwap(t.Context(), got, currentETag); err != nil {
 		t.Fatalf("new generation replaced original ownership: %v", err)
 	}
-	advanced, _, err := store.Load(t.Context(), "SFO")
+	advanced, _, err := store.Load(t.Context(), "SJC")
 	if err != nil || advanced.ResourceProvenance["control_compartment"] != proof {
 		t.Fatalf("new generation lost resource birth proof: %+v, %v", advanced, err)
 	}

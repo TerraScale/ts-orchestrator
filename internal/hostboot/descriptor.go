@@ -89,7 +89,7 @@ func (descriptor Descriptor) IsController() bool {
 		strings.HasPrefix(descriptor.Node, regionNode(descriptor.Region)))
 }
 
-// regionNode is the prefix of the region's node names, e.g. ts-sfo-.
+// regionNode is the prefix of the region's node names, e.g. ts-sjc-.
 func regionNode(region string) string { return "ts-" + strings.ToLower(region) + "-" }
 
 // Validate checks the closed v1 identity and digest bindings and the bounded

@@ -280,8 +280,8 @@ func TestIdentityHostRecordsRejectMissingPlanActionAndUnknownDestinations(t *tes
 		func(r *IdentityReset) { r.Records[0].Action = "" },
 		func(r *IdentityReset) { r.Records[3].Action = "" },
 		func(r *IdentityReset) { r.Records[3].Key = "ts.control.gru.placement.intent.a.b" },
-		func(r *IdentityReset) { r.Records[3].Key = "ts.control.sfo.host.registration.gru.ts-gru-2" },
-		func(r *IdentityReset) { r.Records[3].Key = "ts.control.gru.host.registration.sfo.ts-gru-2" },
+		func(r *IdentityReset) { r.Records[3].Key = "ts.control.sjc.host.registration.gru.ts-gru-2" },
+		func(r *IdentityReset) { r.Records[3].Key = "ts.control.gru.host.registration.sjc.ts-gru-2" },
 		func(r *IdentityReset) { r.Records[3].Bucket = "ARBITRARY" },
 		func(r *IdentityReset) {
 			r.Records[3].Bucket = "TS_HOST_STATE"
@@ -598,7 +598,7 @@ func TestIdentityHostRecordsRejectInvalidCurrentHeadBeforeAnyEffects(t *testing.
 			}
 			switch mode {
 			case "scope":
-				head.Scope = "sfo"
+				head.Scope = "sjc"
 			case "epoch":
 				head.Epoch++
 			case "subject":

@@ -109,7 +109,7 @@ func TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage(t *testing.T)
 			case "deployment":
 				id.DeploymentID = entityid.Derive("retired-deployment")
 			case "cell":
-				id.Cell = "sfo"
+				id.Cell = "sjc"
 			case "environment":
 				id.Environment = "production"
 			case "uppercase cell":

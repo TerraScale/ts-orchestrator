@@ -230,7 +230,7 @@ func TestChannelVerifyRefusesTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sfo := fixture.receipt(t, "SFO", "arm64")
+	sjc := fixture.receipt(t, "SJC", "arm64")
 	for name, test := range map[string]struct {
 		edit        func(*Channel)
 		roots       trust.Keyring
@@ -238,12 +238,12 @@ func TestChannelVerifyRefusesTampering(t *testing.T) {
 		environment string
 		now         time.Time
 	}{
-		"another region's channel": {cell: "SFO"},
+		"another region's channel": {cell: "SJC"},
 		"another environment":      {environment: "canary"},
 		"unknown root":             {roots: otherRoots},
 		"expired receipts":         {now: fixture.now.Add(25 * time.Hour)},
 		"a receipt signed for another region": {edit: func(channel *Channel) {
-			channel.Receipts[1] = sfo
+			channel.Receipts[1] = sjc
 		}},
 		"a duplicated architecture": {edit: func(channel *Channel) {
 			channel.Receipts[1] = channel.Receipts[0]
@@ -454,7 +454,7 @@ func TestAwaitFollowsTheRegionStatus(t *testing.T) {
 		"moved past the run":    {steps: [][]byte{status(testRunNumber+1, StateRolling, "")}, wantErr: true},
 		"never reports":         {steps: [][]byte{status(testRunNumber, StateRolling, "")}, wantErr: true},
 		"unreadable then done":  {steps: [][]byte{[]byte("{"), status(testRunNumber, StateComplete, "")}, want: "status read failed"},
-		"another cell's status": {steps: [][]byte{bytes.Replace(status(testRunNumber, StateComplete, ""), []byte(`"GRU"`), []byte(`"SFO"`), 1)}, wantErr: true},
+		"another cell's status": {steps: [][]byte{bytes.Replace(status(testRunNumber, StateComplete, ""), []byte(`"GRU"`), []byte(`"SJC"`), 1)}, wantErr: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			bucket := newFakeBucket()

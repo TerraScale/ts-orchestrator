@@ -8,7 +8,7 @@ the implementation contract; it does not claim the lifecycle is wired today.
 
 Once the tenancy foundation and spend/ownership scope are authorized, continuous
 reconciliation deploys and repairs GRU (`sa-saopaulo-1`), San Jose
-(`us-sanjose-1`, existing product token `sfo`) and FRA (`eu-frankfurt-1`).
+(`us-sanjose-1`, existing product token `sjc`) and FRA (`eu-frankfurt-1`).
 There is no per-region activation flag or operator-run setup sequence.
 OCI subscription status, a region catalog entry or an unverified NetBird peer
 alone is not authority to provision capacity. Additional regions and spending

@@ -54,7 +54,7 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 			initial, _, roots, root, _ := materialSourceAnchor(t)
 			identity := initial.Anchor()
 			identity.ControllerSlots = []string{"controller-a", "controller-b", "controller-c"}
-			regionIntent := oci.RegionIntent{SchemaVersion: 1, Generation: 4, BootstrapRegion: oci.RegionGRU, Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}, {Cell: oci.RegionSFO, OCIRegion: "us-sanjose-1"}}}
+			regionIntent := oci.RegionIntent{SchemaVersion: 1, Generation: 4, BootstrapRegion: oci.RegionGRU, Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}, {Cell: oci.RegionSJC, OCIRegion: "us-sanjose-1"}}}
 			identity.InitialRegionIntentWire = startupScopeJSON(t, regionIntent)
 			identity.InitialRegionIntentSHA256 = digestWire(identity.InitialRegionIntentWire)
 			installation := entityid.New()
@@ -62,7 +62,7 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 			targets := map[string]bootstrap.StartupVaultTarget{}
 			templates := map[string]bootstrap.StartupTemplate{}
 			registrations := map[string]bootstrap.InitialSourceRegistration{}
-			for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSFO} {
+			for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSJC} {
 				ociRegion, err := cell.OCIRegion()
 				if err != nil {
 					t.Fatal(err)
@@ -71,9 +71,9 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 				config := bootstrapmaterial.Config{Environment: identity.Environment, Region: ociRegion, Cell: strings.ToLower(name), DeploymentID: identity.DeploymentID, ClusterID: identity.ClusterID, SubnetCIDR: "10.251.0.0/24", ValidityHours: 48,
 					Slots: []bootstrapmaterial.Slot{{Name: "controller-a", PrivateIP: "10.251.0.11"}, {Name: "controller-b", PrivateIP: "10.251.0.12"}, {Name: "controller-c", PrivateIP: "10.251.0.13"}}}
 				domain := identity.StorageDomain
-				if cell == oci.RegionSFO {
+				if cell == oci.RegionSJC {
 					config.ClusterID = entityid.New()
-					domain.LedgerBucket, domain.HeadBucket = "sfo-ledger", "sfo-head"
+					domain.LedgerBucket, domain.HeadBucket = "sjc-ledger", "sjc-head"
 					domain.LedgerKMSKeyOCID, domain.HeadKMSKeyOCID = "ocid1.key.oc1.us-sanjose-1.ledger", "ocid1.key.oc1.us-sanjose-1.head"
 				}
 				if err := config.Validate(); err != nil {
@@ -119,7 +119,7 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 				if mode == "logical publication key" {
 					ids["key"] = "foundation:" + name + ":key"
 				}
-				if mode == "consumed dynamic control compartment" && cell == oci.RegionSFO || mode == "mixed dynamic control and consumed pinned key" {
+				if mode == "consumed dynamic control compartment" && cell == oci.RegionSJC || mode == "mixed dynamic control and consumed pinned key" {
 					ids["control_compartment"] = "foundation:" + name + ":control_compartment"
 				}
 				grant.Regions = append(grant.Regions, region.FoundationIntent{Generation: 1, Plan: map[string]any{"cell": name, "region": ociRegion, "tenancy_id": grant.TenancyID, "parent_compartment_id": grant.ParentCompartmentID, "shared_compartment_id": grant.SharedCompartmentID, "network_cidr": "10.251.0.0/16", "subnet_cidr": config.SubnetCIDR, "resource_ids": ids},
@@ -318,27 +318,27 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 			assertStartup(home, "GRU")
 			mu.Lock()
 			for path := range reads {
-				if strings.Contains(path, "SFO.json") || strings.Contains(path, "us-sanjose-1") || strings.Contains(path, "sfocontrol") {
+				if strings.Contains(path, "SJC.json") || strings.Contains(path, "us-sanjose-1") || strings.Contains(path, "sfocontrol") {
 					t.Errorf("home startup observed uncreated sibling: %s", path)
 				}
 			}
 			mu.Unlock()
-			if _, err := bootstrap.VerifyBoundRegionalStartupTemplate(t.Context(), factory, wire, roots, anchor, oci.RegionSFO, now); err == nil {
+			if _, err := bootstrap.VerifyBoundRegionalStartupTemplate(t.Context(), factory, wire, roots, anchor, oci.RegionSJC, now); err == nil {
 				t.Fatal("sibling startup accepted an absent regional operation")
 			}
 			persist(1)
-			sibling, err := bootstrap.VerifyBoundRegionalStartupTemplate(t.Context(), factory, wire, roots, anchor, oci.RegionSFO, now)
+			sibling, err := bootstrap.VerifyBoundRegionalStartupTemplate(t.Context(), factory, wire, roots, anchor, oci.RegionSJC, now)
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertStartup(sibling, "SFO")
+			assertStartup(sibling, "SJC")
 			var regionalMaterial region.VerifiedBootstrapMaterial
 			if mode == "consumed dynamic control compartment" {
 				resolver, err := region.NewFoundationDiscovery(factory, anchor, roots)
 				if err != nil {
 					t.Fatal(err)
 				}
-				regionalMaterial, err = resolver.BootstrapMaterial(t.Context(), "SFO")
+				regionalMaterial, err = resolver.BootstrapMaterial(t.Context(), "SJC")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -347,7 +347,7 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 					t.Fatal(err)
 				}
 				original := grant.Regions[1].BootstrapMaterial
-				if startup.FounderResources.Slots[0].ImageCompartmentOCID != targets["SFO"].CompartmentOCID || regionalMaterial.PlanDigest() != original.PlanSHA256 || !bytes.Equal(startupScopeJSON(t, regionalMaterial.Config()), startupScopeJSON(t, original.Config)) || !bytes.Equal(regionalMaterial.FoundationGrantWire(), wire) || !regionalMaterial.ExpiresAt().Equal(leaseDeadline) {
+				if startup.FounderResources.Slots[0].ImageCompartmentOCID != targets["SJC"].CompartmentOCID || regionalMaterial.PlanDigest() != original.PlanSHA256 || !bytes.Equal(startupScopeJSON(t, regionalMaterial.Config()), startupScopeJSON(t, original.Config)) || !bytes.Equal(regionalMaterial.FoundationGrantWire(), wire) || !regionalMaterial.ExpiresAt().Equal(leaseDeadline) {
 					t.Fatal("regional material projection changed founder scope or original signed plan/config provenance")
 				}
 				if err := startup.Validate(); err != nil {
@@ -357,17 +357,17 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			switched, err := home.ForCell(t.Context(), oci.RegionSFO, now)
+			switched, err := home.ForCell(t.Context(), oci.RegionSJC, now)
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertStartup(switched, "SFO")
+			assertStartup(switched, "SJC")
 			authority := foundationbinding.Authority{Scope: scope, Roots: roots, Policy: bootstrap.BootstrapAnchorTrustPolicy(), GrantSHA256: digestWire(wire), Generation: 1, InstallationID: installation, TenancyID: grant.TenancyID, Namespace: identity.StorageDomain.Namespace, Bucket: identity.StorageDomain.HeadBucket, Prefix: identity.StorageDomain.Prefix, Cell: "GRU", Keys: []string{"workload_compartment"}}
 			if _, err := foundationbinding.Verify(t.Context(), factory, authority, wire); err == nil {
 				t.Fatal("finite startup observation weakened generic missing-birth rejection")
 			}
 			mu.Lock()
-			keyPath := "/20180608/keys/" + targets["SFO"].KMSKeyOCID
+			keyPath := "/20180608/keys/" + targets["SJC"].KMSKeyOCID
 			live[keyPath]["vaultId"] = targets["GRU"].VaultOCID
 			mu.Unlock()
 			if err := sibling.VerifyCurrentContext(t.Context(), now); err == nil {
@@ -395,9 +395,9 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 			}
 			if mode == "consumed dynamic control compartment" {
 				mu.Lock()
-				live[keyPath]["vaultId"] = targets["SFO"].VaultOCID
+				live[keyPath]["vaultId"] = targets["SJC"].VaultOCID
 				mu.Unlock()
-				record, etag, err := store.Load(t.Context(), "SFO")
+				record, etag, err := store.Load(t.Context(), "SJC")
 				if err != nil {
 					t.Fatal(err)
 				}

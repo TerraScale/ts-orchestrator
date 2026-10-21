@@ -91,7 +91,7 @@ func TestFunctionChannelSDKPublicationPreservesTenantsAndRecoversLostReplies(t *
 		t.Fatalf("unsealed publication accepted: %v", err)
 	}
 	foreign := location
-	foreign.Bucket = "sfo-1-head"
+	foreign.Bucket = "sjc-1-head"
 	if err := PublishFunction(t.Context(), foreign, advanced); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("foreign region bucket accepted: %v", err)
 	}

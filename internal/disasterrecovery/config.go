@@ -18,7 +18,7 @@ type Config struct {
 	Version   int    `json:"version"`
 	Namespace string `json:"namespace"`
 	GRU       Region `json:"gru"`
-	SFO       Region `json:"sfo"`
+	SJC       Region `json:"sjc"`
 }
 
 type Region struct {
@@ -38,14 +38,14 @@ func (config Config) Validate() error {
 		return errors.New("disaster recovery config requires version 1 and an Object Storage namespace")
 	}
 	seenIDs := make(map[string]string)
-	for cell, region := range map[string]Region{catalog.GRU: config.GRU, catalog.SFO: config.SFO} {
+	for cell, region := range map[string]Region{catalog.GRU: config.GRU, catalog.SJC: config.SJC} {
 		if !validOCID(region.CompartmentID, "compartment", "") ||
 			!validOCID(region.VaultID, "vault", catalog.OCIRegion(cell)) ||
 			!validOCID(region.KeyID, "key", catalog.OCIRegion(cell)) {
 			return fmt.Errorf("%s requires a control compartment and its regional Vault and key OCIDs", cell)
 		}
-		other := "sfo"
-		if cell == catalog.SFO {
+		other := "sjc"
+		if cell == catalog.SJC {
 			other = "gru"
 		}
 		prefix := strings.ToLower(cell) + "-1-dr-" + other + "-1-"
@@ -71,8 +71,8 @@ func (config Config) Validate() error {
 			seenIDs[id] = name
 		}
 	}
-	if config.GRU.CompartmentID == config.SFO.CompartmentID {
-		return errors.New("GRU and SFO control compartments must differ")
+	if config.GRU.CompartmentID == config.SJC.CompartmentID {
+		return errors.New("GRU and SJC control compartments must differ")
 	}
 	return nil
 }

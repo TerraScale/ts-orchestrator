@@ -83,7 +83,7 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 						t.Error("unsigned direct inventory request")
 					}
 					compartment := r.URL.Query().Get("compartmentId")
-					if scenario == "region unavailable" && strings.HasSuffix(compartment, "sfo") {
+					if scenario == "region unavailable" && strings.HasSuffix(compartment, "sjc") {
 						http.Error(w, `{"code":"NotAuthorizedOrNotFound","message":"unavailable"}`, http.StatusNotFound)
 						return
 					}
@@ -114,13 +114,13 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 						t.Error(err)
 					}
 					compartment := "ocid1.compartment.oc1..gru"
-					if strings.Contains(body.Query, "sfo") {
-						compartment = "ocid1.compartment.oc1..sfo"
+					if strings.Contains(body.Query, "sjc") {
+						compartment = "ocid1.compartment.oc1..sjc"
 					}
 					mu.Lock()
 					compartments = append(compartments, compartment)
 					mu.Unlock()
-					if scenario == "region unavailable" && strings.HasSuffix(compartment, "sfo") {
+					if scenario == "region unavailable" && strings.HasSuffix(compartment, "sjc") {
 						http.Error(w, `{"code":"NotAuthorizedOrNotFound","message":"unavailable"}`, http.StatusNotFound)
 						return
 					}
@@ -133,7 +133,7 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 					id := strings.TrimPrefix(r.URL.Path, "/20160918/instances/")
 					compartment := strings.TrimPrefix(id, "instance-")
 					shape := "VM.Standard.A1.Flex"
-					if strings.HasSuffix(compartment, "sfo") {
+					if strings.HasSuffix(compartment, "sjc") {
 						shape = "VM.Standard.E5.Flex"
 					}
 					if scenario == "unknown shape" {
@@ -186,7 +186,7 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				t.Fatal(err)
 			}
 			reader.endpoint, reader.pricesEndpoint = server.URL, server.URL+"/prices"
-			scope := Scope{TenancyID: "ocid1.tenancy.oc1..test", SHA256: strings.Repeat("a", 64), Currency: "USD", ExpiresAt: time.Now().Add(time.Hour), Regions: []RegionScope{{Cell: "GRU", OCIRegion: "sa-saopaulo-1", CompartmentIDs: []string{"ocid1.compartment.oc1..gru"}}, {Cell: "SFO", OCIRegion: "us-sanjose-1", CompartmentIDs: []string{"ocid1.compartment.oc1..sfo"}}}}
+			scope := Scope{TenancyID: "ocid1.tenancy.oc1..test", SHA256: strings.Repeat("a", 64), Currency: "USD", ExpiresAt: time.Now().Add(time.Hour), Regions: []RegionScope{{Cell: "GRU", OCIRegion: "sa-saopaulo-1", CompartmentIDs: []string{"ocid1.compartment.oc1..gru"}}, {Cell: "SJC", OCIRegion: "us-sanjose-1", CompartmentIDs: []string{"ocid1.compartment.oc1..sjc"}}}}
 			result, err := reader.Read(t.Context(), scope)
 			if err != nil {
 				t.Fatal(err)

@@ -155,7 +155,7 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	probeTime := time.Now().UTC().Add(-time.Minute)
 	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, replicas: 1,
 		brokerIDs: []string{"one", "two"}, authority: lease, linkProbes: func() []regionview.LinkProbe {
-			return []regionview.LinkProbe{{Region: "sfo", ObservedAt: probeTime, Reach: "not_linked", WAN: "unknown", Detail: "private-probe-detail"}}
+			return []regionview.LinkProbe{{Region: "sjc", ObservedAt: probeTime, Reach: "not_linked", WAN: "unknown", Detail: "private-probe-detail"}}
 		}}, nil); err != nil {
 		t.Fatal(err)
 	}

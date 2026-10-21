@@ -47,10 +47,10 @@ func topologyFixture(query string) view {
 			Members: summaryMembers, Nodes: nodes}}
 }
 
-// withSFO adds sfo to the global view, so the topology links it below the graph.
-func withSFO(current view) view {
+// withSJC adds sjc to the global view, so the topology links it below the graph.
+func withSJC(current view) view {
 	current.Global = []globalview.Region{{Cell: "gru"},
-		{Cell: "sfo", Rollup: &globalview.Rollup{Cell: "sfo", Health: globalview.Health{Status: globalview.Healthy}}}}
+		{Cell: "sjc", Rollup: &globalview.Rollup{Cell: "sjc", Health: globalview.Health{Status: globalview.Healthy}}}}
 	return current
 }
 
@@ -133,7 +133,7 @@ func TestTopologyDrainedNode(t *testing.T) {
 
 func TestTopologyNATSLinkDown(t *testing.T) {
 	t.Parallel()
-	current := withSFO(topologyFixture("nats=1"))
+	current := withSJC(topologyFixture("nats=1"))
 	// ctl-1 sees ctl-3 offline: every route to it breaks.
 	current.Cluster.Members[0].NATS.MetaPeers = []observability.PeerView{{Name: "gru-1-ctl-3", Offline: true}}
 	current.Cluster.Members[0].NATS.Streams = []observability.StreamView{{Name: "KV_desired", Replicas: 3, OfflinePeers: 1}}
@@ -151,9 +151,9 @@ func TestTopologyNATSLinkDown(t *testing.T) {
 
 func TestTopologyLinksOtherRegions(t *testing.T) {
 	t.Parallel()
-	current := withSFO(topologyFixture("nats=1"))
+	current := withSJC(topologyFixture("nats=1"))
 	body := renderTopology(t, current)
-	if !strings.Contains(body, "Other regions") || !strings.Contains(body, `href="/regions/sfo"`) {
+	if !strings.Contains(body, "Other regions") || !strings.Contains(body, `href="/regions/sjc"`) {
 		t.Error("the topology does not link the other regions")
 	}
 	if strings.Contains(body, "edge e-region") {

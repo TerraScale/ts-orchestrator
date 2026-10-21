@@ -124,7 +124,7 @@ func (c Client) Query(ctx context.Context, region string, from, to time.Time) (U
 func Run(ctx context.Context, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("usage", flag.ContinueOnError)
 	flags.SetOutput(out)
-	region := flags.String("region", "", "gru or sfo")
+	region := flags.String("region", "", "gru or sjc")
 	fromText := flags.String("from", "", "RFC3339 window start")
 	toText := flags.String("to", "", "RFC3339 window end")
 	format := flags.String("format", "table", "table or json")

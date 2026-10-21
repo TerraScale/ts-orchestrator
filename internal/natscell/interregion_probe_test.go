@@ -53,7 +53,7 @@ func steeringSubjects() []string {
 		linked + ".CONSUMER.CREATE." + stream + ".evil",
 		linked + ".CONSUMER.CREATE." + stream + ".evil." + protocol.GlobalStateStreamSubject(),
 		linked + ".CONSUMER.DURABLE.CREATE." + stream + ".evil",
-		linked + ".CONSUMER.DELETE." + stream + "." + protocol.GlobalMirrorConsumer("sfo"),
+		linked + ".CONSUMER.DELETE." + stream + "." + protocol.GlobalMirrorConsumer("sjc"),
 		linked + ".STREAM.PURGE." + stream,
 		linked + ".STREAM.INFO." + stream,
 		linked + ".INFO",
@@ -96,14 +96,14 @@ func assertOnlyContractConsumer(ctx context.Context, t *testing.T, home jetstrea
 	if err := lister.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(names, []string{protocol.GlobalMirrorConsumer("sfo")}) {
+	if !slices.Equal(names, []string{protocol.GlobalMirrorConsumer("sjc")}) {
 		t.Fatalf("home stream consumers = %v, want only the contract mirror consumer", names)
 	}
-	consumer, err := home.PushConsumer(ctx, protocol.GlobalMirrorConsumer("sfo"))
+	consumer, err := home.PushConsumer(ctx, protocol.GlobalMirrorConsumer("sjc"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := consumer.CachedInfo().Config.DeliverSubject; got != protocol.InterRegionGlobalDeliverSubject("sfo") {
+	if got := consumer.CachedInfo().Config.DeliverSubject; got != protocol.InterRegionGlobalDeliverSubject("sjc") {
 		t.Fatalf("home mirror consumer delivers to %q", got)
 	}
 }
@@ -112,25 +112,25 @@ func assertOnlyContractConsumer(ctx context.Context, t *testing.T, home jetstrea
 // a valid GRU interregion leaf credential, so no well-behaved peer server
 // filters anything first. GRU itself must refuse every subject outside the
 // contract (closing the link) while still accepting contract subjects.
-func assertRawLeafPeerIsDenyByDefault(ctx context.Context, t *testing.T, gru *testRegion, gruConn, sfoConn *nats.Conn,
+func assertRawLeafPeerIsDenyByDefault(ctx context.Context, t *testing.T, gru *testRegion, gruConn, sjcConn *nats.Conn,
 	home jetstream.Stream, addr string, leafTLS TLSFiles, gruCommands <-chan *nats.Msg,
 ) {
 	t.Helper()
-	creds := gru.childLeafCredentials(t, "raw-leaf.creds", "sfo")
+	creds := gru.childLeafCredentials(t, "raw-leaf.creds", "sjc")
 
-	// A forged record on SFO's mirror feed must never reach SFO: deny-by-
+	// A forged record on SJC's mirror feed must never reach SJC: deny-by-
 	// default stops one peer from relaying onto another peer's subjects.
 	forgedFeed := make(chan *nats.Msg, 16)
-	feed, err := sfoConn.ChanSubscribe(protocol.InterRegionGlobalDeliverSubject("sfo"), forgedFeed)
+	feed, err := sjcConn.ChanSubscribe(protocol.InterRegionGlobalDeliverSubject("sjc"), forgedFeed)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer feed.Unsubscribe()
-	if err := sfoConn.Flush(); err != nil {
+	if err := sjcConn.Flush(); err != nil {
 		t.Fatal(err)
 	}
 	refused := map[string]string{
-		"forged peer mirror feed": protocol.InterRegionGlobalDeliverSubject("sfo"),
+		"forged peer mirror feed": protocol.InterRegionGlobalDeliverSubject("sjc"),
 		"hub placement command":   protocol.PlacementApplySubject("gru"),
 		"hub control log":         protocol.Control("gru", "lease"),
 		"raw JetStream API":       "$JS.API.CONSUMER.CREATE." + protocol.GlobalControlStream,
@@ -139,7 +139,7 @@ func assertRawLeafPeerIsDenyByDefault(ctx context.Context, t *testing.T, gru *te
 	}
 	for name, subject := range refused {
 		leaf := dialRawLeaf(ctx, t, addr, leafTLS, creds)
-		leaf.publish(t, subject, protocol.JSDomainAPIPrefix("sfo")+".reply", steeringRequest(t, "raw"))
+		leaf.publish(t, subject, protocol.JSDomainAPIPrefix("sjc")+".reply", steeringRequest(t, "raw"))
 		if reason := leaf.awaitClose(t); !strings.Contains(reason, "Permissions Violation for Publish") {
 			t.Errorf("%s: hub did not refuse %q, closed with %q", name, subject, reason)
 		}
@@ -149,7 +149,7 @@ func assertRawLeafPeerIsDenyByDefault(ctx context.Context, t *testing.T, gru *te
 		t.Fatalf("raw leaf reached hub placement subject: %s", msg.Data)
 	case msg := <-forgedFeed:
 		if strings.Contains(string(msg.Data), "raw") {
-			t.Fatalf("raw leaf forged SFO's mirror feed: %s", msg.Data)
+			t.Fatalf("raw leaf forged SJC's mirror feed: %s", msg.Data)
 		}
 	case <-time.After(500 * time.Millisecond):
 	}
@@ -158,7 +158,7 @@ func assertRawLeafPeerIsDenyByDefault(ctx context.Context, t *testing.T, gru *te
 	// Contract subjects still cross from the same credential: the link is
 	// narrowed, not broken.
 	health := make(chan *nats.Msg, 16)
-	healthSub, err := gruConn.ChanSubscribe(protocol.RegionHealthSubject("sfo"), health)
+	healthSub, err := gruConn.ChanSubscribe(protocol.RegionHealthSubject("sjc"), health)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func assertRawLeafPeerIsDenyByDefault(ctx context.Context, t *testing.T, gru *te
 	leaf := dialRawLeaf(ctx, t, addr, leafTLS, creds)
 	defer leaf.close()
 	for {
-		leaf.publish(t, protocol.RegionHealthSubject("sfo"), "", []byte("raw-contract"))
+		leaf.publish(t, protocol.RegionHealthSubject("sjc"), "", []byte("raw-contract"))
 		select {
 		case msg := <-health:
 			if string(msg.Data) == "raw-contract" {
@@ -301,7 +301,7 @@ func (l *rawLeaf) close() { _ = l.conn.Close() }
 // leaf users may not; see TestSiblingLeafCannotInterceptAnotherChild), and
 // NATS accepts a reset to any sequence, including one ahead of what the
 // mirror stored. The mirror then skips those home records for good. A
-// compromised or buggy SFO leaf credential can still do that, so the mirror
+// compromised or buggy SJC leaf credential can still do that, so the mirror
 // reader must notice the gap and fail closed instead of serving a record that
 // a skipped one may have superseded.
 func assertForwardResetFailsMirrorClosed(ctx context.Context, t *testing.T, gru *testRegion, gruJS jetstream.JetStream,
@@ -316,10 +316,10 @@ func assertForwardResetFailsMirrorClosed(ctx context.Context, t *testing.T, gru 
 		t.Fatal(err)
 	}
 	stored := info.State.LastSeq
-	leaf := dialRawLeaf(ctx, t, addr, leafTLS, gru.childLeafCredentials(t, "compromised-leaf.creds", "sfo"))
+	leaf := dialRawLeaf(ctx, t, addr, leafTLS, gru.childLeafCredentials(t, "compromised-leaf.creds", "sjc"))
 	defer leaf.close()
 	reset := protocol.JSConsumerResetSubject(protocol.JSDomainAPIPrefix("gru"), protocol.GlobalControlStream,
-		protocol.GlobalMirrorConsumer("sfo"))
+		protocol.GlobalMirrorConsumer("sjc"))
 	leaf.publish(t, reset, "_R_.sibling", fmt.Appendf(nil, `{"seq":%d}`, stored+4))
 	time.Sleep(500 * time.Millisecond)
 	for index := range 6 {

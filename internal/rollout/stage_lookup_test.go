@@ -153,7 +153,7 @@ func TestReleaseStageRefusesMisboundDesiredProofWithoutCharging(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	desired.Release.ID = generationKey("sfo", 1)
+	desired.Release.ID = generationKey("sjc", 1)
 	wire, err := protocol.EncodeJSON(desired)
 	if err != nil {
 		t.Fatal(err)

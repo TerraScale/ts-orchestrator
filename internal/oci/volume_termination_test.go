@@ -31,7 +31,7 @@ func TestVolumeTerminationProofRejectsDifferentOrCorruptScope(t *testing.T) {
 	}
 	for name, change := range map[string]func(*journalEntry){
 		"owner":       func(e *journalEntry) { e.VolumeTermination.Owner = "other" },
-		"region":      func(e *journalEntry) { e.VolumeTermination.Region = RegionSFO },
+		"region":      func(e *journalEntry) { e.VolumeTermination.Region = RegionSJC },
 		"compartment": func(e *journalEntry) { e.VolumeTermination.CompartmentID = "other" },
 		"domain":      func(e *journalEntry) { e.VolumeTermination.AvailabilityDomain = "other" },
 		"volume":      func(e *journalEntry) { e.VolumeTermination.VolumeID = "other" },

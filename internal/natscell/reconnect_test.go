@@ -43,10 +43,10 @@ func TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState(t *test
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	root := t.TempDir()
-	topology := HubAndSpoke("gru", []string{"sfo"})
+	topology := HubAndSpoke("gru", []string{"sjc"})
 	leafTLS := testTLSFor(t, filepath.Join(root, "leaf-tls"))
 	gru := newTestRegion(t, filepath.Join(root, "gru"), "gru", topology)
-	sfo := newTestRegion(t, filepath.Join(root, "sfo"), "sfo", topology)
+	sjc := newTestRegion(t, filepath.Join(root, "sjc"), "sjc", topology)
 	brokers := []string{"broker-a", "broker-b", "broker-c"}
 	ports := freeClientPorts(t, 9)
 	routes := make([]string, len(brokers))
@@ -61,10 +61,10 @@ func TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState(t *test
 	private, fallback := newTCPProxy(t, hub), newTCPProxy(t, hub)
 	defer private.Close()
 	defer fallback.Close()
-	sfo.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{
+	sjc.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{
 		Peer: "gru", URLs: []string{"nats-leaf://" + private.Addr(), "nats-leaf://" + fallback.Addr()},
 		ServerName: testLeafServerName, TLS: leafTLS, PeerAccount: gru.interregionID,
-		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", "sfo"),
+		CredentialsFile: gru.childLeafCredentials(t, "sjc-leaf.creds", "sjc"),
 	}}
 	var runtimes []*Runtime
 	var configs []Config
@@ -92,24 +92,24 @@ func TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState(t *test
 	for _, runtime := range runtimes {
 		waitUntil(t, ctx, "regional R3 quorum", func() bool { return runtime.FullClusterReady(3) })
 	}
-	sfoRuntime, err := Start(ctx, sfo.cfg)
+	sjcRuntime, err := Start(ctx, sjc.cfg)
 	if err != nil {
-		t.Fatalf("start sfo: %v", err)
+		t.Fatalf("start sjc: %v", err)
 	}
-	runtimes, configs = append(runtimes, sfoRuntime), append(configs, sfo.cfg)
+	runtimes, configs = append(runtimes, sjcRuntime), append(configs, sjc.cfg)
 	gruRuntime := runtimes[0]
-	subject := protocol.Regional("sfo", "query", "status")
-	query, err := sfoRuntime.Conn().Subscribe(subject, func(msg *nats.Msg) { _ = msg.Respond([]byte("sfo-ok")) })
+	subject := protocol.Regional("sjc", "query", "status")
+	query, err := sjcRuntime.Conn().Subscribe(subject, func(msg *nats.Msg) { _ = msg.Respond([]byte("sjc-ok")) })
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer query.Unsubscribe()
-	if err := sfoRuntime.Conn().Flush(); err != nil {
+	if err := sjcRuntime.Conn().Flush(); err != nil {
 		t.Fatal(err)
 	}
 	probe := func(ctx context.Context) {
 		t.Helper()
-		if reply := requestUntil(ctx, t, gruRuntime.Conn(), subject); string(reply.Data) != "sfo-ok" {
+		if reply := requestUntil(ctx, t, gruRuntime.Conn(), subject); string(reply.Data) != "sjc-ok" {
 			t.Fatalf("authenticated contract reply = %q", reply.Data)
 		}
 	}
@@ -122,7 +122,7 @@ func TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState(t *test
 		return leafz.Leafs[0]
 	}
 	waitLeafCount(ctx, t, gruRuntime, 1)
-	waitLeafCount(ctx, t, sfoRuntime, 1)
+	waitLeafCount(ctx, t, sjcRuntime, 1)
 	probe(ctx)
 
 	// These snapshots expose a repair that restarts a broker, route or client,
@@ -187,11 +187,11 @@ func TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState(t *test
 
 	canceled, stop := context.WithCancel(ctx)
 	stop()
-	canceledID := leaf(sfoRuntime).ID
-	if kicked, err := sfoRuntime.ReconnectInterRegion(canceled); kicked != 0 || !errors.Is(err, context.Canceled) {
+	canceledID := leaf(sjcRuntime).ID
+	if kicked, err := sjcRuntime.ReconnectInterRegion(canceled); kicked != 0 || !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled reconnect = %d, %v", kicked, err)
 	}
-	if leaf(sfoRuntime).ID != canceledID {
+	if leaf(sjcRuntime).ID != canceledID {
 		t.Fatal("canceled reconnect changed the leaf")
 	}
 	for _, resolver := range []*accountResolver{nil, {}} {
@@ -213,10 +213,10 @@ func TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState(t *test
 
 	// Select whichever URL native retry chose, then silently break that path.
 	active, healthy := private, fallback
-	if connected := leaf(sfoRuntime); net.JoinHostPort(connected.IP, strconv.Itoa(connected.Port)) == fallback.Addr() {
+	if connected := leaf(sjcRuntime); net.JoinHostPort(connected.IP, strconv.Itoa(connected.Port)) == fallback.Addr() {
 		active, healthy = fallback, private
 	}
-	outboundID := leaf(sfoRuntime).ID
+	outboundID := leaf(sjcRuntime).ID
 	active.Blackhole()
 	probeCtx, probeCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	_, err = gruRuntime.Conn().RequestWithContext(probeCtx, subject, []byte("q"))
@@ -224,16 +224,16 @@ func TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState(t *test
 	if err == nil {
 		t.Fatal("contract probe succeeded through a blackholed leaf")
 	}
-	if leaf(sfoRuntime).ID != outboundID {
+	if leaf(sjcRuntime).ID != outboundID {
 		t.Fatal("stale leaf disappeared before the reconnect API ran")
 	}
-	if kicked, err := sfoRuntime.ReconnectInterRegion(ctx); kicked != 1 || err != nil {
+	if kicked, err := sjcRuntime.ReconnectInterRegion(ctx); kicked != 1 || err != nil {
 		t.Fatalf("stale outbound leaf reconnect = %d, %v", kicked, err)
 	}
 	repaired, repairedCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer repairedCancel()
 	waitUntil(t, repaired, "stale leaf retry over the healthy URL", func() bool {
-		leafz, _ := sfoRuntime.server.Leafz(nil)
+		leafz, _ := sjcRuntime.server.Leafz(nil)
 		return len(leafz.Leafs) == 1 && leafz.Leafs[0].ID != outboundID &&
 			net.JoinHostPort(leafz.Leafs[0].IP, strconv.Itoa(leafz.Leafs[0].Port)) == healthy.Addr()
 	})
@@ -244,12 +244,12 @@ func TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState(t *test
 	// still recover through the existing remote's retry, without reconfiguring it.
 	private.Close()
 	fallback.Close()
-	waitLeafCount(ctx, t, sfoRuntime, 0)
-	if kicked, err := sfoRuntime.ReconnectInterRegion(ctx); kicked != 0 || !errors.Is(err, ErrUnavailable) {
+	waitLeafCount(ctx, t, sjcRuntime, 0)
+	if kicked, err := sjcRuntime.ReconnectInterRegion(ctx); kicked != 0 || !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("absent leaf reconnect = %d, %v", kicked, err)
 	}
 	healthy.Reopen(t)
-	waitLeafCount(ctx, t, sfoRuntime, 1)
+	waitLeafCount(ctx, t, sjcRuntime, 1)
 	probe(ctx)
 	assertPreserved()
 }

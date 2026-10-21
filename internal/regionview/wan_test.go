@@ -13,7 +13,7 @@ import (
 )
 
 func wanHistorySamples(at time.Time) []observability.Sample {
-	labels := observability.L("member", "node-a", "node", "Node-A", "role", "terrabase", "receiver_region", "sfo-1", "source_region", "gru-1")
+	labels := observability.L("member", "node-a", "node", "Node-A", "role", "terrabase", "receiver_region", "sjc-1", "source_region", "gru-1")
 	samples := []observability.Sample{{Metric: observability.HistHostReceivedAt,
 		Labels: observability.L("member", "node-a"), Value: float64(at.UnixMilli())}}
 	for metric, value := range map[string]float64{
@@ -74,7 +74,7 @@ func TestWANHistoryQueriesEachGaugeOncePerNode(t *testing.T) {
 			}
 			baseline.Append(now, samples)
 			history := &countingWANHistory{HistorySource: baseline}
-			rows := CollectWAN(nodes, "sfo-1", history, now)
+			rows := CollectWAN(nodes, "sjc-1", history, now)
 			metrics := []string{observability.HistHostReceivedAt, observability.HistTerraBaseWANObservedAt,
 				observability.HistTerraBaseWANLagGroups, observability.HistTerraBaseWANMembers, observability.HistTerraBaseWANStaleness,
 				observability.HistTerraBaseWANConflicts, observability.HistTerraBaseWANUnregistered, observability.HistTerraBaseWANAheadFailures}
@@ -90,7 +90,7 @@ func TestWANHistoryQueriesEachGaugeOncePerNode(t *testing.T) {
 				counts[query.Metric]++
 				labels := map[string]string{"member": "node-a"}
 				if query.Metric != observability.HistHostReceivedAt {
-					labels["node"], labels["role"], labels["receiver_region"] = "Node-A", "terrabase", "sfo-1"
+					labels["node"], labels["role"], labels["receiver_region"] = "Node-A", "terrabase", "sjc-1"
 				}
 				if !maps.Equal(query.Labels, labels) || query.MaxSeries != terrabase.MaxWANRegions ||
 					query.Tier != observability.TierRaw || query.Rate || !query.Start.Equal(now.Add(-terrabase.WANFreshFor)) || !query.End.Equal(now) {
@@ -161,7 +161,7 @@ func TestWANHistorySeparatesSourcesAndLatestBatch(t *testing.T) {
 			baseline.Append(batchAt, samples)
 			baseline.Append(now, newer)
 			history := &countingWANHistory{HistorySource: baseline}
-			rows := CollectWAN(nodes, "sfo-1", history, now)
+			rows := CollectWAN(nodes, "sjc-1", history, now)
 			if len(history.queries) != 8 || len(rows) != test.wantRows {
 				t.Fatalf("got %d queries and %d rows, want 8 and %d: %+v", len(history.queries), len(rows), test.wantRows, rows)
 			}
@@ -191,12 +191,12 @@ func TestWANHistoryPreservesScrapeTimeAndExactHostBinding(t *testing.T) {
 	history.Append(now, wanHistorySamples(scraped))
 	nodes := []Node{{Name: "Node-A", Member: "controller-a", Services: []Service{{Role: "terrabase"}}},
 		{Name: "unobserved", Member: "node-a", Services: []Service{{Role: "terrabase"}}}}
-	rows := CollectWAN(nodes, "sfo-1", history, now)
+	rows := CollectWAN(nodes, "sjc-1", history, now)
 	if len(rows) != 1 || rows[0].Node != "Node-A" || rows[0].SourceRegion != "gru-1" ||
 		!rows[0].ObservedAt.Equal(scraped) || rows[0].Lag != 0 || rows[0].Members != 3 || rows[0].AheadFailures == nil || *rows[0].AheadFailures != 5 {
 		t.Fatalf("WAN history changed origin, zero or scrape time: %+v", rows)
 	}
-	provider := &Provider{Cell: "sfo", History: history, NativeRegion: func() string { return "sfo-1" }, Now: func() time.Time { return now },
+	provider := &Provider{Cell: "sjc", History: history, NativeRegion: func() string { return "sjc-1" }, Now: func() time.Time { return now },
 		Nodes: func(_ context.Context) []Node { return nodes }}
 	if got := provider.Local(t.Context()).TerraBase.WAN; len(got) != 1 {
 		t.Fatalf("region summary omitted WAN: %+v", got)
@@ -225,7 +225,7 @@ func TestWANHistoryDoesNotBorrowOlderReportMetrics(t *testing.T) {
 				}
 			}
 			history.Append(now, samples)
-			if rows := CollectWAN(nodes, "sfo-1", history, now); len(rows) != 0 {
+			if rows := CollectWAN(nodes, "sjc-1", history, now); len(rows) != 0 {
 				t.Fatalf("borrowed old %s: %+v", missing, rows)
 			}
 		})
@@ -258,18 +258,18 @@ func TestWANHistoryRejectsPartialReplayAndStaleScrapes(t *testing.T) {
 		for _, metric := range []string{observability.HistHostReceivedAt, observability.HistTerraBaseWANObservedAt,
 			observability.HistTerraBaseWANLagGroups, observability.HistTerraBaseWANMembers, observability.HistTerraBaseWANStaleness,
 			observability.HistTerraBaseWANConflicts, observability.HistTerraBaseWANUnregistered} {
-			if rows := CollectWAN(nodes, "sfo-1", partialWANHistory{history, metric, state}, now); len(rows) != 0 {
+			if rows := CollectWAN(nodes, "sjc-1", partialWANHistory{history, metric, state}, now); len(rows) != 0 {
 				t.Fatalf("partial replay %s %s produced health: %+v", metric, state, rows)
 			}
 		}
-		rows := CollectWAN(nodes, "sfo-1", partialWANHistory{history, observability.HistTerraBaseWANAheadFailures, state}, now)
+		rows := CollectWAN(nodes, "sjc-1", partialWANHistory{history, observability.HistTerraBaseWANAheadFailures, state}, now)
 		if len(rows) != 1 || rows[0].AheadFailures != nil {
 			t.Fatalf("partial optional counter %s changed required gauges: %+v", state, rows)
 		}
 	}
 	history = observability.NewHistory(observability.HistoryConfig{})
 	history.Append(now, wanHistorySamples(now.Add(-3*time.Minute)))
-	if rows := CollectWAN(nodes, "sfo-1", history, now); len(rows) != 0 {
+	if rows := CollectWAN(nodes, "sjc-1", history, now); len(rows) != 0 {
 		t.Fatalf("publication refreshed an old scrape: %+v", rows)
 	}
 }

@@ -24,7 +24,7 @@ func TestEveryPageAndStreamRendersTheFakeWorld(t *testing.T) {
 	board := dashboard.New(options)
 	server := httptest.NewServer(board.Handler())
 	t.Cleanup(server.Close)
-	for _, path := range []string{"/", "/region", "/region?r=sfo", "/insights", "/decisions", "/releases", "/rollouts",
+	for _, path := range []string{"/", "/region", "/region?r=sjc", "/insights", "/decisions", "/releases", "/rollouts",
 		"/ci", "/topology", "/members", "/nats", "/terrabase", "/storage", "/oci", "/events", "/decisions?kind=held,hold_cleared", "/decisions?kind=leader_changed,quorum_degraded", "/releases?region=all"} {
 		response, err := server.Client().Get(server.URL + path)
 		if err != nil {
@@ -36,7 +36,7 @@ func TestEveryPageAndStreamRendersTheFakeWorld(t *testing.T) {
 		}
 		_ = response.Body.Close()
 		for _, want := range map[string][]string{
-			"/": {"GRU", "SFO", "FRA"}, "/region?r=sfo": {"SFO"}, "/releases": {"v0.43.0", "v0.42.1"}, "/rollouts": {"complete", "canary-soak"}, "/terrabase": {"Time to full"}, "/decisions?kind=held,hold_cleared": {"held", "hold_cleared"}, "/decisions?kind=leader_changed,quorum_degraded": {"leader_changed", "quorum_degraded"},
+			"/": {"GRU", "SJC", "FRA"}, "/region?r=sjc": {"SJC"}, "/releases": {"v0.43.0", "v0.42.1"}, "/rollouts": {"complete", "canary-soak"}, "/terrabase": {"Time to full"}, "/decisions?kind=held,hold_cleared": {"held", "hold_cleared"}, "/decisions?kind=leader_changed,quorum_degraded": {"leader_changed", "quorum_degraded"},
 		}[path] {
 			if !strings.Contains(string(body), want) {
 				t.Errorf("GET %s lacks %q", path, want)

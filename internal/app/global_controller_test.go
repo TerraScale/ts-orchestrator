@@ -14,13 +14,13 @@ import (
 func TestGlobalControlHomeComesFromTopology(t *testing.T) {
 	t.Parallel()
 	home := natscell.Config{Cell: "gru"}
-	spoke := natscell.Config{Cell: "sfo", Embedded: &natscell.Embedded{
+	spoke := natscell.Config{Cell: "sjc", Embedded: &natscell.Embedded{
 		InterRegion: &natscell.InterRegion{Peers: []string{"gru"}, GlobalHome: "gru"},
 	}}
 	linkedHome := natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{
-		InterRegion: &natscell.InterRegion{Peers: []string{"fra", "sfo"}, GlobalHome: "gru"},
+		InterRegion: &natscell.InterRegion{Peers: []string{"fra", "sjc"}, GlobalHome: "gru"},
 	}}
-	if peers := globalMirrorPeers(linkedHome); len(peers) != 2 || peers[0] != "fra" || peers[1] != "sfo" {
+	if peers := globalMirrorPeers(linkedHome); len(peers) != 2 || peers[0] != "fra" || peers[1] != "sjc" {
 		t.Fatalf("home mirror peers = %v", peers)
 	}
 	if peers := globalMirrorPeers(home); peers != nil {
@@ -39,9 +39,9 @@ func TestGlobalControlHomeComesFromTopology(t *testing.T) {
 		"linked home":     {nil, linkedHome, "gru"},
 		"uppercase home":  {&GlobalControlConfig{Home: "GRU"}, home, ""},
 		"reserved home":   {&GlobalControlConfig{Home: "global"}, home, ""},
-		"unlinked spoke":  {&GlobalControlConfig{Home: "gru"}, natscell.Config{Cell: "sfo"}, ""},
+		"unlinked spoke":  {&GlobalControlConfig{Home: "gru"}, natscell.Config{Cell: "sjc"}, ""},
 		"mismatched home": {&GlobalControlConfig{Home: "fra"}, spoke, ""},
-		"missing topology home": {nil, natscell.Config{Cell: "sfo", Embedded: &natscell.Embedded{
+		"missing topology home": {nil, natscell.Config{Cell: "sjc", Embedded: &natscell.Embedded{
 			InterRegion: &natscell.InterRegion{Peers: []string{"gru"}},
 		}}, ""},
 	} {

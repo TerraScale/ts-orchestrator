@@ -99,7 +99,7 @@ func TestDetailPagesRenderTheirEntity(t *testing.T) {
 		"/volumes/vol-stuck":                   {"attaching", "host-a", "Grew volume vol-stuck to 200 GB", "Volume vol-stuck stuck attaching"},
 		"/regions/fra/hosts/host-a": {"Host in FRA", "00000000000DMQEY0YD7RZ04RR / 00000000003K6TBW31R91GBDRD", "000000000036XR713YE93E9M0S", "vol-stuck", "Launched host host-a",
 			"host load telemetry must be enabled", "Memory used", "Disk used", "Service CPU", "Service memory used"},
-		"/regions/sfo/hosts/host-z": {"Host in SFO", "served by that region"},
+		"/regions/sjc/hosts/host-z": {"Host in SJC", "served by that region"},
 		"/members/nobody":           {"is not a member that answered"},
 	} {
 		response := get(t, handler, path)
@@ -279,8 +279,8 @@ func TestHostDetailChartsScopeNodeAndRange(t *testing.T) {
 	}{
 		{"/regions/fra/hosts/host-a", time.Hour, 1},
 		{"/regions/FRA/hosts/HOST-A?range=14d", 14 * 24 * time.Hour, 2},
-		{"/regions/fra/hosts/host-a?range=14d&host=host-ab&r=sfo", 14 * 24 * time.Hour, 2},
-		{"/regions/sfo/hosts/host-a?range=14d", 14 * 24 * time.Hour, 0},
+		{"/regions/fra/hosts/host-a?range=14d&host=host-ab&r=sjc", 14 * 24 * time.Hour, 2},
+		{"/regions/sjc/hosts/host-a?range=14d", 14 * 24 * time.Hour, 0},
 	} {
 		t.Run(test.path, func(t *testing.T) {
 			response := get(t, handler, test.path)
@@ -424,9 +424,9 @@ func TestDeepRegionLinksAreKept(t *testing.T) {
 	t.Parallel()
 	board, source, _ := journalDashboard(Options{})
 	insight := testInsight("deep-link", "Deep region link", insights.SeverityWarning, "")
-	insight.Entity = insights.Entity{Kind: "host", ID: "h-1", Href: "/regions/sfo/hosts/h-1"}
+	insight.Entity = insights.Entity{Kind: "host", ID: "h-1", Href: "/regions/sjc/hosts/h-1"}
 	source.evaluation.Insights = []insights.Insight{insight}
-	if body := get(t, board.Handler(), "/insights").Body.String(); !strings.Contains(body, `href="/regions/sfo/hosts/h-1"`) {
+	if body := get(t, board.Handler(), "/insights").Body.String(); !strings.Contains(body, `href="/regions/sjc/hosts/h-1"`) {
 		t.Fatal("deep region entity link was rewritten")
 	}
 }

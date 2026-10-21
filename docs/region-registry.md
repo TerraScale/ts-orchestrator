@@ -13,7 +13,7 @@ other region. Nothing below lists regions; everything reads the registry.
 
 - A region is one OCI region. Its **cell token** is the lowercase OCI short
   region code (`gru`, `fra`, `lhr`, `nrt`, ...), with one legacy alias:
-  `sfo` is OCI `us-sanjose-1` (`sjc`). Tokens match
+  `sjc` is OCI `us-sanjose-1` (`sjc`). Tokens match
   `protocol.RegionToken`.
 - `OCIRegion` is the OCI region identifier (`sa-saopaulo-1`).
 - A region's deployment and cluster IDs are derived from environment and cell
@@ -27,7 +27,7 @@ other region. Nothing below lists regions; everything reads the registry.
 
 | Subject | `ts.orch.v1.<cell>.region.health` |
 | --- | --- |
-| Payload | `{"version":1,"cell":"sfo","oci_region":"us-sanjose-1","sent_at":"<RFC3339>"}` (`globalcontrol.Heartbeat`) |
+| Payload | `{"version":1,"cell":"sjc","oci_region":"us-sanjose-1","sent_at":"<RFC3339>"}` (`globalcontrol.Heartbeat`) |
 | Auth | The link credential lets a region publish only its own subject. |
 
 **Roster** (written only by the home's global leader, read everywhere):

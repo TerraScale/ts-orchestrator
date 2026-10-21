@@ -35,7 +35,7 @@ func TestArtifactStoreQuotaFromTheCellSpec(t *testing.T) {
 	if err := registry.validate(set); err != nil {
 		t.Fatal(err)
 	}
-	// The Machines API's buckets reserve their room too: sfo-1 went past
+	// The Machines API's buckets reserve their room too: sjc-1 went past
 	// store_max_bytes with both (TS-662).
 	withAPI := set
 	withAPI.RequiresBinary, withAPI.MachinesAPI = 16, &cellspec.MachinesAPI{Issuer: "https://gru.auth.terrascale.tech/terrascale",

@@ -405,7 +405,7 @@ func genericGenesisOriginalRole(t *testing.T, signer *functionPublicationSigner,
 	installation := entityid.Derive("generic-genesis-installation")
 	var origins []release.WorkloadGenesis
 	var regions []any
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		deployment, cluster := entityid.Derive("generic-genesis-deployment", cell), entityid.Derive("generic-genesis-cluster", cell)
 		regions = append(regions, map[string]any{"plan": map[string]any{"cell": cell}, "bootstrapMaterial": map[string]any{"installationId": installation, "config": map[string]any{"deploymentId": deployment, "clusterId": cluster, "cell": strings.ToLower(cell), "environment": "production"}}})
 		for _, role := range []string{"terrabase", "ts-auth", "function-worker"} {
@@ -425,7 +425,7 @@ func genericGenesisOriginalRole(t *testing.T, signer *functionPublicationSigner,
 	var authorities []any
 	for _, role := range []string{"terrabase", "ts-auth", "function-worker"} {
 		var capabilities []trust.Capability
-		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, cell := range []string{"GRU", "SJC", "FRA"} {
 			scope := release.ContainerScope(release.ContainerTarget{Cell: cell, Environment: "production", Role: role, Architecture: runtime.GOARCH})
 			capabilities = append(capabilities, trust.Capability{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: role, Slots: []string{"linux-amd64", "linux-arm64"}, Actions: []string{"sign"}})
 		}
@@ -437,7 +437,7 @@ func genericGenesisOriginalRole(t *testing.T, signer *functionPublicationSigner,
 		if err != nil {
 			t.Fatal(err)
 		}
-		authorities = append(authorities, map[string]any{"role": role, "environment": "production", "cells": []string{"GRU", "SFO", "FRA"}, "architectures": []string{"amd64", "arm64"}, "delegationWire": wire})
+		authorities = append(authorities, map[string]any{"role": role, "environment": "production", "cells": []string{"GRU", "SJC", "FRA"}, "architectures": []string{"amd64", "arm64"}, "delegationWire": wire})
 		if role == selectedRole {
 			signer.delegation = delegation
 		}

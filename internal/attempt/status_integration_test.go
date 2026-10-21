@@ -41,10 +41,10 @@ func TestPhaseStatusThroughSignedOCISDK(t *testing.T) {
 	for _, scenario := range []struct {
 		name, cell, failedPage string
 	}{
-		{"SFO current and retained names", catalog.SFO, ""},
+		{"SJC current and retained names", catalog.SJC, ""},
 		{"GRU retained controller names", catalog.GRU, ""},
-		{"control later page error", catalog.SFO, "control:second-control"},
-		{"workload later page error", catalog.SFO, "workload:second-workload"},
+		{"control later page error", catalog.SJC, "control:second-control"},
+		{"workload later page error", catalog.SJC, "workload:second-workload"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			entry, _ := catalog.Lookup(scenario.cell)

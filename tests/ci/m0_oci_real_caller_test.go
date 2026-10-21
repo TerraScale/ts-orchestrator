@@ -64,11 +64,11 @@ func TestRealCallerCurrentReportExactIdentity(t *testing.T) {
 			case "foreign_instance":
 				args["instance"] = "ocid1.instance.foreign"
 			case "registration_cell":
-				reg["cell"] = "sfo"
+				reg["cell"] = "sjc"
 			case "registration_region":
-				rcMap(reg["managed_oci"])["region"] = "SFO"
+				rcMap(reg["managed_oci"])["region"] = "SJC"
 			case "report_cell":
-				report["cell"] = "sfo"
+				report["cell"] = "sjc"
 			case "unauthenticated_replication":
 				rcMap(rcMap(rcMap(report["managed"])["serving_proof"])["replication"])["current_authenticated"] = false
 			case "expired_session":

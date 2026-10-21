@@ -37,7 +37,7 @@ func TestProductionAdmissionRetainedArtifactBoundary(t *testing.T) {
 			case "manifest":
 				record.Candidate.QualificationSHA256 = strings.Repeat("1", 64)
 			case "cell":
-				record.Candidate.Cell = "SFO"
+				record.Candidate.Cell = "SJC"
 			case "environment":
 				record.Candidate.Environment = "canary"
 			case "runtime":
@@ -107,8 +107,8 @@ func TestProductionAdmissionRetainedArtifactBoundary(t *testing.T) {
 			time.Now().Add(-time.Minute), time.Now().Add(time.Hour))
 		var output bytes.Buffer
 		err := Run(t.Context(), []string{"verify-production", "--dir", f.releaseDir, "--evidence-dir", directory,
-			"--root-key", f.rootPath, "--cell", "SFO", "--cell", "GRU", "--arch", "amd64"}, &output)
-		if err == nil || !strings.Contains(err.Error(), "SFO") || !strings.Contains(output.String(), `"cell":"GRU"`) ||
+			"--root-key", f.rootPath, "--cell", "SJC", "--cell", "GRU", "--arch", "amd64"}, &output)
+		if err == nil || !strings.Contains(err.Error(), "SJC") || !strings.Contains(output.String(), `"cell":"GRU"`) ||
 			!strings.Contains(output.String(), `"state":"qualified"`) || !strings.Contains(output.String(), `"state":"refused"`) {
 			t.Fatalf("lost independent regional result: %v\n%s", err, output.String())
 		}

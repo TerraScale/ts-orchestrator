@@ -297,7 +297,7 @@ func (operator *foundationOperator) originalSourceProducerBirthFromPreparedGrant
 		origins[index] = name
 	}
 	slices.Sort(origins[:])
-	for index, cell := range []string{"GRU", "SFO", "FRA"} {
+	for index, cell := range []string{"GRU", "SJC", "FRA"} {
 		for _, regional := range grant.Regions {
 			if regional.Plan["cell"] != cell {
 				continue
@@ -332,7 +332,7 @@ func (r FoundationRecord) validateOriginalSourceProducers() error {
 	for index, birth := range r.OriginalSourceProducers {
 		intent := birth.Intent
 		wire, err := json.Marshal(intent, json.Deterministic(true))
-		if err != nil || birth.IntentSHA256 != preparationDigest(wire) || intent.Purpose != originalSourceProducerPurpose || intent.Cell != [3]string{"GRU", "SFO", "FRA"}[index] ||
+		if err != nil || birth.IntentSHA256 != preparationDigest(wire) || intent.Purpose != originalSourceProducerPurpose || intent.Cell != [3]string{"GRU", "SJC", "FRA"}[index] ||
 			intent.TenancyID != r.TenancyID || intent.Generation != birth.OriginalGeneration || intent.OriginalUserID != r.NetBirdMaterial.Authority.Context.ProducerUserID ||
 			intent.InstallationID != r.NetBirdMaterial.Authority.Context.InstallationID || intent.Home.Validate() != nil || intent.Escrow != r.NetBirdMaterial.Authority.Context.Target ||
 			birth.OriginalGrantSHA256 != r.NetBirdMaterial.OriginalGrantSHA256 || birth.OriginalBundleSHA256 != r.NetBirdMaterial.OriginalBundleSHA256 ||
@@ -352,7 +352,7 @@ func (r FoundationRecord) validateOriginalSourceProducers() error {
 		}
 		var expected [9]string
 		position := 0
-		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, cell := range []string{"GRU", "SJC", "FRA"} {
 			for _, role := range []string{"terrabase", "ts-auth", "function-worker"} {
 				name, err := release.WorkloadGenesisObject(intent.TenancyID, cell, intent.Environment, role)
 				if err != nil {

@@ -63,7 +63,7 @@ type BinaryReceipt struct {
 
 // ImageReceipt is the v2 signed description of a QCOW2 image and its embedded
 // orchestrator binary. OCIRegion and BaseImageRegion use logical region names
-// (GRU, SFO, or FRA), not Oracle region slugs.
+// (GRU, SJC, or FRA), not Oracle region slugs.
 type ImageReceipt struct {
 	Schema              string           `json:"schema"`
 	SourceRevision      string           `json:"source_revision"`

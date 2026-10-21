@@ -114,7 +114,7 @@ func TestWorkflowContracts(t *testing.T) {
 		qualifyStep, _, _ = strings.Cut(qualifyStep, "- name:")
 		requireText(t, qualifyStep, "if: ${{ steps.gate.outputs.skip != 'true' }}")
 		forbidText(t, qualifyStep, "vars.TS_QUALIFICATION_SUITES")
-		requireText(t, qualifyStep, "TS_QUALIFICATION_SUITES: terrabase-walkthrough terrabase-successor native-validator rendered-sfo-enrollment terrabase-binary terrabase-release ts-auth-terrabase")
+		requireText(t, qualifyStep, "TS_QUALIFICATION_SUITES: terrabase-walkthrough terrabase-successor native-validator rendered-sjc-enrollment terrabase-binary terrabase-release ts-auth-terrabase")
 		requireText(t, qualifyStep, "TS_TEST_TIER: qualification\n")
 		requireText(t, qualifyStep, "run: bash scripts/ci/qualify-image.sh")
 		_, dispatch, ok := strings.Cut(image, "workflow_dispatch:")
@@ -401,7 +401,7 @@ esac
 		{"multi_line", "terrabase-walkthrough\nterrabase-successor\nnative-validator", "pass", "qualification suite native-validator passed", 0},
 		{"skip", "terrabase-walkthrough", "skip", "skipped a test; its fixture is incomplete", 1},
 		{"no_test", "native-validator", "none", "ran no test", 1},
-		{"fail", "rendered-sfo-enrollment", "fail", "qualification suite rendered-sfo-enrollment failed", 1},
+		{"fail", "rendered-sjc-enrollment", "fail", "qualification suite rendered-sjc-enrollment failed", 1},
 		{"backup_bridge_is_not_a_suite", "terrabase-backup", "pass", "unknown qualification suite: terrabase-backup", 2},
 		{"unknown", "terrabase-walkthrough firecracker", "pass", "unknown qualification suite: firecracker", 2},
 		{"none", " ", "pass", "names no qualification suite", 2},

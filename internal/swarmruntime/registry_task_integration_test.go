@@ -102,7 +102,7 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	roots := trust.Keyring{rootID: rootPublic}
 	now := time.Now().UTC().Truncate(time.Second)
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "test", Bucket: "gru-1-head", Region: "GRU", SignerKeyID: keyID, SignerPublicKey: base64.RawURLEncoding.EncodeToString(public), Role: "api", Environment: "production", SequenceFloor: 100}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)})
 	}
 	migrationEnvelope, err := release.SignSequenceMigration(migration, now, rootKey)

@@ -3,7 +3,7 @@
 # 20 minutes, per service and node (TS-661). Runs from any operator device in
 # the NetBird with ~/.oci/config: it picks this host's NetBird client and
 # hands the rest to "ts-orch log-scan", which reads every server peer in the
-# NetBird (ts-gru-N, ts-sfo-N, ...). Extra arguments pass through, e.g.
+# NetBird (ts-gru-N, ts-sjc-N, ...). Extra arguments pass through, e.g.
 # --since 24h --top 30. Overrides: TS_ORCH, TS_LOG_SCAN_NODES (names),
 # TS_LOG_SCAN_FLY_APPS, NB.
 set -euo pipefail

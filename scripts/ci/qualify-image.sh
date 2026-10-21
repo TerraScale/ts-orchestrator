@@ -17,7 +17,7 @@
 #   terrabase-successor      TS_D11_RUST_SERVER and/or TS_D11_PUBLIC_ARTIFACT_DIR.
 #   native-validator         TS_TEST_NATIVE_VERIFIER_SHA256 and
 #                            TS_TEST_NATIVE_VERIFIER_SOURCE_COMMIT.
-#   rendered-sfo-enrollment  TS_TEST_RENDERED_HOST_BUNDLE,
+#   rendered-sjc-enrollment  TS_TEST_RENDERED_HOST_BUNDLE,
 #                            TS_TEST_RENDERED_HOST_MATERIAL and
 #                            TS_TEST_RENDERED_HOST_BUNDLE_SHA256.
 #   terrabase-binary         TS_TERRABASE_BINARY: a C# TerraBase release asset
@@ -53,7 +53,7 @@ declare -A packages=(
 	[terrabase-walkthrough]=./internal/app
 	[terrabase-successor]=./internal/managedmaterial
 	[native-validator]=./internal/managedmaterial
-	[rendered-sfo-enrollment]=./internal/app
+	[rendered-sjc-enrollment]=./internal/app
 	[terrabase-binary]=./internal/terrabase
 	[terrabase-release]=./internal/app
 	[ts-auth-terrabase]=./internal/tsauth
@@ -62,7 +62,7 @@ declare -A tests=(
 	[terrabase-walkthrough]='^TestTerraBaseWalkthroughAgainstRealMembers$'
 	[terrabase-successor]='^TestProduceSuccessorRustInterop$'
 	[native-validator]='^TestPrepareInitialUsesAdmittedPackagedNativeValidator$'
-	[rendered-sfo-enrollment]='^TestManagedPlacementEnrollmentFromRenderedSFOBundle$'
+	[rendered-sjc-enrollment]='^TestManagedPlacementEnrollmentFromRenderedSFOBundle$'
 	[terrabase-binary]='^TestTerraBaseBinaryPeerMesh$'
 	[terrabase-release]='^TestTerraBaseReleaseDeployUpgradeRollback$'
 	[ts-auth-terrabase]='^TestBootstrapAgainstTerraBaseRelease$'

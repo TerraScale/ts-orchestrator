@@ -748,7 +748,7 @@ and run under the root-signed delegation. `status.json` is telemetry; a
 forged report can stop CI or move it to the next region, but no region
 accepts a release without verifying it.
 
-The script always targets GRU and SFO, ARM64, with their current `canary`
+The script always targets GRU and SJC, ARM64, with their current `canary`
 trust scope. These constants will be replaced by ts-orch region discovery;
 there is no per-repository target list or environment switch to configure.
 Inputs (repository variables unless noted):

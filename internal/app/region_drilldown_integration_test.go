@@ -17,7 +17,7 @@ import (
 func TestJournalAPIExposesRegionalResourceObservations(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
-	view := globalview.NewView("gru", func() []string { return []string{"sfo"} }, func() time.Time { return now })
+	view := globalview.NewView("gru", func() []string { return []string{"sjc"} }, func() time.Time { return now })
 	if !view.Accept(globalview.Rollup{Version: globalview.Version, Cell: "gru", ObservedAt: now,
 		Nodes:               []globalview.Node{{Name: "node-a", Services: []globalview.Service{{Role: "gateway", State: "running"}}}},
 		Volumes:             []globalview.Volume{{ID: "volume-a", Node: "node-a", State: "attached"}},
@@ -55,7 +55,7 @@ func TestJournalAPIExposesRegionalResourceObservations(t *testing.T) {
 		{"/v1/regions/gru/services/absent", "not_found", "", http.StatusNotFound},
 		{"/v1/regions/gru/functions/tenant-b/echo", "not_found", "", http.StatusNotFound},
 		{"/v1/regions/gru/nodes/absent", "not_found", "", http.StatusNotFound},
-		{"/v1/regions/sfo/nodes", "missing", "", http.StatusServiceUnavailable},
+		{"/v1/regions/sjc/nodes", "missing", "", http.StatusServiceUnavailable},
 	} {
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, listener.URL+scenario.path, nil)
 		if err != nil {

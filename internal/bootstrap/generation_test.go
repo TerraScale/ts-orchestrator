@@ -340,8 +340,8 @@ func TestMaterialGenerationInterRegionShape(t *testing.T) {
 // interregion account, and on a spoke its link user alone.
 func TestMaterialGenerationLinkShape(t *testing.T) {
 	expected := generationExpectation()
-	expected.Cell = "SFO"
-	spoke := generationtest.NewCell(t, generationNow, "sfo").WithoutIssuers(t).Link(t, generationNow, expected.ControllerSlots)
+	expected.Cell = "SJC"
+	spoke := generationtest.NewCell(t, generationNow, "sjc").WithoutIssuers(t).Link(t, generationNow, expected.ControllerSlots)
 	if err := spoke.Generation(expected, 1, "").Validate(); err != nil {
 		t.Fatal(err)
 	}

@@ -113,7 +113,7 @@ func TestFunctionClientTLSAuthenticatesOnlyItsTenantAndFunction(t *testing.T) {
 		for name, rejected := range map[string]release.VerifiedFunction{
 			"unverified":  release.VerifiedFunction{},
 			"expired":     functionTLSProof(t, tenant, "echo", "GRU", "production", now.Add(-2*time.Hour), time.Hour),
-			"cell":        functionTLSProof(t, tenant, "echo", "SFO", "production", now, time.Hour),
+			"cell":        functionTLSProof(t, tenant, "echo", "SJC", "production", now, time.Hour),
 			"environment": functionTLSProof(t, tenant, "echo", "GRU", "canary", now, time.Hour),
 		} {
 			cert, key, _, err := issuer.IssueFunctionClientTLS(rejected)

@@ -63,7 +63,7 @@ func newNetBirdBackupAuthority(installation, tenancy string, home bootstrap.Stor
 		ManagerOperationID: BootstrapOperationID(installation, slot), HomeStorageDomain: home,
 		PublicAccessType: "NoPublicAccess", StorageTier: "Standard", Versioning: "Disabled",
 		RetentionDays: originalNetBirdRetentionDays, LockDelaySeconds: int64(originalNetBirdRetentionCooling / time.Second)}
-	for index, cell := range [2]string{"GRU", "SFO"} {
+	for index, cell := range [2]string{"GRU", "SJC"} {
 		d := NetBirdBackupDestinationAuthority{Cell: cell, OCIRegion: [2]string{foundationHomeRegion, "us-sanjose-1"}[index], BucketName: strings.ToLower(cell) + "-1-backup"}
 		for key, target := range map[string]*string{"control_compartment": &d.CompartmentReference, "vault": &d.VaultReference, "key": &d.KMSKeyReference} {
 			value, err := FoundationResourceReference(cell, key)

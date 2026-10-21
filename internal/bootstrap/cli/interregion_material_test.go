@@ -28,7 +28,7 @@ func TestGenerateInterRegionMaterialWritesThePublicInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 	wire, err := json.Marshal(bootstrapmaterial.InterRegionConfig{
-		Topology: natscell.HubAndSpoke("gru", []string{"sfo"}), ListenPort: 7422})
+		Topology: natscell.HubAndSpoke("gru", []string{"sjc"}), ListenPort: 7422})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestGenerateInterRegionMaterialWritesThePublicInventory(t *testing.T) {
 		!strings.Contains(output.String(), record.LedgerDigest) {
 		t.Fatalf("public inventory = %s, %v", public, err)
 	}
-	for _, name := range []string{"child-sfo.seed", "interregion-ca.key"} {
+	for _, name := range []string{"child-sjc.seed", "interregion-ca.key"} {
 		secret, err := os.ReadFile(filepath.Join(root, "interregion", name))
 		if err != nil || bytes.Contains(public, secret) {
 			t.Fatalf("public inventory carries %s (%v)", name, err)

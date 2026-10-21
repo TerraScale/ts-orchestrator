@@ -274,7 +274,7 @@ func TestTenancy(t *testing.T) {
 			Members: []observability.MemberSnapshot{{Cell: "gru", Member: "a", ObservedAt: now,
 				Credentials: []observability.CredentialView{{Name: "private-credential"}},
 				Metrics:     "private-metric", Errors: map[string]string{"private-error": "hidden"},
-				Links: []observability.RegionLinkProbe{{Region: "sfo", ObservedAt: probeTime, Reach: "ok", WAN: "ok", LagGroups: new(0.0)}}}}}, nil
+				Links: []observability.RegionLinkProbe{{Region: "sjc", ObservedAt: probeTime, Reach: "ok", WAN: "ok", LagGroups: new(0.0)}}}}}, nil
 	})
 	for range 2 {
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, public.URL+"/v1/link-health", nil)
@@ -322,7 +322,7 @@ func TestTenancy(t *testing.T) {
 		},
 		func(context.Context, bool) (observability.ClusterSnapshot, error) {
 			return observability.ClusterSnapshot{Cell: "gru", ObservedAt: time.Now(), Expected: []string{"a"},
-				Members: []observability.MemberSnapshot{{Cell: "sfo", Member: "a"}}}, nil
+				Members: []observability.MemberSnapshot{{Cell: "sjc", Member: "a"}}}, nil
 		},
 	} {
 		f.server.links = source

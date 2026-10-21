@@ -31,7 +31,7 @@ preparation against administrative bucket replacement and policy changes.
 
 **Recovery is not implemented yet.** This command prepares copies; it does not
 rebuild a cell, restore TerraBase or ts-auth, or measure RTO/RPO. TS-641 stays
-open until the cold-restore service contract (TerraBase: TS-743) and the sfo
+open until the cold-restore service contract (TerraBase: TS-743) and the sjc
 drill below pass.
 Never use quorum recovery or a regional founding attempt to run this drill
 against serving gru-1.
@@ -43,10 +43,10 @@ therefore gets a dedicated mirror in the other region:
 
 | Source | Continuous mirror | Historical seed |
 | --- | --- | --- |
-| gru-1-backup | sfo-1-dr-gru-1-backup | sfo-1-dr-gru-1-backup-seed |
-| gru-1-head | sfo-1-dr-gru-1-head | sfo-1-dr-gru-1-head-seed |
-| sfo-1-backup | gru-1-dr-sfo-1-backup | gru-1-dr-sfo-1-backup-seed |
-| sfo-1-head | gru-1-dr-sfo-1-head | gru-1-dr-sfo-1-head-seed |
+| gru-1-backup | sjc-1-dr-gru-1-backup | sjc-1-dr-gru-1-backup-seed |
+| gru-1-head | sjc-1-dr-gru-1-head | sjc-1-dr-gru-1-head-seed |
+| sjc-1-backup | gru-1-dr-sjc-1-backup | gru-1-dr-sjc-1-backup-seed |
+| sjc-1-head | gru-1-dr-sjc-1-head | gru-1-dr-sjc-1-head-seed |
 
 OCI only replicates objects uploaded **after** policy creation. The command
 activates the policy first, then enumerates all current source objects and
@@ -118,7 +118,7 @@ and [Vault replication](https://docs.oracle.com/en-us/iaas/Content/KeyManagement
 ## IAM before apply
 
 The reviewed [IAM apply plan](../deploy/oci-region/disaster-recovery-iam.json)
-names `gru-1-disaster-recovery` and `sfo-1-disaster-recovery`, their pinned
+names `gru-1-disaster-recovery` and `sjc-1-disaster-recovery`, their pinned
 control compartments and their exact statements. These are separate IAM
 policies; `policy_ids` in the command config identifies Object Storage
 replication policies. Inspect for existing names before creating either IAM
@@ -150,19 +150,19 @@ allow only their destination copies and destination secret bundles.
 Existing configuration snapshots carry the original cell identity and signed
 values. `kvsnapshot.Restore` accepts only its own cell and runs before stores
 open on a fresh JetStream lineage. Copying GRU's signed spec and OCI resource
-IDs into SFO's running KV would target GRU resources or fail signature/cell
+IDs into SJC's running KV would target GRU resources or fail signature/cell
 checks. Do not strip signatures or rewrite OCIDs to make it pass.
 
 The complete path needs these reviewed contracts:
 
-1. Destination recovery admission binds the sfo-1 cell and its pinned
-   instances, refuses gru-1 as a drill target, fences sfo placement and edge,
-   and retains a tested rollback of sfo's pre-drill state. Source operations
+1. Destination recovery admission binds the sjc-1 cell and its pinned
+   instances, refuses gru-1 as a drill target, fences sjc placement and edge,
+   and retains a tested rollback of sjc's pre-drill state. Source operations
    are read-only. No new nodes, scratch cell or serving gru-1 re-found.
 2. A bounded Object Storage recovery bundle includes the bootstrap
    configuration, original KV snapshots, signed cell spec, trust chain and
    secret **references**. A root-authorized import maps the recovered logical
-   control state to SFO without adopting GRU instances, volumes or authority
+   control state to SJC without adopting GRU instances, volumes or authority
    leases. KV snapshot copies alone are not a bootstrap bundle.
 3. TerraBase owns a cold restore of `_system` plus **every** database at a
    common PITR second from seed + mirror, with the original identities. It
@@ -180,32 +180,32 @@ The complete path needs these reviewed contracts:
 
 The existing scratch-host volume restore/check commands test another
 failure mode. Their guard intentionally refuses orchestrator hosts; do not
-remove it to run this drill on sfo's serving hosts.
+remove it to run this drill on sjc's serving hosts.
 
 ## Drill acceptance and monthly execution
 
 Keep the monthly **destructive drill disabled** until the contracts above and
-sfo rollback are qualified. A placeholder command, a source-dependent PITR
+sjc rollback are qualified. A placeholder command, a source-dependent PITR
 restore, or a health check is not a full-cell drill.
 
-1. Bind and verify source gru-1 and target sfo-1. Inventory every source
+1. Bind and verify source gru-1 and target sjc-1. Inventory every source
    database through ts-go; retain its identity, chosen PITR point and source
    data checksums. Use a common point available in both regional copies,
    including `_system` and ts-auth. Record backup and KV snapshot ages.
 2. Start a monotonic timer at drill admission. Make source-region API, NATS,
    Object Storage and KMS unavailable to the destination recovery process.
    Execute control-state recovery, every database restore, then ts-auth in
-   that order using existing sfo resources. Never alter serving gru-1.
+   that order using existing sjc resources. Never alter serving gru-1.
 3. Compare restored data at the selected point through SDKs against the
    retained source checksums. Verify all expected identities, ts-auth token
-   issuance and sfo's serving endpoints. Stop the RTO timer only then.
+   issuance and sjc's serving endpoints. Stop the RTO timer only then.
 4. Persist the report in TerraBase and retain its record ID and measured
    numbers in the repository's recovery evidence. RTO is
    admission-to-verified-serving duration. RPO is the gap between the last
    acknowledged source write at the simulated
    loss boundary and the last recovered write; report actual missing
    writes separately. Never label OCI policy lag as measured data RPO.
-5. Restore sfo's prior state and verify serving. Once this passes, schedule
+5. Restore sjc's prior state and verify serving. Once this passes, schedule
    the same destination-bound command monthly with exclusive admission,
    a finite deadline and alert delivery through the existing monitoring
    path on failure, missing result, checksum mismatch or missed schedule.
@@ -218,4 +218,4 @@ tracks the scoped IAM changes, retained backup mirror/seed and policy IDs,
 GRU Vault replica, copy-request corrections and bounded backfill result.
 The [2026-10-08 record](evidence/ts-641-replication-20261008.md) completes
 all four copy directions and both Vault replicas, and proves a copied GRU
-data key unwraps in SFO. Copies alone do not establish a recovery point.
+data key unwraps in SJC. Copies alone do not establish a recovery point.

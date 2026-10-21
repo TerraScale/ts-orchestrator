@@ -25,7 +25,7 @@ func budgetWithCap(capCents uint64) *Budget {
 }
 
 func TestAllocateWithoutBudgetHoldsEveryRegion(t *testing.T) {
-	c := Allocate(nil, []Region{freshRegion("sfo", 2, 5, 0.9, 100, 10)}, nil, testNow)
+	c := Allocate(nil, []Region{freshRegion("sjc", 2, 5, 0.9, 100, 10)}, nil, testNow)
 	if c.State != StateNone || c.Reason != "no monthly budget is set" || c.CapCents != 0 {
 		t.Fatalf("capacity = %+v", c)
 	}
@@ -46,19 +46,19 @@ func TestAllocateHoldsEveryRegionWithAnInvalidBudget(t *testing.T) {
 }
 
 func TestAllocateHoldsEveryRegionWhenSpendIsUnknown(t *testing.T) {
-	stale := freshRegion("sfo", 1, 3, 0.9, 100, 500)
+	stale := freshRegion("sjc", 1, 3, 0.9, 100, 500)
 	stale.At = testNow.Add(-StatusMaxAge - time.Minute)
-	missing := freshRegion("sfo", 1, 3, 0.9, 100, 500)
+	missing := freshRegion("sjc", 1, 3, 0.9, 100, 500)
 	missing.At = time.Time{}
-	otherCurrency := freshRegion("sfo", 1, 3, 0.9, 100, 500)
+	otherCurrency := freshRegion("sjc", 1, 3, 0.9, 100, 500)
 	otherCurrency.Currency = "USD"
-	future := freshRegion("sfo", 1, 3, 0.9, 100, 500)
+	future := freshRegion("sjc", 1, 3, 0.9, 100, 500)
 	future.At = testNow.Add(AllowanceMaxAge + time.Minute)
-	for name, sfo := range map[string]Region{"stale": stale, "missing": missing, "other currency": otherCurrency,
+	for name, sjc := range map[string]Region{"stale": stale, "missing": missing, "other currency": otherCurrency,
 		"from the future": future} {
 		t.Run(name, func(t *testing.T) {
-			c := Allocate(budgetWithCap(100000), []Region{freshRegion("gru", 1, 3, 0.5, 100, 200), sfo}, nil, testNow)
-			if c.State != StateUnknown || !strings.Contains(c.Reason, "sfo") {
+			c := Allocate(budgetWithCap(100000), []Region{freshRegion("gru", 1, 3, 0.5, 100, 200), sjc}, nil, testNow)
+			if c.State != StateUnknown || !strings.Contains(c.Reason, "sjc") {
 				t.Fatalf("capacity = %+v", c)
 			}
 			if c.ProjectedCents != 200 {
@@ -75,7 +75,7 @@ func TestAllocateHoldsEveryRegionWhenSpendIsUnknown(t *testing.T) {
 
 func TestAllocateGrantsByPressureUntilTheCap(t *testing.T) {
 	c := Allocate(budgetWithCap(1000), []Region{
-		freshRegion("sfo", 1, 2, 0.5, 300, 100),
+		freshRegion("sjc", 1, 2, 0.5, 300, 100),
 		freshRegion("gru", 1, 2, 0.9, 300, 100),
 		freshRegion("fra", 1, 2, 0.7, 300, 100),
 	}, nil, testNow)
@@ -85,13 +85,13 @@ func TestAllocateGrantsByPressureUntilTheCap(t *testing.T) {
 	if c.Reason != "granted gru +1, fra +1" {
 		t.Fatalf("reason = %q", c.Reason)
 	}
-	want := map[string]int{"fra": 2, "gru": 2, "sfo": 1}
+	want := map[string]int{"fra": 2, "gru": 2, "sjc": 1}
 	for _, region := range c.Regions {
 		if region.Allowance != want[region.Cell] {
 			t.Fatalf("%s allowance = %d, want %d", region.Cell, region.Allowance, want[region.Cell])
 		}
 	}
-	if c.Regions[0].Cell != "fra" || c.Regions[1].Cell != "gru" || c.Regions[2].Cell != "sfo" {
+	if c.Regions[0].Cell != "fra" || c.Regions[1].Cell != "gru" || c.Regions[2].Cell != "sjc" {
 		t.Fatalf("regions are not sorted by cell: %+v", c.Regions)
 	}
 }
@@ -131,7 +131,7 @@ func TestAllocateStateThresholds(t *testing.T) {
 func TestAllocateSaturatesTheProjection(t *testing.T) {
 	c := Allocate(budgetWithCap(1000), []Region{
 		freshRegion("gru", 1, 1, 0, 0, math.MaxUint64),
-		freshRegion("sfo", 1, 1, 0, 0, math.MaxUint64),
+		freshRegion("sjc", 1, 1, 0, 0, math.MaxUint64),
 	}, nil, testNow)
 	if c.State != StateOver || c.ProjectedCents != math.MaxUint64 {
 		t.Fatalf("capacity = %+v", c)

@@ -19,16 +19,16 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
-// TestRelayedCellSpecNeedsTheTargetsOwnTrust relays specs for SFO through
-// the home region's global stream and lets SFO's leader follow them. One
+// TestRelayedCellSpecNeedsTheTargetsOwnTrust relays specs for SJC through
+// the home region's global stream and lets SJC's leader follow them. One
 // JetStream stands in for both regions; the cross-region mirror is covered
 // by natscell's two-region test.
 func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	dir := t.TempDir()
-	auth := newAuthenticatedNATS(t, "sfo")
-	runtime, err := auth.start(t, ctx, natscell.Config{Cell: "sfo", Embedded: &natscell.Embedded{}})
+	auth := newAuthenticatedNATS(t, "sjc")
+	runtime, err := auth.start(t, ctx, natscell.Config{Cell: "sjc", Embedded: &natscell.Embedded{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,8 +49,8 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 		}
 		return runtime
 	}
-	global, regional := lead(protocol.GlobalScope), lead("sfo")
-	writer, err := globalcontrol.OpenHome(ctx, js, "gru", []string{"sfo"}, 1, global)
+	global, regional := lead(protocol.GlobalScope), lead("sjc")
+	writer, err := globalcontrol.OpenHome(ctx, js, "gru", []string{"sjc"}, 1, global)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,22 +68,22 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000TV3Q06FF4VNZW415", Cell: "sfo", Environment: "test"})
-	sfoConfig := Config{NATS: natscell.Config{Cell: "sfo"}, Controller: ControllerConfig{
+	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000TV3Q06FF4VNZW415", Cell: "sjc", Environment: "test"})
+	sjcConfig := Config{NATS: natscell.Config{Cell: "sjc"}, Controller: ControllerConfig{
 		TrustedSigners: []TrustedSignerConfig{grant("ops", opsPublic)}, SpecTrust: keys.config()}}
-	sfoPolicy, err := buildSignerPolicy(sfoConfig)
+	sjcPolicy, err := buildSignerPolicy(sjcConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	newAcceptedSpecTrust(t, &sfoConfig)
-	registry, err := newSpecRegistry(sfoConfig, "")
+	newAcceptedSpecTrust(t, &sjcConfig)
+	registry, err := newSpecRegistry(sjcConfig, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := registry.open(ctx, js, 1); err != nil {
 		t.Fatal(err)
 	}
-	go func() { _ = registry.followRelayedSpecs(ctx, home.reader, sfoPolicy, regional, nil) }()
+	go func() { _ = registry.followRelayedSpecs(ctx, home.reader, sjcPolicy, regional, nil) }()
 
 	resources := placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}
 	spec := func(generation uint64, mode string) []byte {
@@ -116,7 +116,7 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return relayCellSpec(ctx, wire, homePolicy, home, []string{"sfo"})
+		return relayCellSpec(ctx, wire, homePolicy, home, []string{"sjc"})
 	}
 	adopted := func(generation uint64) {
 		t.Helper()
@@ -129,26 +129,26 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 				return
 			}
 			if time.Now().After(deadline) {
-				t.Fatalf("SFO is at generation %d, want %d", current, generation)
+				t.Fatalf("SJC is at generation %d, want %d", current, generation)
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
 
 	first := spec(1, "a")
-	if reply, err := publish("ops", opsPrivate, "sfo", first); err != nil || reply.Status != "relayed" || reply.Spec.Generation != 1 {
+	if reply, err := publish("ops", opsPrivate, "sjc", first); err != nil || reply.Status != "relayed" || reply.Spec.Generation != 1 {
 		t.Fatalf("relay generation 1 = %+v, %v", reply, err)
 	}
 	adopted(1)
 	if entry, err := registry.kv.Get(ctx, cellSpecKey); err != nil || entry.Revision() == 0 {
-		t.Fatalf("SFO did not store the relayed spec: %v", err)
+		t.Fatalf("SJC did not store the relayed spec: %v", err)
 	}
 
-	// The home checks what it can without SFO's trust.
+	// The home checks what it can without SJC's trust.
 	other := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "00000000003DX3MNPA6WHG6PR2", Cell: "fra", Environment: "test"})
 	fraSpec := mustRead(t, other.sign(t, dir, cellspec.Spec{Schema: cellspec.Schema, Identity: other.identity,
 		Generation: 1, RequiresBinary: 1}))
-	// A signed envelope for SFO's spec scope whose payload is no spec.
+	// A signed envelope for SJC's spec scope whose payload is no spec.
 	now := time.Now().UTC().Truncate(time.Second)
 	garbageEnvelope, err := trust.Sign([]byte(`{"generation":5}`), keys.identity.Scope(), now, now.Add(time.Hour), keys.root)
 	if err != nil {
@@ -168,41 +168,41 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 		want   string
 	}{
 		"not a peer":          {"fra", fraSpec, "not an interregion peer"},
-		"another cell's spec": {"sfo", fraSpec, `is for cell "fra"`},
-		"not a spec":          {"sfo", []byte(`{"spec":"x"}`), "cell spec envelope"},
-		"undecodable spec":    {"sfo", garbage, "decode the relayed cell spec"},
+		"another cell's spec": {"sjc", fraSpec, `is for cell "fra"`},
+		"not a spec":          {"sjc", []byte(`{"spec":"x"}`), "cell spec envelope"},
+		"undecodable spec":    {"sjc", garbage, "decode the relayed cell spec"},
 	} {
 		if _, err := publish("ops", opsPrivate, tc.region, tc.signed); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: relay = %v, want %q", name, err, tc.want)
 		}
 	}
-	if _, err := publish("ops", ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), "sfo", spec(2, "x")); err == nil {
+	if _, err := publish("ops", ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), "sjc", spec(2, "x")); err == nil {
 		t.Error("an untrusted operator relayed a spec")
 	}
 
-	// SFO refuses what only its own trust can judge and keeps its spec: an
-	// operator the home trusts but SFO does not, and a spec that skips a
+	// SJC refuses what only its own trust can judge and keeps its spec: an
+	// operator the home trusts but SJC does not, and a spec that skips a
 	// generation. Each refused record is replaced by the next relay; an
 	// equal generation may replace a waiting one (a renewed signature).
-	if _, err := publish("gru-ops", homePrivate, "sfo", spec(2, "b")); err != nil {
+	if _, err := publish("gru-ops", homePrivate, "sjc", spec(2, "b")); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(500 * time.Millisecond)
 	adopted(1)
-	if _, err := publish("ops", opsPrivate, "sfo", spec(2, "d")); err != nil {
+	if _, err := publish("ops", opsPrivate, "sjc", spec(2, "d")); err != nil {
 		t.Fatal(err)
 	}
 	adopted(2)
-	if _, err := publish("ops", opsPrivate, "sfo", spec(4, "e")); err != nil {
+	if _, err := publish("ops", opsPrivate, "sjc", spec(4, "e")); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(500 * time.Millisecond)
 	adopted(2)
 	// An older spec never displaces the one waiting.
-	if _, err := publish("ops", opsPrivate, "sfo", first); err == nil || !strings.Contains(err.Error(), "is older") {
+	if _, err := publish("ops", opsPrivate, "sjc", first); err == nil || !strings.Contains(err.Error(), "is older") {
 		t.Fatalf("relaying an older spec = %v", err)
 	}
 	if profiles := registry.profiles(); profiles["web"].Env["MODE"] != "d" {
-		t.Fatalf("SFO profiles = %+v", profiles)
+		t.Fatalf("SJC profiles = %+v", profiles)
 	}
 }

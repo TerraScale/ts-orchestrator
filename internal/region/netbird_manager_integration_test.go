@@ -582,7 +582,7 @@ func withNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory, Founda
 		changed := first.claim
 		switch fault {
 		case "cell":
-			changed.Cell = "SFO"
+			changed.Cell = "SJC"
 		case "role":
 			changed.Role = "terrabase"
 		case "architecture":
@@ -1068,7 +1068,7 @@ func netBirdComponentFixtures(t *testing.T, root ed25519.PrivateKey, roots trust
 			t.Fatal(err)
 		}
 		migration := release.SequenceMigration{Namespace: home.Namespace, Bucket: home.HeadBucket, Region: "GRU", Schema: release.SequenceMigrationSchema, SignerKeyID: keyID, SignerPublicKey: keyWire, Role: role, Environment: "production", SequenceFloor: 100}
-		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, cell := range []string{"GRU", "SJC", "FRA"} {
 			migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)})
 		}
 		migrationEnvelope, err := release.SignSequenceMigration(migration, now.Add(-time.Minute), root)

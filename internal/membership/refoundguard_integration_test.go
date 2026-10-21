@@ -148,7 +148,7 @@ func TestRefoundGuardFailsClosedOnAMalformedRecord(t *testing.T) {
 		"missing attempt": `{"cell":"gru","slot":"controller-b","server_name":"gru-1-ctl-2","started_at":"2026-10-16T12:00:00Z"}`,
 		"missing time":    `{"cell":"gru","slot":"controller-b","server_name":"gru-1-ctl-2","attempt":2}`,
 		"wrong server":    `{"cell":"gru","slot":"controller-b","server_name":"gru-1-ctl-1","attempt":2,"started_at":"2026-10-16T12:00:00Z"}`,
-		"duplicate cell":  `{"cell":"gru","cell":"sfo","slot":"controller-b","server_name":"ts-sfo-2","attempt":2,"started_at":"2026-10-16T12:00:00Z"}`,
+		"duplicate cell":  `{"cell":"gru","cell":"sjc","slot":"controller-b","server_name":"ts-sjc-2","attempt":2,"started_at":"2026-10-16T12:00:00Z"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			guard := testRefoundGuard(t, &now)
@@ -179,7 +179,7 @@ func TestRefoundGuardRecoversPendingIdentityAcrossRestart(t *testing.T) {
 	if err := restarted.Admit("gru", "controller-c", completeLedger()); err == nil {
 		t.Fatal("missing health after restart admitted a second refound")
 	}
-	if err := restarted.Admit("sfo", "controller-c", completeLedger()); err == nil {
+	if err := restarted.Admit("sjc", "controller-c", completeLedger()); err == nil {
 		t.Fatal("a pending record of another region was discarded")
 	}
 	invalid := pending

@@ -32,7 +32,7 @@ func TestFreshRoleMigrationOfflineSigningFilesystem(t *testing.T) {
 	}
 	migration := release.SequenceMigration{Schema: release.SequenceFreshRoleSchema, Purpose: release.SequenceFreshRolePurpose,
 		Namespace: "ns", Bucket: "gru-1-head", Region: "GRU", Role: "function-worker", Environment: "production", SequenceFloor: 100,
-		SignerKeyID: id, SignerPublicKey: encoded, FreshCells: []string{"GRU", "SFO", "FRA"}}
+		SignerKeyID: id, SignerPublicKey: encoded, FreshCells: []string{"GRU", "SJC", "FRA"}}
 	directory := t.TempDir()
 	keyPath := filepath.Join(directory, "root.key")
 	writePrivateKey(t, keyPath, root)

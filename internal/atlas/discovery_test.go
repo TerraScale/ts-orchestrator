@@ -12,8 +12,8 @@ import (
 const discoveryBody = `{"v":1,"updated":1791159807,"stale":false,"closest":"gru-1",
 "regions":[{"id":"gru-1","name":"São Paulo","country":"BR","lat":-23.43,"lon":-46.47,
 "api":"https://gru.api.terrascale.tech","auth":"https://gru.auth.terrascale.tech","health":"ok","distanceKm":12},
-{"id":"sfo-1","name":"San Jose","country":"US","lat":37.34,"lon":-121.89,
-"api":"https://sfo.api.terrascale.tech","auth":"https://sfo.auth.terrascale.tech","health":"unknown","distanceKm":null}],
+{"id":"sjc-1","name":"San Jose","country":"US","lat":37.34,"lon":-121.89,
+"api":"https://sjc.api.terrascale.tech","auth":"https://sjc.auth.terrascale.tech","health":"unknown","distanceKm":null}],
 "services":[{"id":"status","name":"Status","url":"https://status.terrascale.tech"}]}`
 
 func TestDiscoverReadsTheListedRegions(t *testing.T) {
@@ -29,8 +29,8 @@ func TestDiscoverReadsTheListedRegions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sfo, ok := discovery.Region("sfo-1")
-	if !ok || sfo.Health != "unknown" || sfo.Country != "US" || sfo.API != "https://sfo.api.terrascale.tech" ||
+	sjc, ok := discovery.Region("sjc-1")
+	if !ok || sjc.Health != "unknown" || sjc.Country != "US" || sjc.API != "https://sjc.api.terrascale.tech" ||
 		discovery.Closest != "gru-1" || discovery.Updated != 1791159807 || len(discovery.Services) != 1 {
 		t.Fatalf("discovery = %+v", discovery)
 	}
@@ -72,16 +72,16 @@ func TestDiscoverRefusesRedirectsErrorsAndOversizeBodies(t *testing.T) {
 func TestServingDiscoveryIncludesUnhealthyRegionsAndNewAdmittedRegions(t *testing.T) {
 	now := time.Now().UTC()
 	discovery := Discovery{V: 1, Updated: now.Unix(), Regions: []DiscoveredRegion{
-		{Region: Region{ID: "sfo-1"}, Health: "down"},
+		{Region: Region{ID: "sjc-1"}, Health: "down"},
 		{Region: Region{ID: "gru-1"}, Health: "unknown"},
 	}}
 	cells, err := discovery.ServingCells(now)
-	if err != nil || !slices.Equal(cells, []string{"GRU", "SFO"}) {
+	if err != nil || !slices.Equal(cells, []string{"GRU", "SJC"}) {
 		t.Fatalf("unhealthy region excluded or unfounded catalog region included: %v %v", cells, err)
 	}
 	discovery.Regions = append(discovery.Regions, DiscoveredRegion{Region: Region{ID: "fra-1"}})
 	cells, err = discovery.ServingCells(now)
-	if err != nil || !slices.Equal(cells, []string{"FRA", "GRU", "SFO"}) {
+	if err != nil || !slices.Equal(cells, []string{"FRA", "GRU", "SJC"}) {
 		t.Fatalf("new admitted region requires a caller list edit: %v %v", cells, err)
 	}
 }

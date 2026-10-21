@@ -191,7 +191,7 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer answer.Unsubscribe()
-	peer, err := admin.Subscribe("ts.orch.v1.sfo.query.terrabase-wan.member.ts-sfo-1", func(m *nats.Msg) { _ = m.Respond([]byte("pull")) })
+	peer, err := admin.Subscribe("ts.orch.v1.sjc.query.terrabase-wan.member.ts-sjc-1", func(m *nats.Msg) { _ = m.Respond([]byte("pull")) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 	if reply, err := admin.Request("ts.orch.v1.gru.query.terrabase-wan.heads", nil, 2*time.Second); err != nil || string(reply.Data) != "heads" {
 		t.Fatalf("member did not answer its cell's query: %v", err)
 	}
-	if reply, err := member.Request("ts.orch.v1.sfo.query.terrabase-wan.member.ts-sfo-1", nil, 2*time.Second); err != nil || string(reply.Data) != "pull" {
+	if reply, err := member.Request("ts.orch.v1.sjc.query.terrabase-wan.member.ts-sjc-1", nil, 2*time.Second); err != nil || string(reply.Data) != "pull" {
 		t.Fatalf("member could not query another cell: %v", err)
 	}
 	// TS-806's live stats: the member publishes its rollup on its own cell's
@@ -235,12 +235,12 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 			}
 		}
 	}
-	refused("ts.orch.v1.sfo.query.terrabase-wan.>", func() error {
-		_, err := member.SubscribeSync("ts.orch.v1.sfo.query.terrabase-wan.>")
+	refused("ts.orch.v1.sjc.query.terrabase-wan.>", func() error {
+		_, err := member.SubscribeSync("ts.orch.v1.sjc.query.terrabase-wan.>")
 		return err
 	})
 	refused("ts.orch.v1.gru.query.machine.list", func() error { return member.Publish("ts.orch.v1.gru.query.machine.list", nil) })
 	refused("ts.orch.v1.gru.placement.apply", func() error { return member.Publish("ts.orch.v1.gru.placement.apply", nil) })
-	refused("ts.orch.v1.sfo.obs.terrabase", func() error { return member.Publish("ts.orch.v1.sfo.obs.terrabase", nil) })
+	refused("ts.orch.v1.sjc.obs.terrabase", func() error { return member.Publish("ts.orch.v1.sjc.obs.terrabase", nil) })
 	refused("ts.orch.v1.gru.obs.region", func() error { return member.Publish("ts.orch.v1.gru.obs.region", nil) })
 }

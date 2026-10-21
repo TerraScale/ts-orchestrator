@@ -255,7 +255,7 @@ func TestForeignOrLegacyLeaseCannotAuthorizeOrBeReplaced(t *testing.T) {
 			foreign := attempted
 			foreign.DeploymentID, foreign.Released = tc.deployment, tc.released
 			if tc.wrongScope {
-				foreign.Scope = "sfo"
+				foreign.Scope = "sjc"
 			}
 			if tc.expired {
 				foreign.LeaseDuration = int64(time.Second)

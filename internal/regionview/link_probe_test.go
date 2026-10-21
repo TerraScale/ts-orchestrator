@@ -15,26 +15,26 @@ import (
 func TestProbeRequiresFreshExactRegionReply(t *testing.T) {
 	now := time.Now().UTC()
 	for name, reply := range map[string]Summary{
-		"fresh":         {Version: summaryVersion, Region: "sfo", ObservedAt: now},
+		"fresh":         {Version: summaryVersion, Region: "sjc", ObservedAt: now},
 		"wrong region":  {Version: summaryVersion, Region: "gru", ObservedAt: now},
-		"wrong version": {Version: summaryVersion + 1, Region: "sfo", ObservedAt: now},
-		"missing time":  {Version: summaryVersion, Region: "sfo"},
-		"stale":         {Version: summaryVersion, Region: "sfo", ObservedAt: now.Add(-3 * time.Minute)},
-		"future":        {Version: summaryVersion, Region: "sfo", ObservedAt: now.Add(2 * time.Minute)},
+		"wrong version": {Version: summaryVersion + 1, Region: "sjc", ObservedAt: now},
+		"missing time":  {Version: summaryVersion, Region: "sjc"},
+		"stale":         {Version: summaryVersion, Region: "sjc", ObservedAt: now.Add(-3 * time.Minute)},
+		"future":        {Version: summaryVersion, Region: "sjc", ObservedAt: now.Add(2 * time.Minute)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			calls := 0
 			provider := &Provider{Cell: "gru", Now: func() time.Time { return now }, Links: regionlink.Static{
-				LocalRegion: "gru", All: []string{"gru", "sfo"},
+				LocalRegion: "gru", All: []string{"gru", "sjc"},
 				Handler: func(_ context.Context, region, leaf string, payload []byte) ([]byte, error) {
-					if region != "sfo" || leaf != SummaryLeaf || string(payload) != string(summaryRequestPayload) {
+					if region != "sjc" || leaf != SummaryLeaf || string(payload) != string(summaryRequestPayload) {
 						t.Fatalf("probe changed the authenticated telemetry contract: %s %s %s", region, leaf, payload)
 					}
 					calls++
 					return json.Marshal(reply)
 				},
 			}}
-			result := provider.Probe(t.Context(), "sfo")
+			result := provider.Probe(t.Context(), "sjc")
 			if calls != 1 {
 				t.Fatalf("scheduled probe did not ask the link once: requests=%d", calls)
 			}
@@ -58,7 +58,7 @@ func TestProbeReachabilityPreservesAdmissionAndAuthenticatedWAN(t *testing.T) {
 	} {
 		t.Run(test.reach, func(t *testing.T) {
 			provider := &Provider{LinkProbes: func() []LinkProbe {
-				return []LinkProbe{{Region: "sfo", Reach: test.reach, WAN: "failed", Detail: "WAN has conflicts", LastSuccessAt: now}}
+				return []LinkProbe{{Region: "sjc", Reach: test.reach, WAN: "failed", Detail: "WAN has conflicts", LastSuccessAt: now}}
 			}}
 			reach := provider.Reachability(t.Context())
 			if len(reach) != 1 || reach[0].State != test.state || reach[0].WAN != test.wan || !reach[0].LastSeen.Equal(now) {
@@ -76,10 +76,10 @@ func TestProbeUnknownRegionDoesNotReportAnOutage(t *testing.T) {
 		t.Run(requestErr.Error(), func(t *testing.T) {
 			now := time.Now().UTC()
 			provider := &Provider{Cell: "gru", Now: func() time.Time { return now }, Links: regionlink.Static{
-				LocalRegion: "gru", All: []string{"gru", "sfo"},
+				LocalRegion: "gru", All: []string{"gru", "sjc"},
 				Handler: func(context.Context, string, string, []byte) ([]byte, error) { return nil, requestErr },
 			}}
-			summary := provider.Probe(t.Context(), "sfo")
+			summary := provider.Probe(t.Context(), "sjc")
 			if summary.Reach != decisionlog.RegionNotLinked || summary.Health.Status != StatusUnknown {
 				t.Fatalf("removed peer became an authenticated request failure: %+v", summary)
 			}

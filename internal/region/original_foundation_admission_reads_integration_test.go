@@ -566,11 +566,11 @@ func TestOriginalFoundationAdmissionReadSignedContract(t *testing.T) {
 			case "scope":
 				recipes[0].Operations[9].Scope = "tenancy"
 			case "object":
-				recipes[0].Objects[0] = "orchestrator/regions/v1/SFO.json"
+				recipes[0].Objects[0] = "orchestrator/regions/v1/SJC.json"
 			case "actor recipe":
 				recipes[0].ActorRecipeSHA256 = strings.Repeat("f", 64)
 			case "cell":
-				recipes[0].Cell = "SFO"
+				recipes[0].Cell = "SJC"
 			}
 			bundle := signProvisionFoundation(t, prepared, f.bundle.RootChainWire, f.root, f.now)
 			objects := func() map[string]string {
@@ -596,7 +596,7 @@ func TestOriginalFoundationAdmissionReadSignedContract(t *testing.T) {
 				f.cloud.creates != 0 || f.cloud.launchPosts != 0 || f.cloud.materialPosts != 0 || len(f.readDispatches()) != 0 || f.cloud.hasAnchor() || !maps.Equal(before, objects()) {
 				t.Fatal("owning original producer admitted an altered signed read contract or changed cloud/object state")
 			}
-			for _, cell := range [3]string{"GRU", "SFO", "FRA"} {
+			for _, cell := range [3]string{"GRU", "SJC", "FRA"} {
 				if _, err := os.Stat(f.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + cell + ".json")); !errors.Is(err, os.ErrNotExist) {
 					t.Fatal("rejected signed read contract acquired a protected regional journal")
 				}
@@ -626,7 +626,7 @@ func TestOriginalFoundationAdmissionReadRetainedScope(t *testing.T) {
 			case "source policy":
 				entry.SourcePolicyID = record.OriginalFoundationCompartments.Regions[1].SourceIAM.Provenance.ResourceID
 			case "object":
-				entry.Recipe.Objects[0] = "orchestrator/regions/v1/SFO.json"
+				entry.Recipe.Objects[0] = "orchestrator/regions/v1/SJC.json"
 			case "statement":
 				entry.Request.Statements = append(entry.Request.Statements, "Allow any-user to manage all-resources in tenancy")
 			case "receipt":

@@ -25,10 +25,10 @@ import (
 
 const gru = home
 
-// pair is SFO (left) and GRU (right), each with the private network
+// pair is SJC (left) and GRU (right), each with the private network
 // `oci-region foundation` creates plus the live rules no plan carries, bound
 // plans and a draft pair intent whose resource OCIDs are null. gru-1 keeps
-// its operator gateway LPG route; sfo-1 has a NAT gateway default route and
+// its operator gateway LPG route; sjc-1 has a NAT gateway default route and
 // HTTPS egress to Cloudflare and NetBird, added by hand (TS-640).
 type pair struct {
 	f                        *fakeOCI
@@ -220,7 +220,7 @@ func (x *pair) run(t *testing.T, apply bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p := &Peer{Clients: map[string]command.Client{sfo: client{x.f, sfo}, gru: client{x.f, gru}}, Out: &log, BeforeWrite: allowWrite, Guard: allowGuard,
+	p := &Peer{Clients: map[string]command.Client{sjc: client{x.f, sjc}, gru: client{x.f, gru}}, Out: &log, BeforeWrite: allowWrite, Guard: allowGuard,
 		Pause: func(context.Context, time.Duration) error { return nil },
 		Check: func(path string) error { return engine.CheckPrivatePeer(path, x.left, x.right) }}
 	err = p.Run(t.Context(), intent, plans, x.out, apply)
@@ -230,7 +230,7 @@ func (x *pair) run(t *testing.T, apply bool) (string, error) {
 // peerWrites are the writes a first apply makes, each once, in order.
 func peerWrites() []string {
 	var w []string
-	for _, region := range []string{sfo, gru} {
+	for _, region := range []string{sjc, gru} {
 		w = append(w, region+" network drg create", region+" network remote-peering-connection create")
 		for range 2 {
 			w = append(w, region+" network drg-route-distribution create", region+" network drg-route-table create")
@@ -238,8 +238,8 @@ func peerWrites() []string {
 		w = append(w, region+" network drg-attachment create", region+" network drg-attachment update",
 			region+" network drg-route-distribution-statement add", region+" network drg-route-distribution-statement add")
 	}
-	w = append(w, sfo+" network remote-peering-connection connect")
-	for _, region := range []string{sfo, gru} {
+	w = append(w, sjc+" network remote-peering-connection connect")
+	for _, region := range []string{sjc, gru} {
 		w = append(w, region+" network route-table update", region+" network nsg rules add", region+" network security-list update")
 	}
 	return w
@@ -257,8 +257,8 @@ func TestPeerDryRunPlansEveryChangeAndWritesNothing(t *testing.T) {
 	if _, err := os.Stat(x.out); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("dry run wrote the bound intent: %v", err)
 	}
-	for _, want := range []string{"plan: create DRG sfo-1-drg", "plan: create RPC gru-1-rpc-sfo-1", "plan: create DRG route table gru-1-drg-rpc-routes",
-		"plan: connect RPC sfo-1-rpc-gru-1 to gru-1-rpc-sfo-1 in sa-saopaulo-1", "plan: route 10.252.0.0/25 through gru-1-drg in gru-1's route table",
+	for _, want := range []string{"plan: create DRG sjc-1-drg", "plan: create RPC gru-1-rpc-sjc-1", "plan: create DRG route table gru-1-drg-rpc-routes",
+		"plan: connect RPC sjc-1-rpc-gru-1 to gru-1-rpc-sjc-1 in sa-saopaulo-1", "plan: route 10.252.0.0/25 through gru-1-drg in gru-1's route table",
 		fmt.Sprintf("%d changes planned", len(peerWrites()))} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("dry run output lacks %q:\n%s", want, log)
@@ -338,7 +338,7 @@ func TestPeerKeepsEveryExistingRule(t *testing.T) {
 	}
 	bound := obj(decode(mustRead(t, x.out)).(Object)["cells"])
 	for cell, b := range before {
-		peer := map[string]string{"GRU": "10.252.0.0/25", "SFO": "10.251.0.0/25"}[cell]
+		peer := map[string]string{"GRU": "10.252.0.0/25", "SJC": "10.251.0.0/25"}[cell]
 		want := append(arr(b.routes), Object{"destination": peer, "destination-type": "CIDR_BLOCK", "network-entity-id": obj(bound[cell])["drg_id"]})
 		if got := obj(b.table)["route-rules"]; command.JSON(got) != command.JSON(want) {
 			t.Fatalf("%s route rules\n%s\nwant\n%s", cell, command.JSON(got), command.JSON(want))
@@ -376,10 +376,10 @@ func TestPeerRefusesBeforeAnyChange(t *testing.T) {
 				"network-entity-id": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.other"})
 		}, "gru-1: live reciprocal subnet route table: a rule reaches the peer VCN"},
 		"NSG rule from anywhere": {func(x *pair) {
-			nsg := text(obj(x.plans["SFO"]["resource_ids"])["network_security_group"])
+			nsg := text(obj(x.plans["SJC"]["resource_ids"])["network_security_group"])
 			x.f.nsgRules[nsg] = append(x.f.nsgRules[nsg], Object{"direction": "INGRESS", "protocol": "6", "source": "0.0.0.0/0", "source-type": "CIDR_BLOCK",
 				"is-stateless": false, "tcp-options": Object{"destination-port-range": Object{"min": 7422, "max": 7422}}})
-		}, "sfo-1: live peer NSG rules: a rule reaches the peer VCN"},
+		}, "sjc-1: live peer NSG rules: a rule reaches the peer VCN"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			x := newPair(t)
@@ -396,7 +396,7 @@ func TestPeerRefusesBeforeAnyChange(t *testing.T) {
 
 func TestPeerRefusesOverlappingCells(t *testing.T) {
 	x := newPair(t)
-	// gru-1 renumbered into sfo-1's 10.252.0.0/24.
+	// gru-1 renumbered into sjc-1's 10.252.0.0/24.
 	wire := bytes.ReplaceAll(mustRead(t, x.right), []byte("10.251."), []byte("10.252."))
 	if err := os.WriteFile(x.right, wire, 0o644); err != nil {
 		t.Fatal(err)
@@ -460,7 +460,7 @@ func TestPeerDropPortRemovesOnlyThatRule(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		p := &Peer{Clients: map[string]command.Client{sfo: client{x.f, sfo}, gru: client{x.f, gru}}, Out: &log, BeforeWrite: allowWrite, Guard: allowGuard}
+		p := &Peer{Clients: map[string]command.Client{sjc: client{x.f, sjc}, gru: client{x.f, gru}}, Out: &log, BeforeWrite: allowWrite, Guard: allowGuard}
 		if err := p.Drop(t.Context(), intent, plans, port, apply); err != nil {
 			t.Fatalf("drop %d: %v\n%s", port, err, log.String())
 		}
@@ -471,7 +471,7 @@ func TestPeerDropPortRemovesOnlyThatRule(t *testing.T) {
 		t.Fatalf("dry drop wrote %v:\n%s", x.f.writes, log)
 	}
 	drop(7422, true)
-	if want := []string{sfo + " network nsg rules remove", gru + " network nsg rules remove"}; !slices.Equal(x.f.writes, want) {
+	if want := []string{sjc + " network nsg rules remove", gru + " network nsg rules remove"}; !slices.Equal(x.f.writes, want) {
 		t.Fatalf("drop wrote %v, want %v", x.f.writes, want)
 	}
 	for cell, live := range rules() {
@@ -489,7 +489,7 @@ func TestPeerDropPortRemovesOnlyThatRule(t *testing.T) {
 	if log, err := x.run(t, true); err != nil {
 		t.Fatalf("restore: %v\n%s", err, log)
 	}
-	if want := []string{sfo + " network nsg rules add", gru + " network nsg rules add"}; !slices.Equal(x.f.writes, want) {
+	if want := []string{sjc + " network nsg rules add", gru + " network nsg rules add"}; !slices.Equal(x.f.writes, want) {
 		t.Fatalf("restore wrote %v, want %v", x.f.writes, want)
 	}
 	var log bytes.Buffer

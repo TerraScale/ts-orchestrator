@@ -102,7 +102,7 @@ printf 'Token transport interface: %s\n\n' "${nb_interface:-UNVERIFIED}"
 token_header sa-saopaulo-1 \
 	ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq gru-1-orch-dashboard-token
 token_header us-sanjose-1 \
-	ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a sfo-1-orch-dashboard-token
+	ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a sjc-1-orch-dashboard-token
 
 printf '| Controller | A | AAAA | Via | Address | TCP 9463 | /healthz | /topology JSON | Result |\n'
 printf '|---|---|---|---|---|---|---|---|---|\n'
@@ -175,9 +175,9 @@ done <<'CONTROLLERS'
 ts-gru-1 10.200.87.215
 ts-gru-2 10.200.38.135
 ts-gru-3 10.200.168.164
-ts-sfo-1 10.200.112.213
-ts-sfo-2 10.200.122.37
-ts-sfo-3 10.200.63.195
+ts-sjc-1 10.200.112.213
+ts-sjc-2 10.200.122.37
+ts-sjc-3 10.200.63.195
 CONTROLLERS
 
 for listen in "$scratch"/*.listen; do

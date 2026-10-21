@@ -101,7 +101,7 @@ func TestSignedReadAccessRequiresCurrentOwnedFoundation(t *testing.T) {
 	if selected, err := resolver.ReadAccess(t.Context(), "GRU"); err != nil || selected.Cell() != "GRU" {
 		t.Fatalf("explicit signed region failed: %v", err)
 	}
-	if _, err := resolver.ReadAccess(t.Context(), "SFO"); !errors.Is(err, ErrReadAccessPending) {
+	if _, err := resolver.ReadAccess(t.Context(), "SJC"); !errors.Is(err, ErrReadAccessPending) {
 		t.Fatalf("unsigned region must stay pending: %v", err)
 	}
 	backup, err := resolver.BackupDestination(t.Context(), "FRA")

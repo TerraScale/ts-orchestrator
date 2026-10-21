@@ -231,7 +231,7 @@ Slices: collector and tags.
 2. Collector: `internal/ocicost` (report, Usage API reader, KV store,
    forecast), the leader loop and `ts-orch cost report`.
 3. Dashboard: summary field, `/cost`, landing tile.
-4. Tags: reconciler and `ts-orch cost tag`; live pass in GRU and SFO.
+4. Tags: reconciler and `ts-orch cost tag`; live pass in GRU and SJC.
 
 ## Coordination
 

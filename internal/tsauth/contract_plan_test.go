@@ -16,7 +16,7 @@ func TestBackendSet(t *testing.T) {
 	host := func(slot, ip string) ociregion.Object { return ociregion.Object{"slot": slot, "private_ip": ip} }
 	hosts := []any{host("controller-a", "10.251.0.11"), host("controller-b", "10.251.0.12"), host("controller-c", "10.251.0.13"),
 		host("0000000000WM3QQGQPMW5X58P9", "10.251.0.21")}
-	for cell, hostname := range map[string]string{"GRU": "gru.auth.terrascale.tech", "SFO": "sfo.auth.terrascale.tech"} {
+	for cell, hostname := range map[string]string{"GRU": "gru.auth.terrascale.tech", "SJC": "sjc.auth.terrascale.tech"} {
 		set, err := tsauth.BackendSet(ociregion.Object{"cell": cell, "hosts": hosts})
 		want := tsauth.LoadBalancer{Hostname: hostname, Backends: []string{"10.251.0.11", "10.251.0.12", "10.251.0.13"},
 			Port: 8080, HealthPath: "/readyz"}

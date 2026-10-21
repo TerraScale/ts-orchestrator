@@ -393,14 +393,14 @@ func TestCellPlanNamesTheCheckedInPhase2Cell(t *testing.T) {
 	}
 }
 
-// The checked-in sfo-1 plan founds a colocated cell of ts-sfo-1..3 outside
+// The checked-in sjc-1 plan founds a colocated cell of ts-sjc-1..3 outside
 // the home region, beside ts-ops's peering gateway of another cell.
 func TestCellPlanNamesTheCheckedInSFOCell(t *testing.T) {
-	path := filepath.Join("..", "..", "deploy", "oci-region", "sfo-1-plan.json")
+	path := filepath.Join("..", "..", "deploy", "oci-region", "sjc-1-plan.json")
 	plan := mustCapture(t, func() Object { return cellEngine().loadPlan(path) })
-	profile := filepath.Join(t.TempDir(), "terrabase-sfo-1-profile.json")
-	writeJSON(profile, Object{"env": Object{"TERRABASE_REGION": "sfo-1", "TERRABASE_PEER_PORT": "9443", "TERRABASE_CLIENT_PORT": "9465",
-		"TERRABASE_PEERS": "ts-sfo-1=10.252.0.11:9443,ts-sfo-2=10.252.0.12:9443,ts-sfo-3=10.252.0.13:9443"}})
+	profile := filepath.Join(t.TempDir(), "terrabase-sjc-1-profile.json")
+	writeJSON(profile, Object{"env": Object{"TERRABASE_REGION": "sjc-1", "TERRABASE_PEER_PORT": "9443", "TERRABASE_CLIENT_PORT": "9465",
+		"TERRABASE_PEERS": "ts-sjc-1=10.252.0.11:9443,ts-sjc-2=10.252.0.12:9443,ts-sjc-3=10.252.0.13:9443"}})
 	existing := obj(plan["existing_operations_host"])
 	gru := Object{"kind": "local-peering-gateway", "id": fakeOCID("localpeeringgateway", "sa-saopaulo-1", "gru"), "compartment-id": plan["shared_compartment_id"], "vcn-id": existing["vcn_id"], "lifecycle-state": "AVAILABLE"}
 	inventory := filepath.Join(t.TempDir(), "inventory.json")
@@ -418,8 +418,8 @@ func TestCellPlanNamesTheCheckedInSFOCell(t *testing.T) {
 	for _, v := range arr(result["controllers"]) {
 		controllers = append(controllers, text(obj(v)["name"])+"@"+text(obj(v)["private_ip"]))
 	}
-	if result["cell"] != "sfo-1" || result["oci_region"] != "us-sanjose-1" || result["image"] != "sfo-1-arm64" || len(arr(result["members"])) != 0 ||
-		strings.Join(controllers, ",") != "ts-sfo-1@10.252.0.11,ts-sfo-2@10.252.0.12,ts-sfo-3@10.252.0.13" ||
+	if result["cell"] != "sjc-1" || result["oci_region"] != "us-sanjose-1" || result["image"] != "sjc-1-arm64" || len(arr(result["members"])) != 0 ||
+		strings.Join(controllers, ",") != "ts-sjc-1@10.252.0.11,ts-sjc-2@10.252.0.12,ts-sjc-3@10.252.0.13" ||
 		obj(obj(result["estimate"])["items"])["compute"] != "41.1600" || greater(obj(result["estimate"])["total"], 200) {
 		t.Fatalf("cell plan = %v", result)
 	}

@@ -21,7 +21,7 @@ func TestClaimsUpdateCannotBypassTheContractCheck(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	root := t.TempDir()
-	region := newTestRegion(t, filepath.Join(root, "gru"), "gru", HubAndSpoke("gru", []string{"sfo"}))
+	region := newTestRegion(t, filepath.Join(root, "gru"), "gru", HubAndSpoke("gru", []string{"sjc"}))
 	region.cfg.Embedded.InterRegion.Listen = &LeafListen{Host: "0.0.0.0", Port: freeClientPort(t),
 		TLS: testBridgeTLS(t, filepath.Join(root, "leaf-tls"))}
 	runtime, err := Start(ctx, region.cfg)
@@ -30,7 +30,7 @@ func TestClaimsUpdateCannotBypassTheContractCheck(t *testing.T) {
 	}
 	defer runtime.Close()
 	initial := runtime.InitialCellJWT()
-	contract := InterRegionContract{Cell: "gru", Peers: []string{"sfo"}, GlobalHome: "gru"}
+	contract := InterRegionContract{Cell: "gru", Peers: []string{"sjc"}, GlobalHome: "gru"}
 	cellJWT := func(mutate func(*jwt.AccountClaims)) string {
 		t.Helper()
 		_, cell, _ := region.claims(contract, 1)

@@ -267,7 +267,7 @@ func TestSelfUpdatedBinaryNeedsRootVerifiedUpdateReceipt(t *testing.T) {
 		{"other environment", running, roots,
 			release.UpdateExpectation{Environment: "canary", Cell: "GRU", Architecture: "amd64"}, trust.ErrScopeMismatch},
 		{"other cell", running, roots,
-			release.UpdateExpectation{Environment: "production", Cell: "SFO", Architecture: "amd64"}, release.ErrExpectationMismatch},
+			release.UpdateExpectation{Environment: "production", Cell: "SJC", Architecture: "amd64"}, release.ErrExpectationMismatch},
 		{"other architecture", running, roots,
 			release.UpdateExpectation{Environment: "production", Cell: "GRU", Architecture: "arm64"}, release.ErrExpectationMismatch},
 		{"other root", running, otherRoots, expected, trust.ErrUntrustedKey},
@@ -596,7 +596,7 @@ func TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly(t *testing.T)
 			case "wrong environment":
 				record.Environment = "canary"
 			case "wrong cell":
-				record.Cell = "SFO"
+				record.Cell = "SJC"
 			case "wrong root":
 				public, _, err := ed25519.GenerateKey(rand.Reader)
 				if err != nil {

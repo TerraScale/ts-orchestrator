@@ -42,7 +42,7 @@ func TestCostBodyRendersEveryRegionState(t *testing.T) {
 	current.Now = time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	current.Global = []globalview.Region{
 		remoteCost("fra", &globalview.Cost{Currency: "BRL", PerHour: 0.1, MonthToDate: 16.01, MonthForecast: 54.51}, false),
-		remoteCost("sfo", nil, true),
+		remoteCost("sjc", nil, true),
 	}
 	page := render(current)
 	for _, want := range []string{"OCI cost", "GRU", "Method", "did not answer", "in rate", "BRL 16.01",
@@ -116,7 +116,7 @@ func TestCostPageAggregatesOnlyCompatibleReports(t *testing.T) {
 	cost.Components = []ocicost.Line{{Name: "controller", Cents: 300}}
 	cost.UntaggedCents = 340
 	current := localCost(cost)
-	current.Global = []globalview.Region{remoteCost("fra", &globalview.Cost{Currency: "USD", PerHour: .5, MonthToDate: 5, MonthForecast: 15}, false), remoteCost("sfo", nil, true)}
+	current.Global = []globalview.Region{remoteCost("fra", &globalview.Cost{Currency: "USD", PerHour: .5, MonthToDate: 5, MonthForecast: 15}, false), remoteCost("sjc", nil, true)}
 	body := fixturePage(t, current, "/cost")
 	for _, want := range []string{"USD 15.00", "USD 45.00", "compute", "storage", "controller", "untagged", "USD 0.05", "2 of 3 reported"} {
 		if !strings.Contains(body, want) {

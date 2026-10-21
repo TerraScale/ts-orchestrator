@@ -346,7 +346,7 @@ func capacityWriterDigest(record FoundationWriterRecord) (string, error) {
 }
 
 func capacityJournalPolicy(record FoundationWriterRecord) (identity.CreatePolicyDetails, error) {
-	return capacityPolicyDetails(record, []string{"GRU", "SFO", "FRA"}, "ts-capacity-journal-"+digestSource([]byte(record.InstallationID + "\x00" + record.InstanceID))[:32])
+	return capacityPolicyDetails(record, []string{"GRU", "SJC", "FRA"}, "ts-capacity-journal-"+digestSource([]byte(record.InstallationID + "\x00" + record.InstanceID))[:32])
 }
 
 func capacityScopeID(writer, purpose string, cells []string) (string, error) {
@@ -404,7 +404,7 @@ func capacityPolicyAt(record *FoundationWriterRecord, scope string) *CapacityJou
 
 func capacityPolicyCells(p *CapacityJournalPolicy) []string {
 	if len(p.Cells) == 0 {
-		return []string{"FRA", "GRU", "SFO"}
+		return []string{"FRA", "GRU", "SJC"}
 	}
 	return p.Cells
 }
@@ -428,7 +428,7 @@ func (w *CapacityJournalWriter) install(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if record.FoundationWriter.CapacityJournal != nil && slices.Equal(w.cells, []string{"FRA", "GRU", "SFO"}) {
+	if record.FoundationWriter.CapacityJournal != nil && slices.Equal(w.cells, []string{"FRA", "GRU", "SJC"}) {
 		scope = ""
 		details, err = capacityJournalPolicy(*record.FoundationWriter)
 		if err != nil {

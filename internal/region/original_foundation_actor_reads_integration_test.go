@@ -569,7 +569,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 			t.Fatal("READ continuation changed finite5 compartments+18network+4KMS+3actors+3policies or3NSG adds")
 		}
 		for index, post := range posts {
-			if post.cell != []string{"GRU", "SFO", "FRA"}[index] {
+			if post.cell != []string{"GRU", "SJC", "FRA"}[index] {
 				t.Fatal("public READ policy order escaped finite original cells")
 			}
 		}
@@ -1029,7 +1029,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 			"foreign release cell": func(g *FoundationGrant) {
 				for i := range g.ReleaseAuthorities {
 					if g.ReleaseAuthorities[i].Role == "ts-auth" {
-						g.ReleaseAuthorities[i].Cells = []string{"SFO", "FRA"}
+						g.ReleaseAuthorities[i].Cells = []string{"SJC", "FRA"}
 					}
 				}
 			},

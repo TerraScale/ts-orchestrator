@@ -38,7 +38,7 @@ func TestRemoteSummaryFromHostilePeerIsBounded(t *testing.T) {
 
 	const flood = 5000
 	names := make([]string, flood)
-	hostile := Summary{Version: summaryVersion, Region: "sfo", Local: true,
+	hostile := Summary{Version: summaryVersion, Region: "sjc", Local: true,
 		Versions: make([]Version, 100), Members: make([]Member, flood), Hosts: make([]Host, flood), Nodes: make([]Node, 100),
 		Decisions: []decisionlog.Decision{{ID: "forged", Region: "gru"}}}
 	for index := range flood {
@@ -88,32 +88,32 @@ func TestRemoteSummaryFromHostilePeerIsBounded(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	links, err := regionlink.New("gru", nil, []string{"SFO", "MIA", "sfo.>", "*", "fra.obs"}, time.Second)
+	links, err := regionlink.New("gru", nil, []string{"SJC", "MIA", "sjc.>", "*", "fra.obs"}, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if regions := links.Regions(); !slices.Equal(regions, []string{"gru", "mia", "sfo"}) {
+	if regions := links.Regions(); !slices.Equal(regions, []string{"gru", "mia", "sjc"}) {
 		t.Fatalf("regions = %v, injected tokens must be dropped", regions)
 	}
-	if err := links.Link("sfo.>", conn); err == nil {
+	if err := links.Link("sjc.>", conn); err == nil {
 		t.Fatal("a wildcard region must not link")
 	}
-	_ = links.Link("sfo", conn)
+	_ = links.Link("sjc", conn)
 	_ = links.Link("mia", conn)
 	local := &Provider{Cell: "gru", Cluster: staticCluster{cluster(member("c1", "v1", true))}, Links: links}
-	sfo := local.Probe(ctx, "sfo")
-	if sfo.Reach != decisionlog.RegionOK || sfo.Local || len(sfo.Decisions) != 0 {
-		t.Fatalf("sfo reach=%s local=%v decisions=%d", sfo.Reach, sfo.Local, len(sfo.Decisions))
+	sjc := local.Probe(ctx, "sjc")
+	if sjc.Reach != decisionlog.RegionOK || sjc.Local || len(sjc.Decisions) != 0 {
+		t.Fatalf("sjc reach=%s local=%v decisions=%d", sjc.Reach, sjc.Local, len(sjc.Decisions))
 	}
-	if len(sfo.Members) > maxTopologyMembers || len(sfo.Hosts) > maxTopologyHosts ||
-		len(sfo.Quorum.Missing) > maxTopologyMembers || len(sfo.Versions) != maxTopologyMembers ||
-		len(sfo.Versions[0].Members) != maxTopologyMembers || len(sfo.Members) != maxTopologyMembers {
-		t.Fatalf("unbounded peer lists: members=%d hosts=%d missing=%d versions=%d", len(sfo.Members), len(sfo.Hosts),
-			len(sfo.Quorum.Missing), len(sfo.Versions))
+	if len(sjc.Members) > maxTopologyMembers || len(sjc.Hosts) > maxTopologyHosts ||
+		len(sjc.Quorum.Missing) > maxTopologyMembers || len(sjc.Versions) != maxTopologyMembers ||
+		len(sjc.Versions[0].Members) != maxTopologyMembers || len(sjc.Members) != maxTopologyMembers {
+		t.Fatalf("unbounded peer lists: members=%d hosts=%d missing=%d versions=%d", len(sjc.Members), len(sjc.Hosts),
+			len(sjc.Quorum.Missing), len(sjc.Versions))
 	}
-	if len(sfo.Nodes) != maxTopologyMembers || len(sfo.Nodes[0].Services) != maxNodeServices ||
-		len(sfo.Nodes[0].Backends) != maxNodeBackends || len(sfo.Nodes[0].Fence) != maxNodeBackends {
-		t.Fatalf("unbounded peer nodes: nodes=%d", len(sfo.Nodes))
+	if len(sjc.Nodes) != maxTopologyMembers || len(sjc.Nodes[0].Services) != maxNodeServices ||
+		len(sjc.Nodes[0].Backends) != maxNodeBackends || len(sjc.Nodes[0].Fence) != maxNodeBackends {
+		t.Fatalf("unbounded peer nodes: nodes=%d", len(sjc.Nodes))
 	}
 	if mia := local.Probe(ctx, "mia"); mia.Reach != decisionlog.RegionError || len(mia.Members) != 0 {
 		t.Fatalf("a summary naming another region must be rejected: %s", mia.Reach)
@@ -124,7 +124,7 @@ func TestRemoteSummaryFromHostilePeerIsBounded(t *testing.T) {
 		t.Fatalf("requests seen = %v", seen)
 	}
 	for _, subject := range seen {
-		if subject != "ts.orch.v1.sfo.obs.region" && subject != "ts.orch.v1.mia.obs.region" {
+		if subject != "ts.orch.v1.sjc.obs.region" && subject != "ts.orch.v1.mia.obs.region" {
 			t.Errorf("unexpected request subject %q", subject)
 		}
 	}

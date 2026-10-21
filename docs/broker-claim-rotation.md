@@ -21,7 +21,7 @@ Roles get NATS identities ([role identities](nats-fabric.md#role-identities))
 only once the cell account holds the role signer. Material from
 `generate-controller-material` carries it in `cell.jwt` since TS-663, so a
 region founded from it needs no role claim. A cell founded before (gru-1,
-sfo-1) adds it once from the region's offline controller material:
+sjc-1) adds it once from the region's offline controller material:
 
 ```sh
 ts-orch bootstrap role-claim --material-directory "$MATERIAL" \

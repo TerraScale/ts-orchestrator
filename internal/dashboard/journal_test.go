@@ -35,7 +35,7 @@ type fakeDecisions struct {
 	chainErr    error
 	beforeQuery func(context.Context, decisionlog.Query) error
 	// complete answers every region in full instead of the default
-	// partial result with SFO unreachable.
+	// partial result with SJC unreachable.
 	complete bool
 }
 
@@ -51,10 +51,10 @@ func (source *fakeDecisions) Query(ctx context.Context, query decisionlog.Query)
 	}
 	query = query.Normalized()
 	result := decisionlog.Result{Regions: []decisionlog.RegionStatus{{Region: "fra", State: decisionlog.RegionOK},
-		{Region: "sfo", State: decisionlog.RegionUnreachable}}, Partial: true}
+		{Region: "sjc", State: decisionlog.RegionUnreachable}}, Partial: true}
 	if source.complete {
 		result = decisionlog.Result{Regions: []decisionlog.RegionStatus{{Region: "fra", State: decisionlog.RegionOK},
-			{Region: "sfo", State: decisionlog.RegionOK}}}
+			{Region: "sjc", State: decisionlog.RegionOK}}}
 	}
 	for _, decision := range source.decisions {
 		if query.Matches(decision) {
@@ -222,22 +222,22 @@ func testRegions() []regionview.Summary {
 			Versions: []regionview.Version{{Version: "v0.43.0", Members: []string{"ctl-1", "ctl-2"}}},
 			Capacity: regionview.Capacity{DiskBytes: 100, DiskUsedBytes: 40}, TerraBase: regionview.TerraBase{Databases: 2},
 			Counts: insights.Counts{Warning: 1}},
-		{Version: 1, Region: "sfo", Reach: decisionlog.RegionOK,
+		{Version: 1, Region: "sjc", Reach: decisionlog.RegionOK,
 			Health:   regionview.Health{Score: 37, Status: regionview.StatusCritical},
-			Quorum:   regionview.Quorum{Expected: 3, Answering: 2, Missing: []string{"sfo-ctl-3"}},
-			Versions: []regionview.Version{{Version: "v0.42.1", Members: []string{"sfo-ctl-1"}}, {Version: "v0.43.0", Members: []string{"sfo-ctl-2"}}},
-			Insights: []insights.Insight{testInsight("oci_throttled:sfo", "OCI is throttling the orchestrator (429)", insights.SeverityCritical, "sfo")},
+			Quorum:   regionview.Quorum{Expected: 3, Answering: 2, Missing: []string{"sjc-ctl-3"}},
+			Versions: []regionview.Version{{Version: "v0.42.1", Members: []string{"sjc-ctl-1"}}, {Version: "v0.43.0", Members: []string{"sjc-ctl-2"}}},
+			Insights: []insights.Insight{testInsight("oci_throttled:sjc", "OCI is throttling the orchestrator (429)", insights.SeverityCritical, "sjc")},
 			Counts:   insights.Counts{Critical: 1, Warning: 2}},
 		{Version: 1, Region: "gru", Reach: decisionlog.RegionNotLinked,
 			Health: regionview.Health{Status: regionview.StatusUnknown, Reasons: []string{"no cross-region link yet"}}},
 	}
 }
 
-// testGlobalView is the global view of this region (fra) with gru and sfo
+// testGlobalView is the global view of this region (fra) with gru and sjc
 // rolled up.
 func testGlobalView() *globalview.View {
-	global := globalview.NewView("fra", func() []string { return []string{"gru", "sfo"} }, func() time.Time { return testNow })
-	for _, cell := range []string{"gru", "sfo"} {
+	global := globalview.NewView("fra", func() []string { return []string{"gru", "sjc"} }, func() time.Time { return testNow })
+	for _, cell := range []string{"gru", "sjc"} {
 		global.Accept(overviewRollup(cell, testNow, nil))
 	}
 	return global
@@ -274,7 +274,7 @@ func fullJournal() (*Journal, *fakeInsights, *fakeDecisions) {
 		Global: testGlobalView(),
 		Versions: fakeVersions{{Region: "fra", Kind: "controller", Unit: "ctl-1", Version: "v0.43.0"},
 			{Region: "fra", Kind: "controller", Unit: "ctl-2", Version: "v0.42.1"},
-			{Region: "sfo", Kind: "seat", Unit: "orders-1", Version: "terrabase 3.8.1"}},
+			{Region: "sjc", Kind: "seat", Unit: "orders-1", Version: "terrabase 3.8.1"}},
 		Rollouts: fakeRollouts{{ID: "0000000000N6KCZG3MWDGZ0WBE", Release: "v0.43.0", Phase: "batch-1", PhaseStarted: testNow.Add(-time.Hour),
 			PhaseDeadline: testNow.Add(-time.Minute)}},
 		Volumes: fakeVolumes{{ID: "vol-stuck", Host: "host-a", State: "attaching", StateSince: testNow.Add(-time.Hour)}},
@@ -297,10 +297,10 @@ func TestJournalPagesRenderProviderData(t *testing.T) {
 	dashboard, _, _ := journalDashboard(Options{})
 	handler := dashboard.Handler()
 	for path, wants := range map[string][]string{
-		"/":          {"All regions", "Links between regions", "SFO"},
+		"/":          {"All regions", "Links between regions", "SJC"},
 		"/region":    {"Region FRA", "CPU by member", "ctl-1 nats filesystem full", "<ts-chart"},
 		"/insights":  {"Needs attention", "expected &lt; 85.0%", "du -xh", "data-copy", "data-notify-toggle", "Notify me"},
-		"/decisions": {"Decision journal", "Promoted the canary of v0.43.0", "sfo", "unreachable", "partial"},
+		"/decisions": {"Decision journal", "Promoted the canary of v0.43.0", "sjc", "unreachable", "partial"},
 		"/decisions?id=d2": {"canary health gates", "error_rate", "✓ passed", "extend the canary", "Admitted release v0.43.0",
 			"Promoted batch 1 of 3"},
 		"/releases":  {"Version matrix", "v0.43.0", "mixed versions", "rolled back", "signer-q4", "batch 1 of 3", "Target"},
@@ -332,8 +332,8 @@ func TestJournalPagesRenderProviderData(t *testing.T) {
 		}
 	}
 	// Another region's page is its global view, not this member's region page.
-	if response := get(t, handler, "/region?r=sfo"); response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/regions/sfo" {
-		t.Errorf("GET /region?r=sfo = %d to %q, want 303 to /regions/sfo", response.Code, response.Header().Get("Location"))
+	if response := get(t, handler, "/region?r=sjc"); response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/regions/sjc" {
+		t.Errorf("GET /region?r=sjc = %d to %q, want 303 to /regions/sjc", response.Code, response.Header().Get("Location"))
 	}
 }
 
@@ -425,8 +425,8 @@ func TestChartTooltipsEscapeProviderText(t *testing.T) {
 func TestURLStateIsValidatedAndCarried(t *testing.T) {
 	t.Parallel()
 	board, source, _ := journalDashboard(Options{})
-	body := get(t, board.Handler(), "/decisions?range=14d&r=SFO&live=0&kind=rollback,held&q=host-a&id=x%00y&actor=%3Cscript%3E&unknown=1").Body.String()
-	for _, want := range []string{"14d", "Paused", `value="sfo" selected`, `value="host-a"`} {
+	body := get(t, board.Handler(), "/decisions?range=14d&r=SJC&live=0&kind=rollback,held&q=host-a&id=x%00y&actor=%3Cscript%3E&unknown=1").Body.String()
+	for _, want := range []string{"14d", "Paused", `value="sjc" selected`, `value="host-a"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("query state lost %s", want)
 		}
@@ -436,7 +436,7 @@ func TestURLStateIsValidatedAndCarried(t *testing.T) {
 	}
 	for _, test := range []struct{ link, want string }{
 		{"https://evil.example/x", `href="/"`}, {"//evil.example/x", `href="/"`}, {"javascript:alert(1)", `href="/"`}, {"relative", `href="/"`},
-		{"/regions/SFO", `href="/regions/sfo"`}, {"/regions/SFO/nodes/Host-A", `href="/regions/sfo/nodes/Host-A"`}, {"/regions", `href="/"`}, {"/decisions?subject=seat/m1", `href="/decisions?q=m1"`}, {"/decisions?subject=db/p0/m1", `href="/decisions?q=db%2Fp0%2Fm1"`}, {"/decisions?subject=a&q=winner", `href="/decisions?q=winner"`},
+		{"/regions/SJC", `href="/regions/sjc"`}, {"/regions/SJC/nodes/Host-A", `href="/regions/sjc/nodes/Host-A"`}, {"/regions", `href="/"`}, {"/decisions?subject=seat/m1", `href="/decisions?q=m1"`}, {"/decisions?subject=db/p0/m1", `href="/decisions?q=db%2Fp0%2Fm1"`}, {"/decisions?subject=a&q=winner", `href="/decisions?q=winner"`},
 	} {
 		insight := testInsight("url", "URL target", insights.SeverityWarning, "")
 		insight.Entity = insights.Entity{Kind: "subject", ID: "one", Href: test.link}
@@ -545,8 +545,8 @@ func TestEveryPageStreamCarriesChrome(t *testing.T) {
 		"//evil.example/x",
 		"javascript:alert(1)",
 		"relative",
-		"/regions/SFO",
-		"/regions/SFO/nodes/Host-A",
+		"/regions/SJC",
+		"/regions/SJC/nodes/Host-A",
 		"/regions",
 		"/decisions?subject=seat/m1",
 		"/decisions?subject=db/p0/m1",
@@ -573,7 +573,7 @@ func TestEveryPageStreamCarriesChrome(t *testing.T) {
 			root:     "TestJournalPagesRenderProviderData",
 			board:    providerBoard,
 			path:     "/",
-			contains: []string{"All regions", "Links between regions", "SFO", "id=\"region-switcher\"", "id=\"attention-badge\"", "id=\"toasts\"", "<ts-palette"},
+			contains: []string{"All regions", "Links between regions", "SJC", "id=\"region-switcher\"", "id=\"attention-badge\"", "id=\"toasts\"", "<ts-palette"},
 		},
 		{
 			root:     "TestJournalPagesRenderProviderData",
@@ -591,7 +591,7 @@ func TestEveryPageStreamCarriesChrome(t *testing.T) {
 			root:     "TestJournalPagesRenderProviderData",
 			board:    providerBoard,
 			path:     "/decisions",
-			contains: []string{"Decision journal", "Promoted the canary of v0.43.0", "sfo", "unreachable", "partial", "id=\"region-switcher\"", "id=\"attention-badge\"", "id=\"toasts\"", "<ts-palette"},
+			contains: []string{"Decision journal", "Promoted the canary of v0.43.0", "sjc", "unreachable", "partial", "id=\"region-switcher\"", "id=\"attention-badge\"", "id=\"toasts\"", "<ts-palette"},
 		},
 		{
 			root:     "TestJournalPagesRenderProviderData",
@@ -668,8 +668,8 @@ func TestEveryPageStreamCarriesChrome(t *testing.T) {
 		{
 			root:     "TestJournalPagesRenderProviderData",
 			board:    providerBoard,
-			path:     "/region?r=sfo",
-			location: "/regions/sfo",
+			path:     "/region?r=sjc",
+			location: "/regions/sjc",
 		},
 		{
 			root:     "TestJournalPagesSayWhenProvidersAreMissing",
@@ -748,8 +748,8 @@ func TestEveryPageStreamCarriesChrome(t *testing.T) {
 		{
 			root:     "TestURLStateIsValidatedAndCarried",
 			board:    stateBoard,
-			path:     "/decisions?range=14d&r=SFO&live=0&kind=rollback,held&q=host-a&id=x%00y&actor=%3Cscript%3E&unknown=1",
-			contains: []string{"14d", "Paused", "value=\"sfo\" selected", "value=\"host-a\""},
+			path:     "/decisions?range=14d&r=SJC&live=0&kind=rollback,held&q=host-a&id=x%00y&actor=%3Cscript%3E&unknown=1",
+			contains: []string{"14d", "Paused", "value=\"sjc\" selected", "value=\"host-a\""},
 			absent:   []string{"value=\"x", "unknown=1", "<script>"},
 		},
 		{
@@ -785,14 +785,14 @@ func TestEveryPageStreamCarriesChrome(t *testing.T) {
 			board:  linkBoards[4],
 			path:   "/insights",
 			absent: []string{"href=\"https://evil", "href=\"javascript:"},
-			href:   "href=\"/regions/sfo\"",
+			href:   "href=\"/regions/sjc\"",
 		},
 		{
 			root:   "TestURLStateIsValidatedAndCarried",
 			board:  linkBoards[5],
 			path:   "/insights",
 			absent: []string{"href=\"https://evil", "href=\"javascript:"},
-			href:   "href=\"/regions/sfo/nodes/Host-A\"",
+			href:   "href=\"/regions/sjc/nodes/Host-A\"",
 		},
 		{
 			root:   "TestURLStateIsValidatedAndCarried",
@@ -993,7 +993,7 @@ func TestReleaseTimelineAndVersionDrift(t *testing.T) {
 		{Region: "fra", Kind: "controller", Unit: "a", Version: "v0.42.1"},
 		{Region: "fra", Kind: "controller", Unit: "b", Version: "v0.42.1"},
 		{Region: "fra", Kind: "controller", Unit: "c", Version: "v0.43.0"},
-		{Region: "sfo", Kind: "seat", Unit: "s", Version: "terrabase 3.8.1"},
+		{Region: "sjc", Kind: "seat", Unit: "s", Version: "terrabase 3.8.1"},
 	}}
 	body := fixturePage(t, current, "/releases")
 	for _, want := range []string{"v0.43.0", "signer-q4", "batch 1 of 3", "4.1%", "mixed versions", "2 units off the target version"} {
@@ -1303,8 +1303,8 @@ func TestRegionStreamOfAnotherRegionRedirects(t *testing.T) {
 	t.Parallel()
 	dashboard := newTestDashboard(Options{Snapshots: fixedSnapshots{snapshot: memberSnapshot()}})
 	server := newStreamServer(t, dashboard)
-	reader, _ := openStream(t, server, "/region/stream?r=sfo")
-	if eventType, data := reader.next(); eventType != "datastar-patch-elements" || !strings.Contains(data, "/regions/sfo") {
-		t.Fatalf("stream of another region's page = %s %q, want a redirect to /regions/sfo", eventType, data)
+	reader, _ := openStream(t, server, "/region/stream?r=sjc")
+	if eventType, data := reader.next(); eventType != "datastar-patch-elements" || !strings.Contains(data, "/regions/sjc") {
+		t.Fatalf("stream of another region's page = %s %q, want a redirect to /regions/sjc", eventType, data)
 	}
 }

@@ -249,7 +249,7 @@ func (signer functionPublicationSigner) workerUntil(t *testing.T, target release
 	}
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "function-controller-test", Bucket: "gru-1-head", Region: "GRU",
 		SignerKeyID: signerID, SignerPublicKey: encoded, Role: target.Role, Environment: target.Environment, SequenceFloor: 100}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	for _, cell := range []string{"GRU", "SJC", "FRA"} {
 		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 100, EvidenceSHA256: strings.Repeat("a", 64)})
 	}
 	migrationEnvelope, err := release.SignSequenceMigration(migration, now, signer.root)

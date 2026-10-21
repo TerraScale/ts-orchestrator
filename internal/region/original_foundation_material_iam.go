@@ -138,7 +138,7 @@ func originalMaterialIAMIntents(grant FoundationGrant, home bootstrap.StorageDom
 			}
 		}
 	}
-	for index, cell := range [3]string{"GRU", "SFO", "FRA"} {
+	for index, cell := range [3]string{"GRU", "SJC", "FRA"} {
 		found := false
 		for _, regional := range grant.Regions {
 			if regional.Plan["cell"] != cell {

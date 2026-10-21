@@ -46,7 +46,7 @@ func TestControllerHoldsAfterAttachedVolumeWithoutObservedDevice(t *testing.T) {
 }
 
 func TestControllerHoldsUnsupportedMultiRegionSenderBeforeAnyEffect(t *testing.T) {
-	intent := committedTestIntent(t, validIntent(oci.RegionGRU, oci.RegionSFO))
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU, oci.RegionSJC))
 	store := &placementMemoryStore{intents: []Intent{intent}, members: make(map[string]VersionedMemberState)}
 	fleet := &placementTestFleet{}
 	hosts := &placementTestHosts{}
@@ -548,7 +548,7 @@ func TestControllerHoldsUnpinnedChangedAndRemovedMembersBeforeOCI(t *testing.T) 
 	newProfile.ManagedHostProfiles[0].Compute.MemoryInGBs++
 	newGeneration = committedTestIntent(t, newGeneration)
 	newProfile = committedTestIntent(t, newProfile)
-	newPayload := committedTestIntent(t, validIntent(oci.RegionGRU, oci.RegionSFO))
+	newPayload := committedTestIntent(t, validIntent(oci.RegionGRU, oci.RegionSJC))
 	tests := []struct {
 		name   string
 		change func(*placementMemoryStore)

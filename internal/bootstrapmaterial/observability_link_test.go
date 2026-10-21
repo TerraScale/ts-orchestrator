@@ -34,9 +34,9 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 		material, directory string
 		record              bootstrapmaterial.InterRegionRecord
 	}
-	gruFixture, sfoFixture, link := bootstrapmaterial.ObservabilityLinkFixture(t)
+	gruFixture, sjcFixture, link := bootstrapmaterial.ObservabilityLinkFixture(t)
 	gru := linkedRegion{gruFixture.Material, gruFixture.Directory, gruFixture.Record}
-	sfo := linkedRegion{sfoFixture.Material, sfoFixture.Directory, sfoFixture.Record}
+	sjc := linkedRegion{sjcFixture.Material, sjcFixture.Directory, sjcFixture.Record}
 	read := func(directory, name string) []byte {
 		t.Helper()
 		data, err := os.ReadFile(filepath.Join(directory, name))
@@ -65,14 +65,14 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 		journal    *decisionlog.Journal
 		aggregator *observability.Aggregator
 	}
-	regions := []region{{linkedRegion: gru}, {linkedRegion: sfo}}
+	regions := []region{{linkedRegion: gru}, {linkedRegion: sjc}}
 	leafPort := freePort()
 	for index := range regions {
 		r := &regions[index]
 		var parent *bootstrapmaterial.ParentLink
 		if index == 1 {
 			parent = link
-			if err := os.WriteFile(filepath.Join(r.directory, "leaf-gru.creds"), read(gru.directory, "leaf-sfo.creds"), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(r.directory, "leaf-gru.creds"), read(gru.directory, "leaf-sjc.creds"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}

@@ -1,7 +1,7 @@
 {
     "schema_version": 2,
-    "purpose": "TS-640 sfo-1 founding plan; resource IDs are bound from authenticated readback",
-    "cell": "SFO",
+    "purpose": "TS-640 sjc-1 founding plan; resource IDs are bound from authenticated readback",
+    "cell": "SJC",
     "region": "us-sanjose-1",
     "availability_domain": "YDvv:US-SANJOSE-1-AD-1",
     "tenancy_id": "ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga",
@@ -30,9 +30,9 @@
         "min_mbps": 10,
         "max_mbps": 10,
         "terrabase_members": [
-            "ts-sfo-1",
-            "ts-sfo-2",
-            "ts-sfo-3"
+            "ts-sjc-1",
+            "ts-sjc-2",
+            "ts-sjc-3"
         ],
         "origin_pull": {
             "ca_certificate": "-----BEGIN CERTIFICATE-----\nMIIEUTCCArmgAwIBAgIUVQMvG86xH8Oe2imBdIQ2F7gqSf4wDQYJKoZIhvcNAQEL\nBQAwPzEoMCYGA1UEAwwfVGVycmFTY2FsZSBncnUtMSBvcmlnaW4tcHVsbCBDQTET\nMBEGA1UECgwKVGVycmFTY2FsZTAeFw0yNjEwMDUyMDI0MDdaFw00NjEwMDUyMDI0\nMDdaMD8xKDAmBgNVBAMMH1RlcnJhU2NhbGUgZ3J1LTEgb3JpZ2luLXB1bGwgQ0Ex\nEzARBgNVBAoMClRlcnJhU2NhbGUwggGiMA0GCSqGSIb3DQEBAQUAA4IBjwAwggGK\nAoIBgQCfZDi4Lk4WIsBekqZzQYQiRgeSu+WT358Rc+rojpm8ADBZmkhGqneVWrcL\ncU/UlKjGhD3tAlhCnS296e+/MXaLqc7PkoCQD5oJkU3Z7C6efaP3FwDEbJdmOKde\n78lw/vDIPHOkagpvqwag5UrECXDCOcrP70EWrbIv8VTtXsqW/rIDqCfSHN7/CfNV\nMGvwxAjw/d/oCLWwkBceEM1q6yTPemjKgHgYR5/vtyP2E2QdORnj6JYATp119Dub\ny9Gjzvgvvir4XjMOnGEfzAXtPedk5N6MDQqc+clP1obQshKmYzXYBCyvmb75eHOl\nBXlqDvSjyaWYZiRJlhMuvUHhEY4/R73jKQyX9e4/G1lVTKnZtZdQgaUrUip3xyyp\nNVu7ZWNcC8cFv6jV/U7kiVe0sKhhNzy9TBaECZrhE+q3sg7qVm5+oich2nzfN16H\nrJYg6cQeQw0Nwj8raVbGxamk9V1wYauHlL3oWoNowv1WzTdaWeJsjAarOjvYISqj\nIwTte8cCAwEAAaNFMEMwEgYDVR0TAQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMC\nAQYwHQYDVR0OBBYEFPl7g86fahHbLH9sohay0Ere1XVqMA0GCSqGSIb3DQEBCwUA\nA4IBgQB+SJenHU8BFfPdHvevCfXaNrUX14gXsOhw0WNOulgIu9UCVt4tOLD8RVhI\nSNjHQdTwsRqtt5cbkxna+px6Spsb1AdwJz80f/FkCwavVvAfYi+CMeMqj9NEz3CX\njsqKbomqAVBQVNdyciw9bW44/YX6a+oEblXF+1/gegZqca18G3IHnf2kQtXPpAQc\nT06bxucPHoGysM6pOXJJnU7ZNwTBHC8nz5qHPLGAp/HE3fW8Bb2qd7+HOhbYZp3Y\nv4dEq4uwaiqJzOGfT2IrHnI/GIPTweJk07Y1I3UXsMOZ+WqkTdZDXzGPffdf4sEH\n8EDaUb7zqFlSaq5fhg9Wo55csMBBMUxct8v+Q9u/zuE3R8cxCrZSTcTYpwviwebN\nMBZo2jHuRqn4ftCZE7VzOv29+MmUjUGp+9JL7lNqrZBLTmz1GAxWA3//rGO24zPS\nLu7LCqQH5urpoq/lxay8RgRE/Cn7o6xNsC81HfEL/D9QnihRKYkF1Luc9LlBtmIv\nu0fAaNg=\n-----END CERTIFICATE-----\n",
@@ -41,15 +41,15 @@
         "orch": true
     },
     "preview_compartment_names": {
-        "control": "sfo-1-control",
-        "network": "sfo-1-network",
-        "workload": "sfo-1-workload"
+        "control": "sjc-1-control",
+        "network": "sjc-1-network",
+        "workload": "sjc-1-workload"
     },
     "foundation_buckets": {
-        "ledger": "sfo-1-ledger",
-        "head": "sfo-1-head",
-        "backup": "sfo-1-backup",
-        "material": "sfo-1-material"
+        "ledger": "sjc-1-ledger",
+        "head": "sjc-1-head",
+        "backup": "sjc-1-backup",
+        "material": "sjc-1-material"
     },
     "bucket_retention_days": 35,
     "network_security": {
@@ -279,11 +279,11 @@
         "service_gateway_cidr_block": "all-sjc-services-in-oracle-services-network"
     },
     "identity": {
-        "controller_dynamic_group_name": "sfo-1-controllers",
-        "controller_policy_name": "sfo-1-controller-policy",
-        "objectstorage_key_policy_name": "sfo-1-objectstorage-key",
-        "host_dynamic_group_name": "sfo-1-hosts",
-        "host_policy_name": "sfo-1-host-live-s3-secret"
+        "controller_dynamic_group_name": "sjc-1-controllers",
+        "controller_policy_name": "sjc-1-controller-policy",
+        "objectstorage_key_policy_name": "sjc-1-objectstorage-key",
+        "host_dynamic_group_name": "sjc-1-hosts",
+        "host_policy_name": "sjc-1-host-live-s3-secret"
     },
     "host_credential_secret": {
         "compartment_id": null,

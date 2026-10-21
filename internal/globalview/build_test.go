@@ -102,8 +102,8 @@ func TestBuildHealth(t *testing.T) {
 			in.Reports[0].Report.Host.Filesystems = []observability.FilesystemView{{Role: "state", SizeBytes: 100, FreeBytes: 5, Device: 1}}
 		}, status: Degraded, reason: "1 of 4 nodes need attention"},
 		{name: "link unreachable", mutate: func(in *Inputs) {
-			in.Links = []regionview.LinkProbe{{Region: "SFO", Reach: "unreachable", Detail: "timeout"}}
-		}, status: Degraded, reason: "link to sfo: unreachable"},
+			in.Links = []regionview.LinkProbe{{Region: "SJC", Reach: "unreachable", Detail: "timeout"}}
+		}, status: Degraded, reason: "link to sjc: unreachable"},
 		{name: "unprobed WAN peer stays healthy", mutate: func(in *Inputs) {
 			in.Reports[0].Report.Roles = []hostload.RoleUsage{{Role: "terrabase", WAN: &terrabase.WANObservation{
 				ReceiverRegion: "gru", Sources: []terrabase.WANSource{{SourceRegion: "nrt"}}}}}
@@ -215,24 +215,24 @@ func TestBuildLinksCarryWANLag(t *testing.T) {
 	in := healthyRegion()
 	in.Links = []regionview.LinkProbe{
 		{Region: "GRU", Reach: "ok", RoundTripMS: 12.5},
-		{Region: "SFO", Reach: "unreachable", Detail: "timeout"},
+		{Region: "SJC", Reach: "unreachable", Detail: "timeout"},
 	}
 	in.Reports[0].Report.Roles = []hostload.RoleUsage{{Role: "terrabase", WAN: &terrabase.WANObservation{
 		ReceiverRegion: "gru",
 		Sources: []terrabase.WANSource{
-			{SourceRegion: "sfo", StalenessSeconds: ptrTo(4.0)},
+			{SourceRegion: "sjc", StalenessSeconds: ptrTo(4.0)},
 			{SourceRegion: "NRT", StalenessSeconds: ptrTo(9.0)},
 		},
 	}}}
 	in.Reports[1].Report.Roles = []hostload.RoleUsage{{Role: "terrabase", WAN: &terrabase.WANObservation{
 		ReceiverRegion: "gru",
-		Sources:        []terrabase.WANSource{{SourceRegion: "SFO", StalenessSeconds: ptrTo(7.0)}},
+		Sources:        []terrabase.WANSource{{SourceRegion: "SJC", StalenessSeconds: ptrTo(7.0)}},
 	}}}
 	rollup := observedRollup(t, in)
 	want := []Link{
 		{Region: "gru", Reach: "ok", RTTMillis: ptrTo(12.5)},
 		{Region: "nrt", Reach: "unknown", LagSeconds: ptrTo(9.0)},
-		{Region: "sfo", Reach: "unreachable", Error: "timeout", LagSeconds: ptrTo(7.0)},
+		{Region: "sjc", Reach: "unreachable", Error: "timeout", LagSeconds: ptrTo(7.0)},
 	}
 	if len(rollup.Links) != len(want) {
 		t.Fatalf("links = %+v, want %d", rollup.Links, len(want))

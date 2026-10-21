@@ -18,9 +18,9 @@ versions were both `0.79.0`, with daemon status `Connected`, at
 | ts-gru-1 | gru-1-ctl-1 | gru-1-ctl-1 | 10.200.87.215 | 10.251.0.11 | 0.79.0 |
 | ts-gru-2 | ts-gru-2 | gru-1-ctl-2 | 10.200.38.135 | 10.251.0.12 | 0.79.0 |
 | ts-gru-3 | gru-1-ctl-3 | gru-1-ctl-3 | 10.200.168.164 | 10.251.0.13 | 0.79.0 |
-| ts-sfo-1 | ts-sfo-1 | ts-sfo-1 | 10.200.112.213 | 10.252.0.11 | 0.79.0 |
-| ts-sfo-2 | ts-sfo-2 | ts-sfo-2 | 10.200.122.37 | 10.252.0.12 | 0.79.0 |
-| ts-sfo-3 | ts-sfo-3 | ts-sfo-3 | 10.200.63.195 | 10.252.0.13 | 0.79.0 |
+| ts-sjc-1 | ts-sjc-1 | ts-sjc-1 | 10.200.112.213 | 10.252.0.11 | 0.79.0 |
+| ts-sjc-2 | ts-sjc-2 | ts-sjc-2 | 10.200.122.37 | 10.252.0.12 | 0.79.0 |
+| ts-sjc-3 | ts-sjc-3 | ts-sjc-3 | 10.200.63.195 | 10.252.0.13 | 0.79.0 |
 
 GRU peer names do not imply that OCI or host renaming has completed. Verify
 the instance identity, private address and host grant again before acting.
@@ -29,7 +29,7 @@ The initial inventory found no public address on any of these six nodes.
 ## Rollout gates at 20:54–20:56 UTC
 
 **DNS now passes.** Every controller resolved all six
-`ts-{gru,sfo}-{1,2,3}.nb.ts.internal` names through native `getent ahostsv4`
+`ts-{gru,sjc}-{1,2,3}.nb.ts.internal` names through native `getent ahostsv4`
 to the addresses above. This changes the initial 20:33 inventory, when
 controller DNS failed and same-cell peers were absent. Same-cell peers now
 appear in status, often `Idle`; that status alone does not establish TCP
@@ -44,7 +44,7 @@ three seconds; it does not distinguish ACL rejection from timeout.
 | Source → target | Target OCI SSH :22 | Target OCI NATS :4222 | Target NetBird :22/:4222/:8080/:9465 |
 | --- | --- | --- | --- |
 | ts-gru-2 → ts-gru-1, 20:55:32 UTC | Blocked | Open | All blocked |
-| ts-sfo-2 → ts-sfo-1, 20:55:33 UTC | Open | Open | All blocked |
+| ts-sjc-2 → ts-sjc-1, 20:55:33 UTC | Open | Open | All blocked |
 
 The target NetBird ts-auth `/readyz` and TerraBase `/readyz` requests returned
 no HTTP response from both controller sources. NATS listens only on each
@@ -55,19 +55,19 @@ not evidence that NATS works over the mesh.
 
 All six local ts-auth `http://127.0.0.1:8080/readyz` probes returned HTTP 200.
 Local TerraBase `https://127.0.0.1:9465/readyz` returned 200 on GRU1, GRU3
-and all SFO nodes. **GRU2 has no TerraBase :9465 listener** and returned no
+and all SJC nodes. **GRU2 has no TerraBase :9465 listener** and returned no
 HTTP response. The TerraBase diagnostic used `curl --insecure` solely to
 separate application readiness from certificate-name configuration; it is
 not a verified TLS or mesh-health result. All six dashboard listeners were
-still `127.0.0.1:9463`; operator requests to the GRU1/SFO1 NetBird dashboard
+still `127.0.0.1:9463`; operator requests to the GRU1/SJC1 NetBird dashboard
 addresses failed to connect.
 
 The initial inventory proved conventional `ubuntu@10.252.0.11` SSH from
-mariogk-dev through untouched SFO2 as a TCP relay, using the existing owner
-key. It returned `ts-sfo-1`, `ubuntu`, and `sudo -n netbird version` =
+mariogk-dev through untouched SJC2 as a TCP relay, using the existing owner
+key. It returned `ts-sjc-1`, `ubuntu`, and `sudo -n netbird version` =
 `0.79.0`. The target host key matched an independently observed NetBird SSH
 host key. This target-VCN path does not depend on the target NetBird daemon,
-but requires the relay to remain connected. Recheck it for each SFO target.
+but requires the relay to remain connected. Recheck it for each SJC target.
 GRU still has no verified independent target SSH path. The initial OCI
 Bastion lists were empty in both control compartments and the TerraScale
 parent compartment; this refresh did not create a Bastion or alter ingress.
@@ -76,7 +76,7 @@ parent compartment; this refresh did not create a Bastion or alter ingress.
 
 Existing root-owned operator configurations on mariogk-dev are
 `/var/lib/terrascale-operator/operator.json` for GRU and
-`/var/lib/terrascale-operator-sfo/operator.json` for SFO. Their NATS URLs name
+`/var/lib/terrascale-operator-sjc/operator.json` for SJC. Their NATS URLs name
 the OCI private addresses. TLS, signing and credential files remain beside
 the configurations; no credential or private-key contents were printed.
 Use transient `--nats-forward` mappings when direct private access is
@@ -133,10 +133,10 @@ after version, checks and rollback outcome in this retained record. No
 
 ## Read-only refresh, 22:08–22:09 UTC
 
-GRU2 and SFO2 still reported NetBird `0.79.0`. Both inspected controllers
+GRU2 and SJC2 still reported NetBird `0.79.0`. Both inspected controllers
 resolved all six peer names. The representative same-cell mesh probes above
 still failed on ports 22/4222/8080/9465; GRU OCI SSH22 remained blocked,
-while SFO OCI SSH22 was open. GRU2 still had no TerraBase :9465 listener.
+while SJC OCI SSH22 was open. GRU2 still had no TerraBase :9465 listener.
 No host, configuration or network was changed by this refresh.
 
 TS-632's 22:16–22:18 UTC coordination still held GRU generation 5 frozen

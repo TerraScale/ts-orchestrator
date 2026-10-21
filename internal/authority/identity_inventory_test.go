@@ -116,10 +116,10 @@ func TestIdentityResetInventoryRetainsForeignCellAndRefusesLateTombstone(t *test
 	if _, err := f.js.Publish(t.Context(), "ts.control.gru.host.audit", foreign); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.js.Publish(t.Context(), "ts.control.sfo.host.registration.sfo.node-a", foreign); err != nil {
+	if _, err := f.js.Publish(t.Context(), "ts.control.sjc.host.registration.sjc.node-a", foreign); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.buckets["TS_HOST_STATE"].Put(t.Context(), "retired.sfo.node-a", foreign); err != nil {
+	if _, err := f.buckets["TS_HOST_STATE"].Put(t.Context(), "retired.sjc.node-a", foreign); err != nil {
 		t.Fatal(err)
 	}
 	floor, err := ObserveIdentityResetFloor(t.Context(), f.js, f.reset.Scope, f.target.Replicas)
@@ -145,7 +145,7 @@ func TestIdentityResetInventoryRetainsForeignCellAndRefusesLateTombstone(t *test
 	if _, err := CompleteIdentityReset(t.Context(), f.js, f.envelope, f.roots, f.target, time.Now()); !errors.Is(err, ErrConflict) {
 		t.Fatalf("unreviewed tombstone released held authority: %v", err)
 	}
-	entry, err := kv.Get(t.Context(), "retired.sfo.node-a")
+	entry, err := kv.Get(t.Context(), "retired.sjc.node-a")
 	if err != nil || !bytes.Equal(entry.Value(), foreign) {
 		t.Fatalf("foreign cell key changed: %v", err)
 	}

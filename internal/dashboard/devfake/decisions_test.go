@@ -351,17 +351,17 @@ func (world *World) fullRollout(chain *releaseChain, start time.Time, gates func
 		"Every unit runs the release and the gates held.", "rollout complete", nil, nil)
 }
 
-// seedCurrentRelease: v0.43.0 completed in GRU, is in batch 1 in SFO and is
+// seedCurrentRelease: v0.43.0 completed in GRU, is in batch 1 in SJC and is
 // held in FRA; v0.42.9 was rolled back at canary in FRA.
 func (world *World) seedCurrentRelease(now time.Time, gates func(float64, float64) []decisionlog.Signal) {
-	gru, sfo, fra := world.regions[0], world.regions[1], world.regions[2]
+	gru, sjc, fra := world.regions[0], world.regions[1], world.regions[2]
 	current := decisionlog.Subject{Kind: "release", ID: entityid.Derive("preview-release", "9f2c7ab3e410"), Name: "v0.43.0"}
 	world.fullRollout(&releaseChain{store: world.store, region: gru.name, member: gru.leader, release: current, epoch: gru.epoch},
 		now.Add(-6*time.Hour), gates)
-	chain := &releaseChain{store: world.store, region: sfo.name, member: sfo.leader, release: current, epoch: sfo.epoch}
+	chain := &releaseChain{store: world.store, region: sjc.name, member: sjc.leader, release: current, epoch: sjc.epoch}
 	start := now.Add(-110 * time.Minute)
 	chain.step(start, decisionlog.KindReleaseAdmitted, decisionlog.StatusSucceeded, "Admitted release v0.43.0",
-		"GRU completed v0.43.0 with every gate passing.", "region waves: GRU, then SFO, then FRA",
+		"GRU completed v0.43.0 with every gate passing.", "region waves: GRU, then SJC, then FRA",
 		[]decisionlog.Signal{{Name: "qualification", Text: "passed 14/14 suites"}, {Name: "previous_wave", Text: "gru complete"}},
 		map[string]string{"qualification": "passed", "delegation": "release-signer-2026q4"})
 	chain.step(start.Add(8*time.Minute), decisionlog.KindUpgradeStarted, decisionlog.StatusSucceeded, "Staged v0.43.0 on every unit",
@@ -375,7 +375,7 @@ func (world *World) seedCurrentRelease(now time.Time, gates func(float64, float6
 		map[string]string{"batch": "1", "batches": "3"})
 	fraChain := &releaseChain{store: world.store, region: fra.name, member: fra.leader, release: current, epoch: fra.epoch}
 	fraChain.step(now.Add(-150*time.Minute), decisionlog.KindReleaseAdmitted, decisionlog.StatusSucceeded, "Admitted release v0.43.0",
-		"GRU completed v0.43.0.", "region waves: GRU, then SFO, then FRA", nil,
+		"GRU completed v0.43.0.", "region waves: GRU, then SJC, then FRA", nil,
 		map[string]string{"qualification": "passed", "delegation": "release-signer-2026q4"})
 	fraChain.step(now.Add(-140*time.Minute), decisionlog.KindHeld, decisionlog.StatusPending, "Held v0.43.0 before staging",
 		"FRA is below full controller strength; a rollout waits for full quorum.", "rollouts need full quorum",

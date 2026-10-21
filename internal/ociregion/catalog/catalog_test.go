@@ -10,7 +10,7 @@ import (
 
 func TestCellOfNamesOCIRegionsAsTheCatalogDoes(t *testing.T) {
 	cases := []struct{ name, key, cell string }{
-		{"us-sanjose-1", "SJC", "sfo"},
+		{"us-sanjose-1", "SJC", "sjc"},
 		{"sa-saopaulo-1", "GRU", "gru"},
 		{"uk-london-1", "LHR", "lhr"},
 	}
@@ -22,7 +22,7 @@ func TestCellOfNamesOCIRegionsAsTheCatalogDoes(t *testing.T) {
 }
 
 func TestCatalogIsClosedAndOrdered(t *testing.T) {
-	if got := Names()[:3]; !slices.Equal(got, []string{"gru", "sfo", "fra"}) {
+	if got := Names()[:3]; !slices.Equal(got, []string{"gru", "sjc", "fra"}) {
 		t.Fatalf("leading cells=%v", got)
 	}
 	if OCIRegion(Bootstrap) != "sa-saopaulo-1" {
@@ -44,7 +44,7 @@ func TestCatalogIsClosedAndOrdered(t *testing.T) {
 			t.Fatalf("accepted OCI region %q", rejected)
 		}
 	}
-	if MatchesName("sfo", GRU) || MatchesName("GRU", GRU) {
+	if MatchesName("sjc", GRU) || MatchesName("GRU", GRU) {
 		t.Fatal("name match is not exact")
 	}
 	m := Map()
@@ -61,7 +61,7 @@ func TestFoundedIsExactlyTheAddressPlanCells(t *testing.T) {
 	for _, entry := range Founded() {
 		cells = append(cells, entry.Cell)
 	}
-	if !slices.Equal(cells, []string{GRU, SFO, FRA}) {
+	if !slices.Equal(cells, []string{GRU, SJC, FRA}) {
 		t.Fatalf("founded cells=%v", cells)
 	}
 }
@@ -78,7 +78,7 @@ func TestEveryCatalogRegionIsKnownToTheOCISDK(t *testing.T) {
 			t.Fatalf("OCI SDK maps %q to %q", entry.OCIRegion, got)
 		}
 		short := strings.ToLower(entry.Cell)
-		if entry.Cell == SFO {
+		if entry.Cell == SJC {
 			short = "sjc"
 		}
 		if got := string(common.StringToRegion(short)); got != entry.OCIRegion {

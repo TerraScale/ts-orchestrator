@@ -185,7 +185,7 @@ func TestImageQualificationSignedEvidenceHTTP(t *testing.T) {
 			case "architecture":
 				input.Expected.Architecture = "arm64"
 			case "cell":
-				input.Expected.LogicalRegion = "SFO"
+				input.Expected.LogicalRegion = "SJC"
 			case "environment":
 				input.Expected.Environment = "canary"
 			}

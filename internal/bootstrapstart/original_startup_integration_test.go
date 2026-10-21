@@ -46,13 +46,13 @@ func TestOriginalOriginHOMEChainAndRegionalFilesIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	origin := originalStartupOrigin{SchemaVersion: 1, Cell: oci.RegionSFO, AnchorWire: anchorWire, RootChainWire: chainWire,
+	origin := originalStartupOrigin{SchemaVersion: 1, Cell: oci.RegionSJC, AnchorWire: anchorWire, RootChainWire: chainWire,
 		GrantWire: []byte("untrusted transport DATA"), AuthorityWire: []byte("untrusted transport DATA")}
 	verified, roots, err := origin.verifyAnchor(genesis, now)
 	if err != nil || verified.Digest() != anchor.Digest() || len(roots) != 2 {
 		t.Fatalf("genuine HOME rotation boundary: %v", err)
 	}
-	regional := BakedIdentity{SchemaVersion: 1, DeploymentID: "0000000000NBCYX286D4RHE6ZP", Environment: home.Environment, Cell: oci.RegionSFO}
+	regional := BakedIdentity{SchemaVersion: 1, DeploymentID: "0000000000NBCYX286D4RHE6ZP", Environment: home.Environment, Cell: oci.RegionSJC}
 	if regional.DeploymentID == verified.Anchor().DeploymentID || verified.Anchor().Cell != oci.RegionGRU {
 		t.Fatal("fixture did not retain distinct regional and HOME identities")
 	}

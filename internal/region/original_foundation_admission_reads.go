@@ -99,7 +99,7 @@ func originalAdmissionReadIntents(grant FoundationGrant, home bootstrap.StorageD
 	if grant.OriginalActorAdmissionReads != nil {
 		version = (*grant.OriginalActorAdmissionReads)[0].Purpose
 	}
-	for index, cell := range [3]string{"GRU", "SFO", "FRA"} {
+	for index, cell := range [3]string{"GRU", "SJC", "FRA"} {
 		found := false
 		for _, regional := range grant.Regions {
 			if regional.Plan["cell"] != cell {

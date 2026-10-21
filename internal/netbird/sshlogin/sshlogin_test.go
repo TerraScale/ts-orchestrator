@@ -280,28 +280,28 @@ func TestDestinationNamingAPeerUsesItsNetBirdIP(t *testing.T) {
 	// The shape of "netbird status --json", including 0.80's IPv6 field.
 	status := []byte(`{"fqdn":"delta.nb.ts.internal","netbirdIp":"10.200.87.10/16","peers":{"details":[
 		{"fqdn":"gru-1-ctl-1.nb.ts.internal","netbirdIp":"10.200.87.215","status":"Connected"},
-		{"fqdn":"ts-sfo-1.nb.ts.internal","netbirdIp":"10.200.112.213","netbirdIpv6":"fd9c:200::1","status":"Idle"},
+		{"fqdn":"ts-sjc-1.nb.ts.internal","netbirdIp":"10.200.112.213","netbirdIpv6":"fd9c:200::1","status":"Idle"},
 		{"fqdn":"broken.nb.ts.internal","netbirdIp":"not-an-ip"}]}}`)
 	addresses := peerAddresses(status)
 	dualStack := allPeerAddresses(status)
-	if dualStack["ts-sfo-1"].IPv6 != "fd9c:200::1" || dualStack["ts-sfo-1.nb.ts.internal"].IPv6 != "fd9c:200::1" || dualStack["gru-1-ctl-1"].IPv6 != "" {
+	if dualStack["ts-sjc-1"].IPv6 != "fd9c:200::1" || dualStack["ts-sjc-1.nb.ts.internal"].IPv6 != "fd9c:200::1" || dualStack["gru-1-ctl-1"].IPv6 != "" {
 		t.Fatalf("peer address families = %#v", dualStack)
 	}
 	for name, tc := range map[string]struct{ args, want []string }{
 		"DNS name":   {[]string{"root@gru-1-ctl-1.nb.ts.internal", "hostname"}, []string{"root@10.200.87.215", "hostname"}},
-		"peer name":  {[]string{"-L", "1:127.0.0.1:2", "root@ts-sfo-1", "sleep", "9"}, []string{"-L", "1:127.0.0.1:2", "root@10.200.112.213", "sleep", "9"}},
+		"peer name":  {[]string{"-L", "1:127.0.0.1:2", "root@ts-sjc-1", "sleep", "9"}, []string{"-L", "1:127.0.0.1:2", "root@10.200.112.213", "sleep", "9"}},
 		"unknown":    {[]string{"root@gru-1-db-1", "hostname"}, []string{"root@gru-1-db-1", "hostname"}},
 		"bad IP":     {[]string{"root@broken"}, []string{"root@broken"}},
-		"IP":         {[]string{"root@10.200.87.215", "ssh", "root@ts-sfo-1"}, []string{"root@10.200.87.215", "ssh", "root@ts-sfo-1"}},
-		"no user":    {[]string{"ts-sfo-1"}, []string{"ts-sfo-1"}},
-		"remote cmd": {[]string{"root@ts-sfo-1", "getent", "hosts", "gru-1-ctl-1"}, []string{"root@10.200.112.213", "getent", "hosts", "gru-1-ctl-1"}},
+		"IP":         {[]string{"root@10.200.87.215", "ssh", "root@ts-sjc-1"}, []string{"root@10.200.87.215", "ssh", "root@ts-sjc-1"}},
+		"no user":    {[]string{"ts-sjc-1"}, []string{"ts-sjc-1"}},
+		"remote cmd": {[]string{"root@ts-sjc-1", "getent", "hosts", "gru-1-ctl-1"}, []string{"root@10.200.112.213", "getent", "hosts", "gru-1-ctl-1"}},
 	} {
 		args := slices.Clone(tc.args)
 		if got := withPeerAddress(args, addresses); !slices.Equal(got, tc.want) || !slices.Equal(args, tc.args) {
 			t.Errorf("%s: withPeerAddress(%q) = %q, input now %q; want %q", name, tc.args, got, args, tc.want)
 		}
 	}
-	if got := withPeerAddress([]string{"root@ts-sfo-1"}, peerAddresses([]byte("not json"))); !slices.Equal(got, []string{"root@ts-sfo-1"}) {
+	if got := withPeerAddress([]string{"root@ts-sjc-1"}, peerAddresses([]byte("not json"))); !slices.Equal(got, []string{"root@ts-sjc-1"}) {
 		t.Errorf("unparsable status changed the destination: %q", got)
 	}
 }

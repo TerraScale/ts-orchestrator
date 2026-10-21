@@ -129,7 +129,7 @@ func TestIdentityRekeyGlobalScopeMustMatchTopologyHome(t *testing.T) {
 	if err := verifyIdentityRekeyGlobalScope(cfg, reset); err != nil {
 		t.Fatal(err)
 	}
-	cfg.NATS.Embedded.InterRegion = &natscell.InterRegion{GlobalHome: "sfo", Peers: []string{"sfo"}}
+	cfg.NATS.Embedded.InterRegion = &natscell.InterRegion{GlobalHome: "sjc", Peers: []string{"sjc"}}
 	if err := verifyIdentityRekeyGlobalScope(cfg, reset); err == nil {
 		t.Fatal("non-home was authorized to replace global authority")
 	}
@@ -168,7 +168,7 @@ func TestIdentityRekeyInstallerRequiresExactV1RoleAndAllPinnedFiles(t *testing.T
 					t.Fatal(err)
 				}
 				if fault == "region" {
-					region.Region = oci.RegionSFO
+					region.Region = oci.RegionSJC
 				} else {
 					region.Shape = "/invalid-shape"
 				}

@@ -147,7 +147,7 @@ func TestHostSetupDropinRunsTheCurrentRelease(t *testing.T) {
 
 // Bootstrap admission runs the current release too, so a controller.json a
 // material generation installed is admitted at boot (TS-668: the image's
-// binary refused its server_name and ts-sfo-3 did not come back).
+// binary refused its server_name and ts-sjc-3 did not come back).
 func TestBootstrapDropinRunsTheCurrentRelease(t *testing.T) {
 	checkCurrentReleaseDropin(t, selfupdate.BootstrapUnit, "bootstrap-controller", selfupdate.BootstrapDropin,
 		selfupdate.InstallBootstrapDropin)

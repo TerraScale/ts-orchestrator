@@ -13,7 +13,7 @@ import (
 func TestObserveRegionalResourceAPIs(t *testing.T) {
 	f := newObserveFixture(t)
 	now := time.Now().UTC()
-	view := globalview.NewView("gru", func() []string { return []string{"gru", "sfo"} }, func() time.Time { return now })
+	view := globalview.NewView("gru", func() []string { return []string{"gru", "sjc"} }, func() time.Time { return now })
 	handler := globalview.Handler(view)
 	f.server.HandleAuthenticated("/v1/regions", handler)
 	f.server.HandleAuthenticated("/v1/regions/", handler)
@@ -33,7 +33,7 @@ func TestObserveRegionalResourceAPIs(t *testing.T) {
 		contains string
 		partial  bool
 	}{
-		{"regions", nil, "sfo", true},
+		{"regions", nil, "sjc", true},
 		{"region", nil, "gru", false},
 		{"nodes", nil, "host-a", false},
 		{"node", []string{"--node", "host-a"}, "host-a", false},
@@ -44,7 +44,7 @@ func TestObserveRegionalResourceAPIs(t *testing.T) {
 		{"service", []string{"--node", "host-a", "--service", "api"}, "sha256:abc", false},
 		{"volumes", nil, "volume-a", false},
 		{"volume", []string{"--volume", "volume-a"}, "attached", false},
-		{"nodes", []string{"--cell", "sfo"}, "missing", true},
+		{"nodes", []string{"--cell", "sjc"}, "missing", true},
 		{"node", []string{"--node", "absent"}, "not_found", true},
 	} {
 		t.Run(scenario.view+scenario.contains, func(t *testing.T) {

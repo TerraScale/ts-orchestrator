@@ -135,7 +135,7 @@ func TestAttemptFinalImageQualificationPrecedesOCIMutations(t *testing.T) {
 				case "wrong environment":
 					expected.Environment = "production"
 				case "wrong cell":
-					expected.Cell = "SFO"
+					expected.Cell = "SJC"
 				case "wrong architecture":
 					expected.Architecture = "amd64"
 				}
