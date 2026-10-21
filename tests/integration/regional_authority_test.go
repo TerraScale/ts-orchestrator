@@ -55,7 +55,6 @@ func transientAuthorityStartupError(err error) bool {
 }
 
 func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	t.Cleanup(cancel)
 
@@ -125,8 +124,8 @@ func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 		t.Fatalf("guards accepting epoch %d = %d, want exactly one", initial.Epoch, got)
 	}
 
-	const firstSubject = "lab.node-one.worker"
-	firstPayload := []byte(`{"generation":1,"digest":"first"}`)
+	const firstSubject = "r3-integration.node-one.worker"
+	firstPayload := desiredPayload(firstSubject, `"generation":1,"digest":"first"`)
 	firstSeq, err := candidates[0].CommitHostMutation(ctx, initial.Epoch, authority.MutationDesired, firstSubject, entityid.Derive("test-operation", "operation-first"), 0, firstPayload)
 	if err != nil {
 		t.Fatal("commit initial host journal entry:", err)
@@ -160,7 +159,7 @@ func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 	if err := candidates[leaderIndex].Guard(ctx, initial.Epoch); err == nil {
 		t.Fatal("standby accepted the expired authority epoch")
 	}
-	if _, err := candidates[leaderIndex].CommitHostMutation(ctx, initial.Epoch, authority.MutationDesired, "lab.node-two.worker", entityid.Derive("test-operation", "operation-stale"), 0, []byte(`{"generation":1}`)); err == nil {
+	if _, err := candidates[leaderIndex].CommitHostMutation(ctx, initial.Epoch, authority.MutationDesired, "r3-integration.node-two.worker", entityid.Derive("test-operation", "operation-stale"), 0, desiredPayload("r3-integration.node-two.worker", `"generation":1`)); err == nil {
 		t.Fatal("stale authority epoch appended a mutation after takeover")
 	}
 	if got := guardPassCount(ctx, candidates, next.Epoch); got != 1 {
@@ -214,8 +213,8 @@ func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 		t.Fatal("read control stream through surviving peer:", err)
 	}
 	t.Logf("surviving NATS peer %d reports control stream cluster=%+v", survivorIndex, streamInfo.Cluster)
-	const survivingSubject = "lab.node-one.replacement"
-	survivingSeq, err := candidates[leaderIndex].CommitHostMutation(ctx, next.Epoch, authority.MutationDesired, survivingSubject, entityid.Derive("test-operation", "operation-one-peer-down"), 0, []byte(`{"generation":2}`))
+	const survivingSubject = "r3-integration.node-one.replacement"
+	survivingSeq, err := candidates[leaderIndex].CommitHostMutation(ctx, next.Epoch, authority.MutationDesired, survivingSubject, entityid.Derive("test-operation", "operation-one-peer-down"), 0, desiredPayload(survivingSubject, `"generation":2`))
 	if err != nil {
 		t.Fatal("R3 mutation with one NATS peer down:", err)
 	}
@@ -245,10 +244,10 @@ func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 		t.Fatal("authority after control stream peer recovery:", err)
 	}
 	if next.Epoch == streamFailoverEpoch {
-		if seq, err := candidates[leaderIndex].CommitHostMutation(ctx, next.Epoch, authority.MutationDesired, survivingSubject, entityid.Derive("test-operation", "operation-one-peer-down"), 0, []byte(`{"generation":2}`)); err != nil || seq != survivingSeq {
+		if seq, err := candidates[leaderIndex].CommitHostMutation(ctx, next.Epoch, authority.MutationDesired, survivingSubject, entityid.Derive("test-operation", "operation-one-peer-down"), 0, desiredPayload(survivingSubject, `"generation":2`)); err != nil || seq != survivingSeq {
 			t.Fatalf("replayed mutation after broker recovery returned seq=%d err=%v, original seq=%d", seq, err, survivingSeq)
 		}
-	} else if _, err := candidates[leaderIndex].CommitHostMutation(ctx, streamFailoverEpoch, authority.MutationDesired, survivingSubject, entityid.Derive("test-operation", "operation-one-peer-down"), 0, []byte(`{"generation":2}`)); err == nil {
+	} else if _, err := candidates[leaderIndex].CommitHostMutation(ctx, streamFailoverEpoch, authority.MutationDesired, survivingSubject, entityid.Derive("test-operation", "operation-one-peer-down"), 0, desiredPayload(survivingSubject, `"generation":2`)); err == nil {
 		t.Fatalf("stale authority epoch %d committed after recovery advanced to %d", streamFailoverEpoch, next.Epoch)
 	}
 	if _, err := candidates[leaderIndex].ReadHostMutation(ctx, authority.MutationDesired, firstSubject); err != nil {
@@ -258,7 +257,7 @@ func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 	if err != nil {
 		t.Fatal("broker recovery lost the peer-down mutation:", err)
 	}
-	if survivingEntry.OperationID != entityid.Derive("test-operation", "operation-one-peer-down") || survivingEntry.Epoch != streamFailoverEpoch || string(survivingEntry.Payload) != `{"generation":2}` {
+	if survivingEntry.OperationID != entityid.Derive("test-operation", "operation-one-peer-down") || survivingEntry.Epoch != streamFailoverEpoch || string(survivingEntry.Payload) != string(desiredPayload(survivingSubject, `"generation":2`)) {
 		t.Fatalf("peer-down journal entry changed after recovery: %+v", survivingEntry)
 	}
 
@@ -274,7 +273,7 @@ func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 		quorumRecoveryCandidates[peer] = stopPeer(peer)
 	}
 	partitionCtx, partitionCancel := context.WithTimeout(ctx, 2*time.Second)
-	_, partitionErr := candidates[leaderIndex].CommitHostMutation(partitionCtx, next.Epoch, authority.MutationDesired, "lab.node-two.worker", entityid.Derive("test-operation", "operation-quorum-loss"), 0, []byte(`{"generation":3}`))
+	_, partitionErr := candidates[leaderIndex].CommitHostMutation(partitionCtx, next.Epoch, authority.MutationDesired, "r3-integration.node-two.worker", entityid.Derive("test-operation", "operation-quorum-loss"), 0, desiredPayload("r3-integration.node-two.worker", `"generation":3`))
 	partitionCancel()
 	if partitionErr == nil {
 		t.Fatal("R3 mutation succeeded with only one of three NATS peers running")
@@ -296,11 +295,11 @@ func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 			startCandidate(peer)
 		}
 	}
-	partitionEntry, partitionReadErr := candidates[leaderIndex].ReadHostMutation(ctx, authority.MutationDesired, "lab.node-two.worker")
+	partitionEntry, partitionReadErr := candidates[leaderIndex].ReadHostMutation(ctx, authority.MutationDesired, "r3-integration.node-two.worker")
 	if partitionReadErr != nil && !errors.Is(partitionReadErr, authority.ErrNotFound) {
 		t.Fatal("resolve quorum-loss journal outcome after recovery:", partitionReadErr)
 	}
-	if partitionReadErr == nil && (partitionEntry.OperationID != entityid.Derive("test-operation", "operation-quorum-loss") || partitionEntry.Epoch != next.Epoch || string(partitionEntry.Payload) != `{"generation":3}`) {
+	if partitionReadErr == nil && (partitionEntry.OperationID != entityid.Derive("test-operation", "operation-quorum-loss") || partitionEntry.Epoch != next.Epoch || string(partitionEntry.Payload) != string(desiredPayload("r3-integration.node-two.worker", `"generation":3`))) {
 		t.Fatalf("quorum-loss request resolved to unexpected journal entry: %+v", partitionEntry)
 	}
 	recovered, recoveredIndex, err := waitForCurrentGuard(ctx, candidates, candidateIDs, next.Epoch)
@@ -318,7 +317,7 @@ func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 	if got, details := guardPassDetails(ctx, candidates, candidateIDs, recovered.Epoch); got != 1 {
 		t.Fatalf("guards accepting recovered epoch %d = %d, want exactly one; results=%s", recovered.Epoch, got, strings.Join(details, "; "))
 	}
-	if seq, err := candidates[recoveredIndex].CommitHostMutation(ctx, recovered.Epoch, authority.MutationDesired, "lab.node-two.recovered", entityid.Derive("test-operation", "operation-quorum-recovery"), 0, []byte(`{"generation":4}`)); err != nil || seq == 0 {
+	if seq, err := candidates[recoveredIndex].CommitHostMutation(ctx, recovered.Epoch, authority.MutationDesired, "r3-integration.node-two.recovered", entityid.Derive("test-operation", "operation-quorum-recovery"), 0, desiredPayload("r3-integration.node-two.recovered", `"generation":4`)); err != nil || seq == 0 {
 		t.Fatalf("new authority mutation after quorum recovery returned seq=%d err=%v", seq, err)
 	}
 	if _, err := candidates[recoveredIndex].ReadHostMutation(ctx, authority.MutationDesired, firstSubject); err != nil {
@@ -467,7 +466,7 @@ func (c *regionalCluster) waitForPeers(ctx context.Context) error {
 func logNATSFailoverState(t *testing.T, cluster *regionalCluster, failedPeer int, candidate *authority.Runtime) {
 	t.Helper()
 	retainedCtx, retainedCancel := context.WithTimeout(t.Context(), 2*time.Second)
-	_, retainedErr := candidate.ReadHostMutation(retainedCtx, authority.MutationDesired, "lab.node-one.worker")
+	_, retainedErr := candidate.ReadHostMutation(retainedCtx, authority.MutationDesired, "r3-integration.node-one.worker")
 	retainedCancel()
 	t.Logf("authority candidate retained stream read error=%v", retainedErr)
 	for peer, node := range cluster.nodes {
@@ -573,9 +572,9 @@ func waitForStableLeader(ctx context.Context, candidates []*authority.Runtime, c
 			return fmt.Errorf("leader changed during renewal window: snapshot=%+v", leaderSnapshot)
 		}
 		operationID := entityid.Derive("test-operation", leader, fmt.Sprint(attempt))
-		payload := []byte(fmt.Sprintf(`{"probe":%d}`, attempt))
-		leaderSubject := fmt.Sprintf("lab.%s.probe-%02d", leader, attempt)
-		if _, err := candidates[leaderIndex].CommitHostMutation(ctx, epoch, authority.MutationDesired, leaderSubject, operationID, 0, payload); err != nil {
+		probe := fmt.Sprintf(`"probe":%d`, attempt)
+		leaderSubject := fmt.Sprintf("r3-integration.%s.probe-%02d", leader, attempt)
+		if _, err := candidates[leaderIndex].CommitHostMutation(ctx, epoch, authority.MutationDesired, leaderSubject, operationID, 0, desiredPayload(leaderSubject, probe)); err != nil {
 			return fmt.Errorf("leader %s could not append a journal mutation during renewal window: %w", leader, err)
 		}
 		for i, candidate := range candidates {
@@ -583,9 +582,9 @@ func waitForStableLeader(ctx context.Context, candidates []*authority.Runtime, c
 				continue
 			}
 			snapshot := candidate.Current()
-			standbySubject := fmt.Sprintf("lab.%s.probe-%02d", candidateIDs[i], attempt)
+			standbySubject := fmt.Sprintf("r3-integration.%s.probe-%02d", candidateIDs[i], attempt)
 			standbyOperation := entityid.Derive("test-operation", candidateIDs[i], fmt.Sprint(attempt))
-			if _, err := candidate.CommitHostMutation(ctx, epoch, authority.MutationDesired, standbySubject, standbyOperation, 0, payload); err == nil {
+			if _, err := candidate.CommitHostMutation(ctx, epoch, authority.MutationDesired, standbySubject, standbyOperation, 0, desiredPayload(standbySubject, probe)); err == nil {
 				return fmt.Errorf("standby %s appended a journal mutation during renewal window; snapshot=%+v", candidateIDs[i], snapshot)
 			}
 		}
@@ -697,4 +696,10 @@ func guardWithRetry(ctx context.Context, candidate *authority.Runtime, epoch uin
 		case <-ticker.C:
 		}
 	}
+}
+
+// desiredPayload is a native desired record whose owner fields match its cell.node.role key.
+func desiredPayload(key, fields string) []byte {
+	parts := strings.SplitN(key, ".", 3)
+	return fmt.Appendf(nil, `{"cell":%q,"node":%q,"environment":"lab","role":%q,%s}`, parts[0], parts[1], parts[2], fields)
 }
