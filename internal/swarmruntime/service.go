@@ -22,6 +22,7 @@ import (
 	"github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/api/genericresource"
+	"github.com/moby/swarmkit/v2/manager/orchestrator"
 )
 
 const (
@@ -377,6 +378,8 @@ const (
 	LabelSecrets     = "terrascale.secrets"
 	// LabelSecretRefs maps each LabelSecrets key to its OCI Vault secret (JSON object of vaultsecret.Ref).
 	LabelSecretRefs = "terrascale.secret-refs"
+	// LabelGeneration is the mesh desired-state generation the service runs.
+	LabelGeneration = "terrascale.generation"
 )
 
 var (
@@ -412,6 +415,11 @@ type ServiceSpec struct {
 	ReadyPath string                     `json:"readyPath,omitempty"`
 	Hostnames []string                   `json:"hostnames,omitempty"`
 	Replicas  uint64                     `json:"replicas"`
+	// Regions lists the region tokens that run the service; empty means every
+	// ordered region. The mesh reads it; the local service ignores it.
+	Regions []string `json:"regions,omitempty"`
+	// Generation is the mesh desired-state generation, stamped as a label.
+	Generation int64 `json:"-"`
 }
 
 type ServiceMount struct {
@@ -491,6 +499,9 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 			return nil, err
 		}
 		labels[LabelSecretRefs] = string(refs)
+	}
+	if s.Generation != 0 {
+		labels[LabelGeneration] = strconv.FormatInt(s.Generation, 10)
 	}
 	// shortcut: fixed, fully reserved budget sized so the three M1 services fit one A1 host (3.75 schedulable CPUs); size per service when a host is added or one is starved.
 	limits := &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 4 << 30, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 10<<30)}}
@@ -579,6 +590,7 @@ func RemoveServiceSpec(ctx context.Context, client api.ControlClient, name strin
 type ServiceSpecStatus struct {
 	Name, Image       string
 	Running, Replicas uint64
+	Generation        int64
 }
 
 func ListServiceSpecs(ctx context.Context, client api.ControlClient) ([]ServiceSpecStatus, error) {
@@ -596,11 +608,13 @@ func ListServiceSpecs(ctx context.Context, client api.ControlClient) ([]ServiceS
 			return nil, err
 		}
 		row := ServiceSpecStatus{Name: service.Spec.Annotations.Name, Replicas: service.Spec.GetReplicated().Replicas}
+		row.Generation, _ = strconv.ParseInt(service.Spec.Annotations.Labels[LabelGeneration], 10, 64)
 		if container, err := containerOf(service.Spec); err == nil {
 			row.Image = container.Image
 		}
 		for _, task := range tasks.Tasks {
-			if task.Status.State == api.TaskStateRunning {
+			// A task of an older spec still running mid-update does not count.
+			if task.Status.State == api.TaskStateRunning && !orchestrator.IsTaskDirty(service, task, nil) {
 				row.Running++
 			}
 		}

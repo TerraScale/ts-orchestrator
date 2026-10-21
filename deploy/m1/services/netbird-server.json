@@ -7,5 +7,6 @@
   "port": 8095,
   "readyPath": "/api/instance",
   "hostnames": ["netbird.terrascale.tech"],
-  "replicas": 1
+  "replicas": 1,
+  "regions": ["gru"]
 }
