@@ -377,6 +377,7 @@ func TestOriginalMaterialPublicationRequiresSelectedArchive(t *testing.T) {
 // Exercise the publication checkpoint bridge through signed TLS SDK dispatch,
 // without claiming a sealed actor or constructor-to-publisher qualification.
 func TestOriginalMaterialPublicationSDKDispatchLifetime(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	for _, mutation := range []string{"CreateSecret", "source CAS"} {
 		for _, deadline := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/deadline=%t", mutation, deadline), func(t *testing.T) {

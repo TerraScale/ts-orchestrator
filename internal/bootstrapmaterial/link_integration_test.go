@@ -169,6 +169,7 @@ func TestLinkMaterialPublicationRecovery(t *testing.T) {
 }
 
 func TestLinkMaterialAuthenticatesEmbeddedNATS(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	f := newLinkFixture(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()

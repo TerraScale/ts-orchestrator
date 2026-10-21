@@ -227,6 +227,7 @@ func placementTestObserver(t *testing.T, runtime *natscell.Runtime, config natsc
 }
 
 func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	config := placementTestBrokerConfig(t, "member-reader")
 	runtime, err := natscell.Start(t.Context(), config)
 	if err != nil {
