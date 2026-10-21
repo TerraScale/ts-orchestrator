@@ -290,6 +290,9 @@ func admittedPeerRecords(d Desired, peers []apiPeer, groups []apiGroup) ([]Recor
 		if !hasGroup(peer.Groups, group.ID) {
 			continue
 		}
+		// A rename interrupted between its two writes leaves the temporary
+		// name; it is still that slot, and the next prune finishes the rename.
+		peer.Name = strings.TrimSuffix(peer.Name, "-renaming")
 		if err := naming.Validate(peer.Name); err != nil || strings.HasSuffix(peer.Name, "-data") ||
 			(!naming.IsNode(peer.Name, region) && !strings.HasPrefix(peer.Name, d.Cell+"-")) {
 			return nil, fmt.Errorf("admitted NetBird peer %q has no canonical identity in %s", peer.Name, d.Cell)

@@ -513,10 +513,9 @@ func (f *fakeManager) serveRecords(w http.ResponseWriter, r *http.Request, path 
 
 // legacyShape seeds the production objects admin.py left behind.
 type legacyIDs struct {
-	operators, gateway, servers  string
-	network, resource, router    string
-	opsPorts, ssh, forgejo, ping string
-	tsOps, server1, operator1    string
+	operators, gateway, servers string
+	network, resource, router   string
+	tsOps, server1, operator1   string
 }
 
 func (f *fakeManager) seedLegacy(t *testing.T) legacyIDs {
@@ -536,21 +535,6 @@ func (f *fakeManager) seedLegacy(t *testing.T) legacyIDs {
 			Address: "10.251.0.0/25", Type: "subnet", Enabled: true, Groups: []groupMinimum{}}},
 		routers: []apiRouter{{ID: ids.router, Peer: ids.tsOps, Metric: 100, Masquerade: true, Enabled: true}},
 	})
-	add := func(name string, rule ruleRequest) string {
-		id := f.id("pol")
-		f.policies = append(f.policies, f.policyFrom(id, policyRequest{Name: name, Enabled: true,
-			SourcePostureChecks: []string{}, Rules: []ruleRequest{rule}}))
-		return id
-	}
-	ids.opsPorts = add("operators-to-gru-cell", ruleRequest{Name: "operators-to-gru-cell", Enabled: true, Action: "accept",
-		Protocol: "tcp", Ports: []string{"22", "4222", "9465"}, Sources: []string{ids.operators},
-		DestinationResource: &resourceRef{ids.resource, "subnet"}})
-	ids.ssh = add("operators-ssh-to-ts-orch-servers", ruleRequest{Name: "operators-ssh-to-ts-orch-servers", Enabled: true,
-		Action: "accept", Protocol: "netbird-ssh", Sources: []string{ids.operators}, Destinations: []string{ids.servers}})
-	ids.forgejo = add("operators-to-forgejo", ruleRequest{Name: "forgejo-services", Enabled: true, Action: "accept",
-		Protocol: "tcp", Ports: []string{"22", "443", "2022"}, Sources: []string{ids.operators}, Destinations: []string{ids.gateway}})
-	ids.ping = add("operators-ping-to-forgejo", ruleRequest{Name: "forgejo-ping", Enabled: true, Action: "accept",
-		Bidirectional: true, Protocol: "icmp", Sources: []string{ids.operators}, Destinations: []string{ids.gateway}})
 	f.setupKeys = []map[string]any{{"id": "sk1", "name": "gru-servers", "key": "SECRET-SETUP-KEY-VALUE",
 		"type": "reusable", "state": "valid", "valid": true, "revoked": false, "auto_groups": []string{ids.servers}}}
 	return ids

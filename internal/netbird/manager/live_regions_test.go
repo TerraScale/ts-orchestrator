@@ -20,7 +20,8 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	if _, err := Sync(t.Context(), api, GRU(), true); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.groups) != len(GRU().Groups) || len(f.policies) != len(GRU().Policies) {
+	// The legacy gateway group is left in place; sync must add nothing else.
+	if len(f.groups) != len(GRU().Groups)+1 || len(f.policies) != len(GRU().Policies) {
 		t.Fatal("peer names or the compiled catalog created regional access")
 	}
 	sfo := f.addGroup("sfo-servers")
