@@ -1,0 +1,17 @@
+[Unit]
+Description=TerraScale Orchestrator single host (milestone 1)
+Wants=network-online.target containerd.service
+After=network-online.target containerd.service
+
+[Service]
+# Root: the containerd executor, the :80/:443 edge and data-dir chown need it.
+ExecStart=/usr/local/bin/terrascale-orchestrator single-host --state /var/lib/ts-orch
+Restart=always
+RestartSec=5s
+TimeoutStopSec=60s
+KillMode=mixed
+LimitNOFILE=65536
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
