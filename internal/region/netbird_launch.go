@@ -177,6 +177,18 @@ func reconcileNetBirdManagerAllocation(ctx context.Context, factory *ociclient.F
 		if err := nextAllocation.Revalidate(ctx); err != nil {
 			return ctx, nil, err
 		}
+		// Each fenced network write outlives a two-minute quote; refresh its
+		// observation time, never its original tariff.
+		fresh, err := prices.Quote(ctx, allocation.Footprint(), "GRU", compartment, p.Shape, float64(p.OCPUs), float64(p.MemoryGB), float64(p.BootVolumeGB))
+		if err != nil {
+			return ctx, nil, err
+		}
+		observed, original := fresh.Original(), quote.Original()
+		observed.IssuedAt, observed.ExpiresAt = original.IssuedAt, original.ExpiresAt
+		if observed.SHA256() != original.SHA256() {
+			return ctx, nil, errors.New("dedicated manager tariff changed while its network was created")
+		}
+		quote = fresh
 		if err := nextAllocation.Validate(request(preflightDigest, preflightToken), quote, time.Now()); err != nil {
 			return ctx, nil, err
 		}
