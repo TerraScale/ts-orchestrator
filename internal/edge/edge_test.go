@@ -87,6 +87,14 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "https://app.edge.test/path?q=1" {
 			t.Fatalf("redirect = %d %q", resp.StatusCode, resp.Header.Get("Location"))
 		}
+		resp, err = client.Get("http://other.edge.test/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("unrouted host on :80 = %d, want 404", resp.StatusCode)
+		}
 	})
 
 	client := &http.Client{Transport: &http.Transport{
@@ -96,17 +104,34 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	}}
 
 	t.Run("http", func(t *testing.T) {
-		resp, err := client.Get("https://app.edge.test/hello")
+		req, _ := http.NewRequest(http.MethodGet, "https://app.edge.test/hello", nil)
+		req.Header.Set("X-Real-IP", "203.0.113.9")
+		req.Header.Set("CF-Connecting-IP", "203.0.113.9")
+		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if got, want := string(body), "host=app.edge.test proto=https path=/hello"; got != want {
+		if got, want := string(body), "host=app.edge.test proto=https path=/hello spoofed="; got != want {
 			t.Fatalf("body = %q, want %q", got, want)
+		}
+		if got := resp.Header.Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains" {
+			t.Fatalf("HSTS = %q", got)
 		}
 		if _, err := os.Stat(filepath.Join(stateDir, "edge-certs", "app.edge.test")); err != nil {
 			t.Fatalf("certificate not cached: %v", err)
+		}
+	})
+
+	t.Run("body limit", func(t *testing.T) {
+		resp, err := client.Post("https://app.edge.test/upload", "application/octet-stream", io.LimitReader(zeros{}, 33<<20))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			t.Fatal("a 33 MiB body reached the backend")
 		}
 	})
 
@@ -180,7 +205,13 @@ func appBackend() http.Handler {
 	healthpb.RegisterHealthServer(grpcServer, health.NewServer())
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "host=%s proto=%s path=%s", r.Host, r.Header.Get("X-Forwarded-Proto"), r.URL.Path)
+		fmt.Fprintf(w, "host=%s proto=%s path=%s spoofed=%s%s", r.Host, r.Header.Get("X-Forwarded-Proto"), r.URL.Path,
+			r.Header.Get("X-Real-IP"), r.Header.Get("CF-Connecting-IP"))
+	})
+	mux.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
 	})
 	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -244,3 +275,7 @@ func startDNS(t *testing.T) string {
 	t.Cleanup(func() { server.Shutdown() })
 	return ln.Addr().String()
 }
+
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) { clear(p); return len(p), nil }

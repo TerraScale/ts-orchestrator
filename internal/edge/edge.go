@@ -47,12 +47,24 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	h2c := http1.Clone()
 	h2c.Protocols = new(http.Protocols)
 	h2c.Protocols.SetUnencryptedHTTP2(true)
+	// gRPC streams may hold response headers back, so only HTTP/1.1 gets this.
+	http1.ResponseHeaderTimeout = 30 * time.Second
 	e.proxy = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			port, _ := e.port(pr.In.Host)
 			pr.SetURL(&url.URL{Scheme: "http", Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port))})
 			pr.Out.Host = pr.In.Host
 			pr.SetXForwarded()
+			// Client-supplied address headers would spoof the X-Forwarded-For value.
+			for _, h := range []string{"X-Real-IP", "True-Client-IP", "CF-Connecting-IP"} {
+				pr.Out.Header.Del(h)
+			}
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			if resp.Header.Get("Strict-Transport-Security") == "" {
+				resp.Header.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+			}
+			return nil
 		},
 		Transport: roundTripper(func(r *http.Request) (*http.Response, error) {
 			if isGRPC(r) {
@@ -92,11 +104,29 @@ func (e *Edge) Run(ctx context.Context) error {
 
 func (e *Edge) serve(ctx context.Context, httpLn, tlsLn net.Listener) error {
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
-	plain := &http.Server{Handler: e.certs.HTTPHandler(nil), ReadHeaderTimeout: 10 * time.Second}
+	challenges := e.certs.HTTPHandler(nil)
+	plain := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := e.port(r.Host); !ok {
+				http.NotFound(w, r)
+				return
+			}
+			challenges.ServeHTTP(w, r)
+		}),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
+	}
+	// No read or write timeout on :443: gRPC, SSE and websocket streams stay
+	// open for hours.
 	public := &http.Server{
 		Handler:           http.HandlerFunc(e.serveHTTPS),
 		TLSConfig:         e.certs.TLSConfig(),
 		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
 	}
 	errs := make(chan error, 2)
 	go func() { errs <- plain.Serve(httpLn) }()
@@ -118,6 +148,9 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	if _, ok := e.port(r.Host); !ok {
 		http.NotFound(w, r)
 		return
+	}
+	if !isGRPC(r) {
+		r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
 	}
 	e.proxy.ServeHTTP(w, r)
 }
