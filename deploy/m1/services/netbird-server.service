@@ -1,0 +1,19 @@
+[Unit]
+Description=TerraScale NetBird server config, owner, setup keys and host enrollment (milestone 1)
+Wants=network-online.target ts-orch.service
+After=network-online.target ts-orch.service
+
+[Service]
+# Root: it writes the netbird-server config for the container user and runs
+# `netbird up` on this host. Vault OCIDs are identifiers, not secrets.
+ExecStart=/usr/local/bin/terrascale-orchestrator netbird server \
+  --vault-id ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq \
+  --key-id ocid1.key.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljr2bdwyvlua7oi6gpg7gl72ln6t2l2fb63tl2cvhllvokc4l2afeeq \
+  --compartment-id ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq \
+  --dir /var/lib/ts-data/netbird
+Restart=always
+RestartSec=10s
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

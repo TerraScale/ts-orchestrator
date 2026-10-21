@@ -1,0 +1,11 @@
+{
+  "name": "netbird-server",
+  "image": "docker.io/netbirdio/netbird-server:0.81.3@sha256:541ecef7e98a66b17411d44e9d4dcfdb65913415f39b3b944b8e7e748f997f1d",
+  "args": ["--config", "/var/lib/netbird/config.yaml"],
+  "env": {"NB_SETUP_PAT_ENABLED": "true"},
+  "mounts": [{"source": "/var/lib/ts-data/netbird", "target": "/var/lib/netbird"}],
+  "port": 8095,
+  "readyPath": "/api/instance",
+  "hostnames": ["netbird.terrascale.tech"],
+  "replicas": 1
+}

@@ -49,10 +49,22 @@ type fakeManager struct {
 	server     *httptest.Server
 	dnsDomain  string
 	failStatus int
+	// setupRequired is true until POST setup claims the owner.
+	setupRequired bool
+	setups        []setupRequest
+}
+
+// setupRequest is the body of POST setup, the owner claim over loopback.
+type setupRequest struct {
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	Name        string `json:"name"`
+	CreatePAT   bool   `json:"create_pat"`
+	PATExpireIn int    `json:"pat_expire_in"`
 }
 
 func newFakeManager(t *testing.T) *fakeManager {
-	f := &fakeManager{t: t, dnsDomain: "netbird.selfhosted", account: map[string]jsontext.Value{
+	f := &fakeManager{t: t, dnsDomain: "netbird.selfhosted", setupRequired: true, account: map[string]jsontext.Value{
 		"network_range":                 jsontext.Value(`"10.200.0.0/16"`),
 		"peer_login_expiration_enabled": jsontext.Value(`false`),
 		"lazy_connection_enabled":       jsontext.Value(`true`),
@@ -199,6 +211,24 @@ func (f *fakeManager) read(r *http.Request, value any) bool {
 func (f *fakeManager) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// The instance API is unauthenticated: it is how a fresh server is claimed.
+	switch r.Method + " " + r.URL.Path {
+	case "GET /api/instance":
+		f.write(w, map[string]bool{"setup_required": f.setupRequired})
+		return
+	case "POST /api/setup":
+		if !f.setupRequired {
+			http.Error(w, `{"message":"setup already completed"}`, http.StatusPreconditionFailed)
+			return
+		}
+		var request setupRequest
+		if f.read(r, &request) {
+			f.setups = append(f.setups, request)
+			f.setupRequired = false
+			f.write(w, map[string]string{"personal_access_token": testPAT})
+		}
+		return
+	}
 	if r.Header.Get("Authorization") != "Token "+testPAT {
 		http.Error(w, `{"message":"unauthorized"}`, http.StatusUnauthorized)
 		return
@@ -307,6 +337,13 @@ func (f *fakeManager) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		f.policies[index] = f.policyFrom(path[1], request)
 		f.write(w, f.policies[index])
+	case "DELETE policies/*":
+		index := slices.IndexFunc(f.policies, func(p apiPolicy) bool { return p.ID == path[1] })
+		if index < 0 {
+			notFound()
+			return
+		}
+		f.policies = slices.Delete(f.policies, index, index+1)
 	case "GET networks":
 		var out []apiNetwork
 		for _, network := range f.networks {
