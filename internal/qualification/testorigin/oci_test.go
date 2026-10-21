@@ -196,7 +196,7 @@ func decodeOCIWire(wire []byte) (ociWire, error) {
 		if !strings.HasPrefix(secret.SecretID, "ocid1.vaultsecret.oc1."+input.Region+".") || secret.VersionNumber <= 0 ||
 			secret.TargetFile == "" || secret.TargetFile == "." || secret.TargetFile == ".." ||
 			filepath.Base(secret.TargetFile) != secret.TargetFile || strings.ContainsAny(secret.TargetFile, "\\\x00") ||
-			len(secret.Contents) == 0 || len(secret.Contents) > bootstrap.MaxSecretBytes ||
+			len(secret.Contents) == 0 || int64(len(secret.Contents)) > bootstrap.MaxSecretBytes ||
 			seenTargets[secret.TargetFile] || seenVersions[version] || len(secret.Stages) == 0 || len(secret.Stages) > 5 {
 			return ociWire{}, errors.New("invalid or duplicate exact Vault reference")
 		}

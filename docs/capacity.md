@@ -303,18 +303,6 @@ information only. Nothing acts on it and nothing journals it.
 - The suggestion shows the monthly cost of the new region against the
   budget's headroom.
 
-## Simulation
-
-`internal/capacitysim` (test-only package) runs 20 regions in one process: a
-fake OCI (pools, instance configurations, region subscriptions, region list,
-prices), fake load per region, one regional scaler per region and one home
-allocator. Tests assert: every region stays within 3..12, no
-region scales up within 10 minutes, or down within 30 minutes, of its last
-change, projected spend never exceeds the cap, and a partitioned region holds
-its size. The fake lives in `_test.go` files only. A second run covers 40
-days of load: suggestions appear for saturated and idle regions, and nothing
-but the suggestion changes.
-
 ## Slices
 
 1. Design (this document).

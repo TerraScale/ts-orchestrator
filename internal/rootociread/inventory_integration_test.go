@@ -115,9 +115,10 @@ func (f *readScenario) financialInventory() capacityledger.Receipt {
 	quote := capacityledger.Quote{ScopeSHA256: logical, Cell: "GRU", CompartmentID: ids["workload_compartment"], Shape: "VM.Standard.A1.Flex", Currency: "USD",
 		OCPUs: 1, MemoryGB: 6, BootGB: 50, IssuedAt: at, ExpiresAt: at.Add(3 * time.Minute),
 		Prices: []ocicost.Price{{SKU: "B91961", PerUnit: .0255}, {SKU: "B91962", PerUnit: .0017}, {SKU: "B93297", PerUnit: .01}, {SKU: "B93298", PerUnit: .0015}}}
-	quote.MonthlyCents, err = ocicost.NodeMonthlyCents(quote.Prices, quote.Shape, quote.OCPUs, quote.MemoryGB, quote.BootGB)
-	if err != nil {
-		f.test.Fatal(err)
+	var priced bool
+	quote.MonthlyCents, priced = ocicost.NodeMonthlyCents(quote.Prices, quote.Shape, quote.OCPUs, quote.MemoryGB, quote.BootGB)
+	if !priced {
+		f.test.Fatal("node monthly cost is not priced")
 	}
 	receipt := capacityledger.Receipt{OperationID: entityid.New(), RecipeSHA256: strings.Repeat("c", 64), GrantSHA256: f.anchor.FoundationScope.GrantSHA256,
 		GrantGeneration: 1, LogicalScopeSHA256: logical, ResolvedScopeSHA256: logical, TenancyID: readScenarioTenancy,

@@ -15,6 +15,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -325,6 +326,8 @@ func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 }
 
 type regionalCluster struct {
+	t       *testing.T
+	auth    *natstest.NATSFixture
 	configs []natscell.Config
 	nodes   []*natscell.Runtime
 }
@@ -339,14 +342,16 @@ func newRegionalCluster(t *testing.T, ctx context.Context) *regionalCluster {
 	storeRoot := t.TempDir()
 	cluster := &regionalCluster{configs: make([]natscell.Config, regionalPeers), nodes: make([]*natscell.Runtime, regionalPeers)}
 	instances := []string{"one", "two", "three"}
+	cluster.t = t
+	cluster.auth = natstest.NATS(t, "r3-integration", instances...)
 	for i := range regionalPeers {
-		cluster.configs[i] = natscell.Config{
-			Cell: "lab", Instance: instances[i], Replicas: regionalPeers, Lab: true,
+		cluster.configs[i] = cluster.auth.Config(t, natscell.Config{
+			Cell: "r3-integration", Instance: instances[i], Replicas: regionalPeers,
 			Embedded: &natscell.Embedded{
 				Host: "127.0.0.1", Port: -1, RouteHost: "127.0.0.1", RoutePort: ports[i],
 				Routes: natscell.PeerRoutes(routes, routes[i]), StoreDir: filepath.Join(storeRoot, fmt.Sprintf("node-%d", i)),
 			},
-		}
+		})
 	}
 	t.Cleanup(func() {
 		for _, node := range cluster.nodes {
@@ -390,7 +395,7 @@ func (c *regionalCluster) start(ctx context.Context, index int) error {
 	if c.nodes[index] != nil {
 		return fmt.Errorf("NATS peer %d is already running", index)
 	}
-	runtime, err := natscell.Start(ctx, c.configs[index])
+	runtime, err := c.auth.Start(c.t, ctx, c.configs[index])
 	if err != nil {
 		return err
 	}

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
@@ -283,7 +284,7 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	state.Lock()
 	initialInspections := inspections
 	state.Unlock()
-	if err := foundation.inspect(t.Context(), inspectionPlan); err == nil || !strings.Contains(err.Error(), "identity differs") {
+	if err := foundation.inspect(t.Context(), inspectionPlan, bootstrap.StorageDomain{}); err == nil || !strings.Contains(err.Error(), "identity differs") {
 		t.Fatalf("fresh inspection inherited constructor cancellation: %v", err)
 	}
 	state.Lock()
@@ -291,7 +292,7 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	state.Unlock()
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
-	if err := foundation.inspect(canceled, inspectionPlan); err == nil {
+	if err := foundation.inspect(canceled, inspectionPlan, bootstrap.StorageDomain{}); err == nil {
 		t.Fatal("canceled inspection succeeded")
 	}
 	state.Lock()
