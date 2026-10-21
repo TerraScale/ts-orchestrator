@@ -10,21 +10,25 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/bucket"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 func TestRootResourceSnapshotRefusesMissingDeletedAndPurgedAuthority(t *testing.T) {
@@ -130,12 +134,78 @@ func TestRootResourceSDKObservationsAndMissingCAPAdmission(t *testing.T) {
 			w.WriteHeader(401)
 			return
 		}
+		mode := scenario.Load().(string)
+		if strings.HasPrefix(mode, "cost tags ") {
+			w.Header().Set("Content-Type", "application/json")
+			if r.Method == http.MethodGet && r.URL.Path == "/n" {
+				_, _ = w.Write([]byte(`"tenancy"`))
+				return
+			}
+			if r.URL.Path != "/n/tenancy/b/backups" {
+				t.Errorf("unexpected cost tag SDK path %s", r.URL.Path)
+				http.NotFound(w, r)
+				return
+			}
+			if r.Method == http.MethodGet {
+				response := map[string]any{"namespace": "tenancy", "name": "backups", "compartmentId": "compartment",
+					"freeformTags": map[string]string{"operator": "keep", ocicost.RegionTag: "old", ocicost.ComponentTag: "old"}}
+				if mode != "cost tags missing" {
+					response["etag"] = "bucket-body"
+				}
+				if mode == "cost tags empty" {
+					response["etag"] = ""
+				}
+				if mode == "cost tags header" {
+					w.Header().Set("etag", "bucket-header")
+				}
+				wire, err := json.Marshal(response)
+				if err != nil {
+					t.Error(err)
+					w.WriteHeader(500)
+					return
+				}
+				_, _ = w.Write(wire)
+				return
+			}
+			if r.Method != http.MethodPost {
+				t.Errorf("unexpected cost tag SDK method %s", r.Method)
+				w.WriteHeader(405)
+				return
+			}
+			mutations.Add(1)
+			wantETag := "bucket-body"
+			if mode == "cost tags header" {
+				wantETag = "bucket-header"
+			}
+			if r.Header.Get("if-match") != wantETag {
+				t.Errorf("cost tag IfMatch=%q, want %q", r.Header.Get("if-match"), wantETag)
+				w.WriteHeader(400)
+				return
+			}
+			var details objectstorage.UpdateBucketDetails
+			if err := json.UnmarshalRead(r.Body, &details); err != nil {
+				t.Error(err)
+				w.WriteHeader(400)
+				return
+			}
+			if !maps.Equal(details.FreeformTags, map[string]string{"operator": "keep", ocicost.RegionTag: "GRU", ocicost.ComponentTag: "releases"}) {
+				t.Errorf("cost tags did not preserve the read's unrelated tags: %v", details.FreeformTags)
+				w.WriteHeader(400)
+				return
+			}
+			if mode == "cost tags stale" {
+				w.WriteHeader(http.StatusPreconditionFailed)
+				_, _ = w.Write([]byte(`{"code":"NoEtagMatch","message":"bucket changed"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"namespace":"tenancy","name":"backups","compartmentId":"compartment","etag":"next"}`))
+			return
+		}
 		if r.Method != http.MethodGet {
 			mutations.Add(1)
 			w.WriteHeader(405)
 			return
 		}
-		mode := scenario.Load().(string)
 		var response any
 		switch r.URL.Path {
 		case "/20170115/loadBalancers/" + publicLBID:
@@ -217,6 +287,38 @@ func TestRootResourceSDKObservationsAndMissingCAPAdmission(t *testing.T) {
 		if err := resource.Apply(t.Context(), target, observed, found, plan); err == nil || mutations.Load() != 0 {
 			t.Fatal("bucket mutation reached SDK without protected CAP admission")
 		}
+	}
+	// Exercise only the SDK conditional merge; this fixture grants no tag authority.
+	for _, mode := range []string{"header", "body", "missing", "empty", "stale"} {
+		t.Run("cost tags "+mode, func(t *testing.T) {
+			scenario.Store("cost tags " + mode)
+			before := mutations.Load()
+			tags, err := ocicost.ConnectTags(factory, []string{"ocid1.compartment.oc1..fixture"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = tags.Retag(t.Context(), ocicost.Resource{Type: "Bucket", Name: "backups"},
+				map[string]string{ocicost.RegionTag: "GRU", ocicost.ComponentTag: "releases"})
+			wantMutations := int64(1)
+			switch mode {
+			case "missing", "empty":
+				wantMutations = 0
+				if err == nil {
+					t.Fatal("bucket tag update accepted a missing or empty ETag")
+				}
+			case "stale":
+				if !errors.Is(err, ocicost.ErrChanged) {
+					t.Fatalf("stale bucket tag update error=%v, want ErrChanged", err)
+				}
+			default:
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := mutations.Load() - before; got != wantMutations {
+				t.Fatalf("bucket tag updates=%d, want %d", got, wantMutations)
+			}
+		})
 	}
 }
 

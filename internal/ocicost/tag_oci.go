@@ -244,15 +244,23 @@ func (t *OCITags) load(ctx context.Context, resource Resource) (map[string]strin
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		// The bucket read carries no ETag in this SDK, so the write is not
-		// conditional; the merge still keeps every tag the read returned.
 		read, err := t.objects.GetBucket(ctx, objectstorage.GetBucketRequest{NamespaceName: common.String(namespace),
 			BucketName: common.String(resource.Name)})
-		return read.FreeformTags, nil, func(ctx context.Context, tags map[string]string, _ *string) error {
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		etag := read.ETag
+		if etag == nil || *etag == "" {
+			etag = read.Etag
+		}
+		if etag == nil || *etag == "" {
+			return nil, nil, nil, errors.New("OCI bucket tag update requires an ETag")
+		}
+		return read.FreeformTags, etag, func(ctx context.Context, tags map[string]string, etag *string) error {
 			_, err := t.objects.UpdateBucket(ctx, objectstorage.UpdateBucketRequest{NamespaceName: common.String(namespace),
-				BucketName: common.String(resource.Name), UpdateBucketDetails: objectstorage.UpdateBucketDetails{FreeformTags: tags}})
+				BucketName: common.String(resource.Name), IfMatch: etag, UpdateBucketDetails: objectstorage.UpdateBucketDetails{FreeformTags: tags}})
 			return err
-		}, err
+		}, nil
 	}
 	return nil, nil, nil, fmt.Errorf("no tag update for OCI type %q", resource.Type)
 }

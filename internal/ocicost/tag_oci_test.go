@@ -141,7 +141,7 @@ func TestOCITagsRetagMapsOCIAnswers(t *testing.T) {
 }
 
 func TestOCITagsBucketUsesCachedNamespace(t *testing.T) {
-	objects := &fakeObjects{namespace: "ns", bucket: objectstorage.Bucket{FreeformTags: map[string]string{}}}
+	objects := &fakeObjects{namespace: "ns", bucket: objectstorage.Bucket{Etag: new("be"), FreeformTags: map[string]string{}}}
 	tags := &OCITags{objects: objects}
 	for _, name := range []string{"gru-1-head", "gru-1-backup"} {
 		if err := tags.Retag(t.Context(), Resource{Type: "Bucket", Name: name}, map[string]string{ComponentTag: "releases"}); err != nil {
