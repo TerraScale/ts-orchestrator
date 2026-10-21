@@ -61,7 +61,9 @@ import (
 // The local privileged observer proves applied history; authenticated Unix
 // management transport remains separately qualified.
 func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 360*time.Second)
+	// Each signed update waits out the service's fixed 30s update monitor and 5s
+	// update delay; the updates take about 280s, and over 360s under -race.
+	ctx, cancel := context.WithTimeout(t.Context(), 600*time.Second)
 	defer cancel()
 	auth := newAuthenticatedNATS(t, "gru")
 	broker, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{}})
