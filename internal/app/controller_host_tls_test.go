@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -12,8 +11,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -64,87 +61,4 @@ func testR3TLSMaterial(t *testing.T, root string) (natscell.TLSFiles, string) {
 		KeyFile:  write("peer-key.pem", pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})),
 	}
 	return files, write("route-password", []byte("r3-test-route-secret-0123456789"))
-}
-
-func r3RouteUser(production bool) string {
-	if production {
-		return "r3-test-route"
-	}
-	return ""
-}
-
-// This proxy leaves the host's TCP socket open when its upstream controller
-// disappears, matching a network blackhole rather than a clean FIN or RST.
-type r3BlackholeProxy struct {
-	listener net.Listener
-	blocked  atomic.Bool
-	mu       sync.Mutex
-	conns    []net.Conn
-	release  chan struct{}
-}
-
-func newR3BlackholeProxy(t *testing.T, target string) *r3BlackholeProxy {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	proxy := &r3BlackholeProxy{listener: listener, release: make(chan struct{})}
-	t.Cleanup(func() {
-		_ = listener.Close()
-		close(proxy.release)
-		proxy.mu.Lock()
-		defer proxy.mu.Unlock()
-		for _, conn := range proxy.conns {
-			_ = conn.Close()
-		}
-	})
-	go func() {
-		for {
-			client, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			upstream, err := net.DialTimeout("tcp", target, time.Second)
-			if err != nil {
-				_ = client.Close()
-				continue
-			}
-			proxy.mu.Lock()
-			proxy.conns = append(proxy.conns, client, upstream)
-			proxy.mu.Unlock()
-			go proxy.forward(client, upstream)
-			go proxy.forward(upstream, client)
-		}
-	}()
-	return proxy
-}
-
-func (p *r3BlackholeProxy) forward(source, destination net.Conn) {
-	defer source.Close()
-	defer destination.Close()
-	var buffer [4096]byte
-	for {
-		count, err := source.Read(buffer[:])
-		if err != nil {
-			if p.blocked.Load() {
-				<-p.release
-			}
-			return
-		}
-		if !p.blocked.Load() {
-			if _, err := destination.Write(buffer[:count]); err != nil {
-				if p.blocked.Load() {
-					<-p.release
-				}
-				return
-			}
-		}
-	}
-}
-
-type r3StopOnCloseRunner struct{ *inMemoryRunner }
-
-func (r *r3StopOnCloseRunner) Close(ctx context.Context) error {
-	return r.Stop(ctx, "terrabase")
 }
