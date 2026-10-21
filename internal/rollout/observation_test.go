@@ -64,4 +64,3 @@ func TestObservationBudgetCannotRestartBetweenWaves(t *testing.T) {
 		}
 	}
 }
-

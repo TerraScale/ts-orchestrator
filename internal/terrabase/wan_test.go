@@ -27,8 +27,6 @@ terrabase_wan_failures_total{region="sfo-1",reason="pull"} 2
 dotnet_process_memory_working_set_bytes 100
 `
 
-
-
 func TestWANFreshness(t *testing.T) {
 	now := time.Now().UTC()
 	for _, test := range []struct {

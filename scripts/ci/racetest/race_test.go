@@ -28,10 +28,10 @@ var raceScript []byte
 var committedDurations []byte
 
 var schedulerLabs = []string{
-	"TestLabTLSHostSessionFencesAndRestartsAfterControllerLoss",
+	"TestJWTMTLSHostSessionFencesAndRestartsAfterControllerLoss",
 	"TestControllerThreeProcessBootstrapAndRestart",
-	"TestLabTLSHostSessionRecoversAfterBlackholedController",
-	"TestLabTLSHostSessionRecoversAfterControllerLoss",
+	"TestJWTMTLSHostSessionRecoversAfterBlackholedController",
+	"TestJWTMTLSHostSessionRecoversAfterControllerLoss",
 	"TestAuthenticatedOperatorToHostDeliveryWithControllerLoss",
 }
 
@@ -44,10 +44,10 @@ const noraceTest = "TestRetry"
 // by name would pair TestThree with TestFail and TestOne with Example.
 const fixtureDurations = `# fixture estimates
 rest - 5
-./internal/app TestLabTLSHostSessionFencesAndRestartsAfterControllerLoss 95/1 idle
+./internal/app TestJWTMTLSHostSessionFencesAndRestartsAfterControllerLoss 95/1 idle
 ./internal/app TestControllerThreeProcessBootstrapAndRestart 80/1 idle
-./internal/app TestLabTLSHostSessionRecoversAfterBlackholedController 65/1 idle
-./internal/app TestLabTLSHostSessionRecoversAfterControllerLoss 38/1 idle
+./internal/app TestJWTMTLSHostSessionRecoversAfterBlackholedController 65/1 idle
+./internal/app TestJWTMTLSHostSessionRecoversAfterControllerLoss 38/1 idle
 ./internal/app TestAuthenticatedOperatorToHostDeliveryWithControllerLoss 32/1 idle
 ./internal/app TestThree 20
 ./internal/app TestOne 12

@@ -31,14 +31,22 @@ templ metricsBody(current view) {
 					<h2 id="metric-detail-title">{ metric.Name }</h2>
 					<p>{ metricMetadata(metric.Description) }</p>
 					<dl>
-						<dt>State</dt><dd>{ metricMetadata(metric.State) }</dd>
-						<dt>Type / unit</dt><dd>{ metricMetadata(metric.Type) } / { metricMetadata(metric.Unit) }</dd>
-						<dt>Source</dt><dd>{ metricMetadata(metric.Source) }</dd>
-						<dt>Collected at</dt><dd>{ metricObserved(metric.ObservedAt) }</dd>
-						<dt>Safe label dimensions</dt><dd>{ metricDimensions(metric.Labels) }</dd>
-						<dt>History state</dt><dd>{ metricMetadata(metric.HistoryState) }</dd>
-						<dt>Retained resolutions</dt><dd>{ metricDimensions(metric.HistoryTiers) }</dd>
-						<dt>Retention</dt><dd>{ metricRetention(*metric) }</dd>
+						<dt>State</dt>
+						<dd>{ metricMetadata(metric.State) }</dd>
+						<dt>Type / unit</dt>
+						<dd>{ metricMetadata(metric.Type) } / { metricMetadata(metric.Unit) }</dd>
+						<dt>Source</dt>
+						<dd>{ metricMetadata(metric.Source) }</dd>
+						<dt>Collected at</dt>
+						<dd>{ metricObserved(metric.ObservedAt) }</dd>
+						<dt>Safe label dimensions</dt>
+						<dd>{ metricDimensions(metric.Labels) }</dd>
+						<dt>History state</dt>
+						<dd>{ metricMetadata(metric.HistoryState) }</dd>
+						<dt>Retained resolutions</dt>
+						<dd>{ metricDimensions(metric.HistoryTiers) }</dd>
+						<dt>Retention</dt>
+						<dd>{ metricRetention(*metric) }</dd>
 					</dl>
 					if len(metric.Unsupported) > 0 {
 						<p class="note">Unsupported metadata: { metricDimensions(metric.Unsupported) }.</p>
@@ -59,8 +67,8 @@ templ metricsBody(current view) {
 						<details>
 							<summary>History data table and keyboard accessible event links</summary>
 							@dataTable(current.metricHistoryTable())
-							</details>
-						}
+						</details>
+					}
 				</article>
 			} else if current.State.param("metric") != "" {
 				@unavailable("Missing: the selected metric is absent from the current catalog. Search or select another family.")

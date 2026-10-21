@@ -549,7 +549,6 @@ func TestReloadingTLSConcurrentRenewals(t *testing.T) {
 
 // Startup makes the checks a reload makes against its own bundle.
 
-
 // A renewal written in place under the same inode, size and modification
 // time is still seen: sets are told apart by their bytes.
 func TestReloadingTLSSeesAnInPlaceRewrite(t *testing.T) {

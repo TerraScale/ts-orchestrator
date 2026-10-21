@@ -200,3 +200,11 @@ func TestAccountServiceImportSubscriptionLifecycle(t *testing.T) {
 		require_Equal(t, interest(), int32(0))
 	})
 }
+
+func runAccountProtocolServer(t *testing.T, config string) *Server {
+	t.Helper()
+	conf := createConfFile(t, []byte("listen: 127.0.0.1:-1\nhttp: 127.0.0.1:-1\n"+config))
+	s, _ := RunServerWithConfig(conf)
+	t.Cleanup(s.Shutdown)
+	return s
+}

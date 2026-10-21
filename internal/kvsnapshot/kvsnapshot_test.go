@@ -561,4 +561,3 @@ func TestSnapshotRewritesADeletedObject(t *testing.T) {
 		t.Fatalf("rewritten snapshot = %+v", document)
 	}
 }
-

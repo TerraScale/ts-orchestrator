@@ -1,6 +1,6 @@
 //go:build fixturetest
 
-package bootstrapmaterial
+package bootstrapmaterial_test
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
@@ -29,11 +30,11 @@ func TestJournalPublicationRetainsOriginalRootCall(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 				defer cancel()
 				directory := filepath.Join(t.TempDir(), "source")
-				record, err := Generate(directory, testConfig(), time.Now().UTC().Add(-time.Second))
+				record, err := bootstrapmaterial.Generate(directory, bootstrapmaterial.TestConfig(), time.Now().UTC().Add(-time.Second))
 				if err != nil {
 					t.Fatal(err)
 				}
-				metadata, err := os.ReadFile(filepath.Join(directory, metadataName))
+				metadata, err := os.ReadFile(filepath.Join(directory, bootstrapmaterial.MetadataName))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -41,13 +42,13 @@ func TestJournalPublicationRetainsOriginalRootCall(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				target := VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control",
+				target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control",
 					VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.vault", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.key"}
-				original, err := loadJournal(WithPublicationGuard(ctx, initial.Guard), directory, record, target, digest(metadata), nil)
+				original, err := bootstrapmaterial.LoadJournal(bootstrapmaterial.WithPublicationGuard(ctx, initial.Guard), directory, record, target, bootstrapmaterial.Digest(metadata), nil)
 				if err != nil {
 					t.Fatal(err)
 				}
-				path := filepath.Join(directory, journalName)
+				path := filepath.Join(directory, bootstrapmaterial.JournalName)
 				prior, err := os.ReadFile(path)
 				if err != nil {
 					t.Fatal(err)
@@ -73,8 +74,8 @@ func TestJournalPublicationRetainsOriginalRootCall(t *testing.T) {
 				}
 				reached, resume := make(chan struct{}), make(chan struct{})
 				paused := false
-				guarded := WithPublicationGuard(ctx, func(check context.Context) error {
-					temporary, temporaryErr := os.ReadFile(filepath.Join(directory, journalTempName))
+				guarded := bootstrapmaterial.WithPublicationGuard(ctx, func(check context.Context) error {
+					temporary, temporaryErr := os.ReadFile(filepath.Join(directory, bootstrapmaterial.JournalTempName))
 					published, publishedErr := os.ReadFile(path)
 					atStage := stage == "rename" && temporaryErr == nil && bytes.Equal(temporary, nextWire) ||
 						stage == "checkpoint" && errors.Is(temporaryErr, os.ErrNotExist) && publishedErr == nil && bytes.Equal(published, nextWire)
@@ -92,7 +93,7 @@ func TestJournalPublicationRetainsOriginalRootCall(t *testing.T) {
 				checkpoints := 0
 				finished := make(chan error, 1)
 				go func() {
-					finished <- checkpointJournal(guarded, directory, next, func([]byte) error {
+					finished <- bootstrapmaterial.CheckpointJournal(guarded, directory, next, func([]byte) error {
 						checkpoints++
 						return nil
 					})
@@ -137,7 +138,7 @@ func TestJournalPublicationRetainsOriginalRootCall(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := checkpointJournal(WithPublicationGuard(ctx, recovery.Guard), directory, next, func(wire []byte) error {
+				if err := bootstrapmaterial.CheckpointJournal(bootstrapmaterial.WithPublicationGuard(ctx, recovery.Guard), directory, next, func(wire []byte) error {
 					checkpoints++
 					if !bytes.Equal(wire, nextWire) {
 						return fmt.Errorf("recovery changed the original retry token or sent time")

@@ -16,6 +16,3 @@ func testBudget() Budget {
 		SetAt:           time.Date(2026, 10, 10, 20, 0, 0, 0, time.UTC),
 	}
 }
-
-
-

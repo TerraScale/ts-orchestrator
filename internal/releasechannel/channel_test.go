@@ -549,7 +549,6 @@ func TestClipKeepsOneBoundedLine(t *testing.T) {
 	}
 }
 
-
 func TestStatusReadClassifiesInvalidTelemetry(t *testing.T) {
 	for _, object := range []string{StatusObject, ServiceStatusObject("terrabase")} {
 		for _, tc := range []struct {

@@ -11,5 +11,3 @@ type linkHealthSource func(context.Context, bool) (observability.ClusterSnapshot
 func (source linkHealthSource) Cluster(ctx context.Context, metrics bool) (observability.ClusterSnapshot, error) {
 	return source(ctx, metrics)
 }
-
-

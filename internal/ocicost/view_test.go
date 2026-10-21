@@ -19,6 +19,3 @@ func viewReport() Report {
 }
 
 var viewNow = time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
-
-
-
