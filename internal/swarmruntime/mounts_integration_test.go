@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/containerd/errdefs"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -32,7 +33,7 @@ func TestContainerdBindMountSurvivesTaskRestart(t *testing.T) {
 	run := func(name, script string) {
 		t.Helper()
 		runtime, err := ContainerRuntime(&api.ContainerSpec{Image: integrationImage, User: "65532:65532", Command: []string{"/bin/sh", "-c", script},
-			Mounts: []api.Mount{{Type: api.MountTypeBind, Source: source, Target: "/data"}}})
+			Mounts: []api.Mount{{Type: api.MountTypeBind, Source: source, Target: "/mnt"}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -58,8 +59,8 @@ func TestContainerdBindMountSurvivesTaskRestart(t *testing.T) {
 			t.Fatalf("%s task: %v", name, err)
 		}
 	}
-	run("writer", `set -eu; test "$(id -u)" = 65532; printf persisted > /data/value`)
-	run("reader", `set -eu; test "$(cat /data/value)" = persisted; printf again >> /data/value`)
+	run("writer", `set -eu; test "$(id -u)" = 65532; printf persisted > /mnt/value`)
+	run("reader", `set -eu; test "$(cat /mnt/value)" = persisted; printf again >> /mnt/value`)
 	data, err := os.ReadFile(filepath.Join(source, "value"))
 	if err != nil || string(data) != "persistedagain" {
 		t.Fatalf("host data = %q, %v", data, err)
@@ -81,7 +82,7 @@ func TestContainerdReadinessUsesServicePath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 	cfg := nodeFixtureConfig(t, "founder", "manager")
-	cfg.Admission.Region = "gru"
+	cfg.Admission.Region = "sa-saopaulo-1"
 	e, err := newIntegrationExecutor(*integrationSocket, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +112,7 @@ func TestContainerdReadinessUsesServicePath(t *testing.T) {
 	container := &api.ContainerSpec{Image: integrationImage, User: "65532:65532", Labels: map[string]string{LabelReadyPath: "/healthz"},
 		Command: []string{"nc", "-lk", "-p", fmt.Sprint(port), "-e", "/bin/sh", "-c", handler}}
 	service, err := applyService(ctx, client, ServiceIntent{
-		ID: entityid.Derive("integration", "readiness-path"), Role: "smoke", Region: "gru", Environment: "integration", Architecture: runtime.GOARCH, Replicas: 1,
+		ID: entityid.Derive("integration", "readiness-path"), Role: "smoke", Region: "sa-saopaulo-1", Environment: "integration", Architecture: runtime.GOARCH, Replicas: 1,
 		Container: container,
 		Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}},
 		Ports:     []*api.PortConfig{{Name: "http", Protocol: api.ProtocolTCP, PublishMode: api.PublishModeHost, TargetPort: port, PublishedPort: port}},
@@ -119,12 +120,19 @@ func TestContainerdReadinessUsesServicePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var ready *api.Task
 	t.Cleanup(func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 20*time.Second)
 		defer stop()
 		_, _ = client.RemoveService(cleanup, &api.RemoveServiceRequest{ServiceID: service.ID})
+		// The agent must remove the container before the node stops, or the shim outlives the test.
+		for ready != nil && cleanup.Err() == nil {
+			if _, err := e.client.LoadContainer(runtimeContext(cleanup), "ts-"+ready.ID); errdefs.IsNotFound(err) {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	})
-	var ready *api.Task
 	waitRuntime(t, ctx, func() (bool, error) {
 		view, err := ObserveService(ctx, client, service.ID, ProbeLocalTask)
 		if err != nil || view.ReadyReplicas != 1 {

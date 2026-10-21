@@ -237,6 +237,7 @@ func validateContainer(s *api.ContainerSpec) error {
 }
 
 // validateMounts admits plain bind mounts of distinct, non-nested DataRoot directories.
+// Each target must already be a directory in the image: the rootfs is a read-only view.
 // Nesting is refused so a container cannot swap another mount's source for a symlink.
 func validateMounts(mounts []api.Mount) error {
 	if len(mounts) > 8 {
