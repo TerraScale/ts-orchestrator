@@ -29,69 +29,7 @@ import (
 // The signer crosses the OCI HTTP boundary and a persistent filesystem; no
 // live credentials, OCI resources or in-memory storage substitute are used.
 func TestSequenceSignerHTTPDurableMigrationAndConcurrentProducers(t *testing.T) {
-	directory := t.TempDir()
-	var lock sync.Mutex
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") == "" {
-			http.Error(w, "unsigned OCI request", 401)
-			return
-		}
-		sum := sha256.Sum256([]byte(r.URL.Path))
-		name := filepath.Join(directory, hex.EncodeToString(sum[:]))
-		lock.Lock()
-		defer lock.Unlock()
-		current, err := os.ReadFile(name)
-		found := err == nil
-		digest := sha256.Sum256(current)
-		etag := fmt.Sprintf(`"%x"`, digest)
-		switch r.Method {
-		case "GET":
-			if !found {
-				http.NotFound(w, r)
-				return
-			}
-			w.Header().Set("ETag", etag)
-			w.Write(current)
-		case "PUT":
-			if r.Header.Get("If-None-Match") == "*" && found || r.Header.Get("If-Match") != "" && (!found || r.Header.Get("If-Match") != etag) {
-				w.WriteHeader(412)
-				return
-			}
-			if r.Header.Get("If-Match") == "" && r.Header.Get("If-None-Match") == "" {
-				http.Error(w, "missing CAS", 400)
-				return
-			}
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				http.Error(w, err.Error(), 400)
-				return
-			}
-			if err := os.WriteFile(name, body, 0600); err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-			w.WriteHeader(200)
-		default:
-			w.WriteHeader(405)
-		}
-	}))
-	defer server.Close()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	newLocation := func() SequenceLocation {
-		client, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(common.NewRawConfigurationProvider("tenancy", "user", "sa-saopaulo-1", "fingerprint", string(keyPEM), nil))
-		if err != nil {
-			t.Fatal(err)
-		}
-		client.Host = server.URL
-		client.HTTPClient = sequenceHTTPClient{server}
-		policy := common.NoRetryPolicy()
-		client.SetCustomClientConfiguration(common.CustomClientConfiguration{RetryPolicy: &policy})
-		return SequenceLocation{Client: client, Namespace: "ns", Bucket: "gru-1-head"}
-	}
+	directory, newLocation := sequenceSDKFixture(t)
 	rootPublic, root, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -271,4 +209,72 @@ func (client sequenceHTTPClient) Do(request *http.Request) (*http.Response, erro
 	cloned.URL.Scheme = "http"
 	cloned.URL.Host = strings.TrimPrefix(client.server.URL, "http://")
 	return client.server.Client().Do(cloned)
+}
+
+func sequenceSDKFixture(t *testing.T) (string, func() SequenceLocation) {
+	t.Helper()
+	directory := t.TempDir()
+	var lock sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			http.Error(w, "unsigned OCI request", 401)
+			return
+		}
+		sum := sha256.Sum256([]byte(r.URL.Path))
+		name := filepath.Join(directory, hex.EncodeToString(sum[:]))
+		lock.Lock()
+		defer lock.Unlock()
+		current, err := os.ReadFile(name)
+		found := err == nil
+		digest := sha256.Sum256(current)
+		etag := fmt.Sprintf(`"%x"`, digest)
+		switch r.Method {
+		case "GET":
+			if !found {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("ETag", etag)
+			w.Write(current)
+		case "PUT":
+			if r.Header.Get("If-None-Match") == "*" && found || r.Header.Get("If-Match") != "" && (!found || r.Header.Get("If-Match") != etag) {
+				w.WriteHeader(412)
+				return
+			}
+			if r.Header.Get("If-Match") == "" && r.Header.Get("If-None-Match") == "" {
+				http.Error(w, "missing CAS", 400)
+				return
+			}
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			if err := os.WriteFile(name, body, 0600); err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			w.WriteHeader(200)
+		default:
+			w.WriteHeader(405)
+		}
+	}))
+	t.Cleanup(server.Close)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	newLocation := func() SequenceLocation {
+		client, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(common.NewRawConfigurationProvider("tenancy", "user", "sa-saopaulo-1", "fingerprint", string(keyPEM), nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		client.Host = server.URL
+		client.HTTPClient = sequenceHTTPClient{server}
+		policy := common.NoRetryPolicy()
+		client.SetCustomClientConfiguration(common.CustomClientConfiguration{RetryPolicy: &policy})
+		return SequenceLocation{Client: client, Namespace: "ns", Bucket: "gru-1-head"}
+	}
+	return directory, newLocation
 }
