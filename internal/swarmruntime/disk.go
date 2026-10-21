@@ -31,7 +31,7 @@ func (e *Executor) diskPaths(ctx context.Context) ([]string, error) {
 	found := make(map[string]string)
 	for _, plugin := range response.Plugins {
 		key := plugin.Type + "/" + plugin.ID
-		if key != string(plugins.SnapshotPlugin)+"/native" && key != string(plugins.ContentPlugin)+"/content" {
+		if key != string(plugins.SnapshotPlugin)+"/"+imageSnapshotter && key != string(plugins.ContentPlugin)+"/content" {
 			continue
 		}
 		if plugin.InitErr != nil || found[key] != "" || !filepath.IsAbs(plugin.Exports["root"]) {
@@ -42,7 +42,7 @@ func (e *Executor) diskPaths(ctx context.Context) ([]string, error) {
 	if len(found) != 2 {
 		return nil, ErrDiskPending
 	}
-	return []string{e.logRoot, found[string(plugins.SnapshotPlugin)+"/native"], found[string(plugins.ContentPlugin)+"/content"]}, nil
+	return []string{e.logRoot, found[string(plugins.SnapshotPlugin)+"/"+imageSnapshotter], found[string(plugins.ContentPlugin)+"/content"]}, nil
 }
 
 func (e *Executor) diskCapacity(ctx context.Context) (int64, error) {
@@ -110,8 +110,8 @@ func diskHeadroom(stat unix.Statfs_t) (int64, error) {
 	return int64(low), nil
 }
 
-// Native snapshots retain a complete copy at every committed chain step.
-// Charge every retained step and blob to each task, even when tasks share it.
+// Charge every retained blob and committed chain step to each task, even when
+// tasks share them; an overlayfs step holds only its own layer's files.
 func (e *Executor) retainedImageDisk(ctx context.Context, image containerd.Image) (int64, error) {
 	paths, err := e.diskPaths(ctx)
 	if err != nil {
@@ -147,7 +147,7 @@ func (e *Executor) retainedImageDisk(ctx context.Context, image containerd.Image
 	if err != nil || len(diffIDs) == 0 {
 		return 0, errors.Join(ErrDiskPending, err)
 	}
-	storeSnapshots := e.client.SnapshotService("native")
+	storeSnapshots := e.client.SnapshotService(imageSnapshotter)
 	parent := ""
 	// ChainIDs rewrites its argument, and containerd caches this slice in the
 	// image: chaining it in place corrupts every later RootFS of a multi-layer image.
