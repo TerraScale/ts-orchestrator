@@ -61,6 +61,8 @@ func newGenericReachabilityFixture(t *testing.T) *genericReachabilityFixture {
 	if err := ValidatePreparedFoundation(f.prepared.Grant); err != nil {
 		t.Fatal(err)
 	}
+	// A fresh client adopts the schema3 origin; the fixture already adopted its legacy grant at this generation.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	f.bundle = signProvisionFoundation(t, f.prepared, f.base.bundle.RootChainWire, f.base.root, f.base.now)
 	if len(f.bundle.GrantWire) > foundationGrantLimit {
 		t.Fatal("complete signed fixture exceeds current grant read bound")
