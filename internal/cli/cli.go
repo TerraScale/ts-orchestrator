@@ -102,7 +102,8 @@ Operator tooling:
   disaster-recovery      Prepare cross-region Object Storage and Vault recovery copies
 
 Use ts-orch bootstrap --help or ts-orch release --help to list their commands.
-ts-orch release push sends a main build to every region in deploy/m1/regions.json (CI only).
+ts-orch release push sends a main build to every region in deploy/m1/regions.json (CI only);
+ts-orch release pin --state /var/lib/ts-orch prints a host's listener pin for that file.
 `
 
 // Run dispatches CLI commands before runtime configuration or NATS startup.
@@ -157,6 +158,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "release":
 		if len(args) > 1 && args[1] == "push" {
 			return releasepush.Push(ctx, args[2:], output)
+		}
+		if len(args) > 1 && args[1] == "pin" {
+			return releasepush.Pin(args[2:], output)
 		}
 		return releasecli.Run(ctx, args[1:], output)
 	case "selfupdate":

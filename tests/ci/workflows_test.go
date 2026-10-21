@@ -63,22 +63,17 @@ func TestWorkflowContracts(t *testing.T) {
 		forbidText(t, image, "  push:")
 		// The image job starts once the release is retained, so it never
 		// holds a builder slot while the checks run.
-		steps := matches(ci, `(?m)^      - name: (.+)$`)
-		if len(steps) < 4 || steps[len(steps)-1] != "Push the release to every region" ||
-			steps[len(steps)-2] != "Start the image build for this revision" ||
-			steps[len(steps)-3] != "Record the qualified main build for the deployment-lag guard" ||
-			steps[len(steps)-4] != "Retain verified binaries and qualification manifest" {
-			t.Fatalf("image dispatch and release push must follow the retained release: %v", steps)
+		build, _, _ := strings.Cut(ci, "\n  release-push:\n")
+		steps := matches(build, `(?m)^      - name: (.+)$`)
+		if len(steps) < 3 || steps[len(steps)-1] != "Start the image build for this revision" ||
+			steps[len(steps)-2] != "Record the qualified main build for the deployment-lag guard" ||
+			steps[len(steps)-3] != "Retain verified binaries and qualification manifest" {
+			t.Fatalf("image dispatch must follow the retained release: %v", steps)
 		}
 		_, dispatchStep, _ := strings.Cut(ci, "- name: Start the image build for this revision")
 		dispatchStep, _, _ = strings.Cut(dispatchStep, "- name:")
 		requireText(t, dispatchStep, "run: bash scripts/ci/dispatch-image.sh\n")
 		requireText(t, dispatchStep, "continue-on-error: true")
-		_, deployStep, _ := strings.Cut(ci, "- name: Push the release to every region")
-		requireText(t, deployStep, "release push --sha ")
-		forbidText(t, deployStep, "continue-on-error:")
-		requireText(t, deployStep, "github.event_name == 'push' && github.ref == 'refs/heads/main'")
-		requireText(t, ci, "      id-token: write\n")
 		// The weekly run rebuilds the image but never redeploys.
 		requireText(t, ci, "  schedule:\n    - cron: ")
 		requireText(t, workflowText(t, "scripts/ci/dispatch-image.sh"), `-f "inputs[source_ci_run_id]=$GITHUB_RUN_ID" -f "inputs[source_ci_run_number]=$GITHUB_RUN_NUMBER"`)
@@ -252,6 +247,34 @@ func TestImageGateWaitsForDispatchingRun(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Only the release-push job, after a publishing main push, can mint the
+// GitHub OIDC token that is the release push credential (W20 M7).
+func TestReleasePushJob(t *testing.T) {
+	ci := workflowText(t, ".github/workflows/ci.yml")
+	build, push, found := strings.Cut(ci, "\n  release-push:\n")
+	if !found {
+		t.Fatal("ci.yml has no release-push job")
+	}
+	if strings.Count(ci, "id-token: write") != 1 || !strings.Contains(push, "    permissions:\n      contents: read\n      id-token: write\n") {
+		t.Fatal("id-token: write must be granted to the release-push job only, with contents: read")
+	}
+	requireText(t, build, "    outputs:\n      publication: ${{ steps.inputs.outputs.publication }}\n")
+	requireText(t, push, "    needs: [build]\n")
+	requireText(t, push, "    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}\n")
+	if steps := matches(push, `(?m)^      - name: (.+)$`); !reflect.DeepEqual(steps, []string{
+		"Check out the region list", "Download this run's release binaries", "Push the release to every region"}) {
+		t.Fatalf("release-push steps: %v", steps)
+	}
+	requireText(t, push, "sparse-checkout: deploy/m1/regions.json")
+	requireText(t, push, "persist-credentials: false")
+	requireText(t, push, `gh release download "ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}"`)
+	requireText(t, push, "--pattern terrascale-orchestrator-linux-amd64 --pattern terrascale-orchestrator-linux-arm64")
+	requireText(t, push, `release push --sha "${GITHUB_SHA}" --dir dist`)
+	requireText(t, push, `>> "${GITHUB_STEP_SUMMARY}"`)
+	forbidText(t, push, "continue-on-error:")
+	forbidText(t, push, "secrets.")
 }
 
 func TestImageDispatchPinsRun(t *testing.T) {

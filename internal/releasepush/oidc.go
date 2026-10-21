@@ -15,6 +15,8 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +34,15 @@ const (
 	// clients cannot turn connects into GitHub requests.
 	refetchEvery = 30 * time.Second
 	maxTokenSize = 16 << 10
+	fetchTimeout = 10 * time.Second
 )
+
+// releaseWorkflows are the only workflows whose tokens may push releases:
+// `<repository>/<workflow path>@refs/heads/main`. Add an app repository's CI
+// workflow here when app pushes are wired.
+var releaseWorkflows = []string{
+	owner + "/ts-orchestrator/.github/workflows/ci.yml@" + mainRef,
+}
 
 // Claims are the GitHub Actions OIDC claims ts-orch acts on.
 type Claims struct {
@@ -45,7 +55,11 @@ type Claims struct {
 	Ref             string   `json:"ref"`
 	SHA             string   `json:"sha"`
 	RunID           string   `json:"run_id"`
+	JobWorkflowRef  string   `json:"job_workflow_ref"`
+	EventName       string   `json:"event_name"`
 }
+
+var runID = regexp.MustCompile(`^[0-9]{1,20}$`)
 
 // audience accepts the JWT "aud" string or array form.
 type audience []string
@@ -70,17 +84,19 @@ type Verifier struct {
 	Client  *http.Client
 	Now     func() time.Time
 
-	mu      sync.Mutex
-	keys    map[string]*rsa.PublicKey
-	fetched time.Time
+	mu       sync.Mutex
+	keys     map[string]*rsa.PublicKey
+	fetched  time.Time
+	inflight chan struct{} // closed when the running JWKS fetch ends
 }
 
 // NewVerifier verifies against GitHub's published keys.
 func NewVerifier() *Verifier {
-	return &Verifier{JWKSURL: githubJWKS, Client: &http.Client{Timeout: 10 * time.Second}, Now: time.Now}
+	return &Verifier{JWKSURL: githubJWKS, Client: &http.Client{Timeout: fetchTimeout}, Now: time.Now}
 }
 
-// Verify returns the claims of a valid main-branch TerraScale token for ts-orch.
+// Verify returns the claims of a valid token from a release workflow's push
+// to main, audience ts-orch.
 func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 	if len(token) > maxTokenSize {
 		return Claims{}, errors.New("token too large")
@@ -124,8 +140,13 @@ func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 		return Claims{}, errors.New("token not yet valid")
 	case claims.RepositoryOwner != owner || !strings.HasPrefix(claims.Repository, owner+"/"):
 		return Claims{}, errors.New("token is not from a " + owner + " repository")
-	case claims.Ref != mainRef:
-		return Claims{}, errors.New("token is not from " + mainRef)
+	case claims.Ref != mainRef || claims.EventName != "push":
+		return Claims{}, errors.New("token is not from a push to " + mainRef)
+	case !slices.Contains(releaseWorkflows, claims.JobWorkflowRef) ||
+		!strings.HasPrefix(claims.JobWorkflowRef, claims.Repository+"/.github/workflows/"):
+		return Claims{}, errors.New("token is not from a release workflow")
+	case !runID.MatchString(claims.RunID):
+		return Claims{}, errors.New("token run_id is not a number")
 	}
 	return claims, nil
 }
@@ -138,25 +159,45 @@ func decodeSegment(segment string, into any) error {
 	return json.Unmarshal(data, into)
 }
 
+// key returns the kid's key. One caller fetches the JWKS without holding
+// the lock; concurrent callers wait for that fetch instead of starting theirs.
 func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	if key := v.keys[kid]; key != nil {
-		return key, nil
+	for {
+		v.mu.Lock()
+		if key := v.keys[kid]; key != nil {
+			v.mu.Unlock()
+			return key, nil
+		}
+		if wait := v.inflight; wait != nil {
+			v.mu.Unlock()
+			select {
+			case <-wait:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		if !v.fetched.IsZero() && v.Now().Sub(v.fetched) < refetchEvery {
+			v.mu.Unlock()
+			return nil, fmt.Errorf("unknown token key %q", kid)
+		}
+		done := make(chan struct{})
+		v.inflight = done
+		v.mu.Unlock()
+		fetchCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
+		keys, err := v.fetch(fetchCtx)
+		cancel()
+		v.mu.Lock()
+		v.fetched, v.inflight = v.Now(), nil
+		if err == nil {
+			v.keys = keys
+		}
+		v.mu.Unlock()
+		close(done)
+		if err != nil {
+			return nil, fmt.Errorf("fetch GitHub JWKS: %w", err)
+		}
 	}
-	if !v.fetched.IsZero() && v.Now().Sub(v.fetched) < refetchEvery {
-		return nil, fmt.Errorf("unknown token key %q", kid)
-	}
-	keys, err := v.fetch(ctx)
-	v.fetched = v.Now()
-	if err != nil {
-		return nil, fmt.Errorf("fetch GitHub JWKS: %w", err)
-	}
-	v.keys = keys
-	if key := keys[kid]; key != nil {
-		return key, nil
-	}
-	return nil, fmt.Errorf("unknown token key %q", kid)
 }
 
 func (v *Verifier) fetch(ctx context.Context) (map[string]*rsa.PublicKey, error) {

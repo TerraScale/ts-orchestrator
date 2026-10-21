@@ -35,9 +35,8 @@ const (
 )
 
 var (
-	hex40   = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	hex64   = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	tagName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	hex40 = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	// appImage is a TerraScale GHCR image pinned by digest; group 1 is its name.
 	appImage = regexp.MustCompile(`^ghcr\.io/terrascale/([a-z0-9][a-z0-9._-]{0,127})@sha256:[0-9a-f]{64}$`)
 )
@@ -190,6 +189,14 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	return Reply{State: "installed", Version: release.SHA}
 }
 
+// ReleaseTag is the GitHub release CI run runID publishes for sha.
+func ReleaseTag(sha, runID string) string { return "ci-" + sha + "-run-" + runID }
+
+// ReleaseURL is that release's binary for arch.
+func ReleaseURL(sha, runID, arch string) string {
+	return downloadPrefix + ReleaseTag(sha, runID) + "/" + assetPrefix + arch
+}
+
 // validateOrch checks the request and its signature; it returns this host's asset.
 func (h *Handler) validateOrch(ctx context.Context, release OrchRelease) (Binary, Claims, error) {
 	if !hex40.MatchString(release.SHA) {
@@ -198,11 +205,6 @@ func (h *Handler) validateOrch(ctx context.Context, release OrchRelease) (Binary
 	binary, ok := release.Binaries[runtime.GOARCH]
 	if !ok {
 		return Binary{}, Claims{}, errors.New("no binary for " + runtime.GOARCH)
-	}
-	tag, found := strings.CutPrefix(binary.URL, downloadPrefix)
-	tag, asset, _ := strings.Cut(tag, "/")
-	if !found || !tagName.MatchString(tag) || asset != assetPrefix+runtime.GOARCH {
-		return Binary{}, Claims{}, errors.New("url must be " + downloadPrefix + "<tag>/" + assetPrefix + runtime.GOARCH)
 	}
 	if !hex64.MatchString(binary.SHA256) {
 		return Binary{}, Claims{}, errors.New("sha256 must be 64 lowercase hex")
@@ -214,8 +216,10 @@ func (h *Handler) validateOrch(ctx context.Context, release OrchRelease) (Binary
 	if claims.Repository != orchRepository || claims.SHA != release.SHA {
 		return Binary{}, Claims{}, errors.New("token is not for this ts-orchestrator commit")
 	}
-	if _, err := strconv.ParseUint(claims.RunID, 10, 64); err != nil {
-		return Binary{}, Claims{}, errors.New("token run_id is not a number")
+	// The URL is unsigned: only the signed run's own release asset is accepted,
+	// so a captured token cannot install another build under its sha.
+	if want := ReleaseURL(release.SHA, claims.RunID, runtime.GOARCH); binary.URL != want {
+		return Binary{}, Claims{}, errors.New("url must be " + want)
 	}
 	return binary, claims, nil
 }

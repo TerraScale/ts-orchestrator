@@ -44,17 +44,24 @@ services, err := client.ListServices(ctx, &api.ListServicesRequest{})
 ## Release push over NATS (W14)
 
 `single-host` also runs a minimal embedded NATS server (`internal/releasepush`):
-one TLS client listener on `0.0.0.0:4222`, 64 KiB max payload, no JetStream,
-cluster, gateway or leaf. The self-signed ECDSA listener certificate is created
-once under `<state>/nats/`. ts-orch adds an iptables `INPUT` ACCEPT for tcp/4222
-above Ubuntu's REJECT on every start; the edge NSG allows tcp/4222.
+one TLS client listener on `0.0.0.0:4222`, 64 KiB max payload, at most 256
+connections and 64 subscriptions each, 5 s auth timeout, no JetStream, cluster,
+gateway or leaf. ts-orch adds an iptables `INPUT` ACCEPT for tcp/4222 above
+Ubuntu's REJECT on every start; the edge NSG allows tcp/4222.
+
+The listener certificate is self-signed ECDSA, created once under
+`<state>/nats/` and never replaced while either file exists (a half-written
+pair is refused, not regenerated), so its pin survives restarts and upgrades.
 
 CI holds no secret. Its GitHub Actions OIDC token (audience `ts-orch`) is the
 NATS token and is embedded in every release message. ts-orch verifies RS256
 against GitHub's JWKS, `iss`, `aud=ts-orch`, `exp`/`nbf` (1 min skew),
-`repository_owner=TerraScale` and `ref=refs/heads/main`. A CI connection may
-publish only `ts.release.>` and subscribe only `_INBOX.>`; ts-orch's own
-in-process connection uses an in-memory token. Everything else is refused.
+`repository_owner=TerraScale`, `ref=refs/heads/main`, `event_name=push` and
+`job_workflow_ref` in the code list `releaseWorkflows` (today only
+`TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main`; the
+token's `repository` must own that workflow). A CI connection may publish only
+`ts.release.>` and subscribe only its run's inbox `_INBOX.<run_id>.>`; ts-orch's
+own in-process connection uses an in-memory token. Everything else is refused.
 
 | Subject | Request | Reply |
 |---|---|---|
@@ -63,27 +70,56 @@ in-process connection uses an in-memory token. Everything else is refused.
 | `ts.release.app` | `{"service", "image": "ghcr.io/terrascale/<name>@sha256:...", "token"}` | not wired yet (slice B) |
 
 A ts-orch release needs a token from `TerraScale/ts-orchestrator` whose `sha`
-claim equals `sha`, and a URL under
-`https://github.com/TerraScale/ts-orchestrator/releases/download/<tag>/terrascale-orchestrator-linux-<goarch>`.
-ts-orch downloads it (60 s, one immediate retry), checks `sha256`, keeps the old
-binary as `terrascale-orchestrator.prev`, renames the new one over the real path
-of its executable, replies `installed` and exits non-zero; systemd restarts it
-after `RestartSec=1s`. Containers keep running: the executor's `Close` only
-disconnects from containerd, whose shims own the tasks, `Node.Stop` cancels
-before leaving so workloads survive, and `KillMode=mixed` only kills what is left in ts-orch's own cgroup (the shims live under `containerd.service`). A
-release from an older GitHub run (`run_id`) than the installed one is `stale`.
+claim equals `sha`, and the URL must be exactly that run's release asset:
+`https://github.com/TerraScale/ts-orchestrator/releases/download/ci-<sha>-run-<run_id>/terrascale-orchestrator-linux-<goarch>`
+(`run_id` from the verified token). ts-orch downloads it (60 s, one immediate
+retry), checks `sha256`, keeps the old binary as `terrascale-orchestrator.prev`,
+renames the new one over the real path of its executable, replies `installed`
+and exits non-zero; systemd restarts it after `RestartSec=1s`. Containers keep
+running: the executor's `Close` only disconnects from containerd, whose shims
+own the tasks, `Node.Stop` cancels before leaving so workloads survive, and
+`KillMode=mixed` only kills what is left in ts-orch's own cgroup (the shims live
+under `containerd.service`). A release from an older GitHub run (`run_id`) than
+the installed one is `stale`.
 
-CI pushes with
+### Regions and pins
 
-```sh
-ts-orch release push --sha "$GITHUB_SHA" --tag "<release tag>" --dir dist
+`deploy/m1/regions.json` lists every region; a new region is one line:
+
+```json
+[
+  {"region": "gru", "nats": "tls://163.176.124.12:4222", "spki_sha256": "<pin>"}
+]
 ```
 
-`--dir` holds `terrascale-orchestrator-linux-{amd64,arm64}` (the uploaded
-assets). The job needs `permissions: id-token: write`. Push reads
-`deploy/m1/regions.json` (a new region is one line there), pushes to every
-region concurrently, polls `ts.release.version` every 250 ms until it equals
-`--sha` (3 min limit) and prints one JSON line per region:
+`spki_sha256` is the hex (or base64) sha256 of the listener's
+SubjectPublicKeyInfo. CI accepts exactly that key; a region with no or an
+invalid pin is reported as failed and the others continue. Fill it once from
+the host (it creates the certificate if absent):
+
+```sh
+sudo ts-orch release pin --state /var/lib/ts-orch
+```
+
+gru's pin is empty until ts-orch is installed on ts-gru-1, so every push fails
+for gru until its line is filled.
+
+### CI
+
+The `release-push` job in `.github/workflows/ci.yml` runs after `build` on a
+publishing push to main. It is the only job with `id-token: write`
+(`contents: read`). It downloads the amd64 and arm64 assets of
+`ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}`, checks out `deploy/m1/regions.json`
+and runs
+
+```sh
+dist/terrascale-orchestrator-linux-amd64 release push --sha "${GITHUB_SHA}" --dir dist
+```
+
+Push mints the token, derives the release tag from its `run_id`, pushes to
+every region concurrently, polls `ts.release.version` every 250 ms until it
+equals `--sha` (3 min limit) and prints one JSON line per region, which the
+job writes to its summary:
 
 ```json
 {"region":"gru","state":"installed","connect_ms":180,"accepted_ms":4200,"serving_ms":9800}

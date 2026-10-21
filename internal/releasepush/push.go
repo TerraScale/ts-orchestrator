@@ -3,7 +3,10 @@ package releasepush
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,12 +25,15 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const pushUsage = "usage: ts-orch release push --sha <40 hex> --tag <release tag> --dir <dir with " + assetPrefix + "<arch>> [--regions deploy/m1/regions.json]"
+const pushUsage = "usage: ts-orch release push --sha <40 hex> --dir <dir with " + assetPrefix + "<arch>> [--regions deploy/m1/regions.json]"
 
 // Region is one deploy/m1/regions.json entry; a new region is one more line.
 type Region struct {
 	Region string `json:"region"`
 	NATS   string `json:"nats"`
+	// SPKISHA256 pins the listener key: hex or base64 sha256 of its
+	// SubjectPublicKeyInfo, printed on the host by `ts-orch release pin`.
+	SPKISHA256 string `json:"spki_sha256"`
 }
 
 // Result is the one JSON line push prints per region.
@@ -45,13 +52,12 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("release push", flag.ContinueOnError)
 	flags.SetOutput(output)
 	sha := flags.String("sha", "", "commit the release was built from")
-	tag := flags.String("tag", "", "GitHub release tag holding the binaries")
 	dir := flags.String("dir", "", "directory with the release binaries")
 	regionsFile := flags.String("regions", "deploy/m1/regions.json", "region list")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || !hex40.MatchString(*sha) || !tagName.MatchString(*tag) || *dir == "" {
+	if flags.NArg() != 0 || !hex40.MatchString(*sha) || *dir == "" {
 		return errors.New(pushUsage)
 	}
 	data, err := os.ReadFile(*regionsFile)
@@ -62,7 +68,15 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	if err := protocol.DecodeStrict(data, &regions, 64<<10); err != nil || len(regions) == 0 {
 		return fmt.Errorf("%s: %w", *regionsFile, errors.Join(err, errors.New("needs at least one region")))
 	}
-	release := OrchRelease{SHA: *sha, Binaries: map[string]Binary{}}
+	token, err := MintToken(ctx)
+	if err != nil {
+		return err
+	}
+	run, err := tokenRunID(token)
+	if err != nil {
+		return err
+	}
+	release := OrchRelease{SHA: *sha, Binaries: map[string]Binary{}, Token: token}
 	for _, arch := range []string{"amd64", "arm64"} {
 		sum, err := fileSHA256(filepath.Join(*dir, assetPrefix+arch))
 		if errors.Is(err, os.ErrNotExist) {
@@ -71,18 +85,15 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 		if err != nil {
 			return err
 		}
-		release.Binaries[arch] = Binary{URL: downloadPrefix + *tag + "/" + assetPrefix + arch, SHA256: sum}
+		release.Binaries[arch] = Binary{URL: ReleaseURL(*sha, run, arch), SHA256: sum}
 	}
 	if len(release.Binaries) == 0 {
 		return errors.New("no " + assetPrefix + "<arch> binary in " + *dir)
 	}
-	if release.Token, err = MintToken(ctx); err != nil {
-		return err
-	}
 	results := make([]Result, len(regions))
 	var wg sync.WaitGroup
 	for i, region := range regions {
-		wg.Go(func() { results[i] = pushRegion(ctx, region, release) })
+		wg.Go(func() { results[i] = pushRegion(ctx, region, release, run) })
 	}
 	wg.Wait()
 	var failed error
@@ -140,16 +151,16 @@ func MintToken(ctx context.Context) (string, error) {
 }
 
 // pushRegion never returns early for another region's failure.
-func pushRegion(ctx context.Context, region Region, release OrchRelease) Result {
+func pushRegion(ctx context.Context, region Region, release OrchRelease, run string) Result {
 	result := Result{Region: region.Region}
 	start := time.Now()
 	since := func() int64 { return time.Since(start).Milliseconds() }
 	fail := func(err error) Result { result.Error = err.Error(); return result }
-	conn, err := nats.Connect(region.NATS,
-		// shortcut: the listener certificate is self-signed, so CI skips
-		// verification; integrity is the OIDC signature on the message.
-		// Pin or use an ACME certificate when another client needs trust.
-		nats.Secure(&tls.Config{InsecureSkipVerify: true}), //nolint:gosec // see shortcut above
+	config, err := pinnedTLS(region.SPKISHA256)
+	if err != nil {
+		return fail(err)
+	}
+	conn, err := nats.Connect(region.NATS, nats.Secure(config), nats.CustomInboxPrefix(Inbox(run)),
 		nats.Token(release.Token), nats.Name("ts-orch release push"), nats.Timeout(10*time.Second),
 		// The host restarts mid-push; reconnect immediately and keep trying.
 		nats.MaxReconnects(-1), nats.ReconnectWait(250*time.Millisecond), nats.ReconnectJitter(0, 0))
@@ -184,6 +195,48 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
+}
+
+// pinnedTLS trusts exactly the listener key the region pins. The listener
+// certificate is self-signed for no host name, so the pin replaces chain and
+// name verification (InsecureSkipVerify only disables those; the pin check in
+// VerifyPeerCertificate always runs).
+func pinnedTLS(pin string) (*tls.Config, error) {
+	want, err := hex.DecodeString(pin)
+	if err != nil {
+		want, err = base64.StdEncoding.DecodeString(pin)
+	}
+	if err != nil || len(want) != sha256.Size {
+		return nil, errors.New("region has no valid spki_sha256 pin; run `ts-orch release pin` on its host and add it to deploy/m1/regions.json")
+	}
+	return &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: true, //nolint:gosec // replaced by the SPKI pin below
+		VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
+			if len(raw) == 0 {
+				return errors.New("listener sent no certificate")
+			}
+			certificate, err := x509.ParseCertificate(raw[0])
+			if err != nil {
+				return err
+			}
+			if sum := sha256.Sum256(certificate.RawSubjectPublicKeyInfo); subtle.ConstantTimeCompare(sum[:], want) != 1 {
+				return errors.New("listener key does not match the region's spki_sha256 pin")
+			}
+			return nil
+		},
+	}, nil
+}
+
+// tokenRunID reads the run_id claim without verifying (the host verifies);
+// it names this run's release and reply inbox.
+func tokenRunID(token string) (string, error) {
+	parts := strings.Split(token, ".")
+	var claims Claims
+	if len(parts) != 3 || decodeSegment(parts[1], &claims) != nil || !runID.MatchString(claims.RunID) {
+		return "", errors.New("OIDC token has no run_id")
+	}
+	return claims.RunID, nil
 }
 
 func request(ctx context.Context, conn *nats.Conn, subject string, payload []byte, timeout time.Duration) (Reply, error) {

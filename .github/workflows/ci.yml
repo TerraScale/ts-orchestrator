@@ -54,10 +54,10 @@ jobs:
       contents: write
       actions: write
       statuses: write
-      # GitHub OIDC token: the release push credential (no stored secret).
-      id-token: write
     needs: [guard]
     name: verify/go + artifact/linux-amd64-arm64
+    outputs:
+      publication: ${{ steps.inputs.outputs.publication }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -182,15 +182,45 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/dispatch-image.sh
 
-      # Push the retained release to every region's ts-orch over NATS
-      # (deploy/m1/regions.json); fails when any region does not serve it.
+  # Push the retained release to every region's ts-orch over NATS
+  # (deploy/m1/regions.json); fails when any region does not serve it. Only
+  # this job can mint the GitHub OIDC token that is the push credential.
+  release-push:
+    needs: [build]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}
+    name: deploy/release-push
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out the region list
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: deploy/m1/regions.json
+          sparse-checkout-cone-mode: false
+
+      - name: Download this run's release binaries
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --dir dist \
+            --pattern terrascale-orchestrator-linux-amd64 --pattern terrascale-orchestrator-linux-arm64
+          chmod +x dist/terrascale-orchestrator-linux-amd64
+
       - name: Push the release to every region
-        if: ${{ steps.inputs.outputs.publication == 'required' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         shell: bash
         run: |
           set -euo pipefail
-          tag="ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}"
-          dist/terrascale-orchestrator-linux-amd64 release push --sha "${GITHUB_SHA}" --tag "${tag}" --dir dist \
-            | tee "${RUNNER_TEMP}/release-push.jsonl"
-          jq -r '"| \(.region) | \(.state) | \(.connect_ms) | \(.accepted_ms) | \(.serving_ms) |"' "${RUNNER_TEMP}/release-push.jsonl" \
-            | { printf '| Region | State | Connect ms | Accepted ms | Serving ms |\n|---|---|---|---|---|\n'; cat; } >> "${GITHUB_STEP_SUMMARY}"
+          status=0
+          dist/terrascale-orchestrator-linux-amd64 release push --sha "${GITHUB_SHA}" --dir dist \
+            > "${RUNNER_TEMP}/release-push.jsonl" || status=$?
+          cat "${RUNNER_TEMP}/release-push.jsonl"
+          jq -r '"| \(.region) | \(.state // "-") | \(.connect_ms) | \(.accepted_ms) | \(.serving_ms) | \(.error // "") |"' "${RUNNER_TEMP}/release-push.jsonl" \
+            | { printf '| Region | State | Connect ms | Accepted ms | Serving ms | Error |\n|---|---|---|---|---|---|\n'; cat; } >> "${GITHUB_STEP_SUMMARY}"
+          exit "$status"
