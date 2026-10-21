@@ -413,7 +413,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 				requests, reads := cloud.requests, len(cloud.imageReads)
 				result, err := prepare(selected)
 				// Only the two locked retention reads precede the qualification refusal.
-				if err == nil || result.Grant.InstallationID != "" || cloud.requests != requests+2 ||len(cloud.imageReads) != reads || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
+				if err == nil || result.Grant.InstallationID != "" || cloud.requests != requests+2 || len(cloud.imageReads) != reads || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
 					t.Fatalf("invalid independent qualification reached image GET or effects: %v", err)
 				}
 			})
