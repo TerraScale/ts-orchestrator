@@ -251,7 +251,7 @@ func withNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory, Founda
 				http.Error(w, `{"code":"NotAuthorizedOrNotFound","message":"absent"}`, 404)
 				return
 			}
-			value, err := json.Marshal(map[string]string{"username": "ns/fixture-ocir", "password": "fixture-only-issued-token"})
+			value, err := json.Marshal(map[string]string{"username": "ns/fixture-ocir", "password": "fixture-only-issued-token"}, json.Deterministic(true))
 			if err != nil {
 				t.Error(err)
 				w.WriteHeader(500)
