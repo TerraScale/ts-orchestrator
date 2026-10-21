@@ -124,7 +124,9 @@ func ValidateConfig(path string) (Config, error) {
 	}
 	// RejectUnknownMembers below bounds the field set; only required fields
 	// are checked here.
-	if fields["management_url"] == nil || fields["region"] == nil || fields["setup_key_secret_id"] == nil {
+	// Baked images carry regional discovery only; the setup key is found in
+	// Vault at boot, so setup_key_secret_id is checked only when present.
+	if fields["management_url"] == nil || fields["region"] == nil {
 		return c, errors.New("NetBird enrollment configuration has unexpected or missing fields")
 	}
 	if e = json.Unmarshal(b, &c, json.RejectUnknownMembers(true)); e != nil {
@@ -137,7 +139,7 @@ func ValidateConfig(path string) (Config, error) {
 	if !regexp.MustCompile(`^[a-z]{2}-[a-z]+-[1-9][0-9]*$`).MatchString(c.Region) {
 		return c, errors.New("NetBird region must be an OCI region name")
 	}
-	if !netbird.ValidSecretID(c.Region, c.SetupKeySecretID) {
+	if _, ok := fields["setup_key_secret_id"]; ok && !netbird.ValidSecretID(c.Region, c.SetupKeySecretID) {
 		return c, errors.New("NetBird setup_key_secret_id must identify an OCI Vault secret in the configured region")
 	}
 	// An empty or null admin_pat_secret_id means absent, as in the
