@@ -30,15 +30,20 @@ type originalAdmissionReadDispatch struct {
 
 type originalAdmissionReadsSDKFixture struct {
 	*originalSourceIAMSDKFixture
-	reads       *originalActorReadsSDKFixture
-	admissionMu sync.Mutex
-	fault       string
-	faulted     bool
-	rows        map[string]map[string]any
-	posts       []originalAdmissionReadDispatch
-	gets        map[string]int
-	prior       []byte
-	sources     []byte
+	reads                *originalActorReadsSDKFixture
+	admissionMu          sync.Mutex
+	fault                string
+	faulted              bool
+	rows                 map[string]map[string]any
+	posts                []originalAdmissionReadDispatch
+	gets                 map[string]int
+	prior                []byte
+	sources              []byte
+	projectionWire       []byte
+	priorProjection      []byte
+	sourceProjection     []byte
+	expectedRejectedWire []byte
+	journalRefusals      int
 }
 
 func originalAdmissionReadPrior(record FoundationRecord, sources bool) ([]byte, error) {
@@ -54,6 +59,27 @@ func originalAdmissionReadPrior(record FoundationRecord, sources bool) ([]byte, 
 	record.OriginalFoundationCompartments = &section
 	record.UpdatedAt = time.Time{}
 	return json.Marshal(record, json.Deterministic(true))
+}
+
+// projection reuses only a pure serialization; callers compare the expected bytes
+// on every request and retain no decoded journal record between requests.
+func (f *originalAdmissionReadsSDKFixture) projection(record FoundationRecord, wire []byte, sources bool) ([]byte, error) {
+	if !bytes.Equal(wire, f.projectionWire) {
+		f.projectionWire = bytes.Clone(wire)
+		f.priorProjection, f.sourceProjection = nil, nil
+	}
+	projection := &f.priorProjection
+	if sources {
+		projection = &f.sourceProjection
+	}
+	if *projection == nil {
+		body, err := originalAdmissionReadPrior(record, sources)
+		if err != nil {
+			return nil, err
+		}
+		*projection = body
+	}
+	return *projection, nil
 }
 
 func newOriginalAdmissionReadsSDKFixture(t *testing.T, fault string, legacy bool) *originalAdmissionReadsSDKFixture {
@@ -176,29 +202,59 @@ func (f *originalAdmissionReadsSDKFixture) expectedPolicy(t *testing.T, record F
 		"freeformTags": map[string]any{}, "definedTags": map[string]any{}}
 }
 
+func (f *originalAdmissionReadsSDKFixture) rejectJournal(w http.ResponseWriter, wire []byte, cause any) {
+	if f.expectedRejectedWire != nil && bytes.Equal(wire, f.expectedRejectedWire) {
+		f.journalRefusals++
+	} else {
+		f.cloud.test.Error(cause)
+	}
+	originalCompartmentFailure(w, 400, "InvalidParameter")
+}
+
 func (f *originalAdmissionReadsSDKFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	f.admissionMu.Lock()
 	defer f.admissionMu.Unlock()
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
 		f.cloud.test.Error("admission read request lacked real OCI SDK signing")
 	}
-	record := f.record(f.cloud.test)
-	prior, err := originalAdmissionReadPrior(record, false)
+	// Origin discovery reads signed object bytes, not regional journal state.
+	originHome := f.approval.HomeStorageDomain
+	if r.Method == http.MethodGet && strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") && r.Host == "objectstorage."+foundationHomeRegion+".oraclecloud.com" && r.URL.RawQuery == "" &&
+		strings.HasPrefix(r.URL.Path, "/n/"+originHome.Namespace+"/b/"+originHome.HeadBucket+"/o/orchestrator/workload-genesis/v1/") {
+		f.originalCompartmentSDKFixture.serveHTTP(w, r)
+		return
+	}
+	f.cloud.mu.Lock()
+	wire, err := os.ReadFile(f.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + "GRU.json"))
+	var record FoundationRecord
+	if err == nil {
+		err = json.Unmarshal(wire, &record)
+		if err == nil && record.OriginalFoundationCompartments == nil {
+			err = errors.New("admission journal omitted original compartments")
+		}
+	}
+	f.cloud.mu.Unlock()
+	if err != nil {
+		f.projectionWire, f.priorProjection, f.sourceProjection = nil, nil, nil
+		f.rejectJournal(w, wire, err)
+		return
+	}
+	prior, err := f.projection(record, wire, false)
 	if err != nil || !bytes.Equal(prior, f.prior) {
-		f.cloud.test.Error("admission continuation changed an immutable original prerequisite")
-		originalCompartmentFailure(w, 400, "InvalidParameter")
+		f.rejectJournal(w, wire, "admission continuation changed an immutable original prerequisite")
 		return
 	}
 	for _, regional := range record.OriginalFoundationCompartments.Regions {
 		if regional.AdmissionReads != nil && f.sources == nil {
-			f.sources, err = originalAdmissionReadPrior(record, true)
+			sources, projectionErr := f.projection(record, wire, true)
+			f.sources, err = bytes.Clone(sources), projectionErr
 			if err != nil || completeOriginalAdmissionReadPrerequisites(record) != nil {
 				f.cloud.test.Error("admission phase preceded genuine completed source policies")
 			}
 		}
 	}
 	if f.sources != nil {
-		sources, err := originalAdmissionReadPrior(record, true)
+		sources, err := f.projection(record, wire, true)
 		if err != nil || !bytes.Equal(sources, f.sources) {
 			f.cloud.test.Error("admission phase replaced retained source IAM")
 			originalCompartmentFailure(w, 400, "InvalidParameter")
@@ -386,6 +442,47 @@ func TestOriginalFoundationAdmissionReadVersionsSDK(t *testing.T) {
 			}
 			if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) || len(f.posts) != posts || !bytes.Equal(before, f.wire(t)) {
 				t.Fatal("versioned completed admission reads rewrote history", err)
+			}
+			if version == originalAdmissionReadPurpose {
+				store := f.store(t)
+				priorProjection, sourceProjection := f.priorProjection, f.sourceProjection
+				if _, _, err := store.Load(t.Context(), "GRU"); err != nil || len(priorProjection) == 0 || len(sourceProjection) == 0 ||
+					&priorProjection[0] != &f.priorProjection[0] || &sourceProjection[0] != &f.sourceProjection[0] {
+					t.Fatal("unchanged actual SDK read did not reuse pure journal projections", err)
+				}
+				writeJournal := func(wire, expected []byte) {
+					f.admissionMu.Lock()
+					defer f.admissionMu.Unlock()
+					f.cloud.mu.Lock()
+					defer f.cloud.mu.Unlock()
+					f.cloud.writeObject("gru-1-head/"+foundationObjectPrefix+"GRU.json", wire)
+					f.expectedRejectedWire = bytes.Clone(expected)
+				}
+				t.Cleanup(func() { writeJournal(before, nil) })
+				changed := f.record(t)
+				changed.Stage = "changed-original-prerequisite"
+				changedWire, err := json.Marshal(changed, json.Deterministic(true))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, badWire := range [][]byte{[]byte("{malformed journal"), changedWire} {
+					refusals := f.journalRefusals
+					writeJournal(badWire, badWire)
+					_, _, err := store.Load(t.Context(), "GRU")
+					var serviceErr common.ServiceError
+					ok := errors.As(err, &serviceErr)
+					if !ok || serviceErr.GetHTTPStatusCode() != 400 || f.journalRefusals != refusals+1 ||
+						!bytes.Equal(badWire, f.wire(t)) || len(f.posts) != posts {
+						t.Fatal("changed journal escaped actual SDK refusal or changed durable/provider state", err)
+					}
+					writeJournal(before, nil)
+					if _, _, err := store.Load(t.Context(), "GRU"); err != nil {
+						t.Fatal("restored journal did not recover after refused bytes", err)
+					}
+				}
+				if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) || len(f.posts) != posts || !bytes.Equal(before, f.wire(t)) {
+					t.Fatal("journal refusal changed restart history or repeated a policy", err)
+				}
 			}
 		})
 	}

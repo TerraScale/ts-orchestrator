@@ -123,8 +123,15 @@ func (entry OriginalFoundationPublication) scopeOnly() OriginalFoundationPublica
 }
 
 func originalPublicationScope(record FoundationRecord, intent OriginalFoundationPublicationIntent, rootChainSHA string) (OriginalFoundationPublication, error) {
+	if completeOriginalFoundationAdmissionReads(record) != nil {
+		return OriginalFoundationPublication{}, ErrOriginalSourceProducerHold
+	}
+	return originalPublicationScopeFromAdmissionReads(record, intent, rootChainSHA)
+}
+
+func originalPublicationScopeFromAdmissionReads(record FoundationRecord, intent OriginalFoundationPublicationIntent, rootChainSHA string) (OriginalFoundationPublication, error) {
 	var entry OriginalFoundationPublication
-	if completeOriginalFoundationAdmissionReads(record) != nil || !validFoundationDigest(rootChainSHA) {
+	if !validFoundationDigest(rootChainSHA) {
 		return entry, ErrOriginalSourceProducerHold
 	}
 	root := record.OriginalFoundationCompartments
@@ -187,7 +194,7 @@ func originalPublicationAuthority(ctx context.Context, authority *HomeIAMAuthori
 	if err != nil || grant.OriginalPublication == nil || validateOriginalFoundationPublicationIntent(grant, authority.domain) != nil {
 		return record, etag, expected, deadline, errors.Join(ErrOriginalSourceProducerHold, err)
 	}
-	expected, err = originalPublicationScope(record, *grant.OriginalPublication, digestSource(authority.operator.bundle.RootChainWire))
+	expected, err = originalPublicationScopeFromAdmissionReads(record, *grant.OriginalPublication, digestSource(authority.operator.bundle.RootChainWire))
 	if err != nil || expected.GrantSHA256 != digestSource(authority.operator.bundle.GrantWire) {
 		return record, etag, expected, deadline, errors.Join(ErrOriginalSourceProducerHold, err)
 	}
@@ -253,7 +260,17 @@ func retainOriginalFoundationPublication(ctx context.Context, authority *HomeIAM
 	if err := guard(ctx); err != nil {
 		return err
 	}
-	publicationCtx := ociclient.WithRequestGuard(ociclient.WithAuthority(ctx, guard), guard)
+	preSign := func(dispatchCtx context.Context) error {
+		guarded := originalProviderCheckpointContext(dispatchCtx, ctx)
+		lease, ok := guarded.Value(homeIAMLeaseKey{}).(*homeIAMLease)
+		if !ok || lease == nil || lease.authority != authority {
+			return ErrOriginalSourceProducerHold
+		}
+		// Signing may use an external key; retain fresh root and lease fencing.
+		// The full guard still reads every publication prerequisite after signing.
+		return authority.Guard(guarded, 0)
+	}
+	publicationCtx := ociclient.WithRequestGuard(ociclient.WithAuthority(ctx, preSign), guard)
 	var readbacks [2]OriginalFoundationPublicationReadback
 	for index, wire := range [2][]byte{authority.operator.bundle.RootChainWire, authority.operator.bundle.GrantWire} {
 		if entry.Readbacks == nil {
@@ -288,7 +305,22 @@ func (record FoundationRecord) validateOriginalFoundationPublication() error {
 		return nil
 	}
 	entry := root.Publication
-	expected, err := originalPublicationScope(record, entry.Intent, entry.RootChainSHA256)
+	if _, err := originalPublicationScope(record, entry.Intent, entry.RootChainSHA256); err != nil {
+		return errors.Join(ErrOriginalSourceProducerHold, err)
+	}
+	return record.validateOriginalFoundationPublicationFromValidatedAdmissionReads()
+}
+
+func (record FoundationRecord) validateOriginalFoundationPublicationFromValidatedAdmissionReads() error {
+	root := record.OriginalFoundationCompartments
+	if root == nil || root.Publication == nil {
+		return nil
+	}
+	if completeOriginalFoundationAdmissionReadsFromValidatedAdmissionReads(record) != nil {
+		return ErrOriginalSourceProducerHold
+	}
+	entry := root.Publication
+	expected, err := originalPublicationScopeFromAdmissionReads(record, entry.Intent, entry.RootChainSHA256)
 	if err != nil || !sameOriginalSourceValue(entry.scopeOnly(), expected) || entry.PendingAt.IsZero() || entry.PendingAt.Before(root.BornAt) || entry.PendingAt.After(record.UpdatedAt) {
 		return errors.Join(ErrOriginalSourceProducerHold, err)
 	}

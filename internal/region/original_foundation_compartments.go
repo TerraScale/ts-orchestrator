@@ -154,7 +154,8 @@ func originalCompartmentScope(ctx context.Context, authority *HomeIAMAuthority) 
 	if err := ValidatePreparedFoundation(grant); err != nil {
 		return scope, err
 	}
-	if err := authority.checkOriginalSourceProducerBirth(ctx); err != nil {
+	// Prepared validation required the producer purposes on this exact local grant.
+	if err := authority.checkOriginalSourceProducerBirthFromPreparedGrant(ctx, grant); err != nil {
 		return scope, err
 	}
 	if err := authority.checkNetBirdMaterialOrigins(ctx, grant); err != nil {
@@ -532,19 +533,20 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 	if err := r.validateOriginalFoundationVault(); err != nil {
 		return err
 	}
-	if err := r.validateOriginalFoundationActors(); err != nil {
+	// Reuse predecessor validation only within this unchanged-record pass.
+	if err := r.validateOriginalFoundationActorsFromValidatedNetworkAndVault(); err != nil {
 		return err
 	}
-	if err := r.validateOriginalFoundationActorReads(); err != nil {
+	if err := r.validateOriginalFoundationActorReadsFromValidatedActors(); err != nil {
 		return err
 	}
-	if err := r.validateOriginalFoundationSourceIAM(); err != nil {
+	if err := r.validateOriginalFoundationSourceIAMFromValidatedActors(); err != nil {
 		return err
 	}
-	if err := r.validateOriginalFoundationAdmissionReads(); err != nil {
+	if err := r.validateOriginalFoundationAdmissionReadsFromValidatedActors(); err != nil {
 		return err
 	}
-	if err := r.validateOriginalFoundationPublication(); err != nil {
+	if err := r.validateOriginalFoundationPublicationFromValidatedAdmissionReads(); err != nil {
 		return err
 	}
 	if err := r.validateOriginalFoundationMaterialIAM(); err != nil {

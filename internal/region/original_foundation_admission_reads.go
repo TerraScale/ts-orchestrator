@@ -170,6 +170,13 @@ func completeOriginalAdmissionReadPrerequisites(record FoundationRecord) error {
 	if originalActorReadsActors(record) != nil {
 		return ErrOriginalSourceProducerHold
 	}
+	return completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record)
+}
+
+func completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record FoundationRecord) error {
+	if originalActorReadsActorsFromValidatedActors(record) != nil {
+		return ErrOriginalSourceProducerHold
+	}
 	for _, regional := range record.OriginalFoundationCompartments.Regions {
 		reads, source := regional.ActorReads, regional.SourceIAM
 		if reads == nil || reads.Pending == nil || reads.Provenance == nil || reads.VerifiedAt.IsZero() || reads.ReadbackSHA256 == "" || reads.HoldReason != "" ||
@@ -182,6 +189,13 @@ func completeOriginalAdmissionReadPrerequisites(record FoundationRecord) error {
 
 func completeOriginalFoundationAdmissionReads(record FoundationRecord) error {
 	if completeOriginalAdmissionReadPrerequisites(record) != nil || record.validateOriginalFoundationAdmissionReads() != nil {
+		return ErrOriginalSourceProducerHold
+	}
+	return completeOriginalFoundationAdmissionReadsFromValidatedAdmissionReads(record)
+}
+
+func completeOriginalFoundationAdmissionReadsFromValidatedAdmissionReads(record FoundationRecord) error {
+	if completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record) != nil {
 		return ErrOriginalSourceProducerHold
 	}
 	for _, regional := range record.OriginalFoundationCompartments.Regions {
@@ -198,6 +212,11 @@ func originalAdmissionReadScope(record FoundationRecord, index int, recipe Origi
 	if index < 0 || index >= 3 || completeOriginalAdmissionReadPrerequisites(record) != nil {
 		return scope, ErrOriginalSourceProducerHold
 	}
+	return originalAdmissionReadScopeFromPrerequisites(record, index, recipe)
+}
+
+func originalAdmissionReadScopeFromPrerequisites(record FoundationRecord, index int, recipe OriginalActorAdmissionReadIntent) (OriginalFoundationAdmissionReads, error) {
+	var scope OriginalFoundationAdmissionReads
 	root := record.OriginalFoundationCompartments
 	regional, birth := root.Regions[index], (*record.OriginalSourceProducers)[index]
 	actor, source := regional.Actor, regional.SourceIAM
@@ -285,7 +304,7 @@ func originalAdmissionReadPolicy(scope OriginalFoundationAdmissionReads) identit
 func originalAdmissionReadPrerequisites(ctx context.Context, authority *HomeIAMAuthority) (FoundationRecord, string, [3]OriginalFoundationAdmissionReads, time.Time, error) {
 	var scopes [3]OriginalFoundationAdmissionReads
 	record, etag, _, deadline, err := originalActorReadsPrerequisites(ctx, authority)
-	if err != nil || completeOriginalAdmissionReadPrerequisites(record) != nil {
+	if err != nil || completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record) != nil {
 		return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 	}
 	reader, ok := authority.resolver.Footprint.(*SignedFootprint)
@@ -300,17 +319,20 @@ func originalAdmissionReadPrerequisites(ctx context.Context, authority *HomeIAMA
 	if err != nil {
 		return record, etag, scopes, time.Time{}, err
 	}
+	if err := completeOriginalSourceIAMActorsFromValidatedActors(record); err != nil {
+		return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
+	}
 	for index, regional := range record.OriginalFoundationCompartments.Regions {
 		// Reconstruct from independently verified signed material, not record fields.
 		material, err := originalActorMaterial(grant, regional.Cell)
 		if err != nil {
 			return record, etag, scopes, time.Time{}, err
 		}
-		actor, err := originalActorScope(record, index, *material.Startup, material.Config)
+		actor, err := originalActorScopeFromPrerequisites(record, index, *material.Startup, material.Config)
 		if err != nil || !sameOriginalSourceValue(actor, regional.Actor.scopeOnly()) {
 			return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 		}
-		source, err := originalSourceIAMScope(record, index)
+		source, err := originalSourceIAMScopeFromActors(record, index)
 		if err != nil || !sameOriginalSourceValue(source, regional.SourceIAM.scopeOnly()) {
 			return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 		}
@@ -322,7 +344,7 @@ func originalAdmissionReadPrerequisites(ctx context.Context, authority *HomeIAMA
 			!sameOriginalSourceValue(response.VersionDate, entry.Request.VersionDate) || !sameOriginalSourceValue(response.FreeformTags, entry.Request.FreeformTags) || !sameOriginalSourceValue(response.DefinedTags, entry.Request.DefinedTags) {
 			return record, etag, scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 		}
-		scopes[index], err = originalAdmissionReadScope(record, index, (*grant.OriginalActorAdmissionReads)[index])
+		scopes[index], err = originalAdmissionReadScopeFromPrerequisites(record, index, (*grant.OriginalActorAdmissionReads)[index])
 		if err != nil {
 			return record, etag, scopes, time.Time{}, err
 		}
@@ -518,12 +540,36 @@ func (record FoundationRecord) validateOriginalFoundationAdmissionReads() error 
 	if root == nil {
 		return nil
 	}
+	for _, regional := range root.Regions {
+		if regional.AdmissionReads != nil {
+			if err := completeOriginalAdmissionReadPrerequisites(record); err != nil {
+				return errors.Join(ErrOriginalSourceProducerHold, err)
+			}
+			break
+		}
+	}
+	return record.validateOriginalFoundationAdmissionReadsFromValidatedActors()
+}
+
+func (record FoundationRecord) validateOriginalFoundationAdmissionReadsFromValidatedActors() error {
+	root := record.OriginalFoundationCompartments
+	if root == nil {
+		return nil
+	}
+	for _, regional := range root.Regions {
+		if regional.AdmissionReads != nil {
+			if err := completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record); err != nil {
+				return errors.Join(ErrOriginalSourceProducerHold, err)
+			}
+			break
+		}
+	}
 	for index, regional := range root.Regions {
 		entry := regional.AdmissionReads
 		if entry == nil {
 			continue
 		}
-		expected, err := originalAdmissionReadScope(record, index, entry.Recipe)
+		expected, err := originalAdmissionReadScopeFromPrerequisites(record, index, entry.Recipe)
 		if err != nil || !sameOriginalSourceValue(entry.scopeOnly(), expected) {
 			return errors.Join(ErrOriginalSourceProducerHold, err)
 		}
