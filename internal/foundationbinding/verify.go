@@ -104,21 +104,25 @@ func (v VerifiedBindings) Revalidate(ctx context.Context) error {
 }
 
 type grant struct {
-	WorkloadGenesis     jsontext.Value   `json:"workloadGenesis,omitempty"`
-	WorkerProfiles      jsontext.Value   `json:"workerProfiles,omitempty"`
-	ReleaseAuthorities  jsontext.Value   `json:"releaseAuthorities,omitempty"`
-	InstallationID      string           `json:"installationId"`
-	SchemaVersion       int              `json:"schemaVersion"`
-	Generation          uint64           `json:"generation"`
-	TenancyID           string           `json:"tenancyId"`
-	ParentCompartmentID string           `json:"parentCompartmentId"`
-	SharedCompartmentID string           `json:"sharedCompartmentId"`
-	Currency            string           `json:"currency"`
-	MonthlyLimitMinor   int64            `json:"monthlyLimitMinor"`
-	CleanupOwner        string           `json:"cleanupOwner"`
-	Regions             []jsontext.Value `json:"regions"`
-	InfrastructureSpend jsontext.Value   `json:"infrastructureSpend,omitempty"`
-	OCIRIssuances       jsontext.Value   `json:"ocirIssuances,omitempty"`
+	WorkloadGenesis    jsontext.Value `json:"workloadGenesis,omitempty"`
+	WorkerProfiles     jsontext.Value `json:"workerProfiles,omitempty"`
+	ReleaseAuthorities jsontext.Value `json:"releaseAuthorities,omitempty"`
+	// Schema3 original authority is verified by internal/region; bindings only carry it.
+	OriginalActorAdmissionReads    jsontext.Value   `json:"originalActorAdmissionReads,omitempty"`
+	OriginalPublication            jsontext.Value   `json:"originalPublication,omitempty"`
+	OriginalMaterialPublicationIAM jsontext.Value   `json:"originalMaterialPublicationIam,omitempty"`
+	InstallationID                 string           `json:"installationId"`
+	SchemaVersion                  int              `json:"schemaVersion"`
+	Generation                     uint64           `json:"generation"`
+	TenancyID                      string           `json:"tenancyId"`
+	ParentCompartmentID            string           `json:"parentCompartmentId"`
+	SharedCompartmentID            string           `json:"sharedCompartmentId"`
+	Currency                       string           `json:"currency"`
+	MonthlyLimitMinor              int64            `json:"monthlyLimitMinor"`
+	CleanupOwner                   string           `json:"cleanupOwner"`
+	Regions                        []jsontext.Value `json:"regions"`
+	InfrastructureSpend            jsontext.Value   `json:"infrastructureSpend,omitempty"`
+	OCIRIssuances                  jsontext.Value   `json:"ocirIssuances,omitempty"`
 }
 
 type intent struct {
