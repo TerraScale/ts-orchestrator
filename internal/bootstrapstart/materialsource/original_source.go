@@ -207,7 +207,11 @@ func readOriginalState(ctx context.Context, objects *objectstorage.ObjectStorage
 	defer response.Content.Close()
 	etag := derefOriginal(response.ETag)
 	wire, err := io.ReadAll(io.LimitReader(response.Content, originalSourceStateLimit+1))
-	if err != nil || len(wire) > originalSourceStateLimit || etag == "" || len(etag) > 1024 || strings.ContainsAny(etag, "\x00\r\n") ||
+	if err != nil {
+		// Keep a cancelled or expired dispatch distinguishable from bad state.
+		return originalSourceState{}, "", errors.Join(ErrMaterialSource, err)
+	}
+	if len(wire) > originalSourceStateLimit || etag == "" || len(etag) > 1024 || strings.ContainsAny(etag, "\x00\r\n") ||
 		json.Unmarshal(wire, &state, json.RejectUnknownMembers(true)) != nil || !validOriginalState(state, in) {
 		return originalSourceState{}, "", ErrMaterialSource
 	}

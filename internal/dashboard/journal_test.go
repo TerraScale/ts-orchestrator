@@ -868,6 +868,13 @@ func TestEveryPageStreamCarriesChrome(t *testing.T) {
 		},
 	}
 	entityLink := regexp.MustCompile(`<a (href="[^"]+") class="tag">subject one`)
+	// Large assets compress once, lazily, at BestCompression; under -race on a
+	// 2-CPU runner that one-time cost alone can exceed a request's 5s budget.
+	for _, file := range assets {
+		if file.gzipped != nil {
+			file.gzipped()
+		}
+	}
 	for _, test := range responses {
 		finiteServer := newStreamServer(t, test.board)
 		client := *finiteServer.Client()
