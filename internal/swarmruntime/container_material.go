@@ -19,6 +19,9 @@ const ContainerMaterialDirectory = "/run/ts-orch/secrets"
 
 var ErrContainerMaterialPending = errors.New("current signed container material is pending")
 
+// secretsLabel lists the env keys a service spec takes from Vault (W3's secrets[]).
+const secretsLabel = "terrascale.secrets"
+
 // ContainerTaskBinding contains lookup selectors, never authority or Vault refs.
 type ContainerTaskBinding struct {
 	TaskID, ServiceID, NodeID, InstanceID, Region, HostID, Fingerprint string
@@ -69,6 +72,10 @@ func (c *controller) containerMaterialMount(ctx context.Context) ([]runtimespec.
 	}
 	if c.task.ServiceAnnotations.Labels[LabelRole] == "function-worker" {
 		return nil, nil, nil // The dedicated function verifier owns this task's material.
+	}
+	if e.containerMaterial == nil && c.task.ServiceAnnotations.Labels[secretsLabel] == "" {
+		// shortcut: no signed-material authority and no named secrets means nothing to deliver; drop once every host binds one.
+		return nil, nil, nil
 	}
 	if e.containerMaterial == nil || e.functionNodeID == "" || c.task.NodeID != e.functionNodeID {
 		return nil, nil, ErrContainerMaterialPending
