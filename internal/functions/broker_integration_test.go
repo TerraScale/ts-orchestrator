@@ -340,6 +340,21 @@ func workerBrokerFixture(t *testing.T) (*jwt.AccountClaims, nkeys.KeyPair, strin
 	serverTLS, clientTLS := workerBrokerTLS(t)
 	brokers := functionBrokerCluster(t, &server.Options{TLSConfig: serverTLS,
 		TrustedOperators: []*jwt.OperatorClaims{operatorClaim}, AccountResolver: resolver, SystemAccount: systemID})
+	// JWT accounts load lazily per broker; a JetStream request routed to a broker that has
+	// not loaded the account yet fails with "JetStream not enabled for account".
+	for _, broker := range brokers {
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			loaded, err := broker.LookupAccount(accountID)
+			if err == nil && loaded.JetStreamEnabled() {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("broker %s did not enable JetStream for the worker account: %v", broker.Name(), err)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	connect := func(creds []byte, inbox string) (*nats.Conn, <-chan error) {
 		t.Helper()
 		violations := make(chan error, 64)
