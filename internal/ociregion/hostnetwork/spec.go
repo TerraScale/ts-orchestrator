@@ -42,8 +42,8 @@ type nsg struct {
 // spec is a cell's whole desired network.
 type spec struct {
 	cell, code, region, compartment, host, node string
-	vcn, publicSubnet, privateSubnet      string
-	nsgs                                  []nsg
+	vcn, publicSubnet, privateSubnet            string
+	nsgs                                        []nsg
 }
 
 func desired(cellName string) (spec, error) {
