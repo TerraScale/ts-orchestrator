@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"slices"
 	"strings"
@@ -463,7 +464,8 @@ func originalMaterialIAMCreateIdentity(regional OriginalFoundationCompartmentReg
 }
 
 func originalMaterialPeerGroupIdentity(regional OriginalFoundationCompartmentRegion, group OriginalFoundationMaterialPeerGroup) (foundation.CreateIdentity, error) {
-	wire, err := json.Marshal(group.Request, json.Deterministic(true))
+	request := identity.CreateDynamicGroupRequest{CreateDynamicGroupDetails: group.Request}
+	wire, err := canonicalSDKCreateBody(request.HTTPRequest(http.MethodPost, "/20160918/dynamicGroups", nil, nil))
 	digest := digestSource(wire)
 	return foundation.CreateIdentity{Key: "original-startup-peer-dynamic-group", Region: foundationHomeRegion, RequestDigest: digest, RetryToken: BootstrapRetryToken(regional.OperationID, digest)}, err
 }
