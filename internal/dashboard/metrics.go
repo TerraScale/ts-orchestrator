@@ -244,19 +244,21 @@ func (current view) metricHistoryWarnings() []string {
 		warnings = append(warnings, history.Reason)
 	}
 	if history.Truncated {
-		warnings = append(warnings, "Truncated: more series exist than this page can show (32 series maximum).")
+		warnings = append(warnings, "Truncated: more series exist than this query can show.")
 	}
 	if current.MetricHistoryLimited {
 		warnings = append(warnings, "Truncated display: only the newest observations are shown within the 1,200-point page budget. Older retained observations remain queryable through the history API.")
 	}
-	if history.Pending {
-		warnings = append(warnings, "Pending: archive replay has not completed; history may be missing.")
-	}
 	if history.Incomplete {
-		warnings = append(warnings, "Incomplete: retained samples were omitted or rejected during replay.")
+		warnings = append(warnings, "Regional metric history is incomplete: some retained measurements are unavailable.")
+	}
+	if history.Pending {
+		warnings = append(warnings, "Regional metric history is loading.")
 	}
 	gaps := 0
+	stale := false
 	for _, series := range history.Series {
+		stale = stale || series.Stale
 		for index := range series.Points {
 			if metricGap(series, index, current.metricInterval()) {
 				gaps++
@@ -265,6 +267,9 @@ func (current view) metricHistoryWarnings() []string {
 	}
 	if gaps > 0 {
 		warnings = append(warnings, fmt.Sprintf("Gaps / partial observations: %d. Chart lines break at these observations; missing values are not zero.", gaps))
+	}
+	if stale && history.State != "stale" {
+		warnings = append(warnings, "Stale: the latest retained samples predate the requested range end.")
 	}
 	return warnings
 }

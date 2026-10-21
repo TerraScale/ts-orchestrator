@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"cmp"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -373,18 +374,23 @@ func (current view) partition() *observability.DatabaseView {
 // partitionChart charts the partition's desired and serving seats.
 func (current view) partitionChart() chartSpec {
 	labels := map[string]string{"database": current.Path["db"], "partition": current.Path["partition"]}
-	var series []chartSeries
-	if desired := current.historyRange(observability.HistPartitionDesired, labels, "", false); len(desired) > 0 {
-		desired[0].Name, desired[0].Dashed, desired[0].Status = "desired", true, "idle"
-		series = append(series, desired[0])
+	spec := current.detailHistoryChart(observability.HistPartitionDesired, "count", labels, "", "No seat history for this partition yet.")
+	for index := range spec.Series {
+		spec.Series[index].Name, spec.Series[index].Dashed, spec.Series[index].Status = "desired", true, "idle"
 	}
 	if database := current.partition(); database != nil && database.Readiness == "observed" {
-		if serving := current.historyRange(observability.HistPartitionServing, labels, "", false); len(serving) > 0 {
-			serving[0].Name, serving[0].Status = "serving", "ok"
-			series = append(series, serving[0])
+		serving := current.detailHistoryChart(observability.HistPartitionServing, "count", labels, "", "No serving seat history for this partition yet.")
+		for index := range serving.Series {
+			serving.Series[index].Name, serving.Series[index].Status = "serving", "ok"
+		}
+		spec.Series = append(spec.Series, serving.Series...)
+		if serving.Warning != spec.Warning {
+			spec.Warning = strings.TrimSpace(spec.Warning + " " + serving.Warning)
 		}
 	}
-	spec := current.lineChart("line", "count", series, "No seat history for this partition yet.")
+	if len(spec.Series) > 0 {
+		spec.Empty = ""
+	}
 	spec.Min = float(0)
 	return spec
 }
@@ -408,12 +414,12 @@ func (current view) managedUpdate() *observability.DatabaseView {
 
 // rolloutProgressChart charts a managed update's completed fraction.
 func (current view) rolloutProgressChart() chartSpec {
-	series := current.historyRange(observability.HistRolloutProgress,
-		map[string]string{"operation": current.Path["id"]}, "", false)
-	if len(series) > 0 {
-		series[0].Name, series[0].Status = "completed", "ok"
+	spec := current.detailHistoryChart(observability.HistRolloutProgress, "percent",
+		map[string]string{"operation": current.Path["id"]}, "", "No progress history for this update in the selected range.")
+	for index := range spec.Series {
+		spec.Series[index].Name, spec.Series[index].Status = "completed", "ok"
 	}
-	spec := current.lineChart("area", "percent", series, "No progress history for this update in the selected range.")
+	spec.Kind = "area"
 	spec.Min, spec.Max = float(0), float(1)
 	return spec
 }
@@ -467,25 +473,55 @@ func (current view) hostVolumes() []insights.Volume {
 }
 
 func (current view) hostChart(metric, unit, nameBy, empty string) chartSpec {
-	var series []chartSeries
-	var warning string
-	node := current.detailHostNode()
-	member := node.Name
-	if current.Path["r"] == current.localRegion() && current.Journal != nil && current.Journal.History != nil {
-		result := current.Journal.History.Range(observability.HistoryQuery{Metric: metric,
-			Labels: map[string]string{"member": strings.ToLower(member)},
-			Start:  current.Now.Add(-current.State.Range.Duration), End: current.Now, MaxSeries: 64})
-		series = historyChartSeries(result, metric, nameBy)
-		if result.Incomplete {
-			warning = "Regional metric history is incomplete: some retained measurements are unavailable."
-		}
-		if result.Pending {
-			empty = "Loading regional metric history"
-			warning = strings.TrimSpace(warning + " Regional metric history is loading.")
+	if current.Path["r"] != current.localRegion() {
+		return current.lineChart("line", unit, nil, empty)
+	}
+	return current.detailHistoryChart(metric, unit,
+		map[string]string{"member": strings.ToLower(current.detailHostNode().Name)}, nameBy, empty)
+}
+
+func (current view) detailHistoryChart(metric, unit string, labels map[string]string, nameBy, empty string) chartSpec {
+	if current.Journal == nil || current.Journal.History == nil {
+		return current.lineChart("line", unit, nil, "Regional metric history is unavailable.")
+	}
+	result := current.Journal.History.Range(observability.HistoryQuery{Metric: metric, Labels: labels,
+		Start: current.Now.Add(-current.State.Range.Duration), End: current.Now, MaxSeries: 64})
+	if metric == observability.HistNATSRouteRTT {
+		result.Series = slices.Clone(result.Series)
+		for index := range result.Series {
+			series := &result.Series[index]
+			series.Points = slices.Clone(series.Points)
+			for point := range series.Points {
+				series.Points[point].Value = series.Points[point].Max
+			}
 		}
 	}
-	spec := current.lineChart("line", unit, series, empty)
-	spec.Warning = warning
+	current.MetricHistory = &observability.CatalogHistory{HistoryResult: result}
+	current.MetricHistoryLimited = false
+	spec := current.metricHistoryChart(observability.CatalogMetric{Name: metric, Unit: unit})
+	names := map[string]string{}
+	for _, series := range result.Series {
+		names[metricSeriesName(series)] = cmp.Or(seriesName(series.Labels, nameBy), metric)
+	}
+	for index := range spec.Series {
+		series := &spec.Series[index]
+		series.Name = names[series.Name]
+		if metric != observability.HistNATSRouteRTT {
+			for point := range series.Points {
+				series.Points[point][1] = round(series.Points[point][1])
+			}
+		}
+	}
+	if len(spec.Series) == 0 {
+		spec.Empty = empty
+		if result.Incomplete {
+			spec.Empty = "Regional metric history is incomplete."
+		}
+		if result.Pending {
+			spec.Empty = "Loading regional metric history"
+		}
+	}
+	spec.Warning = strings.Join(current.metricHistoryWarnings(), " ")
 	return spec
 }
 
