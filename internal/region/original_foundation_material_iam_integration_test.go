@@ -245,7 +245,9 @@ func (f *originalMaterialIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http
 			entry := regional.MaterialPublicationIAM
 			group := entry.PeerDynamicGroup
 			want := map[string]any{"compartmentId": f.approval.TenancyID, "name": "ts-original-peer-" + entry.IdentitySHA256[:32], "description": "Original regional controllers admitted by exact control compartment", "matchingRule": fmt.Sprintf("ALL {instance.compartment.id='%s'}", regional.Actor.ControlCompartmentID), "freeformTags": map[string]any{}, "definedTags": map[string]any{}}
-			if group.Pending == nil || group.Provenance != nil || entry.Pending != nil || group.Pending.Request.RequestDigest != digestSource(canonical) || group.Pending.Request.RetryToken != r.Header.Get("opc-retry-token") || !sameOriginalSourceValue(body, want) {
+			// The peer group identity digests the retained SDK details, not the re-sorted wire.
+			retained, err := json.Marshal(group.Request, json.Deterministic(true))
+			if err != nil || group.Pending == nil || group.Provenance != nil || entry.Pending != nil || group.Pending.Request.RequestDigest != digestSource(retained) || group.Pending.Request.RetryToken != r.Header.Get("opc-retry-token") || !sameOriginalSourceValue(body, want) {
 				f.cloud.test.Error("group effect escaped acknowledged exact scope")
 				originalCompartmentFailure(w, 400, "InvalidParameter")
 				return
