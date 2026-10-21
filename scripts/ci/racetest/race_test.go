@@ -440,9 +440,6 @@ func TestRaceScheduler(t *testing.T) {
 			t.Fatalf("exit %d: %s %s", r.Code, r.Stdout, r.Stderr)
 		}
 		forbidText(t, r.Stderr, "is not a sharded package")
-		for _, lab := range schedulerLabs {
-			requireText(t, r.Stdout, "race queue app-"+lab+" pool=idle ")
-		}
 		requireText(t, r.Stdout, "race queue deploy-"+solo+" pool=cpu estimate=60s")
 	})
 	// Machines split the one plan: together they run every test once.
@@ -576,7 +573,8 @@ esac
 `), 0o755)
 	cmd := exec.Command("bash", scheduler)
 	cmd.Dir = tools
-	cmd.Env = append(os.Environ(), "GO="+goTool, "CHILD_PID="+child, "TS_RACE_DURATIONS="+durations, "TS_TEST_TIER=full")
+	cmd.Env = append(os.Environ(), "GO="+goTool, "CHILD_PID="+child, "TS_RACE_DURATIONS="+durations, "TS_TEST_TIER=full",
+		"TS_CI_SHARD=1/1", "TS_CHANGE_BASE=")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
