@@ -52,6 +52,7 @@ import (
 const usage = `Usage: ts-orch <command> [flags]
 
 Runtime:
+  single-host            Run one SwarmKit manager+worker with containerd and the HTTPS edge
   managed-runtime-start  Run the admitted root Swarm runtime
   function-worker        Run one admitted function revision
   run                    Run the regional controller and embedded NATS
@@ -80,7 +81,7 @@ Operator tooling:
   get                    Print the running cell's spec (its signed desired state)
   diff                   Plan a cell spec file against the running cell's spec
   apply                  Apply a signed cell spec to the running cell
-  service                Plan adding, updating and removing a running cell's services
+  service                Apply, list and remove single-host services (apply -f FILE | ls | rm NAME)
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
   node                   Drain, reboot, resize, add and retire a cell's nodes, one at a time behind the load balancer
   bootstrap              Prepare, sign, verify, and publish bootstrap material
@@ -134,6 +135,10 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return app.RunRootOCIQualification(ctx, args[1:], os.Stdin, output)
 	case "root-oci-qualification-read", "root-oci-qualification-probe":
 		return app.RunRootOCIQualificationReader(ctx, args[0], args[1:], os.Stdin, output)
+	case "single-host":
+		return app.RunSingleHostServing(ctx, args[1:], output)
+	case "service":
+		return app.RunServiceCLI(ctx, args[1:], output)
 	case "observe":
 		return runObserve(ctx, args[1:], output)
 	case "usage":
@@ -219,7 +224,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 			return err
 		}
 		return runtimepriority.Run(ctx, args[1:], commandio.NewWriter(output))
-	case "run", "host", "check", "operator", "service", "get", "diff", "apply", "rollout", "node", "identity-new", "netbird-enroll",
+	case "run", "host", "check", "operator", "get", "diff", "apply", "rollout", "node", "identity-new", "netbird-enroll",
 		"bootstrap-controller", "bootstrap-credential-check", "bootstrap-admit-initial",
 		"bootstrap-admit-restart", "identity-rekey-completion-check", "identity-rekey", "install-controller-config", "host-setup", "host-volume-init", "restore-controller-material":
 		return app.Run(ctx, args, output)

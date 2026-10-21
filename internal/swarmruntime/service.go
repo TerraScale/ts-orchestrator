@@ -478,6 +478,13 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 	if err != nil {
 		return nil, err
 	}
+	all, err := client.ListServices(ctx, &api.ListServicesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	if err := hostnameClaimedByOther(all.Services, s.Name, s.Hostnames); err != nil {
+		return nil, err
+	}
 	current, err := specService(ctx, client, s.Name)
 	if err != nil {
 		return nil, err
@@ -497,6 +504,22 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 		return nil, err
 	}
 	return updated.Service, nil
+}
+
+// hostnameClaimedByOther refuses a hostname another service already routes,
+// so one spec cannot take over another service's public traffic.
+func hostnameClaimedByOther(services []*api.Service, name string, hostnames []string) error {
+	for _, svc := range services {
+		if svc.Spec.Annotations.Name == name {
+			continue
+		}
+		for owned := range strings.SplitSeq(svc.Spec.Annotations.Labels[LabelHostnames], ",") {
+			if owned != "" && slices.Contains(hostnames, owned) {
+				return fmt.Errorf("hostname %q is already routed to service %q", owned, svc.Spec.Annotations.Name)
+			}
+		}
+	}
+	return nil
 }
 
 // RemoveServiceSpec deletes the named service; SwarmKit stops its tasks.
