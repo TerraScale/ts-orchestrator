@@ -279,3 +279,16 @@ func startDNS(t *testing.T) string {
 type zeros struct{}
 
 func (zeros) Read(p []byte) (int, error) { clear(p); return len(p), nil }
+
+func TestEdgeRefusesPublicNetBirdSetup(t *testing.T) {
+	e := newEdge(t.TempDir(), nil)
+	e.SetRoutes(map[string]int{netbirdHost: 1})
+	for _, target := range []string{"/api/setup", "//api/./setup", "/api/setup/"} {
+		r := httptest.NewRequest(http.MethodPost, "https://"+netbirdHost+target, nil)
+		w := httptest.NewRecorder()
+		e.serveHTTPS(w, r)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("%s: status %d, want 403", target, w.Code)
+		}
+	}
+}

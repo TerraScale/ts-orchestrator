@@ -49,15 +49,44 @@ type fakeManager struct {
 	server     *httptest.Server
 	dnsDomain  string
 	failStatus int
+	// setupRequired is true until POST setup claims the owner.
+	setupRequired bool
+	setups        []setupRequest
+	// tokens are the owner's PATs; patDays records each POST's expires_in.
+	tokens  []*fakeToken
+	patDays []int
+	// issued counts setup keys POSTed, so each one gets its own value.
+	issued int
+}
+
+// fakeOwner is the account owner, the only user the fake knows.
+const fakeOwner = "u-owner"
+
+// fakeToken is one PAT. It authenticates until Expires, then it is refused.
+type fakeToken struct {
+	ID      string
+	Plain   string
+	Expires time.Time
+}
+
+// setupRequest is the body of POST setup, the owner claim over loopback.
+type setupRequest struct {
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	Name        string `json:"name"`
+	CreatePAT   bool   `json:"create_pat"`
+	PATExpireIn int    `json:"pat_expire_in"`
 }
 
 func newFakeManager(t *testing.T) *fakeManager {
-	f := &fakeManager{t: t, dnsDomain: "netbird.selfhosted", account: map[string]jsontext.Value{
-		"network_range":                 jsontext.Value(`"10.200.0.0/16"`),
-		"peer_login_expiration_enabled": jsontext.Value(`false`),
-		"lazy_connection_enabled":       jsontext.Value(`true`),
-		"extra":                         jsontext.Value(`{"user_approval_required":false}`),
-	}}
+	f := &fakeManager{t: t, dnsDomain: "netbird.selfhosted", setupRequired: true,
+		tokens: []*fakeToken{{ID: "tok-owner", Plain: testPAT, Expires: time.Now().AddDate(1, 0, 0)}},
+		account: map[string]jsontext.Value{
+			"network_range":                 jsontext.Value(`"10.200.0.0/16"`),
+			"peer_login_expiration_enabled": jsontext.Value(`false`),
+			"lazy_connection_enabled":       jsontext.Value(`true`),
+			"extra":                         jsontext.Value(`{"user_approval_required":false}`),
+		}}
 	f.server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.server.Close)
 	return f
@@ -199,7 +228,29 @@ func (f *fakeManager) read(r *http.Request, value any) bool {
 func (f *fakeManager) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if r.Header.Get("Authorization") != "Token "+testPAT {
+	// The instance API is unauthenticated: it is how a fresh server is claimed.
+	switch r.Method + " " + r.URL.Path {
+	case "GET /api/instance":
+		f.write(w, map[string]bool{"setup_required": f.setupRequired})
+		return
+	case "POST /api/setup":
+		if !f.setupRequired {
+			http.Error(w, `{"message":"setup already completed"}`, http.StatusPreconditionFailed)
+			return
+		}
+		var request setupRequest
+		if f.read(r, &request) {
+			f.setups = append(f.setups, request)
+			f.setupRequired = false
+			if request.CreatePAT {
+				// The claim's PAT is the owner's seeded token, now expiring as asked.
+				f.tokens[0].Expires = time.Now().AddDate(0, 0, request.PATExpireIn)
+			}
+			f.write(w, map[string]string{"personal_access_token": testPAT})
+		}
+		return
+	}
+	if !f.authorized(r.Header.Get("Authorization")) {
 		http.Error(w, `{"message":"unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
@@ -307,6 +358,13 @@ func (f *fakeManager) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		f.policies[index] = f.policyFrom(path[1], request)
 		f.write(w, f.policies[index])
+	case "DELETE policies/*":
+		index := slices.IndexFunc(f.policies, func(p apiPolicy) bool { return p.ID == path[1] })
+		if index < 0 {
+			notFound()
+			return
+		}
+		f.policies = slices.Delete(f.policies, index, index+1)
 	case "GET networks":
 		var out []apiNetwork
 		for _, network := range f.networks {
@@ -424,18 +482,89 @@ func (f *fakeManager) serve(w http.ResponseWriter, r *http.Request) {
 	case "POST setup-keys":
 		var request setupKeyRequest
 		if f.read(r, &request) {
-			key := map[string]any{"id": f.id("sk"), "name": request.Name, "key": "NEW-SECRET-SETUP-KEY",
+			id := f.id("sk")
+			f.issued++
+			// The first key keeps the value manager_test reads back.
+			value := "NEW-SECRET-SETUP-KEY"
+			if f.issued > 1 {
+				value += "-" + id
+			}
+			key := map[string]any{"id": id, "name": request.Name, "key": value,
 				"type": request.Type, "state": "valid", "valid": true, "revoked": false,
 				"auto_groups": request.AutoGroups, "ephemeral": request.Ephemeral, "usage_limit": request.UsageLimit,
-				"expires_in": request.ExpiresIn}
+				"expires_in": request.ExpiresIn, "expires": time.Now().Add(time.Duration(request.ExpiresIn) * time.Second)}
 			f.setupKeys = append(f.setupKeys, key)
 			f.write(w, key)
+		}
+	case "GET users":
+		if r.URL.Query().Get("service_user") != "false" {
+			f.t.Errorf("GET users without service_user=false")
+		}
+		f.write(w, []struct {
+			ID   string `json:"id"`
+			Role string `json:"role"`
+		}{{ID: fakeOwner, Role: "owner"}})
+	case "GET users/*/tokens", "POST users/*/tokens", "DELETE users/*/tokens/*":
+		f.serveTokens(w, r, path)
+	case "PUT setup-keys/*":
+		var request struct {
+			Revoked    bool     `json:"revoked"`
+			AutoGroups []string `json:"auto_groups"`
+		}
+		index := slices.IndexFunc(f.setupKeys, func(key map[string]any) bool { return key["id"] == path[1] })
+		if index < 0 {
+			notFound()
+		} else if f.read(r, &request) {
+			f.setupKeys[index]["revoked"] = request.Revoked
+			f.setupKeys[index]["valid"] = !request.Revoked
+			f.setupKeys[index]["auto_groups"] = request.AutoGroups
+			f.write(w, f.setupKeys[index])
 		}
 	case "GET dns/zones/*/records", "POST dns/zones/*/records", "PUT dns/zones/*/records/*", "DELETE dns/zones/*/records/*":
 		f.serveRecords(w, r, path)
 	default:
 		f.t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		notFound()
+	}
+}
+
+// authorized reports whether header carries an unexpired PAT of the account.
+func (f *fakeManager) authorized(header string) bool {
+	return slices.ContainsFunc(f.tokens, func(t *fakeToken) bool {
+		return header == "Token "+t.Plain && time.Now().Before(t.Expires)
+	})
+}
+
+// serveTokens models the owner's PATs: POST mints one valid for expires_in days.
+func (f *fakeManager) serveTokens(w http.ResponseWriter, r *http.Request, path []string) {
+	if path[1] != fakeOwner {
+		http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		views := []apiToken{}
+		for _, token := range f.tokens {
+			views = append(views, apiToken{ID: token.ID, Expiration: token.Expires})
+		}
+		f.write(w, views)
+	case http.MethodPost:
+		var request struct {
+			Name      string `json:"name"`
+			ExpiresIn int    `json:"expires_in"`
+		}
+		if !f.read(r, &request) {
+			return
+		}
+		token := &fakeToken{ID: f.id("tok"), Plain: fmt.Sprintf("nbp_%036d", f.next), Expires: time.Now().AddDate(0, 0, request.ExpiresIn)}
+		f.tokens = append(f.tokens, token)
+		f.patDays = append(f.patDays, request.ExpiresIn)
+		f.write(w, struct {
+			Plain string   `json:"plain_token"`
+			Token apiToken `json:"personal_access_token"`
+		}{token.Plain, apiToken{ID: token.ID, Expiration: token.Expires}})
+	case http.MethodDelete:
+		f.tokens = slices.DeleteFunc(f.tokens, func(t *fakeToken) bool { return t.ID == path[3] })
 	}
 }
 
@@ -476,10 +605,9 @@ func (f *fakeManager) serveRecords(w http.ResponseWriter, r *http.Request, path 
 
 // legacyShape seeds the production objects admin.py left behind.
 type legacyIDs struct {
-	operators, gateway, servers  string
-	network, resource, router    string
-	opsPorts, ssh, forgejo, ping string
-	tsOps, server1, operator1    string
+	operators, gateway, servers string
+	network, resource, router   string
+	tsOps, server1, operator1   string
 }
 
 func (f *fakeManager) seedLegacy(t *testing.T) legacyIDs {
@@ -499,21 +627,6 @@ func (f *fakeManager) seedLegacy(t *testing.T) legacyIDs {
 			Address: "10.251.0.0/25", Type: "subnet", Enabled: true, Groups: []groupMinimum{}}},
 		routers: []apiRouter{{ID: ids.router, Peer: ids.tsOps, Metric: 100, Masquerade: true, Enabled: true}},
 	})
-	add := func(name string, rule ruleRequest) string {
-		id := f.id("pol")
-		f.policies = append(f.policies, f.policyFrom(id, policyRequest{Name: name, Enabled: true,
-			SourcePostureChecks: []string{}, Rules: []ruleRequest{rule}}))
-		return id
-	}
-	ids.opsPorts = add("operators-to-gru-cell", ruleRequest{Name: "operators-to-gru-cell", Enabled: true, Action: "accept",
-		Protocol: "tcp", Ports: []string{"22", "4222", "9465"}, Sources: []string{ids.operators},
-		DestinationResource: &resourceRef{ids.resource, "subnet"}})
-	ids.ssh = add("operators-ssh-to-ts-orch-servers", ruleRequest{Name: "operators-ssh-to-ts-orch-servers", Enabled: true,
-		Action: "accept", Protocol: "netbird-ssh", Sources: []string{ids.operators}, Destinations: []string{ids.servers}})
-	ids.forgejo = add("operators-to-forgejo", ruleRequest{Name: "forgejo-services", Enabled: true, Action: "accept",
-		Protocol: "tcp", Ports: []string{"22", "443", "2022"}, Sources: []string{ids.operators}, Destinations: []string{ids.gateway}})
-	ids.ping = add("operators-ping-to-forgejo", ruleRequest{Name: "forgejo-ping", Enabled: true, Action: "accept",
-		Bidirectional: true, Protocol: "icmp", Sources: []string{ids.operators}, Destinations: []string{ids.gateway}})
 	f.setupKeys = []map[string]any{{"id": "sk1", "name": "gru-servers", "key": "SECRET-SETUP-KEY-VALUE",
 		"type": "reusable", "state": "valid", "valid": true, "revoked": false, "auto_groups": []string{ids.servers}}}
 	return ids

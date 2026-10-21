@@ -120,6 +120,9 @@ func GRU() Desired {
 			{Name: "ops-automation-to-gru-servers-ssh",
 				Description: "Operator automation peers → GRU servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{"gru-servers"}},
+			{Name: "operators-to-gru-servers-openssh",
+				Description: "Operators and operator automation → GRU servers: OpenSSH 22 on their NetBird addresses",
+				Protocol:    "tcp", Ports: []string{"22"}, Sources: []string{"operators", "ops-automation"}, Destinations: []string{"gru-servers"}},
 		}, serverAccessPolicies([]string{"gru-servers"})),
 
 		NetworkRange:      networkplan.Mesh,

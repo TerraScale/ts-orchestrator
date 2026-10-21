@@ -18,7 +18,7 @@ import (
 const maxPATFileBytes = 4 << 10
 
 // Commands lists the subcommands Run handles.
-var Commands = []string{"sync", "prune-peers", "remove-peers", "setup-key", "inventory", "image-input"}
+var Commands = []string{"sync", "prune-peers", "remove-peers", "setup-key", "inventory", "image-input", "server"}
 
 const usage = `Usage:
   ts-orch netbird sync [--apply] [--only NAME]... [--pat-file FILE] [--management-url URL]
@@ -27,6 +27,7 @@ const usage = `Usage:
   ts-orch netbird setup-key --out FILE [--servers-group GROUP] [--apply] [--pat-file FILE] [--management-url URL]
   ts-orch netbird inventory [--pat-file FILE] [--management-url URL]
   ts-orch netbird image-input --plan PLAN --setup-key-secret-id OCID --out FILE
+  ts-orch netbird server --vault-id OCID --key-id OCID --compartment-id OCID --dir DIR
 
 Without --apply, sync, prune-peers, remove-peers and setup-key print the
 planned changes only. remove-peers deletes the disconnected server peers of
@@ -45,6 +46,9 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	command := args[0]
+	if command == "server" {
+		return runServer(ctx, args[1:], stdout)
+	}
 	flags := flag.NewFlagSet("netbird "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	patFile := flags.String("pat-file", "", "file holding the NetBird admin PAT")
