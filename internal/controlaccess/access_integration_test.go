@@ -106,12 +106,12 @@ func TestReadAccessCrossesSignedObjectFoundationAndCurrentVault(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "grant"), grantWire, 0600); err != nil {
 		t.Fatal(err)
 	}
-	planWire, err := json.Marshal(intent.Plan, json.Deterministic(true))
+	intentDigest, err := region.FoundationIntentDigest(intent)
 	if err != nil {
 		t.Fatal(err)
 	}
 	record := region.FoundationRecord{SchemaVersion: 1, Cell: "GRU", OCIRegion: "sa-saopaulo-1", TenancyID: tenancy,
-		ParentCompartmentID: grant.ParentCompartmentID, SharedCompartmentID: grant.SharedCompartmentID, Generation: 1, IntentDigest: digest(planWire), OperationID: entityid.New(), Epoch: 1,
+		ParentCompartmentID: grant.ParentCompartmentID, SharedCompartmentID: grant.SharedCompartmentID, Generation: 1, IntentDigest: intentDigest, OperationID: entityid.New(), Epoch: 1,
 		Stage: "reconciled", StartedAt: now, UpdatedAt: now, CompletedAt: now, ResourceIDs: map[string]string{"control_compartment": "ocid1.compartment.oc1..control", "vault": vault, "key": key}}
 	recordWire, err := json.Marshal(record)
 	if err != nil {

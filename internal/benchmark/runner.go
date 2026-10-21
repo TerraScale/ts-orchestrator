@@ -10,6 +10,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/capacity"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/runtimecostsnapshot"
 )
 
 type Verdict struct {
@@ -44,6 +45,9 @@ type Run struct {
 	Stages   []Stage   `json:"stages"`
 	Verdict  Verdict   `json:"verdict"`
 	Status   string    `json:"status"`
+	// Cost is a current controller observation, independent of historical usage.
+	CostSnapshot *runtimecostsnapshot.Snapshot `json:"cost_snapshot,omitempty"`
+	CostPending  string                        `json:"cost_pending,omitempty"`
 	// Existing generator hosts incur no temporary-instance charge.
 	TemporaryInstanceUSD float64 `json:"temporary_instance_usd"`
 }
@@ -57,10 +61,12 @@ type Repository interface {
 	SaveUsage(context.Context, string, int, capacity.Usage) error
 }
 type Runner struct {
-	Now        func() time.Time
-	Generator  Generator
-	Repository Repository
-	Usage      func(context.Context, string, time.Time, time.Time) (capacity.Usage, error)
+	CostSnapshot *runtimecostsnapshot.Snapshot
+	CostPending  string
+	Now          func() time.Time
+	Generator    Generator
+	Repository   Repository
+	Usage        func(context.Context, string, time.Time, time.Time) (capacity.Usage, error)
 }
 
 func (r Runner) Execute(ctx context.Context, region string, w Workload, clients []string, out io.Writer) (run Run, resultErr error) {
@@ -91,7 +97,7 @@ func (r Runner) Execute(ctx context.Context, region string, w Workload, clients 
 			return run, fmt.Errorf("ramp needs at least 30 measurement seconds per concurrency step and must fit warmups within %d seconds", workloadBudgetSeconds)
 		}
 	}
-	run = Run{ID: entityid.New(), Region: region, Workload: w, Clients: clients, Started: r.Now().UTC(), Status: "running", Stages: []Stage{}}
+	run = Run{ID: entityid.New(), Region: region, Workload: w, Clients: clients, Started: r.Now().UTC(), Status: "running", Stages: []Stage{}, CostSnapshot: r.CostSnapshot, CostPending: r.CostPending}
 	if err := r.Repository.SaveRun(ctx, run); err != nil {
 		run.Status = "failed"
 		run.Ended = r.Now().UTC()
@@ -452,6 +458,17 @@ func WriteVerdict(out io.Writer, run Run) error {
 	}
 	if run.Verdict.CPUHeadroom != nil && run.Verdict.MemoryHeadroom != nil {
 		_, err = fmt.Fprintf(out, "headroom: %.2f CPU cores, %.2f MiB memory\n", *run.Verdict.CPUHeadroom, *run.Verdict.MemoryHeadroom/(1<<20))
+		if err != nil {
+			return err
+		}
+	}
+	switch {
+	case run.CostPending != "":
+		_, err = fmt.Fprintf(out, "current controller cost: pending (%s)\n", run.CostPending)
+	case run.CostSnapshot != nil && run.CostSnapshot.Cost != nil:
+		forecast := run.CostSnapshot.Cost.Forecast
+		_, err = fmt.Fprintf(out, "current controller cost: month-end forecast %s %d.%02d; observed %s\n",
+			forecast.Currency, forecast.MonthEndCents/100, forecast.MonthEndCents%100, run.CostSnapshot.ObservedAt.Format(time.RFC3339))
 	}
 	return err
 }

@@ -1,13 +1,14 @@
-package ocicost
+package ocicost_test
 
 import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/TerraScale/ts-orchestrator/internal/cli"
 )
 
-// The CLI's network path needs an OCI tenancy, so these tests cover only the
-// arguments, which fail before any call leaves the process.
+// Exercise argument rejection through the composed CLI before discovery begins.
 func TestCostCLIArguments(t *testing.T) {
 	for _, test := range []struct {
 		args      []string
@@ -28,14 +29,14 @@ func TestCostCLIArguments(t *testing.T) {
 		{args: []string{"tag", "--region", "gru"}, want: "needs at least one --compartment", wantError: true},
 		{args: []string{"tag", "--region", "gru", "--compartment", "ocid1.compartment.oc1..aaa' || 1 = 1"},
 			want: "not a compartment OCID", wantError: true},
-		{args: []string{"tag", "--region", "gru", "--compartment", testCompartmentA, "extra"},
+		{args: []string{"tag", "--region", "gru", "--compartment", "ocid1.compartment.oc1..aaa", "extra"},
 			want: "no positional arguments", wantError: true},
-		{args: []string{"tag", "--region", "nowhere", "--compartment", testCompartmentA},
+		{args: []string{"tag", "--region", "nowhere", "--compartment", "ocid1.compartment.oc1..aaa"},
 			want: "unsupported TerraScale region", wantError: true},
 	} {
 		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
 			var output bytes.Buffer
-			err := Run(t.Context(), test.args, &output)
+			err := cli.Run(t.Context(), append([]string{"cost"}, test.args...), &output)
 			if test.wantError {
 				if err == nil || !strings.Contains(err.Error(), test.want) {
 					t.Fatalf("error = %v, want %q", err, test.want)
