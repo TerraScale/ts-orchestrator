@@ -38,12 +38,6 @@ func testMachine(app App) Machine {
 		Desired: DesiredStarted}
 }
 
-
-
-
-
-
-
 func TestNewMachineIDIsValidAndUnique(t *testing.T) {
 	seen := map[string]bool{}
 	for range 1000 {
@@ -54,5 +48,3 @@ func TestNewMachineIDIsValidAndUnique(t *testing.T) {
 		seen[id] = true
 	}
 }
-
-

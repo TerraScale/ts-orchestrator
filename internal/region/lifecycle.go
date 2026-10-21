@@ -524,6 +524,9 @@ func (a *foundationAttempt) checkpoint(ctx context.Context, key, id string) erro
 	if old := a.record.ResourceIDs[key]; old != "" && old != id {
 		return errors.New("foundation resource identity cannot be silently replaced")
 	}
+	if a.record.ResourceIDs == nil {
+		a.record.ResourceIDs = make(map[string]string)
+	}
 	a.record.ResourceIDs[key] = id
 	if err := a.completeCreate(key, id); err != nil {
 		return err
@@ -539,6 +542,9 @@ func (a *foundationAttempt) checkpointAuxiliary(ctx context.Context, key, id str
 	defer a.mu.Unlock()
 	if old := a.record.AuxiliaryIDs[key]; old != "" && old != id {
 		return errors.New("auxiliary foundation identity cannot be silently replaced")
+	}
+	if a.record.AuxiliaryIDs == nil {
+		a.record.AuxiliaryIDs = make(map[string]string)
 	}
 	a.record.AuxiliaryIDs[key] = id
 	if err := a.completeCreate(key, id); err != nil {
@@ -579,6 +585,9 @@ func (a *foundationAttempt) completeCreate(key, id string) error {
 			if a.record.ResourceProvenance == nil {
 				a.record.ResourceProvenance = map[string]FoundationResourceProvenance{}
 			}
+			if a.record.ResourceProvenance == nil {
+				a.record.ResourceProvenance = make(map[string]FoundationResourceProvenance)
+			}
 			a.record.ResourceProvenance[key] = FoundationResourceProvenance{Create: pending, ResourceID: id, Generation: a.record.Generation, GrantSHA256: a.record.GrantSHA256}
 		}
 		delete(a.record.PendingCreates, key)
@@ -608,6 +617,9 @@ func (a *foundationAttempt) prepareCreate(ctx context.Context, request foundatio
 	}
 	if recovery {
 		return errors.New("unrecorded OCI resource has no durable pending create")
+	}
+	if a.record.PendingCreates == nil {
+		a.record.PendingCreates = make(map[string]PendingFoundationCreate)
 	}
 	a.record.PendingCreates[request.Key] = PendingFoundationCreate{OperationID: a.record.OperationID, IntentDigest: a.record.IntentDigest,
 		Request: request, FirstAttemptAt: time.Now().UTC()}

@@ -99,4 +99,3 @@ func TestCheckBalancerSecurityInactiveBackends(t *testing.T) {
 		}
 	}
 }
-

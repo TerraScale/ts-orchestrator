@@ -245,4 +245,3 @@ func TestSoakRequiresAStableServingProcessForTheWholeWindow(t *testing.T) {
 		t.Fatalf("zero soak window waited for a host report: %t %v", done, err)
 	}
 }
-

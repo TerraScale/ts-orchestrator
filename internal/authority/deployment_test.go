@@ -39,7 +39,6 @@ func TestDeploymentIDIsRequiredAndCanonical(t *testing.T) {
 	}
 }
 
-
 func TestDeploymentRetainedAcrossRenewReleaseAndRecovery(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)

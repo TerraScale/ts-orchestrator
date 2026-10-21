@@ -25,8 +25,6 @@ func usage(role storage.VolumeRole, total, used, avail uint64) VolumeUsage {
 		TotalBytes: total, UsedBytes: used, AvailBytes: avail, InodesTotal: 1 << 20, InodesFree: 1 << 19, ObservedAt: observed}
 }
 
-
-
 func TestPolicyValidation(t *testing.T) {
 	if err := (Policy{}).Validate(); err != nil {
 		t.Fatal(err)
@@ -63,7 +61,6 @@ func TestWorstAndNodeHeadroom(t *testing.T) {
 		t.Fatal("unknown node has headroom")
 	}
 }
-
 
 func TestCollectorMeasuresTargetsAndReportsPartialFailures(t *testing.T) {
 	failure := errors.New("no such mount")

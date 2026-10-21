@@ -14,17 +14,27 @@ templ managedServiceBody(current view) {
 		} else {
 			<article id="managed-service">
 				<dl class="kv">
-					<dt>Role</dt><dd>{ service.Role }</dd>
-					<dt>Intent</dt><dd>{ service.IntentID }</dd>
-					<dt>Requested digest</dt><dd><code>{ service.RequestedDigest }</code></dd>
-					<dt>Requested replicas</dt><dd>{ fmt.Sprint(service.RequestedReplicas) }</dd>
-					<dt>Running replicas</dt><dd>{ fmt.Sprint(service.RunningReplicas) }</dd>
-					<dt>Ready replicas</dt><dd>{ managedServiceReady(service) }</dd>
-					<dt>Update</dt><dd>{ orDash(service.UpdateState) }</dd>
-					<dt>Observed</dt><dd>{ metricObserved(service.ObservedAt) }</dd>
+					<dt>Role</dt>
+					<dd>{ service.Role }</dd>
+					<dt>Intent</dt>
+					<dd>{ service.IntentID }</dd>
+					<dt>Requested digest</dt>
+					<dd><code>{ service.RequestedDigest }</code></dd>
+					<dt>Requested replicas</dt>
+					<dd>{ fmt.Sprint(service.RequestedReplicas) }</dd>
+					<dt>Running replicas</dt>
+					<dd>{ fmt.Sprint(service.RunningReplicas) }</dd>
+					<dt>Ready replicas</dt>
+					<dd>{ managedServiceReady(service) }</dd>
+					<dt>Update</dt>
+					<dd>{ orDash(service.UpdateState) }</dd>
+					<dt>Observed</dt>
+					<dd>{ metricObserved(service.ObservedAt) }</dd>
 				</dl>
 			</article>
-			<article id="managed-tasks"><h2>Tasks</h2>@dataTable(managedServiceTasks(service))</article>
+			<article id="managed-tasks">
+				<h2>Tasks</h2>@dataTable(managedServiceTasks(service))
+			</article>
 		}
 	</div>
 }

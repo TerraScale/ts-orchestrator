@@ -194,7 +194,6 @@ func TestNewRejectsKnownBadAndInvalidSpecs(t *testing.T) {
 	}
 }
 
-
 func startedCanary(t *testing.T, units []Unit) (Record, time.Time) {
 	t.Helper()
 	record := newRecord(t, units, testPolicy())
@@ -214,7 +213,6 @@ func requireRollingBack(t *testing.T, record Record, reason string) {
 		}
 	}
 }
-
 
 func TestDeadlinesRollBack(t *testing.T) {
 	record, at := startedCanary(t, controllers())
@@ -479,7 +477,6 @@ func TestOperationIDIsStableAndDistinct(t *testing.T) {
 		}
 	}
 }
-
 
 func TestValidateRejectsContradictoryAndMalformedRecords(t *testing.T) {
 	record := newRecord(t, controllers(), testPolicy())
