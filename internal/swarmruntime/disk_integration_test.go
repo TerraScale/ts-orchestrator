@@ -26,9 +26,8 @@ func (missingDiskTelemetry) Plugins(context.Context, ...string) (*introspectiona
 }
 
 func TestContainerdDiskBudgetAndRecovery(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	if *integrationSocket == "" {
-		t.Fatal("provide -containerd-socket for a disposable real runtime")
+		t.Skip("runs in the containerd workflow, which passes -containerd-socket")
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()

@@ -76,7 +76,6 @@ func TestManagementObservationBlockedSend(t *testing.T) {
 }
 
 func TestManagementObservationGRPCBlockedSend(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	listener := bufconn.Listen(64 << 10)
@@ -96,14 +95,19 @@ func TestManagementObservationGRPCBlockedSend(t *testing.T) {
 			err := sendManagementObservation(stream.Context(), closed, func() error { return nil }, func() error {
 				defer close(finished)
 				close(started)
-				return stream.SendMsg(&wrapperspb.BytesValue{Value: make([]byte, 1<<20)})
+				// gRPC lets one message overdraw the stream write quota; the next send blocks on flow control.
+				for {
+					if err := stream.SendMsg(&wrapperspb.BytesValue{Value: make([]byte, 1<<20)}); err != nil {
+						return err
+					}
+				}
 			})
 			returned <- err
 			return err
 		}}},
 	}, new(struct{}))
 	go func() { _ = server.Serve(listener) }()
-	conn, err := grpc.NewClient("passthrough:///observation-send-fixture", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }))
+	conn, err := grpc.NewClient("passthrough:///observation-send-fixture", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithInitialWindowSize(64<<10), grpc.WithInitialConnWindowSize(64<<10), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }))
 	if err != nil {
 		t.Fatal(err)
 	}

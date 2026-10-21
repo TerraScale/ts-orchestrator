@@ -29,7 +29,6 @@ import (
 // The kernel supplies peer credentials and /proc supplies the actual service
 // cgroup; requests cross a second Unix gRPC server into real persistent Raft.
 func TestManagementIntegration(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	cfg := nodeFixtureConfig(t, "founder", "manager")
@@ -135,6 +134,8 @@ func TestManagementIntegration(t *testing.T) {
 	}
 	nodeSpec = nodeResult.Node.Spec.Copy()
 	nodeSpec.Availability = api.NodeAvailabilityActive
+	// Pause is scoped to an admitted node in this region; label the fixture manager as admission does.
+	nodeSpec.Annotations.Labels = map[string]string{LabelRegion: "sa-saopaulo-1", LabelInstanceID: cfg.Admission.InstanceID, LabelHostRole: "manager"}
 	active, err := upstream.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: id, NodeVersion: &nodeResult.Node.Meta.Version, Spec: nodeSpec})
 	if err != nil {
 		t.Fatal(err)
