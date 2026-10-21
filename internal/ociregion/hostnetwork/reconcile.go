@@ -126,7 +126,10 @@ func (r *reconciler) tags(kind, name string, live map[string]string) (map[string
 	if owner.Owns(key, ociresource.Tags{Freeform: live}) {
 		return nil, nil
 	}
-	if live["terrascale-managed-by"] != "" || live["terrascale-resource-key"] != "" {
+	// OCI copies the VCN's tags onto its default route table and security
+	// list, so a claim for this cell's VCN is ours to re-key.
+	inherited := owner.Owns(ociresource.Key{Region: r.s.code, Kind: "vcn", Name: "vcn"}, ociresource.Tags{Freeform: live})
+	if !inherited && (live["terrascale-managed-by"] != "" || live["terrascale-resource-key"] != "") {
 		return nil, fmt.Errorf("%s %s is claimed by another owner", kind, name)
 	}
 	merged := maps.Clone(live)
