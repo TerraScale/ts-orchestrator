@@ -148,7 +148,7 @@ func TestOperationObservationRejectsTokenlessLoopback(t *testing.T) {
 		"/v1/operations/backups/0000000000WVSMBJNMAWCDJBSK/0000000000Z3WK359G2W66CVT8",
 		"/v1/operations/credentials/0000000000WVSMBJNMAWCDJBSK/0000000000Z3WK359G2W66CVT8"} {
 		response := httptest.NewRecorder()
-		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:9464"+path, nil))
 		if response.Code != http.StatusServiceUnavailable {
 			t.Fatalf("tokenless %s = %d", path, response.Code)
 		}
