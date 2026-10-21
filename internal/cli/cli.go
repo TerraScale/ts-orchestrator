@@ -52,6 +52,7 @@ import (
 const usage = `Usage: ts-orch <command> [flags]
 
 Runtime:
+  single-host            Run one SwarmKit manager+worker with containerd and the HTTPS edge
   managed-runtime-start  Run the admitted root Swarm runtime
   function-worker        Run one admitted function revision
   run                    Run the regional controller and embedded NATS
@@ -134,6 +135,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return app.RunRootOCIQualification(ctx, args[1:], os.Stdin, output)
 	case "root-oci-qualification-read", "root-oci-qualification-probe":
 		return app.RunRootOCIQualificationReader(ctx, args[0], args[1:], os.Stdin, output)
+	case "single-host":
+		return app.RunSingleHost(ctx, args[1:], output)
 	case "observe":
 		return runObserve(ctx, args[1:], output)
 	case "usage":
