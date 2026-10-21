@@ -1,8 +1,10 @@
 package release
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +13,6 @@ import (
 )
 
 func TestNetBirdImageCurrentCryptoBoundary(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Run("dedicated image succeeds without orchestrator baseline", func(t *testing.T) {
 		fixture := newNetBirdImageFixture(t)
 		image, delegation := fixture.wires(t)
@@ -215,7 +216,10 @@ func (f netBirdImageFixture) wires(t *testing.T) ([]byte, []byte) {
 		t.Fatal(err)
 	}
 	if f.noncanonical {
-		payload = append(payload, ' ')
+		// trust.Sign compacts whitespace, so reorder members instead: move the
+		// leading "schema" member to the end of the object.
+		first := bytes.IndexByte(payload, ',')
+		payload = slices.Concat([]byte("{"), payload[first+1:len(payload)-1], []byte(","), payload[1:first], []byte("}"))
 	}
 	envelope, err := trust.Sign(payload, f.imageScope, f.imageIssued, f.imageExpires, f.imagePrivate)
 	if err != nil {
