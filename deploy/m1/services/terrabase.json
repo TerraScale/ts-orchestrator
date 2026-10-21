@@ -38,5 +38,6 @@
   "hostnames": [
     "api.terrascale.tech"
   ],
-  "replicas": 1
+  "replicas": 1,
+  "regions": ["gru"]
 }
