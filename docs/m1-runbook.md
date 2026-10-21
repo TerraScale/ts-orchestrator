@@ -15,6 +15,15 @@ ACME HTTP-01 + redirect, `:443`). Services come from
 | Open ports | 80, 443 from anywhere; 22 from the operator egress IP |
 | State | `/var/lib/ts-orch` (Raft, edge certificates, socket) |
 | Data | `/var/lib/ts-data/<service>` (bind mounts; TerraBase uses `terrabase`) |
+| Edge certificates | `/var/lib/ts-orch/edge-certs` (Let's Encrypt, HTTP-01 on :80) |
+
+The Ubuntu OCI image ends `INPUT` with a REJECT rule; the 80/443 ACCEPT rules
+must sit above it or ACME validation fails with "no viable challenge type".
+Fixed on ts-gru-1 2026-10-21 and saved with `netfilter-persistent save`:
+
+```sh
+ssh ts-gru-1 sudo iptables -S INPUT   # 80 and 443 ACCEPT before the REJECT
+```
 
 ## Install or upgrade
 
@@ -71,3 +80,4 @@ cf dns records create -z terrascale.tech --body \
 
 | Date | Binary (CI release) | Check | Result |
 |---|---|---|---|
+| 2026-10-21 | local arm64 build of W2+W3+W4+W5 branches (smoke, state `/var/lib/ts-orch-smoke`) | `curl https://m1-test.terrascale.tech/` | Let's Encrypt cert issued, edge 502 (task blocked by container-material gate) |
