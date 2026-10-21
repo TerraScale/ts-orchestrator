@@ -20,6 +20,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 )
 
 const (
@@ -451,15 +452,23 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	if len(s.Secrets) != 0 {
 		labels[LabelSecrets] = strings.Join(s.Secrets, ",")
 	}
-	// shortcut: fixed limits, no reservations; size per service when a second host or OOM appears.
-	limits := &api.Resources{NanoCPUs: 2_000_000_000, MemoryBytes: 4 << 30}
+	// shortcut: fixed, fully reserved budget sized so the three M1 services fit one A1 host (3.75 schedulable CPUs); size per service when a host is added or one is starved.
+	limits := &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 4 << 30, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 10<<30)}}
+	task := api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()},
+		Restart: &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(5 * time.Second)}}
+	// Refuse at apply what the executor would refuse on every task.
+	if _, err := DecodeContainer(&api.Task{ID: "validation", ServiceID: "validation", Spec: task, ServiceAnnotations: api.Annotations{Labels: labels}}); err != nil {
+		return nil, err
+	}
+	if _, err := DiskBytes(task.Resources); err != nil {
+		return nil, err
+	}
 	return &api.ServiceSpec{
 		Annotations: api.Annotations{Name: s.Name, Labels: labels},
-		Task: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: limits},
-			Restart: &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(5 * time.Second)}},
-		Mode:     &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: s.Replicas}},
-		Update:   &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_STOP_FIRST},
-		Endpoint: &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: []*api.PortConfig{{Protocol: api.ProtocolTCP, TargetPort: s.Port, PublishedPort: s.Port, PublishMode: api.PublishModeHost}}},
+		Task:        task,
+		Mode:        &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: s.Replicas}},
+		Update:      &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_STOP_FIRST},
+		Endpoint:    &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: []*api.PortConfig{{Protocol: api.ProtocolTCP, TargetPort: s.Port, PublishedPort: s.Port, PublishMode: api.PublishModeHost}}},
 	}, nil
 }
 
