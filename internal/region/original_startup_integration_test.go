@@ -143,7 +143,7 @@ func TestOriginalStartupAdmissionRejectsPartialAndChangedPurpose(t *testing.T) {
 		for index := range *prepared.Grant.OriginalMaterialPublicationIAM {
 			recipe := &(*prepared.Grant.OriginalMaterialPublicationIAM)[index]
 			recipe.Purpose = originalMaterialIAMPurposeV2
-			recipe.LinkSecretNames, recipe.LinkObject, recipe.LinkEscrowSecretName = [8]string{}, "", ""
+			recipe.LinkSecretNames, recipe.LinkObject, recipe.LinkEscrowSecretName, recipe.RuntimeJoinSecretName = [8]string{}, "", "", ""
 		}
 		historical := signProvisionFoundation(t, prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 		if err := VerifyFoundationProvisionBundle(t.Context(), fixture.roots, historical); err != nil {
