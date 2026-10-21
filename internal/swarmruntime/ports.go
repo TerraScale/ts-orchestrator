@@ -2,6 +2,7 @@ package swarmruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"
 	"github.com/gofrs/flock"
+	"github.com/moby/swarmkit/v2/agent/exec"
 )
 
 const portsLabel = "terrascale.ports"
@@ -81,7 +83,7 @@ func (c *controller) reservePorts(ctx context.Context) (string, func(), error) {
 
 // holdsPorts reports whether container may still bind its host ports: it has
 // no task yet (prepared, not started) or its task has not stopped. A task that
-// failed to create released its claim in Start (releasePorts).
+// failed to prepare or start released its claim (releaseFailedPorts).
 func holdsPorts(ctx context.Context, container client.Container) (bool, error) {
 	task, err := container.Task(runtimeContext(ctx), nil)
 	if errdefs.IsNotFound(err) {
@@ -97,9 +99,16 @@ func holdsPorts(ctx context.Context, container client.Container) (bool, error) {
 	return status.Status != client.Stopped, nil
 }
 
-// releasePorts drops a container's host-port claim after its task failed to
-// start, so the replacement task is not blocked until SwarmKit reaps this one.
-func releasePorts(ctx context.Context, container client.Container) error {
-	_, err := container.SetLabels(runtimeContext(ctx), map[string]string{portsLabel: ""})
-	return err
+// releaseFailedPorts drops the host-port claim of a task that failed to
+// prepare or start: its container lingers until SwarmKit reaps the task and
+// would otherwise block every replacement.
+func (c *controller) releaseFailedPorts(ctx context.Context, err error) {
+	// Stateful tasks fence their runtime separately; never touch their claim.
+	if err == nil || c.stateful != nil || errors.Is(err, exec.ErrTaskStarted) || errors.Is(err, exec.ErrTaskPrepared) || exec.IsTemporary(err) {
+		return
+	}
+	ctx = runtimeContext(context.WithoutCancel(ctx))
+	if container, loadErr := c.executor.client.LoadContainer(ctx, c.id); loadErr == nil {
+		_, _ = container.SetLabels(ctx, map[string]string{portsLabel: ""})
+	}
 }

@@ -75,6 +75,7 @@ func (c *controller) container(ctx context.Context) (containerd.Container, error
 
 func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStatePreparing, operationErr) }()
+	defer func() { c.releaseFailedPorts(ctx, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -273,6 +274,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 
 func (c *controller) Start(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStateStarting, operationErr) }()
+	defer func() { c.releaseFailedPorts(ctx, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -313,9 +315,6 @@ func (c *controller) Start(ctx context.Context) (operationErr error) {
 			return uriErr
 		}
 		t, err = ctr.NewTask(ctx, cio.LogURI(uri))
-		if err != nil {
-			return errors.Join(err, releasePorts(ctx, ctr))
-		}
 	}
 	if err != nil {
 		return err
