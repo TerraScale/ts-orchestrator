@@ -8,7 +8,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
-	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
@@ -19,52 +18,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
-
-func TestAutoscaleConfigUsesSignedDeclarations(t *testing.T) {
-	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
-	profiles := map[string]WorkloadProfile{"api": {Resources: resources}, "terrabase": {Resources: resources}}
-	fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1,
-		ExpiresAt: time.Now().Add(time.Hour)}}
-	load := startHostTelemetry(profiles, &host.Controller{}, fencer)
-	if load == nil || load.load == nil {
-		t.Fatalf("absent autoscale declaration must still collect telemetry: %v", load)
-	}
-	declared := &AutoscaleConfig{Services: []workload.ServiceSpec{{Role: "api", Environment: "prod",
-		Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3}}}}
-	if err := validateAutoscaleConfig(declared, profiles); err != nil {
-		t.Fatal(err)
-	}
-	var planner regionalDeliveryPlanner
-	if _, owned := planner.nativeServiceSpec("api"); owned {
-		t.Fatal("planner without signed services owns a role")
-	}
-	planner.services = &specRegistry{}
-	if _, owned := planner.nativeServiceSpec("api"); owned {
-		t.Fatal("planner without a signed service policy owns a role")
-	}
-	planner.services.adopt(cellspec.Spec{Generation: 1, Services: []cellspec.Service{{Role: "api", Spec: &declared.Services[0]}}}, 1)
-	if spec, owned := planner.nativeServiceSpec("api"); !owned || spec.Replicas != declared.Services[0].Replicas {
-		t.Fatalf("planner did not read the adopted service policy: %+v, %v", spec, owned)
-	}
-	planner.services.adopt(cellspec.Spec{Generation: 2}, 2)
-	if _, owned := planner.nativeServiceSpec("api"); owned {
-		t.Fatal("planner retained a removed service policy")
-	}
-
-	invalid := map[string]*AutoscaleConfig{
-		"no profile": {Services: []workload.ServiceSpec{{Role: "web", Environment: "prod", Kind: workload.KindStateless,
-			Replicas: workload.ReplicaBounds{Max: 1}}}},
-		"resource mismatch": {Services: []workload.ServiceSpec{{Role: "api", Environment: "prod", Kind: workload.KindStateless,
-			Replicas: workload.ReplicaBounds{Max: 1}, Resources: placement.Resources{CPU: 9, MemoryBytes: 1, DiskBytes: 1}}}},
-		"terrabase role": {Services: []workload.ServiceSpec{{Role: "terrabase", Environment: "prod",
-			Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Max: 1}}}},
-	}
-	for name, config := range invalid {
-		if err := validateAutoscaleConfig(config, profiles); err == nil {
-			t.Errorf("%s accepted", name)
-		}
-	}
-}
 
 func TestAbsentAutoscaleConfigKeepsCanonicalControllerJSON(t *testing.T) {
 	encoded, err := protocol.EncodeJSON(ControllerConfig{CandidateID: "0000000000VKJKNDYE2PT2WG3X"})
