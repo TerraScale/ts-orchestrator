@@ -1,0 +1,14 @@
+{
+  "name": "ts-auth",
+  "image": "ghcr.io/terrascale/ts-auth@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "env": {
+    "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login",
+    "TS_AUTH_DASHBOARD_REDIRECT_URIS": "https://dash.terrascale.tech/login/callback",
+    "TS_AUTH_TERRABASE_URL": "http://127.0.0.1:8081"
+  },
+  "secrets": ["TS_AUTH_MASTER_KEY", "TS_AUTH_AUDIT_SIGNING_KEY", "TS_AUTH_DASHBOARD_CLIENT_SECRET", "TERRABASE_PEER_SECRET", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_EMAIL_TOKEN"],
+  "port": 8090,
+  "readyPath": "/readyz",
+  "hostnames": ["auth.terrascale.tech"],
+  "replicas": 1
+}
