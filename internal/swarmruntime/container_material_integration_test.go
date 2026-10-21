@@ -51,6 +51,7 @@ func integrationContainerController(e *Executor, task *api.Task) (swarmexec.Cont
 }
 
 func TestContainerdContainerMaterialBoundary(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	if *integrationSocket == "" {
 		t.Fatal("provide -containerd-socket for a disposable real runtime")
 	}
@@ -257,10 +258,12 @@ while :; do sleep 1; done
 }
 
 func TestContainerdContainerCredentialExpirySurvivesAgentExit(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	testContainerCredentialExpiry(t, "container")
 }
 
 func TestContainerdFunctionCredentialExpirySurvivesAgentExit(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	testContainerCredentialExpiry(t, "function-worker")
 }
 

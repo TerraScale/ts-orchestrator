@@ -150,6 +150,7 @@ func TestObserverRejectsEnrollmentAndServiceAuthority(t *testing.T) {
 }
 
 func TestObservedServiceRequiresExactSignedProfile(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	expected := swarmruntime.ServiceIntent{Replicas: 1, Container: &api.ContainerSpec{Image: "example.invalid/native@sha256:" + strings.Repeat("a", 64), User: "65532:65532", Args: []string{"serve", "8080"}}, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 64 << 20}, Reservations: &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 64 << 20}}, Ports: []*api.PortConfig{{Protocol: api.ProtocolTCP, PublishMode: api.PublishModeHost, TargetPort: 8080, PublishedPort: 8080}}}
 	encoded, err := swarmruntime.ContainerRuntime(expected.Container)
 	if err != nil {

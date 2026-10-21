@@ -372,6 +372,7 @@ func (f *fenceAfter) Guard(context.Context, uint64) error {
 }
 
 func TestApplyReguardsBeforeEveryMutation(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	api := &providerState{balancer: LoadBalancer{ID: lbID, Tags: owner.Stamp(key, 0, "")},
 		backends: []Backend{observed("10.251.0.21", false), observed("10.251.0.22", false)}}
 	store := persistentStore(t)

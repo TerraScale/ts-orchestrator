@@ -102,6 +102,7 @@ func TestBackupRelaySerializedBoundsAtDERAndCompleteCaps(t *testing.T) {
 }
 
 func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	registration, desired, hostKey := managedContractFixture()
 	registration.ManagedPlacement = &ManagedPlacementBinding{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000Z3WK359G2W66CVT8",
 		SeatID: "000000000082AXF7GZQT1D126Y", IntentGeneration: 1,

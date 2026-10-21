@@ -609,6 +609,9 @@ func (a *foundationAttempt) prepareCreate(ctx context.Context, request foundatio
 	if recovery {
 		return errors.New("unrecorded OCI resource has no durable pending create")
 	}
+	if a.record.PendingCreates == nil {
+		a.record.PendingCreates = make(map[string]PendingFoundationCreate)
+	}
 	a.record.PendingCreates[request.Key] = PendingFoundationCreate{OperationID: a.record.OperationID, IntentDigest: a.record.IntentDigest,
 		Request: request, FirstAttemptAt: time.Now().UTC()}
 	return a.update(ctx)

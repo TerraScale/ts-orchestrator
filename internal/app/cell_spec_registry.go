@@ -396,6 +396,9 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 		}
 	}
 	profiles := maps.Clone(r.fixed)
+	if profiles == nil {
+		profiles = make(map[string]WorkloadProfile)
+	}
 	var specs []workload.ServiceSpec
 	for _, service := range spec.Services {
 		if slices.Contains(r.reserved, service.Role) {
@@ -552,6 +555,9 @@ func (r *specRegistry) releaser(actor, role, environment string) bool {
 
 func (r *specRegistry) effectiveLocked() (map[string]WorkloadProfile, []workload.ServiceSpec) {
 	profiles := maps.Clone(r.fixed)
+	if profiles == nil {
+		profiles = make(map[string]WorkloadProfile)
+	}
 	var specs []workload.ServiceSpec
 	for _, service := range r.current.Services {
 		profiles[service.Role] = service.Profile
