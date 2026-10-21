@@ -1,0 +1,64 @@
+name: Multi-region mesh check
+
+# Re-proves the live mesh against every region's host: NATS ping between
+# every region pair, one `service apply` of whoami to every region, and
+# HTTPS from each region's own host. CI reaches each host on its public
+# release listener (TLS :4222, pinned in deploy/m1/regions.json) with this
+# job's GitHub OIDC token; hosts admit this workflow for ts.release.mesh.> only.
+on:
+  schedule:
+    - cron: '41 */6 * * *'
+  workflow_dispatch:
+  # After each main push's checks, so a fresh deploy/release-push is re-proved.
+  workflow_run:
+    workflows: [TerraScale Orchestrator Go checks]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: multi-region
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success') }}
+    name: multi-region/mesh-check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out the region list and the test service
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            deploy/m1/regions.json
+            deploy/m1/services/whoami.json
+          sparse-checkout-cone-mode: false
+
+      - name: Download the newest main release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 30 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("ci-"))] | sort_by(.createdAt) | last | .tagName // ""')
+          test -n "$tag" || { echo "no ci-* release found" >&2; exit 1; }
+          echo "Release: \`${tag}\`" | tee -a "${GITHUB_STEP_SUMMARY}"
+          gh release download "$tag" --repo "${GITHUB_REPOSITORY}" --dir dist --pattern terrascale-orchestrator-linux-amd64
+          chmod +x dist/terrascale-orchestrator-linux-amd64
+
+      - name: Ping, apply and fetch in every region
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          dist/terrascale-orchestrator-linux-amd64 release mesh-check > "${RUNNER_TEMP}/mesh-check.md" || status=$?
+          tee -a "${GITHUB_STEP_SUMMARY}" < "${RUNNER_TEMP}/mesh-check.md"
+          exit "$status"
