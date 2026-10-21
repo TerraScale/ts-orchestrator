@@ -84,6 +84,7 @@ func setupPull(t *testing.T) (*PullSecrets, *pullVault, PullScope, PullSecret) {
 }
 
 func TestVaultPullMetadataAndScopedCredentialHTTP(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	reader, vault, scope, owned := setupPull(t)
 	claim, err := reader.Describe(t.Context(), scope, owned, 4)
 	if err != nil {

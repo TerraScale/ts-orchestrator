@@ -17,6 +17,21 @@ TimeoutStopSec=60s
 KillMode=mixed
 LimitNOFILE=65536
 UMask=0077
+# Sandbox what root does not need. No ProtectSystem=strict or
+# ProtectControlGroups: tasks need /run/ts-orch, /var/lib and the terrascale
+# cgroup, and a pushed release replaces /usr/local/bin/terrascale-orchestrator.
+NoNewPrivileges=yes
+ProtectSystem=full
+ReadWritePaths=/usr/local/bin
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target

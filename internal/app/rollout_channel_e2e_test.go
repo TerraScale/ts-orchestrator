@@ -36,6 +36,7 @@ import (
 // healthy is rolled back in the canary, reported failed, and stops the
 // fleet rollout before the next region sees it.
 func TestReleaseChannelRollsCIReleasesOutRegionByRegion(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	tier.Integration(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()

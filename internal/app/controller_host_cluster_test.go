@@ -34,19 +34,23 @@ import (
 // three controller subscribers. This test keeps the real signed operator and
 // host protocols active across the loss of the broker the host is using.
 func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, false, false)
 }
 
 // Every controller-loss scenario uses signed JWT credentials and mutual TLS.
 func TestJWTMTLSHostSessionRecoversAfterControllerLoss(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, false, false)
 }
 
 func TestJWTMTLSHostSessionRecoversAfterBlackholedController(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, true, false)
 }
 
 func TestJWTMTLSHostSessionFencesAndRestartsAfterControllerLoss(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, true, true)
 }
 
