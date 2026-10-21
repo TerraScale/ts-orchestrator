@@ -1,0 +1,9 @@
+{
+  "name": "e2e-whoami",
+  "image": "docker.io/traefik/whoami@sha256:200689790a0a0ea48ca45992e0450bc26ccab5307375b41c84dfc4f2475937ab",
+  "args": ["--port", "18081"],
+  "port": 18081,
+  "readyPath": "/health",
+  "hostnames": ["whoami.e2e.test"],
+  "replicas": 1
+}
