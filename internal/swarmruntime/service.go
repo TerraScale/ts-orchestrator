@@ -374,6 +374,8 @@ const (
 	LabelServiceSpec = "terrascale.service-spec"
 	LabelHostnames   = "terrascale.hostnames"
 	LabelSecrets     = "terrascale.secrets"
+	// LabelSecretRefs maps each LabelSecrets key to its OCI Vault secret (JSON object of vaultsecret.Ref).
+	LabelSecretRefs = "terrascale.secret-refs"
 )
 
 var (

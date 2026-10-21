@@ -34,6 +34,10 @@ const usage = `Usage: ts-orch vault <command> [flags]
       Read a JSON map of keys to {vault, name} using the instance principal.
       Publish owner-only files named by lowercasing each key. Poll CURRENT versions;
       changed versions atomically replace files without redeploying the consumer.
+  check   NAME...
+      On a host, as root: read each secret NAME from the Vault <cell>-vault of the
+      instance's compartment, as a task start does, and print its name and length,
+      never the value.
   version --vault-id OCID --name NAME --secret-id OCID --expect-current N --file FILE [--instance-principal]
       Publish an owner-supplied value as a new CURRENT version with If-Match.
       On any uncertain result, reread CURRENT before retrying. Never generates keys.
@@ -51,6 +55,9 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		_, err := io.WriteString(output, usage)
 		return err
+	}
+	if args[0] == "check" {
+		return checkInstance(ctx, args[1:], output)
 	}
 	flags := flag.NewFlagSet("vault "+args[0], flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -306,4 +313,29 @@ func printLine(output io.Writer, value any) error {
 	}
 	_, err := fmt.Fprintln(output)
 	return err
+}
+
+func checkInstance(ctx context.Context, names []string, output io.Writer) error {
+	if len(names) == 0 {
+		return errors.New("check requires at least one secret NAME")
+	}
+	_, vaultID, err := discoverInstanceVault(ctx)
+	if err != nil {
+		return err
+	}
+	refs := make(map[string]Ref, len(names))
+	for _, name := range names {
+		refs[name] = Ref{Vault: vaultID, Name: name}
+	}
+	values, err := Resolve(ctx, refs, instanceClient(ctx))
+	if err != nil {
+		return err
+	}
+	defer clear(values)
+	for _, name := range names {
+		if err := printLine(output, map[string]any{"name": name, "length": len(values[name])}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

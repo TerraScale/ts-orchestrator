@@ -11,6 +11,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // RunSingleHost runs a one-node SwarmKit manager+worker with the containerd
@@ -30,6 +31,9 @@ func RunSingleHost(ctx context.Context, args []string, output io.Writer) error {
 	}
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", *state)
 	if err != nil {
+		return err
+	}
+	if err := executor.BindVaultSecrets(vaultsecret.ReadInstanceSecrets); err != nil {
 		return err
 	}
 	defer executor.Close()

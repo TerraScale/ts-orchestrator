@@ -134,8 +134,13 @@ func stageTaskMaterial(destination string, input map[string][]byte, uid, gid uin
 		return err
 	}
 	defer os.RemoveAll(temporary)
+	root, err := os.OpenRoot(temporary)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	for name, value := range files {
-		f, err := os.OpenFile(filepath.Join(temporary, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
 			return err
 		}
