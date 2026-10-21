@@ -1,0 +1,23 @@
+{
+  "request_sha256": "0cc2bd6fb5f38a513508a8b919cd638b4afe596771519a2ce394b0e447495a87",
+  "wrapper_sha256": "92485ca9b4abafe0511da72b5ae7c9253bc255fa82a323aec4e29c1cf9339772",
+  "source_manifest_sha256": "f3a94a3541646bf3f6b85fbf801ade78cdae256f00f14ca010abf5c240177f2a",
+  "static_review_sha256": "5277d082b402903fbe21747288bcb349d66d8c3c81aa6f010fb0ea63d3edaca5",
+  "static_closure_sha256": "29f1c96d149de4e3a6e24360fa201be6a81265800018efd1b7408d556cbc9c3e",
+  "launch_argv": [
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "LANG=C.UTF-8",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-app-6aab71080-fingerprint-v1f2uekh/run.py",
+    "0cc2bd6fb5f38a513508a8b919cd638b4afe596771519a2ce394b0e447495a87",
+    "92485ca9b4abafe0511da72b5ae7c9253bc255fa82a323aec4e29c1cf9339772"
+  ]
+}

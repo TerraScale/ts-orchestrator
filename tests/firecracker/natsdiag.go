@@ -107,7 +107,7 @@ func topologyFromControllerConfig(config app.Config) (diagnosticTopology, error)
 	endpointNames := make(map[string]string, len(embedded.BrokerIDs))
 	routeIndex := 0
 	for index, brokerID := range embedded.BrokerIDs {
-		members[index] = natsConfig.Cell + "-" + brokerID
+		members[index] = natscell.ServerName(natsConfig.Cell, brokerID)
 		if brokerID == natsConfig.Instance {
 			endpoints[index] = natsConfig.URL
 		} else {
@@ -136,7 +136,7 @@ func topologyFromControllerConfig(config app.Config) (diagnosticTopology, error)
 	}
 	return diagnosticTopology{replicas: natsConfig.Replicas, endpoints: endpoints,
 		memberNames: members, endpointNames: endpointNames, localEndpoint: parsed.Host,
-		localMember: natsConfig.Cell + "-" + natsConfig.Instance,
+		localMember: natscell.ServerName(natsConfig.Cell, natsConfig.Instance),
 		managed:     managedCount == len(managedFields)}, nil
 }
 

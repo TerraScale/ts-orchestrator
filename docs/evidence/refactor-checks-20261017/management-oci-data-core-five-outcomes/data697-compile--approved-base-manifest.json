@@ -1,0 +1,755 @@
+{
+  "worktree": "/tmp/ts-app-oci-root-writer-7f504383",
+  "base": "7f504383cc8e8703031e1bb901fbac99223f05ae",
+  "head": "f01b41a84424d7827efc3d5871f99be1d1c53434",
+  "tree": "46484a6f9646529a21df85b8c972ea5d3e86f618",
+  "status": "SOURCE_ONLY_INCOMPLETE_PRODUCTION_COMPOSITION",
+  "supersedes": "/tmp/ts-app-root-writer-manifest-937b5a3df.json",
+  "dependencyManifests": [
+    {
+      "path": "/tmp/ts-oci-stack-manifest-c835b0aa7.json",
+      "sha256": "50a485c51664a20c00904da6e329f11a06923095534dba28323a695353e9410f",
+      "head": "c835b0aa738af6625f802d548cbd26f1c2212014"
+    },
+    {
+      "path": "/tmp/ts-oci-stack-manifest-72214179b.json",
+      "sha256": "f55720216a7261c6f8e3cd7c00d0428b2b27bafee30198dc4dc2613d728a3803",
+      "head": "72214179b01ed855877fac3b291314dfbbb804fe"
+    },
+    {
+      "path": "/tmp/ts-oci-domains-manifest-ca2f81f9a.json",
+      "sha256": "48673f0a053d6b412c43ebd1ccc811bab790bb7a1ab7ca9ee630048f661c68a5",
+      "head": "ca2f81f9ae954109fb4348df9420756648227a21"
+    },
+    {
+      "path": "/tmp/ts-oci-domains-manifest-124ee8cbb.json",
+      "sha256": "1cb9297716c8fd0a70990720c52b5afd4e755312148707d1aa7f9339a2f9c7d7",
+      "head": "124ee8cbbb01e21583b39c116a72227b83264772"
+    }
+  ],
+  "localOrdered": [
+    {
+      "local": "4a9a49d655f25a8a6cc375e8a2e9aef711d66f73",
+      "subject": "fix(host): retain actual session execution deadline in runtime identity"
+    },
+    {
+      "local": "395416e4eda26de00ceac417273b515276cf49d6",
+      "subject": "fix(bootstrapstart): verify pinned controller process through restart policy"
+    },
+    {
+      "local": "c6a71c0807a813e61e74df4c343c8b48441e983a",
+      "subject": "feat(rootoci): define finite infrastructure observation contract"
+    },
+    {
+      "local": "866362c7f9a59690f4ef9a53fec639c1f5955f5a",
+      "subject": "Bind root OCI calls to retained process and original session"
+    },
+    {
+      "local": "b95ec48ce6f8444654b65bda37f3e22ea6167121",
+      "subject": "feat(app): bind root OCI phases to exact controller processes"
+    },
+    {
+      "local": "e74d1a1fdb037be408b698da9b217f80a7c5adaf",
+      "subject": "feat(oci): define finite root foundation and source operations"
+    },
+    {
+      "local": "01ea5fed0b7ba1667a0b0686329dbf5fad3ead32",
+      "subject": "feat(rootoci): define finite controller credential delivery"
+    },
+    {
+      "local": "ecd9407f74b523ee1df3b438f7778694239a3e6a",
+      "subject": "Define finite root-authorized NetBird regional intent contract"
+    },
+    {
+      "local": "6ff5bc22ba190f64f3de9cdcd030aecf3e23918b",
+      "subject": "feat(rootoci): define finite protected pool lifecycle requests"
+    },
+    {
+      "local": "b620bbb666590309b93db5af443d89e7030444dc",
+      "subject": "feat(rootoci): pin pool admission to the authenticated root response"
+    },
+    {
+      "local": "ce1fb0a408adff8e67a4a3777b19dbcf1d50db43",
+      "subject": "fix(rootoci): preserve original proof expiry across bounded observations"
+    },
+    {
+      "local": "c77436d8afdb64ec47c14ab844bb3a75eebba098",
+      "subject": "Serve finite OCI domains through guarded root Unix IPC"
+    },
+    {
+      "local": "e70b295b46bd2c9a80e6192acda27852f8102cc5",
+      "subject": "fix(capacityinventory): scope cancellation at SDK read boundaries"
+    },
+    {
+      "local": "586a964b2ab6d4973bf5ff24e0807ce0aba73287",
+      "subject": "fix(oci): recheck root sessions at individual SDK read attempts"
+    },
+    {
+      "local": "7bbb475785e3fff289dfe81d2099eb3fb6f3c056",
+      "subject": "feat(rootoci): serve observations from current protected foundation scope"
+    },
+    {
+      "local": "e9a1d003f14046ac6e8b15a164d6a3c5109f2193",
+      "subject": "fix(ociclient): avoid recursive session authorization reads"
+    },
+    {
+      "local": "5aee5eeece75e1ba7801eddd1f60e4cc3668b69e",
+      "subject": "feat(rootoci): adapt ordinary observation consumers to typed reads"
+    },
+    {
+      "local": "cd7a0550c42ac5359d45f6263d47365f6c4e599a",
+      "subject": "feat(vault): stage controller credentials through root-only delivery"
+    },
+    {
+      "local": "3b169b8d5a2941cf65c5e218e72a772490b3dd39",
+      "subject": "fix(vault): cap root delivery at signed generation expiry"
+    },
+    {
+      "local": "70eaed3141754c2711bd534ecb85378a9ef94fc0",
+      "subject": "fix(vault): recheck delivery deadline after proof waits"
+    },
+    {
+      "local": "c661d99845c0497cef864a35eedceb1fbe1c891d",
+      "subject": "fix(vault): retain original root call lease deadline"
+    },
+    {
+      "local": "9b93b0c2e0a71ddaf317835b6094598d716d2eec",
+      "subject": "refactor(vault): use context deadline narrowing directly"
+    },
+    {
+      "local": "84f965055fed7e8142cac974d6dc12613c6f069a",
+      "subject": "fix(vault): bind delivery to its finite root operation"
+    },
+    {
+      "local": "c146a16081099e7ec116dfb390c550f7357b86f0",
+      "subject": "feat(region): bind protected writers to original finite seed launches"
+    },
+    {
+      "local": "5a2c78ed5f2eb134fb11ab7c3a3b670b8afd947a",
+      "subject": "fix(region): recheck immutable writer deadlines at dispatch"
+    },
+    {
+      "local": "2e17eb5146879ef8803325e334634658d14d7323",
+      "subject": "test(region): retain exact writer reservations across SDK journal restart"
+    },
+    {
+      "local": "50964223237c472ffd7ca5a739ef609130535048",
+      "subject": "fix(region): derive exact seed descriptor for original writer launch"
+    },
+    {
+      "local": "97b5865866e650751825c5c847faa389b7a137d9",
+      "subject": "fix(region): validate writer KMS key with its physical OCID kind"
+    },
+    {
+      "local": "10c5a69ce4bdb56c85469f061cdb67133fd10041",
+      "subject": "fix(region): refresh home lease after writer admission reads"
+    },
+    {
+      "local": "47d23cecb685f64f41558896d93e78451447d107",
+      "subject": "feat(region): require opaque root-boundary image proof for writers"
+    },
+    {
+      "local": "cf984c2e0e95a9bed4ebe2df3ccde756d8b22fba",
+      "subject": "feat(oci): keep foundation and source effects in protected root backend"
+    },
+    {
+      "local": "e9cd309ef9159b49318cc4d33a00dd42737c2403",
+      "subject": "fix(oci): preserve source-owned home IAM lease identity"
+    },
+    {
+      "local": "c54c79e84cbdf59cc41dee85abc54db93ed21e2b",
+      "subject": "fix(oci): retain source epoch checks through root material return"
+    },
+    {
+      "local": "4dea83f919326ea006a3264f198217e0955ab117",
+      "subject": "fix(ociclient): join home region discovery SDK cancellation"
+    },
+    {
+      "local": "660292cc03c54fbcc7538f90f4257db4a82b9226",
+      "subject": "feat(release): require dedicated root credential boundary qualification"
+    },
+    {
+      "local": "42633c732c8fb7e2d5a63243389ff8ca2b59a5af",
+      "subject": "refactor(app): use protected root source and credential operations"
+    },
+    {
+      "local": "b9ef5ce9a805b811123f89473d47740b86a85d7d",
+      "subject": "feat(app): define root credential boundary observation result"
+    },
+    {
+      "local": "2085d3138b4754570124eaa9f4fbc19413e93dd6",
+      "subject": "feat(app): retain ordinary metadata refusal in qualification result"
+    },
+    {
+      "local": "3d21d4709734e747adfb78046b3ffc0f18da5bb6",
+      "subject": "feat(app): retain actual root manager for material observations"
+    },
+    {
+      "local": "611712c1b707a7d789d95ca541883b5042ce8ae4",
+      "subject": "Retain direct root calls and isolate signed qualification reads"
+    },
+    {
+      "local": "e6391c4540f40aa5de3fb16156cbacc485d4edc0",
+      "subject": "feat(app): execute signed root credential boundary qualification"
+    },
+    {
+      "local": "537ff6ec47df1bf552546f90fc8f0146dc556782",
+      "subject": "feat(image): seal finite purpose-bound startup reader admission"
+    },
+    {
+      "local": "8b1c9fd813889b3d294ab1a5145fe296aa116cf3",
+      "subject": "fix(app): retain exact qualification response and proof digest"
+    },
+    {
+      "local": "f7f88e429d25dd9face8c0c61d1f9f0182fc0c35",
+      "subject": "feat(oci): connect root controller readers with memory-only credentials"
+    },
+    {
+      "local": "bc621667b5ba00a2e39b849dff73b7abe66148f1",
+      "subject": "fix(image): bind startup candidate to signed host image"
+    },
+    {
+      "local": "7ab020e732a35bd8bcf8c580f8fddd84b5174cdf",
+      "subject": "fix(app): qualify metadata controls and actual principal refusal"
+    },
+    {
+      "local": "ee8ab3b611dcbb342f70daf82aa7dbea31c41e4d",
+      "subject": "fix(image): recheck reader expiry and current signed host geometry"
+    },
+    {
+      "local": "a8cf97ff58f7b68a0519134fb56707ceadae6208",
+      "subject": "feat(region): provision signed foundation through existing operator"
+    },
+    {
+      "local": "acba02999d8251497034a0ffc7c0b318895f1991",
+      "subject": "fix(foundationbinding): preserve opaque original writer journal field"
+    },
+    {
+      "local": "18fa1357791fe8ba5101d01093a6e0c5b1791397",
+      "subject": "test(foundationbinding): retain original writer field during binding reads"
+    },
+    {
+      "local": "f4707fce23e2a85a3320cb30c3d781f0ce681480",
+      "subject": "test(rootoci): exercise typed channel reads across signed SDK HTTPS"
+    },
+    {
+      "local": "19655601e752b471aeec7d1bb03a1d00f6ed294d",
+      "subject": "fix(region): retain exact authenticated initial home bucket prerequisites"
+    },
+    {
+      "local": "6b1e752a2032b95dd50e479578e494f0c0949b8d",
+      "subject": "fix(region): cap initial operator reads at signed expiry"
+    },
+    {
+      "local": "c692901256abe4195088ef53716b3e43849efe00",
+      "subject": "feat(release): restore dedicated NetBird image signer prerequisite"
+    },
+    {
+      "local": "2089f81e6fb32603c8568d829adca1a916cbf8b4",
+      "subject": "test(region): exercise full signed foundation provisioning over SDK HTTP"
+    },
+    {
+      "local": "71c319877741b644ee21748f92fb4f8b59610720",
+      "subject": "fix(bootstrap): fence local source publication with live root authority"
+    },
+    {
+      "local": "2e3aab756709a9f9e08172764fd3e219d61cc703",
+      "subject": "test(bootstrap): fence durable journal publication with real root calls"
+    },
+    {
+      "local": "e91960ab773ce493db4eb96f3f8a99e28e3641a9",
+      "subject": "test(release): exercise privileged image purpose through OCI SDK"
+    },
+    {
+      "local": "29a6b812f90b3d6ba3f8f0414cf0bd1ff808015f",
+      "subject": "fix(release): bind writer qualification to exact imported image"
+    },
+    {
+      "local": "0637ce46ed4693cc3d64169b6986c8cba5bdf661",
+      "subject": "feat(rootoci): retain exact pool child placement and billing geometry"
+    },
+    {
+      "local": "e62ab0b9ca07c5aae05a9bd52b92c5776a97d828",
+      "subject": "Share pinned root transport and preserve uncertain mutation outcomes"
+    },
+    {
+      "local": "5ce73a34f658c37ca576f852c9c001146b315f9b",
+      "subject": "feat(rootoci): define finite container status reconciliation"
+    },
+    {
+      "local": "7174d4529ad2b88e04e4df1e13d8009b409f4605",
+      "subject": "feat(rootoci): carry independently checked public pool recipe selectors"
+    },
+    {
+      "local": "d19559474322c9e8f37c090170a39feb1556f49e",
+      "subject": "Dispatch current release status and cover real Unix revocation outcomes"
+    },
+    {
+      "local": "254d1989a63c4479955571caba27d34c164ef7d2",
+      "subject": "feat(oci): observe retained volumes through finite root transport"
+    },
+    {
+      "local": "950c27234481312ecb6f25d6c4e0ce25e49282da",
+      "subject": "test(region): bind original writer fixture to exact qualified image"
+    },
+    {
+      "local": "ad7b3a5c16eff08132f48b94b7c1d4e62bf6b700",
+      "subject": "test(bootstrap): authenticate identity rekey broker fixtures"
+    },
+    {
+      "local": "dbeab888dea1a05f21436fa4b40df49cc057f2ca",
+      "subject": "refactor(app): share exact runtime process authority for management"
+    },
+    {
+      "local": "880b03e04c7b5aeeb06fef8d31c688274da5f1e5",
+      "subject": "fix(app): bind authority candidate to supervised process witness"
+    },
+    {
+      "local": "edfcd4030975e2b21a414e4e7e390ebf49ecfc57",
+      "subject": "feat(storage): compose stateful producer sessions and root service admission"
+    },
+    {
+      "local": "f9d26c8b4ca6e60f05de9b3e56f650e68f070553",
+      "subject": "fix(storage): bind root service admission to adopted signed profile"
+    },
+    {
+      "local": "f19df2e3eacfd20b5f21ce5e449e3642335f1767",
+      "subject": "Integrate production host material admission contracts"
+    },
+    {
+      "local": "a72aed20f5c6dbfa6fb989be19e24c2d1f43b9d8",
+      "subject": "feat(oci): deliver admitted workload secrets and observe current metadata"
+    },
+    {
+      "local": "c34172f16327bf12a7e2a90d3cb3d2255371bee6",
+      "subject": "fix(oci): cap memory reader lifetime at verified certificate chain expiry"
+    },
+    {
+      "local": "bba29dfb3a3042909956ab200791e436589c9a77",
+      "subject": "fix(storage): revalidate root volume proof before issuing authority"
+    },
+    {
+      "local": "1d6ef1a7fab56272856ffe3142e6469400bc7bc5",
+      "subject": "Bind stateful release reads to durable delivery operations"
+    },
+    {
+      "local": "0567c5fd7c51ded50f54e663438f8e12e07aa3c7",
+      "subject": "Bind stateful scheduling to the complete signed member scope"
+    },
+    {
+      "local": "5bcf57e2e301614b32965ffc1db7b7f6437fcde1",
+      "subject": "fix(swarmruntime): authorize scoped management service lifecycle"
+    },
+    {
+      "local": "2700f30012e3228de5837c52078ef0112be67953",
+      "subject": "fix(swarmruntime): guard signed mutations and retain intent generation"
+    },
+    {
+      "local": "3fefa5350aa1cf4fdc672c4b841bda26388bf244",
+      "subject": "fix(swarmruntime): canonicalize intent shape and recheck rollout authority"
+    },
+    {
+      "local": "10f6f683a6a061b4e3c8b0e45df0054b1e87bdec",
+      "subject": "fix(swarmruntime): retain management intent generation fences"
+    },
+    {
+      "local": "4c9c9a1453a3b7e7dc7112e93d84055d7a55f01c",
+      "subject": "fix(management): fence node availability and auth placement"
+    },
+    {
+      "local": "843e570bd5bb2b6d6719a6dcf2413dea5d0e78d3",
+      "subject": "feat(management): require root signed stateful service authorization"
+    },
+    {
+      "local": "1520cc313c772e1f5914958be8ffb57dcb9e183f",
+      "subject": "fix(management): bracket stateful writes with exact process authority"
+    },
+    {
+      "local": "3d3d1070fc4c9ae5f26898cc9f27d068c062f32e",
+      "subject": "feat(app): derive root stateful scheduling from actual process and signed sources"
+    },
+    {
+      "local": "20035283bd0ff88291ced5c31f19dce3d906dc20",
+      "subject": "feat(rootoci): define finite volume backup policy operation"
+    },
+    {
+      "local": "bd28f91a34dc2c31577e9608a046ab535eb00acd",
+      "subject": "feat(rootoci): define finite workload material operations"
+    },
+    {
+      "local": "1e5358fed1116c39648afdf06c3692d5f397a95b",
+      "subject": "Dispatch protected volume, workload material and backup operations"
+    },
+    {
+      "local": "a8a7e2aeb8375c96983b22b98edc33cfe7e768f3",
+      "subject": "Bind cross-call receipts to the original cancellation lifetime"
+    },
+    {
+      "local": "7098fe8b3fa265988bb77096a9af54e0e4c8bb51",
+      "subject": "feat(rootoci): define finite signed container material observations"
+    },
+    {
+      "local": "87f46c586ef596366cec855c2998e4e955ad8537",
+      "subject": "Bound retained container evidence and allocation observations"
+    },
+    {
+      "local": "0d395df197f1c0a34cf23151058aa6062dabb98f",
+      "subject": "fix(management): enforce admitted stateful effect callbacks"
+    },
+    {
+      "local": "fcbbaf43dc681f77cc2435a91bc8854b2058bcb1",
+      "subject": "feat(authority): pin read-only current lease admissions"
+    },
+    {
+      "local": "5bf79bf27ccfa2eaa346d6b06fd0f0a079b3443d",
+      "subject": "feat(host): admit exact material sessions through root readers"
+    },
+    {
+      "local": "ff7488e34356290f597e829a549c21f435c32a22",
+      "subject": "feat(material): seal root task delivery and generation authority"
+    },
+    {
+      "local": "a5f98ff8153ccc14f234444d9b6e7b5d947aacd1",
+      "subject": "feat(app): derive workload material authority in the root runtime"
+    },
+    {
+      "local": "b6abd7776cdd931fe06b96b122fbdf213c30fd10",
+      "subject": "fix(app): cap stateful effects at the original regional lease"
+    },
+    {
+      "local": "ba90bcbb1ad723f0e4756e78907f934cf8232f2b",
+      "subject": "fix(swarmruntime): preserve task authority through metadata rollouts"
+    },
+    {
+      "local": "4f75a90eb4520b404ed324e68c3191ef633959dd",
+      "subject": "feat(rootrelease): derive container status from protected runtime readiness"
+    },
+    {
+      "local": "d7d9ac22736666b90c1b80c229da88e056094d8c",
+      "subject": "Retain original stateful proof deadline through scheduling effects"
+    },
+    {
+      "local": "c325452ebf0db6f2e6abdcb702b97cd2d6b31863",
+      "subject": "fix(app): retain canonical scheduling proof through root effects"
+    },
+    {
+      "local": "1761430d51b7003f9a78d2eb4df7b4b08e024134",
+      "subject": "feat(backup): add root-owned SDK and read-only placement dependencies"
+    },
+    {
+      "local": "26b399729687f78f8911ab94806bbdb7c9741051",
+      "subject": "test(backup): cover request fencing and read-only placement state"
+    },
+    {
+      "local": "590ee1a158f63079464c183d75b88f6e05e99a59",
+      "subject": "refactor(backup): invoke finite root reconciliation from controller cadence"
+    },
+    {
+      "local": "5e2ef0941c762b90cb04954d9f0f0c22010340c9",
+      "subject": "refactor(backup): remove unused ordinary principal constructor"
+    },
+    {
+      "local": "7fef86fb5a203d1de16c64a53bc13c8abeb83405",
+      "subject": "feat(material): verify committed preparation with public-only reader"
+    },
+    {
+      "local": "34211447896874a0421bc0df51ed68bfedd08ab7",
+      "subject": "test(material): require exact current bytes with public-only verification"
+    },
+    {
+      "local": "e2083a62a14510ec01e082d4400476f7f54a07db",
+      "subject": "feat(backup): derive finite root policy from current signed R3 authority"
+    },
+    {
+      "local": "8b61a6562e4438c902bd6cade55863d4dd7b48c3",
+      "subject": "feat(rootrelease): read finite operation-bound container material"
+    },
+    {
+      "local": "57bf3f1ef314a6ecff173a84b4be1ba28bf374e3",
+      "subject": "fix(rootrelease): pin signed controller slot and original host sessions"
+    },
+    {
+      "local": "1f3101424f38f19d76c8c6ceed6ccd7624d032e6",
+      "subject": "fix(rootrelease): recheck material scope at every provider attempt"
+    },
+    {
+      "local": "ed74738b40edb2af6b0fed799fc9f3d0d43feaef",
+      "subject": "feat(rootoci): distinguish retained historical container observations"
+    },
+    {
+      "local": "a2a0e6b16e96813330a9173cb169c13a1e038007",
+      "subject": "feat(rootrelease): authenticate historical retained material without execution authority"
+    },
+    {
+      "local": "38bd576c8bace2e09e4af65caf079c2bd75e4fae",
+      "subject": "fix(rootrelease): require stream-leader reads for current signed sources"
+    },
+    {
+      "local": "2df7bbcb6d7da6ac3985300ac61ffd5e76de7367",
+      "subject": "fix(rootrelease): admit genesis only below the installed root floor"
+    },
+    {
+      "local": "dcd563db87a9b53b294c79bd3e2f9af5767cd156",
+      "subject": "fix(rootoci): use canonical signed cells for release bucket derivation"
+    },
+    {
+      "local": "641f2e55f2a8eb1047ad9663a2cb9711d9a6ea51",
+      "subject": "fix(rootrelease): authenticate retained material across root rotations"
+    },
+    {
+      "local": "d977d9cf0ee146ed541414b5ce4f7003cf545c3c",
+      "subject": "fix(rootoci): bind durable fleet readers once"
+    },
+    {
+      "local": "656a4f3d561bb3b9320fb73f0625a0183858fd9b",
+      "subject": "feat(delivery): separate retained container provenance from current admission"
+    },
+    {
+      "local": "54ea3d97cea0cc00247b77555b76a891dae1be1a",
+      "subject": "test(oci): keep reader binding checks in durable journal scenario"
+    },
+    {
+      "local": "09d893ea14afc37b88cd8831a327376f874665db",
+      "subject": "feat(rootoci): define finite release channel operations"
+    },
+    {
+      "local": "06364a3ccdce95938fc0d408f6adc7485a563edd",
+      "subject": "docs(delivery): clarify retained observation authority limits"
+    },
+    {
+      "local": "58da8b86c5475ec2ff3c556ded8179519b3cb93e",
+      "subject": "feat(authority): pin current runtime lease for root observations"
+    },
+    {
+      "local": "be2ef59a1e3db6d4c034959aee5be5e054a1fbdc",
+      "subject": "feat(app): derive finite root release observations from retained authority"
+    },
+    {
+      "local": "6c1989d40198143528efa79a034afad06877f66d",
+      "subject": "refactor(app): route release channel consumers through root operations"
+    },
+    {
+      "local": "7cedfe4ef1f0de37a424aefa7983df0922937b15",
+      "subject": "refactor(credentials): retain original authenticated reader lifetime"
+    },
+    {
+      "local": "58612ebd8831a07cec3ec2b0871278705be9c2ce",
+      "subject": "feat(material): return checked task metadata for caller cutover"
+    },
+    {
+      "local": "05d09115dd1d131c44473635753f6523d1ccbeb6",
+      "subject": "fix(oci): return admitted task metadata with workload material receipts"
+    },
+    {
+      "local": "eae593e72e85397b98d0ed6a73fee24bdd5907fb",
+      "subject": "refactor(material): deliver root receipts and observe rotations without values"
+    },
+    {
+      "local": "c7cf26ac4c03122354000f36273d1e2867e826d4",
+      "subject": "fix(material): retain delivery deadline through host publication"
+    },
+    {
+      "local": "2b6e7d7c4ddd2fbdee6831a0552e3feee891349b",
+      "subject": "refactor(app): retain the root client for container material delivery"
+    },
+    {
+      "local": "bf5e37d7aeabc21a36a96439ce81181e9ca57233",
+      "subject": "fix(material): retain original call caps during root source reads"
+    },
+    {
+      "local": "49404a13376c3fc0a2a3aa900e97d3d6c9750387",
+      "subject": "fix(app): pin root release deadlines and status witnesses"
+    },
+    {
+      "local": "3406e4f5853479e82b42411fb4de7d490d8fcc5d",
+      "subject": "fix(credentials): guard original reader snapshot before protected effects"
+    },
+    {
+      "local": "a53da56918cbe36c942dff96597461a027cd4277",
+      "subject": "feat(app): bind root runtime observations to immutable source lifetimes"
+    },
+    {
+      "local": "c163ec6ad996aa6c15f270794e6cc5fb91d0475c",
+      "subject": "fix(app): retain source delegation cap after credential guard waits"
+    },
+    {
+      "local": "19db713077e92ecd16957fdbb81f9270210a23c0",
+      "subject": "feat(capacityledger): retain immutable per-birth monthly liabilities"
+    },
+    {
+      "local": "b8f027529b02a992347186f9fe9a2480444c493f",
+      "subject": "feat(foundationbinding): authenticate protected capacity ledger reads"
+    },
+    {
+      "local": "5d81d9e5e17ee2b259eea00e0032cfa49a0c69c5",
+      "subject": "fix(foundationbinding): cross-check financial and child birth provenance"
+    },
+    {
+      "local": "0a0f841c0314ccb62282f36a62dcc081857f1de4",
+      "subject": "fix(foundationbinding): expire ledger proof with original SDK observations"
+    },
+    {
+      "local": "18163d8a2bfeefcf26e515993c60a9dcfadd4de2",
+      "subject": "feat(capacityinventory): observe protected original-tariff liabilities without spending authority"
+    },
+    {
+      "local": "a377e140e60d7a32877a72720b1e57c2d3dbbebe",
+      "subject": "test(capacityinventory): reject duplicate and caller-created financial histories"
+    },
+    {
+      "local": "bdf444b8b82726133f9f80604c3adaee25d2e1c3",
+      "subject": "feat(rootoci): expose protected known liabilities in inventory observations"
+    },
+    {
+      "local": "acf7aa6526d073ada75e871dd51cd0212d598ec0",
+      "subject": "test(rootoci): bind inventory refusal cases to signed SDK observations"
+    },
+    {
+      "local": "ed3b14bff784ae82589de5ca6b176f10107e5165",
+      "subject": "fix(app): preserve final binary chunk authority bounds"
+    },
+    {
+      "local": "edd6c6a63d4062015fd97f314207f79f6f991ff4",
+      "subject": "feat(delivery): expose exact historical artifact provenance separately"
+    },
+    {
+      "local": "8af1964c79f1f91494018644cd0f8794ab5bee53",
+      "subject": "Dispatch bounded retained container observations through root authority"
+    },
+    {
+      "local": "83509eca4ab6d331bfe3ea1e4b14cfcd010766a5",
+      "subject": "Dispatch finite release channel operations with original lease bounds"
+    },
+    {
+      "local": "2cc654e15339ae34f00adaafdcf49aab399d9747",
+      "subject": "feat(dashboard): preserve root inventory provenance and liabilities"
+    },
+    {
+      "local": "84dda70ed9d0215539d36aa5c748f0eeffb85328",
+      "subject": "feat(app): retain root inventory observations for dashboard readers"
+    },
+    {
+      "local": "705ea23f7ffba2447659e9060d77d28ffc85f6e1",
+      "subject": "feat(region): expose redacted durable foundation progress"
+    },
+    {
+      "local": "3bb8bfed26a2b09bc5bf3b5ccdc27950329cd89e",
+      "subject": "fix(region): bind observed creation metadata to exact resource"
+    },
+    {
+      "local": "737c1f7b9d2aa1a1ea662047844fb5e1a8c26614",
+      "subject": "feat(app): share foundation observations across runtime listeners"
+    },
+    {
+      "local": "447ce0a426cd2fdb5eade24157dc9d81132c1651",
+      "subject": "feat(observability): add redacted current operation status APIs"
+    },
+    {
+      "local": "937b5a3df9a6818439d407ef22fed8a4a1c0f69b",
+      "subject": "feat(app): retain operation observation sources across listeners"
+    },
+    {
+      "local": "acf6a073bdf51c068ef8ce035d77b03832c885a2",
+      "subject": "feat(cli): expose existing decision insight summary and log APIs"
+    },
+    {
+      "local": "f01b41a84424d7827efc3d5871f99be1d1c53434",
+      "subject": "feat(cli): observe foundation and current operation status"
+    }
+  ],
+  "ownedLeafOrdered": [
+    "4a9a49d655f25a8a6cc375e8a2e9aef711d66f73",
+    "395416e4eda26de00ceac417273b515276cf49d6",
+    "b95ec48ce6f8444654b65bda37f3e22ea6167121",
+    "42633c732c8fb7e2d5a63243389ff8ca2b59a5af",
+    "3d21d4709734e747adfb78046b3ffc0f18da5bb6",
+    "b9ef5ce9a805b811123f89473d47740b86a85d7d",
+    "2085d3138b4754570124eaa9f4fbc19413e93dd6",
+    "e6391c4540f40aa5de3fb16156cbacc485d4edc0",
+    "8b1c9fd813889b3d294ab1a5145fe296aa116cf3",
+    "7ab020e732a35bd8bcf8c580f8fddd84b5174cdf",
+    "dbeab888dea1a05f21436fa4b40df49cc057f2ca",
+    "3d3d1070fc4c9ae5f26898cc9f27d068c062f32e",
+    "b6abd7776cdd931fe06b96b122fbdf213c30fd10",
+    "c325452ebf0db6f2e6abdcb702b97cd2d6b31863",
+    "d977d9cf0ee146ed541414b5ce4f7003cf545c3c",
+    "54ea3d97cea0cc00247b77555b76a891dae1be1a",
+    "7cedfe4ef1f0de37a424aefa7983df0922937b15",
+    "3406e4f5853479e82b42411fb4de7d490d8fcc5d",
+    "a53da56918cbe36c942dff96597461a027cd4277",
+    "c163ec6ad996aa6c15f270794e6cc5fb91d0475c",
+    "84dda70ed9d0215539d36aa5c748f0eeffb85328",
+    "737c1f7b9d2aa1a1ea662047844fb5e1a8c26614",
+    "937b5a3df9a6818439d407ef22fed8a4a1c0f69b"
+  ],
+  "adoptionRules": [
+    "Use localOrdered as exact branch provenance, not an instruction to duplicate producer patches already in the target. Preserve target ordinary controller/autoscale/taskload/schema changes.",
+    "Adopt canonical producer manifests once; source helper imports with manual resolutions are explained below. Never import broad APP451 ancestry.",
+    "No source-only leaf authorizes standalone ordinary credential migration or UID metadata denial. Full production service/listener must be completed and adopted atomically with all ordinary migration and denial."
+  ],
+  "manualImportNotes": [
+    "537ff6ec4 imports only internal hostadmission b9203cf88 and preserves removed old native harness. bc621667b/ee8ab3b61 import later signed host image/geometry fixes.",
+    "a5f98ff81 imported production-only container_material.go from CORE39a with parent-authorized451 baseline; no broad451 ancestor.",
+    "eae593e72 imports2bfc while preserving newer evidence.Deadline plus callDeadline minimum. bf5e37d7a imports202d generation-context cap; the already-newer container cap remains intact.",
+    "2b6e7d7c4 imports parentfa5 rootclient and retains genuine WorkerMembership:functionMembership, whose existing closure calls ReadWorkerMembership.",
+    "be2ef59a1+6c1989d40 imports registrycd315+b574 together;49404a133 imports115e successor. Conditional SEC source ACK only, no dispatch/whole-service claim.",
+    "d977d9cf0+54ea3d97c must be together: BindFleet once+validJournal; new isolated test removed and checks folded into existing durable journal scenario.",
+    "19db71307/b8f027529/5d81d9e5e/0a0f841c0/18163d8a2/a377e140e/bdf444b8b/acf7aa652 import financial descriptive observation chain; merge preserved existing opaque FoundationWriter with CapacityLedger/PoolChildren/CapacityPools/WorkerPolicyIDs. KnownLiabilities remains nonadditive and grants no spending authority.",
+    "ed3b14bff imports e031ff39a final binary chunk bound; edd6c6a63 imports 8f9118047 distinct historical artifact provenance; 8af1964c7 imports c9def0926 retained dispatch; 83509eca4 imports 1c0d8fe48 finite release dispatch.",
+    "2cc654e15 imports OBS 3f06edada dashboard source/projection/templates and HTTP scenario. 84dda70ed owns actual retained supplier/controller/observability/journal wiring and adapts that existing scenario; single workloadRoot client, serial bounded collection, failure retains original DTO/timestamps plus error, deep-copy readers, joined shutdown before client Close.",
+    "705ea23f7 imports Foundation OBS253f5b680;3bb8bfed2 imports2513171e0 exact ResourceID provenance guard. APP737c1f7b9 passes actual readonly capacityFoundation.foundations through controllerObservation.foundation and journalProviders.Foundation into mountJournalAPI, covering primary and every secondary authenticated listener without duplicate direct main mount.",
+    "447ce0a42 imports exact OBS operation donor0f6ace63c; APP937b5a3df constructs one retained operationObservationAPI before listeners, mounts same pointer on ordinary+NetBird OBS, and stores immutable borrowed actual hostController/control/backupRuntime/managedmaterial.CredentialService once after backup initialization. Missing sources return503; routes never depend on source availability. Existing test-constructed dashboard runtimes allow nil pointer; every production runtime constructor sets it.",
+    "acf6a073b imports original CLI feature-view prerequisite0f5362d03; f01b41a84 imports exact operation/foundation CLI leaf6edfdbce4. Only own CLI donors imported, no branch ancestry or duplicate Foundation aliases. Foundation DTO and actual operation HTTP source/wiring dependencies already retained. Typed allowlist output preserves uint64 IDs/sequence/generation/epoch and nanosecond timestamps; recognized unavailable/not-found source failures print partial data and return errors."
+  ],
+  "apis": {
+    "binding": "bindRootRuntimeSources(ctx,cfg,factory,ownhost,*rootociread.Backend,*rootrelease.Backend,*rootReleaseChannels); rootOCIAuthority.bindSources(bound); bound.wait(ctx)",
+    "credentials": "rootsecret.OpenControllerReader(ctx) -> actual *ControllerReader; .Conn(), .Context(), .Guard(ctx). Existing ConnectControllerReader and ConnectControllerReaderLease preserved.",
+    "management": "newRootStatefulAuthorizer(cfg,authority,factory); StartManagementServer now requires actual authorizer.",
+    "registeredStartup": "superviseControllerAdmissionWithAuthority(...,authority), exact registered child before stdin release; listener must precede it.",
+    "rootRelease": "newRootReleaseChannels startup-safe before NATS; actual aggregate.Bind and SDK.Backend.Bind exactly once after root creates real sources.",
+    "inventory": "rootInventoryViews borrows existing workloadRoot; run(ctx) collects immediately and every minute with 30s context; Inventory(ctx) returns copied retained DTO plus refresh/expiry error with no I/O. dashboardInventory -> observed.inventory -> boardJournal.Inventory.",
+    "foundationObservation": "GET /v1/regions/{region}/foundation; redacted durable full-intent/tenancy/compartment/generation-bound actual resolver observation through shared providers; original source dates, correct ResourceID provenance, no source effects.",
+    "operationObservation": "One runtimeObservability.operationObservations *operationObservationAPI; GET /v1/operations/credentials/{database}/{partition}, /backups/{database}/{partition}, /netbird. Retained immutable borrowed sources; exact authority LogEntry mutation ID/sequence/epoch/CreatedAt; readonly, no query history, fixed redacted failures.",
+    "observeCLI": "observe foundation [--cell CELL], credentials/backups --database ID --partition ID, netbird; actual authenticated readonly paths, existing discovery/access/transport/envelope, no query history."
+  },
+  "sourceReview": {
+    "statefulOriginalDeadline": "SEC ACK b6abd+c325 with DATA d1e41966a original qualified deadline; actual callers still pending",
+    "retainedPublicMaterial": "SEC ACK55f298bad+42b8ddb2f, historical reads do not attest prior execution/actor acceptance; DATA independently checks actual priorwriter",
+    "registry": "Conditional SEC source ACK cd315+b574+115e+e031; actual lifecycle and QA remain separate. Root and ordinary candidate derive controller-runtime from exact process witness binding.",
+    "newCredentialGuardAndBoundSources": "SEC source CLOSE/ACK c163ec6ad atop a53da5691+7cedfe4ef+3406e4f58, conditional on actual managed-root lifecycle wiring and QA. Synchronous Guard and original earlier delegation/source cap retained after waits.",
+    "foundationObservation": "OBS reports SEC253 source ACK;251 exact ResourceID successor review status not yet confirmed here. Actual APP source wiring now committed737c1f7b9. No listener/runtime execution or QA claim.",
+    "operationObservation": "OBS source-reviewed exact0f6ace63c; SEC review pending. Actual APP retained pointer/immutable source/two-listener wiring937b5a3df committed. No tests/builds or runtime claim."
+  },
+  "pending": [
+    "RunManagedRuntime actual mandatory concrete root service/listener before registered admission+NATS, startup-safe constructors, root service injected StartAcceptedNode and actual DATA StartManagementServer.",
+    "CAP rootoci.Pool remains incomplete: exact signed retirement drain and membership-only quarantine purpose sources absent. NET root backend/source-bound lease absent; owners errored429. No fake/nil backend allowed.",
+    "StartAcceptedNode011243627 is NOT imported here. Actual native WorkloadCredentials composite239a882db+e3579cead+5a43d3473 pending SEC/adoption; ordinary smoke gate two-argument caller remains parent-owned. Latest registry caller dbfc1cc6a not imported.",
+    "After root READY permits ordinary broker startup: acquire actual root memory source connection, bind once, root authority.bindSources, and monitor bound.wait to cancel whole original managed root. No successor rebind. Failed partial binding must terminate runtime.",
+    "Full atomic ordinary Provider/IMDS SDK migration + UID metadata denial remains OCI-owned; no standalone denial landed. Fresh QA exact frozen selectors/resources/lock required before any build/test/lint.",
+    "OCI reports registry dbfc1cc6a+526125f0c combined SEC source ACK atop115e/e031+SDK8f911 (OCI aliases125ea5d19/4053e0b96), not yet imported here. Missing original delegation or empty archived Spec.Signers remains Pending; no cfg fallback. Regional constructor donor c64bfb60f1421bbf399967bfb81f529b4551275f is available but SEC/ROOT schema review remains OPEN; no import or execution claim.",
+    "No coherent QA execution grant: all imported Foundation/operation/CLI scenarios unrun. CLI HTTP tests use fixed redacted contract bodies, not actual signed producers/discovery/root IPC. Positive credential rotation and complete/released backup proof-chain HTTP coverage remain open. SEC operation0f6 review still pending here."
+  ],
+  "checks": [
+    "gofmt on edited source",
+    "git diff --check",
+    "source/diff inspection only"
+  ],
+  "notRun": [
+    "build",
+    "test",
+    "lint",
+    "benchmark",
+    "live OCI",
+    "native image qualification",
+    "production hosts",
+    "push"
+  ],
+  "availableNotAdopted": [
+    {
+      "path": "/tmp/ts-oci-domains-manifest-5c5035dcf.json",
+      "sha256": "0ae8dd8d72aa32ca9d013ede28c7764407ddfb0b3af85dac6fbfb349e7405c00",
+      "head": "5c5035dcf2b5b442c4e0a802ab6e73a1432bea7f",
+      "note": "Latest OCI union reported; new donors NOT imported into APP here. Preserve all writer/capacity/children/resource fields during future coherent adoption."
+    }
+  ]
+}

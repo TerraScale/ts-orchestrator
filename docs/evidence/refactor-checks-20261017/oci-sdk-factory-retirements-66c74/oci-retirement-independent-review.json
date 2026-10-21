@@ -1,0 +1,169 @@
+{
+  "state": "ACCEPT_EXACT_94F429_SEVEN_ORIGINAL_RETIREMENT_SOURCE_READY_FOR_ADOPTION",
+  "reviewed_utc": "2026-10-17T13:40:15.792048+00:00",
+  "reviewer": "/root/qa_integrator/completion_audit",
+  "source": {
+    "path": "/tmp/ts-oci-sdk-volume-retirement",
+    "base_head": "e5e72bbbfbf83f02c251ffe1fa98246137a3cedc",
+    "base_tree": "727f82020910c067fd106af5094a0e81d736dea2",
+    "head": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+    "tree": "fa1475d043de69482d8a7884d920b134899ff973",
+    "current_worktree_clean": true
+  },
+  "verdicts": {
+    "exact_retirement_source_ready_for_adoption": true,
+    "adoption_authorized_or_performed": false,
+    "global_count_or_gate_or_ledger_changes": false
+  },
+  "source_review": {
+    "changed_files": [
+      {
+        "file": "internal/oci/sdk_test.go",
+        "before_bytes": 17863,
+        "after_bytes": 1808,
+        "deleted_bytes": 16055,
+        "before_lines": 366,
+        "after_lines": 60,
+        "deleted_lines": 306,
+        "after_sha256": "59e219d851745e2c1be8aac162955ec7ace33d61ce9cffbf5c6bee7f45d602f9"
+      },
+      {
+        "file": "internal/oci/volume_resize_test.go",
+        "before_bytes": 20362,
+        "after_bytes": 19715,
+        "deleted_bytes": 647,
+        "before_lines": 450,
+        "after_lines": 438,
+        "deleted_lines": 12,
+        "after_sha256": "5aeeb8429e73df1972d8c1bf382d2b0ee17ee850a8daef42a7d8c1e4152c470c"
+      },
+      {
+        "file": "internal/oci/volume_backup_history_review_test.go",
+        "before_bytes": 2813,
+        "after_bytes": 1532,
+        "deleted_bytes": 1281,
+        "before_lines": 73,
+        "after_lines": 47,
+        "deleted_lines": 26,
+        "after_sha256": "04b4b807e3604fa802b01c4059c86a9eccdcee4f65efa08c399f059e63a52a04"
+      }
+    ],
+    "added_lines": 0,
+    "deleted_lines": 344,
+    "deleted_bytes": 17983,
+    "removed_roots": [
+      {
+        "file": "internal/oci/sdk_test.go",
+        "root": "TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot"
+      },
+      {
+        "file": "internal/oci/sdk_test.go",
+        "root": "TestLaunchInstanceMapsSignedProfileIntoOCIRequest"
+      },
+      {
+        "file": "internal/oci/sdk_test.go",
+        "root": "TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK"
+      },
+      {
+        "file": "internal/oci/sdk_test.go",
+        "root": "TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC"
+      },
+      {
+        "file": "internal/oci/sdk_test.go",
+        "root": "TestNamedHostObservationRequiresTheNamedRunningPrivateInstance"
+      },
+      {
+        "file": "internal/oci/volume_resize_test.go",
+        "root": "TestVolumeAttachmentLookupUsesVolumeFilter"
+      },
+      {
+        "file": "internal/oci/volume_backup_history_review_test.go",
+        "root": "TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory"
+      }
+    ],
+    "removed_roots_match_accepted_mapping": true,
+    "removed_declaration_fragments_verified_against_base_git_bytes": 7,
+    "preserved_declarations_byte_identical_to_base": 25,
+    "preserved_helper_declarations": 17,
+    "preserved_other_test_declarations": 8,
+    "unused_import_cleanup_only_beyond_roots_and_attached_docs_whitespace": true,
+    "retained_patch_matches_immutable_git_diff_byte_for_byte": true,
+    "production_replacements_b8_fixtures_and_all_other_tracked_paths_unchanged": true,
+    "unused_helpers_retained_as_instructed": true
+  },
+  "prior_evidence_reused": {
+    "review": "/tmp/ts-qa-oci-sdk-volume-e5e72-independent-ezp8gqlc/review.json",
+    "mapped_assertion_sites": 38,
+    "all_preserved_or_strengthened": true,
+    "e5e72_runtime_roots": 6,
+    "e5e72_runtime_leaves": 4,
+    "b8_terminal_roots": 1,
+    "b8_terminal_leaves": 3,
+    "b8_fixture_roots": 14,
+    "b8_fixture_leaves": 16,
+    "runtime_repeated_for_retirement": false
+  },
+  "retained_compile": {
+    "state": "PASS",
+    "attempts": 1,
+    "exit_code": 0,
+    "seconds": 44.64743374095997,
+    "argv": [
+      "nice",
+      "-n",
+      "19",
+      "timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "240s",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-oci-sdk-volume-retirement-source-artifact-tests/oci.test",
+      "./internal/oci"
+    ],
+    "default_tags": true,
+    "default_vet": true,
+    "source_before_equals_after": true,
+    "recorded_tracked_files": 5061,
+    "recorded_aggregate_sha256": "b08913e8a66023de7c6c36371b20299f5a9b8b6358a7b44c051d4831d7ca1059",
+    "external_binary": {
+      "path": "/tmp/ts-oci-sdk-volume-retirement-source-artifact-tests/oci.test",
+      "mode": "0o600",
+      "bytes": 34669451,
+      "sha256": "df2c52baf8ccb8248073d82911c60fa875d1ac8a5a1375e305ccbeeb1901df24",
+      "elf": true,
+      "never_executed": true,
+      "elf_magic_independently_verified": true,
+      "never_invoked_by_retained_runner": true
+    },
+    "cleanup_before": [],
+    "cleanup_after": [],
+    "cleanup_joined": true,
+    "lock_released": true,
+    "empty_stdout_stderr": true
+  },
+  "bound_inputs_sha256": {
+    "/tmp/ts-oci-sdk-volume-retirement-source-artifact-tests/source-removals.json": "ce906c9e176236b8f606ceacfc52ff1e658b957deaaf2d544b526d512a7b4703",
+    "/tmp/ts-oci-sdk-volume-retirement-source-artifact-tests/retirement.patch": "b7fed8ac90c8f7b30432e01bf95911e6413894610db65c8adfbc8a1a117036a2",
+    "/tmp/ts-oci-sdk-volume-retirement-source-artifact-tests/compile-plan.json": "a8c45af1191806faa09c42781adf62580ea52e9ff19ae5591346a6364a81b077",
+    "/tmp/ts-oci-sdk-retirement-94f429-check-artifact-tests/checks-summary.json": "c868cd88e4f9dc40b88b40a7861c56258f63d1760085ced506e5c256561b934a",
+    "/tmp/ts-oci-sdk-retirement-94f429-check-artifact-tests/result.json": "57c595083adf1d5cc74068b2b23e74ee1e0739c52e62cf1ed22fb651c43f9393",
+    "/tmp/ts-oci-sdk-retirement-94f429-check-artifact-tests/run.py": "ea5cd7fd2f1f839c75bd4a608221403dd34d757edfa8afe69c953d24d2924a0e",
+    "/tmp/ts-oci-sdk-volume-retirement-source-artifact-tests/oci.test": "df2c52baf8ccb8248073d82911c60fa875d1ac8a5a1375e305ccbeeb1901df24",
+    "/tmp/ts-qa-oci-sdk-volume-e5e72-independent-ezp8gqlc/review.json": "ae1f150e081cf6c70abec383dc7c5c44cf90d4693f475dae10f3fcde3cfb5c51",
+    "/tmp/ts-oci-sdk-retirement-94f429-check-artifact-tests/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-oci-sdk-retirement-94f429-check-artifact-tests/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "findings": [],
+  "limits": [
+    "Readiness applies only to this exact retirement HEAD/tree against accepted e5e72; adoption, canonical integration, global count/ledger updates and gate credit were neither authorized nor performed.",
+    "Source and retained compile evidence only at retirement HEAD. Prior accepted runtime and 38-site assertion mapping are reused; no retirement runtime repeat, full-package runtime, race, live OCI or production readiness claim.",
+    "SDK fixture uses real SDK signing and TLS sockets but checks signing-header presence rather than cryptographically verifying request signatures; named/managed helper inputs remain scoped fixtures.",
+    "Never-executed ELF claim is limited to retained runner/receipt and verified mode/hash/magic, not OS-wide execution history. Cleanup and lock release are retained records; reviewer made no present process/lock probes.",
+    "Reviewer executed no Go, test, runner, source scanner, check or binary; changed no source/Git/ledger and acquired no execution lock. Only this external review artifact was created."
+  ]
+}

@@ -1,0 +1,176 @@
+{
+  "kind": "independent-read-only-oci678-truecompile-readiness",
+  "created_utc": "2026-10-17T04:48:00.198134+00:00",
+  "verdict": "SOURCE_AND_PACKET_READY_PARENT_QUEUE_ONLY_NOT_SCHEDULER_READY_CAPACITY_OCCUPIED_NO_GRANT",
+  "packet": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+  "pins": {
+    "request.json": "f12c890f5c660ab086603a555463455be446cb8850c9b82caab7aa25517b2e31",
+    "run.py": "83a61044a9620a4dc0c40aab35ac9f9b4aa8806274033bf2043e0ff5cfd78f6f",
+    "final-seal.json": "3028358eec53c5ced6da3c8a581d97d8977553271b08d4268e70e0130971542c",
+    "fullsource-manifest.json": "770e10c3b7ce41420b34911721d91931bc9e35849c3cceb3bcaf831e2d78d234",
+    "delta-source-proof.json": "ef58db9508c51c0ea5852cd8ef1e41e8e3dd988b331a576a8864c6b0fc29ce1f"
+  },
+  "source": {
+    "path": "/tmp/ts-oci-foundation-policy-wire",
+    "head": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+    "tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+    "clean": true,
+    "tracked_files": 3838,
+    "all_source_hashes_match": true,
+    "only_changed_files_from64": [
+      "internal/region/foundation_integration_test.go",
+      "internal/region/foundation_provision_integration_test.go",
+      "internal/region/foundation_writer.go"
+    ],
+    "proof_before_after_and_SDK_hashes_match": true
+  },
+  "production_review": {
+    "scope": "Not fixture-only. Fresh original writer launch body sets two empty optional lists (from443). This successor adds a private foundationWriterPolicyBody helper, explicit empty policy tag maps, and uses SDK-derived policy body in original reservation creation and expected/actual strict durable validation.",
+    "helper_effects": "identity.CreatePolicyRequest.HTTPRequest only builds an in-memory request through common.MakeDefaultHTTPRequestWithTaggedStructAndExtraHeaders. No factory/provider/client/signing/SDK call/network transport, filesystem, goroutine, listener or process is constructed. Helper defers body Close, reads at most foundationRecordLimit+1 (131073 bytes), rejects nil/oversize/read/decode errors, decodes actual SDK body into a map and deterministically JSON-encodes it.",
+    "wire_contract": "OCI SDK actual CreatePolicy client calls HTTPRequest(method POST,path /policies), combined with its versioned endpoint. Helper uses POST /20160918/policies but hashes only body; literal path and retry headers do not affect body. Both traverse identical tagged-struct marshalling and SDK nil-optional omission. Explicit empty FreeformTags/DefinedTags stabilize persisted map roundtrip; nil VersionDate remains omitted from actual HTTP and canonical body. No generic null stripping or arbitrary dropped map keys.",
+    "strict_checks": "Validator still independently derives expected five exact policy statements from recorded cell/instance/bucket/compartment, then compares complete canonical expected SDK body against recorded request SDK body. Nonempty/widened tags, alternate versionDate, description/name/principal/scope/statements alter body and fail equality. RequestDigest equals actual SDK-body digest; RetryToken remains derived from original launch digest, exact original instance and policy digest; policy identity/timestamps and launch validators remain. Old typed/null policy digests are not repaired, migrated or adopted.",
+    "connected_callers": "Read installFoundationWriter, FoundationWriterRecord.validate, foundationWriterPolicy, parent disk/CAS reservation and provisionCloud.checkPolicyReservation, plus SDK request marshalling and unchanged SourceFounder.findPolicy/verifyPolicy. Production creation, durable validator and both fixture reservation producers now use helper. Actual fixture independently canonicalizes received raw map and requires raw-body equality, original instance, protected token and digest. Shared helper does not replace independent raw-body comparison or derivation of expected policy.",
+    "preserved_guards": "Home IAM lease, admission/authority, current material/image/allocation/finite billing, same-grant original launch identity, retry history/deadlines, readback, object CAS and widened durable-statement negative assertions unchanged. Shared netBirdRequestDigest and unrelated SourcePolicyRecord typed-JSON reservation contract unchanged; private helper is finite to home writer policy.",
+    "fixture_delta": "Twelve fixed signed worker profiles from443 preserved (3cells x2roles x2architectures); current qualified image/provenance still independently required. Existing parent compares retained launch RequestDigest. Corrupt widened policy negative remains intact. No tests removed/skipped/new runtime effects."
+  },
+  "security_source_ACK": {
+    "path": "/tmp/ts-oci-foundation-67854df12-security-source-ack.json",
+    "sha256": "a07d88b5deefdcb61135334e9d94e824ba7fb2a4355212c3cde20b7a6e8e6e07",
+    "reviewer": "/root/security",
+    "state": "SEC_SOURCE_ACK_ONLY",
+    "exact_head_tree_seal_match": true,
+    "provenance": "Independent /root/security source ACK, received via parent and independently hashed/read. Source review only; explicitly excludes successor compile/runtime/native/live/global completion."
+  },
+  "compile_packet": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "240s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG=C.UTF-8",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-tags=fixturetest",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/binaries/",
+      "./internal/region"
+    ],
+    "environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG": "C.UTF-8",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local"
+    },
+    "region_only": true,
+    "true_go_test_c": true,
+    "default_vet_not_disabled": true,
+    "fixturetest_tag": true,
+    "mod_readonly": true,
+    "attempts": 1,
+    "outer_seconds": 240,
+    "TERM_KILL_grace_seconds": 5,
+    "nice": 19,
+    "GOMAXPROCS": 2,
+    "GOFLAGS": "-p=2",
+    "explicit_package_parallelism": 1,
+    "all_tool_pins_match": true,
+    "expected_output": "region.test; ELF; mode0600; never executed",
+    "unused_empty_output_directory": true,
+    "runner": "Same reviewed83a610 wrapper; sealed hashes/source/tool/clean snapshot, exclusive preflight/logs, CAPACITY nonblocking flock before one pinned command, chmod0600 output, exact expected ELF set and unchanged post snapshot, no binary execution. Ordinary-user/fresh host resource preflight remains parent scheduling responsibility.",
+    "limits": "3GiB RSS/2GiB scratch are unenforced estimates, not measured bounds or permission for retries."
+  },
+  "prerequisites": {
+    "module_go": "1.27.0; pinned installed Go1.27.1",
+    "compile_link_vet_present": true,
+    "local_NATS_replacement_present": true,
+    "go_mod_go_sum_all_other_sources_unchanged": true,
+    "embed_patterns_with_matches": [
+      {
+        "source": "deploy/oci-region/template.go",
+        "pattern": "sfo-1-plan.json",
+        "match_count": 1
+      },
+      {
+        "source": "e2e/stack.go",
+        "pattern": "pins.json",
+        "match_count": 1
+      },
+      {
+        "source": "internal/dashboard/assets.go",
+        "pattern": "assets/*.css",
+        "match_count": 1
+      },
+      {
+        "source": "internal/dashboard/assets.go",
+        "pattern": "assets/*.js",
+        "match_count": 3
+      },
+      {
+        "source": "internal/dashboard/assets.go",
+        "pattern": "assets/*.json",
+        "match_count": 1
+      },
+      {
+        "source": "internal/image/runtime.go",
+        "pattern": "runtime_licenses",
+        "match_count": 1
+      },
+      {
+        "source": "internal/machinesapi/server.go",
+        "pattern": "openapi.json",
+        "match_count": 1
+      },
+      {
+        "source": "internal/ociregion/publicapi/public.go",
+        "pattern": "origin-pull-ca.pem",
+        "match_count": 1
+      },
+      {
+        "source": "internal/trust/discovery.go",
+        "pattern": "bootstrap-root-002.pem",
+        "match_count": 1
+      },
+      {
+        "source": "scripts/ci/racetest/race_test.go",
+        "pattern": "race-test.sh",
+        "match_count": 1
+      },
+      {
+        "source": "scripts/ci/racetest/race_test.go",
+        "pattern": "race-durations.txt",
+        "match_count": 1
+      }
+    ],
+    "limits": "Static presence scan of11tracked embed patterns, not exact tag/compiler-resolved dependency graph. All tracked assets pinned by fullsource manifest. No Go list/env/build/test, dependency cache validation, runtime roundtrip or live provider semantics proof."
+  },
+  "scheduling": {
+    "CAPACITY_parent_report": "DATA seat still active at assignment/latest parent update; not independently probed and no lock opened.",
+    "status": "Not scheduler-ready until parent confirms DATA release and completes fresh host/queue checks. Source/packet readiness and SEC source ACK grant no execution.",
+    "next": "Parent alone may schedule an exact one-attempt truecompile after CAPACITY release; no compiled test execution authorized."
+  },
+  "preservation": {
+    "443_packet": "/tmp/ts-oci-region-compile-443936221-capacity-sealed",
+    "443_all_artifact_hashes_sizes_match_and_UNUSED": true,
+    "64_runtime_packet": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+    "64_receipt_sha256": "977c216b59eb4eb06e0baf5ed8ee5373ed3353dddb75bb665b5200c60c085dff",
+    "64_final_runtime_seal_sha256": "c40122f255bb3415a2268345121b092068b5ee79949faceda3031cefd8c50062",
+    "64_status": "NOT_QUALIFIED; no runtime/provisioning credit inherited by678."
+  },
+  "terminal_requirements": "If separately granted, independently inspect actual native launch/terminal objects and exact wrapper receipt, full compile stdout/stderr hashes, exit0, frozen pre/post/source/tools/seal, one expected nonempty ELF mode0600, binary execution count0, CAPACITY/PID cleanup; no test RUN/PASS expected from truecompile. A compile PASS would not authorize or prove runtime.",
+  "reviewer_actions": "Static source/SDK/std packet reads, Git/hash/metadata and asset-presence checks, independent ACK hash, exclusive new /tmp report. No Go, runner/binary execution, chmod/copy, lock attempt/acquisition, grant, source/packet edits, cloud/host service or subagents."
+}

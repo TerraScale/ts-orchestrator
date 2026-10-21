@@ -2,23 +2,77 @@ package publicapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
-// The creates of `ts-orch oci-region foundation` (TS-663). Each sets a fresh
-// OCI retry token where the SDK offers one, so the client's retry policy may
-// replay the POST without creating a second resource.
+// Retry identity binds the durable operation to the provider target and
+// canonical mutation payload, including requests retried after process loss.
+func retryToken(ctx context.Context, client *SDKClient, command sdkcli.Command) (*string, error) {
+	step, err := canonicalRequest(client.Region, command)
+	if err != nil {
+		return nil, err
+	}
+	return new(ociresource.RetryToken(ctx, string(step))), nil
+}
 
-func retryToken() *string { return common.String(common.RetryToken()) }
+// CreateRetryIdentity shares the SDK's exact request identity with the durable
+// foundation journal. An empty token means OCI cannot deduplicate a replay.
+func CreateRetryIdentity(ctx context.Context, region string, args ...string) (digest, token string, err error) {
+	command, err := sdkcli.Parse(args)
+	if err != nil {
+		return "", "", err
+	}
+	if _, ok := creators[command.Path]; !ok || !strings.HasSuffix(command.Path, " create") {
+		return "", "", errors.New("OCI command is not a supported foundation create")
+	}
+	step, err := canonicalRequest(region, command)
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256(step)
+	if command.Path != "os bucket create" && command.Path != "os retention-rule create" {
+		token = ociresource.RetryToken(ctx, string(step))
+	}
+	return hex.EncodeToString(sum[:]), token, nil
+}
+
+func canonicalRequest(region string, command sdkcli.Command) ([]byte, error) {
+	flags := make(map[string]any, len(command.Flags))
+	for key, value := range command.Flags {
+		if key == "wait-for-state" {
+			continue
+		}
+		flags[key] = value
+		if strings.HasPrefix(value, "{") || strings.HasPrefix(value, "[") {
+			payload := jsontext.Value(value)
+			if err := payload.Format(jsontext.ReorderRawObjects(true)); err != nil {
+				return nil, fmt.Errorf("invalid OCI %s payload", key)
+			}
+			flags[key] = payload
+		}
+	}
+	step, err := json.Marshal(map[string]any{"region": region, "path": command.Path, "flags": flags}, json.Deterministic(true))
+	if err != nil {
+		return nil, errors.New("OCI retry identity is invalid")
+	}
+	return step, nil
+}
 
 func (c *SDKClient) identity() (identity.IdentityClient, error) {
 	return c.reader.Factory().Identity()
@@ -29,12 +83,20 @@ func createCompartment(ctx context.Context, c *SDKClient, command sdkcli.Command
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.identity()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateCompartment(ctx, identity.CreateCompartmentRequest{OpcRetryToken: retryToken(),
-		CreateCompartmentDetails: identity.CreateCompartmentDetails{CompartmentId: &values[0], Name: &values[1], Description: &values[2]}})
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateCompartment(ociclient.RequestContext(ctx), identity.CreateCompartmentRequest{OpcRetryToken: token,
+		CreateCompartmentDetails: identity.CreateCompartmentDetails{FreeformTags: tags, CompartmentId: &values[0], Name: &values[1], Description: &values[2]}})
 	return response.Compartment, err
 }
 
@@ -43,12 +105,20 @@ func createDynamicGroup(ctx context.Context, c *SDKClient, command sdkcli.Comman
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.identity()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateDynamicGroup(ctx, identity.CreateDynamicGroupRequest{OpcRetryToken: retryToken(),
-		CreateDynamicGroupDetails: identity.CreateDynamicGroupDetails{CompartmentId: &values[0], Name: &values[1], Description: &values[2], MatchingRule: &values[3]}})
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateDynamicGroup(ociclient.RequestContext(ctx), identity.CreateDynamicGroupRequest{OpcRetryToken: token,
+		CreateDynamicGroupDetails: identity.CreateDynamicGroupDetails{FreeformTags: tags, CompartmentId: &values[0], Name: &values[1], Description: &values[2], MatchingRule: &values[3]}})
 	return response.DynamicGroup, err
 }
 
@@ -61,12 +131,20 @@ func createPolicy(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err := jsonFlag(command, "statements", &statements); err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.identity()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreatePolicy(ctx, identity.CreatePolicyRequest{OpcRetryToken: retryToken(),
-		CreatePolicyDetails: identity.CreatePolicyDetails{CompartmentId: &values[0], Name: &values[1], Description: &values[2], Statements: statements}})
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreatePolicy(ociclient.RequestContext(ctx), identity.CreatePolicyRequest{OpcRetryToken: token,
+		CreatePolicyDetails: identity.CreatePolicyDetails{FreeformTags: tags, CompartmentId: &values[0], Name: &values[1], Description: &values[2], Statements: statements}})
 	return response.Policy, err
 }
 
@@ -75,17 +153,25 @@ func createVCN(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, 
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateVcn(ctx, core.CreateVcnRequest{OpcRetryToken: retryToken(), CreateVcnDetails: core.CreateVcnDetails{
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateVcn(ociclient.RequestContext(ctx), core.CreateVcnRequest{OpcRetryToken: token, CreateVcnDetails: core.CreateVcnDetails{FreeformTags: tags,
 		CompartmentId: &values[0], DisplayName: &values[1], CidrBlock: &values[2], DnsLabel: &values[3]}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetVcn(ctx, core.GetVcnRequest{VcnId: response.Id})
+		got, err := client.GetVcn(ociclient.RequestContext(ctx), core.GetVcnRequest{VcnId: response.Id})
 		return got.Vcn, string(got.LifecycleState), err
 	})
 }
@@ -99,17 +185,25 @@ func createServiceGateway(ctx context.Context, c *SDKClient, command sdkcli.Comm
 	if err := jsonFlag(command, "services", &services); err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateServiceGateway(ctx, core.CreateServiceGatewayRequest{OpcRetryToken: retryToken(),
-		CreateServiceGatewayDetails: core.CreateServiceGatewayDetails{CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], Services: services}})
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateServiceGateway(ociclient.RequestContext(ctx), core.CreateServiceGatewayRequest{OpcRetryToken: token,
+		CreateServiceGatewayDetails: core.CreateServiceGatewayDetails{FreeformTags: tags, CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], Services: services}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetServiceGateway(ctx, core.GetServiceGatewayRequest{ServiceGatewayId: response.Id})
+		got, err := client.GetServiceGateway(ociclient.RequestContext(ctx), core.GetServiceGatewayRequest{ServiceGatewayId: response.Id})
 		return got.ServiceGateway, string(got.LifecycleState), err
 	})
 }
@@ -121,11 +215,19 @@ func createVault(ctx context.Context, c *SDKClient, command sdkcli.Command) (any
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.reader.KMSVaults()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateVault(ctx, keymanagement.CreateVaultRequest{OpcRetryToken: retryToken(), CreateVaultDetails: keymanagement.CreateVaultDetails{
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateVault(ociclient.RequestContext(ctx), keymanagement.CreateVaultRequest{OpcRetryToken: token, CreateVaultDetails: keymanagement.CreateVaultDetails{FreeformTags: tags,
 		CompartmentId: &values[0], DisplayName: &values[1], VaultType: keymanagement.CreateVaultDetailsVaultTypeEnum(values[2])}})
 	return response.Vault, err
 }
@@ -139,11 +241,19 @@ func createKey(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, 
 	if err := jsonFlag(command, "key-shape", &shape); err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.reader.KMSManagement(values[3])
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateKey(ctx, keymanagement.CreateKeyRequest{OpcRetryToken: retryToken(), CreateKeyDetails: keymanagement.CreateKeyDetails{
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateKey(ociclient.RequestContext(ctx), keymanagement.CreateKeyRequest{OpcRetryToken: token, CreateKeyDetails: keymanagement.CreateKeyDetails{FreeformTags: tags,
 		CompartmentId: &values[0], DisplayName: &values[1], KeyShape: &shape, ProtectionMode: keymanagement.CreateKeyDetailsProtectionModeEnum(values[2])}})
 	return response.Key, err
 }
@@ -153,11 +263,15 @@ func createBucket(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.reader.Factory().ObjectStorage()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateBucket(ctx, objectstorage.CreateBucketRequest{NamespaceName: &values[0], CreateBucketDetails: objectstorage.CreateBucketDetails{
+	response, err := client.CreateBucket(ociclient.RequestContext(ctx), objectstorage.CreateBucketRequest{NamespaceName: &values[0], CreateBucketDetails: objectstorage.CreateBucketDetails{FreeformTags: tags,
 		CompartmentId: &values[1], Name: &values[2], KmsKeyId: &values[3], Versioning: objectstorage.CreateBucketDetailsVersioningEnum(values[4]),
 		PublicAccessType: objectstorage.CreateBucketDetailsPublicAccessTypeEnum(values[5]), StorageTier: objectstorage.CreateBucketDetailsStorageTierEnum(values[6])}})
 	return response.Bucket, err
@@ -176,7 +290,7 @@ func createRetentionRule(ctx context.Context, c *SDKClient, command sdkcli.Comma
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateRetentionRule(ctx, objectstorage.CreateRetentionRuleRequest{NamespaceName: &values[0], BucketName: &values[1],
+	response, err := client.CreateRetentionRule(ociclient.RequestContext(ctx), objectstorage.CreateRetentionRuleRequest{NamespaceName: &values[0], BucketName: &values[1],
 		CreateRetentionRuleDetails: objectstorage.CreateRetentionRuleDetails{DisplayName: &values[2],
 			Duration: &objectstorage.Duration{TimeAmount: &amount, TimeUnit: objectstorage.DurationTimeUnitEnum(values[4])}}})
 	return response.RetentionRule, err

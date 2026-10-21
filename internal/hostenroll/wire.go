@@ -105,6 +105,23 @@ func ParseRequest(wire []byte, now time.Time) (Request, hostboot.Descriptor, err
 	return request, descriptor, nil
 }
 
+// ParseRetainedWorkerRequest authenticates an original enrollment signature.
+// It supplies no current authority: worker callers must additionally verify the
+// exact live completed grant, current registration/OCI and a fresh projection.
+func ParseRetainedWorkerRequest(wire []byte, now time.Time) (Request, hostboot.Descriptor, error) {
+	if len(wire) == 0 || len(wire) > MaxRequestBytes {
+		return Request{}, hostboot.Descriptor{}, errors.New("retained worker request is missing or oversized")
+	}
+	var request Request
+	if err := json.Unmarshal(wire, &request, json.RejectUnknownMembers(true)); err != nil {
+		return Request{}, hostboot.Descriptor{}, err
+	}
+	if now.IsZero() || request.IssuedAt.IsZero() || request.IssuedAt.After(now.Add(30*time.Second)) {
+		return Request{}, hostboot.Descriptor{}, errors.New("retained worker request issuance is invalid")
+	}
+	return ParseRequest(wire, request.IssuedAt)
+}
+
 // ParseCSR accepts only an empty-scope P-256 CSR. The controller, not the
 // requester, supplies the host DNS name and instance URI in the issued leaf.
 func ParseCSR(raw string) (*x509.CertificateRequest, error) {
@@ -146,6 +163,7 @@ type Response struct {
 	RequestSHA256       string       `json:"request_sha256"`
 	Nonce               string       `json:"nonce"`
 	RegistrationReceipt host.Receipt `json:"registration_receipt"`
+	Swarm               *SwarmWorker `json:"swarm,omitempty"`
 	// Roles are the granted roles of a host enrolled by a cell spec host
 	// grant; TerraBase and managed hosts omit them.
 	Roles []string `json:"roles,omitempty"`
@@ -178,6 +196,10 @@ func (response *Response) Sign(key ed25519.PrivateKey) error {
 }
 
 func VerifyResponse(wire []byte, public ed25519.PublicKey, request Request, requestWire []byte, descriptor hostboot.Descriptor) (Response, error) {
+	return verifyResponseAt(wire, public, request, requestWire, descriptor, time.Now())
+}
+
+func verifyResponseAt(wire []byte, public ed25519.PublicKey, request Request, requestWire []byte, descriptor hostboot.Descriptor, now time.Time) (Response, error) {
 	if len(wire) == 0 || len(wire) > MaxResponseBytes || len(public) != ed25519.PublicKeySize {
 		return Response{}, errors.New("host enrollment response is missing or too large")
 	}
@@ -197,7 +219,7 @@ func VerifyResponse(wire []byte, public ed25519.PublicKey, request Request, requ
 		response.Node != descriptor.Node || response.DescriptorSHA256 != digest ||
 		response.RequestSHA256 != RequestSHA256(requestWire) || response.Nonce != request.Nonce ||
 		response.RegistrationReceipt.Generation == 0 || response.RegistrationReceipt.Revision == 0 ||
-		response.NATSUserJWT == "" || response.TLSCertificatePEM == "" || !time.Now().Before(response.ExpiresAt) {
+		response.NATSUserJWT == "" || response.TLSCertificatePEM == "" || !now.Before(response.ExpiresAt) {
 		return Response{}, errors.New("host enrollment response does not bind the request or has expired")
 	}
 	for i, role := range response.Roles {

@@ -1,0 +1,66 @@
+{
+  "revision": "1cd6b18970aa00f38786072a39188e60a031fdc1",
+  "tree": "/tmp/ts-qa-capacity-phase-fixtures",
+  "clean_before": true,
+  "argv": [
+    "nice",
+    "-n",
+    "19",
+    "flock",
+    "-n",
+    "/tmp/ts-orch-refactor-capacity-check.lock",
+    "timeout",
+    "180s",
+    "env",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "go",
+    "test",
+    "-mod=readonly",
+    "./internal/nodescale",
+    "-run",
+    "^(TestCapacityAdmissionRechecksEveryHTTPRetry|TestChosenCapacitySurvivesRestartAndFencesOCIChanges)$",
+    "-count=1",
+    "-timeout=120s",
+    "-json"
+  ],
+  "log": "/tmp/ts-qa-capacity-1cd6b189-results.jsonl",
+  "started_epoch": 1792191188.1526077,
+  "state": "terminal",
+  "excluded_retained_pass_count": 22,
+  "pid": 132340,
+  "exit": 1,
+  "elapsed_seconds": 56.529,
+  "clean_after": true,
+  "terminal_events": [
+    {
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityAdmissionRechecksEveryHTTPRetry/current",
+      "Elapsed": 0.32
+    },
+    {
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityAdmissionRechecksEveryHTTPRetry/revoked",
+      "Elapsed": 0.3
+    },
+    {
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityAdmissionRechecksEveryHTTPRetry",
+      "Elapsed": 0.62
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestChosenCapacitySurvivesRestartAndFencesOCIChanges",
+      "Elapsed": 0.17
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Elapsed": 0.841
+    }
+  ]
+}

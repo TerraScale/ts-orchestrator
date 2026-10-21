@@ -11,7 +11,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,7 +21,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
@@ -210,14 +208,11 @@ func testService(t *testing.T, writer *testWriter) (*Service, context.Context) {
 	return s, ctx
 }
 
-func testServiceWithRuntime(t *testing.T, writer *testWriter) (*Service, *natscell.Runtime, context.Context) {
+func testServiceWithRuntime(t *testing.T, writer *testWriter) (*Service, *deliveryTestBroker, context.Context) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	t.Cleanup(cancel)
-	r, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true, Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	r := startDeliveryTestBroker(t, ctx)
 	t.Cleanup(func() { _ = r.Close() })
 	s, err := Open(ctx, Config{Conn: r.Conn(), JS: r.JetStream(), Cell: "lab", Replicas: 1, Signer: testCodec{}, Verifier: testCodec{}, ArtifactSigner: testCodec{}, ArtifactVerifier: testCodec{}, AuthorizeArtifact: func(context.Context, string, ArtifactRecord) error { return nil }, Authorize: func(context.Context, string, Intent) error { return nil }, Fencer: testFence{}, Planner: testPlanner{}, Writer: writer})
 	if err != nil {
@@ -253,6 +248,52 @@ func TestSubmitOperationReadRetriesTransientLeaderFailure(t *testing.T) {
 	})
 	if err != nil || got != want || calls != 2 {
 		t.Fatalf("operation leader read after failover: value=%v error=%v calls=%d, want value and two attempts", got, err, calls)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	broker := startDeliveryTestBroker(t, ctx)
+	kv, err := broker.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: OperationBucket, History: 4, Storage: jetstream.FileStorage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := operationKey("leader-retry")
+	payload := []byte(`{"state":"accepted"}`)
+	revision, err := kv.Put(ctx, key, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{config: Config{Conn: broker.Conn()}}
+	reads := 0
+	read := func(ctx context.Context) (*operationValue, error) {
+		reads++
+		entry, err := service.getOperation(ctx, key)
+		if err == nil && reads == 1 {
+			// Inject one transient error after a genuine read; both attempts use the native leader API.
+			return nil, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+		}
+		return entry, err
+	}
+	durable, err := retrySubmitOperationRead(ctx, read)
+	if err != nil || durable == nil || durable.Revision() != revision || !bytes.Equal(durable.Value(), payload) || reads != 2 {
+		t.Fatalf("durable leader retry: value=%v error=%v reads=%d, want stored revision %d and two reads", durable, err, reads, revision)
+	}
+	if _, err := retrySubmitOperationRead(ctx, func(ctx context.Context) (*operationValue, error) {
+		return service.getOperation(ctx, operationKey("missing"))
+	}); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("missing operation after real leader read: %v", err)
+	}
+	if err := kv.Delete(ctx, key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := retrySubmitOperationRead(ctx, read); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("deleted operation after real leader read: %v", err)
+	}
+	canceled, stop := context.WithCancel(ctx)
+	stop()
+	beforeCancellation := reads
+	if _, err := retrySubmitOperationRead(canceled, read); !errors.Is(err, context.Canceled) || reads != beforeCancellation {
+		t.Fatalf("canceled leader retry: error=%v reads=%d, want cancellation without another read", err, reads)
 	}
 }
 
@@ -916,16 +957,56 @@ func TestStandbyLeavesDurableIntentForNewLeader(t *testing.T) {
 	}
 }
 
-func TestStrictIntentRejectsDuplicateAndUnknownFields(t *testing.T) {
-	for _, body := range []string{`{"schemaVersion":1,"schemaVersion":1}`, `{"unknown":1}`, `{"schemaVersion":1} {}`} {
-		if _, err := DecodeIntent([]byte(body)); err == nil {
-			t.Errorf("accepted %s", body)
-		}
-	}
-}
-
 func TestSignedUnadmittedIntentHasQueryVisibleRejection(t *testing.T) {
 	s, ctx := testService(t, &testWriter{})
+	// testCodec passes payloads through; these exact malformed bodies are not Ed25519-signed.
+	writer := s.config.Writer.(*testWriter)
+	reader := &Service{config: Config{Conn: s.config.Conn}}
+	for _, body := range []string{`{"schemaVersion":1,"schemaVersion":1}`, `{"unknown":1}`, `{"schemaVersion":1} {}`} {
+		before := writer.count()
+		published, err := s.js.Publish(ctx, IntentSubject(s.config.Cell), []byte(body))
+		if err != nil || published == nil || published.Sequence == 0 || published.Stream != IntentStream {
+			t.Fatalf("publish malformed intent %s: ack=%+v err=%v", body, published, err)
+		}
+		fetch, err := s.consumer.Fetch(1, jetstream.FetchMaxWait(time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		messages := 0
+		for msg := range fetch.Messages() {
+			messages++
+			metadata, err := msg.Metadata()
+			if err != nil || metadata == nil || metadata.Sequence.Stream != published.Sequence ||
+				msg.Subject() != IntentSubject(s.config.Cell) || !bytes.Equal(msg.Data(), []byte(body)) {
+				t.Fatalf("malformed intent readback %s: metadata=%+v err=%v", body, metadata, err)
+			}
+			if _, err := DecodeIntent(msg.Data()); err == nil {
+				t.Errorf("accepted %s", body)
+			}
+			if terminal, err := s.process(ctx, msg.Data()); !terminal || err != nil {
+				t.Fatalf("malformed intent processing %s: terminal=%t err=%v", body, terminal, err)
+			}
+			sum := sha256.Sum256(msg.Data())
+			fingerprint := hex.EncodeToString(sum[:])
+			entry, err := reader.getOperation(ctx, entityid.Derive("delivery-rejected", fingerprint))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var receipt Receipt
+			if err := json.Unmarshal(entry.Value(), &receipt); err != nil {
+				t.Fatal(err)
+			}
+			if receipt.Status != "rejected" || receipt.Fingerprint != fingerprint || writer.count() != before {
+				t.Fatalf("malformed intent receipt %s: receipt=%+v writes=%d, want %d", body, receipt, writer.count(), before)
+			}
+			if err := msg.Ack(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := fetch.Error(); err != nil || messages != 1 {
+			t.Fatalf("malformed intent fetch %s: messages=%d err=%v", body, messages, err)
+		}
+	}
 	i := Intent{SchemaVersion: SchemaVersion, OperationID: "0000000000NQMHCVBYP1N8ZHTR", Source: ArtifactSource{Repository: "https://github.com/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}, ArtifactDigest: hex.EncodeToString(sha256.New().Sum(nil)), ManifestDigest: hex.EncodeToString(sha256.New().Sum(nil)), Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
 	if err := s.Submit(ctx, i); err != nil {
 		t.Fatal(err)

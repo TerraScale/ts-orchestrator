@@ -1,0 +1,7 @@
+Source-only customer envelope filesystem proof for 7a69bd63cf994beeac74260a7b7a4ef32becb2aa
+
+Only one newly added 165-line file. Original test and CLI fixture/helper remain byte-identical to base and commit; original declaration matches the frozen inventory. Two exact catalog IDs and both original members are preserved.
+
+The candidate drives public cli.Run through real spec/reply/controller/recipient files. Success checks the original material fields and owner-only output. WrongRecipient uses a valid fresh owner-only X25519 PEM. Both ciphertext and alternate-partition negatives re-pin and re-sign their outer receipts, prove exported outer verification succeeds, require exact inner AEAD failure and assert no output. Original ciphertext stays unchanged for alternate partition.
+
+Root plus four leaves must pass exactly, with no extra tests, skips or failures. Evidence source copies use .go.txt only. No runner or Go command was executed; runner syntax checked only with ast.parse. Compilation and runtime await an explicit QA lease.

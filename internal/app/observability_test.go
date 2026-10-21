@@ -58,7 +58,7 @@ func TestSignedObservabilityStaysOnLoopbackOrBrokerAddress(t *testing.T) {
 func TestLoadConfigRejectsPublicObservabilityListener(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"version":1,"nats":{"cell":"lab"},"observability":{"listen_address":"8.8.8.8:9464"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":2,"nats":{"cell":"lab"},"observability":{"listen_address":"8.8.8.8:9464"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), "observability") {
@@ -109,15 +109,21 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(original) })
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	nats, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
+	auth := newAuthenticatedNATS(t, "lab")
+	nats, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = nats.Close() })
 	address := freeLoopbackAddress(t)
+	token := strings.Repeat("o", 40)
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte(token), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cfg := Config{NATS: natscell.Config{Cell: "lab", Instance: "one"},
-		Observability: observability.Config{ListenAddress: address, LogFormat: "logfmt"}}
+		Observability: observability.Config{ListenAddress: address, BearerTokenFile: tokenFile, LogFormat: "logfmt"}}
 	telemetry, err := startRuntimeObservability(ctx, cfg, "controller", "one")
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +134,12 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	t.Cleanup(telemetry.close)
 	get := func(path string) (int, string) {
 		t.Helper()
-		response, err := http.Get("http://" + address + path)
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		response, err := http.DefaultClient.Do(request)
 		if err != nil {
 			t.Fatal(err)
 		}

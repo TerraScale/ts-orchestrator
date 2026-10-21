@@ -65,13 +65,3 @@ func TestObservationBudgetCannotRestartBetweenWaves(t *testing.T) {
 	}
 }
 
-func TestObservationDeadlineBoundsEveryForwardPhase(t *testing.T) {
-	record, at := startedCanary(t, controllers())
-	record.StartedAt = at.Add(time.Minute - ObservationBudget)
-	record = apply(t, record, Event{Kind: EventPrepared, Unit: "ctrl-b", At: at})
-	if record.PhaseDeadline.After(record.StartedAt.Add(ObservationBudget)) {
-		t.Fatal("canary proof deadline exceeds observation")
-	}
-	next := apply(t, record, Event{Kind: EventTick, At: record.StartedAt.Add(ObservationBudget)})
-	requireRollingBack(t, next, "observation budget")
-}

@@ -10,10 +10,10 @@ import (
 )
 
 // Status reads metadata without waiting for an upload or contacting storage.
-// Authority and schedule are read now, so a former leader's successful upload
-// cannot hide its current follower or paused state.
+// Authority is read now, so a former leader's successful upload cannot hide
+// its current follower state.
 func (snapshotter *Snapshotter) Status() observability.KVSnapshotView {
-	interval := snapshotter.Interval
+	interval := snapshotInterval
 	view := observability.KVSnapshotView{State: "current", CheckTimeoutSeconds: snapshotPassTimeout.Seconds(),
 		Buckets: make([]observability.KVSnapshotBucketView, 0, len(snapshotter.Buckets))}
 	if len(snapshotter.Buckets) == 0 {
@@ -41,14 +41,8 @@ func (snapshotter *Snapshotter) Status() observability.KVSnapshotView {
 	if view.LastCheckAt.IsZero() && view.State != "failed" {
 		view.State = "unknown"
 	}
-	paused := false
-	if snapshotter.Schedule != nil {
-		interval, paused = snapshotter.Schedule()
-	}
 	view.IntervalSeconds = interval.Seconds()
-	if paused {
-		view.State = "paused"
-	} else if snapshotter.Leader != nil && !snapshotter.Leader() {
+	if snapshotter.Leader != nil && !snapshotter.Leader() {
 		view.State = "follower"
 	} else if !view.LastCheckAt.IsZero() {
 		view.Overdue = snapshotter.now().After(view.LastCheckAt.Add(interval + snapshotPassTimeout))

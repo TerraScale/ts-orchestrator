@@ -1,0 +1,45 @@
+{
+  "head": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+  "tree": "5f6566d5347525dedce8408b34e9232458421ed4",
+  "worktree": "/tmp/ts-factory-three-retirement-dk2lvz_z/source",
+  "branch": "refactor/factory-three-retirement-dk2lvz_z",
+  "base": "fa44fa8a074af83fd5c9afdf8ca851fce7155147",
+  "clean": true,
+  "file_claims": [
+    "internal/ociclient/factory_test.go",
+    "internal/ociclient/ociclient_test.go"
+  ],
+  "source_proof": "/tmp/ts-factory-three-retirement-dk2lvz_z/source-proof.json",
+  "source_proof_sha256": "856ca1fa7bde2761e18551a594b4bf8a55ec9b9b360c79d3ff103f6a4384cbc0",
+  "environment": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "nice": 19,
+  "lock": "/tmp/ts-orch-refactor-short-check-b.lock",
+  "lock_policy": "nonblocking exclusive; require new exact-source QA grant and fresh RAM/load/compiler admission",
+  "compile_argv": [
+    "go",
+    "test",
+    "-c",
+    "-mod=readonly",
+    "-p=1",
+    "-o",
+    "EXTERNAL_QA_DIRECTORY/ociclient.test",
+    "./internal/ociclient"
+  ],
+  "outer_timeout_seconds": 240,
+  "timeout_signal": "TERM",
+  "kill_after_seconds": 5,
+  "default_vet": true,
+  "default_tags": true,
+  "race": false,
+  "ELF": "0600, never execute",
+  "runtime": "No repeat proposed; accepted fa44 replacement byte-exact. No current-source runtime claim.",
+  "status": "SOURCE ONLY; no new-source Go compile/runtime/formatter authorized or run",
+  "actual_adoption_or_count_credit": false
+}

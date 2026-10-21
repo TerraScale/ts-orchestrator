@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 
 	"github.com/TerraScale/ts-orchestrator/internal/identityrekey"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
@@ -34,6 +35,32 @@ func VerifyCurrentRunningBinary(image release.VerifiedImage) (RunningBinary, err
 // VerifyAcceptedRunningBinary measures the accepted executable baseline.
 func VerifyAcceptedRunningBinary(pin identityrekey.BinaryPin) (RunningBinary, error) {
 	return verifyAcceptedBinaryFile("/proc/self/exe", pin)
+}
+
+// VerifyRestartProcessBinary applies ordinary restart admission to the executable
+// of a kernel-pinned process. The caller must verify its process witness before
+// and after this measurement; a PID alone does not authenticate a caller.
+func VerifyRestartProcessBinary(pid int, accepted AcceptedIdentity, layout selfupdate.Layout, roots trust.Keyring) error {
+	if os.Geteuid() != 0 || pid <= 0 || accepted.Validate() != nil {
+		return ErrAdmission
+	}
+	gate := Gate{Binary: processBinaryChecker{pid: pid}, SelfUpdate: layout}
+	return gate.verifyRestartBinary(accepted, roots)
+}
+
+type processBinaryChecker struct {
+	executableBinaryChecker
+	pid int
+}
+
+func (checker processBinaryChecker) VerifyAccepted(pin identityrekey.BinaryPin) (RunningBinary, error) {
+	return verifyAcceptedBinaryFile("/proc/"+strconv.Itoa(checker.pid)+"/exe", pin)
+}
+
+func (checker processBinaryChecker) VerifySelfUpdated(layout selfupdate.Layout, roots trust.Keyring,
+	expected release.UpdateExpectation,
+) (RunningBinary, error) {
+	return verifySelfUpdatedBinary("/proc/"+strconv.Itoa(checker.pid)+"/exe", layout, roots, expected)
 }
 
 func verifyAcceptedBinaryFile(path string, pin identityrekey.BinaryPin) (RunningBinary, error) {

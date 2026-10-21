@@ -1,0 +1,9 @@
+=== RUN   TestManagedRuntimeReadyBeforeSingleOwnHostSession
+    managed_runtime_startup_integration_test.go:62: isolated manager startup fixture: exit status 1
+        === RUN   TestManagedRuntimeReadyBeforeSingleOwnHostSession
+            managed_runtime_startup_integration_test.go:121: controller bootstrap admission failed: first installation requires an absent identity-rekey journal: root-owned identity rekey journal is invalid
+                accepted bootstrap install marker is invalid
+        --- FAIL: TestManagedRuntimeReadyBeforeSingleOwnHostSession (0.27s)
+        FAIL
+--- FAIL: TestManagedRuntimeReadyBeforeSingleOwnHostSession (0.39s)
+FAIL

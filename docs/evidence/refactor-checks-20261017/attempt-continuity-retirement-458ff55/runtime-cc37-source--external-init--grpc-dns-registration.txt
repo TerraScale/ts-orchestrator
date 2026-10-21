@@ -1,0 +1,75 @@
+SOURCE /home/mariogk/go/pkg/mod/google.golang.org/grpc@v1.83.2/internal/resolver/dns/dns_resolver.go
+FULL_FILE_SHA256 fae3828426c9cb90d31a0feafce53892434cfce8ec4ceb2f5cd7f823c2d67136
+LINES 60-130
+
+
+	logger = grpclog.Component("dns")
+)
+
+func init() {
+	resolver.Register(NewBuilder())
+	internal.TimeAfterFunc = time.After
+	internal.TimeNowFunc = time.Now
+	internal.TimeUntilFunc = time.Until
+	internal.NewNetResolver = newNetResolver
+	internal.AddressDialer = addressDialer
+}
+
+const (
+	defaultPort       = "443"
+	defaultDNSSvrPort = "53"
+	golang            = "GO"
+	// txtPrefix is the prefix string to be prepended to the host name for txt
+	// record lookup.
+	txtPrefix = "_grpc_config."
+	// In DNS, service config is encoded in a TXT record via the mechanism
+	// described in RFC-1464 using the attribute name grpc_config.
+	txtAttribute = "grpc_config="
+)
+
+var addressDialer = func(address string) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, _ string) (net.Conn, error) {
+		var dialer net.Dialer
+		return dialer.DialContext(ctx, network, address)
+	}
+}
+
+var newNetResolver = func(authority string) (internal.NetResolver, error) {
+	if authority == "" {
+		return net.DefaultResolver, nil
+	}
+
+	host, port, err := parseTarget(authority, defaultDNSSvrPort)
+	if err != nil {
+		return nil, err
+	}
+
+	authorityWithPort := net.JoinHostPort(host, port)
+
+	return &net.Resolver{
+		PreferGo: true,
+		Dial:     internal.AddressDialer(authorityWithPort),
+	}, nil
+}
+
+// NewBuilder creates a dnsBuilder which is used to factory DNS resolvers.
+func NewBuilder() resolver.Builder {
+	return &dnsBuilder{}
+}
+
+type dnsBuilder struct{}
+
+// Build creates and starts a DNS resolver that watches the name resolution of
+// the target.
+func (b *dnsBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
+	host, port, err := parseTarget(target.Endpoint(), defaultPort)
+	if err != nil {
+		return nil, err
+	}
+
+	// IP address.
+	if ipAddr, err := formatIP(host); err == nil {
+		addr := []resolver.Address{{Addr: ipAddr + ":" + port}}
+		cc.UpdateState(resolver.State{
+			Addresses: addr,
+			Endpoints: []resolver.Endpoint{{Addresses: addr}},

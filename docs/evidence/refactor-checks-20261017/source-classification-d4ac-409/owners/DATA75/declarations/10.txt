@@ -1,0 +1,30 @@
+func TestArtifactStoreQuotaRejectsNewObjectsAndPreservesExistingData(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	objects, err := service.js.CreateOrUpdateObjectStore(ctx, jetstream.ObjectStoreConfig{
+		Bucket: ArtifactBucket, Storage: jetstream.FileStorage, Replicas: 1, MaxBytes: 2 << 10,
+	})
+	if err != nil {
+		t.Fatalf("set small artifact store limit: %v", err)
+	}
+	service.artifacts = objects
+	request := artifactTestRequest()
+	existing, _, err := service.PrepareArtifact(ctx, bytes.NewReader(bytes.Repeat([]byte("a"), 256)), request)
+	if err != nil {
+		t.Fatalf("PrepareArtifact(existing object) error = %v", err)
+	}
+
+	objects, err = service.js.CreateOrUpdateObjectStore(ctx, jetstream.ObjectStoreConfig{
+		Bucket: ArtifactBucket, Storage: jetstream.FileStorage, Replicas: 1, MaxBytes: 1,
+	})
+	if err != nil {
+		t.Fatalf("reduce artifact store limit below stored bytes: %v", err)
+	}
+	service.artifacts = objects
+	_, _, err = service.PrepareArtifact(ctx, bytes.NewReader([]byte("new artifact after quota reduction")), request)
+	if !errors.Is(err, ErrArtifactStoreFull) {
+		t.Fatalf("PrepareArtifact() after quota reduction = %v, want ErrArtifactStoreFull", err)
+	}
+	if err := service.verifyArtifact(ctx, existing); err != nil {
+		t.Fatalf("existing artifact was lost after quota reduction: %v", err)
+	}
+}

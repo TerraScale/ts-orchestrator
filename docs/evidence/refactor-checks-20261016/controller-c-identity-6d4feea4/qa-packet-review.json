@@ -1,0 +1,20 @@
+{
+  "state": "QA accepts controller-c source and scoped evidence packet for feature publication only",
+  "created_utc": "2026-10-17T01:07:56.647104+00:00",
+  "qualified_source": "6d4feea434d74e0f344fc7f9ab9bba9ed1e15080",
+  "source_donor": "dbe85687fea737bfe3ea34686f94a677e92d50f7",
+  "tree": "629a72fad5e642c29f62f6cf351f560fd0674073",
+  "parent": "6ba1a3108750f984ab4b01eaa485fea71cccb490",
+  "archive_sha256": "f416aaa1285f383fcd0d9429e1588abb67d15acb804b01ed5ebb3abcd1b610c7",
+  "archive_bytes": 894205,
+  "archive_members_verified": 145,
+  "original_inputs_verified": 140,
+  "QA_reviews": 12,
+  "all_original_input_bytes_modes_mtimes_unchanged": true,
+  "archive_source_script_readme_provenance_exact": true,
+  "safe_regular_sorted_members_checksums_and_manifest_verified": true,
+  "USTAR_and_gzip_independently_rebuilt_byte_equal": true,
+  "compile_binary_bytes_omitted_original_hash_and_manifest_retained": true,
+  "original_both_patch_formats_preserved": true,
+  "limits": "Exact6d scopedcompile+default34+driver20+tagged11 accepted; no reruns on docs-only donor; fullunion/privateIAM/defaultconstructor/nativeownhost/liveF3/globalclosure remain unqualified"
+}

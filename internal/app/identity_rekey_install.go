@@ -184,7 +184,7 @@ func InstallIdentityRekey(ctx context.Context, journal bootstrapstart.IdentityRe
 			return err
 		}
 	}
-	for _, name := range identityRekeyLaunchFiles {
+	for _, name := range install.launchFiles {
 		if err := install.write(ctx, bootstrapstart.BakedDirectory, name, install.files[name]); err != nil {
 			return err
 		}
@@ -212,6 +212,7 @@ type identityRekeyInstall struct {
 	inputs          bootstrapstart.TrustInputs
 	config          Config
 	files           map[string][]byte
+	launchFiles     []string
 	chain           []byte
 	material        bootstrapstart.MaterialStore
 	target          bootstrapstart.GenerationTarget
@@ -261,6 +262,10 @@ func prepareIdentityRekey(ctx context.Context, journal bootstrapstart.IdentityRe
 		return nil, err
 	}
 	install.accepted = install.verified.Accepted()
+	install.launchFiles, err = bootstrapstart.AcceptedLaunchFileNames(install.accepted)
+	if err != nil {
+		return nil, err
+	}
 	install.config, err = validateIdentityRekeyFiles(install.accepted, install.files)
 	if err != nil {
 		return nil, err
@@ -269,10 +274,10 @@ func prepareIdentityRekey(ctx context.Context, journal bootstrapstart.IdentityRe
 		return nil, err
 	}
 	launch := map[string][]byte{}
-	for _, name := range identityRekeyLaunchFiles {
+	for _, name := range install.launchFiles {
 		launch[name] = install.files[name]
 	}
-	if err := install.verified.VerifyLaunchMaterial(install.inputs, install.files["oci-region.json"], launch, time.Now().Round(0).UTC()); err != nil {
+	if err := install.verified.VerifyLaunchMaterialContext(ctx, install.inputs, install.files["oci-region.json"], launch, time.Now().Round(0).UTC()); err != nil {
 		return nil, err
 	}
 	if err := verifyIdentityRekeyResponseBundle(install.journal, launch[bootstrapstart.HostEnrollmentFilename]); err != nil {
@@ -374,15 +379,19 @@ func validateIdentityRekeyFiles(accepted bootstrapstart.AcceptedIdentity, files 
 	if err := accepted.Validate(); err != nil {
 		return Config{}, err
 	}
-	if len(files) != 4+len(identityRekeyLaunchFiles) || len(accepted.LaunchMaterialSHA256) != len(identityRekeyLaunchFiles) {
-		return Config{}, errors.New("identity rekey requires exactly four config and four launch files")
+	launchFiles, err := bootstrapstart.AcceptedLaunchFileNames(accepted)
+	if err != nil {
+		return Config{}, err
+	}
+	if len(files) != 4+len(launchFiles) || len(accepted.LaunchMaterialSHA256) != len(launchFiles) {
+		return Config{}, errors.New("identity rekey requires the exact accepted config and launch file set")
 	}
 	for name, want := range accepted.ConfigSHA256 {
 		if len(files[name]) == 0 || controllerSHA256(files[name]) != want {
 			return Config{}, fmt.Errorf("identity rekey config %s differs from its accepted pin", name)
 		}
 	}
-	for _, name := range identityRekeyLaunchFiles {
+	for _, name := range launchFiles {
 		if len(files[name]) == 0 || controllerSHA256(files[name]) != accepted.LaunchMaterialSHA256[name] {
 			return Config{}, fmt.Errorf("identity rekey launch material %s differs from its accepted pin", name)
 		}
@@ -404,9 +413,6 @@ func validateIdentityRekeyFiles(accepted bootstrapstart.AcceptedIdentity, files 
 	}
 	if region.Region != oci.Region(accepted.Cell) {
 		return Config{}, errors.New("identity rekey launch image belongs to another cell")
-	}
-	if _, err := imageArchitectureForShape(region.Shape); err != nil {
-		return Config{}, err
 	}
 	return config, nil
 }
@@ -534,10 +540,10 @@ func (install *identityRekeyInstall) checkLocal(ctx context.Context, stopped boo
 		}
 	}
 	launch := map[string][]byte{}
-	for _, name := range identityRekeyLaunchFiles {
+	for _, name := range install.launchFiles {
 		launch[name] = install.files[name]
 	}
-	if err := verified.VerifyLaunchMaterial(inputs, install.files["oci-region.json"], launch, time.Now().Round(0).UTC()); err != nil {
+	if err := verified.VerifyLaunchMaterialContext(ctx, inputs, install.files["oci-region.json"], launch, time.Now().Round(0).UTC()); err != nil {
 		return err
 	}
 	if err := install.material.VerifyIdentityRekeyMaterialPredecessors(verified, inputs, now); err != nil {
@@ -568,7 +574,7 @@ func (install *identityRekeyInstall) clearMaterial() {
 func (install *identityRekeyInstall) verifyInstalledMaterial(ctx context.Context) error {
 	for name, want := range install.files {
 		directory := controllerConfigDirectory
-		if slices.Contains(identityRekeyLaunchFiles[:], name) {
+		if slices.Contains(install.launchFiles, name) {
 			directory = bootstrapstart.BakedDirectory
 		}
 		wire, err := readInstalledControllerFile(directory, name, 0, 0, 0o444, len(want))

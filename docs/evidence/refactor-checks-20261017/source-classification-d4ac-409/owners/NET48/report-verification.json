@@ -1,0 +1,18 @@
+{
+  "assertion_sites_indexed": 262,
+  "bounded_spans_verified": 6,
+  "categories": {
+    "integration": 26,
+    "mixed": 9,
+    "unit": 11,
+    "unresolved": 2
+  },
+  "classification_sha256": "c89d6e3558298634ed2f902d0a55fa2d95496e26800be31b283dbf4da3b409e2",
+  "declaration_hashes_verified": 96,
+  "ledger_promotion_delta": 0,
+  "result": "PASS_STATIC_REPORT_CONSISTENCY_ONLY",
+  "retirement_authorized": false,
+  "root_count": 48,
+  "runtime_result": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "source_file_pins": 50
+}

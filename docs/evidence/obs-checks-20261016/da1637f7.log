@@ -1,0 +1,6 @@
+ok  	github.com/TerraScale/ts-orchestrator/internal/observability	0.061s
+ok  	github.com/TerraScale/ts-orchestrator/internal/cli	0.187s
+ok  	github.com/TerraScale/ts-orchestrator/internal/dashboard	0.133s
+ok  	github.com/TerraScale/ts-orchestrator/internal/dashboard/accesscheck	0.055s [no tests to run]
+ok  	github.com/TerraScale/ts-orchestrator/internal/dashboard/devfake	0.051s [no tests to run]
+ok  	github.com/TerraScale/ts-orchestrator/internal/globalview	0.024s [no tests to run]

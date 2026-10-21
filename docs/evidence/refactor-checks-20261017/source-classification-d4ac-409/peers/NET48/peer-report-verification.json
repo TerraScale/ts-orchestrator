@@ -1,0 +1,24 @@
+{
+  "status": "PASS",
+  "literal_unique_roots": 48,
+  "counts": {
+    "allocated_original_roots": 48,
+    "candidates_by_category": {
+      "integration": 26,
+      "mixed": 9,
+      "unit": 11,
+      "unresolved": 2
+    },
+    "category_corrections": 0,
+    "ledger_promotion_delta": 0,
+    "peer_accepted_entries": 48,
+    "resolved_source_candidates": 46,
+    "retirement_delta": 0,
+    "reviewed_unresolved_candidates": 2
+  },
+  "source_archive_files_verified": 50,
+  "all_96_root_declarations_verified_against_peer_archives": true,
+  "all_root_categories_equal_peer_decisions": true,
+  "all_runtime_unknown_retirement_zero": true,
+  "review_json_sha256": "5134c9fb091bf707943dec174a6b16d1416a6246440816201ed601ee048228ce"
+}

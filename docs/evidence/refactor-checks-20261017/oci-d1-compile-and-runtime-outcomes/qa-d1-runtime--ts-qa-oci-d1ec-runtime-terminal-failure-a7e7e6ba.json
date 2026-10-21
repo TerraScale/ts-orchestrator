@@ -1,0 +1,188 @@
+{
+  "kind": "independent-oci-d1ec-direct-runtime-failure-terminal-review",
+  "reviewer": "/root/qa_integrator/capacity_tests",
+  "created_utc": "2026-10-17T05:32:11.915889+00:00",
+  "verdict": "NOT_QUALIFIED_NO_RETRY",
+  "packet": "/tmp/ts-oci-provision-runtime-d1ec8b56a-120-sealed",
+  "pins": {
+    "receipt.json": "20a9f8b24d8bcd203679550ac0616e7cd8e4acaebf76813ad51fea1ab65be6bb",
+    "final-runtime-seal.json": "ed3a30fcb6f118778878a12a63ecfc3ac6d8a28d15079a8844b0fb354eecd0a0",
+    "terminal-index.json": "359f26338afb6a8538447e6c2db26b2d73943a79f209c4764eb6c109c64985d0",
+    "native-poll-2.json": "f93c33a228dba3e442dd7c818860bf98b3bafd59713623cd4ad6f07aebd36fd8",
+    "runtime.stdout": "f8d5757088451ae4ca1147d9c73d30e7bf56fd0e311df22e9675e8e5b7246c03",
+    "final-seal.json": "47966b7e4056a0db96cf6f3a5bca33a60b898d538bb33220016a843d3d3112cb"
+  },
+  "all_initial_and_final_sealed_artifacts_hashes_sizes_modes_exact_inventory_match": true,
+  "native": {
+    "session_id": 71006,
+    "child_pid": 745278,
+    "actual_arguments_results": {
+      "native-launch.json": {
+        "arguments": {
+          "cmd": "/run/current-system/sw/bin/nice -n 19 /run/current-system/sw/bin/env -i HOME=/home/mariogk PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin LANG=C.UTF-8 GOMAXPROCS=2 GOFLAGS=-p=2 GOTOOLCHAIN=local /home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B /tmp/ts-oci-provision-runtime-d1ec8b56a-120-sealed/run.py",
+          "workdir": "/tmp/ts-oci-foundation-prerequisite-phase",
+          "login": false,
+          "yield_time_ms": 1000,
+          "max_output_tokens": 8000
+        },
+        "result": {
+          "chunk_id": "73558d",
+          "wall_time_seconds": 1.001138491,
+          "session_id": 71006,
+          "original_token_count": 0,
+          "output": ""
+        }
+      },
+      "native-poll-1.json": {
+        "arguments": {
+          "session_id": 71006,
+          "chars": "",
+          "yield_time_ms": 1000,
+          "max_output_tokens": 8000
+        },
+        "result": {
+          "chunk_id": "25af96",
+          "wall_time_seconds": 5.001049574,
+          "session_id": 71006,
+          "original_token_count": 32,
+          "output": "{\"state\": \"STARTED_LOCAL_PROVISION_SCENARIO\", \"pid\": 745278, \"output\": \"/tmp/ts-oci-provision-runtime-d1ec8b56a-120-sealed\"}\n"
+        }
+      },
+      "native-poll-2.json": {
+        "arguments": {
+          "session_id": 71006,
+          "chars": "",
+          "yield_time_ms": 30000,
+          "max_output_tokens": 9000
+        },
+        "result": {
+          "chunk_id": "8126ee",
+          "wall_time_seconds": 1.02240015,
+          "exit_code": 1,
+          "original_token_count": 1114,
+          "output": "{\"state\": \"NOT_QUALIFIED\", \"exit_code\": 1, \"wall_seconds\": 29.904169155983254, \"max_child_rss_kib\": 119852, \"source_pre\": {\"head\": \"d1ec8b56aba84d7c7637504350d218660729b9af\", \"tree\": \"8219946143b919a349b56686008251662ac05df9\", \"status\": \"\", \"manifest_sha256\": \"d7a5c79e84989b41a12df1255a8787fe38118652877f817d8bc4141e8e674b4d\", \"request_sha256\": \"823dad060e5e90657b740293f265eb4546b1a929b2e88b8d2b97b47e45300566\", \"wrapper_sha256\": \"b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b\", \"binary_sha256\": \"a98469a36e4c8ebe027d1bb297f98ed69a831142e31649ed98cdc2cb75268a22\", \"compile_receipt_sha256\": \"71f16d706b426849c6a1edf8d8e72064a4b33786f7dc41204b8f1091b99c9fb1\", \"tools\": {\"go\": {\"path\": \"/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go\", \"sha256\": \"30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624\"}, \"python\": {\"path\": \"/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15\", \"sha256\": \"71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f\"}, \"git\": {\"path\": \"/run/current-system/sw/bin/git\", \"sha256\": \"f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027\"}, \"nice\": {\"path\": \"/run/current-system/sw/bin/nice\", \"sha256\": \"4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5\"}, \"timeout\": {\"path\": \"/run/current-system/sw/bin/timeout\", \"sha256\": \"4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5\"}, \"env\": {\"path\": \"/run/current-system/sw/bin/env\", \"sha256\": \"4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5\"}}}, \"source_post\": {\"head\": \"d1ec8b56aba84d7c7637504350d218660729b9af\", \"tree\": \"8219946143b919a349b56686008251662ac05df9\", \"status\": \"\", \"manifest_sha256\": \"d7a5c79e84989b41a12df1255a8787fe38118652877f817d8bc4141e8e674b4d\", \"request_sha256\": \"823dad060e5e90657b740293f265eb4546b1a929b2e88b8d2b97b47e45300566\", \"wrapper_sha256\": \"b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b\", \"binary_sha256\": \"a98469a36e4c8ebe027d1bb297f98ed69a831142e31649ed98cdc2cb75268a22\", \"compile_receipt_sha256\": \"71f16d706b426849c6a1edf8d8e72064a4b33786f7dc41204b8f1091b99c9fb1\", \"tools\": {\"go\": {\"path\": \"/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go\", \"sha256\": \"30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624\"}, \"python\": {\"path\": \"/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15\", \"sha256\": \"71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f\"}, \"git\": {\"path\": \"/run/current-system/sw/bin/git\", \"sha256\": \"f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027\"}, \"nice\": {\"path\": \"/run/current-system/sw/bin/nice\", \"sha256\": \"4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5\"}, \"timeout\": {\"path\": \"/run/current-system/sw/bin/timeout\", \"sha256\": \"4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5\"}, \"env\": {\"path\": \"/run/current-system/sw/bin/env\", \"sha256\": \"4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5\"}}}, \"runs\": [\"TestFoundationRecordsPersistAndFenceConcurrentWriters\", \"TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals\"], \"passes\": [], \"fail_or_skip\": [\"TestFoundationRecordsPersistAndFenceConcurrentWriters\", \"TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals\"], \"runtime_binary_execution_count\": 1, \"original_compile_binary_execution_count\": 0, \"runtime_binary\": {\"path\": \"/tmp/ts-oci-provision-runtime-d1ec8b56a-120-sealed/runtime-region.test\", \"sha256\": \"a98469a36e4c8ebe027d1bb297f98ed69a831142e31649ed98cdc2cb75268a22\", \"mode\": \"0o600\"}, \"stdout_sha256\": \"f8d5757088451ae4ca1147d9c73d30e7bf56fd0e311df22e9675e8e5b7246c03\", \"stderr_sha256\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\", \"scope\": \"Local genuine ProvisionFoundationBundle SDK simulator plus full existing parent disk-CAS/restart/drift scenario; real production entrypoint with test-signed authority and local simulated provider responses. No live OCI/IAM/IMDS/host changes/native image/complete financial-history or actual ordinary-root service proof.\", \"resource_limits\": {\"enforced\": \"outer180s TERM+KILL5, test120s, nice19, GOMAXPROCS2, parallel1,count1, unprivileged EUID\", \"estimates_unenforced\": {\"RAM_bytes\": 1073741824, \"scratch_bytes\": 134217728, \"tasks\": 128}, \"fixture_effects\": \"two successive loopback ephemeral HTTP(S) listeners; three temp dirs; ephemeral test keys; fsync/flock/rename; read-only proc/sys init metadata\"}}\n"
+        }
+      },
+      "native-resource-preflight.json": {
+        "arguments": {
+          "cmd": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B -c 'import hashlib,json,os,pathlib,time\nout=pathlib.Path('\\''/tmp/ts-oci-provision-runtime-d1ec8b56a-120-sealed'\\'')\nsha=lambda p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()\nassert sha('\\''/tmp/ts-qa-oci-d1ec-runtime-grant-wz_ac53e.json'\\'')=='\\''67dc976cbd522024e0e5ba078e6e65a64b7743f04bcd2651e523bb3926468000'\\''\nassert sha(out/'\\''request.json'\\'')=='\\''823dad060e5e90657b740293f265eb4546b1a929b2e88b8d2b97b47e45300566'\\''\nassert sha(out/'\\''run.py'\\'')=='\\''b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b'\\''\nassert sha(out/'\\''final-seal.json'\\'')=='\\''47966b7e4056a0db96cf6f3a5bca33a60b898d538bb33220016a843d3d3112cb'\\''\nassert not (out/'\\''runtime-region.test'\\'').exists()\nmem={line.split('\\'':'\\'')[0]:int(line.split()[1]) for line in pathlib.Path('\\''/proc/meminfo'\\'').read_text().splitlines() if line.startswith(('\\''MemAvailable:'\\'','\\''MemTotal:'\\''))}\nflows=[]\nfor p in pathlib.Path('\\''/proc'\\'').iterdir():\n if not p.name.isdigit():continue\n try:\n  a=[x.decode(errors='\\''replace'\\'') for x in (p/'\\''cmdline'\\'').read_bytes().split(b'\\''\\0'\\'') if x]\n  if a and pathlib.Path(a[0]).name in ('\\''go'\\'','\\''compile'\\'','\\''link'\\'','\\''vet'\\''):flows.append({'\\''pid'\\'':int(p.name),'\\''program'\\'':pathlib.Path(a[0]).name,'\\''subcommand'\\'':a[1:3] if pathlib.Path(a[0]).name=='\\''go'\\'' else []})\n except (FileNotFoundError,PermissionError,ProcessLookupError):pass\nr={'\\''epoch'\\'':time.time(),'\\''euid'\\'':os.geteuid(),'\\''memory_kib'\\'':mem,'\\''load'\\'':os.getloadavg(),'\\''compiler_processes'\\'':flows,'\\''exact_runtime_grant_sha256'\\'':'\\''67dc976cbd522024e0e5ba078e6e65a64b7743f04bcd2651e523bb3926468000'\\'','\\''packet_pins_verified'\\'':True}\nassert r['\\''euid'\\'']!=0 and mem['\\''MemAvailable'\\'']>=16*1024*1024 and r['\\''load'\\''][0]<12 and len([x for x in flows if x['\\''program'\\'']=='\\''go'\\''])<4\nwith (out/'\\''resource-preflight.json'\\'').open('\\''x'\\'') as f:json.dump(r,f,indent=2);f.write('\\''\\n'\\'')\nprint(json.dumps(r))\n'",
+          "login": false,
+          "max_output_tokens": 2000
+        },
+        "result": {
+          "chunk_id": "554374",
+          "wall_time_seconds": 2.137e-05,
+          "exit_code": 0,
+          "original_token_count": 78,
+          "output": "{\"epoch\": 1792214933.874985, \"euid\": 1000, \"memory_kib\": {\"MemTotal\": 32826812, \"MemAvailable\": 27008284}, \"load\": [0.1904296875, 0.474609375, 0.759765625], \"compiler_processes\": [], \"exact_runtime_grant_sha256\": \"67dc976cbd522024e0e5ba078e6e65a64b7743f04bcd2651e523bb3926468000\", \"packet_pins_verified\": true}\n"
+        }
+      }
+    },
+    "launch_blank_then_poll1_STARTED_then_poll2_terminal": true,
+    "terminal_exactly_equals_receipt": true,
+    "exit_code": 1,
+    "wall_seconds": 29.904169155983254,
+    "max_child_rss_kib": 119852,
+    "runtime_copy_executions": 1,
+    "original_compile_binary_executions": 0,
+    "execution_count_basis": "Reviewed frozen runner and exact native record chain, not OS-wide execution history."
+  },
+  "raw_output": {
+    "complete_stdout": "=== RUN   TestFoundationRecordsPersistAndFenceConcurrentWriters\n=== RUN   TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals\n    foundation_provision_integration_test.go:195: expected accepted launch response loss: launch signed original GRU writer: foundation vault lacks persisted create provenance\n--- FAIL: TestFoundationRecordsPersistAndFenceConcurrentWriters (28.54s)\n    --- FAIL: TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals (27.93s)\nFAIL\n",
+    "stdout_sha256": "f8d5757088451ae4ca1147d9c73d30e7bf56fd0e311df22e9675e8e5b7246c03",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_empty": true,
+    "exact_line_count": 6,
+    "RUN_order": [
+      "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+      "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals"
+    ],
+    "FAIL_order": [
+      "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+      "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals"
+    ],
+    "PASS_count": 0,
+    "SKIP_count": 0,
+    "extra_identities_or_events": false,
+    "standalone_final": "FAIL",
+    "interpretation": "Direct Go verbose output buffers indented child terminal under parent; parent FAIL before leaf FAIL is expected. Both identities fail."
+  },
+  "failure": {
+    "identity": "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals",
+    "location": "internal/region/foundation_provision_integration_test.go:195",
+    "message": "expected accepted launch response loss: launch signed original GRU writer: foundation vault lacks persisted create provenance",
+    "source_origin": "internal/foundationbinding/verify.go:417 validateRecord compound create-provenance rejection for vault",
+    "precise_limit": "Text identifies compound provenance rejection, not which disjunct failed. It alone cannot distinguish absent proof from invalid resource/generation/grant/create-request/time metadata. No speculative repair or exact temporary journal reconstruction.",
+    "reached_scope": "Source order and error establish all3 regional reconciliations and prerequisite root-chain/grant publication returned nil before first GRU writer attempt reached strict protected-binding record validation. Earlier missing-current-grant check was passed in this attempt. First expected accepted LaunchInstance response loss was not reached; later leaf recovery/policy/readback/anchor/idempotency assertions did not run. No successful original launch or final anchor credit."
+  },
+  "parent_continuation": {
+    "t_Run_result_ignored_and_body_follows_unconditionally": true,
+    "raw_parent_assertion_diagnostic_absent": true,
+    "interpretation": "Parent continues its disk CAS/pending writer/policy/corruption scenario after subtest Fatal returns. No separate parent-body diagnostic is present, consistent with body completing, but parent inherits FAIL. No parent PASS or independently instrumented per-assertion completion credit."
+  },
+  "integrity": {
+    "source_head": "d1ec8b56aba84d7c7637504350d218660729b9af",
+    "source_tree": "8219946143b919a349b56686008251662ac05df9",
+    "current_source_clean": true,
+    "source_pre_equals_post": true,
+    "all3838tracked_source_hashes_and_inventory_match": true,
+    "all6tool_hashes_match": true,
+    "request_wrapper_manifest_initial_seal_pins_match": true,
+    "original_and_runtime_ELF_sha256": "a98469a36e4c8ebe027d1bb297f98ed69a831142e31649ed98cdc2cb75268a22",
+    "original_and_runtime_ELF_bytes": 62920547,
+    "original_and_runtime_ELF_modes": "0o600",
+    "ELF_magic": "7f454c46",
+    "all18sealed_compile_artifacts_hashes_sizes_modes_inventory_match": true,
+    "compile_receipt_sha256": "71f16d706b426849c6a1edf8d8e72064a4b33786f7dc41204b8f1091b99c9fb1",
+    "compile_acceptance_sha256": "7071104ee37d87cbe4140dd4a3d9433395e8c65944ea135e16c7ca898bc64c1c",
+    "source_security_ACK_sha256": "0afddc386430b23dff462da68683335e0ba7bdefab2767af1777c9ab2b571b91",
+    "runtime_grant_path": "/tmp/ts-qa-oci-d1ec-runtime-grant-wz_ac53e.json",
+    "runtime_grant_sha256": "67dc976cbd522024e0e5ba078e6e65a64b7743f04bcd2651e523bb3926468000",
+    "independent_readiness_sha256": "a4f21a0465db8bef83f2f51d088e9e284ffd29ee6734b68bae1af9a4311b5cec"
+  },
+  "cleanup": {
+    "pid745278_absent_independently_observed": true,
+    "CAPACITY_device_major_minor_inode": [
+      0,
+      42,
+      54815965
+    ],
+    "CAPACITY_no_matching_proc_locks_entry": true,
+    "method": "Read PID path absence, stat lock file, read /proc/locks device/inode. Never open/attempt/acquire lock.",
+    "original_ELF0600_and_runtime_copy_restored0600": true,
+    "limits": "Bounded current process/lock checks and source cleanup review only; no exhaustive descendant/socket/temp-file/history scan."
+  },
+  "prior_failure_preservation": [
+    {
+      "report": "/tmp/ts-qa-oci5e-runtime-terminal-failure-z8dsewxr.json",
+      "sha256": "64989f989c7cc196c8ca1786a1f6d41c5c91011f9046d8d184d52d03c7f57819",
+      "packet": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "all_pins_and_sealed_artifact_hashes_sizes_modes_match": true
+    },
+    {
+      "report": "/tmp/ts-qa-oci678-runtime-terminal-failure-53vxp9c8.json",
+      "sha256": "28d36a36700221471e3cae78e5b335bda46eb9b4004b4619aba7b2a6ac87dac6",
+      "packet": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "all_pins_and_sealed_artifact_hashes_sizes_modes_match": true
+    },
+    {
+      "report": "/tmp/ts-qa-provision64-terminal-failure-bkps8y8k.json",
+      "sha256": "5ada3a6fd437a6bba4edb6712013ec2c8cce5dcf0fcada784f18cb133081110d",
+      "packet": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "all_pins_and_sealed_artifact_hashes_sizes_modes_match": true
+    }
+  ],
+  "unused443_compile_packet_seal_and_empty_binaries_preserved": true,
+  "resource_limits": {
+    "enforced": "outer180s TERM+KILL5, test120s, nice19, GOMAXPROCS2, parallel1,count1, unprivileged EUID",
+    "estimates_unenforced": {
+      "RAM_bytes": 1073741824,
+      "scratch_bytes": 134217728,
+      "tasks": 128
+    },
+    "fixture_effects": "two successive loopback ephemeral HTTP(S) listeners; three temp dirs; ephemeral test keys; fsync/flock/rename; read-only proc/sys init metadata"
+  },
+  "scope": "Authenticated exact-source local failure evidence only. No retry/runtime PASS/live OCI/IAM/paid/native/root/complete financial history/equivalence/retirement/canonical/nine-package union/global completion credit. Import/init audit remains conservative, not exact Go/compiler closure.",
+  "required_disposition": "Retain immutable terminal failure. No retry, timeout extension, rebuild, runtime grant or source repair authorized by review.",
+  "reviewer_actions": "Read static packet/native records/full raw logs/source/Git metadata; hash source/tools/ELFs/compile/seals/prior failures; bounded PID absence and /proc/locks read; exclusive new /tmp report write only. No Go/runner/test/binary execution, native polling, lock opening/acquisition, chmod/copy, source/AGENTS/Git/packet mutation, grants or subagents. All helper shells login:false."
+}

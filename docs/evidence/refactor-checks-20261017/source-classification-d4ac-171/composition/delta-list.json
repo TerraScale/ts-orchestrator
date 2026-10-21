@@ -1,0 +1,618 @@
+{
+  "schema": "ts-composed-classification-only-change-list-v1",
+  "state": "PROPOSED_NOT_APPLIED",
+  "count": 45,
+  "changes": [
+    {
+      "ledger": "completion",
+      "path": [
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion.",
+      "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+      "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+      "after_value_source": {
+        "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+        "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "provenance",
+        "limit"
+      ],
+      "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts.",
+      "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+      "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "globally_unadjudicated_remaining_original_tests"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+      "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "before": 4198,
+      "after": 4129
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "classification_limit"
+      ],
+      "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts.",
+      "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+      "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classified_integration"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "349c41201b62db851192665c504b350ff98c6b45fb62a8a2161f78b6534d8de9",
+      "after_canonical_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "before": 78,
+      "after": 100
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classified_unit"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "535fa30d7e25dd8a49f1536779734ec8286108d115da5045d77f3b4185d8f790",
+      "after_canonical_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "before": 23,
+      "after": 43
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classified_mixed"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "after_canonical_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "before": 1,
+      "after": 28
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classification_adjudicated_retained"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "37834f2f25762f23e1f74a531cbe445db73d6765ebe60878a7dfbecd7d4af6e1",
+      "after_canonical_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+      "before": 102,
+      "after": 171
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "firstparty_globally_unadjudicated"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+      "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "before": 4198,
+      "after": 4129
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "remaining_original_tests_globally_unadjudicated"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+      "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "before": 4198,
+      "after": 4129
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "limits"
+      ],
+      "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts.",
+      "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+      "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "firstparty_globally_unadjudicated"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+      "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "before": 4198,
+      "after": 4129
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "remaining_original_tests_globally_unadjudicated"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+      "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "before": 4198,
+      "after": 4129
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "limits"
+      ],
+      "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts.",
+      "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+      "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "firstparty_globally_unadjudicated"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+      "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "before": 4198,
+      "after": 4129
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "firstparty_globally_unadjudicated"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+      "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "before": 4198,
+      "after": 4129
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "authoritative_test_reconciliation",
+        "limit"
+      ],
+      "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts.",
+      "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+      "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "firstparty_globally_unadjudicated"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+      "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "before": 4198,
+      "after": 4129
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_remaining_globally_unadjudicated"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+      "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "before": 4198,
+      "after": 4129
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "limits"
+      ],
+      "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts.",
+      "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+      "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_source_classified_integration"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "349c41201b62db851192665c504b350ff98c6b45fb62a8a2161f78b6534d8de9",
+      "after_canonical_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "before": 78,
+      "after": 100
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_source_classified_unit"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "535fa30d7e25dd8a49f1536779734ec8286108d115da5045d77f3b4185d8f790",
+      "after_canonical_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "before": 23,
+      "after": 43
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_source_classified_mixed"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "after_canonical_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "before": 1,
+      "after": 28
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "globally_unadjudicated"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+      "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "before": 4198,
+      "after": 4129
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "note"
+      ],
+      "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts.",
+      "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+      "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse."
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "classified_retained"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "37834f2f25762f23e1f74a531cbe445db73d6765ebe60878a7dfbecd7d4af6e1",
+      "after_canonical_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+      "before": 102,
+      "after": 171
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classified_integration"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "349c41201b62db851192665c504b350ff98c6b45fb62a8a2161f78b6534d8de9",
+      "after_canonical_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "before": 78,
+      "after": 100
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classified_unit"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "535fa30d7e25dd8a49f1536779734ec8286108d115da5045d77f3b4185d8f790",
+      "after_canonical_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "before": 23,
+      "after": 43
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classified_mixed"
+      ],
+      "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change.",
+      "before_canonical_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "after_canonical_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "before": 1,
+      "after": 28
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "classification_adjudication_history"
+      ],
+      "reason": "Append proposed classification-only provenance and exact before pins; preserve every prior history entry.",
+      "before_canonical_sha256": "50eb7fb3bbe006907961e57d835f6dd5ae4f78443ba265cb44fd54546959d4b1",
+      "after_canonical_sha256": "04cd1d37e47d282c06f37fc8d2014b8c6ed639b2514cd33c30c0b9c068f819a4"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "as_of"
+      ],
+      "reason": "Timestamp of composed proposed ledger bytes.",
+      "before_canonical_sha256": "19eb01038d905112772003b924a533fb6726727058d7b80b52885d76eb775269",
+      "after_canonical_sha256": "31dfdb7d8e482936cfccacea4c8d20cea3f2549ed0d5cf662dba6a2b115d13a6",
+      "before": "2026-10-17T15:06:30.796536+00:00",
+      "after": "2026-10-17T15:16:18.301816+00:00"
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "classification_adjudication_history"
+      ],
+      "reason": "Append proposed classification-only provenance and exact before pins; preserve every prior history entry.",
+      "before_canonical_sha256": "29ee4dbd0d8000a5bb31a65cc15fb6c127bfbdbd71697c16ec70053cb358342a",
+      "after_canonical_sha256": "95cd46c2f075f97c54db92e13a6ecda2b851c9d05355e394281b9876d5c77378"
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "as_of"
+      ],
+      "reason": "Timestamp of composed proposed ledger bytes.",
+      "before_canonical_sha256": "19eb01038d905112772003b924a533fb6726727058d7b80b52885d76eb775269",
+      "after_canonical_sha256": "31dfdb7d8e482936cfccacea4c8d20cea3f2549ed0d5cf662dba6a2b115d13a6",
+      "before": "2026-10-17T15:06:30.796536+00:00",
+      "after": "2026-10-17T15:16:18.301816+00:00"
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "completion_ledger_sha256"
+      ],
+      "reason": "Bind proposed progress to exact proposed completion bytes.",
+      "before_canonical_sha256": "d0fd11b7673134b8a0b87bd81968f588b8ca4869530eb322e5a9a7ae493eeb94",
+      "after_canonical_sha256": "ac5af3dda6fdbaf6189658826104d456f132857a34c9089c54cf133b85e0ceef",
+      "before": "fde357ecbc4cd877a3c71baad94d3dd701ce351b3da6ff139858b9c4c4a64064",
+      "after": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+    }
+  ]
+}

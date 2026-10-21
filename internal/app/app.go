@@ -38,6 +38,18 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		return errors.New("usage: terrascale-orchestrator <bootstrap-controller|run|host|check|operator|identity-new|netbird-enroll|netbird-agent> --config FILE")
 	}
 	command := args[0]
+	if command == "runtime-worker-admission-source" {
+		return runRuntimeWorkerAdmissionSource(ctx, args[1:], os.Stdin, output)
+	}
+	if command == runtimeControllerHostSourceCommand {
+		return runRuntimeControllerHostAdmissionSource(ctx, args[1:], os.Stdin, output)
+	}
+	if command == "runtime-worker-membership-source" {
+		return runRuntimeWorkerMembershipSource(ctx, args[1:], os.Stdin, output)
+	}
+	if command == runtimeRegistrySourceCommand {
+		return runRuntimeRegistrySource(ctx, args[1:], os.Stdin, output)
+	}
 	if command == "netbird-agent" {
 		return runNetBirdAgent(ctx, args[1:])
 	}
@@ -486,9 +498,6 @@ func readPrivateKey(path string) (ed25519.PrivateKey, error) {
 // it spools, with the same rule (selfupdate/cli).
 func hostRollouts(cfg Config, identity ed25519.PrivateKey, controller ed25519.PublicKey,
 ) func(context.Context, host.RolloutSession) {
-	if cfg.NATS.Lab {
-		return nil
-	}
 	return followHostRollouts(hostRollout{cell: cfg.NATS.Cell, node: cfg.Host.Node, identity: identity,
 		controller: controller, spool: rolloutexec.HostSpoolDir, stateRoot: cfg.Host.StateRoot,
 		layout: selfupdate.NewLayout(cmp.Or(cfg.Host.SelfUpdateRoot, selfupdate.DefaultRoot))})

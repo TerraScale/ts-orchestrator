@@ -9,10 +9,10 @@ templ terrabaseBody(current view) {
 		@scopeNote(current)
 		<article>
 			<h2>TerraBase services on host nodes</h2>
-			<p class="legend-note">Host-agent reports describe running services. Managed database seats are listed separately below.</p>
+			<p class="legend-note">Current native task readiness is unknown until the live root and member source is connected. Durable placement stages are listed separately below.</p>
 			{{ services := 0 }}
 			<table class="striped">
-				<thead><tr><th>Host node</th><th>Reported process state</th><th>Artifact digest</th></tr></thead>
+				<thead><tr><th>Host node</th><th>Current task readiness</th><th>Artifact digest</th></tr></thead>
 				<tbody>
 					for _, node := range current.resourceNodes() {
 						for _, service := range node.Services {
@@ -23,6 +23,7 @@ templ terrabaseBody(current view) {
 									<td><a href={ safe(current.State.hostLink(current.localRegion(), node.Name)) }>{ node.Name }</a></td>
 									<td>
 										@statusPill(status, state)
+										<small class="muted">{ service.StateReason }</small>
 									</td>
 									<td><code>{ orDash(service.Digest) }</code></td>
 								</tr>
@@ -32,7 +33,7 @@ templ terrabaseBody(current view) {
 				</tbody>
 			</table>
 			if services == 0 {
-				@unavailable("No TerraBase service was reported by the region's host agents.")
+				@unavailable("No TerraBase role is present in this region's node topology.")
 			}
 		</article>
 		if placement := current.placement(); placement != nil && len(placement.Databases) > 0 {
@@ -49,7 +50,7 @@ templ terrabaseBody(current view) {
 					for _, database := range placement.Databases {
 						<div>
 							<strong><a href={ safe(current.State.partitionLink(database.DatabaseID, database.PartitionID)) }>{ database.DatabaseID }</a></strong>
-							<small class="muted">{ database.PartitionID } · { itoa(database.Serving) }/{ itoa(database.DesiredSeats) } serving</small>
+							<small class="muted">{ database.PartitionID } · { placementServingText(database) }/{ itoa(database.DesiredSeats) } serving</small>
 							<div class="seat-grid">
 								for _, member := range database.Members {
 									<span
@@ -169,7 +170,7 @@ templ terrabaseBody(current view) {
 										<td>{ database.PartitionID }</td>
 										<td>{ itoa(database.Generation) }</td>
 										<td>{ itoa(database.DesiredSeats) }</td>
-										<td class={ templ.KV("warn", !database.Terminal && database.Serving < database.DesiredSeats) }>{ itoa(database.Serving) }</td>
+										<td class={ templ.KV("warn", !database.Terminal && (database.Readiness != "observed" || database.Serving < database.DesiredSeats)) }>{ placementServingText(database) }</td>
 										<td>{ counts(database.Stages) }</td>
 										<td class="wrap">
 											for _, member := range database.Members {

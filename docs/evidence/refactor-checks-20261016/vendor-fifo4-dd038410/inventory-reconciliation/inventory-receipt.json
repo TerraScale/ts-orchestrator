@@ -1,0 +1,95 @@
+{
+  "state": "INDEPENDENT_INVENTORY_RECONCILIATION; canonical and broker evidence unchanged",
+  "FIFO_position": 4,
+  "union_commit": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "input": {
+    "path": "/tmp/ts-vendor-scoped-evidence-dd038410-fifo04-default-permissions-admission/fifo04-inventory-reconciliation-input.json",
+    "sha256": "849d82e261b02b67acc2dacba13192a6841a13109c7ff98c00a5263b8f787b4e"
+  },
+  "broker_receipt": {
+    "path": "/tmp/ts-vendor-union-dd038410-fifo04-default-permissions-admission-receipt.json",
+    "sha256": "d1776fbdfbc61aa2cbd5b2e89d1186e4b9be7e0a8d5c119a3719a0dcef0a71b5"
+  },
+  "canonical_summary": {
+    "path": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo04-default-permissions-admission.json",
+    "sha256": "306506f10e873f2135a03b7dd5e2c7368752d0ef8ad3ca20557e76ce71656b3a"
+  },
+  "raw_log": {
+    "path": "/tmp/ts-vendor-union-dd038410-fifo04-default-permissions-admission.jsonl",
+    "sha256": "65c02de5924ecc3b1a98607f27da31b5ac046237f259f081597500534f808337"
+  },
+  "dispatch": {
+    "path": "/tmp/ts-nats-vendor-migration-20261016/remaining-fifo-source-dd038410/dispatch/position-04/dispatch.json",
+    "sha256": "a30d4fba2000708847069770da0a02e7bc87c2ce269bcbb9c034a4065881fd3d"
+  },
+  "packet_private_gaps": {
+    "path": "/tmp/ts-vendor-scoped-evidence-dd038410-fifo04-default-permissions-admission/private-gaps.json",
+    "sha256": "bffc2e2a37050c5706916590ed435fbb37b6d1765e8387082f87de211a5c0be8"
+  },
+  "exact_argv": [
+    "timeout",
+    "240s",
+    "flock",
+    "-n",
+    "/tmp/ts-orch-refactor-short-check-a.lock",
+    "env",
+    "-u",
+    "GOROOT",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin:/usr/bin:/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "nice",
+    "-n",
+    "19",
+    "go",
+    "test",
+    "-p=1",
+    "-parallel=1",
+    "-mod=readonly",
+    "-tags=skip_store_tests,skip_js_tests,skip_mqtt_tests,skip_msgtrace_tests,skip_no_race_tests",
+    "./server",
+    "-run",
+    "^TestAccountDefaultPermissionsAdmissionRaceOverTCP$",
+    "-count=1",
+    "-timeout=180s",
+    "-json"
+  ],
+  "cwd": "/tmp/ts-vendor-union-qa-dd038410/third_party/nats-server",
+  "session": 17084,
+  "lease": "A17084 RELEASED",
+  "exit_code": 0,
+  "root": "TestAccountDefaultPermissionsAdmissionRaceOverTCP",
+  "case_count": 1,
+  "root_seconds": 2.36,
+  "package_seconds": 2.374,
+  "skip_count": 0,
+  "unexpected_count": 0,
+  "binding_count": 155,
+  "bindings_before_after_equal": true,
+  "bindings_rehashed_exact": true,
+  "raw_scope_verified": true,
+  "qualification": "STANDARD_RUNTIME_PASS_ONLY; one root-only case. No private interleaving, race, equivalence, removal, central closure, broad-suite, live or production qualification.",
+  "retained_original": "TestAccountDefaultPermsRaceDuringAuth",
+  "private_gaps": {
+    "root": "TestAccountDefaultPermissionsAdmissionRaceOverTCP",
+    "retained_contract": {
+      "public": "1000actual inherited-permission admissions with allowed delivery overlap1000immutable signed updates alternating even/odd; final inheritedodd/explicitexplicit allowed, unauthorizedeven/allowed cause exact permission error and marker delivery.",
+      "original": "1000buildInternalNkeyUser permission reads overlap1000defaultPerms replacements.",
+      "private_gap": "Public auth and update paths reach same locked fields, but exact concurrent interleaving/race-detector qualification remains open.",
+      "source": "All1000tokens signed before workers start; token strings immutable. auth.go1127 callsbuildInternalNkeyUser; accounts.go4145 RLocks defaultPerms, updateAccountClaimsWithRefresh accounts.go3859 replaces under lock. Twoworkers each report one result; final tokens endodd. Full-resolver callbacks can serialize updates.",
+      "poll": "No poll/sleep/global worker deadline; perconnect/Flush/NextMsg/SYSrequest2s, final permission-error channel2s. Broker/package hard ceiling is required; success paths can consume many serial guards."
+    },
+    "open_gaps": [
+      "Exact original concurrent interleaving",
+      "Race-detector qualification",
+      "Original/private behavior equivalence",
+      "Original test removal acceptance",
+      "Central closure, full-suite, live and production qualification"
+    ],
+    "retained_original": "TestAccountDefaultPermsRaceDuringAuth",
+    "status": "OPEN; standard-runtime PASS does not close these gaps"
+  },
+  "central_closures": 0,
+  "created_utc": "2026-10-17T00:14:44.072044+00:00"
+}

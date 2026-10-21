@@ -1,0 +1,17 @@
+{
+  "state": "SOURCE_ONLY_NOT_COMPILED_OR_RUN_NO_LEASE",
+  "packet": "/tmp/ts-ociclient-d45-shortb-sealed-utysan9b",
+  "predecessor_packet": "/tmp/ts-ociclient-dispatcher-d45d64d2-sealed-osb0j9pg",
+  "predecessor_request_sha256": "ecc53943984a3d06b9dd60e7d7b1f974729e94aec697d9e6c8b96dd16f58c8f1",
+  "request_sha256": "db2786b475cb32e786a8c1aa61c8712668647441cbce2c235cfeb33a1e1cb0f3",
+  "runner_sha256": "1abbd4dfd69c8b8a074a3c27cfc715a2eceb4276c1ede047c79b5b5fbc1cb7bd",
+  "shared_lock": "/tmp/ts-orch-refactor-short-check-b.lock",
+  "validation": "Lock-only request successor: all other request fields including argv/environment/source identity unchanged; runner differs only in expected request hash. Original packet unused. Runner AST parsed only; no Go invocation, execution or lease.",
+  "execution_only_after_QA_lease": [
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-ociclient-d45-shortb-sealed-utysan9b/run.py"
+  ],
+  "outputs_created_only_at_execution": "/tmp/ts-ociclient-d45-shortb-sealed-utysan9b/qa-output"
+}

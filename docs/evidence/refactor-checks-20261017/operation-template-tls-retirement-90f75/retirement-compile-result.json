@@ -1,0 +1,46 @@
+{
+  "head": "90f75da526e7bc75124a4f5bd19b920320a7f3d7",
+  "tree": "2167e8bd91f966da4ae8f939907b7b14ecb27919",
+  "source": "/tmp/ts-operation-template-retirement-mqv7i0g3/source",
+  "env": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "argv": [
+    "nice",
+    "-n",
+    "19",
+    "timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "240s",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-c",
+    "-mod=readonly",
+    "-p=1",
+    "-o",
+    "/tmp/ts-qa-operation-90f75-compile-v8xjsvbj/ociclient.test",
+    "./internal/ociclient"
+  ],
+  "available_bytes": 28398551040,
+  "load1": 1.30126953125,
+  "lock": "/tmp/ts-orch-refactor-short-check-a.lock",
+  "runtime_executed": false,
+  "exit_code": 0,
+  "elapsed_seconds": 5.114869176002685,
+  "source_after": "90f75da526e7bc75124a4f5bd19b920320a7f3d7",
+  "status_after": "",
+  "binary": {
+    "path": "/tmp/ts-qa-operation-90f75-compile-v8xjsvbj/ociclient.test",
+    "mode": "0o600",
+    "bytes": 16361934,
+    "sha256": "69a3f318d0376a45aad29b90b8f3ca2c24a4eb262b858fed851c30e595d4b45a",
+    "never_executed": true
+  },
+  "lock_released": true
+}

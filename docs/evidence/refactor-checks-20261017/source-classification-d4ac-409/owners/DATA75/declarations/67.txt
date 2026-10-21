@@ -1,0 +1,34 @@
+func TestSubmitPublishStopsImmediatelyForPermanentErrors(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "JetStream disabled", err: jetstream.ErrJetStreamNotEnabled},
+		{name: "JetStream disabled for account", err: jetstream.ErrJetStreamNotEnabledForAccount},
+		{name: "missing stream", err: jetstream.ErrStreamNotFound},
+		{name: "invalid acknowledgement", err: jetstream.ErrInvalidJSAck},
+		{name: "invalid publish option", err: jetstream.ErrInvalidOption},
+		{name: "permission denied", err: nats.ErrPermissionViolation},
+		{name: "API 4xx", err: &jetstream.APIError{Code: 400, Description: "bad request"}},
+		{name: "unknown", err: errors.New("unclassified publish failure")},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			service.js = &interceptedPublish{JetStream: service.js, publish: func(context.Context, string, []byte, ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+				calls++
+				return nil, test.err
+			}}
+			attempt := intent
+			attempt.OperationID = entityid.Derive("test-delivery", fmt.Sprintf("permanent-%d", index))
+			if err := service.Submit(ctx, attempt); !errors.Is(err, test.err) {
+				t.Fatalf("Submit error=%v, want %v", err, test.err)
+			}
+			if calls != 1 {
+				t.Fatalf("publish attempts=%d, want 1", calls)
+			}
+		})
+	}
+}

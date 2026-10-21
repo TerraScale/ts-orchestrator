@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 func requireLiveID(v any, id any, label string) Object {
@@ -402,22 +404,33 @@ func requiredPrefix(plan Object) string {
 	}
 	return canonicalPrefix(v)
 }
-func storageStatements(plan, ids Object, prefix string) []string {
+func storageStatements(plan, ids Object, prefix string, ledgerKey ...string) []string {
 	identity, names, buckets := obj(plan["identity"]), obj(plan["preview_compartment_names"]), obj(plan["foundation_buckets"])
 	dg, control := str(identity["controller_dynamic_group_name"]), str(names["control"])
 	prefix = canonicalPrefix(prefix)
-	r := []string{}
+	r := []string{fmt.Sprintf("Allow dynamic-group %s to read objectstorage-namespaces in tenancy", dg)}
+	for _, role := range []string{"ledger", "head", "backup", "material"} {
+		r = append(r, fmt.Sprintf("Allow dynamic-group %s to read buckets in compartment %s where target.bucket.name='%s'", dg, control, str(buckets[role])))
+	}
 	for _, role := range []string{"ledger", "head"} {
-		permissions := "request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'"
+		permissions := "request.permission='OBJECT_CREATE'"
 		if role == "head" {
 			permissions += ", request.permission='OBJECT_OVERWRITE'"
 		}
 		for _, version := range []string{"v1", "v2"} {
 			name := "bootstrap/" + version + "/*"
+			reserved := "bootstrap/v2/material-source/*"
 			if prefix != "" {
 				name = prefix + "/" + name
+				reserved = prefix + "/" + reserved
 			}
-			r = append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='%s', any {%s}}", dg, control, str(buckets[role]), name, permissions))
+			exclusion := ""
+			if version == "v2" {
+				exclusion = fmt.Sprintf("target.object.name != /%s/, ", reserved)
+			}
+			r = append(r,
+				fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name=/%s/, request.permission='OBJECT_READ'}", dg, control, str(buckets[role]), name),
+				fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name=/%s/, %sany {%s}}", dg, control, str(buckets[role]), name, exclusion, permissions))
 		}
 	}
 	// The leader keeps the configuration KV buckets in the versioned head
@@ -433,19 +446,53 @@ func storageStatements(plan, ids Object, prefix string) []string {
 	for _, role := range []string{"terrabase", "ts-auth"} {
 		r = append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='releases/services/%s/status.json', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}", dg, control, str(buckets["head"]), role))
 	}
-	return append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='material/v2/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}", dg, control, str(buckets["material"])), fmt.Sprintf("Allow dynamic-group %s to use keys in compartment %s where all {target.key.id='%s', any {request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}", dg, control, str(ids["key"])), fmt.Sprintf("Allow dynamic-group %s to use key-delegate in compartment %s where target.key.id='%s'", dg, control, str(ids["key"])))
+	r = append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='material/v2/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}", dg, control, str(buckets["material"])))
+	keys := []string{str(ids["key"])}
+	if len(ledgerKey) > 0 && ledgerKey[0] != keys[0] {
+		keys = append(keys, ledgerKey[0])
+	}
+	for _, key := range keys {
+		r = append(r, fmt.Sprintf("Allow dynamic-group %s to use keys in compartment %s where all {target.key.id='%s', any {request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}", dg, control, key), fmt.Sprintf("Allow dynamic-group %s to use key-delegate in compartment %s where target.key.id='%s'", dg, control, key))
+	}
+	return r
 }
-func controllerStatements(plan, ids Object, prefix string) []string {
+func controllerStatements(plan, ids Object, prefix string, ledgerKey ...string) []string {
 	dg := str(obj(plan["identity"])["controller_dynamic_group_name"])
 	names := obj(plan["preview_compartment_names"])
 	r := []string{}
-	for _, row := range [][3]string{{"manage", "instance-family", "control"}, {"manage", "instance-family", "workload"}, {"read", "instance-images", "control"}, {"use", "virtual-network-family", "network"}, {"use", "load-balancers", "network"}, {"manage", "volume-family", "control"}, {"manage", "volume-family", "workload"}, {"read", "secret-bundles", "control"}} {
+	for _, row := range [][3]string{{"manage", "instance-family", "control"}, {"manage", "instance-family", "workload"}, {"read", "instance-images", "control"}, {"use", "virtual-network-family", "network"}, {"use", "load-balancers", "network"}, {"manage", "volume-family", "control"}, {"manage", "volume-family", "workload"}} {
 		r = append(r, fmt.Sprintf("Allow dynamic-group %s to %s %s in compartment %s", dg, row[0], row[1], str(names[row[2]])))
 	}
-	return append(r, storageStatements(plan, ids, prefix)...)
+	r = append(r, fmt.Sprintf("Allow dynamic-group %s to read secret-bundles in compartment %s where target.secret.name != /ts-bootstrap-source-*/", dg, str(names["control"])))
+	return append(r, storageStatements(plan, ids, prefix, ledgerKey...)...)
 }
 func RequiredControllerStatements(plan, ids Object, prefix string) ([]string, error) {
 	return capture(func() []string { return controllerStatements(plan, ids, prefix) })
+}
+
+// BootstrapSourceStatements scopes a create-once source archive to one founder.
+// The caller must prove this exact founder through the accepted root seed and
+// current signed ledger, and obtain target from the same signed GRU foundation.
+// Constructing these statements grants no authority and applies no IAM policy.
+func BootstrapSourceStatements(founderInstanceID, secretName string, target vaultsecret.Target) ([]string, error) {
+	return capture(func() []string {
+		requireOCID(founderInstanceID, "instance", "")
+		requireOCID(target.CompartmentID, "compartment", "")
+		requireOCID(target.VaultID, "vault", "sa-saopaulo-1")
+		requireOCID(target.KeyID, "key", "sa-saopaulo-1")
+		if !safeMatch(`ts-bootstrap-source-(?:link-)?[a-f0-9]{32}`, secretName) {
+			fail("bootstrap source IAM requires an exact stable source secret name")
+		}
+		principal := fmt.Sprintf("request.principal.type='instance', request.principal.id='%s'", founderInstanceID)
+		secret := fmt.Sprintf("%s, target.secret.name='%s', target.vault.id='%s'", principal, secretName, target.VaultID)
+		return []string{
+			fmt.Sprintf("Allow any-user to read secret-bundles in compartment id %s where all {%s, request.permission='SECRET_BUNDLE_READ'}", target.CompartmentID, secret),
+			fmt.Sprintf("Allow any-user to read secrets in compartment id %s where all {%s, request.permission='SECRET_READ'}", target.CompartmentID, secret),
+			fmt.Sprintf("Allow any-user to manage secrets in compartment id %s where all {%s, request.permission='SECRET_CREATE'}", target.CompartmentID, secret),
+			fmt.Sprintf("Allow any-user to use vaults in compartment id %s where all {%s, target.vault.id='%s', request.permission='VAULT_CREATE_SECRET'}", target.CompartmentID, principal, target.VaultID),
+			fmt.Sprintf("Allow any-user to use keys in compartment id %s where all {%s, target.key.id='%s', any {request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}", target.CompartmentID, principal, target.KeyID),
+		}
+	})
 }
 
 // ObjectStorageKeyStatement is the Object Storage key policy's one statement:
@@ -484,15 +531,15 @@ func (e *Engine) liveIAM(plan, ids Object, prefix string) {
 		fail("live controller dynamic group does not exactly isolate controller instances")
 	}
 	policy := requireLiveID(e.oci("", "iam", "policy", "get", "--policy-id", str(ids["controller_policy"])), ids["controller_policy"], "controller IAM policy")
-	if policy["lifecycle-state"] != "ACTIVE" || policy["name"] != identity["controller_policy_name"] || policy["compartment-id"] != plan["parent_compartment_id"] || !eq(policy["statements"], controllerStatements(plan, ids, prefix)) {
+	if policy["lifecycle-state"] != "ACTIVE" || policy["name"] != identity["controller_policy_name"] || policy["compartment-id"] != plan["parent_compartment_id"] || !eq(policy["statements"], must(RequiredStorageControllerStatements(plan, ids, prefix, e.HomeStorageDomain))) {
 		fail("live controller IAM policy differs from exact reviewed statements")
 	}
 	kp := requireLiveID(e.oci("", "iam", "policy", "get", "--policy-id", str(ids["objectstorage_key_policy"])), ids["objectstorage_key_policy"], "Object Storage key IAM policy")
 	if kp["lifecycle-state"] != "ACTIVE" || kp["name"] != identity["objectstorage_key_policy_name"] || kp["compartment-id"] != ids["control_compartment"] {
 		fail("live Object Storage key policy differs from exact reviewed statements")
 	}
-	statement := ObjectStorageKeyStatement(plan, ids)
-	if !eq(kp["statements"], []string{statement}) {
+	statements := must(ObjectStorageKeyStatements(plan, ids, e.HomeStorageDomain))
+	if !eq(kp["statements"], statements) {
 		fail("Object Storage key policy is not limited to the reviewed region and key")
 	}
 	hg := requireLiveID(e.oci("", "iam", "dynamic-group", "get", "--dynamic-group-id", str(ids["host_dynamic_group"])), ids["host_dynamic_group"], "workload host dynamic group")
@@ -506,7 +553,7 @@ func (e *Engine) liveIAM(plan, ids Object, prefix string) {
 	secretConfig := obj(plan["host_credential_secret"])
 	compartment, secretID := secretConfig["compartment_id"], secretConfig["secret_id"]
 	hp := requireLiveID(e.oci("", "iam", "policy", "get", "--policy-id", str(ids["host_policy"])), ids["host_policy"], "host LiveS3Credential IAM policy")
-	statement = fmt.Sprintf("Allow dynamic-group %s to read secret-bundles in compartment id %s where target.secret.id = '%s'", str(identity["host_dynamic_group_name"]), str(compartment), str(secretID))
+	statement := fmt.Sprintf("Allow dynamic-group %s to read secret-bundles in compartment id %s where target.secret.id = '%s'", str(identity["host_dynamic_group_name"]), str(compartment), str(secretID))
 	if hp["lifecycle-state"] != "ACTIVE" || hp["name"] != identity["host_policy_name"] || hp["compartment-id"] != compartment || !eq(hp["statements"], []string{statement}) {
 		fail("host LiveS3Credential policy is not limited to the selected secret and compartment")
 	}
@@ -537,8 +584,12 @@ func (e *Engine) liveVault(plan, ids Object) {
 }
 func (e *Engine) liveBuckets(plan, ids Object) string {
 	namespace := str(e.oci(text(plan["region"]), "os", "ns", "get"))
+	if e.HomeStorageDomain != (bootstrap.StorageDomain{}) && namespace != e.HomeStorageDomain.Namespace {
+		fail("live namespace differs from signed home storage")
+	}
 	names := obj(plan["foundation_buckets"])
 	for _, role := range []string{"ledger", "head", "backup", "material"} {
+		key := must(FoundationBucketKey(plan, ids, role, e.HomeStorageDomain))
 		name := str(names[role])
 		bucket := obj(e.oci(text(plan["region"]), "os", "bucket", "get", "--namespace-name", namespace, "--bucket-name", name))
 		versioning, retentionName := "Disabled", ""
@@ -547,7 +598,7 @@ func (e *Engine) liveBuckets(plan, ids Object) string {
 		} else {
 			retentionName = role + "-retention"
 		}
-		if bucket["name"] != name || bucket["compartment-id"] != ids["control_compartment"] || bucket["public-access-type"] != "NoPublicAccess" || bucket["storage-tier"] != "Standard" || bucket["versioning"] != versioning || bucket["kms-key-id"] != ids["key"] {
+		if bucket["name"] != name || bucket["compartment-id"] != ids["control_compartment"] || bucket["public-access-type"] != "NoPublicAccess" || bucket["storage-tier"] != "Standard" || bucket["versioning"] != versioning || bucket["kms-key-id"] != key {
 			fail("live " + role + " bucket privacy, KMS, tier, compartment, or versioning differs from the plan")
 		}
 		retention := rows(e.oci(text(plan["region"]), "os", "retention-rule", "list", "--namespace-name", namespace, "--bucket-name", name, "--all"))

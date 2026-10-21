@@ -61,7 +61,7 @@ const (
 	// A change that adds a section raises it, and amendments that use the
 	// section require the new level.
 	// Level 2 adds profile secrets, level 3 reserved, level 4 host images,
-	// level 5 the kv_snapshot schedule, level 6 reserved, level 7
+	// levels 5 and 6 reserved, level 7
 	// the desired OCI resources, level 8 the trusted signers, level 9 the
 	// launch image, level 10 the artifact store quota, level 11 the Atlas
 	// publisher, level 12 the release fence, level 13 a fenced set's
@@ -176,8 +176,6 @@ type Spec struct {
 	Services       []Service   `json:"services"`
 	HostGrants     []HostGrant `json:"host_grants,omitempty"`
 	HostImages     []HostImage `json:"host_images,omitempty"`
-	// KVSnapshot schedules the configuration bucket snapshots.
-	KVSnapshot *KVSnapshot `json:"kv_snapshot,omitempty"`
 	// OCIDesired replaces the signed config's desired OCI resources.
 	OCIDesired *OCIDesired `json:"oci_desired,omitempty"`
 	// Signers replace the signed config's trusted signers, sorted by actor;
@@ -448,11 +446,9 @@ type TrustedSigner struct {
 	Repositories       []string `json:"repositories,omitempty"`
 }
 
-// OCIDesiredEntry is one desired OCI resource. Policy is "report" (the
-// default: drift is only recorded) or "enforce".
+// OCIDesiredEntry is one desired OCI resource, reconciled under regional authority.
 type OCIDesiredEntry[S any] struct {
-	Policy string `json:"policy,omitempty"`
-	Spec   S      `json:"spec"`
+	Spec S `json:"spec"`
 }
 
 // OCIDesired lists the cell's desired OCI specs by logical name per kind;
@@ -468,15 +464,6 @@ type OCIDesired struct {
 	// are left alone.
 	Prune             bool `json:"prune,omitzero"`
 	PruneDelaySeconds int  `json:"prune_delay_seconds,omitzero"`
-}
-
-// KVSnapshot is how often the authority leader uploads changed
-// configuration buckets, and a pause. Zero IntervalSeconds keeps the signed
-// controller config's interval. The location stays in the signed config: a
-// rebuilt cell restores from it before any KV bucket exists.
-type KVSnapshot struct {
-	IntervalSeconds int  `json:"interval_seconds,omitzero"`
-	Paused          bool `json:"paused,omitzero"`
 }
 
 // Signed is what an operator applies and what controllers store, as exact
@@ -541,10 +528,6 @@ func (s Spec) Validate() error {
 				return fmt.Errorf("service %q: %w", service.Role, err)
 			}
 		}
-	}
-	if snapshot := s.KVSnapshot; snapshot != nil && snapshot.IntervalSeconds != 0 &&
-		(snapshot.IntervalSeconds < 5 || snapshot.IntervalSeconds > 3600) {
-		return fmt.Errorf("%w: kv_snapshot interval_seconds must be 0 or 5 to 3600", ErrInvalid)
 	}
 	if s.OCIDesired != nil {
 		if err := s.OCIDesired.Validate(); err != nil {
@@ -672,7 +655,7 @@ func (s Spec) Grant(node string) (HostGrant, bool) {
 
 // Level is the lowest requires_binary the spec's sections need: 2 once a
 // profile names Vault secrets, 4 once it allows host
-// images, 5 with a kv_snapshot schedule, 6 reserved, 7 with
+// images, 5 and 6 reserved, 7 with
 // desired OCI resources, 8 with signers, 9 once it names a launch image and
 // 10 with an artifact store quota, 11 with an Atlas publisher, 12 with
 // a release fence (13, 14 and 15 with its min_serving, role and canary) and
@@ -688,9 +671,6 @@ func (s Spec) Level() uint64 {
 	}
 	if len(s.HostImages) != 0 {
 		level = 4
-	}
-	if s.KVSnapshot != nil {
-		level = max(level, 5)
 	}
 	if s.OCIDesired != nil {
 		level = max(level, 7)
@@ -971,8 +951,6 @@ func verifyDelegated(delegationWire []byte, specEnvelope trust.Envelope, roots t
 //   - any change to TerraBase's profile (resources, arguments or a setting),
 //     which binds membership, listeners, member certificates and the
 //     credentials and token issuers TerraBase trusts;
-//   - pausing kv_snapshot, since a rebuilt cell restores only what was
-//     uploaded;
 //   - in oci_desired, a new or changed enforce entry, turning on prune,
 //     shortening the prune delay, and dropping an entry while prune is on,
 //     since each changes the cell's OCI resources;
@@ -1031,9 +1009,6 @@ func AuthorityChanges(current, next Spec, signed map[string]Profile) []string {
 	if next.NetBird != nil && (current.NetBird == nil || !reflect.DeepEqual(current.NetBird.Enrollment, next.NetBird.Enrollment)) {
 		changes = append(changes, "netbird enrollment")
 	}
-	if next.KVSnapshot != nil && next.KVSnapshot.Paused && (current.KVSnapshot == nil || !current.KVSnapshot.Paused) {
-		changes = append(changes, "kv_snapshot pause")
-	}
 	changes = append(changes, ociDesiredChanges(current.OCIDesired, next.OCIDesired)...)
 	for _, actor := range signerChanges(current.Signers, next.Signers) {
 		changes = append(changes, "signer "+actor)
@@ -1082,9 +1057,6 @@ type Plan struct {
 	HostGrants []string `json:"host_grants,omitempty"`
 	// HostImages names each image the allow-list adds, changes or removes.
 	HostImages []string `json:"host_images,omitempty"`
-	// KVSnapshot is "added", "updated" or "removed" when the kv_snapshot
-	// schedule changes.
-	KVSnapshot string `json:"kv_snapshot,omitempty"`
 	// OCIDesired is "added", "updated" or "removed" when the desired OCI
 	// resources change.
 	OCIDesired string `json:"oci_desired,omitempty"`
@@ -1169,14 +1141,6 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 			plan.HostImages = append(plan.HostImages, id)
 		}
 	}
-	switch before, after := current.KVSnapshot, next.KVSnapshot; {
-	case before == nil && after != nil:
-		plan.KVSnapshot = "added"
-	case before != nil && after == nil:
-		plan.KVSnapshot = "removed"
-	case before != nil && *before != *after:
-		plan.KVSnapshot = "updated"
-	}
 	switch before, after := current.OCIDesired, next.OCIDesired; {
 	case before == nil && after != nil:
 		plan.OCIDesired = "added"
@@ -1243,12 +1207,12 @@ func Diff(current, next Spec, signed map[string]Profile) (Plan, error) {
 // Empty reports whether the plan changes nothing.
 func (p Plan) Empty() bool {
 	return len(p.Added)+len(p.Updated)+len(p.Removed)+len(p.HostGrants)+len(p.HostImages) == 0 &&
-		p.KVSnapshot == "" && p.OCIDesired == "" && len(p.Signers) == 0 &&
+		p.OCIDesired == "" && len(p.Signers) == 0 &&
 		p.LaunchImage == "" && p.ArtifactStore == "" && p.Atlas == "" && p.ReleaseFence == "" && p.MachinesAPI == "" &&
 		p.Dashboard == "" && p.NetBird == ""
 }
 
-// Validate checks each entry's policy and spec and the prune delay. The
+// Validate checks each entry's spec and the prune delay. The
 // controller also checks the entries against the signed region config.
 func (d OCIDesired) Validate() error {
 	if d.PruneDelaySeconds < 0 || d.PruneDelaySeconds > 7*24*60*60 {
@@ -1260,9 +1224,6 @@ func (d OCIDesired) Validate() error {
 
 func validDesired[S interface{ Validate() error }](entries map[string]OCIDesiredEntry[S]) error {
 	for name, entry := range entries {
-		if entry.Policy != "" && entry.Policy != "report" && entry.Policy != "enforce" {
-			return fmt.Errorf("%q has unsupported policy %q", name, entry.Policy)
-		}
 		if err := entry.Spec.Validate(); err != nil {
 			return fmt.Errorf("%q: %w", name, err)
 		}
@@ -1271,7 +1232,7 @@ func validDesired[S interface{ Validate() error }](entries map[string]OCIDesired
 }
 
 // ociDesiredChanges lists what after widens relative to before: a new or
-// changed enforce entry, turning on prune, a shorter prune delay while
+// changed resource entry, turning on prune, a shorter prune delay while
 // prune is on, and an entry dropped while prune is on, since prune then
 // releases its resource. Nil means no desired resources.
 func ociDesiredChanges(before, after *OCIDesired) []string {
@@ -1305,7 +1266,7 @@ func desiredChanges[S any](kind string, before, after map[string]OCIDesiredEntry
 	var changes []string
 	for _, name := range slices.Sorted(maps.Keys(after)) {
 		entry := after[name]
-		if previous, ok := before[name]; entry.Policy == "enforce" && (!ok || !reflect.DeepEqual(previous, entry)) {
+		if previous, ok := before[name]; !ok || !reflect.DeepEqual(previous, entry) {
 			changes = append(changes, "oci_desired "+kind+" "+name)
 		}
 	}

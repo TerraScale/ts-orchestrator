@@ -63,7 +63,7 @@ func finish(rule nsg.Rule, tcp *core.TcpOptions, udp *core.UdpOptions, icmp bool
 }
 
 func (a sdkAPI) GetList(ctx context.Context, id string) (List, error) {
-	response, err := a.network.GetSecurityList(ctx, core.GetSecurityListRequest{SecurityListId: new(id)})
+	response, err := a.network.GetSecurityList(ociclient.RequestContext(ctx), core.GetSecurityListRequest{SecurityListId: new(id)})
 	if err != nil {
 		if serviceErr, ok := common.IsServiceError(err); ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
 			return List{}, fmt.Errorf("get OCI security list: %w: %w", ociresource.ErrGone, err)
@@ -108,7 +108,7 @@ func updateDetails(rules []nsg.Rule, tags ociresource.Tags) core.UpdateSecurityL
 }
 
 func (a sdkAPI) UpdateList(ctx context.Context, id, etag string, rules []nsg.Rule, tags ociresource.Tags) error {
-	_, err := a.network.UpdateSecurityList(ctx, core.UpdateSecurityListRequest{SecurityListId: new(id), IfMatch: new(etag),
+	_, err := a.network.UpdateSecurityList(ociclient.RequestContext(ctx), core.UpdateSecurityListRequest{SecurityListId: new(id), IfMatch: new(etag),
 		UpdateSecurityListDetails: updateDetails(rules, tags)})
 	if err != nil {
 		return fmt.Errorf("update OCI security list: %w", err)

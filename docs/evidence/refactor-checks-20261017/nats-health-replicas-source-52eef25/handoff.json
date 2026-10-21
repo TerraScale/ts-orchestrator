@@ -1,0 +1,153 @@
+{
+  "schema": "nats-health-replicas-source-handoff/v1",
+  "status": "source-prepared; runtime qualification and original retirement pending",
+  "owner": "/root/nats_next_conversion",
+  "model": "gpt-6.1-sol",
+  "reasoning_effort": "high",
+  "eta_minutes": 25,
+  "base_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "branch": "test/nats-health-replicas-source-52eef25",
+  "worktree": "/tmp/ts-nats-health-replicas-source-52eef25",
+  "accounting": {
+    "path": "docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+    "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "disposition": "other_unadjudicated"
+  },
+  "claim": {
+    "qa_owner": "/root/qa_integrator",
+    "ack": "exclusive existing TestColdRestartWithTwoOfThreeBrokers and new handoff manifest; originals retained; no runtime/count credit",
+    "files": [
+      "internal/natscell/cluster_formation_test.go",
+      "docs/evidence/refactor-checks-20261017/nats-health-replicas-source-52eef25/handoff.json",
+      "docs/evidence/refactor-checks-20261017/nats-health-replicas-source-52eef25/peer-review-receipt.json"
+    ]
+  },
+  "source": {
+    "file": "internal/natscell/cluster_formation_test.go",
+    "sha256": "1646299b70c43445cdb4a0d48a5160f53b05dda31e5cdeca461ec29476c580c3",
+    "patch_sha256": "89ce147284c7f697b870bd7812aca692dda87444e5005d492d6df314a4462c34",
+    "existing_root": "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+    "new_test_roots": 0,
+    "deleted_test_roots": 0,
+    "production_files_changed": 0
+  },
+  "original_roots": [
+    {
+      "root_id": "internal/natscell/health_review_test.go::TestStreamLaggingJudgesEveryReplicaAsItsLeaderReports",
+      "array_index": 2004,
+      "sha256": "cb0ceb3af64c22a49054c8d4652f451bdbd204ace522df819a356b82e27c38e5",
+      "unchanged": true
+    },
+    {
+      "root_id": "internal/natscell/metrics_replicas_review_test.go::TestStreamViewReportsTheConfiguredReplicationFactor",
+      "array_index": 2032,
+      "sha256": "9f6990b0bc3b3994b2b188fb0c0140b3d978dfd53ec136e96ffa487e57f1cc70",
+      "unchanged": true
+    }
+  ],
+  "boundaries": [
+    "Three actual embedded NATS servers with signed JWTs, mutual TLS and production seed routes",
+    "JetStream stream creation, publish and STREAM.INFO over the actual client connection",
+    "In-process server Jsz monitoring through production Runtime.Observe",
+    "Persistent FileStorage cold restart and message recovery"
+  ],
+  "prepared_assertions": [
+    "All three live brokers report the same R3 stream with three peers, no lagging/offline replicas and a leader.",
+    "After the existing full cold stop and two-broker restart, each survivor reports lagging health, one offline replica and configured replication factor three while publishes still succeed.",
+    "After a second stop removes quorum, the remaining broker eventually reports a leaderless stream with configured replication factor three. StreamHealth must return an error or a lagging FORMATION state; successful empty/healthy output fails.",
+    "After both peers restart from retained stores, every broker returns full metadata readiness and current R3 health; the previously absent peer reads the original stored message."
+  ],
+  "coverage_limits": [
+    "Source assertions are unexecuted and receive no runtime qualification or retirement credit.",
+    "Snapshot catchup is not deliberately induced; nil StreamInfo and nil peer records are not fabricated into this fixture.",
+    "Leaderless StreamHealth may fail while listing streams without metadata quorum; this verifies fail-closed behavior and does not claim the per-stream no-answer branch ran.",
+    "Observe always requests Config:true, so configured-factor checks do not prove streamView config-absent fallback branches. Existing standalone coverage is unchanged.",
+    "Original helper matrices remain byte-identical; no classification ledger disposition or counts are changed."
+  ],
+  "checks": {
+    "modern_go": {
+      "status": "passed",
+      "grant": "QA cached READONLY CLI only; no wrapper/install/fallback/build/network/project code",
+      "binary": "/home/mariogk/.cache/go-modern-guidelines/v0.1.1/go-modern-guidelines",
+      "binary_sha256": "09937a1a253b6c52a49670cd63bfa17172da482d8ec399d7d08de8cd39254254",
+      "command": "nice -n 19 /home/mariogk/.cache/go-modern-guidelines/v0.1.1/go-modern-guidelines list --file-path internal/natscell/cluster_formation_test.go",
+      "exit_code": 0,
+      "guidance_applied": [
+        "Existing t.Context() lifecycle retained",
+        "Integer ranges and slices helpers retained; no newly applicable unhandled guideline"
+      ]
+    },
+    "format": {
+      "status": "passed",
+      "command": "nice -n 19 gofmt -w internal/natscell/cluster_formation_test.go",
+      "exit_code": 0
+    },
+    "diff_check": {
+      "status": "passed",
+      "command": "git diff --check",
+      "exit_code": 0
+    },
+    "independent_source_review": {
+      "status": "passed; no blocking source findings",
+      "owner": "/root/nats_next_conversion/nats_health_source_review",
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "high",
+      "reviewed_patch_sha256": "89ce147284c7f697b870bd7812aca692dda87444e5005d492d6df314a4462c34",
+      "findings": [
+        "Real signed JWT/mTLS NATS network and persistent R3 storage boundaries; no production guard or existing assertion removed.",
+        "Native StreamHealth and Observe assertions require healthy R3, one offline replica, leaderless configured replication reporting and healthy recovery. Leaderless health errors also hold the production rollout gate.",
+        "Stopped fixture slots restart before full iteration; Runtime.Close supports nil and repeated cleanup.",
+        "Coverage remains partial: online-but-not-current snapshot catchup, nil replica and unconfigured metrics fallback are not deterministically exercised. Originals must remain."
+      ],
+      "execution": "Static reads and Python diff hashing only; no Go, compiler, test, probe, cloud or privileged command.",
+      "receipt_path": "docs/evidence/refactor-checks-20261017/nats-health-replicas-source-52eef25/peer-review-receipt.json",
+      "receipt_sha256": "210b530dd1e8d6058d7f11d594f7d8ee760a052d30c5b65094cd0ccae93d535b"
+    },
+    "compile": {
+      "status": "not-run; requires exact QA grant"
+    },
+    "runtime": {
+      "status": "not-run; requires exact QA grant"
+    },
+    "handoff_consistency": {
+      "status": "passed",
+      "method": "Python source/diff hash checks, identical existing root list, original byte checks and zero-credit assertions"
+    },
+    "metadata_correction_review": {
+      "status": "passed; no blocking findings",
+      "owner": "/root/nats_next_conversion/nats_health_source_review",
+      "reviewed_handoff_sha256": "c43fa649e171d2984b15d335c3aba15d7ab2e436529811cecc469798dd802e2a",
+      "reviewed_receipt_sha256": "210b530dd1e8d6058d7f11d594f7d8ee760a052d30c5b65094cd0ccae93d535b",
+      "reviewed_metadata_patch_sha256": "88a173c83262660b50b513fe8f88be3d214399ecd45adcd7c025a9dfbedd2050",
+      "findings": [
+        "Go source and both original matrices unchanged from628e; true compile-only proposal executes no init/TestMain/tests; all proposed execution still requires QA grant; zero credits.",
+        "Receipt matches original peer assignment, task name, final review and reviewed source hashes. Caller-side spawn arguments are coordinator transcript provenance; the child cannot inspect the caller transcript."
+      ],
+      "finalization": "This result entry is appended after the independent metadata review; other reviewed metadata and source stay unchanged.",
+      "execution": "Static reads/hash checks only; no Go/compiler/test/probe or reviewer edits."
+    }
+  },
+  "proposed_qa_commands_not_executed": [
+    {
+      "purpose": "compile the owning package test binary without executing init, TestMain or tests; discard the linked artifact",
+      "command": "nice -n 19 env GOMAXPROCS=2 go test -p=1 -c -o /dev/null ./internal/natscell"
+    },
+    {
+      "purpose": "run the extended existing integration root",
+      "command": "nice -n 19 env GOMAXPROCS=2 go test -p=1 -run '^TestColdRestartWithTwoOfThreeBrokers$' -count=1 -timeout=150s -v ./internal/natscell"
+    },
+    {
+      "purpose": "focused existing standalone boundary regressions, if QA includes them",
+      "command": "nice -n 19 env GOMAXPROCS=2 go test -p=1 -run '^(TestObserveReportsEmbeddedJetStreamHealth|TestStreamHealthReportsUnreplicatedStreamsOnThisBroker|TestObserveClusterReportsDisabledJetStream)$' -count=1 -timeout=90s -v ./internal/natscell"
+    }
+  ],
+  "qa_execution_requirements": "Pin the final exact candidate commit and permitted local toolchain/cache environment; serialize under QA resource grant; retain complete JSON/text logs and exit status. Proposed commands grant nothing.",
+  "remaining_unit_only_dependencies": [
+    "Both original isolated helper matrices remain pending further integration coverage/retirement review; unchanged production and shared fixtures retained."
+  ],
+  "qualification_credit": 0,
+  "retirement_credit": 0,
+  "classification_credit": 0,
+  "supersedes_handoff_commit": "628e2867fcebc6a1992314ca5ac89197460d7402",
+  "correction": "The previous proposed go test -run ^$ command could execute init and TestMain. It was never run. Replace it with true compile-only go test -c -o /dev/null; exact QA fixed environment and grant still required."
+}

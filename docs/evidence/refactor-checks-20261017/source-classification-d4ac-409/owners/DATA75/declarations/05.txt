@@ -1,0 +1,25 @@
+func TestArtifactAdmissionCreateAndReplayIgnoreStaleFollower(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	record, envelope, err := service.PrepareArtifact(ctx, bytes.NewReader([]byte("artifact admitted despite stale follower")), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var followerReads int
+	service.admissions = overriddenAdmissionGet{KeyValue: service.admissions, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+		followerReads++
+		return nil, jetstream.ErrKeyNotFound
+	}}
+	for _, attempt := range []string{"create", "replay"} {
+		admitted, err := service.AcceptArtifactClaim(ctx, envelope)
+		if err != nil || admitted != record {
+			t.Fatalf("%s admission = %+v, %v", attempt, admitted, err)
+		}
+	}
+	resolved, err := service.ResolveAdmittedArtifact(ctx, record.Digest, record.Role, record.Environment)
+	if err != nil || resolved != record {
+		t.Fatalf("resolved admission = %+v, %v", resolved, err)
+	}
+	if followerReads != 0 {
+		t.Fatalf("admission made %d follower reads", followerReads)
+	}
+}

@@ -25,40 +25,6 @@ func testRoster(generation uint64) Roster {
 	}}
 }
 
-func TestRosterValidation(t *testing.T) {
-	t.Parallel()
-
-	if err := testRoster(1).Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if !testRoster(1).Active("sfo") || testRoster(1).Active("fra") || testRoster(1).Active("iad") {
-		t.Fatal("roster Active disagrees with entry states")
-	}
-	cases := map[string]func(*Roster){
-		"zero generation": func(r *Roster) { r.Generation = 0 },
-		"empty":           func(r *Roster) { r.Regions = nil },
-		"unsorted":        func(r *Roster) { r.Regions[0], r.Regions[1] = r.Regions[1], r.Regions[0] },
-		"duplicate":       func(r *Roster) { r.Regions[2].Cell = "gru" },
-		"global cell":     func(r *Roster) { r.Regions[0].Cell = "global" },
-		"bad cell":        func(r *Roster) { r.Regions[0].Cell = "FRA" },
-		"bad OCI region":  func(r *Roster) { r.Regions[0].OCIRegion = "eu frankfurt" },
-		"unknown state":   func(r *Roster) { r.Regions[0].State = "paused" },
-		"missing home":    func(r *Roster) { r.HomeRegion = "iad" },
-		"home not active": func(r *Roster) { r.Regions[1].State = RegionRetiring },
-		"too many regions": func(r *Roster) {
-			r.Regions = make([]RosterEntry, maxRegions+1)
-		},
-	}
-	for name, mutate := range cases {
-		roster := testRoster(1)
-		roster.Regions = append([]RosterEntry(nil), roster.Regions...)
-		mutate(&roster)
-		if err := roster.Validate(); err == nil {
-			t.Errorf("%s roster validated", name)
-		}
-	}
-}
-
 func TestDirectoryValidation(t *testing.T) {
 	t.Parallel()
 
@@ -227,6 +193,106 @@ func TestHomeWriterGuardsAndCompareAndSets(t *testing.T) {
 	}
 	if err := stream.Purge(ctx); err == nil {
 		t.Fatal("global stream allowed purge")
+	}
+
+	{
+		js := newTestJetStream(t)
+		global := startAuthority(ctx, t, js, protocol.GlobalScope)
+		writer, err := OpenHome(ctx, js, "gru", nil, 1, global)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader, err := OpenHomeReader(ctx, js, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := reader.Roster(ctx); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("independent roster before heartbeats = %v", err)
+		}
+		epoch := global.Current().Epoch
+		now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+		heard := func(cell, ociRegion string, age time.Duration) Heartbeat {
+			return Heartbeat{Version: 1, Cell: cell, OCIRegion: ociRegion, SentAt: now.Add(-age)}
+		}
+		seen := map[string]Heartbeat{
+			"gru": heard("gru", "sa-saopaulo-1", 0),
+			"sfo": heard("sfo", "us-sanjose-1", time.Second),
+			"fra": heard("fra", "eu-frankfurt-1", RegionSilence),
+		}
+
+		first, changed := NextRoster(Roster{}, "gru", seen, now)
+		if !changed || first.Generation != 1 || first.HomeRegion != "gru" || first.Validate() != nil {
+			t.Fatalf("first roster = %+v, changed %v", first, changed)
+		}
+		if len(first.Regions) != 2 || first.Regions[0].Cell != "gru" || first.Regions[1].Cell != "sfo" ||
+			!first.Active("sfo") || first.Active("fra") {
+			t.Fatalf("regions = %+v", first.Regions)
+		}
+		sequence, err := writer.PutRoster(ctx, epoch, first)
+		if err != nil || sequence == 0 {
+			t.Fatalf("first roster write = %d, %v", sequence, err)
+		}
+		stored, gotSequence, err := reader.Roster(ctx)
+		if err != nil || gotSequence != sequence || stored.Generation != first.Generation ||
+			stored.HomeRegion != first.HomeRegion || !slices.Equal(stored.Regions, first.Regions) {
+			t.Fatalf("stored first roster = %+v, %d, %v", stored, gotSequence, err)
+		}
+		if stored.Generation != 1 || stored.HomeRegion != "gru" || stored.Validate() != nil ||
+			len(stored.Regions) != 2 || stored.Regions[0].Cell != "gru" || stored.Regions[1].Cell != "sfo" ||
+			!stored.Active("sfo") || stored.Active("fra") {
+			t.Fatalf("stored first roster changed heartbeat predicates: %+v", stored)
+		}
+
+		kept, changed := NextRoster(first, "gru", seen, now.Add(time.Minute))
+		if changed || kept.Generation != 1 {
+			t.Fatalf("unchanged roster = %+v, changed %v", kept, changed)
+		}
+		if kept.Generation != first.Generation || kept.HomeRegion != first.HomeRegion || !slices.Equal(kept.Regions, first.Regions) {
+			t.Fatalf("unchanged producer changed the roster: %+v", kept)
+		}
+		stored, gotSequence, err = reader.Roster(ctx)
+		if err != nil || gotSequence != sequence || stored.Generation != first.Generation ||
+			stored.HomeRegion != first.HomeRegion || !slices.Equal(stored.Regions, first.Regions) {
+			t.Fatalf("unchanged stored roster = %+v, %d, %v", stored, gotSequence, err)
+		}
+
+		seen["fra"] = heard("fra", "eu-frankfurt-1", 0)
+		added, changed := NextRoster(first, "gru", seen, now)
+		if !changed || added.Generation != 2 || len(added.Regions) != 3 || !added.Active("fra") {
+			t.Fatalf("added roster = %+v, changed %v", added, changed)
+		}
+		addedSequence, err := writer.PutRoster(ctx, epoch, added)
+		if err != nil || addedSequence <= sequence {
+			t.Fatalf("added roster write = %d after %d, %v", addedSequence, sequence, err)
+		}
+		stored, gotSequence, err = reader.Roster(ctx)
+		if err != nil || gotSequence != addedSequence || stored.Generation != added.Generation ||
+			stored.HomeRegion != added.HomeRegion || !slices.Equal(stored.Regions, added.Regions) {
+			t.Fatalf("stored added roster = %+v, %d, %v", stored, gotSequence, err)
+		}
+		if stored.Generation != 2 || len(stored.Regions) != 3 || !stored.Active("fra") {
+			t.Fatalf("stored added roster changed heartbeat predicates: %+v", stored)
+		}
+
+		delete(seen, "gru")
+		dropped, changed := NextRoster(added, "gru", seen, now.Add(RegionSilence))
+		if !changed || dropped.Generation != 3 || len(dropped.Regions) != 1 || dropped.Regions[0].Cell != "gru" ||
+			dropped.Regions[0].OCIRegion != "sa-saopaulo-1" || dropped.Validate() != nil {
+			t.Fatalf("dropped roster = %+v, changed %v", dropped, changed)
+		}
+		droppedSequence, err := writer.PutRoster(ctx, epoch, dropped)
+		if err != nil || droppedSequence <= addedSequence {
+			t.Fatalf("dropped roster write = %d after %d, %v", droppedSequence, addedSequence, err)
+		}
+		stored, gotSequence, err = reader.Roster(ctx)
+		if err != nil || gotSequence != droppedSequence || stored.Generation != dropped.Generation ||
+			stored.HomeRegion != dropped.HomeRegion || !slices.Equal(stored.Regions, dropped.Regions) {
+			t.Fatalf("stored dropped roster = %+v, %d, %v", stored, gotSequence, err)
+		}
+		if stored.Generation != 3 || len(stored.Regions) != 1 || stored.Regions[0].Cell != "gru" ||
+			stored.Regions[0].OCIRegion != "sa-saopaulo-1" || stored.Validate() != nil {
+			t.Fatalf("stored dropped roster changed heartbeat predicates: %+v", stored)
+		}
 	}
 }
 

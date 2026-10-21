@@ -1,0 +1,11 @@
+{
+  "regular_safe_members_only": true,
+  "member_count": 145,
+  "every_member_matches_payload": true,
+  "tar_rebuild_byte_equal": true,
+  "gzip_rebuild_byte_equal": true,
+  "gzip_roundtrip_exact": true,
+  "compiled_binary_bytes_omitted": true,
+  "all_original_inputs_unchanged": true,
+  "source_and_index_unchanged": true
+}

@@ -1,0 +1,9 @@
+{
+  "path": "internal/ociclient/factory_test.go",
+  "original_name": "TestOperationTemplateRemovesIdentifiers",
+  "kind": "test",
+  "original_declaration_sha256": "dada7d611e6d4130dc8114ea897b2109cec8679360c995f73ab8474a5a7d206d",
+  "current_name": "TestOperationTemplateRemovesIdentifiers",
+  "current_declaration_sha256": "dada7d611e6d4130dc8114ea897b2109cec8679360c995f73ab8474a5a7d206d",
+  "state": "retained_body_exact"
+}

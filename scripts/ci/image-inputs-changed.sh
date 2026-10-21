@@ -14,7 +14,48 @@ unchanged=3
 
 # Everything an image bakes in besides the binary: the pinned base and
 # inputs, the units and udev rules it installs, and the code that builds it.
-inputs=(deploy/image deploy/systemd deploy/udev internal/image internal/netbird/client .github/workflows/image.yml)
+inputs=(deploy/image deploy/systemd deploy/udev internal/image internal/netbird/client .github/workflows/image.yml
+	go.mod go.sum scripts/ci/image-inputs-changed.sh)
+
+# Follow the image tool's imports, including helpers that render baked files.
+# Package source globs retain deleted, generated and other-platform inputs;
+# embed prefixes retain removed files that no longer appear in EmbedFiles.
+root=$(git rev-parse --show-toplevel)
+graph=
+for architecture in amd64 arm64; do
+	if ! platform_graph=$(GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local GOOS=linux GOARCH=$architecture \
+		go list -mod=readonly -deps -json ./internal/image ./internal/netbird/client); then
+		echo 'image tool dependencies are unreadable; building the image' >&2
+		exit 0
+	fi
+	graph+=$'\n'"$platform_graph"
+done
+if ! dependencies=$(jq -rs --arg root "$root/" '
+	[.[] | select(.Dir | startswith($root)) |
+	 (.Dir | ltrimstr($root)) as $dir |
+	 (["go", "s", "S", "h", "c", "cc", "cpp", "m", "mm", "syso"][] |
+	   ":(glob)" + $dir + "/*." + .),
+	 ((.EmbedPatterns // [])[] | sub("^all:"; "") | sub("[*?\\[].*$"; "") |
+	   sub("/+$"; "") | ":(literal)" + $dir + "/" + .),
+	 (.Module.GoMod // empty | select(startswith($root)) |
+	   ltrimstr($root) | ":(literal)" + .)] |
+	if length == 0 or any(test("[\\r\\n]")) then error("invalid image dependencies") else .[] end
+' <<< "$graph"); then
+	echo 'image tool dependency paths are unreadable; building the image' >&2
+	exit 0
+fi
+while IFS= read -r dependency; do inputs+=("$dependency"); done <<< "$dependencies"
+inputs+=(':(exclude,glob)**/*_test.go')
+
+if ! pins=$(jq -er '
+	[.. | objects | .path? | strings] |
+	if length == 0 or any(. == "" or startswith("/") or
+	   test("(^|/)\\.\\.(/|$)|[\\r\\n]")) then error("invalid image file pins") else .[] end
+' deploy/image/image-inputs.json); then
+	echo 'image file pins are unreadable; building the image' >&2
+	exit 0
+fi
+while IFS= read -r pin; do inputs+=(":(literal)$pin"); done <<< "$pins"
 
 : "${GH_TOKEN:?GitHub Actions token is required}"
 export GH_HOST=github.com
@@ -29,7 +70,9 @@ for page in {1..10}; do
 		echo 'image releases are unreadable; building the image' >&2
 		exit 0
 	fi
-	base=$(jq -r 'first(.[].tag_name | capture("^image-(?<sha>[0-9a-f]{40})-run-").sha) // empty' <<< "$releases" 2>/dev/null) || base=
+	base=$(jq -r 'first(.[] | select(.draft == false and
+		any(.assets[]?; .name == "image-qualification.json")) |
+		.tag_name | capture("^image-(?<sha>[0-9a-f]{40})-run-").sha) // empty' <<< "$releases" 2>/dev/null) || base=
 	[[ -n $base ]] && break
 	[[ $(jq -r 'length' <<< "$releases" 2>/dev/null) == "$page_size" ]] || break
 done

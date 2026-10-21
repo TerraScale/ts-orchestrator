@@ -137,8 +137,8 @@ type staticEnrollmentLab struct {
 func startStaticEnrollmentLab(t *testing.T, ctx context.Context, workloads map[string]WorkloadProfile) staticEnrollmentLab {
 	t.Helper()
 	root := t.TempDir()
-	broker, err := natscell.Start(ctx, natscell.Config{
-		Cell: "gru", Instance: "static-enrollment", Replicas: 1, Lab: true,
+	broker, err := newAuthenticatedNATS(t, "gru").start(t, ctx, natscell.Config{
+		Cell: "gru", Instance: "static-enrollment", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(root, "nats")},
 	})
 	if err != nil {
@@ -179,8 +179,11 @@ func startStaticEnrollmentLab(t *testing.T, ctx context.Context, workloads map[s
 	}
 	bundle, issuer, _ := testHostEnrollmentTLSMaterial(t, controllerPublic)
 	fleet := &staticHostFleet{instances: map[string]oci.CloudInstance{}}
-	services, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
-		Controller: ControllerConfig{Workloads: workloads}}, "")
+	cfg := Config{NATS: natscell.Config{Cell: "gru"},
+		Controller: ControllerConfig{Workloads: workloads, SpecTrust: newTestSpecTrust(t, root, cellspec.Identity{
+			DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Cell: "gru", Environment: "production"}).config()}}
+	newAcceptedSpecTrust(t, &cfg)
+	services, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
 	}

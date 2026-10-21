@@ -3,10 +3,13 @@ package machinesapi
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +17,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/machines"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/tenant"
 	"github.com/nats-io/nats-server/v2/server"
@@ -190,6 +194,142 @@ func TestTenancy(t *testing.T) {
 	if code, _, _ := call(t, f.server, f.token("0000000000Z4WVDND9E6R945JB"), "/v1/apps/t-acme-db/machines/00000000000000000000000009"); code != http.StatusNotFound {
 		t.Fatalf("missing machine: %d", code)
 	}
+
+	public := httptest.NewServer(f.server)
+	t.Cleanup(public.Close)
+	client := public.Client()
+	client.Timeout = 2 * time.Second
+	getPublic := func(path string) (int, map[string]any) {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, public.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var body map[string]any
+		if err := json.UnmarshalRead(response.Body, &body); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		return response.StatusCode, body
+	}
+	if code, body := getPublic("/healthz"); code != http.StatusOK || body["status"] != "ok" {
+		t.Fatalf("healthz over TCP: %d %v", code, body)
+	}
+	code, body = getPublic("/v1/openapi.json")
+	paths, _ := body["paths"].(map[string]any)
+	if code != http.StatusOK || body["openapi"] != "3.1.0" {
+		t.Fatalf("openapi over TCP: %d %v", code, body)
+	}
+	for _, path := range []string{"/healthz", "/v1/openapi.json", "/v1/apps", "/v1/apps/{app}", "/v1/apps/{app}/machines",
+		"/v1/apps/{app}/machines/{id}"} {
+		if paths[path] == nil {
+			t.Fatalf("openapi over TCP lacks %s", path)
+		}
+	}
+
+	now := time.Now().UTC()
+	probeTime := now.Add(-3 * time.Minute)
+	var linkCalls atomic.Int64
+	f.server.links = linkHealthSource(func(ctx context.Context, metrics bool) (observability.ClusterSnapshot, error) {
+		linkCalls.Add(1)
+		if metrics {
+			t.Error("public health requested private metrics")
+		}
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 2*time.Second {
+			t.Error("public health gather has no bounded deadline")
+		}
+		return observability.ClusterSnapshot{Cell: "gru", ObservedAt: now, Expected: []string{"a", "b"},
+			Members: []observability.MemberSnapshot{{Cell: "gru", Member: "a", ObservedAt: now,
+				Credentials: []observability.CredentialView{{Name: "private-credential"}},
+				Metrics:     "private-metric", Errors: map[string]string{"private-error": "hidden"},
+				Links: []observability.RegionLinkProbe{{Region: "sfo", ObservedAt: probeTime, Reach: "ok", WAN: "ok", LagGroups: new(0.0)}}}}}, nil
+	})
+	for range 2 {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, public.URL+"/v1/link-health", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusOK || response.Header.Get("Cache-Control") != "no-store" {
+			t.Fatalf("public health over TCP = %d, %s", response.StatusCode, data)
+		}
+		var report LinkHealth
+		if err := json.Unmarshal(data, &report); err != nil {
+			t.Fatal(err)
+		}
+		if report.Version != 1 || report.Region != "gru" || !slices.Equal(report.Expected, []string{"a", "b"}) ||
+			len(report.Missing) != 1 || report.Missing[0] != "b" || len(report.Members) != 1 ||
+			report.Members[0].Member != "a" || len(report.Members[0].Links) != 1 ||
+			!report.Members[0].Links[0].ObservedAt.Equal(probeTime) || report.Members[0].Links[0].LagGroups == nil ||
+			*report.Members[0].Links[0].LagGroups != 0 {
+			t.Fatalf("public health over TCP refreshed or lost evidence: %+v", report)
+		}
+		if strings.Contains(string(data), "private-") || strings.Contains(string(data), "hidden") {
+			t.Fatalf("public health over TCP exposed private snapshot fields: %s", data)
+		}
+	}
+	if calls := linkCalls.Load(); calls != 1 {
+		t.Fatalf("public requests over TCP repeated the local gather: %d calls", calls)
+	}
+
+	for variant, source := range []linkHealthSource{
+		nil,
+		func(context.Context, bool) (observability.ClusterSnapshot, error) {
+			return observability.ClusterSnapshot{}, errors.New("private-source-error")
+		},
+		func(context.Context, bool) (observability.ClusterSnapshot, error) {
+			return observability.ClusterSnapshot{Cell: "gru", ObservedAt: time.Now()}, nil
+		},
+		func(context.Context, bool) (observability.ClusterSnapshot, error) {
+			return observability.ClusterSnapshot{Cell: "gru", ObservedAt: time.Now(), Expected: []string{"a"},
+				Members: []observability.MemberSnapshot{{Cell: "sfo", Member: "a"}}}, nil
+		},
+	} {
+		f.server.links = source
+		if source == nil {
+			f.server.links = nil
+		}
+		f.server.linkCache = observability.Cache[observability.ClusterSnapshot]{}
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, public.URL+"/v1/link-health", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var failure map[string]any
+		if err := json.Unmarshal(data, &failure); err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusServiceUnavailable || failure["error"] != "unavailable" ||
+			failure["message"] != "regional link health is unavailable" || strings.Contains(string(data), "private-") {
+			t.Fatalf("invalid public health over TCP variant %d = %d, %s", variant, response.StatusCode, data)
+		}
+		if code, _ := getPublic("/healthz"); code != http.StatusOK {
+			t.Fatalf("missing link health changed liveness over TCP variant %d: %d", variant, code)
+		}
+		if code, _ := getPublic("/v1/apps"); code != http.StatusUnauthorized {
+			t.Fatalf("public health bypassed app authentication over TCP variant %d: %d", variant, code)
+		}
+	}
 }
 
 func TestAuthorizationFailures(t *testing.T) {
@@ -250,24 +390,6 @@ func TestStoreOutageIsUnavailable(t *testing.T) {
 	}
 }
 
-func TestPublicRoutes(t *testing.T) {
-	f := newFixture(t)
-	if code, body, _ := call(t, f.server, "", "/healthz"); code != http.StatusOK || body["status"] != "ok" {
-		t.Fatalf("healthz: %d %v", code, body)
-	}
-	code, body, _ := call(t, f.server, "", "/v1/openapi.json")
-	paths, _ := body["paths"].(map[string]any)
-	if code != http.StatusOK || body["openapi"] != "3.1.0" {
-		t.Fatalf("openapi: %d", code)
-	}
-	// Every route the server mounts is documented.
-	for _, path := range []string{"/healthz", "/v1/openapi.json", "/v1/apps", "/v1/apps/{app}", "/v1/apps/{app}/machines",
-		"/v1/apps/{app}/machines/{id}"} {
-		if paths[path] == nil {
-			t.Fatalf("openapi lacks %s", path)
-		}
-	}
-}
 
 func TestConfigValidate(t *testing.T) {
 	valid := Config{ListenAddress: "10.0.0.1:8444", TLSCertFile: "cert.pem", TLSKeyFile: "key.pem", Issuer: testIssuer, Audience: testAudience,

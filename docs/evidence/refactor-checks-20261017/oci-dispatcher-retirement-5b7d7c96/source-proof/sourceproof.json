@@ -1,0 +1,43 @@
+{
+  "state": "QA_AUTHORIZED_SOURCE_RETIREMENT_ONLY_UNCOMPILED",
+  "commit": "5b7d7c96d3699b52a1f66e86f3f8259e2557997d",
+  "tree": "328ee68bdadc06de97a8fe58c17ca04ec65a70c3",
+  "qualified_parent": "d45d64d2ca4f07254931258dc2b873f4adea097b",
+  "branch": "refactor/ociclient-dispatcher-retirement-d45-20261017",
+  "worktree": "/tmp/ts-ociclient-dispatcher-retirement-d45-20261017",
+  "qualified_worktree_unchanged": "/tmp/ts-ociclient-dispatcher-boundary-f730-20261017",
+  "full_status_new": "",
+  "full_status_qualified": "",
+  "sole_changed_path": "internal/ociclient/factory_test.go",
+  "before_sha256": "08441cf1a717dfcd6a06b542677d4b3527a417731bbedabb0442326b05144645",
+  "after_sha256": "eddcee1d75d7d04a1df13663236dd0fc0caad1763ee6f0bd02bf2d7719612308",
+  "approved_patch_sha256": "6e7c5e69f35d0109cfdfe7858cbbc926b3d52269792a5ef265d700fe1a2843c4",
+  "approved_mapping_sha256": "0f39f7f2c85bc1bb67c3da132a368e321305ef3171d9498ba35f5f2b1ab32599",
+  "removed_bytes": 1776,
+  "removed_lines": 45,
+  "all_other_repo_paths_unchanged": true,
+  "remaining_file_bytes_match_approved_proposal": true,
+  "five_remaining_declarations_and_fakeDispatcher_type_method_exact": true,
+  "replacement_root_and_1174_byte_assertion_block_unchanged": true,
+  "push": {
+    "remote": "origin",
+    "ref": "refs/heads/refactor/ociclient-dispatcher-retirement-d45-20261017",
+    "independent_ls_remote": "5b7d7c96d3699b52a1f66e86f3f8259e2557997d\trefs/heads/refactor/ociclient-dispatcher-retirement-d45-20261017",
+    "verified_commit": "5b7d7c96d3699b52a1f66e86f3f8259e2557997d"
+  },
+  "modern_go": "Cached wrapper v0.1.1 list --go-version 1.27 read in full before source edit; cache prechecked, no tool bootstrap/compiler.",
+  "checks": [
+    "Approved patch applied verbatim",
+    "New source byte-identical to sealed proposal",
+    "Qualified d45 source/worktree unchanged and clean",
+    "git diff --check passed before commit",
+    "Explicit sole owned path staged; commit and push hooks disabled",
+    "Independent remote branch hash verified"
+  ],
+  "runtime_qualified_parent_receipt_sha256": "6ea688957cfcea1b6104bcecb6a34a83149f048acb186c2fb6069893ca7dc2f2",
+  "limits": [
+    "No compilation or runtime of retirement commit; ShortA true compile-only request/lease pending.",
+    "No canonical adoption or global closure; no race qualification.",
+    "No first-party/global count change claimed until QA acceptance and canonical adoption."
+  ]
+}

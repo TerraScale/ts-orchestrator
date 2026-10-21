@@ -1,0 +1,19 @@
+{
+  "source": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "tree": "7b0b97136b7225c4897917bf600f76d5c069560f",
+  "scope": "Tracked first-party Go test declaration inventory, including nested modules; third_party/vendor excluded. No runners executed.",
+  "counts": {
+    "files": 1036,
+    "test_candidates": 4319,
+    "testmain_candidates": 4,
+    "helpers": 1663
+  },
+  "classification": "unclassified",
+  "execution": "unknown",
+  "integration_closure": "unknown",
+  "original_manifest_sha256": "93e334ecf879d8fc03fbcaa6f2bb280c1fbc9f3e9783689eb07018650c1bb38f",
+  "archive": "Deterministic gzip/tar retains all original artifacts and original checksums; extract to a temporary directory and run sha256sum -c SHA256SUMS.",
+  "human_preservation_backup": "/tmp/ts-orch-main-preserve-scoped-evidence-20261016T232701Z",
+  "main_unchanged": "72e903719c7b53dee94305f50b3bdb8b147f0eda",
+  "display_report": "REPORT.md normalizes trailing Markdown spaces only; inventory.tar.gz retains the exact original report and its original checksum."
+}

@@ -1,0 +1,1013 @@
+// Package natscell owns the regional embedded NATS server and its client connection.
+// Feature slices receive the client interfaces and do not depend on this package.
+package natscell
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/url"
+	"os"
+	"regexp"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	"github.com/nats-io/nkeys"
+)
+
+var cellName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// ErrEmbeddedServerStopped reports that the in-process broker has exited while
+// its owning process is still alive. Callers must treat it as terminal so the
+// service manager restarts the whole controller instead of waiting forever.
+var ErrEmbeddedServerStopped = errors.New("embedded regional NATS server has stopped")
+
+// ErrUnavailable matches a Start failure to reach the regional brokers or
+// their JetStream API, which a retry can resolve. Configuration, credential
+// and TLS material errors never match it: retrying cannot fix them.
+var ErrUnavailable = errors.New("regional NATS is unavailable")
+
+// unavailable keeps its cause's message and chain and also matches
+// ErrUnavailable.
+type unavailable struct{ error }
+
+func (u unavailable) Unwrap() error { return u.error }
+
+func (unavailable) Is(target error) bool { return target == ErrUnavailable }
+
+// DefaultStoreMaxBytes bounds the embedded JetStream file store when the
+// operator does not specify a per-node limit.
+const DefaultStoreMaxBytes int64 = 8 << 30
+
+// reconnectErrorReports is how many failed reconnect attempts, at about one
+// a second, NATS logs once after the first.
+const reconnectErrorReports = 60
+
+// TLSFiles are the certificate material for both NATS listeners and clients.
+type TLSFiles struct {
+	CAFile   string `json:"ca_file"`
+	CertFile string `json:"cert_file"`
+	KeyFile  string `json:"key_file"`
+}
+
+func (f TLSFiles) complete() bool {
+	return f.CAFile != "" && f.CertFile != "" && f.KeyFile != ""
+}
+
+// Embedded configures the in-process regional NATS and JetStream server.
+// Routes are stable seed addresses; NATS route discovery connects the remaining
+// members once any seed is reachable. A persisted StoreDir is required.
+type Embedded struct {
+	Host                  string      `json:"host"`
+	Port                  int         `json:"port"`
+	RouteHost             string      `json:"route_host"`
+	RoutePort             int         `json:"route_port"`
+	Routes                []string    `json:"routes"`
+	StoreDir              string      `json:"store_dir"`
+	StoreMaxBytes         int64       `json:"store_max_bytes,omitzero"`
+	TLS                   TLSFiles    `json:"tls"`
+	RouteTLS              TLSFiles    `json:"route_tls"`
+	Users                 []NKeyGrant `json:"users"`
+	RouteUser             string      `json:"route_user"`
+	RoutePasswordFile     string      `json:"route_password_file"`
+	OperatorJWTFile       string      `json:"operator_jwt_file,omitempty"`
+	SystemJWTFile         string      `json:"system_jwt_file,omitempty"`
+	CellJWTFile           string      `json:"cell_jwt_file,omitempty"`
+	SystemCredentialsFile string      `json:"system_credentials_file,omitempty"`
+	// MembershipCredentialsFile is an optional system-account user limited to
+	// metadata peer remove and leader step-down; see OpenMembershipAdmin.
+	MembershipCredentialsFile string   `json:"membership_credentials_file,omitempty"`
+	TicketPublicKeyFile       string   `json:"ticket_public_key_file,omitempty"`
+	BrokerIDs                 []string `json:"broker_ids,omitempty"`
+	// InterRegion describes this region's reviewed leaf topology and credentials.
+	// An absent block describes an isolated cell.
+	InterRegion *InterRegion `json:"interregion,omitempty"`
+	// Link joins this region to the global home with one link signer. It
+	// replaces InterRegion; a configuration sets one or the other.
+	Link *Link `json:"link,omitempty"`
+}
+
+// ServerName is the embedded NATS server name of a cell's controller
+// instance (a broker ID or controller slot). Cluster health, the controller
+// slot topology (membership.Topology.ServerName) and the JetStream metadata
+// peers all use this one shape (naming.NATSServer, e.g. gru-1-ctl-1), so a
+// renamed slot reads as an unknown peer.
+func ServerName(cell, instance string) string { return naming.NATSServer(cell, instance) }
+
+// StoreLimitBytes returns the effective per-node JetStream file-store limit.
+func (e Embedded) StoreLimitBytes() int64 {
+	if e.StoreMaxBytes == 0 {
+		return DefaultStoreMaxBytes
+	}
+	return e.StoreMaxBytes
+}
+
+// NKeyGrant binds a NATS user key to one regional role. A host grant is tied
+// to the hash of its admitted node identity and a private reply inbox prefix.
+type NKeyGrant struct {
+	PublicKey string `json:"public_key"`
+	Role      string `json:"role"`
+	Node      string `json:"node,omitempty"`
+	// Global adds GlobalControllerPublishes to a controller in the global
+	// home region. It is refused for every other role.
+	Global bool `json:"global,omitempty"`
+}
+
+// Config describes a single regional cell. Every connection requires verified
+// TLS and a JWT credential scoped to its regional account.
+type Config struct {
+	Cell            string    `json:"cell"`
+	Instance        string    `json:"instance"`
+	Replicas        int       `json:"replicas"`
+	ClientRole      string    `json:"client_role,omitempty"`
+	URL             string    `json:"url"`
+	NKeySeedFile    string    `json:"nkey_seed_file"`
+	CredentialsFile string    `json:"credentials_file"`
+	TLS             TLSFiles  `json:"tls"`
+	Embedded        *Embedded `json:"embedded"`
+	// OperatorForward is a transient CLI-only TCP route. Its keys remain the
+	// configured controller TLS identities; values are local Bastion forwards.
+	OperatorForward map[string]string `json:"-"`
+	// ReloadClientMaterial, when set, is consulted on every connect and
+	// reconnect so renewed credentials take effect without a process restart.
+	// It must keep the startup NATS user key; failures use the startup files.
+	ReloadClientMaterial func() (ClientMaterial, error) `json:"-"`
+}
+
+// Runtime keeps the broker and client alive together. Closing it drains the
+// client before stopping the server so JetStream acknowledgements can finish.
+type Runtime struct {
+	server          *server.Server
+	conn            *nats.Conn
+	js              jetstream.JetStream
+	cell            string
+	diagMu          sync.Mutex
+	diagAt          time.Time
+	diagState       string
+	endpoint        string
+	resolver        *accountResolver
+	operator        *jwt.OperatorClaims
+	systemConn      *nats.Conn
+	bridge          *Bridge
+	brokerTLS       *ReloadingTLS
+	claimMu         sync.Mutex
+	appliedSequence uint64
+	serverName      string
+	brokerNames     []string
+	once            sync.Once
+}
+
+func (r *Runtime) Conn() *nats.Conn { return r.conn }
+
+func (r *Runtime) JetStream() jetstream.JetStream { return r.js }
+
+func (r *Runtime) Bridge() *Bridge { return r.bridge }
+
+// BrokerTLS is the production broker's reloading server certificate, nil
+// without one. Other listeners on the broker's address serve it too.
+func (r *Runtime) BrokerTLS() *ReloadingTLS { return r.brokerTLS }
+
+// SignedByPinnedOperator checks the operator claim installed at broker startup.
+func (r *Runtime) SignedByPinnedOperator(claim *jwt.AccountClaims) bool {
+	return r != nil && r.operator != nil && claim != nil && r.operator.DidSign(claim)
+}
+
+func (r *Runtime) CellAccount() string {
+	if r == nil || r.resolver == nil {
+		return ""
+	}
+	return r.resolver.cell
+}
+
+func (r *Runtime) InitialCellJWT() string {
+	if r == nil || r.resolver == nil {
+		return ""
+	}
+	raw, _ := r.resolver.Fetch(r.resolver.cell)
+	return raw
+}
+
+// ApplyCellClaim fences the external listener before installing a durable
+// account replacement. A routed CLAIMS.UPDATE reply is never accepted as local
+// proof; Accountz must report the exact raw JWT on this embedded server.
+func (r *Runtime) ApplyCellClaim(ctx context.Context, sequence uint64, raw string) error {
+	if r == nil || r.server == nil || r.resolver == nil || r.systemConn == nil ||
+		sequence == 0 || raw == "" {
+		return errors.New("production cell claim application is unavailable")
+	}
+	r.claimMu.Lock()
+	defer r.claimMu.Unlock()
+	if sequence < r.appliedSequence {
+		return errors.New("cell claim sequence is stale")
+	}
+	if r.bridge != nil {
+		r.bridge.FenceClaim(sequence)
+	}
+	if claim, err := jwt.DecodeAccountClaims(raw); err != nil || !r.SignedByPinnedOperator(claim) {
+		return errors.New("cell claim is not signed by the pinned operator")
+	}
+	// Store runs the contract and issued-at checks; only then is the claim
+	// installed, locally and directly. The server ignores CLAIMS.UPDATE
+	// requests (see accountResolver.IsTrackingUpdate), so no routed or
+	// client-sent claim can skip these checks.
+	if err := r.resolver.Store(r.resolver.cell, raw); err != nil {
+		return err
+	}
+	account, err := r.server.LookupAccount(r.resolver.cell)
+	if err != nil {
+		return err
+	}
+	current, err := r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
+	if err != nil {
+		return err
+	}
+	if current.Account == nil {
+		return errors.New("cell account is not loaded")
+	}
+	if current.Account.Jwt != raw {
+		if err := r.server.UpdateAccountClaimJWT(account, raw); err != nil {
+			return fmt.Errorf("install cell account claim: %w", err)
+		}
+		current, err = r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
+		if err != nil || current.Account == nil || current.Account.Jwt != raw {
+			return errors.New("cell JWT update lacks local exact readback")
+		}
+	}
+	r.appliedSequence = sequence
+	return nil
+}
+
+func (r *Runtime) Ready() bool {
+	return r != nil && r.conn != nil && r.conn.IsConnected() &&
+		(r.server == nil || r.server.Running())
+}
+
+// URL returns the effective client URL, including the selected ephemeral port
+// when a lab server was configured with port -1.
+func (r *Runtime) URL() string {
+	if r.bridge != nil {
+		return "nats://" + r.bridge.Addr().String()
+	}
+	if r.server != nil {
+		return r.server.ClientURL()
+	}
+	return r.conn.ConnectedUrl()
+}
+
+// logHostConnection records only the endpoint host and a fixed error class.
+// URL userinfo, NKey material, request bodies, and inboxes stay out of logs.
+func (r *Runtime) logHostConnection(state string, conn *nats.Conn, cause error) {
+	endpoint := ""
+	if conn != nil {
+		if parsed, err := url.Parse(conn.ConnectedUrl()); err == nil {
+			endpoint = parsed.Host
+		}
+	}
+	r.diagMu.Lock()
+	if endpoint == "" {
+		endpoint = r.endpoint
+	} else {
+		r.endpoint = endpoint
+	}
+	now := time.Now()
+	if state == r.diagState && now.Sub(r.diagAt) < 10*time.Second {
+		r.diagMu.Unlock()
+		return
+	}
+	r.diagState, r.diagAt = state, now
+	r.diagMu.Unlock()
+	class := "none"
+	switch {
+	case errors.Is(cause, nats.ErrStaleConnection):
+		class = "stale_connection"
+	case errors.Is(cause, nats.ErrDisconnected):
+		class = "disconnected"
+	case errors.Is(cause, nats.ErrTimeout):
+		class = "timeout"
+	case cause != nil:
+		class = "transport"
+	}
+	slog.Info("host regional NATS connection transition", "state", state, "endpoint", endpoint, "cause_class", class)
+}
+
+// Close shuts the runtime down in lame-duck order: stop accepting external
+// clients, drain the controller client, hand off JetStream leadership this
+// broker holds, and only then stop the embedded server. Every phase is bounded
+// so the whole sequence fits well inside the unit's stop timeout.
+func (r *Runtime) Close() error {
+	if r == nil {
+		return nil
+	}
+	r.once.Do(func() {
+		if r.bridge != nil {
+			r.bridge.Close()
+		}
+		if r.systemConn != nil {
+			r.systemConn.Close()
+		}
+		if r.conn != nil {
+			drainConnection(r.conn, closeDrainTimeout)
+		}
+		if r.server != nil {
+			r.stopServer()
+		}
+	})
+	return nil
+}
+
+// embeddedReadyTimeout bounds embedded server startup. JetStream cluster
+// bootstrap on a loaded single-OCPU host can take well over ten seconds.
+const embeddedReadyTimeout = time.Minute
+
+// serverReady waits until the embedded server accepts connections, the
+// caller's context ends, or embeddedReadyTimeout passes.
+func serverReady(ctx context.Context, embedded *server.Server) bool {
+	deadline := time.Now().Add(embeddedReadyTimeout)
+	for ctx.Err() == nil && time.Now().Before(deadline) {
+		if embedded.ReadyForConnections(time.Second) {
+			return true
+		}
+	}
+	return false
+}
+
+// Start starts the embedded server when requested and establishes an authenticated
+// client connection. Multi-node callers must call WaitForCluster before mutations.
+func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
+	return start(ctx, cfg, false)
+}
+
+// StartIdentityRekey joins only the existing regional quorum. The caller must
+// verify its root checkpoint before opening it and close it after shared reset
+// completion before starting normal external transports on the same store.
+func StartIdentityRekey(ctx context.Context, cfg Config) (*Runtime, error) {
+	if cfg.Embedded == nil {
+		return nil, errors.New("identity rekey requires an installed production broker")
+	}
+	return start(ctx, cfg, true)
+}
+
+func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err error) {
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+	r := &Runtime{cell: cfg.Cell}
+	defer func() {
+		if err != nil {
+			_ = r.Close()
+		}
+	}()
+	if cfg.Embedded != nil {
+		options, optionsErr := serverOptionsForStart(cfg, identityRekey)
+		if optionsErr != nil {
+			return nil, optionsErr
+		}
+		r.server, err = server.NewServer(options)
+		if err != nil {
+			return nil, fmt.Errorf("create embedded NATS: %w", err)
+		}
+		if err := pinNodeIdentity(cfg.Embedded.StoreDir, cfg.Cell, cfg.Instance, r.server.NodeName()); err != nil {
+			return nil, fmt.Errorf("pin embedded NATS Raft identity: %w", err)
+		}
+		r.server.SetLoggerV2(natsLogger{}, false, false, false)
+		r.serverName = options.ServerName
+		for _, id := range cfg.Embedded.BrokerIDs {
+			r.brokerNames = append(r.brokerNames, ServerName(cfg.Cell, id))
+		}
+		go r.server.Start()
+		if !serverReady(ctx, r.server) {
+			return nil, errors.New("embedded NATS did not become ready")
+		}
+		cfg.URL = r.server.ClientURL()
+		r.resolver = options.AccountResolver.(*accountResolver)
+		r.operator = options.TrustedOperators[0]
+		if _, err := r.server.LookupAccount(r.resolver.cell); err != nil {
+			return nil, fmt.Errorf("load regional cell account: %w", err)
+		}
+	}
+	options, err := clientOptions(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Embedded != nil {
+		options = append(options, nats.InProcessServer(r.server))
+	}
+	if cfg.ClientRole == "host" {
+		// A blackholed peer must be detected well inside the host's 25-second
+		// execution window. nats.go otherwise waits two minutes between PINGs.
+		options = append(options,
+			nats.PingInterval(2*time.Second), nats.MaxPingsOutstanding(2),
+			nats.ReconnectWait(500*time.Millisecond),
+			nats.DisconnectErrHandler(func(conn *nats.Conn, cause error) {
+				r.logHostConnection("disconnected", conn, cause)
+			}),
+			nats.ReconnectHandler(func(conn *nats.Conn) {
+				r.logHostConnection("reconnected", conn, nil)
+			}),
+		)
+	}
+	connectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	connected := make(chan struct{})
+	var connectErr, forwardErr error
+	go func() {
+		connectURL := cfg.URL
+		if cfg.Embedded == nil {
+			if len(cfg.OperatorForward) != 0 {
+				var selected string
+				selected, _, forwardErr = operatorForwarding(cfg)
+				if forwardErr != nil {
+					close(connected)
+					return
+				}
+				connectURL = selected
+			}
+			connectURL = bridgeClientURLs(connectURL)
+		}
+		r.conn, connectErr = nats.Connect(connectURL, options...)
+		close(connected)
+	}()
+	select {
+	case <-connectCtx.Done():
+		// nats.Connect has a bounded timeout of its own; wait for the goroutine
+		// before cleaning up to avoid a late client after server shutdown.
+		<-connected
+		if forwardErr != nil {
+			return nil, forwardErr
+		}
+		return nil, unavailable{connectCtx.Err()}
+	case <-connected:
+	}
+	if forwardErr != nil {
+		return nil, forwardErr
+	}
+	if connectErr != nil {
+		err := fmt.Errorf("connect regional NATS: %w", connectErr)
+		if errors.Is(connectErr, nats.ErrAuthorization) {
+			// The brokers answered and refused these credentials.
+			return nil, err
+		}
+		return nil, unavailable{err}
+	}
+	if cfg.Embedded != nil {
+		systemCfg := cfg
+		systemCfg.NKeySeedFile = ""
+		systemCfg.CredentialsFile = cfg.Embedded.SystemCredentialsFile
+		systemOptions, optionErr := clientOptions(systemCfg)
+		if optionErr != nil {
+			return nil, fmt.Errorf("system account client: %w", optionErr)
+		}
+		systemOptions = append(systemOptions, nats.InProcessServer(r.server))
+		r.systemConn, err = nats.Connect(cfg.URL, systemOptions...)
+		if err != nil {
+			return nil, fmt.Errorf("connect internal system account: %w", err)
+		}
+		r.brokerTLS, err = NewReloadingTLS(cfg.Embedded.TLS, "listener")
+		if err != nil {
+			return nil, err
+		}
+		if !identityRekey {
+			r.bridge, err = startBridge(r.server, net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port)),
+				r.brokerTLS.ServerConfig(), r.resolver.cell)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if cfg.ClientRole == "host" {
+		r.logHostConnection("connected", r.conn, nil)
+	}
+	r.js, err = jetstream.New(r.conn)
+	if err != nil {
+		return nil, fmt.Errorf("open regional JetStream: %w", err)
+	}
+	// A new R3 cell cannot elect a JetStream metadata leader until its peers
+	// have also started. The app calls WaitForCluster before any mutations.
+	if cfg.Replicas == 1 && cfg.ClientRole != "host" {
+		infoCtx, infoCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer infoCancel()
+		if _, err := r.js.AccountInfo(infoCtx); err != nil {
+			return nil, unavailable{fmt.Errorf("regional JetStream unavailable: %w", err)}
+		}
+	}
+	return r, nil
+}
+
+// WaitForCluster waits for a NATS and JetStream metadata quorum and a
+// JetStream API response. Routes alone can form before JetStream metadata can
+// elect a leader; an existing R3 stream may recover with one broker absent.
+// A caller must do this before provisioning replicated durable resources.
+// It returns ErrEmbeddedServerStopped as soon as the embedded broker exits.
+func (r *Runtime) WaitForCluster(ctx context.Context, replicas int) error {
+	if replicas < 1 || replicas > 5 || replicas%2 == 0 {
+		return errors.New("regional replicas must be 1, 3, or 5")
+	}
+	quorum := replicas/2 + 1
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if r.server != nil && !r.server.Running() {
+			return ErrEmbeddedServerStopped
+		}
+		if r.Ready() && (r.server == nil || r.peerCount() >= quorum && r.metadataReady(quorum)) {
+			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			_, err := r.js.AccountInfo(probeCtx)
+			cancel()
+			if err == nil {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for %d regional NATS peers: %w", quorum, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+// FullClusterReady distinguishes a missing peer from a permanent inability to
+// place a new R3/R5 stream. It does not claim every peer is caught up.
+func (r *Runtime) FullClusterReady(replicas int) bool {
+	return r != nil && r.Ready() && (r.server == nil ||
+		r.peerCount() >= replicas && r.metadataReady(replicas))
+}
+
+func (r *Runtime) metadataReady(required int) bool {
+	if required == 1 {
+		return true
+	}
+	info, err := r.server.Jsz(nil)
+	if err != nil || info.Meta == nil || info.Meta.Leader == "" || info.Meta.Size < required {
+		return false
+	}
+	// Follower-local metadata can report an online peer as Current=false even
+	// while the leader reports it caught up. Requiring Current on every local
+	// view can therefore prevent a healthy follower from ever becoming ready.
+	online := 1 // This embedded server is running.
+	for _, peer := range info.Meta.Replicas {
+		if peer != nil && !peer.Offline && !peer.Pending {
+			online++
+		}
+	}
+	return online >= required
+}
+
+func (r *Runtime) peerCount() int {
+	if r.server == nil {
+		return 1
+	}
+	routes, err := r.server.Routez(nil)
+	if err != nil {
+		return 0
+	}
+	ids := map[string]struct{}{routes.ID: {}}
+	for _, route := range routes.Routes {
+		if route.RemoteID != "" {
+			ids[route.RemoteID] = struct{}{}
+		}
+	}
+	return len(ids)
+}
+
+func (cfg Config) validate() error {
+	if len(cfg.OperatorForward) != 0 {
+		if _, _, err := operatorForwarding(cfg); err != nil {
+			return err
+		}
+	}
+	if !cellName.MatchString(cfg.Cell) || !cellName.MatchString(cfg.Instance) {
+		return errors.New("cell and instance must be lowercase NATS tokens")
+	}
+	// Every protocol subject builder refuses the reserved scope as a cell
+	// and returns "", which would surface far from here as empty grants.
+	if cfg.Cell == protocol.GlobalScope {
+		return errors.New("cell name is reserved for the global scope")
+	}
+	if cfg.Replicas != 1 && cfg.Replicas != 3 && cfg.Replicas != 5 {
+		return errors.New("regional replicas must be 1, 3, or 5")
+	}
+	if cfg.ClientRole != "" && cfg.ClientRole != "controller" && cfg.ClientRole != "operator" && cfg.ClientRole != "host" {
+		return errors.New("invalid regional NATS client role")
+	}
+	if cfg.Embedded == nil && cfg.URL == "" {
+		return errors.New("regional NATS URL or embedded server is required")
+	}
+	if cfg.NKeySeedFile != "" && cfg.CredentialsFile != "" {
+		return errors.New("choose one regional NKey seed or JWT credentials file")
+	}
+	if !cfg.TLS.complete() || cfg.CredentialsFile == "" || cfg.NKeySeedFile != "" {
+		return errors.New("regional NATS requires client TLS and JWT credentials")
+	}
+	if cfg.Embedded != nil && (!cfg.Embedded.TLS.complete() || !cfg.Embedded.RouteTLS.complete() ||
+		cfg.Embedded.OperatorJWTFile == "" || cfg.Embedded.SystemJWTFile == "" ||
+		cfg.Embedded.CellJWTFile == "" || cfg.Embedded.SystemCredentialsFile == "" ||
+		cfg.Embedded.TicketPublicKeyFile == "" || len(cfg.Embedded.BrokerIDs) != cfg.Replicas || len(cfg.Embedded.Users) != 0) {
+		return errors.New("production embedded NATS requires operator/system/cell JWTs, system credentials, and client/route TLS")
+	}
+	if cfg.Embedded != nil {
+		e := cfg.Embedded
+		if e.InterRegion != nil && e.Link != nil {
+			return errors.New("a region links to peers by interregion or by link, not both")
+		}
+		if err := e.InterRegion.validate(cfg); err != nil {
+			return err
+		}
+		if e.Link != nil {
+			if err := e.Link.validate(cfg); err != nil {
+				return err
+			}
+		}
+		seen := make(map[string]struct{}, len(e.BrokerIDs))
+		for _, id := range e.BrokerIDs {
+			if !cellName.MatchString(id) {
+				return errors.New("production broker ID is invalid")
+			}
+			if _, exists := seen[id]; exists {
+				return errors.New("production broker IDs must be unique")
+			}
+			seen[id] = struct{}{}
+		}
+		if _, own := seen[cfg.Instance]; !own {
+			return errors.New("production broker ID list excludes this instance")
+		}
+		if e.StoreDir == "" || e.Host == "" || e.Port == 0 {
+			return errors.New("embedded NATS requires store_dir, host, and port")
+		}
+		if e.StoreMaxBytes < 0 {
+			return errors.New("embedded NATS store_max_bytes must be positive when set")
+		}
+		if cfg.Replicas > 1 && (e.RouteHost == "" || e.RoutePort == 0 || len(e.Routes) == 0) {
+			return errors.New("clustered NATS requires route_host, route_port and at least one seed route")
+		}
+		if cfg.Replicas > 1 && (e.RouteUser == "" || e.RoutePasswordFile == "") {
+			return errors.New("production NATS routes require a route user and password file")
+		}
+	}
+	return nil
+}
+
+func serverOptions(cfg Config) (*server.Options, error) {
+	return serverOptionsForStart(cfg, false)
+}
+
+func serverOptionsForStart(cfg Config, identityRekey bool) (*server.Options, error) {
+	e := cfg.Embedded
+	if err := os.MkdirAll(e.StoreDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create regional JetStream store: %w", err)
+	}
+	name := ServerName(cfg.Cell, cfg.Instance)
+	if err := pinStoreIdentity(e.StoreDir, name, cfg.Cell+"-"+cfg.Instance); err != nil {
+		return nil, err
+	}
+	options := &server.Options{
+		ServerName:        name,
+		Host:              e.Host,
+		Port:              e.Port,
+		JetStream:         true,
+		JetStreamMaxStore: e.StoreLimitBytes(),
+		StoreDir:          e.StoreDir,
+		// JetStream clustering uses the system account to coordinate metadata.
+		SystemAccount: "$SYS",
+		Accounts:      []*server.Account{server.NewAccount("$SYS")},
+		Cluster: server.ClusterOpts{
+			Name: cfg.Cell,
+			Host: e.RouteHost,
+			Port: e.RoutePort,
+		},
+		LameDuckDuration:    lameDuckDuration,
+		LameDuckGracePeriod: lameDuckGracePeriod,
+		// NATS logs every failed reconnect to a lost route, gateway or leaf
+		// at ERR by default: about one a second per pooled route while a peer
+		// reboots. Report the first and then one a minute (TS-661).
+		ReconnectErrorReports: reconnectErrorReports,
+	}
+	operator, systemJWT, cellJWT, systemID, cellID, err := loadOperatorAccounts(e)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSystemCredentials(e.SystemCredentialsFile, cfg.Cell, cellID, systemID); err != nil {
+		return nil, err
+	}
+	controller, _, err := credentialUser(cfg.CredentialsFile)
+	if err != nil || credentialAccount(controller) != cellID {
+		return nil, errors.New("controller credentials do not belong to the regional cell account")
+	}
+	resolver := newAccountResolver(systemID, systemJWT, cellID, cellJWT)
+	options.TrustedOperators = []*jwt.OperatorClaims{operator}
+	options.SystemAccount = systemID
+	options.Accounts = nil
+	options.AccountResolver = resolver
+	options.JetStreamDomain = cfg.Cell
+	options.DontListen = true
+	options.Cluster.NoAdvertise = true
+	if e.InterRegion != nil {
+		if err := interRegionServerOptions(cfg, options, resolver, operator); err != nil {
+			return nil, err
+		}
+	}
+	if e.Link != nil {
+		if err := linkServerOptions(cfg, options, resolver); err != nil {
+			return nil, err
+		}
+	}
+	if identityRekey && (e.InterRegion != nil || e.Link != nil) {
+		options.LeafNode = server.LeafNodeOpts{}
+	}
+	if cfg.Replicas > 1 {
+		for _, raw := range e.Routes {
+			route, err := url.Parse(raw)
+			if err != nil || route.Host == "" || route.User != nil || route.Scheme != "nats-route" {
+				return nil, fmt.Errorf("invalid NATS route %q", raw)
+			}
+			options.Routes = append(options.Routes, route)
+		}
+	}
+	if cfg.Replicas > 1 && e.RouteTLS.complete() {
+		// Routes reload a renewed leaf or CA bundle on their next handshake.
+		routeTLS, err := NewReloadingTLS(e.RouteTLS, "route")
+		if err != nil {
+			return nil, err
+		}
+		options.Cluster.TLSConfig = routeTLS.PeerConfig()
+	}
+	seenKeys := make(map[string]struct{}, len(e.Users))
+	for _, user := range e.Users {
+		if !nkeys.IsValidPublicUserKey(user.PublicKey) {
+			return nil, errors.New("invalid user NKey in embedded NATS users")
+		}
+		if _, exists := seenKeys[user.PublicKey]; exists {
+			return nil, errors.New("duplicate embedded NATS user key")
+		}
+		seenKeys[user.PublicKey] = struct{}{}
+		permissions, err := userPermissions(cfg.Cell, user)
+		if err != nil {
+			return nil, err
+		}
+		options.Nkeys = append(options.Nkeys, &server.NkeyUser{Nkey: user.PublicKey, Permissions: permissions})
+	}
+	if e.RoutePasswordFile != "" {
+		secret, err := readPrivateFile(e.RoutePasswordFile, 4096)
+		if err != nil {
+			return nil, fmt.Errorf("read NATS route secret: %w", err)
+		}
+		defer clear(secret)
+		password := strings.TrimSpace(string(secret))
+		if len(password) < 16 {
+			return nil, errors.New("NATS route secret must be at least 16 bytes")
+		}
+		options.Cluster.Username = e.RouteUser
+		options.Cluster.Password = password
+		for _, route := range options.Routes {
+			route.User = url.UserPassword(e.RouteUser, password)
+		}
+	}
+	return options, nil
+}
+
+func clientOptions(cfg Config) ([]nats.Option, error) {
+	connectTimeout := 12 * time.Second
+	if cfg.ClientRole == "host" {
+		connectTimeout = 3 * time.Second
+	}
+	options := []nats.Option{nats.Name("terrascale-" + cfg.Cell + "-" + cfg.Instance), nats.Timeout(connectTimeout),
+		nats.ErrorHandler(ErrorHandler)}
+	// Renewal applies to every authentication mode: an NKey-seed client has
+	// no JWT to reload but must still present a renewed certificate.
+	var materials *clientMaterialSource
+	if cfg.ReloadClientMaterial != nil {
+		materials = newClientMaterialSource(cfg, "")
+	}
+	if cfg.CredentialsFile != "" {
+		data, err := readPrivateFile(cfg.CredentialsFile, 64<<10)
+		if err != nil {
+			return nil, fmt.Errorf("regional JWT credentials: %w", err)
+		}
+		pair, err := nkeys.ParseDecoratedUserNKey(data)
+		clear(data)
+		if err != nil {
+			return nil, fmt.Errorf("regional JWT credentials: %w", err)
+		}
+		public, err := pair.PublicKey()
+		pair.Wipe()
+		if err != nil {
+			return nil, err
+		}
+		options = append(options, nats.CustomInboxPrefix(inboxPrefix(cfg.Cell, public)))
+		source := materials
+		if source == nil {
+			source = newClientMaterialSource(cfg, public)
+		}
+		source.user = public
+		// The JWT and its signature come from one resolved file per handshake.
+		var handshake ClientMaterial
+		options = append(options, nats.UserJWT(func() (string, error) {
+			handshake = source.current()
+			data, err := readPrivateFile(handshake.CredentialsFile, 64<<10)
+			if err != nil {
+				return "", err
+			}
+			defer clear(data)
+			return nkeys.ParseDecoratedJWT(data)
+		}, func(nonce []byte) ([]byte, error) {
+			path := handshake.CredentialsFile
+			if path == "" {
+				path = cfg.CredentialsFile
+			}
+			return signNKeyFile(path, nonce)
+		}))
+	}
+	if cfg.NKeySeedFile != "" {
+		data, err := readPrivateFile(cfg.NKeySeedFile, 4096)
+		if err != nil {
+			return nil, fmt.Errorf("regional NKey seed: %w", err)
+		}
+		pair, err := nkeys.ParseDecoratedUserNKey(data)
+		clear(data)
+		if err != nil {
+			return nil, fmt.Errorf("regional NKey seed: %w", err)
+		}
+		public, err := pair.PublicKey()
+		pair.Wipe()
+		if err != nil {
+			return nil, err
+		}
+		options = append(options, nats.CustomInboxPrefix(inboxPrefix(cfg.Cell, public)))
+		options = append(options, nats.Nkey(public, func(nonce []byte) ([]byte, error) {
+			return signNKeyFile(cfg.NKeySeedFile, nonce)
+		}))
+	}
+	if cfg.TLS.complete() && cfg.Embedded == nil {
+		tlsConfig, err := loadTLS(cfg.TLS, false)
+		if err != nil {
+			return nil, err
+		}
+		dialer := &tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}
+		if materials != nil {
+			dialer.reload = materials.tlsConfig
+		}
+		if len(cfg.OperatorForward) != 0 {
+			_, destinations, err := operatorForwarding(cfg)
+			if err != nil {
+				return nil, err
+			}
+			dialer.forward = destinations
+			options = append(options, nats.IgnoreDiscoveredServers())
+		}
+		options = append(options, nats.SetCustomDialer(dialer))
+	}
+	return options, nil
+}
+
+func inboxPrefix(cell, publicKey string) string {
+	return protocol.InboxPrefix(cell, publicKey)
+}
+
+func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
+	inbox := inboxPrefix(cell, user.PublicKey) + ".>"
+	permissions := &server.Permissions{Subscribe: &server.SubjectPermission{Allow: []string{inbox}}}
+	if user.Global && user.Role != "controller" {
+		return nil, errors.New("only a controller NATS user may carry global home grants")
+	}
+	switch user.Role {
+	case "host":
+		if !cellName.MatchString(user.Node) {
+			return nil, errors.New("host NATS user needs a valid node identity")
+		}
+		permissions.Publish = &server.SubjectPermission{Allow: []string{
+			protocol.AgentObservation(cell, user.PublicKey, "*"),
+		}}
+	case "controller":
+		if user.Node != "" {
+			return nil, errors.New("controller NATS user must not carry a host node")
+		}
+		permissions.Publish = &server.SubjectPermission{Allow: []string{
+			protocol.Regional(cell, ">"), protocol.Control(cell, ">"), "$JS.API.>", "$KV.>", "$O.>",
+			"$JS.ACK.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER.>",
+		}}
+		for _, leaf := range protocol.InterRegionObservabilityLeaves() {
+			permissions.Publish.Allow = append(permissions.Publish.Allow, protocol.AnyRegionObservabilitySubject(leaf))
+		}
+		permissions.Publish.Allow = append(permissions.Publish.Allow, protocol.AnyRegionQuerySubject())
+		if user.Global {
+			permissions.Publish.Allow = append(permissions.Publish.Allow, GlobalControllerPublishes()...)
+			permissions.Publish.Allow = append(permissions.Publish.Allow, GlobalControllerRequests()...)
+			permissions.Subscribe.Allow = append(permissions.Subscribe.Allow, GlobalControllerRequests()...)
+		}
+		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow,
+			ControllerSubscriptions(cell)...)
+		// Read-only member telemetry: every controller answers observability
+		// snapshot requests for its cell.
+		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow, protocol.ObservabilityGrant(cell))
+	case "operator":
+		if user.Node != "" {
+			return nil, errors.New("operator NATS user must not carry a host node")
+		}
+		permissions.Publish = &server.SubjectPermission{Allow: []string(BrokerOperatorPublishPermissions(cell))}
+	default:
+		return nil, fmt.Errorf("invalid NATS user role %q", user.Role)
+	}
+	return permissions, nil
+}
+
+func loadTLS(files TLSFiles, serverSide bool) (*tls.Config, error) {
+	key, err := readPrivateFile(files.KeyFile, 64<<10)
+	if err != nil {
+		return nil, fmt.Errorf("NATS TLS private key: %w", err)
+	}
+	clear(key)
+	certificate, err := tls.LoadX509KeyPair(files.CertFile, files.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load NATS certificate: %w", err)
+	}
+	ca, err := os.ReadFile(files.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("load NATS CA: %w", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(ca) {
+		return nil, errors.New("NATS CA file has no certificates")
+	}
+	config := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}, RootCAs: roots}
+	if serverSide {
+		config.ClientCAs = roots
+		config.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return config, nil
+}
+
+func signNKeyFile(path string, nonce []byte) ([]byte, error) {
+	data, err := readPrivateFile(path, 64<<10)
+	if err != nil {
+		return nil, err
+	}
+	defer clear(data)
+	pair, err := nkeys.ParseDecoratedUserNKey(data)
+	if err != nil {
+		return nil, err
+	}
+	defer pair.Wipe()
+	return pair.Sign(nonce)
+}
+
+func readPrivateFile(path string, limit int64) ([]byte, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return nil, errors.New("secret must be a regular file readable only by its owner")
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Uid != uint32(os.Getuid()) {
+		return nil, errors.New("secret must be owned by this process user")
+	}
+	if info.Size() > limit {
+		return nil, errors.New("secret file is too large")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		clear(data)
+		return nil, errors.New("secret file is too large")
+	}
+	return data, nil
+}
+
+// ClientAddress returns the bound listener address for an embedded runtime.
+func (r *Runtime) ClientAddress() net.Addr {
+	if r.bridge != nil {
+		return r.bridge.Addr()
+	}
+	if r.server == nil {
+		return nil
+	}
+	return r.server.Addr()
+}
+
+// RouteAddress returns the bound route listener address for an embedded runtime.
+func (r *Runtime) RouteAddress() net.Addr {
+	if r.server == nil {
+		return nil
+	}
+	return r.server.ClusterAddr()
+}

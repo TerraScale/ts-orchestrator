@@ -1,0 +1,26 @@
+{
+  "state": "ONE_EXACT_D1EC_DIRECT_RUNTIME_GRANT",
+  "created_utc": "2026-10-17T05:26:51.534702+00:00",
+  "owner": "/root/oci",
+  "head": "d1ec8b56aba84d7c7637504350d218660729b9af",
+  "tree": "8219946143b919a349b56686008251662ac05df9",
+  "packet": "/tmp/ts-oci-provision-runtime-d1ec8b56a-120-sealed",
+  "pins": {
+    "request.json": "823dad060e5e90657b740293f265eb4546b1a929b2e88b8d2b97b47e45300566",
+    "run.py": "b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b",
+    "final-seal.json": "47966b7e4056a0db96cf6f3a5bca33a60b898d538bb33220016a843d3d3112cb"
+  },
+  "independent_readiness": "/tmp/ts-qa-oci-d1ec-direct-runtime-readiness-pbx6fadh.json",
+  "independent_readiness_sha256": "a4f21a0465db8bef83f2f51d088e9e284ffd29ee6734b68bae1af9a4311b5cec",
+  "compile_acceptance_sha256": "7071104ee37d87cbe4140dd4a3d9433395e8c65944ea135e16c7ca898bc64c1c",
+  "security_source_ack_sha256": "0afddc386430b23dff462da68683335e0ba7bdefab2767af1777c9ab2b571b91",
+  "preflight": {
+    "uid": 1000,
+    "euid": 1000,
+    "load1": 0.2841796875,
+    "mem_available_bytes": 27682676736
+  },
+  "authorization": "Launch frozen runtime wrapper exactly ONCE under nice19/loginfalse. Direct copied accepted ELF only; no compiler/test2json. Same finite original fullparent+provision_originals/test120s/outer180sTERM-KILL5/env6/GOMAX2/parallel1/count1/nonblockingexclusiveCAPACITY. Original ELF stays0600neverexec; runtimecopyhashmatch/0500oneinvocation/restored0600. Retain full rawstdout/stderr and immediate actualnative launchargument/result and everypoll. Exact2RUN+2PASS/zeroFAIL/SKIP/terminalPASS required for success; retain failure without retry. Report actualnative session/PIDs promptly; stop after terminal/seal. Repeat ordinaryuser/RAM>=16GiB/load<12 beforelaunch. No source mutation, credentials, native/containerd/root/cloud/IAM/paid/main grant. Prior failures stay failed.",
+  "lease": "Reserve sole local fixture/runtime lane and CAPACITY; no other QA runtime/fixture launch until cleanup proof. Two sequential literal loopback listeners and3ownedtemp roots only; pre-reviewed initialization limitations retained.",
+  "limitations": "RAM/scratch/tasks estimates unenforced; no exhaustive exact linked init proof. Local source-specific original workflow result only, no cloud/native/global/financial-completeness credit."
+}

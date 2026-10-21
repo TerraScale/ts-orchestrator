@@ -117,12 +117,12 @@ update strategy and stateful quorum rules; TS-567 adds volume mounts.
 ## Slices
 
 1. Shared types and their store (this note).
-2. Translate accepted app intent into SwarmKit services. The unwired custom
-   `machines.Plan` scheduler and its unit-only fixtures have been removed.
-   SwarmKit owns placement, task reconciliation and rolling updates; service
-   mapping and production migration are still pending. Retained product
-   intent/store types do not establish an execution implementation. See
-   [the replacement requirements](../REFACTOR.md#ownership-one-scheduler-and-one-task-authority).
+2. Task placement, rolling updates and lifecycle rollback belong to the
+   embedded regional SwarmKit manager. Machines stores retain app/machine
+   intent, validation, revision CAS and lifecycle guards, including refusing
+   to delete a placed machine record before destruction is observed. The
+   retained Machines API and stores do not launch workloads or grant
+   production admission or execution authority.
 3. Runtime: the host agent runs each machine as a hardened systemd unit
    (`DynamicUser`, CPU and memory limits, `ProtectSystem`, a seccomp filter,
    private `/tmp`), runs its health checks and restart policy, logs to the

@@ -1,0 +1,243 @@
+{
+  "verdict": "ACCEPT_EXACT_FOUNDATION_FE46_TERMINAL_FAILED_RUNTIME_83_SCOPED_PASSES_NO_RETRY_NO_GLOBAL_CREDIT",
+  "findings": [],
+  "packet": "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z",
+  "source_commit": "fe46fc0fa361bdf21be31b1298ded63be965fe87",
+  "source_tree": "6a617375b4fb5e2723b60e60d77f807a0d0eb1c1",
+  "pins": {
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/terminal.json": "32ef6d95df06dcd02965481f73bc4c2854628b2fba4c6f41bbe07d39d8c9346a",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/result.json": "f9fdff71ebb4271de601dcf3c1f24836355de77a1b421225a02080a546120ea0",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/native-tool-transcript.jsonl": "2838d1e84e2e981597c581ccf1b3593ed77131c46d5990c0e9a9bbe7205cff98"
+  },
+  "all_terminal_file_pins_verified": {
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/native-tool-transcript.jsonl": "2838d1e84e2e981597c581ccf1b3593ed77131c46d5990c0e9a9bbe7205cff98",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/request-index.json": "04298f5a0eb2ff952d0b3a9b8cdf08c838ad0edc53c2eb3062ca4f72b2f22ca3",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/request.json": "1043eb8ad2f283400332a85c1b3a63fb8f89fe906ede23421a426515cb3235e0",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/result.json": "f9fdff71ebb4271de601dcf3c1f24836355de77a1b421225a02080a546120ea0",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/run.py": "3d2391594a868d9d20b0ccd96191ea8b004c61ca5b87a16ae7637f1f45d3436e",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/runtime-foundationbinding.log": "33a959d76159203ef522dff253d0e4173a4d4ef6b7d84fac51de7debe3bd6d48",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/runtime-materialsource.log": "a1333dd1cc5c6bba365b5d95a469f568b8c8c73e1d77756699352650e7bb8d60",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/runtime-region.log": "877a1b05ba4086a5e47bfbf1bd06402035d13fa3b78f4aa2b2a1c919b67b884e"
+  },
+  "request_sha256": "1043eb8ad2f283400332a85c1b3a63fb8f89fe906ede23421a426515cb3235e0",
+  "wrapper_sha256": "3d2391594a868d9d20b0ccd96191ea8b004c61ca5b87a16ae7637f1f45d3436e",
+  "strict_json_review": {
+    "duplicate_keys_rejected": true,
+    "nonfinite_constants_rejected": true,
+    "all_runtime_lines_objects": true,
+    "parser_rejection_self_checks": 4
+  },
+  "source_validation": {
+    "manifest": "/tmp/ts-oci-domains-manifest-fe46fc0fa.json",
+    "manifest_sha256": "e73a68df80e45e4b8aedf25b04ae779f44f2a748c56f79c34c30988d518461ac",
+    "entries_independently_verified": 237,
+    "git_blob_sha256_matches_manifest_and_worktree": 237,
+    "regular_mode_100644": 237,
+    "exact_head_tree_clean_status": true,
+    "pre_post_and_each_run_identity_equal": true
+  },
+  "tools_independently_rehashed": {
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+  },
+  "native_handle": 20627,
+  "native_exit_code": 1,
+  "native_calls": 3,
+  "outcomes": [
+    {
+      "name": "foundationbinding",
+      "exit_code": 0,
+      "named_runs": 76,
+      "named_passes": 76,
+      "named_failures": {},
+      "skips": {},
+      "package_passes": 1,
+      "package_failures": 0,
+      "error_lines": []
+    },
+    {
+      "name": "materialsource",
+      "exit_code": 0,
+      "named_runs": 7,
+      "named_passes": 7,
+      "named_failures": {},
+      "skips": {},
+      "package_passes": 1,
+      "package_failures": 0,
+      "error_lines": []
+    },
+    {
+      "name": "region",
+      "exit_code": 1,
+      "named_runs": 3,
+      "named_passes": 0,
+      "named_failures": {
+        "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals": 1,
+        "TestFoundationRecordsPersistAndFenceConcurrentWriters": 1,
+        "TestRetainedFoundationHTTPFilesystemOffline": 1
+      },
+      "skips": {},
+      "package_passes": 0,
+      "package_failures": 1,
+      "error_lines": [
+        "foundation_provision_integration_test.go:196: expected accepted launch response loss: launch signed original GRU writer: bootstrap founder plan is invalid",
+        "retained_integration_test.go:50: production qualification is missing or invalid: signed image contains no independent qualification"
+      ]
+    }
+  ],
+  "runtime_named_pass_outcomes": 83,
+  "passed_expected_roots_and_subtests": {
+    "foundationbinding": [
+      "TestLogicalBindingsBootstrapPublicationIncludesUnboundTargetRoles",
+      "TestLogicalBindingsForCellReauthenticatesOriginalGrant",
+      "TestLogicalBindingsNarrowActiveFoundationToCompletedBirths",
+      "TestLogicalBindingsReadSignedGrantPersistedBirthAndFreshOCI",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_different_resource",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_different_signed_intent",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_from_another_operation",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_invalid_digest",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_wrong_region",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_wrong_request_role",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/missing_ETag",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/missing_birth",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_NSG_wrong_compartment",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_compartment_moved",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_key_missing",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_subnet_CIDR",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_subnet_wrong_VCN",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_vault_malicious_endpoint",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/revoked_active_grant",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/schema_one",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/unfinished_record",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_generation",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_installation",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_intent",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_operation",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_record_grant",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_role_kind",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_signed_pin",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_signer",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_tenancy",
+      "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_wire_pin",
+      "TestLogicalBindingsRetainOriginalBirthAndExactDependencies",
+      "TestLogicalBindingsRevalidationRejectsRevokedActiveGrant",
+      "TestLogicalBindingsSpendIncludesUnboundCompartmentRoles",
+      "TestStartupVaultConsumedExactPinRequiresAndRetainsBirth",
+      "TestStartupVaultDoesNotSealAuthorityRotatedDuringSDKRead",
+      "TestStartupVaultDoesNotSealAuthorityRotatedDuringSDKRead/epoch_replacement",
+      "TestStartupVaultDoesNotSealAuthorityRotatedDuringSDKRead/grant_replacement",
+      "TestStartupVaultDoesNotSealAuthorityRotatedDuringSDKRead/request_canceled",
+      "TestStartupVaultDynamicTargetStillRequiresOriginalBirth",
+      "TestStartupVaultObservesExactPinsWithoutCreatingLogicalBirth",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/compartment_deleted",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/compartment_moved",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/cross-cell_logical_target",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/foreign_generation",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/foreign_installation",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/foreign_intent",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/foreign_operation",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/foreign_tenancy",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/key_disabled",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/key_moved",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/key_shape_changed",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/logical_target_lacks_birth",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/missing_protected_ETag",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/noncanonical_logical_target",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/pending_exact_pin",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/protected_grant_replacement",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/root_removal",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/software_key",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/untrusted_management_endpoint",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/vault_inactive",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/vault_moved",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/vault_type_changed",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/wrong_exact_wire",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/wrong_logical_target_role",
+      "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/wrong_signed_pin",
+      "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline",
+      "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/epoch",
+      "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/expired_lease",
+      "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/grant",
+      "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/lease",
+      "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/lease_deadline",
+      "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/live_key",
+      "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/operation"
+    ],
+    "materialsource": [
+      "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS",
+      "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/exact_publication_pins",
+      "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/sole_founder_compartment_reference",
+      "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/unbound_publication_key",
+      "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/logical_publication_key",
+      "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/consumed_dynamic_control_compartment",
+      "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/mixed_dynamic_control_and_consumed_pinned_key"
+    ]
+  },
+  "region_failure_chronology": [
+    {
+      "test": "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals",
+      "action": "output",
+      "output": "    foundation_provision_integration_test.go:196: expected accepted launch response loss: launch signed original GRU writer: bootstrap founder plan is invalid\n"
+    },
+    {
+      "test": "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals",
+      "action": "fail",
+      "output": null
+    },
+    {
+      "test": "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+      "action": "fail",
+      "output": null
+    },
+    {
+      "test": "TestRetainedFoundationHTTPFilesystemOffline",
+      "action": "output",
+      "output": "    retained_integration_test.go:50: production qualification is missing or invalid: signed image contains no independent qualification\n"
+    },
+    {
+      "test": "TestRetainedFoundationHTTPFilesystemOffline",
+      "action": "fail",
+      "output": null
+    },
+    {
+      "test": null,
+      "action": "fail",
+      "output": null
+    }
+  ],
+  "region_credit": 0,
+  "recovery_state": "NOT_STARTED_STOP_FIRST_FAILED_COMMAND",
+  "recovery_credit": 0,
+  "retries": 0,
+  "failure_diagnostics": {
+    "provision_originals": "foundation_provision_integration_test.go:196 reports invalid bootstrap founder plan before expected accepted launch response loss; its parent then fails.",
+    "retained_foundation": "retained_integration_test.go:50 reports signed image missing independent qualification.",
+    "causal_limit": "No deeper invalid-founder-plan predicate is established by these diagnostics. No retry or repair is authorized by acceptance."
+  },
+  "cleanup": {
+    "recorded_groups_absent": {
+      "1234467": "ABSENT",
+      "1235148": "ABSENT",
+      "1236677": "ABSENT"
+    },
+    "raw_result_lock_released": true,
+    "terminal_general_lock_independently_reacquired_and_released": true,
+    "evidence_limit": "Pinned terminal/raw receipts only; no fresh process, listener or lock probes."
+  },
+  "retained_compile_receipts": "Four exact historical result pins verified only; this failed-runtime report grants no new cross-source compile closure acceptance or ELF execution credit.",
+  "preserved_unexecuted_predecessor": {
+    "request": "/tmp/ts-foundation-fe46-runtime-20261017T141112791301Z/request.json",
+    "request_sha256": "0c1c29d4a641fe99215b85d977e0cfe803048520deea9b4a794870995b835243",
+    "wrapper": "/tmp/ts-foundation-fe46-runtime-20261017T141112791301Z/run.py",
+    "wrapper_sha256": "1cc2eb3c95d2377bd17b1b54644d97829958d94f39fe00d1637dbb9316b43bf7",
+    "execution_state": "NEVER_LAUNCHED"
+  },
+  "limits": [
+    "83 named pass outcomes include parent roots and subtests; this is not83 distinct top-level roots.",
+    "Scope binds only exactfe46 source and default-tag foundationbinding76/materialsource7 selectors. Region remains failed and fixturetest recovery was not launched.",
+    "No cloud/native/global/main/genesis/production/financial completeness is inferred; previous failures and source-classification counts remain intact.",
+    "No Go, compiler, runner, test, ELF or runtime execution during review. No source/Git/ledger mutation or fresh process/listener/lock probes. Only this exclusive immutable report is written."
+  ]
+}

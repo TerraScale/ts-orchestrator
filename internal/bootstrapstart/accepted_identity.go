@@ -133,7 +133,7 @@ func (identity AcceptedIdentity) Validate() error {
 			return ErrAcceptedIdentity
 		}
 	}
-	if identityrekey.ValidateLaunchMaterialPins(identity.LaunchMaterialSHA256) != nil {
+	if _, err := acceptedLaunchFileNames(identity.LaunchMaterialSHA256); err != nil {
 		return ErrAcceptedIdentity
 	}
 	return validateAcceptedReferences(identity)
@@ -353,7 +353,7 @@ func AcceptedIdentityFromCheckpoint(verified identityrekey.VerifiedIdentityCheck
 // physical/prepared broker facts. VerifyCurrent rechecks their common boundary.
 type InitialAcceptedIdentityInputs struct {
 	OperationID          string
-	Manifest             bootstrap.VerifiedManifest
+	Manifest             bootstrap.StartupAuthority
 	Receipt              bootstrap.VerifiedReceipt
 	Image                release.VerifiedImage
 	Observed             InstanceObservation

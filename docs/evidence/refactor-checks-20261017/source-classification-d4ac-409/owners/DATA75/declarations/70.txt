@@ -1,0 +1,25 @@
+func TestSubmitRetriesTransientPublishWithSameSignedPayload(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	calls := make([]publishCall, 0, 2)
+	service.js = &interceptedPublish{JetStream: service.js, publish: func(_ context.Context, subject string, payload []byte, _ ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		recordPublishCall(&calls, subject, payload)
+		if len(calls) == 1 {
+			return nil, jetstream.ErrNoStreamResponse
+		}
+		return &jetstream.PubAck{}, nil
+	}}
+
+	if err := service.Submit(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("publish attempts=%d, want 2", len(calls))
+	}
+	if calls[0].subject != IntentSubject(intent.Cell) || calls[1].subject != calls[0].subject {
+		t.Fatalf("publish subjects changed across retry: %q, %q", calls[0].subject, calls[1].subject)
+	}
+	if !bytes.Equal(calls[0].payload, calls[1].payload) {
+		t.Fatal("signed payload changed across retry")
+	}
+}

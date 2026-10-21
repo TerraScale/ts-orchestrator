@@ -1,0 +1,46 @@
+func TestCollectArtifactsReconcilesHistoricalPreparationsWithoutLosingRollback(t *testing.T) {
+	t.Parallel()
+	s, ctx := testService(t, &testWriter{})
+	obsolete, _ := storeTestArtifact(t, s, ctx, "worker", "obsolete", true)
+	rollback, _ := storeTestArtifact(t, s, ctx, "worker", "rollback", true)
+	current, _ := storeTestArtifact(t, s, ctx, "worker", "current", true)
+	pending, _ := storeTestArtifact(t, s, ctx, "worker", "pending", true)
+	for _, entry := range []struct {
+		key, id, digest string
+		generation      uint64
+		status          string
+	}{
+		{"o_obsolete", "historical-obsolete", obsolete, 1, "accepted"},
+		{"w_obsolete", "historical-obsolete", obsolete, 1, ""},
+		{"o_rollback", "historical-rollback", rollback, 2, "accepted"},
+		{"w_rollback", "historical-rollback", rollback, 2, ""},
+		{operationKey("current"), "current", current, 3, "accepted"},
+		// Sharing an ID does not make a distinct intent an obsolete preparation.
+		{"w_pending", "historical-rollback", pending, 4, ""},
+	} {
+		op := operation{Intent: Intent{OperationID: entry.id, Cell: "lab", Role: "worker",
+			Environment: "production", ArtifactDigest: entry.digest, Generation: entry.generation}}
+		if entry.status != "" {
+			op.Receipt = &Receipt{OperationID: entry.id, Status: entry.status, ArtifactDigest: entry.digest}
+		}
+		wire, err := json.Marshal(op)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.operations.Put(ctx, entry.key, wire); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inUse := func(context.Context) ([]ArtifactUse, error) {
+		return []ArtifactUse{{Digest: current, Role: "worker", Environment: "production"}}, nil
+	}
+	collection, err := s.CollectArtifacts(ctx, inUse, time.Now().Add(2*artifactGCGrace), func(context.Context) error { return nil })
+	if err != nil || !slices.Equal(collection.Deleted, []string{obsolete}) {
+		t.Fatalf("historical collection = %+v, %v; want only obsolete artifact deleted", collection, err)
+	}
+	for _, digest := range []string{rollback, current, pending} {
+		if _, err := s.ResolveAdmittedArtifact(ctx, digest, "worker", "production"); err != nil {
+			t.Fatalf("retained historical artifact %s: %v", digest, err)
+		}
+	}
+}

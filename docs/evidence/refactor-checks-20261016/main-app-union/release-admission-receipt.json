@@ -1,0 +1,30 @@
+{
+  "revision": "9b7ba79d7c096b4e314c3d4f3b14a88aac292dcc",
+  "tree": "/tmp/ts-refactor-main-union-3d9a933e",
+  "clean_before_after": true,
+  "session": 97692,
+  "exit": 0,
+  "selected_test": "^TestFinalImageProductionAdmissionBoundary$",
+  "subtests_passed": 14,
+  "skips": 0,
+  "test_seconds": 0.67,
+  "package_seconds": 0.71,
+  "log": "ts-main-union-image-admission-9b7ba79d.log",
+  "helper_source": "de07c2d9f4e64c72d5850134278500a04e294906",
+  "helper_union_commit": "9b7ba79d7c096b4e314c3d4f3b14a88aac292dcc",
+  "helper_original_donor": "452f19defa428fa8899485e567b640b473c75602",
+  "helper_scope": "36-line original signed migration helper, test-only; body matches donor",
+  "limits": {
+    "outer_seconds": 180,
+    "test_timeout_seconds": 120,
+    "GOMAXPROCS": 2,
+    "GOFLAGS": "-p=2",
+    "priority": "nice -n 19",
+    "mod": "readonly",
+    "count": 1,
+    "toolchain": "Go 1.27.1",
+    "lock": "/tmp/ts-orch-refactor-capacity-check.lock",
+    "nonblocking": true
+  },
+  "scope": "Local source final-image admission regression; no native/live/whole-union runtime or production admission qualification."
+}

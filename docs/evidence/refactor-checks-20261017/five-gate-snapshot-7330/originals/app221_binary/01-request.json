@@ -1,0 +1,50 @@
+{
+  "argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "240s",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "build",
+    "-p=1",
+    "-mod=readonly",
+    "-trimpath",
+    "-buildvcs=true",
+    "-ldflags=-s -w",
+    "-o",
+    "/tmp/ts-app-canonical-single-binary-221368445-602x0wys/terrascale-orchestrator",
+    "./cmd/terrascale-orchestrator"
+  ],
+  "build_contract": {
+    "artifact": "ELF stat/hash only; chmod0600; never execute",
+    "flags": [
+      "-trimpath",
+      "-buildvcs=true",
+      "-ldflags=-s -w"
+    ],
+    "source": "Makefile:12,107",
+    "stamping": "Go VCS stamping enabled; no Makefile custom -X stamps",
+    "target": "native linux/amd64 only; GOOS/GOARCH not overridden"
+  },
+  "env": {
+    "CGO_ENABLED": "0",
+    "GOFLAGS": "-p=2",
+    "GOMAXPROCS": "2",
+    "GOTOOLCHAIN": "local",
+    "HOME": "/home/mariogk",
+    "LANG": "C.UTF-8",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin"
+  },
+  "grant": "PENDING_QA one exact single-binary compile no init/tests/runtime",
+  "head": "221368445daf42bdb40ff195c4316061aba5c3c6",
+  "kind": "native-single-binary-build",
+  "lock": "/tmp/ts-orch-refactor-short-check-b.lock",
+  "manifest": "/tmp/ts-app-canonical-compile-manifest-221368445.json",
+  "manifest_sha256": "be63c89de714f58e975aa3478bbc1e9d31c35037688d203a0feacd473c8d0ac3",
+  "packet": "/tmp/ts-app-canonical-single-binary-221368445-602x0wys",
+  "tree": "1abf2646ab17bfd150f9df15afa3d92034c4962a",
+  "worktree": "/tmp/ts-app-canonical-compile-221368445"
+}

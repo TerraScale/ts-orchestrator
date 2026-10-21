@@ -1,0 +1,48 @@
+[Unit]
+Description=Discover and admit TerraScale managed host bootstrap
+Wants=network-online.target
+Requires=systemd-timesyncd.service systemd-time-wait-sync.service
+After=network-online.target systemd-timesyncd.service systemd-time-wait-sync.service
+Before=terrascale-orchestrator-controller-install.service terrascale-orchestrator-bootstrap.service terrascale-orchestrator-managed-runtime.service terrascale-orchestrator-controller.service terrascale-orchestrator-host-setup.service terrascale-orchestrator-host.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=10s
+ExecStart=/usr/local/bin/terrascale-orchestrator managed-host-start
+# A recovered first boot must resume the config jobs that failed with it.
+ExecStartPost=+/usr/bin/systemctl start --no-block terrascale-orchestrator-managed-runtime.service terrascale-orchestrator-controller-install.service
+StandardError=journal+console
+TimeoutStartSec=300s
+UMask=0077
+StateDirectory=terrascale-orchestrator-bootstrap
+StateDirectoryMode=0755
+RuntimeDirectory=terrascale-orchestrator-bootstrap
+RuntimeDirectory=terrascale-orchestrator-host-credentials
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_CHOWN CAP_SETGID CAP_SETUID CAP_DAC_OVERRIDE CAP_KILL
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/etc/terrascale-orchestrator /var/lib/terrascale-orchestrator-bootstrap /var/lib/terrascale-orchestrator-secrets /var/lib/terrascale-orchestrator-controller /run/terrascale-orchestrator-bootstrap
+ReadWritePaths=/run/terrascale-orchestrator-host-credentials /var/lib/terrascale-orchestrator/netbird-managed /var/lib/netbird /usr/local/bin /etc/systemd/system /etc/hosts
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ProtectProc=invisible
+ProcSubset=pid
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=terrascale-orchestrator-controller-install.service terrascale-orchestrator-host-setup.service

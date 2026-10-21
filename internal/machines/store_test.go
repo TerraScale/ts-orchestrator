@@ -498,6 +498,15 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 		}
 		return data
 	}
+	status, err := store.PutStatus(ctx, epoch, Status{ID: machine.ID, App: app.Name, State: StateStarted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored, err := store.Status(ctx, app.Name, machine.ID); err != nil || stored.ID != status.ID ||
+		stored.App != status.App || stored.State != status.State || !stored.UpdatedAt.Equal(status.UpdatedAt) ||
+		stored.UpdatedAt.IsZero() || stored.Revision == 0 {
+		t.Fatalf("valid status read back = %+v, %v", stored, err)
+	}
 	other := testApp("terrabase")
 	invalid := testApp("evil")
 	invalid.Config.Digest = "not-a-digest"
@@ -512,6 +521,73 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 		"not json":                 {appKey("evil"), []byte("{")},
 		"machine under another ID": {entityid.Derive("wrong-machine", machine.ID), encode(machine)},
 		"status under another ID":  {entityid.Derive("wrong-status", machine.ID), encode(Status{ID: machine.ID, App: "ts-auth", State: StateStarted, UpdatedAt: time.Now()})},
+	}
+	// Keep the lookup key valid so validation follows the real KV read.
+	// PutStatus stamps UpdatedAt; restored bytes must reject a missing time.
+	for name, mutate := range map[string]func(*Status){
+		"id":             func(s *Status) { s.ID = "x" },
+		"app":            func(s *Status) { s.App = "TS" },
+		"state":          func(s *Status) { s.State = "running" },
+		"no update time": func(s *Status) { s.UpdatedAt = time.Time{} },
+	} {
+		candidate := status
+		mutate(&candidate)
+		cases["status "+name] = struct {
+			key   string
+			value []byte
+		}{machine.ID, encode(candidate)}
+	}
+	// Match payload IDs to raw keys; malformed IDs are tested by the global list.
+	for name, mutate := range map[string]func(*Machine){
+		"id":                     func(m *Machine) { m.ID = "machine-1" },
+		"app id":                 func(m *Machine) { m.AppID = "" },
+		"region":                 func(m *Machine) { m.Region = "" },
+		"unknown region":         func(m *Machine) { m.Region = "xxx" },
+		"zero version":           func(m *Machine) { m.Version = 0 },
+		"domain without host":    func(m *Machine) { m.Host = "" },
+		"upper-case domain":      func(m *Machine) { m.FailureDomain = "FAULT-DOMAIN-1" },
+		"desired":                func(m *Machine) { m.Desired = "running" },
+		"config":                 func(m *Machine) { m.Config.Resources.CPU = 0 },
+		"host with dot (in key)": func(m *Machine) { m.Host = "gru.1" },
+	} {
+		candidate := testMachine(testApp("ts-auth"))
+		candidate.Host, candidate.FailureDomain = "gru-1-ctl-1", "fault-domain-1"
+		mutate(&candidate)
+		cases["machine validation "+name] = struct {
+			key   string
+			value []byte
+		}{candidate.ID, encode(candidate)}
+	}
+	// Each full config has fresh collections, including its third exec check.
+	for name, mutate := range map[string]func(*MachineConfig){
+		"role":               func(c *MachineConfig) { c.Role = "" },
+		"digest":             func(c *MachineConfig) { c.Digest = strings.Repeat("A", 64) },
+		"no memory":          func(c *MachineConfig) { c.Resources.MemoryBytes = 0 },
+		"argument size":      func(c *MachineConfig) { c.Args = []string{strings.Repeat("x", maxArgBytes+1)} },
+		"too many arguments": func(c *MachineConfig) { c.Args = make([]string, maxListed+1) },
+		"env key":            func(c *MachineConfig) { c.Env = map[string]string{"BAD-KEY": "x"} },
+		"service port":       func(c *MachineConfig) { c.Services[0].Port = 70000 },
+		"service name twice": func(c *MachineConfig) { c.Services[1].Name = "http" },
+		"service port twice": func(c *MachineConfig) { c.Services[1].Port = 8080 },
+		"check name twice":   func(c *MachineConfig) { c.Checks[1].Name = "ready" },
+		"check type":         func(c *MachineConfig) { c.Checks[0].Type = "grpc" },
+		"http without path":  func(c *MachineConfig) { c.Checks[0].Path = "" },
+		"tcp with path":      func(c *MachineConfig) { c.Checks[1].Path = "/" },
+		"exec without argv":  func(c *MachineConfig) { c.Checks[2].Command = nil },
+		"exec with port":     func(c *MachineConfig) { c.Checks[2].Port = 80 },
+		"check interval":     func(c *MachineConfig) { c.Checks[0].IntervalSeconds = -1 },
+		"restart policy":     func(c *MachineConfig) { c.Restart.Policy = "sometimes" },
+		"retries on always":  func(c *MachineConfig) { c.Restart.Policy = RestartAlways },
+		"retries over max":   func(c *MachineConfig) { c.Restart.MaxRetries = 101 },
+		"on-failure, no max": func(c *MachineConfig) { c.Restart.MaxRetries = 0 },
+	} {
+		candidate := testMachine(testApp("ts-auth"))
+		candidate.Host, candidate.FailureDomain = "gru-1-ctl-1", "fault-domain-1"
+		mutate(&candidate.Config)
+		cases["machine config "+name] = struct {
+			key   string
+			value []byte
+		}{candidate.ID, encode(candidate)}
 	}
 	for name, tamper := range cases {
 		kv := store.apps
@@ -557,6 +633,193 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 		}
 	}
 
+	tenant := testApp("acme-db")
+	tenant.Class, tenant.Tenant = ClassTenant, "0000000000NY47MDQEXMPZDJR7"
+	for name, candidate := range map[string]App{"platform": testApp("ts-auth"), "tenant": tenant} {
+		key, want := appKey(candidate.Name), encode(candidate)
+		if _, err := store.apps.Put(ctx, key, want); err != nil {
+			t.Fatal(err)
+		}
+		if stored, err := store.App(ctx, candidate.Name); err != nil || stored.Revision == 0 || string(encode(stored)) != string(want) {
+			t.Fatalf("valid %s app read back = %+v, %v", name, stored, err)
+		}
+		apps, err := store.Apps(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, stored := range apps {
+			if stored.Name == candidate.Name && stored.ID == candidate.ID {
+				found = true
+				if stored.Revision == 0 || string(encode(stored)) != string(want) {
+					t.Fatalf("valid %s app listed = %+v", name, stored)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("valid %s app absent from list", name)
+		}
+		if err := store.apps.Purge(ctx, key); err != nil {
+			t.Fatal(err)
+		}
+		if candidate.Name == app.Name {
+			if _, err := store.apps.Put(ctx, appKey(app.Name), encode(app)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// The placed machine carries the exact full config, including the exec check.
+	placed := testMachine(testApp("ts-auth"))
+	placed.Host, placed.FailureDomain = "gru-1-ctl-1", "fault-domain-1"
+	want := encode(placed)
+	if _, err := store.machines.Put(ctx, placed.ID, want); err != nil {
+		t.Fatal(err)
+	}
+	if stored, err := store.Machine(ctx, placed.App, placed.ID); err != nil || stored.Revision == 0 || string(encode(stored)) != string(want) {
+		t.Fatalf("valid placed machine/config read back = %+v, %v", stored, err)
+	}
+	machines, err := store.Machines(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, stored := range machines {
+		if stored.ID == placed.ID && stored.App == placed.App {
+			found = true
+			if stored.Revision == 0 || string(encode(stored)) != string(want) {
+				t.Fatalf("valid placed machine/config listed = %+v", stored)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("valid placed machine/config absent from list")
+	}
+	if err := store.machines.Purge(ctx, placed.ID); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*App){
+		"name":               func(a *App) { a.Name = "TS.auth" },
+		"zero version":       func(a *App) { a.Version = 0 },
+		"id":                 func(a *App) { a.ID = "" },
+		"unknown class":      func(a *App) { a.Class = "shared" },
+		"platform tenant":    func(a *App) { a.Tenant = "acme" },
+		"tenant without one": func(a *App) { a.Class = ClassTenant },
+		"oci region":         func(a *App) { a.Regions = map[string]int{"sa-saopaulo-1": 1} },
+		"unknown region":     func(a *App) { a.Regions = map[string]int{"xxx": 1} },
+		"negative count":     func(a *App) { a.Regions["gru"] = -1 },
+		"count over max":     func(a *App) { a.Regions["gru"] = MaxMachines + 1 },
+		"node pool":          func(a *App) { a.NodePool = "1pool" },
+		"config":             func(a *App) { a.Config.Digest = "sha256:abc" },
+	} {
+		candidate := testApp("ts-auth")
+		mutate(&candidate)
+		key := appKey(candidate.Name)
+		if _, err := store.apps.Put(ctx, key, encode(candidate)); err != nil {
+			t.Fatal(err)
+		}
+		_, getErr := store.App(ctx, candidate.Name)
+		_, listErr := store.Apps(ctx)
+		if !errors.Is(getErr, ErrInvalid) || !errors.Is(listErr, ErrInvalid) {
+			t.Fatalf("app %s: read = %v, list = %v", name, getErr, listErr)
+		}
+		if err := store.apps.Purge(ctx, key); err != nil {
+			t.Fatal(err)
+		}
+		if candidate.Name == app.Name {
+			if _, err := store.apps.Put(ctx, appKey(app.Name), encode(app)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	{
+		stateful := testApp("store")
+		stateful.Config.Role = "store"
+		stateful.Config.Artifact, stateful.Config.Command = workloadspec.ArtifactTarball, []string{"bin/store"}
+		stateful.Config.Lifecycle = workloadspec.Lifecycle{PreStop: []string{"bin/store", "drain"}, DrainSeconds: 45}
+		stateful.Stateful = &workloadspec.Stateful{Quorum: 2}
+		stateful.Regions = map[string]int{"gru": 3, "fra": 0}
+		tenant := testApp("acme-web")
+		tenant.Class, tenant.Tenant = ClassTenant, "0000000000NY47MDQEXMPZDJR7"
+		tenant.Config.Artifact, tenant.Config.Image = workloadspec.ArtifactImage, "ghcr.io/acme/web"
+		tenant.Config.Command = []string{"web"}
+		tenant.Config.Lifecycle.PostStart = []string{"/bin/true"}
+		single := testApp("cache")
+		single.Stateful, single.Regions = &workloadspec.Stateful{}, map[string]int{"gru": 1}
+		inside := testApp("ts-auth")
+		inside.Config.Artifact, inside.Config.Command = workloadspec.ArtifactTarball, []string{"bin/ts-auth", "serve"}
+		inside.Config.Lifecycle.PreStop = []string{"bin/ts-auth", "drain"}
+		inside.Config.Checks = append(inside.Config.Checks, Check{Name: "self", Type: CheckExec, Command: []string{"bin/ts-auth", "check"}})
+		sidecar := testApp("ts-auth-canary")
+		sidecar.Config.Lifecycle.PreStop = []string{"/bin/true"}
+		sidecar.Config.Checks = testConfig().Checks
+		for name, candidate := range map[string]App{
+			"stateful": stateful, "tenant image": tenant, "single member": single,
+			"inside tarball": inside, "sidecar": sidecar,
+		} {
+			key, want := appKey(candidate.Name), encode(candidate)
+			if _, err := store.apps.Put(ctx, key, want); err != nil {
+				t.Fatal(err)
+			}
+			if stored, err := store.App(ctx, candidate.Name); err != nil || stored.Revision == 0 || string(encode(stored)) != string(want) {
+				t.Fatalf("valid %s workload read back = %+v, %v", name, stored, err)
+			}
+			apps, err := store.Apps(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, stored := range apps {
+				if stored.Name == candidate.Name && stored.ID == candidate.ID {
+					found = true
+					if stored.Revision == 0 || string(encode(stored)) != string(want) {
+						t.Fatalf("valid %s workload listed = %+v", name, stored)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("valid %s workload absent from list", name)
+			}
+			if err := store.apps.Purge(ctx, key); err != nil {
+				t.Fatal(err)
+			}
+			if candidate.Name == app.Name {
+				if _, err := store.apps.Put(ctx, appKey(app.Name), encode(app)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		for name, mutate := range map[string]func(*App){
+			"spec":         func(a *App) { a.DependsOn = []string{a.Name} },
+			"machine spec": func(a *App) { a.Config.Files = []workloadspec.File{{Path: "/proc/self"}} },
+			"quorum":       func(a *App) { a.Stateful = &workloadspec.Stateful{Quorum: 3} },
+			"wide update":  func(a *App) { a.Stateful, a.Update.MaxUnavailable = &workloadspec.Stateful{Quorum: 2}, 2 },
+			"post-start":   func(a *App) { a.Config.Lifecycle.PostStart = []string{"/bin/true"} },
+			"pre-stop":     func(a *App) { a.Config.Lifecycle.PreStop = []string{"/bin/true"} },
+			"exec check":   func(a *App) { a.Config.Checks = testConfig().Checks },
+			"image command": func(a *App) {
+				a.Config.Artifact, a.Config.Image, a.Config.Command = workloadspec.ArtifactImage, "ghcr.io/acme/auth", []string{"sh"}
+			},
+		} {
+			candidate := testApp("ts-auth")
+			candidate.Config.Lifecycle = workloadspec.Lifecycle{}
+			mutate(&candidate)
+			key := appKey(candidate.Name)
+			if _, err := store.apps.Put(ctx, key, encode(candidate)); err != nil {
+				t.Fatal(err)
+			}
+			_, getErr := store.App(ctx, candidate.Name)
+			_, listErr := store.Apps(ctx)
+			if !errors.Is(getErr, ErrInvalid) || !errors.Is(listErr, ErrInvalid) {
+				t.Fatalf("workload %s: read = %v, list = %v", name, getErr, listErr)
+			}
+			if err := store.apps.Purge(ctx, key); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.apps.Put(ctx, appKey(app.Name), encode(app)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	// A tampered record cannot be the base of an update either.
 	revision, err := store.apps.Put(ctx, appKey("ts-auth"), encode(other))
 	if err != nil {

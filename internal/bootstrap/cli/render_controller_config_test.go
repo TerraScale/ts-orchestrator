@@ -171,7 +171,7 @@ func TestRenderControllerConfigWritesTSAuthAndSignsInitialManifest(t *testing.T)
 	}
 	if !reflect.DeepEqual(cfg.Controller.Workloads, map[string]app.WorkloadProfile{
 		"terrabase": terrabaseProfile, "ts-auth": authProfile,
-	}) || cfg.Controller.Autoscale == nil || !cfg.Controller.Autoscale.Enabled ||
+	}) || cfg.Controller.Autoscale == nil ||
 		!reflect.DeepEqual(cfg.Controller.Autoscale.Services, []workload.ServiceSpec{authService}) {
 		t.Fatalf("rendered ts-auth config = %+v", cfg.Controller)
 	}
@@ -316,7 +316,7 @@ func TestRenderControllerConfigWritesCanonicalTSAuthProfileAndService(t *testing
 	if err != nil || !reflect.DeepEqual(canonical, wire) {
 		t.Fatal("renderer output is not canonical app.Config JSON")
 	}
-	if cfg.Controller.Autoscale == nil || !cfg.Controller.Autoscale.Enabled || len(cfg.Controller.Autoscale.Services) != 1 ||
+	if cfg.Controller.Autoscale == nil || len(cfg.Controller.Autoscale.Services) != 1 ||
 		cfg.Controller.Autoscale.Services[0].Role != "ts-auth" {
 		t.Fatalf("ts-auth autoscale config = %+v", cfg.Controller.Autoscale)
 	}
@@ -480,11 +480,15 @@ func TestInstalledControllerConfigRequiresCurrentSchema(t *testing.T) {
 		t.Fatalf("signing accepted noncanonical current-schema bytes: %v", err)
 	}
 	for name, manifest := range map[string]bootstrap.Manifest{
-		"version missing":    signed(strings.Replace(rendered, `"version":1,`, "", 1)),
-		"version zero":       signed(strings.Replace(rendered, `"version":1,`, `"version":0,`, 1)),
-		"version two":        signed(strings.Replace(rendered, `"version":1,`, `"version":2,`, 1)),
-		"aggregation switch": signed(strings.Replace(rendered, `"controller":{`, `"observability":{"cluster_aggregation":false},"controller":{`, 1)),
-		"dashboard switch":   signed(strings.Replace(rendered, `"controller":{`, `"observability":{"dashboard":false},"controller":{`, 1)),
+		"legacy version":            signed(strings.Replace(rendered, `"version":2,`, `"version":1,`, 1)),
+		"retired workload disable":  signed(strings.Replace(rendered, `"controller":{`, `"controller":{"autoscale":{"enabled":false,"services":[]},`, 1)),
+		"retired telemetry disable": signed(strings.Replace(rendered, `"controller":{`, `"controller":{"autoscale":{"host_telemetry":false,"services":[]},`, 1)),
+		"retired workload interval": signed(strings.Replace(rendered, `"controller":{`, `"controller":{"autoscale":{"interval_seconds":30,"services":[]},`, 1)),
+		"version missing":           signed(strings.Replace(rendered, `"version":2,`, "", 1)),
+		"version zero":              signed(strings.Replace(rendered, `"version":2,`, `"version":0,`, 1)),
+		"version three":             signed(strings.Replace(rendered, `"version":2,`, `"version":3,`, 1)),
+		"aggregation switch":        signed(strings.Replace(rendered, `"controller":{`, `"observability":{"cluster_aggregation":false},"controller":{`, 1)),
+		"dashboard switch":          signed(strings.Replace(rendered, `"controller":{`, `"observability":{"dashboard":false},"controller":{`, 1)),
 		"newer aggregation switch": signed(strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion),
 			fmt.Sprintf(`{"version":%d,"observability":{"cluster_aggregation":false},`, app.ConfigVersion+1), 1)),
 		"newer dashboard switch": signed(strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion),
@@ -494,9 +498,9 @@ func TestInstalledControllerConfigRequiresCurrentSchema(t *testing.T) {
 			tampered.ControllerConfig = wire
 			return tampered
 		}(),
-		"obsolete config version": signed(strings.Replace(rendered, `"version":1`, `"version":6`, 1)),
-		"missing config version":  signed(strings.Replace(rendered, `"version":1,`, "", 1)),
-		"zero config version":     signed(strings.Replace(rendered, `"version":1`, `"version":0`, 1)),
+		"obsolete config version": signed(strings.Replace(rendered, `"version":2`, `"version":6`, 1)),
+		"missing config version":  signed(strings.Replace(rendered, `"version":2,`, "", 1)),
+		"zero config version":     signed(strings.Replace(rendered, `"version":2`, `"version":0`, 1)),
 		"obsolete restart opt-in": signed(strings.Replace(rendered, `"controller":{`,
 			`"controller":{"offline_restart_admission":false,`, 1)),
 		"obsolete aggregation switch": signed(strings.Replace(rendered, `"controller":{`,
@@ -648,50 +652,5 @@ func TestRenderControllerConfigKeepsLegacyMaterialWithoutTerraBase(t *testing.T)
 		"--terrabase-profile-sha256", fixtureFileDigest(profilePath), "--out", output), now)
 	if err == nil || !strings.Contains(err.Error(), "needs the member CA") {
 		t.Fatalf("TerraBase profile rendered without a member CA: %v", err)
-	}
-}
-
-// The reviewed KV snapshot location becomes controller.kv_snapshot; a
-// disabled or invalid location is refused.
-func TestRenderControllerConfigWritesKVSnapshotLocation(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
-	args, _ := renderInputs(t, now, keepEverySecret)
-	dir := t.TempDir()
-	location := func(name, body string) string {
-		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return path
-	}
-	valid := location("kv-snapshot.json", `{"enabled":true,"region":"sa-saopaulo-1","namespace":"grxnmoqvrcdv","bucket":"gru-1-head","prefix":"kv-snapshot/v1","interval_seconds":30}`)
-	output := filepath.Join(dir, "controller.json")
-	if err := renderControllerConfigAt(append(args, "--kv-snapshot", valid, "--kv-snapshot-sha256", fixtureFileDigest(valid),
-		"--out", output), now); err != nil {
-		t.Fatal(err)
-	}
-	wire, err := os.ReadFile(output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cfg app.Config
-	if err := protocol.DecodeStrict(wire, &cfg, bootstrap.MaxControllerConfigBytes); err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.Controller.KVSnapshot; !got.Enabled || got.Bucket != "gru-1-head" || got.Prefix != "kv-snapshot/v1" ||
-		got.Region != "sa-saopaulo-1" || got.IntervalSeconds != 30 {
-		t.Fatalf("rendered kv_snapshot = %+v", got)
-	}
-	for name, body := range map[string]string{
-		"disabled": `{"enabled":false}`,
-		"unknown":  `{"enabled":true,"region":"sa-saopaulo-1","namespace":"n","bucket":"b","extra":1}`,
-		"invalid":  `{"enabled":true,"region":"sa-saopaulo-1","namespace":"n","bucket":"b","interval_seconds":1}`,
-	} {
-		path := location(name+".json", body)
-		err := renderControllerConfigAt(append(args, "--kv-snapshot", path, "--kv-snapshot-sha256", fixtureFileDigest(path),
-			"--out", filepath.Join(dir, name+"-controller.json")), now)
-		if err == nil {
-			t.Errorf("%s KV snapshot location rendered", name)
-		}
 	}
 }

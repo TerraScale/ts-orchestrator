@@ -1,0 +1,18 @@
+{
+  "state": "SEC_SOURCE_ACK_ONLY",
+  "reviewer": "/root/security",
+  "head": "5e678c47a1767b52218abf7c08f18741db465d85",
+  "tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+  "canonical_chain": [
+    "7dc7b5a15eb72f7c4ffc0c063f76ea2c2ecb318b",
+    "5e678c47a1767b52218abf7c08f18741db465d85"
+  ],
+  "source_ack": [
+    "Original constructor now initializes all direct optional map/list fields in actual populated launch request, top4maps+prior2lists/VNIC3maps+IPv6list; NSG remains nonempty signed prerequisite.",
+    "Exact actual SDK HTTP body digest/token/history unchanged; no old malformed-history normalization/adoption.",
+    "Lifecycle only accepts3fixed returned host-slot maps exactly equal to original signed-input maps; containers never enter scalar protected checkpoint path.",
+    "Actual SDK provider ValidatePlan independently deep-copies source and validates expected slot leaves nil/string/OCID; maps.Equal baseline has no uncomparable expected leaves.",
+    "Existing genuine provider assertion keeps containers out of scalar journal; every original assertion retained."
+  ],
+  "limits": "Source review only; earlier678 runtime remains NOT_QUALIFIED; new source compilation/roundtrip/runtime requires separate QA."
+}

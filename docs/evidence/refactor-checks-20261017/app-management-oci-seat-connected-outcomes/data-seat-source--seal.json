@@ -1,0 +1,18 @@
+{
+  "go_pin": {
+    "path": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "resolved": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624"
+  },
+  "manifest_sha256": "939ed25dca2a45bdfeac89e026a448fdd8c11d317b77f6a01bcb614caddd9a03",
+  "python_pin": {
+    "path": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "resolved": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+  },
+  "request_sha256": "06f39dce12696999d860c03673da0ca95329645481468016458e94e34c92868f",
+  "scope": "Whole seatrollout package: 12 roots + 9 leaves; sole sequential NATS fixture; CAPACITY nonblocking.",
+  "state": "SEALED_NOT_EXECUTED_NO_GRANT",
+  "wrapper_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/run.py",
+  "wrapper_sha256": "e3674addb6977cc1af7426567850dff167dca2f8e48b568ad8d3553370e6220d"
+}

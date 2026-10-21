@@ -1,0 +1,20 @@
+{
+  "main_parent": "72e903719c7b53dee94305f50b3bdb8b147f0eda",
+  "app_parent": "3d9a933e0f59f3e69888d2cb17ed60d8ddea0457",
+  "additional_owned_deltas": [
+    "ddc22a6e1030804353de618cfa080aec24af6175",
+    "32fd7e0a4444c4466fc932739a14ffaf18501326",
+    "e841dce2be7c172690be8d0b9c2a26a9d0c03baa"
+  ],
+  "resolved_conflicts": 13,
+  "whitespace_check": "PASS excluding these 5 byte-exact third-party asset files; full diff check reports their original whitespace",
+  "byte_exact_assets": {
+    "deploy/image/inputs/ubuntu-noble-amd64-20260926/ubuntu-cloudimage-signing-key.asc": "927138de292fac4d861105a052cf56e9c5921987da385c844d88f34d19b39ab0",
+    "internal/image/runtime_licenses/containerd-NOTICES.txt": "d33f1a0e246f6067530f2902ef239caee482ee1cdd1c58100612dd228e288741",
+    "internal/image/runtime_licenses/libpathrs-NOTICES.txt": "8e6bc431b37c165a995d4757e412059c2a64eff1b7c9c09d5f8d3ab238bd13ee",
+    "internal/image/runtime_licenses/libseccomp-NOTICES.txt": "ba60fad0478a2615d3dee9d3e26ed28bd2d095df76ac86b24509c7fcaf1df356",
+    "internal/image/runtime_licenses/runc-NOTICES.txt": "b97ef7709c8949d57697c1de4791fc421a17b3062fe0bd490db342a2ef30c6c3"
+  },
+  "human_instruction_files": "unchanged",
+  "runtime": "union not yet compiled or executed"
+}

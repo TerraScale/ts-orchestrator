@@ -1,0 +1,10 @@
+{
+  "assertion_map_sha256": "7aace99a05a383d5b702c4c63ed7480cf29f1f613f65e3875263ccfe71e03a8b",
+  "compatibility_review_sha256": "e834bc0915660736ff2f9dc7ab197544b12657234c31f37f6d660b305a502103",
+  "feature": "b8c3c96d03f552770f6370097fd89f4cbd406e5e",
+  "feature_patch_sha256": "8880308de9699680f9596ebffc03f6b6e1121d0c84f78771ec918ecd0de92623",
+  "files_covered": 101,
+  "manifest_sha256": "d3740f5ecf086794e64060b294139462bdf7ea25e3aede23a8cf73995f8c7960",
+  "no_elf": true,
+  "state": "IMMUTABLE_READ_ONLY_COMPATIBILITY_PACKET"
+}

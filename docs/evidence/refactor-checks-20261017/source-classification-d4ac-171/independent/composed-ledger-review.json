@@ -1,0 +1,1323 @@
+{
+  "accounting": {
+    "all10_unresolved_intended_integration_zero_credit": true,
+    "all79_runtime_unknown_safety_obligations_retained_no_retirement": true,
+    "all79_unique_exhaustive_disjoint_from_preexisting102_retired19": true,
+    "before": {
+      "baseline_originals": 4319,
+      "classified": 102,
+      "globally_unadjudicated": 4198,
+      "integration": 78,
+      "mixed": 1,
+      "retained": 4300,
+      "retired": 19,
+      "unit": 23
+    },
+    "delta": {
+      "classified": 69,
+      "integration": 22,
+      "mixed": 27,
+      "retirement": 0,
+      "reviewed_unresolved_separate": 10,
+      "runtime": 0,
+      "unit": 20
+    },
+    "eleven_peer_corrections_preserved": "10 NATS integration to unresolved; functions expired-material integration to unit.",
+    "identities": [
+      "78+22=100 integration",
+      "23+20=43 unit",
+      "1+27=28 mixed",
+      "102+69=171 classified",
+      "4198-69=4129 unadjudicated",
+      "100+43+28=171",
+      "19+171+4129=4319 originals",
+      "171+4129=4300 retained",
+      "4129=10 reviewed unresolved+4119 other unadjudicated",
+      "79 allocation=69 classified+10 unresolved",
+      "186 scoped rows=171 classified+10 unresolved+5 prior retired exclusions"
+    ],
+    "prior19_retirements_and_vendor1449_present_zero_retirement_zero_central_closure_preserved": true,
+    "proposed_after": {
+      "baseline_originals": 4319,
+      "classified": 171,
+      "globally_unadjudicated": 4129,
+      "integration": 100,
+      "mixed": 28,
+      "remaining_other_unadjudicated": 4119,
+      "retained": 4300,
+      "retired": 19,
+      "reviewed_unresolved_included_in_unadjudicated": 10,
+      "unit": 43
+    }
+  },
+  "authored_proposal_states": {
+    "independent_acceptances_bound_externally_without_rewriting_author_packet": true,
+    "pending_at_composition_history_preserved": true,
+    "promotion_not_applied": true,
+    "receipt": "PROPOSED_NOT_APPLIED_PENDING_TWO_INDEPENDENT_REVIEWS",
+    "summary": "PROPOSED_SOURCE_CLASSIFICATIONS_NOT_APPLIED_PENDING_INDEPENDENT_DELTA_REVIEW"
+  },
+  "classification_mirror_proof": {
+    "all_after_mirrors_equal_exact_pinned_proposed171_summary": true,
+    "all_before_mirrors_equal_existing102": true,
+    "completion": 10,
+    "four_new_packages_candidly_PROPOSED_NOT_APPLIED": true,
+    "mirrors": 12,
+    "paths": [
+      {
+        "ledger": "completion",
+        "path": [
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "current_feature_linkage",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "current_feature_linkage",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "first_party_inventory",
+          "current_reconciliation",
+          "current_feature_linkage",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "inventory",
+          "canonical_presence_derivation",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "current_test_reconciliation_derivation",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "progress",
+        "path": [
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "progress",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classification_adjudication"
+        ]
+      }
+    ],
+    "prior_ociclient_and_authority_package_summaries_preserved": true,
+    "progress": 2,
+    "summary_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+    "summary_raw_sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+  },
+  "decision": "ACCEPT_EXACT_FULL_COMPOSED_CLASSIFICATION_ONLY_PROPOSAL_NO_SHARED_WRITE",
+  "expected_before_shared_rechecked": {
+    "completion": {
+      "bytes": 1149251,
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "sha256": "fde357ecbc4cd877a3c71baad94d3dd701ce351b3da6ff139858b9c4c4a64064"
+    },
+    "progress": {
+      "bytes": 105488,
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "sha256": "6a5500adb0ddde566224ac7a6ca1ebf99b797bccaefd4546968539aec32dbe93"
+    }
+  },
+  "findings": [],
+  "full_change_proof": {
+    "all_before_and_after_canonical_hashes_match": true,
+    "canonical_contract": "sha256(json.dumps(value,sort_keys=True,separators=(comma,colon),ensure_ascii=False).encode(UTF-8))",
+    "changes": [
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "completion",
+        "path": [
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "current_feature_linkage",
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "completion",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "completion",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "current_feature_linkage",
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "first_party_inventory",
+          "current_reconciliation",
+          "current_feature_linkage",
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "inventory",
+          "canonical_presence_derivation",
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "current_test_reconciliation_derivation",
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "progress",
+        "path": [
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after_canonical_sha256": "e662b653a7f648f0ef53ad813b118ed0908ce7b94135cc4b635eeddf06fb37fa",
+        "after_value_source": {
+          "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+          "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+        },
+        "before_canonical_sha256": "20e32ea61a6309461158cacc1ecac0a866264a21a7b79879edb7430e0871d40a",
+        "ledger": "progress",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classification_adjudication"
+        ],
+        "reason": "Replace existing102 classification summary mirror with exact author-pinned proposed171 summary; not an accepted promotion."
+      },
+      {
+        "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse.",
+        "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+        "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+        "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "provenance",
+          "limit"
+        ],
+        "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts."
+      },
+      {
+        "after": 4129,
+        "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+        "before": 4198,
+        "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "firstparty",
+          "globally_unadjudicated_remaining_original_tests"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse.",
+        "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+        "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+        "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "firstparty",
+          "classification_limit"
+        ],
+        "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts."
+      },
+      {
+        "after": 100,
+        "after_canonical_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+        "before": 78,
+        "before_canonical_sha256": "349c41201b62db851192665c504b350ff98c6b45fb62a8a2161f78b6534d8de9",
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "firstparty",
+          "source_classified_integration"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 43,
+        "after_canonical_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+        "before": 23,
+        "before_canonical_sha256": "535fa30d7e25dd8a49f1536779734ec8286108d115da5045d77f3b4185d8f790",
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "firstparty",
+          "source_classified_unit"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 28,
+        "after_canonical_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+        "before": 1,
+        "before_canonical_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "firstparty",
+          "source_classified_mixed"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 171,
+        "after_canonical_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+        "before": 102,
+        "before_canonical_sha256": "37834f2f25762f23e1f74a531cbe445db73d6765ebe60878a7dfbecd7d4af6e1",
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "firstparty",
+          "source_classification_adjudicated_retained"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 4129,
+        "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+        "before": 4198,
+        "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "current_feature_linkage",
+          "firstparty_globally_unadjudicated"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 4129,
+        "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+        "before": 4198,
+        "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+        "ledger": "completion",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "remaining_original_tests_globally_unadjudicated"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse.",
+        "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+        "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+        "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+        "ledger": "completion",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "limits"
+        ],
+        "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts."
+      },
+      {
+        "after": 4129,
+        "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+        "before": 4198,
+        "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+        "ledger": "completion",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "current_feature_linkage",
+          "firstparty_globally_unadjudicated"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 4129,
+        "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+        "before": 4198,
+        "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "first_party_inventory",
+          "current_reconciliation",
+          "remaining_original_tests_globally_unadjudicated"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse.",
+        "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+        "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+        "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "first_party_inventory",
+          "current_reconciliation",
+          "limits"
+        ],
+        "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts."
+      },
+      {
+        "after": 4129,
+        "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+        "before": 4198,
+        "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "first_party_inventory",
+          "current_reconciliation",
+          "current_feature_linkage",
+          "firstparty_globally_unadjudicated"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 4129,
+        "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+        "before": 4198,
+        "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "inventory",
+          "canonical_presence_derivation",
+          "firstparty_globally_unadjudicated"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse.",
+        "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+        "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+        "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "authoritative_test_reconciliation",
+          "limit"
+        ],
+        "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts."
+      },
+      {
+        "after": 4129,
+        "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+        "before": 4198,
+        "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "current_test_reconciliation_derivation",
+          "firstparty_globally_unadjudicated"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 4129,
+        "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+        "before": 4198,
+        "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "firstparty_remaining_globally_unadjudicated"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse.",
+        "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+        "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+        "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "limits"
+        ],
+        "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts."
+      },
+      {
+        "after": 100,
+        "after_canonical_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+        "before": 78,
+        "before_canonical_sha256": "349c41201b62db851192665c504b350ff98c6b45fb62a8a2161f78b6534d8de9",
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "firstparty_source_classified_integration"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 43,
+        "after_canonical_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+        "before": 23,
+        "before_canonical_sha256": "535fa30d7e25dd8a49f1536779734ec8286108d115da5045d77f3b4185d8f790",
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "firstparty_source_classified_unit"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 28,
+        "after_canonical_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+        "before": 1,
+        "before_canonical_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "firstparty_source_classified_mixed"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 4129,
+        "after_canonical_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+        "before": 4198,
+        "before_canonical_sha256": "f6641c06da157a04f1499bb365f2db910517cff068c821217ec1838e93db5e7a",
+        "ledger": "progress",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "globally_unadjudicated"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": "CLASSIFICATION-ONLY PROPOSAL, NOT APPLIED: historicald4ac4319 originals retain19 scoped retirements and4300 originals. Prior accepted102 plus proposed69=171 classifications (100integration/43unit/28mixed);4129 remain globally unadjudicated, including10 reviewed-unresolved NATS roots. Independent aggregate-delta and composed-ledger review precede any promotion. Runtime remains UNKNOWN;7330 NOTQUALIFIED by classification; allfive categoriesOPEN/completefalse.",
+        "after_canonical_sha256": "13b9af4dbf47f982d495dff5cca533437b33d34d518828daad0772c81e1e92ff",
+        "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+        "before_canonical_sha256": "c98b0abddd2907a377c8f2cc94229ffa58f20aeee97e7582d0f1dba9154716d0",
+        "ledger": "progress",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "note"
+        ],
+        "reason": "Current count-object explanation states proposed171/4129 and explicit pending acceptance; retain historical sources/receipts."
+      },
+      {
+        "after": 171,
+        "after_canonical_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+        "before": 102,
+        "before_canonical_sha256": "37834f2f25762f23e1f74a531cbe445db73d6765ebe60878a7dfbecd7d4af6e1",
+        "ledger": "progress",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "classified_retained"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 100,
+        "after_canonical_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+        "before": 78,
+        "before_canonical_sha256": "349c41201b62db851192665c504b350ff98c6b45fb62a8a2161f78b6534d8de9",
+        "ledger": "progress",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classified_integration"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 43,
+        "after_canonical_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+        "before": 23,
+        "before_canonical_sha256": "535fa30d7e25dd8a49f1536779734ec8286108d115da5045d77f3b4185d8f790",
+        "ledger": "progress",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classified_unit"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after": 28,
+        "after_canonical_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+        "before": 1,
+        "before_canonical_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "ledger": "progress",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classified_mixed"
+        ],
+        "reason": "Proposed classification arithmetic mirror only; no retirement/runtime/source change."
+      },
+      {
+        "after_canonical_sha256": "04cd1d37e47d282c06f37fc8d2014b8c6ed639b2514cd33c30c0b9c068f819a4",
+        "before_canonical_sha256": "50eb7fb3bbe006907961e57d835f6dd5ae4f78443ba265cb44fd54546959d4b1",
+        "ledger": "completion",
+        "path": [
+          "classification_adjudication_history"
+        ],
+        "reason": "Append proposed classification-only provenance and exact before pins; preserve every prior history entry."
+      },
+      {
+        "after": "2026-10-17T15:16:18.301816+00:00",
+        "after_canonical_sha256": "31dfdb7d8e482936cfccacea4c8d20cea3f2549ed0d5cf662dba6a2b115d13a6",
+        "before": "2026-10-17T15:06:30.796536+00:00",
+        "before_canonical_sha256": "19eb01038d905112772003b924a533fb6726727058d7b80b52885d76eb775269",
+        "ledger": "completion",
+        "path": [
+          "as_of"
+        ],
+        "reason": "Timestamp of composed proposed ledger bytes."
+      },
+      {
+        "after_canonical_sha256": "95cd46c2f075f97c54db92e13a6ecda2b851c9d05355e394281b9876d5c77378",
+        "before_canonical_sha256": "29ee4dbd0d8000a5bb31a65cc15fb6c127bfbdbd71697c16ec70053cb358342a",
+        "ledger": "progress",
+        "path": [
+          "classification_adjudication_history"
+        ],
+        "reason": "Append proposed classification-only provenance and exact before pins; preserve every prior history entry."
+      },
+      {
+        "after": "2026-10-17T15:16:18.301816+00:00",
+        "after_canonical_sha256": "31dfdb7d8e482936cfccacea4c8d20cea3f2549ed0d5cf662dba6a2b115d13a6",
+        "before": "2026-10-17T15:06:30.796536+00:00",
+        "before_canonical_sha256": "19eb01038d905112772003b924a533fb6726727058d7b80b52885d76eb775269",
+        "ledger": "progress",
+        "path": [
+          "as_of"
+        ],
+        "reason": "Timestamp of composed proposed ledger bytes."
+      },
+      {
+        "after": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e",
+        "after_canonical_sha256": "ac5af3dda6fdbaf6189658826104d456f132857a34c9089c54cf133b85e0ceef",
+        "before": "fde357ecbc4cd877a3c71baad94d3dd701ce351b3da6ff139858b9c4c4a64064",
+        "before_canonical_sha256": "d0fd11b7673134b8a0b87bd81968f588b8ca4869530eb322e5a9a7ae493eeb94",
+        "ledger": "progress",
+        "path": [
+          "completion_ledger_sha256"
+        ],
+        "reason": "Bind proposed progress to exact proposed completion bytes."
+      }
+    ],
+    "declared_changes": 45,
+    "no_unlisted_JSON_change": true,
+    "restoring_all45_listed_paths_yields_entire_before_documents_exactly": true,
+    "unique_nonoverlapping_paths": 45
+  },
+  "history_and_time": {
+    "as_of_equal_receipt_creation": "2026-10-17T15:16:18.301816+00:00",
+    "histories": {
+      "completion": {
+        "after_entries": 3,
+        "before_entries": 2,
+        "new_entry": {
+          "adjudicated_retained_delta_PROPOSED": 69,
+          "as_of": "2026-10-17T15:16:18.301816+00:00",
+          "batch_peer_receipts": [
+            {
+              "batch_id": "functions14",
+              "candidate": {
+                "path": "/tmp/ts-functions14-d4ac-source-classification-o5y_ymin/classification.json",
+                "sha256": "9510b271f01831ed0d0b8607f14d62f841a2e248bf1bcb491f2878e40154caf2"
+              },
+              "classified_roots": 14,
+              "counts": {
+                "integration": 6,
+                "mixed": 7,
+                "unit": 1,
+                "unresolved": 0
+              },
+              "peer": {
+                "path": "/tmp/ts-functions14-d4ac-independent-peer-kqfl7tyr/review.json",
+                "sha256": "89aef0faa2318141b40091c99f45ada9b2dc8828593eceaaaa88aff96f07905c"
+              },
+              "reviewed_unresolved_roots": 0
+            },
+            {
+              "batch_id": "natscell20",
+              "candidate": {
+                "path": "/tmp/ts-natscell20-d4ac-source-classification-nzhpx105/classification.json",
+                "sha256": "b21ae142cb4d24e3bd64a2ba70ee920c87f765c734652ef0c3bd38a2efb54b50"
+              },
+              "classified_roots": 10,
+              "counts": {
+                "integration": 1,
+                "mixed": 1,
+                "unit": 8,
+                "unresolved": 10
+              },
+              "peer": {
+                "path": "/tmp/ts-natscell20-d4ac-independent-peer-b_bio5m1/review.json",
+                "sha256": "e87bafa1ba1a80a5dabe467f73ee52676d2c6e5a956edea6522521794cf42034"
+              },
+              "reviewed_unresolved_roots": 10
+            },
+            {
+              "batch_id": "oci_boundaries15",
+              "candidate": {
+                "path": "/tmp/ts-oci-boundaries15-d4ac-source-b8ro_u0v/classification.json",
+                "sha256": "ad3bbfee8f3e1af9cd72abe484ec91f656f623a0fa55e56525cc5869967aa29a"
+              },
+              "classified_roots": 15,
+              "counts": {
+                "integration": 7,
+                "mixed": 3,
+                "unit": 5,
+                "unresolved": 0
+              },
+              "peer": {
+                "path": "/tmp/ts-oci15-d4ac-classification-independent-storage-review-fa7eepf1/review.json",
+                "sha256": "433fa228c6fe371b9d175d9bac76944facf9f4464f1e8f52be9c9c896fe81de8"
+              },
+              "reviewed_unresolved_roots": 0
+            },
+            {
+              "batch_id": "region30",
+              "candidate": {
+                "path": "/tmp/ts-region30-d4ac-source-classification-k5k2eh_b/classification.json",
+                "sha256": "0253d55a2fd2467198fca1287004ecc20a2c888fe2f8341536bdeb4ca7549002"
+              },
+              "classified_roots": 30,
+              "counts": {
+                "integration": 8,
+                "mixed": 16,
+                "unit": 6,
+                "unresolved": 0
+              },
+              "peer": {
+                "path": "/tmp/ts-qa-region30-d4ac-source-peer-7fda186bcce1/review.json",
+                "sha256": "06e0955ab81f69141ad43401a1ad333d18541e724112961a2c6accdde19a2d69"
+              },
+              "reviewed_unresolved_roots": 0
+            }
+          ],
+          "before_snapshot": {
+            "bytes": 1149251,
+            "original": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+            "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/before/completion.json",
+            "sha256": "fde357ecbc4cd877a3c71baad94d3dd701ce351b3da6ff139858b9c4c4a64064"
+          },
+          "bridge_commit": "7330ca87c377d2cbe5f8c269282039039df550ad",
+          "bridge_qualification": "NOTQUALIFIED_NO_AUTOMATIC_TRANSFER",
+          "composed_review": "REQUIRED_BEFORE_SHARED_MUTATION",
+          "corrections": [
+            {
+              "from": "integration",
+              "reason": "Local expiry predicate is the sole asserted target; file reads are fixture input plumbing.",
+              "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+              "to": "unit"
+            },
+            {
+              "from": "integration",
+              "intended_target": "integration",
+              "reason": "Config.Lab removed; current validation rejects stale auth fixtures before broker startup. Advertising expectation also conflicts with DontListen/NoAdvertise.",
+              "root_ids": [
+                "internal/natscell/cluster_formation_test.go::TestCloseHandsOffStreamLeadership",
+                "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+                "internal/natscell/cluster_formation_test.go::TestObserveStandaloneBroker",
+                "internal/natscell/cluster_formation_test.go::TestStagedFormationWithProductionRouteShape",
+                "internal/natscell/cluster_formation_test.go::TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+                "internal/natscell/runtime_test.go::TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+                "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers",
+                "internal/natscell/runtime_test.go::TestEmbeddedSingleNodeDurableRestart",
+                "internal/natscell/runtime_test.go::TestHostNKeyCannotCrossNodeOrUseJetStream",
+                "internal/natscell/runtime_test.go::TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState"
+              ],
+              "to": "unresolved"
+            }
+          ],
+          "delta_proposal": {
+            "path": "/tmp/ts-d4ac-classification69-delta-final-l6fu61l5/proposal.json",
+            "sha256": "7eaaa19a3ccb97b64e02d74021ec4bcdf0908ecc2f317f131ae7c9acd473c69e"
+          },
+          "independent_delta_review": {
+            "scope": "Concurrent storage_compare review; no acceptance inferred from author counts.",
+            "state": "PENDING_AT_COMPOSITION"
+          },
+          "integration_delta_PROPOSED": 22,
+          "mixed_delta_PROPOSED": 27,
+          "proposed_summary": {
+            "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+            "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+          },
+          "retirement_delta": 0,
+          "reviewed_unresolved_separate": 10,
+          "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+          "runtime_qualification_delta": 0,
+          "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+          "state": "PROPOSED_NOT_APPLIED_PENDING_INDEPENDENT_DELTA_AND_COMPOSED_REVIEW",
+          "unit_delta_PROPOSED": 20,
+          "unresolved_included_in_4129": true
+        },
+        "new_entry_canonical_sha256": "84271aab2be9b1409fc7ddce9d980256b00a8996beef7cdd80615fa9b33e6133",
+        "prior_prefix_preserved": true
+      },
+      "progress": {
+        "after_entries": 3,
+        "before_entries": 2,
+        "new_entry": {
+          "adjudicated_retained_delta_PROPOSED": 69,
+          "as_of": "2026-10-17T15:16:18.301816+00:00",
+          "batch_peer_receipts": [
+            {
+              "batch_id": "functions14",
+              "candidate": {
+                "path": "/tmp/ts-functions14-d4ac-source-classification-o5y_ymin/classification.json",
+                "sha256": "9510b271f01831ed0d0b8607f14d62f841a2e248bf1bcb491f2878e40154caf2"
+              },
+              "classified_roots": 14,
+              "counts": {
+                "integration": 6,
+                "mixed": 7,
+                "unit": 1,
+                "unresolved": 0
+              },
+              "peer": {
+                "path": "/tmp/ts-functions14-d4ac-independent-peer-kqfl7tyr/review.json",
+                "sha256": "89aef0faa2318141b40091c99f45ada9b2dc8828593eceaaaa88aff96f07905c"
+              },
+              "reviewed_unresolved_roots": 0
+            },
+            {
+              "batch_id": "natscell20",
+              "candidate": {
+                "path": "/tmp/ts-natscell20-d4ac-source-classification-nzhpx105/classification.json",
+                "sha256": "b21ae142cb4d24e3bd64a2ba70ee920c87f765c734652ef0c3bd38a2efb54b50"
+              },
+              "classified_roots": 10,
+              "counts": {
+                "integration": 1,
+                "mixed": 1,
+                "unit": 8,
+                "unresolved": 10
+              },
+              "peer": {
+                "path": "/tmp/ts-natscell20-d4ac-independent-peer-b_bio5m1/review.json",
+                "sha256": "e87bafa1ba1a80a5dabe467f73ee52676d2c6e5a956edea6522521794cf42034"
+              },
+              "reviewed_unresolved_roots": 10
+            },
+            {
+              "batch_id": "oci_boundaries15",
+              "candidate": {
+                "path": "/tmp/ts-oci-boundaries15-d4ac-source-b8ro_u0v/classification.json",
+                "sha256": "ad3bbfee8f3e1af9cd72abe484ec91f656f623a0fa55e56525cc5869967aa29a"
+              },
+              "classified_roots": 15,
+              "counts": {
+                "integration": 7,
+                "mixed": 3,
+                "unit": 5,
+                "unresolved": 0
+              },
+              "peer": {
+                "path": "/tmp/ts-oci15-d4ac-classification-independent-storage-review-fa7eepf1/review.json",
+                "sha256": "433fa228c6fe371b9d175d9bac76944facf9f4464f1e8f52be9c9c896fe81de8"
+              },
+              "reviewed_unresolved_roots": 0
+            },
+            {
+              "batch_id": "region30",
+              "candidate": {
+                "path": "/tmp/ts-region30-d4ac-source-classification-k5k2eh_b/classification.json",
+                "sha256": "0253d55a2fd2467198fca1287004ecc20a2c888fe2f8341536bdeb4ca7549002"
+              },
+              "classified_roots": 30,
+              "counts": {
+                "integration": 8,
+                "mixed": 16,
+                "unit": 6,
+                "unresolved": 0
+              },
+              "peer": {
+                "path": "/tmp/ts-qa-region30-d4ac-source-peer-7fda186bcce1/review.json",
+                "sha256": "06e0955ab81f69141ad43401a1ad333d18541e724112961a2c6accdde19a2d69"
+              },
+              "reviewed_unresolved_roots": 0
+            }
+          ],
+          "before_snapshot": {
+            "bytes": 105488,
+            "original": "/tmp/ts-qa-main-union-progress-20261016.json",
+            "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/before/progress.json",
+            "sha256": "6a5500adb0ddde566224ac7a6ca1ebf99b797bccaefd4546968539aec32dbe93"
+          },
+          "bridge_commit": "7330ca87c377d2cbe5f8c269282039039df550ad",
+          "bridge_qualification": "NOTQUALIFIED_NO_AUTOMATIC_TRANSFER",
+          "composed_review": "REQUIRED_BEFORE_SHARED_MUTATION",
+          "corrections": [
+            {
+              "from": "integration",
+              "reason": "Local expiry predicate is the sole asserted target; file reads are fixture input plumbing.",
+              "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+              "to": "unit"
+            },
+            {
+              "from": "integration",
+              "intended_target": "integration",
+              "reason": "Config.Lab removed; current validation rejects stale auth fixtures before broker startup. Advertising expectation also conflicts with DontListen/NoAdvertise.",
+              "root_ids": [
+                "internal/natscell/cluster_formation_test.go::TestCloseHandsOffStreamLeadership",
+                "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+                "internal/natscell/cluster_formation_test.go::TestObserveStandaloneBroker",
+                "internal/natscell/cluster_formation_test.go::TestStagedFormationWithProductionRouteShape",
+                "internal/natscell/cluster_formation_test.go::TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+                "internal/natscell/runtime_test.go::TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+                "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers",
+                "internal/natscell/runtime_test.go::TestEmbeddedSingleNodeDurableRestart",
+                "internal/natscell/runtime_test.go::TestHostNKeyCannotCrossNodeOrUseJetStream",
+                "internal/natscell/runtime_test.go::TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState"
+              ],
+              "to": "unresolved"
+            }
+          ],
+          "delta_proposal": {
+            "path": "/tmp/ts-d4ac-classification69-delta-final-l6fu61l5/proposal.json",
+            "sha256": "7eaaa19a3ccb97b64e02d74021ec4bcdf0908ecc2f317f131ae7c9acd473c69e"
+          },
+          "independent_delta_review": {
+            "scope": "Concurrent storage_compare review; no acceptance inferred from author counts.",
+            "state": "PENDING_AT_COMPOSITION"
+          },
+          "integration_delta_PROPOSED": 22,
+          "mixed_delta_PROPOSED": 27,
+          "proposed_summary": {
+            "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+            "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+          },
+          "retirement_delta": 0,
+          "reviewed_unresolved_separate": 10,
+          "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+          "runtime_qualification_delta": 0,
+          "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+          "state": "PROPOSED_NOT_APPLIED_PENDING_INDEPENDENT_DELTA_AND_COMPOSED_REVIEW",
+          "unit_delta_PROPOSED": 20,
+          "unresolved_included_in_4129": true
+        },
+        "new_entry_canonical_sha256": "ea7b50eb76429763d622e4c5fd1194db129dc56aab9815584e80e28ed42b6679",
+        "prior_prefix_preserved": true
+      }
+    },
+    "new_entries_identical_except_ledger_specific_before_snapshot": true,
+    "prior_prefixes_preserved_exactly_one_append_each": true,
+    "progress_completion_crosshash": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+  },
+  "independent_source_delta_acceptance": {
+    "checksum_entries": 2,
+    "checksums": {
+      "bytes": 154,
+      "path": "/tmp/ts-d4ac79-classification-delta-independent-storage-review-9m96x7xj/SHA256SUMS",
+      "sha256": "97ff4678979f96b45f7e3fa476ff9f5ecec8447b10cb7c7fdd2f5a5673c02f9b"
+    },
+    "decision": "ACCEPT_EXACT_D4AC_69_CLASSIFIED_PLUS_10_UNRESOLVED_DELTA_ONLY",
+    "delta": {
+      "classified": 69,
+      "integration": 22,
+      "mixed": 27,
+      "retirement": 0,
+      "reviewed_unresolved_separate": 10,
+      "runtime": 0,
+      "unit": 20
+    },
+    "findings": [],
+    "limits": [
+      "This acceptance is limited to the exact sealed delta proposal and does not accept any unwritten full composed ledger successor. It grants no shared-ledger write.",
+      "All79 reviewed roots retain UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; ten unresolved roots receive zero category credit. Authored intended integration labels are not accepted classifications.",
+      "Historical d4ac anchor remains exact. Current7330 remains NOTQUALIFIED_NO_AUTOMATIC_TRANSFER. No current-head/main/runtime/native/cloud/global/financial qualification or receipt transfer.",
+      "No Go/build/test/gofmt/lint/benchmark/scanner/runner/native/cloud/locks/leases/runtime execution. Read-only Git/Python/file comparisons only; the authored verifier was read, not run.",
+      "No source, tests, Git, human worktree, shared ledger or existing evidence was modified. Only this fresh external immutable review packet was written.",
+      "Accepted shared counts remain19 retired/4300 retained/102 classified/4198 unadjudicated until separately authorized promotion after full composed-ledger review."
+    ],
+    "proposal_sha256": "7eaaa19a3ccb97b64e02d74021ec4bcdf0908ecc2f317f131ae7c9acd473c69e",
+    "review": {
+      "bytes": 178383,
+      "path": "/tmp/ts-d4ac79-classification-delta-independent-storage-review-9m96x7xj/review.json",
+      "sha256": "61dd37880f03d7564e00fb5593a0fc536b03719e58eff42a37b4e008d07dfdba"
+    },
+    "summary_sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+  },
+  "limits": [
+    "Acceptance binds only exact raw successor bytes, delta-list, source proposal, summary and separate source-delta acceptance pins recorded here. Changes require review of the changed bytes.",
+    "No shared-ledger write performed or authorized by this review. Obtain separate actual-write authorization and recheck BOTH before hashes immediately before mutation.",
+    "Shared accounting remains102 classified/4198 unadjudicated until separately authorized promotion. Proposed accounting171 classified/4129 unadjudicated includes ten unresolved roots with zero classification credit.",
+    "Historical d4ac68882716e7cfb14afca2f88ad596a38041af/tree3b73a410a025bd8050ad1d42e54acc7d5eda4b82 source anchor only. Current7330 remains NOTQUALIFIED_NO_AUTOMATIC_TRANSFER. No main/current-head/runtime/native/cloud/global/financial qualification or receipt transfer.",
+    "No source, Git, human worktree, shared ledger, author packet or existing evidence modified. No Go/build/test/format/lint/benchmark/native/runner/cloud/lock/lease execution. Only static JSON/file comparisons and this exclusive external review artifact."
+  ],
+  "packet_integrity": {
+    "all_nonchecksum_files_covered": true,
+    "all_pins_match": true,
+    "checksum_entries": 11,
+    "directory_mode": "0555",
+    "files": 12,
+    "files_mode": "0444"
+  },
+  "preservation": {
+    "all_other_fields_preserved_by_exhaustive_restoration_proof": true,
+    "complete": false,
+    "five_categories_OPEN": true,
+    "historical_and_main_evidence_unchanged": [
+      {
+        "canonical_sha256": "064e956d651aedc366a1d53c4f9cec4b2ad884848e2116485d703c0a19dcb0e0",
+        "ledger": "completion",
+        "path": [
+          "published_main"
+        ]
+      },
+      {
+        "canonical_sha256": "dac452c3aa9d4c40dbac8f59cd9cb01dc9b30b9bad578229cf334212681a4d80",
+        "ledger": "completion",
+        "path": [
+          "actual_ci"
+        ]
+      },
+      {
+        "canonical_sha256": "060d2a57a5b65448b0e0e15d28cf64be7e2706296e845f4260e0b2502359397c",
+        "ledger": "completion",
+        "path": [
+          "five_gate_evidence_snapshot"
+        ]
+      },
+      {
+        "canonical_sha256": "48b57b1e43dd7d7d643678254d930af2feeacc226e56be0a98aa04b3c9bf917f",
+        "ledger": "completion",
+        "path": [
+          "protected_genesis_accounting_source_gap"
+        ]
+      },
+      {
+        "canonical_sha256": "064e956d651aedc366a1d53c4f9cec4b2ad884848e2116485d703c0a19dcb0e0",
+        "ledger": "progress",
+        "path": [
+          "main"
+        ]
+      },
+      {
+        "canonical_sha256": "929672879d31ef4998b15f543187316ef082604a9ac77f098a765e613add940f",
+        "ledger": "progress",
+        "path": [
+          "feature_head"
+        ]
+      },
+      {
+        "canonical_sha256": "bba30c98ff379de3dc20cb2a572b750dfb98a40218b97e759d9f1085b5a23653",
+        "ledger": "progress",
+        "path": [
+          "feature_tree"
+        ]
+      },
+      {
+        "canonical_sha256": "929672879d31ef4998b15f543187316ef082604a9ac77f098a765e613add940f",
+        "ledger": "progress",
+        "path": [
+          "pushed_feature_head"
+        ]
+      },
+      {
+        "canonical_sha256": "9172e68ec094f5e6afd7f37299fd063a677102f3913af883343f9823a419d6ad",
+        "ledger": "progress",
+        "path": [
+          "canonical_source_publication"
+        ]
+      },
+      {
+        "canonical_sha256": "060d2a57a5b65448b0e0e15d28cf64be7e2706296e845f4260e0b2502359397c",
+        "ledger": "progress",
+        "path": [
+          "five_gate_evidence_snapshot"
+        ]
+      },
+      {
+        "canonical_sha256": "48b57b1e43dd7d7d643678254d930af2feeacc226e56be0a98aa04b3c9bf917f",
+        "ledger": "progress",
+        "path": [
+          "protected_genesis_accounting_source_gap"
+        ]
+      },
+      {
+        "canonical_sha256": "fa4ec4141dc9579df0337642167f3cb39a492e620d6e62ee11b43701783d7bdd",
+        "ledger": "progress",
+        "path": [
+          "builds"
+        ]
+      },
+      {
+        "canonical_sha256": "2beb6161ad9022fb6045367931c48c19c8c900b11d6a478f4e4847577c75bdd0",
+        "ledger": "progress",
+        "path": [
+          "union_runtime"
+        ]
+      }
+    ],
+    "historical_fivegate102_snapshot_preserved": true
+  },
+  "proposal_directory": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z",
+  "proposal_file_pins": {
+    "README.md": {
+      "bytes": 529,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/README.md",
+      "sha256": "8402c38489c81a1ecccd892b563e61f067ac27911969ceb037bcadf661ae6026"
+    },
+    "SHA256SUMS": {
+      "bytes": 951,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/SHA256SUMS",
+      "sha256": "b92c180c91e4c8ab63da5b0fff3ac6786df5f28a06c50703a1849f77604d55e1"
+    },
+    "before-pins.json": {
+      "bytes": 569,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/before-pins.json",
+      "sha256": "d9b5f0261c839f9e2b43790fd0d14e271e045cbb8a58599687828ee3e46d3702"
+    },
+    "before/completion.json": {
+      "bytes": 1149251,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/before/completion.json",
+      "sha256": "fde357ecbc4cd877a3c71baad94d3dd701ce351b3da6ff139858b9c4c4a64064"
+    },
+    "before/progress.json": {
+      "bytes": 105488,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/before/progress.json",
+      "sha256": "6a5500adb0ddde566224ac7a6ca1ebf99b797bccaefd4546968539aec32dbe93"
+    },
+    "delta-list.json": {
+      "bytes": 32229,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/delta-list.json",
+      "sha256": "c221f5175f43fd7ed274930cf55c1d68f6caf1612937d947666c1e121f40f66b"
+    },
+    "input-peer-pins.json": {
+      "bytes": 1808,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/input-peer-pins.json",
+      "sha256": "91a0884487557fdac841891fa362fe51b7e6318d9d992016617a6be497ffe596"
+    },
+    "inputs/delta-proposal.json": {
+      "bytes": 225913,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/delta-proposal.json",
+      "sha256": "7eaaa19a3ccb97b64e02d74021ec4bcdf0908ecc2f317f131ae7c9acd473c69e"
+    },
+    "inputs/proposed-summary.json": {
+      "bytes": 19163,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+      "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+    },
+    "proposed-completion.json": {
+      "bytes": 1294888,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/proposed-completion.json",
+      "sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+    },
+    "proposed-progress.json": {
+      "bytes": 138535,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/proposed-progress.json",
+      "sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e"
+    },
+    "receipt.json": {
+      "bytes": 4100,
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/receipt.json",
+      "sha256": "92cb3cce0f45b89838b8f155b4683f2acf6a061683423ac694ca13ad1d943691"
+    }
+  },
+  "reviewed_at_utc": "2026-10-17T15:23:43.995684+00:00",
+  "reviewer": "/root/qa_integrator/capacity_tests",
+  "schema": "ts-classification69-full-composed-independent-review/v1",
+  "scope": "Every composed completion/progress change reviewed against frozen before bytes. Source classification meanings rely on the separately sealed independent source-delta acceptance and four connected-source peer receipts; their source review was not repeated."
+}

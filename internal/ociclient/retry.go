@@ -3,6 +3,7 @@ package ociclient
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"math/rand/v2"
@@ -78,7 +79,100 @@ func (e *readTransportError) Error() string { return e.err.Error() }
 func (e *readTransportError) Unwrap() error { return e.err }
 
 func (d readDispatcher) Do(request *http.Request) (*http.Response, error) {
+	var finish func(*http.Response, error, bool) error
+	if request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodOptions {
+		deadline := new(admissionDeadline)
+		*request = *request.WithContext(context.WithValue(request.Context(), admissionDeadlineKey{}, deadline))
+		if begin, ok := request.Context().Value(wireAttemptKey{}).(func(*http.Request) (func(*http.Response, error, bool) error, error)); ok {
+			if begin == nil {
+				return nil, errors.New("OCI wire attempt journal is unavailable")
+			}
+			var err error
+			finish, err = begin(request)
+			if err != nil {
+				return nil, fmt.Errorf("OCI wire attempt checkpoint: %w", err)
+			}
+			if finish == nil {
+				return nil, errors.New("OCI wire attempt journal lacks outcome recorder")
+			}
+		}
+		deny := func(err error) (*http.Response, error) {
+			if finish != nil {
+				err = errors.Join(err, finish(nil, err, false))
+			}
+			return nil, err
+		}
+		if finish != nil {
+			if err := request.Context().Err(); err != nil {
+				return deny(err)
+			}
+			// The durable begin may block; refresh the claim after that write.
+			if guard, ok := request.Context().Value(authorityKey{}).(func(context.Context) error); ok {
+				if guard == nil {
+					return deny(errors.New("OCI wire authority is unavailable"))
+				}
+				if err := guard(request.Context()); err != nil {
+					return deny(fmt.Errorf("OCI wire authority: %w", err))
+				}
+			}
+		}
+		if acquire, ok := request.Context().Value(admissionKey{}).(func(context.Context) (func(), error)); ok {
+			if acquire == nil {
+				return deny(errors.New("OCI write admission is unavailable"))
+			}
+			release, err := acquire(request.Context())
+			if err != nil {
+				return deny(fmt.Errorf("OCI write admission: %w", err))
+			}
+			if release == nil {
+				return deny(errors.New("OCI write admission did not fence current authority"))
+			}
+			defer release()
+		}
+		if err := request.Context().Err(); err != nil {
+			return deny(err)
+		}
+		if !deadline.until.IsZero() && !time.Now().Before(deadline.until) {
+			return deny(errors.New("OCI current admission facts expired before dispatch"))
+		}
+	}
+	if guard, ok := request.Context().Value(requestGuardKey{}).(func(context.Context) error); ok {
+		var err error
+		if guard == nil {
+			err = errors.New("OCI request session is unavailable")
+		} else {
+			// Authorization may itself read OCI; those reads must not recurse
+			// into the guard they are currently establishing.
+			err = guard(context.WithValue(request.Context(), requestGuardKey{}, struct{}{}))
+		}
+		if err != nil {
+			if finish != nil {
+				err = errors.Join(err, finish(nil, err, false))
+			}
+			return nil, &readTransportError{err: err, ctx: request.Context()}
+		}
+	}
+	// The final source guard may wait past a shorter retained admission cap.
+	// Recheck it after that wait, immediately before the actual dispatch.
+	finalErr := request.Context().Err()
+	if deadline, ok := request.Context().Value(admissionDeadlineKey{}).(*admissionDeadline); ok && !deadline.until.IsZero() && !time.Now().Before(deadline.until) {
+		finalErr = errors.Join(finalErr, errors.New("OCI original admission deadline expired during final source guard"))
+	}
+	if finalErr != nil {
+		if finish != nil {
+			finalErr = errors.Join(finalErr, finish(nil, finalErr, false))
+		}
+		return nil, &readTransportError{err: finalErr, ctx: request.Context()}
+	}
 	response, err := d.next.Do(request)
+	if finish != nil {
+		if recordErr := finish(response, err, true); recordErr != nil {
+			if response != nil && response.Body != nil {
+				_ = response.Body.Close()
+			}
+			err = errors.Join(err, fmt.Errorf("OCI wire outcome remains unknown: %w", recordErr))
+		}
+	}
 	if original := originalReadContext(request.Context()); original != nil && err != nil {
 		return response, &readTransportError{err: err, ctx: original}
 	}

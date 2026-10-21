@@ -1,0 +1,48 @@
+{
+  "all_five_categories": "OPEN",
+  "authority": "ROOT directed independently reviewing classification69 before promotion and assigning next batches after accepted69 promotion; both independent reviews accepted exact bytes.",
+  "classification_source_anchor": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "classified": 171,
+  "complete": false,
+  "current7330_qualification_transfer": false,
+  "files": [
+    {
+      "after_sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e",
+      "before_sha256": "fde357ecbc4cd877a3c71baad94d3dd701ce351b3da6ff139858b9c4c4a64064",
+      "bytes": 1294888,
+      "mode": "0o600",
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json"
+    },
+    {
+      "after_sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e",
+      "before_sha256": "6a5500adb0ddde566224ac7a6ca1ebf99b797bccaefd4546968539aec32dbe93",
+      "bytes": 138535,
+      "mode": "0o644",
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json"
+    }
+  ],
+  "independent_reviews": [
+    {
+      "path": "/tmp/ts-d4ac79-classification-delta-independent-storage-review-9m96x7xj/review.json",
+      "sha256": "61dd37880f03d7564e00fb5593a0fc536b03719e58eff42a37b4e008d07dfdba"
+    },
+    {
+      "path": "/tmp/ts-qa-classification69-composed-independent-vnvq04fe/review.json",
+      "sha256": "7772d7da7f772818829252cbf29958661d363d6ecb4977c59a5e8d781764a4a7"
+    }
+  ],
+  "integration": 100,
+  "mixed": 28,
+  "new_execution": false,
+  "new_runtime": false,
+  "proposal": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z",
+  "publication_commit_created": false,
+  "retained": 4300,
+  "retired": 19,
+  "retirement_delta": 0,
+  "reviewed_unresolved_in_unadjudicated": 10,
+  "schema": "actual-exact-reviewed-classification-ledger-promotion-v1",
+  "unadjudicated": 4129,
+  "unit": 43,
+  "utc": "2026-10-17T15:24:51.971980+00:00"
+}

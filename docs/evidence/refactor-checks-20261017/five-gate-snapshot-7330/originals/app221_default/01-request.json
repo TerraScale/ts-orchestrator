@@ -1,0 +1,35 @@
+{
+  "argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "240s",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-c",
+    "-p=1",
+    "-mod=readonly",
+    "-o",
+    "/tmp/ts-app-canonical-default-test-c-221368445-_66f40va/app.test",
+    "./internal/app"
+  ],
+  "env": {
+    "GOFLAGS": "-p=2",
+    "GOMAXPROCS": "2",
+    "GOTOOLCHAIN": "local",
+    "HOME": "/home/mariogk",
+    "LANG": "C.UTF-8",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin"
+  },
+  "grant": "PENDING_QA one exact default-test-c compile no init/tests/runtime",
+  "head": "221368445daf42bdb40ff195c4316061aba5c3c6",
+  "lock": "/tmp/ts-orch-refactor-short-check-b.lock",
+  "manifest": "/tmp/ts-app-canonical-compile-manifest-221368445.json",
+  "manifest_sha256": "be63c89de714f58e975aa3478bbc1e9d31c35037688d203a0feacd473c8d0ac3",
+  "packet": "/tmp/ts-app-canonical-default-test-c-221368445-_66f40va",
+  "tree": "1abf2646ab17bfd150f9df15afa3d92034c4962a",
+  "worktree": "/tmp/ts-app-canonical-compile-221368445"
+}

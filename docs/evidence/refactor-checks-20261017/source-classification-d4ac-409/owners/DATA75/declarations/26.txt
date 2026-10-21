@@ -1,0 +1,21 @@
+func TestDeliveryFailureClassUsesSafeKnownCategories(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		err   error
+		class string
+		code  uint16
+	}{
+		{"host snapshot race", errors.New("report changed during host status read: private detail"), "host_snapshot_changed", 0},
+		{"unverified host", errors.New("unverified host status cannot drive placement"), "host_status_unverified", 0},
+		{"deadline", context.DeadlineExceeded, "timeout", 0},
+		{"jetstream API", &jetstream.APIError{Code: 503, Description: "private detail"}, "jetstream_api", 503},
+		{"unknown", errors.New("private detail"), "other", 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			class, code := deliveryFailureClass(stageDeliveryError("planner", test.err))
+			if class != test.class || code != test.code {
+				t.Fatalf("class=%q code=%d, want %q %d", class, code, test.class, test.code)
+			}
+		})
+	}
+}

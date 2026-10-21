@@ -94,7 +94,7 @@ func TestDetailPagesRenderTheirEntity(t *testing.T) {
 			"Managed update held on seat 0000000000DNKA8DBDEPN1J9XM", "Seats serving vs desired", "Canary 0000000000DNKA8DBDEPN1J9XM promoted",
 			`href="/regions/fra/hosts/host-a"`},
 		"/rollouts/0000000000N6KCZG3MWDGZ0WBE": {"v0.43.0", "batch-1", "Rollout 0000000000N6KCZG3MWDGZ0WBE is past its batch deadline"},
-		"/rollouts/0000000000HAAS49GS9KYXGSQT": {"Managed TerraBase update", "00000000000DMQEY0YD7RZ04RR / 00000000003K6TBW31R91GBDRD", "sha256:feedface", "Canary 0000000000DNKA8DBDEPN1J9XM promoted", "completed"},
+		"/rollouts/0000000000HAAS49GS9KYXGSQT": {"Managed TerraBase update", "00000000000DMQEY0YD7RZ04RR / 00000000003K6TBW31R91GBDRD", "sha256:feedface", "Canary 0000000000DNKA8DBDEPN1J9XM promoted", "done 1, pending 2"},
 		"/volumes/vol-stuck":                   {"attaching", "host-a", "Grew volume vol-stuck to 200 GB", "Volume vol-stuck stuck attaching"},
 		"/regions/fra/hosts/host-a": {"Host in FRA", "00000000000DMQEY0YD7RZ04RR / 00000000003K6TBW31R91GBDRD", "000000000036XR713YE93E9M0S", "vol-stuck", "Launched host host-a",
 			"host load telemetry must be enabled", "Memory used", "Disk used", "Service CPU", "Service memory used"},
@@ -419,15 +419,12 @@ func TestOCIPageCountsTheFleetByLifecycleState(t *testing.T) {
 
 func TestDeepRegionLinksAreKept(t *testing.T) {
 	t.Parallel()
-	state := parseState(nil)
-	if got := state.adopt("/regions/sfo/hosts/h-1", ""); got != "/regions/sfo/hosts/h-1" {
-		t.Fatalf("adopt kept %q", got)
-	}
-	if got := state.adopt("/regions/sfo", ""); got != "/regions/sfo" {
-		t.Fatalf("adopt rewrote %q", got)
-	}
-	if got := state.hostLink("sfo", "a b"); got != "/regions/sfo/hosts/a%20b" {
-		t.Fatalf("hostLink = %q", got)
+	board, source, _ := journalDashboard(Options{})
+	insight := testInsight("deep-link", "Deep region link", insights.SeverityWarning, "")
+	insight.Entity = insights.Entity{Kind: "host", ID: "h-1", Href: "/regions/sfo/hosts/h-1"}
+	source.evaluation.Insights = []insights.Insight{insight}
+	if body := get(t, board.Handler(), "/insights").Body.String(); !strings.Contains(body, `href="/regions/sfo/hosts/h-1"`) {
+		t.Fatal("deep region entity link was rewritten")
 	}
 }
 

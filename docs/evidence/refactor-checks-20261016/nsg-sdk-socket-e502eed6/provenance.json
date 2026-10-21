@@ -1,0 +1,1108 @@
+{
+  "candidate": "e502eed69cd2c020448b94c6970d9bacd8942cd8",
+  "tree": "31d1fd6d1811db28dfa86b1207ab492b02aab2c8",
+  "sole_parent": "7512c426670cef4558c94ee62350fd1f29b850e9",
+  "original_candidate": "7e2976940436a9e164bc6a5d38fdf7eade7d7b0a",
+  "source_sha256": "da7665e5f1e8ab5a73f7e5735dd29423712bef6ad8e739193ef017240d298c22",
+  "full_index_patch_sha256": "fb724ef244ed75dfc3eaed0a7436d7dbb3858bc5d82cef7af4a708adb4defa23",
+  "scope": "Evidence packaging only; no source edit, runner, Git mutation, integration, push or cloud. New docs remain untracked.",
+  "input_count_including_omitted_binary": 96,
+  "archived_original_file_count": 95,
+  "inputs": [
+    {
+      "archive_relative_path": "proposal-frozen/PROPOSAL.md",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/PROPOSAL.md",
+        "sha256": "cdb01970504f6a8b36e3dd3c48ea99544fcf08265d79aeecd0409f627c53f5dc",
+        "bytes": 14979,
+        "mode": 33188,
+        "mtime_ns": 1792195889982560173
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/artifact-manifest.json",
+        "sha256": "523aaa7e7af0b719e5fe2a87517b3b15da981ecdc4c59a26f14534c56150b684",
+        "bytes": 5905,
+        "mode": 33188,
+        "mtime_ns": 1792195889995211810
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/files.tsv",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/files.tsv",
+        "sha256": "4c808d09b9011f22aad85630312e29176abed7e5ee0aedb168f1ad9c987a7845",
+        "bytes": 2382,
+        "mode": 33188,
+        "mtime_ns": 1792195889982367067
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/.github/workflows/ci.yml",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/.github/workflows/ci.yml",
+        "sha256": "fed0145478b37c042b3cf124d16290d58f1dcbcdb3150da4f35468001250063f",
+        "bytes": 6815,
+        "mode": 33188,
+        "mtime_ns": 1792195889940898840
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/Makefile",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/Makefile",
+        "sha256": "15aa78aec15f0b5a36121b3fd28fdfafa174bb679587b521b7869bd4444521a8",
+        "bytes": 6248,
+        "mode": 33188,
+        "mtime_ns": 1792195889896901173
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/go.mod",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/go.mod",
+        "sha256": "3dcc9ecb65641323ccb85a6383ad370d328ccc3ef47545227abb38e7b8474d4f",
+        "bytes": 6153,
+        "mode": 33188,
+        "mtime_ns": 1792195889950666108
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/go.sum",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/go.sum",
+        "sha256": "8b66a5397e2d3eddd6f553f081eb34365352c104503b72a813bc21a4ebf3dca3",
+        "bytes": 31887,
+        "mode": 33188,
+        "mtime_ns": 1792195889960835147
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/internal/ociclient/factory.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/internal/ociclient/factory.go",
+        "sha256": "4f1d9c577bbeabb1b24443c9dbd97591f792fe3d9b069c38ef9cc86128aab0fa",
+        "bytes": 22992,
+        "mode": 33188,
+        "mtime_ns": 1792195889826794105
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/internal/ociclient/ociclient_test.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/internal/ociclient/ociclient_test.go",
+        "sha256": "5b0ccffdaded4bab3ba32af925fbbb4d01e44bc2936531df6ac67fe5d978380c",
+        "bytes": 10372,
+        "mode": 33188,
+        "mtime_ns": 1792195889850771362
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/internal/ociclient/retry.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/internal/ociclient/retry.go",
+        "sha256": "fbe4e95713de1ac7324b7c397645e14e8eb04485c7cc2543c7080ab148533351",
+        "bytes": 12923,
+        "mode": 33188,
+        "mtime_ns": 1792195889840432288
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/internal/ociresource/ociresourcetest/factory.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/internal/ociresource/ociresourcetest/factory.go",
+        "sha256": "5fb2518ea4353e80eb3991b19901185b3ec07b366cbec21baa3f6c9397b8e0d9",
+        "bytes": 1478,
+        "mode": 33188,
+        "mtime_ns": 1792195889861180959
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/internal/ociresource/ociresourcetest/store.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/internal/ociresource/ociresourcetest/store.go",
+        "sha256": "15eb5e2375be03cc7f895ce2a0acf7e1e7a829b06591a3c09c739f871a87dd59",
+        "bytes": 1214,
+        "mode": 33188,
+        "mtime_ns": 1792195889873811205
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/internal/terrabase/contract.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/internal/terrabase/contract.go",
+        "sha256": "ee32050e56812ab9f3028fb52e46a1d3e1d54796e1f93bcb7a40d039ebca7f22",
+        "bytes": 10113,
+        "mode": 33188,
+        "mtime_ns": 1792195889805139705
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/internal/terrabase/oci_live_test.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/internal/terrabase/oci_live_test.go",
+        "sha256": "37bec5810a8b0311375e86bb3d9e405df9ddbce7de7b489640bce63717396f1c",
+        "bytes": 10118,
+        "mode": 33188,
+        "mtime_ns": 1792195889791793294
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/internal/terrabase/terrabase_test.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/internal/terrabase/terrabase_test.go",
+        "sha256": "96e9476649dd73f45c2c826eb1dccc5fdb67b147be7728058a10e84e977cd071",
+        "bytes": 12624,
+        "mode": 33188,
+        "mtime_ns": 1792195889815962848
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/internal/testutil/tier/tier.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/internal/testutil/tier/tier.go",
+        "sha256": "2896e13f0185848ac1252bfa977827ac382105b49fb70f4405729dd35139f33c",
+        "bytes": 2621,
+        "mode": 33188,
+        "mtime_ns": 1792195889885318009
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/scripts/ci/qualify-image.sh",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/scripts/ci/qualify-image.sh",
+        "sha256": "72c6097cace03314fdccdb288805cb1abbf1ddea6d1d323b5bc435de58b580d4",
+        "bytes": 4836,
+        "mode": 33188,
+        "mtime_ns": 1792195889908307771
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/scripts/ci/racetest/race-durations.txt",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/scripts/ci/racetest/race-durations.txt",
+        "sha256": "25e22c2ca9ab19ec13b32a31298abce04b06e12f9909306b1ee9def0415bafe7",
+        "bytes": 5030,
+        "mode": 33188,
+        "mtime_ns": 1792195889929664167
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/frozen/scripts/ci/racetest/race-test.sh",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/frozen/scripts/ci/racetest/race-test.sh",
+        "sha256": "c7050d7e6c66157d9a00dc92eafa647d9c41ef2d27b1204103e515d62a618a11",
+        "bytes": 12992,
+        "mode": 33188,
+        "mtime_ns": 1792195889919006485
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/preserved/TestPeerPortOpen.txt",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/preserved/TestPeerPortOpen.txt",
+        "sha256": "4766820e9593254734cb1026a5a16783d659f0cc3d59ad2c9df72445cb70b4a8",
+        "bytes": 1224,
+        "mode": 33188,
+        "mtime_ns": 1792195889974182429
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/preserved/peerPortOpen.txt",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/preserved/peerPortOpen.txt",
+        "sha256": "5d76eb428b759cb82181b9cde94b2111097d4fc18007d0987a428a59469abd17",
+        "bytes": 915,
+        "mode": 33188,
+        "mtime_ns": 1792195889974015817
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/request-outcome-contract.json",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/request-outcome-contract.json",
+        "sha256": "eb0e7fd339abe17ac18dc155fc18761b622c0b8223babc9af6c7cb27d1e1d2ab",
+        "bytes": 43508,
+        "mode": 33188,
+        "mtime_ns": 1792195889975768359
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/reviewed-plan.md",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/reviewed-plan.md",
+        "sha256": "6d6a62f45d11ace3bb5ae495456cf3065131ccd7ec42c0d617ea8c7803a07041",
+        "bytes": 17370,
+        "mode": 33188,
+        "mtime_ns": 1792195889974379397
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/core_compute_client.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/core_compute_client.go",
+        "sha256": "c765dd817b279a19f7f83c9c37e32e82bdb39c3de0ea18c6c156ff7929a9b8d3",
+        "bytes": 378272,
+        "mode": 33188,
+        "mtime_ns": 1792195889962826119
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/core_virtualnetwork_client.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/core_virtualnetwork_client.go",
+        "sha256": "d878732267d2e28cbb0b18cf207764f708ade35eeaa11636a60c7fe3f2ce452d",
+        "bytes": 787143,
+        "mode": 33188,
+        "mtime_ns": 1792195889966583354
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/get_vnic_request_response.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/get_vnic_request_response.go",
+        "sha256": "8be706b9b91d64594f543a0bdfdbefd60ab9288b41f22a39718a410467b1f2dd",
+        "bytes": 3382,
+        "mode": 33188,
+        "mtime_ns": 1792195889967903431
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/instance.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/instance.go",
+        "sha256": "563a334e95cd7ddce9e614f03c3ed44ed16ec850a82811b2a2e48d63046c6dc3",
+        "bytes": 25800,
+        "mode": 33188,
+        "mtime_ns": 1792195889968971754
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/list_instances_request_response.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/list_instances_request_response.go",
+        "sha256": "34a35d79f62b22d5a496874013bdc77cd3f48fe1cfb8656584e8ca55f9406fcb",
+        "bytes": 10373,
+        "mode": 33188,
+        "mtime_ns": 1792195889967374310
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/list_network_security_group_security_rules_request_response.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/list_network_security_group_security_rules_request_response.go",
+        "sha256": "7e8ee5b1fc8fa1c52a33d46058e45add7b684fff5000b8b3b9402375735d7eb6",
+        "bytes": 12872,
+        "mode": 33188,
+        "mtime_ns": 1792195889968211068
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/list_vnic_attachments_request_response.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/list_vnic_attachments_request_response.go",
+        "sha256": "b03e9280e9de97af501d9f2aa624e47761df48e4c4ac145a8cffc1b48d8c6d4e",
+        "bytes": 4880,
+        "mode": 33188,
+        "mtime_ns": 1792195889967702782
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/port_range.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/port_range.go",
+        "sha256": "67d08da78fea65ba643df7d9f92451eb025a5e6753947d8dd06f0e4837820fd8",
+        "bytes": 1998,
+        "mode": 33188,
+        "mtime_ns": 1792195889969840182
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/security_rule.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/security_rule.go",
+        "sha256": "7e9cf1fb293f998e467eb5196a14d8d1b6358293c907243434490f44cbce7a64",
+        "bytes": 13586,
+        "mode": 33188,
+        "mtime_ns": 1792195889968498235
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/tcp_options.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/tcp_options.go",
+        "sha256": "509d7e96cb65420682f6ab5b6bef37f32d452c5fb0fc5484e374246f16aaa9f5",
+        "bytes": 1985,
+        "mode": 33188,
+        "mtime_ns": 1792195889968714685
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/vnic.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/vnic.go",
+        "sha256": "f2321d4fc457f4e1d0c8aa40ef6bbf17504f088be4583a004b294fdbd1025a1d",
+        "bytes": 11305,
+        "mode": 33188,
+        "mtime_ns": 1792195889969655941
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/sdk/core/vnic_attachment.go",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/sdk/core/vnic_attachment.go",
+        "sha256": "e354cc7db10e411131607d94922214653775f0c65dec9cec3b06c5414c60b51c",
+        "bytes": 6880,
+        "mode": 33188,
+        "mtime_ns": 1792195889969405056
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "proposal-frozen/source-bindings.json",
+      "original": {
+        "path": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/source-bindings.json",
+        "sha256": "fa1d40aac40376ae4649fb48400e29062074738358dd894014b0c130780b7ef2",
+        "bytes": 7387,
+        "mode": 33188,
+        "mtime_ns": 1792195889982202626
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/HANDOFF.md",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/HANDOFF.md",
+        "sha256": "caf441e6be5aa4aefb47e958f80765c8c1ad595bd4278dfe3f2e92c739580096",
+        "bytes": 3617,
+        "mode": 33188,
+        "mtime_ns": 1792196467846228424
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/artifact-manifest.json",
+        "sha256": "33d88efcdc2e9483da9124056696ab2d114b177683551b1ff31f1ce3a05bf9f4",
+        "bytes": 2285,
+        "mode": 33188,
+        "mtime_ns": 1792196467849031508
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/candidate.patch",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/candidate.patch",
+        "sha256": "1b3e7dbbcf451c94e7c72e439140724a9da6cccc19b3f8c9da2a308278aff95b",
+        "bytes": 21923,
+        "mode": 33188,
+        "mtime_ns": 1792196467643997571
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/fixture-response-source-proof.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/fixture-response-source-proof.json",
+        "sha256": "5d9b701d84a2d81205e602e45d6c04b0a8879e9051234494a0cfb6141f5b86c2",
+        "bytes": 6291,
+        "mode": 33188,
+        "mtime_ns": 1792196467678962508
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/local-import-source-audit.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/local-import-source-audit.json",
+        "sha256": "208133875a20717421e73bba464b5f894889a816cef0129eb359ccb6c933775b",
+        "bytes": 672,
+        "mode": 33188,
+        "mtime_ns": 1792196467675550643
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/modern-go-1.27-guidelines.txt",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/modern-go-1.27-guidelines.txt",
+        "sha256": "e1ceb8f860e7f01387fd24557993a1a3873e982a99d30a7f2a365bd73b6661d9",
+        "bytes": 5107,
+        "mode": 33188,
+        "mtime_ns": 1792196467835288566
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/preserved/TestPeerPortOpen.txt",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/preserved/TestPeerPortOpen.txt",
+        "sha256": "e5dc01e1134670cbe99d7b5719a2e7b8a776c9f4b8fd6b69b8ac39ccc65c37d4",
+        "bytes": 1222,
+        "mode": 33188,
+        "mtime_ns": 1792196467645258929
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/preserved/live-regional-prefix.txt",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/preserved/live-regional-prefix.txt",
+        "sha256": "1ad63abf54bc6a56f0f587fe138fb9508261c380b31da3f9451735b47b95583b",
+        "bytes": 3156,
+        "mode": 33188,
+        "mtime_ns": 1792196467645999789
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/preserved/liveEnv.txt",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/preserved/liveEnv.txt",
+        "sha256": "e8c1748ee2774b58845eb9239c7e0d4dba983b357f7bd06cb9db81d32563bc36",
+        "bytes": 125,
+        "mode": 33188,
+        "mtime_ns": 1792196467645821550
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/preserved/peerPortOpen.txt",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/preserved/peerPortOpen.txt",
+        "sha256": "e88098467cb57e61d57cf72527b4f06547c7eef414e210cc25c52ae213f3bcc5",
+        "bytes": 913,
+        "mode": 33188,
+        "mtime_ns": 1792196467644701127
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/reviewed-PROPOSAL.md",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/reviewed-PROPOSAL.md",
+        "sha256": "cdb01970504f6a8b36e3dd3c48ea99544fcf08265d79aeecd0409f627c53f5dc",
+        "bytes": 14979,
+        "mode": 33188,
+        "mtime_ns": 1792196467679616677
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/reviewed-request-outcome-contract.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/reviewed-request-outcome-contract.json",
+        "sha256": "eb0e7fd339abe17ac18dc155fc18761b622c0b8223babc9af6c7cb27d1e1d2ab",
+        "bytes": 43508,
+        "mode": 33188,
+        "mtime_ns": 1792196467679247205
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/source-after.go.txt",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/source-after.go.txt",
+        "sha256": "da7665e5f1e8ab5a73f7e5735dd29423712bef6ad8e739193ef017240d298c22",
+        "bytes": 25286,
+        "mode": 33188,
+        "mtime_ns": 1792196467639173864
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/source-before.go.txt",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/source-before.go.txt",
+        "sha256": "37bec5810a8b0311375e86bb3d9e405df9ddbce7de7b489640bce63717396f1c",
+        "bytes": 10118,
+        "mode": 33188,
+        "mtime_ns": 1792196467638892140
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-original/source-review.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-sdk-socket-source-7e297694-aa2f8ca1/source-review.json",
+        "sha256": "50a483cf12949b7dd96640b534ac476a664133355b31e393c603668ad298a91b",
+        "bytes": 7614,
+        "mode": 33188,
+        "mtime_ns": 1792196467846032957
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/HANDOFF.md",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/HANDOFF.md",
+        "sha256": "79a8d566ce8cd120b17e72d6238b747cd4c0b72cdb4c1f6f1971da3a2e51cef8",
+        "bytes": 2303,
+        "mode": 33188,
+        "mtime_ns": 1792197139860646806
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/adopted.abbreviated.patch",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/adopted.abbreviated.patch",
+        "sha256": "1b3e7dbbcf451c94e7c72e439140724a9da6cccc19b3f8c9da2a308278aff95b",
+        "bytes": 21923,
+        "mode": 33188,
+        "mtime_ns": 1792197139836241199
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/adopted.full-index.patch",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/adopted.full-index.patch",
+        "sha256": "fb724ef244ed75dfc3eaed0a7436d7dbb3858bc5d82cef7af4a708adb4defa23",
+        "bytes": 21985,
+        "mode": 33188,
+        "mtime_ns": 1792197139836074198
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/adoption-proof.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/adoption-proof.json",
+        "sha256": "78bb292d8a9b289d98bf5da6eb01b4995ee3fc982cc1596f982f9bfdcc4ed742",
+        "bytes": 9344,
+        "mode": 33188,
+        "mtime_ns": 1792197139860237672
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/artifact-manifest.json",
+        "sha256": "217a9b6764345fc829abb620983ac2653f51942101ae8a8a75fcf51d2321bbf9",
+        "bytes": 2575,
+        "mode": 33188,
+        "mtime_ns": 1792197139865353292
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/git-state.txt",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/git-state.txt",
+        "sha256": "20428c3c3cf7fefa19e24f64f638161c89510e30162d33a176d6b488edd0c993",
+        "bytes": 213,
+        "mode": 33188,
+        "mtime_ns": 1792197139856081269
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/original-HANDOFF.md",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/original-HANDOFF.md",
+        "sha256": "caf441e6be5aa4aefb47e958f80765c8c1ad595bd4278dfe3f2e92c739580096",
+        "bytes": 3617,
+        "mode": 33188,
+        "mtime_ns": 1792197111605065570
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/original-artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/original-artifact-manifest.json",
+        "sha256": "33d88efcdc2e9483da9124056696ab2d114b177683551b1ff31f1ce3a05bf9f4",
+        "bytes": 2285,
+        "mode": 33188,
+        "mtime_ns": 1792197111605242355
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/original-source-review.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/original-source-review.json",
+        "sha256": "50a483cf12949b7dd96640b534ac476a664133355b31e393c603668ad298a91b",
+        "bytes": 7614,
+        "mode": 33188,
+        "mtime_ns": 1792197111605145879
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/original.abbreviated.patch",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/original.abbreviated.patch",
+        "sha256": "1b3e7dbbcf451c94e7c72e439140724a9da6cccc19b3f8c9da2a308278aff95b",
+        "bytes": 21923,
+        "mode": 33188,
+        "mtime_ns": 1792197111604566768
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/original.full-index.patch",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/original.full-index.patch",
+        "sha256": "fb724ef244ed75dfc3eaed0a7436d7dbb3858bc5d82cef7af4a708adb4defa23",
+        "bytes": 21985,
+        "mode": 33188,
+        "mtime_ns": 1792197111604361574
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/parent-adoption.full-index.patch",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/parent-adoption.full-index.patch",
+        "sha256": "1cefaeff01988f6c94ec847e3b76172b6da634df2ce1b8661fbf53a99cb16bb3",
+        "bytes": 329866,
+        "mode": 33188,
+        "mtime_ns": 1792197111604677550
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/pre-adoption.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/pre-adoption.json",
+        "sha256": "3d4e45ba3019b9d296960a193135c7971021b561b136da5b7d5065a888fa2f7f",
+        "bytes": 5801,
+        "mode": 33188,
+        "mtime_ns": 1792197111621061480
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/source-adopted.go.txt",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/source-adopted.go.txt",
+        "sha256": "da7665e5f1e8ab5a73f7e5735dd29423712bef6ad8e739193ef017240d298c22",
+        "bytes": 25286,
+        "mode": 33188,
+        "mtime_ns": 1792197139836363695
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/source-before.go.txt",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/source-before.go.txt",
+        "sha256": "37bec5810a8b0311375e86bb3d9e405df9ddbce7de7b489640bce63717396f1c",
+        "bytes": 10118,
+        "mode": 33188,
+        "mtime_ns": 1792197111604875577
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-adoption/source-frozen.go.txt",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-adoption-7512c426-e5qlu52u/source-frozen.go.txt",
+        "sha256": "da7665e5f1e8ab5a73f7e5735dd29423712bef6ad8e739193ef017240d298c22",
+        "bytes": 25286,
+        "mode": 33188,
+        "mtime_ns": 1792197111604967107
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/setup-only-failure/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-l5dnaznl/artifact-manifest.json",
+        "sha256": "a49749de420c10d065eb191a2a69aa6c59d31f0a7f41f9c2377abe6e4f8b9516",
+        "bytes": 674,
+        "mode": 33188,
+        "mtime_ns": 1792197219435663737
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/setup-only-failure/compile-wrapper.py",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-l5dnaznl/compile-wrapper.py",
+        "sha256": "6b67476b3ca49e06c01ba7a1dd34c1b0bab6c99b6e727a7ef22fd2accca7915b",
+        "bytes": 5862,
+        "mode": 33188,
+        "mtime_ns": 1792197217105228529
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/setup-only-failure/pre-state.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-l5dnaznl/pre-state.json",
+        "sha256": "07c83085ee65104c15f2b9420edd7d22d4efc46eb19d75c1134a786feefd55dc",
+        "bytes": 3280,
+        "mode": 33188,
+        "mtime_ns": 1792197219392892906
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/setup-only-failure/receipt.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-l5dnaznl/receipt.json",
+        "sha256": "e4802019b97601233de33ddf31c4c7f34fe3077e32fe0dc7ac0521f9947d306e",
+        "bytes": 8604,
+        "mode": 33188,
+        "mtime_ns": 1792197219434926419
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/default-pass/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-5tui3_md/artifact-manifest.json",
+        "sha256": "e68f9b99321170685e2ed2fa26ce8a67973a93cad8883e3579e67131cbab1a16",
+        "bytes": 1496,
+        "mode": 33188,
+        "mtime_ns": 1792197277342890847
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/default-pass/compile-wrapper.py",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-5tui3_md/compile-wrapper.py",
+        "sha256": "b67ffa77bcca8c19dfabb96c3377685b2753256873742e9a859b28198bd5c842",
+        "bytes": 6222,
+        "mode": 33188,
+        "mtime_ns": 1792197237077927134
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/default-pass/compile.log",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-5tui3_md/compile.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0,
+        "mode": 33188,
+        "mtime_ns": 1792197239512341587
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/default-pass/invocation.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-5tui3_md/invocation.json",
+        "sha256": "bd533edd610a0f779d199a18ddfd0867bece04e8dd95def07dfebf265b531cae",
+        "bytes": 3993,
+        "mode": 33188,
+        "mtime_ns": 1792197239512341587
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/default-pass/post-state.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-5tui3_md/post-state.json",
+        "sha256": "07c83085ee65104c15f2b9420edd7d22d4efc46eb19d75c1134a786feefd55dc",
+        "bytes": 3280,
+        "mode": 33188,
+        "mtime_ns": 1792197277186931720
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/default-pass/pre-state.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-5tui3_md/pre-state.json",
+        "sha256": "07c83085ee65104c15f2b9420edd7d22d4efc46eb19d75c1134a786feefd55dc",
+        "bytes": 3280,
+        "mode": 33188,
+        "mtime_ns": 1792197239332184039
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/default-pass/receipt.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-5tui3_md/receipt.json",
+        "sha256": "e9d45a34fd9a70b65b2d0ec2e01326c70fb6626c32ed189fb5c6f329f27bdaca",
+        "bytes": 12569,
+        "mode": 33188,
+        "mtime_ns": 1792197277270184859
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/default-pass/terrabase-default.test",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-5tui3_md/terrabase-default.test",
+        "sha256": "4f4f2028c16710980ad465dbcdeefc1d346d9bb8c785d2ceb62922cfaec02220",
+        "bytes": 18854243,
+        "mode": 33261,
+        "mtime_ns": 1792197272450077121
+      },
+      "omit_binary": true
+    },
+    {
+      "archive_relative_path": "runtime/default-once-pass/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-runtime-e502eed6-lkrfgaqf/artifact-manifest.json",
+        "sha256": "c360dbb8de60a1b4655f4b4ebaad739ec935dccbe1042640ed4eb47f804e39af",
+        "bytes": 1299,
+        "mode": 33188,
+        "mtime_ns": 1792197407346041802
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/default-once-pass/invocation.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-runtime-e502eed6-lkrfgaqf/invocation.json",
+        "sha256": "ce847953fa2da655a927f63f29df343da44a5903b0b4eb5750174279af7a0637",
+        "bytes": 4063,
+        "mode": 33188,
+        "mtime_ns": 1792197404438445299
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/default-once-pass/post-state.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-runtime-e502eed6-lkrfgaqf/post-state.json",
+        "sha256": "07c83085ee65104c15f2b9420edd7d22d4efc46eb19d75c1134a786feefd55dc",
+        "bytes": 3280,
+        "mode": 33188,
+        "mtime_ns": 1792197407272099262
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/default-once-pass/pre-state.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-runtime-e502eed6-lkrfgaqf/pre-state.json",
+        "sha256": "07c83085ee65104c15f2b9420edd7d22d4efc46eb19d75c1134a786feefd55dc",
+        "bytes": 3280,
+        "mode": 33188,
+        "mtime_ns": 1792197404263031632
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/default-once-pass/raw.jsonl",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-runtime-e502eed6-lkrfgaqf/raw.jsonl",
+        "sha256": "c9487c0dfa9b64f95bd6a0bdb30565558ffdd19424beab1371f5c4c163d64fea",
+        "bytes": 34200,
+        "mode": 33188,
+        "mtime_ns": 1792197407035093935
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/default-once-pass/receipt.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-runtime-e502eed6-lkrfgaqf/receipt.json",
+        "sha256": "628c0800ba1c6ddcdea73bbe46ea1ff6ad44eda712f37849727fc6265976ae66",
+        "bytes": 15423,
+        "mode": 33188,
+        "mtime_ns": 1792197407344100881
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/default-once-pass/runtime-wrapper.py",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-first-runtime-e502eed6-lkrfgaqf/runtime-wrapper.py",
+        "sha256": "1ea40a5634a48d28c2e215a8b4ce39d936410e8064735b3dcd22ae66e94d8350",
+        "bytes": 7499,
+        "mode": 33188,
+        "mtime_ns": 1792197401884950546
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/audit/HANDOFF.md",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-runtime-audit-e502eed6-_67odo8g/HANDOFF.md",
+        "sha256": "753e3e53a0816df6117a31eed2e1d59b03591181b272bca4cf89011769c085a7",
+        "bytes": 2559,
+        "mode": 33188,
+        "mtime_ns": 1792197473312195770
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/audit/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-runtime-audit-e502eed6-_67odo8g/artifact-manifest.json",
+        "sha256": "78a8e463202df874ea9346d530f7fe7cf2c57d000c1c322b33de96ccf65ba092",
+        "bytes": 1126,
+        "mode": 33188,
+        "mtime_ns": 1792197473313398481
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/audit/audit.py",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-runtime-audit-e502eed6-_67odo8g/audit.py",
+        "sha256": "06d565ff8294cdebfd23c935d0a3c50836dc2546e91e9a028ef4f33253419762",
+        "bytes": 12110,
+        "mode": 33188,
+        "mtime_ns": 1792197471145802091
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/audit/fixture-source-proof.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-runtime-audit-e502eed6-_67odo8g/fixture-source-proof.json",
+        "sha256": "5d9b701d84a2d81205e602e45d6c04b0a8879e9051234494a0cfb6141f5b86c2",
+        "bytes": 6291,
+        "mode": 33188,
+        "mtime_ns": 1792197473312009711
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/audit/reviewed-contract.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-runtime-audit-e502eed6-_67odo8g/reviewed-contract.json",
+        "sha256": "eb0e7fd339abe17ac18dc155fc18761b622c0b8223babc9af6c7cb27d1e1d2ab",
+        "bytes": 43508,
+        "mode": 33188,
+        "mtime_ns": 1792197473311826141
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "runtime/audit/runtime-audit.json",
+      "original": {
+        "path": "/tmp/ts-terrabase-nsg-runtime-audit-e502eed6-_67odo8g/runtime-audit.json",
+        "sha256": "2c5eb73099088ade4a31d774d3df77e6be94b15df6b579713a02b69f4e943302",
+        "bytes": 70016,
+        "mode": 33188,
+        "mtime_ns": 1792197473311592812
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "qa/source-review.json",
+      "original": {
+        "path": "/tmp/ts-qa-nsg-source-review-7e297694-20261017T002315Z-a63c8705.json",
+        "sha256": "edff615d49a7f23986699defaf1accb48ab4763fb5d33be3606f059a543d5788",
+        "bytes": 1657,
+        "mode": 33188,
+        "mtime_ns": 1792196595741405774
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "qa/adoption-review.json",
+      "original": {
+        "path": "/tmp/ts-qa-nsg-adoption-review-e502eed6-20261017T003240Z-b45aa092.json",
+        "sha256": "30e06e7590254efea2332c2c68015c099b70c41d4f61285ffddec7ea27f7203b",
+        "bytes": 703,
+        "mode": 33188,
+        "mtime_ns": 1792197160201082356
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "qa/compile-review.json",
+      "original": {
+        "path": "/tmp/ts-qa-nsg-compile-review-e502eed6-20261017T003555Z-1ede43db.json",
+        "sha256": "14499a516b515c2b47784c50ee9af273ec2f6da7ee9427a64a454405609bfece",
+        "bytes": 923,
+        "mode": 33188,
+        "mtime_ns": 1792197355830944163
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "qa/runtime-review.json",
+      "original": {
+        "path": "/tmp/ts-qa-nsg-runtime-review-e502eed6-20261017T004042Z-a0b19e2b.json",
+        "sha256": "fc3131b7428c6b37225a91e3a5ccaa529118bde9888b03598165d5829776e009",
+        "bytes": 1363,
+        "mode": 33188,
+        "mtime_ns": 1792197642345402676
+      },
+      "omit_binary": false
+    }
+  ],
+  "omitted_binary": {
+    "variant": "default terrabase test compile",
+    "original_binary_location": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-5tui3_md/terrabase-default.test",
+    "sha256": "4f4f2028c16710980ad465dbcdeefc1d346d9bb8c785d2ceb62922cfaec02220",
+    "bytes": 18854243,
+    "original_binary_retained": true,
+    "compiled_binary_executed_directly": false,
+    "runtime_note": "Separate granted go test runtime generated/executed its own temporary test binary; the retained go test -c binary was never invoked.",
+    "reason": "Compiled executable bytes intentionally excluded from archive; original compile artifact manifest retained byte-for-byte, including its original binary entry.",
+    "original_receipt_archive_member": "packet/compile/default-pass/receipt.json",
+    "original_manifest_archive_member": "packet/compile/default-pass/artifact-manifest.json",
+    "original_manifest_sha256": "e68f9b99321170685e2ed2fa26ce8a67973a93cad8883e3579e67131cbab1a16"
+  },
+  "packaging_script": {
+    "path": "/tmp/ts-nsg-sdk-e502eed6-packaging-m6yvmqym/package-evidence.py",
+    "sha256": "12dd20e719ee23f680db42ccd173bd86faea99990afcb209d75dd12fba5938e1",
+    "bytes": 15405
+  },
+  "tar_policy": {
+    "format": "USTAR",
+    "sorted_names": true,
+    "regular_files_only": true,
+    "mode": "0644",
+    "uid": 0,
+    "gid": 0,
+    "uname": "",
+    "gname": "",
+    "mtime": 0
+  },
+  "gzip_policy": {
+    "filename": "",
+    "mtime": 0,
+    "compresslevel": 9
+  },
+  "manifest_policy": "packet/MEMBERS.json describes every payload except itself and packet/SHA256SUMS to avoid circular hashes; packet/SHA256SUMS describes every other archive member, including MEMBERS.json. External package.json enumerates every archive member including both.",
+  "accepted_qualification": "Source review + byte-identical parent adoption + one default package compile + one exact-root default runtime only.",
+  "original_test_retained": "TestPeerPortOpen remains byte-identical and is not retired.",
+  "runtime_metadata_evidence_limit": "Full decoded struct assertion success follows pinned source plus passing leaves; raw logs do not print full decoded structs.",
+  "future_publication": "Parent review/publication not performed by this script."
+}

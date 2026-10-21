@@ -1,0 +1,86 @@
+{
+  "state": "TERMINAL_RUNTIME_FAILED_STOPPED_FIRST_FAILED_COMMAND",
+  "sealed_at": "2026-10-17T14:34:38.392530+00:00",
+  "native_handle": 20627,
+  "native_exit_code": 1,
+  "raw_result": "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/result.json",
+  "raw_result_sha256": "f9fdff71ebb4271de601dcf3c1f24836355de77a1b421225a02080a546120ea0",
+  "request_sha256": "1043eb8ad2f283400332a85c1b3a63fb8f89fe906ede23421a426515cb3235e0",
+  "wrapper_sha256": "3d2391594a868d9d20b0ccd96191ea8b004c61ca5b87a16ae7637f1f45d3436e",
+  "identity": {
+    "head": "fe46fc0fa361bdf21be31b1298ded63be965fe87",
+    "tree": "6a617375b4fb5e2723b60e60d77f807a0d0eb1c1",
+    "status": ""
+  },
+  "independent_source_manifest_entries_verified": 237,
+  "independent_tool_hashes_verified": {
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+  },
+  "process_groups_after_terminal": {
+    "1234467": "ABSENT",
+    "1235148": "ABSENT",
+    "1236677": "ABSENT"
+  },
+  "general_lock_independently_reacquired_and_released": true,
+  "direct_tool_transcript": "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/native-tool-transcript.jsonl",
+  "direct_tool_transcript_sha256": "2838d1e84e2e981597c581ccf1b3593ed77131c46d5990c0e9a9bbe7205cff98",
+  "direct_tool_calls": 3,
+  "runs": [
+    {
+      "name": "foundationbinding",
+      "exit_code": 0,
+      "named_runs": 76,
+      "named_passes": 76,
+      "named_failures": {},
+      "skips": {},
+      "package_passes": 1,
+      "package_failures": 0,
+      "error_lines": []
+    },
+    {
+      "name": "materialsource",
+      "exit_code": 0,
+      "named_runs": 7,
+      "named_passes": 7,
+      "named_failures": {},
+      "skips": {},
+      "package_passes": 1,
+      "package_failures": 0,
+      "error_lines": []
+    },
+    {
+      "name": "region",
+      "exit_code": 1,
+      "named_runs": 3,
+      "named_passes": 0,
+      "named_failures": {
+        "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals": 1,
+        "TestFoundationRecordsPersistAndFenceConcurrentWriters": 1,
+        "TestRetainedFoundationHTTPFilesystemOffline": 1
+      },
+      "skips": {},
+      "package_passes": 0,
+      "package_failures": 1,
+      "error_lines": [
+        "foundation_provision_integration_test.go:196: expected accepted launch response loss: launch signed original GRU writer: bootstrap founder plan is invalid",
+        "retained_integration_test.go:50: production qualification is missing or invalid: signed image contains no independent qualification"
+      ]
+    }
+  ],
+  "runtime_pass_outcomes": 83,
+  "region_state": "FAILED_3_NAMED_OUTCOMES",
+  "recovery_state": "NOT_STARTED_STOP_FIRST_FAILED_COMMAND",
+  "retries": 0,
+  "qualification_limit": "Only foundation76 and startup7 passed; region and recovery unqualified. No cloud/native/global/genesis credit.",
+  "files_sha256": {
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/native-tool-transcript.jsonl": "2838d1e84e2e981597c581ccf1b3593ed77131c46d5990c0e9a9bbe7205cff98",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/request-index.json": "04298f5a0eb2ff952d0b3a9b8cdf08c838ad0edc53c2eb3062ca4f72b2f22ca3",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/request.json": "1043eb8ad2f283400332a85c1b3a63fb8f89fe906ede23421a426515cb3235e0",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/result.json": "f9fdff71ebb4271de601dcf3c1f24836355de77a1b421225a02080a546120ea0",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/run.py": "3d2391594a868d9d20b0ccd96191ea8b004c61ca5b87a16ae7637f1f45d3436e",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/runtime-foundationbinding.log": "33a959d76159203ef522dff253d0e4173a4d4ef6b7d84fac51de7debe3bd6d48",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/runtime-materialsource.log": "a1333dd1cc5c6bba365b5d95a469f568b8c8c73e1d77756699352650e7bb8d60",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/runtime-region.log": "877a1b05ba4086a5e47bfbf1bd06402035d13fa3b78f4aa2b2a1c919b67b884e"
+  }
+}

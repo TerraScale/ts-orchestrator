@@ -1,0 +1,85 @@
+func TestRealHostDesiredCallerRejectsEpochHandoff(t *testing.T) {
+	s, r, ctx := testServiceWithRuntime(t, &testWriter{})
+	control, err := authority.Start(ctx, r.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "lab", CandidateID: "0000000000A8ZV3QT0H276P43A", Replicas: 1, RenewInterval: 3 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = control.Close() })
+	if !control.Current().CanMutate() || control.Current().Epoch != 1 {
+		t.Fatalf("authority not acquired: %+v", control.Current())
+	}
+	_, responseKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	epoch := atomic.Uint64{}
+	epoch.Store(1)
+	guardCalls := atomic.Int32{}
+	armed := atomic.Bool{}
+	controller, err := host.NewController(ctx, host.ControllerConfig{Cell: "lab", Conn: r.Conn(), JS: r.JetStream(), Artifacts: s.Artifacts(), ResponseKey: responseKey, StateReplicas: 1, HostMutations: control, AuthorityEpoch: epoch.Load, AuthorityGuard: func(guardCtx context.Context, expected uint64) error {
+		if armed.Load() && guardCalls.Add(1) == 2 {
+			epoch.Store(2)
+		}
+		if epoch.Load() != expected {
+			return authority.ErrFenced
+		}
+		return control.Guard(guardCtx, expected)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer user.Wipe()
+	userPublic, err := user.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = controller.Register(ctx, host.Registration{Cell: "lab", Node: "node-one", Environment: "production", Roles: []string{"worker"}, PublicKey: base64.StdEncoding.EncodeToString(pub), NATSUserPublicKey: userPublic, Generation: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.config.Writer = controller
+	i := testIntent(t, s, ctx)
+	if terminal, err := s.process(ctx, mustJSON(i)); !terminal || err != nil {
+		t.Fatalf("real host desired terminal=%t err=%v", terminal, err)
+	}
+	e, err := control.ReadHostMutation(ctx, authority.MutationDesired, "lab.node-one.worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var desired host.Desired
+	if err := json.Unmarshal(e.Payload, &desired); err != nil {
+		t.Fatal(err)
+	}
+	if desired.Digest != i.ArtifactDigest || desired.Generation != 1 {
+		t.Fatalf("host desired=%+v", desired)
+	}
+	other := i
+	other.OperationID = "0000000000FJWGFCWW9Q05ET6C"
+	other.Generation = 2
+	guardCalls.Store(0)
+	armed.Store(true)
+	if terminal, err := s.process(ctx, mustJSON(other)); !terminal || err != nil {
+		t.Fatalf("fenced host desired terminal=%t err=%v", terminal, err)
+	}
+	if receipt, err := s.StatusFor(ctx, other); err != nil || receipt.Status != "held" {
+		t.Fatalf("fenced operation receipt: %+v %v", receipt, err)
+	}
+	e, err = control.ReadHostMutation(ctx, authority.MutationDesired, "lab.node-one.worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(e.Payload, &desired); err != nil {
+		t.Fatal(err)
+	}
+	if desired.Generation != 1 {
+		t.Fatalf("stale leader wrote desired generation %d", desired.Generation)
+	}
+}

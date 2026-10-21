@@ -1,0 +1,2974 @@
+{
+  "state": "SOURCE_CLASSIFICATION_CANDIDATE_PENDING_INDEPENDENT_PEER_ACCEPTANCE_NO_COUNTS_PROMOTED",
+  "created_at_utc": "2026-10-17T14:52:36.706290+00:00",
+  "owner": "/root/wasm",
+  "batch_id": "functions14",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation_manifest": {
+    "path": "/tmp/ts-source-classification-batches-d4ac-0a9afk60/allocation.json",
+    "sha256": "a93275c8f26aa063e6cfc28fed074308c876e2da69baae89f8a0c3e3de77a6fd"
+  },
+  "output_contract": {
+    "path": "/tmp/ts-source-classification-batches-d4ac-0a9afk60/OUTPUT-CONTRACT.md",
+    "sha256": "926006744cf8baa22f381f44ef3904facf01fafce42cbf096c3be9c157c8f2d8"
+  },
+  "scope": "Exactly14 allocated original test roots in6 internal/functions files; helper/new/unallocated roots receive no original-count credit.",
+  "classification_definitions": {
+    "integration": "Core asserted behavior crosses real production embedded component/guest ABI, HTTP/TCP, NATS/JetStream storage or OS/process/filesystem boundary. An in-process guest requires real CompileModule/InstantiateModule and actual guest execution/observable behavior. Supporting local checks are explicitly identified; integration is not a claim that every assertion crosses I/O.",
+    "unit": "Asserted behavior is direct local validation/crypto/decoding/compilation rejection/concurrency/clock/buffer logic without actual relevant guest execution or service/process/storage target. Incidental server/worker setup is insufficient.",
+    "mixed": "Material separate independent local-only assertion blocks coexist with actual boundary assertion blocks; each is enumerated, no uniform integration credit for the whole root.",
+    "unresolved": "Insufficient source trace to determine category, distinct from runtime UNKNOWN."
+  },
+  "coordinator_boundary_interpretation": {
+    "source": "/root/qa_integrator/test_inventory message during assignment",
+    "interpretation": "Real nonstub Wasm compiled/instantiated/executed through actual WASI/import/export ABI may be integration even in-process. Pure validation/crypto/compilation rejection stays unit.",
+    "scope_limit": "No runtime result or accepted count change follows from this source interpretation."
+  },
+  "counts": {
+    "allocated_original_roots": 14,
+    "test_files": 6,
+    "retained_body_exact": 14,
+    "integration": 7,
+    "unit": 0,
+    "mixed": 7,
+    "unresolved": 0,
+    "sum": 14,
+    "baseline_current_raw_declarations_reconfirmed": 28,
+    "runtime_pass_claims": 0,
+    "new_retirements": 0,
+    "accepted_count_delta": 0
+  },
+  "current_accepted_accounting_unchanged": {
+    "retired": 19,
+    "retained": 4300,
+    "classified": 102,
+    "integration": 78,
+    "unit": 23,
+    "mixed": 1,
+    "globally_unadjudicated": 4198
+  },
+  "root_ids": [
+    "internal/functions/admission_integration_test.go::TestSignedReleaseWorkerLifecycle",
+    "internal/functions/broker_integration_test.go::TestWorkerBrokerJWTAndTLSIsolation",
+    "internal/functions/process_integration_test.go::TestFunctionWorkerProcess",
+    "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+    "internal/functions/runtime_integration_test.go::TestWorkerGuestExecutionAndIsolation",
+    "internal/functions/runtime_integration_test.go::TestWorkerCancellationAndCapacity",
+    "internal/functions/runtime_integration_test.go::TestWorkerFixedDeadlineAndConcurrentClose",
+    "internal/functions/runtime_integration_test.go::TestWorkerResourceAndImportBoundaries",
+    "internal/functions/runtime_limits_integration_test.go::TestWorkerRejectsUnboundedDecoderResources",
+    "internal/functions/transports_integration_test.go::TestHTTPRealWorkerAuthenticationScopeAndLimits",
+    "internal/functions/transports_integration_test.go::TestHTTPRealWorkerTimeoutAndGuestFailure",
+    "internal/functions/transports_integration_test.go::TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+    "internal/functions/transports_integration_test.go::TestQueueRealWorkerRetriesTimedOutInvocation",
+    "internal/functions/transports_integration_test.go::TestHTTPBoundsPendingBodiesBeforeGuestExecution"
+  ],
+  "roots": [
+    {
+      "root_id": "internal/functions/admission_integration_test.go::TestSignedReleaseWorkerLifecycle",
+      "path": "internal/functions/admission_integration_test.go",
+      "original_name": "TestSignedReleaseWorkerLifecycle",
+      "kind": "test",
+      "original_declaration_sha256": "5262fcf6c509a08a28d6ccd5e762f14b9ec291a8abf65775a03cb70282a174df",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 16,
+        "end_line": 45,
+        "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "3a3f054ab5b58a782ac03775394e9d93d4e9ecc8ccc94c60f7cba69eaaa35d1b"
+      },
+      "current_name": "TestSignedReleaseWorkerLifecycle",
+      "current_declaration_sha256": "5262fcf6c509a08a28d6ccd5e762f14b9ec291a8abf65775a03cb70282a174df",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 16,
+        "end_line": 45,
+        "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "3a3f054ab5b58a782ac03775394e9d93d4e9ecc8ccc94c60f7cba69eaaa35d1b"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "mixed",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Independent local zero-proof admission and closed-worker rejection accompany actual signed module guest roundtrip and publisher-byte isolation.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/admission_integration_test.go",
+          "function": "func signedFunctionFixture(t *testing.T, artifact Artifact) (release.VerifiedFunction, ProcessDeployment, map[string][]byte) {",
+          "line": 47,
+          "end_line": 106,
+          "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+          "declaration_sha256": "fba92578245c58069382dc5fc688e29afe606633331339912c81787a5ff298d9",
+          "role": "Test-generated Ed25519 root/delegation/receipt; real signing/verifying functions; returns owned module proof and material bytes. It is not production issuer/startup evidence."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/admission.go",
+          "function": "func NewWorker(ctx context.Context, admitted release.VerifiedFunction) (*Worker, error) {",
+          "line": 12,
+          "end_line": 34,
+          "git_blob": "f8a08053baecc50196de9038980ba939212aab8a",
+          "declaration_sha256": "e2a1ae28805beaa0b834bcfe417c1327ba10dad4281162820cd5a7f9d6ff94ec",
+          "role": "Requires current opaque release proof, passes owned admitted bytes to actual newWorker with proof deadline; no fake runtime."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func newWorker(ctx context.Context, artifact Artifact) (*Worker, error) {",
+          "line": 47,
+          "end_line": 85,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "d7e831ce2eb71d8dc6e31b160e4a5d205aba881fdee85605e29b98d21b71b680",
+          "focus_lines": [
+            [
+              48,
+              52
+            ],
+            [
+              54,
+              84
+            ]
+          ],
+          "role": "Local artifact/decoder checks precede actual wazero runtime, WASI host-module instantiation, CompileModule and compiled import/export inspection."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {",
+          "line": 93,
+          "end_line": 154,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "fc6d28f749f04ec5b1abdc264df34e09d1378673b07d9dcd4e1f009e1b438d3d",
+          "focus_lines": [
+            [
+              94,
+              107
+            ],
+            [
+              116,
+              153
+            ]
+          ],
+          "role": "Validates local scope/admission, sets deadline, binds JSON stdin and bounded stdout/stderr, then calls actual wazero InstantiateModule and observes guest completion/errors."
+        },
+        {
+          "path": "internal/release/function.go",
+          "function": "func (verified VerifiedFunction) Valid() bool {",
+          "line": 135,
+          "end_line": 137,
+          "git_blob": "b2aaf7520dfa9aa3240b6b3b0d23d55e95741bbd",
+          "declaration_sha256": "0f77868b1ec06d5da8e34d0f757bbdd908037b9d81469dad0df03bb4f0096eb1",
+          "role": "Local verified bit and wall-clock expiry; zero proof fails before runtime."
+        },
+        {
+          "path": "internal/release/function.go",
+          "function": "func VerifyFunctionCurrent(envelopeWire, delegationWire, module []byte, roots trust.Keyring,",
+          "line": 94,
+          "end_line": 118,
+          "git_blob": "b2aaf7520dfa9aa3240b6b3b0d23d55e95741bbd",
+          "declaration_sha256": "2fce8482bf2beacdc5ba47465373b4d0c2e826c2c6a981eb5cf809537624d812",
+          "role": "Verifies local signed receipt/delegation/expected floor then clones and hashes admitted module bytes; does not buy/qualify hosts."
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/admission_integration_test.go",
+          "line": 17,
+          "end_line": 19,
+          "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+          "boundary_category": "unit",
+          "explanation": "NewWorker zero opaque proof returns ErrScope before newWorker; no guest execution.",
+          "exact_condition_and_assertion_text": "\tif _, err := NewWorker(t.Context(), release.VerifiedFunction{}); !errors.Is(err, ErrScope) {\n\t\tt.Fatalf(\"unsigned worker: %v\", err)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/admission_integration_test.go",
+          "line": 28,
+          "end_line": 38,
+          "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+          "boundary_category": "integration",
+          "explanation": "Mutate publisher bytes, execute actual admitted echo guest, decode returned guest payload; the ABI roundtrip observes immutable admitted bytes.",
+          "exact_condition_and_assertion_text": "\t// Mutating publisher-owned bytes cannot change the admitted worker's code.\n\tartifact.Module[0] ^= 1\n\tin := Invocation{TenantID: claim.TenantID, FunctionID: claim.FunctionID, Revision: claim.Revision, ID: \"signed-1\", Trigger: \"http\", Payload: []byte(\"signed worker\")}\n\tresult, err := worker.Invoke(t.Context(), in)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tvar observed Invocation\n\tif err := json.Unmarshal(result.Output, &observed); err != nil || string(observed.Payload) != \"signed worker\" {\n\t\tt.Fatalf(\"guest result: %s, %v\", result.Output, err)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/admission_integration_test.go",
+          "line": 39,
+          "end_line": 44,
+          "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+          "boundary_category": "supporting_local",
+          "explanation": "Close actual runtime then invoke closed instance; ErrClosed itself is a local guard, supporting lifecycle coverage.",
+          "exact_condition_and_assertion_text": "\tif err := worker.Close(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := worker.Invoke(t.Context(), in); !errors.Is(err, ErrClosed) {\n\t\tt.Fatalf(\"closed admitted worker: %v\", err)\n\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "Fresh test root/delegation/receipt, not retained production authority. No server/container/cgroup/host boundary. Closed guard does not itself execute guest."
+      ],
+      "assertion_to_target_trace": [
+        "signedFunctionFixture -> release.VerifyFunctionCurrent owned module -> NewWorker -> newWorker actual wazero CompileModule/WASI -> Worker.Invoke InstantiateModule -> echo fd_read/fd_write -> result.Output assertion.",
+        "Zero release proof -> NewWorker.Valid check -> ErrScope, wholly local independent security block."
+      ]
+    },
+    {
+      "root_id": "internal/functions/broker_integration_test.go::TestWorkerBrokerJWTAndTLSIsolation",
+      "path": "internal/functions/broker_integration_test.go",
+      "original_name": "TestWorkerBrokerJWTAndTLSIsolation",
+      "kind": "test",
+      "original_declaration_sha256": "fa642b45772db7edd5a1f70567c465244aeb25c280bb37ea55ad8bc8199416e9",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 29,
+        "end_line": 253,
+        "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "3b63ad4ee03e5484a15928a0ae92d78b99aebe43b5465b1e9fa6fdd9b1e2d545"
+      },
+      "current_name": "TestWorkerBrokerJWTAndTLSIsolation",
+      "current_declaration_sha256": "fa642b45772db7edd5a1f70567c465244aeb25c280bb37ea55ad8bc8199416e9",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 29,
+        "end_line": 253,
+        "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "3b63ad4ee03e5484a15928a0ae92d78b99aebe43b5465b1e9fa6fdd9b1e2d545"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "mixed",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Substantial independent local JWT/seed/signer/expiry validation tables coexist with real TLS/JWT NATS permissions, durable queue receipt/ack readback and rebind.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/admission_integration_test.go",
+          "function": "func signedFunctionFixture(t *testing.T, artifact Artifact) (release.VerifiedFunction, ProcessDeployment, map[string][]byte) {",
+          "line": 47,
+          "end_line": 106,
+          "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+          "declaration_sha256": "fba92578245c58069382dc5fc688e29afe606633331339912c81787a5ff298d9",
+          "role": "Test-generated Ed25519 root/delegation/receipt; real signing/verifying functions; returns owned module proof and material bytes. It is not production issuer/startup evidence."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        },
+        {
+          "path": "internal/functions/broker_integration_test.go",
+          "function": "func workerBrokerFixture(t *testing.T) (*jwt.AccountClaims, nkeys.KeyPair, string, *nats.Conn, func([]byte, string) (*nats.Conn, <-chan error)) {",
+          "line": 273,
+          "end_line": 455,
+          "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+          "declaration_sha256": "80a0590a4e9b4b880e1a4303c4dffcdedc6805c508cc131144ae94d4cc0e8d6a",
+          "focus_lines": [
+            [
+              327,
+              374
+            ],
+            [
+              375,
+              453
+            ]
+          ],
+          "role": "Creates actual TCP TLS/JWT JetStream server/connect closure; also runs independent local credential authority assertions in fixture."
+        },
+        {
+          "path": "internal/functions/broker_integration_test.go",
+          "function": "func workerBrokerTLS(t *testing.T) (*tls.Config, *tls.Config) {",
+          "line": 457,
+          "end_line": 480,
+          "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+          "declaration_sha256": "d506a7de968d28ff17e8cfbeebb4b01ff4f795cf5008bd207b9905869bed40c3",
+          "role": "Test CA/server+client cert and TLS1.3 mutual-auth configuration."
+        },
+        {
+          "path": "internal/functions/broker_integration_test.go",
+          "function": "func brokerCredentialMutation(t *testing.T, creds []byte, signer nkeys.KeyPair, mutate func(*jwt.UserClaims)) []byte {",
+          "line": 255,
+          "end_line": 271,
+          "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+          "declaration_sha256": "bec66e184cfc5d247bc703acbf2158636cbe91736b3202d400bde77ff74274df",
+          "role": "Locally decodes/mutates/re-signs JWT bytes; no fake broker response."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func runTransportQueue(t *testing.T, queue *QueueWorker) func() {",
+          "line": 160,
+          "end_line": 183,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "26c91a2b08db00d7e20843191c6d584d85eaf0c09c5ee7949e779471919ad68b",
+          "role": "Runs actual QueueWorker.Run in goroutine; cancel/wait helper only, does not stub queue methods."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func publishTransportMessage(t *testing.T, js jetstream.JetStream, subject, id string, payload []byte) {",
+          "line": 185,
+          "end_line": 192,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "8d51ae46e27c21cd43e038092a012b327ad3ccf599d9147670a926bd149f8137",
+          "role": "Actual js.PublishMsg with Nats-Msg-Id header; errors fail the test."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func waitTransport(t *testing.T, condition func() bool) {",
+          "line": 194,
+          "end_line": 204,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "07749df7deb973d436651f3c1b7cfa1b339231ecbda03bd6c9fdebc31c8aa0d6",
+          "role": "Polls actual assertion closure for at most8s; timeout fails the root, no fake successful response."
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/broker.go",
+          "function": "func IssueWorkerCredentials(admitted release.VerifiedFunction, accountID, accountJWT string, signer nkeys.KeyPair, existing []byte) ([]byte, WorkerBrokerIdentity, error) {",
+          "line": 33,
+          "end_line": 95,
+          "git_blob": "062dd9a909b502409e7bc6314811c6f857bb79c9",
+          "declaration_sha256": "546febb2faa315d1575f0455cff08768de793fbc761bde69df91e876dce14349",
+          "role": "Local proof/account/signer/credential validation, key/JWT signing and formatting; no broker call in issuer."
+        },
+        {
+          "path": "internal/functions/broker.go",
+          "function": "func VerifyWorkerCredentials(admitted release.VerifiedFunction, accountID, accountJWT string, existing []byte) (WorkerBrokerIdentity, error) {",
+          "line": 100,
+          "end_line": 118,
+          "git_blob": "062dd9a909b502409e7bc6314811c6f857bb79c9",
+          "declaration_sha256": "8bc96720ba3b4eaa90f28a3efea4f8c3ddce03702fd01db27385dcc9602ef474",
+          "role": "Local credential parse, grants/signatures/current proof/account/revocation/lifetime checks; no broker call in reader."
+        },
+        {
+          "path": "internal/functions/broker.go",
+          "function": "func workerBrokerAccount(admitted release.VerifiedFunction, accountID, accountJWT string) (*jwt.AccountClaims, QueueScope, error) {",
+          "line": 120,
+          "end_line": 140,
+          "git_blob": "062dd9a909b502409e7bc6314811c6f857bb79c9",
+          "declaration_sha256": "4e60c089e302f66d798b100f15ad8f911405aca0dcd90c22b25ecf190a4f43f9",
+          "role": "Local current-proof/account-JWT validation and deterministic scope derivation."
+        },
+        {
+          "path": "internal/functions/broker.go",
+          "function": "func workerBrokerUser(account *jwt.AccountClaims, scope QueueScope, existing []byte) (nkeys.KeyPair, *jwt.UserClaims, error) {",
+          "line": 147,
+          "end_line": 182,
+          "git_blob": "062dd9a909b502409e7bc6314811c6f857bb79c9",
+          "declaration_sha256": "0fcc5b790f77e1269271bae9b6266a70bafbd3ca72523c3b518c9aec8ed99591",
+          "role": "Local decorated JWT/seed identity and exact permission comparison."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func newWorker(ctx context.Context, artifact Artifact) (*Worker, error) {",
+          "line": 47,
+          "end_line": 85,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "d7e831ce2eb71d8dc6e31b160e4a5d205aba881fdee85605e29b98d21b71b680",
+          "focus_lines": [
+            [
+              48,
+              52
+            ],
+            [
+              54,
+              84
+            ]
+          ],
+          "role": "Local artifact/decoder checks precede actual wazero runtime, WASI host-module instantiation, CompileModule and compiled import/export inspection."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func NewQueueWorker(ctx context.Context, nc *nats.Conn, worker Invoker) (*QueueWorker, error) {",
+          "line": 88,
+          "end_line": 130,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "0ef20df7eadfefb2fc1e68a7b40265ac7bf10e810c9f57fd600394cc6dabb58c",
+          "role": "Actual stream/consumer/KV binding and live remote configuration checks."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func (q *QueueWorker) Run(ctx context.Context) error {",
+          "line": 138,
+          "end_line": 158,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "9b3b9bcc07b6c75aed4ea5fcadd8caa91cfbc1496e7ffaa94508f8c968bab6d3",
+          "role": "Actual durable consumer Fetch; delegates every delivery to process."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func (q *QueueWorker) process(ctx context.Context, msg jetstream.Msg) error {",
+          "line": 160,
+          "end_line": 198,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "06c6cc656a0ca566041194b29b8c25a4778c9066ed75ca08e8ba03813276a60f",
+          "focus_lines": [
+            [
+              161,
+              197
+            ]
+          ],
+          "role": "Reads actual message headers/data, durable receipt Get/Status/Create; success DoubleAck, poison Term, transient failure NakWithDelay."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func ProvisionQueue(ctx context.Context, nc *nats.Conn, admitted release.VerifiedFunction) error {",
+          "line": 46,
+          "end_line": 55,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "c83df9b6c1f7794a3924b4cbdb74cc7b605afa7e2f75be1756626ec5f13cd2ea"
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func provisionQueue(ctx context.Context, nc *nats.Conn, manifest Manifest) error {",
+          "line": 57,
+          "end_line": 84,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "8854b339ff07cecb0d847a45ccbd5e9d132475c12e0a90d1f9896e0923be6911",
+          "role": "Actual CreateOrUpdateStream/FileStorage, receipt KeyValue/FileStorage and durable consumer creation."
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/broker_integration_test.go",
+          "line": 33,
+          "end_line": 48,
+          "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+          "boundary_category": "unit",
+          "explanation": "Credential identity, proof lifetime, reissue/verify immutability are local cryptographic checks, despite broker fixture setup.",
+          "exact_condition_and_assertion_text": "\tcreds, identity, err := IssueWorkerCredentials(admitted, account.Subject, accountJWT, signer, nil)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif identity.AccountNKey != account.Subject || !identity.ExpiresAt.Equal(admitted.ExpiresAt()) || time.Until(identity.ExpiresAt) > time.Hour {\n\t\tt.Fatalf(\"worker public identity or proof lifetime mismatch: %+v\", identity)\n\t}\n\treissued, renewed, err := IssueWorkerCredentials(admitted, account.Subject, accountJWT, signer, creds)\n\tif err != nil || renewed.UserNKey != identity.UserNKey || renewed.InboxPrefix != identity.InboxPrefix {\n\t\tt.Fatalf(\"restart changed worker identity: %+v, %v\", renewed, err)\n\t}\n\toriginal := bytes.Clone(reissued)\n\tverified, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, reissued)\n\tif err != nil || verified != renewed || !bytes.Equal(original, reissued) {\n\t\tt.Fatalf(\"signer-free verification changed credentials or identity: %v\", err)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/broker_integration_test.go",
+          "line": 78,
+          "end_line": 93,
+          "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+          "boundary_category": "integration",
+          "explanation": "Actually publish, read receipt digest and consumer AckFloor over broker; stop then live rebind.",
+          "exact_condition_and_assertion_text": "\tstop := runTransportQueue(t, queue)\n\tpayload := []byte(\"TLS and scoped JWT worker\")\n\tpublishTransportMessage(t, adminJS, queue.Subject(), \"broker-1\", payload)\n\twaitTransport(t, func() bool {\n\t\tentry, err := observedReceipts.Get(t.Context(), \"broker-1\")\n\t\tdigest := sha256.Sum256(payload)\n\t\treturn err == nil && bytes.Equal(entry.Value(), digest[:])\n\t})\n\twaitTransport(t, func() bool {\n\t\tinfo, err := observedConsumer.Info(t.Context())\n\t\treturn err == nil && info.NumAckPending == 0 && info.AckFloor.Consumer == 1\n\t})\n\tstop()\n\tif _, err := NewQueueWorker(t.Context(), nc, worker); err != nil {\n\t\tt.Fatalf(\"worker cannot rebind existing resources: %v\", err)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/broker_integration_test.go",
+          "line": 106,
+          "end_line": 139,
+          "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+          "boundary_category": "integration",
+          "explanation": "Publish unauthorized subjects, flush actual connection and require broker async permission violations matching each subject.",
+          "exact_condition_and_assertion_text": "\t// The broker rejects API subjects before considering malicious config bodies.\n\tfor _, subject := range []string{\n\t\totherScope.Subject, revisionScope.Subject, \"ts.controller.apply\", \"$SYS.REQ.SERVER.PING\", \"$JS.API.INFO\",\n\t\t\"$JS.API.STREAM.INFO.\" + otherScope.Stream,\n\t\t\"$JS.API.STREAM.MSG.GET.\" + scope.Stream,\n\t\t\"$JS.API.STREAM.CREATE.\" + scope.Stream,\n\t\t\"$JS.API.STREAM.UPDATE.\" + scope.Stream,\n\t\t\"$JS.API.STREAM.DELETE.\" + scope.Stream,\n\t\t\"$JS.API.STREAM.PURGE.\" + scope.Stream,\n\t\t\"$JS.API.CONSUMER.CREATE.\" + scope.Stream + \".worker.\" + scope.Subject,\n\t\t\"$JS.API.CONSUMER.CREATE.\" + scope.Stream + \".worker\",\n\t\t\"$JS.API.CONSUMER.MSG.NEXT.\" + scope.Stream + \".other\",\n\t\t\"$JS.API.CONSUMER.MSG.NEXT.\" + revisionScope.Stream + \".worker\",\n\t\t\"$KV.\" + otherScope.ReceiptBucket + \".broker-1\",\n\t\t\"$JS.API.DIRECT.GET.KV_\" + otherScope.ReceiptBucket + \".$KV.\" + otherScope.ReceiptBucket + \".broker-1\",\n\t\t\"$JS.ACK.\" + otherScope.Stream + \".worker.1.1.1.1.0\",\n\t\t\"$JS.ACK.\" + scope.Stream + \".other.1.1.1.1.0\",\n\t} {\n\t\tt.Run(subject, func(t *testing.T) {\n\t\t\tif err := nc.Publish(subject, []byte(`{\"subjects\":[\"ts.controller.>\"]}`)); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tif err := nc.FlushTimeout(time.Second); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tselect {\n\t\t\tcase err := <-violations:\n\t\t\t\tif !errors.Is(err, nats.ErrPermissionViolation) || !strings.Contains(err.Error(), subject) {\n\t\t\t\t\tt.Fatalf(\"unexpected denial: %v\", err)\n\t\t\t\t}\n\t\t\tcase <-time.After(time.Second):\n\t\t\t\tt.Fatal(\"broker accepted unauthorized publication\")\n\t\t\t}\n\t\t})"
+        },
+        {
+          "assertion_path": "internal/functions/broker_integration_test.go",
+          "line": 141,
+          "end_line": 156,
+          "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+          "boundary_category": "integration",
+          "explanation": "Actual subscription/flush must generate broker permission violation.",
+          "exact_condition_and_assertion_text": "\tfor _, subject := range []string{\"ts.>\", otherScope.Subject, \"_INBOX.>\", \"_INBOX.TS_FUNCTION.other.>\"} {\n\t\tif _, err := nc.SubscribeSync(subject); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif err := nc.FlushTimeout(time.Second); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tselect {\n\t\tcase err := <-violations:\n\t\t\tif !errors.Is(err, nats.ErrPermissionViolation) {\n\t\t\t\tt.Fatalf(\"unexpected subscription denial: %v\", err)\n\t\t\t}\n\t\tcase <-time.After(time.Second):\n\t\t\tt.Fatal(\"broker accepted unauthorized subscription\")\n\t\t}\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/broker_integration_test.go",
+          "line": 157,
+          "end_line": 170,
+          "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+          "boundary_category": "unit",
+          "explanation": "Unsigned proof and cross-tenant/revision credentials are directly rejected by local issuer/reader.",
+          "exact_condition_and_assertion_text": "\tif _, _, err := IssueWorkerCredentials(release.VerifiedFunction{}, account.Subject, accountJWT, signer, nil); !errors.Is(err, ErrScope) {\n\t\tt.Fatalf(\"unsigned release issued credentials: %v\", err)\n\t}\n\tfor _, manifest := range []Manifest{other, otherRevision} {\n\t\totherArtifact := artifact\n\t\totherArtifact.Manifest = manifest\n\t\totherProof, _, _ := signedFunctionFixture(t, otherArtifact)\n\t\tif _, _, err := IssueWorkerCredentials(otherProof, account.Subject, accountJWT, signer, creds); !errors.Is(err, ErrScope) {\n\t\t\tt.Fatalf(\"reused credentials for another tenant or revision: %v\", err)\n\t\t}\n\t\tif _, err := VerifyWorkerCredentials(otherProof, account.Subject, accountJWT, creds); !errors.Is(err, ErrScope) {\n\t\t\tt.Fatalf(\"verified credentials for another tenant or revision: %v\", err)\n\t\t}\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/broker_integration_test.go",
+          "line": 180,
+          "end_line": 220,
+          "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+          "boundary_category": "unit",
+          "explanation": "Re-signed grant/identity mutations, stranger signer, missing/malformed credentials and unchanged input assertions are local; no wire denial asserted here.",
+          "exact_condition_and_assertion_text": "\tfor name, mutate := range map[string]func(*jwt.UserClaims){\n\t\t\"broad publication\":  func(c *jwt.UserClaims) { c.Pub.Allow.Add(\">\") },\n\t\t\"broad subscription\": func(c *jwt.UserClaims) { c.Sub.Allow.Add(\">\") },\n\t\t\"bearer token\":       func(c *jwt.UserClaims) { c.BearerToken = true },\n\t\t\"another account\":    func(c *jwt.UserClaims) { c.IssuerAccount = identity.UserNKey },\n\t\t\"another revision\":   func(c *jwt.UserClaims) { c.Name += \"-other\" },\n\t\t\"seed mismatch\":      func(c *jwt.UserClaims) { c.Subject = foreignPublic },\n\t\t\"long lifetime\":      func(c *jwt.UserClaims) { c.Expires = time.Now().Add(2 * time.Hour).Unix() },\n\t} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\taltered := brokerCredentialMutation(t, creds, signer, mutate)\n\t\t\toriginal := bytes.Clone(altered)\n\t\t\tif _, _, err := IssueWorkerCredentials(admitted, account.Subject, accountJWT, signer, altered); !errors.Is(err, ErrScope) {\n\t\t\t\tt.Fatalf(\"accepted altered credentials: %v\", err)\n\t\t\t}\n\t\t\tif _, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, altered); !errors.Is(err, ErrScope) {\n\t\t\t\tt.Fatalf(\"verified altered credentials: %v\", err)\n\t\t\t}\n\t\t\tif !bytes.Equal(altered, original) {\n\t\t\t\tt.Fatal(\"issuer mutated supplied credentials\")\n\t\t\t}\n\t\t})\n\t}\n\tstranger, err := nkeys.CreateAccount()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdefer stranger.Wipe()\n\tif _, _, err := IssueWorkerCredentials(admitted, account.Subject, accountJWT, stranger, creds); !errors.Is(err, ErrScope) {\n\t\tt.Fatalf(\"unregistered signer accepted: %v\", err)\n\t}\n\tfor name, wire := range map[string][]byte{\"missing\": nil, \"malformed\": []byte(\"invalid credentials\")} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\toriginal := bytes.Clone(wire)\n\t\t\tif _, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, wire); !errors.Is(err, ErrScope) {\n\t\t\t\tt.Fatalf(\"verified absent or malformed credentials: %v\", err)\n\t\t\t}\n\t\t\tif !bytes.Equal(original, wire) {\n\t\t\t\tt.Fatal(\"verification mutated credentials\")\n\t\t\t}\n\t\t})"
+        },
+        {
+          "assertion_path": "internal/functions/broker_integration_test.go",
+          "line": 222,
+          "end_line": 252,
+          "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+          "boundary_category": "unit",
+          "explanation": "Current/expired credential reader and issuer renewal/key stability are local clock/JWT assertions, not broker disconnect evidence.",
+          "exact_condition_and_assertion_text": "\tfor name, mutate := range map[string]func(*jwt.UserClaims){\n\t\t\"past proof\": func(c *jwt.UserClaims) { c.Expires = admitted.ExpiresAt().Add(time.Second).Unix() },\n\t\t\"expired\":    func(c *jwt.UserClaims) { c.Expires = time.Now().Add(-time.Second).Unix() },\n\t} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\taltered := brokerCredentialMutation(t, creds, signer, mutate)\n\t\t\toriginal := bytes.Clone(altered)\n\t\t\tif _, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, altered); !errors.Is(err, ErrScope) {\n\t\t\t\tt.Fatalf(\"verified credentials outside current authority: %v\", err)\n\t\t\t}\n\t\t\tif !bytes.Equal(original, altered) {\n\t\t\t\tt.Fatal(\"verification mutated rejected credentials\")\n\t\t\t}\n\t\t})\n\t}\n\texpires := time.Now().Add(2 * time.Second).Unix()\n\tshortLived := brokerCredentialMutation(t, creds, signer, func(c *jwt.UserClaims) { c.Expires = expires })\n\tif _, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, shortLived); err != nil {\n\t\tt.Fatalf(\"current short-lived credentials rejected: %v\", err)\n\t}\n\ttime.Sleep(time.Until(time.Unix(expires, 0)))\n\toriginal = bytes.Clone(shortLived)\n\tif _, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, shortLived); !errors.Is(err, ErrScope) {\n\t\tt.Fatalf(\"reader renewed expired credentials: %v\", err)\n\t}\n\tif !bytes.Equal(original, shortLived) {\n\t\tt.Fatal(\"reader changed expired credentials\")\n\t}\n\tif _, renewed, err := IssueWorkerCredentials(admitted, account.Subject, accountJWT, signer, shortLived); err != nil || renewed.UserNKey != identity.UserNKey {\n\t\tt.Fatalf(\"issuer cannot renew expired exact credentials: %v\", err)\n\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "Real local MemAccResolver/JWT+TLS server, test-generated keys and certificates. Callback only collects real NATS errors; it does not manufacture permission violations.",
+        "workerBrokerFixture also contains local scoped/stale/retired/revoked signer/account-expiry checks at375-453; rotated credentials connect at414, but those direct local rejections receive no uniform network credit.",
+        "newWorker bypasses public signed NewWorker for runtime setup; proof is used for credential/queue provisioning. No production issuer/rotation rollout, cloud or dedicated worker qualification."
+      ],
+      "assertion_to_target_trace": [
+        "workerBrokerFixture -> server.NewServer/Start/ReadyForConnections -> nats.Connect TLS+JWT -> actual publish/subscribe/Flush -> NATS async permission callback -> denied subject assertion.",
+        "ProvisionQueue -> real JetStream file-backed stream/KV/consumer -> NewQueueWorker -> Fetch/process -> guest -> receipt Create+DoubleAck -> actual receipts.Get and Consumer.Info readback.",
+        "IssueWorkerCredentials/VerifyWorkerCredentials -> workerBrokerAccount/User/Signer -> local decoded signed values and time; surrounding broker is incidental to those assertions."
+      ]
+    },
+    {
+      "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerProcess",
+      "path": "internal/functions/process_integration_test.go",
+      "original_name": "TestFunctionWorkerProcess",
+      "kind": "test",
+      "original_declaration_sha256": "df10a616903c4ba5ac1e68c54af6a8bcd47c516b23efbc25116f26ee8f15de22",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 40,
+        "end_line": 303,
+        "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b"
+      },
+      "current_name": "TestFunctionWorkerProcess",
+      "current_declaration_sha256": "df10a616903c4ba5ac1e68c54af6a8bcd47c516b23efbc25116f26ee8f15de22",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 40,
+        "end_line": 303,
+        "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "mixed",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Core filesystem/child process/mTLS HTTP/JetStream restart and durable replay assertions are genuine integration; separate ReadSnapshot wrong-client check returns from local certificate preflight before any network dispatch.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/admission_integration_test.go",
+          "function": "func signedFunctionFixture(t *testing.T, artifact Artifact) (release.VerifiedFunction, ProcessDeployment, map[string][]byte) {",
+          "line": 47,
+          "end_line": 106,
+          "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+          "declaration_sha256": "fba92578245c58069382dc5fc688e29afe606633331339912c81787a5ff298d9",
+          "role": "Test-generated Ed25519 root/delegation/receipt; real signing/verifying functions; returns owned module proof and material bytes. It is not production issuer/startup evidence."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        },
+        {
+          "path": "internal/functions/process_integration_test.go",
+          "function": "func processCertificates(t *testing.T, identityURI, serverDNS string) ([]byte, tls.Certificate, tls.Certificate, tls.Certificate) {",
+          "line": 305,
+          "end_line": 341,
+          "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+          "declaration_sha256": "713f54de04e06dbf4c76bccb14df982b448367724cb175b32ea04983c76bcb57",
+          "role": "Creates test CA and exact/wrong SPIFFE identities."
+        },
+        {
+          "path": "internal/functions/process_integration_test.go",
+          "function": "func processBrokerCredentials(t *testing.T, admitted release.VerifiedFunction) ([]byte, []byte, string, string, *server.MemAccResolver) {",
+          "line": 343,
+          "end_line": 414,
+          "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+          "declaration_sha256": "f32a338e9fab1b022028eeb5907cb7777fcb37aba85d0210030143c74f7b8670",
+          "role": "Creates test operator/account/admin and actual issued worker credential bytes."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func publishTransportMessage(t *testing.T, js jetstream.JetStream, subject, id string, payload []byte) {",
+          "line": 185,
+          "end_line": 192,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "8d51ae46e27c21cd43e038092a012b327ad3ccf599d9147670a926bd149f8137",
+          "role": "Actual js.PublishMsg with Nats-Msg-Id header; errors fail the test."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func waitTransport(t *testing.T, condition func() bool) {",
+          "line": 194,
+          "end_line": 204,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "07749df7deb973d436651f3c1b7cfa1b339231ecbda03bd6c9fdebc31c8aa0d6",
+          "role": "Polls actual assertion closure for at most8s; timeout fails the root, no fake successful response."
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/process.go",
+          "function": "func runProcess(ctx context.Context, directory, address string, output io.Writer) error {",
+          "line": 51,
+          "end_line": 258,
+          "git_blob": "a6a25af034a4b26ba79868e1eaf74800b79f5f81",
+          "declaration_sha256": "c7784c4b8bd0afb1d480b3ff3b33216d48292adf80215b171eda282f92fdb4cf",
+          "focus_lines": [
+            [
+              52,
+              117
+            ],
+            [
+              118,
+              179
+            ],
+            [
+              180,
+              257
+            ]
+          ],
+          "role": "Opens/reads actual bounded material files, verifies signed proof/material expiry, starts actual worker+TLS/NATS, serves mTLS HTTP and queue, emits readiness and shuts down on cancellation."
+        },
+        {
+          "path": "internal/functions/admission.go",
+          "function": "func NewWorker(ctx context.Context, admitted release.VerifiedFunction) (*Worker, error) {",
+          "line": 12,
+          "end_line": 34,
+          "git_blob": "f8a08053baecc50196de9038980ba939212aab8a",
+          "declaration_sha256": "e2a1ae28805beaa0b834bcfe417c1327ba10dad4281162820cd5a7f9d6ff94ec",
+          "role": "Requires current opaque release proof, passes owned admitted bytes to actual newWorker with proof deadline; no fake runtime."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func newWorker(ctx context.Context, artifact Artifact) (*Worker, error) {",
+          "line": 47,
+          "end_line": 85,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "d7e831ce2eb71d8dc6e31b160e4a5d205aba881fdee85605e29b98d21b71b680",
+          "focus_lines": [
+            [
+              48,
+              52
+            ],
+            [
+              54,
+              84
+            ]
+          ],
+          "role": "Local artifact/decoder checks precede actual wazero runtime, WASI host-module instantiation, CompileModule and compiled import/export inspection."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {",
+          "line": 93,
+          "end_line": 154,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "fc6d28f749f04ec5b1abdc264df34e09d1378673b07d9dcd4e1f009e1b438d3d",
+          "focus_lines": [
+            [
+              94,
+              107
+            ],
+            [
+              116,
+              153
+            ]
+          ],
+          "role": "Validates local scope/admission, sets deadline, binds JSON stdin and bounded stdout/stderr, then calls actual wazero InstantiateModule and observes guest completion/errors."
+        },
+        {
+          "path": "internal/functions/http.go",
+          "function": "func NewHTTPHandler(worker Invoker, authorize Authorizer) (http.Handler, error) {",
+          "line": 17,
+          "end_line": 85,
+          "git_blob": "b72391d20f23cf17d56f6d2a707b5d5810a04bf4",
+          "declaration_sha256": "8a842d9a1576044890c50972759116d48acaccbd61f2defd52ecaba61bb9f12d",
+          "focus_lines": [
+            [
+              18,
+              24
+            ],
+            [
+              27,
+              82
+            ]
+          ],
+          "role": "Actual production HTTP mux, request admission, body read, invocation and status/output write."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func NewQueueWorker(ctx context.Context, nc *nats.Conn, worker Invoker) (*QueueWorker, error) {",
+          "line": 88,
+          "end_line": 130,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "0ef20df7eadfefb2fc1e68a7b40265ac7bf10e810c9f57fd600394cc6dabb58c",
+          "role": "Actual stream/consumer/KV binding and live remote configuration checks."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func (q *QueueWorker) Run(ctx context.Context) error {",
+          "line": 138,
+          "end_line": 158,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "9b3b9bcc07b6c75aed4ea5fcadd8caa91cfbc1496e7ffaa94508f8c968bab6d3",
+          "role": "Actual durable consumer Fetch; delegates every delivery to process."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func (q *QueueWorker) process(ctx context.Context, msg jetstream.Msg) error {",
+          "line": 160,
+          "end_line": 198,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "06c6cc656a0ca566041194b29b8c25a4778c9066ed75ca08e8ba03813276a60f",
+          "focus_lines": [
+            [
+              161,
+              197
+            ]
+          ],
+          "role": "Reads actual message headers/data, durable receipt Get/Status/Create; success DoubleAck, poison Term, transient failure NakWithDelay."
+        },
+        {
+          "path": "internal/functions/snapshot_client.go",
+          "function": "func ReadSnapshot(ctx context.Context, proof release.VerifiedFunction, address netip.AddrPort, certificate tls.Certificate, issuerPEM []byte) (Snapshot, error) {",
+          "line": 21,
+          "end_line": 73,
+          "git_blob": "f619a8b010568984cb786cd9527370ad11d043f0",
+          "declaration_sha256": "509f9fe572fe4c59b15ba66746cd03956e4b58694bc6497dc2f565a779f40015",
+          "focus_lines": [
+            [
+              22,
+              29
+            ],
+            [
+              35,
+              72
+            ]
+          ],
+          "role": "Wrong-client URI rejected locally at27-29; valid client traverses actual mTLS HTTP request53/body64 and snapshot scope/time validation69."
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/process_integration_test.go",
+          "line": 92,
+          "end_line": 133,
+          "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+          "boundary_category": "integration",
+          "explanation": "Write signed material files0600, start current executable child, read readiness pipe and verify actual admitted identity.",
+          "exact_condition_and_assertion_text": "\tdirectory := t.TempDir()\n\tfor name, data := range files {\n\t\tif err := os.WriteFile(filepath.Join(directory, name), data, 0600); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\texecutable, err := os.Executable()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tcmd := exec.Command(executable, \"-test.run=^TestFunctionWorkerProcess$\")\n\tcmd.Env = append(os.Environ(), \"TS_FUNCTION_TEST_PROCESS_DIR=\"+directory)\n\tvar stderr bytes.Buffer\n\tcmd.Stderr = &stderr\n\tstdout, err := cmd.StdoutPipe()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := cmd.Start(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\texited := false\n\tt.Cleanup(func() {\n\t\tif !exited {\n\t\t\t_ = cmd.Process.Kill()\n\t\t\t_ = cmd.Wait()\n\t\t}\n\t})\n\tlines := make(chan string, 1)\n\tgo func() { line, _ := bufio.NewReader(stdout).ReadString('\\n'); lines <- line }()\n\tvar ready struct{ State, Address, TenantID, FunctionID, Revision, Digest string }\n\tselect {\n\tcase line := <-lines:\n\t\tif err := json.Unmarshal([]byte(line), &ready); err != nil {\n\t\t\tt.Fatalf(\"worker readiness: %q: %v (%s)\", line, err, stderr.String())\n\t\t}\n\tcase <-time.After(15 * time.Second):\n\t\tt.Fatal(\"worker process did not become ready\")\n\t}\n\tif ready.State != \"ready\" || ready.Digest != deployment.Digest || ready.TenantID != deployment.TenantID {\n\t\tt.Fatalf(\"worker readiness mismatch: %+v\", ready)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/process_integration_test.go",
+          "line": 142,
+          "end_line": 175,
+          "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+          "boundary_category": "integration",
+          "explanation": "Actual good/bad-client mTLS HTTP health/invocation statuses; successful guest echo payload is observed.",
+          "exact_condition_and_assertion_text": "\thealth, err := goodClient.Get(\"https://\" + ready.Address + \"/healthz\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\thealthBody, err := io.ReadAll(health.Body)\n\thealth.Body.Close()\n\tif err != nil || health.StatusCode != http.StatusOK || string(healthBody) != `{\"state\":\"ready\"}` {\n\t\tt.Fatalf(\"process health: %d %q %v\", health.StatusCode, healthBody, err)\n\t}\n\n\tfor _, tc := range []struct {\n\t\tclient *http.Client\n\t\tstatus int\n\t}{{badClient, 401}, {goodClient, 200}} {\n\t\treq, err := http.NewRequestWithContext(t.Context(), \"POST\", \"https://\"+ready.Address, strings.NewReader(\"process payload\"))\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\treq.Header.Set(\"Idempotency-Key\", \"process-http\")\n\t\tresp, err := tc.client.Do(req)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tbody, err := io.ReadAll(resp.Body)\n\t\tresp.Body.Close()\n\t\tif err != nil || resp.StatusCode != tc.status {\n\t\t\tt.Fatalf(\"process HTTP status %d: %v\", resp.StatusCode, err)\n\t\t}\n\t\tif tc.status == 200 {\n\t\t\tvar got Invocation\n\t\t\tif err := json.Unmarshal(body, &got); err != nil || string(got.Payload) != \"process payload\" || got.TenantID != deployment.TenantID {\n\t\t\t\tt.Fatalf(\"process guest input %s: %v\", body, err)\n\t\t\t}\n\t\t}"
+        },
+        {
+          "assertion_path": "internal/functions/process_integration_test.go",
+          "line": 177,
+          "end_line": 209,
+          "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+          "boundary_category": "integration",
+          "explanation": "Actual mTLS snapshot HTTP body state and valid production ReadSnapshot client readback.",
+          "exact_condition_and_assertion_text": "\tfor _, tc := range []struct {\n\t\tclient *http.Client\n\t\tstatus int\n\t}{{badClient, http.StatusUnauthorized}, {goodClient, http.StatusOK}} {\n\t\tresponse, err := tc.client.Get(\"https://\" + ready.Address + \"/snapshot\")\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tbody, err := io.ReadAll(response.Body)\n\t\tresponse.Body.Close()\n\t\tif err != nil || response.StatusCode != tc.status {\n\t\t\tt.Fatalf(\"snapshot status %d: %v\", response.StatusCode, err)\n\t\t}\n\t\tif tc.status == http.StatusOK {\n\t\t\tvar snapshot Snapshot\n\t\t\tif err := json.Unmarshal(body, &snapshot); err != nil || snapshot.SchemaVersion != 1 || snapshot.ObservedAt.IsZero() || time.Since(snapshot.ObservedAt) < 0 || time.Since(snapshot.ObservedAt) > 5*time.Second || snapshot.Manifest.Digest != deployment.Digest || snapshot.RuntimeVersion != RuntimeVersion || snapshot.Architecture == \"\" || snapshot.Succeeded != 1 || snapshot.Active != 0 || bytes.Contains(body, []byte(\"process payload\")) {\n\t\t\t\tt.Fatalf(\"snapshot is missing worker identity/counters or contains invocation data: %s: %v\", body, err)\n\t\t\t}\n\t\t}\n\t}\n\tnc, err := nats.Connect(deployment.BrokerURL, nats.Secure(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool}), nats.UserCredentialBytes(credentials))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdefer nc.Close()\n\taddress, err := netip.ParseAddrPort(ready.Address)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tobserved, err := ReadSnapshot(t.Context(), admitted, address, clientCertificate, ca)\n\tif err != nil || observed.Manifest.Digest != deployment.Digest || observed.Succeeded != 1 {\n\t\tt.Fatalf(\"authenticated snapshot collector lost actual worker state: %+v %v\", observed, err)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/process_integration_test.go",
+          "line": 210,
+          "end_line": 212,
+          "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+          "boundary_category": "unit",
+          "explanation": "Wrong certificate URI fails local ReadSnapshot preflight at snapshot_client.go27-29; no request is issued by this assertion.",
+          "exact_condition_and_assertion_text": "\tif _, err := ReadSnapshot(t.Context(), admitted, address, wrongCertificate, ca); err == nil {\n\t\tt.Fatal(\"snapshot collector accepted a different function client identity\")\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/process_integration_test.go",
+          "line": 217,
+          "end_line": 244,
+          "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+          "boundary_category": "integration",
+          "explanation": "Publish real queue work, observe broker drain and receipt, kill actual process and require non-success wait.",
+          "exact_condition_and_assertion_text": "\tsubject := \"ts.functions.\" + deployment.TenantID + \".\" + deployment.FunctionID + \".\" + deployment.Revision\n\tpublishTransportMessage(t, js, subject, \"process-queue\", []byte(\"queue payload\"))\n\twaitTransport(t, func() bool {\n\t\tstreams, err := js.Stream(t.Context(), \"TS_FUNCTION_\"+func() string { digest := sha256.Sum256([]byte(subject)); return hex.EncodeToString(digest[:]) }())\n\t\tif err != nil {\n\t\t\treturn false\n\t\t}\n\t\tinfo, err := streams.Info(t.Context())\n\t\treturn err == nil && info.State.Msgs == 0\n\t})\n\n\tidentityDigest := sha256.Sum256([]byte(subject))\n\tidentityHex := hex.EncodeToString(identityDigest[:])\n\treceipts, err := js.KeyValue(t.Context(), \"TS_FUNCTION_RECEIPTS_\"+identityHex)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tbefore, err := receipts.Get(t.Context(), \"process-queue\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfirstPID := cmd.Process.Pid\n\tif err := cmd.Process.Kill(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := cmd.Wait(); err == nil {\n\t\tt.Fatal(\"killed process unexpectedly succeeded\")\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/process_integration_test.go",
+          "line": 246,
+          "end_line": 287,
+          "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+          "boundary_category": "integration",
+          "explanation": "Start new child, require distinct PID/readiness; real broker replay must retain original durable receipt revision.",
+          "exact_condition_and_assertion_text": "\tcmd = exec.Command(executable, \"-test.run=^TestFunctionWorkerProcess$\")\n\tcmd.Env = append(os.Environ(), \"TS_FUNCTION_TEST_PROCESS_DIR=\"+directory)\n\tcmd.Stderr = &stderr\n\tstdout, err = cmd.StdoutPipe()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := cmd.Start(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\texited = false\n\tif cmd.Process.Pid == firstPID {\n\t\tt.Fatal(\"worker restart reused live process\")\n\t}\n\tlines = make(chan string, 1)\n\tgo func() { line, _ := bufio.NewReader(stdout).ReadString('\\n'); lines <- line }()\n\tselect {\n\tcase line := <-lines:\n\t\tif err := json.Unmarshal([]byte(line), &ready); err != nil {\n\t\t\tt.Fatalf(\"restarted readiness: %q: %v\", line, err)\n\t\t}\n\tcase <-time.After(15 * time.Second):\n\t\tt.Fatal(\"restarted worker did not become ready\")\n\t}\n\tstream, err := js.Stream(t.Context(), \"TS_FUNCTION_\"+identityHex)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstreamInfo, err := stream.Info(t.Context())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstreamInfo.Config.Duplicates = 100 * time.Millisecond\n\tif _, err := js.UpdateStream(t.Context(), streamInfo.Config); err != nil {\n\t\tt.Fatal(err)\n\t}\n\ttime.Sleep(110 * time.Millisecond)\n\tpublishTransportMessage(t, js, subject, \"process-queue\", []byte(\"queue payload\"))\n\twaitTransport(t, func() bool { info, err := stream.Info(t.Context()); return err == nil && info.State.Msgs == 0 })\n\tafter, err := receipts.Get(t.Context(), \"process-queue\")\n\tif err != nil || after.Revision() != before.Revision() {\n\t\tt.Fatalf(\"process restart replay receipt: %v\", err)"
+        },
+        {
+          "assertion_path": "internal/functions/process_integration_test.go",
+          "line": 289,
+          "end_line": 302,
+          "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+          "boundary_category": "integration",
+          "explanation": "Send actual SIGTERM; child wait must terminate successfully within5s.",
+          "exact_condition_and_assertion_text": "\tif err := cmd.Process.Signal(syscall.SIGTERM); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdone := make(chan error, 1)\n\tgo func() { done <- cmd.Wait() }()\n\tselect {\n\tcase err := <-done:\n\t\texited = true\n\t\tif err != nil {\n\t\t\tt.Fatalf(\"worker shutdown: %v: %s\", err, stderr.String())\n\t\t}\n\tcase <-time.After(5 * time.Second):\n\t\tt.Fatal(\"worker process did not stop\")\n\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "Child calls private runProcess with test directory/ephemeral listener, not production CLI Run/fixed mount; no combined binary-dispatch qualification.",
+        "Test-generated authorities/certificates and local broker; genuine OS child/signals/files/protocols, no actual SwarmKit scheduling/containerd/Vault/cloud.",
+        "Bad-client HTTP request at155 traverses actual TLS/server authorization; wrong-client ReadSnapshot at210 is a different local pre-I/O block and is explicitly not given that credit."
+      ],
+      "assertion_to_target_trace": [
+        "os.WriteFile -> child exec/pipe -> runProcess os.OpenRoot/root.Open/Stat/ReadAll -> signed admission -> NewWorker -> real TLS NATS connection/queue bind and TLS HTTP listener -> parent HTTP and broker readback.",
+        "actual Kill/Wait -> second exec -> same broker durable receipt -> replay publication -> identical receipt revision -> SIGTERM/Wait.",
+        "ReadSnapshot wrong identity -> x509.ParseCertificate/URI comparison -> ErrScope before constructing HTTP request."
+      ]
+    },
+    {
+      "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+      "path": "internal/functions/process_integration_test.go",
+      "original_name": "TestFunctionWorkerRejectsExpiredMaterial",
+      "kind": "test",
+      "original_declaration_sha256": "d84525af69df88578d8dd3940c828fe68d2b3cea97ab9a18e4ff163af8cb5db3",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 416,
+        "end_line": 440,
+        "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b"
+      },
+      "current_name": "TestFunctionWorkerRejectsExpiredMaterial",
+      "current_declaration_sha256": "d84525af69df88578d8dd3940c828fe68d2b3cea97ab9a18e4ff163af8cb5db3",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 416,
+        "end_line": 440,
+        "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Expiry refusal depends on actual production filesystem open/read/decode of independently written invalid deployment authority and signed material, reaching the exact material-authority guard after proof verification.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/admission_integration_test.go",
+          "function": "func signedFunctionFixture(t *testing.T, artifact Artifact) (release.VerifiedFunction, ProcessDeployment, map[string][]byte) {",
+          "line": 47,
+          "end_line": 106,
+          "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+          "declaration_sha256": "fba92578245c58069382dc5fc688e29afe606633331339912c81787a5ff298d9",
+          "role": "Test-generated Ed25519 root/delegation/receipt; real signing/verifying functions; returns owned module proof and material bytes. It is not production issuer/startup evidence."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/process.go",
+          "function": "func runProcess(ctx context.Context, directory, address string, output io.Writer) error {",
+          "line": 51,
+          "end_line": 258,
+          "git_blob": "a6a25af034a4b26ba79868e1eaf74800b79f5f81",
+          "declaration_sha256": "c7784c4b8bd0afb1d480b3ff3b33216d48292adf80215b171eda282f92fdb4cf",
+          "focus_lines": [
+            [
+              52,
+              117
+            ],
+            [
+              118,
+              179
+            ],
+            [
+              180,
+              257
+            ]
+          ],
+          "role": "Opens/reads actual bounded material files, verifies signed proof/material expiry, starts actual worker+TLS/NATS, serves mTLS HTTP and queue, emits readiness and shuts down on cancellation."
+        },
+        {
+          "path": "internal/release/function.go",
+          "function": "func VerifyFunctionCurrent(envelopeWire, delegationWire, module []byte, roots trust.Keyring,",
+          "line": 94,
+          "end_line": 118,
+          "git_blob": "b2aaf7520dfa9aa3240b6b3b0d23d55e95741bbd",
+          "declaration_sha256": "2fce8482bf2beacdc5ba47465373b4d0c2e826c2c6a981eb5cf809537624d812",
+          "role": "Verifies local signed receipt/delegation/expected floor then clones and hashes admitted module bytes; does not buy/qualify hosts."
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/process_integration_test.go",
+          "line": 419,
+          "end_line": 437,
+          "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+          "boundary_category": "integration",
+          "explanation": "For missing/expired/beyond-proof deployment expiry, write real material/deployment files and require runProcess material-authority error from115-116.",
+          "exact_condition_and_assertion_text": "\tfor name, expiry := range map[string]time.Time{\"missing\": {}, \"expired\": time.Now().Add(-time.Second), \"beyond release\": proof.ExpiresAt().Add(time.Second)} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\tdeployment.ExpiresAt = expiry\n\t\t\twire, err := json.Marshal(deployment)\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tdirectory := t.TempDir()\n\t\t\tfor name, value := range files {\n\t\t\t\tif err := os.WriteFile(filepath.Join(directory, name), value, 0600); err != nil {\n\t\t\t\t\tt.Fatal(err)\n\t\t\t\t}\n\t\t\t}\n\t\t\tif err := os.WriteFile(filepath.Join(directory, \"deployment.json\"), wire, 0600); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tif err := runProcess(t.Context(), directory, \"127.0.0.1:0\", io.Discard); err == nil || !strings.Contains(err.Error(), \"material authority\") {\n\t\t\t\tt.Fatalf(\"invalid material expiry accepted: %v\", err)\n\t\t\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "Actual local files are the tested authority-delivery read boundary; not incidental setup. The exact error is emitted after deployment/root/receipt/delegation/module reads and signature admission, before NewWorker/TLS/broker/listener.",
+        "No live broker connection, child process, successful startup or Vault delivery is asserted."
+      ],
+      "assertion_to_target_trace": [
+        "os.WriteFile deployment.json + root.pub/receipt.json/delegation.json/module.wasm -> runProcess OpenRoot52/read58-74 -> deployment decode81 -> signed files88-108/VerifyFunctionCurrent -> actual file-derived ExpiresAt check115 -> material authority error assertion435."
+      ]
+    },
+    {
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerGuestExecutionAndIsolation",
+      "path": "internal/functions/runtime_integration_test.go",
+      "original_name": "TestWorkerGuestExecutionAndIsolation",
+      "kind": "test",
+      "original_declaration_sha256": "13978486fc815d20423cb68b4defd9cdae55710f75672812b03b8bfb28804d1f",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 16,
+        "end_line": 51,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "current_name": "TestWorkerGuestExecutionAndIsolation",
+      "current_declaration_sha256": "13978486fc815d20423cb68b4defd9cdae55710f75672812b03b8bfb28804d1f",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 16,
+        "end_line": 51,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "mixed",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Real echo/state guest executions and fresh-instance observation coexist with an independent wrong-tenant pre-invocation validation assertion.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationWorker(t *testing.T, artifact Artifact) *Worker {",
+          "line": 177,
+          "end_line": 189,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "e0e6098095b5dbdc50b7677a6ddefce0779c7dac5d54c6151b86ebeaa011c36a",
+          "role": "Calls actual newWorker; cleanup closes actual runtime."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationInvocation(m Manifest) Invocation {",
+          "line": 191,
+          "end_line": 193,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "d8af6b1d590f3887ded72c0a34e325c6727732fe868b8e2f108c16970c36b527"
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func newWorker(ctx context.Context, artifact Artifact) (*Worker, error) {",
+          "line": 47,
+          "end_line": 85,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "d7e831ce2eb71d8dc6e31b160e4a5d205aba881fdee85605e29b98d21b71b680",
+          "focus_lines": [
+            [
+              48,
+              52
+            ],
+            [
+              54,
+              84
+            ]
+          ],
+          "role": "Local artifact/decoder checks precede actual wazero runtime, WASI host-module instantiation, CompileModule and compiled import/export inspection."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {",
+          "line": 93,
+          "end_line": 154,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "fc6d28f749f04ec5b1abdc264df34e09d1378673b07d9dcd4e1f009e1b438d3d",
+          "focus_lines": [
+            [
+              94,
+              107
+            ],
+            [
+              116,
+              153
+            ]
+          ],
+          "role": "Validates local scope/admission, sets deadline, binds JSON stdin and bounded stdout/stderr, then calls actual wazero InstantiateModule and observes guest completion/errors."
+        },
+        {
+          "path": "internal/functions/contract.go",
+          "function": "func (in Invocation) Validate(m Manifest) error {",
+          "line": 103,
+          "end_line": 111,
+          "git_blob": "adff327b2fa98ff9648d3c07429ded1115dea9af",
+          "declaration_sha256": "a599db13e19c62087b8ccb6ec1d70791e1a98aee54aadf11ff1ccd452792c5e8"
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Snapshot() Snapshot {",
+          "line": 89,
+          "end_line": 91,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "67ee73240e44964a13693f4092793d81f542c340a7090dcf588f07c2eb6296c7"
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 21,
+          "end_line": 32,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "integration",
+          "explanation": "Actual echo guest roundtrips invocation identity and payload twice.",
+          "exact_condition_and_assertion_text": "\tfor range 2 {\n\t\tresult, err := w.Invoke(t.Context(), in)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tvar got Invocation\n\t\tif err := json.Unmarshal(result.Output, &got); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif got.ID != in.ID || !bytes.Equal(got.Payload, in.Payload) || result.InvocationID != in.ID || result.Revision != in.Revision {\n\t\t\tt.Fatalf(\"guest round trip: %+v / %+v\", result, got)\n\t\t}"
+        },
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 34,
+          "end_line": 38,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "unit",
+          "explanation": "Wrong tenant rejected by Invocation.Validate before runtime InstantiateModule; no guest receives that invocation.",
+          "exact_condition_and_assertion_text": "\twrong := in\n\twrong.TenantID = \"01ARZ3NDEKTSV4RRFFQ69G5FAW\"\n\tif _, err := w.Invoke(t.Context(), wrong); !errors.Is(err, ErrScope) {\n\t\tt.Fatalf(\"scope error: %v\", err)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 39,
+          "end_line": 42,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "supporting_local",
+          "explanation": "Snapshot counters/architecture are local observations of preceding actual execution/rejection.",
+          "exact_condition_and_assertion_text": "\tsnapshot := w.Snapshot()\n\tif snapshot.Succeeded != 2 || snapshot.Rejected != 1 || snapshot.Active != 0 || snapshot.RuntimeVersion != RuntimeVersion || snapshot.Architecture != runtime.GOARCH {\n\t\tt.Fatalf(\"snapshot: %+v\", snapshot)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 43,
+          "end_line": 50,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "integration",
+          "explanation": "Actual state guest increments mutable global and must output1 for each fresh guest instance.",
+          "exact_condition_and_assertion_text": "\tstateArtifact := integrationArtifact(t, \"state\")\n\tstate := integrationWorker(t, stateArtifact)\n\tfor range 2 {\n\t\tresult, err := state.Invoke(t.Context(), integrationInvocation(stateArtifact.Manifest))\n\t\tif err != nil || string(result.Output) != \"1\" {\n\t\t\tt.Fatalf(\"guest state persisted: %q, %v\", result.Output, err)\n\t\t}\n\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "Calls private newWorker through integrationWorker; no signed release admission in this root. Bytecode fixture is real and not a stub. Embedded ABI scope only; no OS subprocess, networking, host isolation or persistent cache claim."
+      ],
+      "assertion_to_target_trace": [
+        "integrationArtifact echo/state Wasm exports_start/memory and actual fd_read/fd_write/global opcodes -> newWorker actual engine compile/WASI -> Invoke InstantiateModule -> returned guest bytes.",
+        "wrong TenantID -> Worker.Invoke94 -> Invocation.Validate104-105 -> ErrScope, a separate local safety block."
+      ]
+    },
+    {
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerCancellationAndCapacity",
+      "path": "internal/functions/runtime_integration_test.go",
+      "original_name": "TestWorkerCancellationAndCapacity",
+      "kind": "test",
+      "original_declaration_sha256": "3283ee767cc1b5ae36b28652325f28b29a31860f47bee63c0a59616566e09837",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 53,
+        "end_line": 91,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "current_name": "TestWorkerCancellationAndCapacity",
+      "current_declaration_sha256": "3283ee767cc1b5ae36b28652325f28b29a31860f47bee63c0a59616566e09837",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 53,
+        "end_line": 91,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Core running-guest cancellation/deadline assertions require actual loop guest instantiation and engine interruption. Busy/token assertions support that same live-guest capacity scenario; they are not a separate local mutation table.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationWorker(t *testing.T, artifact Artifact) *Worker {",
+          "line": 177,
+          "end_line": 189,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "e0e6098095b5dbdc50b7677a6ddefce0779c7dac5d54c6151b86ebeaa011c36a",
+          "role": "Calls actual newWorker; cleanup closes actual runtime."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationInvocation(m Manifest) Invocation {",
+          "line": 191,
+          "end_line": 193,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "d8af6b1d590f3887ded72c0a34e325c6727732fe868b8e2f108c16970c36b527"
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func newWorker(ctx context.Context, artifact Artifact) (*Worker, error) {",
+          "line": 47,
+          "end_line": 85,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "d7e831ce2eb71d8dc6e31b160e4a5d205aba881fdee85605e29b98d21b71b680",
+          "focus_lines": [
+            [
+              48,
+              52
+            ],
+            [
+              54,
+              84
+            ]
+          ],
+          "role": "Local artifact/decoder checks precede actual wazero runtime, WASI host-module instantiation, CompileModule and compiled import/export inspection."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {",
+          "line": 93,
+          "end_line": 154,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "fc6d28f749f04ec5b1abdc264df34e09d1378673b07d9dcd4e1f009e1b438d3d",
+          "focus_lines": [
+            [
+              94,
+              107
+            ],
+            [
+              116,
+              153
+            ]
+          ],
+          "role": "Validates local scope/admission, sets deadline, binds JSON stdin and bounded stdout/stderr, then calls actual wazero InstantiateModule and observes guest completion/errors."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Snapshot() Snapshot {",
+          "line": 89,
+          "end_line": 91,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "67ee73240e44964a13693f4092793d81f542c340a7090dcf588f07c2eb6296c7"
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 54,
+          "end_line": 71,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "integration",
+          "explanation": "Start MaxConcurrent actual loop invocations and wait for active guest slots.",
+          "exact_condition_and_assertion_text": "\tartifact := integrationArtifact(t, \"loop\")\n\tw := integrationWorker(t, artifact)\n\tctx, cancel := context.WithCancel(t.Context())\n\tresults := make(chan error, MaxConcurrent)\n\tvar wg sync.WaitGroup\n\tfor range MaxConcurrent {\n\t\twg.Go(func() { _, err := w.Invoke(ctx, integrationInvocation(artifact.Manifest)); results <- err })\n\t}\n\tdeadline := time.NewTimer(time.Second)\n\tdefer deadline.Stop()\n\tfor w.Snapshot().Active != MaxConcurrent {\n\t\tselect {\n\t\tcase <-deadline.C:\n\t\t\tt.Fatal(\"workers did not enter guests\")\n\t\tdefault:\n\t\t\truntime.Gosched()\n\t\t}\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 72,
+          "end_line": 74,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "supporting_local",
+          "explanation": "ErrBusy branch is local while real loop invocations occupy slots; does not independently execute the extra guest.",
+          "exact_condition_and_assertion_text": "\tif _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); !errors.Is(err, ErrBusy) {\n\t\tt.Fatalf(\"concurrency admission: %v\", err)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 75,
+          "end_line": 90,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "integration",
+          "explanation": "Cancel actual active loop calls, require context.Canceled and zero slots, then require actual loop deadline interruption.",
+          "exact_condition_and_assertion_text": "\tcancel()\n\twg.Wait()\n\tclose(results)\n\tfor err := range results {\n\t\tif !errors.Is(err, context.Canceled) {\n\t\t\tt.Fatalf(\"canceled loop: %v\", err)\n\t\t}\n\t}\n\tif w.Snapshot().Active != 0 {\n\t\tt.Fatal(\"cancellation leaked concurrency tokens\")\n\t}\n\tctx, cancel = context.WithTimeout(t.Context(), 20*time.Millisecond)\n\tdefer cancel()\n\tif _, err := w.Invoke(ctx, integrationInvocation(artifact.Manifest)); !errors.Is(err, context.DeadlineExceeded) {\n\t\tt.Fatalf(\"deadline loop: %v\", err)\n\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "No mocked runtime or sleep-returning fake Invoker. Snapshot Active counts slots acquired before InstantiateModule, so alone is not proof a guest began executing; completion/error assertions are the material engine path.",
+        "The extra rejected busy invocation and token counts are local support of the actual runtime scenario, not independent integration claims. No OS-process/cgroup guarantee."
+      ],
+      "assertion_to_target_trace": [
+        "loop body real br0 opcode at fixture278-279 -> actual CompileModule -> concurrent Worker.Invoke InstantiateModule -> context cancellation/deadline -> runtime/context error normalization -> canceled/deadline and slot-release assertions."
+      ]
+    },
+    {
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerFixedDeadlineAndConcurrentClose",
+      "path": "internal/functions/runtime_integration_test.go",
+      "original_name": "TestWorkerFixedDeadlineAndConcurrentClose",
+      "kind": "test",
+      "original_declaration_sha256": "794b60aa35cf7435f9e2de9d68a1d7db047dff82e53ba1cf074b20cf2e96f501",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 93,
+        "end_line": 123,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "current_name": "TestWorkerFixedDeadlineAndConcurrentClose",
+      "current_declaration_sha256": "794b60aa35cf7435f9e2de9d68a1d7db047dff82e53ba1cf074b20cf2e96f501",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 93,
+        "end_line": 123,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Fixed deadline and concurrent close are asserted against an actually executing loop guest/runtime. Final local closed guard supports the same shutdown lifecycle, rather than a separate independent validation scenario.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationWorker(t *testing.T, artifact Artifact) *Worker {",
+          "line": 177,
+          "end_line": 189,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "e0e6098095b5dbdc50b7677a6ddefce0779c7dac5d54c6151b86ebeaa011c36a",
+          "role": "Calls actual newWorker; cleanup closes actual runtime."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationInvocation(m Manifest) Invocation {",
+          "line": 191,
+          "end_line": 193,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "d8af6b1d590f3887ded72c0a34e325c6727732fe868b8e2f108c16970c36b527"
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func newWorker(ctx context.Context, artifact Artifact) (*Worker, error) {",
+          "line": 47,
+          "end_line": 85,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "d7e831ce2eb71d8dc6e31b160e4a5d205aba881fdee85605e29b98d21b71b680",
+          "focus_lines": [
+            [
+              48,
+              52
+            ],
+            [
+              54,
+              84
+            ]
+          ],
+          "role": "Local artifact/decoder checks precede actual wazero runtime, WASI host-module instantiation, CompileModule and compiled import/export inspection."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {",
+          "line": 93,
+          "end_line": 154,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "fc6d28f749f04ec5b1abdc264df34e09d1378673b07d9dcd4e1f009e1b438d3d",
+          "focus_lines": [
+            [
+              94,
+              107
+            ],
+            [
+              116,
+              153
+            ]
+          ],
+          "role": "Validates local scope/admission, sets deadline, binds JSON stdin and bounded stdout/stderr, then calls actual wazero InstantiateModule and observes guest completion/errors."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Close(ctx context.Context) error {",
+          "line": 157,
+          "end_line": 160,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "eee98c410375ba3d6891f90486001041f33c32783ad93dae626dfa5534b0f711"
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 94,
+          "end_line": 102,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "integration",
+          "explanation": "Actual loop call must hit fixed InvocationTimeout and bounded elapsed time.",
+          "exact_condition_and_assertion_text": "\tartifact := integrationArtifact(t, \"loop\")\n\tw := integrationWorker(t, artifact)\n\tstarted := time.Now()\n\tif _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); !errors.Is(err, context.DeadlineExceeded) {\n\t\tt.Fatalf(\"fixed deadline: %v\", err)\n\t}\n\tif elapsed := time.Since(started); elapsed < InvocationTimeout || elapsed > InvocationTimeout+time.Second {\n\t\tt.Fatalf(\"deadline took %s\", elapsed)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 103,
+          "end_line": 119,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "integration",
+          "explanation": "Invoke loop, close actual runtime concurrently four times and require active invocation to report ErrClosed.",
+          "exact_condition_and_assertion_text": "\tresult := make(chan error, 1)\n\tgo func() { _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); result <- err }()\n\tfor w.Snapshot().Active == 0 {\n\t\truntime.Gosched()\n\t}\n\tvar wg sync.WaitGroup\n\tfor range 4 {\n\t\twg.Go(func() {\n\t\t\tif err := w.Close(t.Context()); err != nil {\n\t\t\t\tt.Error(err)\n\t\t\t}\n\t\t})\n\t}\n\twg.Wait()\n\tif err := <-result; !errors.Is(err, ErrClosed) {\n\t\tt.Fatalf(\"close active guest: %v\", err)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 120,
+          "end_line": 122,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "supporting_local",
+          "explanation": "Post-close local ErrClosed guard confirms that same runtime stays closed; this call itself does not execute guest.",
+          "exact_condition_and_assertion_text": "\tif _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); !errors.Is(err, ErrClosed) {\n\t\tt.Fatalf(\"invoke closed worker: %v\", err)\n\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "Active snapshot itself is only a local slot signal. Engine InstantiateModule and runtime.Close are real calls and the guest/error lifecycle is asserted. No separate process or host resource isolation."
+      ],
+      "assertion_to_target_trace": [
+        "loop guest CompileModule -> InstantiateModule -> fixed timeout normalized to DeadlineExceeded; second invocation -> actual runtime.Close/cancel -> active invocation ErrClosed -> same closed worker rejects following call."
+      ]
+    },
+    {
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerResourceAndImportBoundaries",
+      "path": "internal/functions/runtime_integration_test.go",
+      "original_name": "TestWorkerResourceAndImportBoundaries",
+      "kind": "test",
+      "original_declaration_sha256": "9216525c5d6b1b4d2216fb20276674f42c6b1ba95c0868c2d032b7cdfedb5e67",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 125,
+        "end_line": 175,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "current_name": "TestWorkerResourceAndImportBoundaries",
+      "current_declaration_sha256": "9216525c5d6b1b4d2216fb20276674f42c6b1ba95c0868c2d032b7cdfedb5e67",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 125,
+        "end_line": 175,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "mixed",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Output/memory/ambient/exit/sleep behavior executes actual Wasm/WASI; separate unsupported-import and bad-start table asserts local admission/compiled metadata rejection without guest execution.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationWorker(t *testing.T, artifact Artifact) *Worker {",
+          "line": 177,
+          "end_line": 189,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "e0e6098095b5dbdc50b7677a6ddefce0779c7dac5d54c6151b86ebeaa011c36a",
+          "role": "Calls actual newWorker; cleanup closes actual runtime."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationInvocation(m Manifest) Invocation {",
+          "line": 191,
+          "end_line": 193,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "d8af6b1d590f3887ded72c0a34e325c6727732fe868b8e2f108c16970c36b527"
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func newWorker(ctx context.Context, artifact Artifact) (*Worker, error) {",
+          "line": 47,
+          "end_line": 85,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "d7e831ce2eb71d8dc6e31b160e4a5d205aba881fdee85605e29b98d21b71b680",
+          "focus_lines": [
+            [
+              48,
+              52
+            ],
+            [
+              54,
+              84
+            ]
+          ],
+          "role": "Local artifact/decoder checks precede actual wazero runtime, WASI host-module instantiation, CompileModule and compiled import/export inspection."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {",
+          "line": 93,
+          "end_line": 154,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "fc6d28f749f04ec5b1abdc264df34e09d1378673b07d9dcd4e1f009e1b438d3d",
+          "focus_lines": [
+            [
+              94,
+              107
+            ],
+            [
+              116,
+              153
+            ]
+          ],
+          "role": "Validates local scope/admission, sets deadline, binds JSON stdin and bounded stdout/stderr, then calls actual wazero InstantiateModule and observes guest completion/errors."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (b *boundedOutput) Write(p []byte) (int, error) {",
+          "line": 168,
+          "end_line": 175,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "c3ecb38358fc8c25ce6c900c58998cdb699a13e4ac538d2905ff00afd820c7b8"
+        },
+        {
+          "path": "internal/functions/runtime_limits.go",
+          "function": "func validateModuleResources(module []byte) error {",
+          "line": 11,
+          "end_line": 131,
+          "git_blob": "a70736257575cd068b51e2ea25f8081c89a1f797",
+          "declaration_sha256": "ee533d2032babb830db834396eec696ec5de64d0ee9c9d7f596346c99a23df87"
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 126,
+          "end_line": 142,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "integration",
+          "explanation": "Actual stdout/stderr flood guest must hit bounded output; actual memory.grow guest traps if configured maximum is not enforced.",
+          "exact_condition_and_assertion_text": "\tfor _, kind := range []string{\"output-limit\", \"stderr-limit\"} {\n\t\tt.Run(kind, func(t *testing.T) {\n\t\t\tartifact := integrationArtifact(t, kind)\n\t\t\tw := integrationWorker(t, artifact)\n\t\t\tif _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); !errors.Is(err, ErrOutputLimit) {\n\t\t\t\tt.Fatalf(\"stream bound: %v\", err)\n\t\t\t}\n\t\t\tif w.Snapshot().Active != 0 {\n\t\t\t\tt.Fatal(\"stream limit leaked token\")\n\t\t\t}\n\t\t})\n\t}\n\tartifact := integrationArtifact(t, \"memory-limit\")\n\tw := integrationWorker(t, artifact)\n\tif _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); err != nil {\n\t\tt.Fatalf(\"memory.grow exceeded configured maximum: %v\", err)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 143,
+          "end_line": 164,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "integration",
+          "explanation": "Actual ambient-query/exit-zero guests and WASI poll_oneoff sleep execute; cancellation must interrupt within500ms.",
+          "exact_condition_and_assertion_text": "\tfor _, kind := range []string{\"ambient\", \"exit-zero\"} {\n\t\tt.Run(kind, func(t *testing.T) {\n\t\t\tartifact := integrationArtifact(t, kind)\n\t\t\tw := integrationWorker(t, artifact)\n\t\t\tif _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t})\n\t}\n\tt.Run(\"host-sleep-cancellation\", func(t *testing.T) {\n\t\tartifact := integrationArtifact(t, \"sleep\")\n\t\tw := integrationWorker(t, artifact)\n\t\tctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)\n\t\tdefer cancel()\n\t\tstart := time.Now()\n\t\tif _, err := w.Invoke(ctx, integrationInvocation(artifact.Manifest)); !errors.Is(err, context.DeadlineExceeded) {\n\t\t\tt.Fatalf(\"sleep deadline: %v\", err)\n\t\t}\n\t\tif time.Since(start) > 500*time.Millisecond {\n\t\t\tt.Fatal(\"WASI host sleep did not honor cancellation\")\n\t\t}\n\t})"
+        },
+        {
+          "assertion_path": "internal/functions/runtime_integration_test.go",
+          "line": 165,
+          "end_line": 174,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "boundary_category": "unit",
+          "explanation": "Unauthorized module/socket import and bad_start signature are rejected by newWorker before any guest Invoke/InstantiateModule.",
+          "exact_condition_and_assertion_text": "\tfor _, kind := range []string{\"unauthorized\", \"socket\", \"bad-start\"} {\n\t\tt.Run(kind, func(t *testing.T) {\n\t\t\tif worker, err := newWorker(t.Context(), integrationArtifact(t, kind)); !errors.Is(err, ErrInvalid) {\n\t\t\t\tif worker != nil {\n\t\t\t\t\tworker.Close(t.Context())\n\t\t\t\t}\n\t\t\t\tt.Fatalf(\"module admission: %v\", err)\n\t\t\t}\n\t\t})\n\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "Real guest opcode branches beside fixture; no host network/filesystem is offered. Output Write limits and sleeps are in-process, connected to actual fd_write/poll_oneoff guest ABI.",
+        "Compilation/import/export rejection alone is not counted as integration even though actual wazero CompileModule may be called. No native resource or egress qualification."
+      ],
+      "assertion_to_target_trace": [
+        "output/stderr bytecode fd_write loop -> actual runtime InstantiateModule -> boundedOutput.Write ErrOutputLimit; memory.grow opcode checks -1 -> successful completion; ambient queries/proc_exit/poll_oneoff -> real WASI ABI.",
+        "unauthorized/socket/bad-start fixture -> newWorker compilation and import/export inspection -> ErrInvalid, no guest invocation."
+      ]
+    },
+    {
+      "root_id": "internal/functions/runtime_limits_integration_test.go::TestWorkerRejectsUnboundedDecoderResources",
+      "path": "internal/functions/runtime_limits_integration_test.go",
+      "original_name": "TestWorkerRejectsUnboundedDecoderResources",
+      "kind": "test",
+      "original_declaration_sha256": "15b3fb0a4c9bdb617026fc4280e1fbef7a35e39215b95de8187ab339b4db4853",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 11,
+        "end_line": 55,
+        "git_blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "6ec96ae20ba66ffcf3bf69cba91610207a25af9048c8fc03801dcaa2366945d2"
+      },
+      "current_name": "TestWorkerRejectsUnboundedDecoderResources",
+      "current_declaration_sha256": "15b3fb0a4c9bdb617026fc4280e1fbef7a35e39215b95de8187ab339b4db4853",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 11,
+        "end_line": 55,
+        "git_blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "6ec96ae20ba66ffcf3bf69cba91610207a25af9048c8fc03801dcaa2366945d2"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "mixed",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Eleven malicious decoder vectors are purely local precompiler rejection; final bounded-table positive separately compiles/instantiates and executes real _start guest.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationWorker(t *testing.T, artifact Artifact) *Worker {",
+          "line": 177,
+          "end_line": 189,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "e0e6098095b5dbdc50b7677a6ddefce0779c7dac5d54c6151b86ebeaa011c36a",
+          "role": "Calls actual newWorker; cleanup closes actual runtime."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func wasmU32(value uint32) []byte {",
+          "line": 354,
+          "end_line": 367,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "cd6397e158f4932048ec8bff67add1e7b3ad3edf678aad5d451087e74f0d15ae"
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func newWorker(ctx context.Context, artifact Artifact) (*Worker, error) {",
+          "line": 47,
+          "end_line": 85,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "d7e831ce2eb71d8dc6e31b160e4a5d205aba881fdee85605e29b98d21b71b680",
+          "focus_lines": [
+            [
+              48,
+              52
+            ],
+            [
+              54,
+              84
+            ]
+          ],
+          "role": "Local artifact/decoder checks precede actual wazero runtime, WASI host-module instantiation, CompileModule and compiled import/export inspection."
+        },
+        {
+          "path": "internal/functions/contract.go",
+          "function": "func (a Artifact) Validate() error {",
+          "line": 89,
+          "end_line": 101,
+          "git_blob": "adff327b2fa98ff9648d3c07429ded1115dea9af",
+          "declaration_sha256": "b076a2e0d88cbddd3c78dc9aee053b58fbd816b5c0f6ffeac4208f3de3d4b1cb"
+        },
+        {
+          "path": "internal/functions/runtime_limits.go",
+          "function": "func validateModuleResources(module []byte) error {",
+          "line": 11,
+          "end_line": 131,
+          "git_blob": "a70736257575cd068b51e2ea25f8081c89a1f797",
+          "declaration_sha256": "ee533d2032babb830db834396eec696ec5de64d0ee9c9d7f596346c99a23df87"
+        },
+        {
+          "path": "internal/functions/runtime_limits.go",
+          "function": "func (r *moduleResourceReader) count(maximum uint32) uint32 {",
+          "line": 171,
+          "end_line": 178,
+          "git_blob": "a70736257575cd068b51e2ea25f8081c89a1f797",
+          "declaration_sha256": "3e06248842f554988ec3647e726e24393c14b2c210592df53f199ee4543d53d3"
+        },
+        {
+          "path": "internal/functions/runtime_limits.go",
+          "function": "func (r *moduleResourceReader) limits(maximum uint32, requireMax bool) {",
+          "line": 196,
+          "end_line": 206,
+          "git_blob": "a70736257575cd068b51e2ea25f8081c89a1f797",
+          "declaration_sha256": "5f4cdfaad0f9b78b82a32943811351035b026c4953f23be3cdf708a1503b885d"
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {",
+          "line": 93,
+          "end_line": 154,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "fc6d28f749f04ec5b1abdc264df34e09d1378673b07d9dcd4e1f009e1b438d3d",
+          "focus_lines": [
+            [
+              94,
+              107
+            ],
+            [
+              116,
+              153
+            ]
+          ],
+          "role": "Validates local scope/admission, sets deadline, binds JSON stdin and bounded stdout/stderr, then calls actual wazero InstantiateModule and observes guest completion/errors."
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/runtime_limits_integration_test.go",
+          "line": 12,
+          "end_line": 49,
+          "git_blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+          "boundary_category": "unit",
+          "explanation": "All11 inline malformed/large vector bytes are rehashed; no worker and ErrInvalid are required before runtime construction/compilation.",
+          "exact_condition_and_assertion_text": "\theader := []byte{0, 'a', 's', 'm', 1, 0, 0, 0}\n\tsection := func(id byte, data []byte) []byte {\n\t\tresult := append([]byte{}, header...)\n\t\tresult = append(result, id)\n\t\tresult = append(result, wasmU32(uint32(len(data)))...)\n\t\treturn append(result, data...)\n\t}\n\tcount := wasmU32(^uint32(0))\n\tfor _, tc := range []struct {\n\t\tname   string\n\t\tmodule []byte\n\t}{\n\t\t{\"type-count\", section(1, count)},\n\t\t{\"import-count\", section(2, count)},\n\t\t{\"function-count\", section(3, count)},\n\t\t{\"table-large-minimum\", section(4, append([]byte{1, 0x70, 1}, append(wasmU32(1<<27), wasmU32(1<<27)...)...))},\n\t\t{\"table-without-maximum\", section(4, []byte{1, 0x70, 0, 1})},\n\t\t{\"global-count\", section(6, count)},\n\t\t{\"export-count\", section(7, count)},\n\t\t{\"data-count\", section(12, count)},\n\t\t{\"element-section\", section(9, []byte{0})},\n\t\t{\"custom-section\", section(0, []byte{0})},\n\t\t{\"huge-locals\", section(10, append([]byte{1, 8, 1}, append(count, 0x7f, 0x0b)...))},\n\t} {\n\t\tt.Run(tc.name, func(t *testing.T) {\n\t\t\tartifact := integrationArtifact(t, \"echo\")\n\t\t\tartifact.Module = tc.module\n\t\t\tdigest := sha256.Sum256(tc.module)\n\t\t\tartifact.Manifest.Digest = hex.EncodeToString(digest[:])\n\t\t\tworker, err := newWorker(t.Context(), artifact)\n\t\t\tif worker != nil {\n\t\t\t\t_ = worker.Close(context.Background())\n\t\t\t\tt.Fatal(\"unbounded module admitted\")\n\t\t\t}\n\t\t\tif !errors.Is(err, ErrInvalid) {\n\t\t\t\tt.Fatalf(\"resource admission error: %v\", err)\n\t\t\t}\n\t\t})"
+        },
+        {
+          "assertion_path": "internal/functions/runtime_limits_integration_test.go",
+          "line": 51,
+          "end_line": 54,
+          "git_blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+          "boundary_category": "integration",
+          "explanation": "Bounded-table module actual _start invocation must complete without error, a separate positive ABI execution.",
+          "exact_condition_and_assertion_text": "\tworker := integrationWorker(t, integrationArtifact(t, \"bounded-table\"))\n\tif _, err := worker.Invoke(t.Context(), integrationInvocation(worker.Manifest())); err != nil {\n\t\tt.Fatalf(\"bounded table guest: %v\", err)\n\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "The filename does not give the11 decoder negatives integration credit. They fail validateModuleResources from newWorker51 before wazero.NewRuntimeWithConfig55.",
+        "Bounded-table module fixture emits table maximum1 and an exported real no-op _start; Invoke uses actual engine InstantiateModule. No child/broker/file/live host boundary."
+      ],
+      "assertion_to_target_trace": [
+        "Each byte vector -> Artifact.Validate digest -> validateModuleResources -> bounded count/limits/local decoding -> ErrInvalid and nil Worker.",
+        "bounded-table fixture253-255 plus _start export263-266/body347-349 -> actual newWorker compile/WASI -> Worker.Invoke InstantiateModule -> error-free real guest completion."
+      ]
+    },
+    {
+      "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerAuthenticationScopeAndLimits",
+      "path": "internal/functions/transports_integration_test.go",
+      "original_name": "TestHTTPRealWorkerAuthenticationScopeAndLimits",
+      "kind": "test",
+      "original_declaration_sha256": "09cd46686052a1d9bf0aea321b486422c86bd7eeb1c9872541b071b8bedd4263",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 35,
+        "end_line": 104,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "current_name": "TestHTTPRealWorkerAuthenticationScopeAndLimits",
+      "current_declaration_sha256": "09cd46686052a1d9bf0aea321b486422c86bd7eeb1c9872541b071b8bedd4263",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 35,
+        "end_line": 104,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "mixed",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Independent nil-authorizer construction guard is local. All request status/privacy/scope/guest-input assertions traverse actual TCP HTTP handler/client and real guest for success, with a clearly test-supplied authorizer.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func transportWorker(t *testing.T, kind string) *Worker {",
+          "line": 25,
+          "end_line": 33,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "5e114c57e36d34030deddd7d9ab3ecf9628cf084b74fccf92dd928810c57f922",
+          "role": "Calls actual newWorker with generated Wasm; not a fake Invoker."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/http.go",
+          "function": "func NewHTTPHandler(worker Invoker, authorize Authorizer) (http.Handler, error) {",
+          "line": 17,
+          "end_line": 85,
+          "git_blob": "b72391d20f23cf17d56f6d2a707b5d5810a04bf4",
+          "declaration_sha256": "8a842d9a1576044890c50972759116d48acaccbd61f2defd52ecaba61bb9f12d",
+          "focus_lines": [
+            [
+              18,
+              24
+            ],
+            [
+              27,
+              82
+            ]
+          ],
+          "role": "Actual production HTTP mux, request admission, body read, invocation and status/output write."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {",
+          "line": 93,
+          "end_line": 154,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "fc6d28f749f04ec5b1abdc264df34e09d1378673b07d9dcd4e1f009e1b438d3d",
+          "focus_lines": [
+            [
+              94,
+              107
+            ],
+            [
+              116,
+              153
+            ]
+          ],
+          "role": "Validates local scope/admission, sets deadline, binds JSON stdin and bounded stdout/stderr, then calls actual wazero InstantiateModule and observes guest completion/errors."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func newWorker(ctx context.Context, artifact Artifact) (*Worker, error) {",
+          "line": 47,
+          "end_line": 85,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "d7e831ce2eb71d8dc6e31b160e4a5d205aba881fdee85605e29b98d21b71b680",
+          "focus_lines": [
+            [
+              48,
+              52
+            ],
+            [
+              54,
+              84
+            ]
+          ],
+          "role": "Local artifact/decoder checks precede actual wazero runtime, WASI host-module instantiation, CompileModule and compiled import/export inspection."
+        },
+        {
+          "path": "internal/functions/contract.go",
+          "function": "func (in Invocation) Validate(m Manifest) error {",
+          "line": 103,
+          "end_line": 111,
+          "git_blob": "adff327b2fa98ff9648d3c07429ded1115dea9af",
+          "declaration_sha256": "a599db13e19c62087b8ccb6ec1d70791e1a98aee54aadf11ff1ccd452792c5e8"
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/transports_integration_test.go",
+          "line": 37,
+          "end_line": 39,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "boundary_category": "unit",
+          "explanation": "Nil Authorizer refused by NewHTTPHandler18-19 before server setup or request I/O.",
+          "exact_condition_and_assertion_text": "\tif _, err := NewHTTPHandler(worker, nil); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"missing authorizer: %v\", err)\n\t}"
+        },
+        {
+          "assertion_path": "internal/functions/transports_integration_test.go",
+          "line": 41,
+          "end_line": 84,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "boundary_category": "integration",
+          "explanation": "Stub header authorizer returns tenant/errors; actual httptest TCP server receives each request and client reads status/body.",
+          "exact_condition_and_assertion_text": "\thandler, err := NewHTTPHandler(worker, func(r *http.Request) (string, error) {\n\t\tswitch r.Header.Get(\"Authorization\") {\n\t\tcase \"Bearer valid\":\n\t\t\treturn worker.Manifest().TenantID, nil\n\t\tcase \"Bearer other\":\n\t\t\treturn otherTenant, nil\n\t\tdefault:\n\t\t\treturn \"\", errors.New(\"private authentication diagnostic\")\n\t\t}\n\t})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tsrv := httptest.NewServer(handler)\n\tt.Cleanup(srv.Close)\n\tfor _, tc := range []struct {\n\t\tname, method, auth, id, payload string\n\t\tstatus                          int\n\t}{\n\t\t{\"success\", \"POST\", \"Bearer valid\", \"http-1\", `{\"tenant_id\":\"forged\",\"payload\":\"raw input\"}`, 200},\n\t\t{\"authentication\", \"POST\", \"Bearer invalid\", \"http-2\", \"secret payload\", 401},\n\t\t{\"tenant\", \"POST\", \"Bearer other\", \"http-3\", \"secret payload\", 403},\n\t\t{\"missing ID\", \"POST\", \"Bearer valid\", \"\", \"secret payload\", 400},\n\t\t{\"invalid ID\", \"POST\", \"Bearer valid\", \"invalid.id\", \"secret payload\", 400},\n\t\t{\"payload limit\", \"POST\", \"Bearer valid\", \"http-4\", strings.Repeat(\"x\", MaxPayloadBytes+1), 413},\n\t\t{\"method\", \"GET\", \"Bearer valid\", \"http-5\", \"secret payload\", 405},\n\t} {\n\t\tt.Run(tc.name, func(t *testing.T) {\n\t\t\treq, err := http.NewRequestWithContext(t.Context(), tc.method, srv.URL+\"/invoke?private=host-secret\", strings.NewReader(tc.payload))\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\treq.Header.Set(\"Authorization\", tc.auth)\n\t\t\treq.Header.Set(\"Idempotency-Key\", tc.id)\n\t\t\treq.Header.Set(\"X-Tenant-ID\", otherTenant)\n\t\t\tresp, err := srv.Client().Do(req)\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tdefer resp.Body.Close()\n\t\t\tbody, err := io.ReadAll(resp.Body)\n\t\t\tif err != nil || resp.StatusCode != tc.status {\n\t\t\t\tt.Fatalf(\"response %d, %v: %s\", resp.StatusCode, err, body)\n\t\t\t}"
+        },
+        {
+          "assertion_path": "internal/functions/transports_integration_test.go",
+          "line": 85,
+          "end_line": 101,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "boundary_category": "integration",
+          "explanation": "Actual error responses must redact private strings; successful guest echoed input must have admitted identity/payload and exclude auth/query metadata.",
+          "exact_condition_and_assertion_text": "\t\t\tif tc.status != 200 {\n\t\t\t\tif bytes.Contains(body, []byte(\"secret\")) || bytes.Contains(body, []byte(\"diagnostic\")) {\n\t\t\t\t\tt.Fatalf(\"private request or diagnostic leaked: %s\", body)\n\t\t\t\t}\n\t\t\t\treturn\n\t\t\t}\n\t\t\tvar guest Invocation\n\t\t\tif err := json.Unmarshal(body, &guest); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tif guest.TenantID != worker.Manifest().TenantID || guest.FunctionID != worker.Manifest().FunctionID ||\n\t\t\t\tguest.Revision != worker.Manifest().Revision || guest.ID != tc.id || guest.Trigger != \"http\" || string(guest.Payload) != tc.payload {\n\t\t\t\tt.Fatalf(\"guest input: %+v\", guest)\n\t\t\t}\n\t\t\tif bytes.Contains(body, []byte(tc.auth)) || bytes.Contains(body, []byte(\"host-secret\")) {\n\t\t\t\tt.Fatal(\"HTTP metadata reached guest\")\n\t\t\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "Authorizer callback recognizes literal test Bearer strings; no production token verification/mTLS/auth-provider qualification. Callback never stubs Worker.Invoke.",
+        "Malformed/missing ID, size, method, wrong-tenant and auth response assertions still cross actual HTTP request/response; local handler guards are tested through their network response, unlike the distinct direct nil-authorizer block."
+      ],
+      "assertion_to_target_trace": [
+        "httptest.NewServer(actual NewHTTPHandler) -> srv.Client.Do actual HTTP TCP -> authorize stub -> production bounded body/identity -> Worker.Invoke real Wasm echo -> response write -> body/status/privacy/guest-input assertions.",
+        "Direct NewHTTPHandler(worker,nil) -> local ErrInvalid; independent guard."
+      ]
+    },
+    {
+      "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerTimeoutAndGuestFailure",
+      "path": "internal/functions/transports_integration_test.go",
+      "original_name": "TestHTTPRealWorkerTimeoutAndGuestFailure",
+      "kind": "test",
+      "original_declaration_sha256": "395959469c5f1b506b1be202562af668c7e5bc9949d3ba622ecf86c32bda02f5",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 106,
+        "end_line": 135,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "current_name": "TestHTTPRealWorkerTimeoutAndGuestFailure",
+      "current_declaration_sha256": "395959469c5f1b506b1be202562af668c7e5bc9949d3ba622ecf86c32bda02f5",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 106,
+        "end_line": 135,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Real HTTP response status and sanitized body must reflect actual looping/output-overflow guest failures through production handler.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func transportWorker(t *testing.T, kind string) *Worker {",
+          "line": 25,
+          "end_line": 33,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "5e114c57e36d34030deddd7d9ab3ecf9628cf084b74fccf92dd928810c57f922",
+          "role": "Calls actual newWorker with generated Wasm; not a fake Invoker."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/http.go",
+          "function": "func NewHTTPHandler(worker Invoker, authorize Authorizer) (http.Handler, error) {",
+          "line": 17,
+          "end_line": 85,
+          "git_blob": "b72391d20f23cf17d56f6d2a707b5d5810a04bf4",
+          "declaration_sha256": "8a842d9a1576044890c50972759116d48acaccbd61f2defd52ecaba61bb9f12d",
+          "focus_lines": [
+            [
+              18,
+              24
+            ],
+            [
+              27,
+              82
+            ]
+          ],
+          "role": "Actual production HTTP mux, request admission, body read, invocation and status/output write."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func newWorker(ctx context.Context, artifact Artifact) (*Worker, error) {",
+          "line": 47,
+          "end_line": 85,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "d7e831ce2eb71d8dc6e31b160e4a5d205aba881fdee85605e29b98d21b71b680",
+          "focus_lines": [
+            [
+              48,
+              52
+            ],
+            [
+              54,
+              84
+            ]
+          ],
+          "role": "Local artifact/decoder checks precede actual wazero runtime, WASI host-module instantiation, CompileModule and compiled import/export inspection."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {",
+          "line": 93,
+          "end_line": 154,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "fc6d28f749f04ec5b1abdc264df34e09d1378673b07d9dcd4e1f009e1b438d3d",
+          "focus_lines": [
+            [
+              94,
+              107
+            ],
+            [
+              116,
+              153
+            ]
+          ],
+          "role": "Validates local scope/admission, sets deadline, binds JSON stdin and bounded stdout/stderr, then calls actual wazero InstantiateModule and observes guest completion/errors."
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/transports_integration_test.go",
+          "line": 107,
+          "end_line": 132,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "boundary_category": "integration",
+          "explanation": "For actual loop and output-limit Wasm guests, TCP HTTP POST must return504/502 respectively and exact sanitized failure body.",
+          "exact_condition_and_assertion_text": "\tfor _, tc := range []struct {\n\t\tkind   string\n\t\tstatus int\n\t}{{\"loop\", http.StatusGatewayTimeout}, {\"output-limit\", http.StatusBadGateway}} {\n\t\tt.Run(tc.kind, func(t *testing.T) {\n\t\t\tworker := transportWorker(t, tc.kind)\n\t\t\thandler, err := NewHTTPHandler(worker, func(*http.Request) (string, error) { return worker.Manifest().TenantID, nil })\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tsrv := httptest.NewServer(handler)\n\t\t\tdefer srv.Close()\n\t\t\treq, err := http.NewRequestWithContext(t.Context(), \"POST\", srv.URL, strings.NewReader(\"private payload\"))\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\treq.Header.Set(\"Idempotency-Key\", \"failure-1\")\n\t\t\tresp, err := srv.Client().Do(req)\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tdefer resp.Body.Close()\n\t\t\tbody, err := io.ReadAll(resp.Body)\n\t\t\tif err != nil || resp.StatusCode != tc.status || string(body) != \"function invocation failed\\n\" {\n\t\t\t\tt.Fatalf(\"response: status=%d body=%q err=%v\", resp.StatusCode, body, err)\n\t\t\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "Authorizer callback supplies trusted fixture tenant; no real external authentication provider. Actual Worker/guest, HTTP listener/client and output/timeout mapping are not stubbed. No process/container/live host claim."
+      ],
+      "assertion_to_target_trace": [
+        "transportWorker actual newWorker -> httptest.NewServer -> POST over TCP -> production handler Invoke -> real loop deadline/output fd_write limit -> production status mapping -> actual client body/status assertions."
+      ]
+    },
+    {
+      "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+      "path": "internal/functions/transports_integration_test.go",
+      "original_name": "TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+      "kind": "test",
+      "original_declaration_sha256": "d7d1f3be57265cf328430c2c16f566c6dbf0074435fdd278d8ac93aa11095d3b",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 206,
+        "end_line": 277,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "current_name": "TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+      "current_declaration_sha256": "d7d1f3be57265cf328430c2c16f566c6dbf0074435fdd278d8ac93aa11095d3b",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 206,
+        "end_line": 277,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Core receipt binding/replay suppression/poison termination/tenant stream assertions depend on actual JetStream publication, file-backed durable state reads and consumer acknowledgement effects; no separate standalone local-validation test block.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func transportBroker(t *testing.T) (*nats.Conn, jetstream.JetStream) {",
+          "line": 137,
+          "end_line": 158,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "62a83a5ab597ce4dc0be7fde4d2900a0843f1735d77e6da55acef996d09701ca",
+          "role": "Creates actual local TCP NATS/JetStream server with filesystem store and nats.Connect; no production JWT/mTLS in this helper."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func transportWorker(t *testing.T, kind string) *Worker {",
+          "line": 25,
+          "end_line": 33,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "5e114c57e36d34030deddd7d9ab3ecf9628cf084b74fccf92dd928810c57f922",
+          "role": "Calls actual newWorker with generated Wasm; not a fake Invoker."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func runTransportQueue(t *testing.T, queue *QueueWorker) func() {",
+          "line": 160,
+          "end_line": 183,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "26c91a2b08db00d7e20843191c6d584d85eaf0c09c5ee7949e779471919ad68b",
+          "role": "Runs actual QueueWorker.Run in goroutine; cancel/wait helper only, does not stub queue methods."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func publishTransportMessage(t *testing.T, js jetstream.JetStream, subject, id string, payload []byte) {",
+          "line": 185,
+          "end_line": 192,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "8d51ae46e27c21cd43e038092a012b327ad3ccf599d9147670a926bd149f8137",
+          "role": "Actual js.PublishMsg with Nats-Msg-Id header; errors fail the test."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func waitTransport(t *testing.T, condition func() bool) {",
+          "line": 194,
+          "end_line": 204,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "07749df7deb973d436651f3c1b7cfa1b339231ecbda03bd6c9fdebc31c8aa0d6",
+          "role": "Polls actual assertion closure for at most8s; timeout fails the root, no fake successful response."
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func provisionQueue(ctx context.Context, nc *nats.Conn, manifest Manifest) error {",
+          "line": 57,
+          "end_line": 84,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "8854b339ff07cecb0d847a45ccbd5e9d132475c12e0a90d1f9896e0923be6911",
+          "role": "Actual CreateOrUpdateStream/FileStorage, receipt KeyValue/FileStorage and durable consumer creation."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func NewQueueWorker(ctx context.Context, nc *nats.Conn, worker Invoker) (*QueueWorker, error) {",
+          "line": 88,
+          "end_line": 130,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "0ef20df7eadfefb2fc1e68a7b40265ac7bf10e810c9f57fd600394cc6dabb58c",
+          "role": "Actual stream/consumer/KV binding and live remote configuration checks."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func (q *QueueWorker) Run(ctx context.Context) error {",
+          "line": 138,
+          "end_line": 158,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "9b3b9bcc07b6c75aed4ea5fcadd8caa91cfbc1496e7ffaa94508f8c968bab6d3",
+          "role": "Actual durable consumer Fetch; delegates every delivery to process."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func (q *QueueWorker) process(ctx context.Context, msg jetstream.Msg) error {",
+          "line": 160,
+          "end_line": 198,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "06c6cc656a0ca566041194b29b8c25a4778c9066ed75ca08e8ba03813276a60f",
+          "focus_lines": [
+            [
+              161,
+              197
+            ]
+          ],
+          "role": "Reads actual message headers/data, durable receipt Get/Status/Create; success DoubleAck, poison Term, transient failure NakWithDelay."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {",
+          "line": 93,
+          "end_line": 154,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "fc6d28f749f04ec5b1abdc264df34e09d1378673b07d9dcd4e1f009e1b438d3d",
+          "focus_lines": [
+            [
+              94,
+              107
+            ],
+            [
+              116,
+              153
+            ]
+          ],
+          "role": "Validates local scope/admission, sets deadline, binds JSON stdin and bounded stdout/stderr, then calls actual wazero InstantiateModule and observes guest completion/errors."
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/transports_integration_test.go",
+          "line": 221,
+          "end_line": 235,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "boundary_category": "integration",
+          "explanation": "Publish real payload, read actual receipt digest and actual consumer limits.",
+          "exact_condition_and_assertion_text": "\tstop := runTransportQueue(t, queue)\n\tpayload := []byte(`{\"tenant_id\":\"forged\",\"revision\":\"forged\"}`)\n\tpublishTransportMessage(t, js, queue.Subject(), \"queue-1\", payload)\n\tvar receipt jetstream.KeyValueEntry\n\twaitTransport(t, func() bool {\n\t\treceipt, err = receipts.Get(t.Context(), \"queue-1\")\n\t\treturn err == nil\n\t})\n\tdigest := sha256.Sum256(payload)\n\tif !bytes.Equal(receipt.Value(), digest[:]) {\n\t\tt.Fatalf(\"receipt does not bind raw payload: %x\", receipt.Value())\n\t}\n\tinfo, err := queue.consumer.Info(t.Context())\n\tif err != nil || info.Config.MaxAckPending != 1 || info.Config.MaxRequestBatch != 1 {\n\t\tt.Fatalf(\"consumer limits: %+v, %v\", info, err)"
+        },
+        {
+          "assertion_path": "internal/functions/transports_integration_test.go",
+          "line": 237,
+          "end_line": 271,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "boundary_category": "integration",
+          "explanation": "Close real worker, rebind same durable queue, change broker dedup policy and publish replay/conflict/invalid/oversized messages; actual stream must drain and original receipt revision stay unchanged.",
+          "exact_condition_and_assertion_text": "\tstop()\n\tif err := worker.Close(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tqueue, err = NewQueueWorker(t.Context(), nc, worker)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstream, err := js.Stream(t.Context(), info.Stream)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstreamInfo, err := stream.Info(t.Context())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Simulate replay outside broker deduplication without waiting two minutes.\n\tstreamInfo.Config.Duplicates = 100 * time.Millisecond\n\tif _, err := js.UpdateStream(t.Context(), streamInfo.Config); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstop = runTransportQueue(t, queue)\n\tdefer stop()\n\tpublishTransportMessage(t, js, queue.Subject(), \"queue-1\", payload)\n\ttime.Sleep(110 * time.Millisecond)\n\tpublishTransportMessage(t, js, queue.Subject(), \"queue-1\", []byte(\"conflicting payload\"))\n\tpublishTransportMessage(t, js, queue.Subject(), \"\", []byte(\"missing ID\"))\n\tpublishTransportMessage(t, js, queue.Subject(), \"oversized\", bytes.Repeat([]byte(\"x\"), MaxPayloadBytes+1))\n\twaitTransport(t, func() bool {\n\t\tinfo, err := stream.Info(t.Context())\n\t\treturn err == nil && info.State.Msgs == 0\n\t})\n\treplayed, err := receipts.Get(t.Context(), \"queue-1\")\n\tif err != nil || replayed.Revision() != receipt.Revision() {\n\t\tt.Fatalf(\"replay changed durable result: %v\", err)"
+        },
+        {
+          "assertion_path": "internal/functions/transports_integration_test.go",
+          "line": 273,
+          "end_line": 276,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "boundary_category": "integration",
+          "explanation": "Publish actual different tenant subject and require broker ErrNoStreamResponse.",
+          "exact_condition_and_assertion_text": "\totherSubject := strings.Replace(queue.Subject(), worker.Manifest().TenantID, entityid.New(), 1)\n\tif _, err := js.Publish(t.Context(), otherSubject, []byte(\"wrong tenant\")); !errors.Is(err, jetstream.ErrNoStreamResponse) {\n\t\tt.Fatalf(\"cross-tenant publication: %v\", err)\n\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "No broker API or Invoker stub. Temporary store is actual embedded JetStream FileStorage, not production distributed persistence. The closed worker strengthens replay/poison behavior check because unintended execution would retry rather than succeed.",
+        "Test deliberately shortens only test broker duplicate window to100ms. No full crash-after-effects/exactly-once/cloud guarantee."
+      ],
+      "assertion_to_target_trace": [
+        "provisionQueue actual stream/KV/consumer creation -> actual PublishMsg -> queue Fetch -> process receipt.Get/Status -> real guest success -> durable receipt.Create+DoubleAck -> receipt.Get digest.",
+        "After worker.Close/rebind, repeated ID hits durable receipt.Get and DoubleAck without Invoke; conflicting or invalid work is Term; broker stream.Info Msgs0 and unchanged receipt.Revision prove actual target effects."
+      ]
+    },
+    {
+      "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerRetriesTimedOutInvocation",
+      "path": "internal/functions/transports_integration_test.go",
+      "original_name": "TestQueueRealWorkerRetriesTimedOutInvocation",
+      "kind": "test",
+      "original_declaration_sha256": "0a947923e24724dc390a82c511c7d2358412ae78dc9a029eaffc160eeaa38b79",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 279,
+        "end_line": 304,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "current_name": "TestQueueRealWorkerRetriesTimedOutInvocation",
+      "current_declaration_sha256": "0a947923e24724dc390a82c511c7d2358412ae78dc9a029eaffc160eeaa38b79",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 279,
+        "end_line": 304,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Retry and absence-of-success receipt assertions require actual loop guest failure plus real consumer redelivery/ack-pending and KV state, not synthetic consumer records.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func transportBroker(t *testing.T) (*nats.Conn, jetstream.JetStream) {",
+          "line": 137,
+          "end_line": 158,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "62a83a5ab597ce4dc0be7fde4d2900a0843f1735d77e6da55acef996d09701ca",
+          "role": "Creates actual local TCP NATS/JetStream server with filesystem store and nats.Connect; no production JWT/mTLS in this helper."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func transportWorker(t *testing.T, kind string) *Worker {",
+          "line": 25,
+          "end_line": 33,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "5e114c57e36d34030deddd7d9ab3ecf9628cf084b74fccf92dd928810c57f922",
+          "role": "Calls actual newWorker with generated Wasm; not a fake Invoker."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func runTransportQueue(t *testing.T, queue *QueueWorker) func() {",
+          "line": 160,
+          "end_line": 183,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "26c91a2b08db00d7e20843191c6d584d85eaf0c09c5ee7949e779471919ad68b",
+          "role": "Runs actual QueueWorker.Run in goroutine; cancel/wait helper only, does not stub queue methods."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func publishTransportMessage(t *testing.T, js jetstream.JetStream, subject, id string, payload []byte) {",
+          "line": 185,
+          "end_line": 192,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "8d51ae46e27c21cd43e038092a012b327ad3ccf599d9147670a926bd149f8137",
+          "role": "Actual js.PublishMsg with Nats-Msg-Id header; errors fail the test."
+        },
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func waitTransport(t *testing.T, condition func() bool) {",
+          "line": 194,
+          "end_line": 204,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "07749df7deb973d436651f3c1b7cfa1b339231ecbda03bd6c9fdebc31c8aa0d6",
+          "role": "Polls actual assertion closure for at most8s; timeout fails the root, no fake successful response."
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func provisionQueue(ctx context.Context, nc *nats.Conn, manifest Manifest) error {",
+          "line": 57,
+          "end_line": 84,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "8854b339ff07cecb0d847a45ccbd5e9d132475c12e0a90d1f9896e0923be6911",
+          "role": "Actual CreateOrUpdateStream/FileStorage, receipt KeyValue/FileStorage and durable consumer creation."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func NewQueueWorker(ctx context.Context, nc *nats.Conn, worker Invoker) (*QueueWorker, error) {",
+          "line": 88,
+          "end_line": 130,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "0ef20df7eadfefb2fc1e68a7b40265ac7bf10e810c9f57fd600394cc6dabb58c",
+          "role": "Actual stream/consumer/KV binding and live remote configuration checks."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func (q *QueueWorker) Run(ctx context.Context) error {",
+          "line": 138,
+          "end_line": 158,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "9b3b9bcc07b6c75aed4ea5fcadd8caa91cfbc1496e7ffaa94508f8c968bab6d3",
+          "role": "Actual durable consumer Fetch; delegates every delivery to process."
+        },
+        {
+          "path": "internal/functions/queue.go",
+          "function": "func (q *QueueWorker) process(ctx context.Context, msg jetstream.Msg) error {",
+          "line": 160,
+          "end_line": 198,
+          "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+          "declaration_sha256": "06c6cc656a0ca566041194b29b8c25a4778c9066ed75ca08e8ba03813276a60f",
+          "focus_lines": [
+            [
+              161,
+              197
+            ]
+          ],
+          "role": "Reads actual message headers/data, durable receipt Get/Status/Create; success DoubleAck, poison Term, transient failure NakWithDelay."
+        },
+        {
+          "path": "internal/functions/runtime.go",
+          "function": "func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {",
+          "line": 93,
+          "end_line": 154,
+          "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+          "declaration_sha256": "fc6d28f749f04ec5b1abdc264df34e09d1378673b07d9dcd4e1f009e1b438d3d",
+          "focus_lines": [
+            [
+              94,
+              107
+            ],
+            [
+              116,
+              153
+            ]
+          ],
+          "role": "Validates local scope/admission, sets deadline, binds JSON stdin and bounded stdout/stderr, then calls actual wazero InstantiateModule and observes guest completion/errors."
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/transports_integration_test.go",
+          "line": 294,
+          "end_line": 303,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "boundary_category": "integration",
+          "explanation": "Publish stable ID, require actual consumer delivered>=2/pending1 and actual receipt Get ErrKeyNotFound after timed-out loop.",
+          "exact_condition_and_assertion_text": "\tstop := runTransportQueue(t, queue)\n\tdefer stop()\n\tpublishTransportMessage(t, js, queue.Subject(), \"retry-stable-id\", []byte(\"private payload\"))\n\twaitTransport(t, func() bool {\n\t\tinfo, err := queue.consumer.Info(t.Context())\n\t\treturn err == nil && info.Delivered.Consumer >= 2 && info.NumAckPending == 1\n\t})\n\tif _, err := receipts.Get(t.Context(), \"retry-stable-id\"); !errors.Is(err, jetstream.ErrKeyNotFound) {\n\t\tt.Fatalf(\"failed invocation has a success receipt: %v\", err)\n\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "No fake message/consumer/Invoker. Local unauthenticated test NATS transport, not scoped production credential test. No guarantee beyond asserted delivered count/pending state and absent receipt."
+      ],
+      "assertion_to_target_trace": [
+        "PublishMsg -> actual durable consumer Fetch -> loop guest InstantiateModule -> deadline -> process NakWithDelay1s -> broker redelivery -> Consumer.Info delivered>=2/ackpending1 -> actual KV absent receipt."
+      ]
+    },
+    {
+      "root_id": "internal/functions/transports_integration_test.go::TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+      "path": "internal/functions/transports_integration_test.go",
+      "original_name": "TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+      "kind": "test",
+      "original_declaration_sha256": "a06f5a6ef89a9b4974a91a752bc271b891b805cd040278bf0940bba9775c885b",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 306,
+        "end_line": 354,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "current_name": "TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+      "current_declaration_sha256": "a06f5a6ef89a9b4974a91a752bc271b891b805cd040278bf0940bba9775c885b",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 306,
+        "end_line": 354,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "survival_state": "retained_body_exact",
+      "retirement_authorized": false,
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "rationale": "Core HTTP body-admission bound is exercised through real TCP connections stalled mid-body and an excess HTTP request; no guest execution is needed or claimed for this admission assertion.",
+      "boundary_setup_citations": [
+        {
+          "path": "internal/functions/transports_integration_test.go",
+          "function": "func transportWorker(t *testing.T, kind string) *Worker {",
+          "line": 25,
+          "end_line": 33,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "declaration_sha256": "5e114c57e36d34030deddd7d9ab3ecf9628cf084b74fccf92dd928810c57f922",
+          "role": "Calls actual newWorker with generated Wasm; not a fake Invoker."
+        },
+        {
+          "path": "internal/functions/runtime_integration_test.go",
+          "function": "func integrationArtifact(t *testing.T, kind string) Artifact {",
+          "line": 196,
+          "end_line": 352,
+          "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+          "declaration_sha256": "4fce42ed6e19ee61477e3d6dcbd04fe99c0b7b187b4abbd02e67eaede22d930a",
+          "focus_lines": [
+            [
+              198,
+              206
+            ],
+            [
+              208,
+              246
+            ],
+            [
+              252,
+              266
+            ],
+            [
+              277,
+              349
+            ],
+            [
+              350,
+              351
+            ]
+          ],
+          "role": "Builds real core Wasm bytes, imports, exported _start and guest opcode bodies; no mock Invoker."
+        }
+      ],
+      "connected_production_citations": [
+        {
+          "path": "internal/functions/http.go",
+          "function": "func NewHTTPHandler(worker Invoker, authorize Authorizer) (http.Handler, error) {",
+          "line": 17,
+          "end_line": 85,
+          "git_blob": "b72391d20f23cf17d56f6d2a707b5d5810a04bf4",
+          "declaration_sha256": "8a842d9a1576044890c50972759116d48acaccbd61f2defd52ecaba61bb9f12d",
+          "focus_lines": [
+            [
+              18,
+              24
+            ],
+            [
+              27,
+              82
+            ]
+          ],
+          "role": "Actual production HTTP mux, request admission, body read, invocation and status/output write."
+        }
+      ],
+      "assertion_evidence": [
+        {
+          "assertion_path": "internal/functions/transports_integration_test.go",
+          "line": 308,
+          "end_line": 339,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "boundary_category": "integration",
+          "explanation": "Instrumenting authorizer channel records actual handler admission for4 real TCP POST headers whose declared100byte bodies are not delivered.",
+          "exact_condition_and_assertion_text": "\tentered := make(chan struct{}, MaxConcurrent)\n\thandler, err := NewHTTPHandler(worker, func(*http.Request) (string, error) { entered <- struct{}{}; return worker.Manifest().TenantID, nil })\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tsrv := httptest.NewServer(handler)\n\tdefer srv.Close()\n\tendpoint, err := url.Parse(srv.URL)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tvar pending []net.Conn\n\tdefer func() {\n\t\tfor _, conn := range pending {\n\t\t\t_ = conn.Close()\n\t\t}\n\t}()\n\tfor range MaxConcurrent {\n\t\tconn, err := net.DialTimeout(\"tcp\", endpoint.Host, time.Second)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tpending = append(pending, conn)\n\t\t_, err = fmt.Fprintf(conn, \"POST / HTTP/1.1\\r\\nHost: %s\\r\\nIdempotency-Key: pending\\r\\nContent-Length: 100\\r\\n\\r\\n\", endpoint.Host)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tselect {\n\t\tcase <-entered:\n\t\tcase <-time.After(time.Second):\n\t\t\tt.Fatal(\"HTTP body admission did not begin\")\n\t\t}"
+        },
+        {
+          "assertion_path": "internal/functions/transports_integration_test.go",
+          "line": 341,
+          "end_line": 353,
+          "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+          "boundary_category": "integration",
+          "explanation": "Actual extra HTTP client request must receive503 from bounded production handler slots before body/guest admission.",
+          "exact_condition_and_assertion_text": "\treq, err := http.NewRequestWithContext(t.Context(), \"POST\", srv.URL, strings.NewReader(\"bounded input\"))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\treq.Header.Set(\"Idempotency-Key\", \"excess\")\n\tresponse, err := srv.Client().Do(req)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdefer response.Body.Close()\n\tif response.StatusCode != http.StatusServiceUnavailable {\n\t\tt.Fatalf(\"excess body admission: %d\", response.StatusCode)\n\t}"
+        }
+      ],
+      "fake_stub_and_external_facts": [
+        "Authorizer callback is a test observation hook, returns actual worker tenant; it does not fabricate503 or control slots. pending sockets are genuine TCP effects.",
+        "Created real Wasm worker is incidental to this root target: no asserted guest invocation/ABI effect. The genuine integration boundary here is stalled HTTP request handling and network readback. No production mTLS/auth provider/load/live host qualification."
+      ],
+      "assertion_to_target_trace": [
+        "net.DialTimeout -> real headers Content-Length100 without body -> actual HTTP server NewHTTPHandler acquires slot -> authorizer channel -> production body io.ReadAll blocks; after4, excess actual srv.Client.Do -> production slot default -> HTTP503 response assertion."
+      ]
+    }
+  ],
+  "source_pins": [
+    {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/functions/admission_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+      "sha256": "3a3f054ab5b58a782ac03775394e9d93d4e9ecc8ccc94c60f7cba69eaaa35d1b",
+      "bytes": 4015
+    },
+    {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/functions/broker_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+      "sha256": "3b63ad4ee03e5484a15928a0ae92d78b99aebe43b5465b1e9fa6fdd9b1e2d545",
+      "bytes": 17800
+    },
+    {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/functions/process_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+      "sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b",
+      "bytes": 15203
+    },
+    {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/functions/runtime_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+      "sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6",
+      "bytes": 11126
+    },
+    {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/functions/runtime_limits_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+      "sha256": "6ec96ae20ba66ffcf3bf69cba91610207a25af9048c8fc03801dcaa2366945d2",
+      "bytes": 1801
+    },
+    {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/functions/transports_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+      "sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929",
+      "bytes": 11177
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "go.mod",
+      "git_mode": "100644",
+      "git_blob": "fc02b166f70e905696d006992f24d6f6e641302b",
+      "sha256": "3dcc9ecb65641323ccb85a6383ad370d328ccc3ef47545227abb38e7b8474d4f",
+      "bytes": 6153
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/admission.go",
+      "git_mode": "100644",
+      "git_blob": "f8a08053baecc50196de9038980ba939212aab8a",
+      "sha256": "da02efa715245e4604cabd50b6b9e5e93deee08016ee2d2d17ebc414ec83c1ab",
+      "bytes": 1152
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/admission_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+      "sha256": "3a3f054ab5b58a782ac03775394e9d93d4e9ecc8ccc94c60f7cba69eaaa35d1b",
+      "bytes": 4015
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/broker.go",
+      "git_mode": "100644",
+      "git_blob": "062dd9a909b502409e7bc6314811c6f857bb79c9",
+      "sha256": "533e841d7ac7f8d95be45e8e312e1f1e3885002ceb775f12f45acd4ed4e75f31",
+      "bytes": 8020
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/broker_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+      "sha256": "3b63ad4ee03e5484a15928a0ae92d78b99aebe43b5465b1e9fa6fdd9b1e2d545",
+      "bytes": 17800
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/contract.go",
+      "git_mode": "100644",
+      "git_blob": "adff327b2fa98ff9648d3c07429ded1115dea9af",
+      "sha256": "f9093e8f52f24f3f0cc03796975e7f3d774e1ad3624f53d884d2cb247df1c82d",
+      "bytes": 3650
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/http.go",
+      "git_mode": "100644",
+      "git_blob": "b72391d20f23cf17d56f6d2a707b5d5810a04bf4",
+      "sha256": "30a2f46857fe5c7429b8185f2ed2a93abf86757f6bb197ded00e0e2dcea4c245",
+      "bytes": 2818
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/process.go",
+      "git_mode": "100644",
+      "git_blob": "a6a25af034a4b26ba79868e1eaf74800b79f5f81",
+      "sha256": "7b5d7f89218dd1c8b0248a9517ec3be3aedd48e53fe0367a6c87a355208626af",
+      "bytes": 8922
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/process_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+      "sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b",
+      "bytes": 15203
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/queue.go",
+      "git_mode": "100644",
+      "git_blob": "66a9e895c2bb2def870992936dba66841769b1e9",
+      "sha256": "94afe728e4ab6adaedc20493deb52197236b06b3add90b29458d8889b5bb38b7",
+      "bytes": 8078
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/runtime.go",
+      "git_mode": "100644",
+      "git_blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d",
+      "sha256": "122c7c4e304bb1898d245c3c77c2c69a1fad87d6ee4b497eebd7e5fed3b6a7a4",
+      "bytes": 5366
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/runtime_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+      "sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6",
+      "bytes": 11126
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/runtime_limits.go",
+      "git_mode": "100644",
+      "git_blob": "a70736257575cd068b51e2ea25f8081c89a1f797",
+      "sha256": "6d97dab1560384f96f23a1bcec46970baf4bc6e203ee2aa67c04c7dfb882caf5",
+      "bytes": 4782
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/runtime_limits_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+      "sha256": "6ec96ae20ba66ffcf3bf69cba91610207a25af9048c8fc03801dcaa2366945d2",
+      "bytes": 1801
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/snapshot_client.go",
+      "git_mode": "100644",
+      "git_blob": "f619a8b010568984cb786cd9527370ad11d043f0",
+      "sha256": "d31a5fb0b26d1d2562fca723b1c1a97740a9d0f03aad1c2bf1b6b44805e2a86d",
+      "bytes": 3775
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/transports_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+      "sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929",
+      "bytes": 11177
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/release/function.go",
+      "git_mode": "100644",
+      "git_blob": "b2aaf7520dfa9aa3240b6b3b0d23d55e95741bbd",
+      "sha256": "24923df1f4bda53d6c76332ce6194f32b6dc3d29f13bdeb4d016301526c0715d",
+      "bytes": 5794
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/release/function_receipt.go",
+      "git_mode": "100644",
+      "git_blob": "9ec4278a4eacaf316114dd8a4d83ef82362fe078",
+      "sha256": "3efaadab4c96c088988815e34676bdd7c284cbfdae8bae777d8003fd2cb7b24e",
+      "bytes": 3543
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/release/receipt.go",
+      "git_mode": "100644",
+      "git_blob": "fc23b8d57779c03a4635611dcb6389de345700d5",
+      "sha256": "526e5d3c961eb85c6356562fb940b9b01d58ab36936e11315d4b0c5c4a89df10",
+      "bytes": 24314
+    }
+  ],
+  "raw_hash_method": "git show immutable COMMIT:path bytes; slice from allocated func starting line through column-zero closing brace, excluding following LF; independently compare both current and baseline SHA256 to exact allocation. Cited production/helper declarations use same raw extraction where multiline. File pins include mode, Git blob, complete bytes/SHA256.",
+  "dependency_boundary_pins": [
+    {
+      "path": "go.mod",
+      "line": 15,
+      "end_line": 18,
+      "git_blob": "fc02b166f70e905696d006992f24d6f6e641302b",
+      "role": "Pins NATS/JWT/nkeys versions used by actual embedded broker/client API calls."
+    },
+    {
+      "path": "go.mod",
+      "line": 24,
+      "end_line": 24,
+      "git_blob": "fc02b166f70e905696d006992f24d6f6e641302b",
+      "role": "Pins wazero v1.12.0; no substitute/fake engine in traced production runtime."
+    }
+  ],
+  "qualification_limits": [
+    "SOURCE ONLY: no Go/gofmt/build/test/runtime/lint/benchmark/lane/process/listener/lock/cloud operation and no source/Git/ledger mutation. Static git show/ls-tree and Python hashing/report generation only.",
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION for all14. No historical runtime evidence transferred to canonical d4ac.",
+    "No original test, assertion or safety obligation removed, renamed or retired. All14 original bodies exactly survive baseline/current.",
+    "Wasm integration is embedded runtime/ABI only; HTTP/NATS/process/file boundaries are local fixtures with test-generated authority. No native architecture, SwarmKit/containerd/Vault/OCI/fullstartup/live/cgroup/IAM/network isolation qualification.",
+    "Scoped partial negative paths remain local even when setup has a server or runtime; detailed blocks explicitly prohibit uniform boundary credit.",
+    "Candidate counts require independent peer review and separate ledger promotion. Accepted102/4198 and19/4300 accounting remains unchanged."
+  ],
+  "findings": [
+    {
+      "kind": "classification",
+      "detail": "Decoder root has11 unit precompiler rejections and a separate real bounded-table guest positive: mixed, not uniform decoder integration."
+    },
+    {
+      "kind": "classification",
+      "detail": "Broker root combines real permission/receipt exchanges with extensive local JWT/signer/expiry tables and fixture-contained local assertions: mixed."
+    },
+    {
+      "kind": "classification",
+      "detail": "Worker process root calls private runProcess in a test executable and has a separate collector certificate preflight rejection; neither a successful production CLI dispatcher nor all snapshot denials receive network credit."
+    },
+    {
+      "kind": "classification",
+      "detail": "Pending-body root genuinely exercises real HTTP/TCP admission while created guest worker remains incidental; no guest execution credit claimed."
+    }
+  ],
+  "unresolved_source_blockers": []
+}

@@ -3,6 +3,7 @@ package volume
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -94,6 +95,133 @@ func TestStoreCreateGetListUpdate(t *testing.T) {
 	if _, err := store.Update(ctx, deposed); !errors.Is(err, ErrTransition) {
 		t.Fatalf("deposed leader Update() = %v, want ErrTransition", err)
 	}
+
+	ocid := "ocid1.volume.oc1.sa-saopaulo-1.abcdef"
+	prev := testVolume("")
+	prev.MachineID = m1
+	prev.Status = Status{State: StateCreated, Epoch: 4, OCID: ocid, SizeGB: 100}
+	prev.SizeGB = 100
+	grown := prev
+	grown.SizeGB, grown.VPUsPerGB, grown.SnapshotRetentionDays = 200, 0, 30
+	larger := prev
+	larger.Status.SizeGB, larger.Status.Epoch = 500, 5
+	attached := prev
+	attached.Status.AttachedMachineID, attached.Status.Epoch = m1, 5
+	released := attached
+	released.MachineID = ""
+	moving := released
+	moving.MachineID = m2
+	destroying := released
+	destroying.Status.AttachedMachineID = ""
+	destroying.DestroyRequestedAt = created
+	pending := destroying
+	pending.Status.State, pending.Status.Epoch = StatePendingDestroy, 6
+	undo := pending
+	undo.DestroyRequestedAt = time.Time{}
+	undo.Status.State = StateCreated
+	gone := pending
+	gone.Status.State = StateDestroyed
+
+	type transitionCase struct {
+		before []Volume
+		next   Volume
+		want   error
+	}
+	cases := map[string]transitionCase{
+		"grow and retier":             {before: []Volume{prev}, next: grown},
+		"observed size above desired": {before: []Volume{prev}, next: larger},
+		"attached":                    {before: []Volume{prev}, next: attached},
+		"release":                     {before: []Volume{prev, attached}, next: released},
+		"claim while still attached":  {before: []Volume{prev, attached, released}, next: moving},
+		"destroy":                     {before: []Volume{prev, attached, released}, next: destroying},
+		"pending destroy":             {before: []Volume{prev, attached, released, destroying}, next: pending},
+		"destroyed":                   {before: []Volume{prev, attached, released, destroying, pending}, next: gone},
+		"undo destroy":                {before: []Volume{prev, attached, released, destroying, pending}, next: undo, want: ErrTransition},
+		"change after destroyed":      {before: []Volume{prev, attached, released, destroying, pending, gone}, next: gone, want: ErrTransition},
+	}
+	for name, mutate := range map[string]func(*Volume){
+		"zone":             func(v *Volume) { v.Zone = "Uocm:SA-SAOPAULO-1-AD-2" },
+		"app":              func(v *Volume) { v.App = "other" },
+		"name":             func(v *Volume) { v.Name = "logs" },
+		"created_at":       func(v *Volume) { v.CreatedAt = created.Add(time.Second) },
+		"shrink":           func(v *Volume) { v.SizeGB = 50 },
+		"status shrink":    func(v *Volume) { v.Status.SizeGB = 50 },
+		"steal":            func(v *Volume) { v.MachineID = m2 },
+		"rebind ocid":      func(v *Volume) { v.Status.OCID = "ocid1.volume.oc1.sa-saopaulo-1.other" },
+		"back to creating": func(v *Volume) { v.Status.State = StateCreating },
+		"release and destroy at once": func(v *Volume) {
+			v.MachineID = ""
+			v.DestroyRequestedAt = created
+		},
+		// A deposed leader read the record and writes an old observation.
+		"older epoch": func(v *Volume) {
+			v.Status.Epoch = 3
+			v.Status.State = StateFailed
+		},
+		"status without epoch": func(v *Volume) {
+			v.Status.Epoch = 0
+			v.Status.Message = "observed"
+		},
+		"destroyed without pending": func(v *Volume) {
+			v.MachineID = ""
+			v.DestroyRequestedAt = created
+			v.Status.State = StateDestroyed
+		},
+	} {
+		next := prev
+		mutate(&next)
+		cases[name] = transitionCase{before: []Volume{prev}, next: next, want: ErrTransition}
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Each branch starts with a legal native create and keeps its latest revision.
+			stored := mustCreate(t, store, testVolume(NewID()))
+			steps := append([]Volume{stored}, tc.before...)
+			steps = append(steps, tc.next)
+			for i, expected := range steps {
+				expected.ID, expected.Revision = stored.ID, stored.Revision
+				if i > 0 {
+					written, err := store.Update(ctx, expected)
+					if i == len(steps)-1 && tc.want != nil {
+						if !errors.Is(err, tc.want) {
+							t.Fatalf("Update() = %v, want %v", err, tc.want)
+						}
+						expected = stored
+					} else {
+						if err != nil || written.Revision <= stored.Revision {
+							t.Fatalf("Update() = %+v, %v; want a newer revision than %d", written, err, stored.Revision)
+						}
+						expected.Revision = written.Revision
+					}
+				}
+				got, err := store.Get(ctx, stored.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				list, err := store.List(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				readbacks := []Volume{got}
+				for _, listed := range list {
+					if listed.ID == stored.ID {
+						readbacks = append(readbacks, listed)
+					}
+				}
+				if len(readbacks) != 2 {
+					t.Fatalf("List() has %d copies of volume %s, want 1", len(readbacks)-1, stored.ID)
+				}
+				for _, readback := range readbacks {
+					business := readback
+					business.CreatedAt, business.DestroyRequestedAt = expected.CreatedAt, expected.DestroyRequestedAt
+					if !readback.CreatedAt.Equal(expected.CreatedAt) || !readback.DestroyRequestedAt.Equal(expected.DestroyRequestedAt) || business != expected {
+						t.Fatalf("persisted step %d = %+v, want %+v", i, readback, expected)
+					}
+				}
+				stored = got
+			}
+		})
+	}
 }
 
 func TestStoreCreateRefusesForeignOrPrefilledRecords(t *testing.T) {
@@ -161,6 +289,57 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 	}
 	if _, err := store.Get(ctx, unknown.ID); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("record with an unknown field: Get() = %v, want ErrInvalid", err)
+	}
+
+	ocid := "ocid1.volume.oc1.sa-saopaulo-1.abcdef"
+	for name, mutate := range map[string]func(*Volume){
+		"schema":                func(v *Volume) { v.SchemaVersion = 2 },
+		"id":                    func(v *Volume) { v.ID = "vol_UPPER" },
+		"app":                   func(v *Volume) { v.App = "bad-" },
+		"name":                  func(v *Volume) { v.Name = "has-dash" },
+		"region":                func(v *Volume) { v.Region = "GRU" },
+		"zone":                  func(v *Volume) { v.Zone = "AD 1" },
+		"too small":             func(v *Volume) { v.SizeGB = 49 },
+		"too large":             func(v *Volume) { v.SizeGB = MaxSizeGB + 1 },
+		"vpus step":             func(v *Volume) { v.VPUsPerGB = 15 },
+		"vpus max":              func(v *Volume) { v.VPUsPerGB = 130 },
+		"retention":             func(v *Volume) { v.SnapshotRetentionDays = 0 },
+		"machine":               func(v *Volume) { v.MachineID = "invalid" },
+		"no created_at":         func(v *Volume) { v.CreatedAt = time.Time{} },
+		"destroying claimed":    func(v *Volume) { v.DestroyRequestedAt = created; v.MachineID = m1 },
+		"state":                 func(v *Volume) { v.Status.State = "extending" },
+		"created without ocid":  func(v *Volume) { v.Status.State = StateCreated },
+		"ocid kind":             func(v *Volume) { v.Status.OCID = "ocid1.instance.oc1.x.y" },
+		"attached without ocid": func(v *Volume) { v.Status.AttachedMachineID = m1 },
+		"long message":          func(v *Volume) { v.Status.Message = strings.Repeat("x", maxMessageBytes+1) },
+		"pending without request": func(v *Volume) {
+			v.Status = Status{State: StatePendingDestroy, OCID: ocid}
+		},
+		"destroyed but attached": func(v *Volume) {
+			v.DestroyRequestedAt = created
+			v.Status = Status{State: StateDestroyed, OCID: ocid, AttachedMachineID: m1}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := testVolume(NewID())
+			key := v.ID
+			mutate(&v)
+			put(key, v)
+			if _, err := store.Get(ctx, key); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("persisted malformed record: Get() = %v, want ErrInvalid", err)
+			}
+		})
+	}
+	valid := testVolume(NewID())
+	valid.VPUsPerGB = 0
+	put(valid.ID, valid)
+	if got, err := store.Get(ctx, valid.ID); err != nil || got.VPUsPerGB != 0 {
+		t.Fatalf("persisted lower-cost volume: Get() = %+v, %v", got, err)
+	}
+	valid.Status = Status{State: StateCreated, Epoch: 1, OCID: "ocid1.volume.oc1.sa-saopaulo-1.managed-a"}
+	put(valid.ID, valid)
+	if got, err := store.Get(ctx, valid.ID); err != nil || got.VPUsPerGB != 0 || got.Status != valid.Status {
+		t.Fatalf("persisted hyphenated OCID: Get() = %+v, %v", got, err)
 	}
 }
 

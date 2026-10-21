@@ -1,0 +1,64 @@
+{
+  "api_signatures_reviewed": [
+    "executionleader.NewProducer and ServiceAuthorizer.WithStatefulService",
+    "execution.NewSource allocation resolver function",
+    "NewWorkerSessionFromAgent and BindRuntimeStopSigner",
+    "swarmruntime.StartNode, Executor.BindStateful",
+    "host.NewController, NewAgent, RunSession and RequestManagedBackupOperation",
+    "cellspec.Sign and VerifyHistorical",
+    "oci.NewVolumeMountObserver and NewFleetObserver"
+  ],
+  "checks": "gofmt and git diff --check passed; all Go compilation/vet/runtime unrun.",
+  "entrypoints": "TestMain in bootstrap_credential_launcher_test.go dispatches hidden commands only on exact argv. New fixture init dispatches exact runtime-logger argv or exact /source-renewal-member argv0. Compile-only never executes package initializers or TestMain.",
+  "helpers": {
+    "backupAdmissionIntent": {
+      "declaration": "func backupAdmissionIntent(t *testing.T, baseline placement.Intent,",
+      "file": "/tmp/ts-data-source-renewal-composed/internal/app/backup_operation_integration_test.go",
+      "sha256": "74aba87ab68083cf54a1e6b439674c0fa65f7d787cec55ab0adfc09ff2f9ad72"
+    },
+    "managedImageVerifierFixture": {
+      "declaration": "func managedImageVerifierFixture(t *testing.T, architecture string) (*managedImageVerifier, time.Time) {",
+      "file": "/tmp/ts-data-source-renewal-composed/internal/app/managed_image_test.go",
+      "sha256": "cd76582a5749a7741f09f98a1ad9277ee73afeb6247a1ff67e19360740ebcde0"
+    },
+    "newAuthenticatedNATS": {
+      "declaration": "func newAuthenticatedNATS(t *testing.T, cell string, brokers ...string) *authenticatedNATS {",
+      "file": "/tmp/ts-data-source-renewal-composed/internal/app/authenticated_nats_test.go",
+      "sha256": "46255a91d171884a762f1508c7af007e83e75d477c7a83aac63c848ea1dc53f7"
+    },
+    "testHostInstallRoot": {
+      "declaration": "func testHostInstallRoot(t *testing.T) string {",
+      "file": "/tmp/ts-data-source-renewal-composed/internal/app/operator_integration_test.go",
+      "sha256": "2e5169ccabb85ec8b1a50f75ff7bdfd4511c8deb980611218feb3849fe59d7ec"
+    },
+    "testHostStateRoot": {
+      "declaration": "func testHostStateRoot(t *testing.T) string {",
+      "file": "/tmp/ts-data-source-renewal-composed/internal/app/operator_integration_test.go",
+      "sha256": "2e5169ccabb85ec8b1a50f75ff7bdfd4511c8deb980611218feb3849fe59d7ec"
+    },
+    "testManagedPlacementIntent": {
+      "declaration": "func testManagedPlacementIntent() placement.Intent {",
+      "file": "/tmp/ts-data-source-renewal-composed/internal/app/placement_admission_test.go",
+      "sha256": "328c5349b6209093d0028fca1fe274c29cec2ac6ef9ee118e6c891f18e65a31b"
+    },
+    "testNKey": {
+      "declaration": "func testNKey(t *testing.T) (string, string) {",
+      "file": "/tmp/ts-data-source-renewal-composed/internal/app/operator_integration_test.go",
+      "sha256": "2e5169ccabb85ec8b1a50f75ff7bdfd4511c8deb980611218feb3849fe59d7ec"
+    }
+  },
+  "manager_gate": "Real concrete ServiceAuthorizer around actual upstream mutation. Unix socket/root peer boundary is separately qualified, not claimed here.",
+  "native_scope": "UNGRANTED: disposable owned containerd/runc, loop32MiB/ext4, sudo/unshare mount+net, fixed private-net IMDS169.254.169.254, cgroup task stopping. No binary or native command execution in this packet. ROOT harness decision still required.",
+  "removed_Lab": "No .Lab or NATSLab references in root app Go sources. Dependency test files are excluded from compilation.",
+  "root_tests": [
+    "TestSourceRenewalSDKFixtureIntegration",
+    "TestSourceRenewalRetainedMaterialIntegration",
+    "TestSourceRenewalOwnershipSDKFixtureIntegration",
+    "TestSourceBackupRenewalIntegration"
+  ],
+  "starting_state": "Signed GenerateInitial/SDK CAS/receipt+R3 material; real CommitPlacementIntent/MemberStore serving records and validated canonical desired CommitHostMutation; does not qualify native material validation or initial OCI provisioning. No seeded session/Source/effect authority.",
+  "state": "SOURCE_REVIEW_PREREQUISITES_RECONCILED_UNCOMPILED",
+  "static_blockers": [],
+  "target": "./internal/app; true go test -c, default vet, all default package test files included",
+  "unresolved_imports": []
+}

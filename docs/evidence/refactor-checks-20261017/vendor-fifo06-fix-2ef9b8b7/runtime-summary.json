@@ -1,0 +1,78 @@
+{
+  "status": "SCOPED_TARGETED_RACE_PASS_STOPPED_AWAITING_PARENT_ADJUDICATION",
+  "revision": "2ef9b8b70826c4f8e0f3ae4e4ae2bc76d6a1158d",
+  "tree": "24282ef5d0234db31e905bb8bba9098b03613dae",
+  "source_state": {
+    "revision": "2ef9b8b70826c4f8e0f3ae4e4ae2bc76d6a1158d",
+    "tree": "24282ef5d0234db31e905bb8bba9098b03613dae",
+    "status": ""
+  },
+  "session": 17364,
+  "actual_exit": 0,
+  "wrapper_elapsed_seconds": 118.98226702300599,
+  "tests": [
+    {
+      "Test": "TestAccountServiceRemovalConcurrentRefreshOverTCP",
+      "Elapsed": 20.15,
+      "Action": "pass"
+    },
+    {
+      "Test": "TestAccountReloadServiceImportPanic",
+      "Elapsed": 12.24,
+      "Action": "pass"
+    },
+    {
+      "Test": "TestConfigReloadAccountServicesImportExport",
+      "Elapsed": 0.19,
+      "Action": "pass"
+    },
+    {
+      "Test": "TestAccountServiceImportSubscriptionLifecycle/hidden_old_import_and_replacement_owner",
+      "Elapsed": 0,
+      "Action": "pass"
+    },
+    {
+      "Test": "TestAccountServiceImportSubscriptionLifecycle/retirement_cancels_a_reserved_insertion",
+      "Elapsed": 0,
+      "Action": "pass"
+    },
+    {
+      "Test": "TestAccountServiceImportSubscriptionLifecycle/single_removal_and_stale_snapshot_preserve_successor",
+      "Elapsed": 0,
+      "Action": "pass"
+    },
+    {
+      "Test": "TestAccountServiceImportSubscriptionLifecycle/failed_sublist_insertion_releases_its_reservation",
+      "Elapsed": 0,
+      "Action": "pass"
+    },
+    {
+      "Test": "TestAccountServiceImportSubscriptionLifecycle/connected_leaf_interest_balances_across_retirement",
+      "Elapsed": 0.04,
+      "Action": "pass"
+    },
+    {
+      "Test": "TestAccountServiceImportSubscriptionLifecycle",
+      "Elapsed": 0.05,
+      "Action": "pass"
+    }
+  ],
+  "package": [
+    {
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Elapsed": 33.706,
+      "Action": "pass"
+    }
+  ],
+  "test_identities": 9,
+  "skips": 0,
+  "race_report": false,
+  "bindings_verified": 18430,
+  "tree_inventories_verified": 13,
+  "lane_released": true,
+  "original_and_diagnostic_failure_disposition": "RETAINED_FAIL_OPEN",
+  "closed_rows": 0,
+  "fifo7_started": false,
+  "qualification": "One bounded targeted race invocation on this frozen source only. Original/diagnostic FIFO6 FAIL remain retained/open until explicit parent adjudication. No private2000-trial equivalence, repeated-race qualification, production proof, vendor-row closure, FIFO7, automatic retry or advancement. Sequential leaf accounting and deterministic lifecycle boundaries do not prove every concurrent interleaving. STOP after any terminal; fresh disposition required.",
+  "next_action": "Parent reviews raw/receipt/finalseal and explicitly adjudicates original FIFO6; no automatic advancement."
+}

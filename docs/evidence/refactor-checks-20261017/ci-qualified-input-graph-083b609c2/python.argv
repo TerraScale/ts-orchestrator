@@ -1,0 +1,1 @@
+/run/current-system/sw/bin/nice -n 19 /run/current-system/sw/bin/timeout --signal=TERM --kill-after=5s 180s /home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B -m unittest discover -s scripts/ci -p test_ci_artifact_graph.py -v 

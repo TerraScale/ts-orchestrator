@@ -1,0 +1,87 @@
+{
+  "method": "Conservative static enumeration of every tracked repository go:embed directive, including unrelated packages; not Go build selection.",
+  "directives": [
+    {
+      "source": "e2e/stack.go",
+      "directive": "//go:embed pins.json",
+      "tracked_inputs": [
+        "e2e/pins.json"
+      ]
+    },
+    {
+      "source": "internal/dashboard/assets.go",
+      "directive": "//go:embed assets/*.css assets/*.js assets/*.json",
+      "tracked_inputs": [
+        "internal/dashboard/assets/app.js",
+        "internal/dashboard/assets/dashboard.css",
+        "internal/dashboard/assets/datastar.js",
+        "internal/dashboard/assets/echarts.min.js",
+        "internal/dashboard/assets/world.json"
+      ]
+    },
+    {
+      "source": "internal/image/runtime.go",
+      "directive": "//go:embed runtime_licenses",
+      "tracked_inputs": [
+        "internal/image/runtime_licenses/containerd-NOTICES.txt",
+        "internal/image/runtime_licenses/libpathrs-NOTICES.txt",
+        "internal/image/runtime_licenses/libseccomp-NOTICES.txt",
+        "internal/image/runtime_licenses/runc-NOTICES.txt",
+        "internal/image/runtime_licenses/sources.json"
+      ]
+    },
+    {
+      "source": "internal/machinesapi/server.go",
+      "directive": "//go:embed openapi.json",
+      "tracked_inputs": [
+        "internal/machinesapi/openapi.json"
+      ]
+    },
+    {
+      "source": "internal/ociregion/publicapi/public.go",
+      "directive": "//go:embed origin-pull-ca.pem",
+      "tracked_inputs": [
+        "internal/ociregion/publicapi/origin-pull-ca.pem"
+      ]
+    },
+    {
+      "source": "internal/trust/discovery.go",
+      "directive": "//go:embed bootstrap-root-002.pem",
+      "tracked_inputs": [
+        "internal/trust/bootstrap-root-002.pem"
+      ]
+    },
+    {
+      "source": "scripts/ci/racetest/race_test.go",
+      "directive": "//go:embed race-test.sh",
+      "tracked_inputs": [
+        "scripts/ci/racetest/race-test.sh"
+      ]
+    },
+    {
+      "source": "scripts/ci/racetest/race_test.go",
+      "directive": "//go:embed race-durations.txt",
+      "tracked_inputs": [
+        "scripts/ci/racetest/race-durations.txt"
+      ]
+    }
+  ],
+  "pins": {
+    "e2e/pins.json": "aa5e2f14f224d1ba4889c85b417ff9805c44d81e9a568f9180a69bd3381d7dc0",
+    "internal/dashboard/assets/dashboard.css": "14ea289313556067711b54482076a48df50fd6618574d51aeb05c36c52858503",
+    "internal/dashboard/assets/app.js": "792ed4c1c4fee3e9204cab25b71063bbf52951de683b80bb368821893acb7185",
+    "internal/dashboard/assets/datastar.js": "727844adfc825ee651fb93c544a2a739986f9a21820a94524b35f0cac470cf91",
+    "internal/dashboard/assets/echarts.min.js": "bf4a223524e40b77c304bec67e1222cf551f14880cf42c69dc046558e11c07b1",
+    "internal/dashboard/assets/world.json": "049b334579e5a42d5d16c72d014d380e048e39fc1504049f212acb589484d2fa",
+    "internal/image/runtime_licenses/containerd-NOTICES.txt": "d33f1a0e246f6067530f2902ef239caee482ee1cdd1c58100612dd228e288741",
+    "internal/image/runtime_licenses/libpathrs-NOTICES.txt": "8e6bc431b37c165a995d4757e412059c2a64eff1b7c9c09d5f8d3ab238bd13ee",
+    "internal/image/runtime_licenses/libseccomp-NOTICES.txt": "ba60fad0478a2615d3dee9d3e26ed28bd2d095df76ac86b24509c7fcaf1df356",
+    "internal/image/runtime_licenses/runc-NOTICES.txt": "b97ef7709c8949d57697c1de4791fc421a17b3062fe0bd490db342a2ef30c6c3",
+    "internal/image/runtime_licenses/sources.json": "adc384468ad0439aea6e830c88be233b85a09c5a3754cddb332f98cf02739f2a",
+    "internal/machinesapi/openapi.json": "4b71d228ae270faf5a9143618fe60d3fc9e3bd5cc4c1361a38a27a762c02ef53",
+    "internal/ociregion/publicapi/origin-pull-ca.pem": "c14fed0ce5210db0719fea11d1f10b33750dc17d609aeaf47c75e9eff0d7b843",
+    "internal/trust/bootstrap-root-002.pem": "548426817b9ab219720d4a934703b7dfbd5b63633533a9340ec4e19c2fb65e5e",
+    "scripts/ci/racetest/race-test.sh": "c7050d7e6c66157d9a00dc92eafa647d9c41ef2d27b1204103e515d62a618a11",
+    "scripts/ci/racetest/race-durations.txt": "25e22c2ca9ab19ec13b32a31298abce04b06e12f9909306b1ee9def0415bafe7"
+  }
+}

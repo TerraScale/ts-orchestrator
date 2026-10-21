@@ -1,0 +1,140 @@
+{
+  "kind": "independent-oci5e-direct-runtime-readiness-review",
+  "created_utc": "2026-10-17T05:10:04.338087+00:00",
+  "reviewer": "/root/qa_integrator/capacity_tests",
+  "verdict": "READY_FOR_SEPARATE_QA_RUNTIME_SCHEDULING_DECISION_NOT_GRANTED",
+  "findings": [],
+  "packet": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+  "pins": {
+    "request.json": "83b7f2168a61155cb20a26128e1e0a29d1bb51a22c30bb241b076cd2f353cba4",
+    "run.py": "b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b",
+    "final-seal.json": "13176d8fd2d09365097f8399b8663f5917e53404c84fdcae976dd9d0adda5ebe",
+    "runtime-readiness.json": "4682fe5c0e12638a7f0e9b127a8d7e616bfbcfc0182ac87824c85cb1463ff59a",
+    "readiness-supplement.json": "37b13f54c16186e68b238e649754fc0d055a598e01d8a7da60b545adc524e70d",
+    "fullsource-manifest.json": "dbd06e52748c518dff1069ee764deef16c38a76490ea73b7409d5440a71daff9"
+  },
+  "initial_exact_six_entries": true,
+  "runtime_copy_absent": true,
+  "source": {
+    "head": "5e678c47a1767b52218abf7c08f18741db465d85",
+    "tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+    "clean": true,
+    "all3838tracked_source_hashes_match": true,
+    "readiness593files72dirs_match": true,
+    "readiness_manifest_sha256": "d80f38d6810ceded069e279803e678595a217f78e12766286aa814a3f91d75a9",
+    "same_bounded_predecessor_pathset_and_directories": true,
+    "exact_four_changed_files": [
+      "internal/region/foundation_integration_test.go",
+      "internal/region/foundation_provision_integration_test.go",
+      "internal/region/foundation_writer.go",
+      "internal/region/lifecycle.go"
+    ],
+    "delta_source_review": "/tmp/ts-qa-oci5e-truecompile-readiness-diy0th_1.json",
+    "delta_source_review_sha256": "9324db14d0c1fe87afd8ec03a54ab91bf1f35e2941203984f1225c21f1534c8e",
+    "all_original_assertions_preserved_and_counts_independently_rechecked": true,
+    "strict_actual_sdk_request_digest_retry_token_history_plan_validation_and_scalar_checkpoint_checks_retained": true
+  },
+  "compile": {
+    "independent_acceptance": "/tmp/ts-qa-oci5e-truecompile-terminal-acceptance-67pd1y4t.json",
+    "independent_acceptance_sha256": "48829e2aaa9c1f8555318e76ba8d172e16bc35881d077090ae28ae019c63f493",
+    "compiled_ELF": {
+      "path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/binaries/region.test",
+      "sha256": "2585e93e772f613d74ed6689cde2af2b6947dbcfac22fa6381444ed1f17dc529",
+      "bytes": 62909324,
+      "magic_hex": "7f454c46",
+      "mode": "0o600",
+      "never_executed": true
+    },
+    "full_compile_sealed_artifacts_hashes_sizes_modes_reverified": true,
+    "scope": "Region-only fixturetest truecompile/defaultvet; no runtime credit. Original0600 remains unexecuted according to reviewed source/native receipt chain; no OS-wide execution-history audit."
+  },
+  "status_supplements": {
+    "packet_readiness_supplement_sha256": "37b13f54c16186e68b238e649754fc0d055a598e01d8a7da60b545adc524e70d",
+    "external_compile_acceptance_supplement_path": "/tmp/ts-oci-provision-runtime-5e678c47a-compile-acceptance-supplement.json",
+    "external_compile_acceptance_supplement_sha256": "ba75a09230f993dd278051790966bfdea29054b119749a9244d1e9233a84eb41",
+    "interpretation": "Sealed readiness/request retain pending source-ACK/compile-acceptance status wording. Exact external ACK and accepted compile supplements supersede status only, preserving all packet bytes.",
+    "editorial_note": "Readiness inventory leaf TLS-listener reference says foundation_provision_integration_test.go:117; actual current call is line143. Source inspected at current call; effect and scope unchanged."
+  },
+  "runtime_argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "180s",
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG=C.UTF-8",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/runtime-region.test",
+    "-test.v=true",
+    "-test.run=^TestFoundationRecordsPersistAndFenceConcurrentWriters$/^provision_originals$",
+    "-test.count=1",
+    "-test.parallel=1",
+    "-test.timeout=120s"
+  ],
+  "wrapper_review": {
+    "same_pinned_runtime_runner_as_predecessor": true,
+    "python_ast_parse_only": true,
+    "nonroot_check": true,
+    "snapshot": "Verifies request/seal/source3838/tool/compile receipt/originalELF0600 and clean exact HEAD/tree before runtime; post snapshot must match.",
+    "serialization": "One nonblocking exclusive CAPACITY flock; busy returns unlaunched, no retries.",
+    "copy_and_execution": "Only after lease lock, exact original ELF copied once to packet runtime-region.test, hash checked, copy0500 executed directly under pinned nice/timeout/env. Original never invoked/chmodded. Runtime copy restored0600 on normal completion and wrapper exception. No compiler, implicit rebuild or test2json.",
+    "logs_and_terminal": "Preflight/logs/started/receipt exclusive-created. Wrapper requires exit0, equal snapshots, exact two RUN/PASS identity sets/counts, no FAIL/SKIP, final PASS, unchanged copy hash. Independent terminal review must additionally check complete raw event ordering and actual native argument/result records.",
+    "limits": "One attempt,count1,parallel1,GOMAXPROCS2,nice19,test120s,outer180sTERM+KILL5. RAM1GiB/scratch128MiB/tasks128 are unenforced estimates."
+  },
+  "scope_review": {
+    "selected_parent": "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+    "selected_leaf": "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals",
+    "full_parent_continuation_included": true,
+    "expected_raw_order": "RUN parent then RUN provision_originals; successful direct Go buffered terminal emits PASS parent before indented PASS child, final standalone PASS. Exactly two RUN and two PASS identities, no FAIL/SKIP or extra test identities.",
+    "leaf": "Actual ProvisionFoundationBundle entrypoint uses test-signed authority and simulated provider/root/image evidence; invalid authority no-provider check; original launch response-loss recovery; policy create response-loss recovery; all three original journals and policy readbacks; completed anchor/four simulated hosts; idempotent restart.",
+    "parent": "After selected subtest returns, signed SDK file-backed object journal checks persistence/restart, stale ETag/duplicate founder refusal, original pending launch and policy reservation roundtrip, cross-cell permission rejection and widened durable-policy refusal.",
+    "listeners": "Leaf NewTLSServer line143 binds checked literal loopback and ephemeral port. Proxy refuses noninitial/nonHTTPS, plaintext dial fails, TLS dial ignores OCI host and dials bound loopback only. Leaf defer closes server and t.Cleanup restores transport before parent helper NewServer line46. Parent ObjectStorage client.Host points to local server. Two sequential listeners total.",
+    "files_crypto": "Three t.TempDir roots: leaf XDG_CONFIG_HOME, leaf object directory, parent protocol-store directory. Foundation trust floor0700/0600 lock/temp/fsync/rename and simulated object0600 files. Ed25519/RSA keys in memory; cryptographic entropy/CPU.",
+    "processes_and_init": "No selected helper shell/subprocess/daemon/native/cloud/root execution. Local init source rechecked: two native helper dispatchers require sole special argv, so supplied test argv does not invoke them; authority diagnostics goroutine and SDK handler registration remain. Known imported NATS proc sampler/wazero sys metadata effects retained from bounded inventory.",
+    "discovery_limits": "Source-only regular-expression import traversal, not Go list or compiler resolution. Includes internal/region production+test imports, then local production files; ignores imported package tests and does not resolve all GOOS/GOARCH/custom build tags, cgo, generated testmain or complete transitive third-party/standard-library initialization. The 72-directory local set is a conservative source-derived known closure, not proof of the exact linked graph. Inspected relevant direct third-party/module init sources; no claim of exhaustive external closure. Embedded deployment files directly under deploy/oci-region are hashed; other embedded assets are not exhaustively inventoried."
+  },
+  "security": {
+    "ack_path": "/tmp/ts-oci-foundation-5e678c47a-security-source-ack.json",
+    "ack_sha256": "7aaa91f57da53b5dda4e4358a25f67559fdeb555a6e3ebec793d621a2a0dc232",
+    "exact_head_tree_and_two_commit_chain_match": true,
+    "state": "SEC_SOURCE_ACK_ONLY",
+    "limits": "Independent exact source ACK only, no compile or runtime credit."
+  },
+  "preservation": {
+    "prior_runtime_failures": [
+      {
+        "packet": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+        "report": "/tmp/ts-qa-oci678-runtime-terminal-failure-53vxp9c8.json",
+        "report_sha256": "28d36a36700221471e3cae78e5b335bda46eb9b4004b4619aba7b2a6ac87dac6",
+        "verdict": "NOT_QUALIFIED_NO_RETRY",
+        "receipt_sha256": "b7d61f518ae1da058c61ca5cae9e7c92ae210b90c79cef58a750359ff5d85412",
+        "source_seal_sha256": "680b592f2e49e514890bc8c9b379955799472a6716702facb0fd188e9ba8c8da",
+        "terminal_runtime_seal_sha256": "3bec0640756fb7062e71de85b528cdde0c06992ae4dedccc57cd1b86840a65b0"
+      },
+      {
+        "packet": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+        "report": "/tmp/ts-qa-provision64-terminal-failure-bkps8y8k.json",
+        "report_sha256": "5ada3a6fd437a6bba4edb6712013ec2c8cce5dcf0fcada784f18cb133081110d",
+        "verdict": "NOT_QUALIFIED_NO_RETRY",
+        "receipt_sha256": "977c216b59eb4eb06e0baf5ed8ee5373ed3353dddb75bb665b5200c60c085dff",
+        "source_seal_sha256": "d60e0fc3c1ffdfe97f30b17593d0b69eee6c853b1145ca6efa4474286385dc36",
+        "terminal_runtime_seal_sha256": "c40122f255bb3415a2268345121b092068b5ee79949faceda3031cefd8c50062"
+      }
+    ],
+    "unused443_packet": "/tmp/ts-oci-region-compile-443936221-capacity-sealed",
+    "unused443_seal_sha256": "8a08372d0cd0046c7995c3c3513b204cd27b0ebc8dbde7a084a947d4f37ae6c4",
+    "unused443_exact_six_entries_and_empty_binaries": true,
+    "678_failure": "Runtime exit1 retained; nonstring returned resource identity branch and parent pending writer validation both failed. No retry or fixture-only conclusion inferred.",
+    "64_failure": "Runtime exit1 retained; signed worker policy missing role/architecture and parent pending writer validation both failed."
+  },
+  "authorization": "No runtime grant requested or issued by reviewer. Parent QA owns fresh ordinary-user/resource preflight and scheduling; availability or future inventory grants nothing.",
+  "credit": "Read-only readiness only. No Go/runner/binary execution, binary copying/chmod, native polling, lease/lock opening or attempt, listeners/cloud/source edits, retries or subagents. No provisioning/runtime/full parent success, native/root/live OCI, financial-history completeness, union/equivalence/retirement/canonical/global qualification.",
+  "next_action": "QA may evaluate this exact packet for a separate one-attempt runtime grant."
+}

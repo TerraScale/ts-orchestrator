@@ -1,0 +1,8 @@
+{"Time":"2026-10-17T01:21:46.658350252-03:00","Action":"start","Package":"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"}
+{"Time":"2026-10-17T01:21:46.707739477-03:00","Action":"run","Package":"github.com/TerraScale/ts-orchestrator/internal/swarmruntime","Test":"TestServiceIntentGeneration"}
+{"Time":"2026-10-17T01:21:46.707866926-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/swarmruntime","Test":"TestServiceIntentGeneration","Output":"=== RUN   TestServiceIntentGeneration\n","OutputType":"frame"}
+{"Time":"2026-10-17T01:21:46.708708732-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/swarmruntime","Test":"TestServiceIntentGeneration","Output":"--- PASS: TestServiceIntentGeneration (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-10-17T01:21:46.708909211-03:00","Action":"pass","Package":"github.com/TerraScale/ts-orchestrator/internal/swarmruntime","Test":"TestServiceIntentGeneration","Elapsed":0}
+{"Time":"2026-10-17T01:21:46.708956741-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/swarmruntime","Output":"PASS\n","OutputType":"frame"}
+{"Time":"2026-10-17T01:21:46.714713295-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/swarmruntime","Output":"ok  \tgithub.com/TerraScale/ts-orchestrator/internal/swarmruntime\t0.055s\n"}
+{"Time":"2026-10-17T01:21:46.715598974-03:00","Action":"pass","Package":"github.com/TerraScale/ts-orchestrator/internal/swarmruntime","Elapsed":0.057}

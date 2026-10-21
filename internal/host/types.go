@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/roleidentity"
@@ -196,9 +197,10 @@ type Report struct {
 	Managed     *ManagedRuntimeReport `json:"managed,omitempty"`
 }
 
-// ManagedRuntimeReport binds a native process and mounted volume to its
+// ManagedRuntimeReport binds a process and mounted volume to its
 // TerraBase serving proof when the process currently offers one.
 type ManagedRuntimeReport struct {
+	Container                  *ManagedContainerRuntime   `json:"container,omitempty"`
 	ClientCredentialGeneration uint64                     `json:"client_credential_generation,omitzero"`
 	Member                     ManagedMemberBinding       `json:"member"`
 	Authority                  MemberAuthority            `json:"authority"`
@@ -238,6 +240,7 @@ type AgentConfig struct {
 	NATSUserPublicKey       string
 	ControllerPublicKey     ed25519.PublicKey
 	Runner                  Runner
+	TaskLoad                TaskLoadSource
 	InstallRoot             string
 	StateRoot               string
 	ManagedRuntimeRoot      string
@@ -280,6 +283,11 @@ type AgentConfig struct {
 	NATSCAFile string
 }
 
+// TaskLoadSource observes local executor tasks; its measurements grant no authority.
+type TaskLoadSource interface {
+	ReadTaskLoad(context.Context) ([]hostload.RoleUsage, error)
+}
+
 type ControllerConfig struct {
 	Cell           string
 	Conn           *nats.Conn
@@ -298,9 +306,17 @@ type ControllerConfig struct {
 	ManagedDesiredVerifier      ManagedDesiredVerifier
 	ManagedEffectGate           func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	ManagedMaterialProvider     ManagedMaterialProvider
+	FunctionMaterialProvider    FunctionMaterialProvider
 	ManagedCredentialFloor      func(context.Context, Registration) (uint64, error)
 	ManagedVolumeInspector      ManagedVolumeInspector
-	ControlLog                  jetstream.Stream
+	RuntimeEffects              RuntimeEffectHandler
+	ContainerMaterialProvider   ContainerMaterialProvider
+	RegistryAdmissionProvider   RegistryAdmissionProvider
+	// TaskLoadRoles returns roles assigned to this exact current registration
+	// by the authenticated manager. With this source, non-TerraBase roles never
+	// fall back to native desired state. Reports never select allocations.
+	TaskLoadRoles func(context.Context, Registration) ([]string, error)
+	ControlLog    jetstream.Stream
 	// TerraBaseCA signs C# TerraBase member certificates; nil refuses them.
 	TerraBaseCA *terrabase.CA
 	// RoleIdentity issues a granted role's NATS identity; nil refuses it.
@@ -331,10 +347,38 @@ type VolumeInitObservation struct {
 // R3-pinned host files. The host RPC encrypts each requested chunk separately.
 type ManagedMaterialProvider func(context.Context, Desired, Registration) (map[string][]byte, error)
 
+// FunctionMaterialBinding selects the actual task and recipient, never task labels.
+type FunctionMaterialBinding struct {
+	TaskID      string `json:"task_id"`
+	ServiceID   string `json:"service_id"`
+	NodeID      string `json:"node_id"`
+	InstanceID  string `json:"instance_id"`
+	Region      string `json:"region"`
+	HostID      string `json:"host_id"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+type FunctionMaterialFiles struct {
+	Files               map[string][]byte
+	ExpiresAt           time.Time
+	CredentialExpiresAt time.Time
+}
+
+// FunctionMaterialProvider independently resolves the registered host's actual
+// Fleet/Swarm recipient and current authority grant before returning owned Vault
+// file buffers. The transport clears those buffers after encrypting its chunk.
+type FunctionMaterialProvider func(context.Context, Registration, FunctionMaterialBinding) (FunctionMaterialFiles, error)
+
 // ManagedRegistrationVerifier checks a managed registration against current
 // admitted placement, durable member state, and OCI observation.
 type ManagedRegistrationVerifier interface {
 	VerifyManagedRegistration(context.Context, Registration) error
+}
+
+// ManagedNativeAdmissionVerifier is required for every positive native permit.
+// Common registration and stop readers convey no native admission authority.
+type ManagedNativeAdmissionVerifier interface {
+	VerifyManagedNativeAdmission(context.Context, Desired, Registration) error
 }
 
 // ManagedDesiredVerifier admits only a managed desired whose initial launch or
@@ -342,13 +386,14 @@ type ManagedRegistrationVerifier interface {
 type ManagedDesiredVerifier func(context.Context, Desired, Registration, Desired, bool) error
 
 type ReaderConfig struct {
-	Cell          string
-	Conn          *nats.Conn
-	JS            jetstream.JetStream
-	State         jetstream.KeyValue
-	StateReplicas int
-	HostMutations authority.HostMutationStore
-	ControlLog    jetstream.Stream
+	Cell                   string
+	Conn                   *nats.Conn
+	JS                     jetstream.JetStream
+	State                  jetstream.KeyValue
+	StateReplicas          int
+	HostMutations          authority.HostMutationStore
+	ControlLog             jetstream.Stream
+	ManagedCredentialFloor func(context.Context, Registration) (uint64, error)
 }
 
 // ArtifactStore is the read-only object-store capability held by controllers.

@@ -17,8 +17,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 )
 
-const DefaultInterval = 10 * time.Second
-
 // HostView is the regional host state the reconciler observes.
 type HostView interface {
 	ListHosts(context.Context) ([]host.HostStatus, error)
@@ -42,10 +40,9 @@ type Config struct {
 	Fencer           authority.Fencer
 	// Signals feeds autoscaling; nil disables signal-driven scaling while
 	// keeping self-healing and bound enforcement.
-	Signals  autoscale.Source
-	Interval time.Duration
-	Now      func() time.Time
-	Logf     func(string, ...any)
+	Signals autoscale.Source
+	Now     func() time.Time
+	Logf    func(string, ...any)
 }
 
 // Result is the outcome of one service reconciliation.
@@ -94,9 +91,6 @@ func New(config Config) (*Reconciler, error) {
 		return nil, err
 	}
 	config.Profiles = profiles
-	if config.Interval <= 0 {
-		config.Interval = DefaultInterval
-	}
 	if config.Now == nil {
 		config.Now = time.Now
 	}
@@ -191,14 +185,6 @@ func (r *Reconciler) ownedLocked(role string) bool {
 	return slices.ContainsFunc(r.specs, func(spec ServiceSpec) bool { return spec.Role == role })
 }
 
-// Signals returns the configured signal source, nil when none.
-func (r *Reconciler) Signals() autoscale.Source {
-	if r == nil {
-		return nil
-	}
-	return r.config.Signals
-}
-
 // Leading reports whether this member's authority may mutate right now and
 // the reconciler has already ticked in the current term, so its results and
 // signal source belong to this term. Between a re-acquired lease and the
@@ -233,22 +219,6 @@ func (r *Reconciler) Last() map[string]Result {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return maps.Clone(r.last)
-}
-
-// Run reconciles every interval until ctx ends.
-func (r *Reconciler) Run(ctx context.Context) error {
-	ticker := time.NewTicker(r.config.Interval)
-	defer ticker.Stop()
-	for {
-		if err := r.Tick(ctx); err != nil && ctx.Err() == nil {
-			r.config.Logf("workload reconciliation: %v", err)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
 }
 
 // Tick reconciles every stateless service once. Followers do nothing.

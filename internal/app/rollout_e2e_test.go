@@ -69,15 +69,16 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 		configure: func(c *rolloutControl) { c.verify = testReceiptDigest }})
 	runtimes, stores, units := cell.runtimes, cell.stores, cell.units
 
-	operator := Config{NATS: natscell.Config{Cell: "lab", Replicas: 3, Lab: true},
+	operator := Config{NATS: natscell.Config{Cell: "lab", Replicas: 3},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
+	runs := map[string]int64{"good": 9, "bad": 10, "good2": 11}
 	command := func(name string, receipt string, to uint64) rolloutReply {
 		t.Helper()
 		receiptPath := ""
 		if receipt != "" {
 			receiptPath = filepath.Join(root, "receipt-"+receipt)
-			if err := os.WriteFile(receiptPath, []byte("receipt:"+digests[receipt]), 0o600); err != nil {
+			if err := os.WriteFile(receiptPath, fmt.Appendf(nil, "receipt:%d:%s", runs[receipt], digests[receipt]), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -251,18 +252,20 @@ func startRolloutTestCell(t *testing.T, ctx context.Context, config rolloutTestC
 	for index := range routes {
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", ports[3+index])
 	}
+	auth := newAuthenticatedNATS(t, config.cell, ids...)
 	configs := make([]Config, 3)
 	cell := &rolloutTestCell{runtimes: make([]*natscell.Runtime, 3), stores: make([]*rollout.Store, 3),
 		units: map[string]*rolloutTestUnit{}}
 	for index, id := range ids {
 		configs[index] = Config{
-			NATS: natscell.Config{Cell: config.cell, Instance: id, Replicas: 3, Lab: true,
+			NATS: natscell.Config{Cell: config.cell, Instance: id, Replicas: 3,
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: ports[index], RouteHost: "127.0.0.1",
 					RoutePort: ports[3+index], Routes: natscell.PeerRoutes(routes, routes[index]),
 					StoreDir: filepath.Join(root, id), BrokerIDs: ids}},
 			Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{config.grant}},
 		}
-		runtime, err := natscell.Start(ctx, configs[index].NATS)
+		configs[index].NATS = auth.config(t, configs[index].NATS)
+		runtime, err := auth.start(t, ctx, configs[index].NATS)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -330,13 +333,14 @@ func startRolloutTestCell(t *testing.T, ctx context.Context, config rolloutTestC
 	return cell
 }
 
-// testReceiptDigest stands in for receipt verification: "receipt:<digest>".
+// testReceiptDigest stands in for receipt verification: "receipt:<run>:<digest>".
 func testReceiptDigest(receipt, delegation []byte, now time.Time) (rollout.Release, error) {
-	digest, ok := strings.CutPrefix(string(receipt), "receipt:")
-	if !ok {
+	var run int64
+	var digest string
+	if _, err := fmt.Sscanf(string(receipt), "receipt:%d:%s", &run, &digest); err != nil || run <= 0 {
 		return rollout.Release{}, errors.New("receipt does not verify")
 	}
-	return rollout.Release{Digest: digest, SourceRevision: strings.Repeat("e", 40), RunNumber: 9, Receipt: receipt,
+	return rollout.Release{Digest: digest, SourceRevision: strings.Repeat("e", 40), RunNumber: run, Receipt: receipt,
 		Delegation: delegation, CreatedAt: now}, nil
 }
 

@@ -45,7 +45,7 @@ const (
 // TS_ORCH_RUN_DEPLOYMENT_CONVERGENCE_MEASUREMENT=1 go test ./internal/app -run '^TestDeploymentConvergenceMeasurement$' -count=1 -v
 // The reported duration starts immediately before operator deploy and ends
 // when the host agent's runner has applied the matching digest. It includes
-// the agent's 100 ms reconciliation poll, but excludes process startup, TLS,
+// the agent's 100 ms reconciliation poll, but excludes process startup,
 // VM startup, and the later durable running receipt.
 func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	if os.Getenv(deploymentConvergenceOptIn) != "1" {
@@ -76,8 +76,9 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	controllerNKey, controllerSeed := testNKey(t)
-	operatorNKey, operatorSeed := testNKey(t)
+	_, controllerSeed := testNKey(t)
+	auth := newAuthenticatedNATS(t, "gru")
+	_, operatorSeed := testNKey(t)
 	hostNKey, hostSeed := testNKey(t)
 	controllerPublic, _ := testEd25519(t, root, "controller.key")
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
@@ -88,14 +89,9 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	}
 	controllerConfig := Config{Version: ConfigVersion,
 		NATS: natscell.Config{
-			Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
+			Cell: "gru", Instance: "one", Replicas: 1, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{
 				Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
-				Users: []natscell.NKeyGrant{
-					{PublicKey: controllerNKey, Role: "controller", Global: true},
-					{PublicKey: operatorNKey, Role: "operator"},
-					{PublicKey: hostNKey, Role: "host", Node: "node-a"},
-				},
 			},
 		},
 		Controller: ControllerConfig{
@@ -107,6 +103,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		},
 	}
 	controllerConfig.Controller.SpecTrust = specKeys.config()
+	auth.controller(t, &controllerConfig)
 	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
 	controllerOutput := &readyWriter{ready: make(chan struct{})}
 	controllerDone = newConvergenceTask()
@@ -123,14 +120,15 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 
 	operatorConfig := Config{Version: ConfigVersion,
 		NATS: natscell.Config{
-			Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
-			URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed,
+			Cell: "gru", Instance: "operator", Replicas: 1,
+			URL: fmt.Sprintf("tls://127.0.0.1:%d", port), NKeySeedFile: operatorSeed, ClientRole: "operator",
 		},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")},
 	}
+	operatorConfig.NATS = auth.config(t, operatorConfig.NATS)
 	operatorConfigPath := testJSONFile(t, root, "operator.json", operatorConfig)
-	operatorRuntime, err := natscell.Start(ctx, operatorConfig.NATS)
+	operatorRuntime, err := auth.start(t, ctx, operatorConfig.NATS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,8 +150,8 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		t.Fatalf("registration receipt: %v: %s", err, output.String())
 	}
 
-	hostRuntime, err = natscell.Start(ctx, natscell.Config{
-		Cell: "gru", Instance: "host-a", Replicas: 1, Lab: true,
+	hostRuntime, err = auth.start(t, ctx, natscell.Config{
+		Cell: "gru", Instance: "host-a", Replicas: 1,
 		URL: operatorConfig.NATS.URL, NKeySeedFile: hostSeed, ClientRole: "host",
 	})
 	if err != nil {
@@ -189,6 +187,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	}
 
 	intentPaths := make([]string, len(artifacts))
+	operationIDs := make([]string, len(artifacts))
 	provenance := collectConvergenceProvenance(t)
 	if len(provenance.DirtyPaths) != 0 {
 		t.Fatalf("refusing measurement with dirty source paths: %s", strings.Join(provenance.DirtyPaths, ", "))
@@ -200,6 +199,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 			DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(nil, nil, nil),
 			OperationID: entityid.Derive("test-convergence", fmt.Sprint(index+1)),
 		}
+		operationIDs[index] = intent.OperationID
 		intentPaths[index] = testJSONFile(t, root, fmt.Sprintf("intent-%03d.json", index+1), intent)
 	}
 
@@ -223,7 +223,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 			Status      string `json:"status"`
 		}
 		if err := json.Unmarshal(output.Bytes(), &submitted); err != nil ||
-			submitted.OperationID != fmt.Sprintf("convergence-%03d", generation) ||
+			submitted.OperationID != operationIDs[index] ||
 			submitted.Fingerprint == "" || submitted.Status != "submitted" {
 			t.Fatalf("submit receipt for generation %d: %v: %s", generation, err, output.String())
 		}
@@ -281,7 +281,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		Source:    provenance,
 		Config: deploymentConvergenceConfig{
 			Cell: "gru", Controllers: 1, Hosts: 1, EmbeddedNATS: true, NATSReplicas: 1,
-			NKeyAuthenticated: true, LabMode: true, TLS: false, HostPollIntervalNS: int64(convergencePollInterval),
+			NKeyAuthenticated: true, LabMode: false, TLS: true, HostPollIntervalNS: int64(convergencePollInterval),
 			JetStreamStore: "file-backed in per-test temporary directory", VMCount: 0,
 			Runner: "in-memory observation runner; no process creation", OutstandingDeployments: 1,
 			Warmups: convergenceWarmupCount, MeasuredSamples: convergenceSampleCount,

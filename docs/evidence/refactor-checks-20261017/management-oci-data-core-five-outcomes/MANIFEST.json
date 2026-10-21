@@ -1,0 +1,3900 @@
+{
+  "format": "flat-exact-evidence-publication-v1",
+  "created_utc": "2026-10-17T05:20:58.436290+00:00",
+  "operation": "packaging_only_no_execution_or_publication",
+  "intended_repository_directory": "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes",
+  "original_directory_mappings": [
+    {
+      "label": "management6af-source",
+      "original_directory": "/tmp/ts-management-observation-6af-source-4l6u45u7",
+      "original_regular_or_symlink_files": 6,
+      "selection": "All retained original files recursively; ELF excluded with metadata, no invented arguments."
+    },
+    {
+      "label": "management6af-runner",
+      "original_directory": "/tmp/ts-management-observation-6af-runner-3k0i9cmj",
+      "original_regular_or_symlink_files": 7,
+      "selection": "All retained original files recursively; ELF excluded with metadata, no invented arguments."
+    },
+    {
+      "label": "management6af-native",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_regular_or_symlink_files": 13,
+      "selection": "All retained original files recursively; ELF excluded with metadata, no invented arguments."
+    },
+    {
+      "label": "oci678-compile",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_regular_or_symlink_files": 20,
+      "selection": "All retained original files recursively; ELF excluded with metadata, no invented arguments."
+    },
+    {
+      "label": "oci678-runtime",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_regular_or_symlink_files": 18,
+      "selection": "All retained original files recursively; ELF excluded with metadata, no invented arguments."
+    },
+    {
+      "label": "oci5e-compile",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_regular_or_symlink_files": 19,
+      "selection": "All retained original files recursively; ELF excluded with metadata, no invented arguments."
+    },
+    {
+      "label": "oci5e-runtime",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_regular_or_symlink_files": 19,
+      "selection": "All retained original files recursively; ELF excluded with metadata, no invented arguments."
+    },
+    {
+      "label": "data697-compile",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_regular_or_symlink_files": 18,
+      "selection": "All retained original files recursively; ELF excluded with metadata, no invented arguments."
+    },
+    {
+      "label": "corefac2-build",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_regular_or_symlink_files": 25,
+      "selection": "All retained original files recursively; ELF excluded with metadata, no invented arguments."
+    }
+  ],
+  "source_snapshot_identities": [
+    {
+      "label": "management6af-source-text",
+      "worktree": "/tmp/ts-core-management-observation-fixtures",
+      "commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "source_manifest_sha256": "c26185d85b359acdaad884d2045634a60e837e586a3189444ade30bcec9cc89b",
+      "snapshot_count": 11,
+      "method": "Immutable exact-commit Git blobs, checked against original source manifest; current worktree HEAD may differ and supplies no adoption credit."
+    },
+    {
+      "label": "oci678-source-text",
+      "worktree": "/tmp/ts-oci-foundation-policy-wire",
+      "commit": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+      "source_manifest": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json",
+      "source_manifest_sha256": "770e10c3b7ce41420b34911721d91931bc9e35849c3cceb3bcaf831e2d78d234",
+      "snapshot_count": 9,
+      "method": "Immutable exact-commit Git blobs, checked against original source manifest; current worktree HEAD may differ and supplies no adoption credit."
+    },
+    {
+      "label": "oci5e-source-text",
+      "worktree": "/tmp/ts-oci-foundation-request-shape",
+      "commit": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+      "source_manifest": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json",
+      "source_manifest_sha256": "dbd06e52748c518dff1069ee764deef16c38a76490ea73b7409d5440a71daff9",
+      "snapshot_count": 9,
+      "method": "Immutable exact-commit Git blobs, checked against original source manifest; current worktree HEAD may differ and supplies no adoption credit."
+    },
+    {
+      "label": "data697-source-text",
+      "worktree": "/tmp/ts-data-source-renewal-composed",
+      "commit": "6978e79b706ffdff2cb52a4ac4c8e3be56d727cf",
+      "tree": "f74fa0cbca7a506a61d885da65b40b0d5dc84d3e",
+      "source_manifest": "/tmp/ts-source-renewal-697-compile-x96611io/fullsource-manifest.json",
+      "source_manifest_sha256": "8334fdfe61850d3f582bc2d7c7adf39dc8621cb68fb4f43cd395898f8854b648",
+      "snapshot_count": 2,
+      "method": "Immutable exact-commit Git blobs, checked against original source manifest; current worktree HEAD may differ and supplies no adoption credit."
+    },
+    {
+      "label": "corefac2-source-text",
+      "worktree": "/tmp/ts-core-connected-history-afad",
+      "commit": "fac2a2715dad336cf67fc935d9f6af94c6bac1c2",
+      "tree": "9373511168ee3b5dea80fe61b7cc68a8986550f5",
+      "source_manifest": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/fullsource-manifest.json",
+      "source_manifest_sha256": "e8d5e2c4833304bf5212661b423ad748f52af9eb8034202ccbc5de49e8dd9570",
+      "snapshot_count": 3,
+      "method": "Immutable exact-commit Git blobs, checked against original source manifest; current worktree HEAD may differ and supplies no adoption credit."
+    }
+  ],
+  "counts": {
+    "original_file_mappings": 206,
+    "unique_copied_payloads": 186,
+    "deduplicated_alias_mappings": 20,
+    "copied_payload_bytes": 18278442,
+    "excluded_elf_files": 4,
+    "excluded_elf_original_bytes": 251621648,
+    "pinned_accepted_terminal_reports": 7,
+    "git_blob_go_text_snapshots": 34,
+    "unused443_text_records": 5
+  },
+  "copied_files": [
+    {
+      "filename": "management6af-source--request.json",
+      "sha256": "f7adb8843a0d8c9e5eb89263fff0eac4a22798e371ea7309cfb66b275df998cc",
+      "size": 31684,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source--seal.json",
+      "sha256": "4822b955392dafbf0d0be8c48a0c2903a2ca6fafa0cad78a55f470d1edbcb0d2",
+      "size": 411,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source--static-effects.md",
+      "sha256": "f60a74c146eb8641d62aaf833e67895a884eb5bcc4e70ae612731ed1673e1437",
+      "size": 11181,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source--static-import-closure.json",
+      "sha256": "44a3539efe536de4bfcbfdccfec32ce8deb1065272d9c1f6e200fb1924cb5f77",
+      "size": 194766,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source--tool-pins.json",
+      "sha256": "df053f503abcb269c3a81f79d47edb0dcc092c8ec6d7425b7be9885ab0764c90",
+      "size": 2797,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source--tracked-source-manifest.json",
+      "sha256": "c26185d85b359acdaad884d2045634a60e837e586a3189444ade30bcec9cc89b",
+      "size": 1138992,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-runner--RESULT-SHA256SUMS",
+      "sha256": "a06f0d23ed2714fabbc04401425d08564c55bc2d8eec4f91c7f8237fe02724d6",
+      "size": 468,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-runner--preflight.json",
+      "sha256": "8c91b84a3e8468d4b9a1eadb29666d7ab09d89ccc64adbe2c7e90c16a9f19bd4",
+      "size": 1849,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-runner--receipt.json",
+      "sha256": "fd56a98f3341ded8cccb52c9e4054618f44940a847269b248ca2f436a2fddf45",
+      "size": 10360,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-runner--run.py",
+      "sha256": "92de49ac95b0c22e748299eea3055d51f699011f1bcb101ca6b12f3bd8489c8c",
+      "size": 5617,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-runner--started.json",
+      "sha256": "bb659169b36c5212b2a79a3fc8744374e1672b6f087283b0f988dc3124ff0dcf",
+      "size": 1038,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-runner--stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-runner--stdout.jsonl",
+      "sha256": "9830776d1a1818a3e3c5053cc040ef41db910d30c322a434ceaee47914182181",
+      "size": 173356,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--final-seal.json",
+      "sha256": "51369cda90964c6725df38a6fb9d7a1b2c7935f4ea8177f2c8dc39b63ffc5436",
+      "size": 6010,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--full-event-review.json",
+      "sha256": "aadcced42bc87e00f966c5dca51c2a3ede181c6a1bbe281acae1bd0d4dfdbef7",
+      "size": 3872,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--launch.json",
+      "sha256": "5f05e74223d44ed39e5893ef7fbe68ac03a1bb8ae1bae0135dfc7dcd7a1e9abf",
+      "size": 779,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--poll-001.json",
+      "sha256": "5be160bcb70199c15f4c119370565e53e93301cfdf0768e3c6a37123980c5845",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--poll-002.json",
+      "sha256": "9ac8061363391996b497d37cb4d7b0502a1554d7ae82edf1c6dae7e25f8b77f3",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--poll-003.json",
+      "sha256": "6e25e9be3468501eb3560bb8fe9bbaef486148731c33cb321c18b6d3af6a8281",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--poll-004.json",
+      "sha256": "7df57d4966f1f816f4a7deea4df915e5762a94d57199c5b3adcdfc867d330938",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--poll-005.json",
+      "sha256": "fb0653bee0436b9f8af6fb2ea16bdeda393484d7bf3bc83192710cdbd03608b0",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--poll-006.json",
+      "sha256": "c60c4c808e3a42bc90d2bd6e5899c88a8dee9e97dad9b1d52298942c2604671a",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--poll-007.json",
+      "sha256": "0f71668d6c89db0f403b9c21fa96e184337b41684913fa6fd5974f45f6f000e8",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--poll-008.json",
+      "sha256": "c3e08f690cc779517931a6b3d2bbd92b3d155ca1a7bc366895a76b8dfe67650e",
+      "size": 9973,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--resource-preflight-native.json",
+      "sha256": "3b8a552895364176143a3b6ddc855324ec503ff99284487e2762fffbf2ab219f",
+      "size": 2628,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-native--resource-preflight.json",
+      "sha256": "39aa3a620825d35d0e8bdabf020ff81ba7fc06047f5c22a360f535e3250a636d",
+      "size": 672,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--delta-source-proof.json",
+      "sha256": "ef58db9508c51c0ea5852cd8ef1e41e8e3dd988b331a576a8864c6b0fc29ce1f",
+      "size": 3688,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--final-compile-seal.json",
+      "sha256": "35eae7593b3a41367daeda0588a8f38b93109531567534b3ed655c3050ef3e61",
+      "size": 3679,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--final-seal.json",
+      "sha256": "3028358eec53c5ced6da3c8a581d97d8977553271b08d4268e70e0130971542c",
+      "size": 835,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--fresh-host-preflight.json",
+      "sha256": "93aa32760da31e6d047e69277b9d88788f321146f2fbd0e83b5884117317c7fe",
+      "size": 174,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--fullsource-manifest.json",
+      "sha256": "770e10c3b7ce41420b34911721d91931bc9e35849c3cceb3bcaf831e2d78d234",
+      "size": 595944,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--native-launch.json",
+      "sha256": "34ce49b38cb92054510bc859638ce47b181425de7f20cd3a139726e4a2bfcc00",
+      "size": 733,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--native-poll-1.json",
+      "sha256": "0d0c00d24689506989770da30d1902ec80a6032d508ab2952c18f1fc3805de45",
+      "size": 210,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--native-poll-2.json",
+      "sha256": "247567bda29037bc04521045617ea48197bab99d48186eec56d50cae26a378e2",
+      "size": 210,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--native-poll-3.json",
+      "sha256": "1be1b8fd04abf08de318c9be5ae6765040479e8269231752d1343ceff8cb9341",
+      "size": 212,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--native-poll-4.json",
+      "sha256": "f6ed0afdcf34dffa4a5b57f48735a6ef9ccf1db72f8132ade9a655b1481adb6b",
+      "size": 3617,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--native-resource-preflight.json",
+      "sha256": "bee9090c6dac34f33f4ef2bd459f7d6dcde82ff89324e6f1c01d7c833b80470f",
+      "size": 1866,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--preflight.json",
+      "sha256": "709e748d3ee1bcaaa479fc94353e2a0569a2b5d674b9c0c386bf8258051b239a",
+      "size": 2452,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--receipt.json",
+      "sha256": "f5f4265722b235bcb1ddab7163b926aef94d62a522009ac98dd9e8dcd3276f75",
+      "size": 3697,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--request.json",
+      "sha256": "f12c890f5c660ab086603a555463455be446cb8850c9b82caab7aa25517b2e31",
+      "size": 4077,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--run.py",
+      "sha256": "83a61044a9620a4dc0c40aab35ac9f9b4aa8806274033bf2043e0ff5cfd78f6f",
+      "size": 3644,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--started.json",
+      "sha256": "864f4e007251dcf05afecfbbe4a0d05ab1aab444d1ba73ba04b685df7ae694e1",
+      "size": 727,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-compile--terminal-index.json",
+      "sha256": "939faf04a0d1d45bdc24d9632563b32cdcadc1b4ffedb3f16883d405030f297e",
+      "size": 1081,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--final-runtime-seal.json",
+      "sha256": "3bec0640756fb7062e71de85b528cdde0c06992ae4dedccc57cd1b86840a65b0",
+      "size": 3238,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--final-seal.json",
+      "sha256": "680b592f2e49e514890bc8c9b379955799472a6716702facb0fd188e9ba8c8da",
+      "size": 851,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--fresh-host-preflight.json",
+      "sha256": "904143ca3595775cf3e895a465cc045e454e01df1436609263c95ff23d900283",
+      "size": 181,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--native-launch.json",
+      "sha256": "29ae2e887552c02e3fca51e1fa6774eadbffa21590d5fe295eb04104aee43140",
+      "size": 603,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--native-poll-1.json",
+      "sha256": "55c9cc5646d797cefc0722840a3d633f74be7068896a477fc877d132be26150a",
+      "size": 347,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--native-poll-2.json",
+      "sha256": "7472de45515b9d70cd02249e09a4bf589e668bdb5c52e71f4305f382a118b282",
+      "size": 4928,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--native-resource-preflight.json",
+      "sha256": "df722b58734a329e7634362fdb47435c1c9628fe7ec6476fe506283d8fc2b52e",
+      "size": 1867,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--preflight.json",
+      "sha256": "2a1e6573616fbbfdbdbd5902798f6c4cf0f81a7bbca18aebd4bdbff43c711803",
+      "size": 2980,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--receipt.json",
+      "sha256": "b7d61f518ae1da058c61ca5cae9e7c92ae210b90c79cef58a750359ff5d85412",
+      "size": 5020,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--request.json",
+      "sha256": "f6fd62b3895542abbca9af8d0fac51753f7d27013e16302e7824ed4180ec6fe9",
+      "size": 5338,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--run.py",
+      "sha256": "b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b",
+      "size": 4412,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--runtime-readiness.json",
+      "sha256": "01e911da54db64107aa22474415f3eba09e8dc02867a822bbe1e8c0864f53787",
+      "size": 82477,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--runtime.stdout",
+      "sha256": "7f61f14bb2a9600df166dc6c947c07754b2d583a403a6c2922298af51d62c9cc",
+      "size": 668,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--started.json",
+      "sha256": "511e3891d6fd34116362dd460f63f744b8bb6b131bd85271872ff0f0147cbdc0",
+      "size": 828,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-runtime--terminal-index.json",
+      "sha256": "c03b4bb006f568da2ad9619309ade72560a809fb58393b1368bce29cc2284258",
+      "size": 1169,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--delta-source-proof.json",
+      "sha256": "a414ff2342815c0580696bbd3bce5f2ed188dd3422c888417d952d9a115dcdac",
+      "size": 3540,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--final-compile-seal.json",
+      "sha256": "13a85309005fe1ecc1ec73f0f6001ff8b9947e5615d65aa50dc46f1f099ee15f",
+      "size": 3502,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--final-seal.json",
+      "sha256": "81012be270e8eb2f6b6f733e88184385f5fa5d669f8a81cc7adcf181c50bcb24",
+      "size": 835,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--fullsource-manifest.json",
+      "sha256": "dbd06e52748c518dff1069ee764deef16c38a76490ea73b7409d5440a71daff9",
+      "size": 595944,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--native-launch.json",
+      "sha256": "408a8c98c11fa9ab3a254e2a1de777ee26e21751dd5f7e4f88c9cf2e000a7a29",
+      "size": 749,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--native-poll-1.json",
+      "sha256": "f1841df93849e2fe12526ce94635597ef039191f884d0c1041f274d52dde3386",
+      "size": 213,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--native-poll-2.json",
+      "sha256": "8973c7ed7b6cc2232b7f365235bc14a734a167a83cc19831e3f2f321cc6992ab",
+      "size": 213,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--native-poll-3.json",
+      "sha256": "14efab9a80b26bf2cb324f8277eeefd914bb8fc67faf10fca7da7983426d49ce",
+      "size": 3619,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--native-resource-preflight.json",
+      "sha256": "3eb6d8dd6b385defbbc0d19bfa82007464e1e33c48c51af666be26931a2138fd",
+      "size": 1609,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--preflight.json",
+      "sha256": "fe20330fe335e1bb06aacbda35ece7d481a0cfe73f0d282dbcd375ff5bfabd58",
+      "size": 2452,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--receipt.json",
+      "sha256": "e893bc0f13b774c7ff1a5ddd421817ed483194aee684b9169e21b311661b30cc",
+      "size": 3697,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--request.json",
+      "sha256": "32af3ff4da7f383236ec3d09bdffbcf2246c23d30459a85e1ba7f318e342072b",
+      "size": 4185,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--resource-preflight.json",
+      "sha256": "1c5e94acf2f6a00b34de7df1fdca0f8b0c3dba4c19e1dba39579d21909a17f7d",
+      "size": 319,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--started.json",
+      "sha256": "58d9c9184716155ffc08b513a4d7186addd44f5710b8dab781f46e9bda95427a",
+      "size": 727,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-compile--terminal-index.json",
+      "sha256": "288a5d9ebf60571c52bd27f90b61940a51e5c1c40f831ffdabc0d8674687faa3",
+      "size": 1151,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--final-runtime-seal.json",
+      "sha256": "3ff43957544e3957e4564b62624d21a7430e398ea6574346a60cde47f64d3a25",
+      "size": 3520,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--final-seal.json",
+      "sha256": "13176d8fd2d09365097f8399b8663f5917e53404c84fdcae976dd9d0adda5ebe",
+      "size": 936,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--native-launch.json",
+      "sha256": "708c38695de899b69e29d62f1a5599f34b72ea2f099a99e88985525f4f5075ea",
+      "size": 620,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--native-poll-1.json",
+      "sha256": "9c148c8382cd11a2b8e84295fcbbf66a1de7e96e8a78b9aef033b51bcfe9b0a9",
+      "size": 348,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--native-poll-2.json",
+      "sha256": "e7f8a3aac1b96ba7d8c0b5e8d04f4e3c6991358e452ffe3325689000df93a280",
+      "size": 4930,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--native-resource-preflight.json",
+      "sha256": "1ebd04289d94ebe2c63cc676c9bd4262564e0503c1c6c6fe2881b67d29222a67",
+      "size": 2547,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--preflight.json",
+      "sha256": "645663078933ac4080f5e626ddc468e320cf6dc6ace486204b6487dbbbcc1449",
+      "size": 2980,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--readiness-supplement.json",
+      "sha256": "37b13f54c16186e68b238e649754fc0d055a598e01d8a7da60b545adc524e70d",
+      "size": 1320,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--receipt.json",
+      "sha256": "282f2aa1aa706e1d5707d0c2d97bd3c4045c7b79e12eadb6414d0089a10c0c03",
+      "size": 5021,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--request.json",
+      "sha256": "83b7f2168a61155cb20a26128e1e0a29d1bb51a22c30bb241b076cd2f353cba4",
+      "size": 5831,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--resource-preflight.json",
+      "sha256": "82ef879f60a65242f3d1ec86c9271edb6dde186c6bdd1d275b2563850989753b",
+      "size": 293,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--runtime-readiness.json",
+      "sha256": "4682fe5c0e12638a7f0e9b127a8d7e616bfbcfc0182ac87824c85cb1463ff59a",
+      "size": 82564,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--runtime.stdout",
+      "sha256": "fb8c7cad47980b6bfbab697fc2869159b91d59b5bdec186ae1abd5c69de1794a",
+      "size": 1513,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--started.json",
+      "sha256": "6a10b8d5cca890de1fcd8cec265744fab5db545e1ba8824277dfa0f9697df9aa",
+      "size": 828,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-runtime--terminal-index.json",
+      "sha256": "571de992500920a9b47cd76f6bbbb62e02fbe57ebc1503112bcc127f5f359f3c",
+      "size": 1598,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--SEAL.json",
+      "sha256": "affb66536fae262076a14b8c98a1366ca8acf88610ea0b43c17f9b61a93dde24",
+      "size": 1373,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--SHA256SUMS",
+      "sha256": "ea2f7784e752aa1a072029bf0fb1dc04be032ff8377a9e59ef5f5a59ede420b2",
+      "size": 773,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--approved-base-manifest.json",
+      "sha256": "3d56c0fd11addeb613a1bf287441d4203d2496fb9d3ac053d133123b1d3e97dd",
+      "size": 36846,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--composition-manifest.json",
+      "sha256": "f984677b26cf031415f303c6e4c72053c0d916387a640c46a2d1692e52197e8f",
+      "size": 5492,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--fullsource-manifest.json",
+      "sha256": "8334fdfe61850d3f582bc2d7c7adf39dc8621cb68fb4f43cd395898f8854b648",
+      "size": 482578,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--qa-output--SHA256SUMS",
+      "sha256": "a36800547ad182398fd486821ed0cad99f03624e15c13f14def9d253d87dde19",
+      "size": 401,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--qa-output--compile.stderr",
+      "sha256": "d5da23c13f9348437f51101d62aa6c767bd8dd2883d009bfba11d05cc1a48ec4",
+      "size": 199,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--qa-output--final-seal.json",
+      "sha256": "7cfea5694ce5a6fbc34f4187ab5979a3a2b753f33b8c432d27b380a9f1b53e66",
+      "size": 2719,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--qa-output--preflight.json",
+      "sha256": "af0adf1b3d2c386e5346c34bd46206e0b2443096143f7d7d44d9fd1154bcaaef",
+      "size": 2817021,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--qa-output--receipt.json",
+      "sha256": "7d2e95b75d51d0299bd81df0d79b88d0bdd036736f61c5d217e5b4346b548084",
+      "size": 5632570,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--qa-output--started.json",
+      "sha256": "b92f50763b3485229aa80b95c4c93fa717ba020d70bb7f391f1f4202c2a75d74",
+      "size": 890,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--request.json",
+      "sha256": "ef4446637d248f10560ae4698cf243e529fc8eff6eaba5138ef3276f434ac4fb",
+      "size": 3807,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--run.py",
+      "sha256": "054ed12355b094a4a1f837644012270d0bc2b8b23b767047d3f5dc61c54cf7a2",
+      "size": 5713,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--source-inputs.json",
+      "sha256": "e96cee39800e3b47e92c829d09632097b7d7366604847aa7c4d4c05e766ca600",
+      "size": 2031428,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--static-import-closure.json",
+      "sha256": "19ed09dfa88713619faaf6a22b9305eb6ad6d7a5abb2d7641830c4301d83eebd",
+      "size": 783980,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--static-review.json",
+      "sha256": "147054c9938f1ceabf17313b46ec9e37de15f4fc199d09872e5b38bb3c73abf7",
+      "size": 4256,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-compile--tool-pins.json",
+      "sha256": "7c5ac0070260e290a63b45a45f452f1af97d1ed82c021434883a6a4e3c2d2a18",
+      "size": 4358,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--assertion-map.json",
+      "sha256": "2f20f3cdba5da10df2915adacccc7787bc308f3da7b256f3081855f187cf849b",
+      "size": 14847,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--external-postflight.json",
+      "sha256": "bc8fe5580da09f407b90321ac7ca52d3b072b6b1ed099b72f05d2a7530387faf",
+      "size": 611,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--external-preflight.json",
+      "sha256": "5093e71240238f26c33e05e73e38b98dd87ab07e6fab6a1a42920516c9787edd",
+      "size": 713,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--final-seal.json",
+      "sha256": "23afe6f6dace11f6d1e9196bca0a62f1aeb210f2caaf4a826790b402bf7fcf06",
+      "size": 3118,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--fullsource-manifest.json",
+      "sha256": "e8d5e2c4833304bf5212661b423ad748f52af9eb8034202ccbc5de49e8dd9570",
+      "size": 531293,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--locks-released.json",
+      "sha256": "0bcfd8dcc699a0942dfa917687d846eb0dd8c211d092bc668c4fe47d0bf2118c",
+      "size": 169,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--native-launch-receipt.json",
+      "sha256": "2afc44b797f12783acb7bea6f7e2c621bdab932ff87d3455185d9bdc8e434d57",
+      "size": 969,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--native-launch.json",
+      "sha256": "01c4092b4f7956fe3bbf6fdc729cb71ca9f90017250993cc65cedf55ccb26fe1",
+      "size": 985,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--native-poll-1.json",
+      "sha256": "eea0227068f509c711ddecd566f49f603110e29fcd8c3111d19e2d60061519ea",
+      "size": 305,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--native-poll-2.json",
+      "sha256": "a5484142159488cc4254681ca0230c8567f84b7d78cde950f40ef217a22324b5",
+      "size": 304,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--native-terminal.json",
+      "sha256": "931df93e9561bdaf6f8366bf03bf4b3886ab395a0b492c372951328c3e0586da",
+      "size": 5016,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--postflight.json",
+      "sha256": "507640cb03e7798c719b349d9576990446987270fe8c5a95d950484a39557b97",
+      "size": 532681,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--preflight.json",
+      "sha256": "d598cf5885e6fad933ac12e0342053b3223cac8dd23ca3b3193b0ca6ead548f9",
+      "size": 542004,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--qa-grant.json",
+      "sha256": "d71f81c6185cb92a8d517d35139fd0f5d2a1c12043dd76bbc409583a29e97454",
+      "size": 1405,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--receipt.json",
+      "sha256": "b1b1947170153d0ea7dbb5b006fb1967b545263fc647493d12bed978c85a7885",
+      "size": 5110,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--request.json",
+      "sha256": "a39797b8df15aa5863e7b6af93e91fc6a3003f7cbf1d134270bcd051b8192f3f",
+      "size": 5279,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--resource-check.json",
+      "sha256": "8558ad247caa29a51086e5ea65f1782ba1c32fcf62c8f37a5b3eaa50d233e888",
+      "size": 383,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--run.py",
+      "sha256": "c8904764e690f9ca8668e7b39ea320be586e23df2da39333f4ae7388e98f24a4",
+      "size": 5337,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--runtime.stdout",
+      "sha256": "4f7ec5a5ad5d90a8308dd5e5c31156eb0b94075f6f2d4f80f2a7700884f16bc3",
+      "size": 1940,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--seal.json",
+      "sha256": "f8a3ee0fe80d2b74e2163a47dca588f023b0c01919cf2ea5a1c31096e040cf01",
+      "size": 1089,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--source-alias-manifest.json",
+      "sha256": "0051f7f66fa9a0e9437f47647f6358d01139acdf246c1c606e47501977dd6c11",
+      "size": 8333,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--started.json",
+      "sha256": "311030343e4ec7c0b33e6c055711cb49e193b12ef986a66108b8ab43279f6d0c",
+      "size": 741,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--static-import-closure.json",
+      "sha256": "1026ec256e6ce5a08c7a7a0813a41a183866318ea8af7aa5fbea5bc6d04d615c",
+      "size": 191768,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-build--static-review.json",
+      "sha256": "3906f71ee3e1eb921bb7b8072114bc11ac0b7d30f89984ada8024496968c7dda",
+      "size": 5315,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "qa-management6af--review.json",
+      "sha256": "0e4bd39d9c8c817bafca7f33176c11a13aac454757c4ed02428cffcefb10cf77",
+      "size": 21872,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "qa-oci678-compile--ts-qa-oci678-truecompile-terminal-acceptance-b4lxjiu8.json",
+      "sha256": "33c11074cab88a8572c5f71d7207bb2636ce7eb5ef9cd1e5bbbb1b5d227317f2",
+      "size": 13836,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "qa-oci678-runtime--ts-qa-oci678-runtime-terminal-failure-53vxp9c8.json",
+      "sha256": "28d36a36700221471e3cae78e5b335bda46eb9b4004b4619aba7b2a6ac87dac6",
+      "size": 16626,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "qa-oci5e-compile--ts-qa-oci5e-truecompile-terminal-acceptance-67pd1y4t.json",
+      "sha256": "48829e2aaa9c1f8555318e76ba8d172e16bc35881d077090ae28ae019c63f493",
+      "size": 16276,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "qa-oci5e-runtime--ts-qa-oci5e-runtime-terminal-failure-z8dsewxr.json",
+      "sha256": "64989f989c7cc196c8ca1786a1f6d41c5c91011f9046d8d184d52d03c7f57819",
+      "size": 22393,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "qa-data697--review.json",
+      "sha256": "5aa78729a73a55841d241f4a0f1fcc8518796ee28c55a61e3463c7cb9e9f6b94",
+      "size": 10765,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "qa-corefac2--review.json",
+      "sha256": "25550ba81dd7e5a0d589e3991efc07fa7dd820eaefdd62bbc2ae1f365a7c26ab",
+      "size": 13568,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "prior-management2d158--review.json",
+      "sha256": "a11137f8eb7e479241ad8864266a415677e83e0d829c5fb1194017b53c807344",
+      "size": 21671,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "prior-app6aab--review.json",
+      "sha256": "6e994f4e15db86eeef8d3be357fefbaf7167c4e2f720832bb645b0b2560a8b1b",
+      "size": 10554,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "prior-appaa0--review.json",
+      "sha256": "1d286628e1be206cb9d51628ffbf0a5b1ec2b6f9e74e2cf74e60b8e130bf9694",
+      "size": 4705,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "prior-oci64--ts-qa-provision64-terminal-failure-bkps8y8k.json",
+      "sha256": "5ada3a6fd437a6bba4edb6712013ec2c8cce5dcf0fcada784f18cb133081110d",
+      "size": 6309,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "prior-appd0b--review.json",
+      "sha256": "9c5fe39c0550f27b5bb9b674ea115f29b6e5ab60a1d00d6cf5f2e0583fd3fe39",
+      "size": 11279,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-native-transcript--ts-data697-native-execution-transcript.json",
+      "sha256": "9fbc83ffe773bb7e117b8a522b2ccc688413dcb2634b3794157569fd4d325c37",
+      "size": 3307,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "support-1--review.json",
+      "sha256": "dbaabdf7f24227518401086adb017a7d04190b7c0f4021780387d9a7c6768e9a",
+      "size": 12702,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "support-2--review.json",
+      "sha256": "35cd932debbe6addd53f8dd4ed2b6707e2c6a0e8d027e054f8edc3585c4111dd",
+      "size": 9924,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "support-3--review.json",
+      "sha256": "a6eb12bfd379754f30cd612f045036e3566ab37748fce7b0dd36444a589328f0",
+      "size": 22364,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "support-4--ts-qa-oci678-compile-readiness-ii2zqir0.json",
+      "sha256": "225465691c362c0db8a607700cbba0ebfbc6b36f27ce99b72e11d46eafc03899",
+      "size": 10691,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "support-5--ts-qa-oci678-runtime-readiness-n9bw5hnt.json",
+      "sha256": "aa4612663e00e878668cee06ccfbdd700ea621b6eea020d606aeb0487c7707d8",
+      "size": 13690,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "support-6--ts-qa-oci5e-truecompile-readiness-diy0th_1.json",
+      "sha256": "9324db14d0c1fe87afd8ec03a54ab91bf1f35e2941203984f1225c21f1534c8e",
+      "size": 13011,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "support-7--ts-qa-oci5e-direct-runtime-readiness-g6b7j5ey.json",
+      "sha256": "d0772e44d0f0599cc258c05366a2b12489b46c093d80a793b641a53c06ded801",
+      "size": 11290,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "support-8--ts-oci-foundation-67854df12-security-source-ack.json",
+      "sha256": "a07d88b5deefdcb61135334e9d94e824ba7fb2a4355212c3cde20b7a6e8e6e07",
+      "size": 1469,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "support-9--ts-oci-foundation-5e678c47a-security-source-ack.json",
+      "sha256": "7aaa91f57da53b5dda4e4358a25f67559fdeb555a6e3ebec793d621a2a0dc232",
+      "size": 1238,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "support-10--review.json",
+      "sha256": "7659a5cca9958c874ac0f26065958942072ae2809e3e99e7046334d6610d8459",
+      "size": 11006,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "prior-connected-publication--MANIFEST.json",
+      "sha256": "90bd756ae82a98c6f8d549ec84d36a6d51d9a30334c625ad55ca19d26683f3fa",
+      "size": 97712,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "prior-connected-publication--SHA256SUMS",
+      "sha256": "23e9f6202435abab1e76efea6b3060e34d177d3750f2e74e998e818b84bdf671",
+      "size": 11730,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "prior-connected-publication--README.md",
+      "sha256": "4756248914f000f6834cf871b1b87673b6e585c4cc727485c70f1d87e24088a0",
+      "size": 11352,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source-text--internal--swarmruntime--management_integration_test.go.txt",
+      "sha256": "09380b897e70a2a4f99fd0c14ce533b1baa2ede86054546152a26b6a24ea8b66",
+      "size": 26413,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source-text--internal--swarmruntime--management_observation_integration_test.go.txt",
+      "sha256": "76823b939ad6a99f1a69e19f0cff70c840c3bb009c5548018c248fb4b18fa9d0",
+      "size": 8995,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source-text--internal--swarmruntime--management_observation_local.go.txt",
+      "sha256": "c7304e779ebff051355f495197479966ef4ac9715cd43660b4f854e99aec5e89",
+      "size": 4369,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source-text--internal--swarmruntime--management_observation_local_test.go.txt",
+      "sha256": "51823230dbc8fee5acd7661b37df3381d63ceb1b7b1440c574e91c0d3cc64b9f",
+      "size": 6039,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source-text--internal--swarmruntime--management_observation_send_test.go.txt",
+      "sha256": "ccd45e1afcb57ee99641d4914bc5aa6044d9bc716da88b2d8ed42b65627dc0d7",
+      "size": 4454,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source-text--internal--swarmruntime--management_observation.go.txt",
+      "sha256": "36f172d220342800271496d974b22d782927a1361b81a117ba909e2cfcf56ca0",
+      "size": 16128,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source-text--internal--swarmruntime--management.go.txt",
+      "sha256": "51e916e98bbcdf63806dd2fa57dcff3e1cbcddfa3748a1abf4bd33954fe4dbb1",
+      "size": 25257,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source-text--internal--swarmruntime--node.go.txt",
+      "sha256": "f65cbcbc2edd7a18642a9accfa7e5e7e47fdd9f80ff9a4717e7868b1a5fc7c15",
+      "size": 9645,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source-text--internal--swarmruntime--admission.go.txt",
+      "sha256": "6ebbf10e1265091a4466f92b4e1dec0f3c79ad40341ac7970b4fa5b37d009781",
+      "size": 2591,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source-text--internal--swarmruntime--management_observation_store_test.go.txt",
+      "sha256": "f7561d1d33af0f6886687752060e7813a3a1fe218315c217decb77d5755be7f7",
+      "size": 5630,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management6af-source-text--internal--swarmruntime--management_stateful_test.go.txt",
+      "sha256": "66e3232364c8bf9ea69a10419f66ab5f2f882f0d0bda32eb6187fe7070ffbb2e",
+      "size": 4399,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-source-text--internal--region--foundation_provision_integration_test.go.txt",
+      "sha256": "e819c3a9b6c2cc4585ca8602fb1a81d1821941e8a488cb1d3e192282a97c1568",
+      "size": 39902,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-source-text--internal--region--foundation_integration_test.go.txt",
+      "sha256": "a595377425e4ec6b80f220312886903ac1138b7e79ca22c8b2f5e8b5ce405412",
+      "size": 29363,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-source-text--internal--region--provision.go.txt",
+      "sha256": "fc5da518ac7eef1bc7be8cad65afaee5fcd6ea941a74725b9e08210d465c65e1",
+      "size": 3385,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-source-text--internal--region--lifecycle.go.txt",
+      "sha256": "965452323f8a0e53bf6a674b1c7220a32b909c0a660011da307a691d1b033548",
+      "size": 24643,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-source-text--internal--region--object.go.txt",
+      "sha256": "2fab39b2675b49a4452bf7dd8597cb3f2cc4c837e7b002a45f96156fa6863a8e",
+      "size": 10843,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-source-text--internal--region--foundation_writer.go.txt",
+      "sha256": "fa5c315481c5f6abb50b0f2a79f67d59aaf72746e583e03d29cb061e1a9eb7fc",
+      "size": 30267,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-source-text--internal--region--netbird_launch.go.txt",
+      "sha256": "d4fdc26a32ace786815f546f85773a853e02c72c7575a9912ad8f5f0338217f2",
+      "size": 18465,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-source-text--internal--region--source_founder.go.txt",
+      "sha256": "030f28119a5fa155b6ffa3eae5c98171bcc7a429a6f836af4596005cb7829083",
+      "size": 24459,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci678-source-text--internal--foundationbinding--verify.go.txt",
+      "sha256": "6f402e6bcb98c57d5f4e8792ddfe93e8909464e37f911e099303f9291d01d6f9",
+      "size": 27924,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-source-text--internal--region--foundation_provision_integration_test.go.txt",
+      "sha256": "aaa2083eeb8f61893276bc7b7f6b2f62565bacdb9e993719e64a811cececdd32",
+      "size": 40123,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-source-text--internal--region--foundation_integration_test.go.txt",
+      "sha256": "677b40617c73b70712d4429729f96b6d4dadc05b8eabab421ef0dccfc713f030",
+      "size": 29525,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-source-text--internal--region--lifecycle.go.txt",
+      "sha256": "9e63b4bed1ff52cc13a04e74e27125461148f63ed81f9eabec8e055537f95c33",
+      "size": 24994,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci5e-source-text--internal--region--foundation_writer.go.txt",
+      "sha256": "98119082d29a18b01705f04d86ed3bb61387c9b7a2d9f53be4713daf6559fe3f",
+      "size": 30675,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data697-source-text--internal--app--managed_runtime.go.txt",
+      "sha256": "7e9fd9a4775d4bfe8378a15b3871ab598b564ab2a7e5661036095a34a2c8f131",
+      "size": 4927,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-source-text--internal--app--managed_runtime.go.txt",
+      "sha256": "430f32ac58634021d7c706b151cdead5703593c4f890f63d3ca265fdb248a1b4",
+      "size": 4823,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "corefac2-source-text--internal--app--generic_runtime_integration_test.go.txt",
+      "sha256": "50fb9f23219c24600b415cff0005baa263505c2810735a7583a931b7cbaf917b",
+      "size": 63714,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "unused-oci443--delta-source-proof.json",
+      "sha256": "983eb4e0012f4be0e72a8527d2b8d8be0959497eee8d1de5a9320be1be7664a0",
+      "size": 2570,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "unused-oci443--final-seal.json",
+      "sha256": "8a08372d0cd0046c7995c3c3513b204cd27b0ebc8dbde7a084a947d4f37ae6c4",
+      "size": 835,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "unused-oci443--fullsource-manifest.json",
+      "sha256": "8327894668271f1e6c2231392e59bcd8172db0ecec2f695bb400de283e976595",
+      "size": 595944,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "unused-oci443--request.json",
+      "sha256": "8abb670fea2def1aa978156d01b08ff1b098920533eee5ea5f14099416c6d18a",
+      "size": 3751,
+      "copied_mode": "0644"
+    }
+  ],
+  "original_file_mappings": [
+    {
+      "label": "management6af-source",
+      "relative_path": "request.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-source-4l6u45u7/request.json",
+      "original_directory": "/tmp/ts-management-observation-6af-source-4l6u45u7",
+      "original_mode": "0444",
+      "sha256": "f7adb8843a0d8c9e5eb89263fff0eac4a22798e371ea7309cfb66b275df998cc",
+      "size": 31684,
+      "copied_filename": "management6af-source--request.json"
+    },
+    {
+      "label": "management6af-source",
+      "relative_path": "seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-source-4l6u45u7/seal.json",
+      "original_directory": "/tmp/ts-management-observation-6af-source-4l6u45u7",
+      "original_mode": "0444",
+      "sha256": "4822b955392dafbf0d0be8c48a0c2903a2ca6fafa0cad78a55f470d1edbcb0d2",
+      "size": 411,
+      "copied_filename": "management6af-source--seal.json"
+    },
+    {
+      "label": "management6af-source",
+      "relative_path": "static-effects.md",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-source-4l6u45u7/static-effects.md",
+      "original_directory": "/tmp/ts-management-observation-6af-source-4l6u45u7",
+      "original_mode": "0444",
+      "sha256": "f60a74c146eb8641d62aaf833e67895a884eb5bcc4e70ae612731ed1673e1437",
+      "size": 11181,
+      "copied_filename": "management6af-source--static-effects.md"
+    },
+    {
+      "label": "management6af-source",
+      "relative_path": "static-import-closure.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-source-4l6u45u7/static-import-closure.json",
+      "original_directory": "/tmp/ts-management-observation-6af-source-4l6u45u7",
+      "original_mode": "0444",
+      "sha256": "44a3539efe536de4bfcbfdccfec32ce8deb1065272d9c1f6e200fb1924cb5f77",
+      "size": 194766,
+      "copied_filename": "management6af-source--static-import-closure.json"
+    },
+    {
+      "label": "management6af-source",
+      "relative_path": "tool-pins.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-source-4l6u45u7/tool-pins.json",
+      "original_directory": "/tmp/ts-management-observation-6af-source-4l6u45u7",
+      "original_mode": "0444",
+      "sha256": "df053f503abcb269c3a81f79d47edb0dcc092c8ec6d7425b7be9885ab0764c90",
+      "size": 2797,
+      "copied_filename": "management6af-source--tool-pins.json"
+    },
+    {
+      "label": "management6af-source",
+      "relative_path": "tracked-source-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "original_directory": "/tmp/ts-management-observation-6af-source-4l6u45u7",
+      "original_mode": "0444",
+      "sha256": "c26185d85b359acdaad884d2045634a60e837e586a3189444ade30bcec9cc89b",
+      "size": 1138992,
+      "copied_filename": "management6af-source--tracked-source-manifest.json"
+    },
+    {
+      "label": "management6af-runner",
+      "relative_path": "RESULT-SHA256SUMS",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/RESULT-SHA256SUMS",
+      "original_directory": "/tmp/ts-management-observation-6af-runner-3k0i9cmj",
+      "original_mode": "0644",
+      "sha256": "a06f0d23ed2714fabbc04401425d08564c55bc2d8eec4f91c7f8237fe02724d6",
+      "size": 468,
+      "copied_filename": "management6af-runner--RESULT-SHA256SUMS"
+    },
+    {
+      "label": "management6af-runner",
+      "relative_path": "preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/preflight.json",
+      "original_directory": "/tmp/ts-management-observation-6af-runner-3k0i9cmj",
+      "original_mode": "0644",
+      "sha256": "8c91b84a3e8468d4b9a1eadb29666d7ab09d89ccc64adbe2c7e90c16a9f19bd4",
+      "size": 1849,
+      "copied_filename": "management6af-runner--preflight.json"
+    },
+    {
+      "label": "management6af-runner",
+      "relative_path": "receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/receipt.json",
+      "original_directory": "/tmp/ts-management-observation-6af-runner-3k0i9cmj",
+      "original_mode": "0644",
+      "sha256": "fd56a98f3341ded8cccb52c9e4054618f44940a847269b248ca2f436a2fddf45",
+      "size": 10360,
+      "copied_filename": "management6af-runner--receipt.json"
+    },
+    {
+      "label": "management6af-runner",
+      "relative_path": "run.py",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/run.py",
+      "original_directory": "/tmp/ts-management-observation-6af-runner-3k0i9cmj",
+      "original_mode": "0444",
+      "sha256": "92de49ac95b0c22e748299eea3055d51f699011f1bcb101ca6b12f3bd8489c8c",
+      "size": 5617,
+      "copied_filename": "management6af-runner--run.py"
+    },
+    {
+      "label": "management6af-runner",
+      "relative_path": "started.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/started.json",
+      "original_directory": "/tmp/ts-management-observation-6af-runner-3k0i9cmj",
+      "original_mode": "0644",
+      "sha256": "bb659169b36c5212b2a79a3fc8744374e1672b6f087283b0f988dc3124ff0dcf",
+      "size": 1038,
+      "copied_filename": "management6af-runner--started.json"
+    },
+    {
+      "label": "management6af-runner",
+      "relative_path": "stderr.log",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/stderr.log",
+      "original_directory": "/tmp/ts-management-observation-6af-runner-3k0i9cmj",
+      "original_mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "management6af-runner--stderr.log"
+    },
+    {
+      "label": "management6af-runner",
+      "relative_path": "stdout.jsonl",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/stdout.jsonl",
+      "original_directory": "/tmp/ts-management-observation-6af-runner-3k0i9cmj",
+      "original_mode": "0644",
+      "sha256": "9830776d1a1818a3e3c5053cc040ef41db910d30c322a434ceaee47914182181",
+      "size": 173356,
+      "copied_filename": "management6af-runner--stdout.jsonl"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "final-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/final-seal.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "51369cda90964c6725df38a6fb9d7a1b2c7935f4ea8177f2c8dc39b63ffc5436",
+      "size": 6010,
+      "copied_filename": "management6af-native--final-seal.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "full-event-review.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/full-event-review.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "aadcced42bc87e00f966c5dca51c2a3ede181c6a1bbe281acae1bd0d4dfdbef7",
+      "size": 3872,
+      "copied_filename": "management6af-native--full-event-review.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "launch.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/launch.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "5f05e74223d44ed39e5893ef7fbe68ac03a1bb8ae1bae0135dfc7dcd7a1e9abf",
+      "size": 779,
+      "copied_filename": "management6af-native--launch.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "poll-001.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/poll-001.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "5be160bcb70199c15f4c119370565e53e93301cfdf0768e3c6a37123980c5845",
+      "size": 303,
+      "copied_filename": "management6af-native--poll-001.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "poll-002.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/poll-002.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "9ac8061363391996b497d37cb4d7b0502a1554d7ae82edf1c6dae7e25f8b77f3",
+      "size": 303,
+      "copied_filename": "management6af-native--poll-002.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "poll-003.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/poll-003.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "6e25e9be3468501eb3560bb8fe9bbaef486148731c33cb321c18b6d3af6a8281",
+      "size": 303,
+      "copied_filename": "management6af-native--poll-003.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "poll-004.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/poll-004.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "7df57d4966f1f816f4a7deea4df915e5762a94d57199c5b3adcdfc867d330938",
+      "size": 303,
+      "copied_filename": "management6af-native--poll-004.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "poll-005.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/poll-005.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "fb0653bee0436b9f8af6fb2ea16bdeda393484d7bf3bc83192710cdbd03608b0",
+      "size": 303,
+      "copied_filename": "management6af-native--poll-005.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "poll-006.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/poll-006.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "c60c4c808e3a42bc90d2bd6e5899c88a8dee9e97dad9b1d52298942c2604671a",
+      "size": 303,
+      "copied_filename": "management6af-native--poll-006.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "poll-007.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/poll-007.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "0f71668d6c89db0f403b9c21fa96e184337b41684913fa6fd5974f45f6f000e8",
+      "size": 303,
+      "copied_filename": "management6af-native--poll-007.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "poll-008.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/poll-008.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "c3e08f690cc779517931a6b3d2bbd92b3d155ca1a7bc366895a76b8dfe67650e",
+      "size": 9973,
+      "copied_filename": "management6af-native--poll-008.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "resource-preflight-native.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/resource-preflight-native.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "3b8a552895364176143a3b6ddc855324ec503ff99284487e2762fffbf2ab219f",
+      "size": 2628,
+      "copied_filename": "management6af-native--resource-preflight-native.json"
+    },
+    {
+      "label": "management6af-native",
+      "relative_path": "resource-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-6af-native-j0lriuy7/resource-preflight.json",
+      "original_directory": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "original_mode": "0644",
+      "sha256": "39aa3a620825d35d0e8bdabf020ff81ba7fc06047f5c22a360f535e3250a636d",
+      "size": 672,
+      "copied_filename": "management6af-native--resource-preflight.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "compile.stderr",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/compile.stderr",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "management6af-runner--stderr.log",
+      "alias_of_original": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/stderr.log"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "compile.stdout",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/compile.stdout",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "management6af-runner--stderr.log",
+      "alias_of_original": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/stderr.log"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "delta-source-proof.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/delta-source-proof.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "ef58db9508c51c0ea5852cd8ef1e41e8e3dd988b331a576a8864c6b0fc29ce1f",
+      "size": 3688,
+      "copied_filename": "oci678-compile--delta-source-proof.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "final-compile-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/final-compile-seal.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "35eae7593b3a41367daeda0588a8f38b93109531567534b3ed655c3050ef3e61",
+      "size": 3679,
+      "copied_filename": "oci678-compile--final-compile-seal.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "final-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/final-seal.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "3028358eec53c5ced6da3c8a581d97d8977553271b08d4268e70e0130971542c",
+      "size": 835,
+      "copied_filename": "oci678-compile--final-seal.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "fresh-host-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fresh-host-preflight.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "93aa32760da31e6d047e69277b9d88788f321146f2fbd0e83b5884117317c7fe",
+      "size": 174,
+      "copied_filename": "oci678-compile--fresh-host-preflight.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "fullsource-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "770e10c3b7ce41420b34911721d91931bc9e35849c3cceb3bcaf831e2d78d234",
+      "size": 595944,
+      "copied_filename": "oci678-compile--fullsource-manifest.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "native-launch.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/native-launch.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "34ce49b38cb92054510bc859638ce47b181425de7f20cd3a139726e4a2bfcc00",
+      "size": 733,
+      "copied_filename": "oci678-compile--native-launch.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "native-poll-1.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/native-poll-1.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "0d0c00d24689506989770da30d1902ec80a6032d508ab2952c18f1fc3805de45",
+      "size": 210,
+      "copied_filename": "oci678-compile--native-poll-1.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "native-poll-2.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/native-poll-2.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "247567bda29037bc04521045617ea48197bab99d48186eec56d50cae26a378e2",
+      "size": 210,
+      "copied_filename": "oci678-compile--native-poll-2.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "native-poll-3.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/native-poll-3.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "1be1b8fd04abf08de318c9be5ae6765040479e8269231752d1343ceff8cb9341",
+      "size": 212,
+      "copied_filename": "oci678-compile--native-poll-3.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "native-poll-4.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/native-poll-4.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "f6ed0afdcf34dffa4a5b57f48735a6ef9ccf1db72f8132ade9a655b1481adb6b",
+      "size": 3617,
+      "copied_filename": "oci678-compile--native-poll-4.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "native-resource-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/native-resource-preflight.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "bee9090c6dac34f33f4ef2bd459f7d6dcde82ff89324e6f1c01d7c833b80470f",
+      "size": 1866,
+      "copied_filename": "oci678-compile--native-resource-preflight.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/preflight.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "709e748d3ee1bcaaa479fc94353e2a0569a2b5d674b9c0c386bf8258051b239a",
+      "size": 2452,
+      "copied_filename": "oci678-compile--preflight.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/receipt.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "f5f4265722b235bcb1ddab7163b926aef94d62a522009ac98dd9e8dcd3276f75",
+      "size": 3697,
+      "copied_filename": "oci678-compile--receipt.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "request.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/request.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "f12c890f5c660ab086603a555463455be446cb8850c9b82caab7aa25517b2e31",
+      "size": 4077,
+      "copied_filename": "oci678-compile--request.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "run.py",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/run.py",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "83a61044a9620a4dc0c40aab35ac9f9b4aa8806274033bf2043e0ff5cfd78f6f",
+      "size": 3644,
+      "copied_filename": "oci678-compile--run.py"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "started.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/started.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "864f4e007251dcf05afecfbbe4a0d05ab1aab444d1ba73ba04b685df7ae694e1",
+      "size": 727,
+      "copied_filename": "oci678-compile--started.json"
+    },
+    {
+      "label": "oci678-compile",
+      "relative_path": "terminal-index.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/terminal-index.json",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "939faf04a0d1d45bdc24d9632563b32cdcadc1b4ffedb3f16883d405030f297e",
+      "size": 1081,
+      "copied_filename": "oci678-compile--terminal-index.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "final-runtime-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/final-runtime-seal.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "3bec0640756fb7062e71de85b528cdde0c06992ae4dedccc57cd1b86840a65b0",
+      "size": 3238,
+      "copied_filename": "oci678-runtime--final-runtime-seal.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "final-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/final-seal.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "680b592f2e49e514890bc8c9b379955799472a6716702facb0fd188e9ba8c8da",
+      "size": 851,
+      "copied_filename": "oci678-runtime--final-seal.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "fresh-host-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/fresh-host-preflight.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "904143ca3595775cf3e895a465cc045e454e01df1436609263c95ff23d900283",
+      "size": 181,
+      "copied_filename": "oci678-runtime--fresh-host-preflight.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "fullsource-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/fullsource-manifest.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "770e10c3b7ce41420b34911721d91931bc9e35849c3cceb3bcaf831e2d78d234",
+      "size": 595944,
+      "copied_filename": "oci678-compile--fullsource-manifest.json",
+      "alias_of_original": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "native-launch.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/native-launch.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "29ae2e887552c02e3fca51e1fa6774eadbffa21590d5fe295eb04104aee43140",
+      "size": 603,
+      "copied_filename": "oci678-runtime--native-launch.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "native-poll-1.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/native-poll-1.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "55c9cc5646d797cefc0722840a3d633f74be7068896a477fc877d132be26150a",
+      "size": 347,
+      "copied_filename": "oci678-runtime--native-poll-1.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "native-poll-2.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/native-poll-2.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "7472de45515b9d70cd02249e09a4bf589e668bdb5c52e71f4305f382a118b282",
+      "size": 4928,
+      "copied_filename": "oci678-runtime--native-poll-2.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "native-resource-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/native-resource-preflight.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "df722b58734a329e7634362fdb47435c1c9628fe7ec6476fe506283d8fc2b52e",
+      "size": 1867,
+      "copied_filename": "oci678-runtime--native-resource-preflight.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/preflight.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "2a1e6573616fbbfdbdbd5902798f6c4cf0f81a7bbca18aebd4bdbff43c711803",
+      "size": 2980,
+      "copied_filename": "oci678-runtime--preflight.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/receipt.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "b7d61f518ae1da058c61ca5cae9e7c92ae210b90c79cef58a750359ff5d85412",
+      "size": 5020,
+      "copied_filename": "oci678-runtime--receipt.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "request.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/request.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "f6fd62b3895542abbca9af8d0fac51753f7d27013e16302e7824ed4180ec6fe9",
+      "size": 5338,
+      "copied_filename": "oci678-runtime--request.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "run.py",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/run.py",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b",
+      "size": 4412,
+      "copied_filename": "oci678-runtime--run.py"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "runtime-readiness.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/runtime-readiness.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "01e911da54db64107aa22474415f3eba09e8dc02867a822bbe1e8c0864f53787",
+      "size": 82477,
+      "copied_filename": "oci678-runtime--runtime-readiness.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "runtime.stderr",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/runtime.stderr",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "management6af-runner--stderr.log",
+      "alias_of_original": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/stderr.log"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "runtime.stdout",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/runtime.stdout",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "7f61f14bb2a9600df166dc6c947c07754b2d583a403a6c2922298af51d62c9cc",
+      "size": 668,
+      "copied_filename": "oci678-runtime--runtime.stdout"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "started.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/started.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "511e3891d6fd34116362dd460f63f744b8bb6b131bd85271872ff0f0147cbdc0",
+      "size": 828,
+      "copied_filename": "oci678-runtime--started.json"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "terminal-index.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/terminal-index.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0644",
+      "sha256": "c03b4bb006f568da2ad9619309ade72560a809fb58393b1368bce29cc2284258",
+      "size": 1169,
+      "copied_filename": "oci678-runtime--terminal-index.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "compile.stderr",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/compile.stderr",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "management6af-runner--stderr.log",
+      "alias_of_original": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/stderr.log"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "compile.stdout",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/compile.stdout",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "management6af-runner--stderr.log",
+      "alias_of_original": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/stderr.log"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "delta-source-proof.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/delta-source-proof.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "a414ff2342815c0580696bbd3bce5f2ed188dd3422c888417d952d9a115dcdac",
+      "size": 3540,
+      "copied_filename": "oci5e-compile--delta-source-proof.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "final-compile-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/final-compile-seal.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "13a85309005fe1ecc1ec73f0f6001ff8b9947e5615d65aa50dc46f1f099ee15f",
+      "size": 3502,
+      "copied_filename": "oci5e-compile--final-compile-seal.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "final-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/final-seal.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "81012be270e8eb2f6b6f733e88184385f5fa5d669f8a81cc7adcf181c50bcb24",
+      "size": 835,
+      "copied_filename": "oci5e-compile--final-seal.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "fullsource-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "dbd06e52748c518dff1069ee764deef16c38a76490ea73b7409d5440a71daff9",
+      "size": 595944,
+      "copied_filename": "oci5e-compile--fullsource-manifest.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "native-launch.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/native-launch.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "408a8c98c11fa9ab3a254e2a1de777ee26e21751dd5f7e4f88c9cf2e000a7a29",
+      "size": 749,
+      "copied_filename": "oci5e-compile--native-launch.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "native-poll-1.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/native-poll-1.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "f1841df93849e2fe12526ce94635597ef039191f884d0c1041f274d52dde3386",
+      "size": 213,
+      "copied_filename": "oci5e-compile--native-poll-1.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "native-poll-2.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/native-poll-2.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "8973c7ed7b6cc2232b7f365235bc14a734a167a83cc19831e3f2f321cc6992ab",
+      "size": 213,
+      "copied_filename": "oci5e-compile--native-poll-2.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "native-poll-3.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/native-poll-3.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "14efab9a80b26bf2cb324f8277eeefd914bb8fc67faf10fca7da7983426d49ce",
+      "size": 3619,
+      "copied_filename": "oci5e-compile--native-poll-3.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "native-resource-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/native-resource-preflight.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "3eb6d8dd6b385defbbc0d19bfa82007464e1e33c48c51af666be26931a2138fd",
+      "size": 1609,
+      "copied_filename": "oci5e-compile--native-resource-preflight.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/preflight.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "fe20330fe335e1bb06aacbda35ece7d481a0cfe73f0d282dbcd375ff5bfabd58",
+      "size": 2452,
+      "copied_filename": "oci5e-compile--preflight.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/receipt.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "e893bc0f13b774c7ff1a5ddd421817ed483194aee684b9169e21b311661b30cc",
+      "size": 3697,
+      "copied_filename": "oci5e-compile--receipt.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "request.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/request.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "32af3ff4da7f383236ec3d09bdffbcf2246c23d30459a85e1ba7f318e342072b",
+      "size": 4185,
+      "copied_filename": "oci5e-compile--request.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "resource-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/resource-preflight.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "1c5e94acf2f6a00b34de7df1fdca0f8b0c3dba4c19e1dba39579d21909a17f7d",
+      "size": 319,
+      "copied_filename": "oci5e-compile--resource-preflight.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "run.py",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/run.py",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "83a61044a9620a4dc0c40aab35ac9f9b4aa8806274033bf2043e0ff5cfd78f6f",
+      "size": 3644,
+      "copied_filename": "oci678-compile--run.py",
+      "alias_of_original": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/run.py"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "started.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/started.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "58d9c9184716155ffc08b513a4d7186addd44f5710b8dab781f46e9bda95427a",
+      "size": 727,
+      "copied_filename": "oci5e-compile--started.json"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "terminal-index.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/terminal-index.json",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "288a5d9ebf60571c52bd27f90b61940a51e5c1c40f831ffdabc0d8674687faa3",
+      "size": 1151,
+      "copied_filename": "oci5e-compile--terminal-index.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "final-runtime-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/final-runtime-seal.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "3ff43957544e3957e4564b62624d21a7430e398ea6574346a60cde47f64d3a25",
+      "size": 3520,
+      "copied_filename": "oci5e-runtime--final-runtime-seal.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "final-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/final-seal.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "13176d8fd2d09365097f8399b8663f5917e53404c84fdcae976dd9d0adda5ebe",
+      "size": 936,
+      "copied_filename": "oci5e-runtime--final-seal.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "fullsource-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/fullsource-manifest.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "dbd06e52748c518dff1069ee764deef16c38a76490ea73b7409d5440a71daff9",
+      "size": 595944,
+      "copied_filename": "oci5e-compile--fullsource-manifest.json",
+      "alias_of_original": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "native-launch.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/native-launch.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "708c38695de899b69e29d62f1a5599f34b72ea2f099a99e88985525f4f5075ea",
+      "size": 620,
+      "copied_filename": "oci5e-runtime--native-launch.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "native-poll-1.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/native-poll-1.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "9c148c8382cd11a2b8e84295fcbbf66a1de7e96e8a78b9aef033b51bcfe9b0a9",
+      "size": 348,
+      "copied_filename": "oci5e-runtime--native-poll-1.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "native-poll-2.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/native-poll-2.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "e7f8a3aac1b96ba7d8c0b5e8d04f4e3c6991358e452ffe3325689000df93a280",
+      "size": 4930,
+      "copied_filename": "oci5e-runtime--native-poll-2.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "native-resource-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/native-resource-preflight.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "1ebd04289d94ebe2c63cc676c9bd4262564e0503c1c6c6fe2881b67d29222a67",
+      "size": 2547,
+      "copied_filename": "oci5e-runtime--native-resource-preflight.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/preflight.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "645663078933ac4080f5e626ddc468e320cf6dc6ace486204b6487dbbbcc1449",
+      "size": 2980,
+      "copied_filename": "oci5e-runtime--preflight.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "readiness-supplement.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/readiness-supplement.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "37b13f54c16186e68b238e649754fc0d055a598e01d8a7da60b545adc524e70d",
+      "size": 1320,
+      "copied_filename": "oci5e-runtime--readiness-supplement.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/receipt.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "282f2aa1aa706e1d5707d0c2d97bd3c4045c7b79e12eadb6414d0089a10c0c03",
+      "size": 5021,
+      "copied_filename": "oci5e-runtime--receipt.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "request.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/request.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "83b7f2168a61155cb20a26128e1e0a29d1bb51a22c30bb241b076cd2f353cba4",
+      "size": 5831,
+      "copied_filename": "oci5e-runtime--request.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "resource-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/resource-preflight.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "82ef879f60a65242f3d1ec86c9271edb6dde186c6bdd1d275b2563850989753b",
+      "size": 293,
+      "copied_filename": "oci5e-runtime--resource-preflight.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "run.py",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/run.py",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b",
+      "size": 4412,
+      "copied_filename": "oci678-runtime--run.py",
+      "alias_of_original": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/run.py"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "runtime-readiness.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/runtime-readiness.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "4682fe5c0e12638a7f0e9b127a8d7e616bfbcfc0182ac87824c85cb1463ff59a",
+      "size": 82564,
+      "copied_filename": "oci5e-runtime--runtime-readiness.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "runtime.stderr",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/runtime.stderr",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "management6af-runner--stderr.log",
+      "alias_of_original": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/stderr.log"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "runtime.stdout",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/runtime.stdout",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "fb8c7cad47980b6bfbab697fc2869159b91d59b5bdec186ae1abd5c69de1794a",
+      "size": 1513,
+      "copied_filename": "oci5e-runtime--runtime.stdout"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "started.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/started.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "6a10b8d5cca890de1fcd8cec265744fab5db545e1ba8824277dfa0f9697df9aa",
+      "size": 828,
+      "copied_filename": "oci5e-runtime--started.json"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "terminal-index.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/terminal-index.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0644",
+      "sha256": "571de992500920a9b47cd76f6bbbb62e02fbe57ebc1503112bcc127f5f359f3c",
+      "size": 1598,
+      "copied_filename": "oci5e-runtime--terminal-index.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "SEAL.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/SEAL.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "affb66536fae262076a14b8c98a1366ca8acf88610ea0b43c17f9b61a93dde24",
+      "size": 1373,
+      "copied_filename": "data697-compile--SEAL.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "SHA256SUMS",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/SHA256SUMS",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "ea2f7784e752aa1a072029bf0fb1dc04be032ff8377a9e59ef5f5a59ede420b2",
+      "size": 773,
+      "copied_filename": "data697-compile--SHA256SUMS"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "approved-base-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/approved-base-manifest.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "3d56c0fd11addeb613a1bf287441d4203d2496fb9d3ac053d133123b1d3e97dd",
+      "size": 36846,
+      "copied_filename": "data697-compile--approved-base-manifest.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "composition-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/composition-manifest.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "f984677b26cf031415f303c6e4c72053c0d916387a640c46a2d1692e52197e8f",
+      "size": 5492,
+      "copied_filename": "data697-compile--composition-manifest.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "fullsource-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/fullsource-manifest.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "8334fdfe61850d3f582bc2d7c7adf39dc8621cb68fb4f43cd395898f8854b648",
+      "size": 482578,
+      "copied_filename": "data697-compile--fullsource-manifest.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "qa-output/SHA256SUMS",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/qa-output/SHA256SUMS",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0600",
+      "sha256": "a36800547ad182398fd486821ed0cad99f03624e15c13f14def9d253d87dde19",
+      "size": 401,
+      "copied_filename": "data697-compile--qa-output--SHA256SUMS"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "qa-output/compile.stderr",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/qa-output/compile.stderr",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0600",
+      "sha256": "d5da23c13f9348437f51101d62aa6c767bd8dd2883d009bfba11d05cc1a48ec4",
+      "size": 199,
+      "copied_filename": "data697-compile--qa-output--compile.stderr"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "qa-output/compile.stdout",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/qa-output/compile.stdout",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0600",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "management6af-runner--stderr.log",
+      "alias_of_original": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/stderr.log"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "qa-output/final-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/qa-output/final-seal.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "7cfea5694ce5a6fbc34f4187ab5979a3a2b753f33b8c432d27b380a9f1b53e66",
+      "size": 2719,
+      "copied_filename": "data697-compile--qa-output--final-seal.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "qa-output/preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/qa-output/preflight.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0600",
+      "sha256": "af0adf1b3d2c386e5346c34bd46206e0b2443096143f7d7d44d9fd1154bcaaef",
+      "size": 2817021,
+      "copied_filename": "data697-compile--qa-output--preflight.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "qa-output/receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/qa-output/receipt.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0600",
+      "sha256": "7d2e95b75d51d0299bd81df0d79b88d0bdd036736f61c5d217e5b4346b548084",
+      "size": 5632570,
+      "copied_filename": "data697-compile--qa-output--receipt.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "qa-output/started.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/qa-output/started.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0600",
+      "sha256": "b92f50763b3485229aa80b95c4c93fa717ba020d70bb7f391f1f4202c2a75d74",
+      "size": 890,
+      "copied_filename": "data697-compile--qa-output--started.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "request.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/request.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "ef4446637d248f10560ae4698cf243e529fc8eff6eaba5138ef3276f434ac4fb",
+      "size": 3807,
+      "copied_filename": "data697-compile--request.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "run.py",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/run.py",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "054ed12355b094a4a1f837644012270d0bc2b8b23b767047d3f5dc61c54cf7a2",
+      "size": 5713,
+      "copied_filename": "data697-compile--run.py"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "source-inputs.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/source-inputs.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "e96cee39800e3b47e92c829d09632097b7d7366604847aa7c4d4c05e766ca600",
+      "size": 2031428,
+      "copied_filename": "data697-compile--source-inputs.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "static-import-closure.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/static-import-closure.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "19ed09dfa88713619faaf6a22b9305eb6ad6d7a5abb2d7641830c4301d83eebd",
+      "size": 783980,
+      "copied_filename": "data697-compile--static-import-closure.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "static-review.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/static-review.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "147054c9938f1ceabf17313b46ec9e37de15f4fc199d09872e5b38bb3c73abf7",
+      "size": 4256,
+      "copied_filename": "data697-compile--static-review.json"
+    },
+    {
+      "label": "data697-compile",
+      "relative_path": "tool-pins.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-source-renewal-697-compile-x96611io/tool-pins.json",
+      "original_directory": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "original_mode": "0444",
+      "sha256": "7c5ac0070260e290a63b45a45f452f1af97d1ed82c021434883a6a4e3c2d2a18",
+      "size": 4358,
+      "copied_filename": "data697-compile--tool-pins.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "assertion-map.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/assertion-map.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "2f20f3cdba5da10df2915adacccc7787bc308f3da7b256f3081855f187cf849b",
+      "size": 14847,
+      "copied_filename": "corefac2-build--assertion-map.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "external-postflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/external-postflight.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "bc8fe5580da09f407b90321ac7ca52d3b072b6b1ed099b72f05d2a7530387faf",
+      "size": 611,
+      "copied_filename": "corefac2-build--external-postflight.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "external-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/external-preflight.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "5093e71240238f26c33e05e73e38b98dd87ab07e6fab6a1a42920516c9787edd",
+      "size": 713,
+      "copied_filename": "corefac2-build--external-preflight.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "final-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/final-seal.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "23afe6f6dace11f6d1e9196bca0a62f1aeb210f2caaf4a826790b402bf7fcf06",
+      "size": 3118,
+      "copied_filename": "corefac2-build--final-seal.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "fullsource-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/fullsource-manifest.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "e8d5e2c4833304bf5212661b423ad748f52af9eb8034202ccbc5de49e8dd9570",
+      "size": 531293,
+      "copied_filename": "corefac2-build--fullsource-manifest.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "locks-released.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/locks-released.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "0bcfd8dcc699a0942dfa917687d846eb0dd8c211d092bc668c4fe47d0bf2118c",
+      "size": 169,
+      "copied_filename": "corefac2-build--locks-released.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "native-launch-receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/native-launch-receipt.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "2afc44b797f12783acb7bea6f7e2c621bdab932ff87d3455185d9bdc8e434d57",
+      "size": 969,
+      "copied_filename": "corefac2-build--native-launch-receipt.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "native-launch.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/native-launch.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "01c4092b4f7956fe3bbf6fdc729cb71ca9f90017250993cc65cedf55ccb26fe1",
+      "size": 985,
+      "copied_filename": "corefac2-build--native-launch.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "native-poll-1.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/native-poll-1.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "eea0227068f509c711ddecd566f49f603110e29fcd8c3111d19e2d60061519ea",
+      "size": 305,
+      "copied_filename": "corefac2-build--native-poll-1.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "native-poll-2.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/native-poll-2.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "a5484142159488cc4254681ca0230c8567f84b7d78cde950f40ef217a22324b5",
+      "size": 304,
+      "copied_filename": "corefac2-build--native-poll-2.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "native-terminal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/native-terminal.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "931df93e9561bdaf6f8366bf03bf4b3886ab395a0b492c372951328c3e0586da",
+      "size": 5016,
+      "copied_filename": "corefac2-build--native-terminal.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "postflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/postflight.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "507640cb03e7798c719b349d9576990446987270fe8c5a95d950484a39557b97",
+      "size": 532681,
+      "copied_filename": "corefac2-build--postflight.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/preflight.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "d598cf5885e6fad933ac12e0342053b3223cac8dd23ca3b3193b0ca6ead548f9",
+      "size": 542004,
+      "copied_filename": "corefac2-build--preflight.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "qa-grant.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/qa-grant.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "d71f81c6185cb92a8d517d35139fd0f5d2a1c12043dd76bbc409583a29e97454",
+      "size": 1405,
+      "copied_filename": "corefac2-build--qa-grant.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/receipt.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "b1b1947170153d0ea7dbb5b006fb1967b545263fc647493d12bed978c85a7885",
+      "size": 5110,
+      "copied_filename": "corefac2-build--receipt.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "request.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/request.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "a39797b8df15aa5863e7b6af93e91fc6a3003f7cbf1d134270bcd051b8192f3f",
+      "size": 5279,
+      "copied_filename": "corefac2-build--request.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "resource-check.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/resource-check.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "8558ad247caa29a51086e5ea65f1782ba1c32fcf62c8f37a5b3eaa50d233e888",
+      "size": 383,
+      "copied_filename": "corefac2-build--resource-check.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "run.py",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/run.py",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "c8904764e690f9ca8668e7b39ea320be586e23df2da39333f4ae7388e98f24a4",
+      "size": 5337,
+      "copied_filename": "corefac2-build--run.py"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "runtime.stderr",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/runtime.stderr",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "management6af-runner--stderr.log",
+      "alias_of_original": "/tmp/ts-management-observation-6af-runner-3k0i9cmj/stderr.log"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "runtime.stdout",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/runtime.stdout",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "4f7ec5a5ad5d90a8308dd5e5c31156eb0b94075f6f2d4f80f2a7700884f16bc3",
+      "size": 1940,
+      "copied_filename": "corefac2-build--runtime.stdout"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/seal.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "f8a3ee0fe80d2b74e2163a47dca588f023b0c01919cf2ea5a1c31096e040cf01",
+      "size": 1089,
+      "copied_filename": "corefac2-build--seal.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "source-alias-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/source-alias-manifest.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "0051f7f66fa9a0e9437f47647f6358d01139acdf246c1c606e47501977dd6c11",
+      "size": 8333,
+      "copied_filename": "corefac2-build--source-alias-manifest.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "started.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/started.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "311030343e4ec7c0b33e6c055711cb49e193b12ef986a66108b8ab43279f6d0c",
+      "size": 741,
+      "copied_filename": "corefac2-build--started.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "static-import-closure.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/static-import-closure.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "1026ec256e6ce5a08c7a7a0813a41a183866318ea8af7aa5fbea5bc6d04d615c",
+      "size": 191768,
+      "copied_filename": "corefac2-build--static-import-closure.json"
+    },
+    {
+      "label": "corefac2-build",
+      "relative_path": "static-review.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/static-review.json",
+      "original_directory": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "original_mode": "0444",
+      "sha256": "3906f71ee3e1eb921bb7b8072114bc11ac0b7d30f89984ada8024496968c7dda",
+      "size": 5315,
+      "copied_filename": "corefac2-build--static-review.json"
+    },
+    {
+      "label": "qa-management6af",
+      "relative_path": "review.json",
+      "kind": "accepted_independent_terminal_report",
+      "original_absolute_path": "/tmp/ts-qa-management-6af-terminal-acceptance-t5jiaxa2/review.json",
+      "original_directory": "/tmp/ts-qa-management-6af-terminal-acceptance-t5jiaxa2",
+      "original_mode": "0644",
+      "sha256": "0e4bd39d9c8c817bafca7f33176c11a13aac454757c4ed02428cffcefb10cf77",
+      "size": 21872,
+      "expected_sha256": "0e4bd39d9c8c817bafca7f33176c11a13aac454757c4ed02428cffcefb10cf77",
+      "copied_filename": "qa-management6af--review.json"
+    },
+    {
+      "label": "qa-oci678-compile",
+      "relative_path": "ts-qa-oci678-truecompile-terminal-acceptance-b4lxjiu8.json",
+      "kind": "accepted_independent_terminal_report",
+      "original_absolute_path": "/tmp/ts-qa-oci678-truecompile-terminal-acceptance-b4lxjiu8.json",
+      "original_directory": "/tmp",
+      "original_mode": "0600",
+      "sha256": "33c11074cab88a8572c5f71d7207bb2636ce7eb5ef9cd1e5bbbb1b5d227317f2",
+      "size": 13836,
+      "expected_sha256": "33c11074cab88a8572c5f71d7207bb2636ce7eb5ef9cd1e5bbbb1b5d227317f2",
+      "copied_filename": "qa-oci678-compile--ts-qa-oci678-truecompile-terminal-acceptance-b4lxjiu8.json"
+    },
+    {
+      "label": "qa-oci678-runtime",
+      "relative_path": "ts-qa-oci678-runtime-terminal-failure-53vxp9c8.json",
+      "kind": "accepted_independent_terminal_report",
+      "original_absolute_path": "/tmp/ts-qa-oci678-runtime-terminal-failure-53vxp9c8.json",
+      "original_directory": "/tmp",
+      "original_mode": "0600",
+      "sha256": "28d36a36700221471e3cae78e5b335bda46eb9b4004b4619aba7b2a6ac87dac6",
+      "size": 16626,
+      "expected_sha256": "28d36a36700221471e3cae78e5b335bda46eb9b4004b4619aba7b2a6ac87dac6",
+      "copied_filename": "qa-oci678-runtime--ts-qa-oci678-runtime-terminal-failure-53vxp9c8.json"
+    },
+    {
+      "label": "qa-oci5e-compile",
+      "relative_path": "ts-qa-oci5e-truecompile-terminal-acceptance-67pd1y4t.json",
+      "kind": "accepted_independent_terminal_report",
+      "original_absolute_path": "/tmp/ts-qa-oci5e-truecompile-terminal-acceptance-67pd1y4t.json",
+      "original_directory": "/tmp",
+      "original_mode": "0600",
+      "sha256": "48829e2aaa9c1f8555318e76ba8d172e16bc35881d077090ae28ae019c63f493",
+      "size": 16276,
+      "expected_sha256": "48829e2aaa9c1f8555318e76ba8d172e16bc35881d077090ae28ae019c63f493",
+      "copied_filename": "qa-oci5e-compile--ts-qa-oci5e-truecompile-terminal-acceptance-67pd1y4t.json"
+    },
+    {
+      "label": "qa-oci5e-runtime",
+      "relative_path": "ts-qa-oci5e-runtime-terminal-failure-z8dsewxr.json",
+      "kind": "accepted_independent_terminal_report",
+      "original_absolute_path": "/tmp/ts-qa-oci5e-runtime-terminal-failure-z8dsewxr.json",
+      "original_directory": "/tmp",
+      "original_mode": "0600",
+      "sha256": "64989f989c7cc196c8ca1786a1f6d41c5c91011f9046d8d184d52d03c7f57819",
+      "size": 22393,
+      "expected_sha256": "64989f989c7cc196c8ca1786a1f6d41c5c91011f9046d8d184d52d03c7f57819",
+      "copied_filename": "qa-oci5e-runtime--ts-qa-oci5e-runtime-terminal-failure-z8dsewxr.json"
+    },
+    {
+      "label": "qa-data697",
+      "relative_path": "review.json",
+      "kind": "accepted_independent_terminal_report",
+      "original_absolute_path": "/tmp/ts-qa-data697-terminal-failure-6z3aofqf/review.json",
+      "original_directory": "/tmp/ts-qa-data697-terminal-failure-6z3aofqf",
+      "original_mode": "0644",
+      "sha256": "5aa78729a73a55841d241f4a0f1fcc8518796ee28c55a61e3463c7cb9e9f6b94",
+      "size": 10765,
+      "expected_sha256": "5aa78729a73a55841d241f4a0f1fcc8518796ee28c55a61e3463c7cb9e9f6b94",
+      "copied_filename": "qa-data697--review.json"
+    },
+    {
+      "label": "qa-corefac2",
+      "relative_path": "review.json",
+      "kind": "accepted_independent_terminal_report",
+      "original_absolute_path": "/tmp/ts-qa-core-fac2-terminal-failure-udwxd328/review.json",
+      "original_directory": "/tmp/ts-qa-core-fac2-terminal-failure-udwxd328",
+      "original_mode": "0644",
+      "sha256": "25550ba81dd7e5a0d589e3991efc07fa7dd820eaefdd62bbc2ae1f365a7c26ab",
+      "size": 13568,
+      "expected_sha256": "25550ba81dd7e5a0d589e3991efc07fa7dd820eaefdd62bbc2ae1f365a7c26ab",
+      "copied_filename": "qa-corefac2--review.json"
+    },
+    {
+      "label": "prior-management2d158",
+      "relative_path": "review.json",
+      "kind": "prior_exact_report",
+      "original_absolute_path": "/tmp/ts-qa-management-2d158-terminal-failure-mxqjsifp/review.json",
+      "original_directory": "/tmp/ts-qa-management-2d158-terminal-failure-mxqjsifp",
+      "original_mode": "0644",
+      "sha256": "a11137f8eb7e479241ad8864266a415677e83e0d829c5fb1194017b53c807344",
+      "size": 21671,
+      "expected_sha256": "a11137f8eb7e479241ad8864266a415677e83e0d829c5fb1194017b53c807344",
+      "credit": "Historical context only; no upgrade or replacement.",
+      "copied_filename": "prior-management2d158--review.json"
+    },
+    {
+      "label": "prior-app6aab",
+      "relative_path": "review.json",
+      "kind": "prior_exact_report",
+      "original_absolute_path": "/tmp/ts-qa-app-6aab-manager-terminal-failure-vsvbq1tl/review.json",
+      "original_directory": "/tmp/ts-qa-app-6aab-manager-terminal-failure-vsvbq1tl",
+      "original_mode": "0644",
+      "sha256": "6e994f4e15db86eeef8d3be357fefbaf7167c4e2f720832bb645b0b2560a8b1b",
+      "size": 10554,
+      "expected_sha256": "6e994f4e15db86eeef8d3be357fefbaf7167c4e2f720832bb645b0b2560a8b1b",
+      "credit": "Historical context only; no upgrade or replacement.",
+      "copied_filename": "prior-app6aab--review.json"
+    },
+    {
+      "label": "prior-appaa0",
+      "relative_path": "review.json",
+      "kind": "prior_exact_report",
+      "original_absolute_path": "/tmp/ts-qa-app-aa0-diagnostic-terminal-ovn7ofxj/review.json",
+      "original_directory": "/tmp/ts-qa-app-aa0-diagnostic-terminal-ovn7ofxj",
+      "original_mode": "0644",
+      "sha256": "1d286628e1be206cb9d51628ffbf0a5b1ec2b6f9e74e2cf74e60b8e130bf9694",
+      "size": 4705,
+      "expected_sha256": "1d286628e1be206cb9d51628ffbf0a5b1ec2b6f9e74e2cf74e60b8e130bf9694",
+      "credit": "Historical context only; no upgrade or replacement.",
+      "copied_filename": "prior-appaa0--review.json"
+    },
+    {
+      "label": "prior-oci64",
+      "relative_path": "ts-qa-provision64-terminal-failure-bkps8y8k.json",
+      "kind": "prior_exact_report",
+      "original_absolute_path": "/tmp/ts-qa-provision64-terminal-failure-bkps8y8k.json",
+      "original_directory": "/tmp",
+      "original_mode": "0600",
+      "sha256": "5ada3a6fd437a6bba4edb6712013ec2c8cce5dcf0fcada784f18cb133081110d",
+      "size": 6309,
+      "expected_sha256": "5ada3a6fd437a6bba4edb6712013ec2c8cce5dcf0fcada784f18cb133081110d",
+      "credit": "Historical context only; no upgrade or replacement.",
+      "copied_filename": "prior-oci64--ts-qa-provision64-terminal-failure-bkps8y8k.json"
+    },
+    {
+      "label": "prior-appd0b",
+      "relative_path": "review.json",
+      "kind": "prior_exact_report",
+      "original_absolute_path": "/tmp/ts-qa-app-d0b-manager-terminal-acceptance-hbmhdidh/review.json",
+      "original_directory": "/tmp/ts-qa-app-d0b-manager-terminal-acceptance-hbmhdidh",
+      "original_mode": "0644",
+      "sha256": "9c5fe39c0550f27b5bb9b674ea115f29b6e5ab60a1d00d6cf5f2e0583fd3fe39",
+      "size": 11279,
+      "expected_sha256": "9c5fe39c0550f27b5bb9b674ea115f29b6e5ab60a1d00d6cf5f2e0583fd3fe39",
+      "credit": "Historical context only; no upgrade or replacement.",
+      "copied_filename": "prior-appd0b--review.json"
+    },
+    {
+      "label": "data697-native-transcript",
+      "relative_path": "ts-data697-native-execution-transcript.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data697-native-execution-transcript.json",
+      "original_directory": "/tmp",
+      "original_mode": "0444",
+      "sha256": "9fbc83ffe773bb7e117b8a522b2ccc688413dcb2634b3794157569fd4d325c37",
+      "size": 3307,
+      "copied_filename": "data697-native-transcript--ts-data697-native-execution-transcript.json"
+    },
+    {
+      "label": "support-1",
+      "relative_path": "review.json",
+      "kind": "supporting_existing_record",
+      "original_absolute_path": "/tmp/ts-qa-management-6af-readiness-dfi_3ym2/review.json",
+      "original_directory": "/tmp/ts-qa-management-6af-readiness-dfi_3ym2",
+      "original_mode": "0444",
+      "sha256": "dbaabdf7f24227518401086adb017a7d04190b7c0f4021780387d9a7c6768e9a",
+      "size": 12702,
+      "copied_filename": "support-1--review.json"
+    },
+    {
+      "label": "support-2",
+      "relative_path": "review.json",
+      "kind": "supporting_existing_record",
+      "original_absolute_path": "/tmp/ts-qa-source-renewal-697-compile-readiness-nx05morw/review.json",
+      "original_directory": "/tmp/ts-qa-source-renewal-697-compile-readiness-nx05morw",
+      "original_mode": "0644",
+      "sha256": "35cd932debbe6addd53f8dd4ed2b6707e2c6a0e8d027e054f8edc3585c4111dd",
+      "size": 9924,
+      "copied_filename": "support-2--review.json"
+    },
+    {
+      "label": "support-3",
+      "relative_path": "review.json",
+      "kind": "supporting_existing_record",
+      "original_absolute_path": "/tmp/ts-qa-core-fac2-readiness-nvkqsrhv/review.json",
+      "original_directory": "/tmp/ts-qa-core-fac2-readiness-nvkqsrhv",
+      "original_mode": "0644",
+      "sha256": "a6eb12bfd379754f30cd612f045036e3566ab37748fce7b0dd36444a589328f0",
+      "size": 22364,
+      "copied_filename": "support-3--review.json"
+    },
+    {
+      "label": "support-4",
+      "relative_path": "ts-qa-oci678-compile-readiness-ii2zqir0.json",
+      "kind": "supporting_existing_record",
+      "original_absolute_path": "/tmp/ts-qa-oci678-compile-readiness-ii2zqir0.json",
+      "original_directory": "/tmp",
+      "original_mode": "0600",
+      "sha256": "225465691c362c0db8a607700cbba0ebfbc6b36f27ce99b72e11d46eafc03899",
+      "size": 10691,
+      "copied_filename": "support-4--ts-qa-oci678-compile-readiness-ii2zqir0.json"
+    },
+    {
+      "label": "support-5",
+      "relative_path": "ts-qa-oci678-runtime-readiness-n9bw5hnt.json",
+      "kind": "supporting_existing_record",
+      "original_absolute_path": "/tmp/ts-qa-oci678-runtime-readiness-n9bw5hnt.json",
+      "original_directory": "/tmp",
+      "original_mode": "0600",
+      "sha256": "aa4612663e00e878668cee06ccfbdd700ea621b6eea020d606aeb0487c7707d8",
+      "size": 13690,
+      "copied_filename": "support-5--ts-qa-oci678-runtime-readiness-n9bw5hnt.json"
+    },
+    {
+      "label": "support-6",
+      "relative_path": "ts-qa-oci5e-truecompile-readiness-diy0th_1.json",
+      "kind": "supporting_existing_record",
+      "original_absolute_path": "/tmp/ts-qa-oci5e-truecompile-readiness-diy0th_1.json",
+      "original_directory": "/tmp",
+      "original_mode": "0600",
+      "sha256": "9324db14d0c1fe87afd8ec03a54ab91bf1f35e2941203984f1225c21f1534c8e",
+      "size": 13011,
+      "copied_filename": "support-6--ts-qa-oci5e-truecompile-readiness-diy0th_1.json"
+    },
+    {
+      "label": "support-7",
+      "relative_path": "ts-qa-oci5e-direct-runtime-readiness-g6b7j5ey.json",
+      "kind": "supporting_existing_record",
+      "original_absolute_path": "/tmp/ts-qa-oci5e-direct-runtime-readiness-g6b7j5ey.json",
+      "original_directory": "/tmp",
+      "original_mode": "0600",
+      "sha256": "d0772e44d0f0599cc258c05366a2b12489b46c093d80a793b641a53c06ded801",
+      "size": 11290,
+      "copied_filename": "support-7--ts-qa-oci5e-direct-runtime-readiness-g6b7j5ey.json"
+    },
+    {
+      "label": "support-8",
+      "relative_path": "ts-oci-foundation-67854df12-security-source-ack.json",
+      "kind": "supporting_existing_record",
+      "original_absolute_path": "/tmp/ts-oci-foundation-67854df12-security-source-ack.json",
+      "original_directory": "/tmp",
+      "original_mode": "0644",
+      "sha256": "a07d88b5deefdcb61135334e9d94e824ba7fb2a4355212c3cde20b7a6e8e6e07",
+      "size": 1469,
+      "copied_filename": "support-8--ts-oci-foundation-67854df12-security-source-ack.json"
+    },
+    {
+      "label": "support-9",
+      "relative_path": "ts-oci-foundation-5e678c47a-security-source-ack.json",
+      "kind": "supporting_existing_record",
+      "original_absolute_path": "/tmp/ts-oci-foundation-5e678c47a-security-source-ack.json",
+      "original_directory": "/tmp",
+      "original_mode": "0644",
+      "sha256": "7aaa91f57da53b5dda4e4358a25f67559fdeb555a6e3ebec793d621a2a0dc232",
+      "size": 1238,
+      "copied_filename": "support-9--ts-oci-foundation-5e678c47a-security-source-ack.json"
+    },
+    {
+      "label": "support-10",
+      "relative_path": "review.json",
+      "kind": "supporting_existing_record",
+      "original_absolute_path": "/tmp/ts-qa-connected-publication-independent-rfe95q4g/review.json",
+      "original_directory": "/tmp/ts-qa-connected-publication-independent-rfe95q4g",
+      "original_mode": "0444",
+      "sha256": "7659a5cca9958c874ac0f26065958942072ae2809e3e99e7046334d6610d8459",
+      "size": 11006,
+      "copied_filename": "support-10--review.json"
+    },
+    {
+      "label": "prior-connected-publication",
+      "relative_path": "MANIFEST.json",
+      "kind": "prior_publication_metadata",
+      "original_absolute_path": "/tmp/ts-qa-app-management-oci-connected-kkpi5r3_/MANIFEST.json",
+      "original_directory": "/tmp/ts-qa-app-management-oci-connected-kkpi5r3_",
+      "original_mode": "0644",
+      "sha256": "90bd756ae82a98c6f8d549ec84d36a6d51d9a30334c625ad55ca19d26683f3fa",
+      "size": 97712,
+      "copied_filename": "prior-connected-publication--MANIFEST.json"
+    },
+    {
+      "label": "prior-connected-publication",
+      "relative_path": "SHA256SUMS",
+      "kind": "prior_publication_metadata",
+      "original_absolute_path": "/tmp/ts-qa-app-management-oci-connected-kkpi5r3_/SHA256SUMS",
+      "original_directory": "/tmp/ts-qa-app-management-oci-connected-kkpi5r3_",
+      "original_mode": "0644",
+      "sha256": "23e9f6202435abab1e76efea6b3060e34d177d3750f2e74e998e818b84bdf671",
+      "size": 11730,
+      "copied_filename": "prior-connected-publication--SHA256SUMS"
+    },
+    {
+      "label": "prior-connected-publication",
+      "relative_path": "README.md",
+      "kind": "prior_publication_metadata",
+      "original_absolute_path": "/tmp/ts-qa-app-management-oci-connected-kkpi5r3_/README.md",
+      "original_directory": "/tmp/ts-qa-app-management-oci-connected-kkpi5r3_",
+      "original_mode": "0644",
+      "sha256": "4756248914f000f6834cf871b1b87673b6e585c4cc727485c70f1d87e24088a0",
+      "size": 11352,
+      "copied_filename": "prior-connected-publication--README.md"
+    },
+    {
+      "label": "management6af-source-text",
+      "relative_path": "internal/swarmruntime/management_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/management_integration_test.go",
+      "original_directory": "/tmp/ts-core-management-observation-fixtures",
+      "original_mode": "0644",
+      "sha256": "09380b897e70a2a4f99fd0c14ce533b1baa2ede86054546152a26b6a24ea8b66",
+      "size": 26413,
+      "source_commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "source_tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "git_blob": "101af69667d6d18a8c286162997d244b70b0b5b1",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "expected_sha256": "09380b897e70a2a4f99fd0c14ce533b1baa2ede86054546152a26b6a24ea8b66",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--management_integration_test.go.txt"
+    },
+    {
+      "label": "management6af-source-text",
+      "relative_path": "internal/swarmruntime/management_observation_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/management_observation_integration_test.go",
+      "original_directory": "/tmp/ts-core-management-observation-fixtures",
+      "original_mode": "0644",
+      "sha256": "76823b939ad6a99f1a69e19f0cff70c840c3bb009c5548018c248fb4b18fa9d0",
+      "size": 8995,
+      "source_commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "source_tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "git_blob": "22e86f9af84fc7448dbc2edb2a1725e945b02670",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "expected_sha256": "76823b939ad6a99f1a69e19f0cff70c840c3bb009c5548018c248fb4b18fa9d0",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--management_observation_integration_test.go.txt"
+    },
+    {
+      "label": "management6af-source-text",
+      "relative_path": "internal/swarmruntime/management_observation_local.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/management_observation_local.go",
+      "original_directory": "/tmp/ts-core-management-observation-fixtures",
+      "original_mode": "0644",
+      "sha256": "c7304e779ebff051355f495197479966ef4ac9715cd43660b4f854e99aec5e89",
+      "size": 4369,
+      "source_commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "source_tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "git_blob": "dc70d4b5ebf6bde8aeb6644094aad59dbe472b98",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "expected_sha256": "c7304e779ebff051355f495197479966ef4ac9715cd43660b4f854e99aec5e89",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--management_observation_local.go.txt"
+    },
+    {
+      "label": "management6af-source-text",
+      "relative_path": "internal/swarmruntime/management_observation_local_test.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/management_observation_local_test.go",
+      "original_directory": "/tmp/ts-core-management-observation-fixtures",
+      "original_mode": "0644",
+      "sha256": "51823230dbc8fee5acd7661b37df3381d63ceb1b7b1440c574e91c0d3cc64b9f",
+      "size": 6039,
+      "source_commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "source_tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "git_blob": "65ef474a3d30116f74119fec686783cc87b7f6f0",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "expected_sha256": "51823230dbc8fee5acd7661b37df3381d63ceb1b7b1440c574e91c0d3cc64b9f",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--management_observation_local_test.go.txt"
+    },
+    {
+      "label": "management6af-source-text",
+      "relative_path": "internal/swarmruntime/management_observation_send_test.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/management_observation_send_test.go",
+      "original_directory": "/tmp/ts-core-management-observation-fixtures",
+      "original_mode": "0644",
+      "sha256": "ccd45e1afcb57ee99641d4914bc5aa6044d9bc716da88b2d8ed42b65627dc0d7",
+      "size": 4454,
+      "source_commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "source_tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "git_blob": "b7692a2f624bc77075161729e23cc13250849455",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "expected_sha256": "ccd45e1afcb57ee99641d4914bc5aa6044d9bc716da88b2d8ed42b65627dc0d7",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--management_observation_send_test.go.txt"
+    },
+    {
+      "label": "management6af-source-text",
+      "relative_path": "internal/swarmruntime/management_observation.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/management_observation.go",
+      "original_directory": "/tmp/ts-core-management-observation-fixtures",
+      "original_mode": "0644",
+      "sha256": "36f172d220342800271496d974b22d782927a1361b81a117ba909e2cfcf56ca0",
+      "size": 16128,
+      "source_commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "source_tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "git_blob": "5bb598b79cf7bfc80a2b5710d629294708b1bb4b",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "expected_sha256": "36f172d220342800271496d974b22d782927a1361b81a117ba909e2cfcf56ca0",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--management_observation.go.txt"
+    },
+    {
+      "label": "management6af-source-text",
+      "relative_path": "internal/swarmruntime/management.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/management.go",
+      "original_directory": "/tmp/ts-core-management-observation-fixtures",
+      "original_mode": "0644",
+      "sha256": "51e916e98bbcdf63806dd2fa57dcff3e1cbcddfa3748a1abf4bd33954fe4dbb1",
+      "size": 25257,
+      "source_commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "source_tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "git_blob": "2c7867f1df52acc89826d4051bf26c6690511758",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "expected_sha256": "51e916e98bbcdf63806dd2fa57dcff3e1cbcddfa3748a1abf4bd33954fe4dbb1",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--management.go.txt"
+    },
+    {
+      "label": "management6af-source-text",
+      "relative_path": "internal/swarmruntime/node.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/node.go",
+      "original_directory": "/tmp/ts-core-management-observation-fixtures",
+      "original_mode": "0644",
+      "sha256": "f65cbcbc2edd7a18642a9accfa7e5e7e47fdd9f80ff9a4717e7868b1a5fc7c15",
+      "size": 9645,
+      "source_commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "source_tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "git_blob": "21421fed588370afa42df1e9842f1a98bbca7c5b",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "expected_sha256": "f65cbcbc2edd7a18642a9accfa7e5e7e47fdd9f80ff9a4717e7868b1a5fc7c15",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--node.go.txt"
+    },
+    {
+      "label": "management6af-source-text",
+      "relative_path": "internal/swarmruntime/admission.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/admission.go",
+      "original_directory": "/tmp/ts-core-management-observation-fixtures",
+      "original_mode": "0644",
+      "sha256": "6ebbf10e1265091a4466f92b4e1dec0f3c79ad40341ac7970b4fa5b37d009781",
+      "size": 2591,
+      "source_commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "source_tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "git_blob": "2441b93240e4022c47881994f87a170a7e49ea36",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "expected_sha256": "6ebbf10e1265091a4466f92b4e1dec0f3c79ad40341ac7970b4fa5b37d009781",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--admission.go.txt"
+    },
+    {
+      "label": "management6af-source-text",
+      "relative_path": "internal/swarmruntime/management_observation_store_test.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/management_observation_store_test.go",
+      "original_directory": "/tmp/ts-core-management-observation-fixtures",
+      "original_mode": "0644",
+      "sha256": "f7561d1d33af0f6886687752060e7813a3a1fe218315c217decb77d5755be7f7",
+      "size": 5630,
+      "source_commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "source_tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "git_blob": "c85377f7536e5e7c7057247408c993188ef04b36",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "expected_sha256": "f7561d1d33af0f6886687752060e7813a3a1fe218315c217decb77d5755be7f7",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--management_observation_store_test.go.txt"
+    },
+    {
+      "label": "management6af-source-text",
+      "relative_path": "internal/swarmruntime/management_stateful_test.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/management_stateful_test.go",
+      "original_directory": "/tmp/ts-core-management-observation-fixtures",
+      "original_mode": "0644",
+      "sha256": "66e3232364c8bf9ea69a10419f66ab5f2f882f0d0bda32eb6187fe7070ffbb2e",
+      "size": 4399,
+      "source_commit": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "source_tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "git_blob": "efddbaabd27ab900ecc97e9307ea5614cbbf4b50",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-6af-source-4l6u45u7/tracked-source-manifest.json",
+      "expected_sha256": "66e3232364c8bf9ea69a10419f66ab5f2f882f0d0bda32eb6187fe7070ffbb2e",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--management_stateful_test.go.txt"
+    },
+    {
+      "label": "oci678-source-text",
+      "relative_path": "internal/region/foundation_provision_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-policy-wire/internal/region/foundation_provision_integration_test.go",
+      "original_directory": "/tmp/ts-oci-foundation-policy-wire",
+      "original_mode": "0644",
+      "sha256": "e819c3a9b6c2cc4585ca8602fb1a81d1821941e8a488cb1d3e192282a97c1568",
+      "size": 39902,
+      "source_commit": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "source_tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+      "git_blob": "b0841a4085a8523dd127df8daab827acebe2fdd1",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "e819c3a9b6c2cc4585ca8602fb1a81d1821941e8a488cb1d3e192282a97c1568",
+      "copied_filename": "oci678-source-text--internal--region--foundation_provision_integration_test.go.txt"
+    },
+    {
+      "label": "oci678-source-text",
+      "relative_path": "internal/region/foundation_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-policy-wire/internal/region/foundation_integration_test.go",
+      "original_directory": "/tmp/ts-oci-foundation-policy-wire",
+      "original_mode": "0644",
+      "sha256": "a595377425e4ec6b80f220312886903ac1138b7e79ca22c8b2f5e8b5ce405412",
+      "size": 29363,
+      "source_commit": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "source_tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+      "git_blob": "016ae5f87b674244232eb6f1abd38bdab839d505",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "a595377425e4ec6b80f220312886903ac1138b7e79ca22c8b2f5e8b5ce405412",
+      "copied_filename": "oci678-source-text--internal--region--foundation_integration_test.go.txt"
+    },
+    {
+      "label": "oci678-source-text",
+      "relative_path": "internal/region/provision.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-policy-wire/internal/region/provision.go",
+      "original_directory": "/tmp/ts-oci-foundation-policy-wire",
+      "original_mode": "0644",
+      "sha256": "fc5da518ac7eef1bc7be8cad65afaee5fcd6ea941a74725b9e08210d465c65e1",
+      "size": 3385,
+      "source_commit": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "source_tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+      "git_blob": "1cd190f2ab9ec57c4cb9151929b3f644ec937b89",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "fc5da518ac7eef1bc7be8cad65afaee5fcd6ea941a74725b9e08210d465c65e1",
+      "copied_filename": "oci678-source-text--internal--region--provision.go.txt"
+    },
+    {
+      "label": "oci678-source-text",
+      "relative_path": "internal/region/lifecycle.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-policy-wire/internal/region/lifecycle.go",
+      "original_directory": "/tmp/ts-oci-foundation-policy-wire",
+      "original_mode": "0644",
+      "sha256": "965452323f8a0e53bf6a674b1c7220a32b909c0a660011da307a691d1b033548",
+      "size": 24643,
+      "source_commit": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "source_tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+      "git_blob": "3eeeeb498cc31ca5307f67eda03eab6a94c86586",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "965452323f8a0e53bf6a674b1c7220a32b909c0a660011da307a691d1b033548",
+      "copied_filename": "oci678-source-text--internal--region--lifecycle.go.txt"
+    },
+    {
+      "label": "oci678-source-text",
+      "relative_path": "internal/region/object.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-policy-wire/internal/region/object.go",
+      "original_directory": "/tmp/ts-oci-foundation-policy-wire",
+      "original_mode": "0644",
+      "sha256": "2fab39b2675b49a4452bf7dd8597cb3f2cc4c837e7b002a45f96156fa6863a8e",
+      "size": 10843,
+      "source_commit": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "source_tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+      "git_blob": "4d86b44666bdb6f3115111dea8d1a7fd2c71aa26",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "2fab39b2675b49a4452bf7dd8597cb3f2cc4c837e7b002a45f96156fa6863a8e",
+      "copied_filename": "oci678-source-text--internal--region--object.go.txt"
+    },
+    {
+      "label": "oci678-source-text",
+      "relative_path": "internal/region/foundation_writer.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-policy-wire/internal/region/foundation_writer.go",
+      "original_directory": "/tmp/ts-oci-foundation-policy-wire",
+      "original_mode": "0644",
+      "sha256": "fa5c315481c5f6abb50b0f2a79f67d59aaf72746e583e03d29cb061e1a9eb7fc",
+      "size": 30267,
+      "source_commit": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "source_tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+      "git_blob": "4ca0fffcf0d176485a3c9cc5ff3fd86f5c03d925",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "fa5c315481c5f6abb50b0f2a79f67d59aaf72746e583e03d29cb061e1a9eb7fc",
+      "copied_filename": "oci678-source-text--internal--region--foundation_writer.go.txt"
+    },
+    {
+      "label": "oci678-source-text",
+      "relative_path": "internal/region/netbird_launch.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-policy-wire/internal/region/netbird_launch.go",
+      "original_directory": "/tmp/ts-oci-foundation-policy-wire",
+      "original_mode": "0644",
+      "sha256": "d4fdc26a32ace786815f546f85773a853e02c72c7575a9912ad8f5f0338217f2",
+      "size": 18465,
+      "source_commit": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "source_tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+      "git_blob": "dfe0540824a79b09f8b0fdcfbd42eebd873ec27c",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "d4fdc26a32ace786815f546f85773a853e02c72c7575a9912ad8f5f0338217f2",
+      "copied_filename": "oci678-source-text--internal--region--netbird_launch.go.txt"
+    },
+    {
+      "label": "oci678-source-text",
+      "relative_path": "internal/region/source_founder.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-policy-wire/internal/region/source_founder.go",
+      "original_directory": "/tmp/ts-oci-foundation-policy-wire",
+      "original_mode": "0644",
+      "sha256": "030f28119a5fa155b6ffa3eae5c98171bcc7a429a6f836af4596005cb7829083",
+      "size": 24459,
+      "source_commit": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "source_tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+      "git_blob": "dd27e5d7818b36d8d1018c12ca9c4bb8f719d718",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "030f28119a5fa155b6ffa3eae5c98171bcc7a429a6f836af4596005cb7829083",
+      "copied_filename": "oci678-source-text--internal--region--source_founder.go.txt"
+    },
+    {
+      "label": "oci678-source-text",
+      "relative_path": "internal/foundationbinding/verify.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-policy-wire/internal/foundationbinding/verify.go",
+      "original_directory": "/tmp/ts-oci-foundation-policy-wire",
+      "original_mode": "0644",
+      "sha256": "6f402e6bcb98c57d5f4e8792ddfe93e8909464e37f911e099303f9291d01d6f9",
+      "size": 27924,
+      "source_commit": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "source_tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+      "git_blob": "35f2d8a8d0db3aed45e74cc47651356fa9207d37",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "6f402e6bcb98c57d5f4e8792ddfe93e8909464e37f911e099303f9291d01d6f9",
+      "copied_filename": "oci678-source-text--internal--foundationbinding--verify.go.txt"
+    },
+    {
+      "label": "oci5e-source-text",
+      "relative_path": "internal/region/foundation_provision_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-request-shape/internal/region/foundation_provision_integration_test.go",
+      "original_directory": "/tmp/ts-oci-foundation-request-shape",
+      "original_mode": "0644",
+      "sha256": "aaa2083eeb8f61893276bc7b7f6b2f62565bacdb9e993719e64a811cececdd32",
+      "size": 40123,
+      "source_commit": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "source_tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+      "git_blob": "fe388ad955dac85e0f4adc001f448e841541ecc2",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "aaa2083eeb8f61893276bc7b7f6b2f62565bacdb9e993719e64a811cececdd32",
+      "copied_filename": "oci5e-source-text--internal--region--foundation_provision_integration_test.go.txt"
+    },
+    {
+      "label": "oci5e-source-text",
+      "relative_path": "internal/region/foundation_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-request-shape/internal/region/foundation_integration_test.go",
+      "original_directory": "/tmp/ts-oci-foundation-request-shape",
+      "original_mode": "0644",
+      "sha256": "677b40617c73b70712d4429729f96b6d4dadc05b8eabab421ef0dccfc713f030",
+      "size": 29525,
+      "source_commit": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "source_tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+      "git_blob": "83f04f02dea4ccf4e2d7b414f5c976f2a035f010",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "677b40617c73b70712d4429729f96b6d4dadc05b8eabab421ef0dccfc713f030",
+      "copied_filename": "oci5e-source-text--internal--region--foundation_integration_test.go.txt"
+    },
+    {
+      "label": "oci5e-source-text",
+      "relative_path": "internal/region/provision.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-request-shape/internal/region/provision.go",
+      "original_directory": "/tmp/ts-oci-foundation-request-shape",
+      "original_mode": "0644",
+      "sha256": "fc5da518ac7eef1bc7be8cad65afaee5fcd6ea941a74725b9e08210d465c65e1",
+      "size": 3385,
+      "source_commit": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "source_tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+      "git_blob": "1cd190f2ab9ec57c4cb9151929b3f644ec937b89",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "fc5da518ac7eef1bc7be8cad65afaee5fcd6ea941a74725b9e08210d465c65e1",
+      "copied_filename": "oci678-source-text--internal--region--provision.go.txt",
+      "alias_of_original": "/tmp/ts-oci-foundation-policy-wire/internal/region/provision.go"
+    },
+    {
+      "label": "oci5e-source-text",
+      "relative_path": "internal/region/lifecycle.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-request-shape/internal/region/lifecycle.go",
+      "original_directory": "/tmp/ts-oci-foundation-request-shape",
+      "original_mode": "0644",
+      "sha256": "9e63b4bed1ff52cc13a04e74e27125461148f63ed81f9eabec8e055537f95c33",
+      "size": 24994,
+      "source_commit": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "source_tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+      "git_blob": "de26f844e664a21ef728e744327852ceb4cafee5",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "9e63b4bed1ff52cc13a04e74e27125461148f63ed81f9eabec8e055537f95c33",
+      "copied_filename": "oci5e-source-text--internal--region--lifecycle.go.txt"
+    },
+    {
+      "label": "oci5e-source-text",
+      "relative_path": "internal/region/object.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-request-shape/internal/region/object.go",
+      "original_directory": "/tmp/ts-oci-foundation-request-shape",
+      "original_mode": "0644",
+      "sha256": "2fab39b2675b49a4452bf7dd8597cb3f2cc4c837e7b002a45f96156fa6863a8e",
+      "size": 10843,
+      "source_commit": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "source_tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+      "git_blob": "4d86b44666bdb6f3115111dea8d1a7fd2c71aa26",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "2fab39b2675b49a4452bf7dd8597cb3f2cc4c837e7b002a45f96156fa6863a8e",
+      "copied_filename": "oci678-source-text--internal--region--object.go.txt",
+      "alias_of_original": "/tmp/ts-oci-foundation-policy-wire/internal/region/object.go"
+    },
+    {
+      "label": "oci5e-source-text",
+      "relative_path": "internal/region/foundation_writer.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-request-shape/internal/region/foundation_writer.go",
+      "original_directory": "/tmp/ts-oci-foundation-request-shape",
+      "original_mode": "0644",
+      "sha256": "98119082d29a18b01705f04d86ed3bb61387c9b7a2d9f53be4713daf6559fe3f",
+      "size": 30675,
+      "source_commit": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "source_tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+      "git_blob": "b47a2d2b90358645ea3ad740586e672d3cca301e",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "98119082d29a18b01705f04d86ed3bb61387c9b7a2d9f53be4713daf6559fe3f",
+      "copied_filename": "oci5e-source-text--internal--region--foundation_writer.go.txt"
+    },
+    {
+      "label": "oci5e-source-text",
+      "relative_path": "internal/region/netbird_launch.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-request-shape/internal/region/netbird_launch.go",
+      "original_directory": "/tmp/ts-oci-foundation-request-shape",
+      "original_mode": "0644",
+      "sha256": "d4fdc26a32ace786815f546f85773a853e02c72c7575a9912ad8f5f0338217f2",
+      "size": 18465,
+      "source_commit": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "source_tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+      "git_blob": "dfe0540824a79b09f8b0fdcfbd42eebd873ec27c",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "d4fdc26a32ace786815f546f85773a853e02c72c7575a9912ad8f5f0338217f2",
+      "copied_filename": "oci678-source-text--internal--region--netbird_launch.go.txt",
+      "alias_of_original": "/tmp/ts-oci-foundation-policy-wire/internal/region/netbird_launch.go"
+    },
+    {
+      "label": "oci5e-source-text",
+      "relative_path": "internal/region/source_founder.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-request-shape/internal/region/source_founder.go",
+      "original_directory": "/tmp/ts-oci-foundation-request-shape",
+      "original_mode": "0644",
+      "sha256": "030f28119a5fa155b6ffa3eae5c98171bcc7a429a6f836af4596005cb7829083",
+      "size": 24459,
+      "source_commit": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "source_tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+      "git_blob": "dd27e5d7818b36d8d1018c12ca9c4bb8f719d718",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "030f28119a5fa155b6ffa3eae5c98171bcc7a429a6f836af4596005cb7829083",
+      "copied_filename": "oci678-source-text--internal--region--source_founder.go.txt",
+      "alias_of_original": "/tmp/ts-oci-foundation-policy-wire/internal/region/source_founder.go"
+    },
+    {
+      "label": "oci5e-source-text",
+      "relative_path": "internal/foundationbinding/verify.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-oci-foundation-request-shape/internal/foundationbinding/verify.go",
+      "original_directory": "/tmp/ts-oci-foundation-request-shape",
+      "original_mode": "0644",
+      "sha256": "6f402e6bcb98c57d5f4e8792ddfe93e8909464e37f911e099303f9291d01d6f9",
+      "size": 27924,
+      "source_commit": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "source_tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+      "git_blob": "35f2d8a8d0db3aed45e74cc47651356fa9207d37",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/fullsource-manifest.json",
+      "expected_sha256": "6f402e6bcb98c57d5f4e8792ddfe93e8909464e37f911e099303f9291d01d6f9",
+      "copied_filename": "oci678-source-text--internal--foundationbinding--verify.go.txt",
+      "alias_of_original": "/tmp/ts-oci-foundation-policy-wire/internal/foundationbinding/verify.go"
+    },
+    {
+      "label": "data697-source-text",
+      "relative_path": "internal/region/provision.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-data-source-renewal-composed/internal/region/provision.go",
+      "original_directory": "/tmp/ts-data-source-renewal-composed",
+      "original_mode": "0644",
+      "sha256": "fc5da518ac7eef1bc7be8cad65afaee5fcd6ea941a74725b9e08210d465c65e1",
+      "size": 3385,
+      "source_commit": "6978e79b706ffdff2cb52a4ac4c8e3be56d727cf",
+      "source_tree": "f74fa0cbca7a506a61d885da65b40b0d5dc84d3e",
+      "git_blob": "1cd190f2ab9ec57c4cb9151929b3f644ec937b89",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-source-renewal-697-compile-x96611io/fullsource-manifest.json",
+      "expected_sha256": "fc5da518ac7eef1bc7be8cad65afaee5fcd6ea941a74725b9e08210d465c65e1",
+      "copied_filename": "oci678-source-text--internal--region--provision.go.txt",
+      "alias_of_original": "/tmp/ts-oci-foundation-policy-wire/internal/region/provision.go"
+    },
+    {
+      "label": "data697-source-text",
+      "relative_path": "internal/app/managed_runtime.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-data-source-renewal-composed/internal/app/managed_runtime.go",
+      "original_directory": "/tmp/ts-data-source-renewal-composed",
+      "original_mode": "0644",
+      "sha256": "7e9fd9a4775d4bfe8378a15b3871ab598b564ab2a7e5661036095a34a2c8f131",
+      "size": 4927,
+      "source_commit": "6978e79b706ffdff2cb52a4ac4c8e3be56d727cf",
+      "source_tree": "f74fa0cbca7a506a61d885da65b40b0d5dc84d3e",
+      "git_blob": "5b390d1c59a2edeeae136cca9601edb70e59a33c",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-source-renewal-697-compile-x96611io/fullsource-manifest.json",
+      "expected_sha256": "7e9fd9a4775d4bfe8378a15b3871ab598b564ab2a7e5661036095a34a2c8f131",
+      "copied_filename": "data697-source-text--internal--app--managed_runtime.go.txt"
+    },
+    {
+      "label": "corefac2-source-text",
+      "relative_path": "internal/app/managed_runtime.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-connected-history-afad/internal/app/managed_runtime.go",
+      "original_directory": "/tmp/ts-core-connected-history-afad",
+      "original_mode": "0644",
+      "sha256": "430f32ac58634021d7c706b151cdead5703593c4f890f63d3ca265fdb248a1b4",
+      "size": 4823,
+      "source_commit": "fac2a2715dad336cf67fc935d9f6af94c6bac1c2",
+      "source_tree": "9373511168ee3b5dea80fe61b7cc68a8986550f5",
+      "git_blob": "ff4fbcd7f1e18f13452a92cd0419844cb4709ffb",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/fullsource-manifest.json",
+      "expected_sha256": "430f32ac58634021d7c706b151cdead5703593c4f890f63d3ca265fdb248a1b4",
+      "copied_filename": "corefac2-source-text--internal--app--managed_runtime.go.txt"
+    },
+    {
+      "label": "corefac2-source-text",
+      "relative_path": "internal/swarmruntime/management.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-connected-history-afad/internal/swarmruntime/management.go",
+      "original_directory": "/tmp/ts-core-connected-history-afad",
+      "original_mode": "0644",
+      "sha256": "51e916e98bbcdf63806dd2fa57dcff3e1cbcddfa3748a1abf4bd33954fe4dbb1",
+      "size": 25257,
+      "source_commit": "fac2a2715dad336cf67fc935d9f6af94c6bac1c2",
+      "source_tree": "9373511168ee3b5dea80fe61b7cc68a8986550f5",
+      "git_blob": "2c7867f1df52acc89826d4051bf26c6690511758",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/fullsource-manifest.json",
+      "expected_sha256": "51e916e98bbcdf63806dd2fa57dcff3e1cbcddfa3748a1abf4bd33954fe4dbb1",
+      "copied_filename": "management6af-source-text--internal--swarmruntime--management.go.txt",
+      "alias_of_original": "/tmp/ts-core-management-observation-fixtures/internal/swarmruntime/management.go"
+    },
+    {
+      "label": "corefac2-source-text",
+      "relative_path": "internal/app/generic_runtime_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "original_absolute_path": "/tmp/ts-core-connected-history-afad/internal/app/generic_runtime_integration_test.go",
+      "original_directory": "/tmp/ts-core-connected-history-afad",
+      "original_mode": "0644",
+      "sha256": "50fb9f23219c24600b415cff0005baa263505c2810735a7583a931b7cbaf917b",
+      "size": 63714,
+      "source_commit": "fac2a2715dad336cf67fc935d9f6af94c6bac1c2",
+      "source_tree": "9373511168ee3b5dea80fe61b7cc68a8986550f5",
+      "git_blob": "4d7fc55976860621577f6f837cfc1d977fa2675b",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/fullsource-manifest.json",
+      "expected_sha256": "50fb9f23219c24600b415cff0005baa263505c2810735a7583a931b7cbaf917b",
+      "copied_filename": "corefac2-source-text--internal--app--generic_runtime_integration_test.go.txt"
+    },
+    {
+      "label": "unused-oci443",
+      "relative_path": "delta-source-proof.json",
+      "kind": "UNUSED_source_only_record",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-443936221-capacity-sealed/delta-source-proof.json",
+      "original_directory": "/tmp/ts-oci-region-compile-443936221-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "983eb4e0012f4be0e72a8527d2b8d8be0959497eee8d1de5a9320be1be7664a0",
+      "size": 2570,
+      "copied_filename": "unused-oci443--delta-source-proof.json"
+    },
+    {
+      "label": "unused-oci443",
+      "relative_path": "final-seal.json",
+      "kind": "UNUSED_source_only_record",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-443936221-capacity-sealed/final-seal.json",
+      "original_directory": "/tmp/ts-oci-region-compile-443936221-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "8a08372d0cd0046c7995c3c3513b204cd27b0ebc8dbde7a084a947d4f37ae6c4",
+      "size": 835,
+      "copied_filename": "unused-oci443--final-seal.json"
+    },
+    {
+      "label": "unused-oci443",
+      "relative_path": "fullsource-manifest.json",
+      "kind": "UNUSED_source_only_record",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-443936221-capacity-sealed/fullsource-manifest.json",
+      "original_directory": "/tmp/ts-oci-region-compile-443936221-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "8327894668271f1e6c2231392e59bcd8172db0ecec2f695bb400de283e976595",
+      "size": 595944,
+      "copied_filename": "unused-oci443--fullsource-manifest.json"
+    },
+    {
+      "label": "unused-oci443",
+      "relative_path": "request.json",
+      "kind": "UNUSED_source_only_record",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-443936221-capacity-sealed/request.json",
+      "original_directory": "/tmp/ts-oci-region-compile-443936221-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "8abb670fea2def1aa978156d01b08ff1b098920533eee5ea5f14099416c6d18a",
+      "size": 3751,
+      "copied_filename": "unused-oci443--request.json"
+    },
+    {
+      "label": "unused-oci443",
+      "relative_path": "run.py",
+      "kind": "UNUSED_source_only_record",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-443936221-capacity-sealed/run.py",
+      "original_directory": "/tmp/ts-oci-region-compile-443936221-capacity-sealed",
+      "original_mode": "0644",
+      "sha256": "83a61044a9620a4dc0c40aab35ac9f9b4aa8806274033bf2043e0ff5cfd78f6f",
+      "size": 3644,
+      "copied_filename": "oci678-compile--run.py",
+      "alias_of_original": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/run.py"
+    }
+  ],
+  "excluded_files": [
+    {
+      "label": "oci678-compile",
+      "relative_path": "binaries/region.test",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/binaries/region.test",
+      "original_directory": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "original_mode": "0600",
+      "sha256": "7edec5c46e0ef66465940af8e61c488a6e594fc5783ac8e9c879f25a3b21dbb1",
+      "size": 62901500,
+      "reason": "ELF binary excluded; original hash, size and mode retained, never executed by packager"
+    },
+    {
+      "label": "oci678-runtime",
+      "relative_path": "runtime-region.test",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/runtime-region.test",
+      "original_directory": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+      "original_mode": "0600",
+      "sha256": "7edec5c46e0ef66465940af8e61c488a6e594fc5783ac8e9c879f25a3b21dbb1",
+      "size": 62901500,
+      "reason": "ELF binary excluded; original hash, size and mode retained, never executed by packager"
+    },
+    {
+      "label": "oci5e-compile",
+      "relative_path": "binaries/region.test",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/binaries/region.test",
+      "original_directory": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+      "original_mode": "0600",
+      "sha256": "2585e93e772f613d74ed6689cde2af2b6947dbcfac22fa6381444ed1f17dc529",
+      "size": 62909324,
+      "reason": "ELF binary excluded; original hash, size and mode retained, never executed by packager"
+    },
+    {
+      "label": "oci5e-runtime",
+      "relative_path": "runtime-region.test",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/runtime-region.test",
+      "original_directory": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "original_mode": "0600",
+      "sha256": "2585e93e772f613d74ed6689cde2af2b6947dbcfac22fa6381444ed1f17dc529",
+      "size": 62909324,
+      "reason": "ELF binary excluded; original hash, size and mode retained, never executed by packager"
+    }
+  ],
+  "generated_files": [
+    "README.md",
+    "MANIFEST.json",
+    "SHA256SUMS"
+  ],
+  "terminal_seal_verification": [
+    {
+      "path": "/tmp/ts-management-observation-6af-native-j0lriuy7/final-seal.json",
+      "sha256": "51369cda90964c6725df38a6fb9d7a1b2c7935f4ea8177f2c8dc39b63ffc5436",
+      "verified_entries": 27
+    },
+    {
+      "path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/final-compile-seal.json",
+      "sha256": "35eae7593b3a41367daeda0588a8f38b93109531567534b3ed655c3050ef3e61",
+      "verified_entries": 19
+    },
+    {
+      "path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/final-compile-seal.json",
+      "sha256": "13a85309005fe1ecc1ec73f0f6001ff8b9947e5615d65aa50dc46f1f099ee15f",
+      "verified_entries": 18
+    },
+    {
+      "path": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/final-runtime-seal.json",
+      "sha256": "3bec0640756fb7062e71de85b528cdde0c06992ae4dedccc57cd1b86840a65b0",
+      "verified_entries": 17
+    },
+    {
+      "path": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/final-runtime-seal.json",
+      "sha256": "3ff43957544e3957e4564b62624d21a7430e398ea6574346a60cde47f64d3a25",
+      "verified_entries": 18
+    },
+    {
+      "path": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/final-seal.json",
+      "sha256": "23afe6f6dace11f6d1e9196bca0a62f1aeb210f2caaf4a826790b402bf7fcf06",
+      "verified_entries": 24
+    }
+  ],
+  "observed_repository_refs": {
+    "refs/heads/refactor/qa-main-union-20261016": {
+      "commit": "60e3843dfb0c7103a83579bc714e9de2a319429d",
+      "tree": "4b1b80130abc5b9df413c21560869eaceb3c70ec"
+    },
+    "refs/heads/main": {
+      "commit": "72e903719c7b53dee94305f50b3bdb8b147f0eda",
+      "tree": "4f5240902147bc6ee878a2abe80cf95678374558"
+    }
+  },
+  "unused443_inventory": [
+    {
+      "relative_path": "delta-source-proof.json",
+      "sha256": "983eb4e0012f4be0e72a8527d2b8d8be0959497eee8d1de5a9320be1be7664a0",
+      "size": 2570
+    },
+    {
+      "relative_path": "final-seal.json",
+      "sha256": "8a08372d0cd0046c7995c3c3513b204cd27b0ebc8dbde7a084a947d4f37ae6c4",
+      "size": 835
+    },
+    {
+      "relative_path": "fullsource-manifest.json",
+      "sha256": "8327894668271f1e6c2231392e59bcd8172db0ecec2f695bb400de283e976595",
+      "size": 595944
+    },
+    {
+      "relative_path": "request.json",
+      "sha256": "8abb670fea2def1aa978156d01b08ff1b098920533eee5ea5f14099416c6d18a",
+      "size": 3751
+    },
+    {
+      "relative_path": "run.py",
+      "sha256": "83a61044a9620a4dc0c40aab35ac9f9b4aa8806274033bf2043e0ff5cfd78f6f",
+      "size": 3644
+    }
+  ],
+  "preservation": {
+    "all_five_completion_categories": "OPEN",
+    "no_source_adoption": true,
+    "prior_failures": "Unchanged; original reports and prior publication metadata retained.",
+    "prior_core_packet": "nidszcaz remains unused; only corrected vn1eo6k0 executed.",
+    "unused443": "Source-only; no executable or execution inferred."
+  },
+  "provenance_limits": {
+    "original_calls": "Only actual retained tool arguments/results copied; no invented original arguments.",
+    "DATA697": "External transcript retains full arguments/results; terminal summary is not full receipt.",
+    "COREfac2": "Planned launch spec distinct from actual launch receipt; external actual pre/post planned-launch and seal hashes retained.",
+    "digest_boundary": "SHA256SUMS binds packet payloads and MANIFEST; its own hash is externally pinned by the separate packaging review. Original final seals remain copied unchanged.",
+    "observations": "Historical source/process/lock reports retained; no current process/lock/cloud probes."
+  },
+  "verification": {
+    "all_mappings_rehashed_against_originals_or_git_objects": true,
+    "all_aliases_compared_byte_for_byte": true,
+    "all_excluded_elf_rehashed": true,
+    "source_snapshots_equal_exact_git_blobs_and_pinned_manifest": true,
+    "historical_records_copied_unchanged": true,
+    "seven_accepted_terminal_report_pins_verified": true,
+    "repository_refs_rechecked_unchanged": true,
+    "raw_outcome_copies_compared_to_accepted_reports": true,
+    "text_only_utf8_without_nul": true
+  },
+  "checksum_rule": "Every packet file except SHA256SUMS, including README.md and MANIFEST.json. Separate external review pins all generated files; no self-hash assertion.",
+  "scope_frozen_utc": "2026-10-17T05:20:58.436290+00:00",
+  "scope_additions_closed": true
+}

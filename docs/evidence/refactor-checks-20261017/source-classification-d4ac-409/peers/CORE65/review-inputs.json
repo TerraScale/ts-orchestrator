@@ -1,0 +1,9 @@
+{
+  "owner_report": "/tmp/ts-core65-d4ac-source-classification-Yz6avQIW/classification.json",
+  "owner_sha256": "0639658db2c0974d670483f31a4a644f7de32c97f7bb574f08d661975577612f",
+  "allocation": {
+    "path": "/tmp/ts-d4ac-next300-allocation-proposal-raxuc07l/allocation.json",
+    "sha256": "032cb201e692326da7274b12d7dfd15512b1befd325cce375188ae0447ca2523"
+  },
+  "report_directory": "/tmp/ts-core65-d4ac-peer-net-sgmlxjwy"
+}

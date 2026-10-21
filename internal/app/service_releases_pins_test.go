@@ -63,7 +63,7 @@ func TestServiceReleasePinsCompletedPassRefresh(t *testing.T) {
 	}
 	check := func(rollback, bad []string, writes int) {
 		t.Helper()
-		if err := r.pass(ctx, kv, role); err != nil {
+		if err := r.nativePass(ctx, kv, role); err != nil {
 			t.Fatal(err)
 		}
 		status, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
@@ -113,7 +113,7 @@ func TestServiceReleasePinsInvalidClaimPreservesState(t *testing.T) {
 	bucket.objects[releasechannel.ServiceReleaseObject(role)] = []byte(`{"unverified":"newer claim"}`)
 	bucket.etags[releasechannel.ServiceReleaseObject(role)] = "invalid-claim"
 	for range 2 {
-		if err := r.pass(ctx, kv, role); err != nil {
+		if err := r.nativePass(ctx, kv, role); err != nil {
 			t.Fatal(err)
 		}
 		status, found, err := releasechannel.ReadServiceStatus(ctx, location, role)

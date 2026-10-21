@@ -41,6 +41,7 @@ const (
 // every managed TerraBase service the live controller wires, backed by an
 // in-memory OCI region and object store.
 type deployTestCellServices struct {
+	auth          *authenticatedNATS
 	control       *authority.Runtime
 	broker        *natscell.Runtime
 	provider      *deployTestProvider
@@ -184,6 +185,48 @@ func TestTerraBaseDeployDrivesManagedPlacementToDesiredState(t *testing.T) {
 	}) {
 		t.Fatalf("status does not explain the serving hold: %+v", report.Holds)
 	}
+	// A durable serving stage remains visible without becoming current readiness.
+	members, err := cell.store.ListMembers(ctx, intent.DatabaseID, intent.PartitionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range members {
+		member.State.Stage = placement.StageServing
+		if _, err := cell.store.CompareAndSwap(ctx, member.Revision, member.State); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report = deployTestStatus(t, ctx, cell, state)
+	if report.Serving || report.Readiness != "unknown" || report.ReadinessReason != "current native root task and member readiness source is unavailable" {
+		t.Fatalf("durable serving stages asserted current serving: %+v", report)
+	}
+	for _, member := range report.Members {
+		if member.Stage != string(placement.StageServing) || member.Host == nil || !member.Host.SessionCurrent ||
+			member.Host.ServingProof || member.Host.ListenerReady || member.Host.ProcessPID != 0 || member.Host.ReportState != "" {
+			t.Fatalf("signed status confused durable state with current runtime proof: %+v", member)
+		}
+		if sample := soakSample(member, time.Now()); !sample.Gap {
+			t.Fatalf("unavailable current root readiness was not a soak gap: %+v", sample)
+		}
+	}
+	snapshot, err := placement.Summarize(ctx, cell.store)
+	if err != nil || len(snapshot.Databases) != 1 || snapshot.StageCounts["serving"] != 2 ||
+		snapshot.Databases[0].Serving != 0 || snapshot.Databases[0].Readiness != "unknown" || snapshot.Databases[0].ReadinessReason == "" {
+		t.Fatalf("actual durable placement snapshot asserted current serving: %+v %v", snapshot, err)
+	}
+
+	// Even a current physical session cannot turn an obsolete host report into readiness.
+	legacy := statuses[0]
+	legacy.Reports = []host.Report{{State: "running", Digest: intent.RuntimeManifests[0].ArtifactDigest,
+		Managed: &host.ManagedRuntimeReport{ProcessPID: 77, ListenerReady: true, StorageRecovered: true}}}
+	observed := memberHostStatus(legacy, time.Now())
+	if !observed.SessionCurrent || observed.ProcessPID != 0 || observed.ListenerReady || observed.StorageRecovered || observed.ReportState != "" {
+		t.Fatalf("legacy host report became runtime authority: %+v", observed)
+	}
+	legacy.Retired = true
+	if memberHostStatus(legacy, time.Now()).SessionCurrent {
+		t.Fatal("retired physical session was shown as current")
+	}
 }
 
 // The live R5 image reports neither consistent volume naming nor PV
@@ -219,10 +262,11 @@ func TestTerraBaseDeployHoldsVolumeAttachOnUnqualifiedImageLaunchOptions(t *test
 }
 
 func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deployTestCellServices {
+	auth := newAuthenticatedNATS(t, "gru")
 	t.Helper()
 	ctx := t.Context()
 	root := t.TempDir()
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: deployTestCell, Instance: "deploy-controller", Replicas: 1, Lab: true,
+	broker, err := auth.start(t, ctx, natscell.Config{Cell: deployTestCell, Instance: "deploy-controller", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(root, "nats")}})
 	if err != nil {
 		t.Fatal(err)
@@ -252,9 +296,9 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 	if err != nil {
 		t.Fatal(err)
 	}
-	cell := &deployTestCellServices{control: control, broker: broker, root: root, responseKey: controllerPublic,
+	cell := &deployTestCellServices{auth: auth, control: control, broker: broker, root: root, responseKey: controllerPublic,
 		operatorFile: testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
-			NATS:       natscell.Config{Cell: deployTestCell, Instance: "deploy-operator", Replicas: 1, Lab: true, URL: broker.URL()},
+			NATS:       auth.config(t, natscell.Config{Cell: deployTestCell, Instance: "deploy-operator", ClientRole: "operator", Replicas: 1, URL: broker.URL()}),
 			Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant, compatibility}},
 			Operator: OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key"),
 				ControllerPublicKey: base64.StdEncoding.EncodeToString(controllerPublic)},
@@ -309,7 +353,8 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := newManagedRegistrationVerifier(deployTestCell, oci.RegionGRU, region.Owner, region.Generation, control, store, fleet)
+	verifier, err := newManagedRegistrationVerifier(deployTestCell, oci.RegionGRU, region.Owner, region.Generation, control, store, fleet,
+		fixtureManagedNativeAuthority(deployTestCell, "canary"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -576,7 +621,7 @@ func (cell *deployTestCellServices) enrollMembers(t *testing.T, intent placement
 		}
 		state := member.State
 		hostPublic, hostPrivate := testEd25519(t, cell.root, seat+"-host.key")
-		hostNKey, _ := testNKey(t)
+		hostNKey, hostSeed := testNKey(t)
 		row, roster := state.CanonicalRosterRow, intent.CanonicalRoster
 		registration := host.Registration{Cell: deployTestCell, Node: state.HostNode, FailureDomain: row.FailureDomain,
 			Environment: "canary", Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(hostPublic),
@@ -596,8 +641,8 @@ func (cell *deployTestCellServices) enrollMembers(t *testing.T, intent placement
 		if _, err := runDeployTestOperatorErr(ctx, cell, "host-register", "--registration", path); err != nil {
 			t.Fatalf("register %s: %v", seat, err)
 		}
-		connection, err := natscell.Start(ctx, natscell.Config{Cell: deployTestCell, Instance: "host-" + strings.ToLower(seat), Replicas: 1,
-			Lab: true, URL: cell.broker.URL(), ClientRole: "host"})
+		connection, err := cell.auth.start(t, ctx, natscell.Config{Cell: deployTestCell, Instance: "host-" + strings.ToLower(seat), Replicas: 1,
+			URL: cell.broker.URL(), NKeySeedFile: hostSeed, ClientRole: "host"})
 		if err != nil {
 			t.Fatal(err)
 		}

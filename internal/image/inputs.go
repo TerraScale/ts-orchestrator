@@ -3,6 +3,7 @@ package image
 
 import (
 	"bytes"
+	"debug/elf"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -71,6 +72,34 @@ type Inputs struct {
 	Priority   PriorityInputs   `json:"priority"`
 	TerraBase  TerraBasePin     `json:"terrabase"`
 	NetBird    client.Pin       `json:"netbird"`
+}
+
+// Architecture is fixed by the pinned Ubuntu image, rather than a deployment setting.
+func (v Inputs) Architecture() (string, error) {
+	for _, architecture := range []string{"arm64", "amd64"} {
+		if strings.HasSuffix(v.Base.ChecksumName, "-"+architecture+".img") {
+			return architecture, nil
+		}
+	}
+	return "", errors.New("base.checksum_name must identify a Linux arm64 or amd64 image")
+}
+
+func binaryArchitecture(name string) (string, error) {
+	f, err := elf.Open(name)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if f.Class != elf.ELFCLASS64 || f.Data != elf.ELFDATA2LSB || (f.Type != elf.ET_EXEC && f.Type != elf.ET_DYN) {
+		return "", errors.New("host binary must be a little-endian ELF64 executable")
+	}
+	switch f.Machine {
+	case elf.EM_AARCH64:
+		return "arm64", nil
+	case elf.EM_X86_64:
+		return "amd64", nil
+	}
+	return "", errors.New("host binary must target Linux arm64 or amd64")
 }
 
 func canonical(v any) ([]byte, error) {
@@ -190,6 +219,9 @@ func LoadInputs(root, path string) (Inputs, error) {
 	if v.Region != "GRU" {
 		return v, errors.New("region must be GRU")
 	}
+	if _, e = v.Architecture(); e != nil {
+		return v, e
+	}
 	base := v.Base
 	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`).MatchString(base.ReleaseTag) {
 		return v, errors.New("base.release_tag is invalid")
@@ -255,7 +287,7 @@ func LoadInputs(root, path string) (Inputs, error) {
 	}
 	return v, ValidateTerraBase(v.TerraBase)
 }
-func TerraBaseQualification(qualificationPath, detailPath string) (TerraBasePin, error) {
+func TerraBaseQualification(qualificationPath, detailPath, architecture string) (TerraBasePin, error) {
 	var q struct {
 		Schema, Repository string
 		SourceRevision     string `json:"source_revision"`
@@ -277,16 +309,20 @@ func TerraBaseQualification(qualificationPath, detailPath string) (TerraBasePin,
 	if v.Workflow != "fast.yml" || v.Job != "fast" || v.Conclusion != "success" {
 		return TerraBasePin{}, errors.New("TerraBase qualification is not a successful Fast run")
 	}
+	target := map[string]string{"arm64": "aarch64-unknown-linux-musl", "amd64": "x86_64-unknown-linux-musl"}[architecture]
+	if target == "" {
+		return TerraBasePin{}, errors.New("unsupported native verifier architecture")
+	}
 	artifact := ""
 	count := 0
 	for _, a := range q.Artifacts {
-		if a.Name == "tb-server-linux-arm64" && a.Target == "aarch64-unknown-linux-musl" {
+		if a.Name == "tb-server-linux-"+architecture && a.Target == target {
 			artifact = a.SHA256
 			count++
 		}
 	}
 	if count != 1 {
-		return TerraBasePin{}, errors.New("TerraBase qualification must list one tb-server-linux-arm64")
+		return TerraBasePin{}, fmt.Errorf("TerraBase qualification must list one tb-server-linux-%s", architecture)
 	}
 	var detail struct {
 		RunID            int64  `json:"run_id"`

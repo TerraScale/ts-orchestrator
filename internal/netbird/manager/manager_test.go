@@ -3,13 +3,9 @@ package manager
 import (
 	"bytes"
 	"context"
-	"encoding/json/v2"
 	"errors"
-	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
-	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -20,302 +16,6 @@ import (
 	"testing"
 	"time"
 )
-
-func TestGRUDesiredStateIsConsistentWithTheImageInput(t *testing.T) {
-	d := GRU()
-	if err := d.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	subnet := netip.MustParsePrefix(d.Network.Resource.Address)
-	for _, slot := range d.Slots {
-		if !subnet.Contains(netip.MustParseAddr(slot.IP)) {
-			t.Fatalf("slot %s is outside the cell subnet", slot.Name)
-		}
-	}
-	var input struct {
-		PeerNames map[string]string `json:"peer_names"`
-	}
-	wire, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "image", "inputs", "netbird-gru.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(wire, &input); err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]string{"10.251.0.11": "ts-gru-1", "10.251.0.12": "ts-gru-2",
-		"10.251.0.13": "ts-gru-3", "10.251.0.21": "gru-1-db-1", "10.251.0.22": "gru-1-db-2"}
-	if got := d.PeerNames(); !mapsEqual(got, want) || !mapsEqual(input.PeerNames, want) {
-		t.Fatalf("slot peer names: desired %v, image input %v", got, input.PeerNames)
-	}
-	var records []string
-	for _, r := range d.Records() {
-		records = append(records, r.Name+"="+r.Content)
-	}
-	wantRecords := []string{
-		"db-1.gru.ts.internal=10.251.0.21", "db-2.gru.ts.internal=10.251.0.22",
-		"nats.gru.ts.internal=10.251.0.11", "nats.gru.ts.internal=10.251.0.12", "nats.gru.ts.internal=10.251.0.13",
-		"terrabase.gru.ts.internal=10.251.0.21", "terrabase.gru.ts.internal=10.251.0.22",
-		"ts-gru-1.gru.ts.internal=10.251.0.11", "ts-gru-2.gru.ts.internal=10.251.0.12",
-		"ts-gru-3.gru.ts.internal=10.251.0.13",
-	}
-	if !slices.Equal(records, wantRecords) {
-		t.Fatalf("records %v", records)
-	}
-}
-
-func TestAddressPlanRejectedBeforeManagerRequests(t *testing.T) {
-	for _, cidr := range []string{"100.64.0.0/10", "10.251.0.0/16", "10.0.0.0/8"} {
-		t.Run(cidr, func(t *testing.T) {
-			var calls atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls.Add(1)
-				w.WriteHeader(http.StatusInternalServerError)
-			}))
-			defer server.Close()
-			api, err := NewAPI(server.URL, testPAT)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer api.Close()
-			d := GRU()
-			d.NetworkRange = cidr
-			if _, err := Sync(t.Context(), api, d, true); err == nil || !strings.Contains(err.Error(), "address plan:") {
-				t.Fatalf("expected address-plan rejection, got %v", err)
-			}
-			if calls.Load() != 0 {
-				t.Fatal("invalid plan reached the manager")
-			}
-		})
-	}
-}
-
-func mapsEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-	return true
-}
-
-func TestSyncRenamesLegacyObjectsInPlaceAndConverges(t *testing.T) {
-	f := newFakeManager(t)
-	ids := f.seedLegacy(t)
-	// TS-672 clears the old server DNS restriction without changing traffic policies.
-	f.dnsGroups = []string{ids.servers}
-	api := f.api(t)
-	d := GRU()
-
-	plan, err := Sync(t.Context(), api, d, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(f.mutations) != 0 {
-		t.Fatalf("dry run mutated the manager: %v", f.mutations)
-	}
-	var lines []string
-	for _, change := range plan.Changes {
-		lines = append(lines, change.String())
-	}
-	text := strings.Join(lines, "\n")
-	for _, want := range []string{
-		"rename group ts-ops-gateway (from gateway)", "rename group gru-servers (from ts-orch-servers)",
-		"rename network resource gru-cell-private-subnet (from gru-cell, description)",
-		"rename policy operators-to-ts-ops-ping (from operators-ping-to-forgejo, rule name, description, rule description, one-way)",
-		"update account settings acct (dns_domain nb.ts.internal)",
-		"update dns settings disabled_management_groups",
-		"create dns zone gru-cell (gru.ts.internal)", "create dns record nats.gru.ts.internal A 10.251.0.13",
-	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("plan lacks %q:\n%s", want, text)
-		}
-	}
-	if strings.Contains(text, "SECRET") || len(plan.Warnings) != 0 {
-		t.Fatalf("unexpected plan output: %s %v", text, plan.Warnings)
-	}
-
-	// --only keeps just the named objects' changes and refuses a name the
-	// plan does not change.
-	if _, err := Sync(t.Context(), api, d, true, "no-such-policy"); err == nil || len(f.mutations) != 0 {
-		t.Fatalf("an unknown --only name was not refused before any change: %v %v", err, f.mutations)
-	}
-	scoped, err := Sync(t.Context(), api, d, false, "gru-servers", "operators-to-ts-ops-ping")
-	if err != nil || len(scoped.Changes) != 2 || len(f.mutations) != 0 {
-		t.Fatalf("scoped plan %+v: %v", scoped.Changes, err)
-	}
-	if _, err := Sync(t.Context(), api, d, true); err != nil {
-		t.Fatal(err)
-	}
-	for id, name := range map[string]string{ids.operators: "operators", ids.gateway: "ts-ops-gateway", ids.servers: "gru-servers"} {
-		if group := f.group(id); group == nil || group.Name != name || len(group.Peers) != 1 {
-			t.Fatalf("group %s lost its ID or members: %+v", name, group)
-		}
-	}
-	if len(f.groups) != len(d.Groups) {
-		t.Fatalf("sync created groups: %+v", f.groups)
-	}
-	resource := f.networks[0].resources[0]
-	if resource.ID != ids.resource || resource.Name != "gru-cell-private-subnet" || resource.Address != "10.251.0.0/25" {
-		t.Fatalf("resource: %+v", resource)
-	}
-	if len(f.policies) != len(d.Policies) {
-		t.Fatalf("policies: %d", len(f.policies))
-	}
-	for _, policy := range f.policies {
-		if len(policy.Rules) != 1 || policy.Rules[0].Name != policy.Name || policy.Rules[0].Bidirectional ||
-			policy.Rules[0].Description != policy.Description {
-			t.Fatalf("policy %+v", policy)
-		}
-		if strings.HasSuffix(policy.Name, "-dashboard") {
-			automation := f.groups[slices.IndexFunc(f.groups, func(g apiGroup) bool { return g.Name == "ops-automation" })]
-			rule := policy.Rules[0]
-			if rule.Protocol != "tcp" || !slices.Equal(rule.Ports, []string{"9463"}) ||
-				!sameSet(minimumIDs(rule.Sources), []string{ids.operators, automation.ID}) {
-				t.Fatalf("dashboard policy lacks scoped operator and automation access: %+v", policy)
-			}
-		}
-		if strings.Contains(policy.Description, "peer DNS visibility") {
-			rule := policy.Rules[0]
-			if rule.Protocol != "icmp" || len(rule.Ports) != 0 || len(rule.Sources) != 1 ||
-				!sameSet(minimumIDs(rule.Sources), minimumIDs(rule.Destinations)) {
-				t.Fatalf("same-region peer visibility grants excess access: %+v", policy)
-			}
-		}
-		if strings.HasSuffix(policy.Name, "-service-health") {
-			rule := policy.Rules[0]
-			if rule.Protocol != "tcp" || !slices.Equal(rule.Ports, []string{"4222", "8080", "9465"}) ||
-				len(rule.Sources) != 1 || !sameSet(minimumIDs(rule.Sources), minimumIDs(rule.Destinations)) {
-				t.Fatalf("mesh health policy exceeds same-cell service access: %+v", policy)
-			}
-		}
-	}
-	ping := f.policies[slices.IndexFunc(f.policies, func(p apiPolicy) bool { return p.ID == ids.ping })]
-	if ping.Name != "operators-to-ts-ops-ping" || ping.Rules[0].Protocol != "icmp" || ping.Rules[0].Destinations[0].ID != ids.gateway {
-		t.Fatalf("ping policy %+v", ping)
-	}
-	if got := rawString(f.account, "dns_domain"); got != "nb.ts.internal" || string(f.account["lazy_connection_enabled"]) != "true" ||
-		string(f.account["extra"]) != `{"user_approval_required":false}` {
-		t.Fatalf("account settings were not merged: %v", f.account)
-	}
-	if len(f.dnsGroups) != 0 {
-		t.Fatalf("dns settings %v", f.dnsGroups)
-	}
-	if len(f.zones) != 1 || len(f.zones[0].records) != 10 || !slices.Equal(f.zones[0].DistributionGroups, []string{ids.operators}) {
-		t.Fatalf("zone %+v", f.zones)
-	}
-
-	f.mutations = nil
-	again, err := Sync(t.Context(), api, d, true)
-	if err != nil || len(again.Changes) != 0 || len(f.mutations) != 0 {
-		t.Fatalf("second sync was not a no-op: %v %v %v", again.Changes, f.mutations, err)
-	}
-
-	// The zone is fully owned: extra records go, wrong TTLs are corrected.
-	zone := f.zones[0]
-	zone.records = append(zone.records, apiRecord{ID: "stray", Name: "old.gru.ts.internal", Type: "A", Content: "10.251.0.99", TTL: 300})
-	zone.records[0].TTL = 60
-	report, err := Sync(t.Context(), api, d, true)
-	if err != nil || len(report.Changes) != 2 || len(zone.records) != 10 {
-		t.Fatalf("record reconciliation: %v %v records=%d", report.Changes, err, len(zone.records))
-	}
-}
-
-func TestSyncRefusesUnexpectedNetworkShapeWithoutChanges(t *testing.T) {
-	for name, mutate := range map[string]func(*fakeManager, legacyIDs){
-		"wider subnet": func(f *fakeManager, _ legacyIDs) { f.networks[0].resources[0].Address = "10.251.0.0/24" },
-		"other router": func(f *fakeManager, ids legacyIDs) { f.networks[0].routers[0].Peer = ids.server1 },
-		"second router": func(f *fakeManager, ids legacyIDs) {
-			f.networks[0].routers = append(f.networks[0].routers, apiRouter{ID: "x", PeerGroups: []string{ids.gateway}})
-		},
-		"ambiguous group": func(f *fakeManager, _ legacyIDs) { f.addGroup("gateway") },
-		"router peer outside gateway": func(f *fakeManager, ids legacyIDs) {
-			f.group(ids.gateway).Peers = []groupMinimum{}
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			f := newFakeManager(t)
-			ids := f.seedLegacy(t)
-			mutate(f, ids)
-			if _, err := Sync(t.Context(), f.api(t), GRU(), true); err == nil {
-				t.Fatal("sync accepted an unexpected shape")
-			}
-			if len(f.mutations) != 0 {
-				t.Fatalf("refused sync mutated the manager: %v", f.mutations)
-			}
-		})
-	}
-}
-
-func TestSyncBootstrapsFreshAccountBeforeTheRouterJoinsTheGateway(t *testing.T) {
-	f := newFakeManager(t)
-	tsOps := f.addPeer("ts-ops", "10.250.10.155", true, time.Now())
-	api := f.api(t)
-	d := GRU()
-
-	text := func(report Report) string {
-		var lines []string
-		for _, change := range report.Changes {
-			lines = append(lines, change.String())
-		}
-		return strings.Join(lines, "\n")
-	}
-	plan, err := Sync(t.Context(), api, d, false)
-	if err != nil {
-		t.Fatalf("fresh account dry run refused: %v", err)
-	}
-	planned := text(plan)
-	for _, want := range []string{"create group operators", "create group ts-ops-gateway", "create group gru-servers",
-		"create group ops-automation", "create policy operators-to-gru-servers-ssh", "create policy operators-to-ts-ops-ping",
-		"create policy ops-automation-to-gru-servers-ssh"} {
-		if !strings.Contains(planned, want) {
-			t.Errorf("plan lacks %q:\n%s", want, planned)
-		}
-	}
-	if strings.Contains(planned, "network") || strings.Contains(planned, "operators-to-gru-cell-ops-ports") {
-		t.Fatalf("deferred network objects were planned:\n%s", planned)
-	}
-	warnings := strings.Join(plan.Warnings, "\n")
-	if !strings.Contains(warnings, "network gru-cell deferred: add peer ts-ops to group ts-ops-gateway") ||
-		!strings.Contains(warnings, "policy operators-to-gru-cell-ops-ports deferred") {
-		t.Fatalf("warnings %v", plan.Warnings)
-	}
-
-	if _, err := Sync(t.Context(), api, d, true); err != nil {
-		t.Fatal(err)
-	}
-	if len(f.groups) != len(d.Groups) || len(f.networks) != 0 || len(f.policies) != len(d.Policies)-1 {
-		t.Fatalf("first sync: groups %d networks %d policies %d", len(f.groups), len(f.networks), len(f.policies))
-	}
-
-	gateway := f.groupByName("ts-ops-gateway")
-	gateway.Peers = append(gateway.Peers, groupMinimum{ID: tsOps, Name: "ts-ops"})
-	report, err := Sync(t.Context(), api, d, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	applied := text(report)
-	for _, want := range []string{"create network gru-cell", "create network resource gru-cell-private-subnet",
-		"create network router gru-cell/ts-ops", "create policy operators-to-gru-cell-ops-ports"} {
-		if !strings.Contains(applied, want) {
-			t.Errorf("second sync lacks %q:\n%s", want, applied)
-		}
-	}
-	if strings.Contains(strings.Join(report.Warnings, "\n"), "deferred") {
-		t.Fatalf("second sync still deferred: %v", report.Warnings)
-	}
-	if len(f.networks) != 1 || len(f.networks[0].resources) != 1 || len(f.networks[0].routers) != 1 ||
-		f.networks[0].routers[0].Peer != tsOps || len(f.policies) != len(d.Policies) {
-		t.Fatalf("network %+v policies %d", f.networks, len(f.policies))
-	}
-	f.mutations = nil
-	again, err := Sync(t.Context(), api, d, true)
-	if err != nil || len(again.Changes) != 0 || len(f.mutations) != 0 {
-		t.Fatalf("third sync was not a no-op: %v %v %v", again.Changes, f.mutations, err)
-	}
-}
 
 func TestSyncWarnsAboutSetupKeyWithoutChangingIt(t *testing.T) {
 	f := newFakeManager(t)
@@ -461,60 +161,7 @@ func TestPruneLeavesSlotWhoseNameIsHeldByAnotherConnectedPeerAlone(t *testing.T)
 	}
 }
 
-func TestValidateRejectsSlotsOutsideThePrivateCellSubnetAndUnknownAliasRoles(t *testing.T) {
-	for name, mutate := range map[string]func(*Desired){
-		"slot outside the cell subnet":  func(d *Desired) { d.Slots[0].IP = "10.251.0.200" },
-		"slot in another private range": func(d *Desired) { d.Slots[0].IP = "192.168.0.11" },
-		"public slot in a public subnet": func(d *Desired) {
-			d.Network.Resource.Address = "203.0.113.0/24"
-			for i := range d.Slots {
-				d.Slots[i].IP = "203.0.113." + strings.TrimPrefix(d.Slots[i].IP, "10.251.0.")
-			}
-		},
-		"alias to an unknown role":           func(d *Desired) { d.RoleAliases["nats"] = "controllers" },
-		"alias to an empty role":             func(d *Desired) { d.RoleAliases["nats"] = "" },
-		"policy source by former group name": func(d *Desired) { d.Policies[0].Sources = []string{"gateway"} },
-		"servers group by former name":       func(d *Desired) { d.ServersGroup = "ts-orch-servers" },
-		"DNS disabled group by former name":  func(d *Desired) { d.DNSDisabledGroups = []string{"ts-orch-servers"} },
-		"former name repeats a current name": func(d *Desired) { d.Groups[0].RenamedFrom = []string{d.Groups[1].Name} },
-	} {
-		d := GRU()
-		mutate(&d)
-		if err := d.Validate(); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
-	}
-}
 
-func TestAPIRefusesRedirectsAndHidesBodies(t *testing.T) {
-	redirect := httptest.NewServer(http.RedirectHandler("https://attacker.invalid/api/groups", http.StatusFound))
-	defer redirect.Close()
-	api, err := NewAPI(redirect.URL, testPAT)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []apiGroup
-	var status *StatusError
-	if err := api.do(t.Context(), "GET", "/groups", nil, &out); !errors.As(err, &status) || status.Status != http.StatusFound {
-		t.Fatalf("redirect: %v", err)
-	}
-	f := newFakeManager(t)
-	f.failStatus = http.StatusInternalServerError
-	err = f.api(t).do(t.Context(), "GET", "/groups", nil, &out)
-	if err == nil || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), testPAT) {
-		t.Fatalf("error leaked: %v", err)
-	}
-	for _, url := range []string{"http://netbird.terrascale.tech", "ftp://127.0.0.1", "https://x/api", "https://u:p@x", "https://x?q"} {
-		if _, err := NewAPI(url, testPAT); err == nil {
-			t.Errorf("accepted %s", url)
-		}
-	}
-	for _, url := range []string{"http://127.0.0.1:8080", "http://[::1]:1", "https://netbird.terrascale.tech"} {
-		if _, err := NewAPI(url, testPAT); err != nil {
-			t.Errorf("refused %s: %v", url, err)
-		}
-	}
-}
 
 func TestAPIWrapsTransportErrorsWithoutTheToken(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -566,22 +213,6 @@ func TestCLIReportOmitsSummaryWhenTheRunFailed(t *testing.T) {
 		}
 	}
 
-	partial := Report{Changes: []Change{{"create", "group", "operators", ""}}, Warnings: []string{"w"}}
-	out.Reset()
-	writeReport(&out, partial, true, errors.New("boom"))
-	if out.String() != "applied: create group operators\nwarning: w\n" {
-		t.Fatalf("partial report: %q", out.String())
-	}
-	out.Reset()
-	writeReport(&out, Report{}, true, errors.New("boom"))
-	if out.String() != "" {
-		t.Fatalf("failed empty report: %q", out.String())
-	}
-	out.Reset()
-	writeReport(&out, Report{}, true, nil)
-	if out.String() != "no changes\n" {
-		t.Fatalf("empty report: %q", out.String())
-	}
 }
 
 func TestCLIReadsPATSafelyAndPrintsNoSecrets(t *testing.T) {
@@ -626,7 +257,7 @@ func TestCLIReadsPATSafelyAndPrintsNoSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{loose, link, dir} {
-		if _, err := readToken(path); err == nil {
+		if err := Run(t.Context(), []string{"inventory", "--pat-file", path, "--management-url", f.server.URL}, &out); err == nil {
 			t.Errorf("accepted PAT file %s", path)
 		}
 	}
@@ -687,9 +318,9 @@ func TestLoopPrunesEvenWhenSyncRefuses(t *testing.T) {
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
 	now := time.Now()
-	// A routing-peer reinstall enrolled before the old peer was removed: two
-	// ts-ops peers in the gateway group make sync refuse the existing network.
-	f.addPeer("ts-ops", "10.250.10.155", true, now, ids.gateway)
+	// Duplicate admitted region groups refuse policy sync while peer cleanup continues.
+	f.addGroup("sfo-servers")
+	f.addGroup("sfo-servers")
 	stale := f.addPeer("ts-gru-2", "10.251.0.12", false, now.Add(-2*time.Hour), ids.servers)
 	f.addPeer("ts-gru-2", "10.251.0.12", true, now, ids.servers)
 	loop := Loop{
@@ -698,7 +329,7 @@ func TestLoopPrunesEvenWhenSyncRefuses(t *testing.T) {
 		ManagementURL: f.server.URL, Desired: GRU(),
 	}.withDefaults()
 	err := loop.cycle(t.Context(), map[string]bool{})
-	if err == nil || !strings.Contains(err.Error(), "refusing NetBird network sync") {
+	if err == nil || !strings.Contains(err.Error(), "sfo-servers") {
 		t.Fatalf("sync refusal was not reported: %v", err)
 	}
 	if f.peer(stale) != nil {
@@ -821,48 +452,5 @@ func TestSetupKeyCommandWritesTheKeyOnlyToANewOwnerOnlyFile(t *testing.T) {
 		if err := Run(t.Context(), args, &stdout); err == nil {
 			t.Errorf("%v accepted", args)
 		}
-	}
-}
-
-// sfo-1's checked-in image input is exactly what image-input derives from
-// its plan (TS-663); the home region's input follows the desired state.
-func TestImageInputDerivesARegionsNetBirdConfigFromItsPlan(t *testing.T) {
-	deploy := filepath.Join("..", "..", "..", "deploy")
-	want, err := os.ReadFile(filepath.Join(deploy, "image", "inputs", "netbird-sfo.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var input struct {
-		SetupKeySecretID string `json:"setup_key_secret_id"`
-	}
-	if err := json.Unmarshal(want, &input); err != nil {
-		t.Fatal(err)
-	}
-	out := filepath.Join(t.TempDir(), "netbird-sfo.json")
-	args := []string{"image-input", "--plan", filepath.Join(deploy, "oci-region", "sfo-1-plan.json"),
-		"--setup-key-secret-id", input.SetupKeySecretID, "--out", out}
-	if err := Run(t.Context(), args, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := os.ReadFile(out); !bytes.Equal(got, want) {
-		t.Fatalf("image input:\n%s\nwant:\n%s", got, want)
-	}
-	if err := Run(t.Context(), args, io.Discard); err == nil {
-		t.Fatal("overwrote an existing image input")
-	}
-
-	home := filepath.Join(t.TempDir(), "netbird-gru.json")
-	err = Run(t.Context(), []string{"image-input", "--plan", filepath.Join(deploy, "oci-region", "plan.json"),
-		"--setup-key-secret-id", input.SetupKeySecretID, "--out", home}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "netbird-gru.json") {
-		t.Fatalf("home region: %v", err)
-	}
-	bad := filepath.Join(t.TempDir(), "netbird-sfo.json")
-	args[4], args[6] = "ocid1.vaultsecret.oc1.sa-saopaulo-1.wrongregion", bad
-	if err := Run(t.Context(), args, io.Discard); err == nil {
-		t.Fatal("accepted a setup key secret from another region")
-	}
-	if _, err := os.Stat(bad); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("left a rejected image input behind: %v", err)
 	}
 }

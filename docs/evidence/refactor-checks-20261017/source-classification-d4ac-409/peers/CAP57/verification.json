@@ -1,0 +1,63 @@
+{
+  "accepted_owner_dispositions": 56,
+  "accounting_promotion_authorized": false,
+  "all_direct_t_assertion_calls_covered": true,
+  "allocated_roots": 57,
+  "allocation_bounded_spans_verified": 6,
+  "assertion_sites_verified": 217,
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "baseline_test_file_pins_verified": 12,
+  "batch_id": "CAP57",
+  "category_corrections": 1,
+  "complete_test_files": 12,
+  "condition_sites_verified": 309,
+  "declarations_rehashed": 114,
+  "excluded_overlap": [],
+  "flattened_exclusions": 200,
+  "go_build_test_runtime_cloud_process_listener_lock_actions": false,
+  "literal_ids_exact": true,
+  "material_assertion_blocks_verified": 11,
+  "owner_counts_verified": {
+    "integration": 7,
+    "mixed": 3,
+    "unit": 46,
+    "unresolved": 1
+  },
+  "owner_directory_mode": "0555",
+  "owner_evidence_spans_verified": 343,
+  "owner_files_mode": "0444",
+  "owner_manifest": {
+    "bytes": 246,
+    "path": "/tmp/ts-cap57-d4ac-source-classification-r9lqashl/SHA256SUMS",
+    "sha256": "60c93633dfd33c489dcbe0e070d653bd523ded0f929b5135642ef21c96c86453"
+  },
+  "owner_manifest_entries_verified": [
+    "README.md",
+    "classification.json",
+    "verification.json"
+  ],
+  "owner_report": {
+    "bytes": 1458917,
+    "path": "/tmp/ts-cap57-d4ac-source-classification-r9lqashl/classification.json",
+    "sha256": "e72f6069898051c2a1d22160d476f99583d89c60c936bca66376b1f807e685a0"
+  },
+  "peer_counts": {
+    "integration": 8,
+    "mixed": 2,
+    "unit": 46,
+    "unresolved": 1
+  },
+  "prior79_overlap": [],
+  "project_source_git_ledger_mutation": false,
+  "qualification_transfer_from_7330": false,
+  "retirement_authorized": false,
+  "retirement_count": 0,
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "schema": "ts-source-peer-static-verification-v1",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_file_pins_and_full_texts_verified": 51,
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "static_checker_is_not_runtime_evidence": true,
+  "unique_file_pin_versions_verified": 63,
+  "unresolved_roots_preserved": 1
+}

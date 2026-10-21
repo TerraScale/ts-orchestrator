@@ -6,19 +6,18 @@ import (
 	"os"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
-	"github.com/TerraScale/ts-orchestrator/internal/kvsnapshot"
 	"github.com/TerraScale/ts-orchestrator/internal/machinesapi"
-	"github.com/TerraScale/ts-orchestrator/internal/membership"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/roleconfig"
 )
 
 const maxConfigBytes = 1 << 20
 
 // ConfigVersion is the only supported role-config contract.
-// Removed settings must be deleted from signed configs before rollout.
-const ConfigVersion = 1
+// Legacy configs require newly produced and signed desired state before rollout.
+const ConfigVersion = roleconfig.Version
 
 // Config is the one binary's role-specific configuration. A controller and a
 // host can share the same schema while holding separate credentials and files.
@@ -61,10 +60,6 @@ type ControllerConfig struct {
 	// OciReconcile enables the declarative OCI resource reconcilers; nil or
 	// disabled keeps them off.
 	OciReconcile *OciReconcileConfig `json:"oci_reconcile,omitempty"`
-	// TerraBaseSeats restarts static TerraBase members one seat at a time,
-	// drained on the public load balancer first (TS-571). Off when nil or
-	// not enabled.
-	TerraBaseSeats *TerraBaseSeatsConfig `json:"terrabase_seats,omitempty"`
 	// SelfUpdateProofFile is where a ready controller writes the version
 	// proof for a pending self-update activation, signed with its response
 	// key; empty means selfupdate.DefaultProofFile, which the image's
@@ -77,18 +72,13 @@ type ControllerConfig struct {
 	// both set, qualify the managed-host image from its own root-delegated
 	// image receipt instead of the controller's accepted boot image, so
 	// hosts can move to a newer qualified image independently.
-	ManagedHostImageReceiptFile    string `json:"managed_host_image_receipt_file,omitempty"`
-	ManagedHostImageDelegationFile string `json:"managed_host_image_delegation_file,omitempty"`
-	// Membership enables controller slot supervision; nil keeps it off.
-	Membership *membership.Config `json:"membership,omitempty"`
-	Autoscale  *AutoscaleConfig   `json:"autoscale,omitempty"`
+	ManagedHostImageReceiptFile    string           `json:"managed_host_image_receipt_file,omitempty"`
+	ManagedHostImageDelegationFile string           `json:"managed_host_image_delegation_file,omitempty"`
+	Autoscale                      *AutoscaleConfig `json:"autoscale,omitempty"`
 	// Global optionally pins the home derived from the signed interregion
 	// topology; global control always starts.
 	Global    *GlobalControlConfig `json:"global,omitempty"`
 	SpecTrust *SpecTrustConfig     `json:"spec_trust,omitempty"`
-	// KVSnapshot keeps the configuration KV buckets in OCI Object Storage
-	// and restores them into a rebuilt cell. Off by default.
-	KVSnapshot kvsnapshot.Config `json:"kv_snapshot,omitzero"`
 	// MachinesAPI serves the Machines REST API (docs/machines-api.md); nil
 	// keeps it off.
 	MachinesAPI *machinesapi.Config `json:"machines_api,omitempty"`
@@ -173,9 +163,6 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if err := cfg.Observability.Validate(); err != nil {
 		return Config{}, fmt.Errorf("observability config: %w", err)
-	}
-	if err := cfg.Controller.KVSnapshot.Validate(); err != nil {
-		return Config{}, err
 	}
 	if api := cfg.Controller.MachinesAPI; api != nil {
 		if err := api.Validate(); err != nil {

@@ -60,7 +60,7 @@ func TestRecoverQuorumBindsConfigToTheAdmittedController(t *testing.T) {
 func TestRecoveryTargetRequiresFixedListeners(t *testing.T) {
 	root := t.TempDir()
 	config := filepath.Join(root, "controller.json")
-	if err := os.WriteFile(config, []byte(`{"version":1,"nats":{"cell":"gru","instance":"controller-a","replicas":3,`+
+	if err := os.WriteFile(config, []byte(`{"version":2,"nats":{"cell":"gru","instance":"controller-a","replicas":3,`+
 		`"embedded":{"host":"127.0.0.1","port":-1,"store_dir":"/var/lib/x"}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

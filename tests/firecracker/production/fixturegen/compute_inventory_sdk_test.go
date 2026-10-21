@@ -1,14 +1,19 @@
 package fixturegen
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,18 +25,62 @@ import (
 
 const fixtureTenancyOCID = "ocid1.tenancy.oc1..restartfixture"
 
-type packetSimulatorDispatcher struct{ simulator *production.Simulator }
+type packetSimulatorDispatcher struct {
+	t       *testing.T
+	server  *httptest.Server
+	client  *http.Client
+	allowed map[string][]byte
+}
+
+func newPacketSimulatorDispatcher(t *testing.T, config production.Config) (*production.Simulator, packetSimulatorDispatcher) {
+	t.Helper()
+	simulator, err := production.NewSimulator(config)
+	if err != nil {
+		t.Fatalf("simulator rejected packet routes: %v", err)
+	}
+	server := httptest.NewServer(simulator)
+	t.Cleanup(server.Close)
+	transport := &http.Transport{Proxy: nil}
+	t.Cleanup(transport.CloseIdleConnections)
+	client := &http.Client{Transport: transport, Timeout: 10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	allowed := map[string][]byte{"POST\nauth.sa-saopaulo-1.oraclecloud.com\n/v1/x509": nil}
+	for _, path := range []string{"/opc/v2/instance/id", "/opc/v2/instance/metadata/terrascale-bootstrap",
+		"/opc/v2/instance/region", "/opc/v2/identity/cert.pem", "/opc/v2/identity/key.pem",
+		"/opc/v2/identity/intermediate.pem", "/opc/v2/vnics/"} {
+		allowed["GET\n169.254.169.254\n"+path] = nil
+	}
+	for _, read := range config.Reads {
+		allowed["GET\n"+read.Host+"\n"+read.RequestURI] = bytes.Clone(read.Body)
+	}
+	return simulator, packetSimulatorDispatcher{t: t, server: server, client: client, allowed: allowed}
+}
 
 func (dispatcher packetSimulatorDispatcher) Do(request *http.Request) (*http.Response, error) {
 	request = request.Clone(request.Context())
 	if request.Host == "" {
 		request.Host = request.URL.Host
 	}
-	response := httptest.NewRecorder()
-	dispatcher.simulator.ServeHTTP(response, request)
-	result := response.Result()
-	result.Request = request
-	return result, nil
+	key := request.Method + "\n" + request.Host + "\n" + request.URL.RequestURI()
+	expected, allowed := dispatcher.allowed[key]
+	if !allowed || request.Host != request.URL.Host {
+		return nil, fmt.Errorf("SDK request is outside exact packet routes")
+	}
+	request.URL.Scheme = "http"
+	request.URL.Host = strings.TrimPrefix(dispatcher.server.URL, "http://")
+	request.RequestURI = ""
+	response, err := dispatcher.client.Do(request)
+	if err != nil || expected == nil {
+		return response, err
+	}
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, int64(len(expected))+1))
+	closeErr := response.Body.Close()
+	if readErr != nil || closeErr != nil || response.StatusCode != http.StatusOK || !bytes.Equal(body, expected) {
+		return nil, fmt.Errorf("SDK socket response differs from packet provider bytes: status=%d read=%v close=%v", response.StatusCode, readErr, closeErr)
+	}
+	dispatcher.t.Logf("SDK socket response route_sha256=%x body_sha256=%x", sha256.Sum256([]byte(key)), sha256.Sum256(body))
+	response.Body = io.NopCloser(bytes.NewReader(body))
+	return response, nil
 }
 
 // assertPacketComputeSDK exercises the signed packet's exact routes through
@@ -48,11 +97,8 @@ func assertPacketComputeSDK(t *testing.T, packet VerifiedPacket, slot string,
 	if config.PrimaryPrivateIP != vnic.PrimaryPrivateIP {
 		t.Fatalf("%s simulator VNIC address = %q, want %q", slot, config.PrimaryPrivateIP, vnic.PrimaryPrivateIP)
 	}
-	simulator, err := production.NewSimulator(config)
-	if err != nil {
-		t.Fatalf("%s simulator rejected packet routes: %v", slot, err)
-	}
-	dispatcher := packetSimulatorDispatcher{simulator: simulator}
+	simulator, dispatcher := newPacketSimulatorDispatcher(t, config)
+	defer dispatcher.server.Close()
 	provider, err := auth.InstancePrincipalConfigurationForRegionWithCustomClient(
 		common.Region("sa-saopaulo-1"),
 		func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) { return dispatcher, nil })
@@ -107,7 +153,7 @@ func assertPacketComputeSDK(t *testing.T, packet VerifiedPacket, slot string,
 		t.Fatalf("%s SDK GetSubnet decoded unexpected network identity: %+v, %v", slot, subnet, err)
 	}
 	additionalComputeReads := assertPacketComputeObserver(t, provider, &compute, &network,
-		observed, vnic, instance, primary)
+		observed, vnic, instance, primary, config)
 	computeReads := 0
 	for _, request := range simulator.Requests() {
 		if !request.Listed || request.Status != http.StatusOK {

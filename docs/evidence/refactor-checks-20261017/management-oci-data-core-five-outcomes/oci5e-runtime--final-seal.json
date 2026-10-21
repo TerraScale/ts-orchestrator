@@ -1,0 +1,32 @@
+{
+  "state": "SOURCE_ONLY_RUNTIME_PACKET_UNGRANTED_UNEXECUTED",
+  "artifacts": [
+    {
+      "path": "fullsource-manifest.json",
+      "sha256": "dbd06e52748c518dff1069ee764deef16c38a76490ea73b7409d5440a71daff9",
+      "bytes": 595944
+    },
+    {
+      "path": "readiness-supplement.json",
+      "sha256": "37b13f54c16186e68b238e649754fc0d055a598e01d8a7da60b545adc524e70d",
+      "bytes": 1320
+    },
+    {
+      "path": "request.json",
+      "sha256": "83b7f2168a61155cb20a26128e1e0a29d1bb51a22c30bb241b076cd2f353cba4",
+      "bytes": 5831
+    },
+    {
+      "path": "run.py",
+      "sha256": "b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b",
+      "bytes": 4412
+    },
+    {
+      "path": "runtime-readiness.json",
+      "sha256": "4682fe5c0e12638a7f0e9b127a8d7e616bfbcfc0182ac87824c85cb1463ff59a",
+      "bytes": 82564
+    }
+  ],
+  "original_binary_remains0600_unexecuted": true,
+  "runtime_binary_absent": true
+}

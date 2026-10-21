@@ -5,9 +5,18 @@ no external issue tracker is required. See [release boundaries](releases.md).
 
 ## Green main to every server
 
-`ci.yml` validates the exact main revision, builds static amd64/arm64 binaries,
-and retains their qualification manifest. Its final step dispatches `deploy.yml`;
-a dispatch failure fails CI. Documentation-only main changes also build and deploy.
+`ci.yml` checks every revision. It builds static amd64/arm64 binaries only when
+executable or baked image inputs differ from retained qualification, and retains
+their exact source manifest before dispatching `deploy.yml`. A dispatch failure
+fails CI. Documentation-only changes run checks without publishing binaries,
+recording a runtime qualification status or dispatching image/fleet delivery.
+The comparison uses a complete retained successful main-ancestor release, never
+the push parent: a cancelled runtime change still builds on the next docs push.
+Missing or unreadable provenance builds current source. Weekly image refreshes
+always build a candidate from the current source and run; older bytes keep their
+original source identity. Image and deployment tools use the retained amd64
+binary after both artifact digests, VCS metadata and CI manifest/job provenance
+have been verified; those jobs do not compile another orchestrator.
 The deploy job checks main ancestry before using credentials, waits up to five
 minutes for the producing CI run, and rejects failed or cancelled runs. A queued
 revision overtaken by a newer qualified main revision is skipped. An active

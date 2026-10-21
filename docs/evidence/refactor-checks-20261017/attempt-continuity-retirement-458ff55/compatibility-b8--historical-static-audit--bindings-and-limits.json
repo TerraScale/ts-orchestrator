@@ -1,0 +1,133 @@
+{
+  "state": "STATIC_SOURCE_ONLY_NO_GO_DISCOVERY_NO_RUNTIME_NO_LEASE",
+  "commit": "cc37fe13cace70584c45ee368d6edcd80ebc5f2d",
+  "tree": "98aa116b8e32c0240b4fa1151bac47a5a7a410bd",
+  "parent": "09fbf0bbac1d54b4ad31d12bcd8c37cf8115ef23",
+  "bindings": {
+    "/tmp/ts-attempt-phase-dispatch-integration/internal/attempt/phase_dispatch_integration_test.go": "0778c923f4cd774814acbcfb9bc5f2f0e006ca58ae3c37f4087bb033c3240892",
+    "/tmp/ts-attempt-phase-dispatch-integration/internal/attempt/cloud_test.go": "69a11044751e5737dd6116f372f03d2c3717c62e4fe35e5b043369c868e524bd",
+    "/tmp/ts-attempt-phase-dispatch-integration/go.mod": "3dcc9ecb65641323ccb85a6383ad370d328ccc3ef47545227abb38e7b8474d4f",
+    "/tmp/ts-attempt-phase-dispatch-integration/go.sum": "8b66a5397e2d3eddd6f553f081eb34365352c104503b72a813bc21a4ebf3dca3",
+    "/tmp/ts-attempt-phase-dispatch-cc37-source-kh0o533k/request.json": "67bc411484ec63ce076328a0118171bd4578d0434439a8ddf78cfd4f3ba30894",
+    "/tmp/ts-attempt-phase-dispatch-cc37-source-kh0o533k/SHA256SUMS": "442231a57701cd42912c14f1aeff48a8e9fd41bf18b8602a8b9643c44bedbc72",
+    "/tmp/ts-attempt-phase-dispatch-cc37-runner-motzk9sh/run.py": "cd42b3fcee241b6aed2ae6df5ba0167eb4e9d9086b916db5a69949f5f730df78",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+    "/run/current-system/sw/bin/git": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027",
+    "/run/current-system/sw/bin/nice": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/timeout": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/env": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+  },
+  "closure_sha256": "2bfb4b8e5dab2c68e39fcd06b5016ccbf4b0bc72a7e45168d8bbaf0ca5333d07",
+  "counts": {
+    "package_entries": 428,
+    "files_enumerated": 4394,
+    "selection": {
+      "selected-static": 3932,
+      "excluded-constraint": 147,
+      "excluded-filename": 311,
+      "ambiguous-legacy-constraint": 4
+    },
+    "init_declarations": 117,
+    "var_candidates": 687,
+    "classification": {
+      "local-construction-candidate": 567,
+      "local-entropy-wrapper-only": 2,
+      "local-construction-or-registration": 71,
+      "lazy-function-registration": 2,
+      "local-registration-with-deferred-sdk-calls": 2,
+      "environment-read-and-local-context": 1,
+      "environment-read-and-logger-setup": 2,
+      "background-local-goroutine": 1,
+      "local-metric-registration-with-deferred-callbacks": 2,
+      "guarded-process-path-unreached": 2,
+      "deferred-function-or-pool-registration": 18,
+      "local-static-address-formatting": 1,
+      "local-random-and-clock-setup": 1,
+      "runtime-metadata-read-with-possible-stderr": 1,
+      "local-table-or-registry-setup": 18,
+      "local-os-or-clock-metadata": 4,
+      "local-os-read-goroutine-and-timer": 1,
+      "local-registration": 1,
+      "local-static-region-catalog-copy": 1,
+      "local-channel-create-and-close": 1,
+      "kernel-entropy-and-local-random-setup": 1,
+      "local-protobuf-registration": 62,
+      "local-os-read-and-recurring-timer": 1,
+      "local-cpu-detection-and-environment-read": 1,
+      "local-cpu-flag-copy": 1,
+      "local-filesystem-read": 1,
+      "function-type-conversion": 2,
+      "local-grpc-registration": 21,
+      "guarded-file-write-unreached": 1,
+      "local-http-handler-registration": 1,
+      "deferred-function-value-registration": 2,
+      "environment-read-and-local-registration": 1,
+      "local-binarylog-config-construction": 1,
+      "environment-read": 6,
+      "local-descriptor-decoding-with-error-exit": 1,
+      "local-seed-dependent-string": 1,
+      "local-executable-read": 1
+    },
+    "missing_mapping_or_cache": 0,
+    "lexical_errors": 0,
+    "reachable_modules": 37
+  },
+  "ambiguous_build_constraints": [
+    {
+      "sha256": "849342d70a6cf2eb2cd2bc193ea5981d5a568636309e2c7126772545ca9481ed",
+      "package": "github.com/gogo/protobuf/proto",
+      "module": "github.com/gogo/protobuf",
+      "version": "v1.3.2",
+      "selection": "ambiguous-legacy-constraint",
+      "build_constraint": "",
+      "path": "/home/mariogk/go/pkg/mod/github.com/gogo/protobuf@v1.3.2/proto/pointer_reflect.go"
+    },
+    {
+      "sha256": "f5fff497c8de304a2a37b737fe9b02e5bd533c005f16951df1242421b9816bb6",
+      "package": "github.com/gogo/protobuf/proto",
+      "module": "github.com/gogo/protobuf",
+      "version": "v1.3.2",
+      "selection": "ambiguous-legacy-constraint",
+      "build_constraint": "",
+      "path": "/home/mariogk/go/pkg/mod/github.com/gogo/protobuf@v1.3.2/proto/pointer_reflect_gogo.go"
+    },
+    {
+      "sha256": "188390aa8e30ca45b24ee069af1a3c9ce6615e2d60f496b4565d478efc35d225",
+      "package": "github.com/gogo/protobuf/proto",
+      "module": "github.com/gogo/protobuf",
+      "version": "v1.3.2",
+      "selection": "ambiguous-legacy-constraint",
+      "build_constraint": "",
+      "path": "/home/mariogk/go/pkg/mod/github.com/gogo/protobuf@v1.3.2/proto/pointer_unsafe.go"
+    },
+    {
+      "sha256": "b3f3f39101332fb46c09a8af73786107c8a4ddc8c80c502c931b295887c6a76b",
+      "package": "github.com/gogo/protobuf/proto",
+      "module": "github.com/gogo/protobuf",
+      "version": "v1.3.2",
+      "selection": "ambiguous-legacy-constraint",
+      "build_constraint": "",
+      "path": "/home/mariogk/go/pkg/mod/github.com/gogo/protobuf@v1.3.2/proto/pointer_unsafe_gogo.go"
+    }
+  ],
+  "legacy_constraint_interpretation": "Four gogo/protobuf pointer files use only legacy +build lines. Scanner retains both variants conservatively. Manual reading: purego appengine js reflect alternatives are false for stated gc/linux/amd64/no tags; !purego,!appengine,!js unsafe variants are true. This is documented interpretation, not Go-toolchain selection evidence.",
+  "runner_directory_entries": [
+    "run.py"
+  ],
+  "verification": "All 4394 enumerated source files and every sealed-packet manifest entry rehashed unchanged. HEAD/tree/full status, original test, new source, root module files, request, packet manifest and runner match frozen bindings. No source edits, Go execution, test execution, lease, runner invocation or result claim.",
+  "limits": [
+    "Static source import traversal, not Go package discovery, type checking or MVS computation.",
+    "Explicit root go.mod require/replace mappings and existing local module cache only; missing entries are not downloaded.",
+    "Linux/amd64 filename and go:build constraints are interpreted; cgo/goexperiment selections remain explicit ambiguities.",
+    "Dependency tests excluded; only root-package test files included. Standard library/runtime not recursively audited.",
+    "Call candidates include conversions and deferred function-literal bodies; they require manual classification.",
+    "Individual local file SHA256 values are recorded; module zip/go.sum authenticity is not independently checked.",
+    "Inventory assesses direct init/package-var effects and reviewed callees by family; it is not a formally complete call graph, alias analysis, compiler selection or proof of absence of arbitrary transitive side effects.",
+    "Only .go files are traversed; go:embed payloads, assembly, stdlib/runtime and toolchain/linker/test-harness initialization are not independently audited. Descriptor embedded data is treated as local supplied input.",
+    "Linux/amd64/gc/Go1.27/no-extra-tags is the stated static target, not Go-toolchain-observed selection. Persisted Go environment configuration under HOME is not inspected; env-i alone does not prove the compiler uses every assumed target/default.",
+    "File counts include excluded alternatives; ambiguous source is retained as a conservative superset. The supplement does not alter or silently replace claims in the earlier sealed packet.",
+    "No runtime time, RSS, credential isolation or side-effect observation has been measured. env-i removes library variables but HOME remains supplied; no claim is made that an arbitrary test binary lacks filesystem/network capability."
+  ],
+  "correction_to_sealed_request": "request.runtime_resources describes the test body but understates total imported initialization. In addition to one authority diagnostic goroutine, NATS recurring proc sampling, metrics proc/cgroup reads with timeout goroutine/timer, Wazero sysfs reads, protobuf self-binary reads, kernel entropy and local metadata/environment reads may occur. Metric/logger error paths may write stderr. The under-one-second estimate is not guaranteed; metrics alone may wait one second for mountinfo. Original packet remains byte-for-byte immutable; read this supplement together with it. No execution/lease is authorized by this supplement."
+}

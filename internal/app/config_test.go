@@ -13,7 +13,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
-// testdata/config-members.txt records the members of the version-1 contract; rewrite it
+// testdata/config-members.txt records the members of the version-2 contract; rewrite it
 // with TS_UPDATE_CONFIG_MEMBERS=1 go test ./internal/app -run TestConfigVersion.
 func TestConfigVersionCoversEveryMember(t *testing.T) {
 	header := fmt.Sprintf("version %d\n", ConfigVersion)
@@ -86,13 +86,13 @@ func TestLoadConfigPreservesSignedBytesAndRejectsUnknownMembers(t *testing.T) {
 		}
 		return LoadConfig(path)
 	}
-	wire := `{"version": 1, "nats": {"cell": "gru"}, "controller": {"candidate_id": "ctl-1"}}`
+	wire := `{"version": 2, "nats": {"cell": "gru"}, "controller": {"candidate_id": "ctl-1"}}`
 	cfg, err := load(wire)
 	if err != nil {
-		t.Fatalf("version-1 config: %v", err)
+		t.Fatalf("version-2 config: %v", err)
 	}
-	if cfg.Version != 1 || cfg.NATS.Cell != "gru" || cfg.Controller.CandidateID != "ctl-1" {
-		t.Fatalf("version-1 config decoded as %+v", cfg)
+	if cfg.Version != ConfigVersion || cfg.NATS.Cell != "gru" || cfg.Controller.CandidateID != "ctl-1" {
+		t.Fatalf("version-2 config decoded as %+v", cfg)
 	}
 	// Admission digests the signed bytes themselves, including whitespace.
 	if signed, err := cfg.signedWire(); err != nil || string(signed) != wire {
@@ -101,26 +101,26 @@ func TestLoadConfigPreservesSignedBytesAndRejectsUnknownMembers(t *testing.T) {
 	for name, body := range map[string]string{
 		"version missing":            `{"nats":{"cell":"gru"}}`,
 		"version zero":               `{"version":0}`,
-		"version two":                `{"version":2}`,
+		"legacy version":             `{"version":1}`,
 		"retired version":            `{"version":6}`,
 		"unknown version":            `{"version":1000}`,
-		"unknown member":             `{"version": 1, "nats": {"cell": "gru", "added": true}}`,
-		"typo at this version":       `{"version": 1, "nats": {"cell": "gru", "cel": "gru"}}`,
+		"unknown member":             `{"version": 2, "nats": {"cell": "gru", "added": true}}`,
+		"typo at this version":       `{"version": 2, "nats": {"cell": "gru", "cel": "gru"}}`,
 		"typo in an unversioned one": `{"nats": {"cell": "gru"}, "controler": {}}`,
-		"duplicate member":           `{"version": 1, "nats": {"cell": "gru", "cell": "0000000000V4MRM46HP1SNGDYW"}}`,
-		"wrong type":                 `{"version": 1, "nats": {"cell": 7}}`,
+		"duplicate member":           `{"version": 2, "nats": {"cell": "gru", "cell": "0000000000V4MRM46HP1SNGDYW"}}`,
+		"wrong type":                 `{"version": 2, "nats": {"cell": 7}}`,
 		"version not a number":       `{"version": "1000", "added": true}`,
-		"aggregation on":             `{"version":1,"observability":{"cluster_aggregation":true}}`,
-		"aggregation off":            `{"version":1,"observability":{"cluster_aggregation":false}}`,
-		"dashboard on":               `{"version":1,"observability":{"dashboard":true}}`,
-		"dashboard off":              `{"version":1,"observability":{"dashboard":false}}`,
-		"listener off":               `{"version":1,"observability":{"listen_address":"off"}}`,
-		"restart opt-in on":          `{"version":1,"controller":{"offline_restart_admission":true}}`,
-		"host session trace on":      `{"version":1,"host":{"session_trace":true}}`,
-		"host session trace off":     `{"version":1,"host":{"session_trace":false}}`,
-		"host load interval off":     `{"version":1,"host":{"load_telemetry_seconds":0}}`,
-		"host load interval custom":  `{"version":1,"host":{"load_telemetry_seconds":60}}`,
-		"restart opt-in off":         `{"version":1,"controller":{"offline_restart_admission":false}}`,
+		"aggregation on":             `{"version":2,"observability":{"cluster_aggregation":true}}`,
+		"aggregation off":            `{"version":2,"observability":{"cluster_aggregation":false}}`,
+		"dashboard on":               `{"version":2,"observability":{"dashboard":true}}`,
+		"dashboard off":              `{"version":2,"observability":{"dashboard":false}}`,
+		"listener off":               `{"version":2,"observability":{"listen_address":"off"}}`,
+		"restart opt-in on":          `{"version":2,"controller":{"offline_restart_admission":true}}`,
+		"host session trace on":      `{"version":2,"host":{"session_trace":true}}`,
+		"host session trace off":     `{"version":2,"host":{"session_trace":false}}`,
+		"host load interval off":     `{"version":2,"host":{"load_telemetry_seconds":0}}`,
+		"host load interval custom":  `{"version":2,"host":{"load_telemetry_seconds":60}}`,
+		"restart opt-in off":         `{"version":2,"controller":{"offline_restart_admission":false}}`,
 	} {
 		if _, err := load(body); err == nil {
 			t.Errorf("%s: config accepted", name)
@@ -133,14 +133,37 @@ func TestLoadConfigPreservesSignedBytesAndRejectsUnknownMembers(t *testing.T) {
 func TestSignedWireOfABuiltConfigIsCanonical(t *testing.T) {
 	for _, version := range []int{0, ConfigVersion} {
 		wire, err := Config{Version: version, NATS: natscell.Config{Cell: "gru"}}.signedWire()
-		if err != nil || !strings.HasPrefix(string(wire), `{"version":1,"nats":{"cell":"gru"`) {
+		if err != nil || !strings.HasPrefix(string(wire), `{"version":2,"nats":{"cell":"gru"`) {
 			t.Fatalf("signed wire = %s, %v", wire, err)
 		}
 		if _, err := decodeConfig(wire); err != nil {
 			t.Fatalf("built config did not pass the current decoder: %v", err)
 		}
 	}
-	if _, err := (Config{Version: 2}).signedWire(); err == nil {
+	if _, err := (Config{Version: 1}).signedWire(); err == nil {
 		t.Fatal("signed an unsupported config version")
+	}
+}
+
+// Legacy switches require a new signed desired-state decision, never a decoder default.
+func TestWorkloadConfigVersionMigration(t *testing.T) {
+	wire := []byte(`{ "version":2,"nats":{},"controller":{"autoscale":{"services":[{"role":"api","environment":"prod","kind":"stateless","replicas":{"min":1,"max":3}}]}}}`)
+	cfg, err := decodeConfig(wire)
+	if err != nil || cfg.Controller.Autoscale == nil || len(cfg.Controller.Autoscale.Services) != 1 {
+		t.Fatalf("switch-free signed services: %+v, %v", cfg.Controller.Autoscale, err)
+	}
+	if signed, err := cfg.signedWire(); err != nil || string(signed) != string(wire) {
+		t.Fatalf("migration rewrote signed bytes: %s, %v", signed, err)
+	}
+	for _, version := range []int{1, ConfigVersion} {
+		for _, legacy := range []string{`"enabled":true`, `"enabled":false`, `"host_telemetry":true`, `"host_telemetry":false`, `"interval_seconds":0`, `"interval_seconds":30`} {
+			body := fmt.Appendf(nil, `{"version":%d,"nats":{},"controller":{"autoscale":{%s,"services":[]}}}`, version, legacy)
+			if _, err := decodeConfig(body); err == nil {
+				t.Errorf("version %d accepted retired setting %s", version, legacy)
+			}
+		}
+	}
+	if _, err := decodeConfig([]byte(`{"version":1,"nats":{},"controller":{"autoscale":{"services":[]}}}`)); err == nil {
+		t.Fatal("legacy desired state was implicitly activated")
 	}
 }

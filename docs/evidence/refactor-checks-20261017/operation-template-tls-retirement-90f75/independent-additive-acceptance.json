@@ -1,0 +1,130 @@
+{
+  "state": "ACCEPTED_BOUNDED_EXACT_EB217_OPERATION_TEMPLATE_SOURCE_COMPILE_AND_SELECTED_RUNTIME",
+  "reviewed_at_utc": "2026-10-17T13:05:16.881662+00:00",
+  "reviewer": "/root/qa_integrator/storage_compare",
+  "source": {
+    "worktree": "/tmp/ts-operation-template-tls-eieyhqik/source",
+    "commit": "eb2170c0fc376e3f5be381d81c14b397a44ee956",
+    "tree": "338388b6f54a4411bab40add2c39e9e9e06e4efd",
+    "parent": "9988b2b8406b4ed808b628ee838d9190d5354a3c",
+    "clean": true,
+    "only_change": "A internal/ociclient/operation_template_integration_test.go;98lines",
+    "original_factory_test_retained_byte_exact": true
+  },
+  "sha256_pins": {
+    "/tmp/ts-operation-template-tls-eieyhqik/source-review.json": "347e7a1a077e4d4bdd68ea059d163f1a9d734817eb6781b5a3d444395b8fed0c",
+    "/tmp/ts-operation-template-tls-eieyhqik/readiness.json": "1eea06a2a86189b09915afe991578177c344568d9ff3cd240a12920dfa3e8280",
+    "/tmp/ts-operation-template-tls-eieyhqik/state-verification.json": "73f1a7a3924677e9fba1d93f3dfb1e6b23aea5918f233207340a592a7349e196",
+    "/tmp/ts-operation-template-tls-eieyhqik/source/internal/ociclient/operation_template_integration_test.go": "12ec10771d9de7079f89a28313b8848efa783d415bd3201f2f1b5d414b67fcdd",
+    "/tmp/ts-operation-template-tls-eieyhqik/source/internal/ociclient/factory_test.go": "eddcee1d75d7d04a1df13663236dd0fc0caad1763ee6f0bd02bf2d7719612308",
+    "/tmp/ts-operation-template-tls-eieyhqik/source/internal/ociclient/factory.go": "4f1d9c577bbeabb1b24443c9dbd97591f792fe3d9b069c38ef9cc86128aab0fa",
+    "/tmp/ts-qa-operation-eb217-compile-7_6nfpu1/result.json": "47dd5c160008a22e8daff2791c40650b274b0bfc9b5b6bb7e1b5d69c313226fa",
+    "/tmp/ts-qa-operation-eb217-compile-7_6nfpu1/0.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-qa-operation-eb217-compile-7_6nfpu1/1.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-qa-operation-eb217-runtime-cz63whf0/result.json": "6e541721a4b2199cd249a6078fab337cb38442c2440f1dec6ca0ecd1e9fcb2b4",
+    "/tmp/ts-qa-operation-eb217-runtime-cz63whf0/raw.log": "b93452c4d4572f8b9484778b5d3faa3a426ed0c6d7fa23a2273654370e49347f"
+  },
+  "assertion_mapping": {
+    "original": "TestOperationTemplateRemovesIdentifiers",
+    "replacement": "TestOperationTemplateThroughVerifiedTLSHTTP",
+    "raw_want_pairs": 13,
+    "all_pairs_byte_exact_and_unique": true,
+    "leaves": [
+      "instance",
+      "softstop",
+      "unbounded_action",
+      "attachments",
+      "numeric_instance",
+      "object",
+      "multipart",
+      "list_objects",
+      "head_bucket",
+      "list_buckets",
+      "private_endpoint",
+      "preauthenticated_request",
+      "reencrypt"
+    ],
+    "route": "External ociclient_test calls public Instrument(http.Client,unique service).Do with original method/URL. Actual TCP dial targets only httptest.NewTLSServer loopback address while request Host/path/query remain original and are asserted on wire.",
+    "TLS": "httptest Server.Client trusts fixture certificate; ServerName is loopback host. Inspected pinned Go1.27.1 httptest initTLS/StartTLS: RootCAs configured, normal NewTLSServer uses loopback TLS and does not set InsecureSkipVerify. No external DNS or cloud route.",
+    "assertions": "Each leaf requires one TLS request, exact original method/Host/RequestURI, HTTP204, successful body drain/close, one APIOperations record with exact want template/Calls1/Errors0/Throttled0/LastStatus204, plus Prometheus requests-total label/value presence.",
+    "connected_source": "Instrument.Do calls underlying client then operationTemplate(request) and apiStats.record; API snapshot and metrics read the same recorder. Original classifier contract is reached through real public HTTP dispatch.",
+    "cleanup": "Serial leaves; five-second request context with deferred cancellation, response body drained/closed, idle connections closed and TLS server closed each leaf. No surviving-process/descriptor inventory performed."
+  },
+  "compile": {
+    "result": "/tmp/ts-qa-operation-eb217-compile-7_6nfpu1/result.json",
+    "exit_code": 0,
+    "default_vet": true,
+    "default_tags": true,
+    "true_test_c": true,
+    "wall_seconds": 5.192093966004904,
+    "gofmt_diff_empty": true,
+    "stdout_stderr_empty": true,
+    "binary": {
+      "path": "/tmp/ts-qa-operation-eb217-compile-7_6nfpu1/ociclient.test",
+      "mode": "0o600",
+      "bytes": 16368791,
+      "sha256": "50985ca6c4ac7f89447e34dc5dfe44c19029334420aa62b55e414a174a1bcd49",
+      "never_executed": true
+    },
+    "ELF_magic_size_hash_regular_mode0600_verified": true,
+    "standalone_ELF_execution": "Never executed according to retained compile record and requested compile scope. Targeted runtime uses separate go test invocation, not this output binary.",
+    "nice": 19,
+    "outer_timeout_seconds": 240,
+    "kill_after_seconds": 5
+  },
+  "runtime": {
+    "result": "/tmp/ts-qa-operation-eb217-runtime-cz63whf0/result.json",
+    "raw": "/tmp/ts-qa-operation-eb217-runtime-cz63whf0/raw.log",
+    "exit_code": 0,
+    "wall_seconds": 1.5736813630210236,
+    "root_seconds": 0.07,
+    "package_seconds": 0.082,
+    "raw_events": 60,
+    "actions": {
+      "start": 1,
+      "run": 14,
+      "output": 30,
+      "pass": 15
+    },
+    "root_passes": 1,
+    "leaf_passes": 13,
+    "package_passes": 1,
+    "fail_skip_extra_duplicate_missing_malformed": 0,
+    "all_event_identity_scope_order_monotonic_time_checked": true,
+    "default_vet": true,
+    "default_tags": true,
+    "nonrace": true,
+    "selector": "^TestOperationTemplateThroughVerifiedTLSHTTP$",
+    "count": 1,
+    "parallel": 1,
+    "test_timeout_seconds": 90,
+    "outer_timeout_seconds": 120,
+    "kill_after_seconds": 5
+  },
+  "controls": {
+    "reported_environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG": "C.UTF-8",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local"
+    },
+    "six_keys_no_GOROOT": true,
+    "nice19_readonly_modules_package_p1": true,
+    "source_after_exact_clean_in_both_records_and_current": true,
+    "ShortA_release_reported": true,
+    "resource_admission": "Both result records report ordinary bounded memory/load admission; no new resource/process/lock probe by reviewer."
+  },
+  "provenance_limits": [
+    "Compact scope supplies QA result summaries and full raw runtime events, not retained native launch/poll argument-result archive, sampled process environment, full source/tool pre-post seal or backend/syscall audit. Environment/release/no-standalone-ELF-execution assertions retain that owner-record provenance.",
+    "Readiness states are historical preparation records. Actual result paths/argv/env differ from proposed output/PATH details and are accepted as recorded exact execution scope; no missing native arguments are invented."
+  ],
+  "findings": [],
+  "scope": [
+    "Exact eb217 source, default-vet/default-tag package compile and one nonrace selected root/13 leaves only. Other package tests are compiled but receive no runtime PASS credit.",
+    "No adoption, original deletion, retirement/count or later-source compile/runtime credit. Owner may prepare a separately reviewed original-function-deletion successor.",
+    "No OCI SDK cloud call, public endpoint, broker/native host or production TLS/IAM qualification. TLS proves verified local fixture transport with preserved original HTTP URL semantics.",
+    "No reviewer Go/tests/runner/binary/native polling/source/Git mutation, lock acquisition, new agents or cloud calls. Only this fresh compact exclusive report is written."
+  ]
+}

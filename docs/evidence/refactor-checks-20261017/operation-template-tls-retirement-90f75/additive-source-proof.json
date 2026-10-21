@@ -1,0 +1,26 @@
+{
+  "base": "9988b2b8406b4ed808b628ee838d9190d5354a3c",
+  "file_claim": "internal/ociclient/operation_template_integration_test.go",
+  "source_sha256": "12ec10771d9de7079f89a28313b8848efa783d415bd3201f2f1b5d414b67fcdd",
+  "original_file_sha256": "eddcee1d75d7d04a1df13663236dd0fc0caad1763ee6f0bd02bf2d7719612308",
+  "all13_case_pairs_exact": true,
+  "original_file_byte_exact": true,
+  "named_leaves": [
+    "instance",
+    "softstop",
+    "unbounded_action",
+    "attachments",
+    "numeric_instance",
+    "object",
+    "multipart",
+    "list_objects",
+    "head_bucket",
+    "list_buckets",
+    "private_endpoint",
+    "preauthenticated_request",
+    "reencrypt"
+  ],
+  "static_checks": "PASS",
+  "go_tooling_execution": false,
+  "runtime_execution": false
+}

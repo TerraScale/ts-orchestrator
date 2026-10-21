@@ -34,6 +34,7 @@ func CheckControllerCredentials(creds []byte, cell, slot, account string) error 
 	}
 	allowed := natscell.ControllerPublishes(cell)
 	allowed.Add(natscell.GlobalControllerPublishes()...)
+	allowed.Add(natscell.GlobalControllerRequests()...)
 	for _, grant := range claim.Pub.Allow {
 		if !slices.Contains(allowed, grant) {
 			return fmt.Errorf("controller credentials have unscoped publish %q", grant)

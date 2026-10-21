@@ -3,7 +3,6 @@ package placement
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -44,8 +43,7 @@ func (list fakeKnownBad) IsKnownBad(_ context.Context, digest string) (bool, err
 func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "managed-update-rolling", Replicas: 1,
-		Lab: true, Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
+	broker, err := natscell.Start(ctx, placementTestBrokerConfig(t, "managed-update-rolling"))
 	if err != nil {
 		t.Fatal(err)
 	}

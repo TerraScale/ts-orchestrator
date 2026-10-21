@@ -1,6 +1,7 @@
 package bootstrapstart
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -162,6 +163,22 @@ func (adapter *FounderOCI) beforeEffect(ctx context.Context, attempt FounderOCIA
 			return nil, nil, err
 		}
 	}
+	if derived, ok := current.StartupAuthority.(bootstrap.DerivedStartupAuthority); ok {
+		if _, err := derived.Template().OriginalLaunch(); err == nil {
+			currentAuthority, _, err := productionOriginalAuthority(ctx, derived, now)
+			if err != nil {
+				return nil, nil, err
+			}
+			seed, err := bootstrap.LoadSeedStartupAuthority(ctx, currentAuthority, now)
+			if err != nil {
+				return nil, nil, err
+			}
+			origin, err := originalOriginWire(seed)
+			if err != nil || !bytes.Equal(origin, adapter.material.OriginalOrigin) || len(adapter.material.OperatorSSHKey) != 0 {
+				return nil, nil, ErrOriginalStartup
+			}
+		}
+	}
 	if !sameFounderAttempt(attempt, current, peer.EffectDeadline(), now) {
 		return nil, nil, ErrFounderOCI
 	}
@@ -178,8 +195,15 @@ func (adapter *FounderOCI) beforeEffect(ctx context.Context, attempt FounderOCIA
 }
 
 func sameFounderAttempt(attempt FounderOCIAttempt, current bootstrap.FounderPeerLaunchRequest, deadline, now time.Time) bool {
+	previous := attempt.request
+	for _, request := range []bootstrap.FounderPeerLaunchRequest{previous, current} {
+		if request.StartupAuthority != nil && request.StartupAuthority.Digest() != request.ManifestSHA256 {
+			return false
+		}
+	}
+	previous.StartupAuthority, current.StartupAuthority = nil, nil
 	return attempt.valid && !attempt.deadline.IsZero() && !deadline.After(attempt.deadline) &&
-		now.Location() == time.UTC && now.Before(attempt.deadline) && reflect.DeepEqual(current, attempt.request)
+		now.Location() == time.UTC && now.Before(attempt.deadline) && reflect.DeepEqual(current, previous)
 }
 
 func noFounderSDKRetry() common.RequestMetadata {
@@ -250,21 +274,40 @@ func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest, materia
 	manifestHash := sha256.Sum256(request.ManifestWire)
 	manifestEnvelope, manifestErr := trust.DecodeEnvelope(request.ManifestWire)
 	var manifest bootstrap.Manifest
-	if manifestErr == nil {
+	derived, isDerived := request.StartupAuthority.(bootstrap.DerivedStartupAuthority)
+	if isDerived {
+		if !derived.IsVerified() || derived.Digest() != request.ManifestSHA256 || !bytes.Equal(derived.Wire(), request.ManifestWire) {
+			return core.LaunchInstanceRequest{}, ErrFounderOCI
+		}
+		manifest, manifestErr = derived.Manifest(), nil
+	} else if manifestErr == nil {
 		manifest, manifestErr = bootstrap.ManifestPayload(manifestEnvelope.Payload)
+	}
+	original := false
+	if isDerived {
+		if _, err := derived.Template().OriginalLaunch(); err == nil {
+			origin, err := parseOriginalStartupOrigin(material.OriginalOrigin)
+			if err != nil || origin.Cell != manifest.Cell || !bytes.Equal(origin.GrantWire, derived.GrantWire()) || !bytes.Equal(origin.AnchorWire, derived.Template().OriginAnchor().Wire()) || len(material.OperatorSSHKey) != 0 {
+				return core.LaunchInstanceRequest{}, ErrFounderOCI
+			}
+			original = true
+		}
+	}
+	if !original && len(material.OriginalOrigin) != 0 {
+		return core.LaunchInstanceRequest{}, ErrFounderOCI
 	}
 	vpus, ok := row.BootVolumeTier.VPUsPerGB()
 	if !ok || vpus != 10 || row.Slot != request.Slot || row.WholeOCPUs == 0 ||
 		row.MemoryInGB == 0 || row.BootVolumeGB < founderMinBootVolumeGB ||
 		row.BootVolumeGB > founderMaxBootVolumeGB || request.RetryToken == "" ||
 		row.WholeOCPUs > 1<<24 || row.MemoryInGB > 1<<24 ||
-		len(request.ManifestWire) == 0 || len(request.ManifestWire) > MaxControllerManifestMetadataBytes ||
+		len(request.ManifestWire) == 0 || len(request.ManifestWire) > bootstrap.MaxManifestBytes || !isDerived && len(request.ManifestWire) > MaxControllerManifestMetadataBytes ||
 		hex.EncodeToString(manifestHash[:]) != request.ManifestSHA256 || manifestErr != nil ||
 		manifest.Slot != request.Slot || manifest.DeploymentID != request.DeploymentID ||
 		manifest.Cell != request.Cell || manifest.Environment != request.Environment ||
 		manifest.ImageOCID != row.ImageOCID ||
 		len(material.Identity) == 0 || len(material.Anchor) == 0 || len(material.HostEnrollment) == 0 ||
-		len(material.OperatorSSHKey) == 0 || len(material.ManagedHostImageReceipt) == 0 ||
+		!original && len(material.OperatorSSHKey) == 0 || len(material.ManagedHostImageReceipt) == 0 ||
 		len(material.ManagedHostImageDelegation) == 0 {
 		return core.LaunchInstanceRequest{}, ErrFounderOCI
 	}
@@ -279,7 +322,9 @@ func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest, materia
 	}
 	metadata := material.ControllerMetadata()
 	metadata["terrascale-bootstrap"] = string(descriptor)
-	metadata["terrascale-controller-manifest-v1"] = string(request.ManifestWire)
+	if !isDerived {
+		metadata["terrascale-controller-manifest-v1"] = string(request.ManifestWire)
+	}
 	return core.LaunchInstanceRequest{
 		OpcRetryToken: new(request.RetryToken), RequestMetadata: noFounderSDKRetry(),
 		LaunchInstanceDetails: core.LaunchInstanceDetails{

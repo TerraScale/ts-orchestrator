@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -12,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 )
@@ -178,5 +182,231 @@ func TestHostClientPresentsRenewedCredentialsAfterExpiry(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	if !client.Conn().IsConnected() {
 		t.Fatalf("host client is not connected with renewed credentials: %v", client.Conn().Status())
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	materialCtx, stopMaterial := context.WithTimeout(t.Context(), 60*time.Second)
+	defer stopMaterial()
+	deadline, _ := materialCtx.Deadline()
+	if err := r.Bridge().OpenUntil(1, cellRaw, deadline); err != nil {
+		t.Fatal(err)
+	}
+	bridge := r.Bridge()
+	drainBridge := func(t *testing.T) {
+		t.Helper()
+		waitUntil(t, materialCtx, "previous material client drained", func() bool {
+			bridge.mu.Lock()
+			defer bridge.mu.Unlock()
+			return len(bridge.pairs) == 0
+		})
+	}
+	drainBridge(t)
+
+	renewedTLS := testBridgeTLS(t, filepath.Join(root, "renewed-tls"))
+	startupCA, err := os.ReadFile(tlsFiles.CAFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewedCA, err := os.ReadFile(renewedTLS.CAFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replace(t, tlsFiles.CAFile, append(startupCA, renewedCA...))
+	renewedTLS.CAFile = tlsFiles.CAFile
+	startupCertificate, err := tls.LoadX509KeyPair(tlsFiles.CertFile, tlsFiles.KeyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewedCertificate, err := tls.LoadX509KeyPair(renewedTLS.CertFile, renewedTLS.KeyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startupFingerprint := sha256.Sum256(startupCertificate.Certificate[0])
+	renewedFingerprint := sha256.Sum256(renewedCertificate.Certificate[0])
+	if startupFingerprint == renewedFingerprint {
+		t.Fatal("startup and renewed TLS certificates are indistinguishable")
+	}
+	probeSubject := "ts.orch.v1.gru.clientmaterial.probe"
+	probe, err := r.Conn().Subscribe(probeSubject, func(message *nats.Msg) {
+		_ = message.Respond(message.Data)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Unsubscribe()
+	if err := r.Conn().Flush(); err != nil {
+		t.Fatal(err)
+	}
+	assertMaterial := func(t *testing.T, conn *nats.Conn, wantJWT, wantUser string, wantFingerprint [sha256.Size]byte,
+		previousCID uint64, previousPair *bridgePair,
+	) (uint64, *bridgePair) {
+		t.Helper()
+		var acceptedCID uint64
+		var acceptedPair *bridgePair
+		waitUntil(t, materialCtx, "fresh material JWT and authenticated peer certificate", func() bool {
+			cid, err := conn.GetClientID()
+			if err != nil || !conn.IsConnected() || cid == previousCID {
+				return false
+			}
+			bridge.mu.Lock()
+			var pair *bridgePair
+			if len(bridge.pairs) == 1 {
+				for candidate := range bridge.pairs {
+					pair = candidate
+				}
+			}
+			bridge.mu.Unlock()
+			if pair == nil || pair == previousPair {
+				return false
+			}
+			external, ok := pair.external.(*tls.Conn)
+			if !ok {
+				return false
+			}
+			state := external.ConnectionState()
+			if !state.HandshakeComplete || len(state.PeerCertificates) == 0 || len(state.VerifiedChains) == 0 ||
+				sha256.Sum256(state.PeerCertificates[0].Raw) != wantFingerprint {
+				return false
+			}
+			connections, err := r.server.Connz(&server.ConnzOptions{CID: cid, Username: true})
+			if err != nil || len(connections.Conns) != 1 {
+				return false
+			}
+			authenticated := connections.Conns[0]
+			if authenticated.JWT != wantJWT || authenticated.AuthorizedUser != wantUser || authenticated.Account != cellID {
+				return false
+			}
+			requestCtx, stopRequest := context.WithTimeout(materialCtx, 250*time.Millisecond)
+			reply, err := conn.RequestWithContext(requestCtx, probeSubject, []byte("material"))
+			stopRequest()
+			if err != nil || string(reply.Data) != "material" {
+				return false
+			}
+			currentCID, err := conn.GetClientID()
+			if err != nil || currentCID != cid || !conn.IsConnected() {
+				return false
+			}
+			// ConnectionState survives closure; accept only the same live bridge pair.
+			bridge.mu.Lock()
+			_, retained := bridge.pairs[pair]
+			stable := retained && len(bridge.pairs) == 1
+			bridge.mu.Unlock()
+			if !stable {
+				return false
+			}
+			acceptedCID, acceptedPair = cid, pair
+			return true
+		})
+		return acceptedCID, acceptedPair
+	}
+	credentialJWT := func(path string) string {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := nkeys.ParseDecoratedJWT(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	userID, err := hostUser.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignUser, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignID, err := foreignUser.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	materialStartup := filepath.Join(root, "material-startup.creds")
+	materialRenewed := filepath.Join(root, "material-renewed.creds")
+	foreign := filepath.Join(root, "material-foreign.creds")
+	writeExpiringUserCredentials(t, materialStartup, cellKey, cellID, hostUser, time.Now().Add(time.Hour))
+	writeExpiringUserCredentials(t, materialRenewed, cellKey, cellID, hostUser, time.Now().Add(48*time.Hour))
+	writeExpiringUserCredentials(t, foreign, cellKey, cellID, foreignUser, time.Now().Add(2*time.Hour))
+	startupJWT, renewedJWT, foreignJWT := credentialJWT(materialStartup), credentialJWT(materialRenewed), credentialJWT(foreign)
+	if startupJWT == renewedJWT {
+		t.Fatal("startup and renewed JWTs are indistinguishable")
+	}
+	type materialOffer struct {
+		material ClientMaterial
+		err      error
+	}
+	var offered atomic.Pointer[materialOffer]
+	offered.Store(&materialOffer{material: ClientMaterial{CredentialsFile: materialStartup, TLS: tlsFiles}})
+	materialConfig := Config{Cell: "gru", Instance: "material-client", Replicas: 1, ClientRole: "host",
+		URL: r.URL(), CredentialsFile: materialStartup, TLS: tlsFiles,
+		ReloadClientMaterial: func() (ClientMaterial, error) {
+			next := offered.Load()
+			return next.material, next.err
+		}}
+	materialClient, err := Start(materialCtx, materialConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer materialClient.Close()
+	cid, pair := assertMaterial(t, materialClient.Conn(), startupJWT, userID, startupFingerprint, 0, nil)
+	for _, transition := range []struct {
+		name     string
+		material ClientMaterial
+		err      error
+	}{
+		{"same-user renewal", ClientMaterial{CredentialsFile: materialRenewed, TLS: renewedTLS}, nil},
+		{"another valid user", ClientMaterial{CredentialsFile: foreign, TLS: renewedTLS}, nil},
+		{"failed configuration read", ClientMaterial{}, errors.New("host.json is being rewritten")},
+		{"missing offered credentials", ClientMaterial{CredentialsFile: filepath.Join(root, "missing.creds"), TLS: renewedTLS}, nil},
+	} {
+		if !t.Run(transition.name, func(t *testing.T) {
+			offered.Store(&materialOffer{material: transition.material, err: transition.err})
+			if err := materialClient.Conn().ForceReconnect(); err != nil {
+				t.Fatal(err)
+			}
+			cid, pair = assertMaterial(t, materialClient.Conn(), renewedJWT, userID, renewedFingerprint, cid, pair)
+		}) {
+			return
+		}
+	}
+	if err := os.Remove(materialRenewed); err != nil {
+		t.Fatal(err)
+	}
+	if err := materialClient.Conn().ForceReconnect(); err != nil {
+		t.Fatal(err)
+	}
+	assertMaterial(t, materialClient.Conn(), startupJWT, userID, startupFingerprint, cid, pair)
+	if err := materialClient.Close(); err != nil {
+		t.Fatal(err)
+	}
+	drainBridge(t)
+
+	// The foreign credential must be admissible, so broker denial cannot mask selection.
+	for _, control := range []struct {
+		name, credentials, jwt, user string
+	}{
+		{"foreign positive control", foreign, foreignJWT, foreignID},
+		{"static startup credentials", materialStartup, startupJWT, userID},
+	} {
+		if !t.Run(control.name, func(t *testing.T) {
+			cfg := materialConfig
+			cfg.CredentialsFile, cfg.ReloadClientMaterial = control.credentials, nil
+			controlClient, err := Start(materialCtx, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer controlClient.Close()
+			assertMaterial(t, controlClient.Conn(), control.jwt, control.user, startupFingerprint, 0, nil)
+			if err := controlClient.Close(); err != nil {
+				t.Fatal(err)
+			}
+			drainBridge(t)
+		}) {
+			return
+		}
 	}
 }

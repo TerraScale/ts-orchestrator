@@ -1,0 +1,14 @@
+{
+  "tool": "exec_command",
+  "args": {
+    "cmd": "python3 - <<'PY'\nimport json,pathlib,time\np=pathlib.Path('/tmp/ts-management-observation-2d158-120-runner-_epv7y35')\nstart=json.loads((p/'started.json').read_text())\nprint(json.dumps({'elapsed_seconds':time.time()-start['epoch'],'stdout_bytes':(p/'stdout.jsonl').stat().st_size,'stderr_bytes':(p/'stderr.log').stat().st_size,'receipt_exists':(p/'receipt.json').exists()}))\nPY",
+    "max_output_tokens": 1000
+  },
+  "result": {
+    "chunk_id": "b094d3",
+    "wall_time_seconds": 0.072721276,
+    "exit_code": 0,
+    "original_token_count": 26,
+    "output": "{\"elapsed_seconds\": 112.57177686691284, \"stdout_bytes\": 0, \"stderr_bytes\": 0, \"receipt_exists\": false}\n"
+  }
+}

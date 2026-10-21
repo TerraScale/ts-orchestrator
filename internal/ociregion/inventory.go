@@ -91,7 +91,7 @@ func (e *Engine) scopedImages(regions, compartments any) []any {
 }
 func slim(m Object, kind, region string) Object {
 	r := Object{"kind": kind, "region": region}
-	for _, k := range []string{"id", "display-name", "name", "compartment-id", "lifecycle-state", "availability-domain", "fault-domain", "shape", "shape-config", "size-in-gbs", "vpus-per-gb", "freeform-tags", "cidr-block", "is-public", "prohibit-public-ip-on-vnic", "prohibit-internet-ingress", "ip-address", "unique-size-in-gbs", "scope", "time-created", "vcn-id", "subnet-id", "shape-name", "shape-details"} {
+	for _, k := range []string{"id", "display-name", "name", "compartment-id", "lifecycle-state", "availability-domain", "fault-domain", "shape", "shape-config", "image-id", "source-details", "size-in-gbs", "vpus-per-gb", "freeform-tags", "cidr-block", "is-public", "prohibit-public-ip-on-vnic", "prohibit-internet-ingress", "ip-address", "unique-size-in-gbs", "scope", "time-created", "vcn-id", "subnet-id", "shape-name", "shape-details"} {
 		if v, ok := m[k]; ok {
 			r[k] = v
 		}
@@ -344,8 +344,8 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 		shape := obj(m["shape-config"])
 		if m["id"] == existing["instance_id"] {
 			// The plan's dimensions bound the operations host's share of the estimate.
-			if m["shape"] != "VM.Standard.A1.Flex" || number(shape["ocpus"]) > number(existing["expected_ocpus"]) || number(shape["memory-in-gbs"]) > number(existing["expected_memory_gb"]) {
-				fail("operations host A1 dimensions exceed the plan")
+			if m["shape"] != existing["expected_shape"] || number(shape["ocpus"]) > number(existing["expected_ocpus"]) || number(shape["memory-in-gbs"]) > number(existing["expected_memory_gb"]) {
+				fail("operations host shape or dimensions differ from the plan")
 			}
 			continue
 		}
@@ -369,7 +369,7 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 		}
 		if !slices.ContainsFunc(arr(plan["hosts"]), func(v any) bool {
 			h := obj(v)
-			return m["shape"] == "VM.Standard.A1.Flex" && m["shape"] == h["shape"] &&
+			return m["shape"] == h["shape"] &&
 				number(shape["ocpus"]) == number(h["ocpus"]) && number(shape["memory-in-gbs"]) == number(h["memory_gb"])
 		}) {
 			fail("preview instance dimensions exceed the plan")
@@ -499,12 +499,20 @@ func balancerUSD(plan Object) *big.Rat {
 }
 func (e *Engine) estimate(plan, inventory Object, path string, now time.Time, maxAge float64) Object {
 	e.verifyInventory(plan, inventory, path, now, maxAge)
+	operationsHost := obj(plan["existing_operations_host"])
+	// shortcut: manual admission has only reviewed A1 prices; consume observed shape prices before admitting alternatives.
+	pricedHosts := append([]any{Object{"shape": operationsHost["expected_shape"], "architecture": operationsHost["expected_architecture"]}}, arr(plan["hosts"])...)
+	for _, host := range pricedHosts {
+		h := obj(host)
+		if h["shape"] != "VM.Standard.A1.Flex" || hostArchitecture(h) != "arm64" {
+			fail("shape-specific price unavailable for " + text(h["shape"]) + "; regional cost admission remains pending")
+		}
+	}
 	budget := obj(plan["budget"])
 	rates := obj(budget["rates"])
 	hours := budget["month_hours"]
 	// Always Free covers A1 compute and block storage in the home region
 	// only, beside the operations host: another region's hosts pay for all of theirs.
-	operationsHost := obj(plan["existing_operations_host"])
 	ocpus, memory, storage := add(operationsHost["expected_ocpus"]), add(operationsHost["expected_memory_gb"]), add(50, operationsHost["expected_volume_gb"])
 	hostOCPUs, hostMemory, hostStorage := add(0), add(0), add(0)
 	for _, v := range arr(plan["hosts"]) {

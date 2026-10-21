@@ -1,0 +1,36 @@
+{
+  "revision": "2ef9b8b70826c4f8e0f3ae4e4ae2bc76d6a1158d",
+  "tree": "24282ef5d0234db31e905bb8bba9098b03613dae",
+  "source_state": {
+    "revision": "2ef9b8b70826c4f8e0f3ae4e4ae2bc76d6a1158d",
+    "tree": "24282ef5d0234db31e905bb8bba9098b03613dae",
+    "status": ""
+  },
+  "session": 17364,
+  "exit": 0,
+  "scoped_pass": true,
+  "lane_released": true,
+  "artifacts": {
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/broker-full-tool-results.json": "95880f8b0b1c10e5d2a55b1e3a3991212314a0d18872e4ff58865ecbd2408a75",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/broker-launch-tool-result.json": "96cf19282bd4b3952a72e7f18c28cf0412a3fb27dbd4cc4a69a872eae63c22a3",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/dispatch.json": "dab9d90714589995079ad600f49d9fdf5db6c04cfaa58995d1c8ec9c048d0beb",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/launch-instructions.json": "e5d386e6d28263c02bbbe7cd429670252e3043668afd34b288ae72afacee3f3d",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/manifest.json": "b130e59cff4bd13f48dd6812a10e09c86e84f49724a04c1f2cd6636b2a0e30c0",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/ownership-proof.md": "f8a36ce370f40d91edeaa4f2c3e3cc9e3b63ff4a192847a50360795a30fc7afb",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/recorder-full-tool-results.json": "9a98704b74866686960d2d26383ebd046076b3fba11c312ff8c2af30312096ef",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/recorder.py": "7b226150ac58f55f879816b7bd6a54d558b6d4a3781b25347d855c3d96cfc835",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/request.json": "3d474600041aa3849c9260f81929b589aed92835dffefaba815d339dbfea345c",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/run-once.py": "6f742956f1c3cf289623f78380e90875b85d2b41a1770133f2faac5e9afc6e6b",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/runtime-before.json": "5e0fb62e7f4de55bd4c1ecc0f7a5cb25333bfedcedbfb6fb311a793580b477b7",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/runtime-handoff.md": "a70369ec61e8fb26da71cdd5e36b56d886564e8a85898eb0c8f48fc246338559",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/runtime-launch.json": "6c301d5a2040c272b5c5763665a632684ca46946714c1fac9b8bde03e613f7cf",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/runtime-raw.jsonl": "0b923bbff1513a128db786398ede53cdf62aa935ae11569ec60f18be59caa543",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/runtime-receipt.json": "b534b8dbdc24dd8ba42e6bbaf6dc9ed52217b827990099662523d2f0195fd517",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/runtime-summary.json": "22e7325296c27fa504cfb971ce8ca3438ca04654c9706ed1eee78ab4388df93b",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/runtime-terminal.json": "39fd8c08443f1950cdd7f37b1ee9ffc3edaaecf82901264e89af94b1a6851260"
+  },
+  "no_retry": true,
+  "fifo7_started": false,
+  "closed_rows": 0,
+  "original_and_diagnostic_failures_retained_open": true
+}

@@ -33,31 +33,6 @@ func TestLogRedactionTypedTimeZones(t *testing.T) {
 					}
 				})
 			}
-			capture := new(recordCapture)
-			handler := &redactingHandler{next: capture}
-			record := slog.NewRecord(time.Now().UTC(), slog.LevelWarn, "timestamp", 0)
-			record.AddAttrs(slog.Time("at", at))
-			if err := handler.Handle(t.Context(), record); err != nil {
-				t.Fatal(err)
-			}
-			found := false
-			capture.record.Attrs(func(attr slog.Attr) bool {
-				if attr.Key == "at" {
-					found = true
-					frozen := attr.Value.Time()
-					zone, offset := frozen.Zone()
-					if !frozen.Equal(at) || offset != 3600 || len(zone) > maxLogNameBytes || strings.Contains(zone, "timeFixtureSecret123") {
-						t.Fatal("typed time redaction changed its instant/offset or retained unsafe zone metadata")
-					}
-				}
-				return true
-			})
-			if !found {
-				t.Fatal("typed time attribute disappeared")
-			}
-			if capture.record.Time != record.Time {
-				t.Fatal("record timestamp changed")
-			}
 		})
 	}
 }

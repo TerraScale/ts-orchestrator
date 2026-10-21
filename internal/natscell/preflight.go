@@ -15,7 +15,7 @@ import (
 // local state. It must run as the account that will start the broker: the
 // private-file readers enforce ownership by the current process user.
 func ValidateProductionCredentials(cfg Config) error {
-	if cfg.Lab || cfg.Embedded == nil || cfg.ClientRole != "" && cfg.ClientRole != "controller" {
+	if cfg.Embedded == nil || cfg.ClientRole != "" && cfg.ClientRole != "controller" {
 		return errors.New("controller credential preflight requires a production embedded broker")
 	}
 	if err := cfg.validate(); err != nil {

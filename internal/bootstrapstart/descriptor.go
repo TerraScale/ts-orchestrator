@@ -3,6 +3,7 @@ package bootstrapstart
 import (
 	"bytes"
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -42,18 +43,20 @@ var (
 	ErrInvalidDescriptor = errors.New("OCI bootstrap descriptor is invalid")
 	// ErrNotController reports an instance launched without controller launch
 	// metadata, such as a managed host sharing the qualified image.
-	ErrNotController  = errors.New("instance has no controller launch metadata")
-	errMetadataAbsent = fmt.Errorf("%w: metadata key is absent", ErrInvalidDescriptor)
-	descriptorSlotRE  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	instanceIDRE      = regexp.MustCompile(`^ocid1\.instance\.oc1\.[a-z0-9-]*\.[a-z0-9-]+$`)
+	ErrNotController       = errors.New("instance has no controller launch metadata")
+	errMetadataAbsent      = fmt.Errorf("%w: metadata key is absent", ErrInvalidDescriptor)
+	descriptorSlotRE       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	originalBundleDigestRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	instanceIDRE           = regexp.MustCompile(`^ocid1\.instance\.oc1\.[a-z0-9-]*\.[a-z0-9-]+$`)
 )
 
 // Descriptor is an untrusted IMDS transport hint. Its slot identifies the
 // signed ledger key to read; it supplies no trust root, storage scope, image,
 // or deployment expectation.
 type Descriptor struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	Slot          string `json:"slot"`
+	SchemaVersion        int    `json:"schemaVersion"`
+	Slot                 string `json:"slot"`
+	OriginalBundleSHA256 string `json:"originalBundleSha256,omitempty"`
 }
 
 func ParseDescriptor(data []byte) (Descriptor, error) {
@@ -61,6 +64,14 @@ func ParseDescriptor(data []byte) (Descriptor, error) {
 	if len(data) == 0 || len(data) > maxDescriptorBytes ||
 		protocol.DecodeStrict(data, &descriptor, maxDescriptorBytes) != nil ||
 		descriptor.SchemaVersion != 1 || !descriptorSlotRE.MatchString(descriptor.Slot) {
+		return Descriptor{}, ErrInvalidDescriptor
+	}
+	var fields map[string]any
+	if json.Unmarshal(data, &fields) != nil {
+		return Descriptor{}, ErrInvalidDescriptor
+	}
+	if _, present := fields["originalBundleSha256"]; present &&
+		(descriptor.Slot != "controller-a" || !originalBundleDigestRE.MatchString(descriptor.OriginalBundleSHA256)) {
 		return Descriptor{}, ErrInvalidDescriptor
 	}
 	return descriptor, nil
@@ -172,7 +183,7 @@ func (imds IMDSClient) FetchLaunchMaterial(ctx context.Context) (LaunchMaterial,
 
 func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64) ([]byte, error) {
 	if imds.client == nil || endpoint != descriptorEndpoint && endpoint != identityEndpoint &&
-		endpoint != controllerManifestEndpoint && endpoint != identityMetadataEndpoint &&
+		endpoint != controllerManifestEndpoint && endpoint != originalStartupMetadataEndpoint && endpoint != identityMetadataEndpoint &&
 		endpoint != anchorMetadataEndpoint && endpoint != hostEnrollmentMetadataEndpoint &&
 		endpoint != operatorSSHKeyMetadataEndpoint && endpoint != availabilityDomainEndpoint &&
 		endpoint != managedHostImageReceiptMetadataEndpoint && endpoint != managedHostImageDelegationMetadataEndpoint &&

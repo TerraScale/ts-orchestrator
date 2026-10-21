@@ -1,4 +1,4 @@
-package bootstrapmaterial
+package bootstrapmaterial_test
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
@@ -29,7 +30,13 @@ import (
 func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	gru, sfo, _ := linkedRegions(t)
+	type linkedRegion struct {
+		material, directory string
+		record              bootstrapmaterial.InterRegionRecord
+	}
+	gruFixture, sfoFixture, link := bootstrapmaterial.ObservabilityLinkFixture(t)
+	gru := linkedRegion{gruFixture.Material, gruFixture.Directory, gruFixture.Record}
+	sfo := linkedRegion{sfoFixture.Material, sfoFixture.Directory, sfoFixture.Record}
 	read := func(directory, name string) []byte {
 		t.Helper()
 		data, err := os.ReadFile(filepath.Join(directory, name))
@@ -60,19 +67,16 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 	}
 	regions := []region{{linkedRegion: gru}, {linkedRegion: sfo}}
 	leafPort := freePort()
-	wire, reviewed := receipt(t, nil)
-	link := &ParentLink{Record: gru.record, Receipt: Readback{wire, reviewed}, NetBird: netbirdReadback(t, nil),
-		CredentialsFile: childCredentials(t, gru, "sfo")}
 	for index := range regions {
 		r := &regions[index]
-		var parent *ParentLink
+		var parent *bootstrapmaterial.ParentLink
 		if index == 1 {
 			parent = link
 			if err := os.WriteFile(filepath.Join(r.directory, "leaf-gru.creds"), read(gru.directory, "leaf-sfo.creds"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
-		interregion, err := RenderInterRegion(r.record, "controller-a", r.directory, parent, time.Now())
+		interregion, err := bootstrapmaterial.RenderInterRegion(r.record, "controller-a", r.directory, parent, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -185,7 +189,7 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer user.Wipe()
-		old, err = credentials(claim, signer, user)
+		old, err = bootstrapmaterial.CredentialsForTest(claim, signer, user)
 		if err != nil {
 			t.Fatal(err)
 		}

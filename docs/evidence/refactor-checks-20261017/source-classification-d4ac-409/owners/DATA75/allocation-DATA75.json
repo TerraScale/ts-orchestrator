@@ -1,0 +1,1539 @@
+{
+  "batch_id": "DATA75",
+  "bounded_scope_reads": [
+    {
+      "end_line": 59,
+      "path": "internal/delivery/accepted_intent_test.go",
+      "role": "Complete sampled root: SubmitVerified/Run/status accepted-intent and ambiguity assertions.",
+      "span_sha256": "806de8eeb456e0bd3de37e7f475f3c48466f4f808714f27011d6e4ae72b0ddb0",
+      "start_line": 12
+    },
+    {
+      "end_line": 305,
+      "path": "internal/delivery/service.go",
+      "role": "Complete Submit: validation/replay/signing/publish delegation.",
+      "span_sha256": "bb2b4f15ac9d3f8545f85c8995aee51a020badcb81e8c5e3f484f9b55a395fb9",
+      "start_line": 258
+    },
+    {
+      "end_line": 351,
+      "path": "internal/delivery/service.go",
+      "role": "Complete SubmitVerified: local guards then JetStream Create and publishIntent delegation.",
+      "span_sha256": "ecc595560c3c541f623df9cd36c49841d9981f6c016eba1a54aae2d25ff59eca",
+      "start_line": 312
+    }
+  ],
+  "dispatch_state": "HOLD_PARENT_VERIFICATION_NO_DISPATCH",
+  "owner_status_observed": "completed",
+  "owner_status_source": "collaboration list_agents; fresh checks before proposal seal",
+  "package_scopes": [
+    "internal/delivery"
+  ],
+  "proposed_owner": "/root/data/executor_hooks",
+  "root_count": 75,
+  "roots": [
+    {
+      "baseline_declaration": {
+        "end_line": 59,
+        "sha256": "806de8eeb456e0bd3de37e7f475f3c48466f4f808714f27011d6e4ae72b0ddb0",
+        "start_line": 12
+      },
+      "current_declaration_sha256": "806de8eeb456e0bd3de37e7f475f3c48466f4f808714f27011d6e4ae72b0ddb0",
+      "current_name": "TestAcceptedIntentIgnoresVerifiedCacheButRejectsAmbiguousOperations",
+      "kind": "test",
+      "original_declaration_sha256": "806de8eeb456e0bd3de37e7f475f3c48466f4f808714f27011d6e4ae72b0ddb0",
+      "original_name": "TestAcceptedIntentIgnoresVerifiedCacheButRejectsAmbiguousOperations",
+      "path": "internal/delivery/accepted_intent_test.go",
+      "root_id": "internal/delivery/accepted_intent_test.go::TestAcceptedIntentIgnoresVerifiedCacheButRejectsAmbiguousOperations",
+      "source_declaration": {
+        "end_line": 59,
+        "sha256": "806de8eeb456e0bd3de37e7f475f3c48466f4f808714f27011d6e4ae72b0ddb0",
+        "start_line": 12
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 172,
+        "sha256": "d355549d238074de8d13b5de94352a9021be6af35c3e84922bc4674642b15f65",
+        "start_line": 69
+      },
+      "current_declaration_sha256": "d355549d238074de8d13b5de94352a9021be6af35c3e84922bc4674642b15f65",
+      "current_name": "TestCollectArtifactsKeepsRunningRollbackAndRecent",
+      "kind": "test",
+      "original_declaration_sha256": "d355549d238074de8d13b5de94352a9021be6af35c3e84922bc4674642b15f65",
+      "original_name": "TestCollectArtifactsKeepsRunningRollbackAndRecent",
+      "path": "internal/delivery/artifact_gc_test.go",
+      "root_id": "internal/delivery/artifact_gc_test.go::TestCollectArtifactsKeepsRunningRollbackAndRecent",
+      "source_declaration": {
+        "end_line": 172,
+        "sha256": "d355549d238074de8d13b5de94352a9021be6af35c3e84922bc4674642b15f65",
+        "start_line": 69
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 219,
+        "sha256": "b51af79187e5ef416dc4c9656fa31903d2467e88ba5765fa26609f8efbda3ffe",
+        "start_line": 174
+      },
+      "current_declaration_sha256": "b51af79187e5ef416dc4c9656fa31903d2467e88ba5765fa26609f8efbda3ffe",
+      "current_name": "TestCollectArtifactsReconcilesHistoricalPreparationsWithoutLosingRollback",
+      "kind": "test",
+      "original_declaration_sha256": "b51af79187e5ef416dc4c9656fa31903d2467e88ba5765fa26609f8efbda3ffe",
+      "original_name": "TestCollectArtifactsReconcilesHistoricalPreparationsWithoutLosingRollback",
+      "path": "internal/delivery/artifact_gc_test.go",
+      "root_id": "internal/delivery/artifact_gc_test.go::TestCollectArtifactsReconcilesHistoricalPreparationsWithoutLosingRollback",
+      "source_declaration": {
+        "end_line": 219,
+        "sha256": "b51af79187e5ef416dc4c9656fa31903d2467e88ba5765fa26609f8efbda3ffe",
+        "start_line": 174
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 246,
+        "sha256": "8a5d846ff99375abbe32057ec07f68dd231f2a75222806b98889278338a93b41",
+        "start_line": 223
+      },
+      "current_declaration_sha256": "8a5d846ff99375abbe32057ec07f68dd231f2a75222806b98889278338a93b41",
+      "current_name": "TestOpenKeepsALargerArtifactStoreQuota",
+      "kind": "test",
+      "original_declaration_sha256": "8a5d846ff99375abbe32057ec07f68dd231f2a75222806b98889278338a93b41",
+      "original_name": "TestOpenKeepsALargerArtifactStoreQuota",
+      "path": "internal/delivery/artifact_gc_test.go",
+      "root_id": "internal/delivery/artifact_gc_test.go::TestOpenKeepsALargerArtifactStoreQuota",
+      "source_declaration": {
+        "end_line": 246,
+        "sha256": "8a5d846ff99375abbe32057ec07f68dd231f2a75222806b98889278338a93b41",
+        "start_line": 223
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 626,
+        "sha256": "e11b08adcd7018f0ee021f3fba6dbe34655c522763e503f58efbde0e35564dc3",
+        "start_line": 602
+      },
+      "current_declaration_sha256": "e11b08adcd7018f0ee021f3fba6dbe34655c522763e503f58efbde0e35564dc3",
+      "current_name": "TestArtifactAdmissionCreateAndReplayIgnoreStaleFollower",
+      "kind": "test",
+      "original_declaration_sha256": "e11b08adcd7018f0ee021f3fba6dbe34655c522763e503f58efbde0e35564dc3",
+      "original_name": "TestArtifactAdmissionCreateAndReplayIgnoreStaleFollower",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestArtifactAdmissionCreateAndReplayIgnoreStaleFollower",
+      "source_declaration": {
+        "end_line": 626,
+        "sha256": "e11b08adcd7018f0ee021f3fba6dbe34655c522763e503f58efbde0e35564dc3",
+        "start_line": 602
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 738,
+        "sha256": "60b3ad3d6890ca4f08e0680fb699f03154850b52720d8566c530fc2a9941e150",
+        "start_line": 691
+      },
+      "current_declaration_sha256": "60b3ad3d6890ca4f08e0680fb699f03154850b52720d8566c530fc2a9941e150",
+      "current_name": "TestArtifactAdmissionRejectsLeaderConflictDespiteStaleFollower",
+      "kind": "test",
+      "original_declaration_sha256": "60b3ad3d6890ca4f08e0680fb699f03154850b52720d8566c530fc2a9941e150",
+      "original_name": "TestArtifactAdmissionRejectsLeaderConflictDespiteStaleFollower",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestArtifactAdmissionRejectsLeaderConflictDespiteStaleFollower",
+      "source_declaration": {
+        "end_line": 738,
+        "sha256": "60b3ad3d6890ca4f08e0680fb699f03154850b52720d8566c530fc2a9941e150",
+        "start_line": 691
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 689,
+        "sha256": "4b617d34790178960b6d13d7c68a96e47eec900ec6d6fdcbf9744128529eaa30",
+        "start_line": 628
+      },
+      "current_declaration_sha256": "4b617d34790178960b6d13d7c68a96e47eec900ec6d6fdcbf9744128529eaa30",
+      "current_name": "TestArtifactAdmissionSignerReplacementUsesLeaderRevision",
+      "kind": "test",
+      "original_declaration_sha256": "4b617d34790178960b6d13d7c68a96e47eec900ec6d6fdcbf9744128529eaa30",
+      "original_name": "TestArtifactAdmissionSignerReplacementUsesLeaderRevision",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestArtifactAdmissionSignerReplacementUsesLeaderRevision",
+      "source_declaration": {
+        "end_line": 689,
+        "sha256": "4b617d34790178960b6d13d7c68a96e47eec900ec6d6fdcbf9744128529eaa30",
+        "start_line": 628
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 157,
+        "sha256": "878641220725adc26b6fd6a67cae5dc92af1ccd382002afb107ac8e1017f43e0",
+        "start_line": 112
+      },
+      "current_declaration_sha256": "878641220725adc26b6fd6a67cae5dc92af1ccd382002afb107ac8e1017f43e0",
+      "current_name": "TestArtifactMetadataReadCancelsBlockedBrokerRequest",
+      "kind": "test",
+      "original_declaration_sha256": "878641220725adc26b6fd6a67cae5dc92af1ccd382002afb107ac8e1017f43e0",
+      "original_name": "TestArtifactMetadataReadCancelsBlockedBrokerRequest",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestArtifactMetadataReadCancelsBlockedBrokerRequest",
+      "source_declaration": {
+        "end_line": 157,
+        "sha256": "878641220725adc26b6fd6a67cae5dc92af1ccd382002afb107ac8e1017f43e0",
+        "start_line": 112
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 176,
+        "sha256": "e38c9da0f89ca944f6ef38cad6236a178af52151e8655a31e3cdfb7b70a22c4b",
+        "start_line": 159
+      },
+      "current_declaration_sha256": "e38c9da0f89ca944f6ef38cad6236a178af52151e8655a31e3cdfb7b70a22c4b",
+      "current_name": "TestArtifactMetadataReadDistinguishesMissingObjectAndBucket",
+      "kind": "test",
+      "original_declaration_sha256": "e38c9da0f89ca944f6ef38cad6236a178af52151e8655a31e3cdfb7b70a22c4b",
+      "original_name": "TestArtifactMetadataReadDistinguishesMissingObjectAndBucket",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestArtifactMetadataReadDistinguishesMissingObjectAndBucket",
+      "source_declaration": {
+        "end_line": 176,
+        "sha256": "e38c9da0f89ca944f6ef38cad6236a178af52151e8655a31e3cdfb7b70a22c4b",
+        "start_line": 159
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 483,
+        "sha256": "bacfc88a249bebca5e642403d1dbde1b6b963864b7505e365074c9ba3afb0ce1",
+        "start_line": 454
+      },
+      "current_declaration_sha256": "bacfc88a249bebca5e642403d1dbde1b6b963864b7505e365074c9ba3afb0ce1",
+      "current_name": "TestArtifactStoreQuotaRejectsNewObjectsAndPreservesExistingData",
+      "kind": "test",
+      "original_declaration_sha256": "bacfc88a249bebca5e642403d1dbde1b6b963864b7505e365074c9ba3afb0ce1",
+      "original_name": "TestArtifactStoreQuotaRejectsNewObjectsAndPreservesExistingData",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestArtifactStoreQuotaRejectsNewObjectsAndPreservesExistingData",
+      "source_declaration": {
+        "end_line": 483,
+        "sha256": "bacfc88a249bebca5e642403d1dbde1b6b963864b7505e365074c9ba3afb0ce1",
+        "start_line": 454
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 491,
+        "sha256": "7115d541d41f101562f4127adb6bc22c92a9c5a3dc7c1da477be54c5c2fffed1",
+        "start_line": 485
+      },
+      "current_declaration_sha256": "7115d541d41f101562f4127adb6bc22c92a9c5a3dc7c1da477be54c5c2fffed1",
+      "current_name": "TestOpenRejectsNegativeArtifactStoreLimit",
+      "kind": "test",
+      "original_declaration_sha256": "7115d541d41f101562f4127adb6bc22c92a9c5a3dc7c1da477be54c5c2fffed1",
+      "original_name": "TestOpenRejectsNegativeArtifactStoreLimit",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestOpenRejectsNegativeArtifactStoreLimit",
+      "source_declaration": {
+        "end_line": 491,
+        "sha256": "7115d541d41f101562f4127adb6bc22c92a9c5a3dc7c1da477be54c5c2fffed1",
+        "start_line": 485
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 452,
+        "sha256": "d98972402ae07360df5a393cecbf2d0bc0d2fefc44a6e9b9e982ae2b5bd0a326",
+        "start_line": 429
+      },
+      "current_declaration_sha256": "d98972402ae07360df5a393cecbf2d0bc0d2fefc44a6e9b9e982ae2b5bd0a326",
+      "current_name": "TestPrepareArtifactHashesAndUploadsTheSameSnapshot",
+      "kind": "test",
+      "original_declaration_sha256": "d98972402ae07360df5a393cecbf2d0bc0d2fefc44a6e9b9e982ae2b5bd0a326",
+      "original_name": "TestPrepareArtifactHashesAndUploadsTheSameSnapshot",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestPrepareArtifactHashesAndUploadsTheSameSnapshot",
+      "source_declaration": {
+        "end_line": 452,
+        "sha256": "d98972402ae07360df5a393cecbf2d0bc0d2fefc44a6e9b9e982ae2b5bd0a326",
+        "start_line": 429
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 427,
+        "sha256": "43f4e4c8aa28d196de3d5f9a9c43e7b947871139d699b3d502fe74c00537bf5a",
+        "start_line": 390
+      },
+      "current_declaration_sha256": "43f4e4c8aa28d196de3d5f9a9c43e7b947871139d699b3d502fe74c00537bf5a",
+      "current_name": "TestPrepareArtifactRefusesInvalidExistingMetadata",
+      "kind": "test",
+      "original_declaration_sha256": "43f4e4c8aa28d196de3d5f9a9c43e7b947871139d699b3d502fe74c00537bf5a",
+      "original_name": "TestPrepareArtifactRefusesInvalidExistingMetadata",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestPrepareArtifactRefusesInvalidExistingMetadata",
+      "source_declaration": {
+        "end_line": 427,
+        "sha256": "43f4e4c8aa28d196de3d5f9a9c43e7b947871139d699b3d502fe74c00537bf5a",
+        "start_line": 390
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 388,
+        "sha256": "4fd0fc2cfcbce40555c64a6722725a7f3afd3848893f71730bf50922ee9ddbb7",
+        "start_line": 356
+      },
+      "current_declaration_sha256": "4fd0fc2cfcbce40555c64a6722725a7f3afd3848893f71730bf50922ee9ddbb7",
+      "current_name": "TestPrepareArtifactRepairsMetadataWithMissingChunks",
+      "kind": "test",
+      "original_declaration_sha256": "4fd0fc2cfcbce40555c64a6722725a7f3afd3848893f71730bf50922ee9ddbb7",
+      "original_name": "TestPrepareArtifactRepairsMetadataWithMissingChunks",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestPrepareArtifactRepairsMetadataWithMissingChunks",
+      "source_declaration": {
+        "end_line": 388,
+        "sha256": "4fd0fc2cfcbce40555c64a6722725a7f3afd3848893f71730bf50922ee9ddbb7",
+        "start_line": 356
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 239,
+        "sha256": "351b45ce6cc6c9eb75b202ea918fe2c2c9360ad14ac260e68c0190d4da64fe56",
+        "start_line": 206
+      },
+      "current_declaration_sha256": "351b45ce6cc6c9eb75b202ea918fe2c2c9360ad14ac260e68c0190d4da64fe56",
+      "current_name": "TestPrepareArtifactRetriesOnlyTemporaryObjectVisibilityMisses",
+      "kind": "test",
+      "original_declaration_sha256": "351b45ce6cc6c9eb75b202ea918fe2c2c9360ad14ac260e68c0190d4da64fe56",
+      "original_name": "TestPrepareArtifactRetriesOnlyTemporaryObjectVisibilityMisses",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestPrepareArtifactRetriesOnlyTemporaryObjectVisibilityMisses",
+      "source_declaration": {
+        "end_line": 239,
+        "sha256": "351b45ce6cc6c9eb75b202ea918fe2c2c9360ad14ac260e68c0190d4da64fe56",
+        "start_line": 206
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 264,
+        "sha256": "c47d43bf24a961d126f5e8e4d8e18fa450df5ee9f3ab705928d227bb0487d916",
+        "start_line": 257
+      },
+      "current_declaration_sha256": "c47d43bf24a961d126f5e8e4d8e18fa450df5ee9f3ab705928d227bb0487d916",
+      "current_name": "TestPrepareArtifactSignsTheClaimAfterStoringTheBytes",
+      "kind": "test",
+      "original_declaration_sha256": "c47d43bf24a961d126f5e8e4d8e18fa450df5ee9f3ab705928d227bb0487d916",
+      "original_name": "TestPrepareArtifactSignsTheClaimAfterStoringTheBytes",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestPrepareArtifactSignsTheClaimAfterStoringTheBytes",
+      "source_declaration": {
+        "end_line": 264,
+        "sha256": "c47d43bf24a961d126f5e8e4d8e18fa450df5ee9f3ab705928d227bb0487d916",
+        "start_line": 257
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 320,
+        "sha256": "8533af94d444ccc3af1f698c7b3ebe427f97a05de4efadd06165369df0b050f4",
+        "start_line": 284
+      },
+      "current_declaration_sha256": "8533af94d444ccc3af1f698c7b3ebe427f97a05de4efadd06165369df0b050f4",
+      "current_name": "TestPrepareArtifactSkipsPutWhenStoredDigestAndSizeVerify",
+      "kind": "test",
+      "original_declaration_sha256": "8533af94d444ccc3af1f698c7b3ebe427f97a05de4efadd06165369df0b050f4",
+      "original_name": "TestPrepareArtifactSkipsPutWhenStoredDigestAndSizeVerify",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestPrepareArtifactSkipsPutWhenStoredDigestAndSizeVerify",
+      "source_declaration": {
+        "end_line": 320,
+        "sha256": "8533af94d444ccc3af1f698c7b3ebe427f97a05de4efadd06165369df0b050f4",
+        "start_line": 284
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 354,
+        "sha256": "80b82eb5ab02838fd09590b44d546e24e2cad563866271ef62159efb1eb80b40",
+        "start_line": 322
+      },
+      "current_declaration_sha256": "80b82eb5ab02838fd09590b44d546e24e2cad563866271ef62159efb1eb80b40",
+      "current_name": "TestPrepareArtifactUsesLeaderMetadataBeforeReplacingExistingObject",
+      "kind": "test",
+      "original_declaration_sha256": "80b82eb5ab02838fd09590b44d546e24e2cad563866271ef62159efb1eb80b40",
+      "original_name": "TestPrepareArtifactUsesLeaderMetadataBeforeReplacingExistingObject",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestPrepareArtifactUsesLeaderMetadataBeforeReplacingExistingObject",
+      "source_declaration": {
+        "end_line": 354,
+        "sha256": "80b82eb5ab02838fd09590b44d546e24e2cad563866271ef62159efb1eb80b40",
+        "start_line": 322
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 750,
+        "sha256": "82d881f55dc6b868ed70a682faed0747d24f1e08571a091a11553881a9c53286",
+        "start_line": 740
+      },
+      "current_declaration_sha256": "82d881f55dc6b868ed70a682faed0747d24f1e08571a091a11553881a9c53286",
+      "current_name": "TestResolveAdmittedArtifactRequiresCurrentAdmissionAndVerifiedBytes",
+      "kind": "test",
+      "original_declaration_sha256": "82d881f55dc6b868ed70a682faed0747d24f1e08571a091a11553881a9c53286",
+      "original_name": "TestResolveAdmittedArtifactRequiresCurrentAdmissionAndVerifiedBytes",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestResolveAdmittedArtifactRequiresCurrentAdmissionAndVerifiedBytes",
+      "source_declaration": {
+        "end_line": 750,
+        "sha256": "82d881f55dc6b868ed70a682faed0747d24f1e08571a091a11553881a9c53286",
+        "start_line": 740
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 72,
+        "sha256": "5e308fd7195bb16a6c7bde6c769ada9673472b0d89963542c12d267541dfbfbc",
+        "start_line": 61
+      },
+      "current_declaration_sha256": "5e308fd7195bb16a6c7bde6c769ada9673472b0d89963542c12d267541dfbfbc",
+      "current_name": "TestRetryArtifactMetadataReadFailsClosedOnPersistentLeaderFailure",
+      "kind": "test",
+      "original_declaration_sha256": "5e308fd7195bb16a6c7bde6c769ada9673472b0d89963542c12d267541dfbfbc",
+      "original_name": "TestRetryArtifactMetadataReadFailsClosedOnPersistentLeaderFailure",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestRetryArtifactMetadataReadFailsClosedOnPersistentLeaderFailure",
+      "source_declaration": {
+        "end_line": 72,
+        "sha256": "5e308fd7195bb16a6c7bde6c769ada9673472b0d89963542c12d267541dfbfbc",
+        "start_line": 61
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 97,
+        "sha256": "56b67bb87b311b96a3475b1ab9e2a5359295e0ba79976bfe91f8855e124c175f",
+        "start_line": 74
+      },
+      "current_declaration_sha256": "56b67bb87b311b96a3475b1ab9e2a5359295e0ba79976bfe91f8855e124c175f",
+      "current_name": "TestRetryArtifactMetadataReadPreservesAbsenceAndPermanentErrors",
+      "kind": "test",
+      "original_declaration_sha256": "56b67bb87b311b96a3475b1ab9e2a5359295e0ba79976bfe91f8855e124c175f",
+      "original_name": "TestRetryArtifactMetadataReadPreservesAbsenceAndPermanentErrors",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestRetryArtifactMetadataReadPreservesAbsenceAndPermanentErrors",
+      "source_declaration": {
+        "end_line": 97,
+        "sha256": "56b67bb87b311b96a3475b1ab9e2a5359295e0ba79976bfe91f8855e124c175f",
+        "start_line": 74
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 59,
+        "sha256": "b31f60053d77aa21185e58065c58a186dfd0df4f14692f8fd17f6fd1d9302da2",
+        "start_line": 46
+      },
+      "current_declaration_sha256": "b31f60053d77aa21185e58065c58a186dfd0df4f14692f8fd17f6fd1d9302da2",
+      "current_name": "TestRetryArtifactMetadataReadRecoversFromTransientLeaderFailure",
+      "kind": "test",
+      "original_declaration_sha256": "b31f60053d77aa21185e58065c58a186dfd0df4f14692f8fd17f6fd1d9302da2",
+      "original_name": "TestRetryArtifactMetadataReadRecoversFromTransientLeaderFailure",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestRetryArtifactMetadataReadRecoversFromTransientLeaderFailure",
+      "source_declaration": {
+        "end_line": 59,
+        "sha256": "b31f60053d77aa21185e58065c58a186dfd0df4f14692f8fd17f6fd1d9302da2",
+        "start_line": 46
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 110,
+        "sha256": "e4ec54bf3c67fc33cee69fbdfd46a7e27191b54f5e3ee32fe2c989f5d2ffd981",
+        "start_line": 99
+      },
+      "current_declaration_sha256": "e4ec54bf3c67fc33cee69fbdfd46a7e27191b54f5e3ee32fe2c989f5d2ffd981",
+      "current_name": "TestRetryArtifactMetadataReadStopsOnCallerCancellation",
+      "kind": "test",
+      "original_declaration_sha256": "e4ec54bf3c67fc33cee69fbdfd46a7e27191b54f5e3ee32fe2c989f5d2ffd981",
+      "original_name": "TestRetryArtifactMetadataReadStopsOnCallerCancellation",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestRetryArtifactMetadataReadStopsOnCallerCancellation",
+      "source_declaration": {
+        "end_line": 110,
+        "sha256": "e4ec54bf3c67fc33cee69fbdfd46a7e27191b54f5e3ee32fe2c989f5d2ffd981",
+        "start_line": 99
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 600,
+        "sha256": "e8e1a4f51ff688659616f4b53b88ba62a7e977ae982b4590b5bbbc71b880f239",
+        "start_line": 514
+      },
+      "current_declaration_sha256": "e8e1a4f51ff688659616f4b53b88ba62a7e977ae982b4590b5bbbc71b880f239",
+      "current_name": "TestRevokedArtifactSignerCanBeReplacedByAuthorizedSignerConcurrently",
+      "kind": "test",
+      "original_declaration_sha256": "e8e1a4f51ff688659616f4b53b88ba62a7e977ae982b4590b5bbbc71b880f239",
+      "original_name": "TestRevokedArtifactSignerCanBeReplacedByAuthorizedSignerConcurrently",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestRevokedArtifactSignerCanBeReplacedByAuthorizedSignerConcurrently",
+      "source_declaration": {
+        "end_line": 600,
+        "sha256": "e8e1a4f51ff688659616f4b53b88ba62a7e977ae982b4590b5bbbc71b880f239",
+        "start_line": 514
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 282,
+        "sha256": "25e4fdebd328c722d852551a38a4ca4e1f4490faa8cf6d4fad61b19baa1ef1ed",
+        "start_line": 266
+      },
+      "current_declaration_sha256": "25e4fdebd328c722d852551a38a4ca4e1f4490faa8cf6d4fad61b19baa1ef1ed",
+      "current_name": "TestVerifyArtifactFailsClosedAfterVisibilityRetryBound",
+      "kind": "test",
+      "original_declaration_sha256": "25e4fdebd328c722d852551a38a4ca4e1f4490faa8cf6d4fad61b19baa1ef1ed",
+      "original_name": "TestVerifyArtifactFailsClosedAfterVisibilityRetryBound",
+      "path": "internal/delivery/artifact_test.go",
+      "root_id": "internal/delivery/artifact_test.go::TestVerifyArtifactFailsClosedAfterVisibilityRetryBound",
+      "source_declaration": {
+        "end_line": 282,
+        "sha256": "25e4fdebd328c722d852551a38a4ca4e1f4490faa8cf6d4fad61b19baa1ef1ed",
+        "start_line": 266
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 65,
+        "sha256": "f99f9854fb67ab47f79e503c0fd653fd0fc0009ad96fbb01a8febd80ed3138ca",
+        "start_line": 45
+      },
+      "current_declaration_sha256": "f99f9854fb67ab47f79e503c0fd653fd0fc0009ad96fbb01a8febd80ed3138ca",
+      "current_name": "TestDeliveryFailureClassUsesSafeKnownCategories",
+      "kind": "test",
+      "original_declaration_sha256": "f99f9854fb67ab47f79e503c0fd653fd0fc0009ad96fbb01a8febd80ed3138ca",
+      "original_name": "TestDeliveryFailureClassUsesSafeKnownCategories",
+      "path": "internal/delivery/consumer_diagnostics_test.go",
+      "root_id": "internal/delivery/consumer_diagnostics_test.go::TestDeliveryFailureClassUsesSafeKnownCategories",
+      "source_declaration": {
+        "end_line": 65,
+        "sha256": "f99f9854fb67ab47f79e503c0fd653fd0fc0009ad96fbb01a8febd80ed3138ca",
+        "start_line": 45
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 43,
+        "sha256": "bfba486e8e8c75a93c0634f37d1931d463539657ffcd3bb60a1a059f4660e5e9",
+        "start_line": 24
+      },
+      "current_declaration_sha256": "bfba486e8e8c75a93c0634f37d1931d463539657ffcd3bb60a1a059f4660e5e9",
+      "current_name": "TestDeliveryProcessReportsPreclaimPlannerStage",
+      "kind": "test",
+      "original_declaration_sha256": "bfba486e8e8c75a93c0634f37d1931d463539657ffcd3bb60a1a059f4660e5e9",
+      "original_name": "TestDeliveryProcessReportsPreclaimPlannerStage",
+      "path": "internal/delivery/consumer_diagnostics_test.go",
+      "root_id": "internal/delivery/consumer_diagnostics_test.go::TestDeliveryProcessReportsPreclaimPlannerStage",
+      "source_declaration": {
+        "end_line": 43,
+        "sha256": "bfba486e8e8c75a93c0634f37d1931d463539657ffcd3bb60a1a059f4660e5e9",
+        "start_line": 24
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 107,
+        "sha256": "ef1dfbe336c039e595b826f655eab175bcd6bc1fbb685f1f17ded02ade5c455d",
+        "start_line": 86
+      },
+      "current_declaration_sha256": "ef1dfbe336c039e595b826f655eab175bcd6bc1fbb685f1f17ded02ade5c455d",
+      "current_name": "TestDeliveryRetryDiagnosticIsRateLimitedAndOmitsRawError",
+      "kind": "test",
+      "original_declaration_sha256": "ef1dfbe336c039e595b826f655eab175bcd6bc1fbb685f1f17ded02ade5c455d",
+      "original_name": "TestDeliveryRetryDiagnosticIsRateLimitedAndOmitsRawError",
+      "path": "internal/delivery/consumer_diagnostics_test.go",
+      "root_id": "internal/delivery/consumer_diagnostics_test.go::TestDeliveryRetryDiagnosticIsRateLimitedAndOmitsRawError",
+      "source_declaration": {
+        "end_line": 107,
+        "sha256": "ef1dfbe336c039e595b826f655eab175bcd6bc1fbb685f1f17ded02ade5c455d",
+        "start_line": 86
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 84,
+        "sha256": "f49ace0ce1938007a2fdb1bf1d36dc1a76cca9ec49d4b63abab6f2d67d141de1",
+        "start_line": 69
+      },
+      "current_declaration_sha256": "f49ace0ce1938007a2fdb1bf1d36dc1a76cca9ec49d4b63abab6f2d67d141de1",
+      "current_name": "TestPlannerRefusalExemptsRetryableHostSnapshotClasses",
+      "kind": "test",
+      "original_declaration_sha256": "f49ace0ce1938007a2fdb1bf1d36dc1a76cca9ec49d4b63abab6f2d67d141de1",
+      "original_name": "TestPlannerRefusalExemptsRetryableHostSnapshotClasses",
+      "path": "internal/delivery/consumer_diagnostics_test.go",
+      "root_id": "internal/delivery/consumer_diagnostics_test.go::TestPlannerRefusalExemptsRetryableHostSnapshotClasses",
+      "source_declaration": {
+        "end_line": 84,
+        "sha256": "f49ace0ce1938007a2fdb1bf1d36dc1a76cca9ec49d4b63abab6f2d67d141de1",
+        "start_line": 69
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 209,
+        "sha256": "a0ac39d5ba53d1a40bb325d1db06fd2eb957a512395c121a6f13a8d6e217971c",
+        "start_line": 198
+      },
+      "current_declaration_sha256": "a0ac39d5ba53d1a40bb325d1db06fd2eb957a512395c121a6f13a8d6e217971c",
+      "current_name": "TestContainerIntentCloneRetainsIndex",
+      "kind": "test",
+      "original_declaration_sha256": "a0ac39d5ba53d1a40bb325d1db06fd2eb957a512395c121a6f13a8d6e217971c",
+      "original_name": "TestContainerIntentCloneRetainsIndex",
+      "path": "internal/delivery/container_consumer_integration_test.go",
+      "root_id": "internal/delivery/container_consumer_integration_test.go::TestContainerIntentCloneRetainsIndex",
+      "source_declaration": {
+        "end_line": 209,
+        "sha256": "a0ac39d5ba53d1a40bb325d1db06fd2eb957a512395c121a6f13a8d6e217971c",
+        "start_line": 198
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 184,
+        "sha256": "c5c0f94591d9229195de3661253405e20cec7670809f282756f7ff0e84165d2c",
+        "start_line": 26
+      },
+      "current_declaration_sha256": "c5c0f94591d9229195de3661253405e20cec7670809f282756f7ff0e84165d2c",
+      "current_name": "TestContainerIntentSignedBrokerRecovery",
+      "kind": "test",
+      "original_declaration_sha256": "c5c0f94591d9229195de3661253405e20cec7670809f282756f7ff0e84165d2c",
+      "original_name": "TestContainerIntentSignedBrokerRecovery",
+      "path": "internal/delivery/container_consumer_integration_test.go",
+      "root_id": "internal/delivery/container_consumer_integration_test.go::TestContainerIntentSignedBrokerRecovery",
+      "source_declaration": {
+        "end_line": 184,
+        "sha256": "c5c0f94591d9229195de3661253405e20cec7670809f282756f7ff0e84165d2c",
+        "start_line": 26
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 53,
+        "sha256": "2890e79b5afae51eebf3d0533412dc68988ac5ebf23aed9e5a9815f7f6477331",
+        "start_line": 9
+      },
+      "current_declaration_sha256": "2890e79b5afae51eebf3d0533412dc68988ac5ebf23aed9e5a9815f7f6477331",
+      "current_name": "TestDeliveryJournalsEachSettledIntentOnce",
+      "kind": "test",
+      "original_declaration_sha256": "2890e79b5afae51eebf3d0533412dc68988ac5ebf23aed9e5a9815f7f6477331",
+      "original_name": "TestDeliveryJournalsEachSettledIntentOnce",
+      "path": "internal/delivery/decisions_test.go",
+      "root_id": "internal/delivery/decisions_test.go::TestDeliveryJournalsEachSettledIntentOnce",
+      "source_declaration": {
+        "end_line": 53,
+        "sha256": "2890e79b5afae51eebf3d0533412dc68988ac5ebf23aed9e5a9815f7f6477331",
+        "start_line": 9
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 105,
+        "sha256": "c3e57d73349eb5a2cec07f32e185d73280d166539f0c9657dbf14db0bd9a8a2b",
+        "start_line": 87
+      },
+      "current_declaration_sha256": "c3e57d73349eb5a2cec07f32e185d73280d166539f0c9657dbf14db0bd9a8a2b",
+      "current_name": "TestOperationLeaderReadRejectsInvalidMessage",
+      "kind": "test",
+      "original_declaration_sha256": "c3e57d73349eb5a2cec07f32e185d73280d166539f0c9657dbf14db0bd9a8a2b",
+      "original_name": "TestOperationLeaderReadRejectsInvalidMessage",
+      "path": "internal/delivery/leader_read_test.go",
+      "root_id": "internal/delivery/leader_read_test.go::TestOperationLeaderReadRejectsInvalidMessage",
+      "source_declaration": {
+        "end_line": 105,
+        "sha256": "c3e57d73349eb5a2cec07f32e185d73280d166539f0c9657dbf14db0bd9a8a2b",
+        "start_line": 87
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 85,
+        "sha256": "e4e22eb2587dd2822c1af01a723d35eb12e28970e2c5aa5d2d9e6ebd2bb22d0e",
+        "start_line": 14
+      },
+      "current_declaration_sha256": "e4e22eb2587dd2822c1af01a723d35eb12e28970e2c5aa5d2d9e6ebd2bb22d0e",
+      "current_name": "TestOperationLeaderReadWithDirectGetDenied",
+      "kind": "test",
+      "original_declaration_sha256": "e4e22eb2587dd2822c1af01a723d35eb12e28970e2c5aa5d2d9e6ebd2bb22d0e",
+      "original_name": "TestOperationLeaderReadWithDirectGetDenied",
+      "path": "internal/delivery/leader_read_test.go",
+      "root_id": "internal/delivery/leader_read_test.go::TestOperationLeaderReadWithDirectGetDenied",
+      "source_declaration": {
+        "end_line": 85,
+        "sha256": "e4e22eb2587dd2822c1af01a723d35eb12e28970e2c5aa5d2d9e6ebd2bb22d0e",
+        "start_line": 14
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 44,
+        "sha256": "fe871c53465af248ad7e51c012f66e4b74346d9ca198495987486048688308cc",
+        "start_line": 21
+      },
+      "current_declaration_sha256": "fe871c53465af248ad7e51c012f66e4b74346d9ca198495987486048688308cc",
+      "current_name": "TestOperationCannotImpersonateVerifiedWireCache",
+      "kind": "test",
+      "original_declaration_sha256": "fe871c53465af248ad7e51c012f66e4b74346d9ca198495987486048688308cc",
+      "original_name": "TestOperationCannotImpersonateVerifiedWireCache",
+      "path": "internal/delivery/operation_keys_test.go",
+      "root_id": "internal/delivery/operation_keys_test.go::TestOperationCannotImpersonateVerifiedWireCache",
+      "source_declaration": {
+        "end_line": 44,
+        "sha256": "fe871c53465af248ad7e51c012f66e4b74346d9ca198495987486048688308cc",
+        "start_line": 21
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 63,
+        "sha256": "8daa77c580bf573bb5cf543760b15660e617c60253189c5976f11d3360f96634",
+        "start_line": 48
+      },
+      "current_declaration_sha256": "8daa77c580bf573bb5cf543760b15660e617c60253189c5976f11d3360f96634",
+      "current_name": "TestPersistedPlanStopsWhenDesiredAuthorizationExpires",
+      "kind": "test",
+      "original_declaration_sha256": "8daa77c580bf573bb5cf543760b15660e617c60253189c5976f11d3360f96634",
+      "original_name": "TestPersistedPlanStopsWhenDesiredAuthorizationExpires",
+      "path": "internal/delivery/prepared_intent_test.go",
+      "root_id": "internal/delivery/prepared_intent_test.go::TestPersistedPlanStopsWhenDesiredAuthorizationExpires",
+      "source_declaration": {
+        "end_line": 63,
+        "sha256": "8daa77c580bf573bb5cf543760b15660e617c60253189c5976f11d3360f96634",
+        "start_line": 48
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 39,
+        "sha256": "5d235a2931ec2cf27d782663fc87a31f5b7bf5d7cfa7578fd936054c399d6186",
+        "start_line": 14
+      },
+      "current_declaration_sha256": "5d235a2931ec2cf27d782663fc87a31f5b7bf5d7cfa7578fd936054c399d6186",
+      "current_name": "TestUnpreparedIntentProducesDurableRefusalWithoutDesiredChanges",
+      "kind": "test",
+      "original_declaration_sha256": "5d235a2931ec2cf27d782663fc87a31f5b7bf5d7cfa7578fd936054c399d6186",
+      "original_name": "TestUnpreparedIntentProducesDurableRefusalWithoutDesiredChanges",
+      "path": "internal/delivery/prepared_intent_test.go",
+      "root_id": "internal/delivery/prepared_intent_test.go::TestUnpreparedIntentProducesDurableRefusalWithoutDesiredChanges",
+      "source_declaration": {
+        "end_line": 39,
+        "sha256": "5d235a2931ec2cf27d782663fc87a31f5b7bf5d7cfa7578fd936054c399d6186",
+        "start_line": 14
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 47,
+        "sha256": "dfb53f0f3880e7868dddd9022843c6c84e70fccb2174cff8457a3f55d1630800",
+        "start_line": 33
+      },
+      "current_declaration_sha256": "dfb53f0f3880e7868dddd9022843c6c84e70fccb2174cff8457a3f55d1630800",
+      "current_name": "TestRefuseIntentPreservesAcceptedOperation",
+      "kind": "test",
+      "original_declaration_sha256": "dfb53f0f3880e7868dddd9022843c6c84e70fccb2174cff8457a3f55d1630800",
+      "original_name": "TestRefuseIntentPreservesAcceptedOperation",
+      "path": "internal/delivery/refusal_test.go",
+      "root_id": "internal/delivery/refusal_test.go::TestRefuseIntentPreservesAcceptedOperation",
+      "source_declaration": {
+        "end_line": 47,
+        "sha256": "dfb53f0f3880e7868dddd9022843c6c84e70fccb2174cff8457a3f55d1630800",
+        "start_line": 33
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 31,
+        "sha256": "85e9a2629bcca449d639217b1f58690bb0bd20dc393d19e96f3dbe76226ed1b2",
+        "start_line": 10
+      },
+      "current_declaration_sha256": "85e9a2629bcca449d639217b1f58690bb0bd20dc393d19e96f3dbe76226ed1b2",
+      "current_name": "TestRefuseIntentPreservesDurableIdentity",
+      "kind": "test",
+      "original_declaration_sha256": "85e9a2629bcca449d639217b1f58690bb0bd20dc393d19e96f3dbe76226ed1b2",
+      "original_name": "TestRefuseIntentPreservesDurableIdentity",
+      "path": "internal/delivery/refusal_test.go",
+      "root_id": "internal/delivery/refusal_test.go::TestRefuseIntentPreservesDurableIdentity",
+      "source_declaration": {
+        "end_line": 31,
+        "sha256": "85e9a2629bcca449d639217b1f58690bb0bd20dc393d19e96f3dbe76226ed1b2",
+        "start_line": 10
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 65,
+        "sha256": "dd3ef6eba29c500fcfe2b2807161cd9b9c726f2a1b1896409645c378220334ef",
+        "start_line": 49
+      },
+      "current_declaration_sha256": "dd3ef6eba29c500fcfe2b2807161cd9b9c726f2a1b1896409645c378220334ef",
+      "current_name": "TestRefuseIntentRequiresAuthorizationAndAuthority",
+      "kind": "test",
+      "original_declaration_sha256": "dd3ef6eba29c500fcfe2b2807161cd9b9c726f2a1b1896409645c378220334ef",
+      "original_name": "TestRefuseIntentRequiresAuthorizationAndAuthority",
+      "path": "internal/delivery/refusal_test.go",
+      "root_id": "internal/delivery/refusal_test.go::TestRefuseIntentRequiresAuthorizationAndAuthority",
+      "source_declaration": {
+        "end_line": 65,
+        "sha256": "dd3ef6eba29c500fcfe2b2807161cd9b9c726f2a1b1896409645c378220334ef",
+        "start_line": 49
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 117,
+        "sha256": "b67731941b2c84c74c1e466fd3e7a5342afb097b89957fc950857374f496f530",
+        "start_line": 87
+      },
+      "current_declaration_sha256": "b67731941b2c84c74c1e466fd3e7a5342afb097b89957fc950857374f496f530",
+      "current_name": "TestRefuseIntentSettlesOldEpochWithoutReplacingClaimedPlan",
+      "kind": "test",
+      "original_declaration_sha256": "b67731941b2c84c74c1e466fd3e7a5342afb097b89957fc950857374f496f530",
+      "original_name": "TestRefuseIntentSettlesOldEpochWithoutReplacingClaimedPlan",
+      "path": "internal/delivery/refusal_test.go",
+      "root_id": "internal/delivery/refusal_test.go::TestRefuseIntentSettlesOldEpochWithoutReplacingClaimedPlan",
+      "source_declaration": {
+        "end_line": 117,
+        "sha256": "b67731941b2c84c74c1e466fd3e7a5342afb097b89957fc950857374f496f530",
+        "start_line": 87
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 85,
+        "sha256": "24c6bc8a7d813321f8269060bf841e26f0d04eafef457adfe3f9180816b742bf",
+        "start_line": 67
+      },
+      "current_declaration_sha256": "24c6bc8a7d813321f8269060bf841e26f0d04eafef457adfe3f9180816b742bf",
+      "current_name": "TestStatusForChecksPendingOperationFingerprint",
+      "kind": "test",
+      "original_declaration_sha256": "24c6bc8a7d813321f8269060bf841e26f0d04eafef457adfe3f9180816b742bf",
+      "original_name": "TestStatusForChecksPendingOperationFingerprint",
+      "path": "internal/delivery/refusal_test.go",
+      "root_id": "internal/delivery/refusal_test.go::TestStatusForChecksPendingOperationFingerprint",
+      "source_declaration": {
+        "end_line": 85,
+        "sha256": "24c6bc8a7d813321f8269060bf841e26f0d04eafef457adfe3f9180816b742bf",
+        "start_line": 67
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 634,
+        "sha256": "827f92369a049a22f3d53725e19029a5dd125066685d9c1d5ffba9950dd1f439",
+        "start_line": 608
+      },
+      "current_declaration_sha256": "827f92369a049a22f3d53725e19029a5dd125066685d9c1d5ffba9950dd1f439",
+      "current_name": "TestArtifactAdmissionBindsSourceAndReadback",
+      "kind": "test",
+      "original_declaration_sha256": "827f92369a049a22f3d53725e19029a5dd125066685d9c1d5ffba9950dd1f439",
+      "original_name": "TestArtifactAdmissionBindsSourceAndReadback",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestArtifactAdmissionBindsSourceAndReadback",
+      "source_declaration": {
+        "end_line": 634,
+        "sha256": "827f92369a049a22f3d53725e19029a5dd125066685d9c1d5ffba9950dd1f439",
+        "start_line": 608
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 670,
+        "sha256": "557a19ce3e2a517dde03376e252085869bdf5a6a67ddc92de761a8648e890463",
+        "start_line": 636
+      },
+      "current_declaration_sha256": "557a19ce3e2a517dde03376e252085869bdf5a6a67ddc92de761a8648e890463",
+      "current_name": "TestArtifactClaimMustBeFreshForAdmissionButRemainsReadable",
+      "kind": "test",
+      "original_declaration_sha256": "557a19ce3e2a517dde03376e252085869bdf5a6a67ddc92de761a8648e890463",
+      "original_name": "TestArtifactClaimMustBeFreshForAdmissionButRemainsReadable",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestArtifactClaimMustBeFreshForAdmissionButRemainsReadable",
+      "source_declaration": {
+        "end_line": 670,
+        "sha256": "557a19ce3e2a517dde03376e252085869bdf5a6a67ddc92de761a8648e890463",
+        "start_line": 636
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 1070,
+        "sha256": "9c4c98fd2531b7bb6d9ac7d5e30ddef8a67c943b7b077a3c2657fea1a5b59780",
+        "start_line": 1050
+      },
+      "current_declaration_sha256": "9c4c98fd2531b7bb6d9ac7d5e30ddef8a67c943b7b077a3c2657fea1a5b59780",
+      "current_name": "TestCancellationAfterHostEffectReplaysBeforeAck",
+      "kind": "test",
+      "original_declaration_sha256": "9c4c98fd2531b7bb6d9ac7d5e30ddef8a67c943b7b077a3c2657fea1a5b59780",
+      "original_name": "TestCancellationAfterHostEffectReplaysBeforeAck",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestCancellationAfterHostEffectReplaysBeforeAck",
+      "source_declaration": {
+        "end_line": 1070,
+        "sha256": "9c4c98fd2531b7bb6d9ac7d5e30ddef8a67c943b7b077a3c2657fea1a5b59780",
+        "start_line": 1050
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 1106,
+        "sha256": "76937f4fc5c468e9aecce6564364ce855bad1e5ec92af3528cf214bd6fef4c77",
+        "start_line": 1090
+      },
+      "current_declaration_sha256": "76937f4fc5c468e9aecce6564364ce855bad1e5ec92af3528cf214bd6fef4c77",
+      "current_name": "TestCommittedDesiredConflictIsHeldDurably",
+      "kind": "test",
+      "original_declaration_sha256": "76937f4fc5c468e9aecce6564364ce855bad1e5ec92af3528cf214bd6fef4c77",
+      "original_name": "TestCommittedDesiredConflictIsHeldDurably",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestCommittedDesiredConflictIsHeldDurably",
+      "source_declaration": {
+        "end_line": 1106,
+        "sha256": "76937f4fc5c468e9aecce6564364ce855bad1e5ec92af3528cf214bd6fef4c77",
+        "start_line": 1090
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 1015,
+        "sha256": "efadedef88af7a15d02dfc67281288f9923eb9bb297eee9092366ae0d8078b4f",
+        "start_line": 958
+      },
+      "current_declaration_sha256": "efadedef88af7a15d02dfc67281288f9923eb9bb297eee9092366ae0d8078b4f",
+      "current_name": "TestConsumerAdmissionDecisionIgnoresStaleFollower",
+      "kind": "test",
+      "original_declaration_sha256": "efadedef88af7a15d02dfc67281288f9923eb9bb297eee9092366ae0d8078b4f",
+      "original_name": "TestConsumerAdmissionDecisionIgnoresStaleFollower",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestConsumerAdmissionDecisionIgnoresStaleFollower",
+      "source_declaration": {
+        "end_line": 1015,
+        "sha256": "efadedef88af7a15d02dfc67281288f9923eb9bb297eee9092366ae0d8078b4f",
+        "start_line": 958
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 1048,
+        "sha256": "81af73151965100dc40ea291664bff61511626076286468be114d5d6e1ab8621",
+        "start_line": 1017
+      },
+      "current_declaration_sha256": "81af73151965100dc40ea291664bff61511626076286468be114d5d6e1ab8621",
+      "current_name": "TestConsumerAuthoritativeAdmissionAbsenceRejects",
+      "kind": "test",
+      "original_declaration_sha256": "81af73151965100dc40ea291664bff61511626076286468be114d5d6e1ab8621",
+      "original_name": "TestConsumerAuthoritativeAdmissionAbsenceRejects",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestConsumerAuthoritativeAdmissionAbsenceRejects",
+      "source_declaration": {
+        "end_line": 1048,
+        "sha256": "81af73151965100dc40ea291664bff61511626076286468be114d5d6e1ab8621",
+        "start_line": 1017
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 760,
+        "sha256": "56bd4ad5a9d1d357c1bf1b1f183de31b9d67ceec80151c8fbf68fcd00f31806e",
+        "start_line": 717
+      },
+      "current_declaration_sha256": "56bd4ad5a9d1d357c1bf1b1f183de31b9d67ceec80151c8fbf68fcd00f31806e",
+      "current_name": "TestDeliveryRunRecoversFromTransientFetchFailure",
+      "kind": "test",
+      "original_declaration_sha256": "56bd4ad5a9d1d357c1bf1b1f183de31b9d67ceec80151c8fbf68fcd00f31806e",
+      "original_name": "TestDeliveryRunRecoversFromTransientFetchFailure",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestDeliveryRunRecoversFromTransientFetchFailure",
+      "source_declaration": {
+        "end_line": 760,
+        "sha256": "56bd4ad5a9d1d357c1bf1b1f183de31b9d67ceec80151c8fbf68fcd00f31806e",
+        "start_line": 717
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 806,
+        "sha256": "d72f82e304ea1cbd18baddf97afebe649d2055c83692bf9a5f9f06a596dacc06",
+        "start_line": 765
+      },
+      "current_declaration_sha256": "d72f82e304ea1cbd18baddf97afebe649d2055c83692bf9a5f9f06a596dacc06",
+      "current_name": "TestDeliveryRunRecreatesConsumerAfterPermanentFetchFailure",
+      "kind": "test",
+      "original_declaration_sha256": "d72f82e304ea1cbd18baddf97afebe649d2055c83692bf9a5f9f06a596dacc06",
+      "original_name": "TestDeliveryRunRecreatesConsumerAfterPermanentFetchFailure",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestDeliveryRunRecreatesConsumerAfterPermanentFetchFailure",
+      "source_declaration": {
+        "end_line": 806,
+        "sha256": "d72f82e304ea1cbd18baddf97afebe649d2055c83692bf9a5f9f06a596dacc06",
+        "start_line": 765
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 878,
+        "sha256": "575d443967c6e2bfa7973974b1fecca8c50c55a3c2593428981c98371a92fc05",
+        "start_line": 849
+      },
+      "current_declaration_sha256": "575d443967c6e2bfa7973974b1fecca8c50c55a3c2593428981c98371a92fc05",
+      "current_name": "TestDeliveryRunSurvivesLostAckAfterDurableResult",
+      "kind": "test",
+      "original_declaration_sha256": "575d443967c6e2bfa7973974b1fecca8c50c55a3c2593428981c98371a92fc05",
+      "original_name": "TestDeliveryRunSurvivesLostAckAfterDurableResult",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestDeliveryRunSurvivesLostAckAfterDurableResult",
+      "source_declaration": {
+        "end_line": 878,
+        "sha256": "575d443967c6e2bfa7973974b1fecca8c50c55a3c2593428981c98371a92fc05",
+        "start_line": 849
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 715,
+        "sha256": "1d593d4cb70581f45daaf315538a2d372bb2233f602722600ab0c25a733d0b3f",
+        "start_line": 672
+      },
+      "current_declaration_sha256": "1d593d4cb70581f45daaf315538a2d372bb2233f602722600ab0c25a733d0b3f",
+      "current_name": "TestDurableRetryReplayAndOperationConflict",
+      "kind": "test",
+      "original_declaration_sha256": "1d593d4cb70581f45daaf315538a2d372bb2233f602722600ab0c25a733d0b3f",
+      "original_name": "TestDurableRetryReplayAndOperationConflict",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestDurableRetryReplayAndOperationConflict",
+      "source_declaration": {
+        "end_line": 715,
+        "sha256": "1d593d4cb70581f45daaf315538a2d372bb2233f602722600ab0c25a733d0b3f",
+        "start_line": 672
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 1088,
+        "sha256": "dafe29cdcc27a61e251d0edc5b30340d8e6e5ac85af66a930248242f1114fe62",
+        "start_line": 1072
+      },
+      "current_declaration_sha256": "dafe29cdcc27a61e251d0edc5b30340d8e6e5ac85af66a930248242f1114fe62",
+      "current_name": "TestFencedClaimIsHeldDurably",
+      "kind": "test",
+      "original_declaration_sha256": "dafe29cdcc27a61e251d0edc5b30340d8e6e5ac85af66a930248242f1114fe62",
+      "original_name": "TestFencedClaimIsHeldDurably",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestFencedClaimIsHeldDurably",
+      "source_declaration": {
+        "end_line": 1088,
+        "sha256": "dafe29cdcc27a61e251d0edc5b30340d8e6e5ac85af66a930248242f1114fe62",
+        "start_line": 1072
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 847,
+        "sha256": "5a18aa3eaf05f231277075916f0a52d1647a9920bd7a6fc09127fb35c8146383",
+        "start_line": 808
+      },
+      "current_declaration_sha256": "5a18aa3eaf05f231277075916f0a52d1647a9920bd7a6fc09127fb35c8146383",
+      "current_name": "TestPlannerRefusedIntentIsHeldAfterBoundedDeliveries",
+      "kind": "test",
+      "original_declaration_sha256": "5a18aa3eaf05f231277075916f0a52d1647a9920bd7a6fc09127fb35c8146383",
+      "original_name": "TestPlannerRefusedIntentIsHeldAfterBoundedDeliveries",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestPlannerRefusedIntentIsHeldAfterBoundedDeliveries",
+      "source_declaration": {
+        "end_line": 847,
+        "sha256": "5a18aa3eaf05f231277075916f0a52d1647a9920bd7a6fc09127fb35c8146383",
+        "start_line": 808
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 1249,
+        "sha256": "fdcef483bcd790f4a51b98dccf658533a8402e06d03baa4ac9e390afe82a4455",
+        "start_line": 1201
+      },
+      "current_declaration_sha256": "fdcef483bcd790f4a51b98dccf658533a8402e06d03baa4ac9e390afe82a4455",
+      "current_name": "TestPreConsumerConflictingPublishCannotImpersonateReceipt",
+      "kind": "test",
+      "original_declaration_sha256": "fdcef483bcd790f4a51b98dccf658533a8402e06d03baa4ac9e390afe82a4455",
+      "original_name": "TestPreConsumerConflictingPublishCannotImpersonateReceipt",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestPreConsumerConflictingPublishCannotImpersonateReceipt",
+      "source_declaration": {
+        "end_line": 1249,
+        "sha256": "fdcef483bcd790f4a51b98dccf658533a8402e06d03baa4ac9e390afe82a4455",
+        "start_line": 1201
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 1335,
+        "sha256": "3fd078ac36806e3dfbd454a51a07ec9edfb8723e3d775647e33acd061d05507a",
+        "start_line": 1251
+      },
+      "current_declaration_sha256": "3fd078ac36806e3dfbd454a51a07ec9edfb8723e3d775647e33acd061d05507a",
+      "current_name": "TestRealHostDesiredCallerRejectsEpochHandoff",
+      "kind": "test",
+      "original_declaration_sha256": "3fd078ac36806e3dfbd454a51a07ec9edfb8723e3d775647e33acd061d05507a",
+      "original_name": "TestRealHostDesiredCallerRejectsEpochHandoff",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestRealHostDesiredCallerRejectsEpochHandoff",
+      "source_declaration": {
+        "end_line": 1335,
+        "sha256": "3fd078ac36806e3dfbd454a51a07ec9edfb8723e3d775647e33acd061d05507a",
+        "start_line": 1251
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 1149,
+        "sha256": "2d968ea69764e5557b2a856be9e8fc21dd7aba139971bb9d3ed005817f41d6f6",
+        "start_line": 1108
+      },
+      "current_declaration_sha256": "2d968ea69764e5557b2a856be9e8fc21dd7aba139971bb9d3ed005817f41d6f6",
+      "current_name": "TestSignedIntentRedeliveryAfterExpiryUsesDurableAdmission",
+      "kind": "test",
+      "original_declaration_sha256": "2d968ea69764e5557b2a856be9e8fc21dd7aba139971bb9d3ed005817f41d6f6",
+      "original_name": "TestSignedIntentRedeliveryAfterExpiryUsesDurableAdmission",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSignedIntentRedeliveryAfterExpiryUsesDurableAdmission",
+      "source_declaration": {
+        "end_line": 1149,
+        "sha256": "2d968ea69764e5557b2a856be9e8fc21dd7aba139971bb9d3ed005817f41d6f6",
+        "start_line": 1108
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 1199,
+        "sha256": "c2360bca80b70606808611012ac3da63ec8dcd773e33aa9e4bcfbe92de1df2d8",
+        "start_line": 1154
+      },
+      "current_declaration_sha256": "c2360bca80b70606808611012ac3da63ec8dcd773e33aa9e4bcfbe92de1df2d8",
+      "current_name": "TestSignedIntentRedeliveryIsAuthorizedAgain",
+      "kind": "test",
+      "original_declaration_sha256": "c2360bca80b70606808611012ac3da63ec8dcd773e33aa9e4bcfbe92de1df2d8",
+      "original_name": "TestSignedIntentRedeliveryIsAuthorizedAgain",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSignedIntentRedeliveryIsAuthorizedAgain",
+      "source_declaration": {
+        "end_line": 1199,
+        "sha256": "c2360bca80b70606808611012ac3da63ec8dcd773e33aa9e4bcfbe92de1df2d8",
+        "start_line": 1154
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 956,
+        "sha256": "5a73937d4ec7118374fdcc644c96dccc93566a37a3b9a409a68fbc56257cdd3c",
+        "start_line": 927
+      },
+      "current_declaration_sha256": "5a73937d4ec7118374fdcc644c96dccc93566a37a3b9a409a68fbc56257cdd3c",
+      "current_name": "TestSignedUnadmittedIntentHasQueryVisibleRejection",
+      "kind": "test",
+      "original_declaration_sha256": "5a73937d4ec7118374fdcc644c96dccc93566a37a3b9a409a68fbc56257cdd3c",
+      "original_name": "TestSignedUnadmittedIntentHasQueryVisibleRejection",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSignedUnadmittedIntentHasQueryVisibleRejection",
+      "source_declaration": {
+        "end_line": 956,
+        "sha256": "5a73937d4ec7118374fdcc644c96dccc93566a37a3b9a409a68fbc56257cdd3c",
+        "start_line": 927
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 917,
+        "sha256": "61f03e4d7c2876af53f1d8dc7029656ef7282fa7c1f5b4de5385bb7dd99007d7",
+        "start_line": 880
+      },
+      "current_declaration_sha256": "61f03e4d7c2876af53f1d8dc7029656ef7282fa7c1f5b4de5385bb7dd99007d7",
+      "current_name": "TestStandbyLeavesDurableIntentForNewLeader",
+      "kind": "test",
+      "original_declaration_sha256": "61f03e4d7c2876af53f1d8dc7029656ef7282fa7c1f5b4de5385bb7dd99007d7",
+      "original_name": "TestStandbyLeavesDurableIntentForNewLeader",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestStandbyLeavesDurableIntentForNewLeader",
+      "source_declaration": {
+        "end_line": 917,
+        "sha256": "61f03e4d7c2876af53f1d8dc7029656ef7282fa7c1f5b4de5385bb7dd99007d7",
+        "start_line": 880
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 925,
+        "sha256": "c19412bc5e61b9ba9579c9312a1367c97f0859302f8320677550db8ff641e36a",
+        "start_line": 919
+      },
+      "current_declaration_sha256": "c19412bc5e61b9ba9579c9312a1367c97f0859302f8320677550db8ff641e36a",
+      "current_name": "TestStrictIntentRejectsDuplicateAndUnknownFields",
+      "kind": "test",
+      "original_declaration_sha256": "c19412bc5e61b9ba9579c9312a1367c97f0859302f8320677550db8ff641e36a",
+      "original_name": "TestStrictIntentRejectsDuplicateAndUnknownFields",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestStrictIntentRejectsDuplicateAndUnknownFields",
+      "source_declaration": {
+        "end_line": 925,
+        "sha256": "c19412bc5e61b9ba9579c9312a1367c97f0859302f8320677550db8ff641e36a",
+        "start_line": 919
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 304,
+        "sha256": "4f825161fd917c00f7792ea6f36dc162f433164ffe8014fadf4e4554271d4ff2",
+        "start_line": 274
+      },
+      "current_declaration_sha256": "4f825161fd917c00f7792ea6f36dc162f433164ffe8014fadf4e4554271d4ff2",
+      "current_name": "TestSubmitOperationReadPreservesPermanentErrorsAndCancellation",
+      "kind": "test",
+      "original_declaration_sha256": "4f825161fd917c00f7792ea6f36dc162f433164ffe8014fadf4e4554271d4ff2",
+      "original_name": "TestSubmitOperationReadPreservesPermanentErrorsAndCancellation",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSubmitOperationReadPreservesPermanentErrorsAndCancellation",
+      "source_declaration": {
+        "end_line": 304,
+        "sha256": "4f825161fd917c00f7792ea6f36dc162f433164ffe8014fadf4e4554271d4ff2",
+        "start_line": 274
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 257,
+        "sha256": "91a49ef8f5f5255a37f8afee4c97a7e5c7cb62fb38fdf7bceef5d04b8f200b25",
+        "start_line": 244
+      },
+      "current_declaration_sha256": "91a49ef8f5f5255a37f8afee4c97a7e5c7cb62fb38fdf7bceef5d04b8f200b25",
+      "current_name": "TestSubmitOperationReadRetriesTransientLeaderFailure",
+      "kind": "test",
+      "original_declaration_sha256": "91a49ef8f5f5255a37f8afee4c97a7e5c7cb62fb38fdf7bceef5d04b8f200b25",
+      "original_name": "TestSubmitOperationReadRetriesTransientLeaderFailure",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSubmitOperationReadRetriesTransientLeaderFailure",
+      "source_declaration": {
+        "end_line": 257,
+        "sha256": "91a49ef8f5f5255a37f8afee4c97a7e5c7cb62fb38fdf7bceef5d04b8f200b25",
+        "start_line": 244
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 272,
+        "sha256": "e187a8e62a5baafddf5eebc659243a1c09cc7891c1f0a49211afe57a9a814f2e",
+        "start_line": 259
+      },
+      "current_declaration_sha256": "e187a8e62a5baafddf5eebc659243a1c09cc7891c1f0a49211afe57a9a814f2e",
+      "current_name": "TestSubmitOperationReadUsesRecoveryBudgetAfterFiveTransientFailures",
+      "kind": "test",
+      "original_declaration_sha256": "e187a8e62a5baafddf5eebc659243a1c09cc7891c1f0a49211afe57a9a814f2e",
+      "original_name": "TestSubmitOperationReadUsesRecoveryBudgetAfterFiveTransientFailures",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSubmitOperationReadUsesRecoveryBudgetAfterFiveTransientFailures",
+      "source_declaration": {
+        "end_line": 272,
+        "sha256": "e187a8e62a5baafddf5eebc659243a1c09cc7891c1f0a49211afe57a9a814f2e",
+        "start_line": 259
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 606,
+        "sha256": "d2b144bd5a409ed39f3682abb876d3643ec09129743cacb3acb6e6e7f548012a",
+        "start_line": 565
+      },
+      "current_declaration_sha256": "d2b144bd5a409ed39f3682abb876d3643ec09129743cacb3acb6e6e7f548012a",
+      "current_name": "TestSubmitPublishRetriesGenericAPI5xxButNotJetStreamDisabledCodes",
+      "kind": "test",
+      "original_declaration_sha256": "d2b144bd5a409ed39f3682abb876d3643ec09129743cacb3acb6e6e7f548012a",
+      "original_name": "TestSubmitPublishRetriesGenericAPI5xxButNotJetStreamDisabledCodes",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSubmitPublishRetriesGenericAPI5xxButNotJetStreamDisabledCodes",
+      "source_declaration": {
+        "end_line": 606,
+        "sha256": "d2b144bd5a409ed39f3682abb876d3643ec09129743cacb3acb6e6e7f548012a",
+        "start_line": 565
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 528,
+        "sha256": "ee76f6e4fec168d50ee493de18cf0494b158635f19b33a64a160147a6676cce4",
+        "start_line": 492
+      },
+      "current_declaration_sha256": "ee76f6e4fec168d50ee493de18cf0494b158635f19b33a64a160147a6676cce4",
+      "current_name": "TestSubmitPublishStopsAtCallerDeadlineAndCancellation",
+      "kind": "test",
+      "original_declaration_sha256": "ee76f6e4fec168d50ee493de18cf0494b158635f19b33a64a160147a6676cce4",
+      "original_name": "TestSubmitPublishStopsAtCallerDeadlineAndCancellation",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSubmitPublishStopsAtCallerDeadlineAndCancellation",
+      "source_declaration": {
+        "end_line": 528,
+        "sha256": "ee76f6e4fec168d50ee493de18cf0494b158635f19b33a64a160147a6676cce4",
+        "start_line": 492
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 563,
+        "sha256": "784f0ee171d205e1ff068d372af31703e783c463d22c77e8c4ba3308e7f8c119",
+        "start_line": 530
+      },
+      "current_declaration_sha256": "784f0ee171d205e1ff068d372af31703e783c463d22c77e8c4ba3308e7f8c119",
+      "current_name": "TestSubmitPublishStopsImmediatelyForPermanentErrors",
+      "kind": "test",
+      "original_declaration_sha256": "784f0ee171d205e1ff068d372af31703e783c463d22c77e8c4ba3308e7f8c119",
+      "original_name": "TestSubmitPublishStopsImmediatelyForPermanentErrors",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSubmitPublishStopsImmediatelyForPermanentErrors",
+      "source_declaration": {
+        "end_line": 563,
+        "sha256": "784f0ee171d205e1ff068d372af31703e783c463d22c77e8c4ba3308e7f8c119",
+        "start_line": 530
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 490,
+        "sha256": "287590f1a0e532a3edb5b3ed363699b4065a5aedb9124afdcf58f64554bd7e1f",
+        "start_line": 446
+      },
+      "current_declaration_sha256": "287590f1a0e532a3edb5b3ed363699b4065a5aedb9124afdcf58f64554bd7e1f",
+      "current_name": "TestSubmitRetriesNoStreamResponseThroughLeaderRecoveryWithSameMessageID",
+      "kind": "test",
+      "original_declaration_sha256": "287590f1a0e532a3edb5b3ed363699b4065a5aedb9124afdcf58f64554bd7e1f",
+      "original_name": "TestSubmitRetriesNoStreamResponseThroughLeaderRecoveryWithSameMessageID",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSubmitRetriesNoStreamResponseThroughLeaderRecoveryWithSameMessageID",
+      "source_declaration": {
+        "end_line": 490,
+        "sha256": "287590f1a0e532a3edb5b3ed363699b4065a5aedb9124afdcf58f64554bd7e1f",
+        "start_line": 446
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 355,
+        "sha256": "bdd863180c12d8e0c2f5bffb0f80d7a17b989d7697388c89048bbb6273c9931c",
+        "start_line": 332
+      },
+      "current_declaration_sha256": "bdd863180c12d8e0c2f5bffb0f80d7a17b989d7697388c89048bbb6273c9931c",
+      "current_name": "TestSubmitRetriesOtherTypedTransientPublishErrors",
+      "kind": "test",
+      "original_declaration_sha256": "bdd863180c12d8e0c2f5bffb0f80d7a17b989d7697388c89048bbb6273c9931c",
+      "original_name": "TestSubmitRetriesOtherTypedTransientPublishErrors",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSubmitRetriesOtherTypedTransientPublishErrors",
+      "source_declaration": {
+        "end_line": 355,
+        "sha256": "bdd863180c12d8e0c2f5bffb0f80d7a17b989d7697388c89048bbb6273c9931c",
+        "start_line": 332
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 330,
+        "sha256": "ff7315a33b1d2a0c050a9865d8f03c3a7b58f7bd1aeaa64a732c0f3fc4d672e4",
+        "start_line": 306
+      },
+      "current_declaration_sha256": "ff7315a33b1d2a0c050a9865d8f03c3a7b58f7bd1aeaa64a732c0f3fc4d672e4",
+      "current_name": "TestSubmitRetriesTransientPublishWithSameSignedPayload",
+      "kind": "test",
+      "original_declaration_sha256": "ff7315a33b1d2a0c050a9865d8f03c3a7b58f7bd1aeaa64a732c0f3fc4d672e4",
+      "original_name": "TestSubmitRetriesTransientPublishWithSameSignedPayload",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSubmitRetriesTransientPublishWithSameSignedPayload",
+      "source_declaration": {
+        "end_line": 330,
+        "sha256": "ff7315a33b1d2a0c050a9865d8f03c3a7b58f7bd1aeaa64a732c0f3fc4d672e4",
+        "start_line": 306
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 375,
+        "sha256": "0fd324c9921e9a99bff4a0582dea1f85236b45d9ea08c383b654e65f80087d89",
+        "start_line": 357
+      },
+      "current_declaration_sha256": "0fd324c9921e9a99bff4a0582dea1f85236b45d9ea08c383b654e65f80087d89",
+      "current_name": "TestSubmitRetriesWhenPublishAttemptDeadlineExpires",
+      "kind": "test",
+      "original_declaration_sha256": "0fd324c9921e9a99bff4a0582dea1f85236b45d9ea08c383b654e65f80087d89",
+      "original_name": "TestSubmitRetriesWhenPublishAttemptDeadlineExpires",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSubmitRetriesWhenPublishAttemptDeadlineExpires",
+      "source_declaration": {
+        "end_line": 375,
+        "sha256": "0fd324c9921e9a99bff4a0582dea1f85236b45d9ea08c383b654e65f80087d89",
+        "start_line": 357
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 444,
+        "sha256": "94ca787c2f2fef1c3a2e945ffca62df09b054dce664a233bea6ce3ae82fe0f59",
+        "start_line": 377
+      },
+      "current_declaration_sha256": "94ca787c2f2fef1c3a2e945ffca62df09b054dce664a233bea6ce3ae82fe0f59",
+      "current_name": "TestSubmitRetryAfterAmbiguousAckUsesJetStreamDeduplication",
+      "kind": "test",
+      "original_declaration_sha256": "94ca787c2f2fef1c3a2e945ffca62df09b054dce664a233bea6ce3ae82fe0f59",
+      "original_name": "TestSubmitRetryAfterAmbiguousAckUsesJetStreamDeduplication",
+      "path": "internal/delivery/service_test.go",
+      "root_id": "internal/delivery/service_test.go::TestSubmitRetryAfterAmbiguousAckUsesJetStreamDeduplication",
+      "source_declaration": {
+        "end_line": 444,
+        "sha256": "94ca787c2f2fef1c3a2e945ffca62df09b054dce664a233bea6ce3ae82fe0f59",
+        "start_line": 377
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 72,
+        "sha256": "d0044b199b995104e79aaff8ec495cd620dcbe613cbea996a3208fa59486d9c0",
+        "start_line": 61
+      },
+      "current_declaration_sha256": "d0044b199b995104e79aaff8ec495cd620dcbe613cbea996a3208fa59486d9c0",
+      "current_name": "TestDeliveryCellsFollowProtocolRegionTokens",
+      "kind": "test",
+      "original_declaration_sha256": "d0044b199b995104e79aaff8ec495cd620dcbe613cbea996a3208fa59486d9c0",
+      "original_name": "TestDeliveryCellsFollowProtocolRegionTokens",
+      "path": "internal/delivery/shape_test.go",
+      "root_id": "internal/delivery/shape_test.go::TestDeliveryCellsFollowProtocolRegionTokens",
+      "source_declaration": {
+        "end_line": 72,
+        "sha256": "d0044b199b995104e79aaff8ec495cd620dcbe613cbea996a3208fa59486d9c0",
+        "start_line": 61
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 95,
+        "sha256": "b82161b3ed13a48097c59f8226fecd79978f48fa7ec2618dd973e5bc18805d20",
+        "start_line": 76
+      },
+      "current_declaration_sha256": "b82161b3ed13a48097c59f8226fecd79978f48fa7ec2618dd973e5bc18805d20",
+      "current_name": "TestPlannerRefusalCounterEvictsOnlyTheOldest",
+      "kind": "test",
+      "original_declaration_sha256": "b82161b3ed13a48097c59f8226fecd79978f48fa7ec2618dd973e5bc18805d20",
+      "original_name": "TestPlannerRefusalCounterEvictsOnlyTheOldest",
+      "path": "internal/delivery/shape_test.go",
+      "root_id": "internal/delivery/shape_test.go::TestPlannerRefusalCounterEvictsOnlyTheOldest",
+      "source_declaration": {
+        "end_line": 95,
+        "sha256": "b82161b3ed13a48097c59f8226fecd79978f48fa7ec2618dd973e5bc18805d20",
+        "start_line": 76
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 57,
+        "sha256": "cbf455ec99a7750917de54db7eefa6e0dcfdadc03059dcf879f34d3cb5192ecf",
+        "start_line": 27
+      },
+      "current_declaration_sha256": "cbf455ec99a7750917de54db7eefa6e0dcfdadc03059dcf879f34d3cb5192ecf",
+      "current_name": "TestValidatePlanHonoursRecordedShape",
+      "kind": "test",
+      "original_declaration_sha256": "cbf455ec99a7750917de54db7eefa6e0dcfdadc03059dcf879f34d3cb5192ecf",
+      "original_name": "TestValidatePlanHonoursRecordedShape",
+      "path": "internal/delivery/shape_test.go",
+      "root_id": "internal/delivery/shape_test.go::TestValidatePlanHonoursRecordedShape",
+      "source_declaration": {
+        "end_line": 57,
+        "sha256": "cbf455ec99a7750917de54db7eefa6e0dcfdadc03059dcf879f34d3cb5192ecf",
+        "start_line": 27
+      },
+      "state": "retained_body_exact"
+    }
+  ],
+  "scope_rationale": "Delivery intent validation, operation persistence, publisher/consumer and artifact behavior form one connected service scope.",
+  "scope_read_limit": "Grouping evidence only; no claim all roots/helpers/asserted targets have been classified. Owner must fully inspect each allocated root and connected assertion target.",
+  "test_file_count": 12
+}

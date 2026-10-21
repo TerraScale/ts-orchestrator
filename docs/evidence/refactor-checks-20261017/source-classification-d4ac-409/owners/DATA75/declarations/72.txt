@@ -1,0 +1,68 @@
+func TestSubmitRetryAfterAmbiguousAckUsesJetStreamDeduplication(t *testing.T) {
+	writer := &testWriter{}
+	service, _, ctx := testServiceWithRuntime(t, writer)
+	intent := testIntent(t, service, ctx)
+	calls := make([]publishCall, 0, 2)
+	acks := make([]*jetstream.PubAck, 0, 2)
+	base := service.js
+	service.js = &interceptedPublish{JetStream: base, publish: func(publishCtx context.Context, subject string, payload []byte, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		recordPublishCall(&calls, subject, payload)
+		ack, err := base.Publish(publishCtx, subject, payload, opts...)
+		if err != nil {
+			return nil, err
+		}
+		acks = append(acks, ack)
+		if len(calls) == 1 {
+			return nil, jetstream.ErrNoStreamResponse
+		}
+		return ack, nil
+	}}
+
+	if err := service.Submit(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || len(acks) != 2 {
+		t.Fatalf("publish attempts=%d acknowledgements=%d, want two each", len(calls), len(acks))
+	}
+	if acks[0].Sequence != acks[1].Sequence || !acks[1].Duplicate {
+		t.Fatalf("retry acknowledgement did not deduplicate: first=%+v second=%+v", acks[0], acks[1])
+	}
+	if calls[0].subject != calls[1].subject || !bytes.Equal(calls[0].payload, calls[1].payload) {
+		t.Fatal("ambiguous publish retry changed subject or signed payload")
+	}
+	stream, err := base.Stream(ctx, IntentStream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := stream.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.State.Msgs != 1 {
+		t.Fatalf("ambiguous retry stored %d messages, want one", info.State.Msgs)
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- service.Run(runCtx) }()
+	defer func() { cancel(); <-done }()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for {
+		receipt, err := service.Status(ctx, intent.OperationID)
+		if err == nil {
+			if receipt.Status != "accepted" || writer.count() != 1 {
+				t.Fatalf("receipt=%+v desired writes=%d", receipt, writer.count())
+			}
+			break
+		}
+		if !errors.Is(err, ErrPending) {
+			t.Fatal(err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("deduplicated delivery did not complete")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}

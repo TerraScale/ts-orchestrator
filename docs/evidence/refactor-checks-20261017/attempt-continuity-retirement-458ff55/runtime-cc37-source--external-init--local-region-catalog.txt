@@ -1,0 +1,48 @@
+SOURCE /tmp/ts-attempt-phase-dispatch-integration/internal/ociregion/catalog/catalog.go
+FULL_FILE_SHA256 1cb9481c9291c863bea33c273443a1dc061bdcd4afada2b626843449ff54cf6e
+LINES 60-103
+
+	{Cell: "KIX", OCIRegion: "ap-osaka-1", OCIRegionKey: "KIX", City: "Osaka", Country: "JP", Latitude: 34.69, Longitude: 135.50},
+	{Cell: "LHR", OCIRegion: "uk-london-1", OCIRegionKey: "LHR", City: "London", Country: "GB", Latitude: 51.51, Longitude: -0.13},
+	{Cell: "LIN", OCIRegion: "eu-milan-1", OCIRegionKey: "LIN", City: "Milan", Country: "IT", Latitude: 45.46, Longitude: 9.19},
+	{Cell: "MAD", OCIRegion: "eu-madrid-1", OCIRegionKey: "MAD", City: "Madrid", Country: "ES", Latitude: 40.42, Longitude: -3.70},
+	{Cell: "MEL", OCIRegion: "ap-melbourne-1", OCIRegionKey: "MEL", City: "Melbourne", Country: "AU", Latitude: -37.81, Longitude: 144.96},
+	{Cell: "MRS", OCIRegion: "eu-marseille-1", OCIRegionKey: "MRS", City: "Marseille", Country: "FR", Latitude: 43.30, Longitude: 5.37},
+	{Cell: "MTY", OCIRegion: "mx-monterrey-1", OCIRegionKey: "MTY", City: "Monterrey", Country: "MX", Latitude: 25.69, Longitude: -100.32},
+	{Cell: "MTZ", OCIRegion: "il-jerusalem-1", OCIRegionKey: "MTZ", City: "Jerusalem", Country: "IL", Latitude: 31.77, Longitude: 35.21},
+	{Cell: "NRT", OCIRegion: "ap-tokyo-1", OCIRegionKey: "NRT", City: "Tokyo", Country: "JP", Latitude: 35.68, Longitude: 139.69},
+	{Cell: "ORD", OCIRegion: "us-chicago-1", OCIRegionKey: "ORD", City: "Chicago", Country: "US", Latitude: 41.88, Longitude: -87.63},
+	{Cell: "PHX", OCIRegion: "us-phoenix-1", OCIRegionKey: "PHX", City: "Phoenix", Country: "US", Latitude: 33.45, Longitude: -112.07},
+	{Cell: "QRO", OCIRegion: "mx-queretaro-1", OCIRegionKey: "QRO", City: "Querétaro", Country: "MX", Latitude: 20.59, Longitude: -100.39},
+	{Cell: "RUH", OCIRegion: "me-riyadh-1", OCIRegionKey: "RUH", City: "Riyadh", Country: "SA", Latitude: 24.71, Longitude: 46.68},
+	{Cell: "SCL", OCIRegion: "sa-santiago-1", OCIRegionKey: "SCL", City: "Santiago", Country: "CL", Latitude: -33.45, Longitude: -70.67},
+	{Cell: "SIN", OCIRegion: "ap-singapore-1", OCIRegionKey: "SIN", City: "Singapore", Country: "SG", Latitude: 1.35, Longitude: 103.82},
+	{Cell: "SYD", OCIRegion: "ap-sydney-1", OCIRegionKey: "SYD", City: "Sydney", Country: "AU", Latitude: -33.87, Longitude: 151.21},
+	{Cell: "VAP", OCIRegion: "sa-valparaiso-1", OCIRegionKey: "VAP", City: "Valparaíso", Country: "CL", Latitude: -33.05, Longitude: -71.62},
+	{Cell: "VCP", OCIRegion: "sa-vinhedo-1", OCIRegionKey: "VCP", City: "Vinhedo", Country: "BR", Latitude: -23.03, Longitude: -46.98},
+	{Cell: "YNY", OCIRegion: "ap-chuncheon-1", OCIRegionKey: "YNY", City: "Chuncheon", Country: "KR", Latitude: 37.88, Longitude: 127.73},
+	{Cell: "YUL", OCIRegion: "ca-montreal-1", OCIRegionKey: "YUL", City: "Montreal", Country: "CA", Latitude: 45.50, Longitude: -73.57},
+	{Cell: "YYZ", OCIRegion: "ca-toronto-1", OCIRegionKey: "YYZ", City: "Toronto", Country: "CA", Latitude: 43.65, Longitude: -79.38},
+	{Cell: "ZRH", OCIRegion: "eu-zurich-1", OCIRegionKey: "ZRH", City: "Zurich", Country: "CH", Latitude: 47.38, Longitude: 8.54},
+}
+
+// foundedCount is the number of leading entries with a reserved address plan.
+const foundedCount = 3
+
+// MaxRegions bounds the regions in one deployment's roster; it matches the
+// roster limit in globalcontrol.
+const MaxRegions = 32
+
+// Len is the number of catalog entries.
+const Len = len(entries)
+
+// Entries returns a copy of the ordered catalog.
+func Entries() []Entry { return append([]Entry(nil), entries[:]...) }
+
+// Founded returns the regions with a reserved address plan
+// (docs/network/address-plan.md). ts-orch region create (TS-804) extends it.
+func Founded() []Entry { return append([]Entry(nil), entries[:foundedCount]...) }
+
+// Names returns the ordered lower-case cell tokens used in NATS subjects.
+func Names() []string {
+	names := make([]string, 0, Len)

@@ -3,9 +3,6 @@ package app
 import (
 	"cmp"
 	"context"
-	"crypto/ed25519"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,10 +45,10 @@ const (
 // it uses it.
 type specRegistry struct {
 	nativeHistory *nativeHistory
+	removalReady  func(context.Context, string) error
 	cell          string
 	identity      cellspec.Identity
-	// roots is the cell's root chain; nil when the controller cannot verify
-	// specs (a lab without spec_trust): it then refuses every amendment.
+	// roots is the cell's accepted root chain.
 	roots *rootRegistry
 	// reserved roles are owned by placement and keep their signed config
 	// profiles in fixed; a spec never holds them. TerraBase's signed profile
@@ -61,27 +58,21 @@ type specRegistry struct {
 	fixed    map[string]WorkloadProfile
 	// signers are the signed config's trusted signers, sorted by actor; a
 	// spec's signers section replaces them.
-	signers       []TrustedSignerConfig
-	hostTelemetry bool
-	kv            jetstream.KeyValue
+	signers []TrustedSignerConfig
+	kv      jetstream.KeyValue
 	// changed receives every newly adopted spec's profiles and reconciled
 	// specs, under the registry lock so updates arrive in order.
 	changed func(map[string]WorkloadProfile, []workload.ServiceSpec)
 	// replaceSigners receives every newly adopted spec's trusted signers,
 	// under the registry lock; the controller's signer policy swaps them in.
 	replaceSigners func([]TrustedSignerConfig) error
-	// snapshots is whether the signed config sets a kv_snapshot location,
-	// which a kv_snapshot schedule needs.
-	snapshots bool
 	// terraBaseCA is whether the signed config holds the TerraBase member
 	// CA, without which no member gets a certificate: a terrabase entry
 	// needs it. A signed TerraBase profile implies it, since signing
 	// refuses one without the CA.
 	terraBaseCA bool
-	// signedDesired is the signed config's desired OCI resources when OCI
-	// reconcile is on; ociRegion, set once the signed region config is
-	// loaded, admits an oci_desired section's entries.
-	ociReconcile  bool
+	// signedDesired is the signed config's resource amendments. ociRegion,
+	// set once the signed region config is loaded, admits desired entries.
 	signedDesired *cellspec.OCIDesired
 	// publicLB is the backend set oci_reconcile.public_lb owns; a release
 	// fence may not name it.
@@ -127,7 +118,7 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	r := &specRegistry{cell: cfg.NATS.Cell, fixed: map[string]WorkloadProfile{},
 		signers: slices.SortedFunc(slices.Values(cfg.Controller.TrustedSigners), func(a, b TrustedSignerConfig) int {
 			return strings.Compare(a.Actor, b.Actor)
-		}), snapshots: cfg.Controller.KVSnapshot.Enabled, terraBaseCA: cfg.Controller.TerraBaseCACertFile != "",
+		}), terraBaseCA: cfg.Controller.TerraBaseCACertFile != "",
 		signedArtifactStore: cmp.Or(cfg.Controller.ArtifactStoreMaxBytes, delivery.DefaultArtifactStoreMaxBytes)}
 	if cfg.NATS.Embedded != nil {
 		r.artifactStoreLimit = cfg.NATS.Embedded.StoreLimitBytes() - specStoreHeadroomBytes
@@ -135,16 +126,13 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	if _, signed := cfg.Controller.Workloads[terrabase.Role]; signed {
 		r.terraBaseCA = true
 	}
-	if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
-		r.ociReconcile, r.signedDesired, r.publicLB = true, reconcile.Desired, reconcile.PublicLB
+	if reconcile := cfg.Controller.OciReconcile; reconcile != nil {
+		r.signedDesired, r.publicLB = reconcile.Desired, reconcile.PublicLB
 	}
 	if memberRole != "" {
 		r.reserved = append(r.reserved, memberRole)
 	}
 	autoscaleConfig := cfg.Controller.Autoscale
-	if autoscaleConfig != nil {
-		r.hostTelemetry = autoscaleConfig.HostTelemetry
-	}
 	if err := r.loadTrust(cfg); err != nil {
 		return nil, err
 	}
@@ -159,7 +147,7 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 		service := cellspec.Service{Role: role, Profile: profile}
 		// Generation 0 reconciles exactly what the signed config already
 		// reconciled.
-		if autoscaleConfig != nil && autoscaleConfig.Enabled {
+		if autoscaleConfig != nil {
 			for _, spec := range autoscaleConfig.Services {
 				if spec.Role == role {
 					service.Spec = &spec
@@ -172,39 +160,10 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	return r, nil
 }
 
-// loadTrust takes the roots and deployment identity from the image, or for a
-// lab controller from its spec_trust setting.
+// loadTrust takes the roots and deployment identity from the accepted image.
 func (r *specRegistry) loadTrust(cfg Config) error {
-	if settings := cfg.Controller.SpecTrust; settings != nil {
-		if !cfg.NATS.Lab {
-			return errors.New("controller spec_trust is a lab setting; production uses the image trust roots")
-		}
-		data, err := readBoundedConfigFile(settings.RootPublicKeyFile)
-		if err != nil {
-			return fmt.Errorf("cell spec root key: %w", err)
-		}
-		block, _ := pem.Decode(data)
-		if block == nil || block.Type != "PUBLIC KEY" {
-			return errors.New("cell spec root key must be an Ed25519 PKIX PEM")
-		}
-		parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
-		public, ok := parsed.(ed25519.PublicKey)
-		if err != nil || !ok {
-			return errors.New("cell spec root key must be an Ed25519 PKIX PEM")
-		}
-		genesis, err := trust.ParseKeyring(public)
-		if err != nil {
-			return err
-		}
-		r.identity = cellspec.Identity{DeploymentID: settings.DeploymentID, Cell: cfg.NATS.Cell,
-			Environment: settings.Environment}
-		if err := r.identity.Validate(); err != nil {
-			return err
-		}
-		return r.openRoots(genesis, trust.RootChain{Version: 1}, "")
-	}
-	if cfg.NATS.Lab {
-		return nil
+	if cfg.Controller.SpecTrust != nil {
+		return errors.New("production controller uses the image trust roots")
 	}
 	accepted, inputs, err := specAcceptedInputs()
 	if err != nil {
@@ -461,12 +420,9 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 	if err := r.validateHostGrants(spec.HostGrants, profiles); err != nil {
 		return err
 	}
-	if spec.KVSnapshot != nil && !r.snapshots {
-		return errors.New("a kv_snapshot schedule needs the signed controller config's kv_snapshot location")
-	}
 	if desired := spec.OCIDesired; desired != nil {
-		if !r.ociReconcile || r.ociRegion == nil {
-			return errors.New("desired OCI resources need OCI reconcile and the signed region config (controller.oci_reconcile)")
+		if r.ociRegion == nil {
+			return errors.New("desired OCI resources need the signed region config")
 		}
 		if _, _, err := desiredSets(*desired, string(r.ociRegion.Region), *r.ociRegion); err != nil {
 			return err
@@ -488,7 +444,7 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 		return fmt.Errorf("artifact_store max_bytes %d exceeds this controller's %d: its embedded NATS store_max_bytes less %d bytes for control state",
 			store.MaxBytes, max(limit, 0), headroom)
 	}
-	return validateAutoscaleConfig(&AutoscaleConfig{HostTelemetry: r.hostTelemetry, Services: specs}, profiles)
+	return validateAutoscaleConfig(&AutoscaleConfig{Services: specs}, profiles)
 }
 
 // validateHostGrants admits a grant only for roles the cell delivers and
@@ -613,21 +569,6 @@ func (r *specRegistry) effective() (map[string]WorkloadProfile, []workload.Servi
 	return r.effectiveLocked()
 }
 
-// kvSnapshot is the current spec's snapshot interval, or signed when the
-// spec sets none, and whether a root paused the uploads.
-func (r *specRegistry) kvSnapshot(signed time.Duration) (time.Duration, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	schedule := r.current.KVSnapshot
-	if schedule == nil {
-		return signed, false
-	}
-	if schedule.IntervalSeconds != 0 {
-		signed = time.Duration(schedule.IntervalSeconds) * time.Second
-	}
-	return signed, schedule.Paused
-}
-
 // ociDesired is the current spec's desired OCI resources, or the signed
 // config's when the spec lists none; nil lists none.
 func (r *specRegistry) ociDesired() *cellspec.OCIDesired {
@@ -709,9 +650,6 @@ func (r *specRegistry) withSigned(spec cellspec.Spec) cellspec.Spec {
 		spec.OCIDesired = r.signedDesired
 	}
 	spec.Signers = r.effectiveSigners(spec)
-	if spec.KVSnapshot == nil && r.snapshots {
-		spec.KVSnapshot = &cellspec.KVSnapshot{}
-	}
 	if spec.ArtifactStore == nil {
 		spec.ArtifactStore = &cellspec.ArtifactStore{MaxBytes: r.signedArtifactStore}
 	}
@@ -856,6 +794,11 @@ func (r *specRegistry) apply(ctx context.Context, wire []byte, keyID string, epo
 		_, kept := spec.Find(service.Role)
 		if _, signed := r.fixed[service.Role]; kept || signed {
 			continue
+		}
+		if r.removalReady != nil {
+			if err := r.removalReady(ctx, service.Role); err != nil {
+				return specReply{}, err
+			}
 		}
 		desired, err := hosts.ListDesired(ctx, service.Role)
 		if err != nil {

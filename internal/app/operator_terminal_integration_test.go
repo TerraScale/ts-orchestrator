@@ -29,21 +29,18 @@ import (
 )
 
 func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing.T) {
+	auth := newAuthenticatedNATS(t, "gru")
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	root := t.TempDir()
 
-	controllerNKey, controllerSeed := testNKey(t)
-	operatorNKey, operatorSeed := testNKey(t)
-	broker, err := natscell.Start(ctx, natscell.Config{
-		Cell: "gru", Instance: "terminal-integration", Replicas: 1, Lab: true,
+	_, controllerSeed := testNKey(t)
+	_, operatorSeed := testNKey(t)
+	broker, err := auth.start(t, ctx, natscell.Config{
+		Cell: "gru", Instance: "terminal-integration", Replicas: 1,
 		NKeySeedFile: controllerSeed,
 		Embedded: &natscell.Embedded{
 			Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(root, "nats"),
-			Users: []natscell.NKeyGrant{
-				{PublicKey: controllerNKey, Role: "controller", Global: true},
-				{PublicKey: operatorNKey, Role: "operator"},
-			},
 		},
 	})
 	if err != nil {
@@ -78,8 +75,8 @@ func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing
 		t.Fatal(err)
 	}
 	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "terminal-operator", Replicas: 1, Lab: true,
-			URL: broker.URL(), NKeySeedFile: operatorSeed},
+		NATS: auth.config(t, natscell.Config{Cell: "gru", Instance: "terminal-operator", ClientRole: "operator", Replicas: 1,
+			URL: broker.URL(), NKeySeedFile: operatorSeed}),
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")},
 	})

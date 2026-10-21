@@ -1,0 +1,98 @@
+{
+  "state": "ACCEPTED_EXACT_90F75_SOURCE_AND_COMPILE_READY_FOR_SEPARATE_ADOPTION_REVIEW",
+  "reviewed_at_utc": "2026-10-17T13:09:33.879739+00:00",
+  "reviewer": "/root/qa_integrator/storage_compare",
+  "source": {
+    "worktree": "/tmp/ts-operation-template-retirement-mqv7i0g3/source",
+    "commit": "90f75da526e7bc75124a4f5bd19b920320a7f3d7",
+    "tree": "2167e8bd91f966da4ae8f939907b7b14ecb27919",
+    "parent": "eb2170c0fc376e3f5be381d81c14b397a44ee956",
+    "clean": true
+  },
+  "sha256_pins": {
+    "/tmp/ts-operation-template-retirement-mqv7i0g3/preparation.json": "b07763f32bf338f49b5229163cab0ffc6baa4078209ee18ff01e9ae507163208",
+    "/tmp/ts-operation-template-retirement-mqv7i0g3/source-review.json": "b1862eef97591260e59aea7ad39893e85a3f133e2cd3744a1da1283d1bfed108",
+    "/tmp/ts-operation-template-retirement-mqv7i0g3/source/internal/ociclient/factory_test.go": "e0e61c1c0e31b1e2a248e015df12796a6ad6336e72e78235b6a363192d800d2f",
+    "/tmp/ts-operation-template-retirement-mqv7i0g3/source/internal/ociclient/operation_template_integration_test.go": "12ec10771d9de7079f89a28313b8848efa783d415bd3201f2f1b5d414b67fcdd",
+    "/tmp/ts-qa-operation-90f75-compile-v8xjsvbj/result.json": "1b4e73d992284abbd71158b6c588ba15a0ab43f150fb5f8102456139bb1364c8",
+    "/tmp/ts-qa-operation-90f75-compile-v8xjsvbj/raw.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "deletion": {
+    "only_modified_file": "internal/ociclient/factory_test.go",
+    "only_removed_declaration": "TestOperationTemplateRemovesIdentifiers",
+    "bytes": 2217,
+    "lines": 25,
+    "removed_declaration_plus_trailing_blank_sha256": "6d681b32daec836598765d475f393809581c40fe4629d72bd6e34cb0f0d7d562",
+    "proof": "Anchored original function start and next TestOperationCardinalityIsBounded declaration; deleting exactly those2217bytes reproduces current file byte-for-byte. All three remaining test roots/order, imports, fakeDispatcher/helper and every other retained byte survive. Git no-renames diff confirms no other path changes.",
+    "production_source_and_all_other_paths_unchanged": true
+  },
+  "replacement_and_runtime": {
+    "path": "internal/ociclient/operation_template_integration_test.go",
+    "sha256": "12ec10771d9de7079f89a28313b8848efa783d415bd3201f2f1b5d414b67fcdd",
+    "byte_exact_to_parent": true,
+    "accepted_mapping": "All13original raw/want cases retained through public Instrument, verified loopback TLS wire, APIOperations and Prometheus assertions.",
+    "prior_acceptance": "/tmp/ts-qa-operation-eb217-independent-ywq2xfuh/review.json",
+    "prior_acceptance_sha256": "0b5c2a34acdc117e63e3272a645f26e576fd66d333da6f8202714e32d80cb11b",
+    "historical_runtime_commit": "eb2170c0fc376e3f5be381d81c14b397a44ee956",
+    "historical_named_PASS": 14,
+    "successor_runtime_executed": false,
+    "limit": "Historical root+13leaf runtime remains separately scoped to eb217. Exact root/production/helper source is unchanged; no90f75runtime rerun or sibling runtime credit claimed."
+  },
+  "compile": {
+    "result": "/tmp/ts-qa-operation-90f75-compile-v8xjsvbj/result.json",
+    "argv": [
+      "nice",
+      "-n",
+      "19",
+      "timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "240s",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-qa-operation-90f75-compile-v8xjsvbj/ociclient.test",
+      "./internal/ociclient"
+    ],
+    "exit_code": 0,
+    "seconds": 5.114869176002685,
+    "default_vet": true,
+    "default_tags": true,
+    "true_test_c": true,
+    "retained_raw_log_empty": true,
+    "reported_environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG": "C.UTF-8",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local"
+    },
+    "six_keys_no_GOROOT": true,
+    "nice": 19,
+    "readonly_modules": true,
+    "package_p": 1,
+    "outer_timeout_seconds": 240,
+    "kill_after_seconds": 5,
+    "binary": {
+      "path": "/tmp/ts-qa-operation-90f75-compile-v8xjsvbj/ociclient.test",
+      "mode": "0o600",
+      "bytes": 16361934,
+      "sha256": "69a3f318d0376a45aad29b90b8f3ca2c24a4eb262b858fed851c30e595d4b45a",
+      "never_executed": true
+    },
+    "regular_ELF_magic_size_hash_mode0600_independently_verified": true,
+    "source_after_exact_clean": true,
+    "lock_release_reported": true
+  },
+  "provenance_limit": "Compact QA result summary, empty compile log, current clean Git identity and ELF bytes inspected. No native launch/poll archive, sampled child environment, full source/tool pre-post seal or independent no-exec/lock backend audit supplied; environment/release/no-binary-execution retain owner-record provenance. Preparation source-review pending fields remain historical and are not rewritten.",
+  "findings": [],
+  "scope": [
+    "Exact deletion/source preservation and default-vet/default-tag compile accepted. No blocker to preparing separately reviewed adoption of this exact candidate.",
+    "No source adoption, original-retirement ledger/count change, later-feature qualification, runtime rerun, cloud/native/full-suite/race or global credit granted. Actual adoption/reconciliation requires its own subsequent review.",
+    "No reviewer Go/tests/runner/binary/native polling/process/lock/source/Git/ledger mutation, remote call or new agents; only this fresh compact exclusive JSON report written."
+  ]
+}

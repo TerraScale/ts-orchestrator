@@ -1,0 +1,46 @@
+[
+  {
+    "root_label": "oci-compile",
+    "original_directory": "/tmp/ts-oci-compile-78e86dd43-capacity-sealed/binaries",
+    "original_path": "/tmp/ts-oci-compile-78e86dd43-capacity-sealed/binaries/foundationbinding.test",
+    "original_relative_path": "binaries/foundationbinding.test",
+    "sha256": "29432f09176aceb29aa318926d5b2c2615fbdcfc77000bddb7a6af88592b0b2a",
+    "bytes": 16336867,
+    "original_mode": "0o600",
+    "excluded": true,
+    "reason": "Partial ELF compile output from aggregate NOT_QUALIFIED; binary contents excluded from publication. Hash, size and mode retained. No execution or runtime credit."
+  },
+  {
+    "root_label": "oci-compile",
+    "original_directory": "/tmp/ts-oci-compile-78e86dd43-capacity-sealed/binaries",
+    "original_path": "/tmp/ts-oci-compile-78e86dd43-capacity-sealed/binaries/releasechannel.test",
+    "original_relative_path": "binaries/releasechannel.test",
+    "sha256": "7015f0713acbb92b64c12916b4d12addca7e856d223474301deee44901a067b6",
+    "bytes": 36160858,
+    "original_mode": "0o600",
+    "excluded": true,
+    "reason": "Partial ELF compile output from aggregate NOT_QUALIFIED; binary contents excluded from publication. Hash, size and mode retained. No execution or runtime credit."
+  },
+  {
+    "root_label": "oci-compile",
+    "original_directory": "/tmp/ts-oci-compile-78e86dd43-capacity-sealed/binaries",
+    "original_path": "/tmp/ts-oci-compile-78e86dd43-capacity-sealed/binaries/rootoci.test",
+    "original_relative_path": "binaries/rootoci.test",
+    "sha256": "ba242a0e3ddebd520c1579309c8588cfd0580acc771781a1eeb70610844d0704",
+    "bytes": 32984341,
+    "original_mode": "0o600",
+    "excluded": true,
+    "reason": "Partial ELF compile output from aggregate NOT_QUALIFIED; binary contents excluded from publication. Hash, size and mode retained. No execution or runtime credit."
+  },
+  {
+    "root_label": "oci-compile",
+    "original_directory": "/tmp/ts-oci-compile-78e86dd43-capacity-sealed/binaries",
+    "original_path": "/tmp/ts-oci-compile-78e86dd43-capacity-sealed/binaries/rootsecret.test",
+    "original_relative_path": "binaries/rootsecret.test",
+    "sha256": "0683a7ba81266c30fe2a5cc631c6a897ce64740974bb5d18977c9d222fd8f0bc",
+    "bytes": 34779338,
+    "original_mode": "0o600",
+    "excluded": true,
+    "reason": "Partial ELF compile output from aggregate NOT_QUALIFIED; binary contents excluded from publication. Hash, size and mode retained. No execution or runtime credit."
+  }
+]

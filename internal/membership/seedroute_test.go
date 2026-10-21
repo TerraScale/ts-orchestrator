@@ -172,7 +172,7 @@ func TestNonSeedLeaderRoutesReplacementToTheSeed(t *testing.T) {
 	clock := time.Now().UTC()
 	topology := testTopology()
 	topology.SelfSlot = "controller-c"
-	reconciler, err := New(testConfig(), topology, Dependencies{Leadership: leader, Peers: cell, Ledger: cell,
+	reconciler, err := New(topology, Dependencies{Leadership: leader, Peers: cell, Ledger: cell,
 		Instances: cell, Evidence: cell, Replacer: routed, Now: func() time.Time { return clock },
 		Logger: quietLogger()})
 	if err != nil {
@@ -373,9 +373,6 @@ func TestSeedServerRequiresTheSeedSlot(t *testing.T) {
 	if _, err := NewSeedServer(t.Context(), topology, SeedServerDependencies{Leases: &fakeLease{},
 		Instances: newFakeCell(), Replacer: newSeedFounderStub()}); err == nil {
 		t.Fatal("a non-seed controller served replacement requests")
-	}
-	if err := (Config{Enabled: true, RouteToSeed: true}).Validate(); err == nil {
-		t.Fatal("route_to_seed without replace validated")
 	}
 }
 

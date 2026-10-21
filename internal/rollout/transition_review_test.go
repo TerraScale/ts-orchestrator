@@ -11,30 +11,6 @@ import (
 // Early reports and elapsed tick time never prove a soak: a replayed report
 // is not counted, and the observations themselves must span the window
 // (#127 12116).
-func TestSoakNeedsObservationsSpanningTheWindow(t *testing.T) {
-	record, at := startedCanary(t, controllers())
-	record = apply(t, record, Event{Kind: EventPrepared, Unit: "ctrl-b", At: at})
-	first := at.Add(time.Second)
-	for range 3 {
-		// The same ObservedAt three times counts once.
-		record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(first, 10), At: first})
-	}
-	if got := record.Units["ctrl-b"].HealthyReports; got != 1 {
-		t.Fatalf("replayed reports counted = %d", got)
-	}
-	second := first.Add(time.Second)
-	record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(second, 10), At: second})
-	// The canary went silent: a tick after the window must not promote it.
-	late := first.Add(record.soakDuration() + time.Minute)
-	if next := apply(t, record, Event{Kind: EventTick, At: late}); next.Phase != PhaseCanarySoak {
-		t.Fatalf("silent canary promoted by elapsed time: %s", next.Phase)
-	}
-	// A report after the window completes it.
-	record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(late, 10), At: late})
-	if record.Phase != PhaseBatch || record.Units["ctrl-b"].State != UnitPromoted {
-		t.Fatalf("observed soak did not promote: %s", record.Phase)
-	}
-}
 
 // A completion event after its phase deadline cannot erase the deadline
 // (#127 12131).

@@ -1,0 +1,201 @@
+{
+  "state": "ACCEPTED_EXACT_6AAB_CONNECTED_TERMINAL_FAILURE_AND_ORDERED_PARTIAL_PHASE_EVIDENCE",
+  "reviewed_at_utc": "2026-10-17T04:30:30.357572+00:00",
+  "method": "Independent read-only source/Git/hash/pin/native-artifact/raw-JSON/control-flow review. No Go/build/test/runner/binary execution, source edit, remote/live call, process/lock probe, permission/grant or agents.",
+  "source": {
+    "commit": "6aab710808fddcc45fb15e770369449dfd2d6861",
+    "tree": "bb2a066c76922e400db62fe5b180ecedcd417d6b",
+    "worktree": "/tmp/ts-app-duration-fingerprint-aa0d6e5ad",
+    "source_pre_post_equal": true,
+    "source_manifest_pins": 3794,
+    "all_current_source_pins_match": true,
+    "current_HEAD_tree_clean_matches": true,
+    "tool_pins_verified": 6,
+    "source_test_file_sha256": "3a7823cd72112195b02033f381d3620ec093632546f42f39632fd1a2da78bbc5"
+  },
+  "native": {
+    "session": 48088,
+    "outer_child_pid": 631693,
+    "pid_scope": "Outer nice/timeout Popen; not a nested Go PID claim",
+    "launch_chunk": "b42fe5",
+    "poll_chunks": [
+      "ac04f9",
+      "f3c736",
+      "fc2708",
+      "c23f6c"
+    ],
+    "terminal_chunk": "6a9f30",
+    "exit_code": 1,
+    "terminal_output_matches_full_receipt": true,
+    "terminal_text_truncated": false,
+    "all_finalseal_files_verified": 21,
+    "wall_seconds": 232.571966442978,
+    "max_child_rss_kib": 1347460,
+    "default_vet": false,
+    "explicit_vet_off": true,
+    "source_pre_post_current_and_manifest_equal": true,
+    "locks_release": "Retained locks-released.json records GENERAL and GATE nonblocking reacquire then release after terminal; this review acquired no locks and makes no current availability claim."
+  },
+  "raw_events": {
+    "count": 868,
+    "package": "github.com/TerraScale/ts-orchestrator/internal/app",
+    "root": "TestGenericRuntimeSignedManagerIntegration",
+    "package_start_count": 1,
+    "root_run_count": 1,
+    "output_events": 864,
+    "root_fail_count": 1,
+    "package_fail_count": 1,
+    "pass_count": 0,
+    "skip_count": 0,
+    "malformed_count": 0,
+    "extra_test_or_package_identities": 0,
+    "unexpected_action_count": 0,
+    "ordered_timestamps": true,
+    "start_then_run_then_sole_fatal_then_root_fail_then_package_fail": true,
+    "root_elapsed_seconds": 169.02,
+    "package_elapsed_seconds": 169.296,
+    "sole_test_error_rawline": 805,
+    "stderr_empty": true,
+    "all_phase_attribution_raw_rows_and_per_line_hashes_match": true
+  },
+  "failure": {
+    "source_file": "internal/app/generic_runtime_integration_test.go",
+    "line": 580,
+    "actual_output": "generic_runtime_integration_test.go:580: generic drain/removal changed original native release evidence: {Cell: RunNumber:0 IssuedAt:0001-01-01 00:00:00 +0000 UTC EvidenceSHA256:} retained native role is no longer approved",
+    "cause": "After adopt(4,nil), current signed spec no longer contains policy.Role. retainedContainerFloor loads history then calls nativeHistory.verifyProfile; current[role] lookup in verifyProfile returns exact error retained native role is no longer approved. The final test incorrectly expects this permission-gated reader to succeed after removing current authority.",
+    "strict_refusal_is_expected_for_current_reader": true,
+    "history_preservation_result": "Unproven by this final assertion. Reader refusal neither proves deletion/corruption nor establishes unchanged retained bytes.",
+    "prior_duration_marshal_error_present": false,
+    "prior_initial_acceptance_blocker": "Current attempt advanced through initial accepted status/readiness, so this path cleared the former time.Duration marshal failure. This does not claim all other defects resolved."
+  },
+  "ordered_phase_lower_bounds": [
+    {
+      "phase": "Initial acceptance, readiness and scale/repair",
+      "source_lines": [
+        277,
+        296,
+        305,
+        310,
+        316,
+        321,
+        324,
+        336
+      ],
+      "lower_bound": "Initial delivery accepted; ready1 then ready2; manager view/metrics target2; signed CPU/memory CAS; injected task failure repaired to ready2 without original failed task running",
+      "raw_support_lines": [
+        90
+      ]
+    },
+    {
+      "phase": "Equivalent replay, rollout102, rollback103 and recovery104",
+      "source_lines": [
+        347,
+        353,
+        370,
+        374,
+        378,
+        382,
+        385,
+        400,
+        405,
+        406,
+        409,
+        412,
+        415,
+        419,
+        423,
+        425
+      ],
+      "lower_bound": "Equivalent replay preserved manager version/operation/taskIDs;102accepted and ready2; stale CAS rejected;103actual rollback completed and old operation restored; rejected/pre-rollout replay refused and no rejected accepted receipt;104accepted and ready2 with signed resources",
+      "raw_support_lines": [
+        158,
+        199
+      ]
+    },
+    {
+      "phase": "HTTP failure, authenticated session loss/restart and stale signed policy refusal",
+      "source_lines": [
+        431,
+        435,
+        438,
+        441,
+        447,
+        448,
+        451,
+        452,
+        462,
+        463,
+        467
+      ],
+      "lower_bound": "Readinessfailure blocks scaling/stale numeric history; stopped authenticated host session clears scaling authority; restart returns ready2; policy generationchange refuses stale replica mutation"
+    },
+    {
+      "phase": "Zero drain and later three-manager election",
+      "source_lines": [
+        470,
+        477,
+        486,
+        493,
+        506,
+        517,
+        539,
+        546,
+        549,
+        559,
+        562,
+        563
+      ],
+      "lower_bound": "ready0 precedes joining two peers;3reachable managers then original managerstop and new leader observed;former leader has no scaling/history;new controllerrefresh/tick with ready0;nonempty durable manager configs remain",
+      "scope": "Election is afterzero replicas. Original probeClient remains oldmanager. No live-workload failover or full HA proof."
+    },
+    {
+      "phase": "Role removal and zero legacy writes; final retention check fails",
+      "source_lines": [
+        567,
+        568,
+        571,
+        575,
+        578,
+        580
+      ],
+      "lower_bound": "adopt4nil removes role; controllerrefresh returns;ListServices becomes0;legacywriter count remains0. Permission-gated retainedContainerFloor call then returns removed-role refusal and test fatals580",
+      "raw_support_lines": [
+        805
+      ]
+    }
+  ],
+  "phase_evidence_method": "Sole test error at final synchronous assertion580, exact raw supporting task/rollback/failure rows, and inspected pinned ordered fail-fast test body establish earlier reached/satisfied inline assertions. These are partial scenario observations, not independently named PASS tests or overall qualification.",
+  "bindings": {
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/fullsource-manifest.json": "f3a94a3541646bf3f6b85fbf801ade78cdae256f00f14ca010abf5c240177f2a",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/locks-released.json": "a3650dba3a53247ff1b727b8fe019cf5bfecee4dd4434a8009fc542872889562",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/phase-attribution.json": "e754205ac7316fab5ac38b3b7fa3ba1aefaee7d1166735038f23e49eeed0a705",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/postflight.json": "26ce6a1afb705ebb0c9b48fe4571b7049374256ea21987423a6f3a895b6b43b1",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/preflight.json": "7a4ff6dad2441aefa513c5717c3da07de0b17968fbdaa2e34cb4df19200d0cd3",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/receipt.json": "db8003c4c25b7188c797d2fb11862ed4b941222a14994d62bed7d5970faf9fba",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/request.json": "1dcf11a8c2e514659da855837d80a5d9ff0590933b7bc0e61b3e4f32d5b99c4e",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/resource-prelaunch.json": "47f6b8e131788f8ed63ea829bbf1af089e46cdc39230c3251135bc2460e8d783",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/run.py": "de50a17b60ae8f4a3a69323822ee961f1499be92384b36edcfd054dbf1e4a734",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/runtime.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/runtime.stdout": "d0e86146f9520458170bbf62fc50de587fded26aecc3e9b4c2871e915916b0b7",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/seal.json": "8fd1a5d52388eb5062ef3a5c4cc9461151c8cc7bdf92045e0d0e1154ecd6c71d",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/started.json": "081e08cc08b4fe9d411d8973114b28811717e7c335725b360b0892f842e63498",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/static-import-closure.json": "dbb00d284344a03e4a09251e8557b60a2375b66c1f026e0368e08a8d3b266442",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/static-review.json": "176e5047f870f6fceda150b97a3714c9e81f47e26c4d56c01766c935cad3532f",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/tool-launch.json": "1ef8e427060bbfa69d69738a4bd63f5dfdeb2898820fcbb549489c9de15dd794",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/tool-poll-1.json": "3bc3ac937a7e5b248924d94ad4ee8ab7d5b809735e7362ad31ba17ba62a28dea",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/tool-poll-2.json": "7e6928685b88494863a071bfdc687c4826453d5103101bc376945579aa89839e",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/tool-poll-3.json": "973bc9aa99bcb325e83c187311782d189d6484219ead7fc340b237eb16c241a4",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/tool-poll-4.json": "ba5726afd1c900dea8140f5f82e3a07d0326c89e0f14495a51457403713d4a7d",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/tool-terminal.json": "52ddec70ded59540427f345c2ba2582d751165e536676e248e18c7a1355ea15c",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/final-seal.json": "112f8e93527e8547a1cb312b2a202dcd1df95315a78f84c29a92af84b90204fd"
+  },
+  "findings": [],
+  "limitations": [
+    "Overall root and package FAIL; no whole-scenario PASS or qualification. Final retained native evidence preservation remains unverified.",
+    "Actual local authenticated broker and managers are used, but executor and external recipient adapter are simulated. No native/cloud/production/full HA claim.",
+    "Election follows zero-replica drain and old probeClient persists; no live-workload failover claim.",
+    "No race/default-vet/full shared-tree/global closure credit.",
+    "APP proposed test-only raw-byte preservation/current-reader-refusal successor is unreviewed and ungranted in this report; no source change or execution is authorized.",
+    "FUNCTIONS next sole-fixture allocation supplied by parent; no lock acquisition or scheduling change performed here."
+  ]
+}

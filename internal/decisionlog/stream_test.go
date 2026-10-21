@@ -95,6 +95,146 @@ func TestStreamPublishTailAndScan(t *testing.T) {
 	if info.State.Msgs != 7 {
 		t.Fatalf("stream holds %d messages", info.State.Msgs)
 	}
+
+	t.Run("retainedArchiveWindowOrder", func(t *testing.T) {
+		stream := openTestStream(t, startJetStream(t))
+		base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+		journal := NewJournal(JournalConfig{Region: "gru", Capacity: 2, Archive: stream})
+		for index := range 6 {
+			decision := Decision{ID: fmt.Sprintf("d%d", index), Region: "gru",
+				Kind: KindHeld, Time: base.Add(time.Duration(index) * time.Minute)}
+			if err := stream.Publish(t.Context(), decision); err != nil {
+				t.Fatal(err)
+			}
+			journal.Ingest(decision)
+		}
+		result, err := journal.Query(t.Context(), Query{Since: base})
+		if err != nil || len(result.Decisions) != 6 || result.Partial {
+			t.Fatalf("result = %+v, %v", result, err)
+		}
+		for index, decision := range result.Decisions {
+			if decision.ID != fmt.Sprintf("d%d", 5-index) {
+				t.Fatalf("order %d = %s", index, decision.ID)
+			}
+		}
+	})
+
+	t.Run("retainedArchiveChainCompleteness", func(t *testing.T) {
+		stream := openTestStream(t, startJetStream(t))
+		base := time.Now().Add(-time.Hour).UTC()
+		root := Decision{ID: newIDAt(base), Region: "gru", Kind: KindReleaseAdmitted, Time: base}
+		canary := Decision{ID: newIDAt(base.Add(time.Minute)), Region: "gru", Kind: KindUpgradeStarted,
+			ParentID: root.ID, Time: base.Add(time.Minute)}
+		batch := Decision{ID: newIDAt(base.Add(2 * time.Minute)), Region: "gru", Kind: KindCanaryPromoted,
+			ParentID: canary.ID, Time: base.Add(2 * time.Minute)}
+		done := Decision{ID: newIDAt(base.Add(3 * time.Minute)), Region: "gru", Kind: KindRolloutCompleted,
+			ParentID: batch.ID, Time: base.Add(3 * time.Minute)}
+		journal := NewJournal(JournalConfig{Region: "gru", Capacity: 2, Archive: stream})
+		for _, decision := range []Decision{root, canary, batch, done} {
+			if err := stream.Publish(t.Context(), decision); err != nil {
+				t.Fatal(err)
+			}
+			journal.Ingest(decision)
+		}
+		chain, err := journal.Chain(t.Context(), done.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if chain.Root.ID != root.ID || len(chain.Decisions) != 4 || chain.Latest.ID != done.ID {
+			t.Fatalf("chain = %+v", chain)
+		}
+		if _, err := journal.Chain(t.Context(), "missing"); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("missing chain err = %v", err)
+		}
+	})
+
+	t.Run("retainedArchiveClockSkew", func(t *testing.T) {
+		stream := openTestStream(t, startJetStream(t))
+		base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+		older := Decision{ID: "00000000007M2BHZ0MP819C5RF", Region: "gru", Kind: KindHeld, Time: base.Add(time.Minute)}
+		// Published first by a controller whose clock runs ahead.
+		ahead := Decision{ID: "0000000000HPQQ4SQ462GH8ZMJ", Region: "gru", Kind: KindHeld, Time: base.Add(4 * time.Minute)}
+		newest := []Decision{{ID: "n1", Region: "gru", Kind: KindHeld, Time: base.Add(5 * time.Minute)},
+			{ID: "n2", Region: "gru", Kind: KindHeld, Time: base.Add(6 * time.Minute)}}
+		for _, decision := range []Decision{ahead, older, newest[0], newest[1]} {
+			if err := stream.Publish(t.Context(), decision); err != nil {
+				t.Fatal(err)
+			}
+		}
+		journal := NewJournal(JournalConfig{Region: "gru", Capacity: 3, Archive: stream})
+		journal.Ingest(ahead)
+		for _, decision := range newest {
+			journal.Ingest(decision)
+		}
+		journal.MarkCoveredFrom(base.Add(2 * time.Minute))
+		result, _ := journal.Query(t.Context(), Query{Since: base})
+		found := map[string]bool{}
+		for _, decision := range result.Decisions {
+			found[decision.ID] = true
+		}
+		if !found["00000000007M2BHZ0MP819C5RF"] {
+			t.Fatalf("an archived record behind a skewed one was skipped: %+v", result)
+		}
+	})
+
+	t.Run("retainedArchiveUnavailable", func(t *testing.T) {
+		conn := startJetStream(t)
+		stream := openTestStream(t, conn)
+		if complete, err := stream.Scan(t.Context(), time.Time{}, 1, func(Decision) bool { return true }); err != nil || !complete {
+			t.Fatalf("archive before outage: complete=%v err=%v", complete, err)
+		}
+		journal := NewJournal(JournalConfig{Region: "gru", Capacity: 2, Archive: stream})
+		missing := newIDAt(time.Now().Add(-time.Hour))
+		conn.Close()
+		if _, err := journal.Chain(t.Context(), missing); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("an archive outage = %v, want ErrUnavailable", err)
+		}
+	})
+
+	t.Run("retainedArchiveLongChain", func(t *testing.T) {
+		stream := openTestStream(t, startJetStream(t))
+		base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+		decisions := []Decision{{ID: "root", Time: base}}
+		for index := range MaxQueryLimit + 10 {
+			decisions = append(decisions, Decision{ID: fmt.Sprintf("c%05d", index), ParentID: "root",
+				Time: base.Add(time.Duration(index+1) * time.Second)})
+		}
+		for _, decision := range decisions {
+			if err := stream.Publish(t.Context(), decision); err != nil {
+				t.Fatal(err)
+			}
+		}
+		journal := NewJournal(JournalConfig{Region: "gru", Capacity: 1, Archive: stream})
+		last := decisions[len(decisions)-1]
+		chain, err := journal.Chain(t.Context(), last.ID)
+		if err != nil || !chain.Truncated || chain.Latest.ID != last.ID || len(chain.Decisions) > MaxQueryLimit ||
+			chain.Decisions[0].ID != "root" || chain.Decisions[len(chain.Decisions)-1].ID != last.ID {
+			t.Fatalf("chain: truncated=%v latest=%s len=%d err=%v", chain.Truncated, chain.Latest.ID, len(chain.Decisions), err)
+		}
+		middle := decisions[5].ID
+		if chain, _ := journal.Chain(t.Context(), middle); !containsID(chain.Decisions, middle) {
+			t.Fatal("a truncated chain dropped the requested decision")
+		}
+	})
+
+	t.Run("retainedArchiveOutOfOrder", func(t *testing.T) {
+		stream := openTestStream(t, startJetStream(t))
+		base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+		t3 := Decision{ID: "t3", Region: "gru", Kind: KindHeld, Time: base.Add(3 * time.Minute)}
+		t1 := Decision{ID: "t1", Region: "gru", Kind: KindHeld, Time: base.Add(time.Minute)}
+		t2 := Decision{ID: "t2", Region: "gru", Kind: KindHeld, Time: base.Add(2 * time.Minute)}
+		journal := NewJournal(JournalConfig{Region: "gru", Capacity: 2, Archive: stream})
+		for _, decision := range []Decision{t3, t1, t2} {
+			if err := stream.Publish(t.Context(), decision); err != nil {
+				t.Fatal(err)
+			}
+			journal.Ingest(decision)
+		}
+		result, err := journal.Query(t.Context(), Query{Limit: 1})
+		if err != nil || len(result.Decisions) != 1 || result.Decisions[0].ID != "t3" {
+			t.Fatalf("newest page = %+v (%v), want the evicted t3", result.Decisions, err)
+		}
+	})
 }
 
 func TestStreamScanStopsAtBound(t *testing.T) {

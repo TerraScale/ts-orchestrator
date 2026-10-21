@@ -15,7 +15,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/membership"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
@@ -117,7 +116,7 @@ func validateControllerConfig(manifest controllerConfigBinding, observedPrivateI
 		hostConfig.Roles = nil
 	}
 	if cfg.NATS.Cell != strings.ToLower(string(manifest.Cell)) || cfg.NATS.Instance != manifest.Slot ||
-		cfg.NATS.Replicas != len(manifest.ControllerSlots) || cfg.NATS.Lab || cfg.NATS.Embedded == nil ||
+		cfg.NATS.Replicas != len(manifest.ControllerSlots) || cfg.NATS.Embedded == nil ||
 		cfg.Controller.CandidateID != entityid.Derive("controller", manifest.DeploymentID, string(manifest.Cell), manifest.Slot) ||
 		!reflect.DeepEqual(hostConfig, HostConfig{}) ||
 		cfg.Operator != (OperatorConfig{}) ||
@@ -239,14 +238,6 @@ func validateControllerConfig(manifest controllerConfigBinding, observedPrivateI
 		if _, signed := secretFiles["membership.creds"]; !signed ||
 			path != filepath.Join(bootstrapstart.MaterialDirectory, "membership.creds") {
 			return Config{}, errors.New("membership credentials are not the signed slot material")
-		}
-	}
-	if settings := cfg.Controller.Membership; settings != nil {
-		if err := settings.Validate(); err != nil {
-			return Config{}, fmt.Errorf("signed controller membership: %w", err)
-		}
-		if settings.RetirementEvidenceDir != "" && settings.RetirementEvidenceDir != membership.DefaultRetirementEvidenceDir {
-			return Config{}, errors.New("signed controller membership evidence directory must be the fixed path")
 		}
 	}
 	if cfg.Controller.ResponseKeyFile != filepath.Join(bootstrapstart.MaterialDirectory, manifest.Slot+"-response.key") ||

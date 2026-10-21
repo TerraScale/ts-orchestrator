@@ -133,7 +133,8 @@ func TestHostMetricHistoryReplaysWithoutMemberSnapshotOverlap(t *testing.T) {
 func TestJournalHistoryStartsWithoutPrivateListener(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "history-controller", Replicas: 1, Lab: true,
+	auth := newAuthenticatedNATS(t, "lab")
+	broker, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: "history-controller", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
 	if err != nil {
 		t.Fatal(err)

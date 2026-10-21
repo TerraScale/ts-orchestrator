@@ -22,6 +22,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard/accesscheck"
 	"github.com/TerraScale/ts-orchestrator/internal/disasterrecovery"
+	"github.com/TerraScale/ts-orchestrator/internal/functions"
 	"github.com/TerraScale/ts-orchestrator/internal/image"
 	"github.com/TerraScale/ts-orchestrator/internal/liveverify"
 	"github.com/TerraScale/ts-orchestrator/internal/logscan"
@@ -51,6 +52,8 @@ import (
 const usage = `Usage: ts-orch <command> [flags]
 
 Runtime:
+  managed-runtime-start  Run the admitted root Swarm runtime
+  function-worker        Run one admitted function revision
   run                    Run the regional controller and embedded NATS
   host                   Run the host agent
   check                  Validate role configuration and connectivity
@@ -65,6 +68,7 @@ Runtime:
   selfupdate             Stage, activate and watch binary-only A/B updates
 
 Operator tooling:
+  observe                Inspect authenticated metrics, history, snapshots, cluster and events
   usage                  Print regional node and service CPU/memory for a time window
   cost                   Print a region's OCI spend and month forecast (read-only)
   bench                  Run isolated in-region benchmark clients and save capacity reports
@@ -120,6 +124,18 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		observability.ConfigureDefault(logger)
 	}
 	switch args[0] {
+	case "managed-host-start":
+		return app.RunAutomaticBootstrap(ctx, args[1:])
+	case "managed-runtime-start":
+		return app.RunManagedRuntime(ctx, args[1:], output)
+	case "function-worker":
+		return functions.Run(ctx, args[1:], output)
+	case "root-oci-qualification":
+		return app.RunRootOCIQualification(ctx, args[1:], os.Stdin, output)
+	case "root-oci-qualification-read", "root-oci-qualification-probe":
+		return app.RunRootOCIQualificationReader(ctx, args[0], args[1:], os.Stdin, output)
+	case "observe":
+		return runObserve(ctx, args[1:], output)
 	case "usage":
 		return capacity.Run(ctx, args[1:], output)
 	case "cost":
@@ -143,6 +159,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "oci-region":
 		return runOCIRegion(ctx, args[1:], commandio.NewWriter(output))
 	case "region":
+		if len(args) > 1 && args[1] == "create" {
+			return provisionOriginalFoundationFromFile(ctx, args[2:], commandio.NewWriter(output))
+		}
 		return region.Run(ctx, args[1:], commandio.NewWriter(output), os.Stderr)
 	case "image", "netbird":
 		if args[0] == "netbird" && len(args) > 1 && args[1] == "dns" {

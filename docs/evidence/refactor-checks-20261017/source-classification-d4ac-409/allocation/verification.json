@@ -1,0 +1,14 @@
+{
+  "declaration_hashes_verified": 600,
+  "dispatches": 0,
+  "eligible": 4119,
+  "eligible_unselected": 3819,
+  "excluded_unique_roots": 200,
+  "prior79_excluded": true,
+  "result": "PASS",
+  "retirement_delta": 0,
+  "runtime_delta": 0,
+  "selected_roots": 300,
+  "source_classification_credit": 0,
+  "test_files": 72
+}

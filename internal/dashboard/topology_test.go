@@ -31,6 +31,7 @@ func topologyFixture(query string) view {
 		summaryMembers = append(summaryMembers, regionview.Member{Name: name, Role: "controller", Ready: true,
 			Version: "v0.43.0", MetaLeader: index == 0})
 		node := "ts-gru-" + itoa(index+1)
+		summaryMembers = append(summaryMembers, regionview.Member{Name: node, Role: "host", Ready: true, Version: "v0.43.0"})
 		nodes = append(nodes, regionview.Node{Name: node, Address: "10.251.0.1" + itoa(index+1), Member: name,
 			Resources: &regionview.ResourceView{CPU: &regionview.Reading{ObservedAt: testNow},
 				Memory: &regionview.Reading{ObservedAt: testNow}, Disk: &regionview.Reading{ObservedAt: testNow}},
@@ -55,7 +56,7 @@ func withSFO(current view) view {
 
 func renderTopology(t *testing.T, current view) string {
 	t.Helper()
-	return renderHTML(t, topologyBody(current))
+	return fixturePage(t, current, "/topology")
 }
 
 func nodeClass(body, node string) string {
@@ -77,7 +78,7 @@ func TestTopologyHealthyCell(t *testing.T) {
 	}
 	for _, want := range []string{"<svg", "10.251.0.11", "member ctl-1", "TerraBase member", "7da6542c9f0e", "ts-auth",
 		"LB terrabase", "in rotation", "ts-orch controller", "v0.43.0", "meta leader", `data-server="gru-1-ctl-1"`,
-		"edge e-route s-ok", "edge e-replication s-ok", "1 partition(s) replicate", "JetStream", `href="/members/ctl-2"`,
+		"edge e-route s-ok", "edge e-replication s-warn", "1 partition(s) share durable placement; current replication readiness unknown", "JetStream", `href="/members/ctl-2"`,
 		`href="/regions/gru/hosts/ts-gru-1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("healthy topology lacks %q", want)
@@ -96,6 +97,19 @@ func TestTopologyHealthyCell(t *testing.T) {
 	}
 }
 
+func TestTopologyUnknownServiceDoesNotProveHostSession(t *testing.T) {
+	t.Parallel()
+	current := topologyFixture("")
+	node := &current.LocalSummary.Nodes[0]
+	current.LocalSummary.Members = current.LocalSummary.Members[:1]
+	node.Services = []regionview.Service{{Role: "terrabase", State: "unknown",
+		StateReason: "current manager task readiness is unavailable in node topology"}}
+	body := renderTopology(t, current)
+	if !strings.Contains(body, node.Services[0].StateReason) || !strings.Contains(body, "current host membership unavailable") || strings.Contains(body, "session reporting") {
+		t.Fatal("unknown service state hid its reason or asserted a physical host session")
+	}
+}
+
 func TestTopologyDrainedNode(t *testing.T) {
 	t.Parallel()
 	current := topologyFixture("")
@@ -107,7 +121,7 @@ func TestTopologyDrainedNode(t *testing.T) {
 	if got := nodeClass(body, "ts-gru-2"); got != "node s-warn" {
 		t.Errorf("drained node class = %q, want warn", got)
 	}
-	for _, want := range []string{"fenced", "drain: fence", "out of rotation", "edge e-replication s-warn", "seat not serving"} {
+	for _, want := range []string{"fenced", "drain: fence", "out of rotation", "edge e-replication s-warn", "current replication readiness unknown"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("drained topology lacks %q", want)
 		}
@@ -138,20 +152,6 @@ func TestTopologyNATSLinkDown(t *testing.T) {
 func TestTopologyLinksOtherRegions(t *testing.T) {
 	t.Parallel()
 	current := withSFO(topologyFixture("nats=1"))
-	graph := current.topologyGraph()
-	if len(graph.Regions) != 1 || graph.Regions[0].Name != "GRU" {
-		t.Fatalf("regions = %+v", graph.Regions)
-	}
-	for _, region := range graph.Regions {
-		for index := 1; index < len(region.Nodes); index++ {
-			if region.Nodes[index].Y < region.Nodes[index-1].Y+region.Nodes[index-1].H {
-				t.Errorf("%s node rows overlap", region.Name)
-			}
-		}
-		if region.Y+region.H > graph.Height || region.X+region.W > graph.Width {
-			t.Errorf("%s exceeds the canvas", region.Name)
-		}
-	}
 	body := renderTopology(t, current)
 	if !strings.Contains(body, "Other regions") || !strings.Contains(body, `href="/regions/sfo"`) {
 		t.Error("the topology does not link the other regions")
@@ -165,22 +165,15 @@ func TestTopologyLinksOtherRegions(t *testing.T) {
 // hosts, and a missing controller is drawn broken.
 func TestTopologyOlderSummary(t *testing.T) {
 	t.Parallel()
-	nodes := topologyNodes(regionview.Summary{Region: "fra",
-		Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true}, {Name: "h0", Role: "host", Ready: true}},
-		Quorum:  regionview.Quorum{Missing: []string{"c2"}}, Hosts: []regionview.Host{{Name: "h1", Seats: 2, Serving: 1}}})
-	var names []string
-	for _, node := range nodes {
-		names = append(names, node.Name+"/"+node.Member)
-	}
-	if got := strings.Join(names, ","); got != "c1/c1,h0/,c2/c2,h1/" {
-		t.Errorf("nodes = %s", got)
-	}
-	current := view{State: parseState(url.Values{}), LocalSummary: &regionview.Summary{Region: "fra",
-		Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true}},
-		Quorum:  regionview.Quorum{Missing: []string{"c2"}}}}
+	current := view{LocalSummary: &regionview.Summary{Region: "fra", Local: true, Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true}, {Name: "h0", Role: "host", Ready: true}}, Quorum: regionview.Quorum{Missing: []string{"c2"}}, Hosts: []regionview.Host{{Name: "h1", Seats: 2, Serving: 1}}}}
 	body := renderTopology(t, current)
-	if got := nodeClass(body, "c2"); got != "node s-bad" || !strings.Contains(body, "missing: did not answer") {
-		t.Errorf("missing controller class = %q", got)
+	for _, name := range []string{"c1", "h0", "c2", "h1"} {
+		if !strings.Contains(body, `data-node="`+name+`"`) {
+			t.Errorf("older summary lost node %s", name)
+		}
+	}
+	if nodeClass(body, "c2") != "node s-bad" || !strings.Contains(body, "missing: did not answer") {
+		t.Fatal("missing controller did not render as failed")
 	}
 }
 
@@ -200,8 +193,8 @@ func TestTopologyWithoutCellWideView(t *testing.T) {
 		summary.Nodes[index].Server = "gru-1-" + summary.Nodes[index].Member
 	}
 	body := renderTopology(t, current)
-	if got := nodeClass(body, "ts-gru-2"); got != "node s-ok" || !strings.Contains(body, "JetStream peer current") {
-		t.Errorf("a current peer is drawn %q", got)
+	if got := nodeClass(body, "ts-gru-2"); got != "node s-warn" || !strings.Contains(body, "JetStream peer current") {
+		t.Errorf("a current controller peer without host membership is drawn %q", got)
 	}
 	if got := nodeClass(body, "ts-gru-3"); got != "node s-bad" || !strings.Contains(body, "JetStream peer offline") {
 		t.Errorf("an offline peer is drawn %q", got)

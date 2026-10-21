@@ -1,0 +1,22 @@
+func TestRefuseIntentPreservesDurableIdentity(t *testing.T) {
+	writer := &testWriter{}
+	s, ctx := testService(t, writer)
+	i := testIntent(t, s, ctx)
+	for range 2 {
+		if err := s.RefuseIntent(ctx, i, "operator", i.AuthorityEpoch, "release is not retained"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := s.StatusFor(ctx, i)
+	if err != nil || r.Status != "rejected" || r.Error != "release is not retained" || writer.count() != 0 {
+		t.Fatalf("refusal=%+v err=%v writes=%d", r, err, writer.count())
+	}
+	conflict := i
+	conflict.Generation++
+	if err := s.RefuseIntent(ctx, conflict, "operator", i.AuthorityEpoch, "different release"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflicting refusal: %v", err)
+	}
+	if terminal, err := s.process(ctx, mustJSON(i)); !terminal || err != nil || writer.count() != 0 {
+		t.Fatalf("refused replay: terminal=%t err=%v writes=%d", terminal, err, writer.count())
+	}
+}

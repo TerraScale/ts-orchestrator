@@ -1,0 +1,24 @@
+func TestPrepareArtifactHashesAndUploadsTheSameSnapshot(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	original := []byte("artifact bytes from the first read")
+	mutated := []byte("artifact bytes returned after a second seek")
+	reader := &changingArtifactReader{
+		first:  bytes.NewReader(original),
+		second: bytes.NewReader(mutated),
+	}
+
+	record, _, err := service.PrepareArtifact(ctx, reader, artifactTestRequest())
+	if err != nil {
+		t.Fatalf("PrepareArtifact() error = %v", err)
+	}
+	if reader.seeks != 1 {
+		t.Fatalf("source seek count = %d, want one snapshot read", reader.seeks)
+	}
+	wantDigest := sha256.Sum256(original)
+	if got := record.Digest; got != hex.EncodeToString(wantDigest[:]) {
+		t.Fatalf("artifact digest = %s, want digest of first read %s", got, hex.EncodeToString(wantDigest[:]))
+	}
+	if err := service.verifyArtifact(ctx, record); err != nil {
+		t.Fatalf("stored snapshot does not match its digest: %v", err)
+	}
+}

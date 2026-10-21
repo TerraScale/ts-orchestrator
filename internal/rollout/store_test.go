@@ -124,6 +124,102 @@ func TestStoreBeginIsSingleActiveAndIdempotent(t *testing.T) {
 	if err != nil || cell.ActiveRolloutID != testStageID(1) || cell.Attempts[toDigest] != 1 {
 		t.Fatalf("cell = %+v %v", cell, err)
 	}
+
+	{
+		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+		defer cancel()
+		store, _ := testStore(t)
+		reader, err := BindReader(store.kv, "gru")
+		if err != nil {
+			t.Fatal(err)
+		}
+		empty, revision, err := reader.Cell(ctx)
+		if err != nil || revision != 0 || empty.SchemaVersion != SchemaVersion || empty.Cell != "gru" ||
+			empty.ActiveRolloutID != "" || len(empty.KnownBad) != 0 || len(empty.Attempts) != 0 {
+			t.Fatalf("fresh cell = %+v, %d, %v", empty, revision, err)
+		}
+		if _, err := store.kv.Get(ctx, cellKey); !errors.Is(err, jetstream.ErrKeyNotFound) {
+			t.Fatalf("cell key existed before write: %v", err)
+		}
+		attempts := make(map[string]int, maxAttemptDigest+2)
+		digest := func(index int) string { return fmt.Sprintf("%064x", index) }
+		for index := range maxAttemptDigest + 2 {
+			attempts[digest(index)] = 1
+		}
+		knownBad := []string{digest(5)}
+		target := digest(0)
+		boundAttempts(attempts, knownBad, target)
+		if len(attempts) != maxAttemptDigest {
+			t.Fatalf("bounded to %d entries, want %d", len(attempts), maxAttemptDigest)
+		}
+		if _, kept := attempts[digest(5)]; kept {
+			t.Fatal("a known-bad digest's count was kept over others")
+		}
+		if attempts[target] != 1 {
+			t.Fatal("the current target's count was evicted")
+		}
+		state := CellState{SchemaVersion: SchemaVersion, Cell: "gru", KnownBad: knownBad, Attempts: attempts}
+		if err := state.validate("gru"); err != nil {
+			t.Fatal(err)
+		}
+		wire, err := protocol.EncodeJSON(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(wire) > maxRecordBytes {
+			t.Fatalf("bounded cell exceeds the native value limit: %d", len(wire))
+		}
+		if err := store.writeCell(ctx, 7, state, 0); err != nil {
+			t.Fatal(err)
+		}
+		reader, err = BindReader(store.kv, "gru")
+		if err != nil {
+			t.Fatal(err)
+		}
+		stored, revision, err := reader.Cell(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		storedWire, err := protocol.EncodeJSON(stored)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if revision == 0 || string(storedWire) != string(wire) {
+			t.Fatalf("independent cell differs from producer: revision %d, stored bytes %d, want %d", revision, len(storedWire), len(wire))
+		}
+		entry, err := store.kv.Get(ctx, cellKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entry.Bucket() != Bucket || entry.Key() != cellKey || entry.Operation() != jetstream.KeyValuePut ||
+			entry.Revision() != revision || string(entry.Value()) != string(wire) {
+			t.Fatalf("native cell record differs: bucket %s, key %s, operation %v, revision %d", entry.Bucket(), entry.Key(), entry.Operation(), entry.Revision())
+		}
+		status, err := store.kv.Status(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config := status.Config()
+		if config.Storage != jetstream.FileStorage || config.Replicas != 1 || status.History() != 8 || status.Values() != 1 {
+			t.Fatalf("cell storage = %+v, history %d, values %d", config, status.History(), status.Values())
+		}
+		if len(stored.Attempts) != maxAttemptDigest {
+			t.Fatalf("stored cell bounded to %d entries, want %d", len(stored.Attempts), maxAttemptDigest)
+		}
+		if _, kept := stored.Attempts[digest(5)]; kept {
+			t.Fatal("stored cell kept a known-bad digest's count over others")
+		}
+		if stored.Attempts[target] != 1 {
+			t.Fatal("stored cell evicted the current target's count")
+		}
+		for index := range maxAttemptDigest + 2 {
+			count, present := stored.Attempts[digest(index)]
+			want := index != 5 && index != 1
+			if present != want || present && count != 1 {
+				t.Fatalf("stored attempt %d = %d, present %v, want present %v with count 1", index, count, present, want)
+			}
+		}
+	}
 }
 
 func TestStoreCommitIsCASFencedAndRecordsKnownBad(t *testing.T) {
@@ -215,6 +311,419 @@ func TestStoreCommitIsCASFencedAndRecordsKnownBad(t *testing.T) {
 	if _, _, err := store.Begin(ctx, retry, testStart); !errors.Is(err, ErrKnownBad) {
 		t.Fatalf("known-bad digest restarted: %v", err)
 	}
+
+	t.Run("soak observations span persisted window", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		defer cancel()
+		store, _ := testStore(t)
+		reader, err := BindReader(store.kv, "gru")
+		if err != nil {
+			t.Fatal(err)
+		}
+		record, at := startedCanary(t, controllers())
+		_, revision, err := store.createRecord(ctx, Spec{
+			RolloutID: record.RolloutID, Kind: record.Kind, Cell: record.Cell,
+			FromDigest: record.FromDigest, ToDigest: record.ToDigest,
+			Units: controllers(), Policy: record.Policy, AuthorityEpoch: record.AuthorityEpoch,
+			StartedAt: record.StartedAt, KnownBad: record.KnownBad,
+		}, CellState{}, testStart)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var loadedRevision uint64
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		record = apply(t, record, Event{Kind: EventPrepared, Unit: "ctrl-b", At: at})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		first := at.Add(time.Second)
+		for range 3 {
+			// The same ObservedAt three times counts once.
+			record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(first, 10), At: first})
+			if revision, err = store.Commit(ctx, revision, record); err != nil {
+				t.Fatal(err)
+			}
+			record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+			if err != nil || loadedRevision != revision {
+				t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+			}
+		}
+		if got := record.Units["ctrl-b"].HealthyReports; got != 1 {
+			t.Fatalf("replayed reports counted = %d", got)
+		}
+		second := first.Add(time.Second)
+		record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(second, 10), At: second})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		// The canary went silent: a tick after the window must not promote it.
+		late := first.Add(record.soakDuration() + time.Minute)
+		if next := apply(t, record, Event{Kind: EventTick, At: late}); next.Phase != PhaseCanarySoak {
+			t.Fatalf("silent canary promoted by elapsed time: %s", next.Phase)
+		}
+		// A report after the window completes it.
+		record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(late, 10), At: late})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if record.Phase != PhaseBatch || record.Units["ctrl-b"].State != UnitPromoted {
+			t.Fatalf("observed soak did not promote: %s", record.Phase)
+		}
+	})
+
+	t.Run("stale wave health from persisted record", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		defer cancel()
+		store, _ := testStore(t)
+		reader, err := BindReader(store.kv, "gru")
+		if err != nil {
+			t.Fatal(err)
+		}
+		policy := testPolicy()
+		policy.CanaryUnits = 2
+		record := newRecord(t, seats(), policy)
+		_, revision, err := store.createRecord(ctx, Spec{
+			RolloutID: record.RolloutID, Kind: record.Kind, Cell: record.Cell,
+			FromDigest: record.FromDigest, ToDigest: record.ToDigest,
+			Units: seats(), Policy: record.Policy, AuthorityEpoch: record.AuthorityEpoch,
+			StartedAt: record.StartedAt, KnownBad: record.KnownBad,
+		}, CellState{}, testStart)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var loadedRevision uint64
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		at := testStart.Add(time.Minute)
+		record = apply(t, record, Event{Kind: EventStart, At: at})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		record = apply(t, record, Event{Kind: EventPreflightPassed, At: at})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if len(record.Waves[0]) != 2 {
+			t.Fatalf("canary wave = %v, want two units", record.Waves[0])
+		}
+		first := record.Waves[0][0]
+		record = apply(t, record, Event{Kind: EventPrepared, Unit: first, At: at})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if !record.Phase.preparing() {
+			t.Fatalf("phase = %s, want the wave still preparing", record.Phase)
+		}
+		replayed := health(testStart, 100)
+		if _, err := Apply(record, Event{Kind: EventHealthy, Unit: first, Health: replayed, At: at.Add(time.Second)}); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("a report from before the wave started was accepted: %v", err)
+		}
+		fresh := apply(t, record, Event{Kind: EventHealthy, Unit: first, Health: health(at.Add(time.Second), 100), At: at.Add(time.Second)})
+		if revision, err = store.Commit(ctx, revision, fresh); err != nil {
+			t.Fatal(err)
+		}
+		fresh, loadedRevision, err = reader.Load(ctx, fresh.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted fresh revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if fresh.Units[first].HealthyReports != 1 {
+			t.Fatalf("fresh report not counted: %+v", fresh.Units[first])
+		}
+	})
+
+	t.Run("fixed observation deadline from persisted record", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		defer cancel()
+		store, _ := testStore(t)
+		reader, err := BindReader(store.kv, "gru")
+		if err != nil {
+			t.Fatal(err)
+		}
+		record, at := startedCanary(t, controllers())
+		record.StartedAt = at.Add(time.Minute - ObservationBudget)
+		_, revision, err := store.createRecord(ctx, Spec{
+			RolloutID: record.RolloutID, Kind: record.Kind, Cell: record.Cell,
+			FromDigest: record.FromDigest, ToDigest: record.ToDigest,
+			Units: controllers(), Policy: record.Policy, AuthorityEpoch: record.AuthorityEpoch,
+			StartedAt: record.StartedAt, KnownBad: record.KnownBad,
+		}, CellState{}, testStart)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var loadedRevision uint64
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		record = apply(t, record, Event{Kind: EventPrepared, Unit: "ctrl-b", At: at})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if record.PhaseDeadline.After(record.StartedAt.Add(ObservationBudget)) {
+			t.Fatal("canary proof deadline exceeds observation")
+		}
+		next := apply(t, record, Event{Kind: EventTick, At: record.StartedAt.Add(ObservationBudget)})
+		if revision, err = store.Commit(ctx, revision, next); err != nil {
+			t.Fatal(err)
+		}
+		next, loadedRevision, err = reader.Load(ctx, next.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted next revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		requireRollingBack(t, next, "observation budget")
+	})
+
+	t.Run("completion through persisted canary and batches", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		defer cancel()
+		store, _ := testStore(t)
+		reader, err := BindReader(store.kv, "gru")
+		if err != nil {
+			t.Fatal(err)
+		}
+		record := newRecord(t, controllers(), testPolicy())
+		_, revision, err := store.createRecord(ctx, Spec{
+			RolloutID: record.RolloutID, Kind: record.Kind, Cell: record.Cell,
+			FromDigest: record.FromDigest, ToDigest: record.ToDigest,
+			Units: controllers(), Policy: record.Policy, AuthorityEpoch: record.AuthorityEpoch,
+			StartedAt: record.StartedAt, KnownBad: record.KnownBad,
+		}, CellState{}, testStart)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var loadedRevision uint64
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if actions := NextActions(record); len(actions) != 0 {
+			t.Fatalf("pending rollout acts: %v", actions)
+		}
+		at := testStart
+		record = apply(t, record, Event{Kind: EventStart, At: at})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if actions := NextActions(record); len(actions) != 1 || actions[0].Kind != ActionPreflight {
+			t.Fatalf("preflight actions = %v", actions)
+		}
+		record = apply(t, record, Event{Kind: EventPreflightPassed, At: at})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if record.Phase != PhaseCanary {
+			t.Fatalf("phase = %s", record.Phase)
+		}
+		actions := NextActions(record)
+		if len(actions) != 1 || actions[0].Kind != ActionPrepare || actions[0].Unit != "ctrl-b" || actions[0].Digest != toDigest ||
+			!slices.Equal(actions[0].Peers, []string{"ctrl-a", "ctrl-c"}) || actions[0].OperationID == "" {
+			t.Fatalf("canary actions = %+v", actions)
+		}
+		record = apply(t, record, Event{Kind: EventPrepared, Unit: "ctrl-b", At: at})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if record.Phase != PhaseCanarySoak {
+			t.Fatalf("phase = %s", record.Phase)
+		}
+		// A single serving proof never promotes: the soak needs time and reports.
+		at = at.Add(time.Second)
+		record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at, 10), At: at})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		at = at.Add(record.soakDuration() + time.Minute)
+		record = apply(t, record, Event{Kind: EventTick, At: at})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if record.Phase != PhaseCanarySoak {
+			t.Fatalf("one report promoted the canary: %s", record.Phase)
+		}
+		record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at, 10), At: at})
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if record.Phase != PhaseBatch || record.WaveIndex != 1 || record.Units["ctrl-b"].State != UnitPromoted {
+			t.Fatalf("canary did not promote: %s wave %d", record.Phase, record.WaveIndex)
+		}
+		record, at = soakWave(t, record, at)
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if record.Phase != PhaseBatch || record.WaveIndex != 2 {
+			t.Fatalf("batch 1 did not promote: %s", record.Phase)
+		}
+		if actions := NextActions(record); len(actions) != 1 || actions[0].Unit != "ctrl-a" {
+			t.Fatalf("seed is not last: %v", actions)
+		}
+		record, _ = soakWave(t, record, at)
+		if revision, err = store.Commit(ctx, revision, record); err != nil {
+			t.Fatal(err)
+		}
+		record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+		if err != nil || loadedRevision != revision {
+			t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+		}
+		if record.Phase != PhaseComplete || len(record.KnownBad) != 0 {
+			t.Fatalf("rollout did not complete cleanly: %s %v", record.Phase, record.KnownBad)
+		}
+		if _, err := Apply(record, Event{Kind: EventTick, At: at}); !errors.Is(err, ErrTerminal) {
+			t.Fatalf("terminal record accepted an event: %v", err)
+		}
+	})
+
+	t.Run("soak failures from persisted records", func(t *testing.T) {
+		for _, test := range []struct {
+			name   string
+			reason string
+			event  func(time.Time) Event
+		}{
+			{"restart", "restarted during soak", func(at time.Time) Event {
+				return Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at, 11), At: at}
+			}},
+			{"wrong digest", "unexpected digest", func(at time.Time) Event {
+				h := health(at, 10)
+				h.Digest = otherBad
+				return Event{Kind: EventHealthy, Unit: "ctrl-b", Health: h, At: at}
+			}},
+			{"failed canary", "failed-canary", func(at time.Time) Event {
+				return Event{Kind: EventUnhealthy, Unit: "ctrl-b", Reason: "failed-canary", At: at}
+			}},
+			{"held", "held", func(at time.Time) Event { return Event{Kind: EventHeld, Unit: "ctrl-b", At: at} }},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+				defer cancel()
+				store, _ := testStore(t)
+				reader, err := BindReader(store.kv, "gru")
+				if err != nil {
+					t.Fatal(err)
+				}
+				record, at := startedCanary(t, controllers())
+				_, revision, err := store.createRecord(ctx, Spec{
+					RolloutID: record.RolloutID, Kind: record.Kind, Cell: record.Cell,
+					FromDigest: record.FromDigest, ToDigest: record.ToDigest,
+					Units: controllers(), Policy: record.Policy, AuthorityEpoch: record.AuthorityEpoch,
+					StartedAt: record.StartedAt, KnownBad: record.KnownBad,
+				}, CellState{}, testStart)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var loadedRevision uint64
+				if revision, err = store.Commit(ctx, revision, record); err != nil {
+					t.Fatal(err)
+				}
+				record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+				if err != nil || loadedRevision != revision {
+					t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+				}
+				record = apply(t, record, Event{Kind: EventPrepared, Unit: "ctrl-b", At: at})
+				if revision, err = store.Commit(ctx, revision, record); err != nil {
+					t.Fatal(err)
+				}
+				record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+				if err != nil || loadedRevision != revision {
+					t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+				}
+				at = at.Add(time.Second)
+				record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at, 10), At: at})
+				if revision, err = store.Commit(ctx, revision, record); err != nil {
+					t.Fatal(err)
+				}
+				record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+				if err != nil || loadedRevision != revision {
+					t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+				}
+				at = at.Add(time.Second)
+				record = apply(t, record, test.event(at))
+				if revision, err = store.Commit(ctx, revision, record); err != nil {
+					t.Fatal(err)
+				}
+				record, loadedRevision, err = reader.Load(ctx, record.RolloutID)
+				if err != nil || loadedRevision != revision {
+					t.Fatalf("persisted record revision = %d, want %d: %v", loadedRevision, revision, err)
+				}
+				requireRollingBack(t, record, test.reason)
+				if !slices.Equal(record.RollbackOrder, []string{"ctrl-b"}) {
+					t.Fatalf("rollback order = %v", record.RollbackOrder)
+				}
+			})
+		}
+	})
 }
 
 func TestStoreBeginEnforcesAttemptBudget(t *testing.T) {
@@ -533,7 +1042,7 @@ func TestReleaseGenerationsOfANewerBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.kv.Put(ctx, desiredKey, []byte(strings.Replace(string(desired.Value()), `"schema_version":1`, `"schema_version":2`, 1))); err != nil {
+	if _, err := store.kv.Put(ctx, desiredKey, []byte(strings.Replace(string(desired.Value()), fmt.Sprintf(`"schema_version":%d`, DesiredSchemaVersion), fmt.Sprintf(`"schema_version":%d`, DesiredSchemaVersion+1), 1))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ReleaseGeneration(ctx, 1); !errors.Is(err, ErrInvalid) {
@@ -562,6 +1071,18 @@ func TestReleasePinsIncludesHistoryActivePredecessorAndDurableKnownBad(t *testin
 	if err != nil || !slices.Equal(rollback, []string{fromDigest, strings.Repeat("c", 64), strings.Repeat("d", 64)}) ||
 		!slices.Equal(knownBad, []string{bad}) {
 		t.Fatalf("pins: rollback=%v known_bad=%v err=%v", rollback, knownBad, err)
+	}
+	reader, err := BindReader(store.kv, "gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readRollback, readBad, err := reader.ReleasePins(ctx)
+	if err != nil || !slices.Equal(readRollback, rollback) || !slices.Equal(readBad, knownBad) {
+		t.Fatalf("read-only retained inventory differs: %v %v %v", readRollback, readBad, err)
+	}
+	retained, err := reader.Retained(ctx)
+	if err != nil || !slices.ContainsFunc(retained, func(r Release) bool { return r.Digest == strings.Repeat("c", 64) }) || !slices.ContainsFunc(retained, func(r Release) bool { return r.Digest == strings.Repeat("d", 64) }) {
+		t.Fatalf("read-only retained generations missing: %v %v", retained, err)
 	}
 	if err := store.kv.Delete(ctx, knownBadKey(bad)); err != nil {
 		t.Fatal(err)

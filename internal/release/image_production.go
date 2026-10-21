@@ -40,5 +40,12 @@ func cloneImageReceipt(receipt ImageReceipt) ImageReceipt {
 		receipt.Production = &ProductionProof{Qualification: bytes.Clone(receipt.Production.Qualification),
 			Delegation: bytes.Clone(receipt.Production.Delegation)}
 	}
+	if receipt.HostProduction != nil {
+		proofs := make(map[string]ProductionProof, len(receipt.HostProduction))
+		for role, proof := range receipt.HostProduction {
+			proofs[role] = ProductionProof{Qualification: bytes.Clone(proof.Qualification), Delegation: bytes.Clone(proof.Delegation)}
+		}
+		receipt.HostProduction = proofs
+	}
 	return receipt
 }

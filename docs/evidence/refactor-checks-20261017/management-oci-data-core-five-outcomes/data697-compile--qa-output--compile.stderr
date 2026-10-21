@@ -1,0 +1,3 @@
+# github.com/TerraScale/ts-orchestrator/internal/region
+internal/region/provision.go:69:9: undefined: PublishFoundationBundle
+internal/region/provision.go:89:9: undefined: ValidatePreparedFoundation

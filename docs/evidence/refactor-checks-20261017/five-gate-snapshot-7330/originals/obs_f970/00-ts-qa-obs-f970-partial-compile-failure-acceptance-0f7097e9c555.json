@@ -1,0 +1,233 @@
+{
+  "schema": "scoped-read-only-evidence-acceptance-v1",
+  "reviewed_at": "2026-10-17T15:03:21.703721+00:00",
+  "decision": "ACCEPT_SCOPED_PARTIAL_COMPILE_FAILURE_EVIDENCE",
+  "subject": "/tmp/ts-obs-visibility-f970-purecompile-v2",
+  "head": "f970e21a127ae4b152e99ae5844e7cebfb51e78c",
+  "tree": "528d2ae6d41406a183bd83f82c50426efc79100c",
+  "execution_outcome": "FAILED; native session 21435 exit 1; not a six-package compile pass",
+  "package_results": {
+    "swarmruntime": "COMPILE_PASS_BINARY_NEVER_EXECUTED",
+    "placement": "COMPILE_FAIL_REMOVED_LAB_FIELDS",
+    "observability": "NOT_RUN",
+    "regionview": "NOT_RUN",
+    "globalview": "NOT_RUN",
+    "dashboard": "NOT_RUN"
+  },
+  "runtime": "NOT_RUN; no TestMain, init, test or application runtime credit",
+  "findings": [],
+  "verified": {
+    "packet": {
+      "inventory": "exactly nine sealed files plus terminal-seal.json; no remaining-package logs or binaries; no placement binary",
+      "all_sealed_hashes_sizes_modes_match": true,
+      "manifest_request_runner_freeze_pins_match": true,
+      "sha256": {
+        "MANIFEST.json": "6d14105988fe5a307f4649d84092e3ac12465903eeef1e04bd28be619fa06641",
+        "compile-placement-f970-default.log": "18b79223e6106828bf264bfb548e10232c82133448850537ff23dc25bcba9290",
+        "compile-swarmruntime-f970-default.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "freeze.json": "6eabf300228e108489f90c0cce1ce534080d374cc9e103d97ec197e563c5d1f5",
+        "native-tool-transcript.jsonl": "78fb5f40f98f53693b3d308a3738fbc9dbbadb8cdcde87dc2433f64ae13c7b37",
+        "request.json": "e0593cf1839c5827cfb8d01ab38aff6381da1deae1436242a0f764ef317f6b2f",
+        "result.json": "2b9b175cca811087445e11083ad2cecd230853f5c971bd06206e5b46b4c3df5f",
+        "run.py": "5e1cdaa5cbef13b086a7fd9e4e2f570f81693eb12978063a3429eb2dde376028",
+        "swarmruntime-f970-default.test": "116715fa6732b5d2a32376ceb31f195b33bbd1d991246720c51651048b2a0dc7",
+        "terminal-seal.json": "de0c3ce9965f7ff840c36c010f71dacc8bdae24fe1b67840a17c97d4341970f8"
+      }
+    },
+    "source": {
+      "tracked_paths": 4467,
+      "exact_git_commit_tree_and_path_set_verified": true,
+      "all_regular_git_blob_sha256_match_freeze": true,
+      "all_current_worktree_source_sha256_match_freeze": true,
+      "symlink": {
+        "path": "CLAUDE.md",
+        "git_target": "AGENTS.md",
+        "current_target": "AGENTS.md",
+        "freeze_hash_is_dereferenced_content": true
+      },
+      "recorded_pre_post_and_both_run_identities": {
+        "head": "f970e21a127ae4b152e99ae5844e7cebfb51e78c",
+        "tree": "528d2ae6d41406a183bd83f82c50426efc79100c",
+        "status": ""
+      },
+      "delta": "Exactly one fixture file with three local release -> releaseQualification substitutions; sync.Once body unchanged. No OBS55aa source reviewed or credited."
+    },
+    "tools": {
+      "count": 12,
+      "all_current_tool_sha256_match_request": true,
+      "pins": {
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+        "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+        "/run/current-system/sw/bin/git": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027",
+        "/run/current-system/sw/bin/nice": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/asm": "4720bbf4ea8c95da4bef7d716b89c914ce678b57e7833f327f3ea2c2f51d16a6",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/cgo": "a4d0ca3e67972d33fc28016a82b4e3a4fa551d9449a550f3cc68b0a7787281fd",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/compile": "3780fc07130d6d45096373acf062cc316940d253e2a1d892ece03a3bdd0d21d4",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/cover": "7ee54cc95f7f179cb8352834b0756349f8b6672c175b1204bd60b007d74b9824",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/fix": "da08f00a50483a08118af99fb54471847567f14d5bf0902b18a0a550bbddc0fd",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/link": "a29ac5e8f64111b0b5c5d31e452f18abf7ee79f44b421081b5509c8939d92ba9",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/preprofile": "4f4e30080736b81938c53865b7561347cc5b92d01f7f64745efa668da724d839",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/vet": "46e5add9e558ca24000deadf2fa072f3f374f42120907ab087119ec544498cb1"
+      },
+      "runner_and_cleanup_template_hashes_match_request": true
+    },
+    "command_contract": {
+      "commands": [
+        [
+          "/run/current-system/sw/bin/nice",
+          "-n",
+          "19",
+          "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+          "test",
+          "-c",
+          "-p=1",
+          "-mod=readonly",
+          "-o",
+          "/tmp/ts-obs-visibility-f970-purecompile-v2/swarmruntime-f970-default.test",
+          "./internal/swarmruntime"
+        ],
+        [
+          "/run/current-system/sw/bin/nice",
+          "-n",
+          "19",
+          "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+          "test",
+          "-c",
+          "-p=1",
+          "-mod=readonly",
+          "-o",
+          "/tmp/ts-obs-visibility-f970-purecompile-v2/placement-f970-default.test",
+          "./internal/placement"
+        ]
+      ],
+      "env": {
+        "HOME": "/home/mariogk",
+        "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+        "LANG": "C.UTF-8",
+        "GOMAXPROCS": "2",
+        "GOFLAGS": "-p=2",
+        "GOTOOLCHAIN": "local"
+      },
+      "tags": "default; empty tags arrays; no -tags option",
+      "vet": "default; no -vet override; no independent vet-only execution credit",
+      "priority": "launcher and both compiler commands use absolute nice -n 19",
+      "parallelism": "GOMAXPROCS=2, GOFLAGS=-p=2, explicit test -p=1",
+      "modules": "-mod=readonly",
+      "packages_requested_in_order": [
+        "./internal/swarmruntime",
+        "./internal/placement",
+        "./internal/observability",
+        "./internal/regionview",
+        "./internal/globalview",
+        "./internal/dashboard"
+      ],
+      "packages_run_in_order": [
+        "./internal/swarmruntime",
+        "./internal/placement"
+      ]
+    },
+    "bounds": {
+      "per_child_wait_timeout_seconds": 240,
+      "timeout_escalation": "TERM, wait up to 5 seconds; then KILL followed by unbounded child wait if still unreaped",
+      "group_reaper": "TERM then KILL, checking owned members up to 5 seconds after each signal",
+      "terminal_safety": "If remaining members persist, final cleanup waits until absence while retaining GENERAL; no guaranteed total wall-clock deadline",
+      "observed_elapsed_seconds": {
+        "swarmruntime": 127.38347,
+        "placement": 1.064643
+      },
+      "observed_timeout": false,
+      "resource_gates": "MemAvailable >=16 GiB; load1 <12; at most4 existing Go compilers; retained preflight and both run facts satisfy gates"
+    },
+    "swarmruntime": {
+      "exit_code": 0,
+      "log_bytes": 0,
+      "binary": {
+        "path": "/tmp/ts-obs-visibility-f970-purecompile-v2/swarmruntime-f970-default.test",
+        "sha256": "116715fa6732b5d2a32376ceb31f195b33bbd1d991246720c51651048b2a0dc7",
+        "bytes": 102519747,
+        "mode": "0o600",
+        "magic_hex": "7f454c46"
+      },
+      "execution_evidence": "Runner only compiles and hashes/chmods ELF; no runner path executes it. This verifier did not execute it. No universal historical non-execution assertion."
+    },
+    "placement": {
+      "exit_code": 1,
+      "diagnostic": "unknown field Lab in struct literal of type natscell.Config",
+      "raw_log_matches_pin": true,
+      "four_pinned_source_locations": [
+        "internal/placement/managed_update_r3_integration_test.go:27:60",
+        "internal/placement/managed_update_rolling_test.go:48:3",
+        "internal/placement/read_store_test.go:15:116",
+        "internal/placement/store_test.go:22:115"
+      ],
+      "source_confirmation": "All four exact-commit lines still contain Lab: true; exact-commit internal/natscell/runtime.go:131 Config has no Lab field.",
+      "binary_absent": true
+    },
+    "native_provenance": {
+      "format": "Five retained JSONL objects, each with tool, arguments, result",
+      "launcher": "exec_command; login:false; exact absolute nice19 Python3.15 -I -B packet runner; session21435",
+      "polls": "Four write_stdin calls for session21435; terminal result exit1 with matching FAILED summary and runs2",
+      "chunk_ids": [
+        "51dfd1",
+        "f4c751",
+        "714144",
+        "ecd698",
+        "f93eb4"
+      ],
+      "consistency": "Retained request, runner, result and transcript agree. Poll durations need not sum to runner elapsed because polling gaps are unrecorded.",
+      "limit": "Retained transcript hash, structure and consistency verified; no independent backend retrieval or authentication claimed."
+    },
+    "cleanup": {
+      "owned_group_ids": [
+        1284172,
+        1290071
+      ],
+      "recorded_remaining_members": [
+        [],
+        []
+      ],
+      "recorded_terminal_group_states": [
+        "ABSENT",
+        "ABSENT"
+      ],
+      "runner_logic": "New session per child, own-group reaping and terminal killpg(...,0) absence check before success/failure completion; final cleanup holds GENERAL until member absence",
+      "release": "result.lock_released=true and seal.general_released_per_runner=true; runner explicit LOCK_UN then close before final save",
+      "limit": "Group absence and release accepted from pinned runner/result/seal evidence only. No fresh process or lock probe; no independent lock reacquisition proof."
+    },
+    "history": {
+      "fed4_failure_preserved": {
+        "packet": "/tmp/ts-obs-visibility-fed4-purecompile-v3",
+        "terminal_seal_sha256": "ecd2c20789b1e3fadb823c64b3fdb9152ae83b4e5b8a07b2d743b0e468394566",
+        "current_hash_matches": true,
+        "outcome": "Prior swarmruntime package-shadow compile failure and remaining5 NOT_RUN are not overwritten or transferred."
+      },
+      "v1": "Prior unlaunched v1 remains a distinct packet; no run credit inferred.",
+      "APP": "Prior APP c8e production compile and 9f98 incomplete test-fake failures remain separate; no pass or retry credit.",
+      "OBS55aa": "Excluded."
+    }
+  },
+  "review_actions": {
+    "read_only": "Read packet bytes, current source/tool bytes and immutable Git objects using git --no-optional-locks. Static independently written Python verifier only.",
+    "not_executed": [
+      "Go/toolchain",
+      "formatter",
+      "build/test/runtime",
+      "packet runner",
+      "ELF or copied verifier",
+      "process/listener/lock probes"
+    ],
+    "not_mutated": [
+      "source",
+      "Git",
+      "packet",
+      "ledger"
+    ],
+    "sole_write": "This exclusive review artifact, chmod0444."
+  },
+  "scope_limits": [
+    "Only exact f970 partial purecompile evidence accepted.",
+    "Four remaining packages NOT_RUN; placement FAILED; no broad OBS compile success.",
+    "No runtime, main/production, native/root custody, cloud, financial, APP assembly or global completion credit.",
+    "Earlier failed runs remain failed; no cross-snapshot pass transfer."
+  ]
+}

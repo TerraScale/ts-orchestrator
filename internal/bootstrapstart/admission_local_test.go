@@ -262,6 +262,11 @@ func TestAcceptedRestartRejectsPendingRootedJournalBeforeAdapters(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(fixture.gate.Markers.directory, identityRekeyJournalName), journalWire, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	for _, name := range []string{markerName, identityRekeyJournalName} {
+		if err := os.Chmod(filepath.Join(fixture.gate.Markers.directory, name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err := fixture.gate.AdmitRestartLocal(t.Context()); !errors.Is(err, ErrIdentityRekeyLocalPending) {
 		t.Fatalf("pending root plan admitted: %v", err)
 	}

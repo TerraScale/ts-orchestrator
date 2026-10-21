@@ -1,0 +1,876 @@
+{
+  "schema": "ts-independent-source-classification-peer/v1",
+  "state": "ACCEPTED_WITH_ONE_PEER_CATEGORY_CORRECTION",
+  "created_at_utc": "2026-10-17T15:05:16.009622+00:00",
+  "reviewer": "/root/qa_integrator/test_inventory",
+  "batch_id": "functions14",
+  "review_scope": "Independent read-only source-only asserted-target review; authored immutable packet preserved. Categories below are peer adjudication and not ledger promotion.",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "candidate": {
+    "path": "/tmp/ts-functions14-d4ac-source-classification-o5y_ymin/classification.json",
+    "sha256": "9510b271f01831ed0d0b8607f14d62f841a2e248bf1bcb491f2878e40154caf2",
+    "sha256sums_sha256": "c8920a09b3e4340c2e52b0bf3466207b398875ca37cc87e9c9995b8692acfb7d",
+    "preserved_unmodified": true
+  },
+  "allocation": {
+    "path": "/tmp/ts-source-classification-batches-d4ac-0a9afk60/allocation.json",
+    "sha256": "a93275c8f26aa063e6cfc28fed074308c876e2da69baae89f8a0c3e3de77a6fd"
+  },
+  "classification_criterion": {
+    "unit": "Asserted target is local computation/model/validation. Real fixture loading/crypto does not independently confer boundary credit.",
+    "integration": "Current connected source path reaches a genuine production filesystem/durable-store/network/process/guest execution boundary and that boundary behavior is part of the asserted target.",
+    "mixed": "Material independently asserted local and integration target blocks coexist in the original root.",
+    "unresolved": "Reviewed current source does not prove a reachable asserted production boundary, including structurally incompatible fixtures; intended category is recorded separately."
+  },
+  "counts": {
+    "reviewed_original_roots": 14,
+    "accepted_classified_roots": 14,
+    "reviewed_unresolved_roots": 0,
+    "integration": 6,
+    "unit": 1,
+    "mixed": 7,
+    "unresolved": 0,
+    "candidate_credit_promoted": 0,
+    "runtime_delta": 0,
+    "retirement_delta": 0
+  },
+  "original_root_ids": [
+    "internal/functions/admission_integration_test.go::TestSignedReleaseWorkerLifecycle",
+    "internal/functions/broker_integration_test.go::TestWorkerBrokerJWTAndTLSIsolation",
+    "internal/functions/process_integration_test.go::TestFunctionWorkerProcess",
+    "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+    "internal/functions/runtime_integration_test.go::TestWorkerGuestExecutionAndIsolation",
+    "internal/functions/runtime_integration_test.go::TestWorkerCancellationAndCapacity",
+    "internal/functions/runtime_integration_test.go::TestWorkerFixedDeadlineAndConcurrentClose",
+    "internal/functions/runtime_integration_test.go::TestWorkerResourceAndImportBoundaries",
+    "internal/functions/runtime_limits_integration_test.go::TestWorkerRejectsUnboundedDecoderResources",
+    "internal/functions/transports_integration_test.go::TestHTTPRealWorkerAuthenticationScopeAndLimits",
+    "internal/functions/transports_integration_test.go::TestHTTPRealWorkerTimeoutAndGuestFailure",
+    "internal/functions/transports_integration_test.go::TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+    "internal/functions/transports_integration_test.go::TestQueueRealWorkerRetriesTimedOutInvocation",
+    "internal/functions/transports_integration_test.go::TestHTTPBoundsPendingBodiesBeforeGuestExecution"
+  ],
+  "roots": [
+    {
+      "root_id": "internal/functions/admission_integration_test.go::TestSignedReleaseWorkerLifecycle",
+      "path": "internal/functions/admission_integration_test.go",
+      "original_name": "TestSignedReleaseWorkerLifecycle",
+      "current_name": "TestSignedReleaseWorkerLifecycle",
+      "kind": "test",
+      "original_declaration_sha256": "5262fcf6c509a08a28d6ccd5e762f14b9ec291a8abf65775a03cb70282a174df",
+      "current_declaration_sha256": "5262fcf6c509a08a28d6ccd5e762f14b9ec291a8abf65775a03cb70282a174df",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 16,
+        "end_line": 45,
+        "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "3a3f054ab5b58a782ac03775394e9d93d4e9ecc8ccc94c60f7cba69eaaa35d1b"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 16,
+        "end_line": 45,
+        "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "3a3f054ab5b58a782ac03775394e9d93d4e9ecc8ccc94c60f7cba69eaaa35d1b"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "mixed",
+      "peer_classification": "mixed",
+      "intended_target_classification": "mixed",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Independent local zero-proof admission and closed-worker rejection accompany actual signed module guest roundtrip and publisher-byte isolation.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/broker_integration_test.go::TestWorkerBrokerJWTAndTLSIsolation",
+      "path": "internal/functions/broker_integration_test.go",
+      "original_name": "TestWorkerBrokerJWTAndTLSIsolation",
+      "current_name": "TestWorkerBrokerJWTAndTLSIsolation",
+      "kind": "test",
+      "original_declaration_sha256": "fa642b45772db7edd5a1f70567c465244aeb25c280bb37ea55ad8bc8199416e9",
+      "current_declaration_sha256": "fa642b45772db7edd5a1f70567c465244aeb25c280bb37ea55ad8bc8199416e9",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 29,
+        "end_line": 253,
+        "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "3b63ad4ee03e5484a15928a0ae92d78b99aebe43b5465b1e9fa6fdd9b1e2d545"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 29,
+        "end_line": 253,
+        "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "3b63ad4ee03e5484a15928a0ae92d78b99aebe43b5465b1e9fa6fdd9b1e2d545"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "mixed",
+      "peer_classification": "mixed",
+      "intended_target_classification": "mixed",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Substantial independent local JWT/seed/signer/expiry validation tables coexist with real TLS/JWT NATS permissions, durable queue receipt/ack readback and rebind.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerProcess",
+      "path": "internal/functions/process_integration_test.go",
+      "original_name": "TestFunctionWorkerProcess",
+      "current_name": "TestFunctionWorkerProcess",
+      "kind": "test",
+      "original_declaration_sha256": "df10a616903c4ba5ac1e68c54af6a8bcd47c516b23efbc25116f26ee8f15de22",
+      "current_declaration_sha256": "df10a616903c4ba5ac1e68c54af6a8bcd47c516b23efbc25116f26ee8f15de22",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 40,
+        "end_line": 303,
+        "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 40,
+        "end_line": 303,
+        "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "mixed",
+      "peer_classification": "mixed",
+      "intended_target_classification": "mixed",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Core filesystem/child process/mTLS HTTP/JetStream restart and durable replay assertions are genuine integration; separate ReadSnapshot wrong-client check returns from local certificate preflight before any network dispatch.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+      "path": "internal/functions/process_integration_test.go",
+      "original_name": "TestFunctionWorkerRejectsExpiredMaterial",
+      "current_name": "TestFunctionWorkerRejectsExpiredMaterial",
+      "kind": "test",
+      "original_declaration_sha256": "d84525af69df88578d8dd3940c828fe68d2b3cea97ab9a18e4ff163af8cb5db3",
+      "current_declaration_sha256": "d84525af69df88578d8dd3940c828fe68d2b3cea97ab9a18e4ff163af8cb5db3",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 416,
+        "end_line": 440,
+        "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 416,
+        "end_line": 440,
+        "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "unit",
+      "intended_target_classification": "integration",
+      "peer_status": "ACCEPTED_WITH_PEER_CATEGORY_CORRECTION",
+      "reason": "The only asserted result is the material-authority error from runProcess115-116, a local ExpiresAt vs now/proof-expiry predicate. Material files deliver constructed values to that predicate; the test asserts no path, permissions, ownership, readback, durability or filesystem-failure behavior. NewWorker, NATS connection and HTTP listener are not reached. Incidental real file setup does not prove an integration target.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerGuestExecutionAndIsolation",
+      "path": "internal/functions/runtime_integration_test.go",
+      "original_name": "TestWorkerGuestExecutionAndIsolation",
+      "current_name": "TestWorkerGuestExecutionAndIsolation",
+      "kind": "test",
+      "original_declaration_sha256": "13978486fc815d20423cb68b4defd9cdae55710f75672812b03b8bfb28804d1f",
+      "current_declaration_sha256": "13978486fc815d20423cb68b4defd9cdae55710f75672812b03b8bfb28804d1f",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 16,
+        "end_line": 51,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 16,
+        "end_line": 51,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "mixed",
+      "peer_classification": "mixed",
+      "intended_target_classification": "mixed",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Real echo/state guest executions and fresh-instance observation coexist with an independent wrong-tenant pre-invocation validation assertion.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerCancellationAndCapacity",
+      "path": "internal/functions/runtime_integration_test.go",
+      "original_name": "TestWorkerCancellationAndCapacity",
+      "current_name": "TestWorkerCancellationAndCapacity",
+      "kind": "test",
+      "original_declaration_sha256": "3283ee767cc1b5ae36b28652325f28b29a31860f47bee63c0a59616566e09837",
+      "current_declaration_sha256": "3283ee767cc1b5ae36b28652325f28b29a31860f47bee63c0a59616566e09837",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 53,
+        "end_line": 91,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 53,
+        "end_line": 91,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "integration",
+      "intended_target_classification": "integration",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Core running-guest cancellation/deadline assertions require actual loop guest instantiation and engine interruption. Busy/token assertions support that same live-guest capacity scenario; they are not a separate local mutation table.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerFixedDeadlineAndConcurrentClose",
+      "path": "internal/functions/runtime_integration_test.go",
+      "original_name": "TestWorkerFixedDeadlineAndConcurrentClose",
+      "current_name": "TestWorkerFixedDeadlineAndConcurrentClose",
+      "kind": "test",
+      "original_declaration_sha256": "794b60aa35cf7435f9e2de9d68a1d7db047dff82e53ba1cf074b20cf2e96f501",
+      "current_declaration_sha256": "794b60aa35cf7435f9e2de9d68a1d7db047dff82e53ba1cf074b20cf2e96f501",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 93,
+        "end_line": 123,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 93,
+        "end_line": 123,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "integration",
+      "intended_target_classification": "integration",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Fixed deadline and concurrent close are asserted against an actually executing loop guest/runtime. Final local closed guard supports the same shutdown lifecycle, rather than a separate independent validation scenario.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerResourceAndImportBoundaries",
+      "path": "internal/functions/runtime_integration_test.go",
+      "original_name": "TestWorkerResourceAndImportBoundaries",
+      "current_name": "TestWorkerResourceAndImportBoundaries",
+      "kind": "test",
+      "original_declaration_sha256": "9216525c5d6b1b4d2216fb20276674f42c6b1ba95c0868c2d032b7cdfedb5e67",
+      "current_declaration_sha256": "9216525c5d6b1b4d2216fb20276674f42c6b1ba95c0868c2d032b7cdfedb5e67",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 125,
+        "end_line": 175,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 125,
+        "end_line": 175,
+        "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "mixed",
+      "peer_classification": "mixed",
+      "intended_target_classification": "mixed",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Output/memory/ambient/exit/sleep behavior executes actual Wasm/WASI; separate unsupported-import and bad-start table asserts local admission/compiled metadata rejection without guest execution.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/runtime_limits_integration_test.go::TestWorkerRejectsUnboundedDecoderResources",
+      "path": "internal/functions/runtime_limits_integration_test.go",
+      "original_name": "TestWorkerRejectsUnboundedDecoderResources",
+      "current_name": "TestWorkerRejectsUnboundedDecoderResources",
+      "kind": "test",
+      "original_declaration_sha256": "15b3fb0a4c9bdb617026fc4280e1fbef7a35e39215b95de8187ab339b4db4853",
+      "current_declaration_sha256": "15b3fb0a4c9bdb617026fc4280e1fbef7a35e39215b95de8187ab339b4db4853",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 11,
+        "end_line": 55,
+        "git_blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "6ec96ae20ba66ffcf3bf69cba91610207a25af9048c8fc03801dcaa2366945d2"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 11,
+        "end_line": 55,
+        "git_blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "6ec96ae20ba66ffcf3bf69cba91610207a25af9048c8fc03801dcaa2366945d2"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "mixed",
+      "peer_classification": "mixed",
+      "intended_target_classification": "mixed",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Eleven malicious decoder vectors are purely local precompiler rejection; final bounded-table positive separately compiles/instantiates and executes real _start guest.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerAuthenticationScopeAndLimits",
+      "path": "internal/functions/transports_integration_test.go",
+      "original_name": "TestHTTPRealWorkerAuthenticationScopeAndLimits",
+      "current_name": "TestHTTPRealWorkerAuthenticationScopeAndLimits",
+      "kind": "test",
+      "original_declaration_sha256": "09cd46686052a1d9bf0aea321b486422c86bd7eeb1c9872541b071b8bedd4263",
+      "current_declaration_sha256": "09cd46686052a1d9bf0aea321b486422c86bd7eeb1c9872541b071b8bedd4263",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 35,
+        "end_line": 104,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 35,
+        "end_line": 104,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "mixed",
+      "peer_classification": "mixed",
+      "intended_target_classification": "mixed",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Independent nil-authorizer construction guard is local. All request status/privacy/scope/guest-input assertions traverse actual TCP HTTP handler/client and real guest for success, with a clearly test-supplied authorizer.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerTimeoutAndGuestFailure",
+      "path": "internal/functions/transports_integration_test.go",
+      "original_name": "TestHTTPRealWorkerTimeoutAndGuestFailure",
+      "current_name": "TestHTTPRealWorkerTimeoutAndGuestFailure",
+      "kind": "test",
+      "original_declaration_sha256": "395959469c5f1b506b1be202562af668c7e5bc9949d3ba622ecf86c32bda02f5",
+      "current_declaration_sha256": "395959469c5f1b506b1be202562af668c7e5bc9949d3ba622ecf86c32bda02f5",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 106,
+        "end_line": 135,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 106,
+        "end_line": 135,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "integration",
+      "intended_target_classification": "integration",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Real HTTP response status and sanitized body must reflect actual looping/output-overflow guest failures through production handler.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+      "path": "internal/functions/transports_integration_test.go",
+      "original_name": "TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+      "current_name": "TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+      "kind": "test",
+      "original_declaration_sha256": "d7d1f3be57265cf328430c2c16f566c6dbf0074435fdd278d8ac93aa11095d3b",
+      "current_declaration_sha256": "d7d1f3be57265cf328430c2c16f566c6dbf0074435fdd278d8ac93aa11095d3b",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 206,
+        "end_line": 277,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 206,
+        "end_line": 277,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "integration",
+      "intended_target_classification": "integration",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Core receipt binding/replay suppression/poison termination/tenant stream assertions depend on actual JetStream publication, file-backed durable state reads and consumer acknowledgement effects; no separate standalone local-validation test block.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerRetriesTimedOutInvocation",
+      "path": "internal/functions/transports_integration_test.go",
+      "original_name": "TestQueueRealWorkerRetriesTimedOutInvocation",
+      "current_name": "TestQueueRealWorkerRetriesTimedOutInvocation",
+      "kind": "test",
+      "original_declaration_sha256": "0a947923e24724dc390a82c511c7d2358412ae78dc9a029eaffc160eeaa38b79",
+      "current_declaration_sha256": "0a947923e24724dc390a82c511c7d2358412ae78dc9a029eaffc160eeaa38b79",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 279,
+        "end_line": 304,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 279,
+        "end_line": 304,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "integration",
+      "intended_target_classification": "integration",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Retry and absence-of-success receipt assertions require actual loop guest failure plus real consumer redelivery/ack-pending and KV state, not synthetic consumer records.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/functions/transports_integration_test.go::TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+      "path": "internal/functions/transports_integration_test.go",
+      "original_name": "TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+      "current_name": "TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+      "kind": "test",
+      "original_declaration_sha256": "a06f5a6ef89a9b4974a91a752bc271b891b805cd040278bf0940bba9775c885b",
+      "current_declaration_sha256": "a06f5a6ef89a9b4974a91a752bc271b891b805cd040278bf0940bba9775c885b",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 306,
+        "end_line": 354,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 306,
+        "end_line": 354,
+        "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "raw_declaration_sha256_verified": true,
+        "file_sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "integration",
+      "intended_target_classification": "integration",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Core HTTP body-admission bound is exercised through real TCP connections stalled mid-body and an excess HTTP request; no guest execution is needed or claimed for this admission assertion.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_evidence",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "findings": [
+    {
+      "id": "PEER-F1",
+      "severity": "category_correction",
+      "affected_root_ids": [
+        "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial"
+      ],
+      "author_classification": "integration",
+      "peer_classification": "unit",
+      "decision": "Accept the independently corrected category without editing the authored packet. Filesystem loading is fixture input plumbing; only the local material expiry predicate is asserted.",
+      "consequence": "functions14 accepted categories become6integration1unit7mixed."
+    },
+    {
+      "id": "PEER-F2",
+      "severity": "accepted_boundary_trace",
+      "decision": "Other13 root categories accepted. Real wazero/WASI module execution, TCP HTTP admission/response, actual JWT/mTLS embedded NATS permissions, durable queue receipts/redelivery/replay, and child process restart are connected to observable assertions as documented. Independent zero-proof, scope, nil-authorizer, JWT mutation, decoder and wrong-certificate preflight blocks justify mixed categories. Capacity/closed checks supporting the same active guest lifecycle do not automatically create independent unit targets."
+    }
+  ],
+  "boundary_evidence": [
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/process_integration_test.go",
+      "start_line": 416,
+      "end_line": 440,
+      "exact_source": "func TestFunctionWorkerRejectsExpiredMaterial(t *testing.T) {\n\tproof, deployment, files := signedFunctionFixture(t, integrationArtifact(t, \"echo\"))\n\tdeployment.BrokerURL = \"tls://127.0.0.1:4222\"\n\tfor name, expiry := range map[string]time.Time{\"missing\": {}, \"expired\": time.Now().Add(-time.Second), \"beyond release\": proof.ExpiresAt().Add(time.Second)} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\tdeployment.ExpiresAt = expiry\n\t\t\twire, err := json.Marshal(deployment)\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tdirectory := t.TempDir()\n\t\t\tfor name, value := range files {\n\t\t\t\tif err := os.WriteFile(filepath.Join(directory, name), value, 0600); err != nil {\n\t\t\t\t\tt.Fatal(err)\n\t\t\t\t}\n\t\t\t}\n\t\t\tif err := os.WriteFile(filepath.Join(directory, \"deployment.json\"), wire, 0600); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tif err := runProcess(t.Context(), directory, \"127.0.0.1:0\", io.Discard); err == nil || !strings.Contains(err.Error(), \"material authority\") {\n\t\t\t\tt.Fatalf(\"invalid material expiry accepted: %v\", err)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "sha256": "d84525af69df88578d8dd3940c828fe68d2b3cea97ab9a18e4ff163af8cb5db3"
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/process.go",
+      "start_line": 51,
+      "end_line": 117,
+      "exact_source": "func runProcess(ctx context.Context, directory, address string, output io.Writer) error {\n\troot, err := os.OpenRoot(directory)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"function material directory: %w\", err)\n\t}\n\tdefer root.Close()\n\tread := func(name string, limit int64, secret bool) ([]byte, error) {\n\t\tfile, err := root.Open(name)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"read function material %s: %w\", name, err)\n\t\t}\n\t\tdefer file.Close()\n\t\tinfo, err := file.Stat()\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tif !info.Mode().IsRegular() || info.Size() > limit || (secret && info.Mode().Perm()&0077 != 0) {\n\t\t\treturn nil, fmt.Errorf(\"invalid function material %s size or permissions\", name)\n\t\t}\n\t\tvalue, err := io.ReadAll(io.LimitReader(file, limit+1))\n\t\tif err != nil || int64(len(value)) > limit {\n\t\t\treturn nil, fmt.Errorf(\"read function material %s exceeded bound\", name)\n\t\t}\n\t\treturn value, nil\n\t}\n\tdeploymentWire, err := read(\"deployment.json\", 16<<10, false)\n\tif err != nil {\n\t\treturn err\n\t}\n\tvar deployment ProcessDeployment\n\tif err := json.Unmarshal(deploymentWire, &deployment, json.RejectUnknownMembers(true)); err != nil {\n\t\treturn fmt.Errorf(\"function deployment: %w\", err)\n\t}\n\tbrokerURL, err := url.Parse(deployment.BrokerURL)\n\tif err != nil || brokerURL.Scheme != \"tls\" || brokerURL.Host == \"\" || brokerURL.User != nil || brokerURL.Path != \"\" || brokerURL.RawQuery != \"\" || brokerURL.Fragment != \"\" {\n\t\treturn errors.New(\"function broker requires one verified TLS endpoint\")\n\t}\n\trootPublic, err := read(\"root.pub\", ed25519.PublicKeySize, false)\n\tif err != nil {\n\t\treturn err\n\t}\n\troots, err := trust.ParseKeyring(ed25519.PublicKey(rootPublic))\n\tif err != nil {\n\t\treturn err\n\t}\n\treceipt, err := read(\"receipt.json\", 64<<10, false)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdelegation, err := read(\"delegation.json\", 64<<10, false)\n\tif err != nil {\n\t\treturn err\n\t}\n\tmodule, err := read(\"module.wasm\", MaxModuleBytes, false)\n\tif err != nil {\n\t\treturn err\n\t}\n\tproof, err := release.VerifyFunctionCurrent(receipt, delegation, module, roots, release.FunctionExpectation{\n\t\tEnvironment: deployment.Environment, Cell: deployment.Cell, TenantID: deployment.TenantID,\n\t\tFunctionID: deployment.FunctionID, Revision: deployment.Revision, Digest: deployment.Digest, MinimumSequence: deployment.MinimumSequence,\n\t}, time.Now())\n\tif err != nil {\n\t\treturn fmt.Errorf(\"admit function worker: %w\", err)\n\t}\n\tif !deployment.ExpiresAt.After(time.Now()) || deployment.ExpiresAt.After(proof.ExpiresAt()) {\n\t\treturn errors.New(\"function material authority expired or exceeds signed release\")\n\t}",
+      "sha256": "24fbb84ab725ab4e917d2cd795acfbbe948ad40065372c7f5e61c817e9fdc3f1"
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/functions/process.go",
+      "start_line": 118,
+      "end_line": 125,
+      "exact_source": "\tctx, cancel := context.WithDeadline(ctx, deployment.ExpiresAt)\n\tdefer cancel()\n\tworker, err := NewWorker(ctx, proof)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer worker.Close(context.Background())\n\tcertificateWire, err := read(\"ingress-cert.pem\", 64<<10, false)",
+      "sha256": "2952a5d84aa7f6a32312fadb058a4eafb042d21babd4736913c1310f1a8b4e6f"
+    }
+  ],
+  "mechanical_verification": {
+    "candidate_sha256": "9510b271f01831ed0d0b8607f14d62f841a2e248bf1bcb491f2878e40154caf2",
+    "sha256sums_sha256": "c8920a09b3e4340c2e52b0bf3466207b398875ca37cc87e9c9995b8692acfb7d",
+    "sum_entries": 2,
+    "allocation_root_count": 14,
+    "declaration_checks": 28,
+    "source_pins": 25,
+    "citation_checks": 115,
+    "distinct_citations": 40,
+    "assertion_blocks": 43,
+    "bridge_commit": "7330ca87c377d2cbe5f8c269282039039df550ad",
+    "bridge_tree": "1824f64d1b77aae3c7e3b2736d29426af5892e88",
+    "frozen_inventory_roots_verified": 14,
+    "errors": []
+  },
+  "source_bridge_comparison": {
+    "target_commit": "7330ca87c377d2cbe5f8c269282039039df550ad",
+    "target_tree": "1824f64d1b77aae3c7e3b2736d29426af5892e88",
+    "qualification": "NOT_AUTOMATICALLY_QUALIFIED_AT_BRIDGE_COMMIT",
+    "all_selected_root_declarations_unchanged": true,
+    "file_comparisons": [
+      {
+        "path": "go.mod",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "fc02b166f70e905696d006992f24d6f6e641302b"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "c69f64d31440880c16cec9de8173b0cd11d5a650"
+        },
+        "same_file_blob_and_mode": false,
+        "selected_declarations": []
+      },
+      {
+        "path": "internal/functions/admission.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "f8a08053baecc50196de9038980ba939212aab8a"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "f8a08053baecc50196de9038980ba939212aab8a"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/admission_integration_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "27350e1b7621666584389be386e4f7b35704a6e5"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "27350e1b7621666584389be386e4f7b35704a6e5"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/broker.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "062dd9a909b502409e7bc6314811c6f857bb79c9"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "062dd9a909b502409e7bc6314811c6f857bb79c9"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/broker_integration_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "c2a7ba4d11448138e452a573a1c7804833109323"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "c2a7ba4d11448138e452a573a1c7804833109323"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/contract.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "adff327b2fa98ff9648d3c07429ded1115dea9af"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "adff327b2fa98ff9648d3c07429ded1115dea9af"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/http.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "b72391d20f23cf17d56f6d2a707b5d5810a04bf4"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "b72391d20f23cf17d56f6d2a707b5d5810a04bf4"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/process.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "a6a25af034a4b26ba79868e1eaf74800b79f5f81"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "a6a25af034a4b26ba79868e1eaf74800b79f5f81"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/process_integration_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/queue.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "66a9e895c2bb2def870992936dba66841769b1e9"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "66a9e895c2bb2def870992936dba66841769b1e9"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/runtime.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/runtime_integration_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/runtime_limits.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "a70736257575cd068b51e2ea25f8081c89a1f797"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "a70736257575cd068b51e2ea25f8081c89a1f797"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/runtime_limits_integration_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "841664089ac3951035fb0c2f2861155a39cd79d1"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "841664089ac3951035fb0c2f2861155a39cd79d1"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/snapshot_client.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "f619a8b010568984cb786cd9527370ad11d043f0"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "f619a8b010568984cb786cd9527370ad11d043f0"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/functions/transports_integration_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "905495b7025a92d634419e135ea54778f12509d6"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "905495b7025a92d634419e135ea54778f12509d6"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/release/function.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "b2aaf7520dfa9aa3240b6b3b0d23d55e95741bbd"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "b2aaf7520dfa9aa3240b6b3b0d23d55e95741bbd"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/release/function_receipt.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "9ec4278a4eacaf316114dd8a4d83ef82362fe078"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "9ec4278a4eacaf316114dd8a4d83ef82362fe078"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/release/receipt.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "fc23b8d57779c03a4635611dcb6389de345700d5"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "fc23b8d57779c03a4635611dcb6389de345700d5"
+        },
+        "same_file_blob_and_mode": true
+      }
+    ],
+    "cited_declaration_comparisons": [],
+    "relevant_changes": [
+      "Only pinned go.mod blob changed: adds local github.com/moby/swarmkit/v2 replacement; all18 current functions/release source files byte/mode exact. No functions production hop changed."
+    ]
+  },
+  "current_accepted_accounting_unchanged": {
+    "retired": 19,
+    "retained": 4300,
+    "classified": 102,
+    "integration": 78,
+    "unit": 23,
+    "mixed": 1,
+    "globally_unadjudicated": 4198
+  },
+  "qualification_limits": [
+    "No compiler, formatter, build, test, lint, runtime, lease, cloud, lock, process or network operations executed. Only pinned Git/Python read-only source analysis and exclusive /tmp report writes.",
+    "No passing execution, race, timing, current production startup, coverage, security/compliance, host acquisition, Vault delivery or retention/retirement qualification.",
+    "No source/Git/ledger mutation, no candidate promotion, no duplicate original-ID classification credit. Original candidate remains immutable.",
+    "All runtime qualification UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. Source pins do not grant whole-package or whole-repository correctness."
+  ]
+}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -52,8 +53,18 @@ func (r *statusRecorder) take() []string {
 // alertRegions reports one region whose projected spend is projected cents against a 50000-cent cap.
 func alertRegions(at time.Time, projected uint64) []globalview.Region {
 	return []globalview.Region{{Cell: "gru", Rollup: &globalview.Rollup{Cell: "gru", Scale: &nodescale.Status{
-		Schema: nodescale.StatusSchema, Cell: "gru", At: at, Nodes: 3, Want: 3, Pressure: 0.4,
+		Schema: nodescale.StatusSchema, Cell: "gru", At: at, Nodes: 3, Want: 4, Pressure: 0.4,
 		NodeMonthlyCents: 4100, ProjectedCents: projected, Currency: "BRL", CostAt: at}}}}
+}
+
+// Alert inputs exercise HTTP and durable state; complete priced allocator evidence remains unavailable.
+func alertCapacity(at time.Time, projected uint64) budget.Capacity {
+	capacity := budget.Capacity{Schema: budget.Schema, At: at, State: budget.StateOK,
+		CapCents: 50000, ProjectedCents: projected, Currency: "BRL", Ratio: float64(projected) / 50000}
+	if capacity.Ratio >= budget.WarnRatio {
+		capacity.State = budget.StateWarn
+	}
+	return capacity
 }
 
 func TestCapacityAlertOpensAtWarnResolvesBelowClearAndSurvivesLeaderChange(t *testing.T) {
@@ -67,36 +78,42 @@ func TestCapacityAlertOpensAtWarnResolvesBelowClearAndSurvivesLeaderChange(t *te
 		t.Fatal(err)
 	}
 	recorder, status := startStatusRecorder(t)
-	var rollups []globalview.Region
+	rollups := alertRegions(now, 40000)
 	newAllocator := func() *capacityAllocator {
 		return &capacityAllocator{global: global, regions: func() []globalview.Region { return rollups },
 			alert: budgetAlert{js: js, replicas: 1, status: status}}
 	}
 	allocator := newAllocator()
-	tick := func(a *capacityAllocator, projected uint64) {
-		t.Helper()
-		rollups = alertRegions(now, projected)
-		if err := a.tick(ctx, now); err != nil {
-			t.Fatal(err)
-		}
+	if err := allocator.tick(ctx, now); !errors.Is(err, nodescale.ErrCapacityPending) {
+		t.Fatalf("allocator without spending authority = %v, want capacity pending", err)
+	}
+	if capacity, found, err := budget.ReadCapacity(ctx, global.reader); err != nil || !found || capacity.State != budget.StateNone || capacity.ProjectedCents != 0 ||
+		len(capacity.Regions) != 1 || capacity.Regions[0].Nodes != 3 || capacity.Regions[0].Want != 4 || capacity.Regions[0].Allowance != 3 {
+		t.Fatalf("allocator without spending authority stored %+v, found=%v, err=%v; want held capacity without rollup spend", capacity, found, err)
+	}
+	if got := recorder.take(); len(got) != 0 {
+		t.Fatalf("requests without spending authority = %v, want none", got)
+	}
+	alert := func(a *capacityAllocator, projected uint64) {
+		a.alertBudget(ctx, now, epoch, alertCapacity(now, projected))
 	}
 	openWarning := []string{"POST /api/operator/incidents"}
 	resolveWarning := []string{"POST /api/operator/incidents/" + testWarningID + "/updates"}
 
 	// At 80% of the cap the warning opens.
-	tick(allocator, 40000)
+	alert(allocator, 40000)
 	if got := recorder.take(); !slices.Equal(got, openWarning) {
 		t.Fatalf("requests at 80%% = %v, want %v", got, openWarning)
 	}
 
 	// At 77% it stays open and sends nothing.
-	tick(allocator, 38500)
+	alert(allocator, 38500)
 	if got := recorder.take(); len(got) != 0 {
 		t.Fatalf("requests at 77%% = %v, want none", got)
 	}
 
 	// At 74% it resolves.
-	tick(allocator, 37000)
+	alert(allocator, 37000)
 	if got := recorder.take(); !slices.Equal(got, resolveWarning) {
 		t.Fatalf("requests at 74%% = %v, want %v", got, resolveWarning)
 	}
@@ -106,13 +123,13 @@ func TestCapacityAlertOpensAtWarnResolvesBelowClearAndSurvivesLeaderChange(t *te
 	}
 
 	// Reopen at 80%, then a new leader reads the record: it neither reopens at 80% nor drops the warning at 77%.
-	tick(allocator, 40000)
+	alert(allocator, 40000)
 	if got := recorder.take(); !slices.Equal(got, openWarning) {
 		t.Fatalf("reopen requests = %v, want %v", got, openWarning)
 	}
 	leader := newAllocator()
-	tick(leader, 38500)
-	tick(leader, 40000)
+	alert(leader, 38500)
+	alert(leader, 40000)
 	if got := recorder.take(); len(got) != 0 {
 		t.Fatalf("new leader sent %v, want no requests", got)
 	}
@@ -127,24 +144,16 @@ func TestCapacityAlertJournalsMissingTokenOnce(t *testing.T) {
 	global, _, js := startGlobalHome(t, ctx)
 	now := time.Now().UTC()
 	epoch := global.authority.Current().Epoch
-	if err := budget.WriteBudget(ctx, global.writer, epoch, budget.Budget{Schema: budget.Schema, ID: entityid.New(),
-		MonthlyCapCents: 50000, Currency: "BRL", SetBy: "ops@terrascale.tech", SetAt: now}); err != nil {
-		t.Fatal(err)
-	}
 	recorder, status := startStatusRecorder(t)
 	status.Token = func(context.Context) (string, error) { return "", budget.ErrNoStatusToken }
 	journal := &recordedDecisions{}
 	restore := decisionlog.SetDefault(journal)
 	t.Cleanup(restore)
-	rollups := alertRegions(now, 40000)
-	allocator := &capacityAllocator{global: global, regions: func() []globalview.Region { return rollups },
-		alert: budgetAlert{js: js, replicas: 1, status: status}}
+	allocator := &capacityAllocator{global: global, alert: budgetAlert{js: js, replicas: 1, status: status}}
 
-	// Three ticks at 80% with no token: nothing is sent and the missing token is journaled once.
+	// Three alert attempts at 80% with no token: nothing is sent and the missing token is journaled once.
 	for range 3 {
-		if err := allocator.tick(ctx, now); err != nil {
-			t.Fatal(err)
-		}
+		allocator.alertBudget(ctx, now, epoch, alertCapacity(now, 40000))
 	}
 	if got := recorder.take(); len(got) != 0 {
 		t.Fatalf("requests without a token = %v, want none", got)

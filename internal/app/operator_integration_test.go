@@ -111,6 +111,7 @@ func (w *readyWriter) Write(data []byte) (int, error) {
 }
 
 func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
+	auth := newAuthenticatedNATS(t, "gru")
 	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Second)
 	defer cancel()
 	root := t.TempDir()
@@ -121,8 +122,8 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	}
 	port := portListener.Addr().(*net.TCPAddr).Port
 	portListener.Close()
-	controllerNKey, controllerSeed := testNKey(t)
-	operatorNKey, operatorSeed := testNKey(t)
+	_, controllerSeed := testNKey(t)
+	_, operatorSeed := testNKey(t)
 	hostNKey, hostSeed := testNKey(t)
 	controllerPublic, _ := testEd25519(t, root, "controller.key")
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
@@ -130,13 +131,13 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{"test"}, CanRegisterHosts: true, CanPlaceTerraBase: true}
 	controllerConfig := Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
-			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
-				Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true}, {PublicKey: operatorNKey, Role: "operator"}, {PublicKey: hostNKey, Role: "host", Node: "node-a"}}}},
+		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, NKeySeedFile: controllerSeed,
+			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30}},
 		Controller: ControllerConfig{SpecTrust: authorityTestSpecTrust(t, root, "gru"), CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"), ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}}},
 	}
 	controllerConfig.Controller.SpecTrust = specKeys.config()
+	auth.controller(t, &controllerConfig)
 	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
 	controllerOutput := &readyWriter{ready: make(chan struct{})}
 	controllerDone := make(chan error, 1)
@@ -150,8 +151,8 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	operatorConfig := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
-		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed},
+	operatorConfig := Config{Version: ConfigVersion, NATS: auth.config(t, natscell.Config{Cell: "gru", Instance: "operator", ClientRole: "operator", Replicas: 1,
+		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed}),
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
 	operatorConfigPath := testJSONFile(t, root, "operator.json", operatorConfig)
@@ -174,8 +175,8 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &registrationReceipt); err != nil || registrationReceipt.Generation != 1 {
 		t.Fatalf("registration receipt: %v: %s", err, output.String())
 	}
-	hostRuntime, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "host-a", Replicas: 1, Lab: true,
-		URL: operatorConfig.NATS.URL, NKeySeedFile: hostSeed, ClientRole: "host"})
+	hostRuntime, err := natscell.Start(ctx, auth.config(t, natscell.Config{Cell: "gru", Instance: "host-a", Replicas: 1,
+		URL: operatorConfig.NATS.URL, NKeySeedFile: hostSeed, ClientRole: "host"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,8 +239,8 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &submitted); err != nil || submitted.OperationID == "" || submitted.Fingerprint == "" {
 		t.Fatalf("submit receipt: %v: %s", err, output.String())
 	}
-	inspector, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "native-proof-inspector", Replicas: 1, Lab: true,
-		URL: operatorConfig.NATS.URL, NKeySeedFile: controllerSeed})
+	inspector, err := natscell.Start(ctx, auth.config(t, natscell.Config{Cell: "gru", Instance: "native-proof-inspector", Replicas: 1,
+		URL: operatorConfig.NATS.URL, NKeySeedFile: controllerSeed}))
 	if err != nil {
 		t.Fatal(err)
 	}

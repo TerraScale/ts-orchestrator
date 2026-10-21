@@ -23,8 +23,8 @@ import (
 func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	broker, err := natscell.Start(ctx, natscell.Config{
-		Cell: "gru", Instance: "placement-sizing", Replicas: 1, Lab: true,
+	broker, err := newAuthenticatedNATS(t, "gru").start(t, ctx, natscell.Config{
+		Cell: "gru", Instance: "placement-sizing", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")},
 	})
 	if err != nil {
@@ -393,8 +393,8 @@ func launchPermanentSeat(t *testing.T, owner string, generation uint64) oci.Laun
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	broker, err := natscell.Start(ctx, natscell.Config{
-		Cell: "gru", Instance: "placement-release", Replicas: 1, Lab: true,
+	broker, err := newAuthenticatedNATS(t, "gru").start(t, ctx, natscell.Config{
+		Cell: "gru", Instance: "placement-release", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")},
 	})
 	if err != nil {

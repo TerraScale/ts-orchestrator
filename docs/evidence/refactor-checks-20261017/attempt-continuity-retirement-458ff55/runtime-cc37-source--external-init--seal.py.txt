@@ -1,0 +1,60 @@
+import hashlib
+import json
+import pathlib
+import subprocess
+
+out = pathlib.Path(__file__).parent
+sha = lambda p: hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
+d = json.loads((out / 'closure.json').read_text())
+b = json.loads((out / 'bindings-and-limits.json').read_text())
+root = pathlib.Path('/tmp/ts-attempt-phase-dispatch-integration')
+git = lambda *args: subprocess.check_output(['/run/current-system/sw/bin/git', '-C', str(root), *args])
+assert git('rev-parse', 'HEAD').decode().strip() == b['commit']
+assert git('rev-parse', 'HEAD^{tree}').decode().strip() == b['tree']
+assert not git('status', '--porcelain=v1', '--untracked-files=all')
+for path, digest in b['bindings'].items():
+    assert sha(path) == digest, path
+for path, record in d['files'].items():
+    assert sha(path) == record['sha256'], path
+packet = pathlib.Path('/tmp/ts-attempt-phase-dispatch-cc37-source-kh0o533k')
+for row in (packet / 'SHA256SUMS').read_text().splitlines():
+    digest, name = row.split(None, 1)
+    assert sha(packet / name.lstrip('*')) == digest, name
+for row in json.loads((out / 'module-metadata-hashes.json').read_text()):
+    for record in row['metadata'].values():
+        if 'sha256' in record:
+            assert sha(record['path']) == record['sha256']
+for row in json.loads((out / 'support-index.json').read_text()):
+    assert sha(row['source']) == row['source_sha256']
+assert sha(out / 'closure.json') == b['closure_sha256']
+assert sha(out / 'scan.py') == d['scanner_sha256']
+assert sha(d['lexical_scanner_origin']) == d['lexical_scanner_sha256']
+runner_dir = pathlib.Path('/tmp/ts-attempt-phase-dispatch-cc37-runner-motzk9sh')
+assert sorted(p.name for p in runner_dir.iterdir()) == ['run.py']
+assert all(p.stat().st_mode & 0o222 == 0 for p in packet.iterdir())
+assert packet.stat().st_mode & 0o222 == 0
+assert all(p.stat().st_mode & 0o222 == 0 for p in runner_dir.iterdir())
+(out / 'STATE.txt').write_text('SEALED_SUPPLEMENT_SOURCE_ONLY_NO_GO_NO_RUNTIME_NO_LEASE_NO_RUNNER\n' + b['commit'] + '\n')
+(out / 'seal.json').write_text(json.dumps({
+    'state': 'SEALED_SUPPLEMENT_SOURCE_ONLY_NO_GO_NO_RUNTIME_NO_LEASE_NO_RUNNER',
+    'commit': b['commit'], 'tree': b['tree'], 'supplement': str(out),
+    'earlier_packet': str(packet), 'earlier_packet_unchanged': True,
+    'earlier_manifest_sha256': sha(packet / 'SHA256SUMS'),
+    'request_sha256': sha(packet / 'request.json'),
+    'runner_sha256': sha(runner_dir / 'run.py'),
+    'runner_directory_mode': oct(runner_dir.stat().st_mode & 0o777),
+    'closure_sha256': sha(out / 'closure.json'),
+    'bindings_sha256': sha(out / 'bindings-and-limits.json'),
+    'classifications_sha256': sha(out / 'classifications.json'),
+    'checks': 'Static inventories, classifications, module metadata, excerpts, frozen worktree, original source packet and unexecuted runner reverified before read-only seal; no Go command or runner invocation.',
+}, indent=2) + '\n')
+files = sorted(p for p in out.iterdir() if p.is_file() and p.name != 'SHA256SUMS')
+(out / 'SHA256SUMS').write_text(''.join(sha(p) + '  ' + p.name + '\n' for p in files))
+for line in (out / 'SHA256SUMS').read_text().splitlines():
+    digest, name = line.split(None, 1)
+    assert sha(out / name) == digest
+for p in out.iterdir():
+    assert p.is_file()
+    p.chmod(0o444)
+out.chmod(0o555)
+print(json.dumps({'supplement': str(out), 'manifest_sha256': sha(out / 'SHA256SUMS'), 'seal_sha256': sha(out / 'seal.json'), 'files_sealed': len(files) + 1, 'runner_directory_entries': ['run.py'], 'source_and_earlier_packet_unchanged': True}, indent=2))

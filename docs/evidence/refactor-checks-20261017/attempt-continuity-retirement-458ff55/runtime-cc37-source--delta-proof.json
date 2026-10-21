@@ -1,0 +1,154 @@
+{
+  "state": "STATIC_SUCCESSOR_DELTA_ONLY_NO_EXECUTION_NO_LEASE",
+  "predecessor_request_sha256": "67bc411484ec63ce076328a0118171bd4578d0434439a8ddf78cfd4f3ba30894",
+  "successor_request_sha256": "f157b41fa9029e661e2bb33b4a9bc508c81cfebe992cb86c8c914665ec5815de",
+  "predecessor_runner_sha256": "cd42b3fcee241b6aed2ae6df5ba0167eb4e9d9086b916db5a69949f5f730df78",
+  "successor_runner_sha256": "48bb6ab42b2af1a3aaf36bcf96e2446c2f3467e6b8c949c6aa45767cdbaf6806",
+  "request_changes": [
+    {
+      "path": "/external_initializer_review",
+      "change": "added",
+      "after": {
+        "packet": "/tmp/ts-attempt-cc37-shortb-source-nar2velj/external-init",
+        "original_packet": "/tmp/ts-attempt-cc37-external-init-50is49fv",
+        "seal_sha256": "758b77a274e4390e0211c354114fd30631cce361714c865ef60273f0c7fc01cb",
+        "manifest_sha256": "80965a41b55a39eced47161d73dd7caa5d35033d11f0d411d9e3098c16e4d743"
+      }
+    },
+    {
+      "path": "/independent_source_review",
+      "change": "added",
+      "after": {
+        "path": "/tmp/ts-attempt-cc37-shortb-source-nar2velj/independent-source-review.json",
+        "sha256": "4945d5fe3d3bdd7d46920f4cd809c9cba1571ca761c2d6e32366d3ceed78dcd6",
+        "state": "PASS_INDEPENDENT_CONNECTED_SOURCE_REVIEW"
+      }
+    },
+    {
+      "path": "/initializer_review",
+      "change": "changed",
+      "before": "initializer-review.md; conservative first-party static import closure:79packages/615files/5init/noTestMain; no Go discovery; external dependency initializer closure not fully audited.",
+      "after": "predecessor/initializer-review.md plus external-init/README.md and external-init/bindings-and-limits.json; external-init/seal.json SHA256 758b77a274e4390e0211c354114fd30631cce361714c865ef60273f0c7fc01cb; 428 package entries/4394 enumerated files/117 init+687 var candidates/37 modules; zero missing source/cache mappings; four explicitly ambiguous legacy gogo build constraints; no Go discovery or runtime."
+    },
+    {
+      "path": "/predecessor",
+      "change": "added",
+      "after": {
+        "packet": "/tmp/ts-attempt-phase-dispatch-cc37-source-kh0o533k",
+        "request": "/tmp/ts-attempt-phase-dispatch-cc37-source-kh0o533k/request.json",
+        "request_sha256": "67bc411484ec63ce076328a0118171bd4578d0434439a8ddf78cfd4f3ba30894",
+        "manifest_sha256": "442231a57701cd42912c14f1aeff48a8e9fd41bf18b8602a8b9643c44bedbc72",
+        "runner": "/tmp/ts-attempt-phase-dispatch-cc37-runner-motzk9sh/run.py",
+        "runner_sha256": "cd42b3fcee241b6aed2ae6df5ba0167eb4e9d9086b916db5a69949f5f730df78",
+        "retained_byte_identical_packet_copy": "/tmp/ts-attempt-cc37-shortb-source-nar2velj/predecessor",
+        "unused_evidence": "predecessor-unused-proof.json; original runner directory contains only run.py, with no wrapper marker/preflight/start/raw output/receipt. Neither wrapper is invoked during successor preparation."
+      }
+    },
+    {
+      "path": "/request/runtime_resources",
+      "change": "changed",
+      "before": "Unmeasured estimate under1second, <=256MiB RSS; one temporary root containing attempt.json and New-created work directory; 0 requests/listeners/brokers/cloud/Podman/host effects and 0 test-spawned processes. Dependency initialization has one blocked in-memory diagnostic goroutine. Compiler/tool processes are separate from test-spawned processes.",
+      "after": "Unmeasured estimate/request: approximately <=256MiB RSS; runtime under one second is not guaranteed. The selected test creates one temporary root containing attempt.json and a New-created work directory. Imported initialization also reads local /proc process/cgroup/mountinfo, resolved cgroup v2 pressure files, /sys/kernel/mm/hugepages and samples its own executable; obtains kernel entropy; and reads CPU/page-size/clock/build/environment metadata. NATS proc sampling schedules recurring one-second timers. Metrics starts a mountinfo reader goroutine with a one-second timer; a blocked reader can survive that timeout until process exit. The authority diagnostic goroutine waits on an in-memory channel. Logger/metric failure paths may write stderr; registries and default HTTP handlers mutate local memory. No reviewed initializer or selected test path under the stated static selection initiates credential-provider/IMDS/cloud SDK requests, DNS lookup, network connection/listener/broker, host mutation, Podman, or test-spawned child process. This is qualified static evidence, not sandbox isolation or exhaustive callgraph/runtime proof; stdlib/toolchain/test-harness initialization and persisted Go environment selection are not independently audited. Compiler/tool processes are separate from test-spawned processes. Existing test30s/outerTERM180s/KILL5s remain unchanged; no hard RSS/cache cap is imposed."
+    },
+    {
+      "path": "/request/shared_lock",
+      "change": "changed",
+      "before": "/tmp/ts-orch-refactor-gate-check.lock",
+      "after": "/tmp/ts-orch-refactor-short-check-b.lock"
+    },
+    {
+      "path": "/runner_launch_argv",
+      "change": "changed",
+      "before": [
+        "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+        "-I",
+        "-B",
+        "/tmp/ts-attempt-phase-dispatch-cc37-runner-motzk9sh/run.py"
+      ],
+      "after": [
+        "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+        "-I",
+        "-B",
+        "/tmp/ts-attempt-cc37-shortb-runner-47vnkiv7/run.py"
+      ]
+    },
+    {
+      "path": "/runner_path",
+      "change": "changed",
+      "before": "/tmp/ts-attempt-phase-dispatch-cc37-runner-motzk9sh/run.py",
+      "after": "/tmp/ts-attempt-cc37-shortb-runner-47vnkiv7/run.py"
+    },
+    {
+      "path": "/source_packet",
+      "change": "changed",
+      "before": "/tmp/ts-attempt-phase-dispatch-cc37-source-kh0o533k",
+      "after": "/tmp/ts-attempt-cc37-shortb-source-nar2velj"
+    }
+  ],
+  "wrapper_ast_only_changed_assignments": [
+    "REQUEST",
+    "EXPECTED_REQUEST_SHA"
+  ],
+  "wrapper_normalized_text_byte_identical": true,
+  "exact_unchanged_go_argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "180s",
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "LANG=C.UTF-8",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-json",
+    "-mod=readonly",
+    "-vet=off",
+    "-p=1",
+    "./internal/attempt",
+    "-run",
+    "^TestRetiredContinuityPhaseThroughAttemptRun$",
+    "-count=1",
+    "-parallel=1",
+    "-timeout=30s"
+  ],
+  "exact_unchanged_environment": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local",
+    "LANG": "C.UTF-8"
+  },
+  "all_other_predecessor_top_level_fields_unchanged": [
+    "state",
+    "worktree",
+    "base",
+    "commit",
+    "tree",
+    "owned_changed_paths",
+    "source_file_sha256",
+    "retained_original_path",
+    "retained_original_file_sha256",
+    "original",
+    "original_frozen_declaration_sha256",
+    "replacement",
+    "expected_pass_tests",
+    "expected_package",
+    "module_sha256",
+    "executable_paths",
+    "executable_sha256",
+    "effective_child_environment",
+    "limits"
+  ],
+  "all_other_nested_request_fields_unchanged": true,
+  "all_source_module_executable_and_original_pins_unchanged": true,
+  "new_runner_ast_parsed_only_not_imported_compiled_or_executed": true
+}

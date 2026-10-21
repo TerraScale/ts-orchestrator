@@ -1,6 +1,7 @@
 package ociregion
 
 import (
+	"encoding/json/v2"
 	"maps"
 	"net/netip"
 	"path/filepath"
@@ -27,7 +28,10 @@ var ruleFields = []string{"direction", "protocol", "source", "source_type", "des
 func requireOCID(value any, kind, region string) string {
 	s := text(value)
 	parts := strings.Split(s, ".")
-	if len(parts) < 5 || parts[0] != "ocid1" || parts[1] != kind || parts[2] != "oc1" || (region != "" && parts[3] != region) || !safeMatch(`ocid1\.[a-z]+\.oc1\.[a-z0-9-]*\.[a-z0-9]+(?:\.[a-z0-9]+)*`, s) {
+	if len(parts) < 5 || parts[0] != "ocid1" || parts[1] != kind || parts[2] != "oc1" || !safeMatch(`ocid1\.[a-z]+\.oc1\.[a-z0-9-]*\.[a-z0-9]+(?:\.[a-z0-9]+)*`, s) {
+		fail("manual plan has an invalid " + kind + " OCID")
+	}
+	if region != "" && parts[3] != region && !(region == "us-phoenix-1" && parts[3] == "phx") && !(region == "us-ashburn-1" && parts[3] == "iad") {
 		fail("manual plan has an invalid " + kind + " OCID")
 	}
 	return s
@@ -313,12 +317,24 @@ func validateNetbird(plan Object, gateway Object) {
 		requireOCID(c["policy_id"], "policy", "")
 	}
 }
+func hostArchitecture(host Object) string {
+	architecture := text(host["architecture"])
+	if architecture != "arm64" && architecture != "amd64" {
+		fail("manual host architecture must be arm64 or amd64")
+	}
+	return architecture
+}
+
 func (e *Engine) loadPlan(path string) Object {
 	p := readJSON(path, 64*1024, "manual region plan")
+	p["_source_path"] = Path(must(filepath.Abs(path)))
+	return validatePlan(p)
+}
+
+func validatePlan(p Object) Object {
 	if !eq(p["schema_version"], 2) || catalog.OCIRegion(text(p["cell"])) == "" || p["region"] != catalog.OCIRegion(text(p["cell"])) {
 		fail("unexpected manual plan schema, cell, or OCI region")
 	}
-	p["_source_path"] = Path(must(filepath.Abs(path)))
 	names := obj(p["preview_compartment_names"])
 	if !exact(names, "control", "network", "workload") {
 		fail("manual compartment names must be distinct safe names for control, network, and workload")
@@ -357,7 +373,8 @@ func (e *Engine) loadPlan(path string) Object {
 	for _, v := range hosts {
 		h := obj(v)
 		slot := text(h["slot"])
-		if !safeMatch(`(?:controller|member)-[a-z][a-z0-9-]{0,30}`, slot) || h["shape"] != "VM.Standard.A1.Flex" || number(h["ocpus"]) <= 0 || number(h["memory_gb"]) < number(h["ocpus"]) || number(h["boot_gb"]) < 50 || number(h["data_gb"]) < 0 || (strings.HasPrefix(slot, "controller-") && number(h["data_gb"]) != 0) || (strings.HasPrefix(slot, "member-") && number(h["data_gb"]) <= 0) {
+		hostArchitecture(h)
+		if !safeMatch(`(?:controller|member)-[a-z][a-z0-9-]{0,30}`, slot) || !safeMatch(`[A-Za-z0-9][A-Za-z0-9.-]{0,99}`, h["shape"]) || number(h["ocpus"]) <= 0 || number(h["memory_gb"]) < number(h["ocpus"]) || number(h["boot_gb"]) < 50 || number(h["data_gb"]) < 0 || (strings.HasPrefix(slot, "controller-") && number(h["data_gb"]) != 0) || (strings.HasPrefix(slot, "member-") && number(h["data_gb"]) <= 0) {
 			fail("unexpected manual shape or size for " + slot)
 		}
 	}
@@ -426,8 +443,8 @@ func (e *Engine) loadPlan(path string) Object {
 		fail("manual seed-A create identity is invalid")
 	}
 	b := obj(p["budget"])
-	if b["currency"] != "USD" || number(b["monthly_limit"]) <= 0 || number(b["monthly_limit"]) > 200 {
-		fail("manual monthly budget must be positive USD and no more than $200")
+	if !contains([]string{"USD", "BRL"}, b["currency"]) || number(b["monthly_limit"]) <= 0 {
+		fail("monthly budget must be finite and positive in USD or BRL")
 	}
 	if !eq(b["replacement_hosts_max"], 1) || number(b["replacement_overlap_hours_max"]) > 72 {
 		fail("replacement allowance exceeds the bounded plan")
@@ -435,16 +452,21 @@ func (e *Engine) loadPlan(path string) Object {
 	if number(b["snapshot_gb_max"]) > 350 || number(b["object_storage_gb_max"]) < 0 || number(b["object_storage_gb_max"]) > 10 || number(b["staging_object_storage_gb_max"]) < 0 || number(b["staging_object_storage_gb_max"]) > 10 {
 		fail("storage allowance exceeds the bounded plan")
 	}
-	// Retain unrelated operations inventory for safety accounting, independent of its services.
-	existing := obj(p["existing_operations_host"])
-	if !exact(existing, "instance_id", "boot_volume_id", "data_volume_id", "public_ip_id", "vcn_id", "internet_gateway_id", "expected_ocpus", "expected_memory_gb", "expected_volume_gb", "expected_volume_vpus_per_gb") {
-		fail("manual plan must bind the exact existing operations host baseline")
-	}
-	for key, kind := range map[string]string{"instance_id": "instance", "boot_volume_id": "bootvolume", "data_volume_id": "volume", "public_ip_id": "publicip", "vcn_id": "vcn", "internet_gateway_id": "internetgateway"} {
-		requireOCID(existing[key], kind, "")
-	}
-	if !eq(existing["expected_volume_gb"], 50) || !eq(existing["expected_volume_vpus_per_gb"], 10) {
-		fail("existing operations host data volume differs from the bounded cost model")
+	if baseline, present := p["existing_operations_host"]; present {
+		existing := obj(baseline)
+		if !exact(existing, "instance_id", "boot_volume_id", "data_volume_id", "public_ip_id", "vcn_id", "internet_gateway_id", "expected_shape", "expected_architecture", "expected_ocpus", "expected_memory_gb", "expected_volume_gb", "expected_volume_vpus_per_gb") {
+			fail("manual plan must bind the exact existing operations host baseline")
+		}
+		if !safeMatch(`[A-Za-z0-9][A-Za-z0-9.-]{0,99}`, existing["expected_shape"]) {
+			fail("manual operations host must declare its exact expected shape")
+		}
+		hostArchitecture(Object{"architecture": existing["expected_architecture"]})
+		for key, kind := range map[string]string{"instance_id": "instance", "boot_volume_id": "bootvolume", "data_volume_id": "volume", "public_ip_id": "publicip", "vcn_id": "vcn", "internet_gateway_id": "internetgateway"} {
+			requireOCID(existing[key], kind, "")
+		}
+		if !eq(existing["expected_volume_gb"], 50) || !eq(existing["expected_volume_vpus_per_gb"], 10) {
+			fail("existing operations host data volume differs from the bounded cost model")
+		}
 	}
 	gateway := validateGateway(p, network)
 	if ids["local_peering_gateway"] != nil && gateway == nil {
@@ -526,4 +548,18 @@ func keysAny[V any](m map[string]V) []string { return slices.Sorted(maps.Keys(m)
 func LoadPlan(path string) (Object, error) {
 	e := &Engine{PlanPath: path}
 	return capture(func() Object { return e.loadPlan(path) })
+}
+
+// ValidatePlan validates an in-memory regional plan before any provider write.
+// The validated result is independent of the caller's mutable maps and slices.
+func ValidatePlan(plan Object) (Object, error) {
+	return capture(func() Object {
+		wire := must(json.Marshal(plan))
+		var copied Object
+		if err := json.Unmarshal(wire, &copied); err != nil {
+			fail(err.Error())
+		}
+		delete(copied, "_source_path")
+		return validatePlan(copied)
+	})
 }

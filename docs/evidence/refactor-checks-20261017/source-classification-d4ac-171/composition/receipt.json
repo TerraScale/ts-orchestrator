@@ -1,0 +1,95 @@
+{
+  "schema": "ts-classification69-composed-ledger-proposal-receipt-v1",
+  "created_utc": "2026-10-17T15:16:18.301816+00:00",
+  "state": "PROPOSED_NOT_APPLIED_PENDING_TWO_INDEPENDENT_REVIEWS",
+  "before": {
+    "completion": {
+      "original": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/before/completion.json",
+      "sha256": "fde357ecbc4cd877a3c71baad94d3dd701ce351b3da6ff139858b9c4c4a64064",
+      "bytes": 1149251
+    },
+    "progress": {
+      "original": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/before/progress.json",
+      "sha256": "6a5500adb0ddde566224ac7a6ca1ebf99b797bccaefd4546968539aec32dbe93",
+      "bytes": 105488
+    }
+  },
+  "inputs": {
+    "delta": {
+      "path": "/tmp/ts-d4ac-classification69-delta-final-l6fu61l5/proposal.json",
+      "sha256": "7eaaa19a3ccb97b64e02d74021ec4bcdf0908ecc2f317f131ae7c9acd473c69e"
+    },
+    "summary": {
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/inputs/proposed-summary.json",
+      "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+    }
+  },
+  "after": {
+    "completion": {
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/proposed-completion.json",
+      "sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e",
+      "bytes": 1294888
+    },
+    "progress": {
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/proposed-progress.json",
+      "sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e",
+      "bytes": 138535
+    }
+  },
+  "classification_summary_mirrors_updated": 12,
+  "counts_before": {
+    "baseline_originals": 4319,
+    "retired": 19,
+    "retained": 4300,
+    "classified": 102,
+    "integration": 78,
+    "unit": 23,
+    "mixed": 1,
+    "globally_unadjudicated": 4198
+  },
+  "counts_proposed_after": {
+    "baseline_originals": 4319,
+    "retired": 19,
+    "retained": 4300,
+    "classified": 171,
+    "integration": 100,
+    "unit": 43,
+    "mixed": 28,
+    "globally_unadjudicated": 4129,
+    "reviewed_unresolved_included_in_unadjudicated": 10,
+    "remaining_other_unadjudicated": 4119
+  },
+  "proposed_delta": {
+    "classified": 69,
+    "integration": 22,
+    "unit": 20,
+    "mixed": 27,
+    "reviewed_unresolved_separate": 10,
+    "retirement": 0,
+    "runtime": 0
+  },
+  "all79_exhaustive_disjoint_structurally_verified": true,
+  "original_source_declaration_review": "Not repeated; independent source-delta review separately pending. Composition assertions inspect pinned proposal data only.",
+  "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "source_anchor": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "7330_qualification": "NOTQUALIFIED_BY_CLASSIFICATION",
+  "unresolved": "All10 intended-integration NATS roots retained separately with zero classification credit and included in4129. Functions expiry root peer correction to unit retained.",
+  "independent_delta_acceptance": "PENDING_AT_COMPOSITION_NO_AUTHOR_COUNTS_TREATED_AS_ACCEPTED",
+  "composed_independent_review": "REQUIRED_BEFORE_ACTUAL_WRITE",
+  "preserved": {
+    "historical_execution_evidence": true,
+    "canonical7330_publication": true,
+    "fivegate_evidence_snapshot": true,
+    "all_five_categories_OPEN_complete_false": true,
+    "retirements19": true,
+    "vendor_originals1449_retired0_central_closure0": true,
+    "all_prior_classification_history_prefixes": true,
+    "no_unrecorded_JSON_change": true
+  },
+  "shared_before_hashes_still_match": true,
+  "shared_ledger_source_Git_cloud_Go_runner_lock_mutations": false,
+  "operations": "Read/hash pinned JSON/peer inputs; structural arithmetic/identity-set assertions; write exclusive external full immutable before/after proposal bytes, delta list and receipt. No source rescan or execution.",
+  "next_action": "Obtain exact source-delta and composed-ledger independent acceptance; reconfirm shared before hashes before any separately authorized promotion."
+}

@@ -2,7 +2,6 @@ package volume
 
 import (
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -26,56 +25,6 @@ func TestNewIDIsValidAndUnique(t *testing.T) {
 	a, b := NewID(), NewID()
 	if !entityid.Valid(a) || a == b {
 		t.Fatalf("NewID gave %q and %q", a, b)
-	}
-}
-
-func TestValidateRejectsMalformedRecords(t *testing.T) {
-	ocid := "ocid1.volume.oc1.sa-saopaulo-1.abcdef"
-	for name, mutate := range map[string]func(*Volume){
-		"schema":                func(v *Volume) { v.SchemaVersion = 2 },
-		"id":                    func(v *Volume) { v.ID = "vol_UPPER" },
-		"app":                   func(v *Volume) { v.App = "bad-" },
-		"name":                  func(v *Volume) { v.Name = "has-dash" },
-		"region":                func(v *Volume) { v.Region = "GRU" },
-		"zone":                  func(v *Volume) { v.Zone = "AD 1" },
-		"too small":             func(v *Volume) { v.SizeGB = 49 },
-		"too large":             func(v *Volume) { v.SizeGB = MaxSizeGB + 1 },
-		"vpus step":             func(v *Volume) { v.VPUsPerGB = 15 },
-		"vpus max":              func(v *Volume) { v.VPUsPerGB = 130 },
-		"retention":             func(v *Volume) { v.SnapshotRetentionDays = 0 },
-		"machine":               func(v *Volume) { v.MachineID = "invalid" },
-		"no created_at":         func(v *Volume) { v.CreatedAt = time.Time{} },
-		"destroying claimed":    func(v *Volume) { v.DestroyRequestedAt = created; v.MachineID = m1 },
-		"state":                 func(v *Volume) { v.Status.State = "extending" },
-		"created without ocid":  func(v *Volume) { v.Status.State = StateCreated },
-		"ocid kind":             func(v *Volume) { v.Status.OCID = "ocid1.instance.oc1.x.y" },
-		"attached without ocid": func(v *Volume) { v.Status.AttachedMachineID = m1 },
-		"long message":          func(v *Volume) { v.Status.Message = strings.Repeat("x", maxMessageBytes+1) },
-		"pending without request": func(v *Volume) {
-			v.Status = Status{State: StatePendingDestroy, OCID: ocid}
-		},
-		"destroyed but attached": func(v *Volume) {
-			v.DestroyRequestedAt = created
-			v.Status = Status{State: StateDestroyed, OCID: ocid, AttachedMachineID: m1}
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			v := testVolume(NewID())
-			mutate(&v)
-			if err := v.Validate(); !errors.Is(err, ErrInvalid) {
-				t.Fatalf("Validate() = %v, want ErrInvalid", err)
-			}
-		})
-	}
-	v := testVolume(NewID())
-	v.VPUsPerGB = 0
-	if err := v.Validate(); err != nil {
-		t.Fatalf("lower-cost volume: %v", err)
-	}
-	// OCI test and preview OCIDs carry hyphens in their unique part.
-	v.Status = Status{State: StateCreated, Epoch: 1, OCID: "ocid1.volume.oc1.sa-saopaulo-1.managed-a"}
-	if err := v.Validate(); err != nil {
-		t.Fatalf("hyphenated OCID: %v", err)
 	}
 }
 

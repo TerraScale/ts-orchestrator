@@ -36,6 +36,14 @@ func runInstallControllerConfig(ctx context.Context, args []string) error {
 	if err := controllerClockCheck(controllerBrokerClockProbe())(); err != nil {
 		return fmt.Errorf("controller install NTP clock health: %w", err)
 	}
+	if local, derived, present, err := installedAutomaticStartup(ctx); err != nil {
+		return err
+	} else if present {
+		if _, err := ValidateSignedControllerConfig(derived.Manifest(), local.observed.PrimaryPrivateIP); err != nil {
+			return err
+		}
+		return installAutomaticControllerFiles(ctx, derived)
+	}
 	imds := bootstrapstart.NewIMDSClient()
 	now := time.Now().Round(0).UTC()
 	if err := bootstrapstart.InstallLaunchMaterial(ctx, imds, now); errors.Is(err, bootstrapstart.ErrNotController) {

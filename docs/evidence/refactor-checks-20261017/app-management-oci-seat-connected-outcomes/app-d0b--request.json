@@ -1,0 +1,111 @@
+{
+  "state": "FROZEN_NO_RUNTIME_LEASE",
+  "worktree": "/tmp/ts-app-native-evidence-6aab71080",
+  "commit": "d0b972460a0d6413aaa948a967a2c2406b407a4b",
+  "tree": "9603fd5ec7d35ebb02e7839d7e3521528cae116e",
+  "source_manifest": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/fullsource-manifest.json",
+  "source_manifest_sha256": "d00e8518785acaea61a761a03edbf890f412db7a48bff00a610d8ca68c7f7c7f",
+  "go_binary_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+  "tool_sha256": {
+    "/run/current-system/sw/bin/nice": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/timeout": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/env": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/git": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+  },
+  "static_review_sha256": "5a7a9346341a8de13457b84823b3e9447a26a077544842ccc230dcb08a429b2c",
+  "request": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "420s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-json",
+      "-mod=readonly",
+      "-vet=off",
+      "-p=1",
+      "-parallel=1",
+      "-count=1",
+      "-timeout=300s",
+      "-run",
+      "^TestGenericRuntimeSignedManagerIntegration$",
+      "./internal/app"
+    ],
+    "cwd": "/tmp/ts-app-native-evidence-6aab71080",
+    "compile_only": false,
+    "binary_execution_authorized": true,
+    "attempts": 1,
+    "lease_required": true,
+    "locks": [
+      "/tmp/ts-orch-refactor-general-check.lock",
+      "/tmp/ts-orch-refactor-gate-check.lock"
+    ],
+    "lock_mode": "both nonblocking-exclusive; no launch if either busy",
+    "resource_envelope": "fixture context240s across all phases; each node Stop cleanup15s (3 nodes total45s); Go timeout300s includes cleanup; outer timeout420s plus kill-after5s includes compile; estimated<=2GiBRSS,<=1GiB additional scratch/cache, GOMAXPROCS2/packagep1/nice19. Broker JWT memory256MiB/disk8GiB are configured maxima; actual small fixture messages.",
+    "scope": "Actual local connected scenario; external recipient adapter and native execution remain explicit simulation. No OCI/IAM/native production qualification claim.",
+    "effective_child_environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local",
+      "LANG": "C.UTF-8"
+    }
+  },
+  "expected_package": "github.com/TerraScale/ts-orchestrator/internal/app",
+  "expected_pass_tests": [
+    "TestGenericRuntimeSignedManagerIntegration"
+  ],
+  "expected_terminal_outcomes": 1,
+  "static_closure_sha256": "dbb00d284344a03e4a09251e8557b60a2375b66c1f026e0368e08a8d3b266442",
+  "scope_limitations": [
+    "Election follows zero-replica drain, with probeClient referencing original manager; no live workload failover qualification.",
+    "No disk enforcement or native/external recipient proof in this source."
+  ],
+  "supersedes_used_packet": "/tmp/ts-app-6aab71080-manager-ovykz2r5",
+  "source_delta": "Only generic_runtime_integration_test.go (+50/-3): preserve strict current-role refusal and compare original retained history/profile/provenance KV bytes+sequences and archived verified signed native claim bytes before/after drain/removal. No production/auth/timer/API/testexport changes.",
+  "intent": "One exact actual manager successor after separate QA grant; previous root failed final retention assertion. No execution authorization from packaging.",
+  "prior_failure": {
+    "packet": "/tmp/ts-app-runtime-ce04cc70c-n95bizlg",
+    "commit": "ce04cc70c4415506cfab5d9e62393356620863db",
+    "final_seal_sha256": "406423d65c742bf2b169272cc2a12a70012b79fb516e01f472c2e7c6660941f8",
+    "receipt_sha256": "def28cb4d1002b54b5cc351a55859df2fac564477b12a4e4b74189c016140a49",
+    "test_elapsed_seconds": 240.06,
+    "failure": "initial delivery accepted-status wait: actual manager did not converge: context deadline exceeded",
+    "immediate_log": "delivery intent processing deferred stage=container_apply cause_class=other",
+    "precise_apply_cause": "unknown; diagnostic required",
+    "unreached_phases": [
+      "initial readiness",
+      "scale and repair",
+      "rollout, rollback and recovery",
+      "later three-manager election",
+      "drain and removal"
+    ]
+  },
+  "diagnostic_terminal": {
+    "packet": "/tmp/ts-app-6aab71080-manager-ovykz2r5",
+    "final_seal_sha256": "112f8e93527e8547a1cb312b2a202dcd1df95315a78f84c29a92af84b90204fd",
+    "receipt_sha256": "db8003c4c25b7188c797d2fb11862ed4b941222a14994d62bed7d5970faf9fba",
+    "phase_attribution_sha256": "e754205ac7316fab5ac38b3b7fa3ba1aefaee7d1166735038f23e49eeed0a705",
+    "exit_code": 1,
+    "test_elapsed_seconds": 169.02,
+    "failure_line": 580,
+    "failure": "retained native role is no longer approved from correctly permission-gated retainedContainerFloor after adopt(4,nil)",
+    "earlier_assertions": "all ordered earlier delivery/readiness/scale/repair/replay/rollout/rollback/recovery/HTTP/session/revocation/zero-replica election/removal/zero-legacy-write assertions reached before finalfailure",
+    "scope": "Election follows zero replicas; native/recipient simulation; no overallrootpass/HA/native/cloud qualification"
+  }
+}

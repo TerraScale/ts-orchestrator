@@ -1,0 +1,18 @@
+{
+  "state": "SEALED_SOURCE_ONLY_RUNNER_NOT_EXECUTED",
+  "packet": "/tmp/ts-attempt-phase-dispatch-cc37-source-kh0o533k",
+  "request": "/tmp/ts-attempt-phase-dispatch-cc37-source-kh0o533k/request.json",
+  "request_sha256": "67bc411484ec63ce076328a0118171bd4578d0434439a8ddf78cfd4f3ba30894",
+  "runner": "/tmp/ts-attempt-phase-dispatch-cc37-runner-motzk9sh/run.py",
+  "runner_sha256": "cd42b3fcee241b6aed2ae6df5ba0167eb4e9d9086b916db5a69949f5f730df78",
+  "runner_launch_argv": [
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-attempt-phase-dispatch-cc37-runner-motzk9sh/run.py"
+  ],
+  "pattern": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/run.py",
+  "pattern_sha256": "a2b358a86964ca6be0422dd3390e2a885efcb9bbbae24cbd4a6848fc3a8cefce",
+  "go_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+  "python_sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+}

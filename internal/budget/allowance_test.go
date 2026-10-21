@@ -79,7 +79,7 @@ func TestAllocateGrantsByPressureUntilTheCap(t *testing.T) {
 		freshRegion("gru", 1, 2, 0.9, 300, 100),
 		freshRegion("fra", 1, 2, 0.7, 300, 100),
 	}, nil, testNow)
-	if c.State != StateOK || c.ProjectedCents != 300 || c.Ratio != 0.3 {
+	if c.State != StateWarn || c.ProjectedCents != 900 || c.Ratio != 0.9 || c.Headroom() != 100 {
 		t.Fatalf("capacity = %+v", c)
 	}
 	if c.Reason != "granted gru +1, fra +1" {

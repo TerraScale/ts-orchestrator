@@ -1,0 +1,253 @@
+{
+  "state": "EXACT_SCOPED_SOURCE_ADOPTED_WITHOUT_RUNTIME_REPEAT",
+  "qualified_runtime": "44fccacf6535529ccd5f9e56c0a6fab652c6b48c",
+  "qualified_retirement": "9bd689bd59297b6b7760cc8f5f45079ceae78f8a",
+  "adopted_runtime": "00b8ec532",
+  "adopted_retirement": "78763cb30a3fa85d99828945bc13535466683afd",
+  "adopted_tree": "69f50662693e6e67e4b3dbf880cddd7b03fba0e6",
+  "parent_feature": "e8f20fd44f4dad1ccc85199d6df6fbc35682be22",
+  "two_source_blobs_identical_to_qualified": true,
+  "adoption_note": "44fcc was an HTTPS correction atop earlier unadopted new file; modify/delete conflict resolved by verifying and staging entire exact qualified new-file blob. No source byte changed. Retirement adopted cleanly.",
+  "runtime_repeated": false,
+  "copied_inputs": [
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-source-c5y_75hp/SHA256SUMS",
+      "member": "runtime-request/SHA256SUMS",
+      "bytes": 339,
+      "sha256": "956638190bd9935f53d1917b5b7c3f15ce1497bd49cc08e707a259baecd763cf"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-source-c5y_75hp/api_integration_test.go",
+      "member": "runtime-request/api_integration_test.go.txt",
+      "bytes": 3384,
+      "sha256": "1e1d203df1cd634667b6e9bc471aad568ea27349dc773d6d3b35b4bd5ddd5275"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-source-c5y_75hp/one-line-successor.patch",
+      "member": "runtime-request/one-line-successor.patch",
+      "bytes": 739,
+      "sha256": "aab2b7cf06365c954db4f90d5a6fd2574afc6dd2e32b3647d3999ea7d2c39ada"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-source-c5y_75hp/request.json",
+      "member": "runtime-request/request.json",
+      "bytes": 4805,
+      "sha256": "40655dbc31cea9a9d90ee11117042194de0b5371ba31d5614121227c766beb28"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-source-c5y_75hp/source.patch",
+      "member": "runtime-request/source.patch",
+      "bytes": 3730,
+      "sha256": "3044bda82de25263b043e31f9f5d730788985f936993237b759a486af1ecec0d"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/FINAL-SHA256SUMS",
+      "member": "runtime/FINAL-SHA256SUMS",
+      "bytes": 960,
+      "sha256": "df3e062eb39984745d4288fa9ccb6a07f9be148f2d7173a3a18855c13459ea3b"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/SHA256SUMS",
+      "member": "runtime/SHA256SUMS",
+      "bytes": 800,
+      "sha256": "529b1cff770936cf7ca02131659f7b3a4735676ff51eaa38481311f77c85d6a0"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/preflight.json",
+      "member": "runtime/preflight.json",
+      "bytes": 1672,
+      "sha256": "1c45d6a928b6b4c03f205a90b24bafabf4647a7789e7130e62a9ef40303453d5"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/receipt.json",
+      "member": "runtime/receipt.json",
+      "bytes": 2774,
+      "sha256": "3be878a0141d76d5fc288c7e829ba2f50c511ab3e50a1ffcefde3a939d4d7b60"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/run.py",
+      "member": "runtime/run.py",
+      "bytes": 4222,
+      "sha256": "a2b358a86964ca6be0422dd3390e2a885efcb9bbbae24cbd4a6848fc3a8cefce"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/started.json",
+      "member": "runtime/started.json",
+      "bytes": 786,
+      "sha256": "1af33e0bc02cbf1340b25669e7b88735d5b525ac2435578aef63b3f51241ae5c"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/stderr.log",
+      "member": "runtime/stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/stdout.jsonl",
+      "member": "runtime/stdout.jsonl",
+      "bytes": 6320,
+      "sha256": "435fa2c2d08e81da4bcff7782422abf0bbd4b00e75d24bd2e65d834f208d02e0"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/tool-launch.json",
+      "member": "runtime/tool-launch.json",
+      "bytes": 244,
+      "sha256": "3f98146b9898406ad3b52ef66a587aefe477dc92fa45d5ada4fe0f5c8b9a347c"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/tool-poll-1.json",
+      "member": "runtime/tool-poll-1.json",
+      "bytes": 130,
+      "sha256": "7b3bf4b3c42e62b74706568d14cbfc1b09abfc6c961643d72640ba1a80ff2352"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/tool-poll-2.json",
+      "member": "runtime/tool-poll-2.json",
+      "bytes": 130,
+      "sha256": "1529e6ee7a7566aaf17f201505c8b5f1aaec7d3e296dd9217ef8532b51bb3134"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/tool-poll-3.json",
+      "member": "runtime/tool-poll-3.json",
+      "bytes": 130,
+      "sha256": "f90a31ae11540e6488fb56983fe7357c4a583c1be0af9d9a72b669502436c7d5"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/tool-poll-4.json",
+      "member": "runtime/tool-poll-4.json",
+      "bytes": 2769,
+      "sha256": "4b0715d68054d98db256f83e2b132b6c4c980b90cccd5b7d59f30b049d429387"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/FINAL-SHA256SUMS",
+      "member": "compile/FINAL-SHA256SUMS",
+      "bytes": 1222,
+      "sha256": "4f9fb46a78672291884dedf94f993f1d632d446b4050bf0c2d567f5a58576d46"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/SOURCE-SHA256SUMS",
+      "member": "compile/SOURCE-SHA256SUMS",
+      "bytes": 419,
+      "sha256": "51ce9362a9becc061cb2a7c811db136739f1b8a50018c38b2a88d7ed83f86db7"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/compile.stderr",
+      "member": "compile/compile.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/compile.stdout",
+      "member": "compile/compile.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/deleted-declaration.go",
+      "member": "compile/deleted-declaration.go.txt",
+      "bytes": 1181,
+      "sha256": "f7fc9d0a68f0299df78d4c97f407cd4b64d1737c9958195e9cd5f73669ba7a4e"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/deletion-proof.json",
+      "member": "compile/deletion-proof.json",
+      "bytes": 824,
+      "sha256": "c0904152158506dcf7985c1ff2920a8822549adcae7089eefae6ff257171b120"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/manager_test.go",
+      "member": "compile/manager_test.go.txt",
+      "bytes": 20338,
+      "sha256": "c826a35b376ef70c27f1a0da6c76e5fd355749ea732181ba1893ac37b2d400fc"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/preflight.json",
+      "member": "compile/preflight.json",
+      "bytes": 1567,
+      "sha256": "0bc2f55b2341ae5623db30549b270510202a27abbdb6d24d6cb15f31f42434de"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/receipt.json",
+      "member": "compile/receipt.json",
+      "bytes": 1741,
+      "sha256": "9514c4e676f7252c4a37a8c8cee09d499628b492a5436b60e36333ed99057acd"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/request.json",
+      "member": "compile/request.json",
+      "bytes": 2471,
+      "sha256": "a6de5057dc7aec9a1bf999e032c53e91d6eab3c6da54e15a19914ac9283edcbc"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/retirement.patch",
+      "member": "compile/retirement.patch",
+      "bytes": 1668,
+      "sha256": "ffea2b3302c5be1cefedda9bdd1105b8f9e10177f2e396b88eaac6aa63c70e96"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/run.py",
+      "member": "compile/run.py",
+      "bytes": 3371,
+      "sha256": "f0a00ec348580fa9f5d850418d86760337bdd70577dec04ca28293212b5e2c46"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/started.json",
+      "member": "compile/started.json",
+      "bytes": 726,
+      "sha256": "c46221f1a21a8e8a1cce890a528ed801d80efb4b9538434629144e621d142d8a"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/tool-launch.json",
+      "member": "compile/tool-launch.json",
+      "bytes": 254,
+      "sha256": "d327b9f952339145fa3b3811cd82c06cbbe094f8f6b2774e43a44cf3ae1a17d6"
+    },
+    {
+      "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/tool-poll-1.json",
+      "member": "compile/tool-poll-1.json",
+      "bytes": 1860,
+      "sha256": "70fc3f1cef8ef596e50ec9b3efc238b0288945e6d9de0f1fc93fda83a15c5a4b"
+    },
+    {
+      "source": "/tmp/ts-qa-netbird-runtime-review-44fccacf-dh9_ot9k.json",
+      "member": "qa/runtime-review.json",
+      "bytes": 2662,
+      "sha256": "6244a41a83711a83f6b1549cdbfa0cb797a90ed21f3f811d4f9bb2ac051e9f44"
+    },
+    {
+      "source": "/tmp/ts-qa-netbird-retirement-review-9bd689bd-f2lxjbwi.json",
+      "member": "qa/retirement-review.json",
+      "bytes": 1936,
+      "sha256": "a00354a85cbf9fec842c1fab756dd1441a228efaf0106da7517da6624d6120e5"
+    },
+    {
+      "source": "/tmp/ts-refactor-main-union-3d9a933e/internal/netbird/manager/api_integration_test.go",
+      "member": "source/api_integration_test.go.txt",
+      "bytes": 3384,
+      "sha256": "1e1d203df1cd634667b6e9bc471aad568ea27349dc773d6d3b35b4bd5ddd5275"
+    },
+    {
+      "source": "/tmp/ts-refactor-main-union-3d9a933e/internal/netbird/manager/manager_test.go",
+      "member": "source/manager_test.go.txt",
+      "bytes": 20338,
+      "sha256": "c826a35b376ef70c27f1a0da6c76e5fd355749ea732181ba1893ac37b2d400fc"
+    }
+  ],
+  "omitted_binary": {
+    "path": "compile/manager.test",
+    "bytes": 30660181,
+    "sha256": "b1381f3ce0eb7c5ff787252442438beae13e2fee10749b2916f9b9fb16d31c8f",
+    "never_executed": true,
+    "reason": "Binary bytes excluded; original manifests and receipt preserve identity."
+  },
+  "inventory": "One additional frozen original retired upon this adoption:5firstparty retirements/4314globally unadjudicated;0vendor central closures. No unit-only claim.",
+  "limits": "Public HTTP-client behavior only; no real NetBird management service/IPv6 connectivity/global NET/whole-union runtime qualification.",
+  "evidence_filename_mapping": {
+    "compile/deleted-declaration.go": "compile/deleted-declaration.go.txt",
+    "compile/manager_test.go": "compile/manager_test.go.txt",
+    "runtime-request/api_integration_test.go": "runtime-request/api_integration_test.go.txt",
+    "source/api_integration_test.go": "source/api_integration_test.go.txt",
+    "source/manager_test.go": "source/manager_test.go.txt"
+  },
+  "evidence_filename_note": "Copied Go artifacts use .go.txt so ordinary go test ./... cannot discover evidence packages. All copied source/artifact bytes and original nested checksum manifests are exact; nested checksum pathnames refer to original names and are translated using this mapping."
+}

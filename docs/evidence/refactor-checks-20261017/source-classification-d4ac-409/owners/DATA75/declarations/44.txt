@@ -1,0 +1,35 @@
+func TestArtifactClaimMustBeFreshForAdmissionButRemainsReadable(t *testing.T) {
+	s, ctx := testService(t, &testWriter{})
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID, err := protocol.KeyID(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.September, 24, 9, 0, 0, 0, time.UTC)
+	codec := Ed25519Codec{Cell: "lab", Actor: "operator", PrivateKey: priv, Trusted: map[string]TrustedSigner{keyID: {Actor: "operator", PublicKey: pub}}, Lifetime: time.Minute, MaxLifetime: time.Minute, Now: func() time.Time { return now }}
+	s.config.ArtifactSigner = codec
+	s.config.ArtifactVerifier = codec
+	source := ArtifactSource{Repository: "https://github.com/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}
+	record, wire, err := s.PrepareArtifact(ctx, bytes.NewReader([]byte("artifact bytes")), ArtifactClaimRequest{Source: source, Cell: "lab", Role: "worker", Environment: "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Minute)
+	if _, err := s.AcceptArtifactClaim(ctx, wire); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expired claim was admitted: %v", err)
+	}
+	if _, err := s.readAdmission(ctx, record.Digest, record.Cell, record.Role, record.Environment); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("expired claim created admission: %v", err)
+	}
+	now = now.Add(-2 * time.Minute)
+	if admitted, err := s.AcceptArtifactClaim(ctx, wire); err != nil || admitted != record {
+		t.Fatalf("fresh claim admission=%+v err=%v", admitted, err)
+	}
+	now = now.Add(2 * time.Minute)
+	if admitted, err := s.readAdmission(ctx, record.Digest, record.Cell, record.Role, record.Environment); err != nil || admitted != record {
+		t.Fatalf("archived claim admission=%+v err=%v", admitted, err)
+	}
+}

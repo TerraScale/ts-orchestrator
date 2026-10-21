@@ -802,61 +802,6 @@ func TestHostImagesValidateVerifyAndDiff(t *testing.T) {
 	}
 }
 
-// A kv_snapshot schedule needs binary level 5. Pausing it needs a root,
-// since a rebuilt cell restores only what was uploaded; the interval and
-// resuming are ordinary.
-func TestKVSnapshotLevelValidateDiffAndWiden(t *testing.T) {
-	f := newFixture(t)
-	spec := testSpec(f.id, 1)
-	spec.KVSnapshot = &KVSnapshot{IntervalSeconds: 60}
-	if spec.Level() != 5 {
-		t.Fatalf("level with a kv_snapshot schedule = %d", spec.Level())
-	}
-	if _, err := Encode(spec); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("Encode(kv_snapshot at level 1) = %v", err)
-	}
-	spec.RequiresBinary = 5
-	payload, err := Encode(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded, err := Decode(payload); err != nil || *decoded.KVSnapshot != *spec.KVSnapshot {
-		t.Fatalf("Decode = %+v, %v", decoded.KVSnapshot, err)
-	}
-	for _, seconds := range []int{4, 3601, -1} {
-		invalid := spec
-		invalid.KVSnapshot = &KVSnapshot{IntervalSeconds: seconds}
-		if err := invalid.Validate(); !errors.Is(err, ErrInvalid) {
-			t.Errorf("interval %d accepted: %v", seconds, err)
-		}
-	}
-
-	unscheduled := testSpec(f.id, 1)
-	paused := &KVSnapshot{Paused: true}
-	for name, test := range map[string]struct {
-		before, after *KVSnapshot
-		change        string
-		widens        bool
-	}{
-		"add interval":  {after: spec.KVSnapshot, change: "added"},
-		"add paused":    {after: paused, change: "added", widens: true},
-		"pause":         {before: spec.KVSnapshot, after: &KVSnapshot{IntervalSeconds: 60, Paused: true}, change: "updated", widens: true},
-		"resume":        {before: paused, after: &KVSnapshot{}, change: "updated"},
-		"keep paused":   {before: paused, after: &KVSnapshot{IntervalSeconds: 3600, Paused: true}, change: "updated"},
-		"remove paused": {before: paused, change: "removed"},
-		"keep":          {before: spec.KVSnapshot, after: &KVSnapshot{IntervalSeconds: 60}},
-	} {
-		current, next := unscheduled, unscheduled
-		current.KVSnapshot, next.KVSnapshot = test.before, test.after
-		next.Generation = 2
-		plan, err := Diff(current, next, nil)
-		if err != nil || plan.KVSnapshot != test.change || plan.Empty() != (test.change == "") ||
-			slices.Equal(plan.RootRequired, []string{"kv_snapshot pause"}) != test.widens || len(plan.RootRequired) > 1 {
-			t.Errorf("%s: Diff = %+v, %v", name, plan, err)
-		}
-	}
-}
-
 func TestCellSpecRefusesRetiredRolloutPolicy(t *testing.T) {
 	spec := testSpec(newFixture(t).id, 1)
 	wire, err := Encode(spec)
@@ -870,7 +815,7 @@ func TestCellSpecRefusesRetiredRolloutPolicy(t *testing.T) {
 }
 
 // Desired OCI resources need binary level 7. Only a change that alters the
-// cell's OCI resources needs a root: a new or changed enforce entry, prune
+// cell's OCI resources needs a root: a new or changed resource entry, prune
 // turned on or its delay shortened, and an entry dropped under prune.
 func TestOCIDesiredLevelValidateAndWiden(t *testing.T) {
 	f := newFixture(t)
@@ -879,12 +824,12 @@ func TestOCIDesiredLevelValidateAndWiden(t *testing.T) {
 	desired := func(prune bool, delay int, entries map[string]OCIDesiredEntry[bucket.Spec]) *OCIDesired {
 		return &OCIDesired{Buckets: entries, Prune: prune, PruneDelaySeconds: delay}
 	}
-	report := map[string]OCIDesiredEntry[bucket.Spec]{"backups": {Spec: backups}}
-	enforced := map[string]OCIDesiredEntry[bucket.Spec]{"backups": {Policy: "enforce", Spec: backups}}
-	both := map[string]OCIDesiredEntry[bucket.Spec]{"backups": {Policy: "enforce", Spec: backups}, "logs": {Spec: logs}}
+	entries := map[string]OCIDesiredEntry[bucket.Spec]{"backups": {Spec: backups}}
+	changed := map[string]OCIDesiredEntry[bucket.Spec]{"backups": {Spec: bucket.Spec{Namespace: "tenancy", Bucket: "other-backups", Versioning: "Enabled"}}}
+	both := map[string]OCIDesiredEntry[bucket.Spec]{"backups": {Spec: backups}, "logs": {Spec: logs}}
 
 	spec := testSpec(f.id, 1)
-	spec.OCIDesired, spec.RequiresBinary = desired(false, 0, enforced), 7
+	spec.OCIDesired, spec.RequiresBinary = desired(false, 0, entries), 7
 	if spec.Level() != 7 {
 		t.Fatalf("level with desired OCI resources = %d", spec.Level())
 	}
@@ -895,8 +840,17 @@ func TestOCIDesiredLevelValidateAndWiden(t *testing.T) {
 	if decoded, err := Decode(payload); err != nil || !reflect.DeepEqual(decoded.OCIDesired, spec.OCIDesired) {
 		t.Fatalf("Decode = %+v, %v", decoded.OCIDesired, err)
 	}
+	for _, policy := range []string{"report", "enforce"} {
+		legacy := bytes.Replace(payload, []byte(`"backups":{"spec":`), []byte(`"backups":{"policy":"`+policy+`","spec":`), 1)
+		if bytes.Equal(legacy, payload) {
+			t.Fatal("policy rejection scenario did not change the wire")
+		}
+		if _, err := Decode(legacy); err == nil {
+			t.Fatalf("retired OCI policy %q accepted", policy)
+		}
+	}
+
 	for name, invalid := range map[string]*OCIDesired{
-		"policy":      desired(false, 0, map[string]OCIDesiredEntry[bucket.Spec]{"b": {Policy: "adopt", Spec: backups}}),
 		"spec":        desired(false, 0, map[string]OCIDesiredEntry[bucket.Spec]{"b": {Spec: bucket.Spec{Bucket: "b"}}}),
 		"prune delay": desired(true, -1, nil),
 	} {
@@ -913,16 +867,14 @@ func TestOCIDesiredLevelValidateAndWiden(t *testing.T) {
 		change        string
 		root          []string
 	}{
-		"add report":           {after: desired(false, 0, report), change: "added"},
-		"add enforce":          {after: desired(false, 0, enforced), change: "added", root: []string{"oci_desired buckets backups"}},
-		"report to enforce":    {before: desired(false, 0, report), after: desired(false, 0, enforced), change: "updated", root: []string{"oci_desired buckets backups"}},
-		"enforce to report":    {before: desired(false, 0, enforced), after: desired(false, 0, report), change: "updated"},
-		"drop without prune":   {before: desired(false, 0, both), after: desired(false, 0, enforced), change: "updated"},
-		"drop under prune":     {before: desired(true, 0, both), after: desired(true, 0, enforced), change: "updated", root: []string{"oci_desired buckets logs pruned"}},
-		"remove under prune":   {before: desired(true, 0, report), change: "removed"},
-		"turn on prune":        {before: desired(false, 0, report), after: desired(true, 0, report), change: "updated", root: []string{"oci_desired prune"}},
-		"shorten prune delay":  {before: desired(true, 0, report), after: desired(true, 60, report), change: "updated", root: []string{"oci_desired prune delay"}},
-		"lengthen prune delay": {before: desired(true, 60, report), after: desired(true, 0, report), change: "updated"},
+		"add entry":            {after: desired(false, 0, entries), change: "added", root: []string{"oci_desired buckets backups"}},
+		"change entry":         {before: desired(false, 0, entries), after: desired(false, 0, changed), change: "updated", root: []string{"oci_desired buckets backups"}},
+		"drop without prune":   {before: desired(false, 0, both), after: desired(false, 0, entries), change: "updated"},
+		"drop under prune":     {before: desired(true, 0, both), after: desired(true, 0, entries), change: "updated", root: []string{"oci_desired buckets logs pruned"}},
+		"remove under prune":   {before: desired(true, 0, entries), change: "removed"},
+		"turn on prune":        {before: desired(false, 0, entries), after: desired(true, 0, entries), change: "updated", root: []string{"oci_desired prune"}},
+		"shorten prune delay":  {before: desired(true, 0, entries), after: desired(true, 60, entries), change: "updated", root: []string{"oci_desired prune delay"}},
+		"lengthen prune delay": {before: desired(true, 60, entries), after: desired(true, 0, entries), change: "updated"},
 		"keep":                 {before: desired(true, 0, both), after: desired(true, 0, both)},
 	} {
 		current, next := base, base

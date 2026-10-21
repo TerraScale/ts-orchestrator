@@ -343,7 +343,7 @@ func (manifest Manifest) Validate() error {
 	instances := make(map[string]struct{}, len(manifest.Controllers))
 	previous := ""
 	for index, controller := range manifest.Controllers {
-		if controller.Slot != []string{"controller-a", "controller-b", "seed-a"}[index] {
+		if controller.Slot != []string{"controller-a", "controller-b", "controller-c"}[index] {
 			return fmt.Errorf("packet controller %q is outside the fixed three-slot topology", controller.Slot)
 		}
 		if controller.Slot <= previous || controller.Slot == "" ||
@@ -434,7 +434,7 @@ func (manifest Manifest) Validate() error {
 			return fmt.Errorf("controller %q lacks signed operator credential", controller.Slot)
 		}
 	}
-	seedRoot := "controllers/seed-a/guest-root/var/lib/terrascale-orchestrator-controller/"
+	seedRoot := "controllers/controller-c/guest-root/var/lib/terrascale-orchestrator-controller/"
 	for _, required := range []string{"founder-selection-floor.json", ".founder-selection-floor.lock"} {
 		if _, ok := files[seedRoot+required]; !ok {
 			return fmt.Errorf("seed lacks durable founder floor %s", required)

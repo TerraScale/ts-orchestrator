@@ -111,11 +111,11 @@ func newFakeCell() *fakeCell {
 		evidence:  map[string]Evidence{"controller-b": evidenceFor("controller-b", 1, instanceB)}}
 }
 
-func newTestReconciler(t *testing.T, cfg Config, leader *fakeLeadership, cell *fakeCell, replacer Replacer,
+func newTestReconciler(t *testing.T, leader *fakeLeadership, cell *fakeCell, replacer Replacer,
 	clock *time.Time,
 ) *Reconciler {
 	t.Helper()
-	reconciler, err := New(cfg, testTopology(), Dependencies{Leadership: leader, Peers: cell, Ledger: cell,
+	reconciler, err := New(testTopology(), Dependencies{Leadership: leader, Peers: cell, Ledger: cell,
 		Instances: cell, Evidence: cell, Replacer: replacer, Now: func() time.Time { return *clock },
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	if err != nil {
@@ -137,7 +137,7 @@ func TestReconcilerActsOnlyAsFencedLeader(t *testing.T) {
 	clock := testEpoch
 	leader := &fakeLeadership{}
 	cell := newFakeCell()
-	reconciler := newTestReconciler(t, testConfig(), leader, cell, cell, &clock)
+	reconciler := newTestReconciler(t, leader, cell, cell, &clock)
 	if err := reconciler.Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestReconcilerHoldsWithoutReplacerAndOnPartialObservation(t *testing.T) {
 	clock := testEpoch
 	leader := &fakeLeadership{snapshot: leaderSnapshot(2)}
 	cell := newFakeCell()
-	reconciler := newTestReconciler(t, testConfig(), leader, cell, nil, &clock)
+	reconciler := newTestReconciler(t, leader, cell, nil, &clock)
 	if err := reconciler.Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestReconcilerRetriesFailedReplacementAfterBackoff(t *testing.T) {
 		}
 		return nil
 	}
-	reconciler := newTestReconciler(t, testConfig(), leader, cell, cell, &clock)
+	reconciler := newTestReconciler(t, leader, cell, cell, &clock)
 	for range 3 {
 		if err := reconciler.Tick(t.Context()); err != nil {
 			t.Fatal(err)
@@ -291,7 +291,7 @@ func TestReconcilerRequestsRetirementOncePerTerminatedAttempt(t *testing.T) {
 	cell := newFakeCell()
 	cell.evidence = map[string]Evidence{}
 	requests := &recordingRequests{}
-	reconciler, err := New(testConfig(), testTopology(), Dependencies{Leadership: leader, Peers: cell,
+	reconciler, err := New(testTopology(), Dependencies{Leadership: leader, Peers: cell,
 		Ledger: cell, Instances: cell, Evidence: cell, Replacer: cell, Requests: requests,
 		Now: func() time.Time { return clock }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	if err != nil {

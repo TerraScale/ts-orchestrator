@@ -54,7 +54,7 @@ func TestSignedHistoryRecipeCompletesThreeSlotsThroughPublicLedger(t *testing.T)
 	if err != nil {
 		t.Fatalf("complete three public ledger histories: %v", err)
 	}
-	if completed.Seed.Result == nil || completed.Seed.Result.InstanceOCID != recipe.Observed["seed-a"].InstanceOCID ||
+	if completed.Seed.Result == nil || completed.Seed.Result.InstanceOCID != recipe.Observed["controller-c"].InstanceOCID ||
 		len(completed.Peers) != 2 || capture.PutCount() == 0 {
 		t.Fatalf("signed history did not complete three slots: seed=%+v peers=%d puts=%d",
 			completed.Seed.Result, len(completed.Peers), capture.PutCount())
@@ -90,7 +90,7 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 	if err != nil {
 		t.Fatal(err)
 	}
-	slots := []string{"controller-a", "controller-b", "seed-a"}
+	slots := []string{"controller-a", "controller-b", "controller-c"}
 	deploymentID := entityid.Derive("test-deployment", "production-restart-fixture")
 	imageOCID := "ocid1.image.oc1.sa-saopaulo-1.restartfixture"
 	if suppliedReceipt != nil {
@@ -169,7 +169,7 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 	profiles := []bootstrap.LaunchProfile{
 		historyTestProfile("controller-a", "FAULT-DOMAIN-1"),
 		historyTestProfile("controller-b", "FAULT-DOMAIN-2"),
-		historyTestProfile("seed-a", "FAULT-DOMAIN-3"),
+		historyTestProfile("controller-c", "FAULT-DOMAIN-3"),
 	}
 	manifestWires := make(map[string][]byte, 3)
 	manifestDigests := make(map[string]string, 3)
@@ -178,7 +178,7 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 			DeploymentID: deploymentID, Environment: "production", ClusterID: anchorValue.ClusterID,
 			Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", IntentGeneration: 1,
 			IntentSHA256: anchorValue.InitialRegionIntentSHA256, ControllerRole: "controller", Slot: slot,
-			SeedSlot: "seed-a", ControllerSlots: slices.Clone(slots), Profiles: slices.Clone(profiles),
+			SeedSlot: "controller-c", ControllerSlots: slices.Clone(slots), Profiles: slices.Clone(profiles),
 			ImageOCID: imageOCID, ImageArchitecture: "linux-amd64",
 			ReleaseReceiptSHA256: historyDigest(imageWire), ReleaseImageReceiptWire: imageWire,
 			ReleaseDelegationWire: releaseGrantWire, PeerReceiptDelegation: &peerGrant,
@@ -196,7 +196,7 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 				SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.regionalfixture", VersionNumber: 1,
 				SHA256: historyDigest([]byte("regional fixture credential")), MaxBytes: 1024,
 				TargetFile: "regional.key"}}
-			if slot != "seed-a" {
+			if slot != "controller-c" {
 				manifest.Secrets = append(manifest.Secrets, historyTestTLSSecrets(slot)...)
 			}
 		} else {
@@ -221,7 +221,7 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 			t.Fatal(err)
 		}
 	}
-	privateIPs := map[string]string{"controller-a": "10.44.0.11", "controller-b": "10.44.0.12", "seed-a": "10.44.0.10"}
+	privateIPs := map[string]string{"controller-a": "10.44.0.11", "controller-b": "10.44.0.12", "controller-c": "10.44.0.10"}
 	rows := make([]bootstrap.FounderPeerRow, 0, 2)
 	for _, slot := range slots[:2] {
 		profile := profiles[slices.IndexFunc(profiles, func(p bootstrap.LaunchProfile) bool { return p.Slot == slot })]
@@ -243,9 +243,9 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 			TLSMaterial:     historyFixtureTLSMaterial(slot, credentials)})
 	}
 	planValue := bootstrap.FounderPlan{SchemaVersion: bootstrap.FounderPlanSchemaVersion,
-		DeploymentID: deploymentID, Cell: oci.RegionGRU, Environment: "production", SeedSlot: "seed-a",
+		DeploymentID: deploymentID, Cell: oci.RegionGRU, Environment: "production", SeedSlot: "controller-c",
 		AnchorSHA256: anchor.Digest(), ControllerSlots: slices.Clone(slots),
-		SeedManifestSHA256: manifestDigests["seed-a"], SeedPrivateIP: privateIPs["seed-a"],
+		SeedManifestSHA256: manifestDigests["controller-c"], SeedPrivateIP: privateIPs["controller-c"],
 		Peers: rows, Budget: bootstrap.FounderResourceBudget{WholeOCPUs: 4, MemoryInGB: 24, BootVolumeGB: 100},
 		LaunchDeadline: now.Add(90 * time.Minute)}
 	planPayload, err := trust.EncodePayload(planValue)
@@ -253,7 +253,7 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 		t.Fatal(err)
 	}
 	planEnvelope, err := trust.Sign(planPayload, trust.Scope{Domain: bootstrap.FounderPlanDomain,
-		DeploymentID: deploymentID, Cell: "GRU", Environment: "production", Role: "controller", Slot: "seed-a"},
+		DeploymentID: deploymentID, Cell: "GRU", Environment: "production", Role: "controller", Slot: "controller-c"},
 		now, now.Add(2*time.Hour), rootPrivate)
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +282,7 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 		observed[slot] = ObservedController{InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1." + slot,
 			CreateKey: "create-" + slot, ProviderRequestID: "request-" + slot,
 			ETag: "etag-" + slot}
-		if slot != "seed-a" {
+		if slot != "controller-c" {
 			value := observed[slot]
 			value.RetryToken = "retry-" + slot
 			observed[slot] = value

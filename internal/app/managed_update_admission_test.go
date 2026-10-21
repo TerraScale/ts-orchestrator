@@ -26,8 +26,8 @@ func TestManagedUpdatePrepareProducerRegionMatchesLowercaseCell(t *testing.T) {
 	defer cancel()
 	root := t.TempDir()
 	cell := "gru"
-	broker, err := natscell.Start(ctx, natscell.Config{
-		Cell: cell, Instance: "managed-update-admission", Replicas: 1, Lab: true,
+	broker, err := newAuthenticatedNATS(t, cell).start(t, ctx, natscell.Config{
+		Cell: cell, Instance: "managed-update-admission", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(root, "nats")},
 	})
 	if err != nil {

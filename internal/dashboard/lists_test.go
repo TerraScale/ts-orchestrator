@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -9,41 +10,27 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/globalview"
 )
 
-func TestNodeEntriesSortKeys(t *testing.T) {
+func TestNodesPageSortsResourceColumns(t *testing.T) {
 	t.Parallel()
-	fraction := func(value float64) *float64 { return &value }
-	// a has the lowest CPU and most disk; b the highest CPU and most memory;
-	// c has no CPU reading, so it sorts last by CPU.
 	regions := []globalview.Region{{Cell: "gru", Rollup: &globalview.Rollup{Nodes: []globalview.Node{
-		{Name: "a", CPU: fraction(0.2), MemoryUsedBytes: 1, MemoryBytes: 10, DiskUsedBytes: 9, DiskBytes: 10,
-			NetworkRxBps: fraction(1)},
-		{Name: "b", CPU: fraction(0.9), MemoryUsedBytes: 9, MemoryBytes: 10, DiskUsedBytes: 1, DiskBytes: 10,
-			NetworkRxBps: fraction(1), NetworkTxBps: fraction(1)},
+		{Name: "a", CPU: new(.2), MemoryUsedBytes: 1, MemoryBytes: 10, DiskUsedBytes: 9, DiskBytes: 10, NetworkRxBps: new(1.)},
+		{Name: "b", CPU: new(.9), MemoryUsedBytes: 9, MemoryBytes: 10, DiskUsedBytes: 1, DiskBytes: 10, NetworkRxBps: new(1.), NetworkTxBps: new(1.)},
 		{Name: "c", DiskUsedBytes: 5, DiskBytes: 10},
 	}}}}
-	for _, tc := range []struct{ key, want string }{
-		{"name", "abc"}, {"cpu", "bac"}, {"memory", "bac"}, {"disk", "acb"}, {"network", "bac"},
-	} {
-		var got strings.Builder
-		for _, entry := range nodeEntries(regions, "", tc.key) {
-			got.WriteString(entry.Node.Name)
+	for _, tc := range []struct{ key, want string }{{"name", "abc"}, {"cpu", "bac"}, {"memory", "bac"}, {"disk", "acb"}, {"network", "bac"}} {
+		body := fixturePage(t, view{Global: regions, State: parseState(url.Values{"sort": {tc.key}})}, "/nodes")
+		previous := -1
+		for _, name := range tc.want {
+			at := strings.Index(body, ">"+string(name)+"</a>")
+			if at <= previous {
+				t.Fatalf("sort %s did not render %s", tc.key, tc.want)
+			}
+			previous = at
 		}
-		if got.String() != tc.want {
-			t.Errorf("sort %s = %s, want %s", tc.key, got.String(), tc.want)
-		}
 	}
-}
-
-func TestNewPagerClamps(t *testing.T) {
-	t.Parallel()
-	if got := newPager(240, 2); got.From != 50 || got.To != 100 || got.Pages != 5 {
-		t.Fatalf("page 2 of 240 = %+v", got)
-	}
-	if got := newPager(240, 99); got.Page != 5 || got.From != 200 || got.To != 240 {
-		t.Fatalf("page 99 of 240 = %+v", got)
-	}
-	if got := newPager(0, 3); got.Page != 1 || got.From != 0 || got.To != 0 || got.Pages != 1 {
-		t.Fatalf("empty list = %+v", got)
+	body := fixturePage(t, view{Global: []globalview.Region{}}, "/nodes")
+	if !strings.Contains(body, "No node") && !strings.Contains(body, "no node") && !strings.Contains(body, "No region") {
+		t.Fatal("empty inventory did not explain missing nodes")
 	}
 }
 

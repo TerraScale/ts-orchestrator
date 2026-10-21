@@ -33,7 +33,7 @@ func TestMachineAndIndexRestoreTogetherAfterDeleteAndUploadFailure(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fake := newFakeObjects()
+	fake := newObjectStorage(t)
 	snapshotter := snapshotterFor(js, fake, machines.Bucket, machines.MachineBucket)
 	if _, err := snapshotter.SnapshotOnce(t.Context()); err != nil {
 		t.Fatal(err)
@@ -45,13 +45,13 @@ func TestMachineAndIndexRestoreTogetherAfterDeleteAndUploadFailure(t *testing.T)
 	if err := store.DeleteMachine(t.Context(), 1, machine); err != nil {
 		t.Fatal(err)
 	}
-	fake.putErr = fakeError{503, "Unavailable"}
+	fake.fail("PUT", &storageFault{503, "Unavailable"})
 	if _, err := snapshotter.SnapshotOnce(t.Context()); err == nil {
 		t.Fatal("upload failure was ignored")
 	}
 	for _, want := range []int{1, 0} {
 		if want == 0 {
-			fake.putErr = nil
+			fake.fail("PUT", nil)
 			if _, err := snapshotter.SnapshotOnce(t.Context()); err != nil {
 				t.Fatal(err)
 			}

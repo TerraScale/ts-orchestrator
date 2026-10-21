@@ -15,7 +15,7 @@ func TestReconcilerRefreshesAnUnansweredRetirementRequest(t *testing.T) {
 	cell := newFakeCell()
 	cell.evidence = map[string]Evidence{}
 	requests := &recordingRequests{}
-	reconciler, err := New(testConfig(), testTopology(), Dependencies{Leadership: leader, Peers: cell,
+	reconciler, err := New(testTopology(), Dependencies{Leadership: leader, Peers: cell,
 		Ledger: cell, Instances: cell, Evidence: cell, Replacer: cell, Requests: requests,
 		Now: func() time.Time { return clock }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	if err != nil {

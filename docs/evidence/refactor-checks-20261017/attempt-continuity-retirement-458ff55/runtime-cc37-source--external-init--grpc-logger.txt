@@ -1,0 +1,42 @@
+SOURCE /home/mariogk/go/pkg/mod/google.golang.org/grpc@v1.83.2/grpclog/loggerv2.go
+FULL_FILE_SHA256 e5a0d19469e8fb4f14b809f118dbdbf14b76bfb0698679eac53f45d3d3793779
+LINES 60-97
+
+func newLoggerV2() LoggerV2 {
+	errorW := io.Discard
+	warningW := io.Discard
+	infoW := io.Discard
+
+	logLevel := os.Getenv("GRPC_GO_LOG_SEVERITY_LEVEL")
+	switch logLevel {
+	case "", "ERROR", "error": // If env is unset, set level to ERROR.
+		errorW = os.Stderr
+	case "WARNING", "warning":
+		warningW = os.Stderr
+	case "INFO", "info":
+		infoW = os.Stderr
+	}
+
+	var v int
+	vLevel := os.Getenv("GRPC_GO_LOG_VERBOSITY_LEVEL")
+	if vl, err := strconv.Atoi(vLevel); err == nil {
+		v = vl
+	}
+
+	jsonFormat := strings.EqualFold(os.Getenv("GRPC_GO_LOG_FORMATTER"), "json")
+
+	return internal.NewLoggerV2(infoW, warningW, errorW, internal.LoggerV2Config{
+		Verbosity:  v,
+		FormatJSON: jsonFormat,
+	})
+}
+
+// DepthLoggerV2 logs at a specified call frame. If a LoggerV2 also implements
+// DepthLoggerV2, the below functions will be called with the appropriate stack
+// depth set for trivial functions the logger may ignore.
+//
+// # Experimental
+//
+// Notice: This type is EXPERIMENTAL and may be changed or removed in a
+// later release.
+type DepthLoggerV2 internal.DepthLoggerV2

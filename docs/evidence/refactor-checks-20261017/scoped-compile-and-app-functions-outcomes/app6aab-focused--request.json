@@ -1,0 +1,107 @@
+{
+  "state": "FROZEN_NO_RUNTIME_LEASE",
+  "worktree": "/tmp/ts-app-duration-fingerprint-aa0d6e5ad",
+  "commit": "6aab710808fddcc45fb15e770369449dfd2d6861",
+  "tree": "bb2a066c76922e400db62fe5b180ecedcd417d6b",
+  "source_manifest": "/tmp/ts-app-6aab71080-fingerprint-v1f2uekh/fullsource-manifest.json",
+  "source_manifest_sha256": "f3a94a3541646bf3f6b85fbf801ade78cdae256f00f14ca010abf5c240177f2a",
+  "go_binary_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+  "tool_sha256": {
+    "/run/current-system/sw/bin/nice": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/timeout": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/env": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/git": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+  },
+  "static_review_sha256": "5277d082b402903fbe21747288bcb349d66d8c3c81aa6f010fb0ea63d3edaca5",
+  "request": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "180s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-json",
+      "-mod=readonly",
+      "-vet=off",
+      "-p=1",
+      "-parallel=1",
+      "-count=1",
+      "-timeout=30s",
+      "-run",
+      "^TestServiceIntentGeneration$",
+      "./internal/swarmruntime"
+    ],
+    "cwd": "/tmp/ts-app-duration-fingerprint-aa0d6e5ad",
+    "compile_only": false,
+    "binary_execution_authorized": true,
+    "attempts": 1,
+    "lease_required": true,
+    "locks": [
+      "/tmp/ts-orch-refactor-short-check-a.lock"
+    ],
+    "lock_mode": "Short-A nonblocking-exclusive; no launch if busy",
+    "resource_envelope": "One pure memory root; test timeout30s; outer180s TERM/KILL5 includes compilation; estimated<=2GiBRSS,<=1GiB additional cache/scratch; GOMAXPROCS2/packagep1/nice19.",
+    "scope": "Focused pure regression only; no connected manager, native runtime or cloud qualification.",
+    "effective_child_environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local",
+      "LANG": "C.UTF-8"
+    }
+  },
+  "expected_package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+  "expected_pass_tests": [
+    "TestServiceIntentGeneration"
+  ],
+  "expected_terminal_outcomes": 1,
+  "static_closure_sha256": "29f1c96d149de4e3a6e24360fa201be6a81265800018efd1b7408d556cbc9c3e",
+  "scope_limitations": [
+    "Pure regression; no connected runtime or production qualification."
+  ],
+  "supersedes_used_packet": "/tmp/ts-app-runtime-aa0d6e5ad-diagnostic-ropk9b02",
+  "source_delta": "Shared deterministic JSONv2 service fingerprint adds documented numeric nanosecond duration encoding; existing generation regression asserts each Update/Rollback delay mutation changes identity. Exactly2files +12/-1 fromaa0.",
+  "intent": "Execute selected regression once after separate exact QA grant; no runtime authorization from packaging.",
+  "prior_failure": {
+    "packet": "/tmp/ts-app-runtime-ce04cc70c-n95bizlg",
+    "commit": "ce04cc70c4415506cfab5d9e62393356620863db",
+    "final_seal_sha256": "406423d65c742bf2b169272cc2a12a70012b79fb516e01f472c2e7c6660941f8",
+    "receipt_sha256": "def28cb4d1002b54b5cc351a55859df2fac564477b12a4e4b74189c016140a49",
+    "test_elapsed_seconds": 240.06,
+    "failure": "initial delivery accepted-status wait: actual manager did not converge: context deadline exceeded",
+    "immediate_log": "delivery intent processing deferred stage=container_apply cause_class=other",
+    "precise_apply_cause": "unknown; diagnostic required",
+    "unreached_phases": [
+      "initial readiness",
+      "scale and repair",
+      "rollout, rollback and recovery",
+      "later three-manager election",
+      "drain and removal"
+    ]
+  },
+  "diagnostic_terminal": {
+    "packet": "/tmp/ts-app-runtime-aa0d6e5ad-diagnostic-ropk9b02",
+    "final_seal_sha256": "16bf56bcd4613b7aea0995eac0cb461e0123f19cda46a08bba1623c958db5768",
+    "receipt_sha256": "8ac9880d7d04f0af0116ad1e2c5356f8fe33c1b36039dbf0835317c89ffb3624",
+    "exit_code": 1,
+    "test_elapsed_seconds": 240.05,
+    "first_apply_error_sha256": "2710dd9c69d8a2f74c5a667e4bde5a58b283cf9642e1bcf03d253aa55f159802",
+    "first_apply_error": "json: unable to marshal from Go time.Duration within /update/delay: no default representation",
+    "later_phases": "readiness,scale,repair,rollout,rollback,recovery,later election,drain/removal all unreached"
+  }
+}

@@ -1,0 +1,15 @@
+func TestRefuseIntentPreservesAcceptedOperation(t *testing.T) {
+	writer := &testWriter{}
+	s, ctx := testService(t, writer)
+	i := testIntent(t, s, ctx)
+	if terminal, err := s.process(ctx, mustJSON(i)); !terminal || err != nil {
+		t.Fatalf("accept: terminal=%t err=%v", terminal, err)
+	}
+	if err := s.RefuseIntent(ctx, i, "operator", i.AuthorityEpoch, "late refusal"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("accepted operation overwritten: %v", err)
+	}
+	r, err := s.StatusFor(ctx, i)
+	if err != nil || r.Status != "accepted" || writer.count() != 1 {
+		t.Fatalf("accepted=%+v err=%v writes=%d", r, err, writer.count())
+	}
+}

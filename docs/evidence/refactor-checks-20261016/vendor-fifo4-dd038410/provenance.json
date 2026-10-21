@@ -1,0 +1,16 @@
+{
+  "source": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "FIFO_position": 4,
+  "session": 17084,
+  "result": "one root PASS 2.36s / package2.374s; no skips/extras",
+  "archive_sha256": "fcfa44aad8571ab31dd6dfe3032196c0aa0281cbe71395fbb823199f93c2f943",
+  "archive_members": 26,
+  "manifest_sha256": "cdba18cf79d6987799cd1e711997f7cfc54fc4ede01d22d73c5916d663d9b49c",
+  "raw_sha256": "65c02de5924ecc3b1a98607f27da31b5ac046237f259f081597500534f808337",
+  "broker_receipt_sha256": "d1776fbdfbc61aa2cbd5b2e89d1186e4b9be7e0a8d5c119a3719a0dcef0a71b5",
+  "bindings": "all155 match before/after; independently checked by QA",
+  "archive_verification": "QA checked every member byte against original packet, SHA256SUMS/manifest and raw gzip roundtrip",
+  "remaining": "7 serial batches/8 roots/81 cases",
+  "limits": "standard execution only; original private interleaving, race/equivalence/removal/central closure remain open"
+}

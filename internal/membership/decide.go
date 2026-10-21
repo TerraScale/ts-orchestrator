@@ -18,7 +18,6 @@ const (
 	ReasonQuorumLost          = "metadata quorum lost; use break-glass quorum recovery"
 	ReasonOtherReplacement    = "another slot replacement is in progress"
 	ReasonAwaitingEvidence    = "awaiting root-signed retirement evidence"
-	ReasonObserveOnly         = "replacement disabled; observe-only"
 	ReasonRetryBackoff        = "replacement retry backoff"
 	ReasonReplacing           = "replacement in progress"
 	ReasonRejoining           = "replacement completed; waiting for peer to rejoin"
@@ -30,7 +29,7 @@ const (
 // replaced at a time, and only with evidence bound to the exact prior attempt
 // and instance. Actions are idempotent: a replayed action resumes the same
 // successor attempt.
-func Decide(cfg Config, topology Topology, previous State, observation Observation) (State, []Action) {
+func Decide(topology Topology, previous State, observation Observation) (State, []Action) {
 	next := previous.clone()
 	slots := slices.Clone(topology.Slots)
 	slices.Sort(slots)
@@ -86,7 +85,7 @@ func Decide(cfg Config, topology Topology, previous State, observation Observati
 		status.Online = slot == topology.SelfSlot || online[topology.ServerName(slot)]
 		evidence, hasEvidence := observation.Evidence[slot]
 		if status.Phase == PhaseReplacing {
-			status, actions = decideReplacing(cfg, status, ledger, evidence, hasEvidence, quorum, observation, actions)
+			status, actions = decideReplacing(status, ledger, evidence, hasEvidence, quorum, observation, actions)
 			next.Slots[slot] = status
 			continue
 		}
@@ -107,7 +106,7 @@ func Decide(cfg Config, topology Topology, previous State, observation Observati
 			status.OfflineSince = observation.At
 		}
 		terminated := lifecycle == LifecycleTerminated
-		if !terminated && observation.At.Sub(status.OfflineSince) < cfg.OfflineGrace() {
+		if !terminated && observation.At.Sub(status.OfflineSince) < DefaultOfflineGrace {
 			status.Phase, status.Reason = PhaseSuspect, ReasonOfflineWithinGrace
 			next.Slots[slot] = status
 			continue
@@ -132,9 +131,7 @@ func Decide(cfg Config, topology Topology, previous State, observation Observati
 			evidence.PriorInstanceOCID != ledger.InstanceOCID || len(evidence.Wire) == 0:
 			status.Reason = fmt.Sprintf("%s for %s attempt %d instance %s", ReasonAwaitingEvidence, slot,
 				ledger.Attempt, ledger.InstanceOCID)
-		case !cfg.Replace:
-			status.Reason = ReasonObserveOnly
-		case !status.LastFailure.IsZero() && observation.At.Sub(status.LastFailure) < cfg.RetryBackoff():
+		case !status.LastFailure.IsZero() && observation.At.Sub(status.LastFailure) < DefaultRetryBackoff:
 			status.Reason = ReasonRetryBackoff
 		default:
 			status.Phase, status.Reason = PhaseReplacing, ReasonReplacing
@@ -153,7 +150,7 @@ func Decide(cfg Config, topology Topology, previous State, observation Observati
 // attempt completes. It re-emits the same action, bound to the same evidence,
 // until the ledger reports completion, so a crashed or failed actuator call is
 // resumed rather than restarted with a new attempt.
-func decideReplacing(cfg Config, status SlotStatus, ledger LedgerSlot, evidence Evidence, hasEvidence bool,
+func decideReplacing(status SlotStatus, ledger LedgerSlot, evidence Evidence, hasEvidence bool,
 	quorum bool, observation Observation, actions []Action,
 ) (SlotStatus, []Action) {
 	previous := status.PendingAttempt - 1
@@ -172,9 +169,7 @@ func decideReplacing(cfg Config, status SlotStatus, ledger LedgerSlot, evidence 
 	case !hasEvidence || evidence.Slot != status.Slot || evidence.PreviousAttempt != previous ||
 		ledger.Attempt != previous && ledger.Attempt != status.PendingAttempt || len(evidence.Wire) == 0:
 		status.Reason = fmt.Sprintf("%s for %s attempt %d", ReasonAwaitingEvidence, status.Slot, previous)
-	case !cfg.Replace:
-		status.Reason = ReasonObserveOnly
-	case !status.LastFailure.IsZero() && observation.At.Sub(status.LastFailure) < cfg.RetryBackoff():
+	case !status.LastFailure.IsZero() && observation.At.Sub(status.LastFailure) < DefaultRetryBackoff:
 		status.Reason = ReasonRetryBackoff
 	default:
 		status.Reason = ReasonReplacing

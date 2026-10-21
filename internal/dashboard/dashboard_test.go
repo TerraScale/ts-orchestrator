@@ -2,17 +2,22 @@ package dashboard
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"errors"
+	"encoding/json/v2"
+	"html"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/globalview"
+	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 
 	"github.com/TerraScale/ts-orchestrator/internal/insights"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
@@ -147,37 +152,6 @@ func TestEveryPageRendersProviderData(t *testing.T) {
 		if response.Header().Get("X-Frame-Options") != "DENY" || response.Header().Get("Cache-Control") != "no-store" {
 			t.Errorf("GET %s lacks hardening headers", path)
 		}
-	}
-}
-
-func TestPagesRenderWithoutProviders(t *testing.T) {
-	t.Parallel()
-	handler := newTestDashboard(Options{}).Handler()
-	for _, page := range pages {
-		response := get(t, handler, page.href())
-		if response.Code != http.StatusOK {
-			t.Fatalf("GET %s = %d", page.href(), response.Code)
-		}
-		if body := response.Body.String(); !strings.Contains(body, "still starting") {
-			t.Errorf("GET %s does not explain the missing providers", page.href())
-		}
-	}
-}
-
-func TestPagesExplainFailingProviders(t *testing.T) {
-	t.Parallel()
-	dashboard := newTestDashboard(Options{Health: readyHealth(false),
-		Snapshots: fixedSnapshots{err: errors.New("boom")},
-		Cluster:   fixedCluster{err: errors.New("no responders")}})
-	body := get(t, dashboard.Handler(), "/").Body.String()
-	for _, want := range []string{"snapshot is unavailable", "cell-wide view is unavailable",
-		"nats: regional broker is not connected", "not ready"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("overview lacks %q", want)
-		}
-	}
-	if strings.Contains(body, "boom") || strings.Contains(body, "no responders") {
-		t.Error("overview leaked raw provider error text")
 	}
 }
 
@@ -451,23 +425,20 @@ func TestStreamsAreCapped(t *testing.T) {
 	}
 }
 
-func TestEventFilterMatches(t *testing.T) {
+func TestEventPageMatchesSeverityAndComponent(t *testing.T) {
 	t.Parallel()
-	filter := eventFilter{Level: "warn", Component: "placement"}
-	for _, test := range []struct {
-		level, component string
-		want             bool
-	}{
-		{"WARN", "placement", true},
-		{"ERROR", "placement", true},
-		{"WARN+2", "placement", true},
-		{"INFO", "placement", false},
-		{"ERROR", "delivery", false},
-	} {
-		event := observability.Event{Level: test.level, Component: test.component}
-		if got := filter.matches(event); got != test.want {
-			t.Errorf("matches(%+v) = %v", event, got)
+	bus := observability.NewEventBus(16)
+	for _, event := range []observability.Event{{Level: "WARN", Component: "placement", Message: "warn-match"}, {Level: "ERROR", Component: "placement", Message: "error-match"}, {Level: "WARN+2", Component: "placement", Message: "custom-match"}, {Level: "INFO", Component: "placement", Message: "info-excluded"}, {Level: "ERROR", Component: "delivery", Message: "delivery-excluded"}} {
+		bus.Publish(event)
+	}
+	body := get(t, newTestDashboard(Options{Events: bus}).Handler(), "/events?level=warn&component=placement").Body.String()
+	for _, want := range []string{"warn-match", "error-match", "custom-match"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("event page lost %s", want)
 		}
+	}
+	if strings.Contains(body, "info-excluded") || strings.Contains(body, "delivery-excluded") {
+		t.Fatal("event page ignored filters")
 	}
 }
 
@@ -521,14 +492,131 @@ func TestEventsStreamRecoversDroppedEvents(t *testing.T) {
 // all-regions list, like an insight card does.
 func TestToastLinksTheRegionScopedInsight(t *testing.T) {
 	t.Parallel()
+	board, source, _ := journalDashboard(Options{})
+	server := newStreamServer(t, board)
+	reader, _ := openStream(t, server, "/insights/stream?r=fra")
+	reader.next()
 	insight := testInsight("oci:x", "OCI errors", insights.SeverityWarning, "sfo")
-	var body bytes.Buffer
-	if err := insightToast(parseState(url.Values{"r": {"fra"}}), insights.Change{Type: insights.ChangeOpened,
-		Insight: insight}).Render(context.Background(), &body); err != nil {
+	source.push(insights.Change{Time: testNow.Add(time.Second), Type: insights.ChangeOpened, Insight: insight})
+	_, body := reader.next()
+	if !strings.Contains(body, "id="+insight.Key) || !strings.Contains(body, "region=all") || !strings.Contains(body, "#insight-"+insight.Key) {
+		t.Fatalf("toast lost region scoped link: %s", body)
+	}
+}
+
+// fixturePage exercises the production router, provider loading and templates over HTTP.
+func fixturePage(t *testing.T, current view, path string) string {
+	t.Helper()
+	now := current.Now
+	if now.IsZero() {
+		now = testNow
+	}
+	journal := Journal{}
+	if current.Journal != nil {
+		journal = *current.Journal
+	}
+	if current.LocalSummary != nil {
+		journal.Local = func(context.Context) regionview.Summary { return *current.LocalSummary }
+	}
+	if current.Global != nil {
+		cells := make([]string, 0, len(current.Global))
+		for _, region := range current.Global {
+			cells = append(cells, region.Cell)
+		}
+		local := ""
+		if len(cells) > 0 {
+			local = cells[0]
+		}
+		journal.Global = globalview.NewView(local, func() []string { return cells }, func() time.Time { return now })
+		for _, region := range current.Global {
+			if region.Rollup == nil {
+				continue
+			}
+			rollup := *region.Rollup
+			rollup.Version, rollup.Cell = globalview.Version, region.Cell
+			if rollup.ObservedAt.IsZero() {
+				rollup.ObservedAt = now
+			}
+			if region.Stale {
+				rollup.ObservedAt = now.Add(-time.Minute)
+			}
+			if !journal.Global.Accept(rollup) {
+				t.Fatalf("invalid fixture rollup: %+v", rollup)
+			}
+		}
+	}
+	if current.Decisions != nil {
+		journal.Decisions = fixtureDecisions{result: *current.Decisions}
+	}
+	if current.Versions != nil {
+		journal.Versions = fakeVersions(current.Versions)
+	}
+	if current.Capacity != nil {
+		journal.Capacity = &fakeCapacity{view: *current.Capacity}
+	}
+	if current.Evaluation != nil {
+		journal.Insights = &fakeInsights{evaluation: *current.Evaluation}
+	}
+	options := Options{Journal: &journal, Now: func() time.Time { return now }, Health: fixtureHealth{current.Ready, current.Checks}}
+	if current.Local != nil {
+		options.Snapshots = fixedSnapshots{snapshot: *current.Local}
+	}
+	if current.Cluster != nil {
+		options.Cluster = fixedCluster{snapshot: *current.Cluster}
+	}
+	server := httptest.NewServer(New(options).Handler())
+	defer server.Close()
+	state := current.State
+	if state.Range.Key == "" {
+		state = parseState(nil)
+	}
+	if query := state.query(); query != "" {
+		path += "?" + query
+	}
+	client := server.Client()
+	client.Timeout = 5 * time.Second
+	response, err := client.Get(server.URL + path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body.String(), "id="+insight.Key) || !strings.Contains(body.String(), "region=all") ||
-		!strings.Contains(body.String(), "#insight-"+insight.Key) {
-		t.Fatalf("toast = %s", body.String())
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s = %d: %s", path, response.StatusCode, body)
+	}
+	return string(body)
+}
+
+type fixtureDecisions struct{ result decisionlog.Result }
+
+func (source fixtureDecisions) Query(context.Context, decisionlog.Query) (decisionlog.Result, error) {
+	return source.result, nil
+}
+func (source fixtureDecisions) Chain(context.Context, string) (decisionlog.Chain, error) {
+	return decisionlog.Chain{}, decisionlog.ErrNotFound
+}
+
+type fixtureHealth struct {
+	ready  bool
+	checks []observability.CheckResult
+}
+
+func (source fixtureHealth) Evaluate(context.Context) (bool, []observability.CheckResult) {
+	return source.ready, source.checks
+}
+
+func pageCharts(t *testing.T, body string) []chartSpec {
+	t.Helper()
+	var charts []chartSpec
+	for _, match := range regexp.MustCompile(`data-spec="([^"]*)"`).FindAllStringSubmatch(body, -1) {
+		var spec chartSpec
+		if err := json.Unmarshal([]byte(html.UnescapeString(match[1])), &spec); err != nil {
+			t.Fatal(err)
+		}
+		charts = append(charts, spec)
+	}
+	return charts
 }

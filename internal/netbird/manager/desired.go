@@ -1,5 +1,5 @@
 // Package manager reconciles TerraScale's NetBird manager: groups, the GRU
-// cell network, access policies, account and DNS settings, the cell DNS zone
+// access policies, account and DNS settings, the cell DNS zone
 // and the hygiene of server peers. The CLI and the leading controller share
 // one embedded desired state. Objects are matched by name, never by stored ID;
 // a renamed object lists its former names so the first sync renames it in
@@ -12,9 +12,11 @@ import (
 	"maps"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
@@ -101,7 +103,6 @@ func GRU() Desired {
 		Cell: "gru-1", Region: "sa-saopaulo-1",
 		Groups: []GroupSpec{
 			{Name: "operators"},
-			{Name: "ts-ops-gateway", RenamedFrom: []string{"gateway"}},
 			{Name: "gru-servers", RenamedFrom: []string{"ts-orch-servers"}},
 			{Name: "ops-automation"},
 		},
@@ -109,30 +110,18 @@ func GRU() Desired {
 		Network: NetworkSpec{
 			Name: "gru-cell", Description: "TerraScale GRU private cell",
 			Resource: ResourceSpec{Name: "gru-cell-private-subnet", RenamedFrom: []string{"gru-cell"},
-				Description: "GRU cell private subnet, reached through the ts-ops routing peer",
+				Description: "GRU cell private address plan",
 				Address:     "10.251.0.0/25"},
-			RouterPeer: "ts-ops", RouterGroup: "ts-ops-gateway", Metric: 100, Masquerade: true,
 		},
 		Policies: slices.Concat([]PolicySpec{
-			{Name: "operators-to-gru-cell-ops-ports", RenamedFrom: []string{"operators-to-gru-cell"},
-				Description: "Operators → GRU cell subnet: SSH 22, NATS 4222, TerraBase 9465",
-				Protocol:    "tcp", Ports: []string{"22", "4222", "9465"},
-				Sources: []string{"operators"}, DestinationResource: "gru-cell-private-subnet"},
 			{Name: "operators-to-gru-servers-ssh", RenamedFrom: []string{"operators-ssh-to-ts-orch-servers"},
 				Description: "Operators → GRU servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"operators"}, Destinations: []string{"gru-servers"}},
 			{Name: "ops-automation-to-gru-servers-ssh",
 				Description: "Operator automation peers → GRU servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{"gru-servers"}},
-		}, serverAccessPolicies([]string{"gru-servers"}), []PolicySpec{
-			{Name: "operators-to-ts-ops-services", RenamedFrom: []string{"operators-to-ts-ops-forgejo", "operators-to-forgejo"},
-				Description: "Operators → ts-ops: HTTPS 443, admin SSH 2022",
-				Protocol:    "tcp", Ports: []string{"443", "2022"},
-				Sources: []string{"operators"}, Destinations: []string{"ts-ops-gateway"}},
-			{Name: "operators-to-ts-ops-ping", RenamedFrom: []string{"operators-ping-to-forgejo"},
-				Description: "Operators → ts-ops: ICMP ping",
-				Protocol:    "icmp", Sources: []string{"operators"}, Destinations: []string{"ts-ops-gateway"}},
-		}),
+		}, serverAccessPolicies([]string{"gru-servers"})),
+
 		NetworkRange:      networkplan.Mesh,
 		PeerDNSDomain:     "nb.ts.internal",
 		DNSDisabledGroups: []string{},
@@ -192,20 +181,13 @@ func serverAccessPolicies(groups []string) []PolicySpec {
 	return policies
 }
 
-// fabricPorts are the region-to-region ports between the home region's
-// servers and another region's, the fallback path beside the OCI private
-// peering (TS-668): the NATS interregion leafnode link and TerraBase's
-// member peer port.
-var fabricPorts = []string{"7422", "9443"}
-
-// regionPolicies grants operators and operator automation NetBird SSH to
-// every other region's servers group, and lets the home region's servers and
-// that group reach each other on fabricPorts.
+// regionPolicies follows the production NATS star: spokes dial only the
+// home listener. Network access does not issue NATS or OCI admission.
 func regionPolicies(groups []string) []PolicySpec {
 	var policies []PolicySpec
+	home := natscell.LinkHome + "-servers"
 	for _, group := range groups {
 		cell := strings.ToUpper(strings.TrimSuffix(group, "-servers"))
-		ports := "NATS leafnodes " + fabricPorts[0] + ", TerraBase peers " + fabricPorts[1]
 		policies = append(policies,
 			PolicySpec{Name: "operators-to-" + group + "-ssh",
 				Description: "Operators → " + cell + " servers: NetBird SSH with identity-provider login",
@@ -213,12 +195,15 @@ func regionPolicies(groups []string) []PolicySpec {
 			PolicySpec{Name: "ops-automation-to-" + group + "-ssh",
 				Description: "Operator automation peers → " + cell + " servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{group}},
-			PolicySpec{Name: "gru-servers-to-" + group + "-fabric",
-				Description: "GRU servers → " + cell + " servers: " + ports,
-				Protocol:    "tcp", Ports: fabricPorts, Sources: []string{"gru-servers"}, Destinations: []string{group}},
-			PolicySpec{Name: group + "-to-gru-servers-fabric",
-				Description: cell + " servers → GRU servers: " + ports,
-				Protocol:    "tcp", Ports: fabricPorts, Sources: []string{group}, Destinations: []string{"gru-servers"}})
+			PolicySpec{Name: home + "-to-" + group + "-terrabase", RenamedFrom: []string{home + "-to-" + group + "-fabric"},
+				Description: "Home servers → " + cell + " servers: TerraBase peers 9443",
+				Protocol:    "tcp", Ports: []string{"9443"}, Sources: []string{home}, Destinations: []string{group}},
+			PolicySpec{Name: group + "-to-" + home + "-terrabase",
+				Description: cell + " servers → home servers: TerraBase peers 9443",
+				Protocol:    "tcp", Ports: []string{"9443"}, Sources: []string{group}, Destinations: []string{home}},
+			PolicySpec{Name: group + "-to-" + home + "-fabric",
+				Description: cell + " servers → home servers: NATS leafnodes",
+				Protocol:    "tcp", Ports: []string{strconv.Itoa(natscell.LinkPort)}, Sources: []string{group}, Destinations: []string{home}})
 	}
 	return policies
 }
@@ -233,7 +218,7 @@ func (d Desired) PeerName(slot Slot) string {
 }
 
 // PeerNames maps every slot's private IP to its stable peer name. It is the
-// source of the image's netbird.json peer_names.
+// historical private address plan, independent of enrolled peer discovery.
 func (d Desired) PeerNames() map[string]string {
 	names := make(map[string]string, len(d.Slots))
 	for _, slot := range d.Slots {
@@ -297,7 +282,7 @@ func (d Desired) Validate() error {
 		}
 		return nil
 	}
-	if err := known(append(append([]string{d.ServersGroup, d.Network.RouterGroup}, d.DNSDisabledGroups...), d.Zone.DistributionGroups...)...); err != nil {
+	if err := known(append(append([]string{d.ServersGroup}, d.DNSDisabledGroups...), d.Zone.DistributionGroups...)...); err != nil {
 		return err
 	}
 	subnet, err := netip.ParsePrefix(d.Network.Resource.Address)

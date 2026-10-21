@@ -22,14 +22,18 @@ import (
 type regionalDeliveryPlanner struct {
 	nativeHistory *nativeHistory
 	hosts         *host.Controller
+	services      *specRegistry
 	// profiles returns the current cell spec's delivery profiles.
 	profiles func() map[string]WorkloadProfile
 	// address returns the private address the cell spec grants a node.
-	address   func(node string) string
-	workloads *workload.Reconciler
+	address  func(node string) string
+	migrated func(string) bool
 }
 
 func (p *regionalDeliveryPlanner) ApplyDesired(ctx context.Context, desired host.Desired) (host.Receipt, error) {
+	if p.migrated != nil && p.migrated(desired.Role) {
+		return host.Receipt{}, errors.New("stateless desired writes are owned by the signed manager runtime")
+	}
 	if slices.Contains(serviceReleaseRoles, desired.Role) {
 		if p.nativeHistory == nil {
 			return host.Receipt{}, errors.New("native signed profile history is unavailable")

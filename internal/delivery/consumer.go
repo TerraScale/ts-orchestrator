@@ -64,7 +64,7 @@ var deliveryConsumerRecovery = consumerRecovery{time.Second, 30 * time.Second}
 // backoff instead of returning, so a delivery fault never stops the
 // controller and its embedded broker.
 func (s *Service) Run(ctx context.Context) error {
-	if s == nil || s.consumer == nil || s.config.Verifier == nil || s.config.Authorize == nil || s.config.Fencer == nil || s.config.Planner == nil || s.config.Writer == nil {
+	if s == nil || s.consumer == nil || s.config.Verifier == nil || s.config.Authorize == nil || s.config.Fencer == nil || (s.config.ContainerApply == nil && (s.config.Planner == nil || s.config.Writer == nil)) {
 		return errors.New("delivery consumer ports are not configured")
 	}
 	var diagnostics deliveryRetryDiagnostics
@@ -412,11 +412,20 @@ func (s *Service) processDelivery(ctx context.Context, wire []byte, delivered ui
 		if existing.Intent.OperationID != intent.OperationID || existing.Fingerprint != fingerprint || existing.Actor != actor {
 			return s.reject(ctx, wire, "operation ID already binds a different request")
 		}
+		if existing.Intent.Container != nil && !validContainerProfileRecord(existing.ProfileRecord) {
+			return false, stageDeliveryError("container_profile", ErrPending)
+		}
 		if existing.Receipt != nil {
 			return true, nil
 		}
 	} else if !errors.Is(err, jetstream.ErrKeyNotFound) {
 		return false, stageDeliveryError("operation_lookup", err)
+	}
+	if intent.Container != nil {
+		return s.processContainer(ctx, wire, intent, actor, fingerprint, entry)
+	}
+	if s.config.Planner == nil || s.config.Writer == nil {
+		return s.rejectIntent(ctx, wire, intent, actor, "native service delivery is unavailable")
 	}
 	entryErr := err
 	admission, err := s.readAdmission(ctx, intent.ArtifactDigest, intent.Cell, intent.Role, intent.Environment)
@@ -662,7 +671,7 @@ func (s *Service) verifiedIntent(ctx context.Context, wire []byte) (Intent, stri
 		if err := cached.Intent.Validate(); err != nil || cached.Intent.Cell != s.config.Cell || cached.Actor == "" {
 			return Intent{}, "", ErrInvalid
 		}
-		if err := s.config.Authorize(ctx, cached.Actor, cached.Intent); err != nil {
+		if err := s.config.Authorize(ctx, cached.Actor, cached.Intent.Clone()); err != nil {
 			return Intent{}, "", err
 		}
 		return cached.Intent, cached.Actor, nil
@@ -678,7 +687,7 @@ func (s *Service) verifiedIntent(ctx context.Context, wire []byte) (Intent, stri
 	if err != nil || intent.Cell != s.config.Cell {
 		return Intent{}, "", ErrInvalid
 	}
-	if err := s.config.Authorize(ctx, verified.Actor, intent); err != nil {
+	if err := s.config.Authorize(ctx, verified.Actor, intent.Clone()); err != nil {
 		return Intent{}, "", err
 	}
 	b, err := json.Marshal(struct {

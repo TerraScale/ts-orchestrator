@@ -1,0 +1,33 @@
+func TestPrepareArtifactRepairsMetadataWithMissingChunks(t *testing.T) {
+	t.Parallel()
+	service, ctx := testService(t, &testWriter{})
+	content := bytes.Repeat([]byte("interrupted upload"), 1024)
+	record, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := service.artifacts.GetInfo(ctx, artifactKey(record.Digest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := service.js.Stream(ctx, "OBJ_"+ArtifactBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Purge(ctx, jetstream.WithPurgeSubject(artifactChunkPrefix+before.NUID)); err != nil {
+		t.Fatal(err)
+	}
+	store := &putCountingObjectStore{ObjectStore: service.artifacts}
+	service.artifacts = store
+	repaired, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil || repaired != record || store.puts.Load() != 1 {
+		t.Fatalf("repair = %+v, %v, puts=%d; want same record and one upload", repaired, err, store.puts.Load())
+	}
+	after, err := service.artifacts.GetInfo(ctx, artifactKey(record.Digest))
+	if err != nil || after.NUID == before.NUID {
+		t.Fatalf("repair metadata = %+v, %v; want new verified chunks", after, err)
+	}
+	if err := service.verifyArtifact(ctx, record); err != nil {
+		t.Fatalf("repaired artifact: %v", err)
+	}
+}

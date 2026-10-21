@@ -1,0 +1,398 @@
+{
+  "state": "ACCEPTED_EXACT_TERMINAL_FAILURE_NOT_QUALIFIED_NO_RETRY",
+  "reviewed_at_utc": "2026-10-17T04:46:57.115390+00:00",
+  "method": "Independent read-only final-seal/pin/Git/raw-event/lifecycle/source/native-receipt review. Read-only named child /proc existence and lock-file stat plus /proc/locks observation explicitly requested; no lock acquire/release, source edits, runner/Go/binary execution, retry or remote calls.",
+  "source": {
+    "worktree": "/tmp/ts-core-management-observation",
+    "head": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+    "tree": "89edb76c39969780081df545e6f6f4bf9759086d",
+    "current_clean_exact": true,
+    "tracked_entries": 4208,
+    "current_entry_order_path_mode_git_blob_bytes_sha256_exact": true,
+    "pre_post_source_metadata_equal": true,
+    "preflight_receipt_source_equal": true,
+    "tool_pins": 11,
+    "all_tool_resolved_paths_and_hashes_match": true,
+    "manifest_sha256": "f5bfa15b9598eb7fa347693d3a451b2d0d599c56221a55c2ddc4c8be59adf175",
+    "tool_pins_sha256": "df053f503abcb269c3a81f79d47edb0dcc092c8ec6d7425b7be9885ab0764c90",
+    "request_sha256": "6622dcff83909fd593f1e810cc7f2c28a55a33edf26037d37282c511d742362c",
+    "runner_sha256": "5d0c94166da8ec52175bbb655a595a5991d210b8bcf1f6f7be2526caf020f19a",
+    "request_all_four_asset_pins_match": true
+  },
+  "evidence": {
+    "native_packet": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+    "source_packet": "/tmp/ts-management-observation-2d158-120-source-fd67jiak",
+    "runner_packet": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35",
+    "final_seal_sha256": "b7f2c62faeb85ad8655f6a2e1b50b04f2b7463d5546c6ea90de8345b6b7fd861",
+    "all_final_seal_files_verified_bytes_and_sha256": 28,
+    "receipt_sha256": "3fa4e9e2211f3f54ce75b150a4181b75073461563b9393e4836b8ae4630cdfed",
+    "owner_full_event_review_sha256": "25a4f48ea0025057936b2baa7e7f95765e45c2233ba2f8bc9bcaa5652acf3a1d",
+    "raw_stdout_sha256": "b2e56043d466f98901adc6f1f2ff62267f51592015bf0497bf3fe79b9a4fd02e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_bytes": 0,
+    "RESULT_SHA256SUMS_all_six_entries_match": true,
+    "source_hashes_read": {
+      "internal/swarmruntime/management_integration_test.go": "a81a658e8f644f591870eb4c5ea97faa7fe526bdcc93deb1594888dbd7b26ffc",
+      "internal/swarmruntime/management_observation_integration_test.go": "8fb949bf6fdd27e9d70977fe034b1420321e7e1c850dbdc27fe4cfabb0004e05",
+      "internal/swarmruntime/management_observation_send_test.go": "d98f5cb4bd7399bec6e61b432f980cc30253d43f326adb3a86cf7e116d7e97a4",
+      "internal/swarmruntime/management.go": "51e916e98bbcdf63806dd2fa57dcff3e1cbcddfa3748a1abf4bd33954fe4dbb1",
+      "internal/swarmruntime/management_observation.go": "50030d68852bbfa2b8b238b4fcb6491c3666448f74f5ed90b903e1f00df0dd51",
+      "internal/swarmruntime/admission.go": "6ebbf10e1265091a4466f92b4e1dec0f3c79ad40341ac7970b4fa5b37d009781",
+      "internal/swarmruntime/node.go": "9e02fbe72bb912b43efbcf13165a68cf32b042a227329df1359c0602610ffaea",
+      "internal/swarmruntime/node_integration_test.go": "b65441549c298fc8faa4b3c6b947bfad57bbb0f3ebf43e83e8d83024d10c3252",
+      "internal/swarmruntime/management_observation_store_test.go": "f7561d1d33af0f6886687752060e7813a3a1fe218315c217decb77d5755be7f7",
+      "internal/swarmruntime/management_stateful_test.go": "66e3232364c8bf9ea69a10419f66ab5f2f882f0d0bda32eb6187fe7070ffbb2e"
+    },
+    "supplemental_grpc_module_sources": {
+      "/home/mariogk/go/pkg/mod/google.golang.org/grpc@v1.83.2/stream.go": "3b56987c9724156fc645a8ba9df9d3c121931e82dd51c3ac249683c5121b9b53",
+      "/home/mariogk/go/pkg/mod/google.golang.org/grpc@v1.83.2/internal/transport/http2_server.go": "84ad3bde6a86be6ab86af02adc250ae04418fb24aafa628292141fb6fc9ed093",
+      "/home/mariogk/go/pkg/mod/google.golang.org/grpc@v1.83.2/internal/transport/flowcontrol.go": "aff3b1bb108e20a280a2e2ae58ef77025ccffe2c4d60dc2bff843d03cf4e53c6"
+    },
+    "supplemental_source_limit": "gRPC cache v1.83.2 matches go.mod version and explains asynchronous first-send buffering; supplemental cache sources are not part of the4208 tracked source manifest or sealed execution evidence."
+  },
+  "native_provenance": {
+    "session_id": 60404,
+    "child_pid": 673367,
+    "launch_chunk": "87e89e",
+    "poll_chunks": [
+      "23a8dc",
+      "08586d",
+      "54769c",
+      "e64576",
+      "24fac0",
+      "333123",
+      "52b1c7",
+      "56b3ed",
+      "77f708",
+      "ee16e2"
+    ],
+    "terminal_chunk": "ee16e2",
+    "terminal_exit_code": 1,
+    "native_launch_args_equal_exact_request_launch_argv": true,
+    "launch_workdir_equal_request": true,
+    "all_ten_polls_bind_same_session": true,
+    "first_poll_STARTED_pid_and_output_match": true,
+    "native_terminal_output_exact_object_equal_receipt": true,
+    "preflight_started_request_child_argv_exact": true,
+    "native_objects_show_no_truncation": true,
+    "wall_seconds": 127.78326551796636,
+    "max_child_rss_kib": 1038436,
+    "package_elapsed_seconds": 1.423,
+    "timeout_attribution": "Actual test package terminated normally with three assertion failures after1.423s, not Go120s timeout or outer180s timeout.127.783s wall includes compilation/startup; no phase timeout extension needed or inferred."
+  },
+  "raw_lifecycle": {
+    "events": 285,
+    "expected_package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+    "counts": {
+      "start": 1,
+      "run": 24,
+      "output": 235,
+      "pass": 21,
+      "fail": 4
+    },
+    "roots_run": 8,
+    "actual_run_names": {
+      "TestManagementIntegration": 1,
+      "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Prepare": 1,
+      "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Admit": 1,
+      "TestManagementObservationIntegration": 1,
+      "TestManagementObservationBlockedSend": 1,
+      "TestManagementObservationBlockedSend/overflow": 1,
+      "TestManagementObservationBlockedSend/caller_canceled": 1,
+      "TestManagementObservationBlockedSend/authority_revoked": 1,
+      "TestManagementObservationGRPCBlockedSend": 1,
+      "TestManagementObservationStoreBoundaries": 1,
+      "TestManagementObservationSlowConsumer": 1,
+      "TestManagementStatefulEffectBracket": 1,
+      "TestManagementStatefulEffectBracket/one_synchronous_effect": 1,
+      "TestManagementStatefulEffectBracket/missing_effect": 1,
+      "TestManagementStatefulEffectBracket/ignored_duplicate": 1,
+      "TestManagementStatefulEffectBracket/nil_context": 1,
+      "TestManagementStatefulEffectBracket/canceled_context": 1,
+      "TestManagementStatefulEffectBracket/ignored_effect_error": 1,
+      "TestManagementStatefulEffectBracket/post_effect_veto": 1,
+      "TestManagementPeerPIDAdmission": 1,
+      "TestManagementPeerPIDAdmission/missing_peer": 1,
+      "TestManagementPeerPIDAdmission/unadmitted_kernel_peer": 1,
+      "TestManagementPeerPIDAdmission/invalid_kernel_pid": 1,
+      "TestManagementPeerPIDAdmission/admitted_kernel_peer": 1
+    },
+    "actual_terminal_names": {
+      "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Prepare": 1,
+      "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Admit": 1,
+      "TestManagementIntegration": 1,
+      "TestManagementObservationIntegration": 1,
+      "TestManagementObservationBlockedSend/overflow": 1,
+      "TestManagementObservationBlockedSend/caller_canceled": 1,
+      "TestManagementObservationBlockedSend/authority_revoked": 1,
+      "TestManagementObservationBlockedSend": 1,
+      "TestManagementObservationGRPCBlockedSend": 1,
+      "TestManagementObservationStoreBoundaries": 1,
+      "TestManagementObservationSlowConsumer": 1,
+      "TestManagementStatefulEffectBracket/one_synchronous_effect": 1,
+      "TestManagementStatefulEffectBracket/missing_effect": 1,
+      "TestManagementStatefulEffectBracket/ignored_duplicate": 1,
+      "TestManagementStatefulEffectBracket/nil_context": 1,
+      "TestManagementStatefulEffectBracket/canceled_context": 1,
+      "TestManagementStatefulEffectBracket/ignored_effect_error": 1,
+      "TestManagementStatefulEffectBracket/post_effect_veto": 1,
+      "TestManagementStatefulEffectBracket": 1,
+      "TestManagementPeerPIDAdmission/missing_peer": 1,
+      "TestManagementPeerPIDAdmission/unadmitted_kernel_peer": 1,
+      "TestManagementPeerPIDAdmission/invalid_kernel_pid": 1,
+      "TestManagementPeerPIDAdmission/admitted_kernel_peer": 1,
+      "TestManagementPeerPIDAdmission": 1
+    },
+    "expected_terminal_outcomes": 26,
+    "actual_terminal_outcomes": 24,
+    "PASS_terminals": 21,
+    "FAIL_test_terminals": 3,
+    "package_start_count": 1,
+    "package_terminal_count": 1,
+    "package_result": "FAIL",
+    "package_start_line": 1,
+    "package_fail_line": 285,
+    "missing_runs_and_terminals": [
+      "TestManagementIntegration/wrong_UID",
+      "TestManagementIntegration/wrong_service"
+    ],
+    "extra_duplicate_skip_malformed_unexpected_package_test_action": 0,
+    "run_terminal_counter_equal": true,
+    "lifecycle_issues": [],
+    "lifecycle_method": "Every event parsed; one package start before all events and package terminal after all active tests finish. Each root/child RUN unique and expected; exact active parent and stack discipline for subtests; no output outside active scope; every test terminal matches its RUN; timestamps monotonic.",
+    "owner_event_report_independently_confirmed": true
+  },
+  "failure_causes": [
+    {
+      "test": "TestManagementIntegration",
+      "terminal_line": 92,
+      "elapsed_seconds": 0.57,
+      "assertion_source": "internal/swarmruntime/management_integration_test.go:148",
+      "raw_line": 69,
+      "raw_event": {
+        "Time": "2026-10-17T01:42:49.810847761-03:00",
+        "Action": "output",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+        "Test": "TestManagementIntegration",
+        "Output": "    management_integration_test.go:148: ordinary socket rejected pause: rpc error: code = PermissionDenied desc = management operation failed\n",
+        "OutputType": "error"
+      },
+      "raw_line_sha256_without_newline": "67ca09c0fcbfaeed5d558ed4ccc47d1ac3d83c40143db5101e8ec8391772aa39",
+      "cause": "Ordinary client pause expected success but received PermissionDenied with redacted management operation failed. Test starts founder but never calls AdmitNode. StartNode persists admission/cert identity and starts SwarmKit; it does not install manager-owned Node.Spec region/instance placement labels. managementServer.UpdateNode requires labels[LabelRegion]==sa-saopaulo-1 and nonempty LabelInstanceID, in addition to unchanged membership/role/annotations. Fixture omits that admission step, so refusal is consistent with intact production guard. Redacted raw error does not reveal the exact failed guard branch.",
+      "reached": "Authenticated management dial/node ID, both named worker Prepare/Admit negatives pass; worker membership negatives and initial role/no-op activation refusals precede failure. These inline earlier assertions are partial evidence, not whole-root PASS.",
+      "unreached": "All subsequent pause-state checks, managed services/resource/CAS/release floors/stateful/public-projection/revocation assertions and wrong_UID/wrong_service subtests. No overall management integration qualification."
+    },
+    {
+      "test": "TestManagementObservationIntegration",
+      "terminal_line": 176,
+      "elapsed_seconds": 0.53,
+      "assertion_source": "internal/swarmruntime/management_observation_integration_test.go:74",
+      "raw_line": 151,
+      "raw_event": {
+        "Time": "2026-10-17T01:42:50.345868099-03:00",
+        "Action": "output",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+        "Test": "TestManagementObservationIntegration",
+        "Output": "    management_observation_integration_test.go:74: unrestricted upstream Watch became reachable: rpc error: code = Unimplemented desc = unknown service docker.swarmkit.v1.Watch\n",
+        "OutputType": "error"
+      },
+      "raw_line_sha256_without_newline": "943b355b3a3432820603d46e8a24eef42201693ec437374bc07774852752cdd9",
+      "cause": "Test requires PermissionDenied from broad docker.swarmkit.v1.Watch; actual result Unimplemented unknown service docker.swarmkit.v1.Watch. Management registers Control, narrow ManagementObservation and worker services, with no broad Watch registration or UnknownServiceHandler. Unknown-service dispatch fails before the stream interceptor method allowlist. This is an exact status-contract mismatch; raw result proves no broad Watch service became reachable, despite the failure text.",
+      "reached": "Persistent manager and authenticated Unix connection plus wrong-accepted-identity narrow stream refusal.",
+      "unreached": "Scoped snapshot, live config actions, snapshot/watch handoff, bounded WAL replay/quiet replay-through, persistent restart lifetime change and final revoked-stream behavior. No actual observation integration/replay/restart PASS."
+    },
+    {
+      "test": "TestManagementObservationGRPCBlockedSend",
+      "terminal_line": 219,
+      "elapsed_seconds": 0,
+      "assertion_source": "internal/swarmruntime/management_observation_send_test.go:127",
+      "raw_line": 210,
+      "raw_event": {
+        "Time": "2026-10-17T01:42:50.601304907-03:00",
+        "Action": "output",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+        "Test": "TestManagementObservationGRPCBlockedSend",
+        "Output": "    management_observation_send_test.go:127: fixture did not produce a blocked gRPC send\n",
+        "OutputType": "error"
+      },
+      "raw_line_sha256_without_newline": "fccc9c15244169e5cd09e6d70aef59d5954006611e8cc26378e3ad00e2994c31",
+      "cause": "Started goroutine completed its first1MiB stream.SendMsg before the50ms check, so fixture never established blocked-send precondition. bufconn64KiB capacity does not require first gRPC SendMsg to block: v1.83.2 transport acquires positive soft write quota then enqueues a whole data frame; initial large SendMsg can return while transport delivery is blocked. Raw fixture does not record SendMsg return error, so success versus error completion is not separately established.",
+      "unreached": "close(closed), handler OutOfRange overflow result, and release of actual blocked SendMsg. Failure is no proof that cancellation/overflow handling itself is broken. Manual blocked-send tests passed separately."
+    }
+  ],
+  "retained_partial_passes": {
+    "rule": "Exact source-specific21 named PASS outcomes retained below; failed roots and missing cases stay failed/unrun. No complete26-outcome or canonical/global credit.",
+    "tests": [
+      {
+        "name": "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Prepare",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Admit",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementObservationBlockedSend/overflow",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementObservationBlockedSend/caller_canceled",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementObservationBlockedSend/authority_revoked",
+        "elapsed_seconds": 0.25
+      },
+      {
+        "name": "TestManagementObservationBlockedSend",
+        "elapsed_seconds": 0.25
+      },
+      {
+        "name": "TestManagementObservationStoreBoundaries",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementObservationSlowConsumer",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementStatefulEffectBracket/one_synchronous_effect",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementStatefulEffectBracket/missing_effect",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementStatefulEffectBracket/ignored_duplicate",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementStatefulEffectBracket/nil_context",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementStatefulEffectBracket/canceled_context",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementStatefulEffectBracket/ignored_effect_error",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementStatefulEffectBracket/post_effect_veto",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementStatefulEffectBracket",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementPeerPIDAdmission/missing_peer",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementPeerPIDAdmission/unadmitted_kernel_peer",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementPeerPIDAdmission/invalid_kernel_pid",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementPeerPIDAdmission/admitted_kernel_peer",
+        "elapsed_seconds": 0
+      },
+      {
+        "name": "TestManagementPeerPIDAdmission",
+        "elapsed_seconds": 0
+      }
+    ],
+    "group_scope": [
+      "Two actual worker transport negative subtests within failed ManagementIntegration; no actual production worker authority configured.",
+      "Manual blocked-send root plus overflow/caller_canceled/authority_revoked leaves, store boundaries and slow consumer roots. Store replay proposer is test-supplied, not actual Raft restart coverage.",
+      "Stateful effect bracket root+7leaves and peer PID admission root+4leaves; direct test identity objects do not substitute missing actual wrong_UID/wrong_service socket tests."
+    ]
+  },
+  "controls": {
+    "exact_argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "180s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-json",
+      "-p=1",
+      "-parallel=1",
+      "-mod=readonly",
+      "./internal/swarmruntime",
+      "-run",
+      "^(TestManagementIntegration|TestManagementObservationIntegration|TestManagementObservationStoreBoundaries|TestManagementObservationSlowConsumer|TestManagementObservationBlockedSend|TestManagementObservationGRPCBlockedSend|TestManagementStatefulEffectBracket|TestManagementPeerPIDAdmission)$",
+      "-count=1",
+      "-timeout=120s"
+    ],
+    "one_attempt": true,
+    "timeout_test_seconds": 120,
+    "timeout_outer_seconds": 180,
+    "outer_kill_after_seconds": 5,
+    "default_vet": true,
+    "no_vet_override": true,
+    "environment": {
+      "GOFLAGS": "-p=2",
+      "GOMAXPROCS": "2",
+      "GOTOOLCHAIN": "local",
+      "HOME": "/home/mariogk",
+      "LANG": "C.UTF-8",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin"
+    },
+    "GOROOT_present": false,
+    "launch": "Pinned Python-I-B under env-i6; wrapper asserts exact inherited6keys, hashes request/wrapper/fulltrackedsource/toolpaths before/after",
+    "nice": 19,
+    "GOMAXPROCS": 2,
+    "GOFLAGS": "-p=2",
+    "package_p": 1,
+    "parallel": 1,
+    "readonly_modules": true,
+    "count": 1,
+    "lock": "GATE nonblocking exclusive only in wrapper. Parent solefixture scheduling external; reviewer never touches lock ownership.",
+    "wrapper_limit": "Wrapper checks terminal names/package/counters but not all run/start/nonterminal scope. This report independently checked every raw event, including unexpected identities and order.",
+    "compile_credit": "Selected package actually compiled with normal default-vet invocation and all8selected roots began. This failure grants no runtime upgrade/whole-suite qualification; no race run.",
+    "old_packet": "Unused150/240 predecessor remains unused; prior readiness source review preserved without executing that packet."
+  },
+  "release_read_only_observation": {
+    "observed_at_utc": "2026-10-17T04:46:57.115390+00:00",
+    "named_child_proc_exists": false,
+    "locks": [
+      {
+        "path": "/tmp/ts-orch-refactor-gate-check.lock",
+        "device_inode": "00:2a:54779232",
+        "matching_proc_locks_rows": []
+      },
+      {
+        "path": "/tmp/ts-orch-refactor-general-check.lock",
+        "device_inode": "00:2a:57230480",
+        "matching_proc_locks_rows": []
+      }
+    ],
+    "retained_final_seal_gate_released": true,
+    "method": "Read /proc/673367 existence; stat existing GENERAL/GATE lock files and match their device/inode in /proc/locks. No file opened for write and no flock call.",
+    "limits": "Point-in-time absence of named child and lock owners supports release. It is not comprehensive proof that every possible descendant/temp resource was enumerated; no broad process scan or fixture rerun performed."
+  },
+  "limitations": [
+    "NOT_QUALIFIED remains final; one bounded120/180 attempt consumed. No retry, timeout extension, source change, grant or predecessor upgrade from this report.",
+    "No connected APP/OBS/DATA, actual OCI/native/containerd/cloud, workload failover/HA, canonical/global/full-suite/race qualification.",
+    "Nested Raft observation root and unselected5266 tests not executed; source inventory/retirement counts unchanged."
+  ]
+}

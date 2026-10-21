@@ -55,6 +55,8 @@ type Server struct {
 	cluster      atomic.Pointer[ClusterSource]
 	snapshotOnce sync.Once
 	clusterOnce  sync.Once
+	catalog      *metricCatalog
+	historyOnce  sync.Once
 }
 
 // NewServer validates config, reads the bearer token and builds the routes.
@@ -98,6 +100,7 @@ func newServer(config Config, token []byte, deps ServerDeps) (*Server, error) {
 		manager.local = make(map[string]struct{})
 	}
 	server := &Server{mux: http.NewServeMux(), deps: deps, sessions: manager, token: token}
+	server.catalog = &metricCatalog{registry: deps.Registry}
 	if deps.Sessions != nil && token != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -110,6 +113,7 @@ func newServer(config Config, token []byte, deps ServerDeps) (*Server, error) {
 	})
 	server.mux.HandleFunc("GET /readyz", server.readyz)
 	server.Handle("GET /metrics", http.HandlerFunc(server.metrics))
+	server.HandleAuthenticated("GET /v1/metrics/catalog", http.HandlerFunc(server.metricCatalogHTTP))
 	if deps.Snapshots != nil {
 		server.HandleSnapshots(deps.Snapshots)
 	}

@@ -1,16 +1,18 @@
 package observability
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/VictoriaMetrics/metrics"
 )
 
@@ -52,7 +54,7 @@ func testCollector(t *testing.T, member string, natsErr error) (*Collector, *ato
 func TestCollectorSnapshotAndCachedSections(t *testing.T) {
 	t.Parallel()
 	collector, natsCalls := testCollector(t, "one", nil)
-	snapshot, err := collector.Snapshot(t.Context(), true)
+	snapshot, err := snapshotOverHTTP(t, collector, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +74,7 @@ func TestCollectorSnapshotAndCachedSections(t *testing.T) {
 			t.Errorf("metrics lack %q", want)
 		}
 	}
-	if _, err := collector.Snapshot(t.Context(), false); err != nil {
+	if _, err := snapshotOverHTTP(t, collector, false); err != nil {
 		t.Fatal(err)
 	}
 	if calls := natsCalls.Load(); calls != 1 {
@@ -83,7 +85,7 @@ func TestCollectorSnapshotAndCachedSections(t *testing.T) {
 func TestCollectorReportsFailedSectionByClass(t *testing.T) {
 	t.Parallel()
 	collector, _ := testCollector(t, "two", errors.New("jsz: secret upstream detail"))
-	snapshot, err := collector.Snapshot(t.Context(), false)
+	snapshot, err := snapshotOverHTTP(t, collector, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,87 +102,97 @@ func TestCollectorPreservesOriginalLinkEvidence(t *testing.T) {
 		return []RegionLinkProbe{{Region: "sfo", ObservedAt: observed, Reach: "ok", WAN: "ok", LagGroups: new(0.0)}}
 	}
 	for range 2 {
-		snapshot, err := collector.Snapshot(t.Context(), false)
+		snapshot, err := snapshotOverHTTP(t, collector, false)
 		if err != nil || len(snapshot.Links) != 1 || !snapshot.Links[0].ObservedAt.Equal(observed) || snapshot.Links[0].LagGroups == nil {
 			t.Fatalf("snapshot refreshed or lost original link evidence: %+v, %v", snapshot, err)
 		}
 	}
 }
 
-func TestRegistryTextTruncatesAtLineBoundary(t *testing.T) {
+func TestCollectorHTTPRequestsShareLoadAcrossCancellation(t *testing.T) {
 	t.Parallel()
-	registry := NewRegistry(false)
-	set := metrics.NewSet()
-	for _, name := range []string{"a", "b", "c"} {
-		set.NewCounter(Series(MetricPrefix+"x_total", "name", name)).Inc()
+	collector, calls := testCollector(t, "cache", nil)
+	release, started := make(chan struct{}), make(chan struct{})
+	collector.config.NATS = func(ctx context.Context) (NATSView, error) {
+		calls.Add(1)
+		close(started)
+		select {
+		case <-release:
+			return NATSView{ServerName: "shared"}, nil
+		case <-ctx.Done():
+			return NATSView{}, ctx.Err()
+		}
 	}
-	registry.Register(set)
-	registry.Register(set)
-	full, truncated := registry.Text(0)
-	if truncated || strings.Count(full, "\n") != 3 {
-		t.Fatalf("full text = %q", full)
-	}
-	text, truncated := registry.Text(len(full) - 2)
-	if !truncated || strings.Count(text, "\n") != 2 || !strings.HasSuffix(text, "\n") {
-		t.Fatalf("truncated text = %q", text)
-	}
-}
-
-// A caller's cancellation neither cuts the shared load short nor is pinned
-// on later callers.
-func TestCacheDoesNotPinCallerCancellation(t *testing.T) {
-	t.Parallel()
-	cache := Cache[int]{TTL: time.Minute}
+	endpoint := collectorHTTP(t, collector)
 	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if _, err := cache.Get(ctx, func(ctx context.Context) (int, error) { return 7, ctx.Err() }); err == nil {
-		t.Fatal("a canceled caller returned no error")
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.URL+"/v1/snapshot", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	value, err := cache.Get(t.Context(), func(context.Context) (int, error) { return 9, nil })
-	if err != nil || value != 7 {
-		t.Fatalf("Get after a canceled caller = %d, %v; want the shared load's own result", value, err)
-	}
-}
-
-// A waiter whose deadline ends returns at once instead of waiting for
-// another caller's slow load.
-func TestCacheWaiterHonoursItsOwnContext(t *testing.T) {
-	t.Parallel()
-	cache := Cache[int]{TTL: time.Minute}
-	release := make(chan struct{})
-	started := make(chan struct{})
+	done := make(chan error, 1)
 	go func() {
-		_, _ = cache.Get(t.Context(), func(context.Context) (int, error) {
-			close(started)
-			<-release
-			return 1, nil
-		})
+		response, err := endpoint.Client().Do(request)
+		if response != nil {
+			response.Body.Close()
+		}
+		done <- err
 	}()
-	<-started
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
-	defer cancel()
-	begun := time.Now()
-	if _, err := cache.Get(ctx, func(context.Context) (int, error) { return 2, nil }); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("waiter error = %v, want its own deadline", err)
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("collection did not start")
 	}
-	if waited := time.Since(begun); waited > time.Second {
-		t.Fatalf("waiter blocked %s on another caller's load", waited)
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled request = %v", err)
+	}
+	waiter, stop := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	defer stop()
+	request, err = http.NewRequestWithContext(waiter, http.MethodGet, endpoint.URL+"/v1/snapshot", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response, err := endpoint.Client().Do(request); !errors.Is(err, context.DeadlineExceeded) {
+		if response != nil {
+			response.Body.Close()
+		}
+		t.Fatalf("waiting request = %v", err)
 	}
 	close(release)
+	response, err := endpoint.Client().Get(endpoint.URL + "/v1/snapshot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var snapshot MemberSnapshot
+	if err := json.NewDecoder(response.Body).Decode(&snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 || snapshot.NATS == nil || snapshot.NATS.ServerName != "shared" {
+		t.Fatalf("shared collection = %+v, calls %d", snapshot, calls.Load())
+	}
 }
 
-func TestSeriesEscapesLabelValues(t *testing.T) {
+func TestCollectorHTTPMetricsTruncateCompleteLinesAndEscapeLabels(t *testing.T) {
 	t.Parallel()
-	if got := Series("m", "a", `x"y\z`+"\n"); got != `m{a="x\"y\\z\n"}` {
-		t.Fatalf("Series() = %s", got)
+	collector, _ := testCollector(t, "labels", nil)
+	set := metrics.NewSet()
+	set.NewCounter(Series(MetricPrefix+"escaped_total", "name", `x"y\z`+"\n")).Inc()
+	collector.config.Registry.Register(set)
+	snapshot, err := snapshotOverHTTP(t, collector, true)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := Series("m"); got != "m" {
-		t.Fatalf("Series() without labels = %s", got)
+	if !strings.Contains(snapshot.Metrics, `name="x\"y\\z\n"`) {
+		t.Fatalf("escaped metric missing: %s", snapshot.Metrics)
 	}
-	var output bytes.Buffer
-	WriteAuthorityMetrics(&output, AuthorityView{})
-	if !strings.Contains(output.String(), "ts_orch_authority_leader 0") {
-		t.Fatalf("authority metrics = %q", output.String())
+	collector.config.MaxMetricsBytes = len(snapshot.Metrics) - 2
+	snapshot, err = snapshotOverHTTP(t, collector, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.MetricsTruncated || len(snapshot.Metrics) > collector.config.MaxMetricsBytes || !strings.HasSuffix(snapshot.Metrics, "\n") {
+		t.Fatalf("truncation = %+v", snapshot)
 	}
 }
 
@@ -197,7 +209,7 @@ func TestCollectorReportsPartialCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := collector.Snapshot(t.Context(), true)
+	snapshot, err := snapshotOverHTTP(t, collector, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +228,7 @@ func TestCollectorReportsPartialCredentials(t *testing.T) {
 func TestCollectorIncludesCurrentKVSnapshotMetadata(t *testing.T) {
 	t.Parallel()
 	collector, _ := testCollector(t, "snapshots", nil)
-	snapshot, err := collector.Snapshot(t.Context(), false)
+	snapshot, err := snapshotOverHTTP(t, collector, false)
 	if err != nil || snapshot.KVSnapshots != nil {
 		t.Fatalf("absent snapshot provider = %+v, %v", snapshot.KVSnapshots, err)
 	}
@@ -228,20 +240,56 @@ func TestCollectorIncludesCurrentKVSnapshotMetadata(t *testing.T) {
 	for _, state := range []string{"failed", "follower", "paused", "current", "disabled", "unknown"} {
 		want.State = state
 		want.Overdue = state == "unknown"
-		snapshot, err = collector.Snapshot(t.Context(), false)
+		snapshot, err = snapshotOverHTTP(t, collector, false)
 		if err != nil || snapshot.KVSnapshots == nil || !reflect.DeepEqual(*snapshot.KVSnapshots, want) {
 			t.Fatalf("snapshot metadata = %+v, %v; want %+v", snapshot.KVSnapshots, err, want)
 		}
 	}
-	encoded, err := protocol.EncodeJSON(MemberSnapshot{KVSnapshots: &want})
+
+}
+
+func collectorHTTP(t *testing.T, collector *Collector) *httptest.Server {
+	t.Helper()
+	service, err := NewServer(Config{}, ServerDeps{Registry: collector.config.Registry, Health: new(Health), Snapshots: collector})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded MemberSnapshot
-	if err := protocol.DecodeStrict(encoded, &decoded, 0); err != nil {
+	endpoint := httptest.NewServer(service)
+	t.Cleanup(endpoint.Close)
+	return endpoint
+}
+
+func snapshotOverHTTP(t *testing.T, collector *Collector, metrics bool) (MemberSnapshot, error) {
+	t.Helper()
+	endpoint := collectorHTTP(t, collector)
+	path := "/v1/snapshot"
+	if metrics {
+		path += "?metrics=1"
+	}
+	response, err := endpoint.Client().Get(endpoint.URL + path)
+	if err != nil {
+		return MemberSnapshot{}, err
+	}
+	defer response.Body.Close()
+	var snapshot MemberSnapshot
+	err = json.NewDecoder(response.Body).Decode(&snapshot)
+	return snapshot, err
+}
+
+func metricsOverHTTP(t *testing.T, collector *Collector) string {
+	t.Helper()
+	endpoint := collectorHTTP(t, collector)
+	response, err := endpoint.Client().Get(endpoint.URL + "/metrics")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.KVSnapshots == nil || !reflect.DeepEqual(*decoded.KVSnapshots, want) {
-		t.Fatalf("snapshot wire metadata = %+v, want %+v", decoded.KVSnapshots, want)
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("metrics = %d %s", response.StatusCode, body)
+	}
+	return string(body)
 }

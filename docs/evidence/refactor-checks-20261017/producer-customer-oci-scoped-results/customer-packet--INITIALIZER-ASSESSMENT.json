@@ -1,0 +1,575 @@
+{
+  "state": "SUPPLEMENTAL_STATIC_ONLY_NO_LEASE",
+  "commit": "7a69bd63cf994beeac74260a7b7a4ef32becb2aa",
+  "tree": "9ab23e5f321529367c8898a184f9e650060052a6",
+  "source_sha256": "427cbd0b8915e25aed5a13c68dde44b90f01b028337573b706fa236da33604fd",
+  "request_sha256": "89ff9af1474bd0357a978e9163b7f4cecb2ddb43b598037e786266035a323340",
+  "module_file_sha256": {
+    "e2e/go.mod": "345c588c26d7c60c0f79ca9cf0b4a8e5d2715906a46a1f9f0554e5e642035ea5",
+    "e2e/go.sum": "42ed2d8a88356f17c6308006dedd5029c671d8f06ab2f4797816db651cc3daad",
+    "go.mod": "3dcc9ecb65641323ccb85a6383ad370d328ccc3ef47545227abb38e7b8474d4f",
+    "go.sum": "8b66a5397e2d3eddd6f553f081eb34365352c104503b72a813bc21a4ebf3dca3",
+    "third_party/nats-server/go.mod": "2b2350c95a0730d197fb497583ff0c80356be0ef84a474efe4d5c861580dc8dc",
+    "third_party/nats-server/go.sum": "fd010ab554c50375154a06819a5dc94c348a1cd274de788560373865465c290e"
+  },
+  "sealed_packet_unchanged": true,
+  "clean_head_tree_status_unchanged": true,
+  "qa_output_absent": true,
+  "closure_sha256": "078720616509a6d864ca6d13cd846b89d306a4b0aacdaf3ec338f0b947109f74",
+  "static_audit_script_sha256": "9a991253915015473cbe8fbde2fe5567325fd141e1ebf0fbc71a2d6303f34f2b",
+  "classification_sha256": "e13f87a0209f9068d35dc1f6f0006cb537a567813c306307b3a3285ee05c205d",
+  "counts": {
+    "nonstdlib_packages": 702,
+    "selected_go_files": 5956,
+    "first_party_packages": 105,
+    "first_party_selected_files": 984,
+    "root_package_test_files": 18,
+    "explicit_init": 513,
+    "first_party_explicit_init": 5,
+    "package_vars": 5589,
+    "root_TestMain": 0,
+    "missing_import_paths": 0,
+    "lexical_errors": 0,
+    "stdlib_boundary": 114,
+    "excluded_platform_files": 616,
+    "legacy_constraint_overapprox_files": 7
+  },
+  "classification_counts": {
+    "allocation-conversion-errors-regexp-value-construction": 802,
+    "zero-literal-alias-or-stored-function-value": 4255,
+    "stored-function-body-not-invoked": 16,
+    "other-value-construction-callees-lexically-listed-not-fully-closed": 267,
+    "background-goroutine-reviewed": 1,
+    "metric-value-or-callback-registration-family": 21,
+    "initializer-registration-or-construction-source-triage": 102,
+    "argv-gated-process-helper-reviewed-not-entered": 2,
+    "descriptor-type-lint-table-registration-family": 404,
+    "lazy-once-wrapper-body-not-invoked": 5,
+    "proc-read-sysinfo-recurring-timer-reviewed": 1,
+    "sysfs-directory-read-reviewed": 1,
+    "build-tag-gated-write-reviewed-not-entered": 1,
+    "descriptor-or-attribute-value-construction-family": 223,
+    "fd0-lock-capability-query-reviewed": 1
+  },
+  "effects_before_Run": [
+    {
+      "class": "background-goroutine",
+      "scope": "first-party",
+      "effect": "One goroutine blocks on a 64-entry diagnostics queue; no listener, broker or OCI operation starts. Logging can occur only after another caller enqueues events.",
+      "source": [
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/authority/runtime.go",
+          "line": 36,
+          "sha256": "9bb923a92d31fcab371b1414df00db9ff4564cad1cdd0c1765f7d71ef3d2d05b"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/authority/runtime.go",
+          "line": 40,
+          "sha256": "9bb923a92d31fcab371b1414df00db9ff4564cad1cdd0c1765f7d71ef3d2d05b"
+        }
+      ]
+    },
+    {
+      "class": "process-metadata-and-recurring-timer",
+      "scope": "local replaced NATS dependency",
+      "effect": "NATS pse Linux init reads /proc/<self-pid>/stat, gets page size/PID and syscall.Sysinfo, and schedules time.AfterFunc(1s, periodic). Sampling continues for the life of the test process; no NATS server is constructed or started.",
+      "source": [
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/third_party/nats-server/server/pse/pse_linux.go",
+          "line": 42,
+          "sha256": "1b90e8ba90697e72e5087260e539bffbf4f1ea043087d0b023e5f53f5385651c"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/third_party/nats-server/server/pse/pse_linux.go",
+          "line": 51,
+          "sha256": "1b90e8ba90697e72e5087260e539bffbf4f1ea043087d0b023e5f53f5385651c"
+        }
+      ]
+    },
+    {
+      "class": "kernel-metadata-and-capability-query",
+      "scope": "third-party",
+      "effect": "Wazero init lists /sys/kernel/mm/hugepages and builds an in-memory table. etcd fileutil init queries F_OFD_GETLK on fd0, choosing function pointers; it does not set a file lock or launch a process. CPU init performs CPUID/XGETBV and reads absent GODEBUG configuration.",
+      "source": [
+        {
+          "path": "/home/mariogk/go/pkg/mod/github.com/tetratelabs/wazero@v1.12.0/internal/platform/mmap_linux.go",
+          "line": 24,
+          "sha256": "ae85e0d48b6409645c322369e9b590ba8d3c65f20d9c488f19dda67c11ab60ba"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/go.etcd.io/etcd/client/pkg/v3@v3.6.5/fileutil/lock_linux.go",
+          "line": 46,
+          "sha256": "53f5e4b1d20f169c6eb46294b3fbd2d04540dfd93ad2286f3665a14404abbc8e"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/golang.org/x/sys@v0.48.0/cpu/cpu.go",
+          "line": 260,
+          "sha256": "b6a584c28b0453963d0de041a2b52b5d7225ff59f2a16d91ffbc9c701f65c4c0"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/golang.org/x/sys@v0.48.0/cpu/cpu_x86.go",
+          "line": 65,
+          "sha256": "6a9cdf0eca762b62d0e49e1f3bc9b5c68f23fecbdb888d12ef27bc32bc3893b9"
+        }
+      ]
+    },
+    {
+      "class": "self-binary-read",
+      "scope": "third-party",
+      "effect": "protobuf detrand package var calls binaryHash: resolves and opens its own test binary, stats it and reads eight 64-byte samples; it never executes that binary or opens a credential file.",
+      "source": [
+        {
+          "path": "/home/mariogk/go/pkg/mod/google.golang.org/protobuf@v1.36.12/internal/detrand/rand.go",
+          "line": 38,
+          "sha256": "c01386e38186772e042196f4b03ce25eed8993ea8ffb8c012f43a2286b7752a5"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/google.golang.org/protobuf@v1.36.12/internal/detrand/rand.go",
+          "line": 40,
+          "sha256": "c01386e38186772e042196f4b03ce25eed8993ea8ffb8c012f43a2286b7752a5"
+        }
+      ]
+    },
+    {
+      "class": "metrics-runtime-metadata-and-registrations",
+      "scope": "first-party and third-party",
+      "effect": "VictoriaMetrics NewSet returns an in-memory map; first-party metrics construct counters/histograms/gauges. Prometheus registers Go/process collectors and checks /proc support; registration may use short-lived descriptor goroutines. These actions do not expose an HTTP endpoint or open a listener. NUID seeds its generator using OS entropy/time; ULID constructors store entropy readers.",
+      "source": [
+        {
+          "path": "/home/mariogk/go/pkg/mod/github.com/!victoria!metrics/metrics@v1.44.1/set.go",
+          "line": 29,
+          "sha256": "b6e92244c3e96d31c477f26f32a9f9e8e226f398a71f0cdcf635e98841ddd949"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/github.com/prometheus/client_golang@v1.24.1/prometheus/registry.go",
+          "line": 60,
+          "sha256": "0c7f73bc06f34e09c680c291f63dddfac775a0b43cce87d85eb82a251e459e68"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/github.com/prometheus/client_golang@v1.24.1/prometheus/process_collector_procfsenabled.go",
+          "line": 23,
+          "sha256": "42c2e0ac3731038874899c449cb391ef3100969dcb1a199d6b99bd3d28aaad90"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/github.com/nats-io/nuid@v1.0.1/nuid.go",
+          "line": 63,
+          "sha256": "20bdcf8bf9422d585d524d92725751a94649cd473c40fd9f9b98afe10c75db9d"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/entityid/id.go",
+          "line": 16,
+          "sha256": "e16d87bfe94500bfbc922d008ea3ce5412b7ac4201aa700bd0b40aed79e3982e"
+        }
+      ]
+    },
+    {
+      "class": "embedded-assets-and-value-construction",
+      "scope": "first-party",
+      "effect": "Dashboard package var loadAssets reads embedded asset bytes and hashes them; mime.TypeByExtension crosses the stdlib boundary and can lazily read system MIME data. Gzip work is wrapped in sync.OnceValue and deferred until a request. Regionview marshals one fixed JSON payload. NATS leaf URLs and network prefixes are formatted/parsed without DNS lookup or socket creation.",
+      "source": [
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/dashboard/assets.go",
+          "line": 45,
+          "sha256": "f53cfb9676ba00d999f09e69e53f52f26227d9e8fe20785f00846f5786490a12"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/dashboard/assets.go",
+          "line": 47,
+          "sha256": "f53cfb9676ba00d999f09e69e53f52f26227d9e8fe20785f00846f5786490a12"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/regionview/regionview.go",
+          "line": 594,
+          "sha256": "032b9508a453c1a2924367ab49761fa2d0211922f2f8a95f99666d62566afa20"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/natscell/link.go",
+          "line": 29,
+          "sha256": "447d47985aa4089424fbf7526dde0a4b241eb5b6616259cd8e2b440c36099444"
+        }
+      ]
+    },
+    {
+      "class": "registration-only-cloud-handlers",
+      "scope": "first-party",
+      "effect": "ociregion publicapi/sdkcli init and vars populate dispatch maps. listIn/networkGet return closures; OCI clients and List/Get calls occur inside those returned handlers, which are not invoked during initialization or by open-customer-material. Provider function aliases are stored without creating instance principals.",
+      "source": [
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/ociregion/publicapi/sdk_peer.go",
+          "line": 15,
+          "sha256": "4a38c806a7fcdb066f8f557c1fa6fe1a0030939808303262e85c58eb8ae6ced7"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/ociregion/sdkcli/inventory.go",
+          "line": 15,
+          "sha256": "157e367629a8225a825e20089c88f6ec77384c737c3b94cd6205c55293f19f16"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/ociregion/sdkcli/inventory.go",
+          "line": 113,
+          "sha256": "157e367629a8225a825e20089c88f6ec77384c737c3b94cd6205c55293f19f16"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/ociregion/sdkcli/handlers.go",
+          "line": 217,
+          "sha256": "afd5ce167c2c6d187775db6be0b55af8c09ae5c8c5089d60c14e5487dd854b2e"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/ociclient/factory.go",
+          "line": 191,
+          "sha256": "4f1d9c577bbeabb1b24443c9dbd97591f792fe3d9b069c38ef9cc86128aab0fa"
+        }
+      ]
+    },
+    {
+      "class": "HTTP-handler-and-protocol-registration",
+      "scope": "third-party",
+      "effect": "x/net/trace registers /debug/requests and /debug/events on DefaultServeMux; no server starts. gRPC registers resolvers, codecs and balancers; protobuf descriptor/type, zlint lint, publicsuffix, PKCS8 cipher/KDF and Swarm/containerd metric/type initialization populates registries and tables. Standard-library net/http/pprof and expvar initialization is a flagged boundary.",
+      "source": [
+        {
+          "path": "/home/mariogk/go/pkg/mod/golang.org/x/net@v0.58.0/trace/trace.go",
+          "line": 120,
+          "sha256": "be54020d8d18797b9a9d727b68483495106bbe211b528db42dae6636b71d1fc7"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/google.golang.org/grpc@v1.83.2/internal/resolver/dns/dns_resolver.go",
+          "line": 64,
+          "sha256": "fae3828426c9cb90d31a0feafce53892434cfce8ec4ceb2f5cd7f823c2d67136"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/github.com/containerd/containerd/v2@v2.4.2/client/client.go",
+          "line": 83,
+          "sha256": "3d5427c820072ec75fe8507c1d457601d874aea65638351da4a1dda97b1cd300"
+        }
+      ]
+    }
+  ],
+  "gated_or_deferred_paths": [
+    {
+      "class": "native-process-helper-not-entered",
+      "guard": "len(os.Args)==2 and os.Args[1]==\"--terrascale-internal-native-workload-helper\"; probe helpers require \"--terrascale-internal-native-probe-supervisor\" or \"--terrascale-internal-native-runtime-probe\".",
+      "finding": "The requested go test flags contain no internal helper argument and no -args override. These initializers return without reading protocol fds, re-exec, privilege changes, mounts or child launch. No root TestMain exists.",
+      "source": [
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/host/native_exec.go",
+          "line": 24,
+          "sha256": "adac918934d79765ecd8ef5325306d8f58e8cea516480b4c33d87a03e24ee9d2"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/host/native_exec.go",
+          "line": 38,
+          "sha256": "adac918934d79765ecd8ef5325306d8f58e8cea516480b4c33d87a03e24ee9d2"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/host/runtime_probe.go",
+          "line": 23,
+          "sha256": "b2969356749966b4efd60131855dd614cd18f7503ad2334a361dcce165327e22"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/host/runtime_probe.go",
+          "line": 32,
+          "sha256": "b2969356749966b4efd60131855dd614cd18f7503ad2334a361dcce165327e22"
+        }
+      ]
+    },
+    {
+      "class": "perfmap-file-write-not-entered",
+      "guard": "Go build tag perfmap absent from requested GOFLAGS/argv; selected perfmap_disabled.go fixes PerfMapEnabled=false.",
+      "finding": "Wazero init does not create /tmp/perf-<pid>.map for this request. Enabled-source branch is retained as an explicit platform/build overapprox warning.",
+      "source": [
+        {
+          "path": "/home/mariogk/go/pkg/mod/github.com/tetratelabs/wazero@v1.12.0/internal/engine/wazevo/wazevoapi/perfmap_disabled.go",
+          "line": 5,
+          "sha256": "7f6d176f86479f70d571e0b58937a283d93c84b90e2df58969ddc9d00c450b11"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/github.com/tetratelabs/wazero@v1.12.0/internal/engine/wazevo/wazevoapi/perfmap.go",
+          "line": 12,
+          "sha256": "9a9561fc6384f9ec43a57d805cca7dd98b01e106f01ff1b6c5932d85d7bde23b"
+        }
+      ]
+    },
+    {
+      "class": "OCI-env-defaults-no-credentials",
+      "guard": "OCI_GO_SDK_DEBUG and OCI_GO_SDK_EC_CONFIG are absent from env-i six keys.",
+      "finding": "SDK init creates logger objects with logging off. EcContext is in-process; no configured lock/timestamp file. No credential provider/metadata client is instantiated by the reviewed initializer roots; HOME is present but reviewed SDK initialization does not read ~/.oci/config.",
+      "source": [
+        {
+          "path": "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/common/log.go",
+          "line": 109,
+          "sha256": "5869fbc9301326c17bf870c032cf75c9098c1bc83fd4dedb454c678630258406"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/common/eventual_consistency.go",
+          "line": 111,
+          "sha256": "decd3bbd64645fe3a35bb98b6b75ca9174cec8e44eb49bb38a75be9c1a608ce1"
+        }
+      ]
+    },
+    {
+      "class": "stored-functions-and-lazy-wrappers",
+      "guard": "Function literals assigned without () and sync.OnceValue(s) wrappers retain the body for later calls.",
+      "finding": "App marker/trust loading, selfupdate mounts/write/process checks, NATS pgrep/kill, containerd CPU file reads, gRPC dial/AfterFunc callbacks and gauge callbacks are stored functions, not immediate calls. klog newFlushDaemon allocates an object; its run method, which starts the ticker/goroutine, is not called by init.",
+      "source": [
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/app/cell_spec_registry.go",
+          "line": 100,
+          "sha256": "de9ce1e7a71244d3bc41e036c80a6ba82390485db0e43fd26a9c94dcc8c4fbf0"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/selfupdate/cli/memory_linux.go",
+          "line": 33,
+          "sha256": "cface772ccd18e77ee6954ab1924e8b28f252992ba5a8bcfca8b33c3bb935e71"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/third_party/nats-server/server/signal.go",
+          "line": 209,
+          "sha256": "798fcc1ae2efb8ed1c555c03d24a446cbc02ea8efff3aabd05d1b6f5cbb3195c"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/github.com/containerd/containerd/v2@v2.4.2/pkg/oci/spec_linux.go",
+          "line": 26,
+          "sha256": "aeef6e2cfa12660531867d8d14eea39e7e1c1be07591ef785b108a054044b04e"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/k8s.io/klog/v2@v2.140.0/klog.go",
+          "line": 1158,
+          "sha256": "75382386ea425b315a3ecd148937ed76e052619af415613c93bea2683a0fe58a"
+        }
+      ]
+    },
+    {
+      "class": "other-environment-defaults",
+      "guard": "GODEBUG, GRPC_BINARY_LOG_FILTER, GRPC_GO_LOG_*, GOPROTODEBUG, OTEL_* and JOURNAL_STREAM absent from env-i six keys.",
+      "finding": "No inherited debug/binary-log/telemetry endpoint configuration. gRPC default binarylog sink is noop; AllLogger parses an in-memory config. Observability journalStream is a deferred function. Environment stripping does not remove unconditional diagnostics, proc sampler or metadata probes.",
+      "source": [
+        {
+          "path": "/home/mariogk/go/pkg/mod/google.golang.org/grpc@v1.83.2/internal/binarylog/sink.go",
+          "line": 35,
+          "sha256": "7b76e9a8456f515cdc7a906157ea5b91fedb153239536abe8be528951b2b0b85"
+        },
+        {
+          "path": "/home/mariogk/go/pkg/mod/google.golang.org/grpc@v1.83.2/internal/binarylog/binarylog.go",
+          "line": 75,
+          "sha256": "5fc48a515beffa63f5e1ab297c8fd98ee77e755881fb392e55e313bd08191189"
+        },
+        {
+          "path": "/tmp/ts-customer-envelope-filesystem/internal/observability/logging.go",
+          "line": 66,
+          "sha256": "401a77fcce909d68e3b3c7f47aa6a2ef1fb0b51b6455e26608a3349a71260acd"
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local",
+    "LANG": "C.UTF-8"
+  },
+  "assessment": {
+    "network_requests": "None identified from reviewed initializer roots under exact env/argv; qualified by lexical/callee/stdlib boundaries.",
+    "listeners": "No listener construction/start identified. HTTP debug handlers are registered on DefaultServeMux.",
+    "brokers": "NATS and Swarm package initialization does not start a broker/controller; NATS proc sampler timer does start.",
+    "process_launch": "No unconditional launch identified. Host helper gates do not match this test argv; NATS exec/kill functions are stored closures.",
+    "cloud_and_credentials": "No live OCI/NetBird/Vault request or credential loading identified in reviewed init roots. Cloud operation closures are registered only; SDK debug/EC env defaults are inert.",
+    "background_and_filesystem": "Diagnostics goroutine, recurring proc sampler, metadata/capability reads, entropy use, self-binary samples, embedded asset reads and metric/handler/descriptor registration do occur."
+  },
+  "untraversed_requirement_version_disagreements": {
+    "github.com/davecgh/go-spew": {
+      "selected_in_resolver": "v1.1.1",
+      "higher_observed_requirement": "v1.1.2-0.20180830191138-d8f796af33cc",
+      "requiring_go_mod": "/home/mariogk/go/pkg/mod/github.com/containerd/containerd/v2@v2.4.2/go.mod",
+      "audited_packages": []
+    },
+    "github.com/miekg/pkcs11": {
+      "selected_in_resolver": "v1.1.1",
+      "higher_observed_requirement": "v1.1.2",
+      "requiring_go_mod": "/home/mariogk/go/pkg/mod/github.com/containerd/containerd/v2@v2.4.2/go.mod",
+      "audited_packages": []
+    },
+    "golang.org/x/term": {
+      "selected_in_resolver": "v0.45.0",
+      "higher_observed_requirement": "v0.46.0",
+      "requiring_go_mod": "/home/mariogk/go/pkg/mod/golang.org/x/crypto@v0.57.0/go.mod",
+      "audited_packages": []
+    },
+    "github.com/spf13/cobra": {
+      "selected_in_resolver": "v1.9.1",
+      "higher_observed_requirement": "v1.10.2",
+      "requiring_go_mod": "/home/mariogk/go/pkg/mod/go.etcd.io/bbolt@v1.5.0/go.mod",
+      "audited_packages": []
+    },
+    "github.com/spf13/pflag": {
+      "selected_in_resolver": "v1.0.6",
+      "higher_observed_requirement": "v1.0.10",
+      "requiring_go_mod": "/home/mariogk/go/pkg/mod/go.etcd.io/bbolt@v1.5.0/go.mod",
+      "audited_packages": []
+    },
+    "go.opentelemetry.io/otel/sdk/metric": {
+      "selected_in_resolver": "v1.44.0",
+      "higher_observed_requirement": "v1.46.0",
+      "requiring_go_mod": "/home/mariogk/go/pkg/mod/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@v0.71.0/go.mod",
+      "audited_packages": []
+    },
+    "github.com/stretchr/objx": {
+      "selected_in_resolver": "v0.5.2",
+      "higher_observed_requirement": "v0.5.3",
+      "requiring_go_mod": "/home/mariogk/go/pkg/mod/github.com/stretchr/testify@v1.12.1/go.mod",
+      "audited_packages": []
+    },
+    "github.com/google/btree": {
+      "selected_in_resolver": "v1.1.2",
+      "higher_observed_requirement": "v1.1.3",
+      "requiring_go_mod": "/home/mariogk/go/pkg/mod/go.etcd.io/etcd/server/v3@v3.6.5/go.mod",
+      "audited_packages": []
+    },
+    "github.com/jonboulle/clockwork": {
+      "selected_in_resolver": "v0.3.0",
+      "higher_observed_requirement": "v0.5.0",
+      "requiring_go_mod": "/home/mariogk/go/pkg/mod/go.etcd.io/etcd/server/v3@v3.6.5/go.mod",
+      "audited_packages": []
+    },
+    "go.etcd.io/etcd/client/v3": {
+      "selected_in_resolver": "v3.5.5",
+      "higher_observed_requirement": "v3.6.5",
+      "requiring_go_mod": "/home/mariogk/go/pkg/mod/go.etcd.io/etcd/server/v3@v3.6.5/go.mod",
+      "audited_packages": []
+    },
+    "gopkg.in/natefinch/lumberjack.v2": {
+      "selected_in_resolver": "v2.0.0",
+      "higher_observed_requirement": "v2.2.1",
+      "requiring_go_mod": "/home/mariogk/go/pkg/mod/go.etcd.io/etcd/server/v3@v3.6.5/go.mod",
+      "audited_packages": []
+    }
+  },
+  "standard_library_missing_directories": [],
+  "stdlib_boundary": [
+    "archive/tar",
+    "bufio",
+    "bytes",
+    "cmp",
+    "compress/flate",
+    "compress/gzip",
+    "compress/zlib",
+    "container/heap",
+    "container/list",
+    "context",
+    "crypto",
+    "crypto/aes",
+    "crypto/cipher",
+    "crypto/des",
+    "crypto/dsa",
+    "crypto/ecdh",
+    "crypto/ecdsa",
+    "crypto/ed25519",
+    "crypto/elliptic",
+    "crypto/fips140",
+    "crypto/hkdf",
+    "crypto/hmac",
+    "crypto/md5",
+    "crypto/pbkdf2",
+    "crypto/rand",
+    "crypto/rsa",
+    "crypto/sha1",
+    "crypto/sha256",
+    "crypto/sha512",
+    "crypto/subtle",
+    "crypto/tls",
+    "crypto/x509",
+    "crypto/x509/pkix",
+    "database/sql",
+    "database/sql/driver",
+    "debug/dwarf",
+    "debug/elf",
+    "embed",
+    "encoding",
+    "encoding/asn1",
+    "encoding/base32",
+    "encoding/base64",
+    "encoding/binary",
+    "encoding/csv",
+    "encoding/gob",
+    "encoding/hex",
+    "encoding/json",
+    "encoding/json/jsontext",
+    "encoding/json/v2",
+    "encoding/pem",
+    "errors",
+    "expvar",
+    "flag",
+    "fmt",
+    "go/token",
+    "hash",
+    "hash/crc32",
+    "hash/fnv",
+    "html",
+    "html/template",
+    "io",
+    "io/fs",
+    "io/ioutil",
+    "iter",
+    "log",
+    "log/slog",
+    "log/syslog",
+    "maps",
+    "math",
+    "math/big",
+    "math/bits",
+    "math/rand",
+    "math/rand/v2",
+    "mime",
+    "net",
+    "net/http",
+    "net/http/cookiejar",
+    "net/http/httptest",
+    "net/http/httptrace",
+    "net/http/httputil",
+    "net/http/pprof",
+    "net/mail",
+    "net/netip",
+    "net/textproto",
+    "net/url",
+    "os",
+    "os/exec",
+    "os/signal",
+    "os/user",
+    "path",
+    "path/filepath",
+    "reflect",
+    "regexp",
+    "runtime",
+    "runtime/debug",
+    "runtime/metrics",
+    "runtime/pprof",
+    "slices",
+    "sort",
+    "strconv",
+    "strings",
+    "sync",
+    "sync/atomic",
+    "syscall",
+    "testing",
+    "text/tabwriter",
+    "text/template",
+    "time",
+    "unicode",
+    "unicode/utf16",
+    "unicode/utf8",
+    "unsafe",
+    "uuid",
+    "weak"
+  ],
+  "limits": [
+    "Lexical source graph and initializer triage, not Go parsing/typechecking, go list discovery, linker closure, compiler build selection, runtime isolation or a no-side-effects proof. No test/build/runner/lease was executed.",
+    "Linux amd64 gc non-race Go1.27 filename/go:build filtering. Seven legacy +build-only files are deliberately overincluded; 616 non-target/build-excluded files are recorded. Assembly, cgo, linkname and generated/linker behavior are not semantically audited. No unknown cgo/experiment/amd64 feature tag was encountered in selected constraints.",
+    "Standard library is an explicit 114-package boundary; all boundary directories exist in pinned toolchain source, but their transitive init bodies were not audited. runtime, crypto entropy, mime system MIME reads, expvar and net/http/pprof can add runtime/handler/metadata effects.",
+    "Versions resolved from explicit root go.mod/replacements and cached dependency go.mod; no Go MVS evaluator was invoked. 259 names absent from root were supplied from observed dependency requirements. Eleven observed higher-version requirements affect no traversed module package; record retained. No missing import path or lexical error in this static graph.",
+    "Every selected source and dependency go.mod hash was rechecked after scanning. Generic construction/registration families are classified and all call-like tokens retained; every callee and stored callback is not interprocedurally proven. Full runtime resource costs, compilation costs and effects from corrupt/nonstandard host/runtime are unmeasured."
+  ],
+  "runtime_resource_note": "Original runtime1-10s/256MiB/2MiB scratch estimate is unmeasured and covers an initialization-rich CLI package. Compile2GiB/1GiB cache-growth estimate also unmeasured; no runner/request modification.",
+  "comparison": "OCI worker traversal49packages2663files was all-platform and rooted at ociclient. Customer root CLI production+18root test files adds internal/app, host, swarm/containerd, dashboard, functions/Wazero and embedded NATS; counts are not directly comparable.",
+  "recommendation": "Supplemental evidence for parent QA review only. This artifact neither requests nor grants a runtime lease."
+}

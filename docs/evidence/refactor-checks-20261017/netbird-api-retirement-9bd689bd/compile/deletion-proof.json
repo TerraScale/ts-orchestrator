@@ -1,0 +1,13 @@
+{
+  "base": "44fccacf6535529ccd5f9e56c0a6fab652c6b48c",
+  "path": "internal/netbird/manager/manager_test.go",
+  "removed_original": "TestAPIRefusesRedirectsAndHidesBodies",
+  "removed_declaration_sha256": "f7fc9d0a68f0299df78d4c97f407cd4b64d1737c9958195e9cd5f73669ba7a4e",
+  "removed_bytes": 1181,
+  "removed_lines": 29,
+  "before_file_sha256": "7070f1d309bc59a82ad6d15207c6abb36c21bf2cd7b9b5a90bdafda965b08eb8",
+  "after_file_sha256": "c826a35b376ef70c27f1a0da6c76e5fd355749ea732181ba1893ac37b2d400fc",
+  "preservation": "after equals before with exactly frozen declaration bytes removed; surrounding blank lines/imports/all other bytes unchanged",
+  "qa_acceptance": "/tmp/ts-qa-netbird-runtime-review-44fccacf-dh9_ot9k.json",
+  "qa_acceptance_sha256": "6244a41a83711a83f6b1549cdbfa0cb797a90ed21f3f811d4f9bb2ac051e9f44"
+}

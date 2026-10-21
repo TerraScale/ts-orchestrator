@@ -29,7 +29,7 @@ func TestDecideAdmittedSuccessorReservesTheGateWithoutEvidence(t *testing.T) {
 		if evidence != nil {
 			observation.Evidence["controller-b"] = *evidence
 		}
-		state, actions := Decide(testConfig(), topology, State{}, observation)
+		state, actions := Decide(topology, State{}, observation)
 		if len(actions) != 0 {
 			t.Fatalf("%s: concurrent replacement started = %+v", name, actions)
 		}
@@ -49,7 +49,7 @@ func TestDecideAbandonedUnadmittedReplacementReleasesTheGate(t *testing.T) {
 	withEvidenceB(&observation)
 	observation.Meta.Peers = append(observation.Meta.Peers, Peer{Name: "gru-1-ctl-4", Online: true},
 		Peer{Name: "gru-1-ctl-5", Online: true})
-	state, actions := Decide(testConfig(), topology, State{}, observation)
+	state, actions := Decide(topology, State{}, observation)
 	if len(actions) != 1 || state.Slots["controller-b"].Phase != PhaseReplacing {
 		t.Fatalf("start = %+v %+v", state.Slots["controller-b"], actions)
 	}
@@ -61,7 +61,7 @@ func TestDecideAbandonedUnadmittedReplacementReleasesTheGate(t *testing.T) {
 	observation.Lifecycle["controller-c"] = LifecycleTerminated
 	observation.Evidence["controller-c"] = evidenceFor("controller-c", 1, instanceC)
 	observation.At = observation.At.Add(time.Minute)
-	state, actions = Decide(testConfig(), topology, remembered, observation)
+	state, actions = Decide(topology, remembered, observation)
 	if status := state.Slots["controller-b"]; status.Phase != PhaseHeld || status.PendingAttempt != 0 ||
 		!strings.HasPrefix(status.Reason, ReasonAwaitingEvidence) {
 		t.Fatalf("abandoned slot = %+v", status)
@@ -71,7 +71,7 @@ func TestDecideAbandonedUnadmittedReplacementReleasesTheGate(t *testing.T) {
 	}
 	// While usable evidence is still on hand the retry stays reserved.
 	withEvidenceB(&observation)
-	state, actions = Decide(testConfig(), topology, remembered, observation)
+	state, actions = Decide(topology, remembered, observation)
 	if state.Slots["controller-b"].Phase != PhaseReplacing || len(actions) != 1 || actions[0].Slot != "controller-b" {
 		t.Fatalf("actionable retry dropped = %+v %+v", state.Slots["controller-b"], actions)
 	}

@@ -26,7 +26,7 @@ func TestCompletedPacketRequiresSeedAndManagedSlotRoles(t *testing.T) {
 	controllers := []Controller{
 		{Slot: "controller-a", InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.a", GuestRoot: "controllers/controller-a/guest-root"},
 		{Slot: "controller-b", InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.b", GuestRoot: "controllers/controller-b/guest-root"},
-		{Slot: "seed-a", InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.seed", GuestRoot: "controllers/seed-a/guest-root"},
+		{Slot: "controller-c", InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.seed", GuestRoot: "controllers/controller-c/guest-root"},
 	}
 	manifest := Manifest{SchemaVersion: ManifestVersion, DeploymentID: anchored.DeploymentID,
 		Cell: string(anchored.Cell), Environment: anchored.Environment, FixtureNow: now,
@@ -37,8 +37,9 @@ func TestCompletedPacketRequiresSeedAndManagedSlotRoles(t *testing.T) {
 		seed  string
 		peers []string
 	}{
-		{name: "swapped seed", seed: "controller-a", peers: []string{"controller-b", "seed-a"}},
-		{name: "missing managed controller", seed: "seed-a", peers: []string{"controller-a", "another-slot"}},
+		{name: "legacy seed", seed: "seed-a", peers: []string{"controller-a", "controller-b"}},
+		{name: "swapped seed", seed: "controller-a", peers: []string{"controller-b", "controller-c"}},
+		{name: "missing managed controller", seed: "controller-c", peers: []string{"controller-a", "another-slot"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			capture, err := NewCapturingObjectStorage(now)
@@ -57,7 +58,7 @@ func TestCompletedPacketRequiresSeedAndManagedSlotRoles(t *testing.T) {
 							{Scope: bootstrap.BootstrapScope{Slot: test.peers[1]}},
 						}, nil
 				}, nil, roots, now.Add(time.Hour))
-			if !called || err == nil || !strings.Contains(err.Error(), "seed-a external seed") {
+			if !called || err == nil || !strings.Contains(err.Error(), "controller-c external seed") {
 				t.Fatalf("role-mismatched histories: preparer called=%t, error=%v", called, err)
 			}
 			if capture.PutCount() != 0 {

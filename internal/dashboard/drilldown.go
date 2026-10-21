@@ -33,7 +33,7 @@ func nodeNamed(region globalview.Region, name string) (globalview.Node, bool) {
 }
 
 func volumeNamed(region globalview.Region, id string) (globalview.Volume, bool) {
-	if region.Rollup == nil {
+	if region.Rollup == nil || region.Rollup.VolumesUnavailable {
 		return globalview.Volume{}, false
 	}
 	return find(region.Rollup.Volumes, func(volume globalview.Volume) bool { return volume.ID == id })
@@ -48,6 +48,24 @@ func scalingNamed(region globalview.Region, role string) (globalview.Scaling, bo
 
 func serviceNamed(node globalview.Node, role string) (globalview.Service, bool) {
 	return find(node.Services, func(service globalview.Service) bool { return service.Role == role })
+}
+
+// Missing observations cannot establish that a resource is absent.
+func resourceMissing(region globalview.Region, kind, name string) string {
+	subject := kind + " " + name
+	if kind == "Volume" && region.Rollup != nil && region.Rollup.VolumesUnavailable {
+		return subject + " is unknown: the regional volume observation is unavailable."
+	}
+	switch region.ResourceState(false) {
+	case "stale":
+		return subject + " is unknown: the regional observation is stale."
+	case "truncated":
+		return subject + " is unknown: the regional observation is truncated."
+	case "missing":
+		return subject + " is unknown: no regional observation is available."
+	default:
+		return subject + " is absent from the current complete regional observation."
+	}
 }
 
 // nodeStatus maps a node's health to a status token.
@@ -375,7 +393,7 @@ func serviceTable(current view, region, node string, services []globalview.Servi
 		Headers: []string{"Role", "State", "Digest"}}
 	for _, service := range services {
 		roles.Rows = append(roles.Rows, []cell{{Text: service.Role, Href: current.State.serviceLink(region, node, service.Role)},
-			textCell(orDash(service.State)), textCell(short(orDash(service.Digest), 12))})
+			textCell(joinDetail(orDash(service.State), service.StateReason)), textCell(short(orDash(service.Digest), 12))})
 	}
 	return roles
 }

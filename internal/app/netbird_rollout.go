@@ -705,9 +705,6 @@ func (n *netbirdRollout) returnNode(ctx context.Context, epoch uint64, node stri
 }
 
 func hostNetBird(cfg Config, public ed25519.PublicKey) func(context.Context, host.NetBirdSession) {
-	if cfg.NATS.Lab {
-		return nil
-	}
 	settings := local.Config{Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Controller: public, Directory: filepath.Join(cfg.Host.StateRoot, cfg.NATS.Cell, cfg.Host.Node, "netbird")}
 	return func(ctx context.Context, session host.NetBirdSession) {
 		last := ""

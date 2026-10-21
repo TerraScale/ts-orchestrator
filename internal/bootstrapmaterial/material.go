@@ -39,6 +39,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
@@ -81,14 +82,16 @@ type File struct {
 }
 
 type Public struct {
-	PeerSignerPublicKey         string `json:"peerSignerPublicKey"`
-	LedgerSignerPublicKey       string `json:"ledgerSignerPublicKey"`
-	TicketSignerPublicKey       string `json:"ticketSignerPublicKey"`
-	ControllerResponsePublicKey string `json:"controllerResponsePublicKey"`
-	HostNATSIssuerNKey          string `json:"hostNatsIssuerNkey"`
-	OperatorNKey                string `json:"operatorNkey"`
-	SystemAccountNKey           string `json:"systemAccountNkey"`
-	CellAccountNKey             string `json:"cellAccountNkey"`
+	AdmissionAttestor           release.AdmissionAttestorMaterial `json:"admissionAttestor,omitzero"`
+	PeerSignerPublicKey         string                            `json:"peerSignerPublicKey"`
+	LedgerSignerPublicKey       string                            `json:"ledgerSignerPublicKey"`
+	TicketSignerPublicKey       string                            `json:"ticketSignerPublicKey"`
+	ControllerResponsePublicKey string                            `json:"controllerResponsePublicKey"`
+	ControllerAccountSignerNKey string                            `json:"controllerAccountSignerNkey"`
+	HostNATSIssuerNKey          string                            `json:"hostNatsIssuerNkey"`
+	OperatorNKey                string                            `json:"operatorNkey"`
+	SystemAccountNKey           string                            `json:"systemAccountNkey"`
+	CellAccountNKey             string                            `json:"cellAccountNkey"`
 }
 
 type Record struct {
@@ -152,6 +155,10 @@ var (
 // Generate creates an immutable local source. An incomplete directory is an
 // operator hold: no automatic cleanup can prove that publication never began.
 func Generate(directory string, cfg Config, now time.Time) (Record, error) {
+	return generate(directory, cfg, now, nil)
+}
+
+func generate(directory string, cfg Config, now time.Time, authorization *release.AdmissionAttestorAuthorization) (Record, error) {
 	if err := cfg.validate(); err != nil || !filepath.IsAbs(directory) || now.IsZero() || secureParents(directory) != nil {
 		return Record{}, ErrMaterial
 	}
@@ -159,6 +166,9 @@ func Generate(directory string, cfg Config, now time.Time) (Record, error) {
 		record, loadErr := Load(directory)
 		if loadErr != nil || !sameConfig(record.Config, cfg) {
 			return Record{}, ErrMaterial
+		}
+		if err := matchAdmissionAuthorization(record, authorization); err != nil {
+			return Record{}, err
 		}
 		return record, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -176,6 +186,11 @@ func Generate(directory string, cfg Config, now time.Time) (Record, error) {
 			clear(body)
 		}
 	}()
+	if authorization != nil {
+		if err := buildAdmissionAttestor(files, &public, *authorization); err != nil {
+			return Record{}, err
+		}
+	}
 	record := Record{SchemaVersion: 1, Config: cfg, IssuedAt: now.UTC(),
 		ExpiresAt: now.UTC().Add(time.Duration(cfg.ValidityHours) * time.Hour), Public: public}
 	for name, body := range files {
@@ -224,7 +239,7 @@ func Load(directory string) (Record, error) {
 	var record Record
 	if err := json.Unmarshal(metadata, &record, json.RejectUnknownMembers(true)); err != nil || record.SchemaVersion != 1 ||
 		record.Config.validate() != nil ||
-		len(record.Files) != len(expectedNames())+len(memberCANames)*boolInt(record.HasMemberCA()) ||
+		len(record.Files) != len(expectedNames())+len(memberCANames)*boolInt(record.HasMemberCA())+3*boolInt(record.Public.AdmissionAttestor != (release.AdmissionAttestorMaterial{})) ||
 		record.ExpiresAt.Sub(record.IssuedAt) != time.Duration(record.Config.ValidityHours)*time.Hour {
 		return Record{}, ErrMaterial
 	}
@@ -279,6 +294,9 @@ func Load(directory string) (Record, error) {
 	if len(entries) < len(record.Files)+2 {
 		return Record{}, ErrMaterial
 	}
+	if err := validateAdmissionAttestor(directory, record); err != nil {
+		return Record{}, err
+	}
 	return record, nil
 }
 
@@ -311,6 +329,7 @@ func expectedNames() []string {
 		"operator.jwt", "operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem",
 		"system.jwt", "cell.jwt", "system.creds", "ca.pem", "route-password",
 		"ticket.pub", "ticket.key", "founder-peer.key", "founder-ledger.key",
+		"controller-tls-issuer-cert.pem", "controller-tls-issuer-key.pem", "controller-account-signer.seed",
 		"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem"}
 	for _, slot := range []string{"controller-a", "controller-b", "controller-c"} {
 		names = append(names, slot+".creds", slot+"-tls-cert.pem", slot+"-tls-key.pem", slot+"-response.key")
@@ -353,6 +372,20 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		return nil, Public{}, err
 	}
 	files["host-nats-issuer.seed"] = bytes.Clone(hostIssuerSeed)
+	controllerSigner, err := nkeys.CreateAccount()
+	if err != nil {
+		return nil, Public{}, err
+	}
+	defer controllerSigner.Wipe()
+	controllerSignerID, err := controllerSigner.PublicKey()
+	if err != nil {
+		return nil, Public{}, err
+	}
+	controllerSignerSeed, err := controllerSigner.Seed()
+	if err != nil {
+		return nil, Public{}, err
+	}
+	files["controller-account-signer.seed"] = bytes.Clone(controllerSignerSeed)
 	for name, pair := range map[string]nkeys.KeyPair{"issuer-operator.seed": op, "issuer-system.seed": sys, "issuer-cell.seed": cell} {
 		seed, err := pair.Seed()
 		if err != nil {
@@ -388,6 +421,7 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		return nil, Public{}, err
 	}
 	cellClaim.SigningKeys.AddScopedSigner(role)
+	cellClaim.SigningKeys.Add(controllerSignerID)
 	if cfg.LinkSigner != "" {
 		natscell.ApplyLink(cellClaim, cfg.LinkSigner)
 	}
@@ -445,6 +479,10 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 	}
 	files["host-tls-issuer-cert.pem"] = hostCAPEM
 	files["host-tls-issuer-key.pem"] = hostCAKeyPEM
+	files["controller-tls-issuer-cert.pem"], files["controller-tls-issuer-key.pem"], err = makeControllerIssuerCA(cfg, now, minTime(expires, now.Add(controllerIssuedLifetime)), ca, caKey)
+	if err != nil {
+		return nil, Public{}, err
+	}
 	// Every controller holds the cell's C# TerraBase member CA and signs
 	// member certificates with it; database hosts never see the key.
 	memberCell, err := naming.RegionCell(strings.ToUpper(cfg.Cell)).Name()
@@ -506,8 +544,10 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		claim.Pub.Allow = natscell.ControllerPublishes(cfg.Cell)
 		// Fresh material has no link topology: the standalone cell is its own home.
 		claim.Pub.Allow.Add(natscell.GlobalControllerPublishes()...)
+		claim.Pub.Allow.Add(natscell.GlobalControllerRequests()...)
 		claim.Sub.Allow = jwt.StringList{inbox(cfg.Cell, userID), protocol.Broker(cfg.Cell, "ticket", ">"), protocol.Broker(cfg.Cell, "fence", slot.Name)}
 		claim.Sub.Allow = append(claim.Sub.Allow, natscell.ControllerSubscriptions(cfg.Cell)...)
+		claim.Sub.Allow.Add(natscell.GlobalControllerRequests()...)
 		claim.Sub.Allow.Add(protocol.ObservabilityGrant(cfg.Cell))
 		claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 		files[slot.Name+".creds"], err = credentials(claim, cell, user)
@@ -524,7 +564,7 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 	}
 	public := Public{PeerSignerPublicKey: base64.StdEncoding.EncodeToString(peerPub), LedgerSignerPublicKey: base64.StdEncoding.EncodeToString(ledgerPub),
 		TicketSignerPublicKey: base64.StdEncoding.EncodeToString(ticketPub), ControllerResponsePublicKey: responsePublic,
-		HostNATSIssuerNKey: hostIssuerID, OperatorNKey: opID, SystemAccountNKey: sysID, CellAccountNKey: cellID}
+		HostNATSIssuerNKey: hostIssuerID, ControllerAccountSignerNKey: controllerSignerID, OperatorNKey: opID, SystemAccountNKey: sysID, CellAccountNKey: cellID}
 	return files, public, nil
 }
 
@@ -580,6 +620,22 @@ func makeCA(cfg Config, now, expires time.Time) ([]byte, *ecdsa.PrivateKey, *x50
 }
 
 func makeHostIssuerCA(cfg Config, now, expires time.Time, root *x509.Certificate, rootKey *ecdsa.PrivateKey) ([]byte, []byte, error) {
+	domain := "hosts." + cfg.Cell + ".terrascale.internal"
+	cert := &x509.Certificate{Subject: pkix.Name{CommonName: "TerraScale " + cfg.Cell + " host issuer"},
+		NotBefore: now.Add(-time.Minute), NotAfter: expires, IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true,
+		KeyUsage: x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		PermittedDNSDomainsCritical: true, PermittedDNSDomains: []string{"." + domain}, PermittedURIDomains: []string{domain}}
+	return makeIssuerCA(cert, root, rootKey)
+}
+
+func makeControllerIssuerCA(cfg Config, now, expires time.Time, root *x509.Certificate, rootKey *ecdsa.PrivateKey) ([]byte, []byte, error) {
+	cert := &x509.Certificate{Subject: pkix.Name{CommonName: "TerraScale " + cfg.Cell + " controller issuer"},
+		NotBefore: now.Add(-issuedBackdate), NotAfter: expires, IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true,
+		KeyUsage: x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
+	return makeIssuerCA(cert, root, rootKey)
+}
+
+func makeIssuerCA(cert *x509.Certificate, root *x509.Certificate, rootKey *ecdsa.PrivateKey) ([]byte, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
@@ -588,11 +644,7 @@ func makeHostIssuerCA(cfg Config, now, expires time.Time, root *x509.Certificate
 	if err != nil {
 		return nil, nil, err
 	}
-	domain := "hosts." + cfg.Cell + ".terrascale.internal"
-	cert := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "TerraScale " + cfg.Cell + " host issuer"},
-		NotBefore: now.Add(-time.Minute), NotAfter: expires, IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true,
-		KeyUsage: x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		PermittedDNSDomainsCritical: true, PermittedDNSDomains: []string{"." + domain}, PermittedURIDomains: []string{domain}}
+	cert.SerialNumber = serial
 	der, err := x509.CreateCertificate(rand.Reader, cert, root, &key.PublicKey, rootKey)
 	if err != nil {
 		return nil, nil, err
@@ -601,6 +653,7 @@ func makeHostIssuerCA(cfg Config, now, expires time.Time, root *x509.Certificate
 	if err != nil {
 		return nil, nil, err
 	}
+	defer clear(keyDER)
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
 		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), nil
 }
@@ -664,11 +717,13 @@ func classify(name string) (bootstrap.SecretPurpose, string) {
 	case "host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem",
 		"terrabase-member-ca.pem", "terrabase-member-ca.key":
 		return bootstrap.SecretHostIssuer, ""
+	case "controller-tls-issuer-cert.pem", "controller-tls-issuer-key.pem", "controller-account-signer.seed":
+		return bootstrap.SecretControllerIssuer, ""
 	case "operator.jwt", "system.jwt", "cell.jwt", "system.creds", "ca.pem", "route-password", "ticket.pub", "ticket.key":
 		return bootstrap.SecretRegionalShared, ""
 	}
 	for _, slot := range []string{"controller-a", "controller-b", "controller-c"} {
-		if slices.Contains([]string{slot + ".creds", slot + "-tls-cert.pem", slot + "-tls-key.pem", slot + "-response.key"}, name) {
+		if slices.Contains([]string{slot + ".creds", slot + "-tls-cert.pem", slot + "-tls-key.pem", slot + "-response.key", slot + "-admission.key"}, name) {
 			return bootstrap.SecretController, slot
 		}
 	}
@@ -783,6 +838,9 @@ func ValidateLive(directory string, record Record) error {
 	if err := validateSignerFiles(directory, record); err != nil {
 		return err
 	}
+	if err := validateAdmissionAttestor(directory, record); err != nil {
+		return err
+	}
 	for _, slot := range record.Config.Slots {
 		path := func(name string) string { return filepath.Join(directory, name) }
 		tls := natscell.TLSFiles{CAFile: path("ca.pem"), CertFile: path(slot.Name + "-tls-cert.pem"), KeyFile: path(slot.Name + "-tls-key.pem")}
@@ -853,6 +911,7 @@ func validateSignerFiles(directory string, record Record) error {
 	// Material generated before TS-663 has no role signer.
 	bound, hasRole := cellClaim.SigningKeys.GetScope(role.Key)
 	roleBound, _ := bound.(*jwt.UserScope)
+	controllerScope, hasController := cellClaim.SigningKeys.GetScope(record.Public.ControllerAccountSignerNKey)
 	// A link signer, when configured, is the only other scoped key.
 	hasLink := record.Config.LinkSigner != ""
 	if hasLink {
@@ -861,9 +920,15 @@ func validateSignerFiles(directory string, record Record) error {
 		}
 	}
 	if !ok || !reflect.DeepEqual(hostScope, expectedHostScope(record.Config.Cell, issuerID)) ||
-		hasRole && !reflect.DeepEqual(roleBound, role) || len(cellClaim.SigningKeys) != 1+boolInt(hasRole)+boolInt(hasLink) {
+		hasRole && !reflect.DeepEqual(roleBound, role) || !hasController || controllerScope != nil ||
+		len(cellClaim.SigningKeys) != 2+boolInt(hasRole)+boolInt(hasLink) {
 		return ErrMaterial
 	}
+	controller, err := loadRecordedControllerIssuer(record, read, time.Now())
+	if err != nil {
+		return err
+	}
+	controller.Wipe()
 	operatorWire, err := read("operator.creds")
 	if err != nil {
 		return ErrMaterial

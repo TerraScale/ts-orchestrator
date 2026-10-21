@@ -1,0 +1,377 @@
+[
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_adoption_commit": "60e3843dfb0c7103a83579bc714e9de2a319429d",
+      "actual_adoption_independent_review": {
+        "copy": "accepted-attempt-actual-adoption-review.json",
+        "path": "/tmp/ts-qa-attempt458-actual-adoption-a1uiq5zi/review.json",
+        "sha256": "34a26498b4d0d398f48500e210efd93dd857b8d04ecf84c6e74afeb033cdda54",
+        "state": "VERIFIED_EXACT_ATTEMPT458_SOURCE_AND_FROZEN_EVIDENCE_ADOPTION"
+      },
+      "assertion_map_path": "docs/evidence/refactor-checks-20261017/attempt-continuity-retirement-458ff55/assertion-mapping.json",
+      "fresh_compile_report_path": "docs/evidence/refactor-checks-20261017/attempt-continuity-retirement-458ff55/qa-compile-458.json",
+      "runtime_report_path": "docs/evidence/refactor-checks-20261017/attempt-continuity-retirement-458ff55/qa-runtime-cc37.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "fc3bf5936665894c1b0471343b3375eac7c21bba5b73549b828913f796dd26e0",
+    "original_name": "TestAttemptRejectsRetiredContinuityPhase",
+    "path": "internal/attempt/cloud_test.go",
+    "previous_accepted_reconciliation": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "absence_freshly_verified_on_commit": "60e3843dfb0c7103a83579bc714e9de2a319429d",
+      "inherited_authoritative_predecessor": "/tmp/ts-firstparty-bfca-09fb-reconciled-ae9t9fji/summary.json",
+      "inherited_qualified_retirement": true,
+      "runtime_not_repeated_or_reaudited": true
+    },
+    "kind": "test",
+    "original_declaration_sha256": "5a2b5466f220db0f05246e749d2c6c24e23c5ed7466a5089f88f4cdcc92800a9",
+    "original_name": "TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch",
+    "path": "internal/bootstrapstart/oci_observer_test.go",
+    "previous_accepted_reconciliation": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "absence_freshly_verified_on_commit": "60e3843dfb0c7103a83579bc714e9de2a319429d",
+      "inherited_authoritative_predecessor": "/tmp/ts-firstparty-bfca-09fb-reconciled-ae9t9fji/summary.json",
+      "inherited_qualified_retirement": true,
+      "runtime_not_repeated_or_reaudited": true
+    },
+    "kind": "test",
+    "original_declaration_sha256": "3af760a5d6264cba52323a194c07467c607a0a1f9ee6a2a724244aae57b814c6",
+    "original_name": "TestOCIObserverRequiresExactAttachedPrimaryVNIC",
+    "path": "internal/bootstrapstart/oci_observer_test.go",
+    "previous_accepted_reconciliation": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "absence_freshly_verified_on_commit": "60e3843dfb0c7103a83579bc714e9de2a319429d",
+      "inherited_authoritative_predecessor": "/tmp/ts-firstparty-bfca-09fb-reconciled-ae9t9fji/summary.json",
+      "inherited_qualified_retirement": true,
+      "runtime_not_repeated_or_reaudited": true
+    },
+    "kind": "test",
+    "original_declaration_sha256": "fd52cda698a5c234ab72af18ffc57c230a74390d25e2c200795be33e2d51179f",
+    "original_name": "TestOCIObserverRejectsMissingPrimaryAndCandidateMismatch",
+    "path": "internal/bootstrapstart/oci_observer_test.go",
+    "previous_accepted_reconciliation": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "absence_freshly_verified_on_commit": "60e3843dfb0c7103a83579bc714e9de2a319429d",
+      "inherited_authoritative_predecessor": "/tmp/ts-firstparty-bfca-09fb-reconciled-ae9t9fji/summary.json",
+      "inherited_qualified_retirement": true,
+      "runtime_not_repeated_or_reaudited": true
+    },
+    "kind": "test",
+    "original_declaration_sha256": "f7fc9d0a68f0299df78d4c97f407cd4b64d1737c9958195e9cd5f73669ba7a4e",
+    "original_name": "TestAPIRefusesRedirectsAndHidesBodies",
+    "path": "internal/netbird/manager/manager_test.go",
+    "previous_accepted_reconciliation": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_adoption_path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/adoption-review.json",
+      "assertion_map_path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/proposal/assertion-mapping-and-preservation.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "4183f3b342ec174ad79ccef2ed45c117d3eec5ea90185904afb3980c2a902eb0",
+    "original_name": "TestInstrumentedDispatcherRecordsCallsErrorsAndThrottling",
+    "path": "internal/ociclient/factory_test.go",
+    "previous_accepted_reconciliation": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "absence_freshly_verified_on_commit": "60e3843dfb0c7103a83579bc714e9de2a319429d",
+      "inherited_authoritative_predecessor": "/tmp/ts-firstparty-bfca-09fb-reconciled-ae9t9fji/summary.json",
+      "inherited_qualified_retirement": true,
+      "runtime_not_repeated_or_reaudited": true
+    },
+    "kind": "test",
+    "original_declaration_sha256": "e5dc01e1134670cbe99d7b5719a2e7b8a776c9f4b8fd6b69b8ac39ccc65c37d4",
+    "original_name": "TestPeerPortOpen",
+    "path": "internal/terrabase/oci_live_test.go",
+    "previous_accepted_reconciliation": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_adoption_commit": "9988b2b8406b4ed808b628ee838d9190d5354a3c",
+      "actual_adoption_independent_review": {
+        "copy": "accepted-customer-actual-adoption-review.json",
+        "path": "/tmp/ts-qa-customer-9988-actual-adoption-c45sc48f/review.json",
+        "sha256": "400c5522399ee576bdf80649689be76ba0927279de37a29d6bc221d8da3a2fa7",
+        "state": "PASS_INDEPENDENT_ACTUAL_CUSTOMER_9988_SOURCE_ADOPTION_AND_PACKET_PUBLICATION"
+      },
+      "assertion_map": "docs/evidence/refactor-checks-20261017/customer-envelope-retirement-f542bcee/assertion-mapping-and-helper-preservation.json",
+      "compile_acceptance": "docs/evidence/refactor-checks-20261017/customer-envelope-retirement-f542bcee/qa-compile-f542.json",
+      "historical_runtime_acceptance": "docs/evidence/refactor-checks-20261017/customer-envelope-retirement-f542bcee/source--historical-customer-review--review.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "00d2e6f89706cd8e09ebed56d4e361f7af590b4f0511052708385a3a4e15b78c",
+    "original_name": "TestOpenCustomerEnvelopeUsesProducerWireAndRecipient",
+    "path": "internal/managedmaterial/customer_open_test.go",
+    "previous_accepted_reconciliation": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_adoption_commit": "748d00a1260eda190088a80725b25b3e69c7d8a3",
+      "actual_adoption_review": "/tmp/ts-qa-operation-748d-adoption-independent-hu616kh_/review.json",
+      "actual_adoption_review_sha256": "a502f0836491e76cd42ca102b8b9b3f041d6d2ae49cefcdd08f5207fbc1f98b9",
+      "exact_retirement_compile": "90f75da526e7bc75124a4f5bd19b920320a7f3d7",
+      "published_evidence": "docs/evidence/refactor-checks-20261017/operation-template-tls-retirement-90f75",
+      "unchanged_replacement_runtime": "eb2170c0fc376e3f5be381d81c14b397a44ee956"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "dada7d611e6d4130dc8114ea897b2109cec8679360c995f73ab8474a5a7d206d",
+    "original_name": "TestOperationTemplateRemovesIdentifiers",
+    "path": "internal/ociclient/factory_test.go",
+    "previous_accepted_reconciliation": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_publication": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "actual_publication_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+      "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+      "actual_source_adoption": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+      "actual_source_adoption_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+      "actual_source_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+      "batch": "oci7",
+      "fresh_reconciliation_independent_acceptance": "PENDING; canonical counts not promoted",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "1ad51c32306ae9af9c403236ecabd951ed6ae8e2ad4591e3a3e8b07c5041576c",
+    "original_name": "TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot",
+    "path": "internal/oci/sdk_test.go",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_publication": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "actual_publication_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+      "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+      "actual_source_adoption": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+      "actual_source_adoption_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+      "actual_source_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+      "batch": "oci7",
+      "fresh_reconciliation_independent_acceptance": "PENDING; canonical counts not promoted",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "9a8cba00d59aedb6b6db6cc77eab6908c5331ffb9ec3d5d1da134c3cc42dcba4",
+    "original_name": "TestLaunchInstanceMapsSignedProfileIntoOCIRequest",
+    "path": "internal/oci/sdk_test.go",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_publication": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "actual_publication_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+      "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+      "actual_source_adoption": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+      "actual_source_adoption_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+      "actual_source_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+      "batch": "oci7",
+      "fresh_reconciliation_independent_acceptance": "PENDING; canonical counts not promoted",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "f206ec25523984c1d77a00a85957fdd1d8a6be02216dd206bdedc5556a38846c",
+    "original_name": "TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK",
+    "path": "internal/oci/sdk_test.go",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_publication": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "actual_publication_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+      "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+      "actual_source_adoption": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+      "actual_source_adoption_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+      "actual_source_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+      "batch": "oci7",
+      "fresh_reconciliation_independent_acceptance": "PENDING; canonical counts not promoted",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "3ef766618c7dddaeb8653b3ff2e832311b358302717d23503f559f36949a406f",
+    "original_name": "TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC",
+    "path": "internal/oci/sdk_test.go",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_publication": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "actual_publication_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+      "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+      "actual_source_adoption": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+      "actual_source_adoption_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+      "actual_source_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+      "batch": "oci7",
+      "fresh_reconciliation_independent_acceptance": "PENDING; canonical counts not promoted",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "4998b2a12435f09f5963158310c84364b9f0662aefa2278a1b52bbb0553ebf4b",
+    "original_name": "TestNamedHostObservationRequiresTheNamedRunningPrivateInstance",
+    "path": "internal/oci/sdk_test.go",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_publication": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "actual_publication_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+      "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+      "actual_source_adoption": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+      "actual_source_adoption_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+      "actual_source_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+      "batch": "oci7",
+      "fresh_reconciliation_independent_acceptance": "PENDING; canonical counts not promoted",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "a444f773815caab42e1fc08c1ba68abacceaef15e879524a0dc3941c5f636b5d",
+    "original_name": "TestVolumeAttachmentLookupUsesVolumeFilter",
+    "path": "internal/oci/volume_resize_test.go",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_publication": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "actual_publication_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+      "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+      "actual_source_adoption": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+      "actual_source_adoption_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+      "actual_source_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+      "batch": "oci7",
+      "fresh_reconciliation_independent_acceptance": "PENDING; canonical counts not promoted",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "e8174121f22736cbd86571234a3be817f95b245a637ef3784d52654a29d28c31",
+    "original_name": "TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory",
+    "path": "internal/oci/volume_backup_history_review_test.go",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_publication": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "actual_publication_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+      "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+      "actual_source_adoption": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+      "actual_source_adoption_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+      "actual_source_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+      "batch": "factory3",
+      "fresh_reconciliation_independent_acceptance": "PENDING; canonical counts not promoted",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-removals-source-proof.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "467cc1b629bdb3997c1a565e747fd04304d4f7a8c07082df07e1dd65c6a22c26",
+    "original_name": "TestOperationCardinalityIsBounded",
+    "path": "internal/ociclient/factory_test.go",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_publication": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "actual_publication_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+      "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+      "actual_source_adoption": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+      "actual_source_adoption_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+      "actual_source_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+      "batch": "factory3",
+      "fresh_reconciliation_independent_acceptance": "PENDING; canonical counts not promoted",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-removals-source-proof.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "825570b80de40bebc0de8796e830e63328c3f8bf5dfb70a5e24bae3c39007744",
+    "original_name": "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+    "path": "internal/ociclient/ociclient_test.go",
+    "state": "qualified_retired"
+  },
+  {
+    "absence_freshly_verified_on_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "current_declaration_sha256": "",
+    "current_name": "",
+    "disposition_provenance": {
+      "actual_publication": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "actual_publication_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+      "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+      "actual_source_adoption": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+      "actual_source_adoption_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+      "actual_source_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+      "batch": "factory3",
+      "fresh_reconciliation_independent_acceptance": "PENDING; canonical counts not promoted",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-removals-source-proof.json"
+    },
+    "kind": "test",
+    "original_declaration_sha256": "593e599c2add12966eb316af56f8754bf0d76524b37792afb1a9adad0a261716",
+    "original_name": "TestTenancyHomeRegionComesFromTheCatalog",
+    "path": "internal/ociclient/ociclient_test.go",
+    "state": "qualified_retired"
+  }
+]

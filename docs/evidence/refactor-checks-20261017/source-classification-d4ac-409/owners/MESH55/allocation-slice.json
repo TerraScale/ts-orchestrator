@@ -1,0 +1,1147 @@
+{
+  "batch_id": "MESH55",
+  "bounded_scope_reads": [
+    {
+      "end_line": 132,
+      "path": "internal/globalcontrol/document_test.go",
+      "role": "Complete sampled root: validation/rejection, real document read/write and generation assertions.",
+      "span_sha256": "f8ebe8876d5e700d5816a1b047c2c110df2ab935ad145c7c6180989f734b6665",
+      "start_line": 13
+    },
+    {
+      "end_line": 151,
+      "path": "internal/globalcontrol/document.go",
+      "role": "Complete PutDocument, Document, Follow and watch declarations; validation and JetStream consumer delegation.",
+      "span_sha256": "2d2fc76e742eb83227b1d0d1f25f33e287f436823de1a2d5e244a0d2dc799b01",
+      "start_line": 48
+    },
+    {
+      "end_line": 119,
+      "path": "internal/globalview/build.go",
+      "role": "Complete Sources.Collect and Build: interface collection versus local rollup transformation.",
+      "span_sha256": "f1696b1ac6bd26058570549271edf8980dc53ca3b768f68f0d0c26cf110b6434",
+      "start_line": 30
+    },
+    {
+      "end_line": 134,
+      "path": "internal/globalview/view.go",
+      "role": "Complete Accept and Follow: local acceptance versus NATS subscription path.",
+      "span_sha256": "3584b99f0430a44601454382e3d45cb3fb0e5ba450c4e564577a02411e8148ce",
+      "start_line": 93
+    }
+  ],
+  "dispatch_state": "HOLD_PARENT_VERIFICATION_NO_DISPATCH",
+  "owner_status_observed": "completed",
+  "owner_status_source": "collaboration list_agents; fresh checks before proposal seal",
+  "package_scopes": [
+    "internal/globalcontrol",
+    "internal/globalview"
+  ],
+  "proposed_owner": "/root/mesh/material",
+  "root_count": 55,
+  "roots": [
+    {
+      "baseline_declaration": {
+        "end_line": 132,
+        "sha256": "f8ebe8876d5e700d5816a1b047c2c110df2ab935ad145c7c6180989f734b6665",
+        "start_line": 13
+      },
+      "current_declaration_sha256": "f8ebe8876d5e700d5816a1b047c2c110df2ab935ad145c7c6180989f734b6665",
+      "current_name": "TestDocumentsRelayExactBytesAsNextGenerations",
+      "kind": "test",
+      "original_declaration_sha256": "f8ebe8876d5e700d5816a1b047c2c110df2ab935ad145c7c6180989f734b6665",
+      "original_name": "TestDocumentsRelayExactBytesAsNextGenerations",
+      "path": "internal/globalcontrol/document_test.go",
+      "root_id": "internal/globalcontrol/document_test.go::TestDocumentsRelayExactBytesAsNextGenerations",
+      "source_declaration": {
+        "end_line": 132,
+        "sha256": "f8ebe8876d5e700d5816a1b047c2c110df2ab935ad145c7c6180989f734b6665",
+        "start_line": 13
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 214,
+        "sha256": "0865e3fe5304324a1603d8e391df90e7f493e68e71bc0077458d2a71d2735fa0",
+        "start_line": 134
+      },
+      "current_declaration_sha256": "0865e3fe5304324a1603d8e391df90e7f493e68e71bc0077458d2a71d2735fa0",
+      "current_name": "TestFollowOffersTheDocumentOnEveryChangeAndRecheck",
+      "kind": "test",
+      "original_declaration_sha256": "0865e3fe5304324a1603d8e391df90e7f493e68e71bc0077458d2a71d2735fa0",
+      "original_name": "TestFollowOffersTheDocumentOnEveryChangeAndRecheck",
+      "path": "internal/globalcontrol/document_test.go",
+      "root_id": "internal/globalcontrol/document_test.go::TestFollowOffersTheDocumentOnEveryChangeAndRecheck",
+      "source_declaration": {
+        "end_line": 214,
+        "sha256": "0865e3fe5304324a1603d8e391df90e7f493e68e71bc0077458d2a71d2735fa0",
+        "start_line": 134
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 238,
+        "sha256": "24c61028df479287d4aefe7135ad3a9811be4cdbfa7ce35a5cada5523ceed544",
+        "start_line": 216
+      },
+      "current_declaration_sha256": "24c61028df479287d4aefe7135ad3a9811be4cdbfa7ce35a5cada5523ceed544",
+      "current_name": "TestOpenHomeRaisesAnOldMessageBound",
+      "kind": "test",
+      "original_declaration_sha256": "24c61028df479287d4aefe7135ad3a9811be4cdbfa7ce35a5cada5523ceed544",
+      "original_name": "TestOpenHomeRaisesAnOldMessageBound",
+      "path": "internal/globalcontrol/document_test.go",
+      "root_id": "internal/globalcontrol/document_test.go::TestOpenHomeRaisesAnOldMessageBound",
+      "source_declaration": {
+        "end_line": 238,
+        "sha256": "24c61028df479287d4aefe7135ad3a9811be4cdbfa7ce35a5cada5523ceed544",
+        "start_line": 216
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 217,
+        "sha256": "103b065fc6991a301b13af8aefe9de3f4fdaccce2cb6c46d2100b25e27607f95",
+        "start_line": 188
+      },
+      "current_declaration_sha256": "103b065fc6991a301b13af8aefe9de3f4fdaccce2cb6c46d2100b25e27607f95",
+      "current_name": "TestConcurrentReadsAndAppends",
+      "kind": "test",
+      "original_declaration_sha256": "103b065fc6991a301b13af8aefe9de3f4fdaccce2cb6c46d2100b25e27607f95",
+      "original_name": "TestConcurrentReadsAndAppends",
+      "path": "internal/globalcontrol/fencing_test.go",
+      "root_id": "internal/globalcontrol/fencing_test.go::TestConcurrentReadsAndAppends",
+      "source_declaration": {
+        "end_line": 217,
+        "sha256": "103b065fc6991a301b13af8aefe9de3f4fdaccce2cb6c46d2100b25e27607f95",
+        "start_line": 188
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 183,
+        "sha256": "1984685c22ee337d84486d53d7c47f0ca07ee34de8649c419849e2a6f5036830",
+        "start_line": 134
+      },
+      "current_declaration_sha256": "1984685c22ee337d84486d53d7c47f0ca07ee34de8649c419849e2a6f5036830",
+      "current_name": "TestConcurrentWritersNeverInterleaveTerms",
+      "kind": "test",
+      "original_declaration_sha256": "1984685c22ee337d84486d53d7c47f0ca07ee34de8649c419849e2a6f5036830",
+      "original_name": "TestConcurrentWritersNeverInterleaveTerms",
+      "path": "internal/globalcontrol/fencing_test.go",
+      "root_id": "internal/globalcontrol/fencing_test.go::TestConcurrentWritersNeverInterleaveTerms",
+      "source_declaration": {
+        "end_line": 183,
+        "sha256": "1984685c22ee337d84486d53d7c47f0ca07ee34de8649c419849e2a6f5036830",
+        "start_line": 134
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 355,
+        "sha256": "9f4448c495094587dc0a212a56429a6ee4d0f85ef49cf2e0a26de25812e876f9",
+        "start_line": 340
+      },
+      "current_declaration_sha256": "9f4448c495094587dc0a212a56429a6ee4d0f85ef49cf2e0a26de25812e876f9",
+      "current_name": "TestEmptyMirrorWithoutHomeContactFailsClosed",
+      "kind": "test",
+      "original_declaration_sha256": "9f4448c495094587dc0a212a56429a6ee4d0f85ef49cf2e0a26de25812e876f9",
+      "original_name": "TestEmptyMirrorWithoutHomeContactFailsClosed",
+      "path": "internal/globalcontrol/fencing_test.go",
+      "root_id": "internal/globalcontrol/fencing_test.go::TestEmptyMirrorWithoutHomeContactFailsClosed",
+      "source_declaration": {
+        "end_line": 355,
+        "sha256": "9f4448c495094587dc0a212a56429a6ee4d0f85ef49cf2e0a26de25812e876f9",
+        "start_line": 340
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 255,
+        "sha256": "66d5c84d24dd3c8b534fc3905837edf3e528bd499b1a91d29ea3a4b973444c1f",
+        "start_line": 221
+      },
+      "current_declaration_sha256": "66d5c84d24dd3c8b534fc3905837edf3e528bd499b1a91d29ea3a4b973444c1f",
+      "current_name": "TestForgedRecordsAreRejected",
+      "kind": "test",
+      "original_declaration_sha256": "66d5c84d24dd3c8b534fc3905837edf3e528bd499b1a91d29ea3a4b973444c1f",
+      "original_name": "TestForgedRecordsAreRejected",
+      "path": "internal/globalcontrol/fencing_test.go",
+      "root_id": "internal/globalcontrol/fencing_test.go::TestForgedRecordsAreRejected",
+      "source_declaration": {
+        "end_line": 255,
+        "sha256": "66d5c84d24dd3c8b534fc3905837edf3e528bd499b1a91d29ea3a4b973444c1f",
+        "start_line": 221
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 316,
+        "sha256": "f31caea5d5da06033474054c482293d469ee3e3b98e8c40b44c20beb1cb9d04d",
+        "start_line": 293
+      },
+      "current_declaration_sha256": "f31caea5d5da06033474054c482293d469ee3e3b98e8c40b44c20beb1cb9d04d",
+      "current_name": "TestHeaderlessRecordsBeforeTheFirstBarrierAreRejected",
+      "kind": "test",
+      "original_declaration_sha256": "f31caea5d5da06033474054c482293d469ee3e3b98e8c40b44c20beb1cb9d04d",
+      "original_name": "TestHeaderlessRecordsBeforeTheFirstBarrierAreRejected",
+      "path": "internal/globalcontrol/fencing_test.go",
+      "root_id": "internal/globalcontrol/fencing_test.go::TestHeaderlessRecordsBeforeTheFirstBarrierAreRejected",
+      "source_declaration": {
+        "end_line": 316,
+        "sha256": "f31caea5d5da06033474054c482293d469ee3e3b98e8c40b44c20beb1cb9d04d",
+        "start_line": 293
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 290,
+        "sha256": "c03e2e94fb000411295136b049f1905cd67d1d9df875cf8545f04281beb7e22b",
+        "start_line": 259
+      },
+      "current_declaration_sha256": "c03e2e94fb000411295136b049f1905cd67d1d9df875cf8545f04281beb7e22b",
+      "current_name": "TestHomeRemovesMirrorConsumersOfRemovedPeers",
+      "kind": "test",
+      "original_declaration_sha256": "c03e2e94fb000411295136b049f1905cd67d1d9df875cf8545f04281beb7e22b",
+      "original_name": "TestHomeRemovesMirrorConsumersOfRemovedPeers",
+      "path": "internal/globalcontrol/fencing_test.go",
+      "root_id": "internal/globalcontrol/fencing_test.go::TestHomeRemovesMirrorConsumersOfRemovedPeers",
+      "source_declaration": {
+        "end_line": 290,
+        "sha256": "c03e2e94fb000411295136b049f1905cd67d1d9df875cf8545f04281beb7e22b",
+        "start_line": 259
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 336,
+        "sha256": "042d8abfc586c8025acdb88a5c5a78582fb12a509add7afda6ce8e7562ceedac",
+        "start_line": 320
+      },
+      "current_declaration_sha256": "042d8abfc586c8025acdb88a5c5a78582fb12a509add7afda6ce8e7562ceedac",
+      "current_name": "TestMirrorWithFiniteLimitsIsRefused",
+      "kind": "test",
+      "original_declaration_sha256": "042d8abfc586c8025acdb88a5c5a78582fb12a509add7afda6ce8e7562ceedac",
+      "original_name": "TestMirrorWithFiniteLimitsIsRefused",
+      "path": "internal/globalcontrol/fencing_test.go",
+      "root_id": "internal/globalcontrol/fencing_test.go::TestMirrorWithFiniteLimitsIsRefused",
+      "source_declaration": {
+        "end_line": 336,
+        "sha256": "042d8abfc586c8025acdb88a5c5a78582fb12a509add7afda6ce8e7562ceedac",
+        "start_line": 320
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 130,
+        "sha256": "2b9d13b8eb0da42d4dc4121732d33847a982d411c80299a90bbaf8b8119770ca",
+        "start_line": 111
+      },
+      "current_declaration_sha256": "2b9d13b8eb0da42d4dc4121732d33847a982d411c80299a90bbaf8b8119770ca",
+      "current_name": "TestNewLeaderFirstWriteFencesTheOldTerm",
+      "kind": "test",
+      "original_declaration_sha256": "2b9d13b8eb0da42d4dc4121732d33847a982d411c80299a90bbaf8b8119770ca",
+      "original_name": "TestNewLeaderFirstWriteFencesTheOldTerm",
+      "path": "internal/globalcontrol/fencing_test.go",
+      "root_id": "internal/globalcontrol/fencing_test.go::TestNewLeaderFirstWriteFencesTheOldTerm",
+      "source_declaration": {
+        "end_line": 130,
+        "sha256": "2b9d13b8eb0da42d4dc4121732d33847a982d411c80299a90bbaf8b8119770ca",
+        "start_line": 111
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 107,
+        "sha256": "3a7df71e28ce4e9b4760e7048d1c22a655516700aa1852de75906cdf2fc7dca1",
+        "start_line": 59
+      },
+      "current_declaration_sha256": "3a7df71e28ce4e9b4760e7048d1c22a655516700aa1852de75906cdf2fc7dca1",
+      "current_name": "TestOldLeaderCannotCommitAfterNewTerm",
+      "kind": "test",
+      "original_declaration_sha256": "3a7df71e28ce4e9b4760e7048d1c22a655516700aa1852de75906cdf2fc7dca1",
+      "original_name": "TestOldLeaderCannotCommitAfterNewTerm",
+      "path": "internal/globalcontrol/fencing_test.go",
+      "root_id": "internal/globalcontrol/fencing_test.go::TestOldLeaderCannotCommitAfterNewTerm",
+      "source_declaration": {
+        "end_line": 107,
+        "sha256": "3a7df71e28ce4e9b4760e7048d1c22a655516700aa1852de75906cdf2fc7dca1",
+        "start_line": 59
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 372,
+        "sha256": "46a998c510cc9b56b7af7ce1da841023717bf76d05d8df6a8751e56adc1b526d",
+        "start_line": 360
+      },
+      "current_declaration_sha256": "46a998c510cc9b56b7af7ce1da841023717bf76d05d8df6a8751e56adc1b526d",
+      "current_name": "TestStreamVerificationRefusesTransformsAndLateMirrorStarts",
+      "kind": "test",
+      "original_declaration_sha256": "46a998c510cc9b56b7af7ce1da841023717bf76d05d8df6a8751e56adc1b526d",
+      "original_name": "TestStreamVerificationRefusesTransformsAndLateMirrorStarts",
+      "path": "internal/globalcontrol/fencing_test.go",
+      "root_id": "internal/globalcontrol/fencing_test.go::TestStreamVerificationRefusesTransformsAndLateMirrorStarts",
+      "source_declaration": {
+        "end_line": 372,
+        "sha256": "46a998c510cc9b56b7af7ce1da841023717bf76d05d8df6a8751e56adc1b526d",
+        "start_line": 360
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 95,
+        "sha256": "bcaaea1f6adeb4b0b5f10223dc78117eb80448e976aa66351c62888e3290dba2",
+        "start_line": 62
+      },
+      "current_declaration_sha256": "bcaaea1f6adeb4b0b5f10223dc78117eb80448e976aa66351c62888e3290dba2",
+      "current_name": "TestDirectoryValidation",
+      "kind": "test",
+      "original_declaration_sha256": "bcaaea1f6adeb4b0b5f10223dc78117eb80448e976aa66351c62888e3290dba2",
+      "original_name": "TestDirectoryValidation",
+      "path": "internal/globalcontrol/globalcontrol_test.go",
+      "root_id": "internal/globalcontrol/globalcontrol_test.go::TestDirectoryValidation",
+      "source_declaration": {
+        "end_line": 95,
+        "sha256": "bcaaea1f6adeb4b0b5f10223dc78117eb80448e976aa66351c62888e3290dba2",
+        "start_line": 62
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 285,
+        "sha256": "b9af16453b0c23cc7f3b3cfe88c57593a7c779f34983f0b10e3619ef1e87e33b",
+        "start_line": 265
+      },
+      "current_declaration_sha256": "b9af16453b0c23cc7f3b3cfe88c57593a7c779f34983f0b10e3619ef1e87e33b",
+      "current_name": "TestHomeRefusesADriftedMirrorConsumer",
+      "kind": "test",
+      "original_declaration_sha256": "b9af16453b0c23cc7f3b3cfe88c57593a7c779f34983f0b10e3619ef1e87e33b",
+      "original_name": "TestHomeRefusesADriftedMirrorConsumer",
+      "path": "internal/globalcontrol/globalcontrol_test.go",
+      "root_id": "internal/globalcontrol/globalcontrol_test.go::TestHomeRefusesADriftedMirrorConsumer",
+      "source_declaration": {
+        "end_line": 285,
+        "sha256": "b9af16453b0c23cc7f3b3cfe88c57593a7c779f34983f0b10e3619ef1e87e33b",
+        "start_line": 265
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 231,
+        "sha256": "19ac9ace9caa0c9b0e8730f386987f18ebda57d049631e2b88ab833fed2f4e94",
+        "start_line": 146
+      },
+      "current_declaration_sha256": "19ac9ace9caa0c9b0e8730f386987f18ebda57d049631e2b88ab833fed2f4e94",
+      "current_name": "TestHomeWriterGuardsAndCompareAndSets",
+      "kind": "test",
+      "original_declaration_sha256": "19ac9ace9caa0c9b0e8730f386987f18ebda57d049631e2b88ab833fed2f4e94",
+      "original_name": "TestHomeWriterGuardsAndCompareAndSets",
+      "path": "internal/globalcontrol/globalcontrol_test.go",
+      "root_id": "internal/globalcontrol/globalcontrol_test.go::TestHomeWriterGuardsAndCompareAndSets",
+      "source_declaration": {
+        "end_line": 231,
+        "sha256": "19ac9ace9caa0c9b0e8730f386987f18ebda57d049631e2b88ab833fed2f4e94",
+        "start_line": 146
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 144,
+        "sha256": "0aa132d0c3efc0fe970b141578f70af7614e3044efb5e0c52a745f4f407850f4",
+        "start_line": 97
+      },
+      "current_declaration_sha256": "0aa132d0c3efc0fe970b141578f70af7614e3044efb5e0c52a745f4f407850f4",
+      "current_name": "TestMirrorConfigIsReadOnlyAndPinnedToHome",
+      "kind": "test",
+      "original_declaration_sha256": "0aa132d0c3efc0fe970b141578f70af7614e3044efb5e0c52a745f4f407850f4",
+      "original_name": "TestMirrorConfigIsReadOnlyAndPinnedToHome",
+      "path": "internal/globalcontrol/globalcontrol_test.go",
+      "root_id": "internal/globalcontrol/globalcontrol_test.go::TestMirrorConfigIsReadOnlyAndPinnedToHome",
+      "source_declaration": {
+        "end_line": 144,
+        "sha256": "0aa132d0c3efc0fe970b141578f70af7614e3044efb5e0c52a745f4f407850f4",
+        "start_line": 97
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 60,
+        "sha256": "d3780aa738d8950a42dcdca966ad7e1b4602ee4bb0ea42056f45c5f0802145d1",
+        "start_line": 28
+      },
+      "current_declaration_sha256": "d3780aa738d8950a42dcdca966ad7e1b4602ee4bb0ea42056f45c5f0802145d1",
+      "current_name": "TestRosterValidation",
+      "kind": "test",
+      "original_declaration_sha256": "d3780aa738d8950a42dcdca966ad7e1b4602ee4bb0ea42056f45c5f0802145d1",
+      "original_name": "TestRosterValidation",
+      "path": "internal/globalcontrol/globalcontrol_test.go",
+      "root_id": "internal/globalcontrol/globalcontrol_test.go::TestRosterValidation",
+      "source_declaration": {
+        "end_line": 60,
+        "sha256": "d3780aa738d8950a42dcdca966ad7e1b4602ee4bb0ea42056f45c5f0802145d1",
+        "start_line": 28
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 30,
+        "sha256": "05c490f0d6bebd969bfa7a2acedd7fc1d734f63faafd4ec91afabe0f3219defc",
+        "start_line": 8
+      },
+      "current_declaration_sha256": "05c490f0d6bebd969bfa7a2acedd7fc1d734f63faafd4ec91afabe0f3219defc",
+      "current_name": "TestHeartbeatValidation",
+      "kind": "test",
+      "original_declaration_sha256": "05c490f0d6bebd969bfa7a2acedd7fc1d734f63faafd4ec91afabe0f3219defc",
+      "original_name": "TestHeartbeatValidation",
+      "path": "internal/globalcontrol/heartbeat_test.go",
+      "root_id": "internal/globalcontrol/heartbeat_test.go::TestHeartbeatValidation",
+      "source_declaration": {
+        "end_line": 30,
+        "sha256": "05c490f0d6bebd969bfa7a2acedd7fc1d734f63faafd4ec91afabe0f3219defc",
+        "start_line": 8
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 70,
+        "sha256": "bfb5b404e22d820c996ce47d310e78db98b6ce17a6490e9d16bbf2f2d4d68122",
+        "start_line": 32
+      },
+      "current_declaration_sha256": "bfb5b404e22d820c996ce47d310e78db98b6ce17a6490e9d16bbf2f2d4d68122",
+      "current_name": "TestNextRosterFollowsHeartbeats",
+      "kind": "test",
+      "original_declaration_sha256": "bfb5b404e22d820c996ce47d310e78db98b6ce17a6490e9d16bbf2f2d4d68122",
+      "original_name": "TestNextRosterFollowsHeartbeats",
+      "path": "internal/globalcontrol/heartbeat_test.go",
+      "root_id": "internal/globalcontrol/heartbeat_test.go::TestNextRosterFollowsHeartbeats",
+      "source_declaration": {
+        "end_line": 70,
+        "sha256": "bfb5b404e22d820c996ce47d310e78db98b6ce17a6490e9d16bbf2f2d4d68122",
+        "start_line": 32
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 369,
+        "sha256": "9129596eb465462ac674c0c7b2cb5abf2adc0b9d1de1f797c86394c8c26eb407",
+        "start_line": 359
+      },
+      "current_declaration_sha256": "9129596eb465462ac674c0c7b2cb5abf2adc0b9d1de1f797c86394c8c26eb407",
+      "current_name": "TestBuildAutoscaleSkipsAwaitingRelease",
+      "kind": "test",
+      "original_declaration_sha256": "9129596eb465462ac674c0c7b2cb5abf2adc0b9d1de1f797c86394c8c26eb407",
+      "original_name": "TestBuildAutoscaleSkipsAwaitingRelease",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildAutoscaleSkipsAwaitingRelease",
+      "source_declaration": {
+        "end_line": 369,
+        "sha256": "9129596eb465462ac674c0c7b2cb5abf2adc0b9d1de1f797c86394c8c26eb407",
+        "start_line": 359
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 357,
+        "sha256": "ea1015c996c8fe2720740ac146f137c6e03535ad82f830e027bed8546782d11c",
+        "start_line": 339
+      },
+      "current_declaration_sha256": "ea1015c996c8fe2720740ac146f137c6e03535ad82f830e027bed8546782d11c",
+      "current_name": "TestBuildDatabasePeersSortedAndCapped",
+      "kind": "test",
+      "original_declaration_sha256": "ea1015c996c8fe2720740ac146f137c6e03535ad82f830e027bed8546782d11c",
+      "original_name": "TestBuildDatabasePeersSortedAndCapped",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildDatabasePeersSortedAndCapped",
+      "source_declaration": {
+        "end_line": 357,
+        "sha256": "ea1015c996c8fe2720740ac146f137c6e03535ad82f830e027bed8546782d11c",
+        "start_line": 339
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 337,
+        "sha256": "7cfea9ed13aca604e204d7ff7316dacdaf73a4359123d0532caaf537679a045f",
+        "start_line": 322
+      },
+      "current_declaration_sha256": "7cfea9ed13aca604e204d7ff7316dacdaf73a4359123d0532caaf537679a045f",
+      "current_name": "TestBuildDatabasesSortedAndCapped",
+      "kind": "test",
+      "original_declaration_sha256": "7cfea9ed13aca604e204d7ff7316dacdaf73a4359123d0532caaf537679a045f",
+      "original_name": "TestBuildDatabasesSortedAndCapped",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildDatabasesSortedAndCapped",
+      "source_declaration": {
+        "end_line": 337,
+        "sha256": "7cfea9ed13aca604e204d7ff7316dacdaf73a4359123d0532caaf537679a045f",
+        "start_line": 322
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 310,
+        "sha256": "8b266032ba5a8eb4fbd50482bd5a62c3a24df3b15ba51ef387b360d5ba73d0ae",
+        "start_line": 293
+      },
+      "current_declaration_sha256": "8b266032ba5a8eb4fbd50482bd5a62c3a24df3b15ba51ef387b360d5ba73d0ae",
+      "current_name": "TestBuildErrorsClipsNodes",
+      "kind": "test",
+      "original_declaration_sha256": "8b266032ba5a8eb4fbd50482bd5a62c3a24df3b15ba51ef387b360d5ba73d0ae",
+      "original_name": "TestBuildErrorsClipsNodes",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildErrorsClipsNodes",
+      "source_declaration": {
+        "end_line": 310,
+        "sha256": "8b266032ba5a8eb4fbd50482bd5a62c3a24df3b15ba51ef387b360d5ba73d0ae",
+        "start_line": 293
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 291,
+        "sha256": "11cb2619fe87d58b0a21f18ee373721661f293f5d1ace2c5ed6e9a0a0d0a2380",
+        "start_line": 269
+      },
+      "current_declaration_sha256": "11cb2619fe87d58b0a21f18ee373721661f293f5d1ace2c5ed6e9a0a0d0a2380",
+      "current_name": "TestBuildErrorsFromEvents",
+      "kind": "test",
+      "original_declaration_sha256": "11cb2619fe87d58b0a21f18ee373721661f293f5d1ace2c5ed6e9a0a0d0a2380",
+      "original_name": "TestBuildErrorsFromEvents",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildErrorsFromEvents",
+      "source_declaration": {
+        "end_line": 291,
+        "sha256": "11cb2619fe87d58b0a21f18ee373721661f293f5d1ace2c5ed6e9a0a0d0a2380",
+        "start_line": 269
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 320,
+        "sha256": "36cc30e0eabb2253ae6ec19db58810af733cf664f04c4dfaa94f6103e744d2e2",
+        "start_line": 312
+      },
+      "current_declaration_sha256": "36cc30e0eabb2253ae6ec19db58810af733cf664f04c4dfaa94f6103e744d2e2",
+      "current_name": "TestBuildErrorsSourceOverridesEvents",
+      "kind": "test",
+      "original_declaration_sha256": "36cc30e0eabb2253ae6ec19db58810af733cf664f04c4dfaa94f6103e744d2e2",
+      "original_name": "TestBuildErrorsSourceOverridesEvents",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildErrorsSourceOverridesEvents",
+      "source_declaration": {
+        "end_line": 320,
+        "sha256": "36cc30e0eabb2253ae6ec19db58810af733cf664f04c4dfaa94f6103e744d2e2",
+        "start_line": 312
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 200,
+        "sha256": "b8e350dcd7d9e35467571b8d915605febce618ffc71d6c4e0a81e52761d075a7",
+        "start_line": 183
+      },
+      "current_declaration_sha256": "b8e350dcd7d9e35467571b8d915605febce618ffc71d6c4e0a81e52761d075a7",
+      "current_name": "TestBuildFilesystemsDedupeByDevice",
+      "kind": "test",
+      "original_declaration_sha256": "b8e350dcd7d9e35467571b8d915605febce618ffc71d6c4e0a81e52761d075a7",
+      "original_name": "TestBuildFilesystemsDedupeByDevice",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildFilesystemsDedupeByDevice",
+      "source_declaration": {
+        "end_line": 200,
+        "sha256": "b8e350dcd7d9e35467571b8d915605febce618ffc71d6c4e0a81e52761d075a7",
+        "start_line": 183
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 128,
+        "sha256": "1a40a9aead4f0dda1d396f913c7dbd42c2a597b4c254bc86ee908e53cdb0ebe5",
+        "start_line": 68
+      },
+      "current_declaration_sha256": "1a40a9aead4f0dda1d396f913c7dbd42c2a597b4c254bc86ee908e53cdb0ebe5",
+      "current_name": "TestBuildHealth",
+      "kind": "test",
+      "original_declaration_sha256": "1a40a9aead4f0dda1d396f913c7dbd42c2a597b4c254bc86ee908e53cdb0ebe5",
+      "original_name": "TestBuildHealth",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildHealth",
+      "source_declaration": {
+        "end_line": 128,
+        "sha256": "1a40a9aead4f0dda1d396f913c7dbd42c2a597b4c254bc86ee908e53cdb0ebe5",
+        "start_line": 68
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 239,
+        "sha256": "30cf897ca99c047356ae127381699d33aa3f353e8ffd08fc9823df1b9216845b",
+        "start_line": 202
+      },
+      "current_declaration_sha256": "30cf897ca99c047356ae127381699d33aa3f353e8ffd08fc9823df1b9216845b",
+      "current_name": "TestBuildLinksCarryWANLag",
+      "kind": "test",
+      "original_declaration_sha256": "30cf897ca99c047356ae127381699d33aa3f353e8ffd08fc9823df1b9216845b",
+      "original_name": "TestBuildLinksCarryWANLag",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildLinksCarryWANLag",
+      "source_declaration": {
+        "end_line": 239,
+        "sha256": "30cf897ca99c047356ae127381699d33aa3f353e8ffd08fc9823df1b9216845b",
+        "start_line": 202
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 143,
+        "sha256": "8c0c18a52f23fd5e48c314b816b3a2a3406aa92e5b90005e3116d4dd0c307617",
+        "start_line": 130
+      },
+      "current_declaration_sha256": "8c0c18a52f23fd5e48c314b816b3a2a3406aa92e5b90005e3116d4dd0c307617",
+      "current_name": "TestBuildNodeHealthPerNode",
+      "kind": "test",
+      "original_declaration_sha256": "8c0c18a52f23fd5e48c314b816b3a2a3406aa92e5b90005e3116d4dd0c307617",
+      "original_name": "TestBuildNodeHealthPerNode",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildNodeHealthPerNode",
+      "source_declaration": {
+        "end_line": 143,
+        "sha256": "8c0c18a52f23fd5e48c314b816b3a2a3406aa92e5b90005e3116d4dd0c307617",
+        "start_line": 130
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 152,
+        "sha256": "43b2ba6c99cb1eab0de5b9cac817a59315fd0832cbc7b9f8ddb2ed59c16c3479",
+        "start_line": 145
+      },
+      "current_declaration_sha256": "43b2ba6c99cb1eab0de5b9cac817a59315fd0832cbc7b9f8ddb2ed59c16c3479",
+      "current_name": "TestBuildNodeMissingReportIsDown",
+      "kind": "test",
+      "original_declaration_sha256": "43b2ba6c99cb1eab0de5b9cac817a59315fd0832cbc7b9f8ddb2ed59c16c3479",
+      "original_name": "TestBuildNodeMissingReportIsDown",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildNodeMissingReportIsDown",
+      "source_declaration": {
+        "end_line": 152,
+        "sha256": "43b2ba6c99cb1eab0de5b9cac817a59315fd0832cbc7b9f8ddb2ed59c16c3479",
+        "start_line": 145
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 436,
+        "sha256": "4f5b3bd6dceb45113b8b7d5c5bf22549ad3150725c10a2188b35088609f1e63e",
+        "start_line": 402
+      },
+      "current_declaration_sha256": "4f5b3bd6dceb45113b8b7d5c5bf22549ad3150725c10a2188b35088609f1e63e",
+      "current_name": "TestBuildRollupJSONStaysUnder16KB",
+      "kind": "test",
+      "original_declaration_sha256": "4f5b3bd6dceb45113b8b7d5c5bf22549ad3150725c10a2188b35088609f1e63e",
+      "original_name": "TestBuildRollupJSONStaysUnder16KB",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildRollupJSONStaysUnder16KB",
+      "source_declaration": {
+        "end_line": 436,
+        "sha256": "4f5b3bd6dceb45113b8b7d5c5bf22549ad3150725c10a2188b35088609f1e63e",
+        "start_line": 402
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 267,
+        "sha256": "b122f884dc4b9d7eb25944beffb3e9e6f1798f1fc8869466799239be4fa9db57",
+        "start_line": 241
+      },
+      "current_declaration_sha256": "b122f884dc4b9d7eb25944beffb3e9e6f1798f1fc8869466799239be4fa9db57",
+      "current_name": "TestBuildRoutes",
+      "kind": "test",
+      "original_declaration_sha256": "b122f884dc4b9d7eb25944beffb3e9e6f1798f1fc8869466799239be4fa9db57",
+      "original_name": "TestBuildRoutes",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildRoutes",
+      "source_declaration": {
+        "end_line": 267,
+        "sha256": "b122f884dc4b9d7eb25944beffb3e9e6f1798f1fc8869466799239be4fa9db57",
+        "start_line": 241
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 181,
+        "sha256": "f16f27cddda4efd727eebb1b4f6fefea09dde3ca2ea40b4c903d3e71764ad0f0",
+        "start_line": 154
+      },
+      "current_declaration_sha256": "f16f27cddda4efd727eebb1b4f6fefea09dde3ca2ea40b4c903d3e71764ad0f0",
+      "current_name": "TestBuildTotalsExcludeDownNodesAndCountBeyondCap",
+      "kind": "test",
+      "original_declaration_sha256": "f16f27cddda4efd727eebb1b4f6fefea09dde3ca2ea40b4c903d3e71764ad0f0",
+      "original_name": "TestBuildTotalsExcludeDownNodesAndCountBeyondCap",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildTotalsExcludeDownNodesAndCountBeyondCap",
+      "source_declaration": {
+        "end_line": 181,
+        "sha256": "f16f27cddda4efd727eebb1b4f6fefea09dde3ca2ea40b4c903d3e71764ad0f0",
+        "start_line": 154
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 400,
+        "sha256": "0b69d15636fc5ad2112468ed2e92e62ef8b0261730e22215785bacfdf125925d",
+        "start_line": 385
+      },
+      "current_declaration_sha256": "0b69d15636fc5ad2112468ed2e92e62ef8b0261730e22215785bacfdf125925d",
+      "current_name": "TestBuildVersionsAndControllers",
+      "kind": "test",
+      "original_declaration_sha256": "0b69d15636fc5ad2112468ed2e92e62ef8b0261730e22215785bacfdf125925d",
+      "original_name": "TestBuildVersionsAndControllers",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildVersionsAndControllers",
+      "source_declaration": {
+        "end_line": 400,
+        "sha256": "0b69d15636fc5ad2112468ed2e92e62ef8b0261730e22215785bacfdf125925d",
+        "start_line": 385
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 383,
+        "sha256": "0c3d31553daf08ce7abf04776230a63a09876ff2c5f5e167aa6ebac53e234271",
+        "start_line": 371
+      },
+      "current_declaration_sha256": "0c3d31553daf08ce7abf04776230a63a09876ff2c5f5e167aa6ebac53e234271",
+      "current_name": "TestBuildVolumesSortedAndCapped",
+      "kind": "test",
+      "original_declaration_sha256": "0c3d31553daf08ce7abf04776230a63a09876ff2c5f5e167aa6ebac53e234271",
+      "original_name": "TestBuildVolumesSortedAndCapped",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestBuildVolumesSortedAndCapped",
+      "source_declaration": {
+        "end_line": 383,
+        "sha256": "0c3d31553daf08ce7abf04776230a63a09876ff2c5f5e167aa6ebac53e234271",
+        "start_line": 371
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 506,
+        "sha256": "b5b0045ae144c46a8d610135963e37e132f6f74040215d131a64821263ccda22",
+        "start_line": 471
+      },
+      "current_declaration_sha256": "b5b0045ae144c46a8d610135963e37e132f6f74040215d131a64821263ccda22",
+      "current_name": "TestCollectEventsWhenNoErrorSource",
+      "kind": "test",
+      "original_declaration_sha256": "b5b0045ae144c46a8d610135963e37e132f6f74040215d131a64821263ccda22",
+      "original_name": "TestCollectEventsWhenNoErrorSource",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestCollectEventsWhenNoErrorSource",
+      "source_declaration": {
+        "end_line": 506,
+        "sha256": "b5b0045ae144c46a8d610135963e37e132f6f74040215d131a64821263ccda22",
+        "start_line": 471
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 469,
+        "sha256": "e76951bb4f96a16d957bdebec1b3b6700c2beb450018a2fdad1c39781015d483",
+        "start_line": 438
+      },
+      "current_declaration_sha256": "e76951bb4f96a16d957bdebec1b3b6700c2beb450018a2fdad1c39781015d483",
+      "current_name": "TestCollectReadsSourcesOnce",
+      "kind": "test",
+      "original_declaration_sha256": "e76951bb4f96a16d957bdebec1b3b6700c2beb450018a2fdad1c39781015d483",
+      "original_name": "TestCollectReadsSourcesOnce",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestCollectReadsSourcesOnce",
+      "source_declaration": {
+        "end_line": 469,
+        "sha256": "e76951bb4f96a16d957bdebec1b3b6700c2beb450018a2fdad1c39781015d483",
+        "start_line": 438
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 534,
+        "sha256": "adc9ce2bfad9c05c22f35d00571151f4206701f2af9b4a3a381ee85818f5dfbc",
+        "start_line": 522
+      },
+      "current_declaration_sha256": "adc9ce2bfad9c05c22f35d00571151f4206701f2af9b4a3a381ee85818f5dfbc",
+      "current_name": "TestFailedVolumeReadIsNotAnEmptyList",
+      "kind": "test",
+      "original_declaration_sha256": "adc9ce2bfad9c05c22f35d00571151f4206701f2af9b4a3a381ee85818f5dfbc",
+      "original_name": "TestFailedVolumeReadIsNotAnEmptyList",
+      "path": "internal/globalview/build_test.go",
+      "root_id": "internal/globalview/build_test.go::TestFailedVolumeReadIsNotAnEmptyList",
+      "source_declaration": {
+        "end_line": 534,
+        "sha256": "adc9ce2bfad9c05c22f35d00571151f4206701f2af9b4a3a381ee85818f5dfbc",
+        "start_line": 522
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 60,
+        "sha256": "9adef8d1379252a298408f36764ad0007ba4d824b63219ba020ad9f687908559",
+        "start_line": 14
+      },
+      "current_declaration_sha256": "9adef8d1379252a298408f36764ad0007ba4d824b63219ba020ad9f687908559",
+      "current_name": "TestFunctionObservationsCrossNATSAndHTTP",
+      "kind": "test",
+      "original_declaration_sha256": "9adef8d1379252a298408f36764ad0007ba4d824b63219ba020ad9f687908559",
+      "original_name": "TestFunctionObservationsCrossNATSAndHTTP",
+      "path": "internal/globalview/function_integration_test.go",
+      "root_id": "internal/globalview/function_integration_test.go::TestFunctionObservationsCrossNATSAndHTTP",
+      "source_declaration": {
+        "end_line": 60,
+        "sha256": "9adef8d1379252a298408f36764ad0007ba4d824b63219ba020ad9f687908559",
+        "start_line": 14
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 35,
+        "sha256": "ae93bf9879ab986355daf38b1bf356a12cafdc3589056550843f22cd120d5570",
+        "start_line": 11
+      },
+      "current_declaration_sha256": "ae93bf9879ab986355daf38b1bf356a12cafdc3589056550843f22cd120d5570",
+      "current_name": "TestHandlerListsListedRegionsAndRejectsOthers",
+      "kind": "test",
+      "original_declaration_sha256": "ae93bf9879ab986355daf38b1bf356a12cafdc3589056550843f22cd120d5570",
+      "original_name": "TestHandlerListsListedRegionsAndRejectsOthers",
+      "path": "internal/globalview/http_test.go",
+      "root_id": "internal/globalview/http_test.go::TestHandlerListsListedRegionsAndRejectsOthers",
+      "source_declaration": {
+        "end_line": 35,
+        "sha256": "ae93bf9879ab986355daf38b1bf356a12cafdc3589056550843f22cd120d5570",
+        "start_line": 11
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 77,
+        "sha256": "d8f406bbd083bf9d435a8f84aedc59a1fef3a188ee79a5fe1d41d0c626c77b80",
+        "start_line": 14
+      },
+      "current_declaration_sha256": "d8f406bbd083bf9d435a8f84aedc59a1fef3a188ee79a5fe1d41d0c626c77b80",
+      "current_name": "TestManagedServicesCrossSourceNATSAndHTTP",
+      "kind": "test",
+      "original_declaration_sha256": "d8f406bbd083bf9d435a8f84aedc59a1fef3a188ee79a5fe1d41d0c626c77b80",
+      "original_name": "TestManagedServicesCrossSourceNATSAndHTTP",
+      "path": "internal/globalview/managed_services_integration_test.go",
+      "root_id": "internal/globalview/managed_services_integration_test.go::TestManagedServicesCrossSourceNATSAndHTTP",
+      "source_declaration": {
+        "end_line": 77,
+        "sha256": "d8f406bbd083bf9d435a8f84aedc59a1fef3a188ee79a5fe1d41d0c626c77b80",
+        "start_line": 14
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 247,
+        "sha256": "e7b59e90bbe01704b985523843e160b279294cfe6e7baf98228f8dd71bded1b8",
+        "start_line": 235
+      },
+      "current_declaration_sha256": "e7b59e90bbe01704b985523843e160b279294cfe6e7baf98228f8dd71bded1b8",
+      "current_name": "TestDecodeAcceptsUnknownField",
+      "kind": "test",
+      "original_declaration_sha256": "e7b59e90bbe01704b985523843e160b279294cfe6e7baf98228f8dd71bded1b8",
+      "original_name": "TestDecodeAcceptsUnknownField",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestDecodeAcceptsUnknownField",
+      "source_declaration": {
+        "end_line": 247,
+        "sha256": "e7b59e90bbe01704b985523843e160b279294cfe6e7baf98228f8dd71bded1b8",
+        "start_line": 235
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 545,
+        "sha256": "bd8fd9118d4f6ad3fd8da65999f1bb1581dfae00972192063384ff9ae80c2f2f",
+        "start_line": 518
+      },
+      "current_declaration_sha256": "bd8fd9118d4f6ad3fd8da65999f1bb1581dfae00972192063384ff9ae80c2f2f",
+      "current_name": "TestDecodeKeepsOnlyTheRegionsOwnScaleStatus",
+      "kind": "test",
+      "original_declaration_sha256": "bd8fd9118d4f6ad3fd8da65999f1bb1581dfae00972192063384ff9ae80c2f2f",
+      "original_name": "TestDecodeKeepsOnlyTheRegionsOwnScaleStatus",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestDecodeKeepsOnlyTheRegionsOwnScaleStatus",
+      "source_declaration": {
+        "end_line": 545,
+        "sha256": "bd8fd9118d4f6ad3fd8da65999f1bb1581dfae00972192063384ff9ae80c2f2f",
+        "start_line": 518
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 233,
+        "sha256": "f1defe8e6e5e9d05bb3cffdb153f50215068e54e7a8e5eabaf5e47fe39e86c46",
+        "start_line": 199
+      },
+      "current_declaration_sha256": "f1defe8e6e5e9d05bb3cffdb153f50215068e54e7a8e5eabaf5e47fe39e86c46",
+      "current_name": "TestDecodeRejectsInvalidRollups",
+      "kind": "test",
+      "original_declaration_sha256": "f1defe8e6e5e9d05bb3cffdb153f50215068e54e7a8e5eabaf5e47fe39e86c46",
+      "original_name": "TestDecodeRejectsInvalidRollups",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestDecodeRejectsInvalidRollups",
+      "source_declaration": {
+        "end_line": 233,
+        "sha256": "f1defe8e6e5e9d05bb3cffdb153f50215068e54e7a8e5eabaf5e47fe39e86c46",
+        "start_line": 199
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 325,
+        "sha256": "393e05b186198a6c7865ff2c5348a6dc46d59b71d3e19987abd066866bb2cf83",
+        "start_line": 277
+      },
+      "current_declaration_sha256": "393e05b186198a6c7865ff2c5348a6dc46d59b71d3e19987abd066866bb2cf83",
+      "current_name": "TestFollowLoadsAndFollows",
+      "kind": "test",
+      "original_declaration_sha256": "393e05b186198a6c7865ff2c5348a6dc46d59b71d3e19987abd066866bb2cf83",
+      "original_name": "TestFollowLoadsAndFollows",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestFollowLoadsAndFollows",
+      "source_declaration": {
+        "end_line": 325,
+        "sha256": "393e05b186198a6c7865ff2c5348a6dc46d59b71d3e19987abd066866bb2cf83",
+        "start_line": 277
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 348,
+        "sha256": "b1b32bab5a830a4ebf2466fccf7a902fc505d76c5372bcf96c793c8d58d87ff1",
+        "start_line": 327
+      },
+      "current_declaration_sha256": "b1b32bab5a830a4ebf2466fccf7a902fc505d76c5372bcf96c793c8d58d87ff1",
+      "current_name": "TestKeepLastKnownPersistsWhileLeading",
+      "kind": "test",
+      "original_declaration_sha256": "b1b32bab5a830a4ebf2466fccf7a902fc505d76c5372bcf96c793c8d58d87ff1",
+      "original_name": "TestKeepLastKnownPersistsWhileLeading",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestKeepLastKnownPersistsWhileLeading",
+      "source_declaration": {
+        "end_line": 348,
+        "sha256": "b1b32bab5a830a4ebf2466fccf7a902fc505d76c5372bcf96c793c8d58d87ff1",
+        "start_line": 327
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 416,
+        "sha256": "91c1d3bef131fe80c06a48c929eec59e1ade8a90f327e9369ae7128bd03013e1",
+        "start_line": 398
+      },
+      "current_declaration_sha256": "91c1d3bef131fe80c06a48c929eec59e1ade8a90f327e9369ae7128bd03013e1",
+      "current_name": "TestPersistKeepsKeysBeforeTheRegistryIsRead",
+      "kind": "test",
+      "original_declaration_sha256": "91c1d3bef131fe80c06a48c929eec59e1ade8a90f327e9369ae7128bd03013e1",
+      "original_name": "TestPersistKeepsKeysBeforeTheRegistryIsRead",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestPersistKeepsKeysBeforeTheRegistryIsRead",
+      "source_declaration": {
+        "end_line": 416,
+        "sha256": "91c1d3bef131fe80c06a48c929eec59e1ade8a90f327e9369ae7128bd03013e1",
+        "start_line": 398
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 396,
+        "sha256": "b79da1726ef1a1186d0292ef8533fbc364e76296ac71d19e932b0be9fa415c2d",
+        "start_line": 350
+      },
+      "current_declaration_sha256": "b79da1726ef1a1186d0292ef8533fbc364e76296ac71d19e932b0be9fa415c2d",
+      "current_name": "TestPersistWritesOnCadence",
+      "kind": "test",
+      "original_declaration_sha256": "b79da1726ef1a1186d0292ef8533fbc364e76296ac71d19e932b0be9fa415c2d",
+      "original_name": "TestPersistWritesOnCadence",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestPersistWritesOnCadence",
+      "source_declaration": {
+        "end_line": 396,
+        "sha256": "b79da1726ef1a1186d0292ef8533fbc364e76296ac71d19e932b0be9fa415c2d",
+        "start_line": 350
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 516,
+        "sha256": "246912a47fa0f942e7289ea4b4438b40983341c5b94f12e7ed297a86c698148c",
+        "start_line": 481
+      },
+      "current_declaration_sha256": "246912a47fa0f942e7289ea4b4438b40983341c5b94f12e7ed297a86c698148c",
+      "current_name": "TestPublishWhileLeading",
+      "kind": "test",
+      "original_declaration_sha256": "246912a47fa0f942e7289ea4b4438b40983341c5b94f12e7ed297a86c698148c",
+      "original_name": "TestPublishWhileLeading",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestPublishWhileLeading",
+      "source_declaration": {
+        "end_line": 516,
+        "sha256": "246912a47fa0f942e7289ea4b4438b40983341c5b94f12e7ed297a86c698148c",
+        "start_line": 481
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 466,
+        "sha256": "c0018f72a5dd76b977863d140d0288077c2d0be2f6f127d41bef341efe10552d",
+        "start_line": 418
+      },
+      "current_declaration_sha256": "c0018f72a5dd76b977863d140d0288077c2d0be2f6f127d41bef341efe10552d",
+      "current_name": "TestTwentyRegionsFollow",
+      "kind": "test",
+      "original_declaration_sha256": "c0018f72a5dd76b977863d140d0288077c2d0be2f6f127d41bef341efe10552d",
+      "original_name": "TestTwentyRegionsFollow",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestTwentyRegionsFollow",
+      "source_declaration": {
+        "end_line": 466,
+        "sha256": "c0018f72a5dd76b977863d140d0288077c2d0be2f6f127d41bef341efe10552d",
+        "start_line": 418
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 157,
+        "sha256": "ce173afb3d9f66be6653780d604bda96daa3d3fd2f4aa5518a5e51276f952511",
+        "start_line": 126
+      },
+      "current_declaration_sha256": "ce173afb3d9f66be6653780d604bda96daa3d3fd2f4aa5518a5e51276f952511",
+      "current_name": "TestViewAccept",
+      "kind": "test",
+      "original_declaration_sha256": "ce173afb3d9f66be6653780d604bda96daa3d3fd2f4aa5518a5e51276f952511",
+      "original_name": "TestViewAccept",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestViewAccept",
+      "source_declaration": {
+        "end_line": 157,
+        "sha256": "ce173afb3d9f66be6653780d604bda96daa3d3fd2f4aa5518a5e51276f952511",
+        "start_line": 126
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 275,
+        "sha256": "3e47eb1243dec95b8856605840dff62c9f671f45379fcd15ba023ae6e5615de1",
+        "start_line": 249
+      },
+      "current_declaration_sha256": "3e47eb1243dec95b8856605840dff62c9f671f45379fcd15ba023ae6e5615de1",
+      "current_name": "TestViewAcceptBoundsRegions",
+      "kind": "test",
+      "original_declaration_sha256": "3e47eb1243dec95b8856605840dff62c9f671f45379fcd15ba023ae6e5615de1",
+      "original_name": "TestViewAcceptBoundsRegions",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestViewAcceptBoundsRegions",
+      "source_declaration": {
+        "end_line": 275,
+        "sha256": "3e47eb1243dec95b8856605840dff62c9f671f45379fcd15ba023ae6e5615de1",
+        "start_line": 249
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 182,
+        "sha256": "06e478e053fa6212aa8d8dfa7bad3edfc677d46fd80865b0ba6a7cadf4d551f5",
+        "start_line": 159
+      },
+      "current_declaration_sha256": "06e478e053fa6212aa8d8dfa7bad3edfc677d46fd80865b0ba6a7cadf4d551f5",
+      "current_name": "TestViewRegions",
+      "kind": "test",
+      "original_declaration_sha256": "06e478e053fa6212aa8d8dfa7bad3edfc677d46fd80865b0ba6a7cadf4d551f5",
+      "original_name": "TestViewRegions",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestViewRegions",
+      "source_declaration": {
+        "end_line": 182,
+        "sha256": "06e478e053fa6212aa8d8dfa7bad3edfc677d46fd80865b0ba6a7cadf4d551f5",
+        "start_line": 159
+      },
+      "state": "retained_body_exact"
+    },
+    {
+      "baseline_declaration": {
+        "end_line": 197,
+        "sha256": "e8004a89ffdd970775ed5b6aa5ca2db88c62d171b880f869b43341ebdfe9ef5d",
+        "start_line": 184
+      },
+      "current_declaration_sha256": "e8004a89ffdd970775ed5b6aa5ca2db88c62d171b880f869b43341ebdfe9ef5d",
+      "current_name": "TestViewRegionsStale",
+      "kind": "test",
+      "original_declaration_sha256": "e8004a89ffdd970775ed5b6aa5ca2db88c62d171b880f869b43341ebdfe9ef5d",
+      "original_name": "TestViewRegionsStale",
+      "path": "internal/globalview/view_test.go",
+      "root_id": "internal/globalview/view_test.go::TestViewRegionsStale",
+      "source_declaration": {
+        "end_line": 197,
+        "sha256": "e8004a89ffdd970775ed5b6aa5ca2db88c62d171b880f869b43341ebdfe9ef5d",
+        "start_line": 184
+      },
+      "state": "retained_body_exact"
+    }
+  ],
+  "scope_rationale": "Global control documents and aggregated regional views share global state transport and local projection boundaries.",
+  "scope_read_limit": "Grouping evidence only; no claim all roots/helpers/asserted targets have been classified. Owner must fully inspect each allocated root and connected assertion target.",
+  "test_file_count": 9
+}

@@ -1,0 +1,42 @@
+func TestSignedIntentRedeliveryAfterExpiryUsesDurableAdmission(t *testing.T) {
+	w := &testWriter{failFirst: true}
+	s, ctx := testService(t, w)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID, err := protocol.KeyID(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.September, 24, 9, 0, 0, 0, time.UTC)
+	codec := Ed25519Codec{Cell: "lab", Actor: "operator", PrivateKey: priv, Trusted: map[string]TrustedSigner{keyID: {Actor: "operator", PublicKey: pub}}, Lifetime: time.Minute, MaxLifetime: time.Minute, Now: func() time.Time { return now }}
+	s.config.Signer = codec
+	s.config.Verifier = codec
+	s.config.ArtifactSigner = codec
+	s.config.ArtifactVerifier = codec
+	i := testIntent(t, s, ctx)
+	wire, err := codec.Sign(ctx, mustJSON(i))
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal, err := s.process(ctx, wire)
+	if terminal || err == nil {
+		t.Fatalf("first attempt terminal=%t err=%v", terminal, err)
+	}
+	now = now.Add(2 * time.Minute)
+	if _, err := codec.Verify(ctx, wire); !errors.Is(err, protocol.ErrExpired) {
+		t.Fatalf("wire should be expired: %v", err)
+	}
+	terminal, err = s.process(ctx, wire)
+	if !terminal || err != nil {
+		t.Fatalf("redelivery terminal=%t err=%v", terminal, err)
+	}
+	r, err := s.Status(ctx, i.OperationID)
+	if err != nil || r.Status != "accepted" || w.count() != 2 {
+		t.Fatalf("receipt=%+v err=%v calls=%d", r, err, w.count())
+	}
+	if _, err := s.readAdmission(ctx, i.ArtifactDigest, i.Cell, i.Role, i.Environment); err != nil {
+		t.Fatalf("archived signed artifact claim: %v", err)
+	}
+}

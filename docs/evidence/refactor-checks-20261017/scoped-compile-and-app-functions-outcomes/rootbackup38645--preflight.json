@@ -1,0 +1,58 @@
+{
+  "source": {
+    "head": "38645f8f339d7c51b1dc39db749edecefd4d2a4f",
+    "tree": "892c89a1e2bdc4cc058ff7b4ec945a10c7f1cd63",
+    "status": "",
+    "fullsource_manifest_sha256": "4797b069d32d54f9460e2928dea7549e8a5805c66c2b1398e766bf1a2c723bea",
+    "tools_sha256": {
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+      "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+      "/run/current-system/sw/bin/nice": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+      "/run/current-system/sw/bin/timeout": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+      "/run/current-system/sw/bin/env": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+      "/run/current-system/sw/bin/git": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027"
+    },
+    "wrapper_sha256": "0b7c43e4de4aa66e04f73272bc0e65e4ec3c02a50cdf650c345092be7a6d58f8",
+    "request_sha256": "bb753b2f14b5c1a381b7449da49e6881d53a7728f2d7cf3d43fe4988b961fbfe"
+  },
+  "argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "180s",
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG=C.UTF-8",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-c",
+    "-mod=readonly",
+    "-p=1",
+    "-o",
+    "/tmp/ts-rootbackup-38645-defaultvet-gxbnkeej/binaries/",
+    "./internal/rootbackup",
+    "./internal/oci",
+    "./internal/placement",
+    "./internal/managedmaterial",
+    "./internal/storage/backup"
+  ],
+  "environment": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "compile_only": true,
+  "default_vet": true,
+  "binary_execution_count": 0
+}

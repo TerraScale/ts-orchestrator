@@ -1,0 +1,211 @@
+{
+  "allocation_path": "/tmp/ts-d4ac-next300-allocation-proposal-raxuc07l/allocation.json",
+  "immutable_ledger_input_aliases": [
+    {
+      "immutable_byte_exact_input": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/proposed-completion.json",
+      "original_path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "original_pin_at_draft": {
+        "bytes": 1294888,
+        "mode": "0600",
+        "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+        "sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+      }
+    },
+    {
+      "immutable_byte_exact_input": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/proposed-progress.json",
+      "original_path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "original_pin_at_draft": {
+        "bytes": 138535,
+        "mode": "0644",
+        "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+        "sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "bytes": 390556,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-allocation-proposal-raxuc07l/allocation.json",
+      "sha256": "032cb201e692326da7274b12d7dfd15512b1befd325cce375188ae0447ca2523"
+    },
+    {
+      "bytes": 715,
+      "mode": "0644",
+      "path": "/tmp/ts-qa-next300-allocation-independent-2ivixd0j/review.json",
+      "sha256": "4a1acb09fb4e6ee22f2d9eeb6ea610ed627c7de40851937676dfdc5bc96436a3"
+    },
+    {
+      "bytes": 225913,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-classification69-delta-final-l6fu61l5/proposal.json",
+      "sha256": "7eaaa19a3ccb97b64e02d74021ec4bcdf0908ecc2f317f131ae7c9acd473c69e"
+    },
+    {
+      "bytes": 1893,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-classification69-actual-apply-9wr2zuyd/receipt.json",
+      "sha256": "71738603201ae4863b725c2f843f085f2db929ff3dde1ad4fd982292cd5f209d"
+    },
+    {
+      "bytes": 1294888,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/proposed-completion.json",
+      "sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+    },
+    {
+      "bytes": 138535,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/proposed-progress.json",
+      "sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e"
+    },
+    {
+      "bytes": 1640609,
+      "mode": "0400",
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    {
+      "bytes": 1085012,
+      "mode": "0444",
+      "path": "/tmp/ts-data75-d4ac-independent-peer-Do1wRkzl/peer-review.json",
+      "sha256": "a54e54c099ecae201f1028505e7d53d48a443a3a2396117d312f7b0c7ca6133a"
+    },
+    {
+      "bytes": 1958211,
+      "mode": "0444",
+      "path": "/tmp/ts-data75-d4ac-source-classification-y9dqe8af/classification.json",
+      "sha256": "5bd4d6d007d17894ee7f7957086841199e1075455fff49e36ba47399473fdf5f"
+    },
+    {
+      "bytes": 4140297,
+      "mode": "0444",
+      "path": "/tmp/ts-core65-d4ac-source-classification-Yz6avQIW/classification.json",
+      "sha256": "0639658db2c0974d670483f31a4a644f7de32c97f7bb574f08d661975577612f"
+    },
+    {
+      "bytes": 1458917,
+      "mode": "0444",
+      "path": "/tmp/ts-cap57-d4ac-source-classification-r9lqashl/classification.json",
+      "sha256": "e72f6069898051c2a1d22160d476f99583d89c60c936bca66376b1f807e685a0"
+    },
+    {
+      "bytes": 733869,
+      "mode": "0444",
+      "path": "/tmp/ts-mesh55-d4ac-source-classification-pfjjhj7x/classification.json",
+      "sha256": "0bf0127bcc7915a633fe2ca78ab918703408eb69dd4c06dd554b86d3b72d3893"
+    },
+    {
+      "bytes": 852352,
+      "mode": "0444",
+      "path": "/tmp/ts-net48-d4ac-source-classification-k9shja9e/classification.json",
+      "sha256": "c89d6e3558298634ed2f902d0a55fa2d95496e26800be31b283dbf4da3b409e2"
+    },
+    {
+      "bytes": 884164,
+      "mode": "0444",
+      "path": "/tmp/ts-net48-d4ac-independent-peer-z4u7bbzz/review.json",
+      "sha256": "5134c9fb091bf707943dec174a6b16d1416a6246440816201ed601ee048228ce"
+    },
+    {
+      "bytes": 6767,
+      "mode": "0444",
+      "path": "/tmp/ts-net48-d4ac-independent-peer-z4u7bbzz/SHA256SUMS",
+      "sha256": "bc789655721ea9b5686b487aacc619b898f46380fd5a95e4beb79a1ade87eb88"
+    },
+    {
+      "bytes": 7865,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-input-index-draft-hq5q5u_v/input-index.json",
+      "sha256": "bbd6ff0bf09e378fcb869e4474ef47821e04903acb659b12e0ed271a7b0597e2"
+    },
+    {
+      "bytes": 286113,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-input-index-draft-hq5q5u_v/proposed-source-delta-draft.json",
+      "sha256": "a25a3851f9340a5034504a0cf24cf79c9ced9eff1bfbe0e915989a1d8231cf8e"
+    },
+    {
+      "bytes": 4190047,
+      "mode": "0444",
+      "path": "/tmp/ts-core65-d4ac-peer-net-sgmlxjwy/review.json",
+      "sha256": "ab0fc18b3aa358c5ad989ec3fdcf60d73007f11e198bbd147d24e1f58f4d6bcb"
+    },
+    {
+      "bytes": 820976,
+      "mode": "0444",
+      "path": "/tmp/ts-mesh55-d4ac-independent-peer-v7epgz07/review.json",
+      "sha256": "6cf7954430a4add049ee59149825b259e639419d2a3a4bbccb9960cf67636117"
+    },
+    {
+      "bytes": 851348,
+      "mode": "0444",
+      "path": "/tmp/ts-cap57-d4ac-independent-material-wb20g8i_/review.json",
+      "sha256": "c5a83215a0f7e5fae1bd1b5c746290b921d5b38e781162201585115caf263c0b"
+    },
+    {
+      "bytes": 12724,
+      "mode": "0444",
+      "path": "/tmp/ts-data75-d4ac-source-classification-y9dqe8af/SHA256SUMS",
+      "sha256": "4572d328b879440337ebd1e1e8ac0f208eb1a095b5f765a6508c0b6ae47e4c76"
+    },
+    {
+      "bytes": 411,
+      "mode": "0444",
+      "path": "/tmp/ts-core65-d4ac-source-classification-Yz6avQIW/SHA256SUMS",
+      "sha256": "f7703365046eea86107dcda0ec2ecd27f82f07c54324782df4b3b3335d1ec92f"
+    },
+    {
+      "bytes": 246,
+      "mode": "0444",
+      "path": "/tmp/ts-cap57-d4ac-source-classification-r9lqashl/SHA256SUMS",
+      "sha256": "60c93633dfd33c489dcbe0e070d653bd523ded0f929b5135642ef21c96c86453"
+    },
+    {
+      "bytes": 564,
+      "mode": "0444",
+      "path": "/tmp/ts-mesh55-d4ac-source-classification-pfjjhj7x/SHA256SUMS",
+      "sha256": "f98d69253a6bcfedaf04cdb507567ff3322c5e8c7a6a6ed6a1adb7fe564d29b3"
+    },
+    {
+      "bytes": 6514,
+      "mode": "0444",
+      "path": "/tmp/ts-net48-d4ac-source-classification-k9shja9e/SHA256SUMS",
+      "sha256": "300af62e0e6947a3ce4bbfca319c8fc10d0fb5fdede5cef5544cc9452991960c"
+    },
+    {
+      "bytes": 329,
+      "mode": "0444",
+      "path": "/tmp/ts-data75-d4ac-independent-peer-Do1wRkzl/SHA256SUMS",
+      "sha256": "bc97eef26e203a907062e28015aae6a7e326d8419723c4413db93b62fcb496a7"
+    },
+    {
+      "bytes": 14362,
+      "mode": "0444",
+      "path": "/tmp/ts-core65-d4ac-peer-net-sgmlxjwy/SHA256SUMS",
+      "sha256": "1c383a1a73d9e258fd5bee4fb3caab797d3f009e5260a5e7c7b932539418bac4"
+    },
+    {
+      "bytes": 236,
+      "mode": "0444",
+      "path": "/tmp/ts-mesh55-d4ac-independent-peer-v7epgz07/SHA256SUMS",
+      "sha256": "302b2829431b58b23ccbcf50d8ca1bdbbb972ab2df34c64a4579ea38eb3e1783"
+    },
+    {
+      "bytes": 318,
+      "mode": "0444",
+      "path": "/tmp/ts-cap57-d4ac-independent-material-wb20g8i_/SHA256SUMS",
+      "sha256": "4af3c5467732f7de4aad7a2fdaab000a6107ff00ab2d4ab506395e5647b95270"
+    },
+    {
+      "bytes": 5642,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-allocation-proposal-raxuc07l/OUTPUT-CONTRACT.md",
+      "sha256": "83ddfcf95cb31877ab2c40cab8ee8963e7491287e4780f29d9d6fcefabcd852b"
+    }
+  ],
+  "inventory_path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+  "note": "No raw packets copied. Verification needs referenced files and the source Git objects. Immutable after-ledger proposal bytes replace mutable actual paths as verifier inputs.",
+  "prior_accepted_delta_path": "/tmp/ts-d4ac-classification69-delta-final-l6fu61l5/proposal.json",
+  "schema": "next300-referenced-inputs-v1"
+}

@@ -1,0 +1,221 @@
+{
+  "state": "ACCEPT_EXACT_FROZEN_7_PLUS_3_PACKET_AND_66C74_SOURCE_ADOPTION_READY_FOR_EVIDENCE_PUBLICATION",
+  "packet": {
+    "path": "/tmp/ts-oci-factory-retirement-batch-publication-3zmfzgv1",
+    "files": 58,
+    "direct_checksums": 57,
+    "exact_copies": 55,
+    "copied_bytes": 481875,
+    "total_bytes": 505102,
+    "manifest_sha256": "ff9f559aab5e225a7d19594e699ac8feed11bc94b4a3d50bb19b9410a31dafdf",
+    "sums_sha256": "a0f0dfac0fb6589e482b67ad44692be460e03087f6bbee30a514c09e1384d6df",
+    "root_mode": "0500",
+    "all_file_modes": "0400",
+    "all55_sources_bytes_sizes_sha_exact": true,
+    "all57_direct_checksums_exact": true,
+    "noELF_or_executable_files": true,
+    "retirement_roots": [
+      "TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot",
+      "TestLaunchInstanceMapsSignedProfileIntoOCIRequest",
+      "TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK",
+      "TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC",
+      "TestNamedHostObservationRequiresTheNamedRunningPrivateInstance",
+      "TestVolumeAttachmentLookupUsesVolumeFilter",
+      "TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory",
+      "TestOperationCardinalityIsBounded",
+      "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+      "TestTenancyHomeRegionComesFromTheCatalog"
+    ],
+    "accepted_oci_retirement_review_sha256": "d397e419a4bce2689118a37af02ac8fa05f2d2579a5cf6d06614a9f8b30e4a29",
+    "accepted_factory_retirement_review_sha256": "3c7b67d63b6a968ede268badecb317c45da24923e15b9d93eb206824f014dea2",
+    "duplicate_b8_disclosed_and_no_credit": true,
+    "journal_fixture172sites14roots_preservation_retained": true,
+    "canonical_counts": {
+      "oci": 7,
+      "ociclient": 3,
+      "total": 10,
+      "current_canonical_promoted_count": 9,
+      "current_canonical_globally_unadjudicated_originals": 4310,
+      "canonical_counts_unchanged_pending_actual_adoption_and_fresh_independent_reconciliation": true
+    },
+    "limitations": [
+      "Allcompiles ELF0600neverexecuted in retained runner scope. NoELF copied; no new check execution by publication.",
+      "SDK fixtures check signed-header presence/nonempty, not independent cryptographic request-signature verification. ActualTLS verified by fixtureclient; synthetictest providers only.",
+      "Authenticated journal fixture permits actualJWT/mTLS broker transport; testbridge opening is not rootauthority-ticket admission proof.",
+      "No current-union test/build/runtime rerun, fullsuite, race, cloud, native, production, main or global completion qualification. Allfive completion categories remainOPEN.",
+      "Every original deletion has separate assertion-preserving additive acceptance and exact deletion compile/source acceptance; actualadoption and canonical count reconciliation remain separate."
+    ],
+    "donor_cherry_pick_order": [
+      "7e03d5c3c",
+      "0c320b0fc",
+      "e5e72bbbfbf83f02c251ffe1fa98246137a3cedc",
+      "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "fa44fa8a074af83fd5c9afdf8ca851fce7155147",
+      "c0a7945b717771b953e6392a4afe2cc9d699d343"
+    ]
+  },
+  "source_adoption": {
+    "head": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+    "tree": "3fcaeb6821869353d396cc0b23c282f2cfe94174",
+    "base": "ca1226b9b4011383f39c0753e19be295618accf8",
+    "base_tree": "4439bb44e9dbcc6531a76dcf494a4f87cdb9b647",
+    "tracked_paths": 5062,
+    "tracked_bytes_read": 160733344,
+    "full_path_mode_sha256_seal": "6610e6ffa995328fa1e48db4f983ae3ea6b0c18001edf9de4c97cb72d0079744",
+    "actual_source_bytes_and_modes_equal_immutable_tree": true,
+    "no_untracked_paths": true,
+    "exact14_test_only_donor_paths": [
+      {
+        "path": "internal/oci/authenticated_journal_test.go",
+        "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+        "blob": "c2e30e865ea393a8ada9dc8a7fbcb9892d6adfff",
+        "sha256": "6f9428ba15e41b97aeedc8b3d261daca6ff24b230aaaa2691e4c043d6131e663",
+        "status": "added"
+      },
+      {
+        "path": "internal/oci/capacity_request_integration_test.go",
+        "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+        "blob": "a792c3b650f5f6edc93c646c14f5821f2918031b",
+        "sha256": "2a3bc2af39a4429019edca97d1175c4a41dd04fe060dba4e5e71ee38518af230",
+        "status": "modified"
+      },
+      {
+        "path": "internal/oci/journal_test.go",
+        "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+        "blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+        "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+        "status": "modified"
+      },
+      {
+        "path": "internal/oci/pool_receipt_integration_test.go",
+        "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+        "blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c",
+        "sha256": "c28f4b4cb0b38559bae127b59bfd34727b750e881abb885366ad98d4a465ae45",
+        "status": "modified"
+      },
+      {
+        "path": "internal/oci/sdk_socket_boundary_integration_test.go",
+        "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+        "blob": "b870ce056b50f98059c72daf1585e9764dfc5a83",
+        "sha256": "d113103cafd338cd1972de5c5a2021c711dfecf58efff30aae4a112418e649ed",
+        "status": "added"
+      },
+      {
+        "path": "internal/oci/sdk_test.go",
+        "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+        "blob": "c661de5dafe957e9023a2b83a27972e833c6a7b4",
+        "sha256": "59e219d851745e2c1be8aac162955ec7ace33d61ce9cffbf5c6bee7f45d602f9",
+        "status": "modified"
+      },
+      {
+        "path": "internal/oci/terminal_sdk_boundary_integration_test.go",
+        "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+        "blob": "f5715c84c4a2d272cc212975317672d6fef7718b",
+        "sha256": "eeeb9ae628e5a3139a287da00ba017a10f8652f55240d4412b1fced8efce7c2f",
+        "status": "added"
+      },
+      {
+        "path": "internal/oci/volume_backup_history_review_test.go",
+        "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+        "blob": "cd2302e1d8bc2ab84e68cead0d7a85e9b3ad4c67",
+        "sha256": "04b4b807e3604fa802b01c4059c86a9eccdcee4f65efa08c399f059e63a52a04",
+        "status": "modified"
+      },
+      {
+        "path": "internal/oci/volume_observer_integration_test.go",
+        "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+        "blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+        "sha256": "d00e66c587a18461e40b30da5cbfe5ea640e8f0229f8a079b5caed2495c1fa36",
+        "status": "modified"
+      },
+      {
+        "path": "internal/oci/volume_resize_test.go",
+        "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+        "blob": "6b98a4e6cb99e9e791b9918651c5d99e352824f7",
+        "sha256": "5aeeb8429e73df1972d8c1bf382d2b0ee17ee850a8daef42a7d8c1e4152c470c",
+        "status": "modified"
+      },
+      {
+        "path": "internal/oci/volume_termination_test.go",
+        "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+        "blob": "38ce23d2c9aafe8e23780ae33e9a7fbd5304bfbe",
+        "sha256": "c7ee17f335871ed1c27bfe6fd639f54e3f5495c55b6cd3303165318b865c76f6",
+        "status": "modified"
+      },
+      {
+        "path": "internal/ociclient/factory_boundary_integration_test.go",
+        "donor": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+        "blob": "08fd460f5ff45f97c5f12003ce4a341d6c367070",
+        "sha256": "3059cbd54348685231ef87fd50ca1c3d5fa35242469199d8f129398dddd989b7",
+        "status": "added"
+      },
+      {
+        "path": "internal/ociclient/factory_test.go",
+        "donor": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+        "blob": "d0b91273d6a8b61cccb4db81b2cdf11bdfd55317",
+        "sha256": "e62c2d16f4a21ee74e0978854f5461cc714fea675d807867df324bb991b68ced",
+        "status": "modified"
+      },
+      {
+        "path": "internal/ociclient/ociclient_test.go",
+        "donor": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+        "blob": "9dfa310e5af91aba96054c4f6fa09349c6f793c6",
+        "sha256": "074b894168ee60f6757fe47b1c6e06dd46178e240bb79c4213fc1d13ab7b6fa9",
+        "status": "modified"
+      }
+    ],
+    "all_other_base_paths_unchanged": true,
+    "donor_trees_exact": true,
+    "source_adoption_proof_sha256": "173f0adb0f62052b8977986811d184cbd5db2a5912dfb5bcf581c855f1844d24",
+    "immutable_commit_chain": "Six loose commit objects SHA1-verified earlier:66c74->03bc0f20->ba6e686a->159c9888->87665c6b->7f7f1313->ca1226. Candidate66c74 tree3fcaeb verified.",
+    "push": "Owner reports successful push; no remote/network verification performed.",
+    "method": "Read-only checksum-verified Git indexes, actual file blobs/modes and canonical fulltree reconstruction. No Git executable."
+  },
+  "verdicts": {
+    "frozen_packet_ready_for_publication": true,
+    "exact66c74_test_source_adoption_independently_verified": true,
+    "actual_published_packet_acceptance": false,
+    "canonical_inventory_reconciled": false,
+    "canonical_counts_changed": false,
+    "findings": []
+  },
+  "qualifications": {
+    "oci_seven": {
+      "source": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "tree": "fa1475d043de69482d8a7884d920b134899ff973",
+      "accepted_review": "oci-retirement-independent-review.json",
+      "sha256": "d397e419a4bce2689118a37af02ac8fa05f2d2579a5cf6d06614a9f8b30e4a29",
+      "basis": "Accepted seven exact original declaration retirements;38 assertion sites preserved or strengthened through accepted b8/e5e72 boundary scenarios;25 remaining declarations exact; exact94 default-vet/tag truecompile PASS44.647s. No retirement runtime repeat."
+    },
+    "factory_three": {
+      "source": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+      "tree": "5f6566d5347525dedce8408b34e9232458421ed4",
+      "accepted_review": "factory-retirement-independent-review.json",
+      "sha256": "3c7b67d63b6a968ede268badecb317c45da24923e15b9d93eb206824f014dea2",
+      "basis": "Accepted fa44 assertion-equivalent3roots+9leaves PASS; exact3declaration47line1705byte removal; protected roots/imports/helpers/replacements unchanged; exactc0a default-vet/tag truecompile PASS5.864s. No retirement runtime repeat."
+    },
+    "duplicate_compile": "Separate b8 duplicate record preserved byte-for-byte, explicitly disclosed as noncanonical, lock_acquired=false, no additional qualification.",
+    "excluded_artifacts": "No ELF/executable copied. ELF never-executed claims stay within retained runner/receipt scope; no OS-wide execution audit.",
+    "source_only_adoption": "All14 adopted test-file blobs/modes match accepted94/c0 donors; every other baseca path unchanged. Historical donor runtimes/compiles do not become a current-union run."
+  },
+  "next_required": "Publish the exact frozen packet, then independently verify its actual immutable publication commit/tree/copies before fresh inventory/count reconciliation. This report grants no published-packet or count credit.",
+  "human_preservation": {
+    "owner_record": "/tmp/ts-orch-main-preserve-scoped-evidence-20261017T135035Z",
+    "owner_result": "PASS; main72e903719c7b53dee94305f50b3bdb8b147f0eda unchanged",
+    "new_preservation_audit": "Not repeated; this review wrote only its fresh external report."
+  },
+  "limits": [
+    "Packet contains55 exact selected originals plus3 metadata files; copied payload481875B and total packet505102B are distinct consistent totals.",
+    "Direct57checksums cover all packet files except SHA256SUMS itself; manifest/SHA256SUMS hashes explicitly pinned. Packet is a compact evidence map, not a self-contained archive of every transitive reference/native launch/every-poll/tool seal/full source manifest.",
+    "Source and packet reviews are read-only. Push success retains owner provenance; no remote/network query performed.",
+    "All five completion categories remain open. Canonical9 accepted retirements/4310 globally unadjudicated originals remain unchanged pending future publication acceptance and reconciliation; this does not classify remaining originals as unit-only."
+  ],
+  "review_actions": {
+    "go_build_test_scanner_runner_binary_or_git_executable_calls": 0,
+    "source_edits": 0,
+    "git_or_ledger_mutations": 0,
+    "publishing_or_count_changes": 0,
+    "agents_spawned": 0,
+    "only_write": "Fresh compact independent report0444 in directory0555"
+  }
+}

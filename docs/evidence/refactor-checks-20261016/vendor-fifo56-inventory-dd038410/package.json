@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "purpose": "Complete reviewed FIFO5/6 inventory and bounded FIFO6 source diagnosis, metadata only",
+  "revision": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "copied_reviewed_artifact_count": 11,
+  "copied_original_artifact_manifest_count": 1,
+  "unique_external_inventory_receipts": 2,
+  "source_only_diagnosis_files": 2,
+  "packet_metadata_files_besides_manifest_and_sums": 2,
+  "members": [
+    {
+      "member": "README.md",
+      "sha256": "4bc4d53c9b9d6370363640830a0c2be6e28dc86191ed35b87c954346ea3c8987",
+      "bytes": 1910
+    },
+    {
+      "member": "fifo06-source-diagnosis/ts-vendor-union-dd038410-fifo06-source-diagnosis.json",
+      "sha256": "f21e2fb43e2079dc6aa05a0520df9173a7249589d9d6e03ddf2c55267f149f5c",
+      "bytes": 13380
+    },
+    {
+      "member": "fifo06-source-diagnosis/ts-vendor-union-dd038410-fifo06-source-diagnosis.md",
+      "sha256": "fd0e4e1ac1e937b8a808a3855461b4498164f58060deb5d1ea907b8f1c2fe6dd",
+      "bytes": 6129
+    },
+    {
+      "member": "inventory-receipts/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo05-receipt.json",
+      "sha256": "fd6ee1af5d78daaa98877b9947429e0f03399b2f6d3be3e7da8b7fb65846f858",
+      "bytes": 17055
+    },
+    {
+      "member": "inventory-receipts/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo06-receipt.json",
+      "sha256": "7c1a547ddf0baf9489828fead9b95c613be20a0474da73fb3094761c5feafee1",
+      "bytes": 5146
+    },
+    {
+      "member": "inventory-reconciliation/README.md",
+      "sha256": "0d1232545a4df376d5a486011ec54ef6fe3aba773b348d637dec1987df9f1e18",
+      "bytes": 638
+    },
+    {
+      "member": "inventory-reconciliation/after-cases.tsv",
+      "sha256": "d3433286cbe27b087bce9822edb869208f5d064eb37fba6dda25ee6c9024a918",
+      "bytes": 570785
+    },
+    {
+      "member": "inventory-reconciliation/after-progress.json",
+      "sha256": "96695331b5efec6d151027fd8bf23b69ecf45f48c8ddabb6695e98eb8e9dec1f",
+      "bytes": 14996
+    },
+    {
+      "member": "inventory-reconciliation/after-union-dd038410-selection-disposition.json",
+      "sha256": "838bb122bd395a4e4586d581ecdae5d317ab67d0f6c635f3d2dbe9a3e7d11688",
+      "bytes": 6935
+    },
+    {
+      "member": "inventory-reconciliation/archive-source-outcome-verification.json",
+      "sha256": "c931a6548783cc3a199386a44508f18f9fdf4d55a88fe2541f03b355c371ec96",
+      "bytes": 48501
+    },
+    {
+      "member": "inventory-reconciliation/artifact-manifest.json",
+      "sha256": "2f5036ea19fa247c2358f0ecaab8e854d3cf82bd009fc7462318e573fb21bb61",
+      "bytes": 2364
+    },
+    {
+      "member": "inventory-reconciliation/before-cases.tsv",
+      "sha256": "d3f73740f9a68b2db3a5e1fb2fbaf428bb37a7f079a61514cb4442b53be8846e",
+      "bytes": 570533
+    },
+    {
+      "member": "inventory-reconciliation/before-progress.json",
+      "sha256": "93e40e33d1362b8e5af5806ce8f396dc62680bfdfd7d569497f9882caf50249a",
+      "bytes": 13682
+    },
+    {
+      "member": "inventory-reconciliation/before-union-dd038410-selection-disposition.json",
+      "sha256": "d514c2fc00f36002f8fff91aa336d24cc9a7d1996d40bb976349dae344a22ad2",
+      "bytes": 4357
+    },
+    {
+      "member": "inventory-reconciliation/checkpoint.json",
+      "sha256": "d69626ce03a36f56e39db6ebf007d7c4fca9c06de16a431917d3a6b6c8ef1fea",
+      "bytes": 4371
+    },
+    {
+      "member": "inventory-reconciliation/immutable-evidence-before.json",
+      "sha256": "fc22e30dc0578340994cf7fc2c730c5b99deafcfc18f04bcf0b8d90a2bbd7369",
+      "bytes": 42635
+    },
+    {
+      "member": "inventory-reconciliation/reconciliation.json",
+      "sha256": "b9d7309ad3b8d871533b0b068098d5fa06597bab670efe16a2e1d61d25da3a4a",
+      "bytes": 13306
+    },
+    {
+      "member": "provenance.json",
+      "sha256": "aa8c62a9b6d43823b7b86f4d75fed6eea721726b8de01e2f6b2650087fda85be",
+      "bytes": 10855
+    }
+  ],
+  "excludes": [
+    "PACKAGE.json itself",
+    "SHA256SUMS (covers PACKAGE.json and all listed members)"
+  ],
+  "diagnosis": "No runtime cause proof, no fixture correction; separate unrun diagnostic successor excluded.",
+  "runtime": "FIFO5 prior scoped PASS and FIFO6 prior FAIL only; no new execution",
+  "central_closures": 0
+}

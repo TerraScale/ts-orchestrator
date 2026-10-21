@@ -1,0 +1,315 @@
+import collections
+import datetime
+import hashlib
+import json
+import pathlib
+import re
+import stat
+import subprocess
+import tempfile
+
+REPO = pathlib.Path('/home/mariogk/Projects/TerraScale/ts-orchestrator')
+BASE = 'b8c3c96d03f552770f6370097fd89f4cbd406e5e'
+FEATURE = '457e8960217109666b17817e861db59b8f0d41a6'
+CANDIDATE = '458ff55c3d78ce4be754094d93d4825f51c67d5d'
+RUNTIME_COMMIT = 'cc37fe13cace70584c45ee368d6edcd80ebc5f2d'
+OLD_COMPILE_COMMIT = 'b3e1fde77998257aef756bc02310019aa173a522'
+INTENDED = 'docs/evidence/refactor-checks-20261017/attempt-continuity-retirement-458ff55'
+OLDROOT = pathlib.Path('/tmp/ts-attempt-phase-dispatch-integration')
+COMPAT = pathlib.Path('/tmp/ts-attempt-b8-narrow-compatibility-14x9e7qk')
+C458 = pathlib.Path('/tmp/ts-attempt-458ff55-truecompile-shortb-sealed-7qtri3ou')
+N458 = pathlib.Path('/tmp/ts-attempt-458ff55-truecompile-native-results-epakqmhn')
+CB3 = pathlib.Path('/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp')
+NB3 = pathlib.Path('/tmp/ts-attempt-b3e1-truecompile-native-results-xtmn_ren')
+RSOURCE = pathlib.Path('/tmp/ts-attempt-cc37-shortb-source-nar2velj')
+RUNTIME = pathlib.Path('/tmp/ts-attempt-cc37-shortb-runner-47vnkiv7')
+NRUNTIME = pathlib.Path('/tmp/ts-attempt-cc37-shortb-native-results-pzacv5bw')
+OUT = pathlib.Path(tempfile.mkdtemp(prefix='ts-attempt-continuity-retirement-458ff55-publication-'))
+sha = lambda b: hashlib.sha256(b).hexdigest()
+gid = lambda b: hashlib.sha1(b'blob ' + str(len(b)).encode() + b'\0' + b).hexdigest()
+encoded = lambda v: (json.dumps(v, indent=2, sort_keys=True) + '\n').encode()
+git = lambda *a: subprocess.check_output(['/run/current-system/sw/bin/git', '-C', str(REPO), *a])
+blob = lambda c, p: git('show', c + ':' + p)
+entries, exclusions = {}, []
+
+def put(name, data, origin, role, qualification, copied=False):
+    assert '/' not in name and '\\' not in name and not name.endswith('.go')
+    assert not data.startswith(b'\x7fELF') and b'\0' not in data
+    data.decode('utf-8')
+    with (OUT / name).open('xb') as f:
+        f.write(data)
+    entries[name] = {'origin': str(origin), 'sha256': sha(data), 'bytes': len(data), 'role': role, 'qualification': qualification, 'byte_exact_copy': copied}
+
+def js(name, obj, role='publication source proof'):
+    put(name, encoded(obj), 'derived read-only in this packet', role, 'PREPARED_ONLY_NO_ADOPTION_OR_EXECUTION')
+
+def safe_name(path):
+    result = path.as_posix().replace('/', '--')
+    return result + '.txt' if result.endswith(('.go', '.py', '.sh')) else result
+
+def copy_tree(directory, prefix, qualification, recursive=True, omit_dirs=()):
+    paths = sorted(directory.rglob('*') if recursive else directory.iterdir())
+    for p in paths:
+        rel = p.relative_to(directory)
+        if any(part in omit_dirs for part in rel.parts):
+            if p.is_file():
+                exclusions.append({'origin': str(p), 'reason': 'ELF output directory excluded; binary metadata retained in receipts and excluded-binaries.json'})
+            continue
+        assert not p.is_symlink(), p
+        if not p.is_file():
+            continue
+        assert stat.S_ISREG(p.stat().st_mode)
+        put(prefix + '--' + safe_name(rel), p.read_bytes(), p, prefix, qualification, True)
+
+def tree(c):
+    d = {}
+    for row in git('ls-tree', '-r', '-z', c).split(b'\0'):
+        if row:
+            meta, name = row.split(b'\t', 1)
+            mode, kind, oid = meta.decode().split()
+            assert kind == 'blob', (c, name, kind)
+            d[name.decode()] = {'mode': mode, 'blob': oid}
+    return d
+
+trees = {c: tree(c) for c in [BASE, FEATURE, CANDIDATE]}
+feature_delta = []
+for line in git('diff', '--name-status', BASE, FEATURE).decode().splitlines():
+    status, path = line.split('\t', 1)
+    assert status == 'A' and path.startswith('docs/evidence/')
+    data = blob(FEATURE, path)
+    assert trees[FEATURE][path]['mode'] == '100644' and b'\0' not in data
+    data.decode('utf-8')
+    feature_delta.append({'status': status, 'path': path, 'git_blob': trees[FEATURE][path]['blob'], 'sha256': sha(data), 'bytes': len(data), 'UTF8_text': True})
+assert len(feature_delta) == 112
+feature_tree = git('rev-parse', FEATURE + '^{tree}').decode().strip()
+assert feature_tree == 'a94ab502511c61790c0a89f78b983897b010e450'
+
+cloud = 'internal/attempt/cloud_test.go'
+root = 'internal/attempt/phase_dispatch_integration_test.go'
+before, after, newroot = blob(FEATURE, cloud), blob(CANDIDATE, cloud), blob(CANDIDATE, root)
+assert before == blob(BASE, cloud) == blob(RUNTIME_COMMIT, cloud)
+assert root not in trees[FEATURE]
+assert newroot == blob(RUNTIME_COMMIT, root)
+assert gid(newroot) == '8f41c9575c8e0b0d4f8b85a7c87026fd2ca62fa8'
+assert sha(newroot) == '0778c923f4cd774814acbcfb9bc5f2f0e006ca58ae3c37f4087bb033c3240892'
+assert before.startswith(after)
+removed = before[len(after):]
+assert len(removed) == 253 and removed.count(b'\n') == 7
+assert sha(removed) == 'fbfd1c9f6466ea7c7cb2d93200e21c6c2e2159e4e5d10db02a4b1e01a392f6a1'
+assert sha(before) == '69a11044751e5737dd6116f372f03d2c3717c62e4fe35e5b043369c868e524bd'
+assert sha(after) == 'b620119b63bc747e68e2a8e40e4a92f9c06d7eefd637b41d4b900187e222083d'
+planned = dict(trees[FEATURE])
+planned[cloud] = {'mode': '100644', 'blob': gid(after)}
+planned[root] = {'mode': '100644', 'blob': gid(newroot)}
+whole_differences = []
+for path in sorted(set(planned) | set(trees[CANDIDATE])):
+    if planned.get(path) != trees[CANDIDATE].get(path):
+        assert path in {row['path'] for row in feature_delta}
+        assert path not in trees[CANDIDATE] and path in planned
+        whole_differences.append(path)
+assert len(whole_differences) == 112
+patch = (COMPAT / 'feature-two-path.patch').read_bytes()
+assert sha(patch) == '8880308de9699680f9596ebffc03f6b6e1121d0c84f78771ec918ecd0de92623'
+
+# Validate retained patch application entirely in memory; no index/worktree writes.
+for section in patch.decode().split('diff --git ')[1:]:
+    lines = section.splitlines(True)
+    dest = lines.pop(0).strip().split(' b/', 1)[1]
+    is_new = 'new file mode 100644\n' in lines
+    source = [] if is_new else before.decode().splitlines(True)
+    pos, result = 0, []
+    for line in lines:
+        if line.startswith('@@'):
+            m = re.match(r'@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@', line)
+            assert m
+            offset = max(int(m[1]) - 1, 0)
+            assert offset >= pos
+            result.extend(source[pos:offset]); pos = offset
+        elif line.startswith(('---', '+++', 'index ', 'new file ')):
+            continue
+        elif line.startswith(' '):
+            assert source[pos] == line[1:]; result.append(line[1:]); pos += 1
+        elif line.startswith('-'):
+            assert source[pos] == line[1:]; pos += 1
+        elif line.startswith('+'):
+            result.append(line[1:])
+        else:
+            raise AssertionError(line)
+    result.extend(source[pos:])
+    assert ''.join(result).encode() == (newroot if is_new else after)
+    assert dest == (root if is_new else cloud)
+put('retirement.patch', patch, COMPAT / 'feature-two-path.patch', 'exact two-path proposed patch', 'PROPOSED_ONLY_NOT_APPLIED', True)
+for name, data, origin in [('original-cloud_test.go.txt', before, FEATURE + ':' + cloud), ('candidate-cloud_test.go.txt', after, CANDIDATE + ':' + cloud), ('accepted-phase_dispatch_integration_test.go.txt', newroot, CANDIDATE + ':' + root), ('removed-253-bytes.go.txt', removed, 'exact original suffix'), ('original-declaration.go.txt', removed[1:-1], 'original declaration without separator/final newline')]:
+    put(name, data, origin, 'exact source snapshot', 'SOURCE_TEXT_NOT_EXECUTABLE')
+assert sha(removed[1:-1]) == 'fc3bf5936665894c1b0471343b3375eac7c21bba5b73549b828913f796dd26e0'
+
+closure = json.loads((COMPAT / 'historical-static-audit/closure.json').read_text())
+local_rows, external_rows, embeds = [], [], []
+for filename, meta in closure['files'].items():
+    path = pathlib.Path(filename)
+    if path.is_relative_to(OLDROOT):
+        rel = path.relative_to(OLDROOT).as_posix()
+        assert planned[rel] == trees[CANDIDATE][rel], rel
+        data = after if rel == cloud else newroot if rel == root else blob(FEATURE, rel)
+        assert gid(data) == trees[CANDIDATE][rel]['blob']
+        row = {'path': rel, 'selection': meta['selection'], 'package': meta['package'], 'module': meta['module'], 'planned_feature_blob': planned[rel]['blob'], 'accepted_candidate_blob': trees[CANDIDATE][rel]['blob'], 'sha256': sha(data), 'byte_identical': True}
+        local_rows.append(row)
+        is_local = True
+    else:
+        data = path.read_bytes()
+        assert sha(data) == meta['sha256'], filename
+        external_rows.append({'path': filename, 'selection': meta['selection'], 'package': meta['package'], 'module': meta['module'], 'sha256': sha(data), 'current_matches_historical_static_audit': True})
+        is_local = False
+    if meta['selection'].startswith('excluded'):
+        continue
+    for line_number, line in enumerate(data.decode().splitlines(), 1):
+        if not line.startswith('//go:embed '):
+            continue
+        pattern = line[len('//go:embed '):]
+        assert re.fullmatch(r'[a-zA-Z0-9_.-]+', pattern), pattern
+        asset = path.parent / pattern
+        if is_local:
+            assetrel = (path.parent.relative_to(OLDROOT) / pattern).as_posix()
+            feature_bytes, candidate_bytes = blob(FEATURE, assetrel), blob(CANDIDATE, assetrel)
+            assert feature_bytes == candidate_bytes
+            embeds.append({'source_path': rel, 'directive_line': line_number, 'pattern': pattern, 'asset_path': assetrel, 'feature_sha256': sha(feature_bytes), 'candidate_sha256': sha(candidate_bytes), 'bytes': len(feature_bytes), 'byte_identical': True, 'scope': 'tracked repository embed input, included in candidate fullsource pre/post manifest'})
+        else:
+            assetbytes = asset.read_bytes()
+            embeds.append({'source_path': filename, 'directive_line': line_number, 'pattern': pattern, 'asset_path': str(asset), 'current_sha256': sha(assetbytes), 'bytes': len(assetbytes), 'scope': 'external module cache embed, current static inventory only; no retrospective launch-time hash pin'})
+assert len(local_rows) == 737 and len(external_rows) == 3657
+assert len(embeds) == 4 and sum('byte_identical' in row for row in embeds) == 3
+
+build_extensions = {'.go', '.s', '.S', '.c', '.cc', '.cpp', '.cxx', '.m', '.h', '.hh', '.hpp', '.f', '.F', '.for', '.f90', '.syso'}
+package_dirs = {str(pathlib.PurePosixPath(row['path']).parent) for row in local_rows}
+build_rows = []
+for path, obj in sorted(planned.items()):
+    p = pathlib.PurePosixPath(path)
+    in_pkg = str(p.parent) in package_dirs and p.suffix in build_extensions
+    module_file = p.name in {'go.mod', 'go.sum', 'go.work', 'go.work.sum'}
+    if in_pkg or module_file or path == 'vendor/modules.txt':
+        assert trees[CANDIDATE].get(path) == obj
+        build_rows.append({'path': path, 'blob': obj['blob'], 'candidate_blob': trees[CANDIDATE][path]['blob'], 'byte_identical': True, 'kind': 'module/build selection metadata' if module_file else 'package-directory build candidate (includes excluded dependency tests)'})
+
+copy_tree(RSOURCE, 'runtime-cc37-source', 'HISTORICAL_CC37_REQUEST_AND_SOURCE_ONLY_PREDECESSORS')
+copy_tree(RUNTIME, 'runtime-cc37-output', 'ACCEPTED_HISTORICAL_CC37_SELECTED_ROOT_RUNTIME')
+copy_tree(NRUNTIME, 'runtime-cc37-native', 'ACTUAL_HISTORICAL_CC37_TOOL_SURFACE_RECORDS')
+copy_tree(CB3, 'compile-b3-source', 'HISTORICAL_B3_CANDIDATE_TRUECOMPILE_SOURCE_REQUEST', recursive=False)
+copy_tree(CB3 / 'qa-output', 'compile-b3-output', 'ACCEPTED_HISTORICAL_B3_CANDIDATE_TRUECOMPILE_ONLY', omit_dirs=('binaries',))
+copy_tree(NB3, 'compile-b3-native', 'ACTUAL_HISTORICAL_B3_TOOL_ARGUMENT_RESULT_RECORDS')
+copy_tree(C458, 'compile-458-source', 'ACCEPTED_458_SOURCE_SPECIFIC_TRUECOMPILE_SOURCE_REQUEST', recursive=False)
+copy_tree(C458 / 'qa-output', 'compile-458-output', 'ACCEPTED_458_SOURCE_SPECIFIC_TRUECOMPILE_ONLY', omit_dirs=('binaries',))
+copy_tree(N458, 'compile-458-native', 'ACTUAL_458_TOOL_ARGUMENT_RESULT_RECORDS')
+copy_tree(COMPAT, 'compatibility-b8', 'READ_ONLY_B8_COMPATIBILITY_AND_LABELED_HISTORICAL_COPIES')
+reviews = [
+    ('qa-runtime-cc37.json', '/tmp/ts-qa-attempt-cc37-terminal-acceptance-ocqo7d_k/review.json', 'de6f185ae94fdf9eb453cd4c2e3d7b9392c5c6fabd6f89d3884179484c8ab094', 'ACCEPTED_HISTORICAL_CC37_SELECTED_ROOT_RUNTIME'),
+    ('qa-compile-b3.json', '/tmp/ts-qa-attempt-b3e1-truecompile-terminal-e9gh2dqb/review.json', '23c5a565c58522d4360c71a96c44ecd008a0223841cf2d230d5b7e8281c2696b', 'ACCEPTED_HISTORICAL_B3_CANDIDATE_TRUECOMPILE_ONLY'),
+    ('qa-compile-458.json', '/tmp/ts-qa-attempt-458ff55-truecompile-terminal-oep0fd5m/review.json', 'f0459155197860afb83e82c5a754a47740fff7d6819821a5c55ac6510a74cd7e', 'ACCEPTED_EXACT_458_CANDIDATE_TRUECOMPILE_ONLY'),
+    ('qa-readiness-458.json', '/tmp/ts-qa-attempt-458ff55-readiness-rvox46fg/review.json', '731ef2feffbf92d529814a4dfe4151b7fa469f8f8646f435382f53b4c428d1b8', 'HISTORICAL_SOURCE_READINESS_NOT_A_NEW_GRANT'),
+    ('qa-readiness-b3.json', '/tmp/ts-qa-attempt-b3e1-truecompile-readiness-kj_ouxl3/review.json', '8763a7286f7cf688dcf8c1e6058facd5b53a274a91678509b9f03210c888bd8b', 'HISTORICAL_SOURCE_READINESS_NOT_A_NEW_GRANT'),
+]
+for name, origin, expected, qualification in reviews:
+    data = pathlib.Path(origin).read_bytes()
+    assert sha(data) == expected, name
+    put(name, data, origin, 'independent QA report', qualification, True)
+
+mapping = json.loads((C458 / 'patch-and-assertion-map.json').read_text())
+mapping.update({
+    'state': 'PROPOSED_ONE_ORIGINAL_RETIREMENT_NO_FEATURE_ADOPTION_OR_COUNT_CHANGE',
+    'feature': FEATURE, 'feature_tree': feature_tree, 'accepted_compile_commit': CANDIDATE,
+    'original': {'path': cloud, 'name': 'TestAttemptRejectsRetiredContinuityPhase', 'declaration_lines': [217, 222], 'file_sha256': sha(before), 'declaration_sha256_without_final_newline': sha(removed[1:-1]), 'declaration_bytes_without_final_newline': 251},
+    'replacement': {'path': root, 'name': 'TestRetiredContinuityPhaseThroughAttemptRun', 'file_sha256': sha(newroot), 'git_blob': gid(newroot), 'declaration_lines': [14, 37], 'declaration_sha256_without_final_newline': sha(newroot[newroot.index(b'func Test'):].rstrip(b'\n'))},
+    'complete_original_assertion_mapping': [
+        {'original_assertion': 'Phase("continuity") must return nonnil error', 'original_line': 219, 'root_assertion_line': 31, 'root_assertion': 'Run(...,"continuity") returns exactly 1', 'connected_production': 'New108-172 validates equivalent fixture and returns clean Attempt; Run1491-1493 reaches Phase; Phase1439-1479 default1475-1477 sets unknown-phase error; Run1495-1498 prints it and returns1.', 'runtime_evidence': 'cc37 accepted exact root run/pass in8 JSONL events, zero child/skips/failures; no instrumented direct-call trace.'},
+        {'original_assertion': 'error text contains "unknown attempt phase"', 'original_line': 219, 'root_assertion_line': 34, 'root_assertion': 'diagnostic equals unknown attempt phase "continuity" plus exactly one newline', 'connected_production': 'Phase1476 constructs same error; Run1496 prints same error with newline. Exact diagnostic implies original substring.', 'runtime_evidence': 'Actual historical cc37 root PASS attests this assertion; no new runtime on b3,458,457 or planned feature.'},
+    ],
+    'fixture_details': 'Same temp workdir/deployment0000000000F9PR1WNVDTEXS31Z/prefixbootstrap/a. New object(nil) makes omittedtools equivalentto originaltools:{}. New installs Runner/Sleep closures; neither is called. Phase default never calls cloud/bootstrap/NATS. Original made no Cloud/Runner/Sleep side-effect or internalErr-state assertion.',
+    'retained_original_declarations': [x.decode() for x in re.findall(rb'^func (Test\w+)\(', after, re.M)],
+    'historical_qualification_sources': {'runtime_commit': RUNTIME_COMMIT, 'runtime_qa': 'qa-runtime-cc37.json', 'older_compile_commit': OLD_COMPILE_COMMIT, 'older_compile_qa': 'qa-compile-b3.json', 'fresh_compile_commit': CANDIDATE, 'fresh_compile_qa': 'qa-compile-458.json'},
+    'proposed_retirement_originals': 1, 'actual_retirements_applied_by_packet': 0, 'canonical_count_changes': 0,
+    'coverage_gaps_for_original_assertions': [],
+})
+assert len(mapping['retained_original_declarations']) == 8
+js('assertion-mapping.json', mapping, 'complete one-original assertion mapping and preservation')
+js('feature457-source-compatibility.json', {
+    'state': 'READ_ONLY_PLANNED_SOURCE_EQUIVALENCE_NO_EXECUTION_OR_ADOPTION',
+    'feature': FEATURE, 'feature_tree': feature_tree, 'b8_base': BASE,
+    'accepted_candidate': CANDIDATE, 'accepted_candidate_tree': 'e48c102cf49f21d338a09050d60854217cc70f2d',
+    'feature_delta': feature_delta,
+    'delta_exactly112_added_UTF8_evidence_regular_files': True,
+    'planned_patch_paths': [cloud, root], 'patch_sha256': sha(patch),
+    'planned_patch_applied_and_verified_only_in_memory': True,
+    'full_planned_tree_vs_candidate_difference_paths': whole_differences,
+    'all_other_full_repository_blob_modes_identical': True,
+    'tracked_file_counts': {'b8': len(trees[BASE]), 'feature457': len(trees[FEATURE]), 'accepted458': len(trees[CANDIDATE]), 'planned457_after_two_path_patch': len(planned)},
+    'local_static_closure': local_rows, 'external_static_closure': external_rows,
+    'local_files': len(local_rows), 'selected_or_ambiguous_local_files': sum(not row['selection'].startswith('excluded') for row in local_rows),
+    'package_directory_build_candidates_and_module_metadata': build_rows, 'build_candidate_count': len(build_rows),
+    'embed_directives_and_assets': embeds,
+    'no_selected_local_package_or_build_or_embed_input_delta_against458_after_planned_patch': True,
+    'external_provenance_limit': 'External cache source hashes match the historical static audit now; module mapping is unchanged. Actual compile request pins all tracked repository bytes, not every external module-cache/compiler input. External cache/embed launch-time hashes are not retroactively invented.',
+    'qualification_transfer': 'Source review establishes planned local selected source/build/embed equivalence to accepted458, plus112 evidence-only files. Acceptance still attests only exact458 compile and exactcc37 runtime. This is no new whole-feature compile/runtime run, global/main/native/race/live qualification or automatic canonical credit.',
+    'static_selection_limits': closure['limits'],
+})
+
+helper_path = N458 / 'running-proof-capture-launch-native-call.json'
+helper = json.loads(helper_path.read_text())
+js('helper-mise-observation.json', {
+    'origin': str(helper_path), 'origin_sha256': sha(helper_path.read_bytes()),
+    'publication_copy': 'compile-458-native--running-proof-capture-launch-native-call.json',
+    'actual_session': 19233, 'actual_chunk': '7614a7', 'raw_output': helper['result']['output'],
+    'interpretation': 'Retained output reports successful mise uninstalls for vite-plus1.1.0 and claude-code2.1.299: remove lines and checkmarkdone. This is more than a warning diagnostic. Individual mise exitcodes and before/after filesystem observations are not retained; no independent filesystem-removal or current installation-state proof is claimed.',
+    'compile_evidence_unaffected': 'Accepted458 source pre/post/current4200 files, all6 pinned tools/request/runner/assets and actual Go child exact6-key environment/nice19/noGOROOT match. Helper combined terminal exited0; that does not establish each mise subprocess exitcode.',
+    'no_host_repair_or_hook_rerun': True, 'subsequent_read_only_helpers_login_false': True,
+})
+binary_metadata = []
+for directory, label in [(CB3, 'historical-b3-candidate-compile'), (C458, 'fresh458-source-specific-compile')]:
+    receipt = json.loads((directory / 'qa-output/receipt.json').read_text())
+    for item in receipt['binaries']:
+        binary_metadata.append({'qualification': label, **item, 'copied': False, 'metadata_origin': str(directory / 'qa-output/receipt.json')})
+js('excluded-binaries.json', {'binaries': binary_metadata, 'exclusions': exclusions, 'never_execute': True, 'ELF_bytes_in_publication': False, 'historical_manifest_note': 'Byte-exact historical manifests may name original binary or nested paths. Those are original-origin manifests; direct publication SHA256SUMS covers flattened actual files only.'})
+put('publication-builder.py.txt', pathlib.Path(__file__).read_bytes(), __file__, 'read-only publication builder source', 'NO_GO_OR_RUNTIME_EXECUTION', True)
+review = {
+    'state': 'FROZEN_PUBLICATION_PREPARATION_ONLY_AWAITING_INDEPENDENT_REVIEW',
+    'prepared_at_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    'intended_repository_directory': INTENDED,
+    'feature': FEATURE, 'feature_tree': feature_tree,
+    'proposal': 'Exactly one covered original retirement: add exact accepted external Attempt root and remove253B/7lines only from cloud_test.go.',
+    'exact_patch_sha256': sha(patch),
+    'source_equivalence': 'After in-memory patch, every repository blob/mode equals accepted458 except112 added evidence UTF8 text paths. All737 static local closure files (700 selected/ambiguous), package build candidates/modulefiles and3 tracked embed assets match; one external protobuf embed inventoried with cache provenance limitation.',
+    'accepted_evidence': {'cc37_runtime': reviews[0][2], 'b3_compile': reviews[1][2], '458_compile': reviews[2][2]},
+    'source_specific_limits': ['Runtime pass applies only to cc37 exact selected root; defaultvet compile passes apply only to b3 and458 frozen candidates.', 'No new Go, discovery, runner, lock, testbinary, runtime or shellhook execution in publication preparation.', 'No feature/source/count mutation, adoption, canonical retirement or push.', 'No whole-feature/global/main/native/race/liveSDK/production/performance qualification.', 'Historical unused predecessor requests and source-only seals retain their original labels; later accepted receipts do not relabel them as execution.'],
+    'helper_observation': 'Successful-uninstall output candidly retained with no filesystem proof or host repair; pinned compile inputs/env unaffected.',
+    'flat_text_only': True, 'no_direct_go_ELF_symlink_archive': True,
+    'counts': {'proposed_original_retirements': 1, 'actual_applied_retirements': 0, 'canonical_count_changes': 0, 'remaining_original_cloud_test_declarations': 8, 'feature_evidence_only_additions_since_b8': 112, 'local_static_closure_files': len(local_rows), 'selected_or_ambiguous_local_files': sum(not row['selection'].startswith('excluded') for row in local_rows), 'external_static_source_files': len(external_rows), 'build_candidates_and_modules': len(build_rows), 'tracked_embed_assets': 3, 'external_embed_assets_current_inventory_only': 1},
+}
+js('PUBLICATION-REVIEW.json', review)
+readme = '''Review retirement.patch, assertion-mapping.json, feature457-source-compatibility.json and PUBLICATION-REVIEW.json first.
+
+Prepared destination: docs/evidence/refactor-checks-20261017/attempt-continuity-retirement-458ff55
+Frozen current feature: 457e8960217109666b17817e861db59b8f0d41a6 (tree a94ab502511c61790c0a89f78b983897b010e450).
+
+Proposed source change: add accepted root blob8f41c9575c8e0b0d4f8b85a7c87026fd2ca62fa8, delete only253bytes/7lines from cloud_test.go. The two original assertions map completely to the accepted external root. All8 remaining declarations stay byte-exact.
+
+Accepted evidence remains source-specific: cc37 selected-root nonrace runtime (one root/pass,8events, no child/skips/failures); b3 candidate truecompile; fresh458 candidate truecompile/defaultvet. Neither compile executes init/TestMain/tests/binary. Runtime is not rerun or relabeled. No original retirement/count/adoption is performed by this packet.
+
+Feature457 differs from b8 only112 added UTF8 regular evidence text paths. After applying the exact patch only in memory, every repository blob/mode equals accepted458 except those112 evidence files. The static selected closure, build/module files and tracked embed assets are listed explicitly. External module-cache inputs carry their stated historical-audit/current-observation limits; no retrospective compiler-input seal is invented.
+
+Full retained native records, requests, wrappers, sealed assets, raw outputs, receipts, readiness and independent terminal reviews are copied byte-exact and flattened. Earlier predecessor source-only/unused requests and historical candidate-only records remain labeled. Native tool records are actual retained tool-surface output, not independent harness-backend or OS audit logs. The running-proof helper output reports successful mise uninstalls; no independent filesystem proof/current installation state or host repair is claimed. Exact source/pinnedtools/request/Goenv stayed unchanged. See helper-mise-observation.json.
+
+MANIFEST.json records every content artifact's origin/hash/role/qualification and copy status. Direct SHA256SUMS covers all actual publication files except itself. Original manifests remain byte-exact under prefixed names and refer to original layouts/excluded ELF paths. No ELF bytes, symlink, archive, executable source or direct.go file is published. No whole-feature/global/main/native/race/live/production credit is claimed.
+'''
+put('README.md', readme.encode(), 'derived read-only publication guide', 'publication entry point', 'PREPARED_ONLY')
+manifest = {'state': 'FLAT_TEXT_EVIDENCE_PUBLICATION_MANIFEST', 'intended_repository_directory': INTENDED, 'frozen_feature': FEATURE, 'frozen_feature_tree': feature_tree, 'artifact_count_excluding_MANIFEST_and_SHA256SUMS': len(entries), 'artifacts': entries, 'manifest_self_hash_note': 'MANIFEST.json is covered by direct SHA256SUMS; it does not include itself.'}
+with (OUT / 'MANIFEST.json').open('xb') as f:
+    f.write(encoded(manifest))
+files = sorted(OUT.iterdir())
+with (OUT / 'SHA256SUMS').open('x') as f:
+    for p in files:
+        assert p.is_file() and not p.is_symlink()
+        assert b'\0' not in p.read_bytes() and not p.name.endswith('.go')
+        p.read_bytes().decode('utf-8')
+        f.write(sha(p.read_bytes()) + '  ' + p.name + '\n')
+for p in OUT.iterdir():
+    p.chmod(0o400)
+OUT.chmod(0o500)
+print(json.dumps({'packet': str(OUT), 'intended_destination': INTENDED, 'feature': FEATURE, 'feature_tree': feature_tree, 'direct_manifest_sha256': sha((OUT / 'SHA256SUMS').read_bytes()), 'MANIFEST_sha256': sha((OUT / 'MANIFEST.json').read_bytes()), 'review_sha256': sha((OUT / 'PUBLICATION-REVIEW.json').read_bytes()), 'patch_sha256': sha(patch), 'assertion_mapping_sha256': sha((OUT / 'assertion-mapping.json').read_bytes()), 'source_compatibility_sha256': sha((OUT / 'feature457-source-compatibility.json').read_bytes()), 'total_files': len(list(OUT.iterdir())), 'direct_manifest_entries': len(files), 'copied_artifacts': sum(row['byte_exact_copy'] for row in entries.values()), 'counts': review['counts'], 'tracked_file_counts': {'b8':len(trees[BASE]),'feature457':len(trees[FEATURE]),'accepted458':len(trees[CANDIDATE]),'planned':len(planned)}, 'publication_bytes': sum(p.stat().st_size for p in OUT.iterdir())}, indent=2))

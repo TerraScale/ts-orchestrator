@@ -1,0 +1,80 @@
+{
+  "state": "PASS_INDEPENDENT_REGION_ONLY_TRUE_COMPILE_TERMINAL",
+  "created_utc": "2026-10-17T04:33:12.866653+00:00",
+  "findings": [],
+  "scope": "Accept the actual region-only true go test -c compilation/link result at exact 64a55bb2f. No whole-nine rerun, test/init execution, runtime, retirement, adoption, cloud or production-security credit.",
+  "packet": "/tmp/ts-oci-region-compile-64a55bb2f-capacity-sealed",
+  "commit": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+  "tree": "430c89f4408d37377f6492f7d827c58f2578cb89",
+  "evidence": {
+    "receipt_sha256": "043269cf1b72a1ae86ddc97b965d0a24898f5aeffa58efd931662a42483ba4ef",
+    "terminal_index": "/tmp/ts-oci-64a55-region-terminal-evidence/index.json",
+    "terminal_index_sha256": "dfe788b4f568716ec9b18217cb6ec2e5446678c4d242fdfae07ebd54f27924b5",
+    "index_artifact_hashes_and_sizes_verified": 14,
+    "request_sha256": "95361261104fc88bc9d14b6393cc4ff396cfcd95c83d656150660685722180b0",
+    "runner_sha256": "83a61044a9620a4dc0c40aab35ac9f9b4aa8806274033bf2043e0ff5cfd78f6f",
+    "manifest_sha256": "95cd945be1348e2a96d11375e90df4c9ebda48eb8b2e7f96cb7cae1a672923bf",
+    "final_seal_sha256": "4c543caab91fc941e127a013744b16e67cf931b6d3055ea161ad27feecd959ff",
+    "preservation_proof_sha256": "1a45846160cf9fcfd96f4a330b00563e1a6bc111b81809b50dda0abf21c2f6b2"
+  },
+  "actual_native_result": {
+    "session": 71908,
+    "compile_pid": 650319,
+    "launch_chunk": "5cdf9e",
+    "intermediate_poll_chunk": "4585a1",
+    "terminal_chunk": "3d59b0",
+    "exit_code": 0,
+    "state": "COMPILE_PASS",
+    "wall_seconds": 89.97369510499993,
+    "max_child_rss_kib": 992012,
+    "retained_launch_and_all_polls_reviewed": true,
+    "terminal_output_is_one_json_receipt_exactly_equal_to_receipt_file": true,
+    "started_pid_and_argv_match_native_launch_and_request": true,
+    "compile_pid_currently_absent": true,
+    "resource_snapshot": "Retained native resource snapshot hash verified; historical resource availability is not a hard memory/disk cap."
+  },
+  "input_validation": {
+    "tracked_entries_independently_hashed": 3838,
+    "tracked_list_exact": true,
+    "tools_independently_hashed": 6,
+    "pre_post_current_snapshots_equal": true,
+    "current_source_clean": true,
+    "preflight_argv_and_environment_match_request": true,
+    "command": "nice19; timeout TERM240s KILL+5s outside env-i six assignments; pinned Go1.27.1 test-c/defaultvet/fixturetest/mod-readonly/pkg-p1; only ./internal/region. CAPACITY nonblocking exclusive lock is present in pinned runner.",
+    "runner": "Exact pinned wrapper reviewed; its only workload launch is the compile command; it never launches generated binaries. The test-c operation compiles/links without test or init execution."
+  },
+  "output_validation": {
+    "expected_exact_binary_set": [
+      "region.test"
+    ],
+    "binary": {
+      "path": "/tmp/ts-oci-region-compile-64a55bb2f-capacity-sealed/binaries/region.test",
+      "sha256": "446596085ee51b95485a2076d3575dfa9141ceac09c0b561373e55016167333a",
+      "bytes": 62893977,
+      "magic_hex": "7f454c46",
+      "mode": "0o600",
+      "never_executed": true
+    },
+    "binary_bytes_sha256_magic_and_mode_independently_verified": true,
+    "stdout_bytes": 0,
+    "stderr_bytes": 0,
+    "stdout_and_stderr_hashes_match_receipt": true,
+    "binary_execution_count": 0
+  },
+  "preservation": {
+    "exact_source_delta": "Only unused TAB+quoted io import removed from internal/region/netbird_network_integration_test.go. Removing that one line reproduces successor bytes exactly; every other tracked path unchanged by git diff.",
+    "production_unchanged": true,
+    "prior_620_receipt_sha256": "8f09db45d0ba3d8a0aeb96411c2f568da9f52f144f40b60e6453c1d6b96b7ced",
+    "prior_620_aggregate_state": "NOT_QUALIFIED",
+    "prior_78e_aggregate_state": "NOT_QUALIFIED",
+    "prior_seven_binaries_independently_hashed": 7,
+    "prior_seven_binary_sizes_magic_modes_match": true,
+    "prior_seven_outputs_match_prior_receipt_and_preservation_proof": true,
+    "interpretation": "Seven prior individual outputs remain historical/source-specific and were not regenerated here. Only region was compiled by this successful attempt. No aggregate whole-nine success is asserted."
+  },
+  "limits": [
+    "Review inspected retained actual native launch/poll objects, raw compiler logs, source and binaries. Reviewer invoked no Go, runner or produced binary and changed no source, packet, queue or runtime grant; only this exclusive report was written.",
+    "No tests or package initializers executed, so no fixture/runtime/listener/cloud behavior is qualified. True compilation/link success is the complete accepted scope.",
+    "Memory/scratch estimates remain unenforced; actual observed max-child RSS and wall time are retained above."
+  ]
+}

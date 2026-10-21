@@ -1,0 +1,43 @@
+{
+  "state": "ACCEPTED_EXACT_RETIREMENT_COMPILE_ONLY_READY_FOR_FEATURE_ADOPTION",
+  "source": {
+    "head": "9bd689bd59297b6b7760cc8f5f45079ceae78f8a",
+    "tree": "63f675cb28ec5b16687945b76ab78ea708bcada3",
+    "status": "",
+    "source_sha256": "c826a35b376ef70c27f1a0da6c76e5fd355749ea732181ba1893ac37b2d400fc",
+    "replacement_sha256": "1e1d203df1cd634667b6e9bc471aad568ea27349dc773d6d3b35b4bd5ddd5275",
+    "go_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "request_sha256": "a6de5057dc7aec9a1bf999e032c53e91d6eab3c6da54e15a19914ac9283edcbc"
+  },
+  "receipt": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/receipt.json",
+  "receipt_sha256": "9514c4e676f7252c4a37a8c8cee09d499628b492a5436b60e36333ed99057acd",
+  "request_sha256": "a6de5057dc7aec9a1bf999e032c53e91d6eab3c6da54e15a19914ac9283edcbc",
+  "runner_sha256": "f0a00ec348580fa9f5d850418d86760337bdd70577dec04ca28293212b5e2c46",
+  "source_delta": {
+    "paths": 1,
+    "removed_bytes": 1181,
+    "removed_lines": 29,
+    "removed_sha256": "f7fc9d0a68f0299df78d4c97f407cd4b64d1737c9958195e9cd5f73669ba7a4e",
+    "remaining_bytes_identical": true,
+    "current_feature_original_exact": true,
+    "replacement_unchanged": true
+  },
+  "compile": {
+    "session": 22246,
+    "terminal_chunk": "15e311",
+    "exit_code": 0,
+    "wall_seconds": 6.198541367019061,
+    "binary": {
+      "path": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/manager.test",
+      "sha256": "b1381f3ce0eb7c5ff787252442438beae13e2fee10749b2916f9b9fb16d31c8f",
+      "bytes": 30660181,
+      "magic_hex": "7f454c46",
+      "mode": "0o600",
+      "never_executed": true
+    },
+    "binary_execution_count": 0
+  },
+  "gate": "independently acquired nonblocking and released after terminal",
+  "runtime_repeated": false,
+  "limits": "Exact isolated test retirement only. Runtime belongs to44fcc public HTTP boundary; no real NetBird manager/global NET closure."
+}

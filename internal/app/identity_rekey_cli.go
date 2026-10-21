@@ -139,7 +139,7 @@ type IdentityRekeyConnection struct {
 
 func (connection IdentityRekeyConnection) Validate(accepted bootstrapstart.AcceptedIdentity, replicas int) error {
 	cfg := connection.NATS
-	if connection.Version != 1 || accepted.Validate() != nil || cfg.Lab || cfg.Embedded != nil ||
+	if connection.Version != 1 || accepted.Validate() != nil || cfg.Embedded != nil ||
 		cfg.Cell != strings.ToLower(accepted.Cell) || cfg.Instance != accepted.Slot || cfg.Replicas != replicas ||
 		cfg.ClientRole != "controller" || cfg.URL == "" || cfg.CredentialsFile == "" || cfg.NKeySeedFile != "" ||
 		cfg.TLS.CertFile == "" || cfg.TLS.KeyFile == "" || cfg.TLS.CAFile == "" {

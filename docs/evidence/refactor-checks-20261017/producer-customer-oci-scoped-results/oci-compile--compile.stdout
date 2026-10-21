@@ -1,0 +1,2 @@
+FAIL	github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial [setup failed]
+FAIL	github.com/TerraScale/ts-orchestrator/internal/rootfoundation [build failed]

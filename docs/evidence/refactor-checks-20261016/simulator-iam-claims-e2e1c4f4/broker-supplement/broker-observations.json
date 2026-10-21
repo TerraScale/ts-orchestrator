@@ -1,0 +1,117 @@
+{
+  "audit_history": "Immutable packet QA correctly recorded separate broker trace unavailable at audit time; this later separately accepted supplement does not rewrite that review or sealed README.",
+  "calls": [
+    {
+      "call_id": "call_6ac8dac8968743d7b53b5cb9fa66e467",
+      "exact_input": "text(await tools.exec_command({cmd:\"/run/current-system/sw/bin/env -i HOME=/home/mariogk PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin LANG=C.UTF-8 GOMAXPROCS=2 GOFLAGS=-p=2 GOTOOLCHAIN=local /home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B /tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/runtime-wrapper.py\",workdir:\"/tmp/ts-simulator-iam-claims-6d4feea4\",max_output_tokens:2500,yield_time_ms:1000,login:false}));\n",
+      "role": "launch_call",
+      "tool_name": "exec"
+    },
+    {
+      "call_id": "call_7fd0452482094f42a7b552c0aee10fe3",
+      "exact_input": "text(await tools.write_stdin({session_id:21017,chars:\"\",max_output_tokens:3000,yield_time_ms:1000}));\n",
+      "role": "terminal_poll_call",
+      "tool_name": "exec"
+    }
+  ],
+  "created_utc": "2026-10-17T01:10:34.157920+00:00",
+  "distinctions": {
+    "broker_launch_wall_seconds": 1.001403873,
+    "broker_terminal_poll_wall_seconds": 1.8812e-05,
+    "child_runtime_wall_seconds_from_original_receipt": 2.647788,
+    "intermediate_polls": "none in selected launch-to-terminal transcript interval",
+    "launch_exit_code": "absent from original response, which reports a running session",
+    "native_broker_trace_file": "not emitted by original runtime; this supplement recovers saved transcript observations",
+    "network_broker": "no NATS broker runtime claim",
+    "terminal_session_id": "absent from original response; associated by the exact poll input session_id=21017",
+    "timings_are_not_interchangeable": true
+  },
+  "kind": "TRANSCRIPT_DERIVED_BROKER_OBSERVATION_SUPPLEMENT",
+  "original_child_evidence": {
+    "raw_jsonl": {
+      "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/raw.jsonl",
+      "sha256": "bfb0adc772c4f51bac75edb2b55d1e4d11af7434d3aafb925a9a5b7e8cc5fcb0"
+    },
+    "receipt": {
+      "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/receipt.json",
+      "resolved_path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/receipt.json",
+      "sha256": "fb6621021b75823abcf638fb2616865d1006bf7f9e723876876a0cdfabac96ae",
+      "size": 22814
+    },
+    "runtime_manifest": {
+      "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/runtime-manifest.json",
+      "resolved_path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/runtime-manifest.json",
+      "sha256": "3a1247ff60b81c1294afb9a8cf4e517a0273c7955d248f0b386788454deaa6aa",
+      "size": 3505
+    },
+    "status": "Original file bytes remain in the sealed packet and original directories; transcript output is distinct from those file bytes."
+  },
+  "provenance": "Four historical transcript records copied as exact original JSONL line bytes; decoded response objects below are transcript reconstruction, not a newly emitted native broker receipt. No execution, polling or runtime rerun performed.",
+  "record_bindings": [
+    {
+      "role": "launch_call",
+      "source_line": 4891,
+      "source_line_sha256": "4495e993b2474ecde35940b473415c4eeef8eafd6d61763006dd66cdc4798a02",
+      "transcript_timestamp": "2026-10-17T01:04:12.343Z"
+    },
+    {
+      "role": "launch_response",
+      "source_line": 4893,
+      "source_line_sha256": "239efe3ec67fe242965f44231f9816866384a660b460e935d9a55d1add6884cc",
+      "transcript_timestamp": "2026-10-17T01:04:13.523Z"
+    },
+    {
+      "role": "terminal_poll_call",
+      "source_line": 4903,
+      "source_line_sha256": "5b6092be4dd415787757c2d810c56a2ac0818987f736333ea763fdc77fb8a5a0",
+      "transcript_timestamp": "2026-10-17T01:04:18.308Z"
+    },
+    {
+      "role": "terminal_poll_response",
+      "source_line": 4905,
+      "source_line_sha256": "6d44b477a70a73ca90b41a0775be71e4256e37a677c290fb201d2f64e76845e4",
+      "transcript_timestamp": "2026-10-17T01:04:18.369Z"
+    }
+  ],
+  "sealed_archive": {
+    "members": 37,
+    "path": "/tmp/ts-simulator-iam-evidence-e2e1c4f4-20261017-8u9pmm4m/docs/evidence/refactor-checks-20261016/simulator-iam-claims-e2e1c4f4/evidence.tar.gz",
+    "sha256": "407fb030c9d0df008e590301bf9decaec8fa79d14e81203207101d6eb574ced8",
+    "untouched": true
+  },
+  "session_id": 21017,
+  "source_transcript": "/home/mariogk/.codex/sessions/2026/10/16/rollout-2026-10-16T15-45-25-01a14608-855c-7220-a767-ba4b47647ae3.jsonl",
+  "terminal_child_summary_decoded_from_tool_output": {
+    "exit_code": 0,
+    "receipt": {
+      "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/receipt.json",
+      "resolved_path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/receipt.json",
+      "sha256": "fb6621021b75823abcf638fb2616865d1006bf7f9e723876876a0cdfabac96ae",
+      "size": 22814
+    },
+    "runtime_manifest": {
+      "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/runtime-manifest.json",
+      "resolved_path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/runtime-manifest.json",
+      "sha256": "3a1247ff60b81c1294afb9a8cf4e517a0273c7955d248f0b386788454deaa6aa",
+      "size": 3505
+    },
+    "runtime_terminal": true,
+    "state": "TWO_ROOT_TERMINAL_PASS_PENDING_INDEPENDENT_QA"
+  },
+  "tool_response_fields": {
+    "launch_response": {
+      "chunk_id": "9629da",
+      "original_token_count": 0,
+      "output": "",
+      "session_id": 21017,
+      "wall_time_seconds": 1.001403873
+    },
+    "terminal_poll_response": {
+      "chunk_id": "2135a9",
+      "exit_code": 0,
+      "original_token_count": 204,
+      "output": "{\n  \"state\": \"TWO_ROOT_TERMINAL_PASS_PENDING_INDEPENDENT_QA\",\n  \"exit_code\": 0,\n  \"runtime_terminal\": true,\n  \"receipt\": {\n    \"path\": \"/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/receipt.json\",\n    \"resolved_path\": \"/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/receipt.json\",\n    \"sha256\": \"fb6621021b75823abcf638fb2616865d1006bf7f9e723876876a0cdfabac96ae\",\n    \"size\": 22814\n  },\n  \"runtime_manifest\": {\n    \"path\": \"/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/runtime-manifest.json\",\n    \"resolved_path\": \"/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/runtime-manifest.json\",\n    \"sha256\": \"3a1247ff60b81c1294afb9a8cf4e517a0273c7955d248f0b386788454deaa6aa\",\n    \"size\": 3505\n  }\n}\n",
+      "wall_time_seconds": 1.8812e-05
+    }
+  }
+}

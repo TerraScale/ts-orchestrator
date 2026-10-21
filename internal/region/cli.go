@@ -2,6 +2,7 @@ package region
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 const usage = `Usage: ts-orch region <command> [flags]
@@ -26,17 +28,10 @@ const usage = `Usage: ts-orch region <command> [flags]
       availability domain and the service gateway of the new region, every
       resource ID unbound. Reads OCI; changes nothing. REGION is a cell
       token (fra) or an OCI region (eu-frankfurt-1).
-  create  REGION --state DIR --attempt-base FILE --home-plan FILE
-          [--from PLAN] [--deployment ID] [--wait 30m]
-      Bring the region up, as the one operator call that adds a region:
-      subscribe the tenancy to it, plan, foundation, the private peering with
-      the global home (--home-plan is its bound plan), ts-auth secrets, the
-      founding attempt, the load balancer with its Origin CA certificate,
-      proxied DNS, then verify. The region appears in Atlas when its first
-      heartbeat joins the roster. Each step is idempotent; a rerun resumes
-      after the last finished step (DIR/journal.json) and prints each step's
-      wall time. The Cloudflare and NetBird tokens come from the home Vault
-      (docs/secrets.md) with the operator profile in ~/.oci/config.
+  create  BUNDLE
+      Provision the complete signed regional footprint through the same
+      operator path as bootstrap foundation provision BUNDLE. Resumes the
+      protected original launch and IAM records; discovery publishes last.
   verify  LABEL --plan BOUND_PLAN [--wait 0]
       Fail unless <label>.api answers /healthz for its cell, <label>.auth
       serves its OIDC discovery, every load balancer backend is healthy and
@@ -50,6 +45,9 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		return err
 	}
 	command, args := args[0], args[1:]
+	if command == "create" {
+		return provisionFromFile(ctx, args, out)
+	}
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return fmt.Errorf("usage: ts-orch region %s needs a region argument; see ts-orch region --help", command)
 	}
@@ -58,10 +56,6 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	flags.SetOutput(io.Discard)
 	from := flags.String("from", "deploy/oci-region/sfo-1-plan.json", "reviewed plan of another non-home region")
 	output := flags.String("out", "", "new plan file")
-	state := flags.String("state", "", "the region's working directory")
-	base := flags.String("attempt-base", "", "attempt settings shared by every region (trust, tools, image, release)")
-	homePlan := flags.String("home-plan", "", "the global home's bound plan, the region's private peer")
-	deployment := flags.String("deployment", "", "founding deployment ID (default <cell>-found-1)")
 	plan := flags.String("plan", "", "the region's bound plan")
 	wait := flags.Duration("wait", 30*time.Minute, "how long verification retries")
 	if err := flags.Parse(args); err != nil {
@@ -87,29 +81,6 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		}
 		_, err = fmt.Fprintln(out, *output)
 		return err
-	case "create":
-		if *state == "" || *base == "" {
-			return errors.New("create requires --state and --attempt-base")
-		}
-		entry, err := ResolveRegion(label)
-		if err != nil {
-			return err
-		}
-		run, err := Exec(out, errOut)
-		if err != nil {
-			return err
-		}
-		subscriptions, tenancy, err := OperatorSubscriptions(ctx)
-		if err != nil {
-			return err
-		}
-		creation := Creation{Label: entry.Name(), State: *state, Template: *from, AttemptBase: *base,
-			HomePlan: *homePlan, Deployment: *deployment, Wait: *wait, Run: run, Lookup: LiveSDK, Secrets: OperatorSecrets,
-			Subscriptions: subscriptions, Tenancy: tenancy, Pause: pause, Now: time.Now, Out: out,
-			Verify: func(ctx context.Context, bound string, wait time.Duration) error {
-				return verify(ctx, entry.Name(), bound, wait, out)
-			}}
-		return creation.Create(ctx)
 	case "verify":
 		if *plan == "" {
 			return errors.New("verify requires --plan")
@@ -121,6 +92,67 @@ func Run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	default:
 		return fmt.Errorf("unknown region command %q; use ts-orch region --help", command)
 	}
+}
+
+func provisionFromFile(ctx context.Context, args []string, out io.Writer) error {
+	factory, roots, bundle, _, err := ReadOriginalFoundationProvision(ctx, args)
+	if err != nil {
+		return err
+	}
+	if err := ProvisionOriginalFoundationPrerequisites(ctx, factory, roots, bundle); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, "provisioned exact signed foundation footprint")
+	return err
+}
+
+// ReadOriginalFoundationProvision verifies the bounded retained bundle before
+// opening original operator credentials. Its schema is authenticated by that
+// same complete verification, never inferred from a provision result.
+func ReadOriginalFoundationProvision(ctx context.Context, args []string) (*ociclient.Factory, trust.Keyring, RetainedFoundation, int, error) {
+	var bundle RetainedFoundation
+	if len(args) != 1 || args[0] == "" || strings.HasPrefix(args[0], "-") {
+		return nil, nil, bundle, 0, errors.New("usage: ts-orch region create BUNDLE")
+	}
+	file, err := os.Open(args[0])
+	if err != nil {
+		return nil, nil, bundle, 0, err
+	}
+	defer file.Close()
+	const maximum = 3 << 20
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maximum {
+		return nil, nil, bundle, 0, errors.New("foundation bundle must be a bounded regular file")
+	}
+	wire, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	if err != nil || len(wire) > maximum {
+		return nil, nil, bundle, 0, errors.Join(errors.New("foundation bundle exceeds its read bound"), err)
+	}
+	if err := json.Unmarshal(wire, &bundle, json.RejectUnknownMembers(true)); err != nil {
+		return nil, nil, bundle, 0, err
+	}
+	genesis, err := trust.DiscoveryGenesis()
+	if err != nil {
+		return nil, nil, bundle, 0, err
+	}
+	if err := VerifyFoundationProvisionBundle(ctx, genesis, bundle); err != nil {
+		return nil, nil, bundle, 0, err
+	}
+	grant, err := decodeOriginalMaterialGrant(bundle)
+	if err != nil {
+		return nil, nil, bundle, 0, err
+	}
+	factory, err := ociclient.OperatorConfig(foundationHomeRegion)
+	if err != nil {
+		return nil, nil, bundle, 0, err
+	}
+	return factory, genesis, bundle, grant.SchemaVersion, nil
+}
+
+// ProvisionOriginalFoundationPrerequisites preserves the lower original actor
+// stage and its truthful custody/runtime pending result.
+func ProvisionOriginalFoundationPrerequisites(ctx context.Context, factory *ociclient.Factory, roots trust.Keyring, bundle RetainedFoundation) error {
+	return provisionOriginalFoundationCompartments(ctx, factory, roots, bundle)
 }
 
 func isFlagSet(flags *flag.FlagSet, name string) bool {

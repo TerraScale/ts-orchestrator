@@ -35,7 +35,7 @@ func deref(value *string) string {
 }
 
 func (a sdkAPI) GetGroup(ctx context.Context, id string) (Group, error) {
-	response, err := a.network.GetNetworkSecurityGroup(ctx, core.GetNetworkSecurityGroupRequest{NetworkSecurityGroupId: new(id)})
+	response, err := a.network.GetNetworkSecurityGroup(ociclient.RequestContext(ctx), core.GetNetworkSecurityGroupRequest{NetworkSecurityGroupId: new(id)})
 	if err != nil {
 		if serviceErr, ok := common.IsServiceError(err); ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
 			return Group{}, fmt.Errorf("get OCI NSG: %w: %w", ociresource.ErrGone, err)
@@ -91,7 +91,7 @@ func (a sdkAPI) ListRules(ctx context.Context, id string) ([]ObservedRule, error
 	var rules []ObservedRule
 	var page *string
 	for range maxPages {
-		response, err := a.network.ListNetworkSecurityGroupSecurityRules(ctx, core.ListNetworkSecurityGroupSecurityRulesRequest{
+		response, err := a.network.ListNetworkSecurityGroupSecurityRules(ociclient.RequestContext(ctx), core.ListNetworkSecurityGroupSecurityRulesRequest{
 			NetworkSecurityGroupId: new(id), Page: page})
 		if err != nil {
 			return nil, fmt.Errorf("list OCI NSG rules: %w", err)
@@ -143,7 +143,7 @@ func (a sdkAPI) AddRules(ctx context.Context, id string, rules []Rule) error {
 	for _, rule := range rules {
 		details = append(details, addDetails(rule))
 	}
-	_, err := a.network.AddNetworkSecurityGroupSecurityRules(ctx, core.AddNetworkSecurityGroupSecurityRulesRequest{
+	_, err := a.network.AddNetworkSecurityGroupSecurityRules(ociclient.RequestContext(ctx), core.AddNetworkSecurityGroupSecurityRulesRequest{
 		NetworkSecurityGroupId:                      new(id),
 		AddNetworkSecurityGroupSecurityRulesDetails: core.AddNetworkSecurityGroupSecurityRulesDetails{SecurityRules: details}})
 	if err != nil {
@@ -153,7 +153,7 @@ func (a sdkAPI) AddRules(ctx context.Context, id string, rules []Rule) error {
 }
 
 func (a sdkAPI) RemoveRules(ctx context.Context, id string, ruleIDs []string) error {
-	_, err := a.network.RemoveNetworkSecurityGroupSecurityRules(ctx, core.RemoveNetworkSecurityGroupSecurityRulesRequest{
+	_, err := a.network.RemoveNetworkSecurityGroupSecurityRules(ociclient.RequestContext(ctx), core.RemoveNetworkSecurityGroupSecurityRulesRequest{
 		NetworkSecurityGroupId:                         new(id),
 		RemoveNetworkSecurityGroupSecurityRulesDetails: core.RemoveNetworkSecurityGroupSecurityRulesDetails{SecurityRuleIds: ruleIDs}})
 	if err != nil {
@@ -169,7 +169,7 @@ func (a sdkAPI) UpdateTags(ctx context.Context, id, etag string, tags ociresourc
 	if etag != "" {
 		request.IfMatch = new(etag)
 	}
-	if _, err := a.network.UpdateNetworkSecurityGroup(ctx, request); err != nil {
+	if _, err := a.network.UpdateNetworkSecurityGroup(ociclient.RequestContext(ctx), request); err != nil {
 		return fmt.Errorf("update OCI NSG tags: %w", err)
 	}
 	return nil

@@ -1,0 +1,28 @@
+{
+  "state": "SOURCE_ONLY_RUNTIME_UNGRANTED_NOT_EXECUTED",
+  "source_commit": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+  "source_tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+  "runtime_binary_execution_count": 0,
+  "artifacts": [
+    {
+      "path": "request.json",
+      "sha256": "f6fd62b3895542abbca9af8d0fac51753f7d27013e16302e7824ed4180ec6fe9",
+      "bytes": 5338
+    },
+    {
+      "path": "fullsource-manifest.json",
+      "sha256": "770e10c3b7ce41420b34911721d91931bc9e35849c3cceb3bcaf831e2d78d234",
+      "bytes": 595944
+    },
+    {
+      "path": "runtime-readiness.json",
+      "sha256": "01e911da54db64107aa22474415f3eba09e8dc02867a822bbe1e8c0864f53787",
+      "bytes": 82477
+    },
+    {
+      "path": "run.py",
+      "sha256": "b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b",
+      "bytes": 4412
+    }
+  ]
+}

@@ -1,0 +1,290 @@
+{
+  "state": "ACCEPTED_EXACT_CORE_FAC2_TERMINAL_FAILURE_NOT_QUALIFIED",
+  "reviewed_at_utc": "2026-10-17T05:06:55.632349+00:00",
+  "method": "Independent read-only pinned packet/full tracked source/Git blob/mode/tool resolved hash/native actual launch and every poll/terminal/raw build lifecycle/external prepost/finalseal review. Named child /proc and lock stat+/proc/locks observations only; no Go, runner, binary, native session polling, locks, retry, source edits or grants by reviewer.",
+  "source": {
+    "worktree": "/tmp/ts-core-connected-history-afad",
+    "commit": "fac2a2715dad336cf67fc935d9f6af94c6bac1c2",
+    "tree": "9373511168ee3b5dea80fe61b7cc68a8986550f5",
+    "current_clean_exact_HEAD_tree": true,
+    "tracked_entries": 4238,
+    "tracked_bytes": 66316257,
+    "git_modes": {
+      "100644": 4206,
+      "120000": 1,
+      "100755": 31
+    },
+    "all_current_paths_modes_git_blobs_and_manifest_sha256_match": true,
+    "all6_tools_resolved_and_sha256_match": {
+      "/run/current-system/sw/bin/nice": {
+        "resolved_path": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "/run/current-system/sw/bin/timeout": {
+        "resolved_path": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "/run/current-system/sw/bin/env": {
+        "resolved_path": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "/run/current-system/sw/bin/git": {
+        "resolved_path": "/nix/store/b1wn5clix1mz4vpfih7x9cnj9qfh7c6h-git-2.54.0/bin/git",
+        "sha256": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027"
+      },
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": {
+        "resolved_path": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624"
+      },
+      "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": {
+        "resolved_path": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+        "sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+      }
+    },
+    "preflight_source_equals_postflight": true,
+    "all_runner_pinned_assets_match_current": true
+  },
+  "pins": {
+    "request.json": "a39797b8df15aa5863e7b6af93e91fc6a3003f7cbf1d134270bcd051b8192f3f",
+    "run.py": "c8904764e690f9ca8668e7b39ea320be586e23df2da39333f4ae7388e98f24a4",
+    "seal.json": "f8a3ee0fe80d2b74e2163a47dca588f023b0c01919cf2ea5a1c31096e040cf01",
+    "final-seal.json": "23afe6f6dace11f6d1e9196bca0a62f1aeb210f2caaf4a826790b402bf7fcf06",
+    "native-launch.json": "01c4092b4f7956fe3bbf6fdc729cb71ca9f90017250993cc65cedf55ccb26fe1",
+    "readiness_review": "/tmp/ts-qa-core-fac2-readiness-nvkqsrhv/review.json",
+    "readiness_sha256": "a6eb12bfd379754f30cd612f045036e3566ab37748fce7b0dd36444a589328f0"
+  },
+  "sealed_evidence": {
+    "packet": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+    "final_seal": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/final-seal.json",
+    "final_seal_sha256": "23afe6f6dace11f6d1e9196bca0a62f1aeb210f2caaf4a826790b402bf7fcf06",
+    "all_final_seal_files_verified": 24,
+    "covers_every_packet_file_except_itself": true,
+    "receipt_sha256": "b1b1947170153d0ea7dbb5b006fb1967b545263fc647493d12bed978c85a7885",
+    "stdout_sha256": "4f7ec5a5ad5d90a8308dd5e5c31156eb0b94075f6f2d4f80f2a7700884f16bc3",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_bytes": 0
+  },
+  "external_pre_post": {
+    "native_launch_sha256": "01c4092b4f7956fe3bbf6fdc729cb71ca9f90017250993cc65cedf55ccb26fe1",
+    "seal_sha256": "f8a3ee0fe80d2b74e2163a47dca588f023b0c01919cf2ea5a1c31096e040cf01",
+    "actual_external_pre_post_current_equal": true,
+    "preflight_epoch": 1792213351.0760489,
+    "started_epoch": 1792213364.237584,
+    "postflight_epoch": 1792213530.3375444,
+    "note": "Planned native-launch.json remains a specification. Actual launch provenance is native-launch-receipt.json. Owner externally captured both omitted runner-snapshot files before launch and after terminal; independent current hashes and sealed records agree."
+  },
+  "native_actual_provenance": {
+    "session_id": 36549,
+    "child_pid": 718926,
+    "launch_chunk": "d460ff",
+    "launch_actual_shlex_argv_equals_planned_with_both_digest_arguments": true,
+    "launch_actual_cwd_equals_worktree": true,
+    "launch_login_false": true,
+    "poll_count_before_terminal": 2,
+    "poll_chunks": [
+      "ba589c",
+      "c66628"
+    ],
+    "all_actual_poll_args_results_bind_same_session": true,
+    "terminal_file": "native-terminal.json",
+    "terminal_chunk": "dbb170",
+    "terminal_exit_code": 1,
+    "native_terminal_output_exact_object_equals_receipt": true,
+    "preflight_started_request_child_argv_equal": true,
+    "wall_seconds": 141.1444676659885,
+    "max_child_rss_kib": 1056916
+  },
+  "independent_raw_events": {
+    "events": 8,
+    "counts": {
+      "build-output": 4,
+      "build-fail": 1,
+      "start": 1,
+      "output": 1,
+      "fail": 1
+    },
+    "build_import_path": "github.com/TerraScale/ts-orchestrator/internal/app [github.com/TerraScale/ts-orchestrator/internal/app.test]",
+    "exact_action_order": [
+      "build-output",
+      "build-output",
+      "build-output",
+      "build-output",
+      "build-fail",
+      "start",
+      "output",
+      "fail"
+    ],
+    "expected_package": "github.com/TerraScale/ts-orchestrator/internal/app",
+    "selected_root_runs": 0,
+    "selected_root_outcomes": 0,
+    "all_test_runs": 0,
+    "all_test_outcomes": 0,
+    "package_START": 1,
+    "package_PASS": 0,
+    "package_FAIL": 1,
+    "package_elapsed_seconds": 0,
+    "build_FAIL": 1,
+    "package_failed_build_matches_import_path": true,
+    "malformed_or_extra_unexplained_events": 0,
+    "package_timestamps_monotonic": true,
+    "runner_scope_errors": 10,
+    "runner_scope_error_explanation": "Five genuine Go build records each lack Package and use build-output/build-fail actions; strict runtime parser correctly rejects each under two checks. These are compile diagnostics, not unexpected executed tests. Every scope-error object equals its corresponding raw event.",
+    "full_raw_events": [
+      {
+        "ImportPath": "github.com/TerraScale/ts-orchestrator/internal/app [github.com/TerraScale/ts-orchestrator/internal/app.test]",
+        "Action": "build-output",
+        "Output": "# github.com/TerraScale/ts-orchestrator/internal/app [github.com/TerraScale/ts-orchestrator/internal/app.test]\n"
+      },
+      {
+        "ImportPath": "github.com/TerraScale/ts-orchestrator/internal/app [github.com/TerraScale/ts-orchestrator/internal/app.test]",
+        "Action": "build-output",
+        "Output": "internal/app/managed_runtime.go:117:75: not enough arguments in call to swarmruntime.StartManagementServer\n"
+      },
+      {
+        "ImportPath": "github.com/TerraScale/ts-orchestrator/internal/app [github.com/TerraScale/ts-orchestrator/internal/app.test]",
+        "Action": "build-output",
+        "Output": "\thave (\"context\".Context, *swarmruntime.Node, *bootstrapstart.CurrentFounderAuthorityReader, bootstrapstart.AcceptedIdentity)\n"
+      },
+      {
+        "ImportPath": "github.com/TerraScale/ts-orchestrator/internal/app [github.com/TerraScale/ts-orchestrator/internal/app.test]",
+        "Action": "build-output",
+        "Output": "\twant (\"context\".Context, *swarmruntime.Node, *bootstrapstart.CurrentFounderAuthorityReader, bootstrapstart.AcceptedIdentity, swarmruntime.StatefulServiceAuthorizer)\n"
+      },
+      {
+        "ImportPath": "github.com/TerraScale/ts-orchestrator/internal/app [github.com/TerraScale/ts-orchestrator/internal/app.test]",
+        "Action": "build-fail"
+      },
+      {
+        "Time": "2026-10-17T02:05:04.507062546-03:00",
+        "Action": "start",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/app"
+      },
+      {
+        "Time": "2026-10-17T02:05:04.507232173-03:00",
+        "Action": "output",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+        "Output": "FAIL\tgithub.com/TerraScale/ts-orchestrator/internal/app [build failed]\n",
+        "OutputType": "frame"
+      },
+      {
+        "Time": "2026-10-17T02:05:04.507259258-03:00",
+        "Action": "fail",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+        "Elapsed": 0,
+        "FailedBuild": "github.com/TerraScale/ts-orchestrator/internal/app [github.com/TerraScale/ts-orchestrator/internal/app.test]"
+      }
+    ]
+  },
+  "failure": {
+    "source": "internal/app/managed_runtime.go:117",
+    "api": "internal/swarmruntime/management.go:72",
+    "cause": "StartManagementServer caller supplies four arguments; current API requires a fifth StatefulServiceAuthorizer.",
+    "diagnostic_have": "\thave (\"context\".Context, *swarmruntime.Node, *bootstrapstart.CurrentFounderAuthorityReader, bootstrapstart.AcceptedIdentity)\n",
+    "diagnostic_want": "\twant (\"context\".Context, *swarmruntime.Node, *bootstrapstart.CurrentFounderAuthorityReader, bootstrapstart.AcceptedIdentity, swarmruntime.StatefulServiceAuthorizer)\n",
+    "attribution": "Compile stopped before the selected test executable ran. No signed SDK/Agent load, journal, HTTP, restoration or other connected root assertion executed.",
+    "default_vet": "Requested default vet; build failure supplies no default-vet PASS credit."
+  },
+  "fixture_and_controls": {
+    "exact_argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "540s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-json",
+      "-mod=readonly",
+      "-p=1",
+      "-parallel=1",
+      "-count=1",
+      "-timeout=390s",
+      "-run",
+      "^TestGenericRuntimeSignedManagerIntegration$",
+      "./internal/app"
+    ],
+    "exact_environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local",
+      "LANG": "C.UTF-8"
+    },
+    "nice": 19,
+    "default_vet_requested": true,
+    "context_seconds_planned_only": 360,
+    "go_timeout_seconds": 390,
+    "outer_timeout_seconds": 540,
+    "kill_after_seconds": 5,
+    "one_exact_attempt_grant_consumed": true,
+    "GENERAL_and_GATE_nonblocking_exclusive_in_pinned_runner": true,
+    "sole_fixture_reservation": "Parent QA grant confirmed",
+    "resource_check": {
+      "time_utc_epoch": 1792213351.075676,
+      "available_ram_kib": 26929620,
+      "load1": 1.07958984375,
+      "compiler_process_counts": {
+        "go": 0,
+        "compile": 0,
+        "link": 0,
+        "vet": 0
+      },
+      "uid": 1000,
+      "checks": {
+        "ram_at_least_16GiB": true,
+        "load_below_12": true,
+        "go_flows_at_most_4": true,
+        "compiler_processes_at_most_4": true,
+        "uid1000": true
+      }
+    },
+    "resource_limit": "Measured child RSS only; scratch and disk usage unmeasured. Resource estimates are not enforced caps."
+  },
+  "release_observation": {
+    "observed_at_utc": "2026-10-17T05:06:55.632349+00:00",
+    "named_child_pid": 718926,
+    "named_child_proc_exists": false,
+    "lock_observations": [
+      {
+        "path": "/tmp/ts-orch-refactor-general-check.lock",
+        "device_inode": "00:2a:57230480",
+        "matching_proc_locks_rows": []
+      },
+      {
+        "path": "/tmp/ts-orch-refactor-gate-check.lock",
+        "device_inode": "00:2a:54779232",
+        "matching_proc_locks_rows": []
+      }
+    ],
+    "method": "Read-only named /proc path, lock stat and /proc/locks; no lock acquire/release.",
+    "limit": "Point-in-time named child and lock observation; not a full descendant or temporary resource inventory."
+  },
+  "historical_scope": {
+    "prior_d0b": "Earlier d0b exact-source PASS remains unchanged. It does not qualify fac2.",
+    "fac2": "Frozen fac2 remains NOT_QUALIFIED; terminal failure is accepted as authentic evidence only.",
+    "successors": "Any caller correction requires a distinct source packet and separate grant; no retry or successor credit is provided."
+  },
+  "findings": [
+    {
+      "severity": "blocking",
+      "source": "internal/app/managed_runtime.go:117",
+      "description": "Missing StatefulServiceAuthorizer argument prevents APP package compilation and all selected connected-history runtime execution."
+    }
+  ],
+  "limitations": [
+    "No connected-history, default-vet PASS, root PASS, whole-package, canonical, main, global, count, retirement, race or workload HA credit.",
+    "No native/containerd, enrolled recipient, authenticated Unix, live cloud/IAM or production root composition qualification.",
+    "No reviewer execution, lock operation, source edit, retry, grant or remote call."
+  ]
+}

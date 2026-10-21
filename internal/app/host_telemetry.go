@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
@@ -14,11 +15,31 @@ import (
 
 // hostTelemetry owns collection freshness even when no scaling policy uses it.
 type hostTelemetry struct {
-	mu       sync.Mutex
-	fencer   authority.Fencer
-	load     *hostload.Aggregator
-	epoch    uint64
-	requests map[string]hostload.Request
+	mu              sync.Mutex
+	fencer          authority.Fencer
+	load            *hostload.Aggregator
+	epoch           uint64
+	requests        map[string]hostload.Request
+	managedRequests map[hostload.Origin]map[string]hostload.Request
+	usagePoints     map[hostload.Origin][]host.CommittedUsage
+	usageHistoryMu  sync.Mutex
+	usageSequence   uint64
+}
+
+func startHostTelemetry(profiles map[string]WorkloadProfile, hosts *host.Controller, fencer authority.Fencer) *hostTelemetry {
+	requests := loadRequests(profileResources(profiles))
+	load := &hostTelemetry{fencer: fencer, requests: requests,
+		load: hostload.NewAggregator(hostload.AggregatorConfig{Requests: requests})}
+	hosts.SetLoadSink(load.record)
+	return load
+}
+
+func loadRequests(resources map[string]placement.Resources) map[string]hostload.Request {
+	requests := make(map[string]hostload.Request, len(resources))
+	for role, request := range resources {
+		requests[role] = hostload.Request{CPUCores: float64(request.CPU), MemoryBytes: request.MemoryBytes}
+	}
+	return requests
 }
 
 // current is called with mu held before accepting or charting reports.
@@ -26,11 +47,15 @@ func (t *hostTelemetry) current() bool {
 	snapshot := t.fencer.Current()
 	if !snapshot.CanMutate() {
 		t.load.Reset()
+		clear(t.managedRequests)
+		clear(t.usagePoints)
 		t.epoch = 0
 		return false
 	}
 	if t.epoch != snapshot.Epoch {
 		t.load.Reset()
+		clear(t.managedRequests)
+		clear(t.usagePoints)
 		t.epoch = snapshot.Epoch
 	}
 	return true

@@ -72,72 +72,30 @@ func TestOCICostViewForecastsTheStoredReport(t *testing.T) {
 	}
 }
 
-func TestNodeCostPricesThePoolAndForecasts(t *testing.T) {
-	ctx := context.Background()
+func TestNodeCostHoldsWithoutInfrastructureAuthority(t *testing.T) {
+	ctx := t.Context()
 	store, err := ocicost.OpenStore(ctx, testRolloutJetStream(t), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
-	reads := 0
-	recipe := func(context.Context) (nodescale.Recipe, error) {
-		reads++
-		return nodescale.Recipe{OCPUs: 4, MemoryGB: 24}, nil
-	}
-	views := &ociCostViews{store: store}
-	cost := views.nodeCost(recipe, func() time.Time { return now })
-	pool := nodescale.PoolState{Instances: []nodescale.PoolInstance{
-		{Created: time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)},
-		{Created: time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)},
-	}}
-
-	if _, err := cost(ctx, pool); err == nil {
-		t.Fatal("cost without a report is not an error")
-	}
-	prices := []ocicost.Price{{SKU: "B91961", PerUnit: 0.1335}, {SKU: "B91962", PerUnit: 0.0089},
-		{SKU: "B93297", PerUnit: 0}, {SKU: "B93298", PerUnit: 0}}
-	if err := store.Put(ctx, nodeCostReport(now.Add(-2*time.Hour), nil)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := cost(ctx, pool); err == nil {
-		t.Fatal("cost without unit prices is not an error")
-	}
-	if err := store.Put(ctx, nodeCostReport(now.Add(-7*time.Hour), prices)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := cost(ctx, pool); err == nil {
-		t.Fatal("cost from a stale report is not an error")
-	}
-
-	report := nodeCostReport(now.Add(-2*time.Hour), prices)
+	now := time.Now().UTC()
+	report := ocicost.Report{Version: ocicost.Version, Cell: "gru", OCIRegion: "sa-saopaulo-1", Currency: "BRL",
+		ObservedAt: now, Through: now.Add(-24 * time.Hour).Truncate(24 * time.Hour),
+		Days:   []ocicost.Day{{Day: now.Add(-24 * time.Hour).Truncate(24 * time.Hour), Cents: 1}},
+		Prices: []ocicost.Price{{SKU: "B91961", PerUnit: 0.1335}, {SKU: "B91962", PerUnit: 0.0089}, {SKU: "B93297", PerUnit: 0}, {SKU: "B93298", PerUnit: 0}}}
 	if err := store.Put(ctx, report); err != nil {
 		t.Fatal(err)
 	}
-	got, err := cost(ctx, pool)
-	if err != nil {
-		t.Fatal(err)
+	views := &ociCostViews{store: store, cell: "gru"}
+	views.current.Store(ociCostView(ctx, "gru", store, nil, now))
+	recipe := func(context.Context) (nodescale.Recipe, error) {
+		return nodescale.Recipe{Cell: "gru", Capacity: nodescale.Capacity{Role: nodescale.RoleContainer, Architecture: "arm64", Shape: "VM.Standard.A1.Flex"}, OCPUs: 4, MemoryGB: 24}, nil
 	}
-	// One node is 1113 cents a month; the pool's two nodes are pending in the forecast.
-	hosts := []ocicost.Host{{Created: pool.Instances[0].Created, MonthlyCents: 1113},
-		{Created: pool.Instances[1].Created, MonthlyCents: 1113}}
-	forecast := ocicost.Project(report, now, hosts)
-	want := nodescale.Cost{NodeMonthlyCents: 1113, ProjectedCents: max(forecast.MonthEndCents, forecast.NextMonthCents),
-		Currency: "BRL", At: report.ObservedAt}
-	if got != want {
-		t.Fatalf("cost = %+v, want %+v", got, want)
+	cost := views.nodeCost(nil, "ocid1.compartment.oc1..workload", recipe, func() time.Time { return now })
+	if got, err := cost(ctx, nodescale.PoolState{}); err == nil || got.Currency != "" {
+		t.Fatalf("Usage forecast admitted infrastructure cost without signed complete facts: %+v %v", got, err)
 	}
-	if nodes := views.nodes(); len(nodes) != 2 || nodes[1] != hosts[1] {
-		t.Fatalf("nodes = %+v, want %+v", nodes, hosts)
+	if views.nodes() != nil || views.view(ctx) == nil || views.view(ctx).Missing == "" || views.rollup() != nil {
+		t.Fatal("pending accounting left stale priced capacity visible")
 	}
-	if _, err := cost(ctx, pool); err != nil || reads != 1 {
-		t.Fatalf("second cost err = %v, recipe reads = %d, want 1", err, reads)
-	}
-}
-
-// nodeCostReport has one BRL day in the rate window and the given unit prices.
-func nodeCostReport(observed time.Time, prices []ocicost.Price) ocicost.Report {
-	return ocicost.Report{Version: ocicost.Version, Cell: "gru", OCIRegion: "sa-saopaulo-1", Currency: "BRL",
-		ObservedAt: observed, Through: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC),
-		Days:   []ocicost.Day{{Day: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Cents: 267}},
-		Prices: prices}
 }

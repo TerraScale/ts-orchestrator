@@ -1,0 +1,30 @@
+{
+  "state": "ONE_ATTEMPT_RUNTIME_FAILED_NOT_QUALIFIED_NO_RETRY",
+  "native_session_id": 53963,
+  "child_pid": 727769,
+  "native_launch": "native-launch.json",
+  "native_polls": [
+    "native-poll-1.json",
+    "native-poll-2.json"
+  ],
+  "encoding": "Every native tool arguments object and actual result object immediately serialized as {arguments,result}; no reconstruction. STARTED is in first poll; terminal is in second.",
+  "terminal_matches_receipt": true,
+  "source_pre_equals_post": true,
+  "child_absent": true,
+  "capacity_lock_observed_free": true,
+  "lock_observation": "Read-only /proc/locks inode/device match; no lock acquisition.",
+  "receipt_sha256": "282f2aa1aa706e1d5707d0c2d97bd3c4045c7b79e12eadb6414d0089a10c0c03",
+  "original_binary0600_never_executed": true,
+  "runtime_copy0600": true,
+  "runs": [
+    "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+    "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals"
+  ],
+  "passes": [],
+  "fail_or_skip": [
+    "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+    "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals"
+  ],
+  "failure": "Leaf expected accepted launch response loss; launch signed original GRU writer current protected grant GetObject returned local simulator404 for bootstrap/foundation-scope-v1.json. No extra parent-body failure diagnostic; parent still FAIL because leaf failed.",
+  "scope": "Exact5e local genuine SDK/disk selected parent and provision leaf failed; no retry/runtime/union/global/live/native credit. Prior64/678 failures preserved."
+}

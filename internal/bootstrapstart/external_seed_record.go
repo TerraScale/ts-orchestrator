@@ -23,7 +23,7 @@ var (
 type ExternalSeedReservationRequest struct {
 	Identity           BakedIdentity
 	Anchor             bootstrap.VerifiedBootstrapAnchor
-	Manifest           bootstrap.VerifiedManifest
+	Manifest           bootstrap.StartupAuthority
 	ReviewedPlanSHA256 string
 	CreateIdentity     string
 	LedgerPrivate      ed25519.PrivateKey
@@ -39,7 +39,7 @@ type ExternalSeedReservationRecords struct {
 type ExternalSeedCompletionRequest struct {
 	Identity          BakedIdentity
 	Anchor            bootstrap.VerifiedBootstrapAnchor
-	Manifest          bootstrap.VerifiedManifest
+	Manifest          bootstrap.StartupAuthority
 	Roots             trust.Keyring
 	State             bootstrap.SlotState
 	Observation       InstanceObservation
@@ -64,7 +64,7 @@ func externalSeedDigest(wire []byte) string {
 }
 
 func signExternalSeedRecord(value any, domain, slot string, identity BakedIdentity,
-	private ed25519.PrivateKey, grant trust.VerifiedDelegation, now, expiresAt time.Time,
+	private ed25519.PrivateKey, anchor bootstrap.VerifiedBootstrapAnchor, authority bootstrap.StartupAuthority, now, expiresAt time.Time,
 ) ([]byte, error) {
 	payload, err := trust.EncodePayload(value)
 	if err != nil {
@@ -76,9 +76,18 @@ func signExternalSeedRecord(value any, domain, slot string, identity BakedIdenti
 	if err != nil {
 		return nil, err
 	}
-	if _, err := trust.VerifyDelegatedCurrent(envelope, scope, grant, now,
-		bootstrap.ManifestTrustPolicy()); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrExternalSeedRecord, err)
+	if derived, ok := authority.(bootstrap.DerivedStartupAuthority); ok {
+		if err := derived.VerifyLedgerEnvelope(envelope, scope, now); err != nil {
+			return nil, err
+		}
+	} else {
+		grant, err := anchor.LedgerDelegation()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := trust.VerifyDelegatedCurrent(envelope, scope, grant, now, bootstrap.ManifestTrustPolicy()); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrExternalSeedRecord, err)
+		}
 	}
 	return trust.EncodeEnvelope(envelope)
 }
@@ -86,7 +95,13 @@ func signExternalSeedRecord(value any, domain, slot string, identity BakedIdenti
 // BuildExternalSeedReservation signs the exact immutable intent and initial
 // HEAD that the operator publisher passes to Ledger.ReserveSlot.
 func BuildExternalSeedReservation(request ExternalSeedReservationRequest) (ExternalSeedReservationRecords, error) {
-	anchor := request.Anchor.Anchor()
+	if request.Manifest == nil {
+		return ExternalSeedReservationRecords{}, ErrExternalSeedRecord
+	}
+	anchor, original, err := externalSeedIdentity(request.Manifest, request.Anchor)
+	if err != nil {
+		return ExternalSeedReservationRecords{}, err
+	}
 	manifest := request.Manifest.Manifest()
 	if !request.Anchor.IsVerified() || request.Manifest.Digest() == "" ||
 		request.Identity.DeploymentID != anchor.DeploymentID || request.Identity.Cell != anchor.Cell ||
@@ -100,13 +115,8 @@ func BuildExternalSeedReservation(request ExternalSeedReservationRequest) (Exter
 		len(request.LedgerPrivate) != ed25519.PrivateKeySize {
 		return ExternalSeedReservationRecords{}, ErrExternalSeedRecord
 	}
-	grant, err := request.Anchor.LedgerDelegation()
-	if err != nil {
+	if err := verifyExternalLedgerKey(request.Manifest, request.Anchor, request.LedgerPrivate); err != nil {
 		return ExternalSeedReservationRecords{}, err
-	}
-	keyID, err := trust.KeyID(request.LedgerPrivate.Public().(ed25519.PublicKey))
-	if err != nil || keyID != grant.SubjectKeyID() {
-		return ExternalSeedReservationRecords{}, ErrExternalSeedRecord
 	}
 	profile, ok := request.Manifest.Profile(manifest.SeedSlot)
 	if !ok {
@@ -127,8 +137,16 @@ func BuildExternalSeedReservation(request ExternalSeedReservationRequest) (Exter
 		AvailabilityDomain: profile.AvailabilityDomain, FaultDomain: profile.FaultDomain,
 		SubnetOCID: profile.SubnetOCID, NetworkSecurityGroupIDs: slices.Clone(profile.NetworkSecurityGroupOCIDs),
 		Shape: profile.Shape, Node: manifest.SeedSlot}
+	if original != nil {
+		create, err := bootstrap.OriginalLaunchCreateKey(*original)
+		if err != nil || create != request.CreateIdentity {
+			return ExternalSeedReservationRecords{}, ErrExternalSeedRecord
+		}
+		intent.SchemaVersion = 2
+		intent.OriginalLaunch = original
+	}
 	intentWire, err := signExternalSeedRecord(intent, "bootstrap-intent", manifest.SeedSlot, request.Identity,
-		request.LedgerPrivate, grant, request.Now, request.ExpiresAt)
+		request.LedgerPrivate, request.Anchor, request.Manifest, request.Now, request.ExpiresAt)
 	if err != nil {
 		return ExternalSeedReservationRecords{}, err
 	}
@@ -136,7 +154,7 @@ func BuildExternalSeedReservation(request ExternalSeedReservationRequest) (Exter
 		Cell: string(anchor.Cell), Environment: anchor.Environment, Role: "controller",
 		Slot: manifest.SeedSlot, Attempt: 1, Generation: 1, IntentDigest: externalSeedDigest(intentWire)}
 	headWire, err := signExternalSeedRecord(head, "bootstrap-slot-head", manifest.SeedSlot, request.Identity,
-		request.LedgerPrivate, grant, request.Now, request.ExpiresAt)
+		request.LedgerPrivate, request.Anchor, request.Manifest, request.Now, request.ExpiresAt)
 	if err != nil {
 		return ExternalSeedReservationRecords{}, err
 	}
@@ -147,24 +165,24 @@ func BuildExternalSeedReservation(request ExternalSeedReservationRequest) (Exter
 // for an OCI observation that matches the reserved first seed. ReuseReceiptWire
 // keeps an already stored immutable root receipt during a fresh result retry.
 func BuildExternalSeedCompletion(request ExternalSeedCompletionRequest) (ExternalSeedCompletionRecords, error) {
-	anchor := request.Anchor.Anchor()
+	if request.Manifest == nil {
+		return ExternalSeedCompletionRecords{}, ErrExternalSeedRecord
+	}
+	anchor, _, err := externalSeedIdentity(request.Manifest, request.Anchor)
+	if err != nil {
+		return ExternalSeedCompletionRecords{}, err
+	}
 	if !request.Anchor.IsVerified() || request.Manifest.Digest() == "" ||
 		request.Identity.DeploymentID != anchor.DeploymentID || request.Identity.Cell != anchor.Cell ||
 		request.Identity.Environment != anchor.Environment || !request.ExpiresAt.After(request.Now) ||
 		request.ObservedAt.IsZero() || request.ObservedAt.Location() != time.UTC ||
 		request.ObservedAt.After(request.Now.Add(bootstrap.ManifestClockSkew)) ||
 		request.Now.Sub(request.ObservedAt) > bootstrap.ExternalSeedObservationMaxAge ||
-		len(request.RootPrivate) != ed25519.PrivateKeySize ||
 		len(request.LedgerPrivate) != ed25519.PrivateKeySize {
 		return ExternalSeedCompletionRecords{}, ErrExternalSeedRecord
 	}
-	grant, err := request.Anchor.LedgerDelegation()
-	if err != nil {
+	if err := verifyExternalLedgerKey(request.Manifest, request.Anchor, request.LedgerPrivate); err != nil {
 		return ExternalSeedCompletionRecords{}, err
-	}
-	keyID, err := trust.KeyID(request.LedgerPrivate.Public().(ed25519.PublicKey))
-	if err != nil || keyID != grant.SubjectKeyID() {
-		return ExternalSeedCompletionRecords{}, ErrExternalSeedRecord
 	}
 	facts, err := VerifyExternalSeedObservation(request.Anchor, request.Manifest, request.State,
 		request.Observation, request.ExpectedPrivateIP)
@@ -173,8 +191,15 @@ func BuildExternalSeedCompletion(request ExternalSeedCompletionRequest) (Externa
 	}
 	receiptWire := slices.Clone(request.ReuseReceiptWire)
 	if len(receiptWire) == 0 {
-		envelope, signErr := bootstrap.SignSeedReceipt(request.Manifest, facts, request.Now,
-			request.ExpiresAt, request.RootPrivate)
+		var envelope trust.Envelope
+		var signErr error
+		if derived, ok := request.Manifest.(bootstrap.DerivedStartupAuthority); ok {
+			envelope, signErr = bootstrap.SignDerivedReceipt(derived, facts, request.Now, request.ExpiresAt, request.LedgerPrivate)
+		} else if legacy, ok := request.Manifest.(bootstrap.VerifiedManifest); ok {
+			envelope, signErr = bootstrap.SignSeedReceipt(legacy, facts, request.Now, request.ExpiresAt, request.RootPrivate)
+		} else {
+			return ExternalSeedCompletionRecords{}, ErrExternalSeedRecord
+		}
 		if signErr != nil {
 			return ExternalSeedCompletionRecords{}, signErr
 		}
@@ -211,17 +236,38 @@ func BuildExternalSeedCompletion(request ExternalSeedCompletionRequest) (Externa
 		SeedReceiptDigest: externalSeedDigest(receiptWire), CreateKey: intent.CreateKey,
 		ObservedAt: request.ObservedAt}
 	resultWire, err := signExternalSeedRecord(result, "bootstrap-result", intent.Slot, request.Identity,
-		request.LedgerPrivate, grant, request.Now, resultExpiresAt)
+		request.LedgerPrivate, request.Anchor, request.Manifest, request.Now, resultExpiresAt)
 	if err != nil {
 		return ExternalSeedCompletionRecords{}, err
 	}
 	head := request.State.Head
 	head.ResultDigest = externalSeedDigest(resultWire)
 	headWire, err := signExternalSeedRecord(head, "bootstrap-slot-head", intent.Slot, request.Identity,
-		request.LedgerPrivate, grant, request.Now, resultExpiresAt)
+		request.LedgerPrivate, request.Anchor, request.Manifest, request.Now, resultExpiresAt)
 	if err != nil {
 		return ExternalSeedCompletionRecords{}, err
 	}
 	return ExternalSeedCompletionRecords{ReceiptWire: receiptWire, ResultWire: resultWire,
 		CompletedHeadWire: headWire}, nil
+}
+
+func verifyExternalLedgerKey(authority bootstrap.StartupAuthority, anchor bootstrap.VerifiedBootstrapAnchor, private ed25519.PrivateKey) error {
+	if len(private) != ed25519.PrivateKeySize {
+		return ErrExternalSeedRecord
+	}
+	if derived, ok := authority.(bootstrap.DerivedStartupAuthority); ok {
+		if derived.AnchorDigest() != anchor.Digest() {
+			return ErrExternalSeedRecord
+		}
+		return derived.VerifyLedgerKey(private.Public().(ed25519.PublicKey))
+	}
+	grant, err := anchor.LedgerDelegation()
+	if err != nil {
+		return err
+	}
+	keyID, err := trust.KeyID(private.Public().(ed25519.PublicKey))
+	if err != nil || keyID != grant.SubjectKeyID() {
+		return ErrExternalSeedRecord
+	}
+	return nil
 }

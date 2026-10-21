@@ -4,11 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
-	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
@@ -17,26 +13,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
-// AutoscaleConfig enables continuous reconciliation of generic services. It
-// is part of the signed controller config and is off unless Enabled is set:
-// without it every role keeps the fixed, one-shot delivery placement.
+// AutoscaleConfig carries the signed desired service policies.
 type AutoscaleConfig struct {
-	Enabled         bool                   `json:"enabled"`
-	IntervalSeconds int                    `json:"interval_seconds,omitzero"`
-	Services        []workload.ServiceSpec `json:"services,omitempty"`
-	// HostTelemetry feeds accepted host load reports to the autoscaler as its
-	// signal source. It is a trust decision: an authenticated host's
-	// self-reported load can then move a service within its signed replica
-	// bounds. Off by default; scaling policies are refused without it.
-	HostTelemetry bool `json:"host_telemetry,omitzero"`
+	Services []workload.ServiceSpec `json:"services,omitempty"`
 }
 
 func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]WorkloadProfile) error {
 	if config == nil {
 		return nil
-	}
-	if config.IntervalSeconds < 0 || config.IntervalSeconds > 3600 {
-		return errors.New("autoscale interval_seconds must be within 0..3600")
 	}
 	if err := workload.ValidateSpecs(config.Services); err != nil {
 		return fmt.Errorf("autoscale services: %w", err)
@@ -47,12 +31,6 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 			// by placement); refuse signed config that would silently do
 			// nothing.
 			return fmt.Errorf("autoscale service %q: stateful services are not reconciled yet", spec.Role)
-		}
-		if spec.Scaling != nil && !config.HostTelemetry {
-			// Host telemetry is the only signal source. Without it a
-			// scaling policy would only ever hold with no-signal-data;
-			// bounds and self-healing work without one.
-			return fmt.Errorf("autoscale service %q: signal-driven scaling needs host_telemetry; set replicas bounds only", spec.Role)
 		}
 		if spec.Scaling != nil {
 			for _, signal := range spec.Scaling.Signals {
@@ -86,63 +64,15 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 	return nil
 }
 
-// startWorkloadAutoscale builds the reconciler, which owns the cell spec's
-// reconciled roles. Host telemetry is collected independently; using it to
-// scale remains opt-in. All act only on the regional authority leader.
-func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[string]WorkloadProfile,
-	specs []workload.ServiceSpec, hosts *host.Controller,
-	fencer authority.Fencer,
-	nativeReleases *nativeHistory,
-) (*workload.Reconciler, *hostTelemetry, error) {
-	var settings AutoscaleConfig
-	if config != nil && config.Enabled {
-		settings = *config
-	}
-	interval := time.Duration(settings.IntervalSeconds) * time.Second
-	resources := profileResources(profiles)
-	var signals autoscale.Source
-	requests := loadRequests(resources)
-	load := &hostTelemetry{fencer: fencer, requests: requests,
-		load: hostload.NewAggregator(hostload.AggregatorConfig{Requests: requests})}
-	if settings.HostTelemetry {
-		signals = load.load
-	}
-	var releaseResources func(context.Context, []host.Desired, map[string]placement.Resources) (map[string]placement.Resources, error)
-	var writer workload.DesiredWriter = hosts
-	if nativeReleases != nil {
-		releaseResources = func(ctx context.Context, desired []host.Desired, profiles map[string]placement.Resources) (map[string]placement.Resources, error) {
-			resolved, err := nativeReleases.resources(ctx, desired, profiles)
-			if err == nil {
-				load.setResources(resolved)
-			}
-			return resolved, err
-		}
-		writer = nativeReleases
-	}
-	reconciler, err := workload.New(workload.Config{Cell: cell, Specs: specs, Profiles: resources, ReleaseResources: releaseResources,
-		Hosts: hosts, Writer: writer, Fencer: fencer, Signals: signals, Interval: interval,
-		Logf: log.Printf})
-	if err != nil {
-		return nil, nil, fmt.Errorf("start workload reconciler: %w", err)
-	}
-	hosts.SetLoadSink(load.record)
-	return reconciler, load, nil
-}
-
-func loadRequests(resources map[string]placement.Resources) map[string]hostload.Request {
-	requests := make(map[string]hostload.Request, len(resources))
-	for role, request := range resources {
-		requests[role] = hostload.Request{CPUCores: float64(request.CPU), MemoryBytes: request.MemoryBytes}
-	}
-	return requests
-}
-
-// PlanShaped plans a release. Roles owned by the workload reconciler get a
+// PlanShaped plans a release. Roles with a signed stateless service policy get a
 // release-scoped generation and keep their current scale; every other role
 // keeps the intent's own generation and replica count.
 func (p *regionalDeliveryPlanner) PlanShaped(ctx context.Context, intent delivery.Intent) (delivery.PlanShape, []host.Desired, error) {
+	if p.migrated != nil && p.migrated(intent.Role) {
+		return delivery.PlanShape{}, nil, errors.New("stateless native release planning is retired; signed container intent required")
+	}
 	shape := delivery.PlanShape{Generation: intent.Generation, Replicas: intent.DesiredReplicas}
-	spec, owned := p.workloads.Owns(intent.Role)
+	spec, owned := p.nativeServiceSpec(intent.Role)
 	if !owned || spec.Environment != intent.Environment {
 		// A role the reconciler once owned carries release-scoped host
 		// generations (intent << ReleaseShift). Planning it at the plain
@@ -158,6 +88,18 @@ func (p *regionalDeliveryPlanner) PlanShaped(ctx context.Context, intent deliver
 		return delivery.PlanShape{Generation: generation, Replicas: replicas}, err
 	}, &shape)
 	return shape, plan, err
+}
+
+func (p *regionalDeliveryPlanner) nativeServiceSpec(role string) (workload.ServiceSpec, bool) {
+	if p.services != nil {
+		_, specs := p.services.effective()
+		for _, spec := range specs {
+			if spec.Role == role && spec.Kind == workload.KindStateless {
+				return spec, true
+			}
+		}
+	}
+	return workload.ServiceSpec{}, false
 }
 
 // unownedShape is the shape of a release for a role the reconciler does not

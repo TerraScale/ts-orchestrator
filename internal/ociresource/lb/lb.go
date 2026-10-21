@@ -417,3 +417,18 @@ func Publish(ctx context.Context, store ociresource.Store, key ociresource.Key, 
 	}
 	return ociresource.Publish(ctx, store, key, policy, spec)
 }
+
+// RecoverWorkRequests observes accepted mutations from the previous process
+// before this controller computes another cloud diff.
+func (r Reconciler) RecoverWorkRequests(ctx context.Context, ids []string) error {
+	var failures []error
+	for _, id := range ids {
+		if err := r.API.WaitWorkRequest(ctx, id); err != nil {
+			if !errors.Is(err, ociresource.ErrWorkRequestFailed) {
+				return err
+			}
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
+}

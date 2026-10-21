@@ -1,0 +1,48 @@
+{
+  "revision": "195580378543515c21151c62d93eaf4fadf9d86d",
+  "tree": "/tmp/ts-qa-capacity-final-refusal",
+  "clean_before": true,
+  "argv": [
+    "nice",
+    "-n",
+    "19",
+    "flock",
+    "-n",
+    "/tmp/ts-orch-refactor-capacity-check.lock",
+    "timeout",
+    "180s",
+    "env",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "go",
+    "test",
+    "-mod=readonly",
+    "./internal/nodescale",
+    "-run",
+    "^TestChosenCapacitySurvivesRestartAndFencesOCIChanges$",
+    "-count=1",
+    "-timeout=120s",
+    "-json"
+  ],
+  "log": "/tmp/ts-qa-capacity-19558037-results.jsonl",
+  "started_epoch": 1792191339.9705918,
+  "state": "terminal",
+  "excluded_retained_pass_count": 24,
+  "pid": 138455,
+  "exit": 0,
+  "elapsed_seconds": 55.488,
+  "clean_after": true,
+  "terminal_events": [
+    {
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestChosenCapacitySurvivesRestartAndFencesOCIChanges",
+      "Elapsed": 0.17
+    },
+    {
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Elapsed": 0.226
+    }
+  ]
+}

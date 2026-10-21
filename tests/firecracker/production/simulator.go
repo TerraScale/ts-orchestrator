@@ -524,10 +524,14 @@ func (simulator *Simulator) newToken(expires time.Time) (string, error) {
 		return "", err
 	}
 	payload, err := json.Marshal(struct {
-		Expires int64  `json:"exp"`
-		Subject string `json:"sub"`
-		ID      string `json:"jti"`
+		Expires  int64  `json:"exp"`
+		Subject  string `json:"sub"`
+		Instance string `json:"opc-instance"`
+		Type     string `json:"ptype"`
+		Tenancy  string `json:"tenant"`
+		ID       string `json:"jti"`
 	}{Expires: expires.Unix(), Subject: simulator.config.InstanceID,
+		Instance: simulator.config.InstanceID, Type: "instance", Tenancy: simulator.config.TenancyID,
 		ID: base64.RawURLEncoding.EncodeToString(nonce)})
 	if err != nil {
 		return "", err

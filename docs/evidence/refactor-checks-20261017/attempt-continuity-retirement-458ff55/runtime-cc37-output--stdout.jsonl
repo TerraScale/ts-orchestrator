@@ -1,0 +1,8 @@
+{"Time":"2026-10-17T01:12:51.367919795-03:00","Action":"start","Package":"github.com/TerraScale/ts-orchestrator/internal/attempt"}
+{"Time":"2026-10-17T01:12:51.402233611-03:00","Action":"run","Package":"github.com/TerraScale/ts-orchestrator/internal/attempt","Test":"TestRetiredContinuityPhaseThroughAttemptRun"}
+{"Time":"2026-10-17T01:12:51.402381304-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/attempt","Test":"TestRetiredContinuityPhaseThroughAttemptRun","Output":"=== RUN   TestRetiredContinuityPhaseThroughAttemptRun\n","OutputType":"frame"}
+{"Time":"2026-10-17T01:12:51.402892145-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/attempt","Test":"TestRetiredContinuityPhaseThroughAttemptRun","Output":"--- PASS: TestRetiredContinuityPhaseThroughAttemptRun (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-10-17T01:12:51.402913834-03:00","Action":"pass","Package":"github.com/TerraScale/ts-orchestrator/internal/attempt","Test":"TestRetiredContinuityPhaseThroughAttemptRun","Elapsed":0}
+{"Time":"2026-10-17T01:12:51.402940798-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/attempt","Output":"PASS\n","OutputType":"frame"}
+{"Time":"2026-10-17T01:12:51.405421977-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/attempt","Output":"ok  \tgithub.com/TerraScale/ts-orchestrator/internal/attempt\t0.037s\n"}
+{"Time":"2026-10-17T01:12:51.405491938-03:00","Action":"pass","Package":"github.com/TerraScale/ts-orchestrator/internal/attempt","Elapsed":0.038}

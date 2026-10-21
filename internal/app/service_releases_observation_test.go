@@ -20,7 +20,7 @@ func TestServiceReleaseDefersToleratedFutureClaim(t *testing.T) {
 	ctx, role := t.Context(), terrabase.Role
 	issued := time.Now().UTC().Add(time.Second)
 	candidate := publish("future candidate", issued)
-	if err := r.pass(ctx, kv, role); err == nil || !strings.Contains(err.Error(), "waiting for the cell clock") {
+	if err := r.nativePass(ctx, kv, role); err == nil || !strings.Contains(err.Error(), "waiting for the cell clock") {
 		t.Fatalf("future claim was not deferred: %v", err)
 	}
 	key := releasechannel.ServiceStatusKey("GRU", role)
@@ -31,7 +31,7 @@ func TestServiceReleaseDefersToleratedFutureClaim(t *testing.T) {
 		t.Fatal("tolerated skew reported a terminal failure")
 	}
 	time.Sleep(time.Until(issued))
-	if err := r.pass(ctx, kv, role); err != nil {
+	if err := r.nativePass(ctx, kv, role); err != nil {
 		t.Fatal(err)
 	}
 	state, _, err := loadServiceRelease(ctx, kv, key)
@@ -48,7 +48,7 @@ func TestServiceReleaseRefusesExpiredUnsubmittedClaim(t *testing.T) {
 			profileRead := false
 			r.profiles = func() map[string]WorkloadProfile { profileRead = true; return nil }
 			candidate := publish("untested expired candidate", time.Now().UTC().Add(-age))
-			if err := r.pass(t.Context(), kv, terrabase.Role); err != nil {
+			if err := r.nativePass(t.Context(), kv, terrabase.Role); err != nil {
 				t.Fatal(err)
 			}
 			key := releasechannel.ServiceStatusKey("GRU", terrabase.Role)
@@ -60,14 +60,14 @@ func TestServiceReleaseRefusesExpiredUnsubmittedClaim(t *testing.T) {
 			if _, bad, err := knownBad(t.Context(), kv, terrabase.Role, candidate.Digest); err != nil || bad {
 				t.Fatalf("untested candidate was blacklisted: %v, %v", bad, err)
 			}
-			if err := r.pass(t.Context(), kv, terrabase.Role); err != nil {
+			if err := r.nativePass(t.Context(), kv, terrabase.Role); err != nil {
 				t.Fatal(err)
 			}
 			if _, replayRevision, err := loadServiceRelease(t.Context(), kv, key); err != nil || replayRevision != revision {
 				t.Fatalf("expired replay renewed state: %d -> %d, %v", revision, replayRevision, err)
 			}
 			publish("untested expired candidate", time.Now().UTC().Add(-time.Second))
-			if err := r.pass(t.Context(), kv, terrabase.Role); err != nil || !profileRead {
+			if err := r.nativePass(t.Context(), kv, terrabase.Role); err != nil || !profileRead {
 				t.Fatalf("fresh issuance of untested candidate could not enter admission: %v", err)
 			}
 		})
@@ -147,7 +147,7 @@ func TestServiceReleaseRejectsClaimBeyondClockSkew(t *testing.T) {
 	r, kv, _, publish := servicePinsSignedFixture(t)
 	ctx, role := t.Context(), terrabase.Role
 	publish("too far ahead", time.Now().UTC().Add(releasechannel.ClaimClockSkew+time.Minute))
-	if err := r.pass(ctx, kv, role); err != nil {
+	if err := r.nativePass(ctx, kv, role); err != nil {
 		t.Fatal(err)
 	}
 	status, found, err := releasechannel.ReadServiceStatus(ctx, *r.channel.location, role)

@@ -23,8 +23,6 @@ const (
 	// placement admissions. Historical schemas are rejected.
 	IntentSchemaVersion                   = 5
 	managedUpdateMemberStateSchemaVersion = 5
-	maxDatabaseIDLength                   = 63
-	maxPartitionIDLength                  = 63
 	maxIntentPayloadBytes                 = 16 << 10
 	managedMemoryPageBytes                = uint64(4096)
 	managedMemoryGiB                      = uint64(1 << 30)
@@ -317,11 +315,6 @@ func (intent Intent) ValidateForAdmission() error {
 	return intent.Validate()
 }
 
-func (roster CanonicalRoster) isZero() bool {
-	return roster.ClusterID == "" && roster.TenantID == "" && roster.DatabaseID == "" &&
-		roster.ShardID == 0 && roster.Authority == (AuthorityReference{}) && len(roster.Rows) == 0
-}
-
 func (roster CanonicalRoster) Validate(activeRegions []oci.Region) error {
 
 	if !lowerHex(roster.ClusterID, 32) || allZeroHex(roster.ClusterID) ||
@@ -418,8 +411,6 @@ func seatIDForKind(region oci.Region, kind MemberKind) string {
 		return ""
 	}
 }
-
-func canonicalTerraBaseID(value string) bool { return entityid.Valid(value) }
 
 func lowerHex(value string, length int) bool {
 	if len(value) != length {
@@ -639,10 +630,6 @@ func elasticMember(region oci.Region) string {
 // placing a seat with an empty member ID.
 func knownRegion(region oci.Region) bool {
 	return slices.Contains(regionsInOrder, region) && permanentMember(region) != ""
-}
-
-func validBoundedToken(value string, maxLength int) bool {
-	return len(value) <= maxLength && validToken(value)
 }
 
 func validDatabaseKeyID(value string) bool { return entityid.Valid(value) }

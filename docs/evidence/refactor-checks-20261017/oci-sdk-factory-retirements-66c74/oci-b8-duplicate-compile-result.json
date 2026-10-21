@@ -1,0 +1,18 @@
+{
+  "purpose": "duplicate compile preserved separately; not canonical QA compile",
+  "exec_session_id": 33410,
+  "launch_chunk": "c8d72e",
+  "terminal_chunk": "f9be62",
+  "exit_code": 0,
+  "stdout": "",
+  "stderr": "",
+  "binary": {
+    "path": "/tmp/ts-terminal-sdk-boundary-7cswu3af/oci.test",
+    "mode": "0o600",
+    "bytes": 34651334,
+    "sha256": "81af7248c68a4ece306179e58d47698b4d17bc40de42d95743cea1bbe7162185",
+    "never_executed": true
+  },
+  "source_head": "b8fee5fcdcae1de49fc36313869ed332e66f00f6",
+  "lock_acquired": false
+}

@@ -1,9 +1,9 @@
 package observability
 
 import (
-	"bytes"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -22,8 +22,8 @@ func TestJournalOutputStartsEachRecordWithItsPriority(t *testing.T) {
 	journalStream = func() bool { return true }
 	t.Cleanup(func() { journalStream = restore })
 	for _, format := range []string{"json", "logfmt"} {
-		var output bytes.Buffer
-		logger, err := NewLogger(&output, LogConfig{Format: format, Level: "debug"}, nil)
+		output := newLogOutput(t)
+		logger, err := NewLogger(output, LogConfig{Format: format, Level: "debug"}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -48,8 +48,8 @@ func TestOutputWithoutJournalHasNoPriority(t *testing.T) {
 	restore := journalStream
 	journalStream = func() bool { return false }
 	t.Cleanup(func() { journalStream = restore })
-	var output bytes.Buffer
-	logger, err := NewLogger(&output, LogConfig{}, nil, slog.String("service", "ts-orchestrator"))
+	output := newLogOutput(t)
+	logger, err := NewLogger(output, LogConfig{}, nil, slog.String("service", "ts-orchestrator"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,8 +67,8 @@ var (
 func TestRecordTimeIsUTCAndAttributeKeepsItsZone(t *testing.T) {
 	at := time.Date(2026, 10, 9, 12, 0, 0, 0, time.FixedZone("UTC-3", -3*3600))
 	for _, format := range []string{"json", "logfmt"} {
-		var output bytes.Buffer
-		logger, err := NewLogger(&output, LogConfig{Format: format}, nil)
+		output := newLogOutput(t)
+		logger, err := NewLogger(output, LogConfig{Format: format}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -84,5 +84,45 @@ func TestRecordTimeIsUTCAndAttributeKeepsItsZone(t *testing.T) {
 		if !localTimeAttr.MatchString(out) {
 			t.Fatalf("%s time attribute lost its zone: %q", format, out)
 		}
+	}
+}
+
+// logOutput observes the same file boundary as the process log sink.
+type logOutput struct {
+	*os.File
+	t *testing.T
+}
+
+func newLogOutput(t *testing.T) *logOutput {
+	t.Helper()
+	file, err := os.Create(filepath.Join(t.TempDir(), "process.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return &logOutput{File: file, t: t}
+}
+
+func (output *logOutput) Bytes() []byte {
+	output.t.Helper()
+	data, err := os.ReadFile(output.Name())
+	if err != nil {
+		output.t.Fatal(err)
+	}
+	return data
+}
+func (output *logOutput) String() string { return string(output.Bytes()) }
+func (output *logOutput) Len() int       { return len(output.Bytes()) }
+func (output *logOutput) Reset() {
+	output.t.Helper()
+	if err := output.Truncate(0); err != nil {
+		output.t.Fatal(err)
+	}
+	if _, err := output.Seek(0, 0); err != nil {
+		output.t.Fatal(err)
 	}
 }

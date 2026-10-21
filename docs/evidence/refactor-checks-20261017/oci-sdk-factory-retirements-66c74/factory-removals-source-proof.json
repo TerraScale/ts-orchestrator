@@ -1,0 +1,208 @@
+{
+  "base": "fa44fa8a074af83fd5c9afdf8ca851fce7155147",
+  "worktree": "/tmp/ts-factory-three-retirement-dk2lvz_z/source",
+  "independent_acceptance": "/tmp/ts-factory-fa44-independent-xzacpd4o/review.json",
+  "independent_acceptance_sha256": "b9b77c69d5c5cede76c0fa8f67da6232de6abd536864a9df59ff89e4cb362c45",
+  "only_modified_paths": [
+    "internal/ociclient/factory_test.go",
+    "internal/ociclient/ociclient_test.go"
+  ],
+  "deleted_originals": [
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "root": "TestOperationCardinalityIsBounded",
+      "original_declaration_sha256": "467cc1b629bdb3997c1a565e747fd04304d4f7a8c07082df07e1dd65c6a22c26",
+      "original_line": 33,
+      "original_end_line": 49,
+      "deleted_span_bytes_including_separator": 634,
+      "deleted_span_lines_including_separator": 18,
+      "deleted_span_sha256": "6083a3d22d1ea9c76a97f6bde00d8180679e0c5cb0474bb55c6e1f73d3a14af2"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "root": "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+      "original_declaration_sha256": "825570b80de40bebc0de8796e830e63328c3f8bf5dfb70a5e24bae3c39007744",
+      "original_line": 142,
+      "original_end_line": 153,
+      "deleted_span_bytes_including_separator": 504,
+      "deleted_span_lines_including_separator": 13,
+      "deleted_span_sha256": "f8b10a157cad0ea0267e85171bdda19414c646045fdcd9c02983bcb947bf6b3d"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "root": "TestTenancyHomeRegionComesFromTheCatalog",
+      "original_declaration_sha256": "593e599c2add12966eb316af56f8754bf0d76524b37792afb1a9adad0a261716",
+      "original_line": 260,
+      "original_end_line": 274,
+      "deleted_span_bytes_including_separator": 567,
+      "deleted_span_lines_including_separator": 16,
+      "deleted_span_sha256": "0ff338d2a9810a45035eb37f51e9c617e88a50ec8ae20c97f8f56ba9bf3c6e56"
+    }
+  ],
+  "total_deleted_bytes": 1705,
+  "total_deleted_lines": 47,
+  "file_splice_checks": [
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "before_sha256": "e0e61c1c0e31b1e2a248e015df12796a6ad6336e72e78235b6a363192d800d2f",
+      "after_sha256": "e62c2d16f4a21ee74e0978854f5461cc714fea675d807867df324bb991b68ced",
+      "exact_byte_splice_of_only_accepted_originals_and_separators": true,
+      "imports_byte_exact": true
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "before_sha256": "5b0ccffdaded4bab3ba32af925fbbb4d01e44bc2936531df6ac67fe5d978380c",
+      "after_sha256": "074b894168ee60f6757fe47b1c6e06dd46178e240bb79c4213fc1d13ab7b6fa9",
+      "exact_byte_splice_of_only_accepted_originals_and_separators": true,
+      "imports_byte_exact": true
+    }
+  ],
+  "all_other_free_declarations_in_touched_files_byte_exact": [
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "name": "TestFactoryObjectStorageRecordsHTTPAttempts",
+      "kind": "test",
+      "declaration_sha256": "13064a19e592f7ef6451579a9c6c054de443c52511bbfe628eecae4d8be5e6be"
+    },
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "name": "recordedOperation",
+      "kind": "helper",
+      "declaration_sha256": "2fa3fd534308baef5fbe2ccf6c9e64bef241ef12bea6f55427afe989d5944b29"
+    },
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "name": "TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling",
+      "kind": "test",
+      "declaration_sha256": "22e69703e18e9ae2c812a3c6cc98f654a10620042e1d7ecce373606bb349a823"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "name": "pemKey",
+      "kind": "helper",
+      "declaration_sha256": "332c30f077115e021d92235b1311681c8eae9624cbc27388ce0067759069d28a"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "name": "attempt",
+      "kind": "helper",
+      "declaration_sha256": "17187cc222e126cb330809eed32db9ee44d870d48ef95599781d1b38d6ec9804"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "name": "TestShouldRetryNeverReplaysUnsafeMutations",
+      "kind": "test",
+      "declaration_sha256": "2239ed5d381c9bbd171e3b5df1046bc389e3463846bc4906dc4169e3bebc5c9a"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "name": "TestBackoffIsExponentialJitteredAndHonorsRetryAfter",
+      "kind": "test",
+      "declaration_sha256": "ad89d19d7e9ab05a80b587a44fd8734cefcf10764ee1f4e66ca4831576452158"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "name": "testProvider",
+      "kind": "helper",
+      "declaration_sha256": "8c9bc6e4824db91ee8b29e1dbd32d1f02adf2ef261d0003d526b6ee5abe05a8f"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "name": "TestConfiguredClientSharesLimiterAndRetriesThrottling",
+      "kind": "test",
+      "declaration_sha256": "d31945736abe6aec38683a5eada0e603384bd8a56d000c8a9f354c0b0be4a102"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "name": "TestTransportFailuresRetryReadsOnly",
+      "kind": "test",
+      "declaration_sha256": "1ce50692c500b0b6c66899746c683f178f63848a2d2a3d8324308724f4b422f8"
+    }
+  ],
+  "all10_protected_mapped_roots": [
+    {
+      "root": "TestFactoryObjectStorageRecordsHTTPAttempts",
+      "path": "internal/ociclient/factory_test.go",
+      "declaration_sha256": "13064a19e592f7ef6451579a9c6c054de443c52511bbfe628eecae4d8be5e6be",
+      "declaration_byte_exact_to_accepted_fa44": true
+    },
+    {
+      "root": "TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling",
+      "path": "internal/ociclient/factory_test.go",
+      "declaration_sha256": "22e69703e18e9ae2c812a3c6cc98f654a10620042e1d7ecce373606bb349a823",
+      "declaration_byte_exact_to_accepted_fa44": true
+    },
+    {
+      "root": "TestShouldRetryNeverReplaysUnsafeMutations",
+      "path": "internal/ociclient/ociclient_test.go",
+      "declaration_sha256": "2239ed5d381c9bbd171e3b5df1046bc389e3463846bc4906dc4169e3bebc5c9a",
+      "declaration_byte_exact_to_accepted_fa44": true
+    },
+    {
+      "root": "TestBackoffIsExponentialJitteredAndHonorsRetryAfter",
+      "path": "internal/ociclient/ociclient_test.go",
+      "declaration_sha256": "ad89d19d7e9ab05a80b587a44fd8734cefcf10764ee1f4e66ca4831576452158",
+      "declaration_byte_exact_to_accepted_fa44": true
+    },
+    {
+      "root": "TestConfiguredClientSharesLimiterAndRetriesThrottling",
+      "path": "internal/ociclient/ociclient_test.go",
+      "declaration_sha256": "d31945736abe6aec38683a5eada0e603384bd8a56d000c8a9f354c0b0be4a102",
+      "declaration_byte_exact_to_accepted_fa44": true
+    },
+    {
+      "root": "TestTransportFailuresRetryReadsOnly",
+      "path": "internal/ociclient/ociclient_test.go",
+      "declaration_sha256": "1ce50692c500b0b6c66899746c683f178f63848a2d2a3d8324308724f4b422f8",
+      "declaration_byte_exact_to_accepted_fa44": true
+    },
+    {
+      "root": "TestInstancePrincipalSerializesFetchesButNotCachedRegions",
+      "path": "internal/ociclient/instance_principal_test.go",
+      "declaration_sha256": "694a4863fd59bee4cb395adc8a7b65b31aba4353139a542013a0c7eadaccf1d9",
+      "declaration_byte_exact_to_accepted_fa44": true
+    },
+    {
+      "root": "TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline",
+      "path": "internal/ociclient/retry_integration_test.go",
+      "declaration_sha256": "414f9e41fb081d39ed286634c24be2e80287c439b2a9251d7ce60d07e400b9c6",
+      "declaration_byte_exact_to_accepted_fa44": true
+    },
+    {
+      "root": "TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite",
+      "path": "internal/ociclient/retry_integration_test.go",
+      "declaration_sha256": "31b9c4a1127f5aaa7ad4a3e025b487007b41049b82235b47f5bb7f748011e4d1",
+      "declaration_byte_exact_to_accepted_fa44": true
+    },
+    {
+      "root": "TestAuthorityFencesSDKMutationRetries",
+      "path": "internal/ociclient/identity_integration_test.go",
+      "declaration_sha256": "0ac27533f435d7512692a25a585477e0772148303d0856dac6e35e35cf59ee2e",
+      "declaration_byte_exact_to_accepted_fa44": true
+    }
+  ],
+  "unchanged_replacements": [
+    {
+      "path": "internal/ociclient/factory_boundary_integration_test.go",
+      "sha256": "3059cbd54348685231ef87fd50ca1c3d5fa35242469199d8f129398dddd989b7",
+      "byte_exact_to_accepted_fa44": true
+    },
+    {
+      "path": "internal/ociclient/operation_template_integration_test.go",
+      "sha256": "12ec10771d9de7079f89a28313b8848efa783d415bd3201f2f1b5d414b67fcdd",
+      "byte_exact_to_accepted_fa44": true
+    }
+  ],
+  "all_other_source_and_production_paths_unchanged": true,
+  "imports_removed": [],
+  "docs_modified": [],
+  "donor_untouched_clean": true,
+  "static_source_checks": "PASS",
+  "modern_go_1_27_guidance_previously_read_before_edits": true,
+  "compile_runtime_formatter_execution": false,
+  "retirement_adoption_or_count_credit": false,
+  "head": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+  "tree": "5f6566d5347525dedce8408b34e9232458421ed4",
+  "clean": true,
+  "branch": "refactor/factory-three-retirement-dk2lvz_z"
+}

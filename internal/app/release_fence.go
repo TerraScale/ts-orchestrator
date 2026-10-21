@@ -356,7 +356,7 @@ nodes:
 		if err != nil {
 			return err
 		}
-		target := canaryTarget{Role: role, Node: node, Address: addresses[node]}
+		target := canaryTarget{Role: role, Node: node, Address: addresses[node], OperationID: intent.OperationID, Generation: intent.Generation}
 		if spec.Canary != nil {
 			target.Canary = *spec.Canary
 		}

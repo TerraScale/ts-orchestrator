@@ -1,0 +1,116 @@
+{
+  "state": "ACCEPT_EXACT_E5E72_ADDITIVE_SOURCE_AND_ASSERTION_PRESERVING_RETIREMENT_READINESS",
+  "reviewed_utc": "2026-10-17T13:33:22.571521+00:00",
+  "reviewer": "/root/qa_integrator/completion_audit",
+  "source": {
+    "path": "/tmp/ts-oci-sdk-volume-socket-batch",
+    "base": "ca1226b9b4011383f39c0753e19be295618accf8",
+    "head": "e5e72bbbfbf83f02c251ffe1fa98246137a3cedc",
+    "tree": "727f82020910c067fd106af5094a0e81d736dea2",
+    "new_file": "internal/oci/sdk_socket_boundary_integration_test.go",
+    "new_file_sha256": "d113103cafd338cd1972de5c5a2021c711dfecf58efff30aae4a112418e649ed",
+    "delta_beyond_accepted_prerequisites": "One additive 527-line test file; no production changes, skips or build tags.",
+    "accepted_b8_prerequisite_paths_byte_identical": true,
+    "original_three_files_byte_identical_to_base": true,
+    "current_and_recorded_prepost_manifest": {
+      "tracked_files": 5061,
+      "sha256": "3d8a820e8cb0b0f7efc0ba38df00840ad6fb82abc3cfeafeec55342eb31d71a1",
+      "all_match": true
+    }
+  },
+  "verdicts": {
+    "additive_source_ready": true,
+    "seven_original_assertion_preserving_retirement_ready": true,
+    "adoption_authorized_or_performed": false,
+    "retirement_authorized_or_performed": false,
+    "originals_removed": 0
+  },
+  "assertion_mapping": {
+    "original_roots": 7,
+    "mapped_assertion_sites": 38,
+    "all_preserved_or_strengthened": true,
+    "sites_by_responsibility": {
+      "terminal_delete": 4,
+      "launch": 12,
+      "inexact_sizing": 2,
+      "managed_readback": 13,
+      "named_host": 2,
+      "backup_history": 3,
+      "attachment_filter": 2
+    },
+    "original_files": [
+      "internal/oci/sdk_test.go",
+      "internal/oci/volume_resize_test.go",
+      "internal/oci/volume_backup_history_review_test.go"
+    ]
+  },
+  "compile": {
+    "exit_code": 0,
+    "seconds": 43.224593585997354,
+    "default_tags": true,
+    "default_vet": true,
+    "test_c_no_execution": true,
+    "external_binary": {
+      "path": "/tmp/ts-oci-sdk-volume-e5e72-check-artifact-tests/oci.test",
+      "mode": "0600",
+      "bytes": 34747920,
+      "sha256": "25362430cfe099bc1cc84dc0dcc901fdc07001765bfb121ccc3ad8fb10c0b24a",
+      "elf_magic_verified": true,
+      "never_invoked_by_retained_runner": true
+    }
+  },
+  "runtime_raw_review": {
+    "packet": "/tmp/ts-oci-sdk-volume-e5e72-check-artifact-tests",
+    "events": 44,
+    "actions": {
+      "start": 1,
+      "run": 10,
+      "output": 22,
+      "pass": 11
+    },
+    "roots": 6,
+    "leaves": 4,
+    "exact_test_run_and_pass_sets_match": true,
+    "package_passes": 1,
+    "package_seconds": 1.354,
+    "wrapper_seconds": 3.5002922249841504,
+    "malformed_duplicate_failed_skipped_events": 0,
+    "raw_sha256": {
+      "runtime.stdout": "2fb0c53f2b9ad183abeaa5ad990f94f6b6c417a9a6c6d7eb7de777f72f4119f6",
+      "runtime.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "reused_b8_evidence": {
+    "accepted_review": "/tmp/ts-qa-terminal-b8fee-independent-981yjdyx/review.json",
+    "terminal_raw_revalidated": {
+      "events": 20,
+      "roots": 1,
+      "leaves": 3,
+      "package_passes": 1,
+      "sha256": "a14892fbe9e1351f27074a5d456dcd3834e6789d78e25fd94cf2f4a8dac503b8"
+    },
+    "fixture_raw_revalidated": {
+      "events": 677,
+      "roots": 14,
+      "leaves": 16,
+      "package_passes": 1,
+      "sha256": "c25fa3ec14a5e41ba78e9f80c55f1aa40c071042b560388e58ea61f205d7688a"
+    },
+    "reuse_scope_only_no_new_execution": true
+  },
+  "bound_inputs_sha256": {
+    "/tmp/ts-oci-sdk-volume-batch-map-ca1226.json": "7415487381bde74e543a24d539df0f9009aa4f3b0bbe405ef01e0e630f515adb",
+    "/tmp/ts-qa-terminal-b8fee-independent-981yjdyx/review.json": "e9611b2d27b4370bbd170ad81773022a06d0c1c5317128c96e7d5aac82649075",
+    "/tmp/ts-oci-sdk-volume-e5e72-check-artifact-tests/checks-summary.json": "e5ce196ffaaac8a1cd13d3ea8d9ebede9c0aa72b5f3a78d82ca7f047c6ab3d1a",
+    "/tmp/ts-oci-sdk-volume-e5e72-check-artifact-tests/result.json": "91b67e04fe67be85e5e7de816060a75522324f8ac76d040e48aac050b4473406"
+  },
+  "findings": [],
+  "limits": [
+    "Readiness only for exact reviewed additive source and seven mapped original roots; no adoption/deletion authorization, canonical/count/gate credit or production readiness.",
+    "No full-package runtime, race or live OCI qualification. SDK fixture checks TLS and generated signing-header presence; it does not cryptographically verify request signatures. Named/managed helper inputs remain scoped fixture inputs.",
+    "ELF never-executed scope is retained runner/receipt plus reviewed mode/hash, not OS-wide execution history. Cleanup and lock release are retained wrapper/result evidence, with no independent present process or lock probes.",
+    "Reviewer executed no Go, tests, retained runner or binary; changed no source/Git/ledger and acquired no execution lock. This artifact records the completed audit without additional checks."
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "purpose": "Distinct proposed inventory reconciliation input; canonical/broker immutable",
+  "FIFO_position": 6,
+  "revision": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "session": 32728,
+  "exit_code": 1,
+  "scope": [
+    "TestAccountServiceRemovalConcurrentRefreshOverTCP"
+  ],
+  "result": "FAILED_RETAINED",
+  "outcome_members": [
+    "individual-outcome.json"
+  ],
+  "broker_receipt": {
+    "path": "/tmp/ts-vendor-union-dd038410-fifo06-service-removal-refresh-receipt.json",
+    "sha256": "9a2113bd3784a0d9f1a62d6bcaf08aaf6be7569d000583987c7ff52193975888"
+  },
+  "canonical_summary": {
+    "path": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo06-service-removal-refresh.json",
+    "sha256": "ab43f9353a52c96374db5b3049b71aa61df30752a170959f701aab1f11998e97"
+  },
+  "raw_log": {
+    "path": "/tmp/ts-vendor-union-dd038410-fifo06-service-removal-refresh.jsonl",
+    "sha256": "ece25ff44047bcfa37b4c7f4e7d9826608f889ffa2268908fa4523c62e4bf3f1"
+  },
+  "private_gaps_member": "private-gaps.json",
+  "closure": false,
+  "disposition": "Both lanes idle; no FIFO7 or retry grant. Evidence-only packaging separately authorized after FIFO6 failure.",
+  "instructions": "Use another unique reconciliation basename; never overwrite canonical/broker/packet evidence or erase prior failures."
+}

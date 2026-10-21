@@ -1,0 +1,222 @@
+{
+  "state": "ACCEPTED_EXACT_F542BCEE_TWO_PACKAGE_TRUE_COMPILE_ONLY",
+  "reviewed_at_utc": "2026-10-17T05:44:39.652968+00:00",
+  "reviewer": "/root/qa_integrator/storage_compare",
+  "method": "Independent read-only actual retained native launch/all five poll arguments/results, resource/running-process/terminal verification records, grant/readiness/final seal, full source/tool/asset hashes, original output ELF metadata, static runner and named PID/proc-lock inspection. No native polling or execution by reviewer.",
+  "packet": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze",
+  "native_packet": "/tmp/ts-customer-f542-truecompile-native-results-63mpl6oq",
+  "source": {
+    "commit": "f542bcee00e93adf636e392900864e05face8aa5",
+    "tree": "9a0c582da0662395b0979f56f3d12c74cfd37d87",
+    "parent": "d64ef0001b05639bc51371e94e7c195846b5ee0a",
+    "parent_tree": "c132cdd91829fce09fe45027845682b5b1259c61",
+    "worktree": "/tmp/ts-customer-retirement-d64-cysw70m3/source",
+    "tracked_files": 4852,
+    "clean": true,
+    "all_pre_post_current_source_hashes_exact": true,
+    "tool_pins": 6,
+    "module_metadata_files": 6,
+    "tracked_embed_inputs": 16,
+    "scope": "Exact isolated f542 candidate; this result does not compile later shared feature or main commits."
+  },
+  "readiness": {
+    "path": "/tmp/ts-qa-customer-f542bcee-readiness-s7_m405c/review.json",
+    "sha256": "f4b00365361fbe96ae30f54a92efa21a3a88f68fcdcdb5c5b402b9dba8415172",
+    "native_copy_exact": true
+  },
+  "grant": {
+    "path": "/tmp/ts-customer-f542-truecompile-native-results-63mpl6oq/ts-qa-customer-f542-compile-grant-yw9r08os.json",
+    "sha256": "270e58485bf45f62cc6485551030e435a3218c4cfbd853432583b6c36ff28416",
+    "original_copy_exact": true,
+    "scope": "Parent-issued one exact two-package truecompile attempt, source/request/runner/seal/readiness-bound; no retry, target runtime or retirement grant."
+  },
+  "pins": {
+    "request_sha256": "a0a1f36b685c5d0eaff211991ddfeaf7123e4f815007ae24e9a560d1c611455f",
+    "runner_sha256": "9911d000b6e67fabb26cde2f2e42cc6038a587bb9a33083eeaf0a1dbdc7d521a",
+    "source_only_seal_sha256": "61712cbc497048d52fff30b02ca00550fda4c644a5d3a3d8ec5ca6955d9125fe",
+    "fullsource_manifest_sha256": "00f03b20dc16a9843ff261840bed4d9ade6bd152ab01d0e645566953fd114f8f",
+    "native_final_seal_sha256": "b7ec27945d5d1b2f1dda88a2510b98d05b127e8cbac7c015dedea5b859f707ae",
+    "owner_verification_sha256": "b4e7246452cf20c770b5a86f8d5c2e1e9783d551d3dd759a43c92d5d04b01a1f",
+    "receipt_sha256": "2c3738c02d18d3a033dee60de10f20437e2f8dab7cc91ff42ef27b63d7cc67bd"
+  },
+  "manifests": {
+    "sealed": {
+      "path": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/SHA256SUMS",
+      "sha256": "1c29e79a21521999267533eeedcdaf2e5c78bb1149bbab6ea4dfdcac0c7027a3",
+      "entries": 52,
+      "all_entries_and_coverage_match": true
+    },
+    "output": {
+      "path": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/SHA256SUMS",
+      "sha256": "8208c60dcd19f18cd155f04831d054c5b107c6ef0748336d48d09741d255b124",
+      "entries": 10,
+      "all_entries_and_coverage_match": true
+    },
+    "native": {
+      "path": "/tmp/ts-customer-f542-truecompile-native-results-63mpl6oq/SHA256SUMS",
+      "sha256": "ce9d2227056fadbb1b7345b4616421ed07d23c5c1e2836b21502b2a7bbe14ff2",
+      "entries": 30,
+      "files": 31,
+      "all_regular_mode": "0400",
+      "all_entries_and_coverage_match": true,
+      "final_seal_preseal_hash_map_exact": true
+    }
+  },
+  "native": {
+    "session": 18865,
+    "launch_chunk": "d038bc",
+    "poll_chunks": [
+      "2609ce",
+      "145134",
+      "868f18",
+      "cb4db6",
+      "6226bf"
+    ],
+    "terminal_chunk": "6226bf",
+    "terminal_exit": 0,
+    "actual_runner_pid": 758562,
+    "actual_timeout_pid": 758590,
+    "actual_go_pid": 758591,
+    "launch_arguments_equal_exact_request_launch": true,
+    "launch_login": false,
+    "all_five_polls_bind_one_session": true,
+    "one_started_object_then_one_terminal_receipt": true,
+    "terminal_output_exact_object_equal_receipt": true,
+    "no_retained_truncation": true,
+    "wall_seconds": 142.20137609000085,
+    "max_child_rss_kib": 1189008,
+    "provenance_limit": "Retained surfaced actual tool argument/result objects corroborate execution; they are not independent harness-backend or OS syscall audit logs."
+  },
+  "controls": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "240s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/",
+      "./internal/bootstrap/cli",
+      "./internal/managedmaterial"
+    ],
+    "expected_packages": [
+      "./internal/bootstrap/cli",
+      "./internal/managedmaterial"
+    ],
+    "environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local",
+      "LANG": "C.UTF-8"
+    },
+    "default_vet": true,
+    "default_tags": true,
+    "compile_only": true,
+    "race": false,
+    "nice": 19,
+    "outer_timeout_seconds": 240,
+    "kill_after_seconds": 5,
+    "one_attempt": true,
+    "retry": false,
+    "binary_execution_count": 0,
+    "Python": "Actual launch pinned -I -B; runner asserts isolated/no-bytecode/interpreter identity and hashes the executing Python.",
+    "ShortB": "Inspected nonblocking exclusive flock branch encloses the sole compiler invocation; no lock opened/acquired by reviewer.",
+    "environment_evidence": "Exact env-i six-key argv matches request/preflight/started/receipt, and retained timeout/Go process argv corroborates it. Running proof samples argv/UID/nice, not /proc/environ; no independent environ sample claimed.",
+    "resource_admission": {
+      "uid": 1000,
+      "euid": 1000,
+      "mem_available_bytes": 27614650368,
+      "load1": 0.251953125,
+      "retained_actual_tool_result_and_file_equal": true,
+      "before_launch_within_seconds": 60,
+      "flow_scope": "Parent grant reserves one compiler flow and states no other QA flows; retained memory/load helper does not independently enumerate all flows."
+    },
+    "resource_limit": "RSS measured; no enforced memory/cache/scratch caps.",
+    "output_enforcement": "Exclusive qa-output0700/binaries0700; exactly expected cli.test and managedmaterial.test regular ELF files, chmod0600; success requires compiler exit0 and identical source/assets pre/post. No output binary execution path."
+  },
+  "binaries": [
+    {
+      "path": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/cli.test",
+      "sha256": "0e373283a2e64f056c883aa6e12daa38039157688a0a471419bc08df774fb712",
+      "bytes": 88015972,
+      "magic_hex": "7f454c46",
+      "mode": "0o600",
+      "never_executed": true
+    },
+    {
+      "path": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/managedmaterial.test",
+      "sha256": "48aec81a6999d0c1bca9e664472d1a70e5208c309c556abeed2d68d28b02c3bf",
+      "bytes": 49171133,
+      "magic_hex": "7f454c46",
+      "mode": "0o600",
+      "never_executed": true
+    }
+  ],
+  "outputs": {
+    "stdout_bytes": 0,
+    "stderr_bytes": 0,
+    "binaries_copied_into_native_packet": false,
+    "runner_and_source_evidence_copies_byte_exact": true
+  },
+  "checks": {
+    "all4852_source_order_paths_hashes_pre_post_current_clean_exact": true,
+    "all6_tool_hashes_pre_post_current_match": true,
+    "all6_module_metadata_files_and16_tracked_embed_inputs_match": true,
+    "all52_sealed_10_output_30_native_manifest_entries_match": true,
+    "all49_bound_evidence_and28_original_copies_match": true,
+    "all_actual_launch_poll_terminal_session_and_receipt_checks_pass": true,
+    "retained_running_timeout_go_UID_nice19_argv_parent_chain_match": true,
+    "true_compile_defaultvet_defaulttags_env_i6_240TERMkill5_p1_python_I_B": true,
+    "two_regular_ELF0600_exact_size_hash_no_execution_path": true,
+    "owner_terminal_actual_result_equals_verification_report": true,
+    "readonly_named_PID_absence_and_no_matching_current_ShortB_proc_lock": true
+  },
+  "release_observation": {
+    "named_PIDs_absent": [
+      758562,
+      758590,
+      758591
+    ],
+    "lock_path": "/tmp/ts-orch-refactor-short-check-b.lock",
+    "lock_inode_key": "00:2a:55360442",
+    "matching_proc_locks_entries": [],
+    "reviewer_opened_or_acquired_lock": false,
+    "owner_scope": "Owner made no fresh lock probe; it retained wrapper terminal release and named PID absence.",
+    "limit": "Read-only path stat and /proc/locks/PID inspection corroborate the current observation. No nonblocking availability probe or comprehensive descendant/unrelated-job inventory; no continuing availability promise."
+  },
+  "historical_and_retirement_scope": {
+    "historical_runtime": "Accepted67bc customer root/four leaves, explicit vet-off/nonrace, remain source-specific. No f542 customer or identity sibling runtime executed.",
+    "counts_unchanged_by_review": {
+      "firstparty_retired": 7,
+      "firstparty_globally_unadjudicated": 4312,
+      "vendor_originals_present": 1449,
+      "vendor_retired": 0,
+      "vendor_central_closures": 0
+    },
+    "adoption": "This report grants no feature/main source adoption, eighth retirement, ledger change or automatic later-feature compile credit."
+  },
+  "findings": [],
+  "limits": [
+    "Acceptance is exact f542 compile/link with default vet/default tags for both named packages only. Target init, TestMain, test bodies and produced binaries are not executed by true go test-c.",
+    "No runtime rerun, binary execution, retry, full-suite/race/native/live/cloud/production or global qualification. Historical runtime remains67bc.",
+    "Original SOURCE_ONLY/no-grant preparation seals remain unchanged historical records; separate grant, terminal receipt and final native seal attest this later compile.",
+    "No reviewer Go/build/test/discovery/runner/native polling/binary/lock/lease/grant/source/index/Git mutation, push, publication or remote/cloud action. Only this fresh exclusive review artifact is written."
+  ]
+}

@@ -44,7 +44,7 @@ func TestTSAuthGRUConfigIsValid(t *testing.T) {
 	if err := validateWorkloadProfiles("sfo", profiles); err == nil {
 		t.Fatal("sfo accepted gru-1's ts-auth endpoints")
 	}
-	if err := validateAutoscaleConfig(&AutoscaleConfig{Enabled: true, Services: []workload.ServiceSpec{spec}}, profiles); err != nil {
+	if err := validateAutoscaleConfig(&AutoscaleConfig{Services: []workload.ServiceSpec{spec}}, profiles); err != nil {
 		t.Fatal(err)
 	}
 	if spec.Kind != workload.KindStateless || spec.Replicas.Min != tsauth.Replicas || spec.Replicas.Max != tsauth.Replicas ||
@@ -132,7 +132,7 @@ func TestTSAuthAutoscaleBoundsAreFixed(t *testing.T) {
 	} {
 		bad := spec
 		mutate(&bad)
-		if err := validateAutoscaleConfig(&AutoscaleConfig{Enabled: true, Services: []workload.ServiceSpec{bad}}, profiles); err == nil {
+		if err := validateAutoscaleConfig(&AutoscaleConfig{Services: []workload.ServiceSpec{bad}}, profiles); err == nil {
 			t.Errorf("%s: accepted ts-auth bounds %+v", name, bad)
 		}
 	}
@@ -182,38 +182,38 @@ func tsAuthGRUConfig(t *testing.T) (WorkloadProfile, workload.ServiceSpec) {
 // release passes the gate, a second upgrades every replica, and a release
 // that crashes is rolled back.
 func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
+	auth := newAuthenticatedNATS(t, "gru")
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
 	root := t.TempDir()
 	port := freeTCPPort(t)
-	controllerNKey, controllerSeed := testNKey(t)
-	operatorNKey, operatorSeed := testNKey(t)
+	_, controllerSeed := testNKey(t)
+	_, operatorSeed := testNKey(t)
 	controllerPublic, _ := testEd25519(t, root, "controller.key")
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
 	profile, spec := tsAuthGRUConfig(t)
 	spec.Environment = "test"
 	specKeys := nativeTestTrust(t, root)
 	nodes := []string{"ctl-1", "ctl-2", "ctl-3"}
-	users := []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true}, {PublicKey: operatorNKey, Role: "operator"}}
 	hostKeys := map[string][2]string{}
 	for _, node := range nodes {
 		public, seed := testNKey(t)
 		hostKeys[node] = [2]string{public, seed}
-		users = append(users, natscell.NKeyGrant{PublicKey: public, Role: "host", Node: node})
 	}
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{tsauth.Role}, Environments: []string{"test"}, CanRegisterHosts: true,
 		Repositories: []string{tsauth.Repository}}
-	controllerConfigPath := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
-			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
-				Users: users}},
+	controllerConfig := Config{Version: ConfigVersion,
+		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, NKeySeedFile: controllerSeed,
+			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30}},
 		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			SpecTrust:             specKeys.config(),
 			ArtifactStoreMaxBytes: 512 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{tsauth.Role: profile},
-			Autoscale: &AutoscaleConfig{Enabled: true, IntervalSeconds: 1, Services: []workload.ServiceSpec{spec}}},
-	})
+			Autoscale: &AutoscaleConfig{Services: []workload.ServiceSpec{spec}}},
+	}
+	auth.controller(t, &controllerConfig)
+	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
 	controllerOutput := &readyWriter{ready: make(chan struct{})}
 	controllerDone := make(chan error, 1)
 	go func() {
@@ -226,8 +226,8 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	operatorConfig := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
-		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed},
+	operatorConfig := Config{Version: ConfigVersion, NATS: auth.config(t, natscell.Config{Cell: "gru", Instance: "operator", ClientRole: "operator", Replicas: 1,
+		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed}),
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
 	operatorConfigPath := testJSONFile(t, root, "operator.json", operatorConfig)
@@ -272,8 +272,8 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 		if err := Run(ctx, []string{"operator", "host-register", "--config", operatorConfigPath, "--registration", registrationPath}, &output); err != nil {
 			t.Fatalf("host registration: %v", err)
 		}
-		hostRuntime, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "host-" + node, Replicas: 1, Lab: true,
-			URL: operatorConfig.NATS.URL, NKeySeedFile: hostKeys[node][1], ClientRole: "host"})
+		hostRuntime, err := natscell.Start(ctx, auth.config(t, natscell.Config{Cell: "gru", Instance: "host-" + node, Replicas: 1,
+			URL: operatorConfig.NATS.URL, NKeySeedFile: hostKeys[node][1], ClientRole: "host"}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -383,7 +383,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leader, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "replay", Replicas: 1, Lab: true, URL: operatorConfig.NATS.URL, NKeySeedFile: controllerSeed, ClientRole: "controller"})
+	leader, err := natscell.Start(ctx, auth.config(t, natscell.Config{Cell: "gru", Instance: "replay", Replicas: 1, URL: operatorConfig.NATS.URL, NKeySeedFile: controllerSeed, ClientRole: "controller"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,9 +416,19 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 		t.Fatalf("retained placement resources: %v, %v", resources, err)
 	}
 	// A fresh reconciler, after leader replay, keeps the recovery template and
-	// reservations despite today's larger B/C placement profile.
-	config := &AutoscaleConfig{Enabled: true, IntervalSeconds: 1, Services: []workload.ServiceSpec{spec}}
-	reconciler, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{tsauth.Role: profile}, []workload.ServiceSpec{spec}, history.hosts, history.fencer, history)
+	// reservations despite today's larger B/C placement profile. This retains
+	// legacy replay coverage until its active-boundary replacement is qualified.
+	replayProfiles := profileResources(map[string]WorkloadProfile{tsauth.Role: profile})
+	replayLoad := startHostTelemetry(map[string]WorkloadProfile{tsauth.Role: profile}, history.hosts, history.fencer)
+	reconciler, err := workload.New(workload.Config{Cell: "gru", Specs: []workload.ServiceSpec{spec}, Profiles: replayProfiles,
+		Hosts: history.hosts, Writer: history, Fencer: history.fencer, Signals: replayLoad.load,
+		ReleaseResources: func(ctx context.Context, desired []host.Desired, profiles map[string]placement.Resources) (map[string]placement.Resources, error) {
+			resolved, err := history.resources(ctx, desired, profiles)
+			if err == nil {
+				replayLoad.setResources(resolved)
+			}
+			return resolved, err
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}

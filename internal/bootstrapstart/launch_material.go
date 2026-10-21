@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"golang.org/x/sys/unix"
@@ -53,11 +55,12 @@ type LaunchMaterial struct {
 	OperatorSSHKey             []byte
 	ManagedHostImageReceipt    []byte
 	ManagedHostImageDelegation []byte
+	OriginalOrigin             []byte
 }
 
 // ControllerMetadata returns the launch metadata entries a controller needs.
 func (material LaunchMaterial) ControllerMetadata() map[string]string {
-	return map[string]string{
+	metadata := map[string]string{
 		IdentityMetadataKey:                   string(material.Identity),
 		AnchorMetadataKey:                     string(material.Anchor),
 		hostboot.EnrollmentMetadataKey:        string(material.HostEnrollment),
@@ -65,14 +68,27 @@ func (material LaunchMaterial) ControllerMetadata() map[string]string {
 		ManagedHostImageReceiptMetadataKey:    string(material.ManagedHostImageReceipt),
 		ManagedHostImageDelegationMetadataKey: string(material.ManagedHostImageDelegation),
 	}
+	if len(material.OriginalOrigin) != 0 {
+		// Callers authenticate this companion before launching; transport
+		// only the bounded locator, never the large origin grant.
+		if origin, err := parseOriginalStartupOrigin(material.OriginalOrigin); err == nil {
+			wire, err := protocol.EncodeJSON(origin.locator())
+			if err == nil {
+				metadata[OriginalStartupMetadataKey] = string(wire)
+			}
+		}
+		delete(metadata, OperatorSSHKeyMetadataKey)
+	}
+	return metadata
 }
 
 // HostMetadata returns the launch metadata entries a managed host needs.
 func (material LaunchMaterial) HostMetadata() map[string]string {
-	return map[string]string{
-		hostboot.EnrollmentMetadataKey: string(material.HostEnrollment),
-		OperatorSSHKeyMetadataKey:      string(material.OperatorSSHKey),
+	metadata := map[string]string{hostboot.EnrollmentMetadataKey: string(material.HostEnrollment)}
+	if len(material.OriginalOrigin) == 0 {
+		metadata[OperatorSSHKeyMetadataKey] = string(material.OperatorSSHKey)
 	}
+	return metadata
 }
 
 // launchMaterialNames are the installed file names, in LaunchMaterial field order.
@@ -89,6 +105,10 @@ func LoadLaunchMaterial() (LaunchMaterial, error) {
 	return bakedStore{directory: BakedDirectory}.loadLaunchMaterial()
 }
 
+func LoadLaunchMaterialContext(ctx context.Context) (LaunchMaterial, error) {
+	return bakedStore{directory: BakedDirectory}.loadLaunchMaterialContext(ctx)
+}
+
 // InstallLaunchMaterial verifies launch metadata against the image's trust
 // roots and installs it beside them. Installed files are write-once: a retry
 // accepts only identical bytes, so a launch cannot be redirected later.
@@ -97,21 +117,63 @@ func InstallLaunchMaterial(ctx context.Context, imds IMDSClient, now time.Time) 
 }
 
 func (store bakedStore) loadLaunchMaterial() (LaunchMaterial, error) {
+	if _, err := store.readOriginalOrigin(); err == nil {
+		return LaunchMaterial{}, ErrOriginalStartup
+	} else if !errors.Is(err, unix.ENOENT) {
+		return LaunchMaterial{}, err
+	}
+	return store.loadLaunchMaterialContext(context.Background())
+}
+
+func (store bakedStore) loadLaunchMaterialContext(ctx context.Context) (LaunchMaterial, error) {
 	dir, err := store.openDirectory(store.directory)
 	if err != nil {
 		return LaunchMaterial{}, fmt.Errorf("open baked bootstrap directory: %w", err)
 	}
 	defer unix.Close(dir)
-	limits := [len(launchMaterialNames)]int64{maxIdentity, bootstrap.MaxBootstrapAnchorBytes,
-		hostenroll.MaxPublicBundleBytes, maxOperatorSSHKey, trust.MaxEnvelopeBytes, trust.MaxEnvelopeBytes}
-	var wires [len(launchMaterialNames)][]byte
-	for index, name := range launchMaterialNames {
-		if wires[index], err = store.readFile(dir, name, limits[index]); err != nil {
-			return LaunchMaterial{}, fmt.Errorf("read installed %s: %w", name, err)
+	origin, err := store.readFile(dir, OriginalStartupOriginFilename, maxOriginalStartupOriginBytes)
+	original := err == nil
+	if err != nil && !errors.Is(err, unix.ENOENT) {
+		return LaunchMaterial{}, err
+	}
+	material := LaunchMaterial{OriginalOrigin: origin}
+	names := material.fileNames()
+	wires := make(map[string][]byte, len(names))
+	for _, name := range names {
+		maximum := int64(trust.MaxEnvelopeBytes)
+		switch name {
+		case identityFilename:
+			maximum = maxIdentity
+		case anchorFilename:
+			maximum = bootstrap.MaxBootstrapAnchorBytes
+		case HostEnrollmentFilename:
+			maximum = hostenroll.MaxPublicBundleBytes
+		case operatorSSHKeyFilename:
+			maximum = maxOperatorSSHKey
+		case OriginalStartupOriginFilename:
+			maximum = maxOriginalStartupOriginBytes
+		}
+		wires[name], err = store.readFile(dir, name, maximum)
+		if err != nil {
+			return LaunchMaterial{}, err
 		}
 	}
-	return LaunchMaterial{Identity: wires[0], Anchor: wires[1], HostEnrollment: wires[2], OperatorSSHKey: wires[3],
-		ManagedHostImageReceipt: wires[4], ManagedHostImageDelegation: wires[5]}, nil
+	material.Identity, material.Anchor, material.HostEnrollment = wires[identityFilename], wires[anchorFilename], wires[HostEnrollmentFilename]
+	material.OperatorSSHKey, material.ManagedHostImageReceipt, material.ManagedHostImageDelegation = wires[operatorSSHKeyFilename], wires[ManagedHostImageReceiptFilename], wires[ManagedHostImageDelegationFilename]
+	if original {
+		if err := rejectOriginalSSH(dir); err != nil {
+			return LaunchMaterial{}, err
+		}
+		// Public file presence alone does not authorize the no-SSH roster.
+		authority, err := LoadOriginalStartupAuthority(ctx, time.Now().UTC())
+		if err != nil {
+			return LaunchMaterial{}, err
+		}
+		if err := store.verifyOriginalLaunchMaterial(ctx, material, authority, time.Now().UTC()); err != nil {
+			return LaunchMaterial{}, err
+		}
+	}
+	return material, nil
 }
 
 func (store bakedStore) installLaunchMaterial(ctx context.Context,
@@ -248,4 +310,19 @@ func (store bakedStore) writeOnce(dir int, name string, wire []byte) error {
 		return fmt.Errorf("install %s: %w", name, err)
 	}
 	return nil
+}
+
+func (material LaunchMaterial) fileNames() []string {
+	if len(material.OriginalOrigin) == 0 {
+		return slices.Clone(launchMaterialNames[:])
+	}
+	return []string{identityFilename, anchorFilename, HostEnrollmentFilename, ManagedHostImageReceiptFilename, ManagedHostImageDelegationFilename, OriginalStartupOriginFilename}
+}
+
+func (material LaunchMaterial) wiresForInstall() [][]byte {
+	if len(material.OriginalOrigin) == 0 {
+		wires := material.wires()
+		return wires[:]
+	}
+	return [][]byte{material.Identity, material.Anchor, material.HostEnrollment, material.ManagedHostImageReceipt, material.ManagedHostImageDelegation, material.OriginalOrigin}
 }

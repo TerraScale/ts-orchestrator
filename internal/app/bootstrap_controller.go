@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -21,7 +20,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 const controllerServiceUser = "terrascale-orchestrator"
@@ -53,9 +51,6 @@ func admitControllerBootstrap(ctx context.Context, cfg Config, clockCheck func()
 		return err
 	}
 	if !present {
-		if cfg.NATS.Lab {
-			return nil
-		}
 		return errors.New("production controller requires accepted identity or baked bootstrap inputs")
 	}
 	if clockCheck == nil {
@@ -70,15 +65,6 @@ func admitControllerBootstrap(ctx context.Context, cfg Config, clockCheck func()
 func bootstrapController(ctx context.Context, cfg Config) error {
 	if os.Geteuid() != 0 {
 		return errors.New("bootstrap-controller requires root")
-	}
-	if cfg.NATS.Lab {
-		present, err := controllerProductionInputsPresent()
-		if err != nil {
-			return err
-		}
-		if !present {
-			return nil
-		}
 	}
 	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	if err == nil {
@@ -117,6 +103,11 @@ func acceptedControllerInstallPresent(read func() (bootstrapstart.AcceptedIdenti
 }
 
 func superviseControllerRestart(ctx context.Context, cfg Config) error {
+	if os.Geteuid() != 0 {
+		ctx, cancel := context.WithTimeout(ctx, controllerAdmissionTimeout)
+		defer cancel()
+		return admitProductionControllerRestart(ctx, cfg)
+	}
 	return superviseControllerAdmission(ctx, cfg, "bootstrap-admit-restart", "/proc/self/exe")
 }
 
@@ -126,8 +117,15 @@ func superviseControllerRestart(ctx context.Context, cfg Config) error {
 // grandchild before the caller can continue toward NATS. This uses Linux
 // /proc/self/exe and process-group semantics, as does the single-binary image.
 func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, executable string) error {
+	return superviseControllerAdmissionWithAuthority(ctx, cfg, commandName, executable, nil)
+}
+
+func superviseControllerAdmissionWithAuthority(ctx context.Context, cfg Config, commandName, executable string, authority *rootOCIAuthority) error {
 	if commandName != "bootstrap-admit-initial" && commandName != "bootstrap-admit-restart" || executable == "" {
 		return errors.New("invalid controller admission child command")
+	}
+	if authority != nil && (commandName != "bootstrap-admit-restart" || os.Geteuid() != 0) {
+		return errors.New("registered admission requires the root restart supervisor")
 	}
 	// The child digests the exact signed bytes, not a re-encoding.
 	wire, err := cfg.signedWire()
@@ -137,12 +135,23 @@ func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, 
 	childCtx, cancel := context.WithTimeout(ctx, controllerAdmissionTimeout)
 	defer cancel()
 	child := exec.CommandContext(childCtx, executable, commandName)
-	child.Stdin = bytes.NewReader(wire)
+	stdin, err := child.StdinPipe()
+	if err != nil {
+		return err
+	}
+	defer stdin.Close()
 	child.Stdout = io.Discard
 	// Admission errors carry no secret values; keep them in the unit journal.
 	child.Stderr = os.Stderr
 	child.Env = []string{"PATH=/usr/bin:/bin", "LANG=C"}
 	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if commandName == "bootstrap-admit-restart" && os.Geteuid() == 0 {
+		uid, gid, err := controllerServiceIdentity()
+		if err != nil {
+			return err
+		}
+		child.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid, Groups: []uint32{}}
+	}
 	child.Cancel = func() error {
 		if err := syscall.Kill(-child.Process.Pid, syscall.SIGKILL); err != nil {
 			if errors.Is(err, syscall.ESRCH) {
@@ -153,7 +162,29 @@ func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, 
 		return nil
 	}
 	child.WaitDelay = 5 * time.Second
-	err = child.Run()
+	if err := child.Start(); err != nil {
+		return fmt.Errorf("start controller admission child: %w", err)
+	}
+	if authority != nil {
+		unregister, err := authority.registerAdmissionChild(child.Process.Pid)
+		if err != nil {
+			cancel()
+			_ = child.Wait()
+			return fmt.Errorf("register exact controller admission child: %w", err)
+		}
+		defer unregister()
+	}
+	if _, err := stdin.Write(wire); err != nil {
+		cancel()
+		_ = child.Wait()
+		return fmt.Errorf("deliver controller admission configuration: %w", err)
+	}
+	if err := stdin.Close(); err != nil {
+		cancel()
+		_ = child.Wait()
+		return err
+	}
+	err = child.Wait()
 	if ctxErr := childCtx.Err(); ctxErr != nil {
 		return fmt.Errorf("controller admission exceeded its startup deadline: %w", ctxErr)
 	}
@@ -240,8 +271,8 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	if err != nil {
 		return fmt.Errorf("load fixed baked controller bootstrap inputs: %w", err)
 	}
-	if cfg.NATS.Lab || cfg.NATS.Cell != strings.ToLower(string(baked.Identity.Cell)) {
-		return errors.New("controller config does not match baked production cell and mode")
+	if cfg.NATS.Cell != strings.ToLower(string(baked.Identity.Cell)) {
+		return errors.New("controller config does not match baked production cell")
 	}
 	serviceUID, serviceGID, err := controllerServiceIdentity()
 	if err != nil {
@@ -267,10 +298,6 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	checker.TerraBaseCACertFile = cfg.Controller.TerraBaseCACertFile
 	checker.TerraBaseCAKeyFile = cfg.Controller.TerraBaseCAKeyFile
 	checker.ControllerConfig = loadedWire
-	anchorEnvelope, err := trust.DecodeEnvelope(baked.AnchorWire)
-	if err != nil {
-		return fmt.Errorf("decode baked controller anchor: %w", err)
-	}
 	gate := bootstrapstart.Gate{
 		Roots: baked.Roots, AnchorWire: baked.AnchorWire, Expected: baked.Identity.AnchorExpectation(),
 		LoadedControllerConfigSHA256: controllerSHA256(loadedWire),
@@ -308,8 +335,7 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	if err := clockCheck(); err != nil {
 		return fmt.Errorf("production controller startup NTP clock health: %w", err)
 	}
-	anchor, err := bootstrap.VerifyBootstrapAnchor(anchorEnvelope, baked.Roots, gate.Expected,
-		time.Now(), bootstrap.BootstrapAnchorTrustPolicy())
+	anchor, err := baked.VerifyOriginAnchor(ctx, time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("verify current baked controller anchor: %w", err)
 	}
@@ -317,7 +343,32 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 		return fmt.Errorf("production controller startup NTP clock health: %w", err)
 	}
 	var vault *bootstrap.Vault
-	gate.Instances, gate.Ledgers, vault, err = bootstrapstart.NewCurrentOCIAdmissionClients(anchor, baked.Roots)
+	local, derived, automatic, err := installedAutomaticStartup(ctx)
+	if err != nil {
+		return err
+	}
+	if automatic {
+		if local.anchor.Digest() != anchor.Digest() {
+			return errors.New("automatic startup anchor changed during initial admission")
+		}
+		gate, err = gate.WithDerivedStartupAuthority(derived)
+		if err != nil {
+			return err
+		}
+		gate.InitialFounderFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall, now time.Time) error {
+			return bootstrapstart.ProvisionInitialDerivedFounderFloor(ctx, baked, marker, derived, floor, serviceUID, serviceGID, now, clockCheck)
+		}
+		gate.InitialPeerFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall, state bootstrap.SlotState, now time.Time) error {
+			continuation, err := bootstrapstart.NewDerivedFounderPeerContinuationContext(ctx, baked, marker, derived, serviceUID, serviceGID)
+			if err != nil {
+				return err
+			}
+			return continuation.Initialize(ctx, marker, state, now)
+		}
+		gate.Instances, gate.Ledgers, vault, err = bootstrapstart.NewDerivedOCIAdmissionClients(ctx, derived, baked.Roots)
+	} else {
+		gate.Instances, gate.Ledgers, vault, err = bootstrapstart.NewCurrentOCIAdmissionClients(anchor, baked.Roots)
+	}
 	if err != nil {
 		return err
 	}
@@ -369,7 +420,7 @@ func acceptedControllerAdmissionGate(cfg Config, markers bootstrapstart.MarkerSt
 	if err != nil {
 		return fail(fmt.Errorf("read accepted controller identity: %w", err))
 	}
-	if cfg.NATS.Lab || cfg.NATS.Cell != strings.ToLower(accepted.Cell) || cfg.NATS.Instance != accepted.Slot ||
+	if cfg.NATS.Cell != strings.ToLower(accepted.Cell) || cfg.NATS.Instance != accepted.Slot ||
 		cfg.Controller.CandidateID != entityid.Derive("controller", accepted.DeploymentID, accepted.Cell, accepted.Slot) {
 		return fail(errors.New("controller configuration differs from accepted deployment and slot"))
 	}

@@ -1,0 +1,1 @@
+/run/current-system/sw/bin/nice -n 19 /run/current-system/sw/bin/git diff --check 09fbf0bbac1d54b4ad31d12bcd8c37cf8115ef23 HEAD

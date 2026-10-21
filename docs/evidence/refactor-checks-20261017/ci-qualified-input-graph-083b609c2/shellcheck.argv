@@ -1,0 +1,1 @@
+/run/current-system/sw/bin/nice -n 19 /run/current-system/sw/bin/timeout --signal=TERM --kill-after=5s 60s /home/mariogk/.local/share/mise/installs/shellcheck/0.11.0/shellcheck-v0.11.0/shellcheck -S warning deploy/image/build-image.sh scripts/ci/deploy-fleet.sh scripts/ci/image-superseded.sh scripts/ci/qualify-image-production.sh 

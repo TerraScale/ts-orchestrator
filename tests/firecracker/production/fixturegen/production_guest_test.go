@@ -50,7 +50,7 @@ func productionGuestTestInputs(t *testing.T, now time.Time, binary []byte) Guest
 		t.Fatal(err)
 	}
 	command := exec.CommandContext(t.Context(), "go", "run", "../../jwtsetup", "--dir", secrets,
-		"--cell", "gru", "--brokers", "controller-a,controller-b,seed-a", "--host-node", "host-a")
+		"--cell", "gru", "--brokers", "controller-a,controller-b,controller-c", "--host-node", "host-a")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("generate production JWT fixture: %v: %s", err, output)
 	}
@@ -66,9 +66,9 @@ func productionGuestTestInputs(t *testing.T, now time.Time, binary []byte) Guest
 		VNICs: make(map[string]GuestObservation, 3), ServiceUID: 1000, ServiceGID: 1000,
 	}
 	addresses := map[string]string{
-		"controller-a": "10.44.0.11", "controller-b": "10.44.0.12", "seed-a": "10.44.0.10",
+		"controller-a": "10.44.0.11", "controller-b": "10.44.0.12", "controller-c": "10.44.0.10",
 	}
-	slots := []string{"controller-a", "controller-b", "seed-a"}
+	slots := []string{"controller-a", "controller-b", "controller-c"}
 	for _, slot := range slots {
 		imdsCert, imdsKey, imdsIntermediate := fixtureInstanceCertificate(t)
 		input.IMDS[slot] = IMDSIdentity{TenancyID: fixtureTenancyOCID,

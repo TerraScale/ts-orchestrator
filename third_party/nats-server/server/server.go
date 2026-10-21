@@ -1253,7 +1253,7 @@ func (s *Server) configureAccounts(reloading bool) (map[string]struct{}, error) 
 	// until the proper server struct accounts have been swapped in properly. Doing it in
 	// place could lead to data loss or server panic since account under new si has no real
 	// account and hence no sublist, so will panic on inbound message.
-	siMap := make(map[*Account][][]byte)
+	siMap := make(map[*Account][]*serviceImportSubscription)
 
 	// Check opts and walk through them. We need to copy them here
 	// so that we do not keep a real one sitting in the options.
@@ -1272,19 +1272,20 @@ func (s *Server) configureAccounts(reloading bool) (map[string]struct{}, error) 
 					awcsti[acc.Name] = struct{}{}
 				}
 				a.mu.Lock()
-				// Collect the sids for the service imports since we are going to
+				// Collect owned subscriptions since we are going to
 				// replace with new ones.
-				var sids [][]byte
+				var subs []*serviceImportSubscription
 				for _, sis := range a.imports.services {
 					for _, si := range sis {
-						if si.sid != nil {
-							sids = append(sids, si.sid)
+						if si.serviceSub != nil {
+							subs = append(subs, si.serviceSub)
 						}
+						si.sid, si.serviceSub = nil, nil
 					}
 				}
 				// Setup to process later if needed.
-				if len(sids) > 0 || len(acc.imports.services) > 0 {
-					siMap[a] = sids
+				if len(subs) > 0 || len(acc.imports.services) > 0 {
+					siMap[a] = subs
 				}
 
 				// Now reset all export/imports fields since they are going to be
@@ -1429,13 +1430,13 @@ func (s *Server) configureAccounts(reloading bool) (map[string]struct{}, error) 
 
 	// Check if we need to process service imports pending from above.
 	// This processing needs to be after we swap in the real accounts above.
-	for acc, sids := range siMap {
-		c := acc.ic
-		for _, sid := range sids {
-			c.processUnsub(sid)
+	for acc, subs := range siMap {
+		// Registration and retirement can acquire account and leaf client locks.
+		s.mu.Unlock()
+		for _, sub := range subs {
+			acc.removeServiceImportSub(sub)
 		}
 		acc.addAllServiceImportSubs()
-		s.mu.Unlock()
 		s.registerSystemImports(acc)
 		s.mu.Lock()
 	}
@@ -2899,9 +2900,31 @@ func (s *Server) getServerListener(hp string) (net.Listener, error) {
 // within the same process. This can be used regardless of the
 // state of the DontListen option.
 func (s *Server) InProcessConn() (net.Conn, error) {
+	return s.inProcessConn(_EMPTY_, _EMPTY_)
+}
+
+// InProcessConnForAccount keeps every CONNECT on the authenticated account.
+// The normal native JWT, nonce, signature and expiry checks still apply.
+func (s *Server) InProcessConnForAccount(account string) (net.Conn, error) {
+	if !nkeys.IsValidPublicAccountKey(account) {
+		return nil, fmt.Errorf("in-process connection requires its fixed account")
+	}
+	return s.inProcessConn(account, _EMPTY_)
+}
+
+// InProcessConnForJWT additionally requires the exact original user claim on
+// every CONNECT, including attempts to authenticate again on the same stream.
+func (s *Server) InProcessConnForJWT(account, userJWT string) (net.Conn, error) {
+	if !nkeys.IsValidPublicAccountKey(account) || userJWT == _EMPTY_ {
+		return nil, fmt.Errorf("in-process connection requires its fixed account and user JWT")
+	}
+	return s.inProcessConn(account, userJWT)
+}
+
+func (s *Server) inProcessConn(account, userJWT string) (net.Conn, error) {
 	pl, pr := net.Pipe()
 	if !s.startGoRoutine(func() {
-		s.createClientInProcess(pl)
+		s.createClientEx(pl, true, account, userJWT)
 		s.grWG.Done()
 	}) {
 		pl.Close()
@@ -3268,14 +3291,14 @@ func (c *tlsMixConn) Read(b []byte) (int, error) {
 }
 
 func (s *Server) createClient(conn net.Conn) *client {
-	return s.createClientEx(conn, false)
+	return s.createClientEx(conn, false, _EMPTY_, _EMPTY_)
 }
 
 func (s *Server) createClientInProcess(conn net.Conn) *client {
-	return s.createClientEx(conn, true)
+	return s.createClientEx(conn, true, _EMPTY_, _EMPTY_)
 }
 
-func (s *Server) createClientEx(conn net.Conn, inProcess bool) *client {
+func (s *Server) createClientEx(conn net.Conn, inProcess bool, account, userJWT string) *client {
 	// Snapshot server options.
 	opts := s.getOpts()
 
@@ -3288,14 +3311,16 @@ func (s *Server) createClientEx(conn net.Conn, inProcess bool) *client {
 	now := time.Now()
 
 	c := &client{
-		srv:   s,
-		nc:    conn,
-		opts:  defaultOpts,
-		mpay:  maxPay,
-		msubs: maxSubs,
-		start: now,
-		last:  now,
-		iproc: inProcess,
+		srv:              s,
+		nc:               conn,
+		opts:             defaultOpts,
+		mpay:             maxPay,
+		msubs:            maxSubs,
+		start:            now,
+		last:             now,
+		iproc:            inProcess,
+		inProcessAccount: account,
+		inProcessJWT:     userJWT,
 	}
 
 	c.registerWithAccount(s.globalAccount())

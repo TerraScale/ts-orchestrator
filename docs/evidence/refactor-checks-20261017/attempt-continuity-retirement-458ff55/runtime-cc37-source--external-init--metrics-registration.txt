@@ -1,0 +1,43 @@
+SOURCE /home/mariogk/go/pkg/mod/github.com/!victoria!metrics/metrics@v1.44.1/metrics.go
+FULL_FILE_SHA256 ca177da7552a89a3e91b087f0f8e375fb5158f7832819020f0829c671528b66a
+LINES 32-70
+
+	isAux bool
+}
+
+type metric interface {
+	marshalTo(prefix string, w io.Writer)
+	metricType() string
+}
+
+var defaultSet = NewSet()
+
+func init() {
+	RegisterSet(defaultSet)
+}
+
+var (
+	registeredSets     = make(map[*Set]struct{})
+	registeredSetsLock sync.Mutex
+)
+
+// RegisterSet registers the given set s for metrics export via global WritePrometheus() call.
+//
+// See also UnregisterSet.
+func RegisterSet(s *Set) {
+	registeredSetsLock.Lock()
+	registeredSets[s] = struct{}{}
+	registeredSetsLock.Unlock()
+}
+
+// UnregisterSet stops exporting metrics for the given s via global WritePrometheus() call.
+//
+// If destroySet is set to true, then s.UnregisterAllMetrics() is called on s after unregistering it,
+// so s becomes destroyed. Otherwise the s can be registered again in the set by passing it to RegisterSet().
+func UnregisterSet(s *Set, destroySet bool) {
+	registeredSetsLock.Lock()
+	delete(registeredSets, s)
+	registeredSetsLock.Unlock()
+
+	if destroySet {
+		s.UnregisterAllMetrics()

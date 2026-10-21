@@ -1,0 +1,83 @@
+{
+  "approved_base": "f01b41a84424d7827efc3d5871f99be1d1c53434",
+  "base": "587d8417d9b59462ab93a0597bb63c730cfd4702",
+  "commit": "6978e79b706ffdff2cb52a4ac4c8e3be56d727cf",
+  "go_binary": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+  "go_binary_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+  "limitations": [
+    "No compile/vet/runtime pass exists for this exact source.",
+    "Native disposable containerd/runc/loop ext4 runtime requires ROOT harness decision and separate QA lease.",
+    "Lexical package/import review is conservative; exact compiler selection remains unverified."
+  ],
+  "owner": "/root/data/executor_hooks",
+  "pins": {
+    "approved-base-manifest.json": "3d56c0fd11addeb613a1bf287441d4203d2496fb9d3ac053d133123b1d3e97dd",
+    "composition-manifest.json": "f984677b26cf031415f303c6e4c72053c0d916387a640c46a2d1692e52197e8f",
+    "fullsource-manifest.json": "8334fdfe61850d3f582bc2d7c7adf39dc8621cb68fb4f43cd395898f8854b648",
+    "source-inputs.json": "e96cee39800e3b47e92c829d09632097b7d7366604847aa7c4d4c05e766ca600",
+    "static-import-closure.json": "19ed09dfa88713619faaf6a22b9305eb6ad6d7a5abb2d7641830c4301d83eebd",
+    "static-review.json": "147054c9938f1ceabf17313b46ec9e37de15f4fc199d09872e5b38bb3c73abf7",
+    "tool-pins.json": "7c5ac0070260e290a63b45a45f452f1af97d1ed82c021434883a6a4e3c2d2a18"
+  },
+  "python_binary": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+  "python_binary_sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+  "python_launch_argv": [
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-source-renewal-697-compile-x96611io/run.py"
+  ],
+  "request": {
+    "GOROOT_present": false,
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "180s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-source-renewal-697-compile-x96611io/qa-output/app.test",
+      "./internal/app"
+    ],
+    "attempts": 1,
+    "binary_execution_authorized": false,
+    "binary_execution_count": 0,
+    "compile_only": true,
+    "cwd": "/tmp/ts-data-source-renewal-composed",
+    "effective_child_environment": {
+      "GOFLAGS": "-p=2",
+      "GOMAXPROCS": "2",
+      "GOTOOLCHAIN": "local",
+      "HOME": "/home/mariogk",
+      "LANG": "C.UTF-8",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin"
+    },
+    "lease_required": true,
+    "lock_mode": "nonblocking-exclusive; one attempt; no retry",
+    "output_binary": "/tmp/ts-source-renewal-697-compile-x96611io/qa-output/app.test",
+    "output_binary_final_mode": "0600",
+    "output_directory_mode": "0700",
+    "resource_envelope": "One outer180s TERM/KILL5 compile attempt, GOMAXPROCS2/GOFLAGS-p2/package-p1/nice19. Unmeasured estimates <=2GiB RSS and <=1GiB scratch/cache growth; memory/disk limits not enforced. Output ELF0600 never executed. No native fixture, kernel, SDK, cloud or production disk activity.",
+    "shared_lock": "/tmp/ts-orch-refactor-short-check-b.lock",
+    "vet": "default; no -vet flag"
+  },
+  "state": "SEALED_SOURCE_ONLY_AWAITING_EXACT_COMPILE_LEASE",
+  "static_blockers": [],
+  "tree": "f74fa0cbca7a506a61d885da65b40b0d5dc84d3e",
+  "worktree": "/tmp/ts-data-source-renewal-composed"
+}

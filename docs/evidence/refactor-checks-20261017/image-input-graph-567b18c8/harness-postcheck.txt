@@ -1,0 +1,1 @@
+python native exit=0; enclosing login shell exit=1 after posthash from /etc/bash_logout:4 unbound __ETC_BASHLOGOUT_SOURCED; harness postcheck failure, no test rerun. QA authorized continuing independent remaining checks with login:false.

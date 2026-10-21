@@ -15,7 +15,11 @@ import (
 func recordIntentDecision(ctx context.Context, intent Intent, kind decisionlog.Kind, status decisionlog.Status,
 	plan int, reason string,
 ) {
-	summary := fmt.Sprintf("Delivery %s of %s to %s/%s", deliveryVerb(kind), shortDigest(intent.ArtifactDigest),
+	identity := shortDigest(intent.ArtifactDigest)
+	if intent.Container != nil {
+		identity = "signed OCI image"
+	}
+	summary := fmt.Sprintf("Delivery %s of %s to %s/%s", deliveryVerb(kind), identity,
 		intent.Role, intent.Environment)
 	decisionlog.Record(ctx, decisionlog.Decision{
 		Region:  intent.Cell,

@@ -1,0 +1,21 @@
+{
+  "status": "STATIC_PACKET_VALIDATED_NO_RUNTIME_EXECUTION",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "batch": "CORE65",
+  "roots": 65,
+  "test_files": 28,
+  "counts": {
+    "mixed": 15,
+    "integration": 13,
+    "unresolved": 1,
+    "unit": 36
+  },
+  "source_files_reconfirmed": 108,
+  "function_citations_validated": 400,
+  "raw_declarations_reconfirmed": 130,
+  "assertion_sites_retained": 777,
+  "classification_json_sha256": "0639658db2c0974d670483f31a4a644f7de32c97f7bb574f08d661975577612f",
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "accepted_ledger_mutated": false
+}

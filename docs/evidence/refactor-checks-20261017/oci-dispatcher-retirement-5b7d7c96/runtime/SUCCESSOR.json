@@ -1,0 +1,25 @@
+{
+  "state": "LOCK_ONLY_SOURCE_REQUEST_SUCCESSOR_NO_EXECUTION",
+  "predecessor_manifest_sha256": "b91fadb537ddce369a32593dd59adc663bea14eefff6d9a79d85038bebc939af",
+  "predecessor_request_sha256": "ecc53943984a3d06b9dd60e7d7b1f974729e94aec697d9e6c8b96dd16f58c8f1",
+  "request_sha256": "db2786b475cb32e786a8c1aa61c8712668647441cbce2c235cfeb33a1e1cb0f3",
+  "original_shared_lock": "/tmp/ts-orch-refactor-gate-check.lock",
+  "new_shared_lock": "/tmp/ts-orch-refactor-short-check-b.lock",
+  "all_other_request_fields_identical": true,
+  "runner_difference": "Only EXPECTED_REQUEST_SHA string replaced; code byte-identical otherwise.",
+  "predecessor_runner_sha256": "aa7a8f2bcd366d49abb9a2ccbdaef0765253eb5b5fd873d67a923eb7545944dd",
+  "runner_sha256": "1abbd4dfd69c8b8a074a3c27cfc715a2eceb4276c1ede047c79b5b5fbc1cb7bd",
+  "identical_copied_assets": {
+    "SOURCEPROOF.json": "9102839193f7ce46714d5adab7c0cd9fec357f37db144825a255113a415e7aa5",
+    "SOURCEPROOF.txt": "f3908850e02acc61d341e9fe2dddf548d1bf8fd5dd6117d67ccecadfa0ccbb01",
+    "base-factory_test.go.txt": "e910f6694186420a8eebb286b74775abd9c4d7f37c3458f26877c914672eeb1f",
+    "candidate-factory_test.go.txt": "08441cf1a717dfcd6a06b542677d4b3527a417731bbedabb0442326b05144645",
+    "candidate.patch": "75dcd28fd10285f231c8e8b20825594f7f4e96934d5878ce9918561aabe3d00b",
+    "declarations.json": "0ebaf6275e26073f878c922aa94324ce837c25dea6427e60e46bc5fb6aabe75b",
+    "frozen-inventory-rows.tsv": "2520dc0e30bc39e1e045bfa8cb839ca8a08bcc51197250b2d30704a177c6506e",
+    "scanner-pure-functions.py.txt": "2abc705008484ad19be8b5a48543f3674f728e2e686426d89f36a16a9314fe25"
+  },
+  "predecessor_unused": true,
+  "successor_unexecuted": true,
+  "lease": "QA explicit grant still required."
+}

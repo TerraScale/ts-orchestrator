@@ -77,7 +77,7 @@ func testRetirementWire(t *testing.T, slot, instance string) []byte {
 func TestSeedRoutingOverNATSRunsUnderTheRealLeaderLease(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "seed-routing", Replicas: 1, Lab: true,
+	broker, err := newAuthenticatedNATS(t, "gru").start(t, ctx, natscell.Config{Cell: "gru", Instance: "seed-routing", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func (noPeers) Meta(context.Context) (membership.Meta, error) { return membershi
 func TestControllerMembershipSurfacesASeedServiceFailureAtOnce(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "seed-fail", Replicas: 1, Lab: true,
+	broker, err := newAuthenticatedNATS(t, "gru").start(t, ctx, natscell.Config{Cell: "gru", Instance: "seed-fail", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +207,7 @@ func TestControllerMembershipSurfacesASeedServiceFailureAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSlotOCI{}
-	reconciler, err := membership.New(membership.Config{Enabled: true, Replace: true, RouteToSeed: true}, topology,
+	reconciler, err := membership.New(topology,
 		membership.Dependencies{Leadership: followerLeadership{}, Peers: noPeers{}, Ledger: fake, Instances: fake,
 			Evidence: fake, Replacer: founder})
 	if err != nil {

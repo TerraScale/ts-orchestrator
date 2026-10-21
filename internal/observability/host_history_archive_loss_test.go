@@ -172,17 +172,13 @@ func TestHostMetricArchiveMarkerDecodedBound(t *testing.T) {
 	if err != nil || len(raw) != hostMetricDecodedBytes+1 || len(withoutMarker) > hostMetricDecodedBytes || len(hostMetricGzip(t, raw)) > HostMetricBatchBytes {
 		t.Fatalf("decoded boundary fixture: marked=%d without marker=%d excess=%d error=%v", len(raw), len(withoutMarker), excess, err)
 	}
-	if _, err := encodeHostMetricBatch(batch); !errors.Is(err, errHostMetricBatchSize) {
-		t.Fatalf("encoder excluded the marker from the byte bound: %v", err)
-	}
-	if _, err := decodeHostMetricBatch(hostMetricGzip(t, raw)); err == nil {
-		t.Fatal("decoder excluded the marker from the byte bound")
-	}
+	hostMetricRejectArchive(t, batch)
 	batch.Samples = append(batch.Samples, Sample{Metric: HistHostCPUUtilization, Labels: L("member", "extra-host"), Value: .5})
 	bounded, dropped, err := BoundHostMetricBatch(batch)
 	if err != nil || !bounded.Incomplete || len(bounded.Samples) != DefaultHistorySeries/2 || dropped != DefaultHistorySeries/2+1 {
 		t.Fatalf("sample cap omitted marker byte cost: kept=%d dropped=%d incomplete=%t error=%v", len(bounded.Samples), dropped, bounded.Incomplete, err)
 	}
+	hostMetricAcceptArchive(t, bounded)
 }
 
 func TestHostMetricArchivePublishEvidence(t *testing.T) {

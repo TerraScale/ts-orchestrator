@@ -1,0 +1,67 @@
+{
+  "state": "SEALED_SOURCE_ONLY_NOT_LAUNCHED",
+  "worktree": "/tmp/ts-qa-authenticated-fixture-compose",
+  "commit": "97d30105e6d4c0258d6caf119721045a9851db67",
+  "tree": "3a4938e8d0c9427b1d4a9e9cecca812530b2ac84",
+  "source_status": "",
+  "tracked_files": 3862,
+  "artifacts": [
+    {
+      "path": "/tmp/ts-auth-97d-truecompile-short-a-ojvwaclg/run.py",
+      "sha256": "09d6e52deba9094a95b4f3fafd291472845df6d2669a318fa994f11bef4d2a2a",
+      "bytes": 3452
+    },
+    {
+      "path": "/tmp/ts-auth-97d-truecompile-short-a-ojvwaclg/request.json",
+      "sha256": "edd37b480838f99b95ca439515d74f0330b6f51a9584d6f39614a9725c4e9f14",
+      "bytes": 4400
+    },
+    {
+      "path": "/tmp/ts-auth-97d-truecompile-short-a-ojvwaclg/fullsource-manifest.json",
+      "sha256": "4e1eed552f523477d527dff2bcc76989753dcf3feb240d68e1069e9d15c14c47",
+      "bytes": 677241
+    },
+    {
+      "path": "/tmp/ts-auth-97d-truecompile-short-a-ojvwaclg/static-package-inventory.json",
+      "sha256": "9ce6d2355dd6219666bbfd7080dcf0cfda54b04a3cfd3449ed244bd99ec823f6",
+      "bytes": 71842
+    }
+  ],
+  "tool_sha256": {
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+    "/run/current-system/sw/bin/git": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027",
+    "/run/current-system/sw/bin/nice": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/timeout": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/env": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+  },
+  "packages": [
+    "./internal/natscell",
+    "./internal/natscell/natstest",
+    "./internal/oci",
+    "./internal/ociregion/capacityinventory",
+    "./internal/ociresource",
+    "./internal/ociresource/nlb",
+    "./internal/placement",
+    "./internal/storage/capacity",
+    "./tests/integration"
+  ],
+  "expected_binaries": [
+    "natscell.test",
+    "oci.test",
+    "capacityinventory.test",
+    "ociresource.test",
+    "nlb.test",
+    "placement.test",
+    "capacity.test",
+    "integration.test"
+  ],
+  "launch_argv": [
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-auth-97d-truecompile-short-a-ojvwaclg/run.py"
+  ],
+  "binary_execution_count": 0,
+  "grant_required": true
+}

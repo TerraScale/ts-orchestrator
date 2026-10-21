@@ -1,0 +1,64 @@
+{
+  "method": "Raw task/release/session evidence plus ordered test control flow to sole final t.Fatal line580. This is partial scenario evidence, not a root PASS.",
+  "terminal_failure": "Final retained native evidence assertion invokes permission-gated history reader after adopt(4,nil); error retained native role is no longer approved. Root has no duration encoder error.",
+  "completed_before_final_assertion": [
+    "initial delivery acceptance and application readiness",
+    "autoscale2, resource CAS, failedtask repair and equivalent replay",
+    "102rollout,103rejection/rollback, monotonic replay refusals,104recovery",
+    "HTTP readiness refusal, authenticated session end/restart and stale policy refusal",
+    "zero-replica drain, later three-manager election, durable floor existence, role removal and zero legacy writes"
+  ],
+  "limitations": [
+    "Later election follows zero-replica drain; no live workload failover proof",
+    "External recipient and native executor remain simulated",
+    "Final retained-native-history preservation assertion failed; overall root not qualified"
+  ],
+  "raw_events": [
+    {
+      "stdout_line": 90,
+      "event": {
+        "Time": "2026-10-17T01:24:08.761317484-03:00",
+        "Action": "output",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+        "Test": "TestGenericRuntimeSignedManagerIntegration",
+        "Output": "time=\"2026-10-17T01:24:08-03:00\" level=error msg=\"fatal task error\" error=\"application task failed\" module=node/agent/taskmanager node.id=ramrhi0qvrluftkwsowz0wb7r service.id=ara0h0689b1wtgyar290qnd9s task.id=um9hldf7x311cz4qwl0p4472b\n"
+      },
+      "raw_sha256": "844d5862a64eda444fe596dea5661ceeb58ec221e2636a6325f0282a42e423ad"
+    },
+    {
+      "stdout_line": 158,
+      "event": {
+        "Time": "2026-10-17T01:24:55.044155914-03:00",
+        "Action": "output",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+        "Test": "TestGenericRuntimeSignedManagerIntegration",
+        "Output": "time=\"2026-10-17T01:24:55-03:00\" level=error msg=\"fatal task error\" error=\"application rejected candidate release\" module=node/agent/taskmanager node.id=ramrhi0qvrluftkwsowz0wb7r service.id=ara0h0689b1wtgyar290qnd9s task.id=xinax1sci99oesrps0w5th3bd\n"
+      },
+      "raw_sha256": "122ff96c5cb2a969e357681c3138b05652ce81b27e32cc7e115fdeef84847ef1"
+    },
+    {
+      "stdout_line": 199,
+      "event": {
+        "Time": "2026-10-17T01:25:30.167598836-03:00",
+        "Action": "output",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+        "Test": "TestGenericRuntimeSignedManagerIntegration",
+        "Output": "    generic_runtime_integration_test.go:217: first signed container apply refusal: signed service release rolled back; previous revision is application-ready\n"
+      },
+      "raw_sha256": "bf242eb38efbcca1b6d2d099c733520112fa9a150702db07b7270d1b5eff1a2b"
+    },
+    {
+      "stdout_line": 805,
+      "event": {
+        "Time": "2026-10-17T01:26:56.443514232-03:00",
+        "Action": "output",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+        "Test": "TestGenericRuntimeSignedManagerIntegration",
+        "Output": "    generic_runtime_integration_test.go:580: generic drain/removal changed original native release evidence: {Cell: RunNumber:0 IssuedAt:0001-01-01 00:00:00 +0000 UTC EvidenceSHA256:} retained native role is no longer approved\n",
+        "OutputType": "error"
+      },
+      "raw_sha256": "6d92c8d9e120ce6d37d4a952a0ec344af7b48eacb0b5b57e76707e4e19cddd42"
+    }
+  ],
+  "source_file_sha256": "3a7823cd72112195b02033f381d3620ec093632546f42f39632fd1a2da78bbc5"
+}

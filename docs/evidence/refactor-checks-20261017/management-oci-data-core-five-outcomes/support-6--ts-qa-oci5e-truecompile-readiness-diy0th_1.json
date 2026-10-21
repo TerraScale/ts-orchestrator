@@ -1,0 +1,200 @@
+{
+  "kind": "independent-oci5e-source-and-truecompile-readiness-review",
+  "created_utc": "2026-10-17T05:03:04.948850+00:00",
+  "reviewer": "/root/qa_integrator/capacity_tests",
+  "verdict": "READY_SOURCE_AND_PACKET_ONLY_NO_EXECUTION_GRANT",
+  "findings": [],
+  "source": {
+    "worktree": "/tmp/ts-oci-foundation-request-shape",
+    "head": "5e678c47a1767b52218abf7c08f18741db465d85",
+    "tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+    "status": "",
+    "tracked_files_independently_hashed": 3838,
+    "delta_base": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+    "delta_commits": [
+      "7dc7b5a15eb72f7c4ffc0c063f76ea2c2ecb318b",
+      "5e678c47a1767b52218abf7c08f18741db465d85"
+    ],
+    "changed_files": [
+      {
+        "path": "internal/region/foundation_integration_test.go",
+        "before_sha256": "a595377425e4ec6b80f220312886903ac1138b7e79ca22c8b2f5e8b5ce405412",
+        "after_sha256": "677b40617c73b70712d4429729f96b6d4dadc05b8eabab421ef0dccfc713f030"
+      },
+      {
+        "path": "internal/region/foundation_provision_integration_test.go",
+        "before_sha256": "e819c3a9b6c2cc4585ca8602fb1a81d1821941e8a488cb1d3e192282a97c1568",
+        "after_sha256": "aaa2083eeb8f61893276bc7b7f6b2f62565bacdb9e993719e64a811cececdd32"
+      },
+      {
+        "path": "internal/region/foundation_writer.go",
+        "before_sha256": "fa5c315481c5f6abb50b0f2a79f67d59aaf72746e583e03d29cb061e1a9eb7fc",
+        "after_sha256": "98119082d29a18b01705f04d86ed3bb61387c9b7a2d9f53be4713daf6559fe3f"
+      },
+      {
+        "path": "internal/region/lifecycle.go",
+        "before_sha256": "965452323f8a0e53bf6a674b1c7220a32b909c0a660011da307a691d1b033548",
+        "after_sha256": "9e63b4bed1ff52cc13a04e74e27125461148f63ed81f9eabec8e055537f95c33"
+      }
+    ],
+    "delta_before_after_hashes_and_exact_four_path_set_verified": true
+  },
+  "packet": {
+    "path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed",
+    "seal_sha256": "81012be270e8eb2f6b6f733e88184385f5fa5d669f8a81cc7adcf181c50bcb24",
+    "artifacts": [
+      {
+        "path": "request.json",
+        "sha256": "32af3ff4da7f383236ec3d09bdffbcf2246c23d30459a85e1ba7f318e342072b",
+        "bytes": 4185
+      },
+      {
+        "path": "run.py",
+        "sha256": "83a61044a9620a4dc0c40aab35ac9f9b4aa8806274033bf2043e0ff5cfd78f6f",
+        "bytes": 3644
+      },
+      {
+        "path": "fullsource-manifest.json",
+        "sha256": "dbd06e52748c518dff1069ee764deef16c38a76490ea73b7409d5440a71daff9",
+        "bytes": 595944
+      },
+      {
+        "path": "delta-source-proof.json",
+        "sha256": "a414ff2342815c0580696bbd3bce5f2ed188dd3422c888417d952d9a115dcdac",
+        "bytes": 3540
+      }
+    ],
+    "exact_six_initial_entries": true,
+    "binaries_empty": true,
+    "runner_python_ast_parse": true,
+    "tool_pins_independently_verified": {
+      "go": {
+        "path": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624"
+      },
+      "python": {
+        "path": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+        "sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+      },
+      "git": {
+        "path": "/run/current-system/sw/bin/git",
+        "sha256": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027"
+      },
+      "nice": {
+        "path": "/run/current-system/sw/bin/nice",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "timeout": {
+        "path": "/run/current-system/sw/bin/timeout",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "env": {
+        "path": "/run/current-system/sw/bin/env",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      }
+    },
+    "request_argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "240s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG=C.UTF-8",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-tags=fixturetest",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/binaries/",
+      "./internal/region"
+    ]
+  },
+  "source_review": {
+    "fresh_launch_request": "Production constructor supplies the original exact empty values for DefinedTags, SecurityAttributes, ExtendedMetadata and FreeformTags plus the earlier LaunchVolumeAttachments/LicensingConfigs empty arrays. Populated nested CreateVnicDetails supplies empty DefinedTags/FreeformTags/SecurityAttributes and IPv6-address-pair slice. Metadata is fixed nonempty. SignedFootprint.verifyStartup at grant.go:273 requires exactly one signed owned NSG; cloned NsgIds is therefore nonnil/nonempty.",
+    "actual_sdk_trace": "Read all LaunchInstanceDetails and CreateVnicDetails fields and full SDK LaunchInstanceDetails.UnmarshalJSON. Its custom decoder allocates both interface slices, restores maps from durable empty objects and preserves nil optional pointer/interface fields. CreateVnicDetails has no custom decoder. ShapeConfig contains scalar/enum pointers only. Image SourceDetails discriminator restores InstanceSourceViaImageDetails with scalar pointers and nil image-filter pointer; custom image MarshalJSON preserves the discriminator. No further populated nested collection normalization identified. Read common/http.go tagged nil-field removal: nil optional fields are omitted, explicit empty maps/lists remain in the actual HTTP body.",
+    "digest_and_history": "netBirdRequestDigest continues to hash recursively deterministic decoded actual LaunchInstanceRequest.HTTPRequest body. FoundationWriterRecord.validate exact digest, retry token, metadata, same-grant/operation/source scope and policy-body checks remain unchanged. Delta initializes only fresh requests and parent fixture requests; no historical record rewrite, adoption, normalization or validator weakening.",
+    "finite_host_containers": "lifecycle.go accepts only instances, boot_volumes and data_volumes as maps; both expected and observed must be map[string]any and maps.Equal must succeed before continuing without scalar checkpoint. Expected maps originate the cloned signed plan; actual SDK Foundation.Reconcile calls ValidatePlan, which independently JSON-deep-copies and validates exact slot maps with nil/string OCID leaves. Foundation.bind shallow-clones only that independent resource_ids map and writes scalar foundation IDs. No caller-map alias or incomparable expected leaf applies on this production path. Other nonnil nonstrings still fail; scalar strings still pass attempt.checkpoint. Existing nil behavior unchanged.",
+    "assertions": "All original test assertions retained. Independently matched exact t.Fatal/Fatalf/Error/Errorf/Run/Skip/Skipf counts to delta proof; parent counts unchanged and provisioning adds one Fatalf. No new test function, skip, listener, subprocess or temp-root site in this four-file delta. Existing successful-footprint loop newly rejects the three host-container keys from saved.ResourceIDs.",
+    "sdk_evidence_pins_verified": [
+      {
+        "path": "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/core/launch_instance_details.go",
+        "sha256": "4b3b50577659ab89fa577130222082a17126ca38534d5f652a00ad93610c99a9"
+      },
+      {
+        "path": "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/core/create_vnic_details.go",
+        "sha256": "b3ffc0ae7a4337a8bb869ce409987bc014836247d3a454b036269135c32b38be"
+      },
+      {
+        "path": "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/common/http.go",
+        "sha256": "b565a6ae7fe190121f98b1a921f7b0e56395e218dd3d12e3a0886e11dda4232e"
+      }
+    ]
+  },
+  "prerequisites": {
+    "go_compiler_linker_vet_go_env_runtime_source_files_present": true,
+    "local_nats_replacement_go_mod_present": true,
+    "all_tracked_embed_directives": 9,
+    "embed_patterns_with_existing_matches": 11,
+    "note": "Static pattern existence audit across all tracked Go files; not compiler input-discovery or complete external/init closure proof. Four-file delta leaves module/dependency declarations unchanged.",
+    "stack_path": "/tmp/ts-oci-stack-manifest-5e678c47a.json",
+    "stack_sha256": "79abbea32c29138b53fb434b87a592cae8ca7984ff3f567c230251deedc12991",
+    "stack_alias_commit_objects_present": 71,
+    "stack_local_commits_ancestors_of_head": 71,
+    "stack_named_files_present": 99,
+    "alias_patch_identity": "Not repeated; stack checked for pins/object presence/ancestry, with current two-commit delta independently inspected."
+  },
+  "security": {
+    "ack_path": "/tmp/ts-oci-foundation-5e678c47a-security-source-ack.json",
+    "ack_sha256": "7aaa91f57da53b5dda4e4358a25f67559fdeb555a6e3ebec793d621a2a0dc232",
+    "exact_head_tree_and_two_commit_chain_match": true,
+    "state": "SEC_SOURCE_ACK_ONLY",
+    "limits": "Independent exact source ACK only, no compile or runtime credit."
+  },
+  "runner_review": {
+    "scope": "One pinned nice19 go test -c -tags=fixturetest -mod=readonly -p=1 ./internal/region attempt, default vet, 240s TERM plus KILL after5s, GOMAXPROCS2/GOFLAGS-p2. Nonblocking CAPACITY flock inside reviewed wrapper. Expected sole region.test ELF, chmod0600 and never executed; pre/post source/tools/packet snapshots, logs and receipt exclusive-created.",
+    "capacity_limits": "RSS<=3GiB and scratch<=2GiB are estimates, unenforced. Time/process parallelism bounds are expressed in argv/environment.",
+    "ordinary_user_preflight": "Compile wrapper does not itself check ordinary EUID; fresh parent-owned ordinary-user/resource preflight remains required before any granted launch.",
+    "authorization": "Parent owns scheduling/grants. No lease attempt, acquisition, request or execution performed by reviewer."
+  },
+  "preservation": {
+    "prior_runtime_failures": [
+      {
+        "packet": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+        "report": "/tmp/ts-qa-oci678-runtime-terminal-failure-53vxp9c8.json",
+        "report_sha256": "28d36a36700221471e3cae78e5b335bda46eb9b4004b4619aba7b2a6ac87dac6",
+        "verdict": "NOT_QUALIFIED_NO_RETRY",
+        "receipt_sha256": "b7d61f518ae1da058c61ca5cae9e7c92ae210b90c79cef58a750359ff5d85412",
+        "source_seal_sha256": "680b592f2e49e514890bc8c9b379955799472a6716702facb0fd188e9ba8c8da",
+        "terminal_runtime_seal_sha256": "3bec0640756fb7062e71de85b528cdde0c06992ae4dedccc57cd1b86840a65b0"
+      },
+      {
+        "packet": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+        "report": "/tmp/ts-qa-provision64-terminal-failure-bkps8y8k.json",
+        "report_sha256": "5ada3a6fd437a6bba4edb6712013ec2c8cce5dcf0fcada784f18cb133081110d",
+        "verdict": "NOT_QUALIFIED_NO_RETRY",
+        "receipt_sha256": "977c216b59eb4eb06e0baf5ed8ee5373ed3353dddb75bb665b5200c60c085dff",
+        "source_seal_sha256": "d60e0fc3c1ffdfe97f30b17593d0b69eee6c853b1145ca6efa4474286385dc36",
+        "terminal_runtime_seal_sha256": "c40122f255bb3415a2268345121b092068b5ee79949faceda3031cefd8c50062"
+      }
+    ],
+    "unused443_packet": "/tmp/ts-oci-region-compile-443936221-capacity-sealed",
+    "unused443_seal_sha256": "8a08372d0cd0046c7995c3c3513b204cd27b0ebc8dbde7a084a947d4f37ae6c4",
+    "unused443_exact_six_entries_and_empty_binaries": true,
+    "678_failure": "Runtime exit1 retained; nonstring returned resource identity branch and parent pending writer validation both failed. No retry or fixture-only conclusion inferred.",
+    "64_failure": "Runtime exit1 retained; signed worker policy missing role/architecture and parent pending writer validation both failed."
+  },
+  "disposition": "No concrete additional source or packet blocker identified within this read-only review. Exact5e source/security/packet readiness supports a separate QA scheduling decision only. No Go invocation, runner invocation, binary execution, lock opening/attempt, source/packet edits, chmod/copy, grants, retries or subagents. Reviewer writes only this exclusive new /tmp report.",
+  "credit": "Source/packet readiness only. Successor compilation, actual Go JSON roundtrip, default vet result, full parent/leaf runtime, provisioning, original launch/policy recovery, native/root/live OCI, financial-history completeness, equivalence/retirement/canonical adoption/nine-package union/global completion remain unqualified.",
+  "next_action": "Parent may evaluate the exact packet for a separate compile-only grant after a fresh ordinary-user/resource preflight; future runtime inventory is not an execution request."
+}

@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,90 +21,134 @@ import (
 )
 
 func TestFleetCheckRequiresEveryAddressEndpointAndRegionToken(t *testing.T) {
-	peers := map[string]sshlogin.PeerAddress{}
-	for i, region := range []string{"gru", "sfo"} {
-		for n := 1; n <= 3; n++ {
-			peers[fmt.Sprintf("ts-%s-%d", region, n)] = sshlogin.PeerAddress{IP: fmt.Sprintf("10.200.%d.%d", i, n), IPv6: fmt.Sprintf("fd9c:200::%d:%d", i, n)}
-		}
-	}
-	tokens := map[string]string{"gru": "gru-secret", "sfo": "sfo-secret"}
-	for _, failure := range []string{"", "ipv6", "missing", "dns", "unauthorized", "redirect", "wrong-address", "wrong-ipv6", "missing-ipv6", "empty", "local-only"} {
+	for _, failure := range []string{"", "ipv6", "missing", "dns", "unauthorized", "redirect", "wrong-address", "wrong-ipv6", "missing-ipv6", "empty", "local-only", "duplicate-nodes", "duplicate-members"} {
 		t.Run(failure, func(t *testing.T) {
-			inventory := map[string]sshlogin.PeerAddress{}
-			for name, ip := range peers {
-				inventory[name] = ip
+			peers := map[string]sshlogin.PeerAddress{}
+			for i, region := range []string{"gru", "sfo"} {
+				for n := 1; n <= 3; n++ {
+					peers[fmt.Sprintf("ts-%s-%d", region, n)] = sshlogin.PeerAddress{IP: fmt.Sprintf("10.200.%d.%d", i, n), IPv6: fmt.Sprintf("fd9c:200::%d:%d", i, n)}
+				}
 			}
 			if failure == "missing" {
-				delete(inventory, "ts-sfo-3")
+				delete(peers, "ts-sfo-3")
 			}
 			if failure == "missing-ipv6" {
-				peer := inventory["ts-sfo-3"]
+				peer := peers["ts-sfo-3"]
 				peer.IPv6 = ""
-				inventory["ts-sfo-3"] = peer
+				peers["ts-sfo-3"] = peer
 			}
+			tokens := map[string]string{"gru": "gru-secret", "sfo": "sfo-secret"}
 			calls := 0
-			get := func(_ context.Context, url, token string, timeout time.Duration) (string, string, string, error) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
 				region := "gru"
-				if strings.Contains(url, "sfo") || strings.Contains(url, "10.200.1.") {
+				if strings.Contains(r.Host, "sfo") || strings.Contains(r.Host, "10.200.1.") {
 					region = "sfo"
 				}
-				if token != tokens[region] || timeout != 5*time.Second {
-					t.Fatalf("wrong region token or timeout for %s", url)
+				if r.Header.Get("Authorization") != "Bearer "+tokens[region] {
+					t.Error("wrong region token at HTTP boundary")
+					w.WriteHeader(http.StatusUnauthorized)
+					return
 				}
-				ip := ""
-				for name, address := range inventory {
-					if strings.Contains(url, name+".") || strings.Contains(url, address.IP+":") {
-						ip = address.IP
-						if failure == "ipv6" && strings.Contains(url, name+".") {
-							ip = address.IPv6
+				if r.Host == "ts-sfo-3.nb.ts.internal:9463" && r.URL.Path == "/topology" {
+					if failure == "unauthorized" {
+						w.WriteHeader(http.StatusUnauthorized)
+						return
+					}
+					if failure == "redirect" {
+						w.Header().Set("Location", "/wrong-controller")
+						w.WriteHeader(http.StatusFound)
+						return
+					}
+				}
+				if r.URL.Path == "/wrong-controller" {
+					t.Error("check followed a redirect")
+				}
+				body := `<div id="content"><h1>Live dashboard</h1><p>Observed</p><svg><g data-node="one"></g><g data-node="two"></g><g data-node="three"></g></svg><table><tbody><tr><td><a href="/members/one">one</a><a href="/members/two">two</a><a href="/members/three">three</a></td></tr></tbody></table></div>`
+				if failure == "empty" && r.URL.Path == "/storage" {
+					body = `<div id="content"><h1>Storage</h1></div>`
+				}
+				if failure == "local-only" && r.URL.Path == "/members" {
+					body = `<div id="content"><p>Observed</p><table><tbody><tr><td><a href="/members/one">one</a></td></tr></tbody></table></div>`
+				}
+				if failure == "duplicate-nodes" {
+					body = strings.ReplaceAll(strings.ReplaceAll(body, `data-node="two"`, `data-node="one"`), `data-node="three"`, `data-node="one"`)
+				}
+				if failure == "duplicate-members" {
+					body = strings.ReplaceAll(strings.ReplaceAll(body, `/members/two`, `/members/one`), `/members/three`, `/members/one`)
+				}
+				_, _ = io.WriteString(w, body)
+			}))
+			defer server.Close()
+			client := server.Client()
+			client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+			// The fixture supplies NetBird's address mapping; every fetch still crosses an HTTP socket.
+			fetch := func(ctx context.Context, target, token string, timeout time.Duration) (string, string, string, error) {
+				parsed, err := url.Parse(target)
+				if err != nil {
+					return "", "", "", err
+				}
+				if timeout != 5*time.Second {
+					t.Error("check lost request timeout")
+				}
+				request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+parsed.Path, nil)
+				if err != nil {
+					return "", "", "", err
+				}
+				request.Host = parsed.Host
+				request.Header.Set("Authorization", "Bearer "+token)
+				response, err := client.Do(request)
+				if err != nil {
+					return "", "", "", err
+				}
+				defer response.Body.Close()
+				body, err := io.ReadAll(response.Body)
+				if err != nil {
+					return "", "", "", err
+				}
+				address := ""
+				for name, peer := range peers {
+					if parsed.Hostname() == peer.IP || parsed.Hostname() == name+".nb.ts.internal" {
+						address = peer.IP
+						if failure == "ipv6" && strings.HasSuffix(parsed.Hostname(), ".internal") {
+							address = peer.IPv6
 						}
 					}
 				}
-				if strings.Contains(url, "ts-sfo-3.nb.ts.internal:9463/topology") {
+				if parsed.Hostname() == "ts-sfo-3.nb.ts.internal" && parsed.Path == "/topology" {
 					switch failure {
 					case "dns":
-						return "000", "", "", errors.New("exit status 6")
-					case "unauthorized":
-						return "401", ip, "", nil
-					case "redirect":
-						return "302", ip, "", nil
+						return "000", "", "", errors.New("DNS lookup failed")
 					case "wrong-address":
-						return "200", "10.200.1.2", "", nil
+						address = "10.200.1.2"
 					case "wrong-ipv6":
-						return "200", "fd9c:200::1:2", "", nil
+						address = "fd9c:200::1:2"
 					case "missing-ipv6":
-						return "200", "fd9c:200::1:3", "", nil
+						address = "fd9c:200::1:3"
 					}
 				}
-				body := `<div id="content"><h1>Live dashboard</h1><svg><g data-node="one"></g><g data-node="two"></g><g data-node="three"></g></svg><table><tbody><tr><td><a href="/members/one">one</a></td><td><a href="/members/two">two</a></td><td><a href="/members/three">three</a></td></tr></tbody></table></div>`
-				if failure == "empty" && strings.HasSuffix(url, "/storage") {
-					body = `<div id="content"></div>`
-				}
-				if failure == "local-only" && strings.HasSuffix(url, "/members") {
-					body = `<div id="content"><h1>Members</h1><table><tbody><tr><td><a href="/members/one">one</a></td></tr></tbody></table></div>`
-				}
-				return "200", ip, body, nil
+				return strconv.Itoa(response.StatusCode), address, string(body), nil
 			}
 			var out bytes.Buffer
-			err := check(t.Context(), &out, inventory, tokens, 5*time.Second, get)
-			if (err != nil) != (failure != "" && failure != "ipv6") {
-				t.Fatalf("check error = %v", err)
-			}
-			if failure == "wrong-address" || failure == "wrong-ipv6" {
-				if !strings.Contains(err.Error(), "expected 10.200.1.3 or fd9c:200::1:3") {
-					t.Fatalf("failure omitted an accepted peer address: %v", err)
-				}
-			}
-			if failure == "missing-ipv6" && strings.Contains(err.Error(), " or ") {
-				t.Fatalf("failure advertised an unavailable IPv6 address: %v", err)
+			err := check(t.Context(), &out, peers, tokens, 5*time.Second, fetch)
+			wantFailure := failure != "" && failure != "ipv6"
+			if (err != nil) != wantFailure {
+				t.Fatalf("fleet check %s: %v", failure, err)
 			}
 			wantCalls := 180
 			if failure == "missing" {
 				wantCalls = 150
 			}
 			if calls != wantCalls || strings.Contains(out.String(), "secret") {
-				t.Fatalf("calls = %d; output = %s", calls, out.String())
+				t.Fatalf("calls=%d; output=%s", calls, &out)
+			}
+			if failure == "wrong-address" || failure == "wrong-ipv6" {
+				if !strings.Contains(err.Error(), "expected 10.200.1.3 or fd9c:200::1:3") {
+					t.Fatal("wrong-address error lost accepted addresses")
+				}
+			}
+			if failure == "missing-ipv6" && strings.Contains(err.Error(), " or ") {
+				t.Fatal("error advertised absent IPv6")
 			}
 		})
 	}
@@ -152,8 +198,14 @@ func TestRenderedRejectsEmptyAndDuplicateTelemetry(t *testing.T) {
 		{"duplicate members", "/members", `<div id="content"><table><tbody><tr><td><a href="/members/one">one</a><a href="/members/one">one</a><a href="/members/one">one</a></td></tr></tbody></table></div>`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if err := rendered(test.path, test.body); err == nil {
-				t.Fatal("empty dashboard passed")
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, test.body) }))
+			defer server.Close()
+			status, _, body, err := curl(t.Context(), server.URL, "token", 5*time.Second)
+			if err != nil || status != "200" {
+				t.Fatalf("read response: %s %v", status, err)
+			}
+			if err := rendered(test.path, body); err == nil {
+				t.Fatal("empty dashboard passed after HTTP fetch")
 			}
 		})
 	}

@@ -1,0 +1,201 @@
+{
+  "kind": "source-only-mechanical-adoption-after-qualified-runs",
+  "created_utc": "2026-10-17T01:05:42.963771+00:00",
+  "qualified_commit": "6d4feea434d74e0f344fc7f9ab9bba9ed1e15080",
+  "qualified_tree": "02bf1ec703c2591b37f7b0be99d6e71256a3e2f3",
+  "qualified_parent": "cc09b45a359812136c737682bc1fbe923c724c1f",
+  "donor_commit": "dbe85687fea737bfe3ea34686f94a677e92d50f7",
+  "donor_tree": "629a72fad5e642c29f62f6cf351f560fd0674073",
+  "donor_parent": "6ba1a3108750f984ab4b01eaa485fea71cccb490",
+  "donor_parent_tree": "d797466cce93dbbdea2c253e631ebc3a448ab0f1",
+  "worktree": "/tmp/ts-refactor-controller-c-identity-6ba",
+  "branch": "refactor/qa-controller-c-identity-6ba",
+  "published_parent_docs_only_delta": [
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/README.md",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/SHA256SUMS",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/archive-verification.json",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/evidence.tar.gz",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/package-evidence.py",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/package.json",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/provenance.json",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/qa-packet-review.json"
+  ],
+  "exact_eighteen_source_bindings": [
+    {
+      "path": "tests/firecracker/production/fixturegen/signed_history_recipe.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "a471aac174fcddfe59b59df0fa139e1b687576bd",
+      "sha256": "0b5d5cd6720dbc29ba8f60530868735b3abf0f5a1d6515c5fd22a9c07f72c41a",
+      "bytes": 15106,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/complete_packet.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "8a8a49608c184128e58c73604ba1bb1ec0b710c1",
+      "sha256": "7a9d321b335e59fab0500dfd2290c6be210235fbd6a7100b0ee7ea884971e472",
+      "bytes": 11133,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/founder_selection_source.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "b438e3015a657bdf2cfe91cbbb8c9b97fb0bb0f2",
+      "sha256": "b524ccbffaa4094417a8cddcc6520a550643c055fb34b1e8cad424ff604332fc",
+      "bytes": 2837,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/capture_inventory.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "b4a809ddc3dbb93901aad49b7378ba58f99b2123",
+      "sha256": "483eb01fa89ea05249caac5f86e267261e153bad11d17c72ba3319d59226c52b",
+      "bytes": 3789,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/guest_material.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "03dc94d33878712af1857734a21f85271560f09f",
+      "sha256": "98fee807a577f04fc8d916fde41406d5f205ba6b1f20f294b1b7240e88d10d8c",
+      "bytes": 12849,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/guest_directories.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "47069610e60cbe6c88fe22c895c891de8f54272a",
+      "sha256": "9073b198716e0041894b6942187968430d2055618073ad08c65810674304303e",
+      "bytes": 4381,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/packet.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "0b7ef35eefd8555bea09b35524768205103f1a2c",
+      "sha256": "e8efa1ed56901a6912b8a7e27bedb98d288cea5cee81768ae042dac427da827b",
+      "bytes": 22601,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/production_guest.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "4641c85eafeb3eaba163f8a31a20d8dd1e503849",
+      "sha256": "d7f7d6334c908aa2256cca2823c28e078b02de93ead48fe8ece7fb41c1e42237",
+      "bytes": 8682,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "internal/qualification/firecracker/production.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "4c4ead16bd4ea3d333ba52f3a5d919b4c4501b07",
+      "sha256": "4814091345fa8232aa27dd77e5d1558c0bd2ef61201c18fed68571af0b72d6f4",
+      "bytes": 40534,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/signed_history_recipe_test.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "5c5556d1180b83edecabe44f76d82f766129340e",
+      "sha256": "2380029b97d90404f8fc62245e4560354adfa769b6f704c593fd685cef05e294",
+      "bytes": 19433,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/complete_packet_integration_test.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "7ed26fa9b2ef295671a05d06da6f6894b3457520",
+      "sha256": "055f9654dd34f1290d957eb234bee24bd36971f379f2c2f48b8e369e9f5d934b",
+      "bytes": 11151,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/complete_packet_test.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "c2e36bbddf299fa6f9f2b1cf1092c5046b98e3b5",
+      "sha256": "d48416b0b4d59401b4fbbe92de2210e426d4117950d1106109963971711940f4",
+      "bytes": 2762,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/production_guest_test.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "34ec23d84031f2e6a7f2a4920e280bb1494a83c0",
+      "sha256": "5393898cee0179016d7f8291c5fb00069acaf60426344a954a689e483d3485f9",
+      "bytes": 7690,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/packet_test.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "b69e5d7afa2dca0c48aa0ac5e29bfcf731f40115",
+      "sha256": "290e866b449b2b7f70da706680964a938264ddff75bb989d5ff6d080c4e51b3d",
+      "bytes": 19086,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/capture_inventory_test.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "d8ebc56854cb279ac1cc05739c5bc3631f46b8d2",
+      "sha256": "2a66ac033e6886fa41da7731d4940418c5c55403ec758954f1696fbd7cf93f42",
+      "bytes": 6464,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "internal/qualification/firecracker/production_test.go",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "555ed49763619ffc1d3788228007d05209722ecc",
+      "sha256": "6dbf4367b2ee68e7f523ec90603353faafd97a02d679f4a6675eee31852ecf11",
+      "bytes": 17798,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/README.md",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "9f03d3bcf55ed9b6b0803ee75722c0b8087fda0a",
+      "sha256": "8e55aa71fdeedbdb839283200843ae7234bce2493430f11b2f6a76c7edd4ba39",
+      "bytes": 6028,
+      "identical_to_qualified_6d": true
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/RECIPE.md",
+      "mode": "100644",
+      "kind": "blob",
+      "blob": "34b86370cc4ceb1f4338450b56ab5d0f0533738a",
+      "sha256": "129431a595228da79734d965ea4bc326d2da7276e0ab7c6fe96cb01dedf161f8",
+      "bytes": 5925,
+      "identical_to_qualified_6d": true
+    }
+  ],
+  "nine_non_test_identity_substitutions_only": true,
+  "all_other_tracked_entries_equal_published_parent": true,
+  "all_Go_module_entries_equal_qualified": true,
+  "Go_module_entry_count": 2420,
+  "Go_module_inventory_sha256": "49e990e6f897e82e52d922eb9b1ceae314297e4c9bd612f76596c1af4529a1d7",
+  "full_index_source_delta_sha256": "b68e9834a2d26af58ecd0a02bd706e4d67820e77f2b8aed8683a147a9893969f",
+  "full_index_source_delta_bytes": 49230,
+  "original_abbreviated_index_patch_sha256": "d39bc272e6d7aeb4ea570ef920353f37b2151dd0fdb6b0ec4dbedec83024c65d",
+  "original_abbreviated_index_patch_bytes": 48114,
+  "abbreviated_patch_origin": "original sealed patch.diff bytes copied unchanged, not relabeled/regenerated",
+  "F2_helpers_unchanged": true,
+  "tracked_and_index_clean": true,
+  "qualification_receipt_identity_policy": "Accepted runs remain pinned6d/tree02bf/parentcc09; donor adds only vendor docs ancestry with identical Go/module/source bytes. No run claimed on new donor; no rerun necessary to prove mechanical source equality.",
+  "operations": "hooks-disabled worktree/cherry-pick only; no Go/runtime/source reimplementation/AGENTS/REFACTOR/sharedfeature/main/push/cloud"
+}

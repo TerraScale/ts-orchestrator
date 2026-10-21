@@ -86,7 +86,6 @@ type Dependencies struct {
 
 // Reconciler runs Decide on the authority leader every interval.
 type Reconciler struct {
-	config   Config
 	topology Topology
 	deps     Dependencies
 	mu       sync.Mutex
@@ -97,10 +96,7 @@ type Reconciler struct {
 	requested map[string]retirementRequestMark
 }
 
-func New(config Config, topology Topology, deps Dependencies) (*Reconciler, error) {
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
+func New(topology Topology, deps Dependencies) (*Reconciler, error) {
 	if err := topology.Validate(); err != nil {
 		return nil, err
 	}
@@ -114,14 +110,14 @@ func New(config Config, topology Topology, deps Dependencies) (*Reconciler, erro
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	return &Reconciler{config: config, topology: topology, deps: deps,
+	return &Reconciler{topology: topology, deps: deps,
 		state: State{Slots: make(map[string]SlotStatus)}, requested: make(map[string]retirementRequestMark)}, nil
 }
 
 // Run evaluates membership until ctx ends. Errors in one pass are logged and
 // retried on the next tick; they never stop the controller.
 func (r *Reconciler) Run(ctx context.Context) error {
-	ticker := time.NewTicker(r.config.Interval())
+	ticker := time.NewTicker(DefaultInterval)
 	defer ticker.Stop()
 	for {
 		if err := r.Tick(ctx); err != nil && ctx.Err() == nil {
@@ -161,7 +157,7 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	next, actions := Decide(r.config, r.topology, previous, observation)
+	next, actions := Decide(r.topology, previous, observation)
 	for _, action := range actions {
 		next.Slots[action.Slot] = r.execute(ctx, snapshot.Epoch, action, next.Slots[action.Slot], observation.At)
 	}
@@ -352,7 +348,7 @@ func (r *Reconciler) commit(epoch uint64, previous, next State) {
 		if !existed || before.Phase != status.Phase || before.Reason != status.Reason {
 			r.deps.Logger.Info("controller slot membership", "slot", slot, "phase", status.Phase,
 				"reason", status.Reason, "attempt", status.Attempt, "online", status.Online,
-				"lifecycle", status.Lifecycle, "replace_enabled", r.config.Replace)
+				"lifecycle", status.Lifecycle)
 		}
 	}
 	slices.SortFunc(statuses, func(a, b SlotStatus) int {

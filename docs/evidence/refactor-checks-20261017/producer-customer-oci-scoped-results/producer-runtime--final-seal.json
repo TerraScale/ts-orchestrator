@@ -1,0 +1,43 @@
+{
+  "state": "PASS_EXACT_GRANTED_ONCE_EXTERNALLY_SEALED",
+  "epoch_utc": "2026-10-17T04:16:16.069866+00:00",
+  "commit": "8f3e9ec45991b63e713c807cf0e0d0764dc915a3",
+  "tree": "6ec6d2d06799ab93c6fc3e2386dfe4def2749d8f",
+  "request_sha256": "c9bbb1e119927330391b0443573428d5578a4d976e5281cc1b2363052e02a5e2",
+  "runner_sha256": "8c508c07c347c0ac68de8778b911d2ba510120451bf79f0fc41ed02df4144923",
+  "native_session": 82325,
+  "native_pid": 601840,
+  "native_result_count": 9,
+  "child_reaped": true,
+  "shared_lock_released_by_terminal_runner": true,
+  "exact_passes": 17,
+  "package_elapsed_seconds": 0.962,
+  "wall_seconds": 142.80678712704685,
+  "max_child_rss_kib": 1060512,
+  "source_tool_request_audit_pre_equals_post": true,
+  "files": {
+    "SHA256SUMS": "1a350de2f20b9de70d0f3c95b93119c40210a14094bf214733239b8cc4587c20",
+    "native-tool-result-001-verification.json": "293ceb7cf21cbffb438d066377052a44ffc701adb9ef78a170876d958da48c89",
+    "native-tool-result-002-launch.json": "4cd8e128e3954a41c21db864ae03591ef5c086ec97901724534606e5031df2eb",
+    "native-tool-result-003-poll.json": "36c3c3ecd81ef7c62a7d7a733351f8db01856af328dcd5180be1a7aff505ca9b",
+    "native-tool-result-004-poll.json": "23fadc5064be204b4e63459c48c520a61fcdd33b9dba1cad17219731fb2f3b5c",
+    "native-tool-result-005-poll.json": "dcb94662c91cd9cad9edce3b8f444147f3fe8050d5617ccb3b1b646a7124b042",
+    "native-tool-result-006-poll.json": "90f425ef40594fbac6e213166af024aeb5b089899072a6dd917f634dced37455",
+    "native-tool-result-007-poll.json": "8e66f3e3e04d45ce89cbf8e60182f581a246397fabf70895ae76e313b0f75551",
+    "native-tool-result-008-poll.json": "83089defd64076eeeb1dabe4d31b45f34559c1a78364cf71bd663a03eb95e495",
+    "native-tool-result-009-poll.json": "10a1013852a9d61c5badc424ca60007b01cf9c5e3870a80e729e0c63ad8336f0",
+    "preflight.json": "0c5b7173857df564ddefa9caaa359dfd74eba2dc845a6c26c2cabc98bd6bc376",
+    "receipt.json": "5029db44b509dc6cc070232c705a50cc33534b1d1edd721b37461c56ed436a64",
+    "run.py": "8c508c07c347c0ac68de8778b911d2ba510120451bf79f0fc41ed02df4144923",
+    "started.json": "02640ec222391d81831d3190a3d8bdfffd3a82da4d20f2f16933ca402a973dda",
+    "stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout.jsonl": "5a1508f5f48a4cc97af6586018abaec00d23ecada02fe96d3d23ec8fb59dbde7",
+    "tracked-source-post.json": "44a2601bfd537cfd6183873285757e00e3d5cbae946418f29ac6a0c0f48e7750",
+    "tracked-source-pre.json": "44a2601bfd537cfd6183873285757e00e3d5cbae946418f29ac6a0c0f48e7750"
+  },
+  "limits": [
+    "One exact three-root default-vet/default-tag public preparation/offline-sign/publication SDK fixture attempt.",
+    "No live OCI, protected-writer success, provisioning, identity runtime, global regression, retirement or production qualification credit.",
+    "Three prior failed candidates and unused packets retained unchanged."
+  ]
+}

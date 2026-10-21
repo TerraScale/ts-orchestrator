@@ -1,0 +1,49 @@
+{
+  "state": "NOT_QUALIFIED_BUILD_FAILURE_NO_TEST_EXECUTED",
+  "source": "fac2a2715dad336cf67fc935d9f6af94c6bac1c2",
+  "tree": "9373511168ee3b5dea80fe61b7cc68a8986550f5",
+  "failure": "managed_runtime.go:117 StartManagementServer has4arguments but actual API requires5 including StatefulServiceAuthorizer",
+  "native_session": 36549,
+  "native_pid": 718926,
+  "exit_code": 1,
+  "wall_seconds": 141.1444676659885,
+  "source_unchanged": true,
+  "external_launch_and_seal_pins_unchanged": true,
+  "actual_root_runs": 0,
+  "actual_root_outcomes": 0,
+  "locks_and_child": {
+    "pid": 718926,
+    "pid_exists": false,
+    "locks": {
+      "/tmp/ts-orch-refactor-general-check.lock": "FREE",
+      "/tmp/ts-orch-refactor-gate-check.lock": "FREE"
+    }
+  },
+  "scope": "Compile failure only; no connected scenario executed; exact single grant consumed, no retry.",
+  "files": {
+    "assertion-map.json": "2f20f3cdba5da10df2915adacccc7787bc308f3da7b256f3081855f187cf849b",
+    "external-postflight.json": "bc8fe5580da09f407b90321ac7ca52d3b072b6b1ed099b72f05d2a7530387faf",
+    "external-preflight.json": "5093e71240238f26c33e05e73e38b98dd87ab07e6fab6a1a42920516c9787edd",
+    "fullsource-manifest.json": "e8d5e2c4833304bf5212661b423ad748f52af9eb8034202ccbc5de49e8dd9570",
+    "locks-released.json": "0bcfd8dcc699a0942dfa917687d846eb0dd8c211d092bc668c4fe47d0bf2118c",
+    "native-launch-receipt.json": "2afc44b797f12783acb7bea6f7e2c621bdab932ff87d3455185d9bdc8e434d57",
+    "native-launch.json": "01c4092b4f7956fe3bbf6fdc729cb71ca9f90017250993cc65cedf55ccb26fe1",
+    "native-poll-1.json": "eea0227068f509c711ddecd566f49f603110e29fcd8c3111d19e2d60061519ea",
+    "native-poll-2.json": "a5484142159488cc4254681ca0230c8567f84b7d78cde950f40ef217a22324b5",
+    "native-terminal.json": "931df93e9561bdaf6f8366bf03bf4b3886ab395a0b492c372951328c3e0586da",
+    "postflight.json": "507640cb03e7798c719b349d9576990446987270fe8c5a95d950484a39557b97",
+    "preflight.json": "d598cf5885e6fad933ac12e0342053b3223cac8dd23ca3b3193b0ca6ead548f9",
+    "qa-grant.json": "d71f81c6185cb92a8d517d35139fd0f5d2a1c12043dd76bbc409583a29e97454",
+    "receipt.json": "b1b1947170153d0ea7dbb5b006fb1967b545263fc647493d12bed978c85a7885",
+    "request.json": "a39797b8df15aa5863e7b6af93e91fc6a3003f7cbf1d134270bcd051b8192f3f",
+    "resource-check.json": "8558ad247caa29a51086e5ea65f1782ba1c32fcf62c8f37a5b3eaa50d233e888",
+    "run.py": "c8904764e690f9ca8668e7b39ea320be586e23df2da39333f4ae7388e98f24a4",
+    "runtime.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime.stdout": "4f7ec5a5ad5d90a8308dd5e5c31156eb0b94075f6f2d4f80f2a7700884f16bc3",
+    "seal.json": "f8a3ee0fe80d2b74e2163a47dca588f023b0c01919cf2ea5a1c31096e040cf01",
+    "source-alias-manifest.json": "0051f7f66fa9a0e9437f47647f6358d01139acdf246c1c606e47501977dd6c11",
+    "started.json": "311030343e4ec7c0b33e6c055711cb49e193b12ef986a66108b8ab43279f6d0c",
+    "static-import-closure.json": "1026ec256e6ce5a08c7a7a0813a41a183866318ea8af7aa5fbea5bc6d04d615c",
+    "static-review.json": "3906f71ee3e1eb921bb7b8072114bc11ac0b7d30f89984ada8024496968c7dda"
+  }
+}

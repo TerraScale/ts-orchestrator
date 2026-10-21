@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
@@ -16,12 +15,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 type managedImageReadback interface {
+	ListShapes(context.Context, core.ListShapesRequest) (core.ListShapesResponse, error)
 	GetImage(context.Context, core.GetImageRequest) (core.GetImageResponse, error)
 	GetImageShapeCompatibilityEntry(context.Context, core.GetImageShapeCompatibilityEntryRequest) (core.GetImageShapeCompatibilityEntryResponse, error)
 }
@@ -29,7 +30,6 @@ type managedImageReadback interface {
 type managedImageVerifier struct {
 	region         oci.RegionConfig
 	environment    string
-	architecture   string
 	roots          trust.Keyring
 	receiptWire    []byte
 	delegationWire []byte
@@ -134,7 +134,7 @@ func managedImageVerifierFromFiles(controller ControllerConfig) func(context.Con
 
 // independentManagedImageProof qualifies the configured host image from its
 // own receipt. The receipt must be currently valid under the baked roots for
-// the cell's environment, exact image OCID, region and shape architecture;
+// the cell's environment, exact image OCID and region;
 // VerifyImageQualified re-checks it and the OCI readback on every use.
 func independentManagedImageProof(region oci.RegionConfig, cell oci.Region, environment string, roots trust.Keyring,
 	receiptWire, delegationWire []byte, now time.Time,
@@ -142,12 +142,8 @@ func independentManagedImageProof(region oci.RegionConfig, cell oci.Region, envi
 	if region.Region != cell {
 		return nil, errors.New("managed image region differs from baked cell")
 	}
-	architecture, err := imageArchitectureForShape(region.Shape)
-	if err != nil {
-		return nil, err
-	}
 	image, err := release.VerifyImageCurrent(receiptWire, delegationWire, roots, release.ImageExpectation{
-		Environment: environment, LogicalRegion: string(region.Region), OCIImageOCID: region.ImageID, Architecture: architecture,
+		Environment: environment, LogicalRegion: string(region.Region), OCIImageOCID: region.ImageID,
 	}, now)
 	if err != nil {
 		return nil, fmt.Errorf("verify independent managed host image receipt: %w", err)
@@ -156,7 +152,7 @@ func independentManagedImageProof(region oci.RegionConfig, cell oci.Region, envi
 		return nil, errors.New("managed host image proof is absent")
 	}
 	return &managedImageVerifier{
-		region: region, environment: environment, architecture: architecture, roots: roots,
+		region: region, environment: environment, roots: roots,
 		receiptWire: receiptWire, delegationWire: delegationWire, now: time.Now,
 	}, nil
 }
@@ -175,7 +171,7 @@ func newManagedImageVerifier(ctx context.Context, region oci.RegionConfig) (*man
 	if err != nil {
 		return nil, err
 	}
-	receipt, delegation, err := bootstrapstart.LoadAcceptedManagedImageMaterial(accepted)
+	receipt, delegation, err := bootstrapstart.LoadAcceptedManagedImageMaterialContext(ctx, accepted)
 	if err != nil {
 		return nil, err
 	}
@@ -295,9 +291,13 @@ func (verifier *managedImageVerifier) verifyQualified(ctx context.Context, regio
 		}
 		receiptWire, delegationWire, roots = spec.images[index].Receipt, spec.images[index].Delegation, spec.roots
 	}
+	architecture, err := observedManagedImageArchitecture(ctx, verifier.images, verifier.region, imageID)
+	if err != nil {
+		return err
+	}
 	image, err := release.VerifyImageCurrent(receiptWire, delegationWire,
 		roots, release.ImageExpectation{Environment: verifier.environment,
-			LogicalRegion: string(region), OCIImageOCID: imageID, Architecture: verifier.architecture},
+			LogicalRegion: string(region), OCIImageOCID: imageID, Architecture: architecture},
 		verifier.now().Round(0).UTC())
 	if err != nil {
 		return fmt.Errorf("verify current qualified image receipt: %w", err)
@@ -326,15 +326,53 @@ func (verifier *managedImageVerifier) verifyQualified(ctx context.Context, regio
 	return ctx.Err()
 }
 
-func imageArchitectureForShape(shape string) (string, error) {
-	switch {
-	case shape == "VM.Standard.A1.Flex":
-		return "arm64", nil
-	case strings.HasPrefix(shape, "VM.Standard.E4."), strings.HasPrefix(shape, "VM.Standard.E5."):
-		return "amd64", nil
-	default:
-		return "", fmt.Errorf("managed image architecture is unknown for shape %q", shape)
+func managedImageArchitecture(ctx context.Context, region oci.RegionConfig) (string, error) {
+	images, err := newManagedImageReadback(region)
+	if err != nil {
+		return "", err
 	}
+	return observedManagedImageArchitecture(ctx, images, region, region.ImageID)
+}
+
+func observedManagedImageArchitecture(ctx context.Context, images managedImageReadback, region oci.RegionConfig, imageID string) (string, error) {
+	if !release.ValidOCIImageIDForRegion(imageID, string(region.Region)) || region.CompartmentID == "" ||
+		region.AvailabilityDomain == "" || region.Shape == "" {
+		return "", errors.New("managed image shape observation requires exact regional image, compartment, availability domain and shape")
+	}
+	request := core.ListShapesRequest{CompartmentId: new(region.CompartmentID),
+		AvailabilityDomain: new(region.AvailabilityDomain), ImageId: new(imageID), Shape: new(region.Shape)}
+	architecture := ""
+	pages := map[string]bool{}
+	for {
+		response, err := images.ListShapes(ctx, request)
+		if err != nil {
+			return "", fmt.Errorf("read OCI managed image shapes: %w", err)
+		}
+		for _, shape := range response.Items {
+			if shape.Shape == nil || *shape.Shape != region.Shape {
+				continue
+			}
+			if architecture != "" || shape.ProcessorDescription == nil {
+				return "", errors.New("OCI managed image shape has missing or ambiguous processor identity")
+			}
+			architecture, err = catalog.ShapeArchitecture(*shape.ProcessorDescription)
+			if err != nil {
+				return "", err
+			}
+		}
+		if response.OpcNextPage == nil || *response.OpcNextPage == "" {
+			break
+		}
+		if pages[*response.OpcNextPage] {
+			return "", errors.New("OCI managed image shape pagination repeated")
+		}
+		pages[*response.OpcNextPage] = true
+		request.Page = response.OpcNextPage
+	}
+	if architecture == "" {
+		return "", errors.New("OCI managed image shape is unavailable in its availability domain")
+	}
+	return architecture, ctx.Err()
 }
 
 func digestManagedImageWire(wire []byte) string {

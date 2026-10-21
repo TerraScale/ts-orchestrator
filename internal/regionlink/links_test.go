@@ -99,25 +99,102 @@ func TestLinkTimeoutAppliesUnderALaterCallerDeadline(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("the request took %s under a 150ms link timeout", elapsed)
 	}
-}
 
-func TestUnlinkDropsOnlyPeerRegions(t *testing.T) {
-	t.Parallel()
-	links, err := New("gru", nil, []string{"sfo", "fra"}, time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	links.Unlink("GRU")
-	links.Unlink("mia")
-	if got := links.Regions(); !slices.Equal(got, []string{"gru", "fra", "sfo"}) {
-		t.Fatalf("local or unknown unlink changed regions = %v", got)
-	}
-	conn := &nats.Conn{}
-	if err := links.Link("sfo", conn); err != nil || !links.Linked("sfo") {
-		t.Fatalf("link sfo: %v", err)
-	}
-	links.Unlink("SFO")
-	if got := links.Regions(); !slices.Equal(got, []string{"gru", "fra"}) || links.Linked("sfo") {
-		t.Fatalf("after unlink regions = %v, linked %v", got, links.Linked("sfo"))
-	}
+	t.Run("unlink drops only peer routes", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		responder, err := nats.Connect(srv.ClientURL(), nats.Timeout(time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(responder.Close)
+		const subject = "ts.orch.v1.sfo.obs.ping"
+		type observation struct {
+			subject string
+			payload string
+			err     error
+		}
+		observed := make(chan observation, 4)
+		sub, err := responder.Subscribe(subject, func(message *nats.Msg) {
+			err := message.Respond(append([]byte("pong:"), message.Data...))
+			select {
+			case observed <- observation{message.Subject, string(message.Data), err}:
+			case <-ctx.Done():
+			}
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = sub.Unsubscribe() })
+		if err := responder.FlushTimeout(time.Second); err != nil {
+			t.Fatal(err)
+		}
+		links, err := New("gru", nil, []string{"sfo", "fra"}, time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state := func(want []string, linked bool) {
+			t.Helper()
+			if got := links.Regions(); !slices.Equal(got, want) || links.Linked("sfo") != linked || links.Linked("gru") {
+				t.Fatalf("regions = %v, linked sfo=%v gru=%v; want %v, sfo=%v gru=false", got, links.Linked("sfo"), links.Linked("gru"), want, linked)
+			}
+		}
+		observe := func(payload string) {
+			t.Helper()
+			waitCtx, stop := context.WithTimeout(ctx, time.Second)
+			defer stop()
+			select {
+			case got := <-observed:
+				if got.subject != subject || got.payload != payload || got.err != nil {
+					t.Fatalf("responder = %+v, want %s %q and nil response error", got, subject, payload)
+				}
+			case <-waitCtx.Done():
+				t.Fatalf("responder observation %q: %v", payload, waitCtx.Err())
+			}
+		}
+		ping := func(payload string) {
+			t.Helper()
+			reply, err := links.Request(ctx, "SFO", "ping", []byte(payload))
+			if err != nil || string(reply) != "pong:"+payload {
+				t.Fatalf("peer request %q = %q, %v", payload, reply, err)
+			}
+			observe(payload)
+		}
+		links.Unlink("GRU")
+		state([]string{"gru", "fra", "sfo"}, false)
+		links.Unlink("mia")
+		state([]string{"gru", "fra", "sfo"}, false)
+		if err := links.Link("sfo", conn); err != nil || !links.Linked("sfo") {
+			t.Fatalf("link sfo: %v", err)
+		}
+		state([]string{"gru", "fra", "sfo"}, true)
+		ping("linked")
+		links.Unlink("GRU")
+		state([]string{"gru", "fra", "sfo"}, true)
+		ping("local-kept")
+		links.Unlink("mia")
+		state([]string{"gru", "fra", "sfo"}, true)
+		ping("unknown-kept")
+		links.Unlink("SFO")
+		state([]string{"gru", "fra"}, false)
+		if reply, err := links.Request(ctx, "sfo", "ping", []byte("removed")); !errors.Is(err, ErrUnknownRegion) || reply != nil {
+			t.Fatalf("removed peer request = %q, %v; want nil, ErrUnknownRegion", reply, err)
+		}
+		// The same-connection probe orders earlier sends before the final observation.
+		if err := conn.FlushTimeout(time.Second); err != nil {
+			t.Fatal(err)
+		}
+		probeCtx, stopProbe := context.WithTimeout(ctx, time.Second)
+		defer stopProbe()
+		reply, err := conn.RequestWithContext(probeCtx, subject, []byte("responder-alive"))
+		if err != nil || string(reply.Data) != "pong:responder-alive" {
+			t.Fatalf("direct responder probe = %+v, %v", reply, err)
+		}
+		observe("responder-alive")
+		select {
+		case extra := <-observed:
+			t.Fatalf("unexpected responder observation: %+v", extra)
+		default:
+		}
+	})
 }

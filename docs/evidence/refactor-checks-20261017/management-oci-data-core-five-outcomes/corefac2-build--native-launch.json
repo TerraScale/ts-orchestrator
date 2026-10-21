@@ -1,0 +1,24 @@
+{
+  "argv": [
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "LANG=C.UTF-8",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0/run.py",
+    "a39797b8df15aa5863e7b6af93e91fc6a3003f7cbf1d134270bcd051b8192f3f",
+    "c8904764e690f9ca8668e7b39ea320be586e23df2da39333f4ae7388e98f24a4"
+  ],
+  "cwd": "/tmp/ts-core-connected-history-afad",
+  "request_sha256": "a39797b8df15aa5863e7b6af93e91fc6a3003f7cbf1d134270bcd051b8192f3f",
+  "runner_sha256": "c8904764e690f9ca8668e7b39ea320be586e23df2da39333f4ae7388e98f24a4",
+  "launch_authorized": false,
+  "attempts": 1,
+  "requirement": "Exact separate QA execution grant; this is a source-only native invocation specification, not a receipt or execution."
+}

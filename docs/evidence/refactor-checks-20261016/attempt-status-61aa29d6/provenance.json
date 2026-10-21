@@ -1,0 +1,19 @@
+{
+  "qualified_source": "61aa29d6b4226953308819a62bc5eb341c53b69d",
+  "source_tree": "d96ac15185a481ee057543347fc1cfc7c98b59f5",
+  "feature_integration": "fast-forward from cbfa626a preserves exact qualified source identity",
+  "original_packet": "/tmp/ts-qa-attempt-status-current-nodes-evidence-61aa29d6-20261016",
+  "archive_sha256": "060e7c23dd67fd1a9921bcb0b50e691c36a3d2bf306a0e87ec99fad282657179",
+  "original_checksum_index_sha256": "c2132a217b230298d7754140c7547bcf9a0cf518286b9b9bac615ed870d86a11",
+  "historical_source": "18b3ac46a269480ee74273259031c8dd47fb02ca",
+  "historical_result": "build failure; zero test cases executed",
+  "corrected_run": {
+    "session": 43484,
+    "result": "PASS four cases; no skips",
+    "wall_seconds": 5.514,
+    "package_seconds": 0.273,
+    "selector": "^TestPhaseStatusThroughSignedOCISDK$"
+  },
+  "main_unchanged": "72e903719c7b53dee94305f50b3bdb8b147f0eda",
+  "boundary": "Local signed actual SDK HTTP evidence; no full-suite/race/live OCI/migration closure."
+}

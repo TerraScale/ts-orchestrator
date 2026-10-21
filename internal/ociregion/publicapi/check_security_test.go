@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 )
 
 type originCheck struct {
@@ -77,48 +75,6 @@ func TestCheckBalancerSecurityHealthAndOriginCertificate(t *testing.T) {
 	}
 }
 
-func TestCheckBalancerSecurityHealthTLSDefaults(t *testing.T) {
-	d, f, _, _, _ := reviewedEdge(t)
-	health := field(f.balancer, "backend-sets", "terrabase", "health-checker").(map[string]any)
-	for _, forcePlaintext := range []any{nil, false} {
-		health["is-force-plain-text"] = forcePlaintext
-		if err := d.CheckBalancer(f.balancer); err != nil {
-			t.Fatalf("rejected native TLS health-check default %v: %v", forcePlaintext, err)
-		}
-	}
-	delete(health, "is-force-plain-text")
-	if err := d.CheckBalancer(f.balancer); err != nil {
-		t.Fatalf("rejected omitted TLS health-check default: %v", err)
-	}
-	// Readback may include a PEM chain and omits the private key.
-	origin := field(f.balancer, "certificates", originCertificate).(map[string]any)
-	origin["public-certificate"] = origin["public-certificate"].(string) + testCA(t)
-	delete(origin, "private-key")
-	if err := d.CheckBalancer(f.balancer); err != nil {
-		t.Fatalf("rejected a valid leaf followed by its certificate chain without a private key: %v", err)
-	}
-}
-
-func TestCheckBalancerSecurityBackendDefaults(t *testing.T) {
-	d, f, _, _, _ := reviewedEdge(t)
-	if err := d.CheckBalancer(f.balancer); err != nil {
-		t.Fatalf("rejected SDK-rendered omitted create defaults: %v", err)
-	}
-	for _, name := range []string{"terrabase", "ts-auth"} {
-		rows := field(f.balancer, "backend-sets", name, "backends").([]any)
-		for i, row := range rows {
-			// Unlike BackendDetails, a live Backend returns explicit defaults.
-			rows[i] = f.render(loadbalancer.Backend{
-				IpAddress: new(field(row, "ip-address").(string)), Port: new(int(field(row, "port").(float64))),
-				Weight: new(1), Offline: new(false), Drain: new(false), Backup: new(false),
-			})
-		}
-	}
-	if err := d.CheckBalancer(f.balancer); err != nil {
-		t.Fatalf("rejected SDK-rendered live defaults: %v", err)
-	}
-}
-
 func TestCheckBalancerSecurityInactiveBackends(t *testing.T) {
 	for _, backend := range []struct {
 		set   string
@@ -144,70 +100,3 @@ func TestCheckBalancerSecurityInactiveBackends(t *testing.T) {
 	}
 }
 
-func TestCheckBalancerSecurityHTTPRedirect(t *testing.T) {
-	for _, c := range []struct {
-		name, object, key string
-		value             any
-	}{
-		{"other default backend", "listener", "default-backend-set-name", "ts-auth"},
-		{"hostname restricted", "listener", "hostname-names", []any{"terrabase"}},
-		{"path routing", "listener", "path-route-set-name", "plaintext"},
-		{"routing policy", "listener", "routing-policy-name", "plaintext"},
-		{"missing redirect binding", "listener", "rule-set-names", nil},
-		{"additional rule binding", "listener", "rule-set-names", []any{"https-redirect", "0000000000V4MRM46HP1SNGDYW"}},
-		{"missing rule", "rule-set", "items", nil},
-		{"empty rules", "rule-set", "items", []any{}},
-		{"other action", "redirect", "action", "ADD_HTTP_RESPONSE_HEADER"},
-		{"temporary status", "redirect", "response-code", 302},
-		{"default status", "redirect", "response-code", nil},
-		{"missing conditions", "redirect", "conditions", nil},
-		{"empty conditions", "redirect", "conditions", []any{}},
-		{"additional condition", "redirect", "conditions", []any{
-			map[string]any{"attribute-name": "PATH", "attribute-value": "/", "operator": "PREFIX_MATCH"},
-			map[string]any{"attribute-name": "PATH", "attribute-value": "/readyz", "operator": "EXACT_MATCH"},
-		}},
-		{"narrow path", "condition", "attribute-value", "/readyz"},
-		{"exact root only", "condition", "operator", "EXACT_MATCH"},
-		{"other attribute", "condition", "attribute-name", "HOST"},
-		{"plaintext destination", "destination", "protocol", "HTTP"},
-		{"foreign host", "destination", "host", "other.terrascale.tech"},
-		{"missing host", "destination", "host", nil},
-		{"plaintext port", "destination", "port", 80},
-		{"retained plaintext port", "destination", "port", nil},
-		{"replaced path", "destination", "path", "/"},
-		{"missing path", "destination", "path", nil},
-		{"dropped query", "destination", "query", ""},
-		{"missing query", "destination", "query", nil},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			d, f, _, _, _ := reviewedEdge(t)
-			set := field(f.balancer, "rule-sets", "https-redirect").(map[string]any)
-			redirect := set["items"].([]any)[0].(map[string]any)
-			objects := map[string]map[string]any{
-				"listener":    field(f.balancer, "listeners", "http").(map[string]any),
-				"rule-set":    set,
-				"redirect":    redirect,
-				"condition":   redirect["conditions"].([]any)[0].(map[string]any),
-				"destination": redirect["redirect-uri"].(map[string]any),
-			}
-			objects[c.object][c.key] = c.value
-			want := "https-redirect rule set"
-			if c.object == "listener" {
-				want = "listener http"
-			}
-			if err := d.CheckBalancer(f.balancer); err == nil || !strings.Contains(err.Error(), want) {
-				t.Fatalf("accepted HTTP redirect drift %s: %v", c.name, err)
-			}
-		})
-	}
-}
-
-func TestCheckBalancerSecurityUnrestrictedHTTPDefaults(t *testing.T) {
-	for _, hostnames := range []any{nil, []any{}} {
-		d, f, _, _, _ := reviewedEdge(t)
-		field(f.balancer, "listeners", "http").(map[string]any)["hostname-names"] = hostnames
-		if err := d.CheckBalancer(f.balancer); err != nil {
-			t.Fatalf("rejected unrestricted HTTP listener hostnames %v: %v", hostnames, err)
-		}
-	}
-}

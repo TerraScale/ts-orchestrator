@@ -1,6 +1,7 @@
 package sdkcli
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -11,67 +12,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/core"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
-
-func TestKebabMatchesCLIMemberNames(t *testing.T) {
-	for camel, want := range map[string]string{
-		"id": "id", "lifecycleState": "lifecycle-state", "compartmentId": "compartment-id", "sizeInGBs": "size-in-gbs",
-		"vpusPerGB": "vpus-per-gb", "billableSizeInGBs": "billable-size-in-gbs", "isIpv6Enabled": "is-ipv6-enabled",
-		"prohibitPublicIpOnVnic": "prohibit-public-ip-on-vnic", "drgRouteTableId": "drg-route-table-id",
-		"ipAddresses": "ip-addresses", "content-length": "content-length",
-	} {
-		if got := Kebab(camel); got != want {
-			t.Errorf("Kebab(%q)=%q want %q", camel, got, want)
-		}
-	}
-}
-
-func TestParseRejectsAmbiguousArguments(t *testing.T) {
-	command, err := Parse([]string{"network", "vcn", "get", "--vcn-id", "x"})
-	if err != nil || command.Path != "network vcn get" || command.Flags["vcn-id"] != "x" || command.All {
-		t.Fatalf("command=%+v err=%v", command, err)
-	}
-	command, err = Parse([]string{"os", "object", "list", "--all", "--bucket-name", "b"})
-	if err != nil || !command.All || command.Flags["bucket-name"] != "b" {
-		t.Fatalf("command=%+v err=%v", command, err)
-	}
-	for _, args := range [][]string{
-		{"network", "vcn", "get", "--vcn-id"},
-		{"network", "vcn", "get", "--vcn-id", "a", "--vcn-id", "b"},
-		{"network", "--vcn-id", "a", "get"},
-	} {
-		if _, err := Parse(args); err == nil {
-			t.Fatalf("accepted %v", args)
-		}
-	}
-}
-
-func TestRenderPreservesUserKeyedMaps(t *testing.T) {
-	vcn := core.Vcn{Id: new("ocid1.vcn.oc1..v"), LifecycleState: core.VcnLifecycleStateAvailable,
-		FreeformTags: map[string]string{"CostCenter": "infra"},
-		DefinedTags:  map[string]map[string]any{"Oracle-Tags": {"CreatedBy": "someone"}}}
-	wire, err := Render(vcn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal(wire, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["lifecycle-state"] != "AVAILABLE" || got["id"] != "ocid1.vcn.oc1..v" {
-		t.Fatalf("got=%v", got)
-	}
-	if got["freeform-tags"].(map[string]any)["CostCenter"] != "infra" ||
-		got["defined-tags"].(map[string]any)["Oracle-Tags"].(map[string]any)["CreatedBy"] != "someone" {
-		t.Fatalf("user-keyed maps were rewritten: %v", got)
-	}
-}
 
 func testClient(t *testing.T, handler http.HandlerFunc) *Client {
 	t.Helper()
@@ -87,7 +35,8 @@ func testClient(t *testing.T, handler http.HandlerFunc) *Client {
 	}
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	return &Client{factory: factory, endpoint: server.URL}
+	client := NewClient(factory, server.URL)
+	return client
 }
 
 func TestHandlersServeCLIShapedData(t *testing.T) {
@@ -102,6 +51,8 @@ func TestHandlersServeCLIShapedData(t *testing.T) {
 				return
 			}
 			_, _ = io.WriteString(w, `{"objects":[{"name":"b","size":2}]}`)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/keys/k"):
+			_, _ = io.WriteString(w, `{"id":"k","lifecycleState":"ENABLED"}`)
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/networkLoadBalancers"):
 			_, _ = io.WriteString(w, `{"items":[{"id":"ocid1.networkloadbalancer.oc1..n","displayName":"public","lifecycleState":"ACTIVE"}]}`)
 		case r.Method == http.MethodHead:
@@ -184,8 +135,8 @@ func TestHandlersServeCLIShapedData(t *testing.T) {
 		"https://vault-management.kms.sa-saopaulo-1.oci.oraclecloud.com",
 		"https://vault.management.sa-saopaulo-1.oraclecloud.com",
 	} {
-		if !kmsEndpointInRegion(endpoint, "sa-saopaulo-1") {
-			t.Fatalf("rejected the regional vault endpoint %q", endpoint)
+		if _, handled, err := client.Call(ctx, []string{"kms", "management", "key", "get", "--key-id", "k", "--endpoint", endpoint}); err != nil || !handled {
+			t.Fatalf("regional vault endpoint %q: handled=%v err=%v", endpoint, handled, err)
 		}
 	}
 	for _, endpoint := range []string{
@@ -194,9 +145,36 @@ func TestHandlersServeCLIShapedData(t *testing.T) {
 		"https://vault.management.sa-saopaulo-1.oraclecloud.com.evil.example",
 		"https://.management.sa-saopaulo-1.oraclecloud.com",
 	} {
-		if kmsEndpointInRegion(endpoint, "sa-saopaulo-1") {
+		if _, _, err := client.Call(ctx, []string{"kms", "management", "key", "get", "--key-id", "k", "--endpoint", endpoint}); err == nil {
 			t.Fatalf("accepted the vault endpoint %q", endpoint)
 		}
+	}
+	for _, body := range []string{`{"prefixes":[]}`, `[]`} {
+		t.Run("vcn list "+body, func(t *testing.T) {
+			var requests atomic.Int64
+			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.Method != http.MethodGet || r.URL.Path != "/20160918/vcns" ||
+					r.URL.RawQuery != "compartmentId=ocid1.compartment.oc1..test" || r.Header.Get("Authorization") == "" {
+					t.Errorf("unexpected VCN request: %s %s, authorization present=%v", r.Method, r.URL, r.Header.Get("Authorization") != "")
+					http.Error(w, "unexpected request", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, body)
+			})
+			wire, handled, err := client.Call(t.Context(), []string{"network", "vcn", "list", "--compartment-id", "ocid1.compartment.oc1..test", "--all"})
+			if requests.Load() != 1 || !handled {
+				t.Fatalf("VCN list: requests=%d handled=%v err=%v", requests.Load(), handled, err)
+			}
+			if body == "[]" {
+				if err != nil || string(wire) != "[]" {
+					t.Fatalf("empty VCN list = %s, %v", wire, err)
+				}
+			} else if err == nil {
+				t.Fatalf("accepted malformed VCN list: %s", body)
+			}
+		})
 	}
 }
 
@@ -232,27 +210,89 @@ func TestObjectVersionListSendsTheCLIFieldList(t *testing.T) {
 	}
 }
 
-func TestSelectedBackend(t *testing.T) {
-	t.Setenv(BackendEnv, "")
-	if backend, err := SelectedBackend(); err != nil || backend != BackendAuto {
-		t.Fatalf("backend=%v err=%v", backend, err)
+func TestSDKShapeCompatibilityAndCancellation(t *testing.T) {
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("compartmentId") != "compartment" || r.URL.Query().Get("imageId") != "image" {
+			t.Errorf("shape compatibility query = %s", r.URL.RawQuery)
+		}
+		if r.URL.Query().Get("availabilityDomain") == "blocked" {
+			<-r.Context().Done()
+			return
+		}
+		if r.URL.Query().Get("page") == "" {
+			w.Header().Set("opc-next-page", "second")
+			_, _ = io.WriteString(w, `[{"shape":"VM.Standard.A1.Flex","processorDescription":"Ampere Altra","isFlexible":true,"ocpuOptions":{"min":1,"max":80},"memoryOptions":{"minInGBs":1,"maxInGBs":512}}]`)
+			return
+		}
+		_, _ = io.WriteString(w, `[{"shape":"VM.Standard.E4.Flex","processorDescription":"AMD EPYC"}]`)
+	})
+	args := []string{"compute", "shape", "list", "--compartment-id", "compartment", "--image-id", "image", "--all"}
+	wire, handled, err := client.Call(t.Context(), args)
+	if err != nil || !handled {
+		t.Fatalf("shape compatibility: handled=%v err=%v", handled, err)
 	}
-	t.Setenv(BackendEnv, "cli")
-	if backend, _ := SelectedBackend(); backend != BackendCLI {
-		t.Fatal(backend)
+	var shapes []map[string]any
+	if err := json.Unmarshal(wire, &shapes); err != nil || len(shapes) != 2 || shapes[0]["processor-description"] != "Ampere Altra" || shapes[1]["shape"] != "VM.Standard.E4.Flex" {
+		t.Fatalf("shape compatibility = %s, %v", wire, err)
 	}
-	t.Setenv(BackendEnv, "python")
-	if _, err := SelectedBackend(); err == nil {
-		t.Fatal("accepted an unknown backend")
+	if shapes[0]["memory-options"].(map[string]any)["max-in-gbs"] != float64(512) {
+		t.Fatalf("shape dimensions = %s", wire)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+	_, _, err = client.Call(ctx, append(args, "--availability-domain", "blocked"))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("SDK HTTP cancellation = %v", err)
 	}
 }
 
-func TestEveryHandlerIsARead(t *testing.T) {
-	for path := range handlers {
-		words := strings.Fields(path)
-		verb := words[len(words)-1]
-		if verb != "get" && verb != "list" && verb != "head" && !strings.HasPrefix(verb, "list-") {
-			t.Fatalf("handler %q is not a read", path)
-		}
+func TestSDKObjectInventoryRejectsMalformedResponses(t *testing.T) {
+	for _, wire := range []string{"", `{}`, `{"prefixes":["hidden/"]}`, `{"objects":[] ,"objects":[{"name":"hidden","size":100}]}`, `{"objects":[]} {"objects":[]}`} {
+		t.Run(wire, func(t *testing.T) {
+			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, wire)
+			})
+			_, _, err := client.Call(t.Context(), []string{"os", "object", "list", "--namespace-name", "n", "--bucket-name", "b", "--all"})
+			if err == nil {
+				t.Fatalf("accepted uncounted storage: %s", wire)
+			}
+		})
+	}
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"objects":[]}`)
+	})
+	wire, _, err := client.Call(t.Context(), []string{"os", "object", "list", "--namespace-name", "n", "--bucket-name", "b", "--all"})
+	if err != nil || string(wire) != "[]" {
+		t.Fatalf("empty inventory = %s, %v", wire, err)
+	}
+	for _, body := range []string{"", `{"items":[]}`} {
+		t.Run("object versions "+body, func(t *testing.T) {
+			var requests atomic.Int64
+			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.Method != http.MethodGet || r.URL.Path != "/n/n/b/b/objectversions" ||
+					r.URL.RawQuery != "" || r.Header.Get("Authorization") == "" {
+					t.Errorf("unexpected object version request: %s %s, authorization present=%v", r.Method, r.URL, r.Header.Get("Authorization") != "")
+					http.Error(w, "unexpected request", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, body)
+			})
+			wire, handled, err := client.Call(t.Context(), []string{"os", "object", "list-object-versions", "--namespace-name", "n", "--bucket-name", "b", "--all"})
+			if requests.Load() != 1 || !handled {
+				t.Fatalf("object versions: requests=%d handled=%v err=%v", requests.Load(), handled, err)
+			}
+			if body == "" {
+				if err == nil {
+					t.Fatal("accepted a blank object version response")
+				}
+			} else if err != nil || string(wire) != "[]" {
+				t.Fatalf("empty object versions = %s, %v", wire, err)
+			}
+		})
 	}
 }

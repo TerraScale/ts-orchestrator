@@ -23,7 +23,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
-	natsclient "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -34,7 +33,8 @@ func TestDashboardRolloutHistoryRetainsTerminalRecords(t *testing.T) {
 		t.Run(string(phase), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 			defer cancel()
-			broker, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
+			auth := newAuthenticatedNATS(t, "lab")
+			broker, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1,
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
 			if err != nil {
 				t.Fatal(err)
@@ -136,12 +136,12 @@ func TestDashboardRolloutHistoryRetainsTerminalRecords(t *testing.T) {
 			}
 
 			// Reconnect and reopen: the dashboard must read persisted outcomes, not an executor's memory.
-			conn, err := natsclient.Connect(broker.Conn().ConnectedUrl())
+			reconnected, err := auth.start(t, ctx, natscell.Config{URL: broker.Conn().ConnectedUrl()})
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer conn.Close()
-			js, err := jetstream.New(conn)
+			defer reconnected.Close()
+			js, err := jetstream.New(reconnected.Conn())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -247,7 +247,7 @@ func TestDashboardRolloutHistoryRetainsTerminalRecords(t *testing.T) {
 					}
 				}
 				board := dashboard.New(dashboard.Options{})
-				telemetry.addBoard(board)
+				telemetry.addBoard(board, nil)
 				for _, path := range []string{"/rollouts", "/rollouts/" + id} {
 					response := httptest.NewRecorder()
 					board.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx))
@@ -266,19 +266,20 @@ func TestDashboardRolloutHistoryRetainsTerminalRecords(t *testing.T) {
 
 func TestDashboardRolloutStoreFailuresStayUnavailable(t *testing.T) {
 	ctx := t.Context()
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
+	auth := newAuthenticatedNATS(t, "lab")
+	broker, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer broker.Close()
 	lease := observedAuthority{snapshot: authority.Snapshot{Leader: true, Ready: true, Epoch: 3, ExpiresAt: time.Now().Add(time.Hour)}}
-	conn, err := natsclient.Connect(broker.Conn().ConnectedUrl())
+	reconnected, err := auth.start(t, ctx, natscell.Config{URL: broker.Conn().ConnectedUrl()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
-	js, err := jetstream.New(conn)
+	defer reconnected.Close()
+	js, err := jetstream.New(reconnected.Conn())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +364,7 @@ func TestDashboardRolloutStoreFailuresStayUnavailable(t *testing.T) {
 				cancel()
 			}
 			if failure == "disconnected" {
-				conn.Close()
+				reconnected.Conn().Close()
 			}
 			if _, err := source.Rollout(readCtx, id); err == nil || errors.Is(err, dashboard.ErrRolloutNotFound) {
 				t.Fatalf("failed exact read became absence/success: %v", err)

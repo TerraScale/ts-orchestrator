@@ -1,0 +1,83 @@
+{
+  "schema": "next300-full-composition-proposal-receipt-v1",
+  "state": "FULL_COMPOSED_PROPOSAL_NOT_APPLIED_PENDING_INDEPENDENT_COMPOSITION_REVIEW",
+  "created_utc": "2026-10-17T16:21:34.575259+00:00",
+  "ledgers": {
+    "completion": {
+      "actual_path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "before_path": "before/completion.json",
+      "before_sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e",
+      "before_bytes": 1294888,
+      "original_mode": "0600",
+      "after_path": "proposed-completion.json",
+      "after_sha256": "7b5975681576c2f4a7d0f9eb201d12946388c076ff03752490d96eb4ef17d3f4",
+      "after_bytes": 1425931
+    },
+    "progress": {
+      "actual_path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "before_path": "before/progress.json",
+      "before_sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e",
+      "before_bytes": 138535,
+      "original_mode": "0644",
+      "after_path": "proposed-progress.json",
+      "after_sha256": "94284e85dfa6a3c8d04c9fcf536754ec8d710d2a16fc833397a8f5ae7e48da1a",
+      "after_bytes": 173356
+    }
+  },
+  "independent_delta_review": {
+    "path": "/tmp/ts-next300-final-delta-independent-storage-review-rilgr3fa/review.json",
+    "sha256": "842cec513f6cb3c82f9e189317aba6c8d85d403a4b72cc0ab6a7b2d8ecdd30fd",
+    "bytes": 9185,
+    "mode": "0444"
+  },
+  "source_delta_proposal": {
+    "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+    "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a",
+    "bytes": 391960,
+    "mode": "0444"
+  },
+  "before_counts": {
+    "classified": 171,
+    "integration": 100,
+    "mixed": 28,
+    "originals": 4319,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 10,
+    "unadjudicated": 4129,
+    "unit": 43
+  },
+  "proposed_delta": {
+    "classified": 238,
+    "integration": 84,
+    "mixed": 37,
+    "retirement": 0,
+    "reviewed_unresolved_separate": 62,
+    "runtime": 0,
+    "unit": 117
+  },
+  "proposed_after_counts": {
+    "classified": 409,
+    "integration": 184,
+    "mixed": 65,
+    "originals": 4319,
+    "other_unadjudicated": 3819,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 72,
+    "unadjudicated": 3891,
+    "unit": 160
+  },
+  "semantic_json_path_changes": 311,
+  "mirrors": 12,
+  "all4319_originals_accounted": true,
+  "vendor_originals_present": 1449,
+  "vendor_retired": 0,
+  "vendor_central_closures": 0,
+  "all_five_categories": "OPEN",
+  "complete": false,
+  "source_qualification_transfer": false,
+  "actual_shared_ledger_mutation": false,
+  "operations": "Read/hash immutable source-delta/review/inventory and actual ledgers; create exclusive off-tree full before/after proposal, accounting, semantic delta and verifier. No source rescan/project execution or canonical write.",
+  "required_next": "Independent complete composition acceptance, recheck exact actual before hashes, separate actual-promotion authorization."
+}

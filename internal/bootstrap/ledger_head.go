@@ -268,7 +268,7 @@ func (ledger *Ledger) ReserveSlot(ctx context.Context, scope BootstrapScope, int
 		return SlotState{}, ErrRecordAuthorization
 	}
 	intentRecord = currentIntentRecord
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return SlotState{}, err
 	}
 	_, headRecord, err := ledger.writeInitialHead(ctx, scope, head, initialHeadBytes, headAuthorizedNow)
@@ -310,7 +310,7 @@ func (ledger *Ledger) ReadSlot(ctx context.Context, scope BootstrapScope) (SlotS
 // the exact attempt referenced by HEAD, has no committed positive result, and
 // remains inside the original OCI retry window.
 func (ledger *Ledger) ReadForLaunch(ctx context.Context, scope BootstrapScope) (LaunchAuthorization, error) {
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return LaunchAuthorization{}, err
 	}
 	state, err := ledger.readSlot(ctx, scope, true)
@@ -345,7 +345,7 @@ func (ledger *Ledger) ReadForLaunch(ctx context.Context, scope BootstrapScope) (
 	if state.ManifestRecord != nil || state.PeerReceiptRecord != nil {
 		return LaunchAuthorization{}, ErrSlotResultPendingHead
 	}
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return LaunchAuthorization{}, err
 	}
 	currentIntent, currentIntentRecord, err := ledger.refreshCurrentIntent(ctx, scope, state.Intent, state.IntentRecord.Bytes)
@@ -355,7 +355,7 @@ func (ledger *Ledger) ReadForLaunch(ctx context.Context, scope BootstrapScope) (
 	if !sameIntent(currentIntent, state.Intent) || currentIntentRecord.SHA256 != state.IntentRecord.SHA256 {
 		return LaunchAuthorization{}, ErrRecordAuthorization
 	}
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return LaunchAuthorization{}, err
 	}
 	return LaunchAuthorization{
@@ -372,7 +372,7 @@ func (ledger *Ledger) ReadForManagedPeerRecovery(
 	ctx context.Context,
 	scope BootstrapScope,
 ) (ManagedPeerRecoveryAuthorization, error) {
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return ManagedPeerRecoveryAuthorization{}, err
 	}
 	state, err := ledger.readSlotForManagedPeerRecovery(ctx, scope)
@@ -414,7 +414,7 @@ func (ledger *Ledger) ReadForManagedPeerRecovery(
 	if state.quarantined {
 		phase = ManagedPeerRecoveryQuarantined
 	}
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return ManagedPeerRecoveryAuthorization{}, err
 	}
 	observedAt := time.Now()
@@ -511,44 +511,54 @@ func (ledger *Ledger) manifestExpectation(scope BootstrapScope, intent Intent) (
 	return expected, nil
 }
 
-func (ledger *Ledger) verifyCurrentIntentManifest(scope BootstrapScope, intent Intent, body []byte) (VerifiedManifest, trust.Envelope, error) {
+func (ledger *Ledger) verifyCurrentIntentManifest(ctx context.Context, scope BootstrapScope, intent Intent, body []byte) (StartupAuthority, trust.Envelope, error) {
 	expected, err := ledger.manifestExpectation(scope, intent)
 	if err != nil {
-		return VerifiedManifest{}, trust.Envelope{}, err
+		return nil, trust.Envelope{}, err
 	}
 	envelope, err := trust.DecodeEnvelope(body)
 	if err != nil {
-		return VerifiedManifest{}, trust.Envelope{}, fmt.Errorf("%w: decode canonical managed manifest: %v", ErrInvalidRecord, err)
+		return nil, trust.Envelope{}, fmt.Errorf("%w: decode canonical managed manifest: %v", ErrInvalidRecord, err)
 	}
-	verified, err := VerifyManifest(envelope, ledger.config.TrustRoots, expected, ledger.now(), ledger.config.TrustPolicy)
+	var verified StartupAuthority
+	if source := ledger.config.DerivedStartup; source != nil && envelope.Scope.Domain == derivedStartupDomain {
+		verified, err = VerifyDerivedStartupAuthority(ctx, source.template, source.client, body, ledger.now())
+	} else {
+		verified, err = VerifyManifest(envelope, ledger.config.TrustRoots, expected, ledger.now(), ledger.config.TrustPolicy)
+	}
 	if err != nil {
-		return VerifiedManifest{}, trust.Envelope{}, err
+		return nil, trust.Envelope{}, err
 	}
 	manifest := verified.Manifest()
 	if verified.Digest() != intent.ManifestDigest || objectDigest(body) != intent.ManifestDigest ||
 		validateManifestForIntent(manifest, scope, intent) != nil {
-		return VerifiedManifest{}, trust.Envelope{}, fmt.Errorf("%w: root-signed manifest does not match the exact intent", ErrRecordAuthorization)
+		return nil, trust.Envelope{}, fmt.Errorf("%w: root-signed manifest does not match the exact intent", ErrRecordAuthorization)
 	}
 	return verified, envelope, nil
 }
 
-func (ledger *Ledger) verifyHistoricalIntentManifest(scope BootstrapScope, intent Intent, body []byte) (HistoricalManifest, trust.Envelope, error) {
+func (ledger *Ledger) verifyHistoricalIntentManifest(ctx context.Context, scope BootstrapScope, intent Intent, body []byte) (HistoricalStartupAuthority, trust.Envelope, error) {
 	expected, err := ledger.manifestExpectation(scope, intent)
 	if err != nil {
-		return HistoricalManifest{}, trust.Envelope{}, err
+		return nil, trust.Envelope{}, err
 	}
 	envelope, err := trust.DecodeEnvelope(body)
 	if err != nil {
-		return HistoricalManifest{}, trust.Envelope{}, fmt.Errorf("%w: decode canonical managed manifest: %v", ErrInvalidRecord, err)
+		return nil, trust.Envelope{}, fmt.Errorf("%w: decode canonical managed manifest: %v", ErrInvalidRecord, err)
 	}
-	verified, err := VerifyHistoricalManifest(envelope, ledger.config.TrustRoots, expected, ledger.config.TrustPolicy)
+	var verified HistoricalStartupAuthority
+	if source := ledger.config.DerivedStartup; source != nil && envelope.Scope.Domain == derivedStartupDomain {
+		verified, err = source.historical(ctx, body)
+	} else {
+		verified, err = VerifyHistoricalManifest(envelope, ledger.config.TrustRoots, expected, ledger.config.TrustPolicy)
+	}
 	if err != nil {
-		return HistoricalManifest{}, trust.Envelope{}, err
+		return nil, trust.Envelope{}, err
 	}
 	manifest := verified.Manifest()
 	if verified.Digest() != intent.ManifestDigest || objectDigest(body) != intent.ManifestDigest ||
 		validateManifestForIntent(manifest, scope, intent) != nil {
-		return HistoricalManifest{}, trust.Envelope{}, fmt.Errorf("%w: root-signed manifest does not match the exact intent", ErrRecordAuthorization)
+		return nil, trust.Envelope{}, fmt.Errorf("%w: root-signed manifest does not match the exact intent", ErrRecordAuthorization)
 	}
 	return verified, envelope, nil
 }
@@ -574,6 +584,12 @@ func launchProfileForIntent(intent Intent) LaunchProfile {
 }
 
 func validateManagedFacts(ledger *Ledger, facts InstanceFacts, intent Intent, intentDigest string, result Result) error {
+	if err := validateOriginalIntentForAuthority(intent, ledger.config.DerivedStartup); err != nil {
+		return err
+	}
+	if intent.OriginalLaunch != nil && facts.InstanceOCID != intent.OriginalLaunch.InstanceOCID {
+		return ErrIdentityMismatch
+	}
 	profile := launchProfileForIntent(intent)
 	if facts.DeploymentID != ledger.config.DeploymentID || facts.Environment != ledger.config.Environment ||
 		facts.ClusterID != ledger.config.ClusterID || facts.Cell != ledger.config.Cell || facts.Slot != intent.Slot ||
@@ -884,14 +900,14 @@ func (ledger *Ledger) RecordExternalSeed(
 		return SlotState{}, ErrSlotHeadConflict
 	}
 
-	verifiedManifest, manifestEnvelope, manifestErr := ledger.verifyCurrentIntentManifest(scope, state.Intent, manifestBytes)
+	verifiedManifest, manifestEnvelope, manifestErr := ledger.verifyCurrentIntentManifest(ctx, scope, state.Intent, manifestBytes)
 	manifestCurrent := manifestErr == nil
-	var historicalManifest HistoricalManifest
+	var historicalManifest HistoricalStartupAuthority
 	if manifestErr != nil {
 		if !manifestExists {
 			return SlotState{}, manifestErr
 		}
-		historicalManifest, manifestEnvelope, err = ledger.verifyHistoricalIntentManifest(scope, state.Intent, manifestBytes)
+		historicalManifest, manifestEnvelope, err = ledger.verifyHistoricalIntentManifest(ctx, scope, state.Intent, manifestBytes)
 		if err != nil {
 			return SlotState{}, err
 		}
@@ -931,7 +947,7 @@ func (ledger *Ledger) RecordExternalSeed(
 			}
 			return SlotState{}, ErrRecordAuthorization
 		}
-		historicalManifest, _, err = ledger.verifyHistoricalIntentManifest(scope, state.Intent, manifestBytes)
+		historicalManifest, _, err = ledger.verifyHistoricalIntentManifest(ctx, scope, state.Intent, manifestBytes)
 		if err != nil {
 			return SlotState{}, err
 		}
@@ -975,7 +991,7 @@ func (ledger *Ledger) RecordExternalSeed(
 		return SlotState{}, err
 	}
 	if !resultExists {
-		currentManifest, _, verifyErr := ledger.verifyCurrentIntentManifest(scope, state.Intent, manifestBytes)
+		currentManifest, _, verifyErr := ledger.verifyCurrentIntentManifest(ctx, scope, state.Intent, manifestBytes)
 		if verifyErr != nil {
 			return SlotState{}, verifyErr
 		}
@@ -1167,14 +1183,14 @@ func (ledger *Ledger) RecordManagedPeer(
 		return SlotState{}, ErrSlotHeadConflict
 	}
 
-	verifiedManifest, manifestEnvelope, manifestErr := ledger.verifyCurrentIntentManifest(scope, state.Intent, manifestBytes)
+	verifiedManifest, manifestEnvelope, manifestErr := ledger.verifyCurrentIntentManifest(ctx, scope, state.Intent, manifestBytes)
 	manifestCurrent := manifestErr == nil
-	var historicalManifest HistoricalManifest
+	var historicalManifest HistoricalStartupAuthority
 	if manifestErr != nil {
 		if !manifestExists {
 			return SlotState{}, manifestErr
 		}
-		historicalManifest, manifestEnvelope, err = ledger.verifyHistoricalIntentManifest(scope, state.Intent, manifestBytes)
+		historicalManifest, manifestEnvelope, err = ledger.verifyHistoricalIntentManifest(ctx, scope, state.Intent, manifestBytes)
 		if err != nil {
 			return SlotState{}, err
 		}
@@ -1216,7 +1232,7 @@ func (ledger *Ledger) RecordManagedPeer(
 			}
 			return SlotState{}, ErrRecordAuthorization
 		}
-		historicalManifest, _, err = ledger.verifyHistoricalIntentManifest(scope, state.Intent, manifestBytes)
+		historicalManifest, _, err = ledger.verifyHistoricalIntentManifest(ctx, scope, state.Intent, manifestBytes)
 		if err != nil {
 			return SlotState{}, err
 		}
@@ -1686,7 +1702,7 @@ func (ledger *Ledger) AdvanceSlot(
 	if currentEvidence != evidence || !currentEvidenceEnvelope.ExpiresAt.Equal(evidenceEnvelope.ExpiresAt) {
 		return SlotState{}, ErrRetirementInvalid
 	}
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return SlotState{}, err
 	}
 	_, headRecord, err := ledger.writeHead(ctx, scope, state.HeadRecord.ETag, nextHead, nextHeadBytes, true)
@@ -2053,7 +2069,7 @@ func (ledger *Ledger) validateCompletedManagedPeerPredecessor(
 	if err != nil || manifestRecord.SHA256 != intent.ManifestDigest {
 		return ErrRecordAuthorization
 	}
-	historicalManifest, manifestEnvelope, err := ledger.verifyHistoricalIntentManifest(scope, intent, manifestRecord.Bytes)
+	historicalManifest, manifestEnvelope, err := ledger.verifyHistoricalIntentManifest(ctx, scope, intent, manifestRecord.Bytes)
 	if err != nil {
 		return err
 	}
@@ -2127,7 +2143,7 @@ func (ledger *Ledger) loadSeedProof(
 	if intent.Mode != IntentModeExternalSeed || manifestRecord.SHA256 != intent.ManifestDigest {
 		return nil, nil, nil, nil, ErrSlotNotReserved
 	}
-	historicalManifest, manifestEnvelope, err := ledger.verifyHistoricalIntentManifest(scope, intent, manifestRecord.Bytes)
+	historicalManifest, manifestEnvelope, err := ledger.verifyHistoricalIntentManifest(ctx, scope, intent, manifestRecord.Bytes)
 	if err != nil || validateStoredInterval(manifestRecord, manifestEnvelope) != nil ||
 		ledger.validateStoredBeforeAnchorExpiry(manifestRecord) != nil {
 		return nil, nil, nil, nil, ErrSlotNotReserved
@@ -2171,6 +2187,9 @@ func (ledger *Ledger) loadSeedProof(
 }
 
 func validateSeedReceiptForIntent(receipt Receipt, intent Intent, intentDigest string) error {
+	if intent.OriginalLaunch != nil && receipt.InstanceOCID != intent.OriginalLaunch.InstanceOCID {
+		return ErrInvalidRecord
+	}
 	if intent.Mode != IntentModeExternalSeed || receipt.DeploymentID != intent.DeploymentID ||
 		receipt.Environment != intent.Environment || string(receipt.Cell) != intent.Cell ||
 		receipt.OCIRegion != intent.OCIRegion || receipt.Role != intent.Role || receipt.Slot != intent.Slot ||
@@ -2212,7 +2231,7 @@ func (ledger *Ledger) writeHead(ctx context.Context, scope BootstrapScope, ifMat
 	if len(body) == 0 || len(body) > ledger.maxRecord {
 		return SlotHead{}, StoredRecord{}, errors.New("bootstrap HEAD exceeds its size bound")
 	}
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return SlotHead{}, StoredRecord{}, err
 	}
 	objectName := ledger.headObjectName(scope)
@@ -2277,6 +2296,9 @@ func (ledger *Ledger) headObjectName(scope BootstrapScope) string {
 }
 
 func validateResultForIntent(result Result, intent Intent, intentDigest string) error {
+	if intent.OriginalLaunch != nil && result.InstanceOCID != intent.OriginalLaunch.InstanceOCID {
+		return ErrInvalidRecord
+	}
 	if result.Mode != intent.Mode || result.Attempt != intent.Attempt || result.Generation != intent.Generation ||
 		result.RegionIntentGeneration != intent.RegionIntentGeneration || result.IntentDigest != intentDigest ||
 		result.OCIRegion != intent.OCIRegion || result.CompartmentOCID != intent.CompartmentOCID ||

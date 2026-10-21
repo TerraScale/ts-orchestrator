@@ -1,0 +1,37 @@
+func TestSubmitPublishStopsAtCallerDeadlineAndCancellation(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	calls := 0
+	service.js = &interceptedPublish{JetStream: service.js, publish: func(context.Context, string, []byte, ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		calls++
+		return nil, nats.ErrNoResponders
+	}}
+	deadlineCtx, stop := context.WithTimeout(ctx, 350*time.Millisecond)
+	defer stop()
+	if err := service.publishIntent(deadlineCtx, IntentSubject(intent.Cell), []byte("signed intent"), "deadline-publish"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("caller deadline error=%v, want deadline exceeded", err)
+	}
+	if calls == 0 {
+		t.Fatal("publish did not attempt before caller deadline")
+	}
+
+	started := make(chan struct{})
+	calls = 0
+	service.js = &interceptedPublish{JetStream: service.js, publish: func(publishCtx context.Context, _ string, _ []byte, _ ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		calls++
+		close(started)
+		<-publishCtx.Done()
+		return nil, publishCtx.Err()
+	}}
+	canceledCtx, cancel := context.WithCancel(ctx)
+	result := make(chan error, 1)
+	go func() { result <- service.Submit(canceledCtx, intent) }()
+	<-started
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller cancellation error=%v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("publish attempts after caller cancellation=%d, want 1", calls)
+	}
+}

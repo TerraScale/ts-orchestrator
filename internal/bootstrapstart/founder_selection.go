@@ -56,7 +56,8 @@ type CurrentFounderAuthority struct {
 	SelectionGeneration uint64
 	SelectionSHA256     string
 	SelectionExpiresAt  time.Time
-	Plan                bootstrap.VerifiedFounderPlan
+	Plan                bootstrap.FounderPlanAuthority
+	Derived             *bootstrap.DerivedFounderPlan
 	Anchor              bootstrap.VerifiedBootstrapAnchor
 	PlanWire            []byte
 	AnchorWire          []byte
@@ -69,11 +70,12 @@ type currentFounderPeerSelection struct {
 	SelectionGeneration uint64
 	SelectionSHA256     string
 	SelectionExpiresAt  time.Time
-	Plan                bootstrap.VerifiedCompletedFounderPlan
+	Plan                bootstrap.FounderPlanContinuation
 	Anchor              bootstrap.VerifiedBootstrapAnchor
 	PlanWire            []byte
 	AnchorWire          []byte
 	ManifestWires       map[string][]byte
+	derived             *bootstrap.DerivedFounderPlan
 }
 
 // CurrentFounderAuthorityReader uses only the accepted seed's baked anchor
@@ -87,6 +89,7 @@ type CurrentFounderAuthorityReader struct {
 	domain            bootstrap.StorageDomain
 	objects           FounderSelectionObjectReader
 	floor             *FounderSelectionFloorStore
+	derived           *bootstrap.DerivedStartupAuthority
 }
 
 func NewCurrentFounderAuthorityReader(baked BakedInputs, accepted AcceptedInstall,
@@ -186,12 +189,18 @@ func founderObjectPrefix(domain bootstrap.StorageDomain, deploymentID, scopeHash
 }
 
 func (reader *CurrentFounderAuthorityReader) ReadCurrent(ctx context.Context, now time.Time) (CurrentFounderAuthority, error) {
+	if reader != nil && reader.derived != nil {
+		return reader.readDerivedCurrent(ctx, now, true)
+	}
 	return reader.readCurrent(ctx, now, true)
 }
 
 // The peer paths share current signature and exact-key verification with the
 // seed reader. Initial peer admission establishes its floor after this read.
 func (reader *CurrentFounderAuthorityReader) readCurrentPeerInitial(ctx context.Context, now time.Time) (currentFounderPeerSelection, error) {
+	if reader != nil && reader.derived != nil {
+		return reader.readDerivedCompletedPeer(ctx, now, false)
+	}
 	return reader.readCurrentCompletedPeer(ctx, now, false)
 }
 
@@ -291,6 +300,9 @@ func (reader *CurrentFounderAuthorityReader) readCurrent(ctx context.Context, no
 func (reader *CurrentFounderAuthorityReader) readCurrentCompletedPeer(ctx context.Context, now time.Time,
 	useFloor bool,
 ) (currentFounderPeerSelection, error) {
+	if reader != nil && reader.derived != nil {
+		return reader.readDerivedCompletedPeer(ctx, now, useFloor)
+	}
 	if reader == nil || reader.objects == nil || reader.floor == nil ||
 		now.IsZero() || now.Location() != time.UTC || reader.accepted.Slot == reader.accepted.SeedSlot {
 		return currentFounderPeerSelection{}, ErrFounderSelection
@@ -387,6 +399,13 @@ func (reader *CurrentFounderAuthorityReader) confirmCurrentPeerSelection(ctx con
 		!validFounderDigest(selected.SelectionSHA256) || clock == nil {
 		return ErrFounderSelection
 	}
+	if reader.derived != nil {
+		current, err := reader.readDerivedCurrent(ctx, clock().Round(0).UTC(), false)
+		if err != nil || current.SelectionGeneration != selected.SelectionGeneration || current.SelectionSHA256 != selected.SelectionSHA256 {
+			return ErrFounderSelection
+		}
+		return nil
+	}
 	key := FounderSelectionObjectName(reader.domain, reader.baked.Identity.DeploymentID,
 		string(reader.baked.Identity.Cell), reader.baked.Identity.Environment)
 	wire, _, err := reader.getExact(ctx, reader.domain.HeadBucket, key, founderSelectionMaxBytes)
@@ -430,6 +449,13 @@ func (reader *CurrentFounderAuthorityReader) confirmCurrentSelection(ctx context
 	if reader == nil || selected.SelectionGeneration == 0 || !validFounderDigest(selected.SelectionSHA256) ||
 		now.IsZero() || now.Location() != time.UTC {
 		return ErrFounderSelection
+	}
+	if reader.derived != nil {
+		current, err := reader.readDerivedCurrent(ctx, now, false)
+		if err != nil || current.SelectionGeneration != selected.SelectionGeneration || current.SelectionSHA256 != selected.SelectionSHA256 {
+			return ErrFounderSelection
+		}
+		return nil
 	}
 	key := FounderSelectionObjectName(reader.domain, reader.baked.Identity.DeploymentID,
 		string(reader.baked.Identity.Cell), reader.baked.Identity.Environment)

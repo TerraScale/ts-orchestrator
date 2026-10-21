@@ -1,0 +1,44 @@
+func TestDurableRetryReplayAndOperationConflict(t *testing.T) {
+	w := &testWriter{failFirst: true}
+	s, ctx := testService(t, w)
+	i := testIntent(t, s, ctx)
+	if err := s.Submit(ctx, i); err != nil {
+		t.Fatal(err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- s.Run(runCtx) }()
+	defer func() { cancel(); <-done }()
+	deadline := time.NewTimer(8 * time.Second)
+	defer deadline.Stop()
+	for {
+		receipt, err := s.Status(ctx, i.OperationID)
+		if err == nil {
+			if receipt.Status != "accepted" || receipt.Fingerprint == "" || w.count() < 2 {
+				t.Fatalf("receipt=%+v calls=%d", receipt, w.count())
+			}
+			break
+		}
+		if !errors.Is(err, ErrPending) {
+			t.Fatal(err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("delivery never retried; calls=%d", w.count())
+		case <-time.After(30 * time.Millisecond):
+		}
+	}
+	before := w.count()
+	b, err := testCodec{}.Sign(ctx, mustJSON(i))
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal, err := s.process(ctx, b)
+	if err != nil || !terminal || w.count() != before {
+		t.Fatalf("replay terminal=%t err=%v calls=%d", terminal, err, w.count())
+	}
+	i.Generation++
+	if err := s.Submit(ctx, i); !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflicting operation: %v", err)
+	}
+}

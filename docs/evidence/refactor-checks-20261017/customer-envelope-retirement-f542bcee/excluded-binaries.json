@@ -1,0 +1,22 @@
+[
+  {
+    "bytes": 88015972,
+    "excluded": true,
+    "magic_hex": "7f454c46",
+    "mode": "0o600",
+    "never_executed": true,
+    "path": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/cli.test",
+    "reason": "Compiled ELF metadata only; bytes excluded; never executed.",
+    "sha256": "0e373283a2e64f056c883aa6e12daa38039157688a0a471419bc08df774fb712"
+  },
+  {
+    "bytes": 49171133,
+    "excluded": true,
+    "magic_hex": "7f454c46",
+    "mode": "0o600",
+    "never_executed": true,
+    "path": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/managedmaterial.test",
+    "reason": "Compiled ELF metadata only; bytes excluded; never executed.",
+    "sha256": "48aec81a6999d0c1bca9e664472d1a70e5208c309c556abeed2d68d28b02c3bf"
+  }
+]

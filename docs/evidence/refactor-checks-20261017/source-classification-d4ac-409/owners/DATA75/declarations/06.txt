@@ -1,0 +1,48 @@
+func TestArtifactAdmissionRejectsLeaderConflictDespiteStaleFollower(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	content := []byte("same content with conflicting provenance")
+	record, envelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AcceptArtifactClaim(ctx, envelope); err != nil {
+		t.Fatal(err)
+	}
+	key := admissionKey(record.Digest, record.Cell, record.Role, record.Environment)
+	underlying := service.admissions
+	staleEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingRequest := artifactTestRequest()
+	conflictingRequest.Source.Commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	conflictingRecord, conflictingEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), conflictingRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingValue, err := json.Marshal(signedAdmission{Record: conflictingRecord, Envelope: conflictingEnvelope, Actor: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := underlying.Put(ctx, key, conflictingValue); err != nil {
+		t.Fatal(err)
+	}
+	var followerReads int
+	service.admissions = overriddenAdmissionGet{KeyValue: underlying, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+		followerReads++
+		return staleEntry, nil
+	}}
+	if _, err := service.AcceptArtifactClaim(ctx, envelope); !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflicting leader admission error = %v, want ErrConflict", err)
+	}
+	currentEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(currentEntry.Value(), conflictingValue) {
+		t.Fatal("conflicting leader admission was overwritten")
+	}
+	if followerReads != 0 {
+		t.Fatalf("conflict decision made %d follower reads", followerReads)
+	}
+}

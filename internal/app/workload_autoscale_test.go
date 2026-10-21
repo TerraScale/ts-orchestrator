@@ -8,6 +8,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
@@ -19,36 +20,38 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
-func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
+func TestAutoscaleConfigUsesSignedDeclarations(t *testing.T) {
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
 	profiles := map[string]WorkloadProfile{"api": {Resources: resources}, "terrabase": {Resources: resources}}
 	fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1,
 		ExpiresAt: time.Now().Add(time.Hour)}}
-	// The reconciler always runs, for the roles a cell spec adds later;
-	// without a service it owns nothing.
-	reconciler, load, err := startWorkloadAutoscale("gru", nil, profiles, nil, &host.Controller{}, fencer, nil)
-	if err != nil || load == nil || reconciler.Signals() != nil {
-		t.Fatalf("absent autoscale config must collect without scaling: %v %v", load, err)
+	load := startHostTelemetry(profiles, &host.Controller{}, fencer)
+	if load == nil || load.load == nil {
+		t.Fatalf("absent autoscale declaration must still collect telemetry: %v", load)
 	}
-	if _, owned := reconciler.Owns("api"); owned {
-		t.Fatal("a reconciler without services owns a role")
-	}
-	disabled := &AutoscaleConfig{Services: []workload.ServiceSpec{{Role: "api", Environment: "prod",
+	declared := &AutoscaleConfig{Services: []workload.ServiceSpec{{Role: "api", Environment: "prod",
 		Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3}}}}
-	if err := validateAutoscaleConfig(disabled, profiles); err != nil {
+	if err := validateAutoscaleConfig(declared, profiles); err != nil {
 		t.Fatal(err)
 	}
-	disabled.HostTelemetry = true
-	if reconciler, load, err := startWorkloadAutoscale("gru", disabled, profiles, nil, &host.Controller{}, fencer, nil); err != nil || load == nil || reconciler.Signals() != nil {
-		t.Fatal("disabled autoscale config must collect without scaling")
-	}
 	var planner regionalDeliveryPlanner
-	if _, owned := planner.workloads.Owns("api"); owned {
-		t.Fatal("planner without a reconciler owns a role")
+	if _, owned := planner.nativeServiceSpec("api"); owned {
+		t.Fatal("planner without signed services owns a role")
+	}
+	planner.services = &specRegistry{}
+	if _, owned := planner.nativeServiceSpec("api"); owned {
+		t.Fatal("planner without a signed service policy owns a role")
+	}
+	planner.services.adopt(cellspec.Spec{Generation: 1, Services: []cellspec.Service{{Role: "api", Spec: &declared.Services[0]}}}, 1)
+	if spec, owned := planner.nativeServiceSpec("api"); !owned || spec.Replicas != declared.Services[0].Replicas {
+		t.Fatalf("planner did not read the adopted service policy: %+v, %v", spec, owned)
+	}
+	planner.services.adopt(cellspec.Spec{Generation: 2}, 2)
+	if _, owned := planner.nativeServiceSpec("api"); owned {
+		t.Fatal("planner retained a removed service policy")
 	}
 
 	invalid := map[string]*AutoscaleConfig{
-		"interval": {IntervalSeconds: -1},
 		"no profile": {Services: []workload.ServiceSpec{{Role: "web", Environment: "prod", Kind: workload.KindStateless,
 			Replicas: workload.ReplicaBounds{Max: 1}}}},
 		"resource mismatch": {Services: []workload.ServiceSpec{{Role: "api", Environment: "prod", Kind: workload.KindStateless,
@@ -88,12 +91,6 @@ func TestAutoscaleConfigRefusesInertEntries(t *testing.T) {
 	scaling := &AutoscaleConfig{Services: []workload.ServiceSpec{{Role: "api", Environment: "prod",
 		Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3},
 		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
-	if err := validateAutoscaleConfig(scaling, profiles); err == nil {
-		t.Fatal("a scaling policy was accepted although no signal source feeds it")
-	}
-	// Host telemetry is the signal source: with it the policy is accepted,
-	// but only for signals it produces for stateless roles.
-	scaling.HostTelemetry = true
 	if err := validateAutoscaleConfig(scaling, profiles); err != nil {
 		t.Fatalf("a cpu_util policy with host telemetry was refused: %v", err)
 	}
@@ -105,25 +102,21 @@ func TestAutoscaleConfigRefusesInertEntries(t *testing.T) {
 	}
 }
 
-// Host telemetry starts an aggregator as the reconciler's signal source,
-// installs it as the host controller's load sink, and its readings and the
-// reconciler's results reach the metric history.
+// Host telemetry starts an aggregator independently of scheduling; its
+// normalized readings and resource samples reach metric history.
 func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 	resources := placement.Resources{CPU: 2, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
-	config := &AutoscaleConfig{Enabled: true, HostTelemetry: true, Services: []workload.ServiceSpec{{Role: "api",
+	config := &AutoscaleConfig{Services: []workload.ServiceSpec{{Role: "api",
 		Environment: "prod", Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3},
 		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
 	fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1,
 		ExpiresAt: time.Now().Add(time.Hour)}}
-	reconciler, telemetry, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
-		config.Services, &host.Controller{}, fencer, nil)
-	if err != nil {
+	profiles := map[string]WorkloadProfile{"api": {Resources: resources}}
+	if err := validateAutoscaleConfig(config, profiles); err != nil {
 		t.Fatal(err)
 	}
-	load, ok := reconciler.Signals().(*hostload.Aggregator)
-	if !ok {
-		t.Fatalf("signal source = %T, want the host load aggregator", reconciler.Signals())
-	}
+	telemetry := startHostTelemetry(profiles, &host.Controller{}, fencer)
+	load := telemetry.load
 	cores := 1.0
 	if err := telemetry.record(hostload.Origin{Cell: "gru", Environment: "prod", Node: "pool-1"},
 		hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: "api", CPUCores: &cores}}}); err != nil {
@@ -143,7 +136,7 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 	}
 	// Resource history does not wait for an autoscaler tick; its own term
 	// gate accepts the current leader's reports independently.
-	samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler, telemetry)(t.Context())
+	samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, nil, telemetry)(t.Context())
 	found := map[string]float64{}
 	for _, sample := range samples {
 		found[sample.Metric] = sample.Value
@@ -157,7 +150,7 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 	// A member that is not (or no longer) the authority leader records
 	// nothing extra: its cached reports and last results are not current.
 	fencer.set(authority.Snapshot{})
-	if samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, reconciler, telemetry)(t.Context()); len(samples) != 0 {
+	if samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, nil, telemetry)(t.Context()); len(samples) != 0 {
 		t.Fatalf("follower recorded autoscale samples: %+v", samples)
 	}
 }

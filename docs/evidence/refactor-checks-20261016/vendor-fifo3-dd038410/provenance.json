@@ -1,0 +1,16 @@
+{
+  "source": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "FIFO_position": 3,
+  "session": 93670,
+  "archive_sha256": "bf710ed1fa503c05b80a342751155090c5e575f7de431c00d3e4f4550c4a121a",
+  "manifest_sha256": "50821610eef87af6f2919f0bb83910b87a9180fb2738b39dea5ad62220bc44b3",
+  "archive_members_verified": 41,
+  "raw_sha256": "6a2303a7877f0a7d19aff19f27949b5e18fb314efbfefbc0aa065b9dd0919f31",
+  "outcomes": "22 selected positive TCP leaves PASS plus parent separately; no skips",
+  "full49root_qualified": false,
+  "excluded_startup_rows": 27,
+  "remaining": "8 serial batches / 9 never-run roots / 82 TCP-eligible cases",
+  "verification": "QA verified complete archive membership, every member byte against original packet, SHA256SUMS, manifest and raw JSONL roundtrip",
+  "boundary": "Original47+2/private/race/equivalence/removal/central closure retained; no full-root/live/production claim"
+}

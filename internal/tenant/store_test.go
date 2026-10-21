@@ -95,6 +95,59 @@ func TestStoreRoundTripAndList(t *testing.T) {
 	if _, err := store.Get(ctx, "0000000000YB93Q2ZWXZ0R3WKB"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get(missing) = %v, want ErrNotFound", err)
 	}
+
+	clockStore := openStore(t, startCell(t)())
+	clockCreated, err := clockStore.Create(ctx, newTenant(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clockRead, err := clockStore.Get(ctx, clockCreated.Tenant.ID)
+	if err != nil || !reflect.DeepEqual(clockRead, clockCreated) {
+		t.Fatalf("clock-skew initial Get = %+v, %v; want %+v", clockRead, err, clockCreated)
+	}
+	fast, err := clockRead.Tenant.Suspend(t0.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fastStored, err := clockStore.Update(ctx, clockRead.Revision, fast)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fastRead, err := clockStore.Get(ctx, fast.ID)
+	if err != nil || !reflect.DeepEqual(fastRead, fastStored) {
+		t.Fatalf("fast writer Get = %+v, %v; want %+v", fastRead, err, fastStored)
+	}
+	fast = fastRead.Tenant
+	slow, err := fast.Resume(t0)
+	if err != nil {
+		t.Fatalf("Resume on a slower clock = %v", err)
+	}
+	slowStored, err := clockStore.Update(ctx, fastRead.Revision, slow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slowRead, err := clockStore.Get(ctx, slow.ID)
+	if err != nil || !reflect.DeepEqual(slowRead, slowStored) {
+		t.Fatalf("slow writer Get = %+v, %v; want %+v", slowRead, err, slowStored)
+	}
+	slow = slowRead.Tenant
+	if !slow.UpdatedAt.Equal(fast.UpdatedAt) {
+		t.Fatalf("UpdatedAt = %v, want the previous %v", slow.UpdatedAt, fast.UpdatedAt)
+	}
+	deleted, err := slow.Delete(DefaultRetention, t0)
+	if err != nil || !deleted.RetainUntil.Equal(fast.UpdatedAt.Add(DefaultRetention)) {
+		t.Fatalf("Delete on a slower clock = %+v, %v", deleted, err)
+	}
+	deletedStored, err := clockStore.Update(ctx, slowRead.Revision, deleted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletedRead, err := clockStore.Get(ctx, deleted.ID)
+	if err != nil || !reflect.DeepEqual(deletedRead, deletedStored) ||
+		!deletedRead.Tenant.RetainUntil.Equal(fast.UpdatedAt.Add(DefaultRetention)) {
+		t.Fatalf("deleted slow writer Get = %+v, %v; want %+v", deletedRead, err, deletedStored)
+	}
+
 }
 
 func TestStoreRefusesInvalidWrites(t *testing.T) {
@@ -143,6 +196,53 @@ func TestStoreRefusesInvalidWrites(t *testing.T) {
 	if got, err := store.Get(ctx, "0000000000WT9WWA18KD4ET6PG"); err != nil || got.Tenant.State != StateDeleted {
 		t.Fatalf("Get = %+v, %v; want the deleted tenant untouched", got, err)
 	}
+
+	successorStore := openStore(t, startCell(t)())
+	prev := newTenant(t)
+	prevStored, err := successorStore.Create(ctx, prev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevRead, err := successorStore.Get(ctx, prev.ID)
+	if err != nil || !reflect.DeepEqual(prevRead, prevStored) || !reflect.DeepEqual(prevRead.Tenant, prev) {
+		t.Fatalf("successor initial Get = %+v, %v; want %+v", prevRead, err, prevStored)
+	}
+	prev = prevRead.Tenant
+	good, err := prev.Suspend(t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, edit := range map[string]func(*Tenant){
+		"skipped generation":    func(n *Tenant) { n.Generation += 1 },
+		"replayed":              func(n *Tenant) { n.Generation = prev.Generation },
+		"earlier":               func(n *Tenant) { n.UpdatedAt = t0.Add(-time.Second) },
+		"moved organization":    func(n *Tenant) { n.Organization = "0000000000SENYWME143WT9XQ0" },
+		"moved cell":            func(n *Tenant) { n.Cell = "fra" },
+		"rewritten creation":    func(n *Tenant) { n.CreatedAt = t0.Add(-time.Hour) },
+		"retention not deleted": func(n *Tenant) { n.RetainUntil = t0.Add(DefaultRetention) },
+		"unknown state":         func(n *Tenant) { n.State = "paused" },
+		"other schema":          func(n *Tenant) { n.Schema = "terrascale.tenant.v2" },
+		"resized in place":      func(n *Tenant) { n.State, n.Spec.Member.CPU = StateActive, 64 },
+		"undeclared plan":       func(n *Tenant) { n.State, n.Spec.Plan = StateActive, "scale" },
+	} {
+		next := good
+		edit(&next)
+		if _, err := successorStore.Update(ctx, prevRead.Revision, next); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: Update = %v, want ErrInvalid", name, err)
+		}
+		if got, err := successorStore.Get(ctx, prev.ID); err != nil || !reflect.DeepEqual(got, prevRead) {
+			t.Fatalf("%s: Get after rejected successor = %+v, %v; want %+v", name, got, err, prevRead)
+		}
+	}
+	goodStored, err := successorStore.Update(ctx, prevRead.Revision, good)
+	if err != nil {
+		t.Fatalf("Update(lifecycle successor) = %v", err)
+	}
+	if got, err := successorStore.Get(ctx, prev.ID); err != nil || !reflect.DeepEqual(got, goodStored) ||
+		!reflect.DeepEqual(got.Tenant, good) {
+		t.Fatalf("Get(lifecycle successor) = %+v, %v; want %+v", got, err, goodStored)
+	}
+
 }
 
 // TestStoreConcurrentWritersOneWins stands in for two controllers that read

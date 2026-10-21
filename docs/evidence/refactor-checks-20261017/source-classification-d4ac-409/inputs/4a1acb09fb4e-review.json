@@ -1,0 +1,17 @@
+{
+  "status": "ACCEPT_ALLOCATION_FOR_SOURCE_READ_ONLY_DISPATCH",
+  "allocation": "/tmp/ts-d4ac-next300-allocation-proposal-raxuc07l/allocation.json",
+  "allocation_sha256": "032cb201e692326da7274b12d7dfd15512b1befd325cce375188ae0447ca2523",
+  "excluded_unique": 200,
+  "selected_unique": 300,
+  "eligible_unselected": 3819,
+  "declarations_verified": 600,
+  "declaration_convention": "inclusive line span excluding final newline; exact file bytes separately pinned",
+  "test_files_verified": 72,
+  "baseline": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "source": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "runtime_credit": 0,
+  "retirement_delta": 0,
+  "ledger_mutation": false,
+  "all_five_gates": "OPEN"
+}

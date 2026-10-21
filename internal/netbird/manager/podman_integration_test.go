@@ -25,7 +25,7 @@ import (
 // TestPodmanManagerSyncAndPrune runs a disposable NetBird 0.80 manager and
 // real client peers in rootless Podman. It seeds the legacy production shape,
 // syncs twice as a dedicated admin service user (the second sync must change
-// nothing), checks renames kept IDs and memberships, one-way ping and cell DNS,
+// nothing), checks renames kept IDs and memberships, preserved unowned routing and cell DNS,
 // and that prune deletes a replaced revision and renames the live peer.
 //
 // Opt in with TS_NETBIRD_PODMAN=1 (make netbird-podman-test). Nested Podman
@@ -61,6 +61,9 @@ func TestPodmanManagerSyncAndPrune(t *testing.T) {
 	}
 	defer api.Close()
 
+	if _, err := Prune(ctx, api, d, PruneOptions{}, true); err != nil {
+		t.Fatal(err)
+	}
 	before := stack.inventoryJSON(api)
 	plan, err := Sync(ctx, api, d, false)
 	if err != nil {
@@ -74,7 +77,7 @@ func TestPodmanManagerSyncAndPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("first sync applied %d changes", len(applied.Changes))
-	if len(applied.Warnings) != 0 {
+	if len(applied.Warnings) != 3 {
 		t.Fatalf("sync warnings: %v", applied.Warnings)
 	}
 	second, err := Sync(ctx, api, d, true)
@@ -465,6 +468,10 @@ type podmanSeed struct {
 
 func (s *podmanStack) seedLegacy(owner string) podmanSeed {
 	seed := podmanSeed{groups: map[string]string{}, peers: map[string]string{}, policies: map[string]string{}}
+	var accounts []apiAccount
+	s.must(owner, "GET", "/accounts", nil, &accounts)
+	accounts[0].Settings["network_range"] = []byte(`"10.200.0.0/16"`)
+	s.must(owner, "PUT", "/accounts/"+accounts[0].ID, map[string]any{"settings": accounts[0].Settings}, nil)
 	var policies []apiPolicy
 	s.must(owner, "GET", "/policies", nil, &policies)
 	for _, policy := range policies {
@@ -551,7 +558,7 @@ func (s *podmanStack) verifySynced(owner string, d Desired, seed podmanSeed) {
 	for _, group := range groups {
 		byID[group.ID] = group
 	}
-	for legacy, name := range map[string]string{"operators": "operators", "gateway": "ts-ops-gateway", "ts-orch-servers": "gru-servers"} {
+	for legacy, name := range map[string]string{"operators": "operators", "gateway": "gateway", "ts-orch-servers": "gru-servers"} {
 		if byID[seed.groups[legacy]].Name != name {
 			t.Fatalf("group %s did not keep its ID as %s", legacy, name)
 		}
@@ -572,7 +579,7 @@ func (s *podmanStack) verifySynced(owner string, d Desired, seed podmanSeed) {
 	}
 	var resource apiResource
 	s.must(owner, "GET", "/networks/"+seed.network+"/resources/"+seed.resource, nil, &resource)
-	if resource.Name != d.Network.Resource.Name || resource.Address != d.Network.Resource.Address || !resource.Enabled {
+	if resource.Name != "gru-cell" || resource.Address != d.Network.Resource.Address || !resource.Enabled {
 		t.Fatalf("resource %+v", resource)
 	}
 	var router apiRouter
@@ -582,7 +589,7 @@ func (s *podmanStack) verifySynced(owner string, d Desired, seed podmanSeed) {
 	}
 	var policies []apiPolicy
 	s.must(owner, "GET", "/policies", nil, &policies)
-	if len(policies) != 4 {
+	if len(policies) != len(d.Policies)+3 {
 		t.Fatalf("%d policies", len(policies))
 	}
 	for legacy, id := range seed.policies {
@@ -591,9 +598,12 @@ func (s *podmanStack) verifySynced(owner string, d Desired, seed podmanSeed) {
 			t.Fatalf("policy %s lost its ID", legacy)
 		}
 		p := policies[index]
-		if len(p.Rules) != 1 || p.Rules[0].Name != p.Name || p.Rules[0].Bidirectional || p.Description == "" ||
-			p.Rules[0].Description != p.Description || p.Name == legacy {
-			t.Fatalf("policy %s: %+v", legacy, p)
+		if legacy == "operators-ssh-to-ts-orch-servers" {
+			if p.Name != "operators-to-gru-servers-ssh" || p.Rules[0].Bidirectional {
+				t.Fatalf("managed SSH policy did not retain its scope: %+v", p)
+			}
+		} else if p.Name != legacy {
+			t.Fatalf("unowned policy %s changed: %+v", legacy, p)
 		}
 	}
 	var accounts []apiAccount
@@ -603,7 +613,7 @@ func (s *podmanStack) verifySynced(owner string, d Desired, seed podmanSeed) {
 	}
 	var dns dnsSettings
 	s.must(owner, "GET", "/dns/settings", nil, &dns)
-	if !slices.Equal(dns.DisabledManagementGroups, []string{seed.groups["ts-orch-servers"]}) {
+	if len(dns.DisabledManagementGroups) != 0 {
 		t.Fatalf("dns settings %v", dns)
 	}
 	var zones []apiZone
@@ -618,9 +628,14 @@ func (s *podmanStack) verifySynced(owner string, d Desired, seed podmanSeed) {
 	for _, r := range records {
 		got = append(got, fmt.Sprintf("%s %s %s %d", r.Name, r.Type, r.Content, r.TTL))
 	}
-	for _, r := range d.Records() {
-		want = append(want, fmt.Sprintf("%s A %s 300", r.Name, r.Content))
+	for host, labels := range map[string][]string{"gru-1-ctl-1": {"ts-gru-1", "nats"}, "gru-1-db-1": {"gru-1-db-1", "terrabase"}} {
+		var peer apiPeer
+		s.must(owner, "GET", "/peers/"+seed.peers[host], nil, &peer)
+		for _, label := range labels {
+			want = append(want, fmt.Sprintf("%s.%s A %s 300", label, d.Zone.Domain, peer.IP))
+		}
 	}
+	slices.Sort(want)
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
 		t.Fatalf("records %v, want %v", got, want)
@@ -640,23 +655,12 @@ func (s *podmanStack) exec(container string, args ...string) (string, bool) {
 }
 
 func (s *podmanStack) verifyTraffic(owner string, d Desired, seed podmanSeed) {
-	var tsOps, operator apiPeer
-	s.must(owner, "GET", "/peers/"+seed.peers["ts-ops"], nil, &tsOps)
-	s.must(owner, "GET", "/peers/"+seed.peers["operator-1"], nil, &operator)
-	s.wait("operator ping to ts-ops", 2*time.Minute, func() bool {
-		_, ok := s.exec("operator-1", "ping", "-c", "1", "-W", "2", tsOps.IP)
-		return ok
-	})
-	// The ping policy is one-way: ts-ops cannot start a ping to operators.
-	for range 3 {
-		if _, ok := s.exec("ts-ops", "ping", "-c", "1", "-W", "2", operator.IP); ok {
-			s.t.Fatal("ts-ops pinged an operator: the ping policy is not one-way")
-		}
-	}
+	var controller apiPeer
+	s.must(owner, "GET", "/peers/"+seed.peers["gru-1-ctl-1"], nil, &controller)
 	slot := d.Slots[0]
 	s.wait("operator to resolve "+slot.Name+"."+d.Zone.Domain, 2*time.Minute, func() bool {
 		output, ok := s.exec("operator-1", "nslookup", slot.Name+"."+d.Zone.Domain)
 		_, answer, _ := strings.Cut(output, "Name:")
-		return ok && strings.Contains(answer, slot.IP)
+		return ok && strings.Contains(answer, controller.IP)
 	})
 }

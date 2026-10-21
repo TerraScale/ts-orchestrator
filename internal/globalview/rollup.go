@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 const (
@@ -59,15 +60,19 @@ const (
 // a capped list sets Truncated. Adding a field is compatible; renaming or
 // removing one is not.
 type Rollup struct {
-	Version     int          `json:"version"`
-	Cell        string       `json:"cell"`
-	ObservedAt  time.Time    `json:"observed_at"`
-	Health      Health       `json:"health"`
-	Controllers Controllers  `json:"controllers"`
-	Versions    []BuildCount `json:"versions,omitempty"`
-	Totals      Totals       `json:"totals"`
-	Nodes       []Node       `json:"nodes,omitempty"`
-	Volumes     []Volume     `json:"volumes,omitempty"`
+	Version             int                               `json:"version"`
+	Cell                string                            `json:"cell"`
+	ObservedAt          time.Time                         `json:"observed_at"`
+	Health              Health                            `json:"health"`
+	Controllers         Controllers                       `json:"controllers"`
+	Versions            []BuildCount                      `json:"versions,omitempty"`
+	Totals              Totals                            `json:"totals"`
+	Nodes               []Node                            `json:"nodes,omitempty"`
+	Volumes             []Volume                          `json:"volumes,omitempty"`
+	Services            []swarmruntime.ServiceObservation `json:"services,omitempty"`
+	ServicesObservedAt  time.Time                         `json:"services_observed_at,omitzero"`
+	Functions           []FunctionObservation             `json:"functions,omitempty"`
+	FunctionsObservedAt time.Time                         `json:"functions_observed_at,omitzero"`
 	// VolumesUnavailable marks a failed volume read: Volumes is unknown, not empty.
 	VolumesUnavailable bool        `json:"volumes_unavailable,omitzero"`
 	Links              []Link      `json:"links,omitempty"`
@@ -141,9 +146,10 @@ type Node struct {
 
 // Service is one role placed on a node and its reported state.
 type Service struct {
-	Role   string `json:"role"`
-	State  string `json:"state,omitempty"`
-	Digest string `json:"digest,omitempty"`
+	Role        string `json:"role"`
+	State       string `json:"state,omitempty"`
+	StateReason string `json:"state_reason,omitempty"`
+	Digest      string `json:"digest,omitempty"`
 }
 
 // Filesystem is one distinct filesystem of a node; Role names the roles

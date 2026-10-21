@@ -1,0 +1,3644 @@
+{
+  "schema_version": 1,
+  "report_kind": "independent_source_only_classification_peer_acceptance",
+  "reviewed_at_utc": "2026-10-17T15:09:31.005098+00:00",
+  "decision": "ACCEPT_REGION30_SOURCE_CLASSIFICATIONS_ONLY_NO_ACCOUNTING_PROMOTION",
+  "candidate": {
+    "path": "/tmp/ts-region30-d4ac-source-classification-k5k2eh_b/classification.json",
+    "sha256": "0253d55a2fd2467198fca1287004ecc20a2c888fe2f8341536bdeb4ca7549002",
+    "SHA256SUMS_sha256": "ef7f2e339510144daea0126e2f8ade863ad5e627a367111891e0db19ac7afbd3",
+    "packet_modes": "directory0555; classification.json README.md SHA256SUMS0444"
+  },
+  "batch_id": "region30",
+  "canonical_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "canonical_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation_manifest": {
+    "path": "/tmp/ts-source-classification-batches-d4ac-0a9afk60/allocation.json",
+    "sha256": "a93275c8f26aa063e6cfc28fed074308c876e2da69baae89f8a0c3e3de77a6fd"
+  },
+  "output_contract": {
+    "path": "/tmp/ts-source-classification-batches-d4ac-0a9afk60/OUTPUT-CONTRACT.md",
+    "sha256": "926006744cf8baa22f381f44ef3904facf01fafce42cbf096c3be9c157c8f2d8"
+  },
+  "inventory": {
+    "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+    "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "original_test_roots": 4319
+  },
+  "accepted_accounting_audit": {
+    "path": "/tmp/ts-qa-authority93-promotion-independent-1ze7x7t_/review.json",
+    "sha256": "8530d0ac454abb7701c8073deccb12f2ee96190dfeb094f7fecfa4217b76175d"
+  },
+  "verification": {
+    "all_input_and_checksum_pins_match": true,
+    "exact_canonical_commit_tree_verified": true,
+    "cross_batch_allocated_roots": 79,
+    "cross_batch_unique_roots": 79,
+    "excluded_accepted_roots": 102,
+    "excluded_retired_roots": 19,
+    "selected_excluded_intersection": 0,
+    "exhaustive_region_original_test_roots": 30,
+    "original_test_files": 12,
+    "helper_and_TestMain_rows_excluded_from_original_root_count": true,
+    "raw_baseline_current_declarations_verified": 60,
+    "raw_declaration_contract": "func through column-zero closing brace; following LF excluded",
+    "all30_current_bodies_equal_originals": true,
+    "canonical_file_pins_verified": 52,
+    "baseline_file_pins_verified": 12,
+    "fixture_document_pins_verified": 2,
+    "citation_references_verified": 400,
+    "distinct_function_citations_verified": 164,
+    "literal_assertion_snippets_verified": 79,
+    "citation_verification": "Canonical commit/blob, pinned file, bounds and function declaration names/receiver/end verified. Two recoveryAuthority methods use unnamed receivers, manually confirmed.",
+    "connected_source_review": "Read exact assertion snippets and relevant production/helper paths to distinguish local guards and fixture data from actual SDK HTTP, storage CAS, durable filesystem and process exchanges. No current source boundary identified as provably blocked/unreachable in these scoped asserted targets.",
+    "additional_dependency_check": "DiscoveryGenesis implementation and embedded public key inspected statically. PEM decodes to44-byte Ed25519 SPKI; no cryptographic/Go/runtime execution."
+  },
+  "classification_counts": {
+    "integration": 8,
+    "unit": 6,
+    "mixed": 16,
+    "unresolved": 0
+  },
+  "category_corrections": [],
+  "findings": [],
+  "unresolved_source_blockers": [],
+  "roots": [
+    {
+      "root_id": "internal/region/access_integration_test.go::TestSignedReadAccessRequiresCurrentOwnedFoundation",
+      "path": "internal/region/access_integration_test.go",
+      "original_name": "TestSignedReadAccessRequiresCurrentOwnedFoundation",
+      "current_name": "TestSignedReadAccessRequiresCurrentOwnedFoundation",
+      "original_declaration_sha256": "32e72018db571be73f47cb084ad408710e16638e692a616373f302d342ced779",
+      "current_declaration_sha256": "32e72018db571be73f47cb084ad408710e16638e692a616373f302d342ced779",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 19,
+        "end_line": 200,
+        "git_blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+        "observed_declaration_sha256": "32e72018db571be73f47cb084ad408710e16638e692a616373f302d342ced779",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 19,
+        "end_line": 200,
+        "git_blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+        "observed_declaration_sha256": "32e72018db571be73f47cb084ad408710e16638e692a616373f302d342ced779",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: signed access selection and backup revocation fetch actual grant/current-record bytes through SDK HTTP and conditional durable records. The returned URL slice defensive-copy assertion is an independent local target; no destination HTTPS or Vault retrieval follows.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/access_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+          "start_line": 65,
+          "end_line": 95,
+          "category": "integration",
+          "exact_snippet_sha256": "cbef08bf6e4b1d50335f872370cd6f60591cf5ee931fc45d3e86076b66cdd684"
+        },
+        {
+          "path": "internal/region/access_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+          "start_line": 96,
+          "end_line": 100,
+          "category": "unit",
+          "exact_snippet_sha256": "968d5ce909f710e42907378906cb386f60e1d8e12a7e1437a4132131533075bc"
+        },
+        {
+          "path": "internal/region/access_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+          "start_line": 101,
+          "end_line": 131,
+          "category": "integration",
+          "exact_snippet_sha256": "a46e2ded329e92520cddb66daa1720b6f4d4ba3936add4d9d1dbd2527831bbf7"
+        },
+        {
+          "path": "internal/region/access_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+          "start_line": 132,
+          "end_line": 199,
+          "category": "integration",
+          "exact_snippet_sha256": "b7b30dc4b5f3c0ba8e118925734758c6bc918c5a560bf6fd11a6ace4ae6e0d29"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryHTTPDurableAuthority",
+      "path": "internal/region/discovery_current_integration_test.go",
+      "original_name": "TestCurrentFoundationDiscoveryHTTPDurableAuthority",
+      "current_name": "TestCurrentFoundationDiscoveryHTTPDurableAuthority",
+      "original_declaration_sha256": "f0707170a059aa929061bc257153c257ec3f1cb44bfc80ea0c9d0ae4a51bb676",
+      "current_declaration_sha256": "f0707170a059aa929061bc257153c257ec3f1cb44bfc80ea0c9d0ae4a51bb676",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 216,
+        "end_line": 420,
+        "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+        "observed_declaration_sha256": "f0707170a059aa929061bc257153c257ec3f1cb44bfc80ea0c9d0ae4a51bb676",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 216,
+        "end_line": 420,
+        "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+        "observed_declaration_sha256": "f0707170a059aa929061bc257153c257ec3f1cb44bfc80ea0c9d0ae4a51bb676",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: discovery performs actual namespace/object requests and private floor open/flock/read/write/fsync/rename. Tests read exact persisted bytes/modes, exercise stale/forked state and another process. Nil authenticated factory is a separate pre-I/O guard; historical-rotation check prepares the fixture.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/discovery_current_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+          "start_line": 217,
+          "end_line": 226,
+          "category": "integration",
+          "exact_snippet_sha256": "be2b613ed89dd6a17793133783caea6a5cebed303d6b773303f03f4af14973f9"
+        },
+        {
+          "path": "internal/region/discovery_current_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+          "start_line": 227,
+          "end_line": 323,
+          "category": "integration",
+          "exact_snippet_sha256": "fe9814574f19a20de10613805b367f3d6897ef73d1b752c0837ca1d47c80dea9"
+        },
+        {
+          "path": "internal/region/discovery_current_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+          "start_line": 324,
+          "end_line": 343,
+          "category": "integration",
+          "exact_snippet_sha256": "32f30dfe74bf8edccd4d0bb643ba86650705bb9fdc039001b8c3ab0b42a58393"
+        },
+        {
+          "path": "internal/region/discovery_current_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+          "start_line": 344,
+          "end_line": 346,
+          "category": "unit",
+          "exact_snippet_sha256": "d6c1cbcedc063f452bbe694c981a99555b03c2a1cbfeb02f0acba1597ad9ffed"
+        },
+        {
+          "path": "internal/region/discovery_current_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+          "start_line": 348,
+          "end_line": 357,
+          "category": "integration",
+          "exact_snippet_sha256": "bad4123a8b8b59a84a8beba55d4b610a5321194cd74e5c14693397a35b3178fa"
+        },
+        {
+          "path": "internal/region/discovery_current_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+          "start_line": 358,
+          "end_line": 391,
+          "category": "integration",
+          "exact_snippet_sha256": "758220774771523623d2a4709392d28a29766172613eed445eb1d9c19b191d7c"
+        },
+        {
+          "path": "internal/region/discovery_current_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+          "start_line": 392,
+          "end_line": 419,
+          "category": "integration",
+          "exact_snippet_sha256": "d07426e6ebfa04261a30f6626c0526d35acc475a84bdc1c62583c7761ba529ea"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryLockProcess",
+      "path": "internal/region/discovery_current_integration_test.go",
+      "original_name": "TestCurrentFoundationDiscoveryLockProcess",
+      "current_name": "TestCurrentFoundationDiscoveryLockProcess",
+      "original_declaration_sha256": "29fafdd70ca332917fadbf1a7ed3789044e7ddadf855b39a44e28820a5a81712",
+      "current_declaration_sha256": "29fafdd70ca332917fadbf1a7ed3789044e7ddadf855b39a44e28820a5a81712",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 422,
+        "end_line": 440,
+        "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+        "observed_declaration_sha256": "29fafdd70ca332917fadbf1a7ed3789044e7ddadf855b39a44e28820a5a81712",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 422,
+        "end_line": 440,
+        "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+        "observed_declaration_sha256": "29fafdd70ca332917fadbf1a7ed3789044e7ddadf855b39a44e28820a5a81712",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "integration",
+      "independent_rationale": "Integration, conditional helper only: with parent-supplied TS_TEST_FOUNDATION_LOCK, opens actual floor lock, flocks it, writes L to stdout and waits for stdin. Parent reads L and asserts cancellation while locked. Standalone helper returns without its environment; no second independent safety proof or extra root is credited.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/discovery_current_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+          "start_line": 423,
+          "end_line": 439,
+          "category": "integration",
+          "exact_snippet_sha256": "ecf03610cce8772baf9c5d54233f8b995fd0ba619b2a1b811c2bc8f4ec44d75a"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/foundation_integration_test.go::TestFoundationRecordsPersistAndFenceConcurrentWriters",
+      "path": "internal/region/foundation_integration_test.go",
+      "original_name": "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+      "current_name": "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+      "original_declaration_sha256": "ca475cb3298712083ea2056e57751b36e76edc2fe823c4b830d3c2589b530068",
+      "current_declaration_sha256": "ca475cb3298712083ea2056e57751b36e76edc2fe823c4b830d3c2589b530068",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 125,
+        "end_line": 154,
+        "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+        "observed_declaration_sha256": "ca475cb3298712083ea2056e57751b36e76edc2fe823c4b830d3c2589b530068",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 125,
+        "end_line": 154,
+        "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+        "observed_declaration_sha256": "ca475cb3298712083ea2056e57751b36e76edc2fe823c4b830d3c2589b530068",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "integration",
+      "independent_rationale": "Integration: SDK conditional PUT commits disk-backed fixture bytes; a reconstructed store GETs bytes and ETag. Later update changes conditional identity and stale/duplicate PUTs receive412. This is handle reconstruction, not process restart or a concurrent writer race.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/foundation_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+          "start_line": 132,
+          "end_line": 153,
+          "category": "integration",
+          "exact_snippet_sha256": "11dbdfc98478080a54763f8b30e6e198ea7621f38a3fd0a4a48de1907e117641"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/foundation_integration_test.go::TestSignedFoundationScopeRequiresExplicitBootstrapAuthority",
+      "path": "internal/region/foundation_integration_test.go",
+      "original_name": "TestSignedFoundationScopeRequiresExplicitBootstrapAuthority",
+      "current_name": "TestSignedFoundationScopeRequiresExplicitBootstrapAuthority",
+      "original_declaration_sha256": "25127a9b2f5e560a09073553549984220df2023b9e77e36e10e2c6abbdd7288d",
+      "current_declaration_sha256": "25127a9b2f5e560a09073553549984220df2023b9e77e36e10e2c6abbdd7288d",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 156,
+        "end_line": 469,
+        "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+        "observed_declaration_sha256": "25127a9b2f5e560a09073553549984220df2023b9e77e36e10e2c6abbdd7288d",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 156,
+        "end_line": 469,
+        "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+        "observed_declaration_sha256": "25127a9b2f5e560a09073553549984220df2023b9e77e36e10e2c6abbdd7288d",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: republished signed scopes are fetched through SDK HTTP for spend/material/OCIR authorization and discovery publication/readback. Scope/startup defensive copies, startup denial, direct namespace guard and malformed repository selectors have separate local targets. No IAM principal/token issuance or controller startup occurs.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/foundation_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+          "start_line": 196,
+          "end_line": 218,
+          "category": "integration",
+          "exact_snippet_sha256": "b6656e2d6c75c17f7fa8bf9310129ce333630a5e9b9c162f08eee1fbfdb7c978"
+        },
+        {
+          "path": "internal/region/foundation_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+          "start_line": 219,
+          "end_line": 223,
+          "category": "unit",
+          "exact_snippet_sha256": "eea627828fdf3e1b7ef51371c6b4efa895acf2bc9591cfe3d0db4869a26ca01f"
+        },
+        {
+          "path": "internal/region/foundation_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+          "start_line": 224,
+          "end_line": 325,
+          "category": "mixed",
+          "exact_snippet_sha256": "29a30c72f4d4ea0c0b301cd0864354f3dd9a0a968ac8dbce010863271d2bb288"
+        },
+        {
+          "path": "internal/region/foundation_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+          "start_line": 326,
+          "end_line": 328,
+          "category": "unit",
+          "exact_snippet_sha256": "9325452186aa6be48d7429f86e1b5bb9c5d68918b32c882fb29cafa83dd7ba11"
+        },
+        {
+          "path": "internal/region/foundation_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+          "start_line": 329,
+          "end_line": 351,
+          "category": "integration",
+          "exact_snippet_sha256": "e780ccb8319165636b8df2b5bffe1129fe91cd48d6f0fa70284d723d835aa9d1"
+        },
+        {
+          "path": "internal/region/foundation_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+          "start_line": 352,
+          "end_line": 367,
+          "category": "unit",
+          "exact_snippet_sha256": "45a988ccc3ba6ad70fbb142476c98d1b14f17bc00a6e2d651fe9d84b8e54137a"
+        },
+        {
+          "path": "internal/region/foundation_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+          "start_line": 369,
+          "end_line": 419,
+          "category": "mixed",
+          "exact_snippet_sha256": "dcf699215d8f000d4fcc81baab3bb606853ca685a5198ee34efaccab2c1778b8"
+        },
+        {
+          "path": "internal/region/foundation_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+          "start_line": 421,
+          "end_line": 423,
+          "category": "unit",
+          "exact_snippet_sha256": "e45b4191d96d3d98b14b1858d37b701f4e7431f6bddde064ef6cbde5c897f374"
+        },
+        {
+          "path": "internal/region/foundation_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+          "start_line": 424,
+          "end_line": 467,
+          "category": "integration",
+          "exact_snippet_sha256": "733775ce1b0a145be5fdb9a6252f176f490442cb32a8feec8ee585c33253cd43"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/foundation_recovery_integration_test.go::TestFoundationAcceptedCreateRecoversFromDurablePendingRequest",
+      "path": "internal/region/foundation_recovery_integration_test.go",
+      "original_name": "TestFoundationAcceptedCreateRecoversFromDurablePendingRequest",
+      "current_name": "TestFoundationAcceptedCreateRecoversFromDurablePendingRequest",
+      "original_declaration_sha256": "82e11df6e2001bc042bc1099316fba578034a22d043364b0d1f84a3932bced12",
+      "current_declaration_sha256": "82e11df6e2001bc042bc1099316fba578034a22d043364b0d1f84a3932bced12",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 42,
+        "end_line": 233,
+        "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+        "observed_declaration_sha256": "82e11df6e2001bc042bc1099316fba578034a22d043364b0d1f84a3932bced12",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 42,
+        "end_line": 233,
+        "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+        "observed_declaration_sha256": "82e11df6e2001bc042bc1099316fba578034a22d043364b0d1f84a3932bced12",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "integration",
+      "independent_rationale": "Integration: actual SDK create follows durable PrepareCreate/CAS; local TLS service accepts the tokenized create then returns503. New attempt uses stored request/token and commits original provenance. Unsafe recovery and old-owner checks read durable state; permissive authority and post-checkpoint stop sentinel do not replace those effects.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/foundation_recovery_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+          "start_line": 147,
+          "end_line": 153,
+          "category": "integration",
+          "exact_snippet_sha256": "110d00fae9e4243017a17ef6eb2ad1510ba3917108ccfbc9d19deca6e5b74a31"
+        },
+        {
+          "path": "internal/region/foundation_recovery_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+          "start_line": 156,
+          "end_line": 187,
+          "category": "integration",
+          "exact_snippet_sha256": "ea788a33d4436168dcc18065347cde4051ea78f4596fd27dc488676e5395a6bb"
+        },
+        {
+          "path": "internal/region/foundation_recovery_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+          "start_line": 197,
+          "end_line": 231,
+          "category": "integration",
+          "exact_snippet_sha256": "42c675be9a3f50e4994d388344529d7ce576e34226779a183d4144eae145dfda"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/foundation_recovery_integration_test.go::TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately",
+      "path": "internal/region/foundation_recovery_integration_test.go",
+      "original_name": "TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately",
+      "current_name": "TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately",
+      "original_declaration_sha256": "c0000f9464ddedead7a0f20ee7ac51de01f8916781daa67f828d4c090b20503d",
+      "current_declaration_sha256": "c0000f9464ddedead7a0f20ee7ac51de01f8916781daa67f828d4c090b20503d",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 235,
+        "end_line": 278,
+        "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+        "observed_declaration_sha256": "c0000f9464ddedead7a0f20ee7ac51de01f8916781daa67f828d4c090b20503d",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 235,
+        "end_line": 278,
+        "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+        "observed_declaration_sha256": "c0000f9464ddedead7a0f20ee7ac51de01f8916781daa67f828d4c090b20503d",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: pending auxiliary reservation and completion use actual guard GET/CAS and store readback; untokened replay checks durable pending state. Invalid auxiliary key/kind/region rejects in validAuxiliaryID before storage, a separate local target.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/foundation_recovery_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+          "start_line": 249,
+          "end_line": 270,
+          "category": "integration",
+          "exact_snippet_sha256": "ad264074362d6a86db7a94159ab71abf6d4c6491f9e604542e78b9bf33afe84f"
+        },
+        {
+          "path": "internal/region/foundation_recovery_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+          "start_line": 271,
+          "end_line": 274,
+          "category": "unit",
+          "exact_snippet_sha256": "34e1b29addcd396ec23033644f5c38bae73e17c5fb5c2ca1abf59d0e3a3a85db"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/netbird_manager_integration_test.go::TestNetBirdManagerSignedLaunchAndStoreRecovery",
+      "path": "internal/region/netbird_manager_integration_test.go",
+      "original_name": "TestNetBirdManagerSignedLaunchAndStoreRecovery",
+      "current_name": "TestNetBirdManagerSignedLaunchAndStoreRecovery",
+      "original_declaration_sha256": "86a01e34104006ec35298e8b1f62564d69efc60b7ccc3430db9419a81068f81d",
+      "current_declaration_sha256": "86a01e34104006ec35298e8b1f62564d69efc60b7ccc3430db9419a81068f81d",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 40,
+        "end_line": 424,
+        "git_blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+        "observed_declaration_sha256": "86a01e34104006ec35298e8b1f62564d69efc60b7ccc3430db9419a81068f81d",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 40,
+        "end_line": 424,
+        "git_blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+        "observed_declaration_sha256": "86a01e34104006ec35298e8b1f62564d69efc60b7ccc3430db9419a81068f81d",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "integration",
+      "independent_rationale": "Integration: signed grant/evidence, tariff HTTP, network/compute SDK requests and durable reservation/CAS support finite launch and single-use store transitions. Handler checks exact token/body/digest; two genesis consumers race on conditional durable state. Binary measurement is injected, IMDS is bypassed, gate/ARM64 facts are constructed; no native execution or NetBird process/store qualification.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/netbird_manager_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+          "start_line": 174,
+          "end_line": 224,
+          "category": "integration",
+          "exact_snippet_sha256": "e150b5f33f74bfd3d8be0063d53f90ee84b2ae95b8b413d0efc1641b48277509"
+        },
+        {
+          "path": "internal/region/netbird_manager_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+          "start_line": 262,
+          "end_line": 299,
+          "category": "integration",
+          "exact_snippet_sha256": "94dfd2ae44713b5ba21deebb14cdbf716ee96c3dbc1e5955af4aedca17d0ca69"
+        },
+        {
+          "path": "internal/region/netbird_manager_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+          "start_line": 328,
+          "end_line": 355,
+          "category": "integration",
+          "exact_snippet_sha256": "0cac3ad33d8a4978677b1f9eebcd2ebc159b6876ad834f8bde52968b10cb1e70"
+        },
+        {
+          "path": "internal/region/netbird_manager_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+          "start_line": 373,
+          "end_line": 423,
+          "category": "integration",
+          "exact_snippet_sha256": "505195c0de17fb0565939f4e83da5c27076dc40eaea607ff13b51f35a6b6c9cf"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/netbird_network_integration_test.go::TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift",
+      "path": "internal/region/netbird_network_integration_test.go",
+      "original_name": "TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift",
+      "current_name": "TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift",
+      "original_declaration_sha256": "5c003a8efa3d75ff5788b366af0ad64b90c827796a0f99f7291c1a2a77003daf",
+      "current_declaration_sha256": "5c003a8efa3d75ff5788b366af0ad64b90c827796a0f99f7291c1a2a77003daf",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 32,
+        "end_line": 262,
+        "git_blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+        "observed_declaration_sha256": "5c003a8efa3d75ff5788b366af0ad64b90c827796a0f99f7291c1a2a77003daf",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 32,
+        "end_line": 262,
+        "git_blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+        "observed_declaration_sha256": "5c003a8efa3d75ff5788b366af0ad64b90c827796a0f99f7291c1a2a77003daf",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: lost accepted network response is recovered using exact durable request/token; drift/DNS/NSG assertions read actual SDK HTTP facts. CIDR geometry guards reject before SDK I/O. Injected BeforeWrite errors follow actual PrepareCreate, so these later guards retain storage boundary scope without provider mutation.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/netbird_network_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+          "start_line": 88,
+          "end_line": 129,
+          "category": "integration",
+          "exact_snippet_sha256": "cb96725ff58c851de6fa57e503afa5b8093587164725ad39caff5e06d5c8a1c9"
+        },
+        {
+          "path": "internal/region/netbird_network_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+          "start_line": 169,
+          "end_line": 216,
+          "category": "integration",
+          "exact_snippet_sha256": "fffd1c5a1c2fe275cb47c656eb4a2cc95706da7345d043edb6d98fbd663a7bc6"
+        },
+        {
+          "path": "internal/region/netbird_network_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+          "start_line": 218,
+          "end_line": 227,
+          "category": "unit",
+          "exact_snippet_sha256": "e66d6fe4aef86afbc1699be935bb03f55ceae05a8d70223427dfc4c332eea720"
+        },
+        {
+          "path": "internal/region/netbird_network_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+          "start_line": 229,
+          "end_line": 260,
+          "category": "integration",
+          "exact_snippet_sha256": "3ec67a441253b375b9fdfe487e671bf8510af1e24d79d90a3a05278f747c4ee3"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestNetworkFollowsTheCatalog",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestNetworkFollowsTheCatalog",
+      "current_name": "TestNetworkFollowsTheCatalog",
+      "original_declaration_sha256": "08cef42e11d369688ae13463b2d115daa88236371f402d451b1e0ccaa34e8e7c",
+      "current_declaration_sha256": "08cef42e11d369688ae13463b2d115daa88236371f402d451b1e0ccaa34e8e7c",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 54,
+        "end_line": 63,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "08cef42e11d369688ae13463b2d115daa88236371f402d451b1e0ccaa34e8e7c",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 54,
+        "end_line": 63,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "08cef42e11d369688ae13463b2d115daa88236371f402d451b1e0ccaa34e8e7c",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "unit",
+      "independent_rationale": "Unit: fixed catalog/network mapping and unknown-cell refusal use only in-memory tables and netip.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 55,
+          "end_line": 62,
+          "category": "unit",
+          "exact_snippet_sha256": "7d798d07b8f837a17ff7778f910f39a2289dd14d8adaf1550bc43dadff1fc31c"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestDeriveRoundTripsTheReviewedPlan",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestDeriveRoundTripsTheReviewedPlan",
+      "current_name": "TestDeriveRoundTripsTheReviewedPlan",
+      "original_declaration_sha256": "e76634b9ee33748490d7685fe24ed90e89494d592ac60cb1d8c4f15fde408cda",
+      "current_declaration_sha256": "e76634b9ee33748490d7685fe24ed90e89494d592ac60cb1d8c4f15fde408cda",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 67,
+        "end_line": 106,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "e76634b9ee33748490d7685fe24ed90e89494d592ac60cb1d8c4f15fde408cda",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 67,
+        "end_line": 106,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "e76634b9ee33748490d7685fe24ed90e89494d592ac60cb1d8c4f15fde408cda",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: forward derived plan is written, validated, renamed and reread before field assertions. Reverse derivation/equality operates on already-loaded maps with supplied Live data and is a distinct local algorithm target.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 68,
+          "end_line": 94,
+          "category": "integration",
+          "exact_snippet_sha256": "1046f8a59b58536c86997263b13082aee5685db2cd8d6af0bc83294419b34872"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 95,
+          "end_line": 104,
+          "category": "unit",
+          "exact_snippet_sha256": "cd4088490bc823424fd981da8111aefa7740500789cd3bff82c92971feaecfa4"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestDeriveRefuses",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestDeriveRefuses",
+      "current_name": "TestDeriveRefuses",
+      "original_declaration_sha256": "a834150a47d722bf44854decce988527b094b035a35048f0d301d91130baf977",
+      "current_declaration_sha256": "a834150a47d722bf44854decce988527b094b035a35048f0d301d91130baf977",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 108,
+        "end_line": 123,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "a834150a47d722bf44854decce988527b094b035a35048f0d301d91130baf977",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 108,
+        "end_line": 123,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "a834150a47d722bf44854decce988527b094b035a35048f0d301d91130baf977",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: invalid derivation cases are local guards despite incidental fixture loads. writePlan(/dev/null/x) attempts an actual OS write at /dev/null/x.new and asserts failure; this is filesystem path rejection, not valid-plan persistence.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 109,
+          "end_line": 116,
+          "category": "unit",
+          "exact_snippet_sha256": "2eeb4e7cc61205956d45fa166e4f23294ca8bd7b5f143e60da4f4b7d7a01808d"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 117,
+          "end_line": 121,
+          "category": "integration",
+          "exact_snippet_sha256": "e57ae7b45dff695afcc152e97521caddd3e370ed08b8711e59dc35c726c5f495"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestRegionProfileKeepsOnlyDefaultInTheRegion",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestRegionProfileKeepsOnlyDefaultInTheRegion",
+      "current_name": "TestRegionProfileKeepsOnlyDefaultInTheRegion",
+      "original_declaration_sha256": "872ae3b39c7236891fa3fa6713c6a1076f94b435ad44675223aaa2b19c31fde0",
+      "current_declaration_sha256": "872ae3b39c7236891fa3fa6713c6a1076f94b435ad44675223aaa2b19c31fde0",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 125,
+        "end_line": 144,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "872ae3b39c7236891fa3fa6713c6a1076f94b435ad44675223aaa2b19c31fde0",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 125,
+        "end_line": 144,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "872ae3b39c7236891fa3fa6713c6a1076f94b435ad44675223aaa2b19c31fde0",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "integration",
+      "independent_rationale": "Integration: regionProfile itself reads each actual file written by the root; output equality and absent DEFAULT refusal depend on that file input. No separate direct pure-parser assertion or OCI authentication is exercised.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 127,
+          "end_line": 143,
+          "category": "integration",
+          "exact_snippet_sha256": "08d8b8509ecc8cf39b4ce59c6841c73ebde384e15a6f38069c0bff4e1d8df0b7"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey",
+      "current_name": "TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey",
+      "original_declaration_sha256": "be389ca00c113b158dc481bc2fd7f3b1859879991d92b54453ccbc2b4335947e",
+      "current_declaration_sha256": "be389ca00c113b158dc481bc2fd7f3b1859879991d92b54453ccbc2b4335947e",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 277,
+        "end_line": 304,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "be389ca00c113b158dc481bc2fd7f3b1859879991d92b54453ccbc2b4335947e",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 277,
+        "end_line": 304,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "be389ca00c113b158dc481bc2fd7f3b1859879991d92b54453ccbc2b4335947e",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "integration",
+      "independent_rationale": "Integration: first creation writes journal and setup receipt before the fake sync failure; root stats receipt. Retry reads receipt/journal and must avoid new key/Vault calls before sync/image. Fake runners mean no real subprocess, Vault or NetBird effect; actual persisted resume state is the asserted boundary.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 279,
+          "end_line": 303,
+          "category": "integration",
+          "exact_snippet_sha256": "014c2e023e0187ce53a7e4723ca42b89a2e134c4fa58b67088dacb606016b380"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestCreateRunsEveryStepOnceAndResumes",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestCreateRunsEveryStepOnceAndResumes",
+      "current_name": "TestCreateRunsEveryStepOnceAndResumes",
+      "original_declaration_sha256": "c75badfbdf86ba445316fe224fb677376cf88d3e5cc24cc22fa149a8ac0dec04",
+      "current_declaration_sha256": "c75badfbdf86ba445316fe224fb677376cf88d3e5cc24cc22fa149a8ac0dec04",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 306,
+        "end_line": 363,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "c75badfbdf86ba445316fe224fb677376cf88d3e5cc24cc22fa149a8ac0dec04",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 306,
+        "end_line": 363,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "c75badfbdf86ba445316fe224fb677376cf88d3e5cc24cc22fa149a8ac0dec04",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: creation retries read/write journal, bound plan, attempt and OCI profile; root reads those artifacts and verifies completed rerun skips. Duration Markdown is a separate bytes.Buffer/injected-clock formatting target. Deployment APIs and verifier are fakes.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 308,
+          "end_line": 343,
+          "category": "integration",
+          "exact_snippet_sha256": "cdf2741aa320099ff1594c21c2da72339082374df09d1a60a2781a6bd5f738a2"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 344,
+          "end_line": 353,
+          "category": "integration",
+          "exact_snippet_sha256": "5b97067fdba7dee08c66bef61336bf977c438c2cf4fde69abc71e8d87980f873"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 354,
+          "end_line": 357,
+          "category": "unit",
+          "exact_snippet_sha256": "3ea76b2d1bf42a642a1203c8bcc32a7eb5f5821f3e9c7724dd5b68cb81f50fc2"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 358,
+          "end_line": 362,
+          "category": "integration",
+          "exact_snippet_sha256": "fd593d9b227530a88df92f20ea93af2d678dc2a22d1e16d70afa61a9b1715205"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestCreatePeersWithTheHome",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestCreatePeersWithTheHome",
+      "current_name": "TestCreatePeersWithTheHome",
+      "original_declaration_sha256": "ac9771e22895f523da5dc2d40d5c08b2fe7fc3466b286d5ae32f27b79d2c089b",
+      "current_declaration_sha256": "ac9771e22895f523da5dc2d40d5c08b2fe7fc3466b286d5ae32f27b79d2c089b",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 367,
+        "end_line": 422,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "ac9771e22895f523da5dc2d40d5c08b2fe7fc3466b286d5ae32f27b79d2c089b",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 367,
+        "end_line": 422,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "ac9771e22895f523da5dc2d40d5c08b2fe7fc3466b286d5ae32f27b79d2c089b",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: independent Steps ordering check is local. Peer flow reads/hashes both plans, persists/reads exact intent, reuses identical bytes, then rereads changed bound plan and refuses before fake runner. No actual DRG/firewall/network operation.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 370,
+          "end_line": 372,
+          "category": "unit",
+          "exact_snippet_sha256": "34726fff14cd5af9ac007378f7f9dddf23e44ff543976bca0a35aed397c6f573"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 374,
+          "end_line": 421,
+          "category": "integration",
+          "exact_snippet_sha256": "910227b44d1438cb757170a385c8405344b367d9537b534df947a74b352ab3cd"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestCreateRefusesBeforeSpending",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestCreateRefusesBeforeSpending",
+      "current_name": "TestCreateRefusesBeforeSpending",
+      "original_declaration_sha256": "456e4e9f0e3959541c035fde4c539dba48facc7d98367b8dde86ce475e6d32b9",
+      "current_declaration_sha256": "456e4e9f0e3959541c035fde4c539dba48facc7d98367b8dde86ce475e6d32b9",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 424,
+        "end_line": 450,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "456e4e9f0e3959541c035fde4c539dba48facc7d98367b8dde86ce475e6d32b9",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 424,
+        "end_line": 450,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "456e4e9f0e3959541c035fde4c539dba48facc7d98367b8dde86ce475e6d32b9",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: home label/empty-home guards and injected missing-secret result are local. Non-home home-plan rejection reads plan bytes; overwritten AttemptBase is read by found and rejected for workdir. Disk setup does not turn fake secret-source refusal into a Vault boundary.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 427,
+          "end_line": 437,
+          "category": "mixed",
+          "exact_snippet_sha256": "2f34df587ec7079b66c4eaf2f8b992a76592108533a71cb0b5b8787ddd788843"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 439,
+          "end_line": 442,
+          "category": "unit",
+          "exact_snippet_sha256": "5e27d12dc09688c39582414c356d8d6f2a664bf2a20a1cce9e3dec4b6af36326"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 443,
+          "end_line": 449,
+          "category": "integration",
+          "exact_snippet_sha256": "61de8e728726e2fb86ef42774cff671005fdfe8dff0f67e5a69f0a2e7c42176d"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown",
+      "current_name": "TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown",
+      "original_declaration_sha256": "e81ba3cfe7da4155b80aedad1cd4631e08aa769dc8761c107036a831ad04c0aa",
+      "current_declaration_sha256": "e81ba3cfe7da4155b80aedad1cd4631e08aa769dc8761c107036a831ad04c0aa",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 452,
+        "end_line": 463,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "e81ba3cfe7da4155b80aedad1cd4631e08aa769dc8761c107036a831ad04c0aa",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 452,
+        "end_line": 463,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "e81ba3cfe7da4155b80aedad1cd4631e08aa769dc8761c107036a831ad04c0aa",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "unit",
+      "independent_rationale": "Unit: region token normalization/catalog lookup and home/unknown refusal are local.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 453,
+          "end_line": 461,
+          "category": "unit",
+          "exact_snippet_sha256": "733b4ee784e916c1c7758969274eef512d0493a49c5a512f1def837323ab4913"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestCreateReadsTheTokensOnceForItsSteps",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestCreateReadsTheTokensOnceForItsSteps",
+      "current_name": "TestCreateReadsTheTokensOnceForItsSteps",
+      "original_declaration_sha256": "cbd634c7fae38911474fe38c94fbc417ca6b7ddf486b85fda592f812823b399d",
+      "current_declaration_sha256": "cbd634c7fae38911474fe38c94fbc417ca6b7ddf486b85fda592f812823b399d",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 467,
+        "end_line": 479,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "cbd634c7fae38911474fe38c94fbc417ca6b7ddf486b85fda592f812823b399d",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 467,
+        "end_line": 479,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "cbd634c7fae38911474fe38c94fbc417ca6b7ddf486b85fda592f812823b399d",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "unit",
+      "independent_rationale": "Unit: core assertions inspect fake secret counters, fake runner environment strings and buffer redaction. Actual creation disk operations are incidental to token sourcing/delivery; no Vault SDK or child environment is tested.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 470,
+          "end_line": 477,
+          "category": "unit",
+          "exact_snippet_sha256": "2612a66a7ca6b40fdcf51e21bf46d5bf76f535a8445f2dbe6986042f69fce166"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestSubscribeReusesAReadySubscription",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestSubscribeReusesAReadySubscription",
+      "current_name": "TestSubscribeReusesAReadySubscription",
+      "original_declaration_sha256": "d65a820fe3b275b0b3456659c54b4f0bd8ef83a296ccd5103ff64a5ed631f34a",
+      "current_declaration_sha256": "d65a820fe3b275b0b3456659c54b4f0bd8ef83a296ccd5103ff64a5ed631f34a",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 481,
+        "end_line": 487,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "d65a820fe3b275b0b3456659c54b4f0bd8ef83a296ccd5103ff64a5ed631f34a",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 481,
+        "end_line": 487,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "d65a820fe3b275b0b3456659c54b4f0bd8ef83a296ccd5103ff64a5ed631f34a",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "unit",
+      "independent_rationale": "Unit: READY SDK structs are supplied by fake List; assertion checks local create/wait counts without HTTP or actual wait.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 482,
+          "end_line": 485,
+          "category": "unit",
+          "exact_snippet_sha256": "3184f45ced10ee01847e7082d3d7e056ac543ab4cb5f2263db2ac197921ba61a"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestSubscribeCreatesThenPollsUntilReady",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestSubscribeCreatesThenPollsUntilReady",
+      "current_name": "TestSubscribeCreatesThenPollsUntilReady",
+      "original_declaration_sha256": "68d967eef37b65682a75bcc7ee4d6b88ec1032ed42e65f5eaa869f3feff2b8f1",
+      "current_declaration_sha256": "68d967eef37b65682a75bcc7ee4d6b88ec1032ed42e65f5eaa869f3feff2b8f1",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 489,
+        "end_line": 502,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "68d967eef37b65682a75bcc7ee4d6b88ec1032ed42e65f5eaa869f3feff2b8f1",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 489,
+        "end_line": 502,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "68d967eef37b65682a75bcc7ee4d6b88ec1032ed42e65f5eaa869f3feff2b8f1",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "unit",
+      "independent_rationale": "Unit: fake Create and status feed plus immediate fake pause drive polling; request bodies, counters and buffer strings are local targets.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 490,
+          "end_line": 500,
+          "category": "unit",
+          "exact_snippet_sha256": "91753a838dbece8e263dcbcc910c18c96b97a56cef45fa7c2d51091e40553fd6"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestSubscribeRefusesATerminalStatusAndAnEndedWait",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestSubscribeRefusesATerminalStatusAndAnEndedWait",
+      "current_name": "TestSubscribeRefusesATerminalStatusAndAnEndedWait",
+      "original_declaration_sha256": "4c599bfdd38fddb8ae0c22edfdfcb55fa46f24c4dd003b36cb793bb5ddab1f4a",
+      "current_declaration_sha256": "4c599bfdd38fddb8ae0c22edfdfcb55fa46f24c4dd003b36cb793bb5ddab1f4a",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 504,
+        "end_line": 515,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "4c599bfdd38fddb8ae0c22edfdfcb55fa46f24c4dd003b36cb793bb5ddab1f4a",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 504,
+        "end_line": 515,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "4c599bfdd38fddb8ae0c22edfdfcb55fa46f24c4dd003b36cb793bb5ddab1f4a",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "unit",
+      "independent_rationale": "Unit: fake terminal-status feed and callback returning DeadlineExceeded establish local control-flow refusal; no provider event or real deadline wait.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 505,
+          "end_line": 513,
+          "category": "unit",
+          "exact_snippet_sha256": "82c94fb5e499f77c8971c6e12c7eec06d79fa2ae3df3d749e74a2c1a5a1b38e9"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestVerifierPassesOnlyAServingRegion",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestVerifierPassesOnlyAServingRegion",
+      "current_name": "TestVerifierPassesOnlyAServingRegion",
+      "original_declaration_sha256": "daabb90c9a78635bc2b72c3142d1d89e91538c072e2d77366f1c26c38e264c9f",
+      "current_declaration_sha256": "daabb90c9a78635bc2b72c3142d1d89e91538c072e2d77366f1c26c38e264c9f",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 543,
+        "end_line": 601,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "daabb90c9a78635bc2b72c3142d1d89e91538c072e2d77366f1c26c38e264c9f",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 543,
+        "end_line": 601,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "daabb90c9a78635bc2b72c3142d1d89e91538c072e2d77366f1c26c38e264c9f",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: health/OIDC/topology checks use http.Client.Do against real fixture HTTP and assert returned JSON changes. LB API maps, missing-ID/empty-set guards and Print formatting are independent local targets; other HTTP calls are incidental to those local assertions.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 545,
+          "end_line": 556,
+          "category": "integration",
+          "exact_snippet_sha256": "57951bc3b84ca1d80529c76c38bd3f8af25ad8bd3447c35ea4bdcc53751dd718"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 572,
+          "end_line": 585,
+          "category": "mixed",
+          "exact_snippet_sha256": "5fc6ad473a2732429278d261a73e868e2f54d73414de3ca1e50cc83bcf7ce45c"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 589,
+          "end_line": 595,
+          "category": "unit",
+          "exact_snippet_sha256": "386fb4fc16f339d156029532d72e860f5f859af1177d1e81b9272b7583d54a25"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 597,
+          "end_line": 599,
+          "category": "unit",
+          "exact_snippet_sha256": "45d363429c24bc725d230999551bc971c4fb2ea3fffd3a6f0a1ce3879b2dd603"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/region_test.go::TestRunRefusesBadArguments",
+      "path": "internal/region/region_test.go",
+      "original_name": "TestRunRefusesBadArguments",
+      "current_name": "TestRunRefusesBadArguments",
+      "original_declaration_sha256": "1a034aad015b7e428fe509e9e663e7ff44444052cef39fbe4efb92c43ffe3a9a",
+      "current_declaration_sha256": "1a034aad015b7e428fe509e9e663e7ff44444052cef39fbe4efb92c43ffe3a9a",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 603,
+        "end_line": 616,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "1a034aad015b7e428fe509e9e663e7ff44444052cef39fbe4efb92c43ffe3a9a",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 603,
+        "end_line": 616,
+        "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "observed_declaration_sha256": "1a034aad015b7e428fe509e9e663e7ff44444052cef39fbe4efb92c43ffe3a9a",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: most CLI rows/help are local guards. plan fra --out x passes syntax, reaches os.Stat(x) then (when absent) actual default-template file open before LiveSDK. Error cause depends on cwd/output state; no exact runtime cause or cloud call is established. This source shape is not a guarantee that the broad error assertion passes in every harness cwd.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 605,
+          "end_line": 611,
+          "category": "mixed",
+          "exact_snippet_sha256": "c151d5e30f0cfa3d791ee985a6702e12562197a939feb6d02b05bb690ccb3d2e"
+        },
+        {
+          "path": "internal/region/region_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+          "start_line": 613,
+          "end_line": 614,
+          "category": "unit",
+          "exact_snippet_sha256": "736f6cf6bd763a8dec1f633dfac63c8011bebffcec83067ad4a44d3dc3c94f1f"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPFilesystemOffline",
+      "path": "internal/region/retained_integration_test.go",
+      "original_name": "TestRetainedFoundationHTTPFilesystemOffline",
+      "current_name": "TestRetainedFoundationHTTPFilesystemOffline",
+      "original_declaration_sha256": "38040a5ff5651326bb47272576f8b4c25aa1f24844349d72a828cceb95bfc0be",
+      "current_declaration_sha256": "38040a5ff5651326bb47272576f8b4c25aa1f24844349d72a828cceb95bfc0be",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 39,
+        "end_line": 125,
+        "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+        "observed_declaration_sha256": "38040a5ff5651326bb47272576f8b4c25aa1f24844349d72a828cceb95bfc0be",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 39,
+        "end_line": 125,
+        "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+        "observed_declaration_sha256": "38040a5ff5651326bb47272576f8b4c25aa1f24844349d72a828cceb95bfc0be",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: export performs SDK reads and floor persistence; retained verification clones documents and actually opens/locks/reads/writes durable floor with no cloud store. Returned-reader scope/material/clone/cancellation assertions operate on retained memory. Changing the source Host is not an observed network failure; embedded-genesis rejection is not live-root qualification.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/retained_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+          "start_line": 63,
+          "end_line": 87,
+          "category": "integration",
+          "exact_snippet_sha256": "7dfbbfcbb194e0bce3bbebc6d1eb7af515707026b434ea705b593c6d20fb3cc5"
+        },
+        {
+          "path": "internal/region/retained_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+          "start_line": 90,
+          "end_line": 120,
+          "category": "unit",
+          "exact_snippet_sha256": "a5839cd032629d9a8fd601866d4a7038f24939fa9e9e9c8bd2a4f5c72af2b2b1"
+        },
+        {
+          "path": "internal/region/retained_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+          "start_line": 122,
+          "end_line": 124,
+          "category": "integration",
+          "exact_snippet_sha256": "958d3a1d1b3fa4b455cb8096ca6196bf3aee1e4d3d3e07e416b98546d49f7528"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPRejectsInvalidAndRollback",
+      "path": "internal/region/retained_integration_test.go",
+      "original_name": "TestRetainedFoundationHTTPRejectsInvalidAndRollback",
+      "current_name": "TestRetainedFoundationHTTPRejectsInvalidAndRollback",
+      "original_declaration_sha256": "1245e24c691d01a9664f9a5e418905dc94635a4475e007eac1a306fbf4a50ec4",
+      "current_declaration_sha256": "1245e24c691d01a9664f9a5e418905dc94635a4475e007eac1a306fbf4a50ec4",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 127,
+        "end_line": 178,
+        "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+        "observed_declaration_sha256": "1245e24c691d01a9664f9a5e418905dc94635a4475e007eac1a306fbf4a50ec4",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 127,
+        "end_line": 178,
+        "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+        "observed_declaration_sha256": "1245e24c691d01a9664f9a5e418905dc94635a4475e007eac1a306fbf4a50ec4",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: nonempty invalid/rollback snapshots enter durable floor verification; actual before/after bytes establish unchanged adoption. Missing GrantWire returns at document-bounds guard before floor; surrounding test-owned reads do not convert that local rejection into integration.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/retained_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+          "start_line": 128,
+          "end_line": 150,
+          "category": "integration",
+          "exact_snippet_sha256": "9e3007e3572593c6b4ad156449ed327b28477f5ad9944b51185fcf82e4f66e47"
+        },
+        {
+          "path": "internal/region/retained_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+          "start_line": 151,
+          "end_line": 152,
+          "category": "unit",
+          "exact_snippet_sha256": "16d67bbab222c0baa400ed3260d59b75c1c6e5356c1b0285711b57599c7385e0"
+        },
+        {
+          "path": "internal/region/retained_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+          "start_line": 153,
+          "end_line": 175,
+          "category": "mixed",
+          "exact_snippet_sha256": "46c50402a7f8a4faba2c272e0a7e7715f0ac3b61392fa36e503bf6e3ee55b082"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/source_policy_integration_test.go::TestSourcePolicyJournalPreservesOriginalRecipientAndRejectsWidening",
+      "path": "internal/region/source_policy_integration_test.go",
+      "original_name": "TestSourcePolicyJournalPreservesOriginalRecipientAndRejectsWidening",
+      "current_name": "TestSourcePolicyJournalPreservesOriginalRecipientAndRejectsWidening",
+      "original_declaration_sha256": "df3d6f91c80a197bdcef02a068554bdaceffcd483332416eb9c86158752bb490",
+      "current_declaration_sha256": "df3d6f91c80a197bdcef02a068554bdaceffcd483332416eb9c86158752bb490",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 21,
+        "end_line": 85,
+        "git_blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb",
+        "observed_declaration_sha256": "df3d6f91c80a197bdcef02a068554bdaceffcd483332416eb9c86158752bb490",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 21,
+        "end_line": 85,
+        "git_blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb",
+        "observed_declaration_sha256": "df3d6f91c80a197bdcef02a068554bdaceffcd483332416eb9c86158752bb490",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "integration",
+      "independent_rationale": "Integration: conditional reservation/renewal survives reconstructed store and stale CAS refusal. Raw disk corruption broadens stored policy; actual SDK Load reads it and rejects during validation. No IAM CreatePolicy or policy enforcement occurs.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/source_policy_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb",
+          "start_line": 41,
+          "end_line": 72,
+          "category": "integration",
+          "exact_snippet_sha256": "37d3f2260d51a93b9f9ff3e561d475c8b9e69fb72ab16e9e1fcdbc60b2467cb0"
+        },
+        {
+          "path": "internal/region/source_policy_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb",
+          "start_line": 74,
+          "end_line": 84,
+          "category": "integration",
+          "exact_snippet_sha256": "6aa6121a172e4136136e5d63229dd23fc741065445870bed978d680c767739bd"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/spend_bindings_integration_test.go::TestLogicalSpendingBindingsRetainSignedAuthority",
+      "path": "internal/region/spend_bindings_integration_test.go",
+      "original_name": "TestLogicalSpendingBindingsRetainSignedAuthority",
+      "current_name": "TestLogicalSpendingBindingsRetainSignedAuthority",
+      "original_declaration_sha256": "29b977a04201ed50a6417335a4d1f87ad5f8865f60507af092c769763ddc6621",
+      "current_declaration_sha256": "29b977a04201ed50a6417335a4d1f87ad5f8865f60507af092c769763ddc6621",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 38,
+        "end_line": 206,
+        "git_blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+        "observed_declaration_sha256": "29b977a04201ed50a6417335a4d1f87ad5f8865f60507af092c769763ddc6621",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 38,
+        "end_line": 206,
+        "git_blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+        "observed_declaration_sha256": "29b977a04201ed50a6417335a4d1f87ad5f8865f60507af092c769763ddc6621",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: signed grant/current record and independently requested IAM ancestry bind logical allocation; tariff quote makes actual HTTP requests and revalidation rereads changed parent facts. allocation.Validate success and OCPU mismatch are separate local proof/geometry checks. Creation provenance and provider billing facts are constructed.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/spend_bindings_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+          "start_line": 154,
+          "end_line": 175,
+          "category": "integration",
+          "exact_snippet_sha256": "dfcd4d2e987884e900ced80cce9b4912b8e754f2f3ae6ad8ee962d8f11d43bca"
+        },
+        {
+          "path": "internal/region/spend_bindings_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+          "start_line": 180,
+          "end_line": 194,
+          "category": "mixed",
+          "exact_snippet_sha256": "11eed1b50d321bfd9ec02bc055bc7c4fedd55c38f07801cf31ec619fa41481c2"
+        },
+        {
+          "path": "internal/region/spend_bindings_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+          "start_line": 195,
+          "end_line": 205,
+          "category": "mixed",
+          "exact_snippet_sha256": "08b6ae1842a2194ad762312196485e852fb270d21f8638658f892450372db9bd"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/worker_instance_integration_test.go::TestWorkerInstanceSDKObservationsRequireProtectedCreation",
+      "path": "internal/region/worker_instance_integration_test.go",
+      "original_name": "TestWorkerInstanceSDKObservationsRequireProtectedCreation",
+      "current_name": "TestWorkerInstanceSDKObservationsRequireProtectedCreation",
+      "original_declaration_sha256": "4d3446f9e4b56591ea95aa105eb93895055a11371725cff83b56b265dd2065f4",
+      "current_declaration_sha256": "4d3446f9e4b56591ea95aa105eb93895055a11371725cff83b56b265dd2065f4",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 28,
+        "end_line": 197,
+        "git_blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+        "observed_declaration_sha256": "4d3446f9e4b56591ea95aa105eb93895055a11371725cff83b56b265dd2065f4",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 28,
+        "end_line": 197,
+        "git_blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+        "observed_declaration_sha256": "4d3446f9e4b56591ea95aa105eb93895055a11371725cff83b56b265dd2065f4",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "mixed",
+      "independent_rationale": "Mixed: direct readWorkerInstance sends actual SDK GET/list requests to TLS fixture reading independent response files; drift and repeated-page assertions depend on actual received bytes. AuthorizeWorkerInstance with empty protected-pool proof rejects before SDK and request counter proves no new observation. No protected pool creation or native ARM64/boot/enrollment qualification.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/worker_instance_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+          "start_line": 63,
+          "end_line": 106,
+          "category": "integration",
+          "exact_snippet_sha256": "c73ecfc573ee904c6b56a9f6b0676a84f5b2f6fed91ace907216149619b511b2"
+        },
+        {
+          "path": "internal/region/worker_instance_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+          "start_line": 130,
+          "end_line": 144,
+          "category": "integration",
+          "exact_snippet_sha256": "3a517d1689a56f5f5ae0bdfebc0c718a1c21b0ddca772f73dcd22e954eb749be"
+        },
+        {
+          "path": "internal/region/worker_instance_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+          "start_line": 145,
+          "end_line": 152,
+          "category": "unit",
+          "exact_snippet_sha256": "151ffe9721a319b9671005f0f712fb7ec7aa425449357c96514ec4a2fd14807e"
+        },
+        {
+          "path": "internal/region/worker_instance_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+          "start_line": 153,
+          "end_line": 195,
+          "category": "integration",
+          "exact_snippet_sha256": "ccd898071e251d50712d736cadc0051a93b448dae5cd4be8a1a44ea24568c391"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/region/worker_profile_integration_test.go::TestWorkerProfileAuthorityRequiresIndependentCurrentSources",
+      "path": "internal/region/worker_profile_integration_test.go",
+      "original_name": "TestWorkerProfileAuthorityRequiresIndependentCurrentSources",
+      "current_name": "TestWorkerProfileAuthorityRequiresIndependentCurrentSources",
+      "original_declaration_sha256": "bd9c5c28aba3c08f74d6be5ce1c5eb79f36299ae888f43b75d7ec3f9f4018109",
+      "current_declaration_sha256": "bd9c5c28aba3c08f74d6be5ce1c5eb79f36299ae888f43b75d7ec3f9f4018109",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 21,
+        "end_line": 105,
+        "git_blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662",
+        "observed_declaration_sha256": "bd9c5c28aba3c08f74d6be5ce1c5eb79f36299ae888f43b75d7ec3f9f4018109",
+        "hash_matches_allocation": true
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 21,
+        "end_line": 105,
+        "git_blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662",
+        "observed_declaration_sha256": "bd9c5c28aba3c08f74d6be5ce1c5eb79f36299ae888f43b75d7ec3f9f4018109",
+        "hash_matches_allocation": true
+      },
+      "survival_state": "retained_body_exact",
+      "accepted_source_classification": "integration",
+      "independent_rationale": "Integration limited to fetched signed grant: WorkerProfiles starts actual SDK grant read and verifies exact pinned wire; republished invalid policies are reread. Nil factory intentionally refuses before current-image SDK, bindings or native worker path. This refusal target is resolved; independent-current-image positive evidence is not claimed. Direct ValidateWorkerProfiles is fixture preparation.",
+      "assertion_evidence_verified": [
+        {
+          "path": "internal/region/worker_profile_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662",
+          "start_line": 72,
+          "end_line": 84,
+          "category": "integration",
+          "exact_snippet_sha256": "6f996c071d0c249ec9daa18bea3991ec7e4624dce1d803b7ca7ba52eff41cb8c"
+        },
+        {
+          "path": "internal/region/worker_profile_integration_test.go",
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "git_blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662",
+          "start_line": 86,
+          "end_line": 104,
+          "category": "integration",
+          "exact_snippet_sha256": "559d4c13228e9140631812958822a5f124a833789d2e072f18d39d907bb589ee"
+        }
+      ],
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "canonical_source_pins_verified": [
+    {
+      "path": "deploy/oci-region/plan.json",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "bbd295ef15f71c758ff15874dbce4aaad5239a7c",
+      "git_mode": "100644",
+      "sha256": "fe222ce1b85a3eaff4c967cce7e28ef0fec57dbfa5e01d57eea8b866e214e71c",
+      "bytes": 17773
+    },
+    {
+      "path": "deploy/oci-region/sfo-1-plan.json",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "544c5955564e53d1c423d2b9412fbb054b8dc078",
+      "git_mode": "100644",
+      "sha256": "7965e39e40307d543fc39f0749505434f1cce949cf33d41da27f80e2f4173203",
+      "bytes": 15360
+    },
+    {
+      "path": "internal/bootstrapstart/oci_observer.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "928adcd7e9d0b827cd96bddf52b40e0155e5d225",
+      "git_mode": "100644",
+      "sha256": "895a4e197c8c6b0a0ccea6a75945669992f46aa326f132b418300278591b5065",
+      "bytes": 8227
+    },
+    {
+      "path": "internal/foundationbinding/verify.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "1ddaa81feb16c2a8f8e32027dd2c52502b089c32",
+      "git_mode": "100644",
+      "sha256": "3740d46ceb7103859a43e1569dd86a63128d92c7235c7fd0aa3de5d762839c5e",
+      "bytes": 27842
+    },
+    {
+      "path": "internal/networkplan/plan.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "b907cfc017ae69a56f45a86ab1a0c74417d04876",
+      "git_mode": "100644",
+      "sha256": "913ffc835d6f9c96ed6a7a0b70803493252510b7d5ec56cdebf260b2d54e6a8a",
+      "bytes": 1915
+    },
+    {
+      "path": "internal/ociclient/factory.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "e9846258def469f2563255190a68927aae4d4871",
+      "git_mode": "100644",
+      "sha256": "4f1d9c577bbeabb1b24443c9dbd97591f792fe3d9b069c38ef9cc86128aab0fa",
+      "bytes": 22992
+    },
+    {
+      "path": "internal/ociregion/capacityinventory/prices.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "9f0dd6aa0baeba7458f9b2cf79ba56c607c2a40f",
+      "git_mode": "100644",
+      "sha256": "eae2a57f315aeba686f8c9703dff2ea1ccf5bffbb4f80a5bc200e185b28e56b8",
+      "bytes": 4727
+    },
+    {
+      "path": "internal/ociregion/capacityinventory/quote.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "cbb4d7c92287eae11dde09435830c461cb253eb1",
+      "git_mode": "100644",
+      "sha256": "0b382614428c219308c67bd48f00041c617c2197b778c32fcb2304f0552f3fa8",
+      "bytes": 2757
+    },
+    {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "git_mode": "100644",
+      "sha256": "1cb9481c9291c863bea33c273443a1dc061bdcd4afada2b626843449ff54cf6e",
+      "bytes": 9451
+    },
+    {
+      "path": "internal/ociregion/engine.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "47b469ecae9635fa285a7e4a056867d1d31021a6",
+      "git_mode": "100644",
+      "sha256": "e1b14956f3560e57abce419206c2972397b59c0b1e88644af97d4e0e5a9d0c5f",
+      "bytes": 11786
+    },
+    {
+      "path": "internal/ociregion/foundation/foundation.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "a6d2a1cf8a5dedce356e0832d2b1af22fee05d33",
+      "git_mode": "100644",
+      "sha256": "280da2b277a9e131a724b4d8dbd0beb9f05a4bc02b08f4f16dcfcca403a411dd",
+      "bytes": 34292
+    },
+    {
+      "path": "internal/ociregion/foundation/peer.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "b127672026f250b6e04d70f11498a1284109f412",
+      "git_mode": "100644",
+      "sha256": "cc6a410668ae5dcc5ec20661438ea52f444354efb87444923505be6bce0136df",
+      "bytes": 23513
+    },
+    {
+      "path": "internal/ociregion/plan.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "a7896c337b702a06b3c36ea900f4feada11c0512",
+      "git_mode": "100644",
+      "sha256": "73149c82c1e6e1363f0bce913c7420d5f1c5e78063dcdb75e1b1e219eaae51cf",
+      "bytes": 25081
+    },
+    {
+      "path": "internal/ociregion/publicapi/sdk.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "b520666c4d82ea198765e8b637997ffdcfc6a89c",
+      "git_mode": "100644",
+      "sha256": "0dd044286c108deb6a8ebc796a63fa443ceaeeccc35184b87ef4d92e2bd128cb",
+      "bytes": 28859
+    },
+    {
+      "path": "internal/ociregion/publicapi/sdk_foundation.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "fa8ad48f93d657d380bbee4711c12af96aa6f44c",
+      "git_mode": "100644",
+      "sha256": "14d0b8c401244d0b5371dd901c0f795e52537f9fa379ecfbda4613c3e008829d",
+      "bytes": 12802
+    },
+    {
+      "path": "internal/region/access.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "56c8186e507a92d6663909af11d210c9aba3b3ee",
+      "git_mode": "100644",
+      "sha256": "7d4e2b147ba6923af94110f732188102a825e9682f2cf44fab5bee9dda0db22b",
+      "bytes": 5520
+    },
+    {
+      "path": "internal/region/access_integration_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+      "git_mode": "100644",
+      "sha256": "1fe62f574fbac790947b7d475999991920581fe7cfb990a2eac63785fff2c6ec",
+      "bytes": 8838
+    },
+    {
+      "path": "internal/region/backup.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "f41c9da4d17d040a7a5163fa3fbbea79fb939483",
+      "git_mode": "100644",
+      "sha256": "b8baf5ea41693c4be8dc0e9d03b0717f1660410ac15c96f59db8d03b5e6f15b2",
+      "bytes": 3752
+    },
+    {
+      "path": "internal/region/bindings.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "41473ff55ed2816d7d6a2492f53ae05498a61d9b",
+      "git_mode": "100644",
+      "sha256": "c2d48d2473669cb03a85ab14143c1161bfeab76926fce9338f76ed8b92a74340",
+      "bytes": 4874
+    },
+    {
+      "path": "internal/region/bootstrap_spend.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "17269f6bd66ed5cbd5e447c8e7cff6ebb2927014",
+      "git_mode": "100644",
+      "sha256": "20098b23893dc25f534ecee3fdc64bb405c71f148a8c27c3dd47f8dcc1409ec7",
+      "bytes": 9542
+    },
+    {
+      "path": "internal/region/cli.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "24cc77894760547671eb875a7d17e839084f7014",
+      "git_mode": "100644",
+      "sha256": "264d83643a779f0805eb37ff943df8f2ed0000124b988656ff2263e681807b26",
+      "bytes": 6497
+    },
+    {
+      "path": "internal/region/create.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "git_mode": "100644",
+      "sha256": "46904c4fc71d86155ea9234acf227f0afec651e66282724b060b534cf268af6e",
+      "bytes": 18996
+    },
+    {
+      "path": "internal/region/discovery.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "0faa8343ded0de1e568684f4d84d48e18dce653c",
+      "git_mode": "100644",
+      "sha256": "cf9c1a74f74f24a4fc8dde4d29409cc9b97f61880d24e8a6eaf526845f4a4812",
+      "bytes": 8477
+    },
+    {
+      "path": "internal/region/discovery_current.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "699f9fad7b0a370ccbc06ffed107fe5305d7a6c6",
+      "git_mode": "100644",
+      "sha256": "aec07574f2dcbc3ec97cd526418bbbb93fbfb4feff425f2f516690b5daa5ef58",
+      "bytes": 11972
+    },
+    {
+      "path": "internal/region/discovery_current_integration_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+      "git_mode": "100644",
+      "sha256": "906a22d8c45e15bc9afa168cb737734593d092452e98846f262008fc098eeb76",
+      "bytes": 16183
+    },
+    {
+      "path": "internal/region/foundation_integration_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+      "git_mode": "100644",
+      "sha256": "2e292381410ccaa2d1e8544f8f20e7a98163401dd15966424b42eb89efba3cfa",
+      "bytes": 25457
+    },
+    {
+      "path": "internal/region/foundation_recovery_integration_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+      "git_mode": "100644",
+      "sha256": "668be347e21a593913a92eea9d4918b8253c2934b1662bca5e07a78c01faee65",
+      "bytes": 12789
+    },
+    {
+      "path": "internal/region/grant.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "5c92e7a08a290ccf0c37e11b895a0ccc082dbba8",
+      "git_mode": "100644",
+      "sha256": "53502660c13897c9daf694e81297c670b05cf81a0c8d094036225babce803680",
+      "bytes": 22488
+    },
+    {
+      "path": "internal/region/lifecycle.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "5d097688b5a768e20e53eb73a403c83c1ae0fe07",
+      "git_mode": "100644",
+      "sha256": "fa3cbe0e16c1d690b2bddd3fda162fdcea804721ee738ef89d6dcd79e2d5604b",
+      "bytes": 22841
+    },
+    {
+      "path": "internal/region/netbird_launch.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "dfe0540824a79b09f8b0fdcfbd42eebd873ec27c",
+      "git_mode": "100644",
+      "sha256": "d4fdc26a32ace786815f546f85773a853e02c72c7575a9912ad8f5f0338217f2",
+      "bytes": 18465
+    },
+    {
+      "path": "internal/region/netbird_manager.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "a1a249ca219fbc0918ef00effe36d776695ef0a6",
+      "git_mode": "100644",
+      "sha256": "e9060a409c5982fa92d4aa0d37f35bdc317f97b976d504b7ea2cfc6a5660fee9",
+      "bytes": 19159
+    },
+    {
+      "path": "internal/region/netbird_manager_integration_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+      "git_mode": "100644",
+      "sha256": "d1d6cbb3a2c3d9cc04354a82daf97e6e9cbe19e03504aa0f148c7d29a4197a83",
+      "bytes": 20993
+    },
+    {
+      "path": "internal/region/netbird_network.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "152254dbe019a38080ffab38c0135f67515c0cf5",
+      "git_mode": "100644",
+      "sha256": "64a341fff82ea9473ceafd10e1d8608bff79174d38202aa69f9443c9fe3adbe2",
+      "bytes": 16658
+    },
+    {
+      "path": "internal/region/netbird_network_integration_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+      "git_mode": "100644",
+      "sha256": "eacc8edea5faa959eec39e00dc0896152690f5f1306d7a0dec79502a6ffb6eeb",
+      "bytes": 11123
+    },
+    {
+      "path": "internal/region/object.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "f0da7574f32498159b071bdafbdf30fd216c0de7",
+      "git_mode": "100644",
+      "sha256": "fde862b5ae3037792db9fd21f3182d7d82d447fa7e9366509681544e6d9851f8",
+      "bytes": 10608
+    },
+    {
+      "path": "internal/region/ocir_issuer.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "e1bab7de89f8dcb53e54b0d5e5d7d897b6bca500",
+      "git_mode": "100644",
+      "sha256": "dec5f6f0e96e01c5ba4fc5a01801e0391e884ada21dac055d6fdf7d52e72e051",
+      "bytes": 16645
+    },
+    {
+      "path": "internal/region/plan.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "0f657a0e5cd8aba68d61ebc2692b017589f6a067",
+      "git_mode": "100644",
+      "sha256": "e78652eb755752c274ee2f2ad326a14f236da73313166900d273b8f45bc88eb6",
+      "bytes": 6316
+    },
+    {
+      "path": "internal/region/region_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+      "git_mode": "100644",
+      "sha256": "a414fa3887d3acb781ad3035ac726dcc1b09e089d4943fa8e904acd777b58bdf",
+      "bytes": 25993
+    },
+    {
+      "path": "internal/region/resolver.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "f901ce3cb00b6c62577b732c581449fcd911f23f",
+      "git_mode": "100644",
+      "sha256": "a349a5633eb2b6e4df5db78e38b0661578e2323af7973d4367626722166637c0",
+      "bytes": 3176
+    },
+    {
+      "path": "internal/region/retained.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "eac9a98e7ee4e6174aa3307611fc9508b624524b",
+      "git_mode": "100644",
+      "sha256": "353422287f5c46fd62be669f71106aae0891bf715d75f34e8203f455b664cd1b",
+      "bytes": 3650
+    },
+    {
+      "path": "internal/region/retained_integration_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+      "git_mode": "100644",
+      "sha256": "f020c473838f3eba89fccceebc4c2df1e46b7accf735ed463853f27fe2e47ccd",
+      "bytes": 6947
+    },
+    {
+      "path": "internal/region/sdk.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "8703ba73947aa0c00772af83737df1e728d14a73",
+      "git_mode": "100644",
+      "sha256": "e1aa65bf3f4ccc62902ac01069950f00a78ce0b5d8802d892c574341f2b06ac3",
+      "bytes": 2153
+    },
+    {
+      "path": "internal/region/source_founder.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "c76727d62e70e979cf7928250c431e7a74962c45",
+      "git_mode": "100644",
+      "sha256": "f3a96e58c8f044250dcc69f9bc8dbcdc662c9fa6b81feead3b80568e09b379d7",
+      "bytes": 24332
+    },
+    {
+      "path": "internal/region/source_policy_integration_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb",
+      "git_mode": "100644",
+      "sha256": "16c7ae51c64606b1cb166e6351f30c5e49f9783360b8c3cf728f74cc99236841",
+      "bytes": 5075
+    },
+    {
+      "path": "internal/region/spend.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "7cf30d1f4ae3cf2e1cae243a03f6b9feaabe5409",
+      "git_mode": "100644",
+      "sha256": "d40b37fa01a45ba49f548e7e2b7b01907a8c58de0648f00931286834f40828c8",
+      "bytes": 13492
+    },
+    {
+      "path": "internal/region/spend_bindings_integration_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+      "git_mode": "100644",
+      "sha256": "ad5cf26d5b49b411542f98f3f3f67bda7b924e736a4f5617d2d7b4820ce9a0c1",
+      "bytes": 10906
+    },
+    {
+      "path": "internal/region/subscribe.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "b556747f396ed6d6a6eeead6700e5cfb69c55fc2",
+      "git_mode": "100644",
+      "sha256": "85053f45639ce1adef213243c368c22883a8b6a936eb3dd84f4b6b4a48fcef27",
+      "bytes": 4308
+    },
+    {
+      "path": "internal/region/verify.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "a98e5e73730bd3994af76b6376f756b164dafd31",
+      "git_mode": "100644",
+      "sha256": "89e4d83e675d140ef32fd7d4b7acdcbd29d495a8db7c89efe42fafc61ae5c90c",
+      "bytes": 4993
+    },
+    {
+      "path": "internal/region/worker_instance.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "11c7736c1784ecca5fe4d05a92de2ead5929188a",
+      "git_mode": "100644",
+      "sha256": "3a7519a1b6fa6ebb5c6c3f69af2eda42736e457cf361047182307e601c26df9e",
+      "bytes": 12966
+    },
+    {
+      "path": "internal/region/worker_instance_integration_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+      "git_mode": "100644",
+      "sha256": "beadddb7e06e649c0b7ba7985a2094b641eea727b938a9b640bb5afa5c86f3b1",
+      "bytes": 8703
+    },
+    {
+      "path": "internal/region/worker_profile_authority.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "07b9b9023379b2ab45a970572ba14cca54611e45",
+      "git_mode": "100644",
+      "sha256": "5a00beb0238fb87e250619ba2cd17c9e0ab4e6c39d7cf2ab89d94692f565fb4c",
+      "bytes": 21950
+    },
+    {
+      "path": "internal/region/worker_profile_integration_test.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662",
+      "git_mode": "100644",
+      "sha256": "a4298d0ed74a02f89e43751be326ba286067f66cd671141b775d4ab1f62a4c3b",
+      "bytes": 6064
+    }
+  ],
+  "baseline_test_file_pins_verified": [
+    {
+      "path": "internal/region/access_integration_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+      "git_mode": "100644",
+      "sha256": "1fe62f574fbac790947b7d475999991920581fe7cfb990a2eac63785fff2c6ec",
+      "bytes": 8838
+    },
+    {
+      "path": "internal/region/discovery_current_integration_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+      "git_mode": "100644",
+      "sha256": "906a22d8c45e15bc9afa168cb737734593d092452e98846f262008fc098eeb76",
+      "bytes": 16183
+    },
+    {
+      "path": "internal/region/foundation_integration_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+      "git_mode": "100644",
+      "sha256": "2e292381410ccaa2d1e8544f8f20e7a98163401dd15966424b42eb89efba3cfa",
+      "bytes": 25457
+    },
+    {
+      "path": "internal/region/foundation_recovery_integration_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+      "git_mode": "100644",
+      "sha256": "668be347e21a593913a92eea9d4918b8253c2934b1662bca5e07a78c01faee65",
+      "bytes": 12789
+    },
+    {
+      "path": "internal/region/netbird_manager_integration_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+      "git_mode": "100644",
+      "sha256": "d1d6cbb3a2c3d9cc04354a82daf97e6e9cbe19e03504aa0f148c7d29a4197a83",
+      "bytes": 20993
+    },
+    {
+      "path": "internal/region/netbird_network_integration_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+      "git_mode": "100644",
+      "sha256": "eacc8edea5faa959eec39e00dc0896152690f5f1306d7a0dec79502a6ffb6eeb",
+      "bytes": 11123
+    },
+    {
+      "path": "internal/region/region_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+      "git_mode": "100644",
+      "sha256": "a414fa3887d3acb781ad3035ac726dcc1b09e089d4943fa8e904acd777b58bdf",
+      "bytes": 25993
+    },
+    {
+      "path": "internal/region/retained_integration_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+      "git_mode": "100644",
+      "sha256": "f020c473838f3eba89fccceebc4c2df1e46b7accf735ed463853f27fe2e47ccd",
+      "bytes": 6947
+    },
+    {
+      "path": "internal/region/source_policy_integration_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb",
+      "git_mode": "100644",
+      "sha256": "16c7ae51c64606b1cb166e6351f30c5e49f9783360b8c3cf728f74cc99236841",
+      "bytes": 5075
+    },
+    {
+      "path": "internal/region/spend_bindings_integration_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+      "git_mode": "100644",
+      "sha256": "ad5cf26d5b49b411542f98f3f3f67bda7b924e736a4f5617d2d7b4820ce9a0c1",
+      "bytes": 10906
+    },
+    {
+      "path": "internal/region/worker_instance_integration_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+      "git_mode": "100644",
+      "sha256": "beadddb7e06e649c0b7ba7985a2094b641eea727b938a9b640bb5afa5c86f3b1",
+      "bytes": 8703
+    },
+    {
+      "path": "internal/region/worker_profile_integration_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662",
+      "git_mode": "100644",
+      "sha256": "a4298d0ed74a02f89e43751be326ba286067f66cd671141b775d4ab1f62a4c3b",
+      "bytes": 6064
+    }
+  ],
+  "fixture_document_pins_verified": [
+    {
+      "path": "deploy/oci-region/sfo-1-plan.json",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "544c5955564e53d1c423d2b9412fbb054b8dc078",
+      "git_mode": "100644",
+      "sha256": "7965e39e40307d543fc39f0749505434f1cce949cf33d41da27f80e2f4173203",
+      "bytes": 15360
+    },
+    {
+      "path": "deploy/oci-region/plan.json",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_blob": "bbd295ef15f71c758ff15874dbce4aaad5239a7c",
+      "git_mode": "100644",
+      "sha256": "fe222ce1b85a3eaff4c967cce7e28ef0fec57dbfa5e01d57eea8b866e214e71c",
+      "bytes": 17773
+    }
+  ],
+  "additional_peer_source_pins": [
+    {
+      "path": "internal/trust/discovery.go",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_mode": "100644",
+      "git_blob": "2ca901ab82ab1ccc2388870318f1ea708b6c6229",
+      "sha256": "86e62313275786f98c6c8d2be30ffb5735b6f3a0209fbd884197e186a1df714d",
+      "bytes": 805
+    },
+    {
+      "path": "internal/trust/bootstrap-root-002.pem",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "git_mode": "100644",
+      "git_blob": "76d1e300e59ddff29939aeb2491bc3a7ceb51fe3",
+      "sha256": "548426817b9ab219720d4a934703b7dfbd5b63633533a9340ec4e19c2fb65e5e",
+      "bytes": 113
+    }
+  ],
+  "function_citations_verified": [
+    {
+      "path": "internal/region/foundation_integration_test.go",
+      "function": "foundationProtocolStore",
+      "start_line": 41,
+      "end_line": 123,
+      "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/access.go",
+      "function": "SignedFootprint.AuthorizedReadAccess",
+      "start_line": 75,
+      "end_line": 111,
+      "git_blob": "56c8186e507a92d6663909af11d210c9aba3b3ee",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/access.go",
+      "function": "FoundationResolver.ReadAccess",
+      "start_line": 114,
+      "end_line": 140,
+      "git_blob": "56c8186e507a92d6663909af11d210c9aba3b3ee",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/access.go",
+      "function": "VerifiedReadAccess.URLs",
+      "start_line": 36,
+      "end_line": 36,
+      "git_blob": "56c8186e507a92d6663909af11d210c9aba3b3ee",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/resolver.go",
+      "function": "FoundationResolver.Resolve",
+      "start_line": 18,
+      "end_line": 48,
+      "git_blob": "f901ce3cb00b6c62577b732c581449fcd911f23f",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/backup.go",
+      "function": "FoundationResolver.BackupDestination",
+      "start_line": 56,
+      "end_line": 88,
+      "git_blob": "f41c9da4d17d040a7a5163fa3fbbea79fb939483",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/backup.go",
+      "function": "VerifiedBackupDestination.Check",
+      "start_line": 27,
+      "end_line": 32,
+      "git_blob": "f41c9da4d17d040a7a5163fa3fbbea79fb939483",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/grant.go",
+      "function": "SignedFootprint.readGrant",
+      "start_line": 360,
+      "end_line": 390,
+      "git_blob": "5c92e7a08a290ccf0c37e11b895a0ccc082dbba8",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/grant.go",
+      "function": "SignedFootprint.verifyGrant",
+      "start_line": 392,
+      "end_line": 427,
+      "git_blob": "5c92e7a08a290ccf0c37e11b895a0ccc082dbba8",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/grant.go",
+      "function": "SignedFootprint.authorizedRegions",
+      "start_line": 352,
+      "end_line": 358,
+      "git_blob": "5c92e7a08a290ccf0c37e11b895a0ccc082dbba8",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/object.go",
+      "function": "ObjectFoundationStore.Load",
+      "start_line": 44,
+      "end_line": 83,
+      "git_blob": "f0da7574f32498159b071bdafbdf30fd216c0de7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/object.go",
+      "function": "ObjectFoundationStore.CompareAndSwap",
+      "start_line": 85,
+      "end_line": 121,
+      "git_blob": "f0da7574f32498159b071bdafbdf30fd216c0de7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/object.go",
+      "function": "FoundationRecord.validate",
+      "start_line": 123,
+      "end_line": 210,
+      "git_blob": "f0da7574f32498159b071bdafbdf30fd216c0de7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociclient/factory.go",
+      "function": "Factory.ObjectStorage",
+      "start_line": 336,
+      "end_line": 345,
+      "git_blob": "e9846258def469f2563255190a68927aae4d4871",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current_integration_test.go",
+      "function": "newCurrentDiscoveryScenario",
+      "start_line": 53,
+      "end_line": 138,
+      "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current_integration_test.go",
+      "function": "currentDiscoveryScenario.publish",
+      "start_line": 140,
+      "end_line": 177,
+      "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current_integration_test.go",
+      "function": "currentDiscoveryScenario.rotate",
+      "start_line": 179,
+      "end_line": 205,
+      "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current_integration_test.go",
+      "function": "currentDiscoveryScenario.discover",
+      "start_line": 207,
+      "end_line": 209,
+      "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current_integration_test.go",
+      "function": "currentDiscoveryScenario.floorPath",
+      "start_line": 211,
+      "end_line": 214,
+      "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current.go",
+      "function": "resolveCurrentFoundation",
+      "start_line": 62,
+      "end_line": 181,
+      "git_blob": "699f9fad7b0a370ccbc06ffed107fe5305d7a6c6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current.go",
+      "function": "openFoundationFloorDirectory",
+      "start_line": 189,
+      "end_line": 234,
+      "git_blob": "699f9fad7b0a370ccbc06ffed107fe5305d7a6c6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current.go",
+      "function": "openFoundationFloorFile",
+      "start_line": 236,
+      "end_line": 252,
+      "git_blob": "699f9fad7b0a370ccbc06ffed107fe5305d7a6c6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current.go",
+      "function": "readFoundationFloor",
+      "start_line": 254,
+      "end_line": 284,
+      "git_blob": "699f9fad7b0a370ccbc06ffed107fe5305d7a6c6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current.go",
+      "function": "writeFoundationFloor",
+      "start_line": 286,
+      "end_line": 311,
+      "git_blob": "699f9fad7b0a370ccbc06ffed107fe5305d7a6c6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/retained.go",
+      "function": "readCurrentFoundation",
+      "start_line": 70,
+      "end_line": 84,
+      "git_blob": "eac9a98e7ee4e6174aa3307611fc9508b624524b",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery.go",
+      "function": "discoveryNamespace",
+      "start_line": 64,
+      "end_line": 72,
+      "git_blob": "0faa8343ded0de1e568684f4d84d48e18dce653c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery.go",
+      "function": "readDiscoveryObject",
+      "start_line": 125,
+      "end_line": 141,
+      "git_blob": "0faa8343ded0de1e568684f4d84d48e18dce653c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery.go",
+      "function": "verifyDiscoveryAnchor",
+      "start_line": 104,
+      "end_line": 123,
+      "git_blob": "0faa8343ded0de1e568684f4d84d48e18dce653c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current.go",
+      "function": "DiscoverCurrentFoundation",
+      "start_line": 29,
+      "end_line": 43,
+      "git_blob": "699f9fad7b0a370ccbc06ffed107fe5305d7a6c6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery.go",
+      "function": "foundationHomeClient",
+      "start_line": 48,
+      "end_line": 62,
+      "git_blob": "0faa8343ded0de1e568684f4d84d48e18dce653c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery_current_integration_test.go",
+      "function": "TestCurrentFoundationDiscoveryHTTPDurableAuthority",
+      "start_line": 216,
+      "end_line": 420,
+      "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/foundation_integration_test.go",
+      "function": "foundationImageRecipe",
+      "start_line": 471,
+      "end_line": 513,
+      "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/grant.go",
+      "function": "SignedFootprint.AuthorizedBootstrapMaterial",
+      "start_line": 147,
+      "end_line": 254,
+      "git_blob": "5c92e7a08a290ccf0c37e11b895a0ccc082dbba8",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/grant.go",
+      "function": "SignedFootprint.verifyStartup",
+      "start_line": 256,
+      "end_line": 305,
+      "git_blob": "5c92e7a08a290ccf0c37e11b895a0ccc082dbba8",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/grant.go",
+      "function": "VerifiedBootstrapMaterial.Startup",
+      "start_line": 122,
+      "end_line": 127,
+      "git_blob": "5c92e7a08a290ccf0c37e11b895a0ccc082dbba8",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/grant.go",
+      "function": "VerifiedBootstrapMaterial.Image",
+      "start_line": 128,
+      "end_line": 133,
+      "git_blob": "5c92e7a08a290ccf0c37e11b895a0ccc082dbba8",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/grant.go",
+      "function": "VerifiedBootstrapMaterial.FoundationGrantWire",
+      "start_line": 118,
+      "end_line": 118,
+      "git_blob": "5c92e7a08a290ccf0c37e11b895a0ccc082dbba8",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/spend.go",
+      "function": "SignedFootprint.InfrastructureSpend",
+      "start_line": 140,
+      "end_line": 142,
+      "git_blob": "7cf30d1f4ae3cf2e1cae243a03f6b9feaabe5409",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/spend.go",
+      "function": "VerifiedInfrastructureSpend.Footprint",
+      "start_line": 71,
+      "end_line": 78,
+      "git_blob": "7cf30d1f4ae3cf2e1cae243a03f6b9feaabe5409",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/ocir_issuer.go",
+      "function": "SignedFootprint.OCIRIssuer",
+      "start_line": 197,
+      "end_line": 209,
+      "git_blob": "e1bab7de89f8dcb53e54b0d5e5d7d897b6bca500",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/ocir_issuer.go",
+      "function": "SignedFootprint.ocirIssuers",
+      "start_line": 211,
+      "end_line": 243,
+      "git_blob": "e1bab7de89f8dcb53e54b0d5e5d7d897b6bca500",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/ocir_issuer.go",
+      "function": "SignedFootprint.resolveOCIRIssuer",
+      "start_line": 245,
+      "end_line": 303,
+      "git_blob": "e1bab7de89f8dcb53e54b0d5e5d7d897b6bca500",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery.go",
+      "function": "publishFoundationDiscovery",
+      "start_line": 155,
+      "end_line": 197,
+      "git_blob": "0faa8343ded0de1e568684f4d84d48e18dce653c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/discovery.go",
+      "function": "discoverFoundation",
+      "start_line": 74,
+      "end_line": 102,
+      "git_blob": "0faa8343ded0de1e568684f4d84d48e18dce653c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/foundation_recovery_integration_test.go",
+      "function": "recoveryAuthority.Guard",
+      "start_line": 35,
+      "end_line": 35,
+      "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/foundation_recovery_integration_test.go",
+      "function": "recoveryAuthority.HomeWrite",
+      "start_line": 36,
+      "end_line": 38,
+      "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/sdk.go",
+      "function": "SDKFoundations.ReconcileFoundation",
+      "start_line": 15,
+      "end_line": 63,
+      "git_blob": "8703ba73947aa0c00772af83737df1e728d14a73",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/lifecycle.go",
+      "function": "foundationAttempt.guard",
+      "start_line": 387,
+      "end_line": 402,
+      "git_blob": "5d097688b5a768e20e53eb73a403c83c1ae0fe07",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/lifecycle.go",
+      "function": "foundationAttempt.update",
+      "start_line": 431,
+      "end_line": 443,
+      "git_blob": "5d097688b5a768e20e53eb73a403c83c1ae0fe07",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/lifecycle.go",
+      "function": "foundationAttempt.beforeWrite",
+      "start_line": 404,
+      "end_line": 429,
+      "git_blob": "5d097688b5a768e20e53eb73a403c83c1ae0fe07",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/lifecycle.go",
+      "function": "foundationAttempt.prepareCreate",
+      "start_line": 523,
+      "end_line": 549,
+      "git_blob": "5d097688b5a768e20e53eb73a403c83c1ae0fe07",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/lifecycle.go",
+      "function": "foundationAttempt.checkpoint",
+      "start_line": 452,
+      "end_line": 466,
+      "git_blob": "5d097688b5a768e20e53eb73a403c83c1ae0fe07",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/lifecycle.go",
+      "function": "foundationAttempt.checkpointAuxiliary",
+      "start_line": 468,
+      "end_line": 482,
+      "git_blob": "5d097688b5a768e20e53eb73a403c83c1ae0fe07",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/lifecycle.go",
+      "function": "foundationAttempt.completeCreate",
+      "start_line": 504,
+      "end_line": 521,
+      "git_blob": "5d097688b5a768e20e53eb73a403c83c1ae0fe07",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/foundation/foundation.go",
+      "function": "New",
+      "start_line": 84,
+      "end_line": 131,
+      "git_blob": "a6d2a1cf8a5dedce356e0832d2b1af22fee05d33",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/foundation/foundation.go",
+      "function": "Foundation.Reconcile",
+      "start_line": 198,
+      "end_line": 227,
+      "git_blob": "a6d2a1cf8a5dedce356e0832d2b1af22fee05d33",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/foundation/foundation.go",
+      "function": "Foundation.create",
+      "start_line": 344,
+      "end_line": 380,
+      "git_blob": "a6d2a1cf8a5dedce356e0832d2b1af22fee05d33",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/foundation/foundation.go",
+      "function": "Foundation.ensure",
+      "start_line": 384,
+      "end_line": 414,
+      "git_blob": "a6d2a1cf8a5dedce356e0832d2b1af22fee05d33",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/foundation/foundation.go",
+      "function": "Foundation.call",
+      "start_line": 256,
+      "end_line": 296,
+      "git_blob": "a6d2a1cf8a5dedce356e0832d2b1af22fee05d33",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/publicapi/sdk.go",
+      "function": "SDKClient.Call",
+      "start_line": 133,
+      "end_line": 165,
+      "git_blob": "b520666c4d82ea198765e8b637997ffdcfc6a89c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/publicapi/sdk_foundation.go",
+      "function": "createCompartment",
+      "start_line": 81,
+      "end_line": 101,
+      "git_blob": "fa8ad48f93d657d380bbee4711c12af96aa6f44c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociclient/factory.go",
+      "function": "Factory.Identity",
+      "start_line": 371,
+      "end_line": 379,
+      "git_blob": "e9846258def469f2563255190a68927aae4d4871",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociclient/factory.go",
+      "function": "Factory.HomeRegion",
+      "start_line": 440,
+      "end_line": 450,
+      "git_blob": "e9846258def469f2563255190a68927aae4d4871",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/object.go",
+      "function": "validAuxiliaryID",
+      "start_line": 212,
+      "end_line": 256,
+      "git_blob": "f0da7574f32498159b071bdafbdf30fd216c0de7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_launch.go",
+      "function": "reconcileNetBirdManager",
+      "start_line": 25,
+      "end_line": 210,
+      "git_blob": "dfe0540824a79b09f8b0fdcfbd42eebd873ec27c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_launch.go",
+      "function": "observeNetBirdGeometry",
+      "start_line": 257,
+      "end_line": 330,
+      "git_blob": "dfe0540824a79b09f8b0fdcfbd42eebd873ec27c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_launch.go",
+      "function": "netBirdObservedInstance.ObserveInstance",
+      "start_line": 341,
+      "end_line": 389,
+      "git_blob": "dfe0540824a79b09f8b0fdcfbd42eebd873ec27c",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_manager.go",
+      "function": "SignedFootprint.authorizedNetBirdManager",
+      "start_line": 109,
+      "end_line": 159,
+      "git_blob": "a1a249ca219fbc0918ef00effe36d776695ef0a6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_manager.go",
+      "function": "SignedFootprint.openNetBirdEvidence",
+      "start_line": 161,
+      "end_line": 163,
+      "git_blob": "a1a249ca219fbc0918ef00effe36d776695ef0a6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_manager.go",
+      "function": "admitNetBirdManager",
+      "start_line": 219,
+      "end_line": 329,
+      "git_blob": "a1a249ca219fbc0918ef00effe36d776695ef0a6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_manager.go",
+      "function": "VerifiedNetBirdManager.Check",
+      "start_line": 190,
+      "end_line": 195,
+      "git_blob": "a1a249ca219fbc0918ef00effe36d776695ef0a6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_manager.go",
+      "function": "VerifiedNetBirdManager.ClaimGenesis",
+      "start_line": 178,
+      "end_line": 183,
+      "git_blob": "a1a249ca219fbc0918ef00effe36d776695ef0a6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_manager.go",
+      "function": "VerifiedNetBirdManager.MarkStoreReady",
+      "start_line": 184,
+      "end_line": 189,
+      "git_blob": "a1a249ca219fbc0918ef00effe36d776695ef0a6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_network.go",
+      "function": "ReconcileNetBirdNetwork",
+      "start_line": 25,
+      "end_line": 188,
+      "git_blob": "152254dbe019a38080ffab38c0135f67515c0cf5",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_network.go",
+      "function": "netBirdNetwork.ensure",
+      "start_line": 197,
+      "end_line": 251,
+      "git_blob": "152254dbe019a38080ffab38c0135f67515c0cf5",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/netbird_network.go",
+      "function": "netBirdNetwork.verifyDNS",
+      "start_line": 274,
+      "end_line": 298,
+      "git_blob": "152254dbe019a38080ffab38c0135f67515c0cf5",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/bootstrap_spend.go",
+      "function": "SignedFootprint.BootstrapAllocation",
+      "start_line": 116,
+      "end_line": 122,
+      "git_blob": "17269f6bd66ed5cbd5e447c8e7cff6ebb2927014",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/bootstrap_spend.go",
+      "function": "FoundationResolver.BootstrapAllocation",
+      "start_line": 124,
+      "end_line": 137,
+      "git_blob": "17269f6bd66ed5cbd5e447c8e7cff6ebb2927014",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/bootstrap_spend.go",
+      "function": "VerifiedInfrastructureSpend.bootstrapAllocation",
+      "start_line": 139,
+      "end_line": 155,
+      "git_blob": "17269f6bd66ed5cbd5e447c8e7cff6ebb2927014",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/bootstrap_spend.go",
+      "function": "VerifiedBootstrapAllocation.Validate",
+      "start_line": 186,
+      "end_line": 203,
+      "git_blob": "17269f6bd66ed5cbd5e447c8e7cff6ebb2927014",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/bootstrap_spend.go",
+      "function": "VerifiedBootstrapAllocation.Revalidate",
+      "start_line": 164,
+      "end_line": 166,
+      "git_blob": "17269f6bd66ed5cbd5e447c8e7cff6ebb2927014",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/spend.go",
+      "function": "SignedFootprint.infrastructureSpend",
+      "start_line": 144,
+      "end_line": 203,
+      "git_blob": "7cf30d1f4ae3cf2e1cae243a03f6b9feaabe5409",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/spend.go",
+      "function": "FoundationResolver.InfrastructureSpend",
+      "start_line": 205,
+      "end_line": 216,
+      "git_blob": "7cf30d1f4ae3cf2e1cae243a03f6b9feaabe5409",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/spend.go",
+      "function": "VerifiedInfrastructureSpend.bindInfrastructureScope",
+      "start_line": 242,
+      "end_line": 335,
+      "git_blob": "7cf30d1f4ae3cf2e1cae243a03f6b9feaabe5409",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/spend.go",
+      "function": "VerifiedInfrastructureSpend.RevalidateBindings",
+      "start_line": 224,
+      "end_line": 240,
+      "git_blob": "7cf30d1f4ae3cf2e1cae243a03f6b9feaabe5409",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/capacityinventory/quote.go",
+      "function": "Reader.Quote",
+      "start_line": 38,
+      "end_line": 61,
+      "git_blob": "cbb4d7c92287eae11dde09435830c461cb253eb1",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/capacityinventory/quote.go",
+      "function": "Quote.Validate",
+      "start_line": 28,
+      "end_line": 36,
+      "git_blob": "cbb4d7c92287eae11dde09435830c461cb253eb1",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/capacityinventory/prices.go",
+      "function": "Reader.Prices",
+      "start_line": 116,
+      "end_line": 150,
+      "git_blob": "9f0dd6aa0baeba7458f9b2cf79ba56c607c2a40f",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/capacityinventory/prices.go",
+      "function": "catalogReader.price",
+      "start_line": 33,
+      "end_line": 112,
+      "git_blob": "9f0dd6aa0baeba7458f9b2cf79ba56c607c2a40f",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/bootstrapstart/oci_observer.go",
+      "function": "OCIInstanceObserver.ObserveInstance",
+      "start_line": 77,
+      "end_line": 171,
+      "git_blob": "928adcd7e9d0b827cd96bddf52b40e0155e5d225",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociclient/factory.go",
+      "function": "Factory.Network",
+      "start_line": 325,
+      "end_line": 333,
+      "git_blob": "e9846258def469f2563255190a68927aae4d4871",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/networkplan/plan.go",
+      "function": "ValidateRegion",
+      "start_line": 45,
+      "end_line": 58,
+      "git_blob": "b907cfc017ae69a56f45a86ab1a0c74417d04876",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/plan.go",
+      "function": "Network",
+      "start_line": 34,
+      "end_line": 39,
+      "git_blob": "0f657a0e5cd8aba68d61ebc2692b017589f6a067",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/networkplan/plan.go",
+      "function": "RegionNetwork",
+      "start_line": 37,
+      "end_line": 43,
+      "git_blob": "b907cfc017ae69a56f45a86ab1a0c74417d04876",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/networkplan/plan.go",
+      "function": "RegionReservation",
+      "start_line": 21,
+      "end_line": 34,
+      "git_blob": "b907cfc017ae69a56f45a86ab1a0c74417d04876",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "function": "IsCell",
+      "start_line": 131,
+      "end_line": 134,
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "function": "Lookup",
+      "start_line": 121,
+      "end_line": 128,
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/region_test.go",
+      "function": "load",
+      "start_line": 44,
+      "end_line": 52,
+      "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/plan.go",
+      "function": "Derive",
+      "start_line": 46,
+      "end_line": 132,
+      "git_blob": "0f657a0e5cd8aba68d61ebc2692b017589f6a067",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "writePlan",
+      "start_line": 244,
+      "end_line": 253,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "writeJSON",
+      "start_line": 527,
+      "end_line": 533,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/plan.go",
+      "function": "LoadPlan",
+      "start_line": 548,
+      "end_line": 551,
+      "git_blob": "a7896c337b702a06b3c36ea900f4feada11c0512",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/plan.go",
+      "function": "Engine.loadPlan",
+      "start_line": 328,
+      "end_line": 332,
+      "git_blob": "a7896c337b702a06b3c36ea900f4feada11c0512",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/engine.go",
+      "function": "readJSON",
+      "start_line": 360,
+      "end_line": 374,
+      "git_blob": "47b469ecae9635fa285a7e4a056867d1d31021a6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/engine.go",
+      "function": "readBytes",
+      "start_line": 340,
+      "end_line": 359,
+      "git_blob": "47b469ecae9635fa285a7e4a056867d1d31021a6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/engine.go",
+      "function": "capture",
+      "start_line": 476,
+      "end_line": 487,
+      "git_blob": "47b469ecae9635fa285a7e4a056867d1d31021a6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "regionProfile",
+      "start_line": 419,
+      "end_line": 444,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/region_test.go",
+      "function": "newCreation",
+      "start_line": 181,
+      "end_line": 243,
+      "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/region_test.go",
+      "function": "creation.secrets",
+      "start_line": 167,
+      "end_line": 179,
+      "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/region_test.go",
+      "function": "fakeSubscriptions.ListRegionSubscriptions",
+      "start_line": 254,
+      "end_line": 263,
+      "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/region_test.go",
+      "function": "fakeSubscriptions.CreateRegionSubscription",
+      "start_line": 265,
+      "end_line": 270,
+      "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/region_test.go",
+      "function": "fakeSubscriptions.pause",
+      "start_line": 272,
+      "end_line": 275,
+      "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "Creation.Create",
+      "start_line": 108,
+      "end_line": 167,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "Creation.environment",
+      "start_line": 172,
+      "end_line": 186,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "Creation.save",
+      "start_line": 197,
+      "end_line": 199,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "Creation.netbird",
+      "start_line": 310,
+      "end_line": 360,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "done",
+      "start_line": 188,
+      "end_line": 195,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "Creation.report",
+      "start_line": 203,
+      "end_line": 216,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "Creation.found",
+      "start_line": 369,
+      "end_line": 415,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "Creation.edge",
+      "start_line": 453,
+      "end_line": 484,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "Creation.peer",
+      "start_line": 269,
+      "end_line": 287,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "samePlans",
+      "start_line": 290,
+      "end_line": 306,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/foundation/peer.go",
+      "function": "DraftPeerIntent",
+      "start_line": 86,
+      "end_line": 112,
+      "git_blob": "b127672026f250b6e04d70f11498a1284109f412",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/engine.go",
+      "function": "SHA256",
+      "start_line": 491,
+      "end_line": 491,
+      "git_blob": "47b469ecae9635fa285a7e4a056867d1d31021a6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/engine.go",
+      "function": "fileSHA",
+      "start_line": 334,
+      "end_line": 338,
+      "git_blob": "47b469ecae9635fa285a7e4a056867d1d31021a6",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "ResolveRegion",
+      "start_line": 92,
+      "end_line": 104,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "function": "LookupName",
+      "start_line": 111,
+      "end_line": 118,
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "function": "CellForOCIRegion",
+      "start_line": 150,
+      "end_line": 157,
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/subscribe.go",
+      "function": "subscribeRegion",
+      "start_line": 32,
+      "end_line": 68,
+      "git_blob": "b556747f396ed6d6a6eeead6700e5cfb69c55fc2",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/subscribe.go",
+      "function": "findSubscription",
+      "start_line": 72,
+      "end_line": 83,
+      "git_blob": "b556747f396ed6d6a6eeead6700e5cfb69c55fc2",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/region_test.go",
+      "function": "fakeLB.ListBackends",
+      "start_line": 522,
+      "end_line": 524,
+      "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/region_test.go",
+      "function": "fakeLB.UnhealthyBackends",
+      "start_line": 525,
+      "end_line": 527,
+      "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/verify.go",
+      "function": "Verifier.Checks",
+      "start_line": 37,
+      "end_line": 73,
+      "git_blob": "a98e5e73730bd3994af76b6376f756b164dafd31",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/verify.go",
+      "function": "Verifier.get",
+      "start_line": 105,
+      "end_line": 124,
+      "git_blob": "a98e5e73730bd3994af76b6376f756b164dafd31",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/verify.go",
+      "function": "Verifier.balancer",
+      "start_line": 76,
+      "end_line": 95,
+      "git_blob": "a98e5e73730bd3994af76b6376f756b164dafd31",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/verify.go",
+      "function": "Verifier.Until",
+      "start_line": 128,
+      "end_line": 152,
+      "git_blob": "a98e5e73730bd3994af76b6376f756b164dafd31",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/verify.go",
+      "function": "Print",
+      "start_line": 155,
+      "end_line": 169,
+      "git_blob": "a98e5e73730bd3994af76b6376f756b164dafd31",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/cli.go",
+      "function": "Run",
+      "start_line": 47,
+      "end_line": 124,
+      "git_blob": "24cc77894760547671eb875a7d17e839084f7014",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/create.go",
+      "function": "DerivePlan",
+      "start_line": 226,
+      "end_line": 241,
+      "git_blob": "4e65e60b6df4d153d1a00feec7c1bf1cc212484e",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/retained_integration_test.go",
+      "function": "currentDiscoveryScenario.export",
+      "start_line": 23,
+      "end_line": 30,
+      "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/retained_integration_test.go",
+      "function": "currentDiscoveryScenario.snapshot",
+      "start_line": 32,
+      "end_line": 37,
+      "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/retained.go",
+      "function": "verifyRetainedFoundation",
+      "start_line": 58,
+      "end_line": 68,
+      "git_blob": "eac9a98e7ee4e6174aa3307611fc9508b624524b",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/retained.go",
+      "function": "VerifyRetainedFoundation",
+      "start_line": 50,
+      "end_line": 56,
+      "git_blob": "eac9a98e7ee4e6174aa3307611fc9508b624524b",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/retained.go",
+      "function": "RetainedFoundation.clone",
+      "start_line": 25,
+      "end_line": 30,
+      "git_blob": "eac9a98e7ee4e6174aa3307611fc9508b624524b",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/grant.go",
+      "function": "VerifiedBootstrapMaterial.SourceRegistration",
+      "start_line": 81,
+      "end_line": 86,
+      "git_blob": "5c92e7a08a290ccf0c37e11b895a0ccc082dbba8",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/resolver.go",
+      "function": "FoundationResolver.BootstrapMaterial",
+      "start_line": 69,
+      "end_line": 77,
+      "git_blob": "f901ce3cb00b6c62577b732c581449fcd911f23f",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/source_founder.go",
+      "function": "SourcePolicyRecord.validate",
+      "start_line": 331,
+      "end_line": 367,
+      "git_blob": "c76727d62e70e979cf7928250c431e7a74962c45",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/bindings.go",
+      "function": "FoundationResolver.ResourceBindingsFor",
+      "start_line": 27,
+      "end_line": 37,
+      "git_blob": "41473ff55ed2816d7d6a2492f53ae05498a61d9b",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/bindings.go",
+      "function": "SignedFootprint.resourceBindingsFor",
+      "start_line": 55,
+      "end_line": 66,
+      "git_blob": "41473ff55ed2816d7d6a2492f53ae05498a61d9b",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/foundationbinding/verify.go",
+      "function": "Verify",
+      "start_line": 177,
+      "end_line": 311,
+      "git_blob": "1ddaa81feb16c2a8f8e32027dd2c52502b089c32",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/foundationbinding/verify.go",
+      "function": "verifyCurrentGrant",
+      "start_line": 313,
+      "end_line": 338,
+      "git_blob": "1ddaa81feb16c2a8f8e32027dd2c52502b089c32",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/foundationbinding/verify.go",
+      "function": "loadRecord",
+      "start_line": 340,
+      "end_line": 372,
+      "git_blob": "1ddaa81feb16c2a8f8e32027dd2c52502b089c32",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/foundationbinding/verify.go",
+      "function": "observe",
+      "start_line": 428,
+      "end_line": 552,
+      "git_blob": "1ddaa81feb16c2a8f8e32027dd2c52502b089c32",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/foundationbinding/verify.go",
+      "function": "VerifiedBindings.Revalidate",
+      "start_line": 86,
+      "end_line": 98,
+      "git_blob": "1ddaa81feb16c2a8f8e32027dd2c52502b089c32",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/worker_instance.go",
+      "function": "readWorkerInstance",
+      "start_line": 97,
+      "end_line": 138,
+      "git_blob": "11c7736c1784ecca5fe4d05a92de2ead5929188a",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/worker_instance.go",
+      "function": "workerBootVolume",
+      "start_line": 140,
+      "end_line": 214,
+      "git_blob": "11c7736c1784ecca5fe4d05a92de2ead5929188a",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/worker_instance.go",
+      "function": "workerPrimaryNetwork",
+      "start_line": 216,
+      "end_line": 269,
+      "git_blob": "11c7736c1784ecca5fe4d05a92de2ead5929188a",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/worker_instance.go",
+      "function": "workerNextPage",
+      "start_line": 271,
+      "end_line": 280,
+      "git_blob": "11c7736c1784ecca5fe4d05a92de2ead5929188a",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/worker_instance.go",
+      "function": "FoundationResolver.AuthorizeWorkerInstance",
+      "start_line": 54,
+      "end_line": 95,
+      "git_blob": "11c7736c1784ecca5fe4d05a92de2ead5929188a",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociclient/factory.go",
+      "function": "Factory.Compute",
+      "start_line": 291,
+      "end_line": 299,
+      "git_blob": "e9846258def469f2563255190a68927aae4d4871",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/ociclient/factory.go",
+      "function": "Factory.Blockstorage",
+      "start_line": 314,
+      "end_line": 322,
+      "git_blob": "e9846258def469f2563255190a68927aae4d4871",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/worker_profile_authority.go",
+      "function": "SignedFootprint.WorkerProfiles",
+      "start_line": 55,
+      "end_line": 146,
+      "git_blob": "07b9b9023379b2ab45a970572ba14cca54611e45",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/worker_profile_authority.go",
+      "function": "ValidateWorkerProfile",
+      "start_line": 149,
+      "end_line": 186,
+      "git_blob": "07b9b9023379b2ab45a970572ba14cca54611e45",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    },
+    {
+      "path": "internal/region/worker_profile_authority.go",
+      "function": "ValidateWorkerProfiles",
+      "start_line": 375,
+      "end_line": 425,
+      "git_blob": "07b9b9023379b2ab45a970572ba14cca54611e45",
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af"
+    }
+  ],
+  "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "accepted_accounting_unchanged": {
+    "retired": 19,
+    "retained": 4300,
+    "classified": 102,
+    "integration": 78,
+    "unit": 23,
+    "mixed": 1,
+    "unadjudicated": 4198
+  },
+  "ledger_promotion_authorized": false,
+  "runtime_delta": 0,
+  "retirement_delta": 0,
+  "current7330_credit": 0,
+  "qualification_limits": [
+    "Conditional lock helper only crosses boundary when launched by its observing parent; no separate independent lock proof.",
+    "Manager ARM64 receipts/gates/provider facts are constructed; verifyBinary is injected; no native binary measurement, IMDS or actual NetBird process/store.",
+    "CLI plan/output row depends on cwd/output state and only asserts broad error; source category does not establish a runtime cause/pass in another harness.",
+    "Local SDK fixtures exercise real requests and disk/CAS but do not establish live OCI, production cloud/native/root custody, spending/billing, deployment, or global completion. Earlier failed/incomplete packets remain failed/incomplete; no pass transfer."
+  ],
+  "review_actions": {
+    "reads": "Immutable Git blobs, packet/allocation/contract/inventory/audit bytes; stat/hash operations; independently written static Python only.",
+    "not_executed": [
+      "Go",
+      "gofmt/formatter",
+      "build/test/runtime/lint/benchmark",
+      "native or copied runner/verifier/ELF",
+      "process/listener/lock probes",
+      "cloud calls"
+    ],
+    "not_mutated": [
+      "source",
+      "Git",
+      "candidate/allocation packets",
+      "ledger"
+    ],
+    "sole_writes": "Fresh exclusive peer report directory, report/README/SHA256SUMS; files0444 directory0555."
+  }
+}

@@ -1,0 +1,240 @@
+package bootstrapstart
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json/v2"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
+)
+
+var ErrSourceFounder = errors.New("bootstrap source founder is not currently authorized")
+
+// VerifiedSourceFounder binds the local seed to its root-signed recipe and a
+// fresh independent OCI observation. It cannot authorize another instance.
+type VerifiedSourceFounder struct {
+	template bootstrap.VerifiedStartupTemplate
+	factory  *ociclient.Factory
+	imds     DescriptorSource
+	observer InstanceObserver
+	instance string
+	tenancy  string
+}
+
+// VerifySourceFounder uses fixed local metadata and authenticated OCI endpoints.
+// Matching an IMDS slot or a mutable instance tag alone grants no authority.
+func VerifySourceFounder(ctx context.Context, factory *ociclient.Factory, template bootstrap.VerifiedStartupTemplate) (VerifiedSourceFounder, error) {
+	if _, err := template.OriginalLaunch(); err == nil {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	if factory == nil {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	if err := template.VerifyCurrentContext(ctx, time.Now().UTC()); err != nil {
+		return VerifiedSourceFounder{}, errors.Join(ErrSourceFounder, err)
+	}
+	manifest, err := template.ManifestFor(template.Template().SeedSlot, nil)
+	if err != nil || factory.Region() != manifest.OCIRegion {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	var grant struct {
+		TenancyID string `json:"tenancyId"`
+	}
+	envelope, err := trust.DecodeEnvelope(template.GrantWire())
+	if err != nil || json.Unmarshal(envelope.Payload, &grant) != nil || grant.TenancyID == "" {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	tenancy, err := factory.Provider().TenancyOCID()
+	if err != nil || tenancy != grant.TenancyID {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	observer, err := NewOCIInstanceObserver(manifest.Cell, factory.Provider())
+	if err != nil {
+		return VerifiedSourceFounder{}, err
+	}
+	return verifySourceFounderWithSources(ctx, factory, template, NewIMDSClient(), observer)
+}
+
+func verifySourceFounderWithSources(ctx context.Context, factory *ociclient.Factory, template bootstrap.VerifiedStartupTemplate, imds DescriptorSource, observer InstanceObserver) (VerifiedSourceFounder, error) {
+	if _, err := template.OriginalLaunch(); err == nil {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	if factory == nil || imds == nil || observer == nil {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	if err := template.VerifyCurrentContext(ctx, time.Now().UTC()); err != nil {
+		return VerifiedSourceFounder{}, errors.Join(ErrSourceFounder, err)
+	}
+	manifest, err := template.ManifestFor(template.Template().SeedSlot, nil)
+	if err != nil || factory.Region() != manifest.OCIRegion {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	var grant struct {
+		TenancyID string `json:"tenancyId"`
+	}
+	envelope, err := trust.DecodeEnvelope(template.GrantWire())
+	if err != nil || json.Unmarshal(envelope.Payload, &grant) != nil || grant.TenancyID == "" {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	tenancy, err := factory.Provider().TenancyOCID()
+	if err != nil || tenancy != grant.TenancyID {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	proof := VerifiedSourceFounder{template: template, factory: factory, imds: imds, observer: observer, tenancy: tenancy}
+	observed, err := proof.observe(ctx)
+	if err != nil {
+		return VerifiedSourceFounder{}, err
+	}
+	proof.instance = observed.InstanceOCID
+	return proof, nil
+}
+
+func (proof VerifiedSourceFounder) IsVerified() bool {
+	return proof.instance != "" && proof.template.IsVerified() && proof.factory != nil && proof.imds != nil && proof.observer != nil
+}
+
+func (proof VerifiedSourceFounder) InstanceID() string     { return proof.instance }
+func (proof VerifiedSourceFounder) TenancyID() string      { return proof.tenancy }
+func (proof VerifiedSourceFounder) SeedSlot() string       { return proof.template.Template().SeedSlot }
+func (proof VerifiedSourceFounder) GrantDigest() string    { return proof.template.GrantDigest() }
+func (proof VerifiedSourceFounder) TemplateDigest() string { return proof.template.TemplateDigest() }
+func (proof VerifiedSourceFounder) PlanDigest() string     { return proof.template.PlanDigest() }
+func (proof VerifiedSourceFounder) InstallationID() string { return proof.template.InstallationID() }
+func (proof VerifiedSourceFounder) Generation() uint64     { return proof.template.Generation() }
+func (proof VerifiedSourceFounder) ExpiresAt() time.Time   { return proof.template.ExpiresAt() }
+func (proof VerifiedSourceFounder) StorageDomain() bootstrap.StorageDomain {
+	manifest, _ := proof.template.ManifestFor(proof.SeedSlot(), nil)
+	return manifest.StorageDomain
+}
+
+// GuardedFactory preserves the caller's context and rechecks this exact actor
+// before each SDK mutation attempt, including retries.
+func (proof VerifiedSourceFounder) GuardedFactory(ctx context.Context) (*ociclient.Factory, context.Context, error) {
+	if err := proof.VerifyCurrent(ctx); err != nil {
+		return nil, ctx, err
+	}
+	return proof.factory, ociclient.WithAuthority(ctx, proof.VerifyCurrent), nil
+}
+
+func (proof VerifiedSourceFounder) VerifyCurrent(ctx context.Context) error {
+	_, err := proof.ObserveCurrent(ctx)
+	return err
+}
+
+func (proof VerifiedSourceFounder) ObserveCurrent(ctx context.Context) (InstanceObservation, error) {
+	if !proof.IsVerified() {
+		return InstanceObservation{}, ErrSourceFounder
+	}
+	return proof.observe(ctx)
+}
+
+func (proof VerifiedSourceFounder) observe(ctx context.Context) (InstanceObservation, error) {
+	if err := ctx.Err(); err != nil {
+		return InstanceObservation{}, err
+	}
+	if proof.factory == nil || proof.imds == nil || proof.observer == nil {
+		return InstanceObservation{}, ErrSourceFounder
+	}
+	if err := proof.template.VerifyCurrentContext(ctx, time.Now().UTC()); err != nil {
+		return InstanceObservation{}, errors.Join(ErrSourceFounder, err)
+	}
+	instance, err := proof.imds.FetchInstanceID(ctx)
+	if err != nil || !instanceIDRE.MatchString(instance) || proof.instance != "" && instance != proof.instance {
+		return InstanceObservation{}, errors.Join(ErrSourceFounder, err)
+	}
+	if err := proof.verifyPrincipal(instance); err != nil {
+		return InstanceObservation{}, err
+	}
+	descriptor, err := proof.imds.FetchDescriptor(ctx)
+	if err != nil || descriptor.SchemaVersion != 1 || descriptor.Slot != proof.SeedSlot() {
+		return InstanceObservation{}, errors.Join(ErrSourceFounder, err)
+	}
+	if _, err := VerifyCurrentRunningBinary(proof.template.Image()); err != nil {
+		return InstanceObservation{}, err
+	}
+	manifest, err := proof.template.ManifestFor(descriptor.Slot, nil)
+	if err != nil || proof.factory.Region() != manifest.OCIRegion {
+		return InstanceObservation{}, ErrSourceFounder
+	}
+	tenancy, err := proof.factory.Provider().TenancyOCID()
+	if err != nil || tenancy != proof.tenancy {
+		return InstanceObservation{}, ErrSourceFounder
+	}
+	observed, err := proof.observer.ObserveInstance(ctx, instance)
+	if err != nil {
+		return InstanceObservation{}, err
+	}
+	address, err := proof.template.SlotPrivateIP(descriptor.Slot)
+	if err != nil {
+		return InstanceObservation{}, err
+	}
+	for _, profile := range manifest.Profiles {
+		if profile.Slot != descriptor.Slot {
+			continue
+		}
+		nsgs, expected := slices.Clone(observed.NSGOCIDs), slices.Clone(profile.NetworkSecurityGroupOCIDs)
+		slices.Sort(nsgs)
+		slices.Sort(expected)
+		if observed.InstanceOCID != instance || observed.LifecycleState != "RUNNING" || observed.ImageOCID != manifest.ImageOCID ||
+			observed.CompartmentOCID != profile.CompartmentOCID || observed.AvailabilityDomain != profile.AvailabilityDomain ||
+			observed.FaultDomain != profile.FaultDomain || observed.Shape != profile.Shape || observed.SubnetOCID != profile.SubnetOCID ||
+			!slices.Equal(nsgs, expected) || !observed.PrimaryVNIC || !strings.HasPrefix(observed.PrimaryVNICOCID, "ocid1.vnic.") || observed.PrimaryPrivateIP != address {
+			return InstanceObservation{}, ErrSourceFounder
+		}
+		if err := proof.verifyResources(ctx, observed); err != nil {
+			return InstanceObservation{}, err
+		}
+		return observed, nil
+	}
+	return InstanceObservation{}, fmt.Errorf("%w: signed seed profile is absent", ErrSourceFounder)
+}
+
+func (proof VerifiedSourceFounder) verifyPrincipal(instance string) error {
+	return VerifyInstancePrincipal(proof.factory, instance, proof.tenancy)
+}
+
+// VerifyInstancePrincipal checks local token claims only. The caller must then
+// authenticate this provider through OCI before accepting any remote evidence.
+func VerifyInstancePrincipal(factory *ociclient.Factory, instance, tenancy string) error {
+	if factory == nil || !instanceIDRE.MatchString(instance) || tenancy == "" {
+		return ErrSourceFounder
+	}
+	provider := factory.Provider()
+	// The SDK reports an unsupported-method error with its valid auth kind.
+	kind, _ := provider.AuthType()
+	if kind.AuthType != common.InstancePrincipal {
+		return ErrSourceFounder
+	}
+	key, err := provider.KeyID()
+	if err != nil || len(key) > 64<<10 || !strings.HasPrefix(key, "ST$") {
+		return ErrSourceFounder
+	}
+	parts := strings.Split(strings.TrimPrefix(key, "ST$"), ".")
+	if len(parts) != 3 {
+		return ErrSourceFounder
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ErrSourceFounder
+	}
+	var claims struct {
+		Subject  string `json:"sub"`
+		Instance string `json:"opc-instance"`
+		Type     string `json:"ptype"`
+		Tenancy  string `json:"tenant"`
+		Expiry   int64  `json:"exp"`
+	}
+	// OCI authenticates this same SDK token on the independent observation.
+	if json.Unmarshal(payload, &claims) != nil || claims.Subject != instance || claims.Instance != instance || claims.Type != "instance" || claims.Tenancy != tenancy || time.Now().Unix() >= claims.Expiry {
+		return ErrSourceFounder
+	}
+	return nil
+}

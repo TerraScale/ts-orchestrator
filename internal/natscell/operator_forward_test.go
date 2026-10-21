@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json/v2"
 	"math/big"
 	"net"
 	"strings"
@@ -26,13 +27,18 @@ func TestOperatorForwardSelectsOnlyConfiguredPrivateControllers(t *testing.T) {
 	if err := config.validate(); err != nil {
 		t.Fatalf("valid operator forward rejected: %v", err)
 	}
+	t.Run("lab", func(t *testing.T) {
+		var removed Config
+		if err := json.Unmarshal([]byte(`{"lab":true}`), &removed, json.RejectUnknownMembers(true)); err == nil {
+			t.Fatal("removed lab configuration was accepted")
+		}
+	})
 	for _, test := range []struct {
 		name   string
 		change func(*Config)
 	}{
 		{"controller role", func(c *Config) { c.ClientRole = "controller" }},
 		{"host role", func(c *Config) { c.ClientRole = "host" }},
-		{"lab", func(c *Config) { c.Lab = true }},
 		{"embedded", func(c *Config) { c.Embedded = &Embedded{} }},
 		{"unknown controller", func(c *Config) { c.OperatorForward = map[string]string{"10.251.0.99:4222": "127.0.0.1:14222"} }},
 		{"public controller", func(c *Config) { c.URL = "tls://8.8.8.8:4222" }},

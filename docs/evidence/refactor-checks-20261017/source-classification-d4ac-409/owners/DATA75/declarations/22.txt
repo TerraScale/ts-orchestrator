@@ -1,0 +1,14 @@
+func TestRetryArtifactMetadataReadRecoversFromTransientLeaderFailure(t *testing.T) {
+	info := &nats.RawStreamMsg{}
+	var reads int
+	got, missing, err := retryArtifactMetadataRead(t.Context(), func(context.Context) (*nats.RawStreamMsg, bool, error) {
+		reads++
+		if reads == 1 {
+			return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+		}
+		return info, false, nil
+	})
+	if err != nil || missing || got != info || reads != 2 {
+		t.Fatalf("authoritative metadata retry = (%p, %t, %v), reads = %d; want recovered info after two reads", got, missing, err, reads)
+	}
+}

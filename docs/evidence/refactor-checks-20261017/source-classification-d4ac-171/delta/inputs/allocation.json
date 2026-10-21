@@ -1,0 +1,2340 @@
+{
+  "state": "ALLOCATED_SOURCE_ONLY_CLASSIFICATION_CANDIDATES_NO_COUNTS_PROMOTED",
+  "created_at_utc": "2026-10-17T14:46:09.828720+00:00",
+  "coordinator": "/root/qa_integrator/test_inventory",
+  "authorization": "ROOT explicitly requested up to4 existing completed owners; no new agents created.",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "inventory": {
+    "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+    "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "original_test_roots": 4319
+  },
+  "accepted_accounting_audit": {
+    "path": "/tmp/ts-qa-authority93-promotion-independent-1ze7x7t_/review.json",
+    "sha256": "8530d0ac454abb7701c8073deccb12f2ee96190dfeb094f7fecfa4217b76175d"
+  },
+  "current_accounting_unchanged": {
+    "retired": 19,
+    "retained": 4300,
+    "classified": 102,
+    "integration": 78,
+    "unit": 23,
+    "mixed": 1,
+    "globally_unadjudicated": 4198
+  },
+  "allocation_counts": {
+    "active_owner_limit": 4,
+    "owners": 4,
+    "selected_original_roots": 79,
+    "selected_test_files": 29,
+    "excluded_accepted_original_roots": 102,
+    "excluded_retired_original_roots": 19,
+    "selected_intersection_excluded": 0,
+    "cross_batch_root_overlap": 0,
+    "candidate_source_classification_credit": 0,
+    "runtime_delta": 0,
+    "retirement_delta": 0,
+    "ledger_mutation": false
+  },
+  "canonical_test_file_pins": {
+    "internal/functions/admission_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+      "sha256": "3a3f054ab5b58a782ac03775394e9d93d4e9ecc8ccc94c60f7cba69eaaa35d1b",
+      "bytes": 4015
+    },
+    "internal/functions/broker_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+      "sha256": "3b63ad4ee03e5484a15928a0ae92d78b99aebe43b5465b1e9fa6fdd9b1e2d545",
+      "bytes": 17800
+    },
+    "internal/functions/process_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+      "sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b",
+      "bytes": 15203
+    },
+    "internal/functions/runtime_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+      "sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6",
+      "bytes": 11126
+    },
+    "internal/functions/runtime_limits_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+      "sha256": "6ec96ae20ba66ffcf3bf69cba91610207a25af9048c8fc03801dcaa2366945d2",
+      "bytes": 1801
+    },
+    "internal/functions/transports_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "905495b7025a92d634419e135ea54778f12509d6",
+      "sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929",
+      "bytes": 11177
+    },
+    "internal/natscell/cluster_formation_test.go": {
+      "git_mode": "100644",
+      "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+      "sha256": "c0dbcf9d75e6a373798b6c4c73a5f95f91223d7bf83fef6dc2a3c3fe1c8f5229",
+      "bytes": 9561
+    },
+    "internal/natscell/fabric_test.go": {
+      "git_mode": "100644",
+      "git_blob": "6558b31066b125cb9401de1d19f5b4cc55d46cae",
+      "sha256": "3f751a555909275f0e1870ab7c06cb4e47bf572c5626bec158f01981cf625c8e",
+      "bytes": 8371
+    },
+    "internal/natscell/interregion_test.go": {
+      "git_mode": "100644",
+      "git_blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd",
+      "sha256": "3f7fb1b1223022a828ce5b47897edbd58e87ae2b0ed0882dcc8279e5c3f3ac3e",
+      "bytes": 25733
+    },
+    "internal/natscell/membership_test.go": {
+      "git_mode": "100644",
+      "git_blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71",
+      "sha256": "e79790831c7a593f3f1447b9e7788e97efd8ab8ba9e87379b7e2304547859f78",
+      "bytes": 2189
+    },
+    "internal/natscell/runtime_test.go": {
+      "git_mode": "100644",
+      "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+      "sha256": "d5eca77390c1c6e238f2549072fe0cd57a1bb44e7a1e5c44c9d5684b8c514e2d",
+      "bytes": 16277
+    },
+    "internal/oci/capacity_request_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "a792c3b650f5f6edc93c646c14f5821f2918031b",
+      "sha256": "2a3bc2af39a4429019edca97d1175c4a41dd04fe060dba4e5e71ee38518af230",
+      "bytes": 3442
+    },
+    "internal/oci/inventory_test.go": {
+      "git_mode": "100644",
+      "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+      "sha256": "281b89dabeb24a0aa90ef6f0976a7da5f8024c7317d44f3515a5555dc9cd2457",
+      "bytes": 4504
+    },
+    "internal/oci/journal_test.go": {
+      "git_mode": "100644",
+      "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+      "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+      "bytes": 16657
+    },
+    "internal/oci/pool_receipt_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c",
+      "sha256": "c28f4b4cb0b38559bae127b59bfd34727b750e881abb885366ad98d4a465ae45",
+      "bytes": 10918
+    },
+    "internal/oci/static_host_test.go": {
+      "git_mode": "100644",
+      "git_blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937",
+      "sha256": "91487639c5a41a7ac49fe2eb65721b0ac97d4a365a743fed2241f09f0a6cdf5d",
+      "bytes": 2982
+    },
+    "internal/oci/volume_observer_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+      "sha256": "d00e66c587a18461e40b30da5cbfe5ea640e8f0229f8a079b5caed2495c1fa36",
+      "bytes": 16999
+    },
+    "internal/region/access_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+      "sha256": "1fe62f574fbac790947b7d475999991920581fe7cfb990a2eac63785fff2c6ec",
+      "bytes": 8838
+    },
+    "internal/region/discovery_current_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+      "sha256": "906a22d8c45e15bc9afa168cb737734593d092452e98846f262008fc098eeb76",
+      "bytes": 16183
+    },
+    "internal/region/foundation_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+      "sha256": "2e292381410ccaa2d1e8544f8f20e7a98163401dd15966424b42eb89efba3cfa",
+      "bytes": 25457
+    },
+    "internal/region/foundation_recovery_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+      "sha256": "668be347e21a593913a92eea9d4918b8253c2934b1662bca5e07a78c01faee65",
+      "bytes": 12789
+    },
+    "internal/region/netbird_manager_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+      "sha256": "d1d6cbb3a2c3d9cc04354a82daf97e6e9cbe19e03504aa0f148c7d29a4197a83",
+      "bytes": 20993
+    },
+    "internal/region/netbird_network_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+      "sha256": "eacc8edea5faa959eec39e00dc0896152690f5f1306d7a0dec79502a6ffb6eeb",
+      "bytes": 11123
+    },
+    "internal/region/region_test.go": {
+      "git_mode": "100644",
+      "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+      "sha256": "a414fa3887d3acb781ad3035ac726dcc1b09e089d4943fa8e904acd777b58bdf",
+      "bytes": 25993
+    },
+    "internal/region/retained_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+      "sha256": "f020c473838f3eba89fccceebc4c2df1e46b7accf735ed463853f27fe2e47ccd",
+      "bytes": 6947
+    },
+    "internal/region/source_policy_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb",
+      "sha256": "16c7ae51c64606b1cb166e6351f30c5e49f9783360b8c3cf728f74cc99236841",
+      "bytes": 5075
+    },
+    "internal/region/spend_bindings_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+      "sha256": "ad5cf26d5b49b411542f98f3f3f67bda7b924e736a4f5617d2d7b4820ce9a0c1",
+      "bytes": 10906
+    },
+    "internal/region/worker_instance_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+      "sha256": "beadddb7e06e649c0b7ba7985a2094b641eea727b938a9b640bb5afa5c86f3b1",
+      "bytes": 8703
+    },
+    "internal/region/worker_profile_integration_test.go": {
+      "git_mode": "100644",
+      "git_blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662",
+      "sha256": "a4298d0ed74a02f89e43751be326ba286067f66cd671141b775d4ab1f62a4c3b",
+      "bytes": 6064
+    }
+  },
+  "output_contract": "OUTPUT-CONTRACT.md",
+  "output_contract_sha256": "926006744cf8baa22f381f44ef3904facf01fafce42cbf096c3be9c157c8f2d8",
+  "batches": [
+    {
+      "batch_id": "functions14",
+      "owner": "/root/wasm",
+      "owner_observed_state": "completed_before_reactivation",
+      "root_count": 14,
+      "scope": "All14 original roots in internal/functions.",
+      "full_package_exhaustive": true,
+      "test_files": {
+        "internal/functions/admission_integration_test.go": 1,
+        "internal/functions/broker_integration_test.go": 1,
+        "internal/functions/process_integration_test.go": 2,
+        "internal/functions/runtime_integration_test.go": 4,
+        "internal/functions/runtime_limits_integration_test.go": 1,
+        "internal/functions/transports_integration_test.go": 5
+      },
+      "survival_counts": {
+        "retained_body_exact": 14
+      },
+      "roots": [
+        {
+          "root_id": "internal/functions/admission_integration_test.go::TestSignedReleaseWorkerLifecycle",
+          "path": "internal/functions/admission_integration_test.go",
+          "original_name": "TestSignedReleaseWorkerLifecycle",
+          "kind": "test",
+          "original_declaration_sha256": "5262fcf6c509a08a28d6ccd5e762f14b9ec291a8abf65775a03cb70282a174df",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 16,
+            "end_line": 45
+          },
+          "current_name": "TestSignedReleaseWorkerLifecycle",
+          "current_declaration_sha256": "5262fcf6c509a08a28d6ccd5e762f14b9ec291a8abf65775a03cb70282a174df",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 16,
+            "end_line": 45,
+            "git_blob": "27350e1b7621666584389be386e4f7b35704a6e5"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/broker_integration_test.go::TestWorkerBrokerJWTAndTLSIsolation",
+          "path": "internal/functions/broker_integration_test.go",
+          "original_name": "TestWorkerBrokerJWTAndTLSIsolation",
+          "kind": "test",
+          "original_declaration_sha256": "fa642b45772db7edd5a1f70567c465244aeb25c280bb37ea55ad8bc8199416e9",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 29,
+            "end_line": 253
+          },
+          "current_name": "TestWorkerBrokerJWTAndTLSIsolation",
+          "current_declaration_sha256": "fa642b45772db7edd5a1f70567c465244aeb25c280bb37ea55ad8bc8199416e9",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 29,
+            "end_line": 253,
+            "git_blob": "c2a7ba4d11448138e452a573a1c7804833109323"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerProcess",
+          "path": "internal/functions/process_integration_test.go",
+          "original_name": "TestFunctionWorkerProcess",
+          "kind": "test",
+          "original_declaration_sha256": "df10a616903c4ba5ac1e68c54af6a8bcd47c516b23efbc25116f26ee8f15de22",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 40,
+            "end_line": 303
+          },
+          "current_name": "TestFunctionWorkerProcess",
+          "current_declaration_sha256": "df10a616903c4ba5ac1e68c54af6a8bcd47c516b23efbc25116f26ee8f15de22",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 40,
+            "end_line": 303,
+            "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+          "path": "internal/functions/process_integration_test.go",
+          "original_name": "TestFunctionWorkerRejectsExpiredMaterial",
+          "kind": "test",
+          "original_declaration_sha256": "d84525af69df88578d8dd3940c828fe68d2b3cea97ab9a18e4ff163af8cb5db3",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 416,
+            "end_line": 440
+          },
+          "current_name": "TestFunctionWorkerRejectsExpiredMaterial",
+          "current_declaration_sha256": "d84525af69df88578d8dd3940c828fe68d2b3cea97ab9a18e4ff163af8cb5db3",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 416,
+            "end_line": 440,
+            "git_blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/runtime_integration_test.go::TestWorkerGuestExecutionAndIsolation",
+          "path": "internal/functions/runtime_integration_test.go",
+          "original_name": "TestWorkerGuestExecutionAndIsolation",
+          "kind": "test",
+          "original_declaration_sha256": "13978486fc815d20423cb68b4defd9cdae55710f75672812b03b8bfb28804d1f",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 16,
+            "end_line": 51
+          },
+          "current_name": "TestWorkerGuestExecutionAndIsolation",
+          "current_declaration_sha256": "13978486fc815d20423cb68b4defd9cdae55710f75672812b03b8bfb28804d1f",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 16,
+            "end_line": 51,
+            "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/runtime_integration_test.go::TestWorkerCancellationAndCapacity",
+          "path": "internal/functions/runtime_integration_test.go",
+          "original_name": "TestWorkerCancellationAndCapacity",
+          "kind": "test",
+          "original_declaration_sha256": "3283ee767cc1b5ae36b28652325f28b29a31860f47bee63c0a59616566e09837",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 53,
+            "end_line": 91
+          },
+          "current_name": "TestWorkerCancellationAndCapacity",
+          "current_declaration_sha256": "3283ee767cc1b5ae36b28652325f28b29a31860f47bee63c0a59616566e09837",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 53,
+            "end_line": 91,
+            "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/runtime_integration_test.go::TestWorkerFixedDeadlineAndConcurrentClose",
+          "path": "internal/functions/runtime_integration_test.go",
+          "original_name": "TestWorkerFixedDeadlineAndConcurrentClose",
+          "kind": "test",
+          "original_declaration_sha256": "794b60aa35cf7435f9e2de9d68a1d7db047dff82e53ba1cf074b20cf2e96f501",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 93,
+            "end_line": 123
+          },
+          "current_name": "TestWorkerFixedDeadlineAndConcurrentClose",
+          "current_declaration_sha256": "794b60aa35cf7435f9e2de9d68a1d7db047dff82e53ba1cf074b20cf2e96f501",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 93,
+            "end_line": 123,
+            "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/runtime_integration_test.go::TestWorkerResourceAndImportBoundaries",
+          "path": "internal/functions/runtime_integration_test.go",
+          "original_name": "TestWorkerResourceAndImportBoundaries",
+          "kind": "test",
+          "original_declaration_sha256": "9216525c5d6b1b4d2216fb20276674f42c6b1ba95c0868c2d032b7cdfedb5e67",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 125,
+            "end_line": 175
+          },
+          "current_name": "TestWorkerResourceAndImportBoundaries",
+          "current_declaration_sha256": "9216525c5d6b1b4d2216fb20276674f42c6b1ba95c0868c2d032b7cdfedb5e67",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 125,
+            "end_line": 175,
+            "git_blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/runtime_limits_integration_test.go::TestWorkerRejectsUnboundedDecoderResources",
+          "path": "internal/functions/runtime_limits_integration_test.go",
+          "original_name": "TestWorkerRejectsUnboundedDecoderResources",
+          "kind": "test",
+          "original_declaration_sha256": "15b3fb0a4c9bdb617026fc4280e1fbef7a35e39215b95de8187ab339b4db4853",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 11,
+            "end_line": 55
+          },
+          "current_name": "TestWorkerRejectsUnboundedDecoderResources",
+          "current_declaration_sha256": "15b3fb0a4c9bdb617026fc4280e1fbef7a35e39215b95de8187ab339b4db4853",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 11,
+            "end_line": 55,
+            "git_blob": "841664089ac3951035fb0c2f2861155a39cd79d1"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerAuthenticationScopeAndLimits",
+          "path": "internal/functions/transports_integration_test.go",
+          "original_name": "TestHTTPRealWorkerAuthenticationScopeAndLimits",
+          "kind": "test",
+          "original_declaration_sha256": "09cd46686052a1d9bf0aea321b486422c86bd7eeb1c9872541b071b8bedd4263",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 35,
+            "end_line": 104
+          },
+          "current_name": "TestHTTPRealWorkerAuthenticationScopeAndLimits",
+          "current_declaration_sha256": "09cd46686052a1d9bf0aea321b486422c86bd7eeb1c9872541b071b8bedd4263",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 35,
+            "end_line": 104,
+            "git_blob": "905495b7025a92d634419e135ea54778f12509d6"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerTimeoutAndGuestFailure",
+          "path": "internal/functions/transports_integration_test.go",
+          "original_name": "TestHTTPRealWorkerTimeoutAndGuestFailure",
+          "kind": "test",
+          "original_declaration_sha256": "395959469c5f1b506b1be202562af668c7e5bc9949d3ba622ecf86c32bda02f5",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 106,
+            "end_line": 135
+          },
+          "current_name": "TestHTTPRealWorkerTimeoutAndGuestFailure",
+          "current_declaration_sha256": "395959469c5f1b506b1be202562af668c7e5bc9949d3ba622ecf86c32bda02f5",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 106,
+            "end_line": 135,
+            "git_blob": "905495b7025a92d634419e135ea54778f12509d6"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+          "path": "internal/functions/transports_integration_test.go",
+          "original_name": "TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+          "kind": "test",
+          "original_declaration_sha256": "d7d1f3be57265cf328430c2c16f566c6dbf0074435fdd278d8ac93aa11095d3b",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 206,
+            "end_line": 277
+          },
+          "current_name": "TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+          "current_declaration_sha256": "d7d1f3be57265cf328430c2c16f566c6dbf0074435fdd278d8ac93aa11095d3b",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 206,
+            "end_line": 277,
+            "git_blob": "905495b7025a92d634419e135ea54778f12509d6"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerRetriesTimedOutInvocation",
+          "path": "internal/functions/transports_integration_test.go",
+          "original_name": "TestQueueRealWorkerRetriesTimedOutInvocation",
+          "kind": "test",
+          "original_declaration_sha256": "0a947923e24724dc390a82c511c7d2358412ae78dc9a029eaffc160eeaa38b79",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 279,
+            "end_line": 304
+          },
+          "current_name": "TestQueueRealWorkerRetriesTimedOutInvocation",
+          "current_declaration_sha256": "0a947923e24724dc390a82c511c7d2358412ae78dc9a029eaffc160eeaa38b79",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 279,
+            "end_line": 304,
+            "git_blob": "905495b7025a92d634419e135ea54778f12509d6"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/functions/transports_integration_test.go::TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+          "path": "internal/functions/transports_integration_test.go",
+          "original_name": "TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+          "kind": "test",
+          "original_declaration_sha256": "a06f5a6ef89a9b4974a91a752bc271b891b805cd040278bf0940bba9775c885b",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 306,
+            "end_line": 354
+          },
+          "current_name": "TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+          "current_declaration_sha256": "a06f5a6ef89a9b4974a91a752bc271b891b805cd040278bf0940bba9775c885b",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 306,
+            "end_line": 354,
+            "git_blob": "905495b7025a92d634419e135ea54778f12509d6"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        }
+      ]
+    },
+    {
+      "batch_id": "region30",
+      "owner": "/root/core/readiness",
+      "owner_observed_state": "completed_before_reactivation",
+      "root_count": 30,
+      "scope": "All30 original roots in internal/region.",
+      "full_package_exhaustive": true,
+      "test_files": {
+        "internal/region/access_integration_test.go": 1,
+        "internal/region/discovery_current_integration_test.go": 2,
+        "internal/region/foundation_integration_test.go": 2,
+        "internal/region/foundation_recovery_integration_test.go": 2,
+        "internal/region/netbird_manager_integration_test.go": 1,
+        "internal/region/netbird_network_integration_test.go": 1,
+        "internal/region/region_test.go": 15,
+        "internal/region/retained_integration_test.go": 2,
+        "internal/region/source_policy_integration_test.go": 1,
+        "internal/region/spend_bindings_integration_test.go": 1,
+        "internal/region/worker_instance_integration_test.go": 1,
+        "internal/region/worker_profile_integration_test.go": 1
+      },
+      "survival_counts": {
+        "retained_body_exact": 30
+      },
+      "roots": [
+        {
+          "root_id": "internal/region/access_integration_test.go::TestSignedReadAccessRequiresCurrentOwnedFoundation",
+          "path": "internal/region/access_integration_test.go",
+          "original_name": "TestSignedReadAccessRequiresCurrentOwnedFoundation",
+          "kind": "test",
+          "original_declaration_sha256": "32e72018db571be73f47cb084ad408710e16638e692a616373f302d342ced779",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 19,
+            "end_line": 200
+          },
+          "current_name": "TestSignedReadAccessRequiresCurrentOwnedFoundation",
+          "current_declaration_sha256": "32e72018db571be73f47cb084ad408710e16638e692a616373f302d342ced779",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 19,
+            "end_line": 200,
+            "git_blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryHTTPDurableAuthority",
+          "path": "internal/region/discovery_current_integration_test.go",
+          "original_name": "TestCurrentFoundationDiscoveryHTTPDurableAuthority",
+          "kind": "test",
+          "original_declaration_sha256": "f0707170a059aa929061bc257153c257ec3f1cb44bfc80ea0c9d0ae4a51bb676",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 216,
+            "end_line": 420
+          },
+          "current_name": "TestCurrentFoundationDiscoveryHTTPDurableAuthority",
+          "current_declaration_sha256": "f0707170a059aa929061bc257153c257ec3f1cb44bfc80ea0c9d0ae4a51bb676",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 216,
+            "end_line": 420,
+            "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryLockProcess",
+          "path": "internal/region/discovery_current_integration_test.go",
+          "original_name": "TestCurrentFoundationDiscoveryLockProcess",
+          "kind": "test",
+          "original_declaration_sha256": "29fafdd70ca332917fadbf1a7ed3789044e7ddadf855b39a44e28820a5a81712",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 422,
+            "end_line": 440
+          },
+          "current_name": "TestCurrentFoundationDiscoveryLockProcess",
+          "current_declaration_sha256": "29fafdd70ca332917fadbf1a7ed3789044e7ddadf855b39a44e28820a5a81712",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 422,
+            "end_line": 440,
+            "git_blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/foundation_integration_test.go::TestFoundationRecordsPersistAndFenceConcurrentWriters",
+          "path": "internal/region/foundation_integration_test.go",
+          "original_name": "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+          "kind": "test",
+          "original_declaration_sha256": "ca475cb3298712083ea2056e57751b36e76edc2fe823c4b830d3c2589b530068",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 125,
+            "end_line": 154
+          },
+          "current_name": "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+          "current_declaration_sha256": "ca475cb3298712083ea2056e57751b36e76edc2fe823c4b830d3c2589b530068",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 125,
+            "end_line": 154,
+            "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/foundation_integration_test.go::TestSignedFoundationScopeRequiresExplicitBootstrapAuthority",
+          "path": "internal/region/foundation_integration_test.go",
+          "original_name": "TestSignedFoundationScopeRequiresExplicitBootstrapAuthority",
+          "kind": "test",
+          "original_declaration_sha256": "25127a9b2f5e560a09073553549984220df2023b9e77e36e10e2c6abbdd7288d",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 156,
+            "end_line": 469
+          },
+          "current_name": "TestSignedFoundationScopeRequiresExplicitBootstrapAuthority",
+          "current_declaration_sha256": "25127a9b2f5e560a09073553549984220df2023b9e77e36e10e2c6abbdd7288d",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 156,
+            "end_line": 469,
+            "git_blob": "1367b561deefe40d7d9b75bb64229264c32fcca6"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/foundation_recovery_integration_test.go::TestFoundationAcceptedCreateRecoversFromDurablePendingRequest",
+          "path": "internal/region/foundation_recovery_integration_test.go",
+          "original_name": "TestFoundationAcceptedCreateRecoversFromDurablePendingRequest",
+          "kind": "test",
+          "original_declaration_sha256": "82e11df6e2001bc042bc1099316fba578034a22d043364b0d1f84a3932bced12",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 42,
+            "end_line": 233
+          },
+          "current_name": "TestFoundationAcceptedCreateRecoversFromDurablePendingRequest",
+          "current_declaration_sha256": "82e11df6e2001bc042bc1099316fba578034a22d043364b0d1f84a3932bced12",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 42,
+            "end_line": 233,
+            "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/foundation_recovery_integration_test.go::TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately",
+          "path": "internal/region/foundation_recovery_integration_test.go",
+          "original_name": "TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately",
+          "kind": "test",
+          "original_declaration_sha256": "c0000f9464ddedead7a0f20ee7ac51de01f8916781daa67f828d4c090b20503d",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 235,
+            "end_line": 278
+          },
+          "current_name": "TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately",
+          "current_declaration_sha256": "c0000f9464ddedead7a0f20ee7ac51de01f8916781daa67f828d4c090b20503d",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 235,
+            "end_line": 278,
+            "git_blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/netbird_manager_integration_test.go::TestNetBirdManagerSignedLaunchAndStoreRecovery",
+          "path": "internal/region/netbird_manager_integration_test.go",
+          "original_name": "TestNetBirdManagerSignedLaunchAndStoreRecovery",
+          "kind": "test",
+          "original_declaration_sha256": "86a01e34104006ec35298e8b1f62564d69efc60b7ccc3430db9419a81068f81d",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 40,
+            "end_line": 424
+          },
+          "current_name": "TestNetBirdManagerSignedLaunchAndStoreRecovery",
+          "current_declaration_sha256": "86a01e34104006ec35298e8b1f62564d69efc60b7ccc3430db9419a81068f81d",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 40,
+            "end_line": 424,
+            "git_blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/netbird_network_integration_test.go::TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift",
+          "path": "internal/region/netbird_network_integration_test.go",
+          "original_name": "TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift",
+          "kind": "test",
+          "original_declaration_sha256": "5c003a8efa3d75ff5788b366af0ad64b90c827796a0f99f7291c1a2a77003daf",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 32,
+            "end_line": 262
+          },
+          "current_name": "TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift",
+          "current_declaration_sha256": "5c003a8efa3d75ff5788b366af0ad64b90c827796a0f99f7291c1a2a77003daf",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 32,
+            "end_line": 262,
+            "git_blob": "09e851618f26f1eb9c44731ff545411f6789e7a5"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestNetworkFollowsTheCatalog",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestNetworkFollowsTheCatalog",
+          "kind": "test",
+          "original_declaration_sha256": "08cef42e11d369688ae13463b2d115daa88236371f402d451b1e0ccaa34e8e7c",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 54,
+            "end_line": 63
+          },
+          "current_name": "TestNetworkFollowsTheCatalog",
+          "current_declaration_sha256": "08cef42e11d369688ae13463b2d115daa88236371f402d451b1e0ccaa34e8e7c",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 54,
+            "end_line": 63,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestDeriveRoundTripsTheReviewedPlan",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestDeriveRoundTripsTheReviewedPlan",
+          "kind": "test",
+          "original_declaration_sha256": "e76634b9ee33748490d7685fe24ed90e89494d592ac60cb1d8c4f15fde408cda",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 67,
+            "end_line": 106
+          },
+          "current_name": "TestDeriveRoundTripsTheReviewedPlan",
+          "current_declaration_sha256": "e76634b9ee33748490d7685fe24ed90e89494d592ac60cb1d8c4f15fde408cda",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 67,
+            "end_line": 106,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestDeriveRefuses",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestDeriveRefuses",
+          "kind": "test",
+          "original_declaration_sha256": "a834150a47d722bf44854decce988527b094b035a35048f0d301d91130baf977",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 108,
+            "end_line": 123
+          },
+          "current_name": "TestDeriveRefuses",
+          "current_declaration_sha256": "a834150a47d722bf44854decce988527b094b035a35048f0d301d91130baf977",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 108,
+            "end_line": 123,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestRegionProfileKeepsOnlyDefaultInTheRegion",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestRegionProfileKeepsOnlyDefaultInTheRegion",
+          "kind": "test",
+          "original_declaration_sha256": "872ae3b39c7236891fa3fa6713c6a1076f94b435ad44675223aaa2b19c31fde0",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 125,
+            "end_line": 144
+          },
+          "current_name": "TestRegionProfileKeepsOnlyDefaultInTheRegion",
+          "current_declaration_sha256": "872ae3b39c7236891fa3fa6713c6a1076f94b435ad44675223aaa2b19c31fde0",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 125,
+            "end_line": 144,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey",
+          "kind": "test",
+          "original_declaration_sha256": "be389ca00c113b158dc481bc2fd7f3b1859879991d92b54453ccbc2b4335947e",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 277,
+            "end_line": 304
+          },
+          "current_name": "TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey",
+          "current_declaration_sha256": "be389ca00c113b158dc481bc2fd7f3b1859879991d92b54453ccbc2b4335947e",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 277,
+            "end_line": 304,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestCreateRunsEveryStepOnceAndResumes",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestCreateRunsEveryStepOnceAndResumes",
+          "kind": "test",
+          "original_declaration_sha256": "c75badfbdf86ba445316fe224fb677376cf88d3e5cc24cc22fa149a8ac0dec04",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 306,
+            "end_line": 363
+          },
+          "current_name": "TestCreateRunsEveryStepOnceAndResumes",
+          "current_declaration_sha256": "c75badfbdf86ba445316fe224fb677376cf88d3e5cc24cc22fa149a8ac0dec04",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 306,
+            "end_line": 363,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestCreatePeersWithTheHome",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestCreatePeersWithTheHome",
+          "kind": "test",
+          "original_declaration_sha256": "ac9771e22895f523da5dc2d40d5c08b2fe7fc3466b286d5ae32f27b79d2c089b",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 367,
+            "end_line": 422
+          },
+          "current_name": "TestCreatePeersWithTheHome",
+          "current_declaration_sha256": "ac9771e22895f523da5dc2d40d5c08b2fe7fc3466b286d5ae32f27b79d2c089b",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 367,
+            "end_line": 422,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestCreateRefusesBeforeSpending",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestCreateRefusesBeforeSpending",
+          "kind": "test",
+          "original_declaration_sha256": "456e4e9f0e3959541c035fde4c539dba48facc7d98367b8dde86ce475e6d32b9",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 424,
+            "end_line": 450
+          },
+          "current_name": "TestCreateRefusesBeforeSpending",
+          "current_declaration_sha256": "456e4e9f0e3959541c035fde4c539dba48facc7d98367b8dde86ce475e6d32b9",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 424,
+            "end_line": 450,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown",
+          "kind": "test",
+          "original_declaration_sha256": "e81ba3cfe7da4155b80aedad1cd4631e08aa769dc8761c107036a831ad04c0aa",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 452,
+            "end_line": 463
+          },
+          "current_name": "TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown",
+          "current_declaration_sha256": "e81ba3cfe7da4155b80aedad1cd4631e08aa769dc8761c107036a831ad04c0aa",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 452,
+            "end_line": 463,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestCreateReadsTheTokensOnceForItsSteps",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestCreateReadsTheTokensOnceForItsSteps",
+          "kind": "test",
+          "original_declaration_sha256": "cbd634c7fae38911474fe38c94fbc417ca6b7ddf486b85fda592f812823b399d",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 467,
+            "end_line": 479
+          },
+          "current_name": "TestCreateReadsTheTokensOnceForItsSteps",
+          "current_declaration_sha256": "cbd634c7fae38911474fe38c94fbc417ca6b7ddf486b85fda592f812823b399d",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 467,
+            "end_line": 479,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestSubscribeReusesAReadySubscription",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestSubscribeReusesAReadySubscription",
+          "kind": "test",
+          "original_declaration_sha256": "d65a820fe3b275b0b3456659c54b4f0bd8ef83a296ccd5103ff64a5ed631f34a",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 481,
+            "end_line": 487
+          },
+          "current_name": "TestSubscribeReusesAReadySubscription",
+          "current_declaration_sha256": "d65a820fe3b275b0b3456659c54b4f0bd8ef83a296ccd5103ff64a5ed631f34a",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 481,
+            "end_line": 487,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestSubscribeCreatesThenPollsUntilReady",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestSubscribeCreatesThenPollsUntilReady",
+          "kind": "test",
+          "original_declaration_sha256": "68d967eef37b65682a75bcc7ee4d6b88ec1032ed42e65f5eaa869f3feff2b8f1",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 489,
+            "end_line": 502
+          },
+          "current_name": "TestSubscribeCreatesThenPollsUntilReady",
+          "current_declaration_sha256": "68d967eef37b65682a75bcc7ee4d6b88ec1032ed42e65f5eaa869f3feff2b8f1",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 489,
+            "end_line": 502,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestSubscribeRefusesATerminalStatusAndAnEndedWait",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestSubscribeRefusesATerminalStatusAndAnEndedWait",
+          "kind": "test",
+          "original_declaration_sha256": "4c599bfdd38fddb8ae0c22edfdfcb55fa46f24c4dd003b36cb793bb5ddab1f4a",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 504,
+            "end_line": 515
+          },
+          "current_name": "TestSubscribeRefusesATerminalStatusAndAnEndedWait",
+          "current_declaration_sha256": "4c599bfdd38fddb8ae0c22edfdfcb55fa46f24c4dd003b36cb793bb5ddab1f4a",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 504,
+            "end_line": 515,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestVerifierPassesOnlyAServingRegion",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestVerifierPassesOnlyAServingRegion",
+          "kind": "test",
+          "original_declaration_sha256": "daabb90c9a78635bc2b72c3142d1d89e91538c072e2d77366f1c26c38e264c9f",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 543,
+            "end_line": 601
+          },
+          "current_name": "TestVerifierPassesOnlyAServingRegion",
+          "current_declaration_sha256": "daabb90c9a78635bc2b72c3142d1d89e91538c072e2d77366f1c26c38e264c9f",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 543,
+            "end_line": 601,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/region_test.go::TestRunRefusesBadArguments",
+          "path": "internal/region/region_test.go",
+          "original_name": "TestRunRefusesBadArguments",
+          "kind": "test",
+          "original_declaration_sha256": "1a034aad015b7e428fe509e9e663e7ff44444052cef39fbe4efb92c43ffe3a9a",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 603,
+            "end_line": 616
+          },
+          "current_name": "TestRunRefusesBadArguments",
+          "current_declaration_sha256": "1a034aad015b7e428fe509e9e663e7ff44444052cef39fbe4efb92c43ffe3a9a",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 603,
+            "end_line": 616,
+            "git_blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPFilesystemOffline",
+          "path": "internal/region/retained_integration_test.go",
+          "original_name": "TestRetainedFoundationHTTPFilesystemOffline",
+          "kind": "test",
+          "original_declaration_sha256": "38040a5ff5651326bb47272576f8b4c25aa1f24844349d72a828cceb95bfc0be",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 39,
+            "end_line": 125
+          },
+          "current_name": "TestRetainedFoundationHTTPFilesystemOffline",
+          "current_declaration_sha256": "38040a5ff5651326bb47272576f8b4c25aa1f24844349d72a828cceb95bfc0be",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 39,
+            "end_line": 125,
+            "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPRejectsInvalidAndRollback",
+          "path": "internal/region/retained_integration_test.go",
+          "original_name": "TestRetainedFoundationHTTPRejectsInvalidAndRollback",
+          "kind": "test",
+          "original_declaration_sha256": "1245e24c691d01a9664f9a5e418905dc94635a4475e007eac1a306fbf4a50ec4",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 127,
+            "end_line": 178
+          },
+          "current_name": "TestRetainedFoundationHTTPRejectsInvalidAndRollback",
+          "current_declaration_sha256": "1245e24c691d01a9664f9a5e418905dc94635a4475e007eac1a306fbf4a50ec4",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 127,
+            "end_line": 178,
+            "git_blob": "29775c70eda5e5558aca82241de6cc439c493f4f"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/source_policy_integration_test.go::TestSourcePolicyJournalPreservesOriginalRecipientAndRejectsWidening",
+          "path": "internal/region/source_policy_integration_test.go",
+          "original_name": "TestSourcePolicyJournalPreservesOriginalRecipientAndRejectsWidening",
+          "kind": "test",
+          "original_declaration_sha256": "df3d6f91c80a197bdcef02a068554bdaceffcd483332416eb9c86158752bb490",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 21,
+            "end_line": 85
+          },
+          "current_name": "TestSourcePolicyJournalPreservesOriginalRecipientAndRejectsWidening",
+          "current_declaration_sha256": "df3d6f91c80a197bdcef02a068554bdaceffcd483332416eb9c86158752bb490",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 21,
+            "end_line": 85,
+            "git_blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/spend_bindings_integration_test.go::TestLogicalSpendingBindingsRetainSignedAuthority",
+          "path": "internal/region/spend_bindings_integration_test.go",
+          "original_name": "TestLogicalSpendingBindingsRetainSignedAuthority",
+          "kind": "test",
+          "original_declaration_sha256": "29b977a04201ed50a6417335a4d1f87ad5f8865f60507af092c769763ddc6621",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 38,
+            "end_line": 206
+          },
+          "current_name": "TestLogicalSpendingBindingsRetainSignedAuthority",
+          "current_declaration_sha256": "29b977a04201ed50a6417335a4d1f87ad5f8865f60507af092c769763ddc6621",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 38,
+            "end_line": 206,
+            "git_blob": "3e0252d9d3795762343cf74af103b025b7e65c07"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/worker_instance_integration_test.go::TestWorkerInstanceSDKObservationsRequireProtectedCreation",
+          "path": "internal/region/worker_instance_integration_test.go",
+          "original_name": "TestWorkerInstanceSDKObservationsRequireProtectedCreation",
+          "kind": "test",
+          "original_declaration_sha256": "4d3446f9e4b56591ea95aa105eb93895055a11371725cff83b56b265dd2065f4",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 28,
+            "end_line": 197
+          },
+          "current_name": "TestWorkerInstanceSDKObservationsRequireProtectedCreation",
+          "current_declaration_sha256": "4d3446f9e4b56591ea95aa105eb93895055a11371725cff83b56b265dd2065f4",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 28,
+            "end_line": 197,
+            "git_blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/region/worker_profile_integration_test.go::TestWorkerProfileAuthorityRequiresIndependentCurrentSources",
+          "path": "internal/region/worker_profile_integration_test.go",
+          "original_name": "TestWorkerProfileAuthorityRequiresIndependentCurrentSources",
+          "kind": "test",
+          "original_declaration_sha256": "bd9c5c28aba3c08f74d6be5ce1c5eb79f36299ae888f43b75d7ec3f9f4018109",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 21,
+            "end_line": 105
+          },
+          "current_name": "TestWorkerProfileAuthorityRequiresIndependentCurrentSources",
+          "current_declaration_sha256": "bd9c5c28aba3c08f74d6be5ce1c5eb79f36299ae888f43b75d7ec3f9f4018109",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 21,
+            "end_line": 105,
+            "git_blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        }
+      ]
+    },
+    {
+      "batch_id": "oci_boundaries15",
+      "owner": "/root/oci/identity",
+      "owner_observed_state": "completed_before_reactivation",
+      "root_count": 15,
+      "scope": "Only six selected OCI files: capacity request, pool receipt, volume observer, inventory, static host and journal.",
+      "full_package_exhaustive": false,
+      "test_files": {
+        "internal/oci/capacity_request_integration_test.go": 1,
+        "internal/oci/inventory_test.go": 3,
+        "internal/oci/journal_test.go": 8,
+        "internal/oci/pool_receipt_integration_test.go": 1,
+        "internal/oci/static_host_test.go": 1,
+        "internal/oci/volume_observer_integration_test.go": 1
+      },
+      "survival_counts": {
+        "retained_body_changed": 3,
+        "retained_body_exact": 12
+      },
+      "roots": [
+        {
+          "root_id": "internal/oci/capacity_request_integration_test.go::TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+          "path": "internal/oci/capacity_request_integration_test.go",
+          "original_name": "TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+          "kind": "test",
+          "original_declaration_sha256": "d9bda0fac58e26ea00a6cb0e9fb184c8a10c1f27953330955b5583cc053e69cb",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 13,
+            "end_line": 87
+          },
+          "current_name": "TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+          "current_declaration_sha256": "c1e3f015356bb5d1754e6b565954627d5bbe72f47c1ce50ff3a0f8d8c4132e46",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 11,
+            "end_line": 84,
+            "git_blob": "a792c3b650f5f6edc93c646c14f5821f2918031b"
+          },
+          "survival_state": "retained_body_changed",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/inventory_test.go::TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+          "path": "internal/oci/inventory_test.go",
+          "original_name": "TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+          "kind": "test",
+          "original_declaration_sha256": "bff7cc53dec632a8dfcd12e7747af47b57cbafe1775d2479a6638d30f11e6607",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 22,
+            "end_line": 56
+          },
+          "current_name": "TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+          "current_declaration_sha256": "bff7cc53dec632a8dfcd12e7747af47b57cbafe1775d2479a6638d30f11e6607",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 22,
+            "end_line": 56,
+            "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/inventory_test.go::TestInventoryZeroesStatesThatEmptied",
+          "path": "internal/oci/inventory_test.go",
+          "original_name": "TestInventoryZeroesStatesThatEmptied",
+          "kind": "test",
+          "original_declaration_sha256": "51a0509e22e3ed3ff2ffe814c42eb8a18c1a4242906c7626ac0b0a8fbf36a8c7",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 58,
+            "end_line": 85
+          },
+          "current_name": "TestInventoryZeroesStatesThatEmptied",
+          "current_declaration_sha256": "51a0509e22e3ed3ff2ffe814c42eb8a18c1a4242906c7626ac0b0a8fbf36a8c7",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 58,
+            "end_line": 85,
+            "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/inventory_test.go::TestInventoryCountsOnlyVerifiedHosts",
+          "path": "internal/oci/inventory_test.go",
+          "original_name": "TestInventoryCountsOnlyVerifiedHosts",
+          "kind": "test",
+          "original_declaration_sha256": "c2f920bd7718d9a21ddc36763e9d9369ba37214f17ba0c9dfb8fbae8829ea357",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 98,
+            "end_line": 120
+          },
+          "current_name": "TestInventoryCountsOnlyVerifiedHosts",
+          "current_declaration_sha256": "c2f920bd7718d9a21ddc36763e9d9369ba37214f17ba0c9dfb8fbae8829ea357",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 98,
+            "end_line": 120,
+            "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/journal_test.go::TestRegionIntentUsesFixedProductMapping",
+          "path": "internal/oci/journal_test.go",
+          "original_name": "TestRegionIntentUsesFixedProductMapping",
+          "kind": "test",
+          "original_declaration_sha256": "c7e16576d9159bd9d878c773eb2c6c97ad92231d6c3aac9a411840e365f05655",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 19,
+            "end_line": 38
+          },
+          "current_name": "TestRegionIntentUsesFixedProductMapping",
+          "current_declaration_sha256": "c7e16576d9159bd9d878c773eb2c6c97ad92231d6c3aac9a411840e365f05655",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 17,
+            "end_line": 36,
+            "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/journal_test.go::TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+          "path": "internal/oci/journal_test.go",
+          "original_name": "TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+          "kind": "test",
+          "original_declaration_sha256": "659e88061cda236b9490c76c7f5217bec28a1a8aac9e6af6356f958c5c042810",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 40,
+            "end_line": 70
+          },
+          "current_name": "TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+          "current_declaration_sha256": "659e88061cda236b9490c76c7f5217bec28a1a8aac9e6af6356f958c5c042810",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 38,
+            "end_line": 68,
+            "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/journal_test.go::TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+          "path": "internal/oci/journal_test.go",
+          "original_name": "TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+          "kind": "test",
+          "original_declaration_sha256": "fee5193a4d050dcf59bd8c1cbb749915d8600afd7ba8f89ceded831ac905ddf0",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 72,
+            "end_line": 99
+          },
+          "current_name": "TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+          "current_declaration_sha256": "fee5193a4d050dcf59bd8c1cbb749915d8600afd7ba8f89ceded831ac905ddf0",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 70,
+            "end_line": 97,
+            "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/journal_test.go::TestJournalPinsSignedPlacementComputeProfile",
+          "path": "internal/oci/journal_test.go",
+          "original_name": "TestJournalPinsSignedPlacementComputeProfile",
+          "kind": "test",
+          "original_declaration_sha256": "ebeb747c678ba39c2ef4c3dc31d7e45ac08a7f9ee8eaac7fcdd216af4b63f108",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 101,
+            "end_line": 126
+          },
+          "current_name": "TestJournalPinsSignedPlacementComputeProfile",
+          "current_declaration_sha256": "ebeb747c678ba39c2ef4c3dc31d7e45ac08a7f9ee8eaac7fcdd216af4b63f108",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 99,
+            "end_line": 124,
+            "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/journal_test.go::TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+          "path": "internal/oci/journal_test.go",
+          "original_name": "TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+          "kind": "test",
+          "original_declaration_sha256": "a9f34778db983fd0b1b901b7a919de5f2f846ecf13c0cdc69f8262c5d23b97f7",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 128,
+            "end_line": 169
+          },
+          "current_name": "TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+          "current_declaration_sha256": "a9f34778db983fd0b1b901b7a919de5f2f846ecf13c0cdc69f8262c5d23b97f7",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 126,
+            "end_line": 167,
+            "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/journal_test.go::TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+          "path": "internal/oci/journal_test.go",
+          "original_name": "TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+          "kind": "test",
+          "original_declaration_sha256": "017dbb96f601bbb3ebc51cde09dbe018b497873024a18bdddaff877a5e93a778",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 171,
+            "end_line": 212
+          },
+          "current_name": "TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+          "current_declaration_sha256": "017dbb96f601bbb3ebc51cde09dbe018b497873024a18bdddaff877a5e93a778",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 169,
+            "end_line": 210,
+            "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/journal_test.go::TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+          "path": "internal/oci/journal_test.go",
+          "original_name": "TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+          "kind": "test",
+          "original_declaration_sha256": "9f56ab8fb7e1920d2893058b812ef5ec1c396c8cee7892d585df73562bf8568f",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 214,
+            "end_line": 278
+          },
+          "current_name": "TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+          "current_declaration_sha256": "9f56ab8fb7e1920d2893058b812ef5ec1c396c8cee7892d585df73562bf8568f",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 212,
+            "end_line": 276,
+            "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/journal_test.go::TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+          "path": "internal/oci/journal_test.go",
+          "original_name": "TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+          "kind": "test",
+          "original_declaration_sha256": "0390afb5ecefa90bea5cf30003adb213057fe258680f330f7805bc2fde67c327",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 280,
+            "end_line": 341
+          },
+          "current_name": "TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+          "current_declaration_sha256": "0390afb5ecefa90bea5cf30003adb213057fe258680f330f7805bc2fde67c327",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 278,
+            "end_line": 339,
+            "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/pool_receipt_integration_test.go::TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+          "path": "internal/oci/pool_receipt_integration_test.go",
+          "original_name": "TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+          "kind": "test",
+          "original_declaration_sha256": "ddbada1578f8dae01bfd144d68097b79d79854740560ecc63dfd166860500388",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 26,
+            "end_line": 210
+          },
+          "current_name": "TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+          "current_declaration_sha256": "e1c905060d11b2b51ff3868ff047bc5ab05db80d3bc9f96f5f18090d0e944389",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 24,
+            "end_line": 207,
+            "git_blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c"
+          },
+          "survival_state": "retained_body_changed",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/static_host_test.go::TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+          "path": "internal/oci/static_host_test.go",
+          "original_name": "TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+          "kind": "test",
+          "original_declaration_sha256": "b336273b6a0213f6a0e3871fbc9df073cd0af8c572b3a7d881c8ef4c92704829",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 8,
+            "end_line": 58
+          },
+          "current_name": "TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+          "current_declaration_sha256": "b336273b6a0213f6a0e3871fbc9df073cd0af8c572b3a7d881c8ef4c92704829",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 8,
+            "end_line": 58,
+            "git_blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/oci/volume_observer_integration_test.go::TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+          "path": "internal/oci/volume_observer_integration_test.go",
+          "original_name": "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+          "kind": "test",
+          "original_declaration_sha256": "e99d7e2c54cdbe91d325e715c327d146400396b2c5a31ba7f694655da8418287",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 28,
+            "end_line": 343
+          },
+          "current_name": "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+          "current_declaration_sha256": "69bb127a4502de5f04ccbc89a1272665ab9e80d03479954cdf05046b91b15a62",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 26,
+            "end_line": 340,
+            "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b"
+          },
+          "survival_state": "retained_body_changed",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        }
+      ]
+    },
+    {
+      "batch_id": "natscell20",
+      "owner": "/root/cap/selection",
+      "owner_observed_state": "completed_before_reactivation",
+      "root_count": 20,
+      "scope": "Only five selected NATS files: cluster formation, runtime, membership, fabric and interregion.",
+      "full_package_exhaustive": false,
+      "test_files": {
+        "internal/natscell/cluster_formation_test.go": 6,
+        "internal/natscell/fabric_test.go": 1,
+        "internal/natscell/interregion_test.go": 4,
+        "internal/natscell/membership_test.go": 2,
+        "internal/natscell/runtime_test.go": 7
+      },
+      "survival_counts": {
+        "retained_body_exact": 20
+      },
+      "roots": [
+        {
+          "root_id": "internal/natscell/cluster_formation_test.go::TestObserveStandaloneBroker",
+          "path": "internal/natscell/cluster_formation_test.go",
+          "original_name": "TestObserveStandaloneBroker",
+          "kind": "test",
+          "original_declaration_sha256": "03527fa01f38100506aff8bfed2ebe446822d81044470a4073611e1c73a24179",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 64,
+            "end_line": 77
+          },
+          "current_name": "TestObserveStandaloneBroker",
+          "current_declaration_sha256": "03527fa01f38100506aff8bfed2ebe446822d81044470a4073611e1c73a24179",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 64,
+            "end_line": 77,
+            "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/cluster_formation_test.go::TestPeerRoutesOmitsOnlySelf",
+          "path": "internal/natscell/cluster_formation_test.go",
+          "original_name": "TestPeerRoutesOmitsOnlySelf",
+          "kind": "test",
+          "original_declaration_sha256": "24dd299a316915170f31e285a7bc60d6aa07d64a5f76966da2b7b181be67d947",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 79,
+            "end_line": 88
+          },
+          "current_name": "TestPeerRoutesOmitsOnlySelf",
+          "current_declaration_sha256": "24dd299a316915170f31e285a7bc60d6aa07d64a5f76966da2b7b181be67d947",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 79,
+            "end_line": 88,
+            "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/cluster_formation_test.go::TestStagedFormationWithProductionRouteShape",
+          "path": "internal/natscell/cluster_formation_test.go",
+          "original_name": "TestStagedFormationWithProductionRouteShape",
+          "kind": "test",
+          "original_declaration_sha256": "532295679f54fcfad37884520dd349a48e808f3863b2d61bc42ddb4abe65d42f",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 93,
+            "end_line": 122
+          },
+          "current_name": "TestStagedFormationWithProductionRouteShape",
+          "current_declaration_sha256": "532295679f54fcfad37884520dd349a48e808f3863b2d61bc42ddb4abe65d42f",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 93,
+            "end_line": 122,
+            "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+          "path": "internal/natscell/cluster_formation_test.go",
+          "original_name": "TestColdRestartWithTwoOfThreeBrokers",
+          "kind": "test",
+          "original_declaration_sha256": "1236dd77177c7d77964bdc0fe2c30abd7b698be3465cf2f2d8e78d1fa1ebd354",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 126,
+            "end_line": 172
+          },
+          "current_name": "TestColdRestartWithTwoOfThreeBrokers",
+          "current_declaration_sha256": "1236dd77177c7d77964bdc0fe2c30abd7b698be3465cf2f2d8e78d1fa1ebd354",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 126,
+            "end_line": 172,
+            "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/cluster_formation_test.go::TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+          "path": "internal/natscell/cluster_formation_test.go",
+          "original_name": "TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+          "kind": "test",
+          "original_declaration_sha256": "a07c586fb653c2aa4190748df5ff0d8a6446de84c8e21bbb2ab450db43821d4a",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 174,
+            "end_line": 193
+          },
+          "current_name": "TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+          "current_declaration_sha256": "a07c586fb653c2aa4190748df5ff0d8a6446de84c8e21bbb2ab450db43821d4a",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 174,
+            "end_line": 193,
+            "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/cluster_formation_test.go::TestCloseHandsOffStreamLeadership",
+          "path": "internal/natscell/cluster_formation_test.go",
+          "original_name": "TestCloseHandsOffStreamLeadership",
+          "kind": "test",
+          "original_declaration_sha256": "7a5af1495e2a3fc33332efd2e7f14e071233c4bd4bde527b654c1f7e1e86f27b",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 197,
+            "end_line": 248
+          },
+          "current_name": "TestCloseHandsOffStreamLeadership",
+          "current_declaration_sha256": "7a5af1495e2a3fc33332efd2e7f14e071233c4bd4bde527b654c1f7e1e86f27b",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 197,
+            "end_line": 248,
+            "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/fabric_test.go::TestRelayedCellSpecReachesTheSpokeThroughPartitions",
+          "path": "internal/natscell/fabric_test.go",
+          "original_name": "TestRelayedCellSpecReachesTheSpokeThroughPartitions",
+          "kind": "test",
+          "original_declaration_sha256": "42bce445b541586163803271b7ab4c1bda9aaad2f161606cd1ffe22f98a03dbf",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 33,
+            "end_line": 225
+          },
+          "current_name": "TestRelayedCellSpecReachesTheSpokeThroughPartitions",
+          "current_declaration_sha256": "42bce445b541586163803271b7ab4c1bda9aaad2f161606cd1ffe22f98a03dbf",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 33,
+            "end_line": 225,
+            "git_blob": "6558b31066b125cb9401de1d19f5b4cc55d46cae"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/interregion_test.go::TestLeafTopologyIsARootedTree",
+          "path": "internal/natscell/interregion_test.go",
+          "original_name": "TestLeafTopologyIsARootedTree",
+          "kind": "test",
+          "original_declaration_sha256": "9b34a0cf8f970ff989bb562899d7ceff6b9bcf6bb72cb316837738ec97a40abf",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 27,
+            "end_line": 72
+          },
+          "current_name": "TestLeafTopologyIsARootedTree",
+          "current_declaration_sha256": "9b34a0cf8f970ff989bb562899d7ceff6b9bcf6bb72cb316837738ec97a40abf",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 27,
+            "end_line": 72,
+            "git_blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/interregion_test.go::TestInterRegionContractIsExplicitAndExact",
+          "path": "internal/natscell/interregion_test.go",
+          "original_name": "TestInterRegionContractIsExplicitAndExact",
+          "kind": "test",
+          "original_declaration_sha256": "e8758ed6b4d1ff88cf34c7b3ec2ade3aa4fea45199d3b6ad225f502c71dcbc83",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 74,
+            "end_line": 150
+          },
+          "current_name": "TestInterRegionContractIsExplicitAndExact",
+          "current_declaration_sha256": "e8758ed6b4d1ff88cf34c7b3ec2ade3aa4fea45199d3b6ad225f502c71dcbc83",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 74,
+            "end_line": 150,
+            "git_blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/interregion_test.go::TestGlobalMirrorContractExportsNoConsumerCreation",
+          "path": "internal/natscell/interregion_test.go",
+          "original_name": "TestGlobalMirrorContractExportsNoConsumerCreation",
+          "kind": "test",
+          "original_declaration_sha256": "72622708131385ee150646efea02c7c5ed2af2c3400b5036ac14bf9303d8a65e",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 157,
+            "end_line": 283
+          },
+          "current_name": "TestGlobalMirrorContractExportsNoConsumerCreation",
+          "current_declaration_sha256": "72622708131385ee150646efea02c7c5ed2af2c3400b5036ac14bf9303d8a65e",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 157,
+            "end_line": 283,
+            "git_blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/interregion_test.go::TestInterRegionLeafFailsOverToTheNextURLInOrder",
+          "path": "internal/natscell/interregion_test.go",
+          "original_name": "TestInterRegionLeafFailsOverToTheNextURLInOrder",
+          "kind": "test",
+          "original_declaration_sha256": "703b85bbbecc1658ed1de81ffe97ccc30f8ab757429439ba33fe8f93fd8abc24",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 290,
+            "end_line": 371
+          },
+          "current_name": "TestInterRegionLeafFailsOverToTheNextURLInOrder",
+          "current_declaration_sha256": "703b85bbbecc1658ed1de81ffe97ccc30f8ab757429439ba33fe8f93fd8abc24",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 290,
+            "end_line": 371,
+            "git_blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/membership_test.go::TestMembershipCredentialsAreNarrowlyScoped",
+          "path": "internal/natscell/membership_test.go",
+          "original_name": "TestMembershipCredentialsAreNarrowlyScoped",
+          "kind": "test",
+          "original_declaration_sha256": "1f3c4d168594880eb22f4331b66196629da66fb071c6447f99d27c99e49c066e",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 10,
+            "end_line": 43
+          },
+          "current_name": "TestMembershipCredentialsAreNarrowlyScoped",
+          "current_declaration_sha256": "1f3c4d168594880eb22f4331b66196629da66fb071c6447f99d27c99e49c066e",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 10,
+            "end_line": 43,
+            "git_blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/membership_test.go::TestMembershipAPIErrorDecoding",
+          "path": "internal/natscell/membership_test.go",
+          "original_name": "TestMembershipAPIErrorDecoding",
+          "kind": "test",
+          "original_declaration_sha256": "590399a4dac3e8e54edcf5c0b8ed4ffeec6d3d037510a300326e16c70b1fb753",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 45,
+            "end_line": 56
+          },
+          "current_name": "TestMembershipAPIErrorDecoding",
+          "current_declaration_sha256": "590399a4dac3e8e54edcf5c0b8ed4ffeec6d3d037510a300326e16c70b1fb753",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 45,
+            "end_line": 56,
+            "git_blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/runtime_test.go::TestEmbeddedSingleNodeDurableRestart",
+          "path": "internal/natscell/runtime_test.go",
+          "original_name": "TestEmbeddedSingleNodeDurableRestart",
+          "kind": "test",
+          "original_declaration_sha256": "56dabb72ea66762b3d28bce5b328c7caaca955c7ede624cd3f8eec851e01b67d",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 22,
+            "end_line": 64
+          },
+          "current_name": "TestEmbeddedSingleNodeDurableRestart",
+          "current_declaration_sha256": "56dabb72ea66762b3d28bce5b328c7caaca955c7ede624cd3f8eec851e01b67d",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 22,
+            "end_line": 64,
+            "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/runtime_test.go::TestEmbeddedStoreLimit",
+          "path": "internal/natscell/runtime_test.go",
+          "original_name": "TestEmbeddedStoreLimit",
+          "kind": "test",
+          "original_declaration_sha256": "0259c00344c8bd26bf19d83f9946b815edf3bbbd631a3faa30d0486747abb070",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 66,
+            "end_line": 102
+          },
+          "current_name": "TestEmbeddedStoreLimit",
+          "current_declaration_sha256": "0259c00344c8bd26bf19d83f9946b815edf3bbbd631a3faa30d0486747abb070",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 66,
+            "end_line": 102,
+            "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/runtime_test.go::TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+          "path": "internal/natscell/runtime_test.go",
+          "original_name": "TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+          "kind": "test",
+          "original_declaration_sha256": "283a3c39ae0a4df5431358d63a939d8ec890384741b48534f27d0fea822b3d83",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 104,
+            "end_line": 145
+          },
+          "current_name": "TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+          "current_declaration_sha256": "283a3c39ae0a4df5431358d63a939d8ec890384741b48534f27d0fea822b3d83",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 104,
+            "end_line": 145,
+            "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers",
+          "path": "internal/natscell/runtime_test.go",
+          "original_name": "TestEmbeddedClusterAdvertisesClientPeers",
+          "kind": "test",
+          "original_declaration_sha256": "aa379237cdcc4e13fe387159920cf13ff6b6d4af466ead7d20bc6061f46864b0",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 147,
+            "end_line": 206
+          },
+          "current_name": "TestEmbeddedClusterAdvertisesClientPeers",
+          "current_declaration_sha256": "aa379237cdcc4e13fe387159920cf13ff6b6d4af466ead7d20bc6061f46864b0",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 147,
+            "end_line": 206,
+            "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/runtime_test.go::TestHostNKeyCannotCrossNodeOrUseJetStream",
+          "path": "internal/natscell/runtime_test.go",
+          "original_name": "TestHostNKeyCannotCrossNodeOrUseJetStream",
+          "kind": "test",
+          "original_declaration_sha256": "7fdf4fcdc1f0e54650ea150db6e8178187c6e8f8400bf225281651e79673e0b1",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 208,
+            "end_line": 284
+          },
+          "current_name": "TestHostNKeyCannotCrossNodeOrUseJetStream",
+          "current_declaration_sha256": "7fdf4fcdc1f0e54650ea150db6e8178187c6e8f8400bf225281651e79673e0b1",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 208,
+            "end_line": 284,
+            "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/runtime_test.go::TestLabTerminalPermissionsAreRoleScoped",
+          "path": "internal/natscell/runtime_test.go",
+          "original_name": "TestLabTerminalPermissionsAreRoleScoped",
+          "kind": "test",
+          "original_declaration_sha256": "24957d75d04c58dd3b3dab4b3519a759a7b8c3b2918fc7a8ead595eea0d89695",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 286,
+            "end_line": 314
+          },
+          "current_name": "TestLabTerminalPermissionsAreRoleScoped",
+          "current_declaration_sha256": "24957d75d04c58dd3b3dab4b3519a759a7b8c3b2918fc7a8ead595eea0d89695",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 286,
+            "end_line": 314,
+            "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        },
+        {
+          "root_id": "internal/natscell/runtime_test.go::TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState",
+          "path": "internal/natscell/runtime_test.go",
+          "original_name": "TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState",
+          "kind": "test",
+          "original_declaration_sha256": "c1af27365b7d4c8ab9cc4b785577a9baaa78947612833c2cf3682a38b4ad05d7",
+          "original_source": {
+            "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+            "line": 316,
+            "end_line": 445
+          },
+          "current_name": "TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState",
+          "current_declaration_sha256": "c1af27365b7d4c8ab9cc4b785577a9baaa78947612833c2cf3682a38b4ad05d7",
+          "current_source": {
+            "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "line": 316,
+            "end_line": 445,
+            "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+          },
+          "survival_state": "retained_body_exact",
+          "classification": "UNASSIGNED_PENDING_CONNECTED_SOURCE_REVIEW",
+          "runtime_qualification": "UNKNOWN_NO_EXECUTION",
+          "retirement_authorized": false
+        }
+      ]
+    }
+  ],
+  "excluded_original_root_ids": {
+    "accepted102": [
+      "internal/authority/backup_operation_test.go::TestBackupActiveFencesTerminalUntilAllRosterAbort",
+      "internal/authority/backup_operation_test.go::TestBackupAllocationAndPlacementRaceAtPinnedSequence",
+      "internal/authority/backup_operation_test.go::TestBackupAndManagedUpdateCommitsFenceEachOtherInBothOrders",
+      "internal/authority/backup_operation_test.go::TestBackupAttemptNeedsRosterWideAbortBeforeReuseOfOrdinal",
+      "internal/authority/backup_operation_test.go::TestBackupCompleteRequiresCommittedProofsAndEveryAcknowledgment",
+      "internal/authority/backup_operation_test.go::TestBackupHeldRequiresEveryCutAndAbortCannotClearNewerHold",
+      "internal/authority/backup_operation_test.go::TestBackupHistoryPagesExactPartitionAndPayloadOperationID",
+      "internal/authority/backup_operation_test.go::TestBackupRosterRequiresOneHostRelayPerMember",
+      "internal/authority/backup_operation_test.go::TestBackupStartAllowsDurableHeldManagedUpdate",
+      "internal/authority/backup_operation_test.go::TestBackupStartFailsClosedWhenManagedUpdateHistoryIsUnreadable",
+      "internal/authority/backup_operation_test.go::TestConcurrentBackupAndManagedUpdateStartsHaveOneWinner",
+      "internal/authority/backup_operation_test.go::TestNewBackupOperationRequiresFinalRosterVerifier",
+      "internal/authority/control_stream_startup_test.go::TestCreatedControlStreamMissingInfoRetryIsBoundedAndCancelable",
+      "internal/authority/control_stream_startup_test.go::TestOpenControlStreamDoesNotRetryPermanentOrExistingMissingInfo",
+      "internal/authority/control_stream_startup_test.go::TestOpenControlStreamWaitsForPostCreateMetadataVisibility",
+      "internal/authority/deployment_test.go::TestDeploymentIDIsRequiredAndCanonical",
+      "internal/authority/deployment_test.go::TestDeploymentRetainedAcrossRenewReleaseAndRecovery",
+      "internal/authority/deployment_test.go::TestForeignOrLegacyLeaseCannotAuthorizeOrBeReplaced",
+      "internal/authority/deployment_test.go::TestVersionOneLeasePermanentlyFencesLegacyDecoder",
+      "internal/authority/foreign_lease_test.go::TestVerifyLeaseHolderFencesEveryOtherTermWithoutTakingAuthority",
+      "internal/authority/function_integration_test.go::TestFunctionGrantCannotRaceNewCurrentIntent",
+      "internal/authority/function_integration_test.go::TestFunctionIntentAndRecipientGrantsUseDurableCurrentFloor",
+      "internal/authority/function_integration_test.go::TestFunctionProofExpiresInsideFencedCommit",
+      "internal/authority/host_history_test.go::TestHostHistoryBoundsReadsByInventoryAndNewChanges",
+      "internal/authority/host_history_test.go::TestHostHistoryExpiresAndReseedsWithoutLifetimeReplay",
+      "internal/authority/host_history_test.go::TestHostHistoryLockHonorsRequestDeadline",
+      "internal/authority/identity_host_records_integration_test.go::TestHeldIdentityHostRecordsVerifiedStaticGRUSFOAndRetiredHeads",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostCompletionChecksEveryRecord",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostCompletionFencesHeadChangedAfterItsRead",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordInFlightAppendCannotOverwriteCompletion",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsDeletionRequiresPositiveOwnTombstone",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsHoldPartialHeadAndResolveLostReplies",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsOwnCopiesOfValidatedValues",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsR3HeldResumeAfterLeaderLoss",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsRecheckPolicyAtMutationAndReadback",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsRejectInvalidCurrentHeadBeforeAnyEffects",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsRejectMissingPlanActionAndUnknownDestinations",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsResumeEveryCommittedBoundary",
+      "internal/authority/identity_inventory_test.go::TestIdentityResetInventoryRetainsForeignCellAndRefusesLateTombstone",
+      "internal/authority/identity_inventory_test.go::TestIdentityResetRejectsAggregateEvictionBeforeBarrier",
+      "internal/authority/identity_inventory_test.go::TestIdentityResetRejectsOmittedHostInventoryBeforeBarrier",
+      "internal/authority/identity_records_test.go::TestCommittedIdentityResetResumesAfterGrantExpiry",
+      "internal/authority/identity_records_test.go::TestCompleteIdentityResetRefusesMissingOrUnpinnedRecords",
+      "internal/authority/identity_records_test.go::TestCompleteIdentityResetRejectsBucketExpiryIntroducedAfterReplacement",
+      "internal/authority/identity_records_test.go::TestCompleteIdentityResetResolvesLostReplyAfterNormalAcquisition",
+      "internal/authority/identity_records_test.go::TestIdentityResetCommittedRejectsBarrierOutsideGrantLifetime",
+      "internal/authority/identity_records_test.go::TestIdentityResetCompletionRequiresItsCommittedBarrierAndCompletion",
+      "internal/authority/identity_records_test.go::TestPublishIdentityRecordHoldsWhenConfirmationIsUnavailable",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsDoesNotPurgePredecessorChangedAfterRead",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsFencesDelayedOldCASWrites",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsInFlightCreateCannotOverwriteCompletedDeployment",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsPurgesCurrentKeysAndPreservesHistory",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsRefusesForeignOrIncompleteProofMarkers",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsRejectsWrongPinsRootAndTarget",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsRequiresExactReleasedBarrier",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsResolvesLostPublishResponses",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsResumesAfterCommittedPurgeOrCreate",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsUsesLeaderReadsWhenKVDirectReadsEnabled",
+      "internal/authority/identity_records_tombstone_test.go::TestIdentityResetRejectsInvalidTombstonePredecessorPins",
+      "internal/authority/identity_records_tombstone_test.go::TestIdentityResetRekeysExactTombstonesFromCompletedOperation",
+      "internal/authority/identity_reset_global_test.go::TestIdentityResetAtomicBatchDoesNotCommitOneScopeWhenGlobalCASLoses",
+      "internal/authority/identity_reset_global_test.go::TestIdentityResetRejectsChangedGlobalPredecessorBeforeRegionalHold",
+      "internal/authority/identity_reset_global_test.go::TestIdentityResetRekeysGlobalHomeAndPreservesOpaqueHistory",
+      "internal/authority/identity_reset_recovery_test.go::TestAtomicOutOfWindowHoldRecoversBothScopesWithFreshRootAuthorization",
+      "internal/authority/identity_reset_recovery_test.go::TestOutOfWindowResetNeedsFreshRootAuthorizationForItsExactHold",
+      "internal/authority/identity_reset_recovery_test.go::TestResetRecoveryCannotAuthorizeAnUncommittedProposalOrForeignSigner",
+      "internal/authority/identity_reset_test.go::TestIdentityResetFloorAndPermanentFenceProof",
+      "internal/authority/identity_reset_test.go::TestIdentityResetRejectsUntrustedOrChangedInputsBeforePublishing",
+      "internal/authority/identity_reset_test.go::TestIdentityResetRequiresV1AndMonotonicFloor",
+      "internal/authority/identity_reset_test.go::TestRootSignedIdentityResetPreservesHistoryAndFencesOldDeployment",
+      "internal/authority/log_test.go::TestAuthorityDiagnosticsAreSafeAndRateLimited",
+      "internal/authority/log_test.go::TestEnrollmentEffectIsDurableTerminalAdmissionHold",
+      "internal/authority/log_test.go::TestManagedUpdateHistoryRetainsExactPrepareAcrossLeaderEpochs",
+      "internal/authority/log_test.go::TestManagedUpdateSuccessorFollowsOnlyATerminalOutcome",
+      "internal/authority/log_test.go::TestNestedWorkloadEffectUnderAnotherEpochIsFenced",
+      "internal/authority/log_test.go::TestPendingEnrollmentEffectsSurviveLargeSettledHistory",
+      "internal/authority/log_test.go::TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory",
+      "internal/authority/log_test.go::TestPriorEpochEnrollmentEffectRequiresExactFenceProof",
+      "internal/authority/log_test.go::TestTerminalAdmissionRerunsSettlementProofAfterGlobalCASConflict",
+      "internal/authority/log_test.go::TestTerminalMarkerWaitsForNestedWorkloadEffectAndFencesPlacement",
+      "internal/authority/log_test.go::TestVerifyControlStreamConfigAcceptsDurableControlStream",
+      "internal/authority/log_test.go::TestVerifyControlStreamConfigRejectsMessageEviction",
+      "internal/authority/netbird_state_test.go::TestNetBirdStateHandoffBetweenLeaseCheckAndPublishCannotReplaceSuccessor",
+      "internal/authority/netbird_state_test.go::TestNetBirdStateLeaseExpiryDuringStateReadPreventsPublication",
+      "internal/authority/netbird_state_test.go::TestNetBirdStateRejectsStaleTransitionAndReadsThroughFollower",
+      "internal/authority/retirement_test.go::TestHostRetirementIsTimestampedAndFencedInControlLog",
+      "internal/authority/runtime_effect_integration_test.go::TestRuntimeEffectR3Integration",
+      "internal/authority/runtime_test.go::TestClockHealthFencesGuardAndDurableMutations",
+      "internal/authority/runtime_test.go::TestStartDoesNotRetryPermanentOrCanceledLeasePublish",
+      "internal/authority/runtime_test.go::TestStartRejectsExistingControlStreamWithExtraSubject",
+      "internal/authority/runtime_test.go::TestStartReobservesCommittedLeaseAfterAmbiguousPublish",
+      "internal/authority/runtime_test.go::TestStartupLeasePublishBoundsUnknownOutcomeWithLongParent",
+      "internal/authority/runtime_test.go::TestStartupReconcileBoundsStreamInfoWithLongParent",
+      "internal/ociclient/factory_test.go::TestFactoryObjectStorageRecordsHTTPAttempts",
+      "internal/ociclient/identity_integration_test.go::TestAuthorityFencesSDKMutationRetries",
+      "internal/ociclient/instance_principal_test.go::TestInstancePrincipalSerializesFetchesButNotCachedRegions",
+      "internal/ociclient/ociclient_test.go::TestBackoffIsExponentialJitteredAndHonorsRetryAfter",
+      "internal/ociclient/ociclient_test.go::TestConfiguredClientSharesLimiterAndRetriesThrottling",
+      "internal/ociclient/ociclient_test.go::TestShouldRetryNeverReplaysUnsafeMutations",
+      "internal/ociclient/ociclient_test.go::TestTransportFailuresRetryReadsOnly",
+      "internal/ociclient/retry_integration_test.go::TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite",
+      "internal/ociclient/retry_integration_test.go::TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline"
+    ],
+    "retired19": [
+      "internal/attempt/cloud_test.go::TestAttemptRejectsRetiredContinuityPhase",
+      "internal/bootstrapstart/oci_observer_test.go::TestOCIObserverRejectsMissingPrimaryAndCandidateMismatch",
+      "internal/bootstrapstart/oci_observer_test.go::TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch",
+      "internal/bootstrapstart/oci_observer_test.go::TestOCIObserverRequiresExactAttachedPrimaryVNIC",
+      "internal/managedmaterial/customer_open_test.go::TestOpenCustomerEnvelopeUsesProducerWireAndRecipient",
+      "internal/netbird/manager/manager_test.go::TestAPIRefusesRedirectsAndHidesBodies",
+      "internal/oci/sdk_test.go::TestLaunchInstanceMapsSignedProfileIntoOCIRequest",
+      "internal/oci/sdk_test.go::TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK",
+      "internal/oci/sdk_test.go::TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC",
+      "internal/oci/sdk_test.go::TestNamedHostObservationRequiresTheNamedRunningPrivateInstance",
+      "internal/oci/sdk_test.go::TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot",
+      "internal/oci/volume_backup_history_review_test.go::TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory",
+      "internal/oci/volume_resize_test.go::TestVolumeAttachmentLookupUsesVolumeFilter",
+      "internal/ociclient/factory_test.go::TestInstrumentedDispatcherRecordsCallsErrorsAndThrottling",
+      "internal/ociclient/factory_test.go::TestOperationCardinalityIsBounded",
+      "internal/ociclient/factory_test.go::TestOperationTemplateRemovesIdentifiers",
+      "internal/ociclient/ociclient_test.go::TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+      "internal/ociclient/ociclient_test.go::TestTenancyHomeRegionComesFromTheCatalog",
+      "internal/terrabase/oci_live_test.go::TestPeerPortOpen"
+    ]
+  },
+  "limits": [
+    "Read-only canonical source classification; no execution, source/Git/ledger mutation or compiler lane use.",
+    "Every selected root baseline/current declaration hash independently confirmed from immutable Git blobs before allocation.",
+    "Candidate classification does not change accepted counts; peer review must be independent.",
+    "Partial OCI and NATS file sets exhaust their listed original root IDs only, not their whole packages."
+  ]
+}

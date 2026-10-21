@@ -1,0 +1,243 @@
+import collections
+import hashlib
+import json
+import pathlib
+import subprocess
+
+OUT = pathlib.Path(__file__).parent
+ROOT = pathlib.Path('/tmp/ts-attempt-phase-dispatch-integration')
+PACKET = pathlib.Path('/tmp/ts-attempt-phase-dispatch-cc37-source-kh0o533k')
+RUNNER = pathlib.Path('/tmp/ts-attempt-phase-dispatch-cc37-runner-motzk9sh/run.py')
+CACHE = pathlib.Path('/home/mariogk/go/pkg/mod')
+COMMIT = 'cc37fe13cace70584c45ee368d6edcd80ebc5f2d'
+TREE = '98aa116b8e32c0240b4fa1151bac47a5a7a410bd'
+sha = lambda p: hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
+git = lambda *args: subprocess.check_output(['/run/current-system/sw/bin/git', '-C', str(ROOT), *args])
+d = json.loads((OUT / 'closure.json').read_text())
+assert d['commit'] == COMMIT and d['tree'] == TREE
+assert len(d['initializers_and_var_candidates']) == 804
+assert not d['missing'] and not d['lexical_errors']
+assert sha(OUT / 'scan.py') == d['scanner_sha256']
+assert sha(d['lexical_scanner_origin']) == d['lexical_scanner_sha256']
+assert git('rev-parse', 'HEAD').decode().strip() == COMMIT
+assert git('rev-parse', 'HEAD^{tree}').decode().strip() == TREE
+assert not git('status', '--porcelain=v1', '--untracked-files=all')
+expected = {
+    ROOT / 'internal/attempt/phase_dispatch_integration_test.go': '0778c923f4cd774814acbcfb9bc5f2f0e006ca58ae3c37f4087bb033c3240892',
+    ROOT / 'internal/attempt/cloud_test.go': '69a11044751e5737dd6116f372f03d2c3717c62e4fe35e5b043369c868e524bd',
+    ROOT / 'go.mod': d['go_mod_sha256'], ROOT / 'go.sum': d['go_sum_sha256'],
+    PACKET / 'request.json': '67bc411484ec63ce076328a0118171bd4578d0434439a8ddf78cfd4f3ba30894',
+    PACKET / 'SHA256SUMS': '442231a57701cd42912c14f1aeff48a8e9fd41bf18b8602a8b9643c44bedbc72',
+    RUNNER: 'cd42b3fcee241b6aed2ae6df5ba0167eb4e9d9086b916db5a69949f5f730df78',
+}
+request = json.loads((PACKET / 'request.json').read_text())
+for name, path in request['executable_paths'].items():
+    expected[pathlib.Path(path)] = request['executable_sha256'][name]
+for path, digest in expected.items():
+    assert sha(path) == digest, str(path)
+for path, info in d['files'].items():
+    assert sha(path) == info['sha256'], path
+for row in (PACKET / 'SHA256SUMS').read_text().splitlines():
+    digest, name = row.split(None, 1)
+    assert sha(PACKET / name.lstrip('*')) == digest, name
+assert sorted(p.name for p in RUNNER.parent.iterdir()) == ['run.py']
+
+overrides = {}
+def mark(ids, category, reason):
+    for n in ids:
+        assert n not in overrides
+        overrides[n] = (category, reason)
+
+# The numerical IDs refer to the immutable, hashed closure.json inventory.
+mark([56, 55], 'local-registration-with-deferred-sdk-calls',
+     'listIn/networkGet return handlers; client construction and SDK requests occur inside stored closures, not registration.')
+mark([195], 'local-registration', 'Creator functions and flags are assigned to maps; functions are not called.')
+mark([99], 'background-local-goroutine',
+     'Starts runAuthorityDiagnostics, waiting on an in-memory channel. Selected phase rejection sends no diagnostic event; no listener/client/process is started.')
+mark([121, 123], 'guarded-process-path-unreached',
+     'Requires exactly two argv entries and a private helper/probe argument. The sealed Go-test command supplies test flags rather than those private arguments.')
+mark([91], 'environment-read-and-logger-setup',
+     'Reads OCI_GO_SDK_DEBUG; absent in sealed env-i. Allocates stderr/discard loggers. logOutputModeConfig/openLogOutputFile are not entered.')
+mark([84], 'environment-read-and-local-context',
+     'newEcContext reads OCI_GO_SDK_EC_CONFIG; absent in sealed env-i, selecting in-process context. No configuration file, credential provider, IMDS or request is opened.')
+mark([352], 'kernel-entropy-and-local-random-setup',
+     'crypto/rand.Int and RandomizePrefix obtain entropy; sets math/rand seed and builds NUID state. No credential, network or child-process operation.')
+mark([476], 'local-os-read-and-recurring-timer',
+     'Reads /proc/<pid>/stat, calls Sysinfo/Getpagesize, then schedules periodic with time.AfterFunc every second while reads succeed. This happens before the selected test.')
+mark([493], 'local-cpu-detection-and-environment-read',
+     'amd64 CPUID/XGETBV detection and local CPU flags/options. processOptions reads GODEBUG, absent in sealed env-i; architecture-specific non-amd64 paths are excluded.')
+mark([498], 'local-filesystem-read',
+     'Reads /sys/kernel/mm/hugepages directory and sorts in-memory hugepage configurations. No mapping or write from this init.')
+mark([624], 'guarded-file-write-unreached',
+     'PerfMapEnabled=false in selected !perfmap source; perfmap tag is absent. /tmp/perf-<pid>.map OpenFile block is not entered.')
+mark([641], 'local-http-handler-registration',
+     'Registers /debug/requests and /debug/events on http.DefaultServeMux. Does not Listen/Serve. Duplicate registrations can panic.')
+mark([666], 'environment-read-and-logger-setup',
+     'Reads GRPC_GO_LOG_SEVERITY_LEVEL, GRPC_GO_LOG_VERBOSITY_LEVEL and GRPC_GO_LOG_FORMATTER; absent in sealed env-i. Allocates standard error/discard loggers.')
+mark([671], 'environment-read-and-local-registration',
+     'GRPC_BINARY_LOG_FILTER absent: NewLoggerFromConfigString(empty) returns nil. No sink creation, write or goroutine.')
+mark([712], 'local-descriptor-decoding-with-error-exit',
+     'Unmarshals embedded edition defaults; corrupt defaults cause stderr output and os.Exit(1). No child process or external descriptor fetch.')
+mark([743], 'environment-read', 'Reads absent GODEBUG and sets only local HTTP/2 debug flags.')
+mark([181], 'runtime-metadata-read-with-possible-stderr',
+     'runtime/metrics.All populates a supported-metrics list; unsupported metric names may produce log.Printf to stderr.')
+mark([189], 'local-os-read-goroutine-and-timer',
+     'Immediate function literal calls getPSIMetrics: reads /proc/self/cgroup, reads /proc/self/mountinfo using a goroutine and one-second timer, then cgroup v2 cpu/io/memory.pressure files when resolved. Failed PSI initialization can log to stderr. A blocked mountinfo reader can survive its timeout until process exit. No write/network/process.')
+mark([797], 'local-executable-read',
+     'binaryHash resolves os.Executable, opens/stats own binary and ReadAt samples for a local FNV seed. No write/network/process.')
+mark([172], 'local-random-and-clock-setup', 'Immediate literal seeds a local math/rand generator from time.Now and wraps it in a monotonic reader.')
+mark([40, 487], 'local-entropy-wrapper-only', 'ulid.Monotonic wraps rand.Reader in bufio.Reader and stores state; it does not read entropy until later use.')
+mark([54, 627], 'lazy-function-registration',
+     'sync.OnceValues stores its supplied function; its body is not invoked during package initialization. RSA key generation/format computation is deferred.')
+mark([126, 161, 170, 177, 334, 335, 371, 579, 623, 640, 681, 686, 714, 745, 759, 760, 765, 766],
+     'deferred-function-or-pool-registration',
+     'Stores function literals or sync.Pool.New callbacks. Apparent filesystem, syscall, process, dial, timer, stderr and panic calls are inside those uninvoked bodies. No immediate invocation suffix on these bodies.')
+mark([667, 718], 'deferred-function-value-registration',
+     'Timer APIs are assigned as function values or called only inside stored timer wrappers; no timer is started by this declaration.')
+mark([110, 256], 'local-metric-registration-with-deferred-callbacks',
+     'Allocates/registers counters, gauges and a histogram. Gauge callbacks are stored, not sampled; registerMetric only validates and mutates protected in-memory maps.')
+mark([677, 678, 679, 740, 785], 'environment-read',
+     'Reads library option environment variables; sealed env-i omits them. No credential/configuration file or network lookup is performed by these expressions.')
+mark([672], 'local-binarylog-config-construction',
+     'Production binarylog_testutil.go calls NewLoggerFromConfigString("*") immediately. This builds logger rules in memory; DefaultSink is noopSink and no sink Write/flush worker is invoked.')
+mark([346], 'local-channel-create-and-close', 'Immediate function literal creates and closes an in-memory channel only.')
+mark([152], 'local-static-address-formatting', 'LinkHomeHosts returns constant host strings. Immediate literal formats URLs; no resolver or connection is called.')
+mark([258], 'local-static-region-catalog-copy', 'oci.Regions calls catalog.Founded, which copies a static catalog slice; no OCI request or discovery.')
+mark([497], 'local-cpu-flag-copy', 'loadCpuFeatureFlags copies already-initialized x/sys/cpu flags into a bitset.')
+mark([499, 500], 'function-type-conversion', 'sys.Nanosleep/sys.Osyield are function types; this converts empty literals and does not sleep/yield.')
+mark([764], 'local-seed-dependent-string', 'Immediate literal chooses a static error prefix using detrand.Bool; executable sampling is separately recorded at ID797.')
+mark([187, 188, 501, 629], 'local-os-or-clock-metadata', 'Reads local page size or current clock; no file write, network or process.')
+
+# Nontrivial construction families reviewed in their owning source. This is a
+# source assessment, not a complete typed interprocedural effect proof.
+mark([51, 52, 89, 93, 96, 109, 173, 174, 178, 182, 183, 184, 190,
+      203, 207, 208, 233, 234, 235, 255, 282, 283, 325, 326, 327,
+      353, 360, 362, 369, 370, 387, 413, 414, 468, 479, 484, 485,
+      486, 495, 496, 521, 522, 524, 580, 582, 587, 588, 590,
+      592, 620, 621, 622, 626, 628, 642, 651, 663, 674, 689,
+      694, 713, 762, 779, 780, 781, 786, 787, 788, 789, 801, 802],
+     'local-construction-or-registration',
+     'Local allocation/formatting, static table/regex/encoding setup, reflection or type conversion, error value, metric descriptor, or stored host-function descriptor. Constructors register state; they do not start NATS, gRPC, WASM execution or a cloud client.')
+
+benign = set('errors.New fmt.Errorf regexp.MustCompile make new reflect.TypeOf byte uint64 uint32 int64 int string uint8 newHostFunc wasm.NewHostFunc unsafe.Sizeof unsafe.Alignof time.Duration grpclog.Component'.split())
+rows = []
+for n, item in enumerate(d['initializers_and_var_candidates']):
+    if n in overrides:
+        category, reason = overrides[n]
+    elif item['kind'] == 'init':
+        if item['path'].endswith('.pb.go') or '/github.com/gogo/protobuf@v1.3.2/proto/' in item['path']:
+            category, reason = 'local-protobuf-registration', 'Generated descriptor/type/enum/file/extension registration and local descriptor construction; no remote schema fetch or RPC.'
+        elif item['module'] == 'google.golang.org/grpc':
+            category, reason = 'local-grpc-registration', 'Assigns function values or registers codecs/resolvers/balancers; parses an empty service config or constructs buffer pools. No Dial/Listen; callback bodies are deferred.'
+        elif n in [185, 220, 221, 222, 223, 226, 227, 286, 293, 365, 366, 367, 368, 472, 494, 710, 771, 800]:
+            category, reason = 'local-table-or-registry-setup', 'Populates in-memory tables/registries/channels, copies CPU/build metadata or decodes embedded descriptor data; no external request or process.'
+        else:
+            category, reason = 'unresolved-init', 'Not assigned a reviewed effect family; do not infer safe execution.'
+    elif set(item['calls_including_literals_and_conversions']) <= benign:
+        category, reason = 'local-construction-candidate', 'Lexical calls are known local allocation/error/regex/reflection/descriptor constructors or conversions. No whole-program effect proof claimed.'
+    else:
+        category, reason = 'unresolved-var', 'Call candidate requires further callee review; no safe-execution conclusion.'
+    if item['module'] == 'github.com/TerraScale/ts-orchestrator':
+        ownership = 'first-party-repository'
+    elif item['module'] == 'terrascale.tech/sdk':
+        ownership = 'first-party-sdk-cache'
+    elif item['path'].startswith(str(ROOT / 'third_party')):
+        ownership = 'third-party-local-replacement'
+    else:
+        ownership = 'third-party-cache'
+    rows.append({'id': n, 'kind': item['kind'], 'path': item['path'], 'line': item['line'],
+                 'package': item['package'], 'module': item['module'], 'ownership': ownership,
+                 'selection': item['selection'], 'declaration_sha256': item['declaration_sha256'],
+                 'classification': category, 'reason': reason})
+assert len(rows) == 804 and sum(r['kind'] == 'init' for r in rows) == 117
+assert not [r for r in rows if r['classification'].startswith('unresolved')], [r for r in rows if r['classification'].startswith('unresolved')]
+(OUT / 'classifications.json').write_text(json.dumps(rows, indent=2) + '\n')
+(OUT / 'classifications.tsv').write_text('id\tkind\townership\tclassification\tselection\tpath\tline\tdeclaration_sha256\treason\n' + ''.join(
+    '\t'.join(str(r[k]).replace('\t', ' ').replace('\n', ' ') for k in ['id', 'kind', 'ownership', 'classification', 'selection', 'path', 'line', 'declaration_sha256', 'reason']) + '\n' for r in rows))
+
+# Save readable callee support without executable .go copies.
+support = [
+ ('oci-common', 'github.com/oracle/oci-go-sdk/v65@v65.126.0/common/log.go', 90, 221),
+ ('oci-ec', 'github.com/oracle/oci-go-sdk/v65@v65.126.0/common/eventual_consistency.go', 110, 177),
+ ('nuid', 'github.com/nats-io/nuid@v1.0.1/nuid.go', 60, 156),
+ ('wazero-hugepages', 'github.com/tetratelabs/wazero@v1.12.0/internal/platform/mmap_linux.go', 1, 75),
+ ('wazero-perf', 'github.com/tetratelabs/wazero@v1.12.0/internal/engine/wazevo/wazevoapi/perfmap.go', 1, 38),
+ ('wazero-perf-disabled', 'github.com/tetratelabs/wazero@v1.12.0/internal/engine/wazevo/wazevoapi/perfmap_disabled.go', 1, 8),
+ ('wazero-perf-enabled', 'github.com/tetratelabs/wazero@v1.12.0/internal/engine/wazevo/wazevoapi/perfmap_enabled.go', 1, 8),
+ ('wazero-host-descriptors', 'github.com/tetratelabs/wazero@v1.12.0/imports/wasi_snapshot_preview1/wasi.go', 269, 320),
+ ('metrics-psi', 'github.com/!victoria!metrics/metrics@v1.44.1/process_metrics_linux.go', 321, 500),
+ ('metrics-runtime', 'github.com/!victoria!metrics/metrics@v1.44.1/go_metrics.go', 1, 55),
+ ('metrics-set', 'github.com/!victoria!metrics/metrics@v1.44.1/set.go', 1, 615),
+ ('metrics-registration', 'github.com/!victoria!metrics/metrics@v1.44.1/metrics.go', 32, 70),
+ ('protobuf-self-binary-read', 'google.golang.org/protobuf@v1.36.12/internal/detrand/rand.go', 1, 90),
+ ('grpc-binlog-env', 'google.golang.org/grpc@v1.83.2/internal/binarylog/env_config.go', 29, 140),
+ ('grpc-binlog-testutil', 'google.golang.org/grpc@v1.83.2/internal/binarylog/binarylog_testutil.go', 18, 45),
+ ('grpc-binlog-sink', 'google.golang.org/grpc@v1.83.2/internal/binarylog/sink.go', 25, 155),
+ ('grpc-logger', 'google.golang.org/grpc@v1.83.2/grpclog/loggerv2.go', 60, 105),
+ ('grpc-dns-registration', 'google.golang.org/grpc@v1.83.2/internal/resolver/dns/dns_resolver.go', 60, 130),
+ ('ulid-wrapper', 'github.com/oklog/ulid/v2@v2.1.2/ulid.go', 577, 601),
+ ('xsys-cpu', 'golang.org/x/sys@v0.48.0/cpu/cpu.go', 250, 360),
+ ('xsys-amd64', 'golang.org/x/sys@v0.48.0/cpu/cpu_x86.go', 1, 250),
+ ('nats-pse', str(ROOT / 'third_party/nats-server/server/pse/pse_linux.go'), 1, 100),
+ ('nats-signal-deferred', str(ROOT / 'third_party/nats-server/server/signal.go'), 200, 215),
+ ('nats-closed-channel', str(ROOT / 'third_party/nats-server/server/stream.go'), 1347, 1356),
+ ('authority-blocked-worker', str(ROOT / 'internal/authority/runtime.go'), 30, 62),
+ ('sdkcli-returned-handler', str(ROOT / 'internal/ociregion/sdkcli/inventory.go'), 110, 158),
+ ('sdkcli-returned-get', str(ROOT / 'internal/ociregion/sdkcli/handlers.go'), 210, 232),
+ ('local-region-catalog', str(ROOT / 'internal/ociregion/catalog/catalog.go'), 60, 103),
+ ('local-link-addresses', str(ROOT / 'internal/natscell/link.go'), 20, 60),
+]
+for name in ['pointer_reflect.go', 'pointer_reflect_gogo.go', 'pointer_unsafe.go', 'pointer_unsafe_gogo.go']:
+    support.append(('gogo-' + name[:-3], 'github.com/gogo/protobuf@v1.3.2/proto/' + name, 26, 80))
+evidence = []
+for name, rel, first, last in support:
+    path = pathlib.Path(rel) if rel.startswith('/') else CACHE / rel
+    lines = path.read_text().splitlines(keepends=True)
+    payload = ''.join(lines[first - 1:last])
+    filename = name + '.txt'
+    (OUT / filename).write_text(f'SOURCE {path}\nFULL_FILE_SHA256 {sha(path)}\nLINES {first}-{min(last, len(lines))}\n\n' + payload)
+    evidence.append({'artifact': filename, 'source': str(path), 'source_sha256': sha(path), 'first': first, 'last': min(last, len(lines)), 'excerpt_sha256': hashlib.sha256(payload.encode()).hexdigest()})
+(OUT / 'support-index.json').write_text(json.dumps(evidence, indent=2) + '\n')
+
+module_metadata = []
+used_modules = sorted({p['module'] for p in d['packages'].values() if 'module' in p})
+for module in used_modules:
+    directory = pathlib.Path(d['module_roots'][module])
+    record = {'module': module, 'version': d['module_versions'][module], 'directory': str(directory), 'metadata': {}}
+    for filename in ['go.mod', 'go.sum']:
+        path = directory / filename
+        record['metadata'][filename] = {'path': str(path), 'sha256': sha(path)} if path.exists() else {'missing': True}
+    if directory.is_relative_to(CACHE) and '@' in str(directory):
+        escaped_module, version = str(directory.relative_to(CACHE)).rsplit('@', 1)
+        for ext in ['mod', 'ziphash']:
+            path = CACHE / 'cache/download' / escaped_module / '@v' / (version + '.' + ext)
+            record['metadata']['download-cache.' + ext] = {'path': str(path), 'sha256': sha(path)} if path.exists() else {'missing': True, 'path': str(path)}
+    if module == 'github.com/nats-io/nuid':
+        record['note'] = 'Legacy module has no go.mod in extracted source; download-cache .mod is recorded separately when present. No package source/cache directory is missing.'
+    module_metadata.append(record)
+(OUT / 'module-metadata-hashes.json').write_text(json.dumps(module_metadata, indent=2) + '\n')
+ambiguous = [{**v, 'path': k} for k, v in d['files'].items() if v['selection'].startswith('ambiguous')]
+counts = collections.Counter(r['classification'] for r in rows)
+bindings = {
+    'state': 'STATIC_SOURCE_ONLY_NO_GO_DISCOVERY_NO_RUNTIME_NO_LEASE',
+    'commit': COMMIT, 'tree': TREE, 'parent': git('rev-parse', 'HEAD^').decode().strip(),
+    'bindings': {str(p): h for p, h in expected.items()},
+    'closure_sha256': sha(OUT / 'closure.json'),
+    'counts': {'package_entries': len(d['packages']), 'files_enumerated': len(d['files']),
+               'selection': dict(collections.Counter(i['selection'] for i in d['files'].values())),
+               'init_declarations': 117, 'var_candidates': 687, 'classification': dict(counts),
+               'missing_mapping_or_cache': len(d['missing']), 'lexical_errors': len(d['lexical_errors']), 'reachable_modules': len(used_modules)},
+    'ambiguous_build_constraints': ambiguous,
+    'legacy_constraint_interpretation': 'Four gogo/protobuf pointer files use only legacy +build lines. Scanner retains both variants conservatively. Manual reading: purego appengine js reflect alternatives are false for stated gc/linux/amd64/no tags; !purego,!appengine,!js unsafe variants are true. This is documented interpretation, not Go-toolchain selection evidence.',
+    'runner_directory_entries': [p.name for p in RUNNER.parent.iterdir()],
+    'verification': 'All 4394 enumerated source files and every sealed-packet manifest entry rehashed unchanged. HEAD/tree/full status, original test, new source, root module files, request, packet manifest and runner match frozen bindings. No source edits, Go execution, test execution, lease, runner invocation or result claim.',
+    'limits': d['limits'] + ['Inventory assesses direct init/package-var effects and reviewed callees by family; it is not a formally complete call graph, alias analysis, compiler selection or proof of absence of arbitrary transitive side effects.',
+                          'Only .go files are traversed; go:embed payloads, assembly, stdlib/runtime and toolchain/linker/test-harness initialization are not independently audited. Descriptor embedded data is treated as local supplied input.',
+                          'Linux/amd64/gc/Go1.27/no-extra-tags is the stated static target, not Go-toolchain-observed selection. Persisted Go environment configuration under HOME is not inspected; env-i alone does not prove the compiler uses every assumed target/default.',
+                          'File counts include excluded alternatives; ambiguous source is retained as a conservative superset. The supplement does not alter or silently replace claims in the earlier sealed packet.',
+                          'No runtime time, RSS, credential isolation or side-effect observation has been measured. env-i removes library variables but HOME remains supplied; no claim is made that an arbitrary test binary lacks filesystem/network capability.'],
+    'correction_to_sealed_request': 'request.runtime_resources describes the test body but understates total imported initialization. In addition to one authority diagnostic goroutine, NATS recurring proc sampling, metrics proc/cgroup reads with timeout goroutine/timer, Wazero sysfs reads, protobuf self-binary reads, kernel entropy and local metadata/environment reads may occur. Metric/logger error paths may write stderr. The under-one-second estimate is not guaranteed; metrics alone may wait one second for mountinfo. Original packet remains byte-for-byte immutable; read this supplement together with it. No execution/lease is authorized by this supplement.',
+}
+(OUT / 'bindings-and-limits.json').write_text(json.dumps(bindings, indent=2) + '\n')
+assert not git('status', '--porcelain=v1', '--untracked-files=all')
+print(json.dumps(bindings['counts'], indent=2))

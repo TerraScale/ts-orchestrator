@@ -1,0 +1,31 @@
+func TestRefuseIntentSettlesOldEpochWithoutReplacingClaimedPlan(t *testing.T) {
+	s, ctx := testService(t, &testWriter{})
+	i := testIntent(t, s, ctx)
+	i.AuthorityEpoch = 2
+	if err := s.RefuseIntent(ctx, i, "operator", 1, "expired unsent selection"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.StatusFor(ctx, i)
+	if err != nil || r.Status != "rejected" || r.AuthorityEpoch != i.AuthorityEpoch {
+		t.Fatalf("old-epoch identity not preserved: %+v %v", r, err)
+	}
+	claimed := i
+	claimed.OperationID = "00000000001Y9Z8VKC1VV66J6B"
+	fp, _ := claimed.Fingerprint()
+	wire, err := json.Marshal(operation{Intent: claimed, Fingerprint: fp, Actor: "operator", Plan: nil})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := operationKey(claimed.OperationID)
+	revision, err := s.operations.Create(ctx, key, wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RefuseIntent(ctx, claimed, "operator", 1, "cannot assume the plan was unwritten"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("claimed plan overwritten: %v", err)
+	}
+	entry, err := s.operations.Get(ctx, key)
+	if err != nil || entry.Revision() != revision || string(entry.Value()) != string(wire) {
+		t.Fatalf("claimed operation changed: %v", err)
+	}
+}

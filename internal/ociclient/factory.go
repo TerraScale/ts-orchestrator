@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/VictoriaMetrics/metrics"
+	"github.com/oracle/oci-go-sdk/v65/artifacts"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -59,6 +61,7 @@ const (
 	ServiceLimits            Service = "limits"
 	ServiceVault             Service = "vault"
 	ServiceUsage             Service = "usageapi"
+	ServiceArtifacts         Service = "artifacts"
 )
 
 // Limit is one token bucket: a sustained rate and a burst.
@@ -83,6 +86,7 @@ var DefaultLimits = map[Service]Limit{
 	ServiceLimits:            {PerSecond: 4, Burst: 8},
 	ServiceVault:             {PerSecond: 4, Burst: 8},
 	ServiceUsage:             {PerSecond: 1, Burst: 2},
+	ServiceArtifacts:         {PerSecond: 4, Burst: 8},
 }
 
 var defaultLimit = Limit{PerSecond: 4, Burst: 8}
@@ -103,8 +107,18 @@ type Factory struct {
 	limits   map[Service]Limit
 	policy   common.RetryPolicy
 
-	mu       sync.Mutex
-	limiters map[Service]*rate.Limiter
+	mu           sync.Mutex
+	limiters     map[Service]*rate.Limiter
+	origin       *Factory
+	regions      map[string]*Factory
+	transport    *common.OciHTTPTransportWrapper
+	transportKey sdkTransportKey
+}
+
+type sdkTransportKey struct {
+	template *http.Transport
+	tlsPaths [3]string
+	refresh  time.Duration
 }
 
 // New builds a factory over an existing configuration provider. Region must be
@@ -141,6 +155,16 @@ var (
 // cached region never waits for a fetch; a racing creator's factory is
 // discarded and the installed one returned.
 func InstancePrincipal(region string) (*Factory, error) {
+	return InstancePrincipalContext(context.Background(), region)
+}
+
+// InstancePrincipalContext bounds cold credential acquisition without retaining ctx in the shared factory.
+func InstancePrincipalContext(ctx context.Context, region string) (*Factory, error) {
+	ctx, release, err := credentialContext(ctx)
+	defer release()
+	if err != nil {
+		return nil, err
+	}
 	sharedMu.Lock()
 	factory := sharedPrincipal[region]
 	sharedMu.Unlock()
@@ -150,7 +174,7 @@ func InstancePrincipal(region string) (*Factory, error) {
 	if !catalog.IsOCIRegion(region) {
 		return nil, fmt.Errorf("OCI region %q is not in the region catalog", region)
 	}
-	provider, err := InstancePrincipalProvider(common.Region(region), nil)
+	provider, err := InstancePrincipalProviderContext(ctx, common.Region(region), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create OCI instance-principal provider: %w", err)
 	}
@@ -158,8 +182,14 @@ func InstancePrincipal(region string) (*Factory, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkCredentialSource(ctx); err != nil {
+		return nil, err
+	}
 	sharedMu.Lock()
 	defer sharedMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if factory := sharedPrincipal[region]; factory != nil {
 		return factory, nil
 	}
@@ -171,19 +201,54 @@ func InstancePrincipal(region string) (*Factory, error) {
 // from the metadata service, with modifier wrapping the SDK's HTTP client (nil
 // keeps it). Every in-binary instance-principal provider must be built here:
 // the SDK writes package-level metadata URLs on every provider it builds, so
-// builds take one process-wide lock.
+// builds share one process-wide serialization token.
 func InstancePrincipalProvider(region common.Region,
 	modifier func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error),
 ) (common.ConfigurationProvider, error) {
-	providerMu.Lock()
-	defer providerMu.Unlock()
-	return newInstancePrincipalProvider(region, modifier)
+	return InstancePrincipalProviderContext(context.Background(), region, modifier)
 }
 
-var providerMu sync.Mutex
+// InstancePrincipalProviderContext serializes SDK globals while allowing queued callers to cancel.
+func InstancePrincipalProviderContext(ctx context.Context, region common.Region,
+	modifier func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error),
+) (common.ConfigurationProvider, error) {
+	ctx, release, err := credentialContext(ctx)
+	defer release()
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case providerToken <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-providerToken }()
+	if err := checkCredentialSource(ctx); err != nil {
+		return nil, err
+	}
+	provider, err := newInstancePrincipalProvider(ctx, region, func(dispatcher common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
+		if modifier != nil {
+			var err error
+			dispatcher, err = modifier(dispatcher)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return credentialDispatcher{next: dispatcher}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return contextualPrincipal{ConfigurationProvider: provider}, nil
+}
+
+var providerToken = make(chan struct{}, 1)
 
 // newInstancePrincipalProvider is the SDK's constructor; tests replace it.
-var newInstancePrincipalProvider = auth.InstancePrincipalConfigurationForRegionWithCustomClient
+var newInstancePrincipalProvider = auth.InstancePrincipalConfigurationForRegionWithCustomClientContext
 
 // OperatorConfig returns a factory over the operator's ~/.oci/config DEFAULT
 // profile, the same credentials the retired Python CLI used.
@@ -193,6 +258,32 @@ func OperatorConfig(region string) (*Factory, error) {
 
 // Region is the OCI region identifier this factory serves.
 func (f *Factory) Region() string { return f.region }
+
+// ForRegion preserves this factory's authentication and retry policy while
+// selecting another catalog region, including the tenancy's home region.
+func (f *Factory) ForRegion(region string) (*Factory, error) {
+	if !catalog.IsOCIRegion(region) {
+		return nil, fmt.Errorf("OCI region %q is not in the region catalog", region)
+	}
+	if f.origin != nil {
+		return f.origin.ForRegion(region)
+	}
+	if region == f.region {
+		return f, nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if sibling := f.regions[region]; sibling != nil {
+		return sibling, nil
+	}
+	if f.regions == nil {
+		f.regions = map[string]*Factory{}
+	}
+	sibling := &Factory{provider: f.provider, region: region, limits: f.limits,
+		policy: f.policy, limiters: map[Service]*rate.Limiter{}, origin: f}
+	f.regions[region] = sibling
+	return sibling, nil
+}
 
 // Provider exposes the shared configuration provider for SDK helpers that need
 // it directly (for example the Object Storage upload manager).
@@ -228,6 +319,13 @@ func (f *Factory) Configure(client *common.BaseClient, service Service) {
 		if err := limiter.Wait(ctx); err != nil {
 			return fmt.Errorf("OCI %s rate limiter: %w", service, err)
 		}
+		if request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodOptions {
+			if guard, ok := ctx.Value(authorityKey{}).(func(context.Context) error); ok {
+				if err := guard(ctx); err != nil {
+					return fmt.Errorf("OCI %s write authority: %w", service, err)
+				}
+			}
+		}
 		if previous != nil {
 			return previous(request)
 		}
@@ -238,6 +336,28 @@ func (f *Factory) Configure(client *common.BaseClient, service Service) {
 	// a circuit breaker the SDK installed from OCI_SDK_DEFAULT_CIRCUITBREAKER_ENABLED
 	// or its global setting.
 	client.Configuration.RetryPolicy = &policy
+	ConfigureReadCancellation(client)
+}
+
+// ConfigureSDK shares constructor-issued transports before installing request wrappers.
+// Call it immediately after an SDK constructor; Configure preserves custom dispatchers.
+func (f *Factory) ConfigureSDK(client *common.BaseClient, service Service) {
+	if dispatcher, ok := client.HTTPClient.(*http.Client); ok {
+		if transport, ok := dispatcher.Transport.(*common.OciHTTPTransportWrapper); ok {
+			if template, ok := http.DefaultTransport.(*http.Transport); ok {
+				key := sdkTransportKey{template: template, refresh: transport.RefreshRate,
+					// These vendor TLS paths preserve the SDK's certificate configuration and refresh behavior.
+					tlsPaths: [3]string{os.Getenv("OCI_DEFAULT_CERTS_PATH"), os.Getenv("OCI_DEFAULT_CLIENT_CERTS_PATH"), os.Getenv("OCI_DEFAULT_CLIENT_CERTS_PRIVATE_KEY_PATH")}}
+				f.mu.Lock()
+				if f.transport == nil || f.transportKey != key {
+					f.transport, f.transportKey = transport, key
+				}
+				dispatcher.Transport = f.transport
+				f.mu.Unlock()
+			}
+		}
+	}
+	f.Configure(client, service)
 }
 
 // PinHost replaces a client's endpoint with an exact canonical endpoint. It is
@@ -255,7 +375,7 @@ func (f *Factory) Compute() (core.ComputeClient, error) {
 		return client, fmt.Errorf("create OCI Compute client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceCompute)
+	f.ConfigureSDK(&client.BaseClient, ServiceCompute)
 	return client, nil
 }
 
@@ -267,7 +387,7 @@ func (f *Factory) ComputeManagement() (core.ComputeManagementClient, error) {
 		return client, fmt.Errorf("create OCI Compute Management client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceComputeManagement)
+	f.ConfigureSDK(&client.BaseClient, ServiceComputeManagement)
 	return client, nil
 }
 
@@ -278,7 +398,7 @@ func (f *Factory) Blockstorage() (core.BlockstorageClient, error) {
 		return client, fmt.Errorf("create OCI Block Volume client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceBlockstorage)
+	f.ConfigureSDK(&client.BaseClient, ServiceBlockstorage)
 	return client, nil
 }
 
@@ -289,7 +409,7 @@ func (f *Factory) Network() (core.VirtualNetworkClient, error) {
 		return client, fmt.Errorf("create OCI network client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceNetwork)
+	f.ConfigureSDK(&client.BaseClient, ServiceNetwork)
 	return client, nil
 }
 
@@ -300,7 +420,7 @@ func (f *Factory) ObjectStorage() (objectstorage.ObjectStorageClient, error) {
 		return client, fmt.Errorf("create OCI Object Storage client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceObjectStorage)
+	f.ConfigureSDK(&client.BaseClient, ServiceObjectStorage)
 	client.HTTPClient = Instrument(client.HTTPClient, string(ServiceObjectStorage))
 	return client, nil
 }
@@ -312,7 +432,7 @@ func (f *Factory) NetworkLoadBalancer() (networkloadbalancer.NetworkLoadBalancer
 		return client, fmt.Errorf("create OCI network load balancer client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceNLB)
+	f.ConfigureSDK(&client.BaseClient, ServiceNLB)
 	return client, nil
 }
 
@@ -324,7 +444,7 @@ func (f *Factory) LoadBalancer() (loadbalancer.LoadBalancerClient, error) {
 		return client, fmt.Errorf("create OCI load balancer client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceNLB)
+	f.ConfigureSDK(&client.BaseClient, ServiceNLB)
 	return client, nil
 }
 
@@ -335,7 +455,7 @@ func (f *Factory) Identity() (identity.IdentityClient, error) {
 		return client, fmt.Errorf("create OCI identity client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceIdentity)
+	f.ConfigureSDK(&client.BaseClient, ServiceIdentity)
 	return client, nil
 }
 
@@ -346,7 +466,7 @@ func (f *Factory) Limits() (limits.LimitsClient, error) {
 		return client, fmt.Errorf("create OCI limits client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceLimits)
+	f.ConfigureSDK(&client.BaseClient, ServiceLimits)
 	return client, nil
 }
 
@@ -357,7 +477,7 @@ func (f *Factory) WorkRequests() (workrequests.WorkRequestClient, error) {
 		return client, fmt.Errorf("create OCI work request client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceWorkRequests)
+	f.ConfigureSDK(&client.BaseClient, ServiceWorkRequests)
 	return client, nil
 }
 
@@ -368,7 +488,19 @@ func (f *Factory) Usage() (usageapi.UsageapiClient, error) {
 		return client, fmt.Errorf("create OCI usage API client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceUsage)
+	f.ConfigureSDK(&client.BaseClient, ServiceUsage)
+	return client, nil
+}
+
+// Artifacts returns the regional OCIR repository and container image client.
+func (f *Factory) Artifacts() (artifacts.ArtifactsClient, error) {
+	client, err := artifacts.NewArtifactsClientWithConfigurationProvider(f.provider)
+	if err != nil {
+		return client, fmt.Errorf("create OCI artifacts client: %w", err)
+	}
+	client.SetRegion(f.region)
+	f.ConfigureSDK(&client.BaseClient, ServiceArtifacts)
+	client.HTTPClient = Instrument(client.HTTPClient, string(ServiceArtifacts))
 	return client, nil
 }
 
@@ -379,7 +511,7 @@ func (f *Factory) Search() (resourcesearch.ResourceSearchClient, error) {
 		return client, fmt.Errorf("create OCI resource search client: %w", err)
 	}
 	client.SetRegion(f.region)
-	f.Configure(&client.BaseClient, ServiceSearch)
+	f.ConfigureSDK(&client.BaseClient, ServiceSearch)
 	return client, nil
 }
 
@@ -391,7 +523,7 @@ func (f *Factory) HomeRegion(ctx context.Context, tenancy string) (string, error
 	if err != nil {
 		return "", err
 	}
-	response, err := client.GetTenancy(ctx, identity.GetTenancyRequest{TenancyId: &tenancy})
+	response, err := client.GetTenancy(RequestContext(ctx), identity.GetTenancyRequest{TenancyId: &tenancy})
 	if err != nil {
 		return "", fmt.Errorf("read the tenancy home region: %w", err)
 	}

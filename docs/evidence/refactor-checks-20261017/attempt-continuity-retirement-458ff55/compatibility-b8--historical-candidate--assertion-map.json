@@ -1,0 +1,65 @@
+{
+  "state": "COMPLETE_MAPPING_SOURCE_PREPARATION_ONLY_NO_COMPILE_GRANT",
+  "accepted_base_commit": "cc37fe13cace70584c45ee368d6edcd80ebc5f2d",
+  "candidate_commit": "b3e1fde77998257aef756bc02310019aa173a522",
+  "candidate_tree": "1a6313d43566e860fc317749c3279bddb55590fe",
+  "original": {
+    "path": "internal/attempt/cloud_test.go",
+    "name": "TestAttemptRejectsRetiredContinuityPhase",
+    "original_file_sha256": "69a11044751e5737dd6116f372f03d2c3717c62e4fe35e5b043369c868e524bd",
+    "original_declaration_without_final_newline_sha256": "fc3bf5936665894c1b0471343b3375eac7c21bba5b73549b828913f796dd26e0",
+    "declaration_bytes_without_final_newline": 251,
+    "declaration_lines": [
+      217,
+      222
+    ]
+  },
+  "replacement": {
+    "path": "internal/attempt/phase_dispatch_integration_test.go",
+    "name": "TestRetiredContinuityPhaseThroughAttemptRun",
+    "file_sha256": "0778c923f4cd774814acbcfb9bc5f2f0e006ca58ae3c37f4087bb033c3240892",
+    "declaration_sha256_without_final_newline": "8ecff4ffb804854ba12efa36dc25f665fd28f50da156dcfb23cbda9fb8a08da8",
+    "declaration_lines": [
+      14,
+      37
+    ],
+    "file_git_blob": "8f41c9575c8e0b0d4f8b85a7c87026fd2ca62fa8"
+  },
+  "assertion_map": [
+    {
+      "original": "Phase(\"continuity\") must return nonnil error",
+      "original_line": 219,
+      "replacement": "Run(...continuity) must return exactly1 at replacementline31; Run1480-1501 assigns e=Phase at1493 and returns1 only in e!=nil branch1495-1498. Valid New fixture reaches Phase.",
+      "actual_outcome": "One exact root run/pass in accepted8events; assertion execution inferred from source+PASS, no invented call trace."
+    },
+    {
+      "original": "Returned error must contain \"unknown attempt phase\"",
+      "original_line": 219,
+      "replacement": "Exact diagnostic unknown attempt phase \"continuity\" plus one newline atreplacementline34; Phase1439-1479 default1475-1477 sets error; Run1496 prints sameerror. Exacttext implies originalsubstring.",
+      "actual_outcome": "Accepted actual root PASS; no child/skips/failures."
+    }
+  ],
+  "fixture_equivalence": "Both use New with temp workdir, deployment0000000000F9PR1WNVDTEXS31Z/prefixbootstrap/a and cleanAttempt.err. New object(nil) makes omittedtools equivalentto originaltools:{}; no phaseRunner/Sleep/Cloud invocation on defaultbranch.",
+  "minimal_deletion": {
+    "bytes": 253,
+    "lines": 7,
+    "sha256": "fbfd1c9f6466ea7c7cb2d93200e21c6c2e2159e4e5d10db02a4b1e01a392f6a1",
+    "removed": "one preceding blank separator plus only final original6line declaration",
+    "unused_imports": [],
+    "unused_helpers": [],
+    "retained_import_strings_uses": [
+      138,
+      209
+    ],
+    "all_other_source_bytes_unchanged": true,
+    "proposed_file_sha256": "b620119b63bc747e68e2a8e40e4a92f9c06d7eefd637b41d4b900187e222083d",
+    "proposed_file_bytes": 10421,
+    "proposed_file_lines": 215,
+    "retained_old_test_declarations": 8
+  },
+  "coverage_gaps_for_this_original": [],
+  "limits": [
+    "Accepted root only nonrace; no new runtime, direct-internal-call trace, suite/global closure, liveSDK or performance claim.",
+    "Candidate is not yet compiled, adopted or credited as a retired canonical original."
+  ]
+}

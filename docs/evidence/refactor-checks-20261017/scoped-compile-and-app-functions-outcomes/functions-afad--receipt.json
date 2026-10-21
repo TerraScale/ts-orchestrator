@@ -1,0 +1,106 @@
+{
+  "state": "LOCAL_CONNECTED_PASS",
+  "exit_code": 0,
+  "wall_seconds": 78.83761770202545,
+  "max_child_rss_kib": 1384692,
+  "source_unchanged": true,
+  "expected_tests": [
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/current",
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/rotated",
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/expired",
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/released_leader",
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait",
+    "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS/apply",
+    "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS/repair",
+    "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS",
+    "TestRootRegistryAdoptsOnlyExtendingChains",
+    "TestRootRepairNeverRollsBackAValidRecord"
+  ],
+  "expected_package": "github.com/TerraScale/ts-orchestrator/internal/app",
+  "actual_name_counts": {
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/current": 1,
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/rotated": 1,
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/expired": 1,
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/released_leader": 1,
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait": 1,
+    "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS/apply": 1,
+    "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS/repair": 1,
+    "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS": 1,
+    "TestRootRegistryAdoptsOnlyExtendingChains": 1,
+    "TestRootRepairNeverRollsBackAValidRecord": 1
+  },
+  "malformed_json_lines": [],
+  "test_outcomes": [
+    {
+      "Test": "TestFunctionPublicationFencesRootsAcrossArtifactWait/current",
+      "Action": "pass",
+      "Elapsed": 0.18,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app"
+    },
+    {
+      "Test": "TestFunctionPublicationFencesRootsAcrossArtifactWait/rotated",
+      "Action": "pass",
+      "Elapsed": 0.17,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app"
+    },
+    {
+      "Test": "TestFunctionPublicationFencesRootsAcrossArtifactWait/expired",
+      "Action": "pass",
+      "Elapsed": 4.23,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app"
+    },
+    {
+      "Test": "TestFunctionPublicationFencesRootsAcrossArtifactWait/released_leader",
+      "Action": "pass",
+      "Elapsed": 0.3,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app"
+    },
+    {
+      "Test": "TestFunctionPublicationFencesRootsAcrossArtifactWait",
+      "Action": "pass",
+      "Elapsed": 4.88,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app"
+    },
+    {
+      "Test": "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS/apply",
+      "Action": "pass",
+      "Elapsed": 0.17,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app"
+    },
+    {
+      "Test": "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS/repair",
+      "Action": "pass",
+      "Elapsed": 0.17,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app"
+    },
+    {
+      "Test": "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS",
+      "Action": "pass",
+      "Elapsed": 0.34,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app"
+    },
+    {
+      "Test": "TestRootRegistryAdoptsOnlyExtendingChains",
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app"
+    },
+    {
+      "Test": "TestRootRepairNeverRollsBackAValidRecord",
+      "Action": "pass",
+      "Elapsed": 0.04,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app"
+    }
+  ],
+  "package_outcomes": [
+    {
+      "Time": "2026-10-17T01:30:24.728029941-03:00",
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+      "Elapsed": 5.346
+    }
+  ],
+  "stdout_sha256": "8e94f06dec2dc4dbf0c135a327d659249a60c8eb077c30d75a47192495b05b03",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "scope": "Actual local authenticated JetStream/authority admission ordering only. No live OCI, native worker execution, sealed issuer qualification, original creation lineage or distributed cross-stream transaction claim."
+}

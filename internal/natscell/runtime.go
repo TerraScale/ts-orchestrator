@@ -126,14 +126,12 @@ type NKeyGrant struct {
 	Global bool `json:"global,omitempty"`
 }
 
-// Config describes a single regional cell. Lab permits an unauthenticated local
-// test network and must be opted into explicitly. Production requires TLS and
-// an NKey or JWT credential for the controller's connection.
+// Config describes a single regional cell. Every connection requires verified
+// TLS and a JWT credential scoped to its regional account.
 type Config struct {
 	Cell            string    `json:"cell"`
 	Instance        string    `json:"instance"`
 	Replicas        int       `json:"replicas"`
-	Lab             bool      `json:"lab"`
 	ClientRole      string    `json:"client_role,omitempty"`
 	URL             string    `json:"url"`
 	NKeySeedFile    string    `json:"nkey_seed_file"`
@@ -356,7 +354,7 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 // verify its root checkpoint before opening it and close it after shared reset
 // completion before starting normal external transports on the same store.
 func StartIdentityRekey(ctx context.Context, cfg Config) (*Runtime, error) {
-	if cfg.Lab || cfg.Embedded == nil {
+	if cfg.Embedded == nil {
 		return nil, errors.New("identity rekey requires an installed production broker")
 	}
 	return start(ctx, cfg, true)
@@ -394,19 +392,17 @@ func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err
 			return nil, errors.New("embedded NATS did not become ready")
 		}
 		cfg.URL = r.server.ClientURL()
-		if !cfg.Lab {
-			r.resolver = options.AccountResolver.(*accountResolver)
-			r.operator = options.TrustedOperators[0]
-			if _, err := r.server.LookupAccount(r.resolver.cell); err != nil {
-				return nil, fmt.Errorf("load regional cell account: %w", err)
-			}
+		r.resolver = options.AccountResolver.(*accountResolver)
+		r.operator = options.TrustedOperators[0]
+		if _, err := r.server.LookupAccount(r.resolver.cell); err != nil {
+			return nil, fmt.Errorf("load regional cell account: %w", err)
 		}
 	}
 	options, err := clientOptions(cfg)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Embedded != nil && !cfg.Lab {
+	if cfg.Embedded != nil {
 		options = append(options, nats.InProcessServer(r.server))
 	}
 	if cfg.ClientRole == "host" {
@@ -429,7 +425,7 @@ func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err
 	var connectErr, forwardErr error
 	go func() {
 		connectURL := cfg.URL
-		if !cfg.Lab && cfg.Embedded == nil {
+		if cfg.Embedded == nil {
 			if len(cfg.OperatorForward) != 0 {
 				var selected string
 				selected, _, forwardErr = operatorForwarding(cfg)
@@ -466,7 +462,7 @@ func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err
 		}
 		return nil, unavailable{err}
 	}
-	if cfg.Embedded != nil && !cfg.Lab {
+	if cfg.Embedded != nil {
 		systemCfg := cfg
 		systemCfg.NKeySeedFile = ""
 		systemCfg.CredentialsFile = cfg.Embedded.SystemCredentialsFile
@@ -612,16 +608,14 @@ func (cfg Config) validate() error {
 	if cfg.NKeySeedFile != "" && cfg.CredentialsFile != "" {
 		return errors.New("choose one regional NKey seed or JWT credentials file")
 	}
-	if !cfg.Lab {
-		if !cfg.TLS.complete() || cfg.CredentialsFile == "" || cfg.NKeySeedFile != "" {
-			return errors.New("production regional NATS requires client TLS and NKey/JWT credentials")
-		}
-		if cfg.Embedded != nil && (!cfg.Embedded.TLS.complete() || !cfg.Embedded.RouteTLS.complete() ||
-			cfg.Embedded.OperatorJWTFile == "" || cfg.Embedded.SystemJWTFile == "" ||
-			cfg.Embedded.CellJWTFile == "" || cfg.Embedded.SystemCredentialsFile == "" ||
-			cfg.Embedded.TicketPublicKeyFile == "" || len(cfg.Embedded.BrokerIDs) != cfg.Replicas || len(cfg.Embedded.Users) != 0) {
-			return errors.New("production embedded NATS requires operator/system/cell JWTs, system credentials, and client/route TLS")
-		}
+	if !cfg.TLS.complete() || cfg.CredentialsFile == "" || cfg.NKeySeedFile != "" {
+		return errors.New("regional NATS requires client TLS and JWT credentials")
+	}
+	if cfg.Embedded != nil && (!cfg.Embedded.TLS.complete() || !cfg.Embedded.RouteTLS.complete() ||
+		cfg.Embedded.OperatorJWTFile == "" || cfg.Embedded.SystemJWTFile == "" ||
+		cfg.Embedded.CellJWTFile == "" || cfg.Embedded.SystemCredentialsFile == "" ||
+		cfg.Embedded.TicketPublicKeyFile == "" || len(cfg.Embedded.BrokerIDs) != cfg.Replicas || len(cfg.Embedded.Users) != 0) {
+		return errors.New("production embedded NATS requires operator/system/cell JWTs, system credentials, and client/route TLS")
 	}
 	if cfg.Embedded != nil {
 		e := cfg.Embedded
@@ -636,20 +630,18 @@ func (cfg Config) validate() error {
 				return err
 			}
 		}
-		if !cfg.Lab {
-			seen := make(map[string]struct{}, len(e.BrokerIDs))
-			for _, id := range e.BrokerIDs {
-				if !cellName.MatchString(id) {
-					return errors.New("production broker ID is invalid")
-				}
-				if _, exists := seen[id]; exists {
-					return errors.New("production broker IDs must be unique")
-				}
-				seen[id] = struct{}{}
+		seen := make(map[string]struct{}, len(e.BrokerIDs))
+		for _, id := range e.BrokerIDs {
+			if !cellName.MatchString(id) {
+				return errors.New("production broker ID is invalid")
 			}
-			if _, own := seen[cfg.Instance]; !own {
-				return errors.New("production broker ID list excludes this instance")
+			if _, exists := seen[id]; exists {
+				return errors.New("production broker IDs must be unique")
 			}
+			seen[id] = struct{}{}
+		}
+		if _, own := seen[cfg.Instance]; !own {
+			return errors.New("production broker ID list excludes this instance")
 		}
 		if e.StoreDir == "" || e.Host == "" || e.Port == 0 {
 			return errors.New("embedded NATS requires store_dir, host, and port")
@@ -660,7 +652,7 @@ func (cfg Config) validate() error {
 		if cfg.Replicas > 1 && (e.RouteHost == "" || e.RoutePort == 0 || len(e.Routes) == 0) {
 			return errors.New("clustered NATS requires route_host, route_port and at least one seed route")
 		}
-		if !cfg.Lab && cfg.Replicas > 1 && (e.RouteUser == "" || e.RoutePasswordFile == "") {
+		if cfg.Replicas > 1 && (e.RouteUser == "" || e.RoutePasswordFile == "") {
 			return errors.New("production NATS routes require a route user and password file")
 		}
 	}
@@ -702,39 +694,37 @@ func serverOptionsForStart(cfg Config, identityRekey bool) (*server.Options, err
 		// reboots. Report the first and then one a minute (TS-661).
 		ReconnectErrorReports: reconnectErrorReports,
 	}
-	if !cfg.Lab {
-		operator, systemJWT, cellJWT, systemID, cellID, err := loadOperatorAccounts(e)
-		if err != nil {
+	operator, systemJWT, cellJWT, systemID, cellID, err := loadOperatorAccounts(e)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSystemCredentials(e.SystemCredentialsFile, cfg.Cell, cellID, systemID); err != nil {
+		return nil, err
+	}
+	controller, _, err := credentialUser(cfg.CredentialsFile)
+	if err != nil || credentialAccount(controller) != cellID {
+		return nil, errors.New("controller credentials do not belong to the regional cell account")
+	}
+	resolver := newAccountResolver(systemID, systemJWT, cellID, cellJWT)
+	options.TrustedOperators = []*jwt.OperatorClaims{operator}
+	options.SystemAccount = systemID
+	options.Accounts = nil
+	options.AccountResolver = resolver
+	options.JetStreamDomain = cfg.Cell
+	options.DontListen = true
+	options.Cluster.NoAdvertise = true
+	if e.InterRegion != nil {
+		if err := interRegionServerOptions(cfg, options, resolver, operator); err != nil {
 			return nil, err
 		}
-		if err := validateSystemCredentials(e.SystemCredentialsFile, cfg.Cell, cellID, systemID); err != nil {
+	}
+	if e.Link != nil {
+		if err := linkServerOptions(cfg, options, resolver); err != nil {
 			return nil, err
 		}
-		controller, _, err := credentialUser(cfg.CredentialsFile)
-		if err != nil || credentialAccount(controller) != cellID {
-			return nil, errors.New("controller credentials do not belong to the regional cell account")
-		}
-		resolver := newAccountResolver(systemID, systemJWT, cellID, cellJWT)
-		options.TrustedOperators = []*jwt.OperatorClaims{operator}
-		options.SystemAccount = systemID
-		options.Accounts = nil
-		options.AccountResolver = resolver
-		options.JetStreamDomain = cfg.Cell
-		options.DontListen = true
-		options.Cluster.NoAdvertise = true
-		if e.InterRegion != nil {
-			if err := interRegionServerOptions(cfg, options, resolver, operator); err != nil {
-				return nil, err
-			}
-		}
-		if e.Link != nil {
-			if err := linkServerOptions(cfg, options, resolver); err != nil {
-				return nil, err
-			}
-		}
-		if identityRekey && (e.InterRegion != nil || e.Link != nil) {
-			options.LeafNode = server.LeafNodeOpts{}
-		}
+	}
+	if identityRekey && (e.InterRegion != nil || e.Link != nil) {
+		options.LeafNode = server.LeafNodeOpts{}
 	}
 	if cfg.Replicas > 1 {
 		for _, raw := range e.Routes {
@@ -744,15 +734,6 @@ func serverOptionsForStart(cfg Config, identityRekey bool) (*server.Options, err
 			}
 			options.Routes = append(options.Routes, route)
 		}
-	}
-	if cfg.Lab && e.TLS.complete() {
-		config, err := loadTLS(e.TLS, true)
-		if err != nil {
-			return nil, err
-		}
-		options.TLS = true
-		options.TLSConfig = config
-		options.TLSVerify = true
 	}
 	if cfg.Replicas > 1 && e.RouteTLS.complete() {
 		// Routes reload a renewed leaf or CA bundle on their next handshake.
@@ -868,43 +849,24 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 			return signNKeyFile(cfg.NKeySeedFile, nonce)
 		}))
 	}
-	if cfg.TLS.complete() && (cfg.Embedded == nil || cfg.Lab) {
+	if cfg.TLS.complete() && cfg.Embedded == nil {
 		tlsConfig, err := loadTLS(cfg.TLS, false)
 		if err != nil {
 			return nil, err
 		}
-		if cfg.Lab {
-			if materials != nil {
-				// nats.Secure keeps one tls.Config for the connection's life;
-				// resolve the client certificate per handshake instead, so a
-				// renewed certificate is presented on reconnect here too.
-				tlsConfig = tlsConfig.Clone()
-				startup := tlsConfig.Certificates[0]
-				tlsConfig.Certificates = nil
-				tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-					current, err := materials.tlsConfig()
-					if err != nil || len(current.Certificates) == 0 {
-						return &startup, nil
-					}
-					return &current.Certificates[0], nil
-				}
-			}
-			options = append(options, nats.Secure(tlsConfig))
-		} else {
-			dialer := &tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}
-			if materials != nil {
-				dialer.reload = materials.tlsConfig
-			}
-			if len(cfg.OperatorForward) != 0 {
-				_, destinations, err := operatorForwarding(cfg)
-				if err != nil {
-					return nil, err
-				}
-				dialer.forward = destinations
-				options = append(options, nats.IgnoreDiscoveredServers())
-			}
-			options = append(options, nats.SetCustomDialer(dialer))
+		dialer := &tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}
+		if materials != nil {
+			dialer.reload = materials.tlsConfig
 		}
+		if len(cfg.OperatorForward) != 0 {
+			_, destinations, err := operatorForwarding(cfg)
+			if err != nil {
+				return nil, err
+			}
+			dialer.forward = destinations
+			options = append(options, nats.IgnoreDiscoveredServers())
+		}
+		options = append(options, nats.SetCustomDialer(dialer))
 	}
 	return options, nil
 }

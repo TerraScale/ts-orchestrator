@@ -1,0 +1,1495 @@
+{
+  "base": "cc37fe13cace70584c45ee368d6edcd80ebc5f2d",
+  "changes": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "status": "M"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/README.md",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/adoption-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/diffcheck.argv",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/diffcheck.exit",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/diffcheck.log",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/diffcheck.markers",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/harness-postcheck.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/image-inputs-changed.sh.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/post.sha256",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/pre.sha256",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/python.argv",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/python.exit",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/python.log",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/python.markers",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/shellcheck.argv",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/shellcheck.exit",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/shellcheck.log",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/shellcheck.markers",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/source.after-python.sha256",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/source.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/status.post",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/status.pre",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8/test_image_inputs_changed.py.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/README.md",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/adoption-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile-native/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile-native/final-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile-native/launch-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile-native/poll-1-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile-native/resource-precheck.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/SEAL.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/SOURCEPROOF.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/accepted-runtime-receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/before-factory_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/evidence-bindings.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/go.mod.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/go.sum.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/qa-output/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/qa-output/compile.stderr",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/qa-output/compile.stdout",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/qa-output/preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/qa-output/receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/qa-output/started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/retired-factory_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/retirement.patch",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/run.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/compile/source-inputs.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/proposal/FINAL-SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/proposal/REVIEW.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/proposal/assertion-mapping-and-preservation.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/proposal/before-factory_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/proposal/deleted-declaration.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/proposal/proposal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/proposal/proposed-factory_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/proposal/proposed.patch",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/qa-retirement-compile-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/qa-runtime-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime-native/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime-native/final-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime-native/launch-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime-native/poll-1-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime-native/resource-precheck.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/SEAL.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/SOURCEPROOF.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/SOURCEPROOF.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/SUCCESSOR.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/base-factory_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/candidate-factory_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/candidate.patch",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/declarations.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/frozen-inventory-rows.tsv",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/qa-output/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/qa-output/preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/qa-output/receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/qa-output/started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/qa-output/stderr.log",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/qa-output/stdout.jsonl",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/run.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/scanner-pure-functions.py.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/source-proof/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/source-proof/sourceproof.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/README.md",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--final-review-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--final-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--launch-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--poll-001-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--poll-002-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--poll-003-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--poll-004-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--poll-005-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--poll-006-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--poll-007-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--poll-008-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--resource-check-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--resource-precheck.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--running-process-proof-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--running-process-proof.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-native--source_post.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--COMPATIBILITY-REVIEW.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--DELTA.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--IMPORT-MEMBERSHIP.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--INDEPENDENT-REVIEW.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--INITIALIZER-ASSESSMENT.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--INITIALIZER-AUDIT.md",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--INITIALIZER-SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--INITIALIZER-classification.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--INITIALIZER-closure.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--INITIALIZER-static_audit.py.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--ORIGINAL-SEAL.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--ORIGINAL-SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--ORIGINAL-request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--ORIGINAL-run.py.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--PREREQUISITE-PROOF.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--PRIOR-DELTA.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--PRIOR-SEAL.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--PRIOR-SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--PRIOR-SOURCEPROOF.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--PRIOR-SOURCEPROOF.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--PRIOR-request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--PRIOR-run.py.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--SEAL.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--SOURCEPROOF.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--SOURCEPROOF.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--candidate-customer_open_boundary_integration_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--candidate.patch",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--declarations.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--frozen-inventory-rows.tsv",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--prerequisite-identity_rekey_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--prerequisite.patch",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--qa-output--SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--qa-output--postflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--qa-output--preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--qa-output--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--qa-output--started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--qa-output--stdout.jsonl",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--retained-cli-customer_open_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--retained-customer_open_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--run.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--successor.patch",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-review--native-supplement.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-review--review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/excluded-binaries.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/manifest.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-compile--compile.stderr",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-compile--compile.stdout",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-compile--final-seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-compile--fullsource-manifest.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-compile--preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-compile--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-compile--request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-compile--run.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-compile--started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-metadata--index.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-metadata--seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/oci-terminal-review--ts-qa-oci-compile-terminal-failure-78e86dd4-i8eand1i.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-history-11a5--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-history-3e50--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-history-96960--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-qualified-handoff--ts-foundation-producer-8f3-qualified-handoff.md",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--FINAL-SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--final-seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--native-tool-result-001-verification.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--native-tool-result-002-launch.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--native-tool-result-003-poll.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--native-tool-result-004-poll.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--native-tool-result-005-poll.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--native-tool-result-006-poll.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--native-tool-result-007-poll.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--native-tool-result-008-poll.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--native-tool-result-009-poll.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--run.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--stderr.log",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-runtime--stdout.jsonl",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-source--plan-invariant-proposal.md",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-source--request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-source--seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-source--source-diff-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-source--static-closure-audit-index.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-source--static-side-effects.md",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-source--tracked-source-manifest.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-source-review--ts-qa-producer-corrected-source-readiness-8f3e9ec4-w1ll_gqj.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/producer-terminal-review--ts-qa-producer-terminal-acceptance-8f3e9ec4-j6bz98nn.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/source-name-mapping.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/MANIFEST.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/README.md",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--final-seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--fullsource-manifest.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--locks-released.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--postflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--resource-prelaunch.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--run.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--runtime.stdout",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--static-import-closure.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--static-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--tool-launch.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--tool-poll-1.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--tool-poll-2.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--tool-poll-3.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-focused--tool-terminal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--final-seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--locks-released.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--phase-attribution.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--postflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--resource-prelaunch.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--run.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--runtime.stdout",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--static-import-closure.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--static-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--tool-launch.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--tool-poll-1.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--tool-poll-2.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--tool-poll-3.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--tool-poll-4.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-manager--tool-terminal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-source--internal--app--generic_runtime_integration_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-source--internal--swarmruntime--service.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/app6aab-source--internal--swarmruntime--service_authority_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--actual-tool-launch.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--actual-tool-poll-1.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--actual-tool-poll-2.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--actual-tool-poll-3.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--actual-tool-poll-4.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--actual-tool-poll-5.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--actual-tool-readiness.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--compile.stderr",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--compile.stdout",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--final-seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--fullsource-manifest.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--run.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/auth97d--static-package-inventory.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-552-history--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--fullsource-manifest.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--postflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--resource-ready.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--run.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--runtime.stdout",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--static-import-closure.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad--static-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad-native--00.actual.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad-native--01.actual.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad-native--02.actual.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad-native--03.actual.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad-native--04.actual.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad-native--05.actual.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad-native--MANIFEST.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad-source--internal--app--function_admission_roots_integration_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad-source--internal--app--function_controller.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad-source--internal--app--trust_roots.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/functions-afad-source--internal--app--trust_roots_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--compile.stderr",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--compile.stdout",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--final-seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--fullsource-manifest.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--native--launch.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--native--poll-1.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--native--poll-2-manual.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--native--poll-3.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--native--poll-4.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--native--poll-5.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--native--poll-6.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--native--poll-7.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--native--resource-native.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--run.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620--started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620-metadata--index.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci620-metadata--seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-metadata--index.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-metadata--seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-region--final-seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-region--fullsource-manifest.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-region--native--launch.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-region--native--poll-1.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-region--native--poll-2.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-region--native--resource-native.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-region--preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-region--preservation-proof.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-region--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-region--request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/oci64-region--started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/qa-app6aab-focused--review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/qa-app6aab-manager--review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/qa-auth97d--ts-qa-auth97d-terminal-acceptance-7fijj8b_.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/qa-functions-afad--ts-qa-functions-afad-terminal-acceptance-ft_fjs6q.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/qa-oci620--ts-qa-oci-compile-terminal-failure-620dab46-ak5mv_hl.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/qa-oci64-region--review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/qa-rootbackup38645--ts-qa-rootbackup38645-terminal-acceptance-ug5pndp0.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--final-seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--fullsource-manifest.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--native-launch.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--native-poll-1.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--native-poll-2.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--native-poll-3.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--native-poll-4.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--native-poll-5.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--native-poll-6.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--preflight.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--run.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes/rootbackup38645--started.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/README.md",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/SHA256SUMS",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/accounts.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/adoption-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/broker-full-tool-results.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/broker-launch-tool-result.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/dispatch.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/final-seal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/launch-instructions.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/manifest.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/ownership-proof.md",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/qa-terminal-review.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/qualified-source.patch",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/recorder-full-tool-results.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/recorder.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/request.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/run-once.py",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/runtime-before.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/runtime-handoff.md",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/runtime-launch.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/runtime-raw.jsonl",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/runtime-receipt.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/runtime-summary.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/runtime-terminal.json",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/server.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7/service_import_lifecycle_test.go.txt",
+      "status": "A"
+    },
+    {
+      "path": "internal/attempt/phase_dispatch_integration_test.go",
+      "status": "D"
+    },
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "status": "M"
+    },
+    {
+      "path": "scripts/ci/image-inputs-changed.sh",
+      "status": "M"
+    },
+    {
+      "path": "scripts/ci/test_image_inputs_changed.py",
+      "status": "A"
+    },
+    {
+      "path": "third_party/nats-server/server/accounts.go",
+      "status": "M"
+    },
+    {
+      "path": "third_party/nats-server/server/server.go",
+      "status": "M"
+    },
+    {
+      "path": "third_party/nats-server/server/service_import_lifecycle_test.go",
+      "selection_for_attempt_compile": "excluded: dependency test, not target-package test",
+      "status": "A"
+    }
+  ],
+  "feature": "b8c3c96d03f552770f6370097fd89f4cbd406e5e"
+}

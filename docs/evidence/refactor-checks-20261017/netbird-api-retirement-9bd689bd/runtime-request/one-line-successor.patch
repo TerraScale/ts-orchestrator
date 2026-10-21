@@ -1,0 +1,13 @@
+diff --git a/internal/netbird/manager/api_integration_test.go b/internal/netbird/manager/api_integration_test.go
+index ef872d0d0..bc08492ca 100644
+--- a/internal/netbird/manager/api_integration_test.go
++++ b/internal/netbird/manager/api_integration_test.go
+@@ -20,7 +20,7 @@ func TestManagementInventoryRejectsRedirectsAndSecretErrorBodies(t *testing.T) {
+ 
+ 	t.Run("redirect", func(t *testing.T) {
+ 		var destinationCalls, originCalls atomic.Int32
+-		destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		destination := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 			destinationCalls.Add(1)
+ 			w.WriteHeader(http.StatusInternalServerError)
+ 		}))

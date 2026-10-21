@@ -15,12 +15,13 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // gatedFenceTest is newFenceTest with a canary: gate answers failing for
@@ -226,8 +227,10 @@ func TestSmokeGateChecksTheCanary(t *testing.T) {
 	public.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	key := smokeKey + "\n"
 	gate := smokeGate{public: public, authPort: authPort,
-		memberCA:    pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: api.Certificate().Raw}),
-		credentials: func(context.Context, vaultsecret.Ref) (string, error) { return key, nil }}
+		memberCA: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: api.Certificate().Raw}),
+		credentials: func(context.Context, canaryTarget) (rootoci.NativeCanaryReceipt, error) {
+			return rootoci.NativeCanaryReceipt{Value: key, ExpiresAt: time.Now().Add(time.Minute)}, nil
+		}}
 	canary := cellspec.Canary{Project: "p", Database: "db", AuthURL: auth.URL, APIURL: api.URL,
 		DashboardLoginURL: dashboard.URL + "/login"}
 	host, _, _ := net.SplitHostPort(apiURL.Host)
@@ -316,8 +319,10 @@ func TestNativeCanaryUsesPredecessorAndSelectedPorts(t *testing.T) {
 			profileA, profileB, profileC := profile(apiA), profile(apiB), profile(apiC)
 			spec, _ := fence.spec()
 			spec.Canary = &cellspec.Canary{Project: "p", Database: "db", AuthURL: auth.URL, APIURL: apiC.URL}
-			smoke := newSmokeGate(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: apiA.Certificate().Raw}))
-			smoke.credentials = func(context.Context, vaultsecret.Ref) (string, error) { return "tb_canary", nil }
+			smoke := newSmokeGate(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: apiA.Certificate().Raw}), nil)
+			smoke.credentials = func(context.Context, canaryTarget) (rootoci.NativeCanaryReceipt, error) {
+				return rootoci.NativeCanaryReceipt{Value: "tb_canary", ExpiresAt: time.Now().Add(time.Minute)}, nil
+			}
 			history := &nativeHistory{services: &specRegistry{fixed: map[string]WorkloadProfile{terrabase.Role: profileC}},
 				canary: func(ctx context.Context, target canaryTarget) map[string]string {
 					// Keep the fence's modeled private topology; probe real local endpoints.

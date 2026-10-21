@@ -1,0 +1,15 @@
+{
+  "base": "eb2170c0fc376e3f5be381d81c14b397a44ee956",
+  "only_modified_file": "internal/ociclient/factory_test.go",
+  "only_deleted_declaration": "TestOperationTemplateRemovesIdentifiers",
+  "removed_bytes": 2217,
+  "removed_lines": 25,
+  "all_other_factory_test_bytes_preserved": true,
+  "replacement_byte_exact": true,
+  "replacement_sha256": "12ec10771d9de7079f89a28313b8848efa783d415bd3201f2f1b5d414b67fcdd",
+  "runtime_receipt": "/tmp/ts-qa-operation-eb217-runtime-cz63whf0/result.json",
+  "compile_receipt": "/tmp/ts-qa-operation-eb217-compile-7_6nfpu1/result.json",
+  "reviewer_acceptance": "pending",
+  "commit": "pending acceptance",
+  "go_execution_here": false
+}

@@ -1,0 +1,8 @@
+func TestPrepareArtifactSignsTheClaimAfterStoringTheBytes(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	signer := &storedBeforeSigning{service: service}
+	service.config.ArtifactSigner = signer
+	if _, _, err := service.PrepareArtifact(ctx, bytes.NewReader([]byte("artifact stored before its claim")), artifactTestRequest()); err != nil || !signer.signed {
+		t.Fatalf("PrepareArtifact() = %v, signed=%t", err, signer.signed)
+	}
+}

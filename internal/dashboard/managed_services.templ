@@ -1,0 +1,30 @@
+package dashboard
+
+import "fmt"
+
+templ managedServiceBody(current view) {
+	{{ region, _ := regionNamed(current.Global, current.Path["r"]) }}
+	{{ service, found := managedServiceNamed(region, current.Path["s"]) }}
+	<div id="content">
+		@detailHead(current, "Managed service in "+upper(current.Path["r"]), current.Path["s"], current.State.regionLink(current.Path["r"]), "Region")
+		@staleBadge(current, region)
+		<p class="note" role="status">Observation: { managedServiceState(region, service, found) }.</p>
+		if !found {
+			<p class="empty">The service is absent only when the observation is current and complete.</p>
+		} else {
+			<article id="managed-service">
+				<dl class="kv">
+					<dt>Role</dt><dd>{ service.Role }</dd>
+					<dt>Intent</dt><dd>{ service.IntentID }</dd>
+					<dt>Requested digest</dt><dd><code>{ service.RequestedDigest }</code></dd>
+					<dt>Requested replicas</dt><dd>{ fmt.Sprint(service.RequestedReplicas) }</dd>
+					<dt>Running replicas</dt><dd>{ fmt.Sprint(service.RunningReplicas) }</dd>
+					<dt>Ready replicas</dt><dd>{ managedServiceReady(service) }</dd>
+					<dt>Update</dt><dd>{ orDash(service.UpdateState) }</dd>
+					<dt>Observed</dt><dd>{ metricObserved(service.ObservedAt) }</dd>
+				</dl>
+			</article>
+			<article id="managed-tasks"><h2>Tasks</h2>@dataTable(managedServiceTasks(service))</article>
+		}
+	</div>
+}

@@ -1,0 +1,30 @@
+func TestSignedUnadmittedIntentHasQueryVisibleRejection(t *testing.T) {
+	s, ctx := testService(t, &testWriter{})
+	i := Intent{SchemaVersion: SchemaVersion, OperationID: "0000000000NQMHCVBYP1N8ZHTR", Source: ArtifactSource{Repository: "https://github.com/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}, ArtifactDigest: hex.EncodeToString(sha256.New().Sum(nil)), ManifestDigest: hex.EncodeToString(sha256.New().Sum(nil)), Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
+	if err := s.Submit(ctx, i); err != nil {
+		t.Fatal(err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- s.Run(runCtx) }()
+	defer func() { cancel(); <-done }()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for {
+		r, err := s.Status(ctx, i.OperationID)
+		if err == nil {
+			if r.Status != "rejected" || r.Error != "artifact is not admitted" {
+				t.Fatalf("receipt=%+v", r)
+			}
+			return
+		}
+		if !errors.Is(err, ErrPending) {
+			t.Fatal(err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("rejection never became query visible")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}

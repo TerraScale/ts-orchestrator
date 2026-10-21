@@ -27,7 +27,8 @@ import (
 // ponytail: the minimum the executor needs until the cell spec (TS-556) and
 // the KV store (TS-559) own the schema; move it there keeping these rules.
 const (
-	desiredKey = "release.desired"
+	desiredKey           = "release.desired"
+	DesiredSchemaVersion = 2
 	// ReleaseHistory is how many generations stay readable for rollback.
 	ReleaseHistory = 64
 	maxReleaseWire = 64 << 10
@@ -94,19 +95,25 @@ func (s *Store) releaseStage(ctx context.Context, id string) (Release, Kind, boo
 // channel can refuse a run older than the cell's newest. RollbackOf names
 // the earlier generation a rollback repeats.
 type Release struct {
-	ID             string    `json:"id"`
-	Generation     uint64    `json:"generation"`
-	Digest         string    `json:"digest"`
-	SourceRevision string    `json:"source_revision,omitempty"`
-	RunNumber      int64     `json:"run_number,omitzero"`
-	Receipt        []byte    `json:"receipt,omitempty"`
-	Delegation     []byte    `json:"delegation,omitempty"`
-	RollbackOf     uint64    `json:"rollback_of,omitzero"`
-	Actor          string    `json:"actor"`
-	CreatedAt      time.Time `json:"created_at"`
+	ReleaseSequence         uint64    `json:"release_sequence,omitzero"`
+	SequenceMigration       []byte    `json:"sequence_migration,omitempty"`
+	SequenceMigrationSHA256 string    `json:"sequence_migration_sha256,omitempty"`
+	ID                      string    `json:"id"`
+	Generation              uint64    `json:"generation"`
+	Digest                  string    `json:"digest"`
+	SourceRevision          string    `json:"source_revision,omitempty"`
+	RunNumber               int64     `json:"run_number,omitzero"`
+	Receipt                 []byte    `json:"receipt,omitempty"`
+	Delegation              []byte    `json:"delegation,omitempty"`
+	RollbackOf              uint64    `json:"rollback_of,omitzero"`
+	Actor                   string    `json:"actor"`
+	CreatedAt               time.Time `json:"created_at"`
 }
 
 func (r Release) validate() error {
+	if r.ReleaseSequence == 0 && (len(r.SequenceMigration) > 0 || r.SequenceMigrationSHA256 != "") || r.ReleaseSequence > 0 && (len(r.SequenceMigration) == 0 || !digestRE.MatchString(r.SequenceMigrationSHA256) || len(r.Receipt) == 0 || len(r.Delegation) == 0) || len(r.SequenceMigration) > maxReleaseWire {
+		return fmt.Errorf("%w: release sequence metadata", ErrInvalid)
+	}
 	if !entityid.Valid(r.ID) || r.Generation == 0 || !digestRE.MatchString(r.Digest) || r.RunNumber < 0 ||
 		r.SourceRevision != "" && !release.ValidSourceRevision(r.SourceRevision) ||
 		len(r.Receipt) > maxReleaseWire || len(r.Delegation) > maxReleaseWire ||
@@ -120,20 +127,47 @@ func (r Release) validate() error {
 // Desired is the cell's newest release generation. Paused stops the executor
 // from starting another rollout; a rollout already running still finishes.
 type Desired struct {
-	SchemaVersion int     `json:"schema_version"`
-	Cell          string  `json:"cell"`
-	Release       Release `json:"release,omitzero"`
-	Paused        bool    `json:"paused,omitzero"`
+	OrderingFloor       Release `json:"ordering_floor,omitzero"`
+	LegacyFloor         Release `json:"legacy_floor,omitzero"`
+	LegacyIssuanceFloor Release `json:"legacy_issuance_floor,omitzero"`
+	SchemaVersion       int     `json:"schema_version"`
+	Cell                string  `json:"cell"`
+	Release             Release `json:"release,omitzero"`
+	Paused              bool    `json:"paused,omitzero"`
 }
 
 // Generation is the newest generation, zero before the first release.
 func (d Desired) Generation() uint64 { return d.Release.Generation }
 
 func (d Desired) validate(cell string) error {
-	if d.SchemaVersion != SchemaVersion || d.Cell != cell {
+	if (d.SchemaVersion != SchemaVersion && d.SchemaVersion != DesiredSchemaVersion) || d.Cell != cell {
 		return fmt.Errorf("%w: desired release", ErrInvalid)
 	}
+	if d.SchemaVersion == SchemaVersion && (d.OrderingFloor.Generation != 0 || d.LegacyFloor.Generation != 0 || d.LegacyIssuanceFloor.Generation != 0 || d.Release.ReleaseSequence != 0) {
+		return fmt.Errorf("%w: legacy desired schema carries sequence state", ErrInvalid)
+	}
+	if d.OrderingFloor.Generation > 0 {
+		if err := d.OrderingFloor.validate(); err != nil {
+			return err
+		}
+		if d.OrderingFloor.ReleaseSequence == 0 {
+			return fmt.Errorf("%w: ordering floor", ErrInvalid)
+		}
+	}
+	for _, floor := range []Release{d.LegacyFloor, d.LegacyIssuanceFloor} {
+		if floor.Generation > 0 {
+			if err := floor.validate(); err != nil {
+				return err
+			}
+			if floor.ReleaseSequence != 0 {
+				return fmt.Errorf("%w: legacy ordering floor", ErrInvalid)
+			}
+		}
+	}
 	if d.Release.Generation != 0 {
+		if d.Release.ReleaseSequence > d.OrderingFloor.ReleaseSequence {
+			return fmt.Errorf("%w: desired exceeds retained ordering floor", ErrInvalid)
+		}
 		return d.Release.validate()
 	}
 	return nil
@@ -143,7 +177,7 @@ func (d Desired) validate(cell string) error {
 func (s *Store) Desired(ctx context.Context) (Desired, uint64, error) {
 	entry, err := s.kv.Get(ctx, desiredKey)
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		return Desired{SchemaVersion: SchemaVersion, Cell: s.cell}, 0, nil
+		return Desired{SchemaVersion: DesiredSchemaVersion, Cell: s.cell}, 0, nil
 	}
 	if err != nil {
 		return Desired{}, 0, err
@@ -169,7 +203,7 @@ func (s *Store) ReleaseGeneration(ctx context.Context, generation uint64) (Relea
 
 // generation reads a retained copy. The copy has no schema version of its
 // own: the desired record's, which every caller has validated, covers it. A
-// breaking Release change raises SchemaVersion, so an older controller
+// breaking Release change raises DesiredSchemaVersion, so an older controller
 // refuses the desired record and never reads a newer generation it would
 // misread; a newer binary's added members are skipped, as in the desired
 // record itself.
@@ -202,6 +236,16 @@ func (s *Store) generation(ctx context.Context, desired Desired, generation uint
 // nothing and returns ErrReleaseUnchanged, unless a newer CI issuance retries
 // an entirely untouched aborted program. A digest known bad in this cell is refused.
 func (s *Store) PublishRelease(ctx context.Context, epoch uint64, release Release) (Release, error) {
+	if release.ReleaseSequence > 0 || len(release.SequenceMigration) > 0 || release.SequenceMigrationSHA256 != "" || release.RollbackOf != 0 {
+		return Release{}, fmt.Errorf("%w: sequenced releases require signature admission; rollbacks require retained generation", ErrInvalid)
+	}
+	if err := rejectSequencedReceipt(release.Receipt); err != nil {
+		return Release{}, err
+	}
+	return s.publishRelease(ctx, epoch, release, false)
+}
+
+func (s *Store) publishRelease(ctx context.Context, epoch uint64, release Release, rollback bool) (Release, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if bad, err := s.IsKnownBad(ctx, release.Digest); err != nil {
@@ -214,20 +258,41 @@ func (s *Store) PublishRelease(ctx context.Context, epoch uint64, release Releas
 		if err != nil {
 			return Release{}, err
 		}
+		seeded, err := s.seedReleaseOrdering(ctx, desired)
+		if err != nil {
+			return Release{}, err
+		}
+		next := seeded
+		normalized := release
+		normalized.Generation = desired.Generation() + 1
+		normalized.ID = generationKey(s.cell, normalized.Generation)
+		normalized.CreatedAt = release.CreatedAt.UTC()
+		if err := normalized.validate(); err != nil {
+			return Release{}, err
+		}
+		if !rollback {
+			if err := advanceReleaseOrdering(&next, normalized, s.cell); err != nil {
+				return Release{}, err
+			}
+		}
 		if desired.Generation() > 0 && desired.Release.Digest == release.Digest {
 			retry, err := s.retryUntouchedRelease(ctx, desired.Release, release)
 			if err != nil {
 				return Release{}, err
 			}
 			if !retry {
+				if desired.SchemaVersion != DesiredSchemaVersion || desired.OrderingFloor.ReleaseSequence != next.OrderingFloor.ReleaseSequence || desired.LegacyFloor.Generation != next.LegacyFloor.Generation || desired.LegacyIssuanceFloor.Generation != next.LegacyIssuanceFloor.Generation {
+					if err := s.writeDesired(ctx, epoch, next, revision); errors.Is(err, ErrConflict) {
+						continue
+					} else if err != nil {
+						return Release{}, err
+					}
+				}
 				return desired.Release, ErrReleaseUnchanged
 			}
 		}
-		next := desired
-		next.Release = release
-		next.Release.Generation = desired.Generation() + 1
-		next.Release.ID = generationKey(s.cell, next.Release.Generation)
-		next.Release.CreatedAt = release.CreatedAt.UTC()
+		next.Release = normalized
+		next.SchemaVersion = DesiredSchemaVersion
 		if err := next.validate(s.cell); err != nil {
 			return Release{}, err
 		}
@@ -259,7 +324,7 @@ func (s *Store) PublishRelease(ctx context.Context, epoch uint64, release Releas
 }
 
 func (s *Store) retryUntouchedRelease(ctx context.Context, previous, next Release) (bool, error) {
-	if previous.RollbackOf != 0 || next.RollbackOf != 0 || next.RunNumber <= previous.RunNumber || !next.CreatedAt.After(previous.CreatedAt) {
+	if previous.RollbackOf != 0 || next.RollbackOf != 0 || !newerReleaseOrder(previous, next) || next.ReleaseSequence == 0 && !next.CreatedAt.After(previous.CreatedAt) {
 		return false, nil
 	}
 	aborted := false
@@ -318,7 +383,7 @@ func (s *Store) RollbackRelease(ctx context.Context, epoch, to uint64, actor str
 	}
 	repeat := target
 	repeat.RollbackOf, repeat.Actor, repeat.CreatedAt = to, actor, now
-	return s.PublishRelease(ctx, epoch, repeat)
+	return s.publishRelease(ctx, epoch, repeat, true)
 }
 
 // PauseReleases sets the cell's pause, fenced by epoch.
@@ -343,6 +408,7 @@ func (s *Store) PauseReleases(ctx context.Context, epoch uint64, paused bool) (D
 }
 
 func (s *Store) writeDesired(ctx context.Context, epoch uint64, desired Desired, revision uint64) error {
+	desired.SchemaVersion = DesiredSchemaVersion
 	if err := desired.validate(s.cell); err != nil {
 		return err
 	}

@@ -1,0 +1,429 @@
+{
+  "actual_declarations_verified": 600,
+  "all_assertions_passed": true,
+  "all_original_current_declaration_bytes_equal": true,
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "batch_checks": [
+    {
+      "batch": "DATA75",
+      "candidate_input": "/tmp/ts-data75-d4ac-source-classification-y9dqe8af/classification.json",
+      "counts": {
+        "integration": 2,
+        "unit": 16,
+        "unresolved": 57
+      },
+      "exact_allocation_author_peer_proposal_ids": true,
+      "peer_input": "/tmp/ts-data75-d4ac-independent-peer-Do1wRkzl/peer-review.json",
+      "roots": 75
+    },
+    {
+      "batch": "CORE65",
+      "candidate_input": "/tmp/ts-core65-d4ac-source-classification-Yz6avQIW/classification.json",
+      "counts": {
+        "integration": 13,
+        "mixed": 15,
+        "unit": 36,
+        "unresolved": 1
+      },
+      "exact_allocation_author_peer_proposal_ids": true,
+      "peer_input": "/tmp/ts-core65-d4ac-peer-net-sgmlxjwy/review.json",
+      "roots": 65
+    },
+    {
+      "batch": "CAP57",
+      "candidate_input": "/tmp/ts-cap57-d4ac-source-classification-r9lqashl/classification.json",
+      "counts": {
+        "integration": 8,
+        "mixed": 2,
+        "unit": 46,
+        "unresolved": 1
+      },
+      "exact_allocation_author_peer_proposal_ids": true,
+      "peer_input": "/tmp/ts-cap57-d4ac-independent-material-wb20g8i_/review.json",
+      "roots": 57
+    },
+    {
+      "batch": "MESH55",
+      "candidate_input": "/tmp/ts-mesh55-d4ac-source-classification-pfjjhj7x/classification.json",
+      "counts": {
+        "integration": 35,
+        "mixed": 11,
+        "unit": 8,
+        "unresolved": 1
+      },
+      "exact_allocation_author_peer_proposal_ids": true,
+      "peer_input": "/tmp/ts-mesh55-d4ac-independent-peer-v7epgz07/review.json",
+      "roots": 55
+    },
+    {
+      "batch": "NET48",
+      "candidate_input": "/tmp/ts-net48-d4ac-source-classification-k9shja9e/classification.json",
+      "counts": {
+        "integration": 26,
+        "mixed": 9,
+        "unit": 11,
+        "unresolved": 2
+      },
+      "exact_allocation_author_peer_proposal_ids": true,
+      "peer_input": "/tmp/ts-net48-d4ac-independent-peer-z4u7bbzz/review.json",
+      "roots": 48
+    }
+  ],
+  "before_counts": {
+    "classified": 171,
+    "integration": 100,
+    "mixed": 28,
+    "originals": 4319,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 10,
+    "unadjudicated": 4129,
+    "unit": 43
+  },
+  "build_test_or_runtime_executed": false,
+  "category_changes": [
+    {
+      "from": "mixed",
+      "root_id": "internal/capacity/usage_test.go::TestAuthenticatedAPIAndRegionalClient",
+      "to": "integration"
+    }
+  ],
+  "controlling_corrections": [
+    {
+      "batch": "CORE65",
+      "controlling_annotation": "Replace owner root18 evidence wording: real TLS Basic-auth registry exchange uses literal callback credentials; no successful Vault read, signed Vault response or rotation. Category mixed retained.",
+      "finding_index": 0,
+      "peer_input": "/tmp/ts-core65-d4ac-peer-net-sgmlxjwy/review.json",
+      "root_id": "internal/swarmruntime/registry_integration_test.go::TestRegistryResolverAuthenticatedHTTPIntegration"
+    },
+    {
+      "batch": "MESH55",
+      "controlling_annotation": "Replace inaccurate104-106 citation with actual local guard assertion101-103. Category mixed retained.",
+      "finding_index": 1,
+      "peer_input": "/tmp/ts-mesh55-d4ac-independent-peer-v7epgz07/review.json",
+      "root_id": "internal/globalcontrol/document_test.go::TestDocumentsRelayExactBytesAsNextGenerations"
+    },
+    {
+      "batch": "CAP57",
+      "controlling_annotation": "Change mixed to integration: encoding inspects the actual HTTP Client.Query result. Token assertion concerns re-encoded typed Usage only; no raw-wire or discarded unknown-field claim.",
+      "finding_index": 0,
+      "peer_input": "/tmp/ts-cap57-d4ac-independent-material-wb20g8i_/review.json",
+      "root_id": "internal/capacity/usage_test.go::TestAuthenticatedAPIAndRegionalClient"
+    }
+  ],
+  "delta": {
+    "classified": 238,
+    "integration": 84,
+    "mixed": 37,
+    "retirement": 0,
+    "reviewed_unresolved_separate": 62,
+    "runtime": 0,
+    "unit": 117
+  },
+  "each_declaration_name_and_complete_balanced_body_checked": true,
+  "excluded_counts": {
+    "accepted102": 102,
+    "accepted69": 69,
+    "retired19": 19,
+    "reviewed_unresolved10": 10
+  },
+  "excluded_disjoint_unique_ids": 200,
+  "full_selected_files_verified": 144,
+  "inventory_originals": 4319,
+  "literal_roots": 300,
+  "packet_files": [
+    {
+      "bytes": 1602,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/README.md",
+      "sha256": "0e4478569a802374bcb1829e2d5b7efc8a6e9dcda5faad630778a129076c0c91"
+    },
+    {
+      "bytes": 403,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/SHA256SUMS",
+      "sha256": "c2f3340a5c2dab391a69c25438028b411f58d8798939edb9cec46862165aa6a0"
+    },
+    {
+      "bytes": 8118,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/inputs-manifest.json",
+      "sha256": "8460a793d54e91dc98a88e1d74d8d4d03a2f58af50f6ccb52695fde379bf2b0f"
+    },
+    {
+      "bytes": 391960,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+      "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a"
+    },
+    {
+      "bytes": 306,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/verification.json",
+      "sha256": "cef17e647d225e291a2c098ee7fc80f4fe369bf37e560f88a73373a5d34cb3d5"
+    },
+    {
+      "bytes": 7772,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/verify.py",
+      "sha256": "d5a85f970d92ebefd2bdb0d721d93094c532001722650c8aaacc3470ab637457"
+    }
+  ],
+  "precise_supplemental_source_loci": [
+    {
+      "bytes": 208,
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "end_line": 66,
+      "path": "internal/swarmruntime/registry_integration_test.go",
+      "purpose": "literal credential callback including literal return65",
+      "sha256": "88e5ed9d8e51ca85f7d5d7a39e1aa09f9612074db7172cca4e5f8f74342363bf",
+      "start_line": 61
+    },
+    {
+      "bytes": 283,
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "end_line": 84,
+      "path": "internal/swarmruntime/registry_integration_test.go",
+      "purpose": "read/close/manifest byte equality and authenticated request counter assertion82-83",
+      "sha256": "9844f70b3ac89d9e03e66549ded5bc2c5642b633c0e3bfde0207ee8dd0c6405a",
+      "start_line": 80
+    },
+    {
+      "bytes": 556,
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "end_line": 169,
+      "path": "internal/capacity/usage_test.go",
+      "purpose": "actual HTTP Client.Query result and re-encoded typed Usage only",
+      "sha256": "af7dc5109382926a90687d10cda19d78423ad2d7f92f992b70080165640095fd",
+      "start_line": 157
+    },
+    {
+      "bytes": 124,
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "end_line": 103,
+      "path": "internal/globalcontrol/document_test.go",
+      "purpose": "actual local guard assertion",
+      "sha256": "8f9ebd06192c341aa25ed268b47423d24924e45935e55dfe24d34973940cdedc",
+      "start_line": 101
+    }
+  ],
+  "prospective_after_counts": {
+    "classified": 409,
+    "integration": 184,
+    "mixed": 65,
+    "originals": 4319,
+    "other_unadjudicated": 3819,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 72,
+    "unadjudicated": 3891,
+    "unit": 160
+  },
+  "referenced_inputs": [
+    {
+      "bytes": 390556,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-allocation-proposal-raxuc07l/allocation.json",
+      "sha256": "032cb201e692326da7274b12d7dfd15512b1befd325cce375188ae0447ca2523"
+    },
+    {
+      "bytes": 715,
+      "mode": "0644",
+      "path": "/tmp/ts-qa-next300-allocation-independent-2ivixd0j/review.json",
+      "sha256": "4a1acb09fb4e6ee22f2d9eeb6ea610ed627c7de40851937676dfdc5bc96436a3"
+    },
+    {
+      "bytes": 225913,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-classification69-delta-final-l6fu61l5/proposal.json",
+      "sha256": "7eaaa19a3ccb97b64e02d74021ec4bcdf0908ecc2f317f131ae7c9acd473c69e"
+    },
+    {
+      "bytes": 1893,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-classification69-actual-apply-9wr2zuyd/receipt.json",
+      "sha256": "71738603201ae4863b725c2f843f085f2db929ff3dde1ad4fd982292cd5f209d"
+    },
+    {
+      "bytes": 1294888,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/proposed-completion.json",
+      "sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+    },
+    {
+      "bytes": 138535,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/proposed-progress.json",
+      "sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e"
+    },
+    {
+      "bytes": 1640609,
+      "mode": "0400",
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    {
+      "bytes": 1085012,
+      "mode": "0444",
+      "path": "/tmp/ts-data75-d4ac-independent-peer-Do1wRkzl/peer-review.json",
+      "sha256": "a54e54c099ecae201f1028505e7d53d48a443a3a2396117d312f7b0c7ca6133a"
+    },
+    {
+      "bytes": 1958211,
+      "mode": "0444",
+      "path": "/tmp/ts-data75-d4ac-source-classification-y9dqe8af/classification.json",
+      "sha256": "5bd4d6d007d17894ee7f7957086841199e1075455fff49e36ba47399473fdf5f"
+    },
+    {
+      "bytes": 4140297,
+      "mode": "0444",
+      "path": "/tmp/ts-core65-d4ac-source-classification-Yz6avQIW/classification.json",
+      "sha256": "0639658db2c0974d670483f31a4a644f7de32c97f7bb574f08d661975577612f"
+    },
+    {
+      "bytes": 1458917,
+      "mode": "0444",
+      "path": "/tmp/ts-cap57-d4ac-source-classification-r9lqashl/classification.json",
+      "sha256": "e72f6069898051c2a1d22160d476f99583d89c60c936bca66376b1f807e685a0"
+    },
+    {
+      "bytes": 733869,
+      "mode": "0444",
+      "path": "/tmp/ts-mesh55-d4ac-source-classification-pfjjhj7x/classification.json",
+      "sha256": "0bf0127bcc7915a633fe2ca78ab918703408eb69dd4c06dd554b86d3b72d3893"
+    },
+    {
+      "bytes": 852352,
+      "mode": "0444",
+      "path": "/tmp/ts-net48-d4ac-source-classification-k9shja9e/classification.json",
+      "sha256": "c89d6e3558298634ed2f902d0a55fa2d95496e26800be31b283dbf4da3b409e2"
+    },
+    {
+      "bytes": 884164,
+      "mode": "0444",
+      "path": "/tmp/ts-net48-d4ac-independent-peer-z4u7bbzz/review.json",
+      "sha256": "5134c9fb091bf707943dec174a6b16d1416a6246440816201ed601ee048228ce"
+    },
+    {
+      "bytes": 6767,
+      "mode": "0444",
+      "path": "/tmp/ts-net48-d4ac-independent-peer-z4u7bbzz/SHA256SUMS",
+      "sha256": "bc789655721ea9b5686b487aacc619b898f46380fd5a95e4beb79a1ade87eb88"
+    },
+    {
+      "bytes": 7865,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-input-index-draft-hq5q5u_v/input-index.json",
+      "sha256": "bbd6ff0bf09e378fcb869e4474ef47821e04903acb659b12e0ed271a7b0597e2"
+    },
+    {
+      "bytes": 286113,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-input-index-draft-hq5q5u_v/proposed-source-delta-draft.json",
+      "sha256": "a25a3851f9340a5034504a0cf24cf79c9ced9eff1bfbe0e915989a1d8231cf8e"
+    },
+    {
+      "bytes": 4190047,
+      "mode": "0444",
+      "path": "/tmp/ts-core65-d4ac-peer-net-sgmlxjwy/review.json",
+      "sha256": "ab0fc18b3aa358c5ad989ec3fdcf60d73007f11e198bbd147d24e1f58f4d6bcb"
+    },
+    {
+      "bytes": 820976,
+      "mode": "0444",
+      "path": "/tmp/ts-mesh55-d4ac-independent-peer-v7epgz07/review.json",
+      "sha256": "6cf7954430a4add049ee59149825b259e639419d2a3a4bbccb9960cf67636117"
+    },
+    {
+      "bytes": 851348,
+      "mode": "0444",
+      "path": "/tmp/ts-cap57-d4ac-independent-material-wb20g8i_/review.json",
+      "sha256": "c5a83215a0f7e5fae1bd1b5c746290b921d5b38e781162201585115caf263c0b"
+    },
+    {
+      "bytes": 12724,
+      "mode": "0444",
+      "path": "/tmp/ts-data75-d4ac-source-classification-y9dqe8af/SHA256SUMS",
+      "sha256": "4572d328b879440337ebd1e1e8ac0f208eb1a095b5f765a6508c0b6ae47e4c76"
+    },
+    {
+      "bytes": 411,
+      "mode": "0444",
+      "path": "/tmp/ts-core65-d4ac-source-classification-Yz6avQIW/SHA256SUMS",
+      "sha256": "f7703365046eea86107dcda0ec2ecd27f82f07c54324782df4b3b3335d1ec92f"
+    },
+    {
+      "bytes": 246,
+      "mode": "0444",
+      "path": "/tmp/ts-cap57-d4ac-source-classification-r9lqashl/SHA256SUMS",
+      "sha256": "60c93633dfd33c489dcbe0e070d653bd523ded0f929b5135642ef21c96c86453"
+    },
+    {
+      "bytes": 564,
+      "mode": "0444",
+      "path": "/tmp/ts-mesh55-d4ac-source-classification-pfjjhj7x/SHA256SUMS",
+      "sha256": "f98d69253a6bcfedaf04cdb507567ff3322c5e8c7a6a6ed6a1adb7fe564d29b3"
+    },
+    {
+      "bytes": 6514,
+      "mode": "0444",
+      "path": "/tmp/ts-net48-d4ac-source-classification-k9shja9e/SHA256SUMS",
+      "sha256": "300af62e0e6947a3ce4bbfca319c8fc10d0fb5fdede5cef5544cc9452991960c"
+    },
+    {
+      "bytes": 329,
+      "mode": "0444",
+      "path": "/tmp/ts-data75-d4ac-independent-peer-Do1wRkzl/SHA256SUMS",
+      "sha256": "bc97eef26e203a907062e28015aae6a7e326d8419723c4413db93b62fcb496a7"
+    },
+    {
+      "bytes": 14362,
+      "mode": "0444",
+      "path": "/tmp/ts-core65-d4ac-peer-net-sgmlxjwy/SHA256SUMS",
+      "sha256": "1c383a1a73d9e258fd5bee4fb3caab797d3f009e5260a5e7c7b932539418bac4"
+    },
+    {
+      "bytes": 236,
+      "mode": "0444",
+      "path": "/tmp/ts-mesh55-d4ac-independent-peer-v7epgz07/SHA256SUMS",
+      "sha256": "302b2829431b58b23ccbcf50d8ca1bdbbb972ab2df34c64a4579ea38eb3e1783"
+    },
+    {
+      "bytes": 318,
+      "mode": "0444",
+      "path": "/tmp/ts-cap57-d4ac-independent-material-wb20g8i_/SHA256SUMS",
+      "sha256": "4af3c5467732f7de4aad7a2fdaab000a6107ff00ab2d4ab506395e5647b95270"
+    },
+    {
+      "bytes": 5642,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-allocation-proposal-raxuc07l/OUTPUT-CONTRACT.md",
+      "sha256": "83ddfcf95cb31877ab2c40cab8ee8963e7491287e4780f29d9d6fcefabcd852b"
+    }
+  ],
+  "selected_paths": 72,
+  "shared_before_after_hashes": [
+    {
+      "bytes": 1294888,
+      "mode": "0600",
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+    },
+    {
+      "bytes": 138535,
+      "mode": "0644",
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e"
+    }
+  ],
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "strict_json_duplicate_key_and_finite_number_checks": true,
+  "supplied_verifier_executed": false,
+  "verified_roots_tsv": {
+    "bytes": 74207,
+    "mode": "0644",
+    "path": "/tmp/ts-next300-final-delta-independent-storage-review-rilgr3fa/verified-roots.tsv",
+    "sha256": "d58a2e683f6e8a76c08cc12fcf379913352c2e1803df0234e94e6c3352160271"
+  }
+}

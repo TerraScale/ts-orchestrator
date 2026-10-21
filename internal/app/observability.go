@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"os"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,9 +30,10 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
-	"github.com/TerraScale/ts-orchestrator/internal/workload"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 // runtimeObservability is one runtime role's metrics, health, event bus and
@@ -57,7 +57,7 @@ type runtimeObservability struct {
 	// its providers once they exist; they are kept, so a dashboard added
 	// later gets them too.
 	boardsMu     sync.Mutex
-	boards       []*dashboard.Dashboard
+	boards       map[*dashboard.Dashboard]*observability.Server
 	snapshots    observability.SnapshotSource
 	cluster      observability.ClusterSource
 	boardJournal *dashboard.Journal
@@ -73,6 +73,8 @@ type runtimeObservability struct {
 	stopJournal context.CancelFunc
 	// logView is the controller's log summary; the rollup's errors come from it.
 	logView *logs.View
+
+	operationObservations *operationObservationAPI
 }
 
 func (r *runtimeObservability) recordHostLoad(load host.LoadSink, origin hostload.Origin, report hostload.Report, requests map[string]hostload.Request) error {
@@ -103,7 +105,8 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		return nil, err
 	}
 	runtime := &runtimeObservability{config: settings, cell: cfg.NATS.Cell, member: member, role: role,
-		registry: observability.NewRegistry(true), health: new(observability.Health),
+		operationObservations: &operationObservationAPI{cell: cfg.NATS.Cell},
+		registry:              observability.NewRegistry(true), health: new(observability.Health),
 		events: observability.NewEventBus(observability.DefaultEventCapacity)}
 	logger, err := observability.NewLogger(os.Stderr,
 		observability.LogConfig{Format: settings.LogFormat, Level: settings.LogLevel}, runtime.events,
@@ -134,6 +137,7 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		return runtime, nil
 	}
 	runtime.mountUsage(server)
+	runtime.operationObservations.mount(server)
 	// A token-protected listener issues browser sessions; a tokenless
 	// one is loopback only and refuses DNS names against rebinding.
 	board := dashboard.New(dashboard.Options{Health: runtime.health, Events: runtime.events,
@@ -147,7 +151,7 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 	}
 	go watchObservabilityListener(serveErrors)
 	runtime.server = server
-	runtime.addBoard(board)
+	runtime.addBoard(board, server)
 	slog.InfoContext(ctx, "observability listener ready", observability.ComponentKey, "observability",
 		"address", server.Addr().String())
 	return runtime, nil
@@ -183,7 +187,7 @@ type controllerObservation struct {
 	// holds is the placement reconciler's hold log, read by the insights.
 	holds *placementHoldLog
 	// autoscalers is the workload reconciler of the cell spec.
-	autoscalers *workload.Reconciler
+	autoscalers workloadObservation
 	// hostLoad collects resource metrics independently of autoscale policies.
 	hostLoad *hostTelemetry
 	// hosts checks which NKey a node's log windows must come from.
@@ -196,6 +200,8 @@ type controllerObservation struct {
 	cost func(context.Context) *ocicost.View
 	// costRollup is the region's cost for the dashboard rollup, cached.
 	costRollup func() *globalview.Cost
+	inventory  dashboard.InventorySource
+	foundation region.FoundationResolver
 	// rollouts is the rollout store, when the controller runs one. budgets is
 	// the monthly budget insight's source.
 	rollouts *rollout.Store
@@ -210,7 +216,9 @@ type controllerObservation struct {
 	// capacity is the capacity page's source: budget, allowances and planner.
 	capacity dashboard.CapacitySource
 	// scale is the region's node scaling status, nil when the region runs no scaler.
-	scale func() *nodescale.Status
+	scale     func() *nodescale.Status
+	services  func(context.Context) ([]swarmruntime.ServiceObservation, error)
+	functions func(context.Context) ([]globalview.FunctionObservation, error)
 }
 
 // attachController registers controller metrics, readiness checks and the
@@ -332,18 +340,21 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 // mountJournalAPI serves the journal, history, insights, summary and region
 // providers as JSON on the authenticated private listener.
 func mountJournalAPI(server *observability.Server, providers journalProviders) {
+	mountFoundationObservation(server, providers.Foundation)
 	decisions := decisionlog.Handler(providers.Decisions)
 	server.Handle("GET /v1/decisions", decisions)
 	server.Handle("GET /v1/decisions/{id}", decisions)
-	history := observability.HistoryHandler(providers.History)
-	server.Handle("GET /v1/history", history)
-	server.Handle("GET /v1/history/metrics", history)
+	server.HandleMetricHistory(providers.History)
 	insightAPI := insights.Handler(providers.Insights, providers.Summarizer)
 	server.Handle("GET /v1/insights", insightAPI)
 	server.Handle("GET /v1/summary", insightAPI)
 	regions := globalview.Handler(providers.Global)
 	server.Handle("GET /v1/regions", regions)
 	server.Handle("GET /v1/regions/{region}", regions)
+	for _, resource := range []string{"nodes", "nodes/{node}", "nodes/{node}/services", "nodes/{node}/services/{service}", "volumes", "volumes/{volume}",
+		"services", "services/{service}", "functions", "functions/{tenant}/{function}"} {
+		server.Handle("GET /v1/regions/{region}/"+resource, regions)
+	}
 }
 
 // attachHost registers host readiness and the snapshot provider. Hosts do
@@ -379,21 +390,26 @@ func (runtime *runtimeObservability) attachBoards(record func()) {
 	runtime.boardsMu.Lock()
 	defer runtime.boardsMu.Unlock()
 	record()
-	for _, board := range runtime.boards {
+	for board := range runtime.boards {
 		runtime.provide(board)
 	}
 }
 
 // addBoard serves the attached providers on another dashboard.
-func (runtime *runtimeObservability) addBoard(board *dashboard.Dashboard) {
-	runtime.attachBoards(func() { runtime.boards = append(runtime.boards, board) })
+func (runtime *runtimeObservability) addBoard(board *dashboard.Dashboard, server *observability.Server) {
+	runtime.attachBoards(func() {
+		if runtime.boards == nil {
+			runtime.boards = make(map[*dashboard.Dashboard]*observability.Server)
+		}
+		runtime.boards[board] = server
+	})
 }
 
 // removeBoard stops feeding a dashboard whose listener closed.
 func (runtime *runtimeObservability) removeBoard(board *dashboard.Dashboard) {
 	runtime.boardsMu.Lock()
 	defer runtime.boardsMu.Unlock()
-	runtime.boards = slices.DeleteFunc(runtime.boards, func(candidate *dashboard.Dashboard) bool { return candidate == board })
+	delete(runtime.boards, board)
 }
 
 func (runtime *runtimeObservability) provide(board *dashboard.Dashboard) {
@@ -404,7 +420,12 @@ func (runtime *runtimeObservability) provide(board *dashboard.Dashboard) {
 		board.SetCluster(runtime.cluster)
 	}
 	if runtime.boardJournal != nil {
-		board.SetJournal(*runtime.boardJournal)
+		journal := *runtime.boardJournal
+		if server := runtime.boards[board]; server != nil {
+			server.HandleMetricHistory(journal.History)
+			journal.Metrics = server.MetricCatalog()
+		}
+		board.SetJournal(journal)
 	}
 }
 

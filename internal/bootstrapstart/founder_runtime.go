@@ -316,14 +316,14 @@ func (caller founderCaller) fresh(ctx context.Context, slot string) (founderSnap
 		return founderSnapshot{}, ErrFounderRuntime
 	}
 	snapshot := founderSnapshot{selected: selected, ledger: ledger, recovery: recovery, now: now}
-	manifest, err := verifiedFounderManifest(selected, slot, caller.roots, now)
+	manifest, err := verifiedFounderManifestContext(ctx, selected, slot, caller.roots, now)
 	if err != nil {
 		return founderSnapshot{}, err
 	}
 	if _, err := founderProofIssuedAt(snapshot, selected.ManifestWires[slot], manifest); err != nil {
 		return founderSnapshot{}, err
 	}
-	keys, err := caller.signers.Load(selected, caller.accepted, caller.roots, now)
+	keys, err := caller.signers.LoadContext(ctx, selected, caller.accepted, caller.roots, now)
 	if err != nil {
 		return founderSnapshot{}, err
 	}
@@ -335,7 +335,7 @@ func (caller founderCaller) fresh(ctx context.Context, slot string) (founderSnap
 	if now.IsZero() || !now.Before(selected.SelectionExpiresAt) || !now.Before(selected.Anchor.ExpiresAt()) {
 		return founderSnapshot{}, ErrFounderRuntime
 	}
-	peer, err := selected.Plan.AuthorizePeerRecovery(slot, recovery, caller.roots, now, selected.SelectionExpiresAt,
+	peer, err := selected.Plan.AuthorizeFounderPeerRecovery(ctx, slot, recovery, caller.roots, now, selected.SelectionExpiresAt,
 		trust.Policy{MaxLifetime: 24 * time.Hour, ClockSkew: bootstrap.ManifestClockSkew})
 	if err != nil || !now.Before(peer.EffectDeadline()) {
 		return founderSnapshot{}, ErrFounderRuntime
@@ -461,7 +461,7 @@ func (caller founderCaller) reservePeer(ctx context.Context, snapshot founderSna
 	}
 	now := clock().UTC().Truncate(time.Second)
 	selected := snapshot.selected
-	keys, err := caller.signers.Load(selected, caller.accepted, caller.roots, now)
+	keys, err := caller.signers.LoadContext(ctx, selected, caller.accepted, caller.roots, now)
 	if err != nil {
 		return err
 	}
@@ -519,12 +519,12 @@ func (caller founderCaller) pinCandidate(ctx context.Context, snapshot founderSn
 		snapshot.recovery.Phase() != bootstrap.ManagedPeerRecoveryManifestOnly {
 		return ErrFounderRuntime
 	}
-	keys, err := caller.signers.Load(snapshot.selected, caller.accepted, caller.roots, snapshot.now)
+	keys, err := caller.signers.LoadContext(ctx, snapshot.selected, caller.accepted, caller.roots, snapshot.now)
 	if err != nil {
 		return err
 	}
 	defer keys.Close()
-	manifest, err := verifiedFounderManifest(snapshot.selected, slot, caller.roots, snapshot.now)
+	manifest, err := verifiedFounderManifestContext(ctx, snapshot.selected, slot, caller.roots, snapshot.now)
 	if err != nil {
 		return err
 	}
@@ -625,12 +625,12 @@ func (caller founderCaller) completePeerOnce(ctx context.Context, slot string, o
 	if !resultReady && !observed.fresh() {
 		return errFounderObservationStale
 	}
-	keys, err := caller.signers.Load(snapshot.selected, caller.accepted, caller.roots, snapshot.now)
+	keys, err := caller.signers.LoadContext(ctx, snapshot.selected, caller.accepted, caller.roots, snapshot.now)
 	if err != nil {
 		return err
 	}
 	defer keys.Close()
-	manifest, err := verifiedFounderManifest(snapshot.selected, slot, caller.roots, snapshot.now)
+	manifest, err := verifiedFounderManifestContext(ctx, snapshot.selected, slot, caller.roots, snapshot.now)
 	if err != nil {
 		return err
 	}
@@ -725,9 +725,16 @@ func (caller founderCaller) completePeerOnce(ctx context.Context, slot string, o
 	return nil
 }
 
-func founderProofExpiry(snapshot founderSnapshot, manifest bootstrap.VerifiedManifest) (time.Time, error) {
+func founderProofExpiry(snapshot founderSnapshot, manifest bootstrap.StartupAuthority) (time.Time, error) {
 	expiresAt := earliestFounderTime(snapshot.now.Add(5*time.Minute), snapshot.peer.EffectDeadline(),
 		snapshot.selected.SelectionExpiresAt)
+	if derived, ok := manifest.(bootstrap.DerivedStartupAuthority); ok {
+		expiresAt = earliestFounderTime(expiresAt, derived.ExpiresAt())
+		if !expiresAt.After(snapshot.now) {
+			return time.Time{}, ErrFounderRuntime
+		}
+		return expiresAt, nil
+	}
 	ledgerGrant, err := trust.DecodeEnvelope(snapshot.selected.Anchor.Anchor().LedgerDelegationWire)
 	if err != nil {
 		return time.Time{}, err
@@ -744,7 +751,7 @@ func founderProofExpiry(snapshot founderSnapshot, manifest bootstrap.VerifiedMan
 }
 
 func founderProofIssuedAt(snapshot founderSnapshot, manifestWire []byte,
-	manifest bootstrap.VerifiedManifest,
+	manifest bootstrap.StartupAuthority,
 ) (time.Time, error) {
 	issuedAt := snapshot.recovery.ServerDate()
 	if err := validateFounderProofIssuedAt(snapshot, manifestWire, manifest, issuedAt); err != nil {
@@ -754,7 +761,7 @@ func founderProofIssuedAt(snapshot founderSnapshot, manifestWire []byte,
 }
 
 func validateFounderProofIssuedAt(snapshot founderSnapshot, manifestWire []byte,
-	manifest bootstrap.VerifiedManifest, issuedAt time.Time,
+	manifest bootstrap.StartupAuthority, issuedAt time.Time,
 ) error {
 	if issuedAt.IsZero() || issuedAt.Location() != time.UTC ||
 		issuedAt.Before(snapshot.selected.Anchor.IssuedAt()) {
@@ -763,6 +770,12 @@ func validateFounderProofIssuedAt(snapshot founderSnapshot, manifestWire []byte,
 	manifestEnvelope, err := trust.DecodeEnvelope(manifestWire)
 	if err != nil {
 		return err
+	}
+	if derived, ok := manifest.(bootstrap.DerivedStartupAuthority); ok {
+		if issuedAt.Before(derived.IssuedAt()) || issuedAt.Before(manifestEnvelope.IssuedAt) {
+			return ErrFounderRuntime
+		}
+		return nil
 	}
 	ledgerGrant, err := trust.DecodeEnvelope(snapshot.selected.Anchor.Anchor().LedgerDelegationWire)
 	if err != nil {
@@ -785,7 +798,7 @@ func earliestFounderTime(first time.Time, rest ...time.Time) time.Time {
 	return first
 }
 
-func founderFactsFromObservation(snapshot founderSnapshot, manifest bootstrap.VerifiedManifest,
+func founderFactsFromObservation(snapshot founderSnapshot, manifest bootstrap.StartupAuthority,
 	observed FounderOCIObservation,
 ) (bootstrap.InstanceFacts, error) {
 	if observed.InstanceOCID == "" || observed.InstanceETag == "" {
@@ -795,16 +808,20 @@ func founderFactsFromObservation(snapshot founderSnapshot, manifest bootstrap.Ve
 	if !ok {
 		return bootstrap.InstanceFacts{}, ErrFounderRuntime
 	}
+	identity, _, err := externalSeedIdentity(manifest, snapshot.selected.Anchor)
+	if err != nil {
+		return bootstrap.InstanceFacts{}, err
+	}
 	state := snapshot.recovery.State()
 	return bootstrap.InstanceFacts{DeploymentID: state.Intent.DeploymentID,
-		Environment: state.Intent.Environment, ClusterID: snapshot.selected.Anchor.Anchor().ClusterID,
-		Cell: snapshot.selected.Anchor.Anchor().Cell, OCIRegion: state.Intent.OCIRegion,
+		Environment: state.Intent.Environment, ClusterID: identity.ClusterID,
+		Cell: identity.Cell, OCIRegion: state.Intent.OCIRegion,
 		Role: state.Intent.Role, Slot: state.Intent.Slot, InstanceOCID: observed.InstanceOCID,
 		CompartmentOCID: observed.CompartmentID, ImageOCID: observed.ImageID,
 		CreateKey: state.Intent.CreateKey, IntentSHA256: state.IntentRecord.SHA256, Profile: profile}, nil
 }
 
-func founderFactsFromReceipt(manifest bootstrap.VerifiedManifest, receipt bootstrap.Receipt,
+func founderFactsFromReceipt(manifest bootstrap.StartupAuthority, receipt bootstrap.Receipt,
 ) (bootstrap.InstanceFacts, error) {
 	profile, ok := manifest.Profile(receipt.Slot)
 	if !ok || receipt.ManifestDigest != manifest.Digest() {
@@ -893,13 +910,21 @@ func (keys FounderSigningKeys) signLedgerRecord(value any, domain, deploymentID,
 	return trust.EncodeEnvelope(envelope)
 }
 
-func (keys FounderSigningKeys) signPeerReceipt(manifest bootstrap.VerifiedManifest,
+func (keys FounderSigningKeys) signPeerReceipt(manifest bootstrap.StartupAuthority,
 	facts bootstrap.InstanceFacts, issuedAt, expiresAt time.Time,
 ) ([]byte, error) {
 	if len(keys.peer) != ed25519.PrivateKeySize {
 		return nil, ErrFounderSigner
 	}
-	envelope, err := bootstrap.SignPeerReceipt(manifest, facts, issuedAt, expiresAt, keys.peer)
+	var envelope trust.Envelope
+	var err error
+	if derived, ok := manifest.(bootstrap.DerivedStartupAuthority); ok {
+		envelope, err = bootstrap.SignDerivedReceipt(derived, facts, issuedAt, expiresAt, keys.peer)
+	} else if root, ok := manifest.(bootstrap.VerifiedManifest); ok {
+		envelope, err = bootstrap.SignPeerReceipt(root, facts, issuedAt, expiresAt, keys.peer)
+	} else {
+		return nil, ErrFounderSigner
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -909,7 +934,16 @@ func (keys FounderSigningKeys) signPeerReceipt(manifest bootstrap.VerifiedManife
 func (store FounderSignerStore) Load(current CurrentFounderAuthority, accepted AcceptedInstall,
 	roots trust.Keyring, now time.Time,
 ) (FounderSigningKeys, error) {
-	if accepted.validate() != nil || !current.Plan.IsVerified() || !current.Anchor.IsVerified() ||
+	if current.Derived != nil {
+		if _, err := current.Derived.SeedAuthority().Template().OriginalLaunch(); err == nil {
+			return FounderSigningKeys{}, ErrOriginalStartup
+		}
+	}
+	return store.LoadContext(context.Background(), current, accepted, roots, now)
+}
+
+func (store FounderSignerStore) LoadContext(ctx context.Context, current CurrentFounderAuthority, accepted AcceptedInstall, roots trust.Keyring, now time.Time) (FounderSigningKeys, error) {
+	if accepted.validate() != nil || current.Plan == nil || !current.Plan.IsVerified() || !current.Anchor.IsVerified() ||
 		len(roots) == 0 || now.IsZero() || now.Location() != time.UTC ||
 		!now.Before(current.SelectionExpiresAt) {
 		return FounderSigningKeys{}, ErrFounderSigner
@@ -921,7 +955,7 @@ func (store FounderSignerStore) Load(current CurrentFounderAuthority, accepted A
 		anchor.ClusterID == "" || plan.AnchorSHA256 != current.Anchor.Digest() {
 		return FounderSigningKeys{}, ErrFounderSigner
 	}
-	seed, err := verifiedFounderManifest(current, accepted.Slot, roots, now)
+	seed, err := verifiedFounderManifestContext(ctx, current, accepted.Slot, roots, now)
 	if err != nil || seed.Digest() != accepted.ManifestSHA256 {
 		return FounderSigningKeys{}, fmt.Errorf("%w: selected accepted seed manifest: %v", ErrFounderSigner, err)
 	}
@@ -933,6 +967,9 @@ func (store FounderSignerStore) Load(current CurrentFounderAuthority, accepted A
 	ledgerReference, err := exactSeedSignerReference(manifest, bootstrap.SecretSeedLedgerSigner)
 	if err != nil {
 		return FounderSigningKeys{}, err
+	}
+	if current.Derived != nil {
+		return store.loadDerivedKeys(ctx, *current.Derived, accepted, peerReference, ledgerReference, now)
 	}
 	ledgerGrant, err := current.Anchor.LedgerDelegation()
 	if err != nil {
@@ -1018,22 +1055,41 @@ func (store FounderSignerStore) readKey(fd int, reference bootstrap.SecretRefere
 
 func verifiedFounderManifest(current CurrentFounderAuthority, slot string, roots trust.Keyring,
 	now time.Time,
-) (bootstrap.VerifiedManifest, error) {
+) (bootstrap.StartupAuthority, error) {
+	if current.Derived != nil {
+		if _, err := current.Derived.SeedAuthority().Template().OriginalLaunch(); err == nil {
+			return nil, ErrOriginalStartup
+		}
+	}
+	return verifiedFounderManifestContext(context.Background(), current, slot, roots, now)
+}
+
+func verifiedFounderManifestContext(ctx context.Context, current CurrentFounderAuthority, slot string, roots trust.Keyring, now time.Time) (bootstrap.StartupAuthority, error) {
+	if current.Derived != nil {
+		authority, ok := current.Derived.Authority(slot)
+		if !ok {
+			return nil, ErrFounderSigner
+		}
+		if err := authority.VerifyCurrent(ctx, now); err != nil {
+			return nil, err
+		}
+		return authority, nil
+	}
 	wire := current.ManifestWires[slot]
 	if len(wire) == 0 || !slices.Contains(current.Plan.Plan().ControllerSlots, slot) {
-		return bootstrap.VerifiedManifest{}, ErrFounderSigner
+		return nil, ErrFounderSigner
 	}
 	envelope, err := trust.DecodeEnvelope(wire)
 	if err != nil {
-		return bootstrap.VerifiedManifest{}, err
+		return nil, err
 	}
 	manifest, err := bootstrap.ManifestPayload(envelope.Payload)
 	if err != nil {
-		return bootstrap.VerifiedManifest{}, err
+		return nil, err
 	}
 	expected, err := current.Anchor.ManifestExpectation(slot, manifest.ImageOCID)
 	if err != nil {
-		return bootstrap.VerifiedManifest{}, err
+		return nil, err
 	}
 	return bootstrap.VerifyManifest(envelope, roots, expected, now, bootstrap.ManifestTrustPolicy())
 }

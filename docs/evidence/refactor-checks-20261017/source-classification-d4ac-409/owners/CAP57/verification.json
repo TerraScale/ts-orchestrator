@@ -1,0 +1,27 @@
+{
+  "accounting_promotion_authorized": false,
+  "all_current_and_baseline_raw_declarations_equal": "PASS",
+  "all_input_hashes_reconfirmed": "PASS",
+  "all_source_text_and_citation_bounds_hashes": "PASS",
+  "classification_sha256": "e72f6069898051c2a1d22160d476f99583d89c60c936bca66376b1f807e685a0",
+  "counts": {
+    "integration": 7,
+    "mixed": 3,
+    "unit": 46,
+    "unresolved": 1
+  },
+  "current_file_blob_mode_sha256_bytes": "PASS",
+  "literal_scope_and_exclusion_checks": "PASS",
+  "per_root_assertion_sites_conditions_and_mixed_block_bounds": "PASS",
+  "references_resolve_and_setup_stays_in_actual_package": "PASS",
+  "result": "PASS",
+  "retirement_authorized": false,
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "schema": "CAP57_STATIC_STRUCTURAL_VERIFICATION_V1",
+  "simulation_direct_mismatches_reconfirmed": "PASS",
+  "verified_function_or_type_citations": 343,
+  "verified_original_roots": 57,
+  "verified_source_files": 51,
+  "verified_test_files": 12,
+  "verifier": "same-author separate static verification pass; independent peer acceptance still required"
+}

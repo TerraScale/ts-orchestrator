@@ -78,6 +78,15 @@ func TestConnectedEnrollmentDoesNotReadVaultOrRunUp(t *testing.T) {
 
 func TestSavedIdentityReconnectDoesNotReadSetupKey(t *testing.T) {
 	e := testEnroller(t)
+	e.primaryIP = func(context.Context) (netip.Addr, error) {
+		return netip.Addr{}, errors.New("metadata unavailable")
+	}
+	e.hostname = func() (string, error) {
+		t.Fatal("saved identity reconnect resolved a new peer name")
+		return "", nil
+	}
+	cfg := testConfig()
+	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-1-ctl-1"}
 	connected := false
 	var commands []string
 	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
@@ -89,6 +98,9 @@ func TestSavedIdentityReconnectDoesNotReadSetupKey(t *testing.T) {
 			if slices.Contains(args, "--setup-key-file") || slices.Contains(args, "--setup-key") {
 				t.Fatal("saved identity reconnect should not use a setup key")
 			}
+			if slices.Contains(args, "--hostname") || args[slices.Index(args, "--config")+1] != netbirdConfig || args[slices.Index(args, "--management-url")+1] != cfg.ManagementURL {
+				t.Fatal("saved identity reconnect changed the peer name, identity file or manager")
+			}
 			connected = true
 			return nil, nil
 		}
@@ -97,7 +109,7 @@ func TestSavedIdentityReconnectDoesNotReadSetupKey(t *testing.T) {
 		}
 		return statusJSON("Idle", DefaultManagementURL, false), nil
 	}
-	if err := e.enroll(t.Context(), testConfig()); err != nil {
+	if err := e.enroll(t.Context(), cfg); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(commands, "up") || slices.Contains(commands, "down") {
@@ -566,18 +578,35 @@ func TestFirstRegistrationUsesStableSlotPeerName(t *testing.T) {
 }
 
 func TestPeerNameMetadataFailureDoesNotConsumeSetupKey(t *testing.T) {
-	e := testEnroller(t)
-	e.primaryIP = func(context.Context) (netip.Addr, error) { return netip.Addr{}, errors.New("metadata unavailable") }
-	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
-		if args[0] != "status" {
-			t.Fatalf("unexpected command %v", args)
-		}
-		return statusJSON("NeedsLogin", DefaultManagementURL, false), nil
-	}
-	cfg := testConfig()
-	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-1-ctl-1"}
-	if err := e.enroll(t.Context(), cfg); err == nil || !strings.Contains(err.Error(), "primary private IPv4") {
-		t.Fatalf("enrollment without the slot address registered a peer: %v", err)
+	for _, initial := range []string{"NeedsLogin", "Idle"} {
+		t.Run(initial, func(t *testing.T) {
+			e := testEnroller(t)
+			e.primaryIP = func(context.Context) (netip.Addr, error) { return netip.Addr{}, errors.New("metadata unavailable") }
+			state := initial
+			up := 0
+			e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+				if args[0] == "up" && initial == "Idle" && up == 0 {
+					if slices.Contains(args, "--hostname") || slices.Contains(args, "--setup-key-file") || slices.Contains(args, "--setup-key") {
+						t.Fatal("saved identity probe supplied fresh login material")
+					}
+					up++
+					state = "NeedsLogin"
+					return nil, nil
+				}
+				if args[0] != "status" {
+					t.Fatalf("unexpected command %v", args)
+				}
+				return statusJSON(state, DefaultManagementURL, false), nil
+			}
+			cfg := testConfig()
+			cfg.PeerNames = map[string]string{"10.251.0.11": "gru-1-ctl-1"}
+			if err := e.enroll(t.Context(), cfg); err == nil || !strings.Contains(err.Error(), "primary private IPv4") {
+				t.Fatalf("enrollment without the slot address registered a peer: %v", err)
+			}
+			if initial == "Idle" && up != 1 {
+				t.Fatal("did not attempt saved identity reconnect before requesting a fresh name")
+			}
+		})
 	}
 }
 

@@ -32,6 +32,11 @@ func (c *Controller) serveCycle(ctx context.Context, req request, r Registration
 	if !slices.Contains(r.Roles, query.Role) || validateDigest(query.Digest) != nil || query.Generation == 0 || query.AuthorityEpoch == 0 || !entityid.Valid(query.Attempt) {
 		return nil, errors.New("invalid cycle query")
 	}
+	if query.CycleID == "" {
+		if err := c.guardNativeOwner(ctx, r.Environment, query.Role); err != nil {
+			return nil, err
+		}
+	}
 	var desired Desired
 	if query.CycleID == "" {
 		var exists bool
@@ -42,6 +47,15 @@ func (c *Controller) serveCycle(ctx context.Context, req request, r Registration
 		}
 		if !exists || desired.Withdrawn || desired.Generation != query.Generation || desired.AuthorityEpoch != query.AuthorityEpoch || desired.Digest != query.Digest {
 			return nil, errors.New("cycle target is no longer desired")
+		}
+	}
+	if query.CycleID == "" && desired.ManagedMember != nil {
+		owner, _, err := ReadManagedRuntimeOwner(ctx, c.mutations, c.cell, desired.ManagedMember.VolumeID)
+		if err != nil {
+			return nil, err
+		}
+		if owner.Phase != "native" || !sameJSON(owner.Native.Desired, desired) {
+			return nil, ErrManagedNativeFenced
 		}
 	}
 	key := cycleKey(c.cell, req.Node, query.Role)
@@ -172,6 +186,9 @@ func (c *Controller) storeReport(ctx context.Context, req request, r Registratio
 		return nil, errors.New("report target is not current")
 	}
 	if err := validateManagedReportForDesired(report, desired); err != nil {
+		return nil, err
+	}
+	if err := c.retainManagedNativeWriter(ctx, req, r, report, desired); err != nil {
 		return nil, err
 	}
 	key := reportKey(c.cell, req.Node, report.Role)

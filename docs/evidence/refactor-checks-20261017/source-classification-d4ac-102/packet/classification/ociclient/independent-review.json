@@ -1,0 +1,295 @@
+{
+  "reviewer": "/root/qa_integrator/artifact_tests",
+  "reviewed_at": "2026-10-17T14:22:02.214389+00:00",
+  "scope": "Independent immutable source classification review only for literal14 baseline internal/ociclient test roots. No Go, build, formatter, compiler, tests, race detector, runner, native, VM, broker or cloud execution; no source/Git or canonical ledger mutation. Only this fresh external review artifact written.",
+  "verdict": "ACCEPTED_SOURCE_CLASSIFICATION_OF_NINE_RETAINED_ROOTS_ONLY",
+  "findings": [],
+  "source_identity": {
+    "head": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+    "baseline": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+    "method": "Read exact Git blobs; no assumption about moving canonical workspace HEAD."
+  },
+  "packet": {
+    "path": "/tmp/ts-ociclient-d4ac-source-classification-1p515gvv/classification.json",
+    "sha256": "a86ce342d55f0f52ce3a1a220df68a594349388bebd40a0c08163221f2476ee5",
+    "SHA256SUMS_path": "/tmp/ts-ociclient-d4ac-source-classification-1p515gvv/SHA256SUMS",
+    "SHA256SUMS_sha256": "9a1b860fe918a3ac4cfb305b7ee17c824a4177ae2463068179fa8f08f5fa52f5",
+    "README_and_classification_checksums_verified": true,
+    "packet_modes": "classification/README/SHA256SUMS0400; containing directory0500"
+  },
+  "verified_counts": {
+    "baseline_test_roots": 14,
+    "accepted_inventory_test_rows": 14,
+    "accepted_inventory_helpers_separately_excluded": 4,
+    "retained_exact": 9,
+    "source_integration": 6,
+    "source_unit": 3,
+    "source_mixed": 0,
+    "source_unresolved": 0,
+    "prior_retirement_dispositions": 5,
+    "all_source_pins_verified": 16,
+    "baseline_declaration_hashes_verified": 14,
+    "retained_declaration_hashes_verified": 9,
+    "replacement_declaration_hashes_verified": 5,
+    "retained_assertion_line_call_sites_verified": 67
+  },
+  "hash_convention": "Function declaration starting at func and ending at closing brace, excluding trailing newline. Initial line-inclusive extraction including newline differs by convention; after using the inventory convention all28 declarations match exactly. This is not a source discrepancy.",
+  "inventory": {
+    "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+    "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "all14_packet_rows_match_all_accepted_test_fields": true,
+    "accepted_provenance_hash_checks": {
+      "accepted_summary": {
+        "actual": "412739d864b576636eede4d653dce4dcfcd523930690491a6c70332b6c0ce656",
+        "expected": "412739d864b576636eede4d653dce4dcfcd523930690491a6c70332b6c0ce656"
+      },
+      "accepted_sums": {
+        "actual": "2a8a34d73a5d4cdc7250d15c0ae441cc5ea34a649d9f00cba0edd668e801413e",
+        "expected": "2a8a34d73a5d4cdc7250d15c0ae441cc5ea34a649d9f00cba0edd668e801413e"
+      }
+    },
+    "actual_baseline_root_set_equals_packet": true,
+    "five_retired_original_roots_absent_from_d4ac_package": true,
+    "current_package_contains14_test_roots": "9 retained originals plus5 replacement roots; replacements are not added original roots."
+  },
+  "criteria_adjudication": {
+    "integration": "A root has meaningful result/effect assertions relying on production composition across real local HTTP/TCP/SDK dispatch. A simulated remote service is explicitly allowed for source classification; genuine live/provider authority is not inferred. Supporting pointer assertions or an expected pre-dispatch denial do not erase its real integrated flow.",
+    "unit": "Response values or credential constructor are fabricated/replaced, with no service HTTP dispatch required by the assertions. These unit tests retain their safety obligations and no deletion/rewrite is authorized.",
+    "mixed": "No retained root has independent unit-only and integration responsibilities of comparable scope under the packet definition.",
+    "filename_rule": "Classification assigned from each body, setup, producer and assertions. factory_test.go/ociclient_test.go include actual HTTP integration roots; identity_integration_test.go uses an explicitly stubbed authority guard."
+  },
+  "retained_source_classifications": [
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "root": "TestFactoryObjectStorageRecordsHTTPAttempts",
+      "category": "integration",
+      "baseline_declaration_sha256": "13064a19e592f7ef6451579a9c6c054de443c52511bbfe628eecae4d8be5e6be",
+      "current_declaration_sha256": "13064a19e592f7ef6451579a9c6c054de443c52511bbfe628eecae4d8be5e6be",
+      "body_exact": true,
+      "connected_source_reason": "Actual Factory ObjectStorage SDK HeadObject crosses localhost TCP HTTP. Server produces ETag and success/throttle/disconnect outcomes; original assertions verify SDK ETag, attempts, metrics deltas/durations and no secret names in labels.",
+      "qualification_limits": "Ephemeral RSA raw provider and simulated HTTP responses; no TLS, production IAM, live OCI or original-birth authority.",
+      "original_safety_obligations": "Keep retry counts, error/throttling accounting and secret-free bounded metric labels. Local HTTP integration does not establish TLS trust, IAM or a live OCI service.",
+      "assertion_sites_verified": 8
+    },
+    {
+      "path": "internal/ociclient/identity_integration_test.go",
+      "root": "TestAuthorityFencesSDKMutationRetries",
+      "category": "integration",
+      "baseline_declaration_sha256": "0ac27533f435d7512692a25a585477e0772148303d0856dac6e35e35cf59ee2e",
+      "current_declaration_sha256": "0ac27533f435d7512692a25a585477e0772148303d0856dac6e35e35cf59ee2e",
+      "body_exact": true,
+      "connected_source_reason": "Actual regional Network SDK CreateVcn crosses local HTTP once with signing header and durable retry token. The HTTP failure flips lost; production Configure interceptor invokes WithAuthority guard before retry and assertions require denial/no second wire attempt. Provider/sibling/limiter identity checks support this same flow.",
+      "qualification_limits": "Authority callback is a local atomic stub; not a genuine controller authority service, durable lineage, real transfer or native execution proof. Client overwrites dispatcher with httptest Client; interceptor/retry behavior remains under test.",
+      "original_safety_obligations": "Keep authenticated identity, durable token and per-attempt mutation fencing. This root does not prove genuine authority transfer, controller/provider lineage, durable journal or live regional acceptance.",
+      "assertion_sites_verified": 7
+    },
+    {
+      "path": "internal/ociclient/instance_principal_test.go",
+      "root": "TestInstancePrincipalSerializesFetchesButNotCachedRegions",
+      "category": "unit",
+      "baseline_declaration_sha256": "694a4863fd59bee4cb395adc8a7b65b31aba4353139a542013a0c7eadaccf1d9",
+      "current_declaration_sha256": "694a4863fd59bee4cb395adc8a7b65b31aba4353139a542013a0c7eadaccf1d9",
+      "body_exact": true,
+      "connected_source_reason": "Production cache and constructor mutexes run, but the credential constructor is replaced by an in-memory blocking closure. Assertions check cached-region responsiveness and concurrent creators selecting one Factory.",
+      "qualification_limits": "No actual IMDS or credential HTTP dispatch. Synthetic shared variable permits race detection in a separate run; no race execution claimed here.",
+      "original_safety_obligations": "Keep constructor serialization, cache nonblocking behavior and concurrent identity convergence. Real IMDS credential acquisition and SDK constructor global-state behavior are not exercised; race detection has not run here.",
+      "assertion_sites_verified": 5
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "root": "TestShouldRetryNeverReplaysUnsafeMutations",
+      "category": "unit",
+      "baseline_declaration_sha256": "2239ed5d381c9bbd171e3b5df1046bc389e3463846bc4906dc4169e3bebc5c9a",
+      "current_declaration_sha256": "2239ed5d381c9bbd171e3b5df1046bc389e3463846bc4906dc4169e3bebc5c9a",
+      "body_exact": true,
+      "connected_source_reason": "attempt helper fabricates requests/responses and fake service errors. Thirteen table rows and explicit edge predicates directly call ShouldRetry/IdempotentPutRetryPolicy.",
+      "qualification_limits": "No real dispatch, SDK retry loop, persisted ambiguous-write recovery or provider acceptance.",
+      "original_safety_obligations": "Keep unsafe-mutation nonreplay and token-bound retry decisions. Fabricated response tests do not prove request recovery from actual transport errors or SDK retry dispatch.",
+      "assertion_sites_verified": 6
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "root": "TestBackoffIsExponentialJitteredAndHonorsRetryAfter",
+      "category": "unit",
+      "baseline_declaration_sha256": "ad89d19d7e9ab05a80b587a44fd8734cefcf10764ee1f4e66ca4831576452158",
+      "current_declaration_sha256": "ad89d19d7e9ab05a80b587a44fd8734cefcf10764ee1f4e66ca4831576452158",
+      "body_exact": true,
+      "connected_source_reason": "Synthetic operation responses and fixed jitter functions drive direct nextDelay arithmetic; assertions cover exponential growth/cap, jitter bounds and Retry-After honoring/capping.",
+      "qualification_limits": "No SDK timer wait, HTTP boundary, goroutine joining or cancellation timing.",
+      "original_safety_obligations": "Keep bounded exponential jitter and Retry-After cap. This arithmetic root does not prove SDK sleep cancellation, joined goroutines or elapsed HTTP timing.",
+      "assertion_sites_verified": 5
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "root": "TestConfiguredClientSharesLimiterAndRetriesThrottling",
+      "category": "integration",
+      "baseline_declaration_sha256": "d31945736abe6aec38683a5eada0e603384bd8a56d000c8a9f354c0b0be4a102",
+      "current_declaration_sha256": "d31945736abe6aec38683a5eada0e603384bd8a56d000c8a9f354c0b0be4a102",
+      "body_exact": true,
+      "connected_source_reason": "Real Compute GetInstance SDK uses configured retry/limiter around localhost HTTP: two429s then decoded RUNNING, exactly3 attempts. Second exhausted limiter denies before dispatch/deadline; shared pointer checks support the same admission behavior.",
+      "qualification_limits": "HTTPClient is replaced with httptest Client: this does not establish installed dispatcher cancellation/instrumentation behavior; no TLS/IAM/live OCI proof.",
+      "original_safety_obligations": "Keep rate admission before dispatch, shared service limiter and bounded throttling retry. Test replaces client HTTPClient with server.Client, so it does not establish installed cancellation/instrumentation wrapper behavior; no live OCI/TLS/IAM claim.",
+      "assertion_sites_verified": 9
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "root": "TestTransportFailuresRetryReadsOnly",
+      "category": "integration",
+      "baseline_declaration_sha256": "1ce50692c500b0b6c66899746c683f178f63848a2d2a3d8324308724f4b422f8",
+      "current_declaration_sha256": "1ce50692c500b0b6c66899746c683f178f63848a2d2a3d8324308724f4b422f8",
+      "body_exact": true,
+      "connected_source_reason": "Real Compute SDK GET/PUT crosses local HTTP where server hijacks and closes TCP. GET succeeds after three attempts; subsequent untokened PUT returns error after exactly one accepted request.",
+      "qualification_limits": "Actual socket failure but no evidence provider applied a mutation or production recovery persisted its ambiguous outcome.",
+      "original_safety_obligations": "Keep read retry and no replay of an ambiguous untokened PUT. Socket closure is real; provider-side mutation application, live OCI and durable recovery remain outside this root.",
+      "assertion_sites_verified": 5
+    },
+    {
+      "path": "internal/ociclient/retry_integration_test.go",
+      "root": "TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline",
+      "category": "integration",
+      "baseline_declaration_sha256": "414f9e41fb081d39ed286634c24be2e80287c439b2a9251d7ce60d07e400b9c6",
+      "current_declaration_sha256": "414f9e41fb081d39ed286634c24be2e80287c439b2a9251d7ce60d07e400b9c6",
+      "body_exact": true,
+      "connected_source_reason": "Real ObjectStorage SDK + production RequestContext/ReadContext/dispatcher and cancellation-aware backoff cross localhost HTTP. inflight/backoff/transport subcases assert DeadlineExceeded, prompt return, one attempt, in-flight wire cancellation, then healthy body read.",
+      "qualification_limits": "Local HTTP/service double; does not qualify live TLS/OCI or prove every resource leak absent. No runtime here.",
+      "original_safety_obligations": "Keep joined SDK work, HTTP deadline propagation, cancellable backoff, one attempt after cancellation and healthy client reuse. Local HTTP does not qualify production TLS/OCI or all goroutine/resource leaks.",
+      "assertion_sites_verified": 9
+    },
+    {
+      "path": "internal/ociclient/retry_integration_test.go",
+      "root": "TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite",
+      "category": "integration",
+      "baseline_declaration_sha256": "31b9c4a1127f5aaa7ad4a3e025b487007b41049b82235b47f5bb7f748011e4d1",
+      "current_declaration_sha256": "31b9c4a1127f5aaa7ad4a3e025b487007b41049b82235b47f5bb7f748011e4d1",
+      "body_exact": true,
+      "connected_source_reason": "Real conditional SDK PUT sends retained bytes over localhost HTTP; server records body and waits for wire cancellation. Assertions require context.Canceled, dispatcher completion before return, wire cancellation, healthy follow-up and one write.",
+      "qualification_limits": "accepted channel is server fixture evidence, not persistent production storage or process-restart recovery; no live mutation proof.",
+      "original_safety_obligations": "Keep conditional write, accepted bytes, joined dispatch, cancellation and no ambiguous replay. accepted channel is a test-server record, not persisted production storage or process-restart recovery.",
+      "assertion_sites_verified": 13
+    }
+  ],
+  "prior_retirement_dispositions": [
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "root": "TestOperationTemplateRemovesIdentifiers",
+      "disposition": "PRIOR_QUALIFIED_RETIRED_IN_ACCEPTED_INVENTORY_PRESERVED_ONLY",
+      "original_absent": true,
+      "baseline_declaration_sha256": "dada7d611e6d4130dc8114ea897b2109cec8679360c995f73ab8474a5a7d206d",
+      "original_source_category": "unit",
+      "replacement": {
+        "file": "internal/ociclient/operation_template_integration_test.go",
+        "function": "TestOperationTemplateThroughVerifiedTLSHTTP",
+        "line": 18,
+        "end_line": 98,
+        "blob": "e841136615abaca84c51891840735ed92e1b65fd",
+        "declaration_sha256": "b8141c29aba720b39163b4c79fe1e1564fa612001b1394e7cfa00f7e5eff8862",
+        "scope": "connected source read; existing qualified-retired inventory state preserved, not requalified or newly credited"
+      },
+      "safety_obligations_retained": "Keep identifier/query redaction and13 route templates through actual verified-TLS dispatch and metrics assertions.",
+      "new_retirement_credit": 0
+    },
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "root": "TestInstrumentedDispatcherRecordsCallsErrorsAndThrottling",
+      "disposition": "PRIOR_QUALIFIED_RETIRED_IN_ACCEPTED_INVENTORY_PRESERVED_ONLY",
+      "original_absent": true,
+      "baseline_declaration_sha256": "4183f3b342ec174ad79ccef2ed45c117d3eec5ea90185904afb3980c2a902eb0",
+      "original_source_category": "unit",
+      "replacement": {
+        "file": "internal/ociclient/factory_test.go",
+        "function": "TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling",
+        "line": 117,
+        "end_line": 224,
+        "blob": "d0b91273d6a8b61cccb4db81b2cdf11bdfd55317",
+        "declaration_sha256": "22e69703e18e9ae2c812a3c6cc98f654a10620042e1d7ecce373606bb349a823",
+        "scope": "connected source read; existing qualified-retired inventory state preserved, not requalified or newly credited"
+      },
+      "safety_obligations_retained": "Keep exact3calls/2errors/1throttle,0.75s/0.25s clock accounting and no OCID metric leakage through real SDK/HTTP.",
+      "new_retirement_credit": 0
+    },
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "root": "TestOperationCardinalityIsBounded",
+      "disposition": "PRIOR_QUALIFIED_RETIRED_IN_ACCEPTED_INVENTORY_PRESERVED_ONLY",
+      "original_absent": true,
+      "baseline_declaration_sha256": "467cc1b629bdb3997c1a565e747fd04304d4f7a8c07082df07e1dd65c6a22c26",
+      "original_source_category": "unit",
+      "replacement": {
+        "file": "internal/ociclient/factory_boundary_integration_test.go",
+        "function": "TestOperationCardinalityThroughVerifiedTLSHTTP",
+        "line": 26,
+        "end_line": 90,
+        "blob": "08fd460f5ff45f97c5f12003ce4a341d6c367070",
+        "declaration_sha256": "72b14e03a88b89fbe062c4cb3f2a8d507d50428afcbe7ff3110cb485552530bd",
+        "scope": "connected source read; existing qualified-retired inventory state preserved, not requalified or newly credited"
+      },
+      "safety_obligations_retained": "Keep64 named metric operations plus overflow bucket, all74 wire attempts and matching Prometheus counts.",
+      "new_retirement_credit": 0
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "root": "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+      "disposition": "PRIOR_QUALIFIED_RETIRED_IN_ACCEPTED_INVENTORY_PRESERVED_ONLY",
+      "original_absent": true,
+      "baseline_declaration_sha256": "825570b80de40bebc0de8796e830e63328c3f8bf5dfb70a5e24bae3c39007744",
+      "original_source_category": "unit",
+      "replacement": {
+        "file": "internal/ociclient/factory_boundary_integration_test.go",
+        "function": "TestFactoryAdmissionThroughSignedSDKHTTP",
+        "line": 92,
+        "end_line": 147,
+        "blob": "08fd460f5ff45f97c5f12003ce4a341d6c367070",
+        "declaration_sha256": "c8107c7dfd5f9d470c51389ae1b801aff37a367c4b46874ee46f5a5c858ce78e",
+        "scope": "connected source read; existing qualified-retired inventory state preserved, not requalified or newly credited"
+      },
+      "safety_obligations_retained": "Keep all three constructor rejections, no invalid wire dispatch, and successful signed SDK/TLS positive control.",
+      "new_retirement_credit": 0
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "root": "TestTenancyHomeRegionComesFromTheCatalog",
+      "disposition": "PRIOR_QUALIFIED_RETIRED_IN_ACCEPTED_INVENTORY_PRESERVED_ONLY",
+      "original_absent": true,
+      "baseline_declaration_sha256": "593e599c2add12966eb316af56f8754bf0d76524b37792afb1a9adad0a261716",
+      "original_source_category": "unit",
+      "replacement": {
+        "file": "internal/ociclient/factory_boundary_integration_test.go",
+        "function": "TestTenancyHomeRegionThroughSignedSDKHTTP",
+        "line": 149,
+        "end_line": 217,
+        "blob": "08fd460f5ff45f97c5f12003ce4a341d6c367070",
+        "declaration_sha256": "f3083740e10623544d7d46d6af336bdcb98108fc9ed6fb41aa9f102110ad5d1c",
+        "scope": "connected source read; existing qualified-retired inventory state preserved, not requalified or newly credited"
+      },
+      "safety_obligations_retained": "Keep catalog key mapping and unknown/missing rejection on actual Identity SDK-decoded fields. Replacement calls Identity.GetTenancy plus TenancyHomeRegion, not Factory.HomeRegion directly.",
+      "new_retirement_credit": 0
+    }
+  ],
+  "connected_setup_and_production_review": {
+    "setup": [
+      "testProvider/pemKey generate RSA raw ConfigurationProvider; no live credentials.",
+      "attempt/fakeResponse/fakeServiceError synthesize request/status/errors for two predicate/arithmetic unit roots.",
+      "recordedOperation reads actual APIOperations snapshots; cancellationDispatcher delegates real HTTP and records PUT return.",
+      "InstancePrincipal test saves/restores constructor and shared cache; constructor itself is a substituted closure."
+    ],
+    "production": [
+      "Factory.New, InstancePrincipal, InstancePrincipalProvider, ForRegion, Limiter, Configure, Compute, Network, ObjectStorage, Instrument, operation stats/templates.",
+      "WithAuthority stores callback; Configure invokes it for each mutation after rate admission. RequestContext/ReadContext, ConfigureRequestCancellation, readDispatcher, retryDelay, ShouldRetry, response/transport recovery, replayable, nextDelay and retryAfter inspected.",
+      "Representative callers inspected at exact d4ac: oci/sdk.go; bootstrapstart/runtime_iam.go; region/object.go; release/container_family.go; app/automatic_boot.go. These establish production usage, not tests of all caller composition."
+    ],
+    "replacements": [
+      "All five replacement declaration hashes and connected setup read. Template replacement preserves13 exact routes through verified TLS; cardinality preserves64 named+overflow/74 attempts; dispatcher replacement preserves3/2/1 accounting and0.75/0.25 clock values.",
+      "Constructor-admission replacement preserves three rejection obligations with signed SDK/TLS positive control; tenancy replacement decodes SDK fields before catalog mapping and rejects unknown/missing.",
+      "TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling uses local plain HTTP; other linked replacement roots use verified local TLS as their source states. Signature-header presence is not cryptographic signature verification. No replacement was requalified here."
+    ]
+  },
+  "accounting": {
+    "source_classification_adjudication_accepted_roots": 9,
+    "retirement_delta": 0,
+    "runtime_qualification_delta": 0,
+    "canonical_ledger_mutated": false,
+    "global_completion": false,
+    "limits": "Source classification alone does not establish d4ac runtime PASS. All original safety obligations remain. Five retirements are preserved dispositions from accepted inventory, never five new retirements or classification adjudications."
+  }
+}

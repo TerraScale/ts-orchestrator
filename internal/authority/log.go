@@ -162,6 +162,9 @@ func (r *Runtime) CommitHostMutation(
 	expectedSubjectSequence uint64,
 	payload []byte,
 ) (uint64, error) {
+	if kind == MutationUsageObservation || kind == MutationRuntimeOwner || kind == MutationManagedRuntimeOwner {
+		return 0, errors.New("usage observations and runtime ownership require verified host authority")
+	}
 	if err := validateHostMutation(kind, subjectKey, operationID, payload); err != nil {
 		return 0, err
 	}
@@ -180,6 +183,9 @@ func (r *Runtime) CommitHostMutationVerified(
 ) (uint64, error) {
 	if err := validateHostMutation(kind, subjectKey, operationID, payload); err != nil {
 		return 0, err
+	}
+	if kind == MutationManagedRuntimeOwner && (r == nil || !strings.HasPrefix(subjectKey, r.config.Scope+".volume.")) {
+		return 0, errors.New("managed owner key differs from its authority scope")
 	}
 	if verify == nil {
 		return 0, errors.New("verified host mutation requires a verifier")
@@ -258,6 +264,10 @@ func (r *Runtime) commitMutationVerified(
 			return 0, ErrFenced
 		}
 
+		if err := r.guardNativeDesiredOwner(ctx, kind, subjectKey, payload); err != nil {
+			return 0, err
+		}
+
 		existing, err := r.stream.GetLastMsgForSubject(ctx, subject)
 		if errors.Is(err, jetstream.ErrMsgNotFound) {
 			existing = nil
@@ -285,7 +295,8 @@ func (r *Runtime) commitMutationVerified(
 			return 0, ErrConflict
 		}
 		if verify != nil {
-			if err := verify(ctx); err != nil {
+			if err := r.verify(ctx, expectedEpoch, leaseEntry.Sequence, info.State.LastSeq,
+				subject, operationID, leaseEntry.Time.Add(time.Duration(lease.LeaseDuration)), verify); err != nil {
 				return 0, err
 			}
 			if !time.Now().Before(leaseEntry.Time.Add(time.Duration(lease.LeaseDuration))) {
@@ -310,6 +321,9 @@ func (r *Runtime) commitMutationVerified(
 			return ack.Sequence, nil
 		}
 		if isSequenceConflict(err) {
+			if err := r.guardNativeDesiredOwner(ctx, kind, subjectKey, payload); err != nil {
+				return 0, err
+			}
 			latest, readErr := r.stream.GetLastMsgForSubject(ctx, subject)
 			if readErr == nil {
 				prior, decodeErr := decodeControlRecord(latest.Data)
@@ -325,9 +339,44 @@ func (r *Runtime) commitMutationVerified(
 			}
 			continue
 		}
+		if ownerErr := r.guardNativeDesiredOwner(ctx, kind, subjectKey, payload); ownerErr != nil {
+			return 0, ownerErr
+		}
 		return r.resolveUnknownMutation(ctx, subject, kind, subjectKey, operationID, expectedEpoch, payload, err)
 	}
 	return 0, ErrConflict
+}
+
+// The global CAS orders native admission against the permanent runtime fence.
+// Malformed desired payloads cannot acquire execution authority through this path.
+func (r *Runtime) guardNativeDesiredOwner(ctx context.Context, kind HostMutationKind, key string, payload []byte) error {
+	if kind != MutationDesired {
+		return nil
+	}
+	var target struct {
+		Cell        string `json:"cell"`
+		Node        string `json:"node"`
+		Environment string `json:"environment"`
+		Role        string `json:"role"`
+		Withdrawn   bool   `json:"withdrawn"`
+	}
+	if err := json.Unmarshal(payload, &target); err != nil {
+		return err
+	}
+	if target.Withdrawn {
+		return nil
+	}
+	if target.Cell != r.config.Scope || key != target.Cell+"."+target.Node+"."+target.Role || !natsToken.MatchString(target.Environment) {
+		return errors.New("native desired ownership scope is invalid")
+	}
+	_, err := r.stream.GetLastMsgForSubject(ctx, mutationSubject(r.config.Scope, MutationRuntimeOwner, target.Cell+"."+target.Environment+"."+target.Role))
+	if errors.Is(err, jetstream.ErrMsgNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return errors.New("native workload is permanently fenced by container runtime ownership")
 }
 
 // ReadHostMutation reads the current committed host record.
@@ -599,6 +648,9 @@ func (r *Runtime) CommitTerminalIntent(ctx context.Context, epoch uint64, scope 
 	}
 	return r.commitMutationVerified(ctx, epoch, MutationTerminalIntent, subjectKey, operationID,
 		0, payload, func(check context.Context) error {
+			if err := r.requireNoRuntimeEffects(check, scope); err != nil {
+				return err
+			}
 			if err := r.requireNoActiveBackup(check, scope.DatabaseID, scope.PartitionID); err != nil {
 				return err
 			}
@@ -1174,7 +1226,7 @@ func decodeControlRecord(data []byte) (controlRecord, error) {
 }
 
 func validateHostMutation(kind HostMutationKind, subjectKey, operationID string, payload []byte) error {
-	if kind != MutationRegistration && kind != MutationDesired && kind != MutationRetirement {
+	if kind != MutationRegistration && kind != MutationDesired && kind != MutationRetirement && kind != MutationUsageObservation && kind != MutationRuntimeOwner && kind != MutationManagedRuntimeOwner {
 		return errors.New("host mutation kind is not allowed")
 	}
 	return validateMutation(kind, subjectKey, operationID, payload)
@@ -1197,9 +1249,19 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 	parts := strings.Split(subjectKey, ".")
 	want := 0
 	switch kind {
-	case MutationRegistration, MutationRetirement:
+	case MutationRegistration, MutationRetirement, MutationUsageObservation:
 		want = 2
-	case MutationDesired:
+	case MutationDesired, MutationRuntimeOwner:
+		want = 3
+	case MutationManagedRuntimeOwner:
+		if len(parts) != 3 || parts[1] != "volume" || len(parts[2]) != 64 {
+			return errors.New("managed owner key must name one physical volume digest")
+		}
+		for _, digit := range parts[2] {
+			if digit < '0' || digit > '9' && digit < 'a' || digit > 'f' {
+				return errors.New("managed owner volume digest must be lowercase SHA256")
+			}
+		}
 		want = 3
 	case MutationPlacementIntent:
 		want = 2
@@ -1209,13 +1271,17 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 		want = 2
 	case MutationTerminalIntent:
 		want = 2
-	case MutationEnrollmentEffect:
+	case MutationEnrollmentEffect, MutationRuntimeEffect:
 		want = 3
 	case MutationManagedUpdate:
 		want = 4
 	case MutationBackupOperation:
 		want = 2
-	case MutationNetBirdState:
+	case MutationNetBirdState, MutationNetBirdIntent:
+		want = 1
+	case MutationFunctionIntent:
+		want = 2
+	case MutationFunctionGrant:
 		want = 1
 	default:
 		return errors.New("host mutation kind is not allowed")
@@ -1223,7 +1289,10 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 	if len(parts) != want {
 		return errors.New("host mutation subject key has the wrong shape")
 	}
-	for _, part := range parts {
+	for index, part := range parts {
+		if kind == MutationManagedRuntimeOwner && index == 2 {
+			continue
+		}
 		if !natsToken.MatchString(part) && !entityid.Valid(part) {
 			return errors.New("host mutation subject key contains an invalid token")
 		}
@@ -1232,8 +1301,14 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 }
 
 func mutationSubject(scope string, kind HostMutationKind, subjectKey string) string {
+	if kind == MutationFunctionIntent || kind == MutationFunctionGrant {
+		return fmt.Sprintf("%s.%s.function.%s.%s", controlSubjectRoot, scope, kind, subjectKey)
+	}
 	if kind == MutationNetBirdState {
 		return fmt.Sprintf("%s.%s.netbird.%s", controlSubjectRoot, scope, subjectKey)
+	}
+	if kind == MutationNetBirdIntent {
+		return fmt.Sprintf("%s.%s.netbird.intent.%s", controlSubjectRoot, scope, subjectKey)
 	}
 	if kind == MutationPlacementIntent {
 		return fmt.Sprintf("%s.%s.placement.intent.%s", controlSubjectRoot, scope, subjectKey)
@@ -1249,6 +1324,9 @@ func mutationSubject(scope string, kind HostMutationKind, subjectKey string) str
 	}
 	if kind == MutationEnrollmentEffect {
 		return fmt.Sprintf("%s.%s.placement.enrollment.%s", controlSubjectRoot, scope, subjectKey)
+	}
+	if kind == MutationRuntimeEffect {
+		return fmt.Sprintf("%s.%s.placement.runtime.%s", controlSubjectRoot, scope, subjectKey)
 	}
 	if kind == MutationManagedUpdate {
 		return fmt.Sprintf("%s.%s.placement.managed-update.%s", controlSubjectRoot, scope, subjectKey)

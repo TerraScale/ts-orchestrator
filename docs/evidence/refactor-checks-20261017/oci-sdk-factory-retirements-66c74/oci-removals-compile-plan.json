@@ -1,0 +1,43 @@
+{
+  "state": "SOURCE_READY_COMPILE_GRANT_REQUIRED",
+  "head": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+  "tree": "fa1475d043de69482d8a7884d920b134899ff973",
+  "cwd": "/tmp/ts-oci-sdk-volume-retirement",
+  "attempts": 1,
+  "lock": "/tmp/ts-orch-refactor-short-check-a.lock",
+  "lock_mode": "nonblocking-exclusive",
+  "default_vet": true,
+  "default_tags": true,
+  "effective_child_environment": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "argv": [
+    "nice",
+    "-n",
+    "19",
+    "timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "240s",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-c",
+    "-mod=readonly",
+    "-p=1",
+    "-o",
+    "/tmp/ts-oci-sdk-volume-retirement-source-artifact-tests/oci.test",
+    "./internal/oci"
+  ],
+  "binary_mode_after_compile": "0600",
+  "external_binary_never_execute": true,
+  "source_prepost_required": true,
+  "raw_stdout_stderr_exit_time_required": true,
+  "runtime_planned": false,
+  "compile_executed": false,
+  "no_global_count_ledger_or_adoption_updates": true
+}

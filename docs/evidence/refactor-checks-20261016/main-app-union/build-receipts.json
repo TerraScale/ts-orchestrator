@@ -1,0 +1,64 @@
+{
+  "compiled_revision": "99fa294562aeb87929d85e7ece8395379481d03b",
+  "imported_fixture_revision": "1a75a41e63e0bd9c70005042a1b94027e142a422",
+  "checks": [
+    {
+      "check": "app-test-compile",
+      "source_revision": "99fa294562aeb87929d85e7ece8395379481d03b",
+      "result": "pass",
+      "session": 86111,
+      "artifact_local_path": "/tmp/ts-main-union-99fa2945-app.test",
+      "artifact_bytes": 126057840,
+      "artifact_sha256": "3b4acb284e9a801b1be4086590587156d0f0ff371c45307eecc01de0c6300785",
+      "runtime_admission": false
+    },
+    {
+      "check": "static-linux-amd64",
+      "source_revision": "99fa294562aeb87929d85e7ece8395379481d03b",
+      "result": "pass",
+      "session": 30335,
+      "artifact_local_path": "/tmp/ts-main-union-99fa2945-orchestrator",
+      "artifact_bytes": 134421271,
+      "artifact_sha256": "96d0866d5e2ba817daf61d9b4300a2e061a63d2f5b55fdd6cf68152a4894eeb5",
+      "runtime_admission": false
+    },
+    {
+      "check": "static-linux-arm64",
+      "source_revision": "99fa294562aeb87929d85e7ece8395379481d03b",
+      "result": "pass",
+      "session": 47615,
+      "artifact_local_path": "/tmp/ts-main-union-99fa2945-orchestrator-arm64",
+      "artifact_bytes": 122899270,
+      "artifact_sha256": "f0166c571949dd546b989673b25821b01de5264a0133ddc0c18e01c20bf97d2b",
+      "runtime_admission": false
+    }
+  ],
+  "build_environment": {
+    "toolchain": "Go 1.27.1",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "priority": "nice -n 19",
+    "mod": "readonly",
+    "static_flags": [
+      "CGO_ENABLED=0",
+      "-trimpath",
+      "-tags=netgo,osusergo"
+    ]
+  },
+  "release_cli_check": {
+    "source_revision": "99fa294562aeb87929d85e7ece8395379481d03b",
+    "selector": "^TestFinalImageProductionAdmissionBoundary$",
+    "result": "compile-failure-no-tests-ran",
+    "error": "internal/release/cli/container_apply_integration_test.go:70:37: undefined: serviceMigrationFixture"
+  },
+  "publication_boundary": "Feature branch only; current union runtime, native image, cloud and production admission remain unqualified.",
+  "later_fixture_compile": {
+    "revision": "4e5fcb5ca3b9e61dc9f023969aee88095996f2a6",
+    "session": 2274,
+    "exit": 0,
+    "tags": "fixturetest",
+    "binary_local_path": "/tmp/ts-main-union-4e5fcb5c-fixture.test",
+    "binary_sha256": "c729d7545c5b6bbc6193e40ca18f9ddd22e92daecebe74447ecf5a989cc95e7a",
+    "runtime_tests_run": false
+  }
+}

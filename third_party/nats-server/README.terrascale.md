@@ -35,9 +35,18 @@ identity calculation are unchanged in this preparation release, so it can
 roll beside the previous binary. Every controller must deploy preparation
 before a later release consumes explicit IDs and renames its server.
 
+`server/server.go`, `server/client.go` and `server/auth.go` add immutable
+creation-time account and exact user-JWT constraints for in-process client
+connections. Every CONNECT must keep the required account; the exact-JWT API
+also requires the original user claim before native JWT/nonce authentication.
+The public bridge pins its cell account on every CONNECT. These constrained
+connections always use native authentication.
+Root's internal system handles retain the original InProcessConn API.
+
 Compare this directory with the upstream `v2.15.0` Go module archive before
 upgrading. Apart from this README and the TerraScale regression test,
 `server/server.go`, `server/accounts.go`, `server/leafnode.go`,
-`server/route.go` and `server/events.go` are the changed upstream files. An upgrade must pass the route-start, absent-client-listener, bounded
+`server/route.go`, `server/events.go`, `server/client.go` and `server/auth.go`
+are the changed upstream files. An upgrade must pass the route-start, absent-client-listener, bounded
 shutdown, R3 formation, and real JWT bridge caller regressions before replacing
-this pinned copy.
+this pinned copy, including initial and repeated CONNECT identity restrictions.

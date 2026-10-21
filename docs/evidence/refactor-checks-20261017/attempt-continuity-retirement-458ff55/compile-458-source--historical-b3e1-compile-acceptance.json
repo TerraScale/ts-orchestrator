@@ -1,0 +1,153 @@
+{
+  "state": "ACCEPTED_EXACT_B3E1_TRUE_COMPILE_ONLY",
+  "reviewed_at_utc": "2026-10-17T04:49:22.123975+00:00",
+  "method": "Independent retained actual native argument/result objects, manifests/source/tool/asset hashes, ELF metadata, static wrapper and readonly named PID/proc-lock inspection. No Go/runner/binary execution, lock acquisition, source/packet edits, remote calls or agents.",
+  "packet": "/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp",
+  "native_packet": "/tmp/ts-attempt-b3e1-truecompile-native-results-xtmn_ren",
+  "source": {
+    "commit": "b3e1fde77998257aef756bc02310019aa173a522",
+    "tree": "1a6313d43566e860fc317749c3279bddb55590fe",
+    "worktree": "/tmp/ts-attempt-retirement-cc37-nu5lqc7w/source",
+    "clean": true,
+    "tracked_files": 3834,
+    "tool_pins": 6
+  },
+  "readiness": {
+    "path": "/tmp/ts-qa-attempt-b3e1-truecompile-readiness-kj_ouxl3/review.json",
+    "sha256": "8763a7286f7cf688dcf8c1e6058facd5b53a274a91678509b9f03210c888bd8b"
+  },
+  "pins": {
+    "request_sha256": "69e67e23d47a66b9acd9032fef66910a881baa79dfff4efdda252cf2162372b9",
+    "runner_sha256": "c2fce5d90ae99a6a4b3e83d94fa25e4f2fe8f4efd86edaa9f977c629dd22da49",
+    "source_only_seal_sha256": "131216d4c83d13927472466f73379c6ad43aa93c53dd142ff2d8e0263b3ed8c6",
+    "receipt_sha256": "5522d2595aa11afdad2b756139c5f502460c37eab431e870a3f26cfa7ab97a26",
+    "owner_final_review_sha256": "1ca014ce06ae1cda3adb7724bd687cb59f0ca37c258c40d72cf24457e217b47f"
+  },
+  "manifests": {
+    "sealed": {
+      "path": "/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp/SHA256SUMS",
+      "sha256": "81e4f088cbb100a2cf8d512384605981830801ea46ea611ae6c68c41f6f9b84e",
+      "entries": 21,
+      "all_entries_match": true
+    },
+    "output": {
+      "path": "/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp/qa-output/SHA256SUMS",
+      "sha256": "5339ec8e0f28cfbaa39426647621838229b7eacc200e9215e45ad3c12b1ef822",
+      "entries": 9,
+      "all_entries_match": true
+    },
+    "native": {
+      "path": "/tmp/ts-attempt-b3e1-truecompile-native-results-xtmn_ren/SHA256SUMS",
+      "sha256": "947d24211506889716e5629f4f82997162e26df7b767f0906b7cf6dfbc4fb5e8",
+      "entries": 22,
+      "all_entries_match": true
+    }
+  },
+  "native": {
+    "session": 13168,
+    "launch_chunk": "cfb390",
+    "poll_chunks": [
+      "62aae6",
+      "b36a44",
+      "999551",
+      "d11bcd",
+      "9dc332",
+      "b0698a",
+      "fe8582"
+    ],
+    "terminal_chunk": "fe8582",
+    "terminal_exit": 0,
+    "actual_timeout_pid": 684388,
+    "actual_go_pid": 684389,
+    "no_retained_object_truncation": true,
+    "terminal_object_equals_full_receipt": true,
+    "wall_seconds": 95.5062040759949,
+    "max_child_rss_kib": 1029340,
+    "provenance_limit": "Retained surfaced actual tool argument/result objects; not an independent harness-backend or OS execution audit."
+  },
+  "controls": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "180s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp/qa-output/binaries/attempt.test",
+      "./internal/attempt"
+    ],
+    "environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local",
+      "LANG": "C.UTF-8"
+    },
+    "default_vet": true,
+    "compile_only": true,
+    "nice": 19,
+    "outer_timeout_seconds": 180,
+    "kill_after_seconds": 5,
+    "nonblocking_ShortB_in_wrapper": true,
+    "one_attempt": true,
+    "retry": false,
+    "binary_execution_count": 0,
+    "resource_limit": "Retained admission precheck met memory/load/flow conditions; RSS/scratch estimates are not enforced resource caps."
+  },
+  "binary": {
+    "path": "/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp/qa-output/binaries/attempt.test",
+    "sha256": "56b4cfed63770bf2b42047b1e418fc23a73ba506166e9302fbcbcc7b332432e6",
+    "bytes": 59608166,
+    "magic_hex": "7f454c46",
+    "mode": "0o600",
+    "never_executed": true
+  },
+  "outputs": {
+    "stdout_bytes": 0,
+    "stderr_bytes": 0
+  },
+  "checks": {
+    "all3834_source_pre_post_current_order_paths_hashes_clean_exact": true,
+    "all6_tools_pre_post_current_hashes_match": true,
+    "all_sealed_native_output_assets_and_copied_runner_files_match": true,
+    "actual_launch_and_all7_poll_argument_result_objects_bind_one_session_and_exact_receipt": true,
+    "true_compile_default_vet_env_i6_nice19_noGOROOT_180s_and_python_I_B": true,
+    "one_attempt_empty_outputs_single_regular_ELF0600_hash_size_private_dirs_no_runner_execution_path": true,
+    "readonly_named_PID_absence_and_no_matching_ShortB_proc_locks_entry": true
+  },
+  "release_observation": {
+    "named_PIDs_absent": [
+      684388,
+      684389
+    ],
+    "lock_path": "/tmp/ts-orch-refactor-short-check-b.lock",
+    "lock_inode_key": "00:2a:55360442",
+    "matching_proc_locks_entries": [],
+    "reviewer_acquired_any_lock": false,
+    "owner_retained_NB_available_proof": true,
+    "limit": "Readonly process/lock state is a point-in-time observation; no claim about unrelated tasks."
+  },
+  "findings": [],
+  "limits": [
+    "Acceptance is one exact candidate compile/link with default vet; test bodies, target init and TestMain were not executed by this compile.",
+    "Historical accepted phase runtime remains bound to its exact prior source; this is no new candidate runtime or shared-feature compilation.",
+    "No feature source adoption, canonical retirement, first-party count change or global/production/native/live qualification.",
+    "Historical SEAL.json is unchanged source-preparation evidence; terminal receipt and native SHA256SUMS separately qualify the subsequent compile."
+  ]
+}

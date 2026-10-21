@@ -1,0 +1,135 @@
+{
+  "state": "SOURCE_ONLY_NOT_COMPILED_OR_RUN_NO_LEASE",
+  "worktree": "/tmp/ts-customer-envelope-filesystem",
+  "base": "09fbf0bbac1d54b4ad31d12bcd8c37cf8115ef23",
+  "commit": "7a69bd63cf994beeac74260a7b7a4ef32becb2aa",
+  "tree": "9ab23e5f321529367c8898a184f9e650060052a6",
+  "owned_changed_paths": [
+    "internal/bootstrap/cli/customer_open_boundary_integration_test.go"
+  ],
+  "source_file_sha256": "427cbd0b8915e25aed5a13c68dde44b90f01b028337573b706fa236da33604fd",
+  "retained_original_paths": [
+    "internal/managedmaterial/customer_open_test.go",
+    "internal/bootstrap/cli/customer_open_test.go"
+  ],
+  "retained_original_sha256": {
+    "internal/managedmaterial/customer_open_test.go": "12cd9030b4089418c7a79ec587496b63eebf096002ca439585159501b73378d9",
+    "internal/bootstrap/cli/customer_open_test.go": "f56b2bc8d6e919cf13a1a8cd8b544f78061a39e31f93b9de015e70fab9c5c549"
+  },
+  "watched_source_sha256": {
+    "internal/bootstrap/cli/customer_open_boundary_integration_test.go": "427cbd0b8915e25aed5a13c68dde44b90f01b028337573b706fa236da33604fd",
+    "internal/managedmaterial/customer_open_test.go": "12cd9030b4089418c7a79ec587496b63eebf096002ca439585159501b73378d9",
+    "internal/bootstrap/cli/customer_open_test.go": "f56b2bc8d6e919cf13a1a8cd8b544f78061a39e31f93b9de015e70fab9c5c549",
+    "internal/bootstrap/cli/run.go": "dfc337cfcdd7bbddadac0935a56b5a42f0faa8757dc43ea4981cf9e525ce0590",
+    "internal/bootstrap/cli/commands.go": "bcb10b041da3116c9288ac50ecbf62860dd424a1c6f39b6368c2844c163f6eeb",
+    "internal/bootstrap/cli/customer_open.go": "ff1ae2cc7272749d691fd5889323071ae79899becef63f0c926bf7e76d4186c9",
+    "internal/managedmaterial/producer.go": "c150b7a572d0af727d75ee8fd73c04cc042fc4b57937af131c4d07acb90a2650",
+    "internal/managedmaterial/receipt.go": "a09495557c429697b1d76b5713b8d5281c97728347aa913dfc0cca8a1903f15e",
+    "internal/managedmaterial/customer_open.go": "d106a2f52a619badc607299cedca04f00420892aebbb06929ab0e09fc6d0a5d4",
+    "internal/managedmaterial/keys.go": "6881998594e2890e246a42169bec053fb00c1ad40590d3b79420f5ca194840ca",
+    "internal/protocol/json.go": "5a0439798f0961019fe651bd7b6db2a8ef4934a1b7a891b1aa56917e413c104e"
+  },
+  "module_file_sha256": {
+    "e2e/go.mod": "345c588c26d7c60c0f79ca9cf0b4a8e5d2715906a46a1f9f0554e5e642035ea5",
+    "e2e/go.sum": "42ed2d8a88356f17c6308006dedd5029c671d8f06ab2f4797816db651cc3daad",
+    "go.mod": "3dcc9ecb65641323ccb85a6383ad370d328ccc3ef47545227abb38e7b8474d4f",
+    "go.sum": "8b66a5397e2d3eddd6f553f081eb34365352c104503b72a813bc21a4ebf3dca3",
+    "third_party/nats-server/go.mod": "2b2350c95a0730d197fb497583ff0c80356be0ef84a474efe4d5c861580dc8dc",
+    "third_party/nats-server/go.sum": "fd010ab554c50375154a06819a5dc94c348a1cd274de788560373865465c290e"
+  },
+  "executable_sha256": {
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+    "/run/current-system/sw/bin/git": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027",
+    "/run/current-system/sw/bin/nice": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/timeout": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/env": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+  },
+  "sourceproof_sha256": "502fac5637be0dac1a792cbc2e63d6a592b96e93cb55f77cc6353cf7076e1c07",
+  "go_binary": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+  "go_binary_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+  "python_binary": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+  "python_binary_sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+  "original": "TestOpenCustomerEnvelopeUsesProducerWireAndRecipient",
+  "original_frozen_declaration_sha256": "00d2e6f89706cd8e09ebed56d4e361f7af590b4f0511052708385a3a4e15b78c",
+  "candidate": "TestCustomerEnvelopeFilesystemBoundary",
+  "candidate_declaration_sha256": "9054c05bb1621d1f0ffaebd51f12aa361cd63e6da7d56db19b1dd67c23bc4b6e",
+  "expected_pass_tests": [
+    "TestCustomerEnvelopeFilesystemBoundary",
+    "TestCustomerEnvelopeFilesystemBoundary/Success",
+    "TestCustomerEnvelopeFilesystemBoundary/WrongRecipient",
+    "TestCustomerEnvelopeFilesystemBoundary/FlippedCiphertext",
+    "TestCustomerEnvelopeFilesystemBoundary/AlternatePartition"
+  ],
+  "expected_pass_package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+  "request": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "180s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-json",
+      "-mod=readonly",
+      "-vet=off",
+      "-p=1",
+      "./internal/bootstrap/cli",
+      "-run",
+      "^TestCustomerEnvelopeFilesystemBoundary$",
+      "-count=1",
+      "-parallel=1",
+      "-timeout=30s"
+    ],
+    "cwd": "/tmp/ts-customer-envelope-filesystem",
+    "lease_required": true,
+    "shared_lock": "/tmp/ts-orch-refactor-gate-check.lock",
+    "lock_mode": "nonblocking-exclusive; one attempt; no retry",
+    "attempts": 1,
+    "parallelism": "GOMAXPROCS2;GOFLAGS-p2;package-p1;testparallel1;four sequential leaves",
+    "effective_child_environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local",
+      "LANG": "C.UTF-8"
+    },
+    "GOROOT_present": false,
+    "compile_resources": "Unmeasured: outer wall limit 180s; estimate <=2GiB RSS and <=1GiB scratch/cache growth; not enforced memory/disk limits.",
+    "runtime_resources": "Unmeasured estimate 1-10s, <=256MiB RSS, <=2MiB temporary files; zero test-owned network/listeners/servers/subprocesses; no cloud/native binaries/brokers.",
+    "timeouts": "test30s;outerTERM180s/KILL5s",
+    "environment": "env-i exactly six keys; GOROOT absent; no inherited environment secrets; CGO defaults from pinned toolchain",
+    "qualification": "Exactly one root plus four exact child leaves must pass; zero extra test outcomes, skips or failures; package pass exactly once. Fresh process -count=1; non-race. No original execution/removal or global qualification."
+  },
+  "runner_launch_after_parent_obtains_lease": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-customer-envelope-7a69bd63-sealed-d9e_ntoy/run.py"
+  ],
+  "runner_reference": {
+    "path": "/tmp/ts-ociclient-dispatcher-d45d64d2-sealed-osb0j9pg/run.py",
+    "sha256": "aa7a8f2bcd366d49abb9a2ccbdaef0765253eb5b5fd873d67a923eb7545944dd",
+    "adaptation": "Pinned Python -I -B, same shared nonblocking exclusive lock and exclusive one-shot output directory; full pre/post source/original/module/executable/request/runner/manifest snapshots; exact root plus four leaves."
+  },
+  "limits": [
+    "Compilation/runtime and transitive initializer closure unverified; this packet grants no lease.",
+    "Resource budgets are estimates, not enforced memory/disk limits.",
+    "No original retirement, race, service/native/cloud/object-provenance or global qualification."
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "selector": "^Test(FunctionPublicationFencesRootsAcrossArtifactWait|FunctionPublicationOrdersRootWritersBeforeIntentCAS|RootRegistryAdoptsOnlyExtendingChains|RootRepairNeverRollsBackAValidRecord)$",
+  "entries": [
+    "internal/app/function_admission_roots_integration_test.go:83",
+    "internal/app/function_admission_roots_integration_test.go:203",
+    "internal/app/trust_roots_test.go:64",
+    "internal/app/trust_roots_test.go:118"
+  ],
+  "expected_leaf_outcomes": 8,
+  "expected_test_terminals_including_parents": 10,
+  "source_review": "SEC ACK b124 local-leader root writer/adoption order and final current verification through actual authority CAS; imported as1a61230c6. No cross-stream distributed atomic transaction claim. New source tests imported e7413ee0c.",
+  "package_init_review": "Reuse APP a29 reviewed initializer inventory; first-party init bodies unchanged across e741 (authority/runtime.go adds ordinary Guard branch only). Two new direct external imports are already transitive through containerd/client; exact package source and prior-client imports hashed in closure. APP TestMain hidden argc2 dispatch absent; normal m.Run. Dependency tests excluded.",
+  "closure": [
+    "newAuthenticatedNATS and testRolloutJetStream start one authenticated JWT+mTLS embedded NATS/JetStream broker per serial fixture, real authority.Start and ObjectStore/KeyValue",
+    "newFunctionPublicationSigner signs real root-delegated function bytes; its existing functionAllocationStore additionally starts a loopback TLS fake OCI object store and installs exact-endpoint transport, although selected tests never use worker allocation",
+    "releasechannel channelBucket stores signed source/module in memory; actual ingestRelease performs genuine JetStream artifact Put and authority durable intent CAS",
+    "paused wrappers invoke actual SDK operations; current succeeds exact durable envelope; root apply/repair rotation, actual signed expiry, and actual authority.Close leadership loss must refuse with no durable intent",
+    "existing root extending regression persists under t.TempDir; repair regression uses real authenticated JetStream and preserves valid newer chain on persistence failure"
+  ],
+  "listeners": "At most one embedded broker and one httptest TLS allocation listener concurrently; temporary port reservation listener closes before broker start. Broker config binds127.0.0.1; httptest loopback. No production cloud requests, daemon processes, manager/native/container execution.",
+  "subprocesses": "One Go command compiles package then launches one selected app test executable. No go list, separate discovery, native helper command, sudo, cloud or external daemon.",
+  "state": "UID1000; all fixture credentials/root chains/object store state under t.TempDir; in-memory channel store. Allocation helper temporarily modifies process HTTP transport and test env then cleanup restores. No live secrets or existing state read for authorization.",
+  "bounds": "8 serial leaf outcomes,6 new fixtures each context20s; expiry fault waits at most5s. Go runtime timeout90s bounds entire selected package including cleanup; outer timeout180s plus kill-after5s includes compilation. Estimated<=2GiB RSS and<=1GiB extra cache/scratch, GOMAXPROCS2/packagep1/parallel1/nice19. Broker256MiB memory/8GiB disk are configured account maxima, actual retained messages small.",
+  "cleanup": "New fixture authority.Close registered, NATS runtime.Close registered, TLS server.Close and transport restore registered, all temporary directories removed by testing. Fault contexts deferred cancel; wrappers wait for resume or context; outer TERM/KILL bounds command group.",
+  "scope": "Actual local authenticated JetStream/authority admission ordering only. No live OCI, native worker execution, sealed issuer qualification, original creation lineage or distributed cross-stream transaction claim.",
+  "external_init_review": "Management reviewed closure reused: vendored NATS build metadata/TLS maps; pse linux reads own /proc+Sysinfo on1s sampler; ats channel only, file timestamp goroutine at Register; SwarmKit protobuf/store/log/metrics registration, ca logging level; no daemon from init. APP additional imported package initializer inventory conservative source-only in static-import-closure.json; no native helper mode requested. Root test body explicitly starts embedded broker+3managers.",
+  "source_freeze": "afad42a30 exact clean/pushed APP successor552 + NODE8478 schema/producer (52f1 alias), OBSda6 manager pin matching (ac7 alias), aa0 generic unselected-root diagnostic (afad alias). No new initializer/import dependency or selected-root changes.",
+  "successor_delta_review": {
+    "prior_actual_build_failure": "/tmp/ts-function-roots-5528371b-sealed-ds_tub4t/receipt.json",
+    "changed_files": [
+      "internal/app/generic_runtime_integration_test.go",
+      "internal/app/host_telemetry_manager.go",
+      "internal/hostload/report.go",
+      "internal/swarmruntime/task_load.go",
+      "internal/swarmruntime/task_load_integration_test.go"
+    ],
+    "node_donor": "8478d3c55232e0c91f98c329dbbb40ab710179df",
+    "node_private_obs_duplicate": "2d0c8804738c21ae12d1ecc4d601fba8c6821e05",
+    "node_import_alias": "52f1f00af",
+    "exact_donor_blob_proof": {
+      "internal/hostload/report.go": {
+        "current_blob": "58b5972e26064ea1ac8592f2dd9789b934bf5807",
+        "original_node_donor_blob": "58b5972e26064ea1ac8592f2dd9789b934bf5807",
+        "equal": true
+      },
+      "internal/swarmruntime/task_load.go": {
+        "current_blob": "f7f422df2de7bb45539c6bd7ac08c64cc52e232c",
+        "original_node_donor_blob": "f7f422df2de7bb45539c6bd7ac08c64cc52e232c",
+        "equal": true
+      },
+      "internal/swarmruntime/task_load_integration_test.go": {
+        "current_blob": "a20b19cf88ed2d04632da9d32c686624d723ef46",
+        "original_node_donor_blob": "a20b19cf88ed2d04632da9d32c686624d723ef46",
+        "equal": true
+      }
+    },
+    "schema_contract": "Real TaskPin task/service/node/fingerprint and Tasks/MaxTasks128; nonempty <=64 lowercase alnum task/service/node IDs, lowercase64hex fingerprint; globally unique task IDs and128total cap. No stubs or removed assertions.",
+    "producer_contract": "ReadTaskLoad sorts current assignments then retains exact task/service/node/fingerprint even when some measurements unavailable; existing integration helper now asserts initial and unknown/partial task sets.",
+    "consumer_contract": "OBSda6 compares measured role task pins with independently read complete manager allocation, rejects unallocated role, rereads/verifies whole actual task set after checks; task status>=completed excluded. No calls in selected root/function fixtures.",
+    "unselected_diagnostic": "APP aa0 only logs first generic apply error via sync.Once and preserves same return error; unselected generic root not executed.",
+    "closure_effects": "Five existing files only; new imports strings standard library. No new packages/files, no go.mod/go.sum change, no init or TestMain change. Existing app lexical closure and init review apply; all closure file hashes regenerated. Selected four root declarations/helpers/assertions and root admission production unchanged.",
+    "reported_producer_prerequisites": {
+      "originals": [
+        "f20844877",
+        "47dcc6d77"
+      ],
+      "status": "APP owner confirms corresponding source already present through imports; original commits are not direct Git ancestors here. Exact schema/producer/test result blob equality to8478 is proven below."
+    }
+  }
+}

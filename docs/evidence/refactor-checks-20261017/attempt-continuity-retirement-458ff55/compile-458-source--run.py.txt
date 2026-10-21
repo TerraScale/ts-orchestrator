@@ -1,0 +1,129 @@
+import fcntl, hashlib, json, pathlib, resource, stat, subprocess, sys, time
+
+OUT = pathlib.Path(__file__).resolve().parent
+REQUEST = OUT / 'request.json'
+EXPECTED_REQUEST_SHA = '0bdb48a444b99921dcb1de6a71299e10adbd071e4305ca7bc5458be2842787a8'
+RUN = OUT / 'qa-output'
+# Creating this directory consumes the sole attempt, including preflight or lock failure.
+RUN.mkdir(mode=0o700)
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+def encoded(value):
+    return (json.dumps(value, indent=2) + '\n').encode()
+
+def write(name, value):
+    with (RUN / name).open('xb') as output:
+        output.write(encoded(value))
+
+raw = REQUEST.read_bytes()
+assert sha(raw) == EXPECTED_REQUEST_SHA
+request = json.loads(raw)
+w = pathlib.Path(request['worktree'])
+assert sys.flags.isolated == 1 and sys.dont_write_bytecode is True
+assert pathlib.Path(sys.executable).resolve() == pathlib.Path(request['python_binary']).resolve()
+assert request['request']['attempts'] == 1 and request['request']['retry_authorized'] is False
+assert request['request']['compile_only'] and request['request']['default_vet']
+assert request['request']['binary_execution_authorized'] is False
+assert request['request']['cwd'] == str(w)
+assert len(request['environment']) == 6 and 'GOROOT' not in request['environment']
+argv = request['request']['argv']
+go_index = argv.index(request['go_binary'])
+assert argv[go_index + 1:] == ['test', '-c', '-mod=readonly', '-p=1', '-o', request['expected_binary'], './internal/attempt']
+assert dict(item.split('=', 1) for item in argv[argv.index('-i') + 1:go_index]) == request['environment']
+manifest_raw = (OUT / 'fullsource-manifest.json').read_bytes()
+assert sha(manifest_raw) == request['fullsource_manifest_sha256']
+manifest = json.loads(manifest_raw)
+assert len(manifest) == request['tracked_files']
+assets = {}
+for line in (OUT / 'SHA256SUMS').read_text().splitlines():
+    digest, name = line.split('  ', 1)
+    assert pathlib.PurePath(name).name == name and name not in assets
+    assets[name] = digest
+assert assets['request.json'] == EXPECTED_REQUEST_SHA
+assert assets['run.py'] == sha(pathlib.Path(__file__).read_bytes())
+assert all(assets[name] == digest for name, digest in request['bound_evidence_sha256'].items())
+
+def git(*args):
+    return subprocess.check_output(['/run/current-system/sw/bin/git', '-C', str(w), *args])
+
+def snapshot():
+    tracked = git('ls-files', '-z').decode().strip('\0').split('\0')
+    actual_source = [{'path': name, 'sha256': sha((w / name).read_bytes())} for name in tracked]
+    source = {
+        'head': git('rev-parse', 'HEAD').decode().strip(),
+        'tree': git('rev-parse', 'HEAD^{tree}').decode().strip(),
+        'status': git('status', '--porcelain=v1', '--untracked-files=all').decode(),
+        'all_tracked_source_matches': actual_source == manifest,
+        'tracked_files': len(actual_source),
+        'actual_source_manifest_sha256': sha(encoded(actual_source)),
+        'expected_source_manifest_sha256': sha((OUT / 'fullsource-manifest.json').read_bytes()),
+        'tool_sha256': {path: sha(pathlib.Path(path).read_bytes()) for path in request['tool_sha256']},
+        'executing_python_sha256': sha(pathlib.Path(sys.executable).resolve().read_bytes()),
+        'request_sha256': sha(REQUEST.read_bytes()),
+        'runner_sha256': sha(pathlib.Path(__file__).read_bytes()),
+        'sealed_manifest_sha256': sha((OUT / 'SHA256SUMS').read_bytes()),
+        'sealed_asset_sha256': {name: sha((OUT / name).read_bytes()) for name in assets},
+    }
+    return source, actual_source
+
+pre, source_pre = snapshot()
+assert pre['head'] == request['commit'] and pre['tree'] == request['tree'] and not pre['status']
+assert pre['all_tracked_source_matches'] and pre['tool_sha256'] == request['tool_sha256']
+assert pre['executing_python_sha256'] == request['tool_sha256'][request['python_binary']]
+assert pre['sealed_asset_sha256'] == assets and pre['request_sha256'] == EXPECTED_REQUEST_SHA
+write('source-pre.json', source_pre)
+binary_dir = RUN / 'binaries'
+binary_dir.mkdir(mode=0o700)
+assert pathlib.Path(request['expected_binary']).parent == binary_dir
+write('preflight.json', {'source': pre, 'argv': argv, 'effective_child_environment': request['environment'],
+    'GOROOT_present': False, 'compile_only': True, 'default_vet': True,
+    'python_isolated': True, 'python_dont_write_bytecode': True, 'binary_execution_count': 0})
+with open(request['request']['shared_lock'], 'a') as gate:
+    try:
+        fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        write('receipt.json', {'state': 'LOCK_BUSY_NOT_LAUNCHED', 'source_pre': pre,
+            'attempt_consumed': True, 'retry_authorized': False, 'binary_execution_count': 0})
+        raise SystemExit(75)
+    assert snapshot()[0] == pre
+    started = time.time()
+    clock = time.monotonic()
+    with (RUN / 'compile.stdout').open('xb') as stdout, (RUN / 'compile.stderr').open('xb') as stderr:
+        proc = subprocess.Popen(argv, cwd=w, stdout=stdout, stderr=stderr, start_new_session=True)
+        write('started.json', {'pid': proc.pid, 'epoch': started, 'argv': argv})
+        print(json.dumps({'state': 'STARTED_TRUE_COMPILE_ONLY', 'pid': proc.pid, 'output': str(RUN)}), flush=True)
+        returncode = proc.wait()
+    elapsed = time.monotonic() - clock
+    post, source_post = snapshot()
+    write('source-post.json', source_post)
+    write('postflight.json', {'source': post, 'identical_to_preflight': pre == post})
+    binaries, invalid_outputs = [], []
+    for path in sorted(binary_dir.iterdir()):
+        if not stat.S_ISREG(path.lstat().st_mode):
+            invalid_outputs.append(path.name)
+            continue
+        path.chmod(0o600)
+        wire = path.read_bytes()
+        binaries.append({'path': str(path), 'sha256': sha(wire), 'bytes': len(wire),
+            'magic_hex': wire[:4].hex(), 'mode': oct(path.stat().st_mode & 0o777), 'never_executed': True})
+    success = (returncode == 0 and pre == post and source_pre == source_post and not invalid_outputs
+        and len(binaries) == 1 and binaries[0]['path'] == request['expected_binary']
+        and binaries[0]['magic_hex'] == '7f454c46' and binaries[0]['mode'] == '0o600')
+    receipt = {'state': 'COMPILE_PASS' if success else 'NOT_QUALIFIED', 'exit_code': returncode,
+        'wall_seconds': elapsed, 'max_child_rss_kib': resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
+        'source_pre': pre, 'source_post': post, 'source_pre_file_sha256': sha((RUN / 'source-pre.json').read_bytes()),
+        'source_post_file_sha256': sha((RUN / 'source-post.json').read_bytes()), 'binaries': binaries,
+        'invalid_outputs': invalid_outputs, 'binary_execution_count': 0, 'attempts': 1, 'retry_authorized': False,
+        'stdout_sha256': sha((RUN / 'compile.stdout').read_bytes()),
+        'stderr_sha256': sha((RUN / 'compile.stderr').read_bytes()),
+        'scope': 'One true test-c compile/link with default vet; no test binary execution, runtime, feature adoption or canonical retirement credit.'}
+    write('receipt.json', receipt)
+    with (RUN / 'SHA256SUMS').open('x') as output:
+        for path in sorted(RUN.rglob('*')):
+            if path.is_file() and path != RUN / 'SHA256SUMS':
+                output.write(sha(path.read_bytes()) + '  ' + str(path.relative_to(RUN)) + '\n')
+    print(json.dumps(receipt), flush=True)
+    fcntl.flock(gate, fcntl.LOCK_UN)
+raise SystemExit(0 if success else 1)

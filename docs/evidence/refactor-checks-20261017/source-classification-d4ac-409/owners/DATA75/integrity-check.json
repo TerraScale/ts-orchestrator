@@ -1,0 +1,15 @@
+{
+  "all_citation_spans_and_embedded_text_verified": 2680,
+  "allocated_originals": 75,
+  "baseline_source_declaration_spans": 150,
+  "canonical_full_file_pins": 43,
+  "counts": {
+    "integration": 2,
+    "unit": 16,
+    "unresolved": 57
+  },
+  "retirement_delta": 0,
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "source_or_ledger_edits": 0,
+  "status": "PASS_STATIC_PACKET_INTEGRITY"
+}

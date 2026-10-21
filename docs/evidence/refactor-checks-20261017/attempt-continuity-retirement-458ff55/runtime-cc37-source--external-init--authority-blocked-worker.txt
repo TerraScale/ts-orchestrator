@@ -1,0 +1,37 @@
+SOURCE /tmp/ts-attempt-phase-dispatch-integration/internal/authority/runtime.go
+FULL_FILE_SHA256 9bb923a92d31fcab371b1414df00db9ff4564cad1cdd0c1765f7d71ef3d2d05b
+LINES 30-62
+
+	dropped *atomic.Uint64
+	barrier chan struct{}
+}
+
+var authorityDiagnosticQueue = make(chan authorityDiagnostic, authorityDiagnosticQueueSize)
+
+func init() {
+	go runAuthorityDiagnostics()
+}
+
+func runAuthorityDiagnostics() {
+	for event := range authorityDiagnosticQueue {
+		if event.barrier != nil {
+			close(event.barrier)
+			continue
+		}
+		if event.logger == nil {
+			continue
+		}
+		if event.dropped != nil {
+			if dropped := event.dropped.Swap(0); dropped > 0 {
+				event.attrs = append(event.attrs, "dropped_diagnostics", dropped)
+			}
+		}
+		event.logger.Log(context.Background(), event.level, event.message, event.attrs...)
+	}
+}
+
+func flushAuthorityDiagnostics(ctx context.Context) error {
+	barrier := make(chan struct{})
+	select {
+	case authorityDiagnosticQueue <- authorityDiagnostic{barrier: barrier}:
+	case <-ctx.Done():

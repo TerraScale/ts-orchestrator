@@ -1,0 +1,40 @@
+{
+  "state": "PASS_INDEPENDENT_TRUE_COMPILE_TERMINAL_REVIEW",
+  "checks": {
+    "all_runtime_manifest_assets_match": true,
+    "native_launch_call_arguments_exact": true,
+    "actual_native_terminal_arguments_and_receipt_exact": true,
+    "one_actual_started_event_one_terminal_no_retry": true,
+    "true_test_c_defaultvet_and_no_runtimeflags": true,
+    "all3834_source_prepost_expected_exact": true,
+    "all_source_tools_request_runner_assets_prepost_identical_clean": true,
+    "exact_granted_source_pins": true,
+    "single_regular_ELF0600_exact_hash_never_executed": true,
+    "output_dirs_private0700": true,
+    "raw_stdout_stderr_empty_hash_exact": true,
+    "actual_go_env_i6_nice19_noGOROOT": true,
+    "actual_timeout_and_go_PIDs_gone": true,
+    "ShortB_nonblocking_available": true,
+    "candidate_and_original_source_worktrees_still_clean": true
+  },
+  "native_session": 13168,
+  "native_launch_chunk": "cfb390",
+  "native_terminal_chunk": "fe8582",
+  "native_polls": 7,
+  "actual_timeout_pid": 684388,
+  "actual_go_pid": 684389,
+  "receipt_sha256": "5522d2595aa11afdad2b756139c5f502460c37eab431e870a3f26cfa7ab97a26",
+  "runtime_manifest_sha256": "5339ec8e0f28cfbaa39426647621838229b7eacc200e9215e45ad3c12b1ef822",
+  "source_manifest_sha256": "743b848d095ea2e03ed36882b91aab5c4dbeb9cd00b0ce4b37c69a789aef9304",
+  "binary": {
+    "path": "/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp/qa-output/binaries/attempt.test",
+    "sha256": "56b4cfed63770bf2b42047b1e418fc23a73ba506166e9302fbcbcc7b332432e6",
+    "bytes": 59608166,
+    "magic_hex": "7f454c46",
+    "mode": "0o600",
+    "never_executed": true
+  },
+  "wall_seconds": 95.5062040759949,
+  "max_child_rss_kib": 1029340,
+  "scope": "One separately granted candidate compile with default vet only. Binary never executed by runner or agent; no runtime/retirement/feature adoption/global count credit. Actual launch/poll call arguments and results retained verbatim; no retry/extension."
+}

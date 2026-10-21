@@ -1,0 +1,65 @@
+{
+  "audit7a69_to_accepted67bc_selected_local_hash_differences": [
+    {
+      "accepted67bc_sha256": "1f46d832fd901a6549c3dba569f08b8eafa721e335b3747e586a57c5303cc0b0",
+      "audit_sha256": "dccdeffd30982100e893c3790d2b141484b81d29c0b718c35e2334067e63e935",
+      "path": "internal/bootstrap/cli/identity_rekey_test.go"
+    }
+  ],
+  "changed_go_files_in_historical_selected_directories_no_renames": [
+    {
+      "path": "internal/bootstrap/cli/customer_open_boundary_integration_test.go",
+      "status": "D"
+    },
+    {
+      "path": "internal/bootstrap/cli/identity_rekey_test.go",
+      "status": "M"
+    },
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "status": "M"
+    },
+    {
+      "path": "third_party/nats-server/server/accounts.go",
+      "status": "M"
+    },
+    {
+      "path": "third_party/nats-server/server/server.go",
+      "status": "M"
+    },
+    {
+      "path": "third_party/nats-server/server/service_import_lifecycle_test.go",
+      "status": "A"
+    }
+  ],
+  "historical_initializer_text_mentions_of_changed_nats_methods_or_NewServer": [
+    {
+      "file": "/home/mariogk/go/pkg/mod/github.com/grpc-ecosystem/go-grpc-prometheus@v1.2.0/server.go",
+      "kind": "package_var",
+      "line": 13,
+      "names": [
+        "NewServer"
+      ],
+      "text": "var (\n\t// DefaultServerMetrics is the default instance of ServerMetrics. It is\n\t// intended to be used in conjunction the default Prometheus metrics\n\t// registry.\n\tDefaultServerMetrics = NewServerMetrics()\n\n\t// UnaryServerInterceptor is a gRPC server-side interceptor that provides Prometheus monitoring for Unary RPCs.\n\tUnaryServerInterceptor = DefaultServerMetrics.UnaryServerInterceptor()\n\n\t// StreamServerInterceptor is a gRPC server-side interceptor that provides Prometheus monitoring for Streaming RPCs.\n\tStreamServerInterceptor = DefaultServerMetrics.StreamServerInterceptor()\n)"
+    }
+  ],
+  "no_renames_selected_local_changes_accepted67bc_to_currentd64": [
+    {
+      "path": "internal/bootstrap/cli/customer_open_boundary_integration_test.go",
+      "status": "D"
+    },
+    {
+      "path": "internal/bootstrap/cli/identity_rekey_test.go",
+      "status": "M"
+    },
+    {
+      "path": "third_party/nats-server/server/accounts.go",
+      "status": "M"
+    },
+    {
+      "path": "third_party/nats-server/server/server.go",
+      "status": "M"
+    }
+  ],
+  "qualification": "Known historical selection compared read-only; not a fresh Go-selected import closure, typecheck, compile or runtime proof."
+}

@@ -138,51 +138,81 @@ func TestReadNetDevSumsNonLoopbackInterfaces(t *testing.T) {
 	}
 }
 
-func TestReadSystemWithoutNetDevKeepsReadings(t *testing.T) {
+func TestSystemMalformedProcFilesAreReportedBySnapshotAPI(t *testing.T) {
 	t.Parallel()
-	root := writeProcFixture(t)
-	if err := os.Remove(filepath.Join(root, "net", "dev")); err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct {
+		name, path, data string
+		unavailable      bool
+	}{
+		{"missing cpu", "stat", "intr 1\n", true},
+		{"malformed cpu", "stat", "cpu 1 x 3 4\n", true},
+		{"missing memory", "meminfo", "MemFree: 1 kB\n", true},
+		{"malformed pressure", "pressure/memory", "some avg10=abc\n", false},
+		{"short load", "loadavg", "1.0\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := writeProcFixture(t)
+			if err := os.WriteFile(filepath.Join(root, tc.path), []byte(tc.data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			collector, _ := testCollector(t, "proc", nil)
+			collector.config.System = func() (SystemView, error) { return readSystem(root, nil, nil) }
+			snapshot, err := snapshotOverHTTP(t, collector, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.unavailable {
+				if snapshot.System != nil || snapshot.Errors["system"] != "unavailable" || !strings.Contains(snapshot.Metrics, `ts_orch_collect_ok{section="system"} 0`) {
+					t.Fatalf("invalid proc was hidden: %+v", snapshot)
+				}
+			} else if snapshot.System == nil || tc.path == "loadavg" && snapshot.System.Load1 != 0 || tc.path == "pressure/memory" && snapshot.System.Pressure["memory"].SomeAvg10 != 0 {
+				t.Fatalf("optional malformed proc polluted snapshot: %+v", snapshot)
+			}
+		})
 	}
-	view, err := readSystem(root, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.NetRxBytes != 0 || view.NetTxBytes != 0 || view.CPUCount != 2 || view.MemTotalBytes == 0 {
-		t.Fatalf("view without net/dev = %+v", view)
-	}
-}
-
-func TestSystemParsersRejectMalformedInput(t *testing.T) {
-	t.Parallel()
-	if _, _, err := parseProcStat([]byte("intr 1\n")); err == nil {
-		t.Error("proc stat without cpu line was accepted")
-	}
-	if _, _, err := parseProcStat([]byte("cpu 1 x 3 4\n")); err == nil {
-		t.Error("malformed cpu line was accepted")
-	}
-	if _, err := parseMeminfo([]byte("MemFree: 1 kB\n")); err == nil {
-		t.Error("meminfo without MemTotal was accepted")
-	}
-	if _, err := parsePressure([]byte("some avg10=abc\n")); err == nil {
-		t.Error("malformed pressure was accepted")
-	}
-	if _, _, _, err := parseLoadavg([]byte("1.0\n")); err == nil {
-		t.Error("short loadavg was accepted")
-	}
-}
-
-func TestReadSystemOnThisHost(t *testing.T) {
-	t.Parallel()
-	if runtime.GOOS != "linux" {
-		t.Skip("system statistics require Linux")
-	}
-	view, err := ReadSystem([]FilesystemRole{{Role: "tmp", Path: t.TempDir()}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.CPUCount < 1 || view.MemTotalBytes == 0 || len(view.Filesystems) != 1 || view.Filesystems[0].SizeBytes == 0 ||
-		view.Clock == nil {
-		t.Fatalf("host view = %+v", view)
-	}
+	t.Run("missing net/dev", func(t *testing.T) {
+		root := writeProcFixture(t)
+		if err := os.Remove(filepath.Join(root, "net", "dev")); err != nil {
+			t.Fatal(err)
+		}
+		collector, _ := testCollector(t, "proc-without-network", nil)
+		collector.config.System = func() (SystemView, error) { return readSystem(root, nil, nil) }
+		snapshot, err := snapshotOverHTTP(t, collector, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.System == nil {
+			t.Fatalf("missing net/dev omitted system: %+v", snapshot)
+		}
+		if _, present := snapshot.Errors["system"]; present {
+			t.Fatalf("missing net/dev reported a system error: %+v", snapshot)
+		}
+		view := snapshot.System
+		if view.NetRxBytes != 0 || view.NetTxBytes != 0 || view.CPUCount != 2 || view.MemTotalBytes == 0 {
+			t.Fatalf("view without net/dev = %+v", view)
+		}
+	})
+	t.Run("host", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("system statistics require Linux")
+		}
+		filesystems := []FilesystemRole{{Role: "tmp", Path: t.TempDir()}}
+		collector, _ := testCollector(t, "proc-host", nil)
+		collector.config.System = func() (SystemView, error) { return ReadSystem(filesystems) }
+		snapshot, err := snapshotOverHTTP(t, collector, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.System == nil {
+			t.Fatalf("host omitted system: %+v", snapshot)
+		}
+		if _, present := snapshot.Errors["system"]; present {
+			t.Fatalf("host reported a system error: %+v", snapshot)
+		}
+		view := snapshot.System
+		if view.CPUCount < 1 || view.MemTotalBytes == 0 || len(view.Filesystems) != 1 || view.Filesystems[0].SizeBytes == 0 ||
+			view.Clock == nil {
+			t.Fatalf("host view = %+v", view)
+		}
+	})
 }

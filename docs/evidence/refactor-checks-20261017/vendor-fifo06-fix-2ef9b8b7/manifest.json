@@ -1,0 +1,49 @@
+{
+  "revision": "2ef9b8b70826c4f8e0f3ae4e4ae2bc76d6a1158d",
+  "tree": "24282ef5d0234db31e905bb8bba9098b03613dae",
+  "request_sha256": "3d474600041aa3849c9260f81929b589aed92835dffefaba815d339dbfea345c",
+  "dispatch_sha256": "dab9d90714589995079ad600f49d9fdf5db6c04cfaa58995d1c8ec9c048d0beb",
+  "packet_files": {
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/dispatch.json": "dab9d90714589995079ad600f49d9fdf5db6c04cfaa58995d1c8ec9c048d0beb",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/launch-instructions.json": "e5d386e6d28263c02bbbe7cd429670252e3043668afd34b288ae72afacee3f3d",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/ownership-proof.md": "f8a36ce370f40d91edeaa4f2c3e3cc9e3b63ff4a192847a50360795a30fc7afb",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/recorder.py": "7b226150ac58f55f879816b7bd6a54d558b6d4a3781b25347d855c3d96cfc835",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/request.json": "3d474600041aa3849c9260f81929b589aed92835dffefaba815d339dbfea345c",
+    "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4/run-once.py": "6f742956f1c3cf289623f78380e90875b85d2b41a1770133f2faac5e9afc6e6b"
+  },
+  "full_binding_count": 18430,
+  "tracked_nats_module_file_count": 604,
+  "direct_dependency_file_counts": {
+    "/home/mariogk/go/pkg/mod/github.com/antithesishq/antithesis-sdk-go@v0.8.0-default-no-op": 244,
+    "/home/mariogk/go/pkg/mod/github.com/google/go-tpm@v0.9.8": 145,
+    "/home/mariogk/go/pkg/mod/github.com/klauspost/compress@v1.20.0": 469,
+    "/home/mariogk/go/pkg/mod/github.com/minio/highwayhash@v1.0.4": 21,
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/jwt/v2@v2.8.2": 71,
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.51.0": 160,
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/nkeys@v0.4.16": 30,
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/nuid@v1.0.1": 9,
+    "/home/mariogk/go/pkg/mod/golang.org/x/crypto@v0.57.0": 374,
+    "/home/mariogk/go/pkg/mod/golang.org/x/sys@v0.48.0": 554,
+    "/home/mariogk/go/pkg/mod/golang.org/x/time@v0.16.0": 9
+  },
+  "goroot_file_count": 15643,
+  "no_runtime": true,
+  "tree_inventory_entry_counts": {
+    "/home/mariogk/go/pkg/mod/github.com/antithesishq/antithesis-sdk-go@v0.8.0-default-no-op": 326,
+    "/home/mariogk/go/pkg/mod/github.com/google/go-tpm@v0.9.8": 172,
+    "/home/mariogk/go/pkg/mod/github.com/klauspost/compress@v1.20.0": 531,
+    "/home/mariogk/go/pkg/mod/github.com/minio/highwayhash@v1.0.4": 23,
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/jwt/v2@v2.8.2": 73,
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.51.0": 200,
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/nkeys@v0.4.16": 34,
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/nuid@v1.0.1": 9,
+    "/home/mariogk/go/pkg/mod/golang.org/x/crypto@v0.57.0": 438,
+    "/home/mariogk/go/pkg/mod/golang.org/x/sys@v0.48.0": 570,
+    "/home/mariogk/go/pkg/mod/golang.org/x/time@v0.16.0": 10,
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1": 17356,
+    "/tmp/ts-vendor-fifo06-fix-13185dcc/third_party/nats-server": 678
+  },
+  "supersedes_packet": "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v3",
+  "timing_scope": "The180s timeout wraps child argv only. Full input membership+hash pre/post metadata snapshots run outside child timeout. No total wrapper runtime claim; no test timeout extension.",
+  "environment_contract": "ExactlyHOME,PATH,LANG,GOMAXPROCS,GOFLAGS,GOTOOLCHAIN;env-i clears all other keys. Parent-supplied current execution contract."
+}

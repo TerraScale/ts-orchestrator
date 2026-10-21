@@ -2,10 +2,12 @@ package bootstrapmaterial
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -13,6 +15,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"math/big"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -26,8 +29,10 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 )
 
@@ -94,7 +99,7 @@ func TestGenerateStableAndProductionValid(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(first, second) {
 		t.Fatalf("rerun changed material: %v", err)
 	}
-	if len(first.Files) != 34 || first.Public.PeerSignerPublicKey == first.Public.LedgerSignerPublicKey {
+	if len(first.Files) != 37 || first.Public.PeerSignerPublicKey == first.Public.LedgerSignerPublicKey {
 		t.Fatal("incomplete or reused signing identities")
 	}
 	for _, name := range expectedNames() {
@@ -103,6 +108,127 @@ func TestGenerateStableAndProductionValid(t *testing.T) {
 			t.Fatalf("%s is not owner-only: %v", name, err)
 		}
 	}
+	t.Run("prospective attestor data format only", func(t *testing.T) {
+		cfg := testConfig()
+		authorization := testAdmissionAuthorization(t, cfg)
+		path := filepath.Join(t.TempDir(), "candidate")
+		record, err := GenerateAdmissionCandidate(path, cfg, authorization, now)
+		if err != nil || len(record.Files) != len(first.Files)+3 || !dedicatedAdmissionKey(record.Public) || ValidateLive(path, record) != nil {
+			t.Fatalf("dedicated candidate format: %v", err)
+		}
+		metadata, err := os.ReadFile(filepath.Join(path, metadataName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, slot := range cfg.Slots {
+			if !slices.ContainsFunc(record.Files, func(file File) bool {
+				return file.Name == slot.Name+"-admission.key" && file.Purpose == bootstrap.SecretController && file.Slot == slot.Name
+			}) {
+				t.Fatalf("missing exact dedicated private slot %s", slot.Name)
+			}
+		}
+		replayed, err := GenerateAdmissionCandidate(path, cfg, authorization, now.Add(time.Minute))
+		actual, readErr := os.ReadFile(filepath.Join(path, metadataName))
+		if err != nil || readErr != nil || !reflect.DeepEqual(record, replayed) || !bytes.Equal(actual, metadata) {
+			t.Fatalf("candidate replay changed original bytes: %v %v", err, readErr)
+		}
+		changed := authorization
+		changed.SourceRegistrationSHA256 = strings.Repeat("b", 64)
+		if _, err := GenerateAdmissionCandidate(path, cfg, changed, now); err == nil {
+			t.Fatal("different authorization adopted the original candidate")
+		}
+		noncanonical := record
+		noncanonical.Public.AdmissionAttestor.PublicKey = record.Public.LedgerSignerPublicKey[:8] + "\n" + record.Public.LedgerSignerPublicKey[8:]
+		if noncanonical.Public.AdmissionAttestor.Validate() == nil || dedicatedAdmissionKey(noncanonical.Public) || ValidateAdmissionInventory(noncanonical) == nil {
+			t.Fatal("noncanonical reused ledger key passed public-only inventory checks")
+		}
+		reused := record.Public
+		reused.AdmissionAttestor.PublicKey = record.Public.LedgerSignerPublicKey
+		reused.LedgerSignerPublicKey = record.Public.LedgerSignerPublicKey[:8] + "\r\n" + record.Public.LedgerSignerPublicKey[8:]
+		if dedicatedAdmissionKey(reused) {
+			t.Fatal("different encodings of the same issuer key defeated separation")
+		}
+		for name, mutate := range map[string]func(*testing.T, string, *Record){
+			"missing public descriptor": func(_ *testing.T, _ string, r *Record) {
+				r.Public.AdmissionAttestor = release.AdmissionAttestorMaterial{}
+			},
+			"partial public descriptor": func(_ *testing.T, _ string, r *Record) { r.Public.AdmissionAttestor.AuthorizationSHA256 = "" },
+			"reused public key": func(_ *testing.T, _ string, r *Record) {
+				r.Public.AdmissionAttestor.PublicKey = r.Public.LedgerSignerPublicKey
+			},
+			"missing private file": func(t *testing.T, p string, r *Record) {
+				if err := os.Remove(filepath.Join(p, "controller-b-admission.key")); err != nil {
+					t.Fatal(err)
+				}
+				r.Files = slices.DeleteFunc(r.Files, func(file File) bool { return file.Name == "controller-b-admission.key" })
+			},
+			"wrong private key with matching digest": func(t *testing.T, p string, r *Record) {
+				wire, err := os.ReadFile(filepath.Join(p, "controller-a-response.key"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(p, "controller-a-admission.key"), wire, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				for index := range r.Files {
+					if r.Files[index].Name == "controller-a-admission.key" {
+						r.Files[index].SHA256 = digest(wire)
+						r.Files[index].MaxBytes = int64(len(wire))
+					}
+				}
+			},
+			"foreign private slot": func(_ *testing.T, _ string, r *Record) {
+				for index := range r.Files {
+					if r.Files[index].Name == "controller-a-admission.key" {
+						r.Files[index].Slot = "controller-b"
+					}
+				}
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				copyPath := t.TempDir()
+				entries, err := os.ReadDir(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, entry := range entries {
+					wire, err := os.ReadFile(filepath.Join(path, entry.Name()))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(filepath.Join(copyPath, entry.Name()), wire, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				candidate := record
+				candidate.Files = slices.Clone(record.Files)
+				mutate(t, copyPath, &candidate)
+				wire, err := json.Marshal(candidate)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(copyPath, metadataName), wire, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(copyPath, readyName), []byte(digest(wire)+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := Load(copyPath); err == nil {
+					t.Fatal("invalid dedicated material loaded")
+				}
+			})
+		}
+	})
+}
+
+func testAdmissionAuthorization(t *testing.T, cfg Config) release.AdmissionAttestorAuthorization {
+	t.Helper()
+	wire, err := json.Marshal(cfg, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return release.AdmissionAttestorAuthorization{Schema: release.AdmissionAttestorAuthorizationSchema, Domain: "terrascale.release.container-admission", Action: "reserve", SourceBinding: "original-source-inventory.v1", TenancyID: "ocid1.tenancy.oc1..test", InstallationID: "0000000000YTR4D9RJ6W8NG1HC", DeploymentID: cfg.DeploymentID, ClusterID: cfg.ClusterID, Cell: strings.ToUpper(cfg.Cell), Environment: cfg.Environment, Generation: 1,
+		ControllerSlots: [3]string{"controller-a", "controller-b", "controller-c"}, Roles: [3]string{"function-worker", "terrabase", "ts-auth"}, PlanSHA256: digest(wire), WorkloadGenesisSHA256: strings.Repeat("a", 64), SourceRegistrationSHA256: strings.Repeat("c", 64), SourceNamespace: "ns", SourceBucket: "gru-1-head", SourceObject: "bootstrap/bootstrap/v2/material-source/" + strings.Repeat("d", 64) + ".json"}
 }
 
 // Every controller receives the cell's C# TerraBase member CA as host-issuer
@@ -254,6 +380,70 @@ func TestControllerMaterialAlwaysGrantsTelemetryWithBoundGlobalHome(t *testing.T
 				if err != nil {
 					t.Fatalf("home %s lacks global grants: %v", slot.Name, err)
 				}
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
+			path := func(name string) string { return filepath.Join(directory, name) }
+			tlsFiles := natscell.TLSFiles{CAFile: path("ca.pem"), CertFile: path("controller-a-tls-cert.pem"), KeyFile: path("controller-a-tls-key.pem")}
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			port := listener.Addr().(*net.TCPAddr).Port
+			if err := listener.Close(); err != nil {
+				t.Fatal(err)
+			}
+			brokerConfig := natscell.Config{Cell: cfg.Cell, Instance: "controller-a", Replicas: 1, CredentialsFile: path("controller-a.creds"), TLS: tlsFiles,
+				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(t.TempDir(), "broker"),
+					TLS: tlsFiles, RouteTLS: tlsFiles, RouteUser: "integration-route", OperatorJWTFile: path("operator.jwt"),
+					SystemJWTFile: path("system.jwt"), CellJWTFile: path("cell.jwt"), SystemCredentialsFile: path("system.creds"),
+					TicketPublicKeyFile: path("ticket.pub"), BrokerIDs: []string{"controller-a"}}}
+			if err := natscell.ValidateProductionCredentials(brokerConfig); err != nil {
+				t.Fatalf("generated controller preflight: %v", err)
+			}
+			broker, err := natscell.Start(ctx, brokerConfig)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer broker.Close()
+			if err := broker.ApplyCellClaim(ctx, 1, broker.InitialCellJWT()); err != nil {
+				t.Fatal(err)
+			}
+			if err := broker.Bridge().OpenUntil(1, broker.InitialCellJWT(), time.Now().Add(time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			certificate, err := tls.LoadX509KeyPair(tlsFiles.CertFile, tlsFiles.KeyFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ca, err := os.ReadFile(tlsFiles.CAFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			roots := x509.NewCertPool()
+			if !roots.AppendCertsFromPEM(ca) {
+				t.Fatal("generated CA is invalid")
+			}
+			client, err := nats.Connect(broker.URL(), nats.UserCredentials(brokerConfig.CredentialsFile),
+				nats.SetCustomDialer(&tls.Dialer{NetDialer: &net.Dialer{Timeout: time.Second}, Config: &tls.Config{
+					MinVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{certificate}, ServerName: "controller-a"}}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			requests, err := broker.Conn().SubscribeSync(protocol.GlobalBudgetSetSubject())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer requests.Unsubscribe()
+			if err := broker.Conn().FlushWithContext(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := client.Publish(protocol.GlobalBudgetSetSubject(), []byte("budget")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := requests.NextMsg(time.Second); err != nil {
+				t.Fatalf("generated controller cannot publish and receive global budget requests: %v", err)
 			}
 		})
 	}
@@ -444,6 +634,78 @@ func TestGenerateHoldsIncompleteAndTamperedSource(t *testing.T) {
 	if _, err := Generate(directory, testConfig(), time.Now()); err == nil {
 		t.Fatal("tampered source was regenerated")
 	}
+
+	t.Run("one-year validity survives immutable source publication", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.ValidityHours = 365 * 24
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("one-year material rejected: %v", err)
+		}
+		parent := t.TempDir()
+		directory := filepath.Join(parent, "material")
+		now := time.Now().UTC().Truncate(time.Second)
+		if _, err := Generate(directory, cfg, now); err != nil {
+			t.Fatalf("one-year material generation: %v", err)
+		}
+		persisted, err := Load(directory)
+		if err != nil {
+			t.Fatalf("one-year material readback: %v", err)
+		}
+		if err := ValidateLive(directory, persisted); err != nil {
+			t.Fatalf("one-year material live validation: %v", err)
+		}
+		deadline := now.Add(365 * 24 * time.Hour)
+		if !reflect.DeepEqual(persisted.Config, cfg) || !persisted.IssuedAt.Equal(now) || !persisted.ExpiresAt.Equal(deadline) {
+			t.Fatalf("persisted one-year material has different config or validity: %+v", persisted)
+		}
+		wire, err := os.ReadFile(filepath.Join(directory, "ca.pem"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		block, _ := pem.Decode(wire)
+		if block == nil {
+			t.Fatal("persisted one-year CA is not PEM")
+		}
+		ca, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ca.NotAfter.Equal(deadline) {
+			t.Fatalf("persisted CA expiry = %v, want %v", ca.NotAfter, deadline)
+		}
+
+		cfg.ValidityHours++
+		if cfg.Validate() == nil {
+			t.Fatal("material longer than one year accepted")
+		}
+		rejected := filepath.Join(parent, "too-long")
+		if _, err := os.Lstat(rejected); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("rejected material path was not absent: %v", err)
+		}
+		before, err := os.ReadDir(parent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Generate(rejected, cfg, now); !errors.Is(err, ErrMaterial) {
+			t.Fatalf("material longer than one year generation = %v, want ErrMaterial", err)
+		}
+		if _, err := os.Lstat(rejected); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("rejected material created an artifact: %v", err)
+		}
+		after, err := os.ReadDir(parent)
+		if err != nil || len(after) != len(before) {
+			t.Fatalf("rejected generation changed parent entries: %v", err)
+		}
+		for index, entry := range before {
+			if after[index].Name() != entry.Name() {
+				t.Fatal("rejected generation changed parent entry names")
+			}
+		}
+		unchanged, err := Load(directory)
+		if err != nil || !reflect.DeepEqual(unchanged, persisted) {
+			t.Fatalf("rejected generation changed existing material: %v", err)
+		}
+	})
 }
 
 func TestLoadRejectsWorldReadableOrLinkedMaterial(t *testing.T) {
@@ -470,8 +732,8 @@ func TestLoadRejectsWorldReadableOrLinkedMaterial(t *testing.T) {
 	}
 }
 
-// legacyMaterial rewrites generated material as a source generated before
-// the member CA existed: 32 files, no CA pair.
+// legacyMaterial removes only the optional member CA pair from generated
+// material, retaining every currently mandatory file.
 func legacyMaterial(t *testing.T, directory string, record Record) Record {
 	t.Helper()
 	record.Files = slices.DeleteFunc(slices.Clone(record.Files), func(file File) bool {
@@ -504,7 +766,7 @@ func TestLegacyMaterialWithoutMemberCAStillLoads(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacy := legacyMaterial(t, directory, generated)
-	if len(legacy.Files) != 32 || legacy.HasMemberCA() || !generated.HasMemberCA() {
+	if len(legacy.Files) != 35 || legacy.HasMemberCA() || !generated.HasMemberCA() {
 		t.Fatalf("legacy fixture has %d files", len(legacy.Files))
 	}
 	loaded, err := Load(directory)
@@ -516,6 +778,20 @@ func TestLegacyMaterialWithoutMemberCAStillLoads(t *testing.T) {
 	}
 	if err := ValidateLive(directory, legacy); err != nil {
 		t.Fatalf("legacy material failed live validation: %v", err)
+	}
+	legacyMetadata, err := os.ReadFile(filepath.Join(directory, metadataName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.Public.AdmissionAttestor != (release.AdmissionAttestorMaterial{}) {
+		t.Fatal("legacy archive acquired attestor public material")
+	}
+	if _, err := GenerateAdmissionCandidate(directory, testConfig(), testAdmissionAuthorization(t, testConfig()), now); err == nil {
+		t.Fatal("legacy archive upgraded with a new attestor")
+	}
+	after, err := os.ReadFile(filepath.Join(directory, metadataName))
+	if err != nil || !bytes.Equal(legacyMetadata, after) {
+		t.Fatal("refused legacy upgrade changed original bytes")
 	}
 	half := filepath.Join(t.TempDir(), "material")
 	record, err := Generate(half, testConfig(), now)
@@ -574,7 +850,7 @@ func TestCellAccountRoleSignerIsExactOrAbsent(t *testing.T) {
 		}
 		var role string
 		for key := range claim.SigningKeys {
-			if key != record.Public.HostNATSIssuerNKey {
+			if key != record.Public.HostNATSIssuerNKey && key != record.Public.ControllerAccountSignerNKey {
 				role = key
 			}
 		}

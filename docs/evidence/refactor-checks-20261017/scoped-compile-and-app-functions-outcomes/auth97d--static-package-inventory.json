@@ -1,0 +1,1856 @@
+[
+  {
+    "package": "./internal/natscell",
+    "included_in_compile_argv": true,
+    "expected_binary": "natscell.test",
+    "reason": "default-context test files present; binary expected",
+    "files": [
+      {
+        "path": "internal/natscell/accounts.go",
+        "sha256": "428fa212a2fe06f0e701a5c119eead1460a58769d6af4c7d999411626db8c2e7",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/bridge.go",
+        "sha256": "40e089ec3dbb2173fb7348f963ef2dfefccc8c3209596c82b1597434b8a5a548",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/bridge_close_test.go",
+        "sha256": "779d5627c192ddb382e24949939097496a35f3ab74ee3c7c4f32c154851e9e71",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestAdditionalBridgeTLSCloseDoesNotDelayPrimaryFence",
+          "TestBridgeFenceRevokesEveryNATSPathBeforeTLSShutdown",
+          "TestBridgeCannotAcknowledgeRevocationBeforeNATSPathCloses"
+        ]
+      },
+      {
+        "path": "internal/natscell/claims_update_test.go",
+        "sha256": "a75271d3c0d0f979833a654ff0736c3b0197661e5a3375b12432b735737b30ba",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestClaimsUpdateCannotBypassTheContractCheck"
+        ]
+      },
+      {
+        "path": "internal/natscell/client_material.go",
+        "sha256": "0fe87ecf7fd9efd8c7dec1bde112ffc5aa5b9fa37293ec4c7f2cf8c9f5f75cb9",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/client_material_lastgood_review_test.go",
+        "sha256": "a9e1eea78699ed245d1d6166cacde449acb62520b8f45547cae05c5f7a9ed39c",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestClientMaterialSourceKeepsTheLastAcceptedRenewal",
+          "TestClientMaterialSourceKeepsTheLastRenewedCertificate"
+        ]
+      },
+      {
+        "path": "internal/natscell/client_material_reload_test.go",
+        "sha256": "4230f70ad63735e37604ebd8ea2b32a0cda862dc98f993ce176d9060bc392a75",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestClientMaterialSourceRejectsCorruptReloadedJWT",
+          "TestClientMaterialSourceTLSFallbackErrorNamesBothCauses",
+          "TestClientOptionsReloadTLSWithoutCredentialsFileAndInLab"
+        ]
+      },
+      {
+        "path": "internal/natscell/client_material_test.go",
+        "sha256": "20e1c8acb969ee9e66c84d4767bfd907d9794175ff6ac7c8ef10f070abcd2d87",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestClientMaterialSourceRejectsAnotherUserKey",
+          "TestHostClientPresentsRenewedCredentialsAfterExpiry"
+        ]
+      },
+      {
+        "path": "internal/natscell/cluster_formation_test.go",
+        "sha256": "01148534acb9c2e338fa02b563149ce1a6e6f51926843b3ae175b3a906728a1e",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestObserveStandaloneBroker",
+          "TestPeerRoutesOmitsOnlySelf",
+          "TestStagedFormationWithProductionRouteShape",
+          "TestColdRestartWithTwoOfThreeBrokers",
+          "TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+          "TestCloseHandsOffStreamLeadership"
+        ]
+      },
+      {
+        "path": "internal/natscell/domain_switch_test.go",
+        "sha256": "9c57a5a51b3cf5ad64b918c7ae1cd8369bb57aa6bf97637afee3046d74ad2307",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestRollingInterRegionMaterialKeepsRegionalDomainAndData"
+        ]
+      },
+      {
+        "path": "internal/natscell/dont_listen_cluster_test.go",
+        "sha256": "85401e67b3e1913e61880f40afc92a1dbf4f9abe725c284a2a3fb67f26c0527f",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestDontListenStartsRoutesWithoutClientSocketAndShutsDown"
+        ]
+      },
+      {
+        "path": "internal/natscell/fabric_test.go",
+        "sha256": "3f751a555909275f0e1870ab7c06cb4e47bf572c5626bec158f01981cf625c8e",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestRelayedCellSpecReachesTheSpokeThroughPartitions"
+        ]
+      },
+      {
+        "path": "internal/natscell/global_grants.go",
+        "sha256": "9cbee60439913e1739514e2363190d3f416cc9f3688e2cfa69e63227854d8851",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/global_grants_test.go",
+        "sha256": "85b95dff2a197639db1ab73ef2bd34725921b3d48d42485308cdca98b08a8c7c",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestSubjectCoversMatchesNATSWildcards",
+          "TestOnlyHomeControllersCarryGlobalGrants",
+          "TestGlobalHomeNeedsGlobalGrantsUnderRestrictedCredentials",
+          "TestSubjectsIntersect"
+        ]
+      },
+      {
+        "path": "internal/natscell/health.go",
+        "sha256": "7fd9c2d856f1d564013c9cb1208a9b091221601fdbbafef96b99086bdef818ac",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/health_review_test.go",
+        "sha256": "cb0ceb3af64c22a49054c8d4652f451bdbd204ace522df819a356b82e27c38e5",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestObserveClusterReportsDisabledJetStream",
+          "TestStreamHealthReportsUnreplicatedStreamsOnThisBroker",
+          "TestStreamLaggingJudgesEveryReplicaAsItsLeaderReports"
+        ]
+      },
+      {
+        "path": "internal/natscell/host_reconnect_test.go",
+        "sha256": "bfc13cae9b0a65ba618c0fdd2bed41d362f57b49cd3703d7a2e17e663d1b4b91",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestHostClientLeavesBlackholedPeerBeforeSessionReserve"
+        ]
+      },
+      {
+        "path": "internal/natscell/identity_rekey_installation.go",
+        "sha256": "f300fd56f12c39fc9567cdecf2dea6237667307e4486c72e3df882ed42875690",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/identity_rekey_installation_test.go",
+        "sha256": "19e99593ad1f9a371de2a3f088f5d8ba44b104d7fa287973fa7a1bca94cd261d",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestIdentityRekeyPinsObservedNodeWithoutReplacingStore",
+          "TestIdentityRekeyNodeObservationRejectsForeignAndIndirectPins"
+        ]
+      },
+      {
+        "path": "internal/natscell/installation_identity.go",
+        "sha256": "c7d3cc2b3dbbec17eb654980e52681b4d20fd201a627e68ea135ee340e9e884f",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/installation_identity_test.go",
+        "sha256": "49cf397b5739cf634d7165840d10d02fb5dfe236a2d6b7c5e5b56c669949cae6",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestPrepareInitialInstallationIdentityPreservesCurrentStore",
+          "TestPrepareInitialInstallationIdentityRejectsIndirectDirectories",
+          "TestPrepareInitialInstallationIdentityRejectsUnsafePinsWithoutMutation",
+          "TestPrepareInitialInstallationIdentityChecksBothPinsBeforePublishing",
+          "TestPrepareInitialInstallationIdentityRefusesUnpinnedJetStreamState",
+          "TestPrepareInitialInstallationIdentityRecoversPinsOnlyOnEmptyStore",
+          "TestObserveInstalledIdentityDoesNotCreateOrRepairPins",
+          "TestInstallationPinPublicationCannotReplaceConcurrentOwner",
+          "TestInstallationPinPublicationUsesHeldDirectory"
+        ]
+      },
+      {
+        "path": "internal/natscell/interregion.go",
+        "sha256": "d891d02ec3d1becb95863358c7516a1151f5fd3c2da4e19b972ccfe853924d69",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/interregion_config_test.go",
+        "sha256": "27effb08c9e2bd12c3e76f0958dcb1055067c5df2015787331376095cdde4143",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestSingleRegionTopologyKeepsProductionDomain",
+          "TestInterRegionRejectsRemovedEnabledField",
+          "TestInterRegionConfigFailsClosed",
+          "TestLeafCredentialsMustBeLeafOnlyPeerUsers",
+          "TestResolverRefusesCellClaimThatWidensInterRegionContract"
+        ]
+      },
+      {
+        "path": "internal/natscell/interregion_probe_test.go",
+        "sha256": "7adf57744edf7194079c32e6d8ebd4395b1f1e3eaaaf3e62d153219ba79ac4ab",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/interregion_test.go",
+        "sha256": "3f7fb1b1223022a828ce5b47897edbd58e87ae2b0ed0882dcc8279e5c3f3ac3e",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestLeafTopologyIsARootedTree",
+          "TestInterRegionContractIsExplicitAndExact",
+          "TestGlobalMirrorContractExportsNoConsumerCreation",
+          "TestInterRegionLeafFailsOverToTheNextURLInOrder"
+        ]
+      },
+      {
+        "path": "internal/natscell/interregion_topology_test.go",
+        "sha256": "aa1a79f7c015b10dfc0a3725699589e4d3057ef395f0e8400b5fff76e1f0c0fb",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestInterRegionConfigMatchesItsTopology"
+        ]
+      },
+      {
+        "path": "internal/natscell/jwt_bridge_test.go",
+        "sha256": "f563b95e74e4b629c04a3ebda12419be121e34af078a30912169a7783b64cbfa",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestProductionJWTBridgeClosedApplyOpenAndFence"
+        ]
+      },
+      {
+        "path": "internal/natscell/leaf_isolation_test.go",
+        "sha256": "22f27384d45eb31679f64ced315f41422f22ac8d4923a899e52ceadc4e0d127a",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestSiblingLeafCannotInterceptAnotherChild"
+        ]
+      },
+      {
+        "path": "internal/natscell/leaf_scope_test.go",
+        "sha256": "cb0edfe9d00ff4fe2b9286099ff2a327a6c084df1c6b1ffbd1e637004a1f5533",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestChildLeafPermissionsAreScopedToTheSubtree"
+        ]
+      },
+      {
+        "path": "internal/natscell/leaftopology.go",
+        "sha256": "52c61dc912a5ef63c3dd0f56a0492a2d82999ca2965665ca8e4eaa68a81f0822",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/link.go",
+        "sha256": "447d47985aa4089424fbf7526dde0a4b241eb5b6616259cd8e2b440c36099444",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/link_test.go",
+        "sha256": "fcb85e42949835af6ef35a865a72060ce15542a8765262cb37c6e9175772491f",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestLinkStarRelaysEveryRegionThroughTheHome",
+          "TestLinkScopeIsOneTemplateForEveryRegion",
+          "TestIssueLinkUserCarriesOnlyTheLinkClaim",
+          "TestLinkValidationRefusesMisconfiguredRegions"
+        ]
+      },
+      {
+        "path": "internal/natscell/logger.go",
+        "sha256": "96d863694e30c569bd2bc36c079d88f76bd396671e9f57a5aebf7a30a637dbc5",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/logger_test.go",
+        "sha256": "90aecdae9395fbf5bcf69f354624b5970ebe3ec59b2900ed1cbd5641c1980841",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestNATSServerOutputMapsToLevels",
+          "TestClientErrorsLogAtTheirSeverity"
+        ]
+      },
+      {
+        "path": "internal/natscell/membership.go",
+        "sha256": "baa345990c04b5eff28acfbacecc800c2bd4b866754d5eb926c5187f9d0cd15c",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/membership_test.go",
+        "sha256": "e79790831c7a593f3f1447b9e7788e97efd8ab8ba9e87379b7e2304547859f78",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestMembershipCredentialsAreNarrowlyScoped",
+          "TestMembershipAPIErrorDecoding"
+        ]
+      },
+      {
+        "path": "internal/natscell/metrics.go",
+        "sha256": "291c03bfb6a3c14aec2ef91ecabe7b9c2a3d8da2a40dc0d2dda8516c30c23bb1",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/metrics_replicas_review_test.go",
+        "sha256": "9f6990b0bc3b3994b2b188fb0c0140b3d978dfd53ec136e96ffa487e57f1cc70",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestStreamViewReportsTheConfiguredReplicationFactor"
+        ]
+      },
+      {
+        "path": "internal/natscell/metrics_test.go",
+        "sha256": "283fbf656115487eaa2f17f27a50a2948096f989c9dbffe518ed61dba5be27cd",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestObserveReportsEmbeddedJetStreamHealth",
+          "TestObservabilityTelemetryIsControllerOnly"
+        ]
+      },
+      {
+        "path": "internal/natscell/netbird.go",
+        "sha256": "39680782f34abaa655c35b0ec645a5646ae3069f422bc9d698e7b0ae43d3ca4f",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/nodeidentity.go",
+        "sha256": "5c83ebe9f35938a7f928f22945e10937261b2328230c29635ef7da309c48be52",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/nodeidentity_cluster_test.go",
+        "sha256": "e7178adc0c2f58839c6316c38bb5ad7c8d3f66a354932dab6a6450328b18df98",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestPrepareNodeIdentityPreservesR3State"
+        ]
+      },
+      {
+        "path": "internal/natscell/nodeidentity_test.go",
+        "sha256": "a0bfd700ada42d90ed9f9b5e916748b2aab609e16fecc9e580996e53b71a0dd1",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestNodeIdentityPinsCellSlotAndRaftID",
+          "TestNodeIdentityConcurrentPinsCannotReplaceAnOwner",
+          "TestNodeIdentityExistingPinCannotBypassConcurrentDirectorySync",
+          "TestNodeIdentityRejectsCorruptOrIndirectPins",
+          "TestStartRejectsConflictingNodeIdentityBeforeListening"
+        ]
+      },
+      {
+        "path": "internal/natscell/observability_contract_test.go",
+        "sha256": "a87763c078bc2d2cefb0dd317645d06157d1fd6f20d5e0997de164e864bdacec",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestObservabilityContractIsExactRequestReply"
+        ]
+      },
+      {
+        "path": "internal/natscell/operator_forward.go",
+        "sha256": "29c6ca17806b52ca258e41858ef5df70b4b3a6db4ba810eb5bc4695032def3a0",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/operator_forward_test.go",
+        "sha256": "c83c5b39cd807cfba5195f55cf42584b15a6ac098441573b9ddd4dfd257abcd2",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestOperatorForwardSelectsOnlyConfiguredPrivateControllers",
+          "TestOperatorForwardTLSVerifiesOriginalControllerIPAndClientCert"
+        ]
+      },
+      {
+        "path": "internal/natscell/preflight.go",
+        "sha256": "82a4843ffc9abe1f89fc130136bfb74408784c6f03a99d77bb58304ea58ff7c6",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/preflight_test.go",
+        "sha256": "197328e1d8b88eaee034a8d79d7ecd1185e56694a68f088b3af3d55a6439a608",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestBrokerControllerCredentialReadErrorHasContext",
+          "TestProductionCredentialPreflightIsReadOnlyAndCurrent",
+          "TestControllerCredentialsRequireScopedTerminalSubscription",
+          "TestOperatorCredentialsRequireExactTerminalPublishes",
+          "TestProductionCredentialPreflightRejectsUntrustedTLS",
+          "TestProductionCredentialPreflightEnforcesTLSKeyPurposes"
+        ]
+      },
+      {
+        "path": "internal/natscell/production_auth_fixture_test.go",
+        "sha256": "534f8a1b0475ea7b099eacf9e2bdf7784b9b6a2ff379ca481b5b2c7cb6ccc999",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/reconnect.go",
+        "sha256": "9e887cc2b2259a534de939e8f81024a61d1a93b42a4de1cc5bc6c0a86c7f919b",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/reconnect_test.go",
+        "sha256": "3c0a8663eabaa5f1059261a720197b6b60e57a8d0458801856e65990ff761ff6",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestReconnectInterRegionRejectsUnavailableRuntime",
+          "TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState"
+        ]
+      },
+      {
+        "path": "internal/natscell/route_metrics_test.go",
+        "sha256": "2c44f81c0a0674167dccb2760e2c6e2dcf83e83d383e6fa3f08ed9cf82ba7b2b",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestObserveRoutesGroupsPoolingAndPreservesCoverage",
+          "TestObserveRoutesSortsBeforeBoundingPeers",
+          "TestEmbeddedRouteRTTFlowsToMetricsAndHistory"
+        ]
+      },
+      {
+        "path": "internal/natscell/runtime.go",
+        "sha256": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/runtime_test.go",
+        "sha256": "693c1a39c82d34cf0f9ef5732cb2c7401975b67dbe56517063f0d00188907283",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestEmbeddedSingleNodeDurableRestart",
+          "TestEmbeddedStoreLimit",
+          "TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+          "TestEmbeddedClusterAdvertisesClientPeers",
+          "TestHostNKeyCannotCrossNodeOrUseJetStream",
+          "TestLabTerminalPermissionsAreRoleScoped",
+          "TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState"
+        ]
+      },
+      {
+        "path": "internal/natscell/shutdown.go",
+        "sha256": "14d726409af224accd1b52c2fb566df1d4e7680e0f38d1ec75b07cd41ffceb19",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/shutdown_review_test.go",
+        "sha256": "b5a87b486737596e51c6383bdd9926dea83c3474abfa8917dc2369c53811a9f7",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestSuccessorsElectedWaitsThroughLeaderlessGroups"
+        ]
+      },
+      {
+        "path": "internal/natscell/storeidentity.go",
+        "sha256": "e521443efb55ce4d962485309a15154411d1465fe05d4ec7ccdd568584cdcc4d",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/storeidentity_test.go",
+        "sha256": "2481ce1165c9cd1a4d7bae1494250da74c56a9755984fc291508a78612464ce4",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestServerOptionsRefusesAStoreOfAnotherServerName",
+          "TestStartRefusesAPreSchemeStore"
+        ]
+      },
+      {
+        "path": "internal/natscell/tls_dialer.go",
+        "sha256": "d6e9d24d0e04e725333d52d14422b07af22ef0cb6ddbf98b1dece4c002625e5a",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/tls_dialer_test.go",
+        "sha256": "8690ca858d477a763f4bdd11e20e07c2f2bd7f1a7fd8e0a277e45ac91a5b23aa",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestTLSFirstDialerReturnsNilConnectionOnFailedReconnect"
+        ]
+      },
+      {
+        "path": "internal/natscell/tls_reload.go",
+        "sha256": "d685e84fc5f97828edc29975d767372aebf4084c5ef06e17b27618249bec39ca",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/natscell/tls_reload_test.go",
+        "sha256": "6dadef5e0a8a358cb012aaaadb036465a692706efca9361f27ef6afce8299b20",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestReloadingTLSServesRenewedLeafOnly",
+          "TestReloadingTLSRollsOverTheCA",
+          "TestReloadingTLSPeerConfig",
+          "TestReloadingTLSKeepsTheRoleUsages",
+          "TestReloadingTLSPeerDropsACAAtOnce",
+          "TestReloadingTLSKeepsTheWholeSubject",
+          "TestReloadingTLSDoesNotWaitForAReloadInFlight",
+          "TestReloadingTLSConcurrentRenewals",
+          "TestReloadingTLSChecksTheStartupSet",
+          "TestReloadingTLSSeesAnInPlaceRewrite",
+          "TestReloadingTLSChecksAtMostEveryInterval"
+        ]
+      },
+      {
+        "path": "internal/natscell/unavailable_test.go",
+        "sha256": "649d94ae12fc387ab3c0c7e3154c27afa0965ec000e3146a66403bb89c597d0c",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestStartMarksOnlyUnreachableBrokersUnavailable"
+        ]
+      }
+    ]
+  },
+  {
+    "package": "./internal/natscell/natstest",
+    "included_in_compile_argv": true,
+    "expected_binary": null,
+    "reason": "no *_test.go files; no binary expected",
+    "files": [
+      {
+        "path": "internal/natscell/natstest/fixture.go",
+        "sha256": "59d0f0a4c0c7414cee11cd6d5b5310608f82eeded73e72ee2de62b0ad5319853",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      }
+    ]
+  },
+  {
+    "package": "./internal/oci",
+    "included_in_compile_argv": true,
+    "expected_binary": "oci.test",
+    "reason": "default-context test files present; binary expected",
+    "files": [
+      {
+        "path": "internal/oci/capacity_request.go",
+        "sha256": "6871a893d8fd31c204c3b4673008c732b9e1a677433f8b552683ff67171cd78e",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/capacity_request_integration_test.go",
+        "sha256": "38f6ccbd0dd21fdb74e2578faebb17b83c949f63e9c33c64c98f3832a9014fbb",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity"
+        ]
+      },
+      {
+        "path": "internal/oci/config.go",
+        "sha256": "ecba4d4a0ebe6451c68e96ff57ea78f721150b7b3c666bdcc3d113a3b8693f45",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/config_test.go",
+        "sha256": "ab4206b763513b048eeef4d06cfcc315ac124a5752b22e590d8e88fe44f147ca",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestRegionConfigRequiresExplicitCostAndPrivateNetworkBounds"
+        ]
+      },
+      {
+        "path": "internal/oci/console_history.go",
+        "sha256": "ff978926669a1f7be8798c2838b71c1ed8342f134b8cf9a246a62212b9db4bb8",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/console_history_test.go",
+        "sha256": "0415e1049fa2e44e4b26448ee7307b19cfac551f626b8759a5097559a6635f37",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestConsoleHistoryCaptureEvidenceAndExactDelete",
+          "TestConsoleHistoryRefusesForeignInstanceBeforeCapture",
+          "TestConsoleHistoryMarksMismatchedCaptureAsUnknownWithoutCleanup",
+          "TestConsoleHistoryExpiredUnknownIntentCannotRetryWithFreshTimestamp",
+          "TestConsoleHistoryAmbiguousRetryUsesOnlySameTokenAndTimestamp",
+          "TestConsoleHistoryTerminalFailureDeletesOnlyExactHistory",
+          "TestConsoleHistoryRejectsOversizeAndTruncatedContent",
+          "TestConsoleHistoryPollingHonorsCallerDeadline"
+        ]
+      },
+      {
+        "path": "internal/oci/fleet.go",
+        "sha256": "a4301b2cc6671ec71acb6f2169c861b669d2a0efecfed07408920b8b0d04f5be",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/fleet_observer.go",
+        "sha256": "3c317aeb87294bfd4f75c1085723447e0c62aa03608a47915be79543ac92d225",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/fleet_test.go",
+        "sha256": "4bd81008838277fd49ff2bbe0f5e7239229b99aaaf76affc7f56243eac45bf3d",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestEnsureHostRecoversLostLaunchResponse",
+          "TestEnsureHostKeepsStaticNameAcrossReleases",
+          "TestFleetRejectsNamesOutsideItsCellBeforeAnyEffect",
+          "TestEnsureHostHoldsChangedBootPinsAndImageAcrossRetry",
+          "TestEnsureHostRequalifiesTheImageBeforeTheProviderLaunch",
+          "TestEnsureHostNeverMixesCellSpecVersions",
+          "TestFleetKeepsHostsOfAllowedEarlierImages",
+          "TestEnsureHostBootsTheCellSpecLaunchImage",
+          "TestObserveWithholdsLegacyLaunchWithoutBootDescriptor",
+          "TestEnsureHostRejectsSameCreateKeyComputeProfileDrift",
+          "TestEnsureHostRejectsMissingSignedComputeProfileBeforePersistence",
+          "TestOCIShapeRejectionCannotConfirmOrAdoptInstance",
+          "TestEnsureHostWithholdsNilOrMismatchedObservedSizing",
+          "TestStaleLeaderCannotLaunch",
+          "TestEnsureHostRefusesForeignResourceWithSameCreateKey",
+          "TestEnsureHostIgnoresTerminatedHostOfAnotherFleet",
+          "TestEnsureHostDoesNotAdoptMatchingTagsWithoutJournalProof",
+          "TestEnsureHostHoldsExpiredUnknownCreateWithoutProviderCall",
+          "TestFakeJournalRetryPreservesOriginalIntentTimestamp",
+          "TestCreateRetainedVolumeHoldsExpiredUnknownWithoutProviderCall",
+          "TestCreateRetainedVolumeHoldsExpiredUnconfirmedIntentWithoutProviderCall",
+          "TestConfirmedMissingHostRequiresOperatorReconciliation",
+          "TestConfirmedMissingVolumeRequiresOperatorReconciliation",
+          "TestEnsureHostReturnsCurrentETagWithoutRewritingCreateReceipt",
+          "TestCreateRetainedVolumeRecoversLostResponseAndIsIdempotent",
+          "TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys",
+          "TestCreateRetainedVolumeRejectsObservedPerformanceTierDrift",
+          "TestCreateRetainedVolumeEnforcesFleetSizeCeilingBeforeOCI",
+          "TestCreateRetainedVolumePinsProfileBeforeMutation",
+          "TestCreateRetainedVolumeDoesNotReplayAfterAuthorityIsFenced",
+          "TestCreateRetainedVolumeKeepsUnconfirmedOutcomeUnowned",
+          "TestTerminateRequiresNoAttachedVolumeAndVerifiedWriterStop",
+          "TestRetainedVolumeAttachRequiresDurableOwnership",
+          "TestRetainedVolumeAttachPersistsDeviceAndRecoversAmbiguousOutcome",
+          "TestRetainedVolumeAttachHoldsExistingAttachmentWithoutOperation",
+          "TestRetainedVolumeAttachRecoversExactAttachmentFromIntentWithoutResult",
+          "TestRetainedVolumeAttachHoldsExpiredPendingAndUnknownIntents",
+          "TestRetainedVolumeAttachConfirmsExactObservationAfterRetryWindow",
+          "TestRetainedVolumeAttachRechecksRetryWindowAfterAuthorityGuard",
+          "TestRetainedVolumeOperationsHoldWithoutImageVerifier",
+          "TestEnsureHostHoldsAnUnqualifiedPin",
+          "TestFleetVerifyHostImageIsPublicReadinessGate",
+          "TestRetainedVolumeAttachRequiresPinnedImageAndConsistentNaming",
+          "TestRetainedVolumeAttachConfirmsTheSettledAttachment",
+          "TestRetainedVolumeAttachScopesItsRetryTokenToTheFleet",
+          "TestRetainedVolumeAttachRejectsIncompleteObservedPolicy",
+          "TestObserveReturnsOnlyDurablyOwnedInstancesAndTerminalState",
+          "TestObserveWithholdsOwnedInstanceAfterComputeProfileDrift",
+          "TestObserveSkipsUnverifiedIdentitiesWithoutBlockingOwnedInstances",
+          "TestObserveWithholdsOnlyUnverifiedRetainedVolumeHost",
+          "TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch",
+          "TestObserveWithholdsOnlySDKBootDrift"
+        ]
+      },
+      {
+        "path": "internal/oci/hostboot.go",
+        "sha256": "3b15abec5762665f7f77b4a73183325b7dad8a18a56a4dab5cec77bf31c7239c",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/inventory.go",
+        "sha256": "43de1e9a8901ecd8b244c695d6e35e8115f2e5a5155806c48c947cafa8ce5efb",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/inventory_test.go",
+        "sha256": "281b89dabeb24a0aa90ef6f0976a7da5f8024c7317d44f3515a5555dc9cd2457",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+          "TestInventoryZeroesStatesThatEmptied",
+          "TestInventoryCountsOnlyVerifiedHosts"
+        ]
+      },
+      {
+        "path": "internal/oci/journal.go",
+        "sha256": "c4f6d28a3abb8bea6fca9714c31985e06568b0c6118cc7ac8b8764d96d261c5b",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/journal_reader.go",
+        "sha256": "0c04aee00e87d2a0e6697a2e7082e6ee2d458101d4bb7343e96818aedbeb1f39",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/journal_test.go",
+        "sha256": "c4ccf3240739a86b2e293e1c4e3d1939b5317ae189dde8b7ebb408b1c74caeed",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestRegionIntentUsesFixedProductMapping",
+          "TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+          "TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+          "TestJournalPinsSignedPlacementComputeProfile",
+          "TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+          "TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+          "TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+          "TestJournalConcurrentConflictingResultsHaveOneImmutableWinner"
+        ]
+      },
+      {
+        "path": "internal/oci/member_volume.go",
+        "sha256": "74c683ab0abe697566e1fe21b188aadbc3f98f157abfc4bba9bf4c3aeef5313c",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/member_volume_restore.go",
+        "sha256": "7106c9fd2529bda2f33b602e8a23123431e862181b3c17c1257c10f086f86bd7",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/member_volume_restore_verify_test.go",
+        "sha256": "68ecaddd0fa3fbaf3f3588fdc4b10043f3c94220e054dd3c8d650818d528fd66",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestVerifyRestoredAttachmentReadsExactScratchCopyWithoutMutatingOCI",
+          "TestVerifyRestoredAttachmentFailsClosedOnWrongVolumeScopeStateAndAttachments"
+        ]
+      },
+      {
+        "path": "internal/oci/member_volume_retire_test.go",
+        "sha256": "7baafaf1556a4a172caa5e02189ffe7caa49a00dd0bd352bbead685c38df1a54",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestMemberVolumeResizeChecksRecordedIDBeforeAnyUpdate",
+          "TestMemberVolumeRetireRetainsAndNameReuseCreatesFreshVolume",
+          "TestMemberVolumeRetirementRetriesUnknownOutcomes",
+          "TestMemberNameReuseLostCreateResponseReplaysFreshIncarnation",
+          "TestMemberVolumeRetireRefusesOtherLiveAttachmentAndWrongRecordedData"
+        ]
+      },
+      {
+        "path": "internal/oci/member_volume_test.go",
+        "sha256": "b13a573d84d207803414b260e8c1e5bb7eca9c2f48e3520a53cdddfff0851b48",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestMemberVolumeCreatesAndAttachesOnceIdempotently",
+          "TestMemberVolumeLostCreateResponseReplaysOneVolume",
+          "TestMemberVolumeReattachesSameVolumeAfterHostReplacement",
+          "TestMemberVolumeRefusesToStealLiveAttachment",
+          "TestMemberVolumeFailsClosedOnTerminatedVolume",
+          "TestMemberVolumeRejectsInstancesAndNamesOutsideTheMember",
+          "TestMemberVolumeHoldsWhenDeviceIsBusy",
+          "TestMemberVolumeResizeGrowsOnlyUnderETag",
+          "TestMemberVolumeDuplicateCreateKeyHolds",
+          "TestMemberVolumeRecordedVolumeIsNeverRecreated",
+          "TestMemberVolumeCarriesTheCellBackupPolicy",
+          "TestMemberVolumeRestoreDrill"
+        ]
+      },
+      {
+        "path": "internal/oci/metrics.go",
+        "sha256": "71632ad531b0574801ababc6dd15cc55552fd802eeee421ab5b1e9e94d0f8d36",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/metrics_test.go",
+        "sha256": "9a488b6e898247f3e9d67f71557469c0cf2d028b772d278f9b7a51cb625b5a17",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestFleetUsesSharedAPIRecorder"
+        ]
+      },
+      {
+        "path": "internal/oci/observe_cache.go",
+        "sha256": "a30a25f7f0dd20289e672e452628cdb368c577780e4d6d4fc3f061bd9efedf50",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/observe_cache_admission_review_test.go",
+        "sha256": "a09872965f46ce6b6971530683af4e4a2d97ff3bb08860c6aa3cc47402ff2909",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestObserveUsesCachedVerificationOnlyWhenOptedIn"
+        ]
+      },
+      {
+        "path": "internal/oci/observe_cache_test.go",
+        "sha256": "29fecc660cf3b9daba4bcaf7dd5fcf87301e6e3e7d56517430152c26cdff99f7",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestVerificationCacheIsObserveOnlyETagBoundAndExpires"
+        ]
+      },
+      {
+        "path": "internal/oci/observe_selected_review_test.go",
+        "sha256": "7a460a45e5ed5d8ffcc72a1a58176e29ceccdbec3b771aa3a0b51113e71179ea",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestObserveSelectedVerifiesOnlySelectedHosts"
+        ]
+      },
+      {
+        "path": "internal/oci/pool_membership.go",
+        "sha256": "121bdedb8be9df40750f6dba25d96564f4046d26a8acba44323b4a4d58736850",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/pool_point.go",
+        "sha256": "16db5f190814bbe8211df938f08764e4fbf87578fb3bf4f4fc95fa1f7dc28d83",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/pool_receipt.go",
+        "sha256": "a734d737b280dfe5f28afd146741fc1e6586ed9ae4283f548a0570b3edbf219e",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/pool_receipt_integration_test.go",
+        "sha256": "be80e069652fc587c67a50f067f8764cd29c4d31f7c937872f473aa4147cab5d",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission"
+        ]
+      },
+      {
+        "path": "internal/oci/pool_wire.go",
+        "sha256": "a11f060b3a575a9e0738cc93bf76d8b21390c0140092bbb18a712e36f04659fa",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/sdk.go",
+        "sha256": "fb5b600a5ff7ed525f4a34b558295277be1c79257f8d5286ba7fc3ef1f3f6400",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/sdk_test.go",
+        "sha256": "70a23c5af82fa26050cbb832766dcdc9af152a74f50b55a78c758000d6cd2dc9",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot",
+          "TestLaunchInstanceMapsSignedProfileIntoOCIRequest",
+          "TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK",
+          "TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC",
+          "TestNamedHostObservationRequiresTheNamedRunningPrivateInstance"
+        ]
+      },
+      {
+        "path": "internal/oci/secret_reference.go",
+        "sha256": "410dcdc99ccb5fddd2a273afce56b9ef3033994556bbd8f5a117fa7a923461d7",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/secret_reference_test.go",
+        "sha256": "257712ba350d576186a0be4645e888959db1b33cd2b1e22820e65bfcc91dd006",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestSecretVersionReferenceRequiresVaultSecretAndExactVersion"
+        ]
+      },
+      {
+        "path": "internal/oci/static_host.go",
+        "sha256": "8dc8021a9909654ad035902401c336eccad6d6d5a2bdc619ad6a75942aa2ea79",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/static_host_test.go",
+        "sha256": "91487639c5a41a7ac49fe2eb65721b0ac97d4a365a743fed2241f09f0a6cdf5d",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance"
+        ]
+      },
+      {
+        "path": "internal/oci/terminal.go",
+        "sha256": "b16b58dcfa0893a8273db44acf05ac78e5c3ff74a30042413605b90a2743c9f2",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/terminal_scope.go",
+        "sha256": "8d778f8ed748faf326d94388df29f23493d39aa09199626a4e2acc2176ac1fbb",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/terminal_test.go",
+        "sha256": "0c72533fa0d2f1adf4cc748f9a0cae860abf1e08664ec77ba5e4874f48d358d1",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestTerminalExactInventoryAndFinalReadback",
+          "TestTerminalTearsDownHostsOfRevokedImages",
+          "TestTerminalUnknownCreateAndForeignPinsHold"
+        ]
+      },
+      {
+        "path": "internal/oci/terminal_volume_termination_test.go",
+        "sha256": "74b2c3bc27d694766ad2f7e423baeb003b4f0a9e7e4feafde9bf2cf9797f7393",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestTerminalVolumeTerminationProofRetriesBeforeCompletion",
+          "TestTerminalVolumeTerminationProofPrecedesPendingInstance",
+          "TestTerminalVolumeTerminationDuringOwnedReadSkipsDelete",
+          "TestTerminalVolumeTerminationProofRequiresExactReadback",
+          "TestInspectTerminalStatusDoesNotWriteTerminationProof"
+        ]
+      },
+      {
+        "path": "internal/oci/types.go",
+        "sha256": "ee3287983d2d2b377c92766d166b1de9bd5406c707dc5524fbd91894cd41c2b7",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/volume_attachments.go",
+        "sha256": "95154a818be12cc09490c06ec1a3bddfae6cf8b5791349f228ab8228977d095f",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/volume_backup.go",
+        "sha256": "66285edd69df148d5f8cb18007c29b2b9c73beae22488a72086776c58c91c610",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/volume_backup_export_test.go",
+        "sha256": "75ac9f7f91f0789f5d5f571bfd43e68514a75ce919c3cba133b0b695f27c8086",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/volume_backup_history_review_test.go",
+        "sha256": "461426dbd1cda010a56306c0b2983e95bdbc5a9a4af8430122e44c648773025b",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory"
+        ]
+      },
+      {
+        "path": "internal/oci/volume_backup_prune_test.go",
+        "sha256": "7a5f9c4c66ff10f105e953e0b60079ef6419b2e2008b136c230eef7b2b92256c",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestSDKOrphanPruningRequiresPositiveSourceDeletion",
+          "TestSDKOrphanTerminationSurvivesRetentionAndLeaderHandoff",
+          "TestSDKOrphanPruningUsesTerminalLifecycleProof"
+        ]
+      },
+      {
+        "path": "internal/oci/volume_init.go",
+        "sha256": "8b5d72a105e1c09b6e79bebfe0751cf1eadfa940cc8c0fb9bbfd7618db310560",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/volume_init_journal.go",
+        "sha256": "cb49dd16e550f8b7f31f38b52857d1fb323a20aa390b468e20a11a7340e7ba71",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/volume_init_test.go",
+        "sha256": "cf7b57195ecc6c1493b147978ebab9d775c231212a97bb1a6dbe5937949e93de",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestInspectVolumeInitializationGrantsOneFirstFormat",
+          "TestInspectVolumeInitializationGrantsPinnedXFSFirstFormat",
+          "TestInspectVolumeInitializationDeniesPriorDetachHistory",
+          "TestVolumeFormatPermitJournalOneWinnerAndImmutableBinding",
+          "TestInspectVolumeInitializationHoldsWhenAuthorityIsFenced"
+        ]
+      },
+      {
+        "path": "internal/oci/volume_observer.go",
+        "sha256": "f15846a149c7a16839276905aba9d16a884ffe84bcd81f604870141576df398b",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/volume_observer_integration_test.go",
+        "sha256": "995cf7cba342ff947d26217a4e0e2a17f1e844f63a2d021fca7f074216edc175",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects"
+        ]
+      },
+      {
+        "path": "internal/oci/volume_reattach.go",
+        "sha256": "5d5541d78a1e3a84bdd09f9861a4f07b8e58342af18c67557a4315f7b04287d9",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/volume_reattach_test.go",
+        "sha256": "d5d2270fda692f3f9298483029bd75cc0432b01eac897e0ddc3502cc5e8ee27a",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestFencedDetachRequiresATerminatedInstanceAndIsJournaled",
+          "TestFencedDetachThatNeverSettlesIsRecordedUnknown",
+          "TestReattachAttachesOverDetachedHistoryAndGrantsOnlyAMount"
+        ]
+      },
+      {
+        "path": "internal/oci/volume_resize.go",
+        "sha256": "ff9270338fb3187df8b89436cfb1fcf71089656a0746aae1c5152ba62fea4f69",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/volume_resize_pending_review_test.go",
+        "sha256": "fb71a40f7de5a9b367dc804a1432352207f8b188472e7d4031cebb5379681913",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestKVJournalOwnsAVolumeGrownByItsOwnUnconfirmedResize"
+        ]
+      },
+      {
+        "path": "internal/oci/volume_resize_test.go",
+        "sha256": "ac7aae80bcbaeaa3e8330278098e5823f4643af5cf680647ee25347785f5b0c5",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestResizeRetainedVolumeGrowsAndKeepsDurableOwnership",
+          "TestResizeRetainedVolumeRecoversLostResponseAndHoldsStaleState",
+          "TestResizeAttemptsKeepTheUnmovedETagAndAreBounded",
+          "TestResizeRetainedVolumeRefusesUnownedFencedAndOutOfBoundRequests",
+          "TestVolumeAttachmentLookupUsesVolumeFilter",
+          "TestKVJournalAdvancesAndRepairsResizedVolumeOwnership",
+          "TestTerminalTreatsObservedSupersededResizesAsSettled",
+          "TestTerminalSettlesAResizeWhoseETagCanNoLongerMatch",
+          "TestKVJournalRepairsOwnershipFromALaterResizeAttempt"
+        ]
+      },
+      {
+        "path": "internal/oci/volume_termination.go",
+        "sha256": "7c6732f865cda3b54814241dc70016736f71df2321ccaefabbf021953edfb09f",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/oci/volume_termination_test.go",
+        "sha256": "f9dce84da816d6befe5db33971c3b2522f540b61c9e81a1ea0f4dcf8a78b71fc",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestVolumeTerminationProofRejectsDifferentOrCorruptScope",
+          "TestVolumeTerminationProofRequiresSuccessfulWrite",
+          "TestVolumeTerminationProofSurvivesBrokerRestart"
+        ]
+      }
+    ]
+  },
+  {
+    "package": "./internal/ociregion/capacityinventory",
+    "included_in_compile_argv": true,
+    "expected_binary": "capacityinventory.test",
+    "reason": "default-context test files present; binary expected",
+    "files": [
+      {
+        "path": "internal/ociregion/capacityinventory/accounting.go",
+        "sha256": "877d6a4422a473c0f420adf4dca3d4e10777d0b87bcf316bffce0b079568d7a6",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociregion/capacityinventory/accounting_integration_test.go",
+        "sha256": "11768820f4098c2f97af12ec3ae8615628e853480c872e724173addb87d9ae8e",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestAccountingReadsRestartedJournalAndPositiveSDKTerminalResources"
+        ]
+      },
+      {
+        "path": "internal/ociregion/capacityinventory/collect.go",
+        "sha256": "97fa69ae9419deda3a26fb8578d4ff63d425f904911c473b1f0a978f2e4bd976",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociregion/capacityinventory/collect_integration_test.go",
+        "sha256": "ce57b31a5b7ee14a77fc7769a962183619d365e574bb1203fd74adf7a8c41d96",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestRegionalInventoryAndCurrentTariffsThroughRealProtocols"
+        ]
+      },
+      {
+        "path": "internal/ociregion/capacityinventory/direct.go",
+        "sha256": "678a3bc6e3ea14a941fd9a3fd2bb8c7e90705c891774f1a09f234596a57887c5",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociregion/capacityinventory/prices.go",
+        "sha256": "eae2a57f315aeba686f8c9703dff2ea1ccf5bffbb4f80a5bc200e185b28e56b8",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociregion/capacityinventory/quote.go",
+        "sha256": "0b382614428c219308c67bd48f00041c617c2197b778c32fcb2304f0552f3fa8",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociregion/capacityinventory/snapshot.go",
+        "sha256": "90113770477b7d3c1acece449fcdad32d0705ce250b3a24c49bd996bff5e3302",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      }
+    ]
+  },
+  {
+    "package": "./internal/ociresource",
+    "included_in_compile_argv": true,
+    "expected_binary": "ociresource.test",
+    "reason": "default-context test files present; binary expected",
+    "files": [
+      {
+        "path": "internal/ociresource/controller.go",
+        "sha256": "5501251ac7fc9c12f904fb2a5cf8febe7f77fe313e426249f1b2e8632e74d41c",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociresource/controller_test.go",
+        "sha256": "6f9c941a2ea5124bd16db5156b4dc78aeb1a5f06c260aab17e73553427b3bf01",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestControllerCreatesDetectsAndCorrectsDrift",
+          "TestRetiredReportPolicyCannotEnterPersistentDesiredState",
+          "TestForeignResourcesAreNeverTouched",
+          "TestTombstoneDeletesOnlyAfterNotBeforeAndPurgesAfterConfirmation",
+          "TestFencedControllerStopsBeforeMutation",
+          "TestApplyFailureIsRecordedAndOtherRecordsContinue",
+          "TestDesiredRecordsAreValidatedAndGenerationsMonotonic",
+          "TestKVStoreRoundTripAndCompareAndSet",
+          "TestLegacyPolicyMigratesDurablyBeforeAlwaysOnConvergence"
+        ]
+      },
+      {
+        "path": "internal/ociresource/operation.go",
+        "sha256": "70c2d0624dc26715d153a35eb0c7f5034f338496a1316a33543375639a79033b",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociresource/ownership.go",
+        "sha256": "595f992dc6f20295147b5f81bc6b2534ff590edcbecd3cb128684dd67c4b6add",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociresource/ownership_test.go",
+        "sha256": "9ec2603ad57021e35b09b546a42c9148a5ba573678a435fc97f7b09fbbb19a2b",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestPersistentControllerRefusesMissingForeignAndPartialOwnership"
+        ]
+      },
+      {
+        "path": "internal/ociresource/publish.go",
+        "sha256": "bec3df1bd29a76c4cf62f6309ee30c7a56ea12534c0471e11f079fbb5647a367",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociresource/publish_test.go",
+        "sha256": "9e646e985c6e8dad4f8220077d0b953fab538d1859e6b70c75e729675aad7f00",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestPublishSetWritesOnlyChangesAndPrunesOnlyWhenAsked",
+          "TestPublishSetFencesEveryWrite",
+          "TestPublishSetValidatesEverythingBeforeWriting"
+        ]
+      },
+      {
+        "path": "internal/ociresource/resource.go",
+        "sha256": "e9ca59cb2efab3cbc46bafd786679ee0819737b0968cbdbab4aa92dff5c5caca",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociresource/runner.go",
+        "sha256": "ee73184f29bbeaf2c47541449d079a9e27c794623d768bc9a2076f1583443973",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociresource/runner_test.go",
+        "sha256": "8e6c48cd3fc529839bb83f75e19ccefd7b33a94919d72521c7366cc60c72f668",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestRunnerOnlyRunsOnTheReadyLeaderAndSurvivesFailures",
+          "TestRunnerStopsWithContextAndControllerPassIsFenced",
+          "TestRunnerWakeStartsTheNextTick"
+        ]
+      },
+      {
+        "path": "internal/ociresource/store.go",
+        "sha256": "0c5783b542fa259d9494eb5b4c2b0b0b105536d82d01fbb6c8751171a650a597",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      }
+    ]
+  },
+  {
+    "package": "./internal/ociresource/nlb",
+    "included_in_compile_argv": true,
+    "expected_binary": "nlb.test",
+    "reason": "default-context test files present; binary expected",
+    "files": [
+      {
+        "path": "internal/ociresource/nlb/nlb.go",
+        "sha256": "e1e1b75bbe1eabeee943bfa57fbb0fa483c9c741178cd52c6b7aeff5df707312",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/ociresource/nlb/nlb_test.go",
+        "sha256": "cc316f3730ab001a2b660ac584fe532b558760a3293ff9acbf4f2827254cedc4",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestBackendsFollowPlacement",
+          "TestEmptyPlacementIsNeverPublishedOrApplied",
+          "TestForeignNLBAndFailedWorkRequests",
+          "TestTombstoneDrainsBackendsThenPurges",
+          "TestTombstonePurgesWhenTheNLBIsGone",
+          "TestSpecValidation",
+          "TestApplyReguardsBeforeEveryMutation",
+          "TestRestampAfterBackendChangesUsesAFreshETag",
+          "TestTombstonePurgesWhenTheBackendSetIsGone",
+          "TestDurableWorkRequestRecoversAfterNATSAndControllerRestart"
+        ]
+      },
+      {
+        "path": "internal/ociresource/nlb/sdk.go",
+        "sha256": "8efef5e6d3fd785fc6ebabc8c9f56105a1552f5fd3e5120c982bf1d4da1cc45c",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      }
+    ]
+  },
+  {
+    "package": "./internal/placement",
+    "included_in_compile_argv": true,
+    "expected_binary": "placement.test",
+    "reason": "default-context test files present; binary expected",
+    "files": [
+      {
+        "path": "internal/placement/attach_deadline_review_test.go",
+        "sha256": "25908d02a3d804d79479f9328da6aab248d37dd7e83ca3bd553c3df202209c83",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestControllerReportsAStalledAttachRequestWhileTheAttachmentIsUnobservable"
+        ]
+      },
+      {
+        "path": "internal/placement/controller.go",
+        "sha256": "6f7fdce40e81eca39a068bea36044150c0ac58aa267ef4500d4b8f1c9391265f",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/controller_test.go",
+        "sha256": "7257f6f4125cedef1202fe1d964af028ad5041bf0af3c16c0b02753aa61487ba",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestControllerHoldsAfterAttachedVolumeWithoutObservedDevice",
+          "TestControllerHoldsUnsupportedMultiRegionSenderBeforeAnyEffect",
+          "TestControllerAppliesOnlyPreparedObservedManagedDesired",
+          "TestControllerWithholdsPreparedDesiredWhenFreshInputsChange",
+          "TestControllerPreparedDesiredValidatesTheObservedHost",
+          "TestControllerHoldsUnadmittedRuntimeAndReplaysPreparedCASConflict",
+          "TestControllerRequiresCurrentArtifactAdmissionBeforeEveryManagedOCIEffect",
+          "TestControllerRecoveredAttachmentRequiresCurrentArtifactAndImageQualification",
+          "TestControllerHoldsAttachmentStuckAttachingPastDeadline",
+          "TestControllerWaitsForOCIReferenceToBecomeAttached",
+          "TestControllerMovesLegacyServingMemberToRuntimeHoldWhenHostIsLost",
+          "TestControllerPinsSignedProfileBeforeHostCreateAndUsesItOnRecovery",
+          "TestControllerRejectsEnsuredHostThatDiffersFromPinnedProfile",
+          "TestControllerHoldsUnpinnedChangedAndRemovedMembersBeforeOCI",
+          "TestControllerHoldsConfiguredSeatWithoutMatchingSignedRosterRow",
+          "TestControllerRechecksExactRosterPinsBeforeHostRecoveryAndVolumeCreate",
+          "TestControllerHoldsWholePlacementBeforePreparingMissingSeat",
+          "TestControllerFailingPlacementDoesNotStarveLaterPlacement",
+          "TestControllerGrowsUndersizedRetainedVolumeAutomatically",
+          "TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost",
+          "TestControllerRejectsStaleManagedRegistrationBeforeAdmissionOrVolume",
+          "TestControllerUsesStartOfTickPlacementAndHoldsItOnNextTick",
+          "TestControllerAllowsLiveETagChurnButRejectsImmutableInstanceDrift",
+          "TestControllerKeepsMemberHostsOfAllowedEarlierImages",
+          "TestTerminalTargetsUseExactAdmittedSeatsAndDurableAttemptKeys"
+        ]
+      },
+      {
+        "path": "internal/placement/decisions.go",
+        "sha256": "c8fc8e4247eb1e75f0114813aa9d834ae014a97460303cdafee3a6d24bc19e6b",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/decisions_test.go",
+        "sha256": "fc3fb1533ce875bcbbbf40bdede2ca58058567998b3cb64edac28e397f5e8ec7",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestJournaledStoreRecordsTransitions",
+          "TestJournaledSeatSubjectsAreQualified",
+          "TestConcurrentReadDoesNotHideATransition",
+          "TestUnknownPredecessorDoesNotRepeatAPhase",
+          "TestResumedUpdateLinksToTheAdmissionWithoutCorrelation",
+          "TestJournaledPhasesStayBoundedPerSeat"
+        ]
+      },
+      {
+        "path": "internal/placement/managed_update.go",
+        "sha256": "89a5fb1c9a2be96567691066864d3442b5098bf1f35a5c7cf496beff01409ad7",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/managed_update_admission.go",
+        "sha256": "64cb507bc61697c79a1a73dc2238f7d25ade5ccf5ddfc9946514e924c0513ecf",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/managed_update_r3_integration_test.go",
+        "sha256": "0e17fa0edea1f51b1fc7a0515cea3b701eb0ea953973f98a3e0d9e9973707a56",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestManagedUpdateR3PrepareHeldRestartReconciliation"
+        ]
+      },
+      {
+        "path": "internal/placement/managed_update_rolling_test.go",
+        "sha256": "afc1ef9accd85ced1e5c547dbb49059c94f34ea9973e1e46c9259f2bd7249490",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary"
+        ]
+      },
+      {
+        "path": "internal/placement/managed_update_runtime.go",
+        "sha256": "436f5a857c57517bb7ddbeaab6b4c803734a58ea3833f962d0adbefdd59e7103",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/managed_update_test.go",
+        "sha256": "1fc801e8a51e32fb091ca93e11cf0d09d1b6bbe854f3af6bb841052f41dd2aee",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestManagedUpdateIntentValidatesSignedCompatibilityAndExactPredecessors",
+          "TestManagedUpdateIntentRejectsUnqualifiedOrMismatchedCompatibility",
+          "TestManagedUpdateDurabilityDigestBindsRetainedFormatsAndTargets",
+          "TestManagedUpdateCanaryDeadlineIsAbsoluteAndFailClosed",
+          "TestManagedUpdateTerminalSeatRepairSurvivesLostCASAndRestart",
+          "TestManagedCanaryFinalServingVerifierRejectsProofAtDeadline",
+          "TestManagedCanaryFinalServingVerifierRechecksDeadlineAfterProofReads",
+          "TestManagedCanaryTimeoutPersistsHeldWithoutHostOrStatusProof",
+          "TestManagedCanaryPreparedAtRoundTripsBeforeDesiredEffect",
+          "TestManagedCanaryHeldSeatCannotAdvanceFromLateProof"
+        ]
+      },
+      {
+        "path": "internal/placement/metrics.go",
+        "sha256": "0d1eab2d278c61f1204e60ae6d5782ee491f4a427295e1975db8267009e58860",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/metrics_test.go",
+        "sha256": "9d911c1e50bb35dbbf2445d8f1253ebe09a5fd3642e35daa323c8af022e49833",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestSummarizeCountsStagesAndRolloutProgress",
+          "TestReconcileMetricsSeparateStandbyFromErrors"
+        ]
+      },
+      {
+        "path": "internal/placement/reattach.go",
+        "sha256": "e41a3e89e3dae2bd386b9c208a81b44da9f4c7c8f3c1d33bcb9f35b379393515",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/reattach_test.go",
+        "sha256": "a6b396730092a9ca9c211520aa45283ccaafaf3d4bf9d02dd8d671cc2328bd0e",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestReattachMovesTheLostMembersVolumeOnlyAfterTermination",
+          "TestReattachHoldsOnALiveThirdAttachmentAndUnsupportedFleets",
+          "TestReattachReportsFailedFenceLookupsAndRejectsAStaleEpoch",
+          "TestMemberStateRejectsAnInconsistentPreviousInstance"
+        ]
+      },
+      {
+        "path": "internal/placement/region_mapping_test.go",
+        "sha256": "7d9b6b1d990e528fb8b1fa15c890f711ba804ba81e1d1a3c83adf4f44c0607c7",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestEveryPlacementRegionHasAPermanentSeat"
+        ]
+      },
+      {
+        "path": "internal/placement/replacement.go",
+        "sha256": "8a5b67a7d43de693cdc671bf71b13fd244e1b37bce228a1de532ef31be40ae51",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/replacement_review_test.go",
+        "sha256": "bf363dc15c9b994810b74101759aa9f1e8bf01c0328f9ce3e31203b73b936323",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestTerminatedListedHostIsLostAndARecoveredHostClearsTheLoss"
+        ]
+      },
+      {
+        "path": "internal/placement/replacement_test.go",
+        "sha256": "333ffbccbf33e07eaaae03f4154cde29e19f09cbbf9cc4d2f120c6a6b45ba208",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestCanReplaceLostMemberGate",
+          "TestControllerReplacesLostMemberOnlyWithEvidenceAfterGrace",
+          "TestControllerNeverReplacesObservedLostHost"
+        ]
+      },
+      {
+        "path": "internal/placement/seats.go",
+        "sha256": "97e8680539cf1fcf7c2e99b854688d6e49c6639d21c09c108c26cad40e6bdd38",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/seats_test.go",
+        "sha256": "3cf827161712afcd1fb2c0aea4be2f6b217a6545995796e2b53958961e7ec0ef",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestRegionSeatsGeneralizesTheTwoSeatTopology",
+          "TestSeatMemberNamesFollowPlacementOrderAndIgnoreAttempts"
+        ]
+      },
+      {
+        "path": "internal/placement/serving_test.go",
+        "sha256": "defaca564c6400bd8fa5edba5bbc8539889319b0f7b30f4e076d9f1e8f9b236c",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestServingStageRequiresCurrentNativeAndNamedSurvivor"
+        ]
+      },
+      {
+        "path": "internal/placement/store.go",
+        "sha256": "f968ae26aaf8eda428d8b5476bf052a69a578cd66e632ada1602b51cd44e75df",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/store_test.go",
+        "sha256": "cf86dd7b7c4052fd5e33de49826f5ebb14bb1d51737911634c731a38e0f941ce",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestMemberPinReaderOpensExistingDurableStateWithoutWrites",
+          "TestMemberStateKeyIncludesPartitionIdentity",
+          "TestReadMemberUsesExactKeyAndReturnsExplicitAbsence",
+          "TestListMembersReadsOnlyRequestedPartitionSeats",
+          "TestIntentListAllowsDifferentPartitionsButRejectsDuplicateCompositeIdentity",
+          "TestIntentListRejectsUncommittedOrMalformedPayloadDigests"
+        ]
+      },
+      {
+        "path": "internal/placement/terrabase.go",
+        "sha256": "f3cbf6a376c0d9eced50f37abb597cc813b3250023870cbb17deb02608c21a8c",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/terrabase_test.go",
+        "sha256": "d88f219337b997f8c853e824c999cbab594c89e35e48deee342d284bbd5dc7d7",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestDesiredSeatsContainsExactlyTwoAntiAffineMembersPerSelectedRegion",
+          "TestDesiredSeatsRejectsSameFailureDomain",
+          "TestIntentRejectsUnselectedRegionAliasesDuplicatesAndStaleGeneration",
+          "TestManagedIntentRoundTripsCanonicalPayloadAndRegionProfileDigest",
+          "TestManagedIntentRequiresCompleteOrderedRuntimeManifests",
+          "TestManagedIntentRejectsIncompleteForeignDuplicateAndUnsafeProfiles",
+          "TestManagedProfileAcceptsAllocatablePlusReserveAtNominalComputeMemory",
+          "TestCanonicalRosterDigestLookupAndValidation",
+          "TestMemberStateManagedProfilePinsAreAdditiveAndValidated",
+          "TestCanRetireRequiresEveryIndependentSafetyProof",
+          "TestCanRetireHoldsWhenReplicaFloorOrAntiAffinityIsLost",
+          "TestCanRetireNeverRemovesAStillDesiredSeat",
+          "TestCanRetireDoesNotCountPreparedOrAwaitingMembersAsServing",
+          "TestCanRetireDoesNotCountHealthySurvivorsFromAnotherPartition",
+          "TestRejectsObsoletePlacementSchemas"
+        ]
+      },
+      {
+        "path": "internal/placement/volume_fresh_host_review_test.go",
+        "sha256": "41c514aa23c1c1e4ce3f84a09f884d642b50f933b3152b3c988d03a105fb630f",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestControllerPreparedVolumeChecksInputsBeforeFreshHost",
+          "TestControllerPreparedVolumeRechecksArtifactAfterFreshHost",
+          "TestControllerPreparedVolumeRequiresFreshHostBeforeCreateRecoveryAndResize",
+          "TestControllerPreparedVolumeRejectsFreshHostMismatch",
+          "TestControllerPreparedVolumeRechecksCurrentRegistrationBeforeEachEffect"
+        ]
+      },
+      {
+        "path": "internal/placement/workload.go",
+        "sha256": "5bf056d3752aa493a176654af50263a2c6c8df54a5a22d09969a976b502e4b3c",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/placement/workload_test.go",
+        "sha256": "24e8622c10c5621186562c1f4f7d5fa85f4707b5c66634fcda0d64058a1f3add",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestPlanWorkloadSpreadsDeterministicallyAndBalancesCapacity",
+          "TestPlanWorkloadReplacesFailedAssignmentOnAnotherNode",
+          "TestPlanWorkloadExcludesStaleCordonedAndUnderCapacityHosts",
+          "TestPlanWorkloadAccountsForOtherExistingWorkloads",
+          "TestPlanWorkloadRejectsOvercapacityWithoutPartialAssignments",
+          "TestPlanWorkloadRejectsInvalidResourceRequestAndDuplicateAssignments",
+          "TestPlanWorkloadDoesNotKeepReadyAssignmentAfterCapacityShrinks"
+        ]
+      }
+    ]
+  },
+  {
+    "package": "./internal/storage/capacity",
+    "included_in_compile_argv": true,
+    "expected_binary": "capacity.test",
+    "reason": "default-context test files present; binary expected",
+    "files": [
+      {
+        "path": "internal/storage/capacity/capacity_test.go",
+        "sha256": "e9dd24eb2a30d16f7f7e5c23e1cc745ba1ae2099247f16de6f8fa8e1a26eb419",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestEvaluateThresholds",
+          "TestEvaluateFloorsAndReservations",
+          "TestPolicyValidation",
+          "TestWorstAndNodeHeadroom",
+          "TestNodeHeadroomSubtractsAJetStreamReserveOnTheBootFilesystem",
+          "TestCollectorMeasuresTargetsAndReportsPartialFailures",
+          "TestRealStatfsOfTempDir",
+          "TestUsageStorePublishesWithTTLAndFeedsSignals",
+          "TestRunPublishesAndSignalsUntilCanceled"
+        ]
+      },
+      {
+        "path": "internal/storage/capacity/collector.go",
+        "sha256": "b13abd15be754ee8361aa4d948d5c36271e9d906f35dde3805d99d5af15c92e1",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/storage/capacity/signal.go",
+        "sha256": "33295cc3d414517d514f8529d9437dc477c1f8313fae6582e4611052761324d1",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      },
+      {
+        "path": "internal/storage/capacity/statfs_linux.go",
+        "sha256": "f57525f674d445d4af256d583230ce8479091e4bad46ca3bd43b69224de26b06",
+        "test_file": false,
+        "build_tags": [
+          "//go:build linux"
+        ],
+        "test_names": []
+      },
+      {
+        "path": "internal/storage/capacity/store.go",
+        "sha256": "e35684039331f54b95651b0e97126806a39e81777a19bf54314d97437c223c17",
+        "test_file": false,
+        "build_tags": [],
+        "test_names": []
+      }
+    ]
+  },
+  {
+    "package": "./tests/integration",
+    "included_in_compile_argv": true,
+    "expected_binary": "integration.test",
+    "reason": "default-context test files present; binary expected",
+    "files": [
+      {
+        "path": "tests/integration/authority_deployment_test.go",
+        "sha256": "0b769366034b1f676600d18cf3b7404ec927af37000568aef0da9599600d73f2",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestRegionalDeploymentFenceKeepsR3PeersConnected"
+        ]
+      },
+      {
+        "path": "tests/integration/regional_authority_test.go",
+        "sha256": "7c63ba9e15ade952e84f3402d6c96d669a054806eb47dbad80e9357cfe1bba74",
+        "test_file": true,
+        "build_tags": [],
+        "test_names": [
+          "TestRegionalAuthorityFailoverAndQuorum"
+        ]
+      }
+    ]
+  },
+  {
+    "package": "./tests/firecracker",
+    "included_in_compile_argv": false,
+    "expected_binary": null,
+    "reason": "all Go files have //go:build ignore; no default-context package; retained source inventory only, no compile credit",
+    "files": [
+      {
+        "path": "tests/firecracker/natsdiag.go",
+        "sha256": "49a19165ae5700a71f50a8ccf8d1cf2c6b42188225b6127e96399a7c59b34ee1",
+        "test_file": false,
+        "build_tags": [
+          "//go:build ignore"
+        ],
+        "test_names": []
+      },
+      {
+        "path": "tests/firecracker/natsdiag_test.go",
+        "sha256": "3742233539295b6ca80f2cc48ecb84ff44ae92b377fa381354e88d5a9582e6e3",
+        "test_file": true,
+        "build_tags": [
+          "//go:build ignore"
+        ],
+        "test_names": [
+          "TestDiagnosticUsesAuthenticatedReplyInboxes",
+          "TestSessionProbeUsesJWTOverProductionTLSFirstBridge",
+          "TestReadPathTargetsAndBoundedErrors",
+          "TestDiagnosticTopologyUsesControllerSlotAndRouteOrder",
+          "TestDiagnosticFormationStatusesAndReplicaReadiness",
+          "TestDiagnosticEndpointMappingsRequireCompleteAndExactCoverage",
+          "TestDiagnosticFormationReadinessRequiresEndpointMapping",
+          "TestDiagnosticForwardMapKeepsPrivateEndpointIdentity",
+          "TestDiagnosticSnapshotServerIDsAreUniqueByMember",
+          "TestDiagnosticMarshalsReplicatedClusterMetadata",
+          "TestDiagnosticReadsLiveReplicatedCluster"
+        ]
+      },
+      {
+        "path": "tests/firecracker/nkeygen.go",
+        "sha256": "685d1f95bddc063e35628c74f55a2241b1d050adea87ad2100536125967823c5",
+        "test_file": false,
+        "build_tags": [
+          "//go:build ignore"
+        ],
+        "test_names": []
+      }
+    ]
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "kind": "Corrected vendor scoped PASS receipts",
+  "original_packet": "/tmp/ts-vendor-scoped-evidence-dd038410",
+  "original_checksum_index_sha256": "ec5578239718f9b7aeb784cf013ced1e53e000beae95f937bbe8d28e86ec16bb",
+  "artifacts": 24,
+  "main_unchanged": "72e903719c7b53dee94305f50b3bdb8b147f0eda",
+  "boundary": "Exact source-specific evidence; no whole-repository or production qualification claim."
+}

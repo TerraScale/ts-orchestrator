@@ -19,15 +19,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 // SDKClient serves the provisioner's commands through the OCI Go SDK inside
 // the binary: reads through sdkcli, and the handful of creates the public API
-// path needs here. With the auto backend, a command neither serves falls back
-// to the Python CLI.
+// path needs here. Unsupported commands fail before any subprocess can run.
 type SDKClient struct {
 	Region   string
-	Backend  sdkcli.Backend
 	reader   *sdkcli.Client
 	creators map[string]creator
 	// Pause is injectable so state waits run without sleeping in tests.
@@ -37,12 +36,17 @@ type SDKClient struct {
 type creator func(context.Context, *SDKClient, sdkcli.Command) (any, error)
 
 // NewSDKClient builds the client for one catalog OCI region.
-func NewSDKClient(region string, backend sdkcli.Backend) (*SDKClient, error) {
+func NewSDKClient(region string) (*SDKClient, error) {
 	reader, err := sdkcli.ForRegion(region)
 	if err != nil {
 		return nil, err
 	}
-	return &SDKClient{Region: region, Backend: backend, reader: reader, creators: creators}, nil
+	return &SDKClient{Region: region, reader: reader, creators: creators}, nil
+}
+
+// NewClientWithFactory shares the caller's authenticated OCI provider and rate limits.
+func NewClientWithFactory(factory *ociclient.Factory) *SDKClient {
+	return &SDKClient{Region: factory.Region(), reader: sdkcli.NewClient(factory, ""), creators: creators}
 }
 
 var creators = map[string]creator{
@@ -78,13 +82,13 @@ var creators = map[string]creator{
 
 // createFlags lists every flag each in-binary creator consumes.
 var createFlags = map[string][]string{
-	"network internet-gateway create": {"compartment-id", "vcn-id", "display-name", "is-enabled", "wait-for-state"},
-	"network route-table create":      {"compartment-id", "vcn-id", "display-name", "route-rules", "wait-for-state"},
-	"network security-list create": {"compartment-id", "vcn-id", "display-name", "ingress-security-rules",
+	"network internet-gateway create": {"freeform-tags", "compartment-id", "vcn-id", "display-name", "is-enabled", "wait-for-state"},
+	"network route-table create":      {"freeform-tags", "compartment-id", "vcn-id", "display-name", "route-rules", "wait-for-state"},
+	"network security-list create": {"freeform-tags", "compartment-id", "vcn-id", "display-name", "ingress-security-rules",
 		"egress-security-rules", "wait-for-state"},
-	"network subnet create": {"compartment-id", "vcn-id", "display-name", "cidr-block", "dns-label", "route-table-id",
+	"network subnet create": {"freeform-tags", "compartment-id", "vcn-id", "display-name", "cidr-block", "dns-label", "route-table-id",
 		"security-list-ids", "prohibit-public-ip-on-vnic", "wait-for-state"},
-	"network nsg create":       {"compartment-id", "vcn-id", "display-name", "wait-for-state"},
+	"network nsg create":       {"freeform-tags", "compartment-id", "vcn-id", "display-name", "wait-for-state"},
 	"network nsg rules add":    {"nsg-id", "security-rules"},
 	"network nsg rules remove": {"nsg-id", "security-rule-ids"},
 	"lb load-balancer create": {"compartment-id", "display-name", "shape-name", "subnet-ids", "is-private",
@@ -100,21 +104,17 @@ var createFlags = map[string][]string{
 	"vault secret update-base64":     {"secret-id", "secret-content-content"},
 	"vault secret list":              {"compartment-id", "vault-id", "name"},
 	"secrets secret-bundle get":      {"secret-id"},
-	"iam compartment create":         {"compartment-id", "name", "description"},
-	"iam dynamic-group create":       {"compartment-id", "name", "description", "matching-rule"},
-	"iam policy create":              {"compartment-id", "name", "description", "statements"},
-	"network vcn create":             {"compartment-id", "display-name", "cidr-block", "dns-label", "wait-for-state"},
-	"network service-gateway create": {"compartment-id", "vcn-id", "display-name", "services", "wait-for-state"},
-	"kms management vault create":    {"compartment-id", "display-name", "vault-type"},
-	"kms management key create":      {"compartment-id", "display-name", "key-shape", "protection-mode", "endpoint"},
-	"os bucket create": {"namespace-name", "compartment-id", "name", "kms-key-id", "versioning", "public-access-type",
+	"iam compartment create":         {"freeform-tags", "compartment-id", "name", "description"},
+	"iam dynamic-group create":       {"freeform-tags", "compartment-id", "name", "description", "matching-rule"},
+	"iam policy create":              {"freeform-tags", "compartment-id", "name", "description", "statements"},
+	"network vcn create":             {"freeform-tags", "compartment-id", "display-name", "cidr-block", "dns-label", "wait-for-state"},
+	"network service-gateway create": {"freeform-tags", "compartment-id", "vcn-id", "display-name", "services", "wait-for-state"},
+	"kms management vault create":    {"freeform-tags", "compartment-id", "display-name", "vault-type"},
+	"kms management key create":      {"freeform-tags", "compartment-id", "display-name", "key-shape", "protection-mode", "endpoint"},
+	"os bucket create": {"freeform-tags", "namespace-name", "compartment-id", "name", "kms-key-id", "versioning", "public-access-type",
 		"storage-tier"},
 	"os retention-rule create": {"namespace-name", "bucket-name", "display-name", "time-amount", "time-unit"},
 }
-
-// secretBearing commands carry private keys; they never reach the oci CLI,
-// whose arguments other local users can read.
-var secretBearing = []string{"lb load-balancer create", "lb certificate create", "vault secret create-base64", "vault secret update-base64", "secrets secret-bundle get"}
 
 // unacceptedCreateFlags returns, sorted, the flags of a create command that
 // its creator does not consume.
@@ -136,25 +136,24 @@ func (c *SDKClient) Call(ctx context.Context, args ...string) (map[string]any, e
 		return nil, err
 	}
 	if create, ok := c.creators[parsed.Path]; ok {
-		// A create is a mutation, so a flag it would not consume is caught
-		// before any effect: under auto the oci CLI serves the command,
-		// under sdk it fails instead of silently diverging.
+		// Reject unconsumed mutation flags before any effect.
 		if extra := unacceptedCreateFlags(parsed); len(extra) > 0 {
-			if c.Backend == sdkcli.BackendAuto && !slices.Contains(secretBearing, parsed.Path) {
-				return command.CLI{Region: c.Region}.Call(ctx, args...)
-			}
 			return nil, fmt.Errorf("%w: %s with --%s", sdkcli.ErrUnsupported, parsed.Path, strings.Join(extra, ", --"))
 		}
 		value, err := create(ctx, c, parsed)
 		if err != nil {
 			return nil, fmt.Errorf("OCI %s failed: %w", parsed.Path, err)
 		}
+		if result, ok := value.(map[string]any); ok {
+			if id, ok := result["work-request-id"].(*string); ok && id != nil && *id != "" {
+				if err := ociresource.RecordWorkRequest(ctx, *id); err != nil {
+					return nil, fmt.Errorf("checkpoint OCI work request: %w", err)
+				}
+			}
+		}
 		return c.wrap(value)
 	}
-	data, handled, err := c.reader.Call(ctx, args)
-	if !handled && c.Backend == sdkcli.BackendAuto && errors.Is(err, sdkcli.ErrUnsupported) {
-		return command.CLI{Region: c.Region}.Call(ctx, args...)
-	}
+	data, _, err := c.reader.Call(ctx, args)
 	if err != nil {
 		return nil, err
 	}
@@ -210,6 +209,15 @@ func jsonFlag(command sdkcli.Command, name string, target any) error {
 		return fmt.Errorf("--%s: %w", name, err)
 	}
 	return nil
+}
+
+func optionalTags(command sdkcli.Command) (map[string]string, error) {
+	var tags map[string]string
+	if command.Flags["freeform-tags"] == "" {
+		return nil, nil
+	}
+	err := jsonFlag(command, "freeform-tags", &tags)
+	return tags, err
 }
 
 func boolFlag(command sdkcli.Command, name string) (*bool, error) {
@@ -272,17 +280,25 @@ func createInternetGateway(ctx context.Context, c *SDKClient, command sdkcli.Com
 	if err != nil || enabled == nil {
 		return nil, errors.Join(err, errors.New("--is-enabled is required"))
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateInternetGateway(ctx, core.CreateInternetGatewayRequest{CreateInternetGatewayDetails: core.CreateInternetGatewayDetails{
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateInternetGateway(ociclient.RequestContext(ctx), core.CreateInternetGatewayRequest{OpcRetryToken: token, CreateInternetGatewayDetails: core.CreateInternetGatewayDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], IsEnabled: enabled}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetInternetGateway(ctx, core.GetInternetGatewayRequest{IgId: response.Id})
+		got, err := client.GetInternetGateway(ociclient.RequestContext(ctx), core.GetInternetGatewayRequest{IgId: response.Id})
 		return got.InternetGateway, string(got.LifecycleState), err
 	})
 }
@@ -296,17 +312,25 @@ func createRouteTable(ctx context.Context, c *SDKClient, command sdkcli.Command)
 	if err := jsonFlag(command, "route-rules", &rules); err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateRouteTable(ctx, core.CreateRouteTableRequest{OpcRetryToken: retryToken(), CreateRouteTableDetails: core.CreateRouteTableDetails{
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateRouteTable(ociclient.RequestContext(ctx), core.CreateRouteTableRequest{OpcRetryToken: token, CreateRouteTableDetails: core.CreateRouteTableDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], RouteRules: rules}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetRouteTable(ctx, core.GetRouteTableRequest{RtId: response.Id})
+		got, err := client.GetRouteTable(ociclient.RequestContext(ctx), core.GetRouteTableRequest{RtId: response.Id})
 		return got.RouteTable, string(got.LifecycleState), err
 	})
 }
@@ -324,17 +348,25 @@ func createSecurityList(ctx context.Context, c *SDKClient, command sdkcli.Comman
 	if err := jsonFlag(command, "egress-security-rules", &egress); err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateSecurityList(ctx, core.CreateSecurityListRequest{OpcRetryToken: retryToken(), CreateSecurityListDetails: core.CreateSecurityListDetails{
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateSecurityList(ociclient.RequestContext(ctx), core.CreateSecurityListRequest{OpcRetryToken: token, CreateSecurityListDetails: core.CreateSecurityListDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], IngressSecurityRules: ingress, EgressSecurityRules: egress}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetSecurityList(ctx, core.GetSecurityListRequest{SecurityListId: response.Id})
+		got, err := client.GetSecurityList(ociclient.RequestContext(ctx), core.GetSecurityListRequest{SecurityListId: response.Id})
 		return got.SecurityList, string(got.LifecycleState), err
 	})
 }
@@ -352,18 +384,26 @@ func createSubnet(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateSubnet(ctx, core.CreateSubnetRequest{OpcRetryToken: retryToken(), CreateSubnetDetails: core.CreateSubnetDetails{
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateSubnet(ociclient.RequestContext(ctx), core.CreateSubnetRequest{OpcRetryToken: token, CreateSubnetDetails: core.CreateSubnetDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], CidrBlock: &values[3], DnsLabel: &values[4],
 		RouteTableId: &values[5], SecurityListIds: securityLists, ProhibitPublicIpOnVnic: prohibitPublicIP}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetSubnet(ctx, core.GetSubnetRequest{SubnetId: response.Id})
+		got, err := client.GetSubnet(ociclient.RequestContext(ctx), core.GetSubnetRequest{SubnetId: response.Id})
 		return got.Subnet, string(got.LifecycleState), err
 	})
 }
@@ -373,17 +413,25 @@ func createNSG(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, 
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateNetworkSecurityGroup(ctx, core.CreateNetworkSecurityGroupRequest{OpcRetryToken: retryToken(),
-		CreateNetworkSecurityGroupDetails: core.CreateNetworkSecurityGroupDetails{CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2]}})
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateNetworkSecurityGroup(ociclient.RequestContext(ctx), core.CreateNetworkSecurityGroupRequest{OpcRetryToken: token,
+		CreateNetworkSecurityGroupDetails: core.CreateNetworkSecurityGroupDetails{FreeformTags: tags, CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2]}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetNetworkSecurityGroup(ctx, core.GetNetworkSecurityGroupRequest{NetworkSecurityGroupId: response.Id})
+		got, err := client.GetNetworkSecurityGroup(ociclient.RequestContext(ctx), core.GetNetworkSecurityGroupRequest{NetworkSecurityGroupId: response.Id})
 		return got.NetworkSecurityGroup, string(got.LifecycleState), err
 	})
 }
@@ -401,7 +449,7 @@ func addNSGRules(ctx context.Context, c *SDKClient, command sdkcli.Command) (any
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.AddNetworkSecurityGroupSecurityRules(ctx, core.AddNetworkSecurityGroupSecurityRulesRequest{
+	response, err := client.AddNetworkSecurityGroupSecurityRules(ociclient.RequestContext(ctx), core.AddNetworkSecurityGroupSecurityRulesRequest{
 		NetworkSecurityGroupId:                      &values[0],
 		AddNetworkSecurityGroupSecurityRulesDetails: core.AddNetworkSecurityGroupSecurityRulesDetails{SecurityRules: rules}})
 	if err != nil {
@@ -423,7 +471,7 @@ func removeNSGRules(ctx context.Context, c *SDKClient, command sdkcli.Command) (
 	if err != nil {
 		return nil, err
 	}
-	_, err = client.RemoveNetworkSecurityGroupSecurityRules(ctx, core.RemoveNetworkSecurityGroupSecurityRulesRequest{
+	_, err = client.RemoveNetworkSecurityGroupSecurityRules(ociclient.RequestContext(ctx), core.RemoveNetworkSecurityGroupSecurityRulesRequest{
 		NetworkSecurityGroupId:                         &values[0],
 		RemoveNetworkSecurityGroupSecurityRulesDetails: core.RemoveNetworkSecurityGroupSecurityRulesDetails{SecurityRuleIds: ids}})
 	return map[string]any{}, err
@@ -466,7 +514,11 @@ func createLoadBalancer(ctx context.Context, c *SDKClient, command sdkcli.Comman
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateLoadBalancer(ctx, loadbalancer.CreateLoadBalancerRequest{CreateLoadBalancerDetails: details})
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateLoadBalancer(ociclient.RequestContext(ctx), loadbalancer.CreateLoadBalancerRequest{OpcRetryToken: token, CreateLoadBalancerDetails: details})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
 
@@ -485,7 +537,11 @@ func createLBCertificate(ctx context.Context, c *SDKClient, command sdkcli.Comma
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateCertificate(ctx, loadbalancer.CreateCertificateRequest{LoadBalancerId: &values[0], CreateCertificateDetails: details})
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateCertificate(ociclient.RequestContext(ctx), loadbalancer.CreateCertificateRequest{OpcRetryToken: token, LoadBalancerId: &values[0], CreateCertificateDetails: details})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
 
@@ -502,7 +558,7 @@ func updateLBShape(ctx context.Context, c *SDKClient, command sdkcli.Command) (a
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateLoadBalancerShape(ctx, loadbalancer.UpdateLoadBalancerShapeRequest{LoadBalancerId: &values[0],
+	response, err := client.UpdateLoadBalancerShape(ociclient.RequestContext(ctx), loadbalancer.UpdateLoadBalancerShapeRequest{LoadBalancerId: &values[0],
 		UpdateLoadBalancerShapeDetails: loadbalancer.UpdateLoadBalancerShapeDetails{ShapeName: &values[1], ShapeDetails: &shape}})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
@@ -522,7 +578,7 @@ func updateLBTags(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateLoadBalancer(ctx, loadbalancer.UpdateLoadBalancerRequest{LoadBalancerId: &values[0],
+	response, err := client.UpdateLoadBalancer(ociclient.RequestContext(ctx), loadbalancer.UpdateLoadBalancerRequest{LoadBalancerId: &values[0],
 		UpdateLoadBalancerDetails: loadbalancer.UpdateLoadBalancerDetails{FreeformTags: tags}})
 	if err != nil {
 		return nil, err
@@ -543,7 +599,7 @@ func updateBackendSet(ctx context.Context, c *SDKClient, command sdkcli.Command)
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{LoadBalancerId: &values[0], BackendSetName: &values[1],
+	response, err := client.UpdateBackendSet(ociclient.RequestContext(ctx), loadbalancer.UpdateBackendSetRequest{LoadBalancerId: &values[0], BackendSetName: &values[1],
 		UpdateBackendSetDetails: details})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
@@ -557,7 +613,7 @@ func updateHostname(ctx context.Context, c *SDKClient, command sdkcli.Command) (
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateHostname(ctx, loadbalancer.UpdateHostnameRequest{LoadBalancerId: &values[0], Name: &values[1],
+	response, err := client.UpdateHostname(ociclient.RequestContext(ctx), loadbalancer.UpdateHostnameRequest{LoadBalancerId: &values[0], Name: &values[1],
 		UpdateHostnameDetails: loadbalancer.UpdateHostnameDetails{Hostname: &values[2]}})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
@@ -575,7 +631,7 @@ func updateListener(ctx context.Context, c *SDKClient, command sdkcli.Command) (
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{LoadBalancerId: &values[0], ListenerName: &values[1],
+	response, err := client.UpdateListener(ociclient.RequestContext(ctx), loadbalancer.UpdateListenerRequest{LoadBalancerId: &values[0], ListenerName: &values[1],
 		UpdateListenerDetails: details})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
@@ -594,7 +650,11 @@ func createRoutingPolicy(ctx context.Context, c *SDKClient, command sdkcli.Comma
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateRoutingPolicy(ctx, loadbalancer.CreateRoutingPolicyRequest{LoadBalancerId: &values[0],
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateRoutingPolicy(ociclient.RequestContext(ctx), loadbalancer.CreateRoutingPolicyRequest{OpcRetryToken: token, LoadBalancerId: &values[0],
 		CreateRoutingPolicyDetails: details})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
@@ -619,7 +679,11 @@ func createSecret(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateSecret(ctx, vault.CreateSecretRequest{CreateSecretDetails: vault.CreateSecretDetails{
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateSecret(ociclient.RequestContext(ctx), vault.CreateSecretRequest{OpcRetryToken: token, CreateSecretDetails: vault.CreateSecretDetails{
 		CompartmentId: &values[0], VaultId: &values[1], KeyId: &values[2], SecretName: &values[3], Description: &values[4],
 		SecretContent: vault.Base64SecretContentDetails{Content: &values[5]}}})
 	if err != nil {
@@ -638,7 +702,7 @@ func updateSecret(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateSecret(ctx, vault.UpdateSecretRequest{SecretId: &values[0], UpdateSecretDetails: vault.UpdateSecretDetails{
+	response, err := client.UpdateSecret(ociclient.RequestContext(ctx), vault.UpdateSecretRequest{SecretId: &values[0], UpdateSecretDetails: vault.UpdateSecretDetails{
 		SecretContent: vault.Base64SecretContentDetails{Content: &values[1]}}})
 	if err != nil {
 		return nil, err
@@ -657,7 +721,7 @@ func listSecrets(ctx context.Context, c *SDKClient, command sdkcli.Command) (any
 	}
 	var secrets []vault.SecretSummary
 	for page := (*string)(nil); ; {
-		response, err := client.ListSecrets(ctx, vault.ListSecretsRequest{CompartmentId: &values[0], VaultId: &values[1], Name: &values[2], Page: page})
+		response, err := client.ListSecrets(ociclient.RequestContext(ctx), vault.ListSecretsRequest{CompartmentId: &values[0], VaultId: &values[1], Name: &values[2], Page: page})
 		if err != nil {
 			return nil, err
 		}
@@ -680,7 +744,7 @@ func getSecretBundle(ctx context.Context, c *SDKClient, command sdkcli.Command) 
 	}
 	client.SetRegion(factory.Region())
 	factory.Configure(&client.BaseClient, ociclient.ServiceKMS)
-	response, err := client.GetSecretBundle(ctx, secrets.GetSecretBundleRequest{SecretId: &values[0]})
+	response, err := client.GetSecretBundle(ociclient.RequestContext(ctx), secrets.GetSecretBundleRequest{SecretId: &values[0]})
 	if err != nil {
 		return nil, err
 	}

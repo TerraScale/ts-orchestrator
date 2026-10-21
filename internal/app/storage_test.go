@@ -80,9 +80,9 @@ func TestStorageFeaturesRequireTheirDependenciesWithoutAnOptIn(t *testing.T) {
 func TestControllerCollectsStorageWithoutSettings(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	cfg := Config{NATS: natscell.Config{Cell: "lab", Instance: "storage-controller", Replicas: 1, Lab: true,
+	cfg := Config{NATS: natscell.Config{Cell: "lab", Instance: "storage-controller", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}}}
-	runtime, err := natscell.Start(ctx, cfg.NATS)
+	runtime, err := newAuthenticatedNATS(t, cfg.NATS.Cell).start(t, ctx, cfg.NATS)
 	if err != nil {
 		t.Fatal(err)
 	}

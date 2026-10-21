@@ -63,6 +63,7 @@ func TestNativeRootPinExtendsOnlyTheSameValidatedDesired(t *testing.T) {
 		session:          session{ExpiresAt: now.Add(2 * time.Minute)},
 		sessionSafeUntil: now.Add(20 * time.Second),
 	}
+	agent.managedGate(Desired{Role: "terrabase", ManagedMember: &ManagedMemberLaunch{VolumeID: "fixture-volume"}})
 	if err := agent.pinManagedNativeRootDesired("terrabase", "accepted"); err != nil {
 		t.Fatal(err)
 	}
@@ -102,6 +103,7 @@ func TestNativeRootPinExpiryAndPeerRestrictions(t *testing.T) {
 		sessionSafeUntil: leaseDeadline,
 		nativeRoots:      map[string]*managedNativeRoot{"terrabase": root},
 	}
+	agent.managedGate(Desired{Role: "terrabase", ManagedMember: &ManagedMemberLaunch{VolumeID: "fixture-volume"}})
 	if err := agent.pinManagedNativeRootDesired("terrabase", "accepted"); err != nil {
 		t.Fatal(err)
 	}

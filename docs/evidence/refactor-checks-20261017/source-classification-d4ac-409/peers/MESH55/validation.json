@@ -1,0 +1,25 @@
+{
+  "candidate_citations": 142,
+  "category_corrections": 0,
+  "checks": {
+    "assertion_sites": 250,
+    "baseline_current_equal_roots": 55,
+    "candidate_file_pins": 39,
+    "candidate_manifest_files": 7,
+    "candidate_spans": 332,
+    "declarations": 110,
+    "resolved_references": 1734
+  },
+  "exact_allocated_ids": 55,
+  "excluded_ids_checked": 200,
+  "execution": "No Go, build, test, lint, benchmark, runtime, process/listener/lock, compiler, cloud, source/Git/ledger mutation or retirement performed.",
+  "immutable_candidate_modes_verified": true,
+  "peer_supplemental_citations": 14,
+  "prior79_ids_checked": 79,
+  "raw_declaration_convention": "func through column-zero closing brace, excludes following LF",
+  "result": "PASS",
+  "reviewed_source_method": "/run/current-system/sw/bin/git show COMMIT:path; immutable ls-tree metadata; no mutable source read",
+  "semantic_evidence_corrections": 1,
+  "source_files": 33,
+  "test_files": 9
+}

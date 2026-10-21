@@ -1,0 +1,80 @@
+SOURCE /home/mariogk/go/pkg/mod/github.com/nats-io/nuid@v1.0.1/nuid.go
+FULL_FILE_SHA256 20bdcf8bf9422d585d524d92725751a94649cd473c40fd9f9b98afe10c75db9d
+LINES 60-135
+
+
+// Seed sequential random with crypto or math/random and current time
+// and generate crypto prefix.
+func init() {
+	r, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+	if err != nil {
+		prand.Seed(time.Now().UnixNano())
+	} else {
+		prand.Seed(r.Int64())
+	}
+	globalNUID = &lockedNUID{NUID: New()}
+	globalNUID.RandomizePrefix()
+}
+
+// New will generate a new NUID and properly initialize the prefix, sequential start, and sequential increment.
+func New() *NUID {
+	n := &NUID{
+		seq: prand.Int63n(maxSeq),
+		inc: minInc + prand.Int63n(maxInc-minInc),
+		pre: make([]byte, preLen),
+	}
+	n.RandomizePrefix()
+	return n
+}
+
+// Generate the next NUID string from the global locked NUID instance.
+func Next() string {
+	globalNUID.Lock()
+	nuid := globalNUID.Next()
+	globalNUID.Unlock()
+	return nuid
+}
+
+// Generate the next NUID string.
+func (n *NUID) Next() string {
+	// Increment and capture.
+	n.seq += n.inc
+	if n.seq >= maxSeq {
+		n.RandomizePrefix()
+		n.resetSequential()
+	}
+	seq := n.seq
+
+	// Copy prefix
+	var b [totalLen]byte
+	bs := b[:preLen]
+	copy(bs, n.pre)
+
+	// copy in the seq in base62.
+	for i, l := len(b), seq; i > preLen; l /= base {
+		i -= 1
+		b[i] = digits[l%base]
+	}
+	return string(b[:])
+}
+
+// Resets the sequential portion of the NUID.
+func (n *NUID) resetSequential() {
+	n.seq = prand.Int63n(maxSeq)
+	n.inc = minInc + prand.Int63n(maxInc-minInc)
+}
+
+// Generate a new prefix from crypto/rand.
+// This call *can* drain entropy and will be called automatically when we exhaust the sequential range.
+// Will panic if it gets an error from rand.Int()
+func (n *NUID) RandomizePrefix() {
+	var cb [preLen]byte
+	cbs := cb[:]
+	if nb, err := rand.Read(cbs); nb != preLen || err != nil {
+		panic(fmt.Sprintf("nuid: failed generating crypto random number: %v\n", err))
+	}
+
+	for i := 0; i < preLen; i++ {
+		n.pre[i] = digits[int(cbs[i])%base]
+	}
+}

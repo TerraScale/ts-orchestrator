@@ -118,6 +118,7 @@ var pages = []page{
 	{slug: "capacity", title: "Capacity", group: "Infrastructure", needs: needCapacity, body: capacityBody},
 	{slug: "cost", title: "OCI cost", group: "Infrastructure", needs: needLocal | needGlobal | needCapacity, body: costBody},
 	{slug: "oci", title: "OCI", group: "Infrastructure", needs: needInventory, body: ociBody},
+	{slug: "metric-catalog", title: "Metrics", group: "Logs", body: metricsBody},
 	{slug: "events", title: "Events", group: "Logs", events: recentEvents, body: eventsBody},
 }
 
@@ -164,12 +165,16 @@ type view struct {
 	Chain      *decisionlog.Chain
 	Versions   []UnitVersion
 	// VersionsDerived reports that Versions came from region summaries.
-	VersionsDerived bool
-	Rollout         *insights.Rollout
-	Rollouts        []insights.Rollout
-	Volumes         []insights.Volume
-	Qualifications  []Qualification
-	Inventory       []InventoryItem
+	VersionsDerived      bool
+	Rollout              *insights.Rollout
+	Rollouts             []insights.Rollout
+	Volumes              []insights.Volume
+	Qualifications       []Qualification
+	Inventory            []InventoryItem
+	InventoryObservation *InventoryObservation
+	MetricCatalog        *observability.CatalogResult
+	MetricHistory        *observability.CatalogHistory
+	MetricHistoryLimited bool
 	// Unavailable names providers that are attached but failed.
 	Unavailable []string
 }
@@ -312,9 +317,6 @@ func (current view) hosts() []hostRow {
 				rows[member.HostNode] = row
 			}
 			row.Seats++
-			if member.Stage == "serving" {
-				row.Serving++
-			}
 			if member.FailureDomain != "" && !slices.Contains(row.Domains, member.FailureDomain) {
 				row.Domains = append(row.Domains, member.FailureDomain)
 			}
@@ -640,4 +642,12 @@ func apiMean(operation observability.OCIOperationView) string {
 		return "-"
 	}
 	return formatSeconds(operation.TotalSeconds / float64(operation.Calls))
+}
+
+// Placement stages are durable progress, not current native runtime readiness.
+func placementServingText(database observability.DatabaseView) string {
+	if database.Readiness != "observed" {
+		return joinDetail("unknown", cmp.Or(database.ReadinessReason, "live native root task and member readiness unavailable"))
+	}
+	return itoa(database.Serving)
 }

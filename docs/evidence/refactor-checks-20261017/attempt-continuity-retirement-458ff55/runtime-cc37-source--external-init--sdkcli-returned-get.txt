@@ -1,0 +1,27 @@
+SOURCE /tmp/ts-attempt-phase-dispatch-integration/internal/ociregion/sdkcli/handlers.go
+FULL_FILE_SHA256 afd5ce167c2c6d187775db6be0b55af8c09ae5c8c5089d60c14e5487dd854b2e
+LINES 210-232
+
+	if response.Items == nil {
+		response.Items = []identity.AvailabilityDomain{}
+	}
+	return response.Items, err
+}
+
+// get wraps a single-ID network read.
+func networkGet[T any](flag string, read func(context.Context, core.VirtualNetworkClient, string) (T, error)) handler {
+	return func(ctx context.Context, c *Client, command Command) (any, error) {
+		id, err := command.flag(flag)
+		if err != nil {
+			return nil, err
+		}
+		client, err := c.network()
+		if err != nil {
+			return nil, err
+		}
+		return read(ctx, client, id)
+	}
+}
+
+var (
+	networkVcnGet = networkGet("vcn-id", func(ctx context.Context, client core.VirtualNetworkClient, id string) (core.Vcn, error) {

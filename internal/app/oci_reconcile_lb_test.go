@@ -53,7 +53,7 @@ func publishedBackends(t *testing.T, store ociresource.Store) (uint64, []string)
 
 func TestPublicLBConfigDecodesAndValidates(t *testing.T) {
 	var cfg ControllerConfig
-	wire := `{"oci_reconcile":{"enabled":true,"public_lb":{"load_balancer_id":"` + publicLBID +
+	wire := `{"oci_reconcile":{"public_lb":{"load_balancer_id":"` + publicLBID +
 		`","backend_set":"terrabase","seats":["gru-1-db-1"]}}}`
 	if err := json.Unmarshal([]byte(wire), &cfg, json.RejectUnknownMembers(true)); err != nil {
 		t.Fatal(err)
@@ -64,11 +64,6 @@ func TestPublicLBConfigDecodesAndValidates(t *testing.T) {
 	}
 	if _, err := cfg.OciReconcile.publicLBKey("GRU"); err != nil {
 		t.Fatal(err)
-	}
-	defined := *cfg.OciReconcile
-	defined.TagMode = string(ociresource.TagModeDefined)
-	if _, err := defined.publicLBKey("GRU"); err == nil {
-		t.Fatal("accepted public_lb with defined tags, which public-api apply never stamps")
 	}
 	for _, bad := range []OciReconcileLBConfig{
 		{LoadBalancerID: "ocid1.networkloadbalancer.oc1..n", BackendSet: "terrabase"},
@@ -122,7 +117,7 @@ func TestPublicLBPassFollowsTheProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := ociresource.NewMemoryStore()
+	store := testOCIResourceStore(t)
 	profiles := terraBaseSeats("gru-1-db-1=10.251.0.21:9443")
 	current := func() map[string]WorkloadProfile { return profiles }
 	seats, seatsErr := map[string]bool{}, error(nil)

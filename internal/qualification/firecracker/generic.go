@@ -214,7 +214,7 @@ func SourceDigest(root string) (string, error) {
 			return e
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" {
+			if d.Name() == ".git" || p == filepath.Join(root, "docs") {
 				return filepath.SkipDir
 			}
 			return nil

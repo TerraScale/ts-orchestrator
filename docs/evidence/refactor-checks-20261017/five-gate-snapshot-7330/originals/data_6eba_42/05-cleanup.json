@@ -1,0 +1,11 @@
+{
+  "checked_at": "2026-10-17T14:13:32.726655+00:00",
+  "gate": "/tmp/ts-orch-refactor-gate-check.lock",
+  "gate_nonblocking_acquired_and_released": true,
+  "pgrp": 1168859,
+  "pid": 1168859,
+  "qualification": "NOT_QUALIFIED",
+  "remaining_owned_processes": [],
+  "retry": false,
+  "runner_pid": 1168845
+}

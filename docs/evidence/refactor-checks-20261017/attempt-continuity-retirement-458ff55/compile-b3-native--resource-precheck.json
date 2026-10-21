@@ -1,0 +1,17 @@
+{
+  "epoch": 1792212323.7275035,
+  "available_memory_gib": 25.760143280029297,
+  "available_memory_kib": 27011468,
+  "load1": 0.79638671875,
+  "existing_go_flows": [],
+  "existing_compile_link_vet_processes": [],
+  "go_flows_if_started": 1,
+  "qa_output_absent": true,
+  "all_sealed_assets_match": true,
+  "request_sha256": "69e67e23d47a66b9acd9032fef66910a881baa79dfff4efdda252cf2162372b9",
+  "runner_sha256": "c2fce5d90ae99a6a4b3e83d94fa25e4f2fe8f4efd86edaa9f977c629dd22da49",
+  "seal_sha256": "131216d4c83d13927472466f73379c6ad43aa93c53dd142ff2d8e0263b3ed8c6",
+  "readiness_sha256": "8763a7286f7cf688dcf8c1e6058facd5b53a274a91678509b9f03210c888bd8b",
+  "grant": "QA exactly one Attemptb3e1 truecompile ShortB; no retry/extension/runtime/adoption/credit",
+  "pass": true
+}

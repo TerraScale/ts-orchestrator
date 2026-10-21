@@ -3,7 +3,6 @@ package oci
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -39,6 +37,10 @@ func TestRegionIntentUsesFixedProductMapping(t *testing.T) {
 
 func TestJournalBootBindingSurvivesReopenAndRejectsRebinding(t *testing.T) {
 	kv := testJournalBucket(t)
+	if (JournalReader{}).Valid() || (JournalReader{journal: &KVJournal{}}).Valid() ||
+		!(JournalReader{journal: &KVJournal{kv: kv}}).Valid() {
+		t.Fatal("root fleet binding requires an existing durable journal")
+	}
 	journal, err := NewKVJournal(kv)
 	if err != nil {
 		t.Fatal(err)
@@ -369,10 +371,7 @@ func testJournalBucket(t *testing.T) jetstream.KeyValue {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	runtime, err := natscell.Start(ctx, natscell.Config{
-		Cell: "lab", Instance: "oci-journal-test", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")},
-	})
+	runtime, err := startAuthenticatedJournal(ctx, authenticatedJournalConfig(t, "oci-journal-test"))
 	if err != nil {
 		t.Fatal(err)
 	}

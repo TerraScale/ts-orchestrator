@@ -44,6 +44,7 @@ type uiState struct {
 // validators. Anything else in a query string is ignored.
 var pageParams = map[string]func(string) bool{
 	"id":       validSearch,
+	"metric":   validMetricName,
 	"host":     validToken,
 	"nats":     func(value string) bool { return value == "1" },
 	"db":       validToken,

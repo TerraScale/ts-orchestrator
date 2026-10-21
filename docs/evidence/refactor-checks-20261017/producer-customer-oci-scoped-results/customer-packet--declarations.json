@@ -1,0 +1,25 @@
+{
+  "original": {
+    "name": "TestOpenCustomerEnvelopeUsesProducerWireAndRecipient",
+    "file": "internal/managedmaterial/customer_open_test.go",
+    "start_line": 11,
+    "end_line": 43,
+    "sha256": "00d2e6f89706cd8e09ebed56d4e361f7af590b4f0511052708385a3a4e15b78c",
+    "frozen_inventory_exact": true
+  },
+  "candidate": {
+    "name": "TestCustomerEnvelopeFilesystemBoundary",
+    "file": "internal/bootstrap/cli/customer_open_boundary_integration_test.go",
+    "start_line": 23,
+    "end_line": 165,
+    "sha256": "9054c05bb1621d1f0ffaebd51f12aa361cd63e6da7d56db19b1dd67c23bc4b6e",
+    "four_literal_table_leaves": [
+      "Success",
+      "WrongRecipient",
+      "FlippedCiphertext",
+      "AlternatePartition"
+    ],
+    "one_t_run_expands_to_four_leaves": true,
+    "status": "source-reviewed; not typechecked or executed"
+  }
+}

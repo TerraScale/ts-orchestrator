@@ -1,0 +1,656 @@
+{
+  "candidate": "c63524c786521aba2ef5d5d68505d7165b32b4e8",
+  "tree": "b13a0feed004969d4ab07cb55e4cc9b7544f3056",
+  "parent": "c3e6ff7510f1233b3973bb266da4c0f138a67f90",
+  "original_input_count_including_binary": 53,
+  "original_files_archived": 52,
+  "inputs": [
+    {
+      "archive_relative_path": "source-proof/HANDOFF.md",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/HANDOFF.md",
+        "size": 3241,
+        "sha256": "b9c7d24ae2f76aa17b9ee16e2e0cf73995e8d87eefade69a08c8aaa5a31a2cf3",
+        "mode": 33188,
+        "mtime_ns": 1792199812059388029
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/artifact-manifest.json",
+        "size": 6240,
+        "sha256": "810f68b894c7ff2f5ffe6cfccb91e08e71bb023fdf59947dc3f9ebfdf6c5cdaf",
+        "mode": 33188,
+        "mtime_ns": 1792199812063872702
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/candidate.full-index.patch",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/candidate.full-index.patch",
+        "size": 1744,
+        "sha256": "6d5d9aa9ae0943191dc263da34abb795f1d399634122d89550e2559fcfc713a6",
+        "mode": 33188,
+        "mtime_ns": 1792199694263108573
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/commit-proof.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/commit-proof.json",
+        "size": 3891,
+        "sha256": "1c49d10e99f2efbd8a03c209a462eeec82b24910e343dda3f1e7b4947518a1ec",
+        "mode": 33188,
+        "mtime_ns": 1792199734766120285
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/deletion-preservation-proof.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/deletion-preservation-proof.json",
+        "size": 6525,
+        "sha256": "10cc803e14359fc6d5957bf054a65ea1a1e3403aee8e111ab5f7ac32e977e483",
+        "mode": 33188,
+        "mtime_ns": 1792199694277175957
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/modern-go-1.27-guidelines.txt",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/modern-go-1.27-guidelines.txt",
+        "size": 5107,
+        "sha256": "e1ceb8f860e7f01387fd24557993a1a3873e982a99d30a7f2a365bd73b6661d9",
+        "mode": 33188,
+        "mtime_ns": 1792199652436620943
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/modern-go-1.27-stderr.txt",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/modern-go-1.27-stderr.txt",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "mode": 33188,
+        "mtime_ns": 1792199652436620943
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/preparation.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/preparation.json",
+        "size": 832,
+        "sha256": "1122660777599e77f60a60b4d7883a38b430ff0effd7c44f1460f4e42111c135",
+        "mode": 33188,
+        "mtime_ns": 1792199652459917421
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/proposal/PROPOSAL.md",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/proposal/PROPOSAL.md",
+        "size": 3298,
+        "sha256": "a6ea75e6a78a157fa3d09cfee98ebafadd53200a4f966adf5211eb5cc05e0e31",
+        "mode": 33188,
+        "mtime_ns": 1792199694213997008
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/proposal/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/proposal/artifact-manifest.json",
+        "size": 435,
+        "sha256": "9b8a4c879168522f1925b922ca07f6e8ea58c61bc8c9a8718f3294d58f280b5e",
+        "mode": 33188,
+        "mtime_ns": 1792199694214204015
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/proposal/final-manifest.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/proposal/final-manifest.json",
+        "size": 869,
+        "sha256": "e85e3cc8b4f90ce3fa0723aea4aee292014bf53dc8ce9e815a8aa426d0ff54e7",
+        "mode": 33188,
+        "mtime_ns": 1792199694214388313
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/proposal/later-parent-requirement.txt",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/proposal/later-parent-requirement.txt",
+        "size": 423,
+        "sha256": "2ba6d5587bb9661695db33aeeb89fa4fd7362b3394d662319363cbda40d1bbea",
+        "mode": 33188,
+        "mtime_ns": 1792199694214577250
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/proposal/post-review-state.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/proposal/post-review-state.json",
+        "size": 848,
+        "sha256": "6b0712e15eb248645fad418e2317a70a63f76417699a85f4a31b156bcd5607b6",
+        "mode": 33188,
+        "mtime_ns": 1792199694214738118
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/proposal/proposal.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/proposal/proposal.json",
+        "size": 15723,
+        "sha256": "e7ed0c816965b1df73dc40b1a1862491e9c1b2b186785114c51f9ff5a7810644",
+        "mode": 33188,
+        "mtime_ns": 1792199694214915352
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/proposal/sealed-manifest.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/proposal/sealed-manifest.json",
+        "size": 1294,
+        "sha256": "70a2c9c98c79d9a45fbf71ba2f7c111b15a16bd7db65b3201849882d3046f6e8",
+        "mode": 33188,
+        "mtime_ns": 1792199694215250518
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/published/compile/default-pass/receipt.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/published/compile/default-pass/receipt.json",
+        "size": 12569,
+        "sha256": "e9d45a34fd9a70b65b2d0ec2e01326c70fb6626c32ed189fb5c6f329f27bdaca",
+        "mode": 33188,
+        "mtime_ns": 1792199694233623957
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/published/qa/adoption-review.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/published/qa/adoption-review.json",
+        "size": 703,
+        "sha256": "30e06e7590254efea2332c2c68015c099b70c41d4f61285ffddec7ea27f7203b",
+        "mode": 33188,
+        "mtime_ns": 1792199694252813325
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/published/qa/compile-review.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/published/qa/compile-review.json",
+        "size": 923,
+        "sha256": "14499a516b515c2b47784c50ee9af273ec2f6da7ee9427a64a454405609bfece",
+        "mode": 33188,
+        "mtime_ns": 1792199694252996820
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/published/qa/runtime-review.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/published/qa/runtime-review.json",
+        "size": 1363,
+        "sha256": "fc3131b7428c6b37225a91e3a5ccaa529118bde9888b03598165d5829776e009",
+        "mode": 33188,
+        "mtime_ns": 1792199694253164043
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/published/qa/source-review.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/published/qa/source-review.json",
+        "size": 1657,
+        "sha256": "edff615d49a7f23986699defaf1accb48ab4763fb5d33be3606f059a543d5788",
+        "mode": 33188,
+        "mtime_ns": 1792199694248406499
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/published/runtime/audit/runtime-audit.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/published/runtime/audit/runtime-audit.json",
+        "size": 70016,
+        "sha256": "2c5eb73099088ade4a31d774d3df77e6be94b15df6b579713a02b69f4e943302",
+        "mode": 33188,
+        "mtime_ns": 1792199694253774249
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/published/runtime/default-once-pass/raw.jsonl",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/published/runtime/default-once-pass/raw.jsonl",
+        "size": 34200,
+        "sha256": "c9487c0dfa9b64f95bd6a0bdb30565558ffdd19424beab1371f5c4c163d64fea",
+        "mode": 33188,
+        "mtime_ns": 1792199694243729708
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/published/runtime/default-once-pass/receipt.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/published/runtime/default-once-pass/receipt.json",
+        "size": 15423,
+        "sha256": "628c0800ba1c6ddcdea73bbe46ea1ff6ad44eda712f37849727fc6265976ae66",
+        "mode": 33188,
+        "mtime_ns": 1792199694238263992
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/published/source-original/source-after.go.txt",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/published/source-original/source-after.go.txt",
+        "size": 25286,
+        "sha256": "da7665e5f1e8ab5a73f7e5735dd29423712bef6ad8e739193ef017240d298c22",
+        "mode": 33188,
+        "mtime_ns": 1792199694232048619
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/qa-source-review.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/qa-source-review.json",
+        "size": 1134,
+        "sha256": "2b10044aa279caa9d8bc4722403b96f7199467a41c171a012c42f5a52292b47a",
+        "mode": 33188,
+        "mtime_ns": 1792199812037878510
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/removed-TestPeerPortOpen-plus-blank.txt",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/removed-TestPeerPortOpen-plus-blank.txt",
+        "size": 1224,
+        "sha256": "4766820e9593254734cb1026a5a16783d659f0cc3d59ad2c9df72445cb70b4a8",
+        "mode": 33188,
+        "mtime_ns": 1792199694213600152
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/source-after.go.txt",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/source-after.go.txt",
+        "size": 24062,
+        "sha256": "4ec96b458d4119605d24e1e04d1ef15da8e2ca9ec9fd22e21b54fe1a47e3f068",
+        "mode": 33188,
+        "mtime_ns": 1792199694213429876
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "source-proof/source-before.go.txt",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-source-c3e6ff75-u6pxzh0x/source-before.go.txt",
+        "size": 25286,
+        "sha256": "da7665e5f1e8ab5a73f7e5735dd29423712bef6ad8e739193ef017240d298c22",
+        "mode": 33188,
+        "mtime_ns": 1792199694213222061
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/HOLD.txt",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/HOLD.txt",
+        "size": 185,
+        "sha256": "d523405057bc4624b4ebc6b72d3a673f04c7efe57455b2085ef6240538abb9a2",
+        "mode": 33188,
+        "mtime_ns": 1792199781664343465
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/artifact-manifest.json",
+        "size": 943,
+        "sha256": "2accff7f689e267aa2c8303780da11ef3fe5e940b9ee714112300d3835ac5081",
+        "mode": 33188,
+        "mtime_ns": 1792199781664966180
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/compile-request.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/compile-request.json",
+        "size": 8278,
+        "sha256": "dc25de9a8f40cabed0ef3d51b08c82767d3377a1a8edaa7d39011dc232de8d02",
+        "mode": 33188,
+        "mtime_ns": 1792199781664182772
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/compile-wrapper.py",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/compile-wrapper.py",
+        "size": 4348,
+        "sha256": "8eba69049eb996fcc5acdb18e970d87aaadc6af2c0f6754e9ca2f37375c0e634",
+        "mode": 33188,
+        "mtime_ns": 1792199781387678289
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/output/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/output/artifact-manifest.json",
+        "size": 1171,
+        "sha256": "6c410cf51068b5f085c3ba2511e02fcee2349838e7e28a511ec27be179eafe50",
+        "mode": 33188,
+        "mtime_ns": 1792199920789881130
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/output/broker-receipt.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/output/broker-receipt.json",
+        "size": 11494,
+        "sha256": "369acfc145ef982a7f474f905b646150537eb137fa794050199f3a68348c3e59",
+        "mode": 33188,
+        "mtime_ns": 1792199920698358837
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/output/compile.log",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/output/compile.log",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "mode": 33188,
+        "mtime_ns": 1792199882011144892
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/output/post-state.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/output/post-state.json",
+        "size": 4219,
+        "sha256": "5109b5593025c879e2d566875338c74da9f71b458bd8926e593074b8bd19bb66",
+        "mode": 33188,
+        "mtime_ns": 1792199920601022226
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/output/pre-state.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/output/pre-state.json",
+        "size": 4219,
+        "sha256": "5109b5593025c879e2d566875338c74da9f71b458bd8926e593074b8bd19bb66",
+        "mode": 33188,
+        "mtime_ns": 1792199882011144892
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "compile/output/terrabase-default.test",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/output/terrabase-default.test",
+        "size": 18851569,
+        "sha256": "a2e4d0db9ece0ca44d09a5876ec6998bf2ffc4188ac443f57919297c515cb6c9",
+        "mode": 33261,
+        "mtime_ns": 1792199915835913880
+      },
+      "omit_binary": true
+    },
+    {
+      "archive_relative_path": "compile/source-commit.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/source-commit.json",
+        "size": 3891,
+        "sha256": "1c49d10e99f2efbd8a03c209a462eeec82b24910e343dda3f1e7b4947518a1ec",
+        "mode": 33188,
+        "mtime_ns": 1792199734766446596
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "broker/COMPILE-SUMMARY.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-broker-c63524c7-qj9g3h4s/COMPILE-SUMMARY.json",
+        "size": 4361,
+        "sha256": "37eb05160f9927b423dd1a14336fdc4c1cc6319525119a5cbfe23237674c9cd3",
+        "mode": 33188,
+        "mtime_ns": 1792199942069402804
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "broker/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-broker-c63524c7-qj9g3h4s/artifact-manifest.json",
+        "size": 2296,
+        "sha256": "56d846ca395a139bf04744dbc0f62645e11cadaf6a875ee1e3a95503c3152527",
+        "mode": 33188,
+        "mtime_ns": 1792199942070258200
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "broker/original-artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-broker-c63524c7-qj9g3h4s/original-artifact-manifest.json",
+        "size": 943,
+        "sha256": "2accff7f689e267aa2c8303780da11ef3fe5e940b9ee714112300d3835ac5081",
+        "mode": 33188,
+        "mtime_ns": 1792199869786639936
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "broker/original-compile-request.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-broker-c63524c7-qj9g3h4s/original-compile-request.json",
+        "size": 8278,
+        "sha256": "dc25de9a8f40cabed0ef3d51b08c82767d3377a1a8edaa7d39011dc232de8d02",
+        "mode": 33188,
+        "mtime_ns": 1792199869786292726
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "broker/original-compile-wrapper.py",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-broker-c63524c7-qj9g3h4s/original-compile-wrapper.py",
+        "size": 4348,
+        "sha256": "8eba69049eb996fcc5acdb18e970d87aaadc6af2c0f6754e9ca2f37375c0e634",
+        "mode": 33188,
+        "mtime_ns": 1792199869786497347
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "broker/qa-compile-request-review.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-broker-c63524c7-qj9g3h4s/qa-compile-request-review.json",
+        "size": 6059,
+        "sha256": "c294c03ff73606a252333f933ec370fadcf17b806a27989be5ad1007453ac312",
+        "mode": 33188,
+        "mtime_ns": 1792199869786134230
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "broker/tool-launch-observation.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-broker-c63524c7-qj9g3h4s/tool-launch-observation.json",
+        "size": 184,
+        "sha256": "6045e5267a0d791acd87389eb5683510d2a48b174c18407e8b08965e70fca26d",
+        "mode": 33188,
+        "mtime_ns": 1792199882845690257
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "broker/tool-launch-request.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-broker-c63524c7-qj9g3h4s/tool-launch-request.json",
+        "size": 1097,
+        "sha256": "2601defe52829f66d300c6682f9619127dc7ea05f90f51d88dc10d58c19661b8",
+        "mode": 33188,
+        "mtime_ns": 1792199881461923665
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "broker/tool-observation-1792199896508.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-broker-c63524c7-qj9g3h4s/tool-observation-1792199896508.json",
+        "size": 271,
+        "sha256": "b3b23152e2e9462da07c73ebcd644c8d6e900abaf374f7631fd8fff5340a857e",
+        "mode": 33188,
+        "mtime_ns": 1792199896645477575
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "broker/tool-observation-1792199911145.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-broker-c63524c7-qj9g3h4s/tool-observation-1792199911145.json",
+        "size": 270,
+        "sha256": "efd9852d8d912c211503eb566460e2ed15977dd4da0e5262c52b2556882084dc",
+        "mode": 33188,
+        "mtime_ns": 1792199911280268615
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "broker/tool-observation-1792199920808.json",
+      "original": {
+        "path": "/tmp/ts-nsg-retirement-compile-broker-c63524c7-qj9g3h4s/tool-observation-1792199920808.json",
+        "size": 655,
+        "sha256": "70560551af04662c59d1cd634a4a10e2ff54cd7eb2d15fff4f4495a79b857451",
+        "mode": 33188,
+        "mtime_ns": 1792199920948409233
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "qa/source-review.json",
+      "original": {
+        "path": "/tmp/ts-qa-nsg-retirement-source-review-c63524c7-021bc540.json",
+        "size": 1134,
+        "sha256": "2b10044aa279caa9d8bc4722403b96f7199467a41c171a012c42f5a52292b47a",
+        "mode": 33188,
+        "mtime_ns": 1792199746111366111
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "qa/request-review.json",
+      "original": {
+        "path": "/tmp/ts-qa-nsg-retirement-compile-request-review-c63524c7-1a57eb61.json",
+        "size": 6059,
+        "sha256": "c294c03ff73606a252333f933ec370fadcf17b806a27989be5ad1007453ac312",
+        "mode": 33188,
+        "mtime_ns": 1792199843659273196
+      },
+      "omit_binary": false
+    },
+    {
+      "archive_relative_path": "qa/compile-review.json",
+      "original": {
+        "path": "/tmp/ts-qa-nsg-retirement-compile-review-c63524c7-21655e61.json",
+        "size": 1257,
+        "sha256": "6375918a20b227eb5db701ca8026ea2bcfbcb3f00d1d66e7fd1aeb2f875f1aed",
+        "mode": 33188,
+        "mtime_ns": 1792199980483384058
+      },
+      "omit_binary": false
+    }
+  ],
+  "omitted_binary": {
+    "original_binary_location": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/output/terrabase-default.test",
+    "size": 18851569,
+    "sha256": "a2e4d0db9ece0ca44d09a5876ec6998bf2ffc4188ac443f57919297c515cb6c9",
+    "binary_bytes_omitted": true,
+    "original_binary_retained": true,
+    "binary_ever_executed": false,
+    "original_manifest_member": "packet/compile/output/artifact-manifest.json",
+    "original_manifest_sha256": "6c410cf51068b5f085c3ba2511e02fcee2349838e7e28a511ec27be179eafe50",
+    "original_receipt_member": "packet/compile/output/broker-receipt.json",
+    "reason": "Only compiled executable bytes are omitted. All original manifests and receipts retain untouched historical bytes, including the original binary entry."
+  },
+  "published_upstream": {
+    "qualified_upstream_commit": "e502eed69cd2c020448b94c6970d9bacd8942cd8",
+    "archive": {
+      "path": "/tmp/ts-nsg-retirement-c3e6ff75-u6pxzh0x/docs/evidence/refactor-checks-20261016/nsg-sdk-socket-e502eed6/evidence.tar.gz",
+      "size": 491331,
+      "sha256": "3b929a819dc0f28bdf0cd375a077007ef02278edfd27d81a4199fd9fbf3390c9",
+      "mode": 33188,
+      "mtime_ns": 1792199655697004939
+    },
+    "published_archive_repo_relative_path": "docs/evidence/refactor-checks-20261016/nsg-sdk-socket-e502eed6/evidence.tar.gz",
+    "full_upstream_archive_duplicated": false,
+    "selective_upstream_copies": "Already-retained source proof includes selected unchanged earlier source/compile/runtime/raw/QA evidence; preserved exactly.",
+    "runtime_receipt_sha256": "628c0800ba1c6ddcdea73bbe46ea1ff6ad44eda712f37849727fc6265976ae66",
+    "runtime_raw_sha256": "c9487c0dfa9b64f95bd6a0bdb30565558ffdd19424beab1371f5c4c163d64fea",
+    "runtime_QA_sha256": "fc3131b7428c6b37225a91e3a5ccaa529118bde9888b03598165d5829776e009",
+    "root": "TestPeerPortOpenThroughSDKObservedHosts",
+    "leaves": [
+      "cidr",
+      "nsg",
+      "destination_miss",
+      "sender_nsg_miss",
+      "sender_cidr_miss"
+    ],
+    "successful_GETs": 35,
+    "ordered_assessments": 10,
+    "run_repeated": false,
+    "source_declaration_preserved_byte_identical": true,
+    "literal_nil_sender_groups_note": "Original CIDR denial supplied nil groups; accepted SDK sender_cidr_miss supplies groupB. CIDR branch ignores sender groups, so the rejection semantic is covered; literal nil-input runtime execution is not proved."
+  },
+  "packaging_script": {
+    "path": "/tmp/ts-nsg-retirement-c63524c7-packaging-bv5na9ed/package-evidence.py",
+    "size": 14850,
+    "sha256": "9c40b3246f108bffc00f3d8d6c72fc743ea959a771e53ece86bc054a3c7f6c1c"
+  },
+  "operation_scope": "Docs-only; all prior inputs preserved; no Go/runtime/source/index/stage/commit/integration/push/host/cloud/new agents.",
+  "tar_policy": {
+    "format": "USTAR",
+    "sorted": true,
+    "regular_files_only": true,
+    "mode": "0644",
+    "uid": 0,
+    "gid": 0,
+    "uname": "",
+    "gname": "",
+    "mtime": 0
+  },
+  "gzip_policy": {
+    "filename": "",
+    "mtime": 0,
+    "compresslevel": 9
+  },
+  "manifest_policy": "MEMBERS describes all payload excluding itself and SHA256SUMS. SHA256SUMS covers every member except itself, including MEMBERS. External package.json enumerates every archive member."
+}

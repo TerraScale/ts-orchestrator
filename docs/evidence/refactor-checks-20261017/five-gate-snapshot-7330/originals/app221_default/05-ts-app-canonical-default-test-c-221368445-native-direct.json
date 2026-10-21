@@ -1,0 +1,45 @@
+{
+  "args": {
+    "cmd": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B /tmp/ts-app-canonical-default-test-c-221368445-_66f40va/run.py b47314123eaa3811f3e40008b5783b09aa423113cfaa8438abc4fd83afdd4fd9 68775b6611c3429d0d7e2b65b0c969422ebcd0b1c7dc437e558947ec5d39c3cc",
+    "login": false,
+    "max_output_tokens": 3000,
+    "yield_time_ms": 1000
+  },
+  "results": [
+    {
+      "chunk_id": "0ea6ef",
+      "wall_time_seconds": 1.001044045,
+      "session_id": 90114,
+      "original_token_count": 0,
+      "output": ""
+    },
+    {
+      "chunk_id": "067705",
+      "wall_time_seconds": 5.000860991,
+      "session_id": 90114,
+      "original_token_count": 70,
+      "output": "{\"event\": \"launched\", \"pid\": 1253470, \"packet\": \"/tmp/ts-app-canonical-default-test-c-221368445-_66f40va\", \"request_sha256\": \"b47314123eaa3811f3e40008b5783b09aa423113cfaa8438abc4fd83afdd4fd9\", \"runner_sha256\": \"68775b6611c3429d0d7e2b65b0c969422ebcd0b1c7dc437e558947ec5d39c3cc\"}\n"
+    },
+    {
+      "chunk_id": "e4c576",
+      "wall_time_seconds": 5.000772812,
+      "session_id": 90114,
+      "original_token_count": 0,
+      "output": ""
+    },
+    {
+      "chunk_id": "2d23d3",
+      "wall_time_seconds": 5.000591512,
+      "session_id": 90114,
+      "original_token_count": 0,
+      "output": ""
+    },
+    {
+      "chunk_id": "888c27",
+      "wall_time_seconds": 0.000019278,
+      "exit_code": 0,
+      "original_token_count": 95,
+      "output": "{\"event\": \"terminal\", \"state\": \"COMPILE_PASS_NO_EXECUTION\", \"exit_code\": 0, \"wall_seconds\": 205.4166229260154, \"receipt_sha256\": \"abb937aeb5f743b131334714db568dead9257cfc6a602c3c986a242bfb3b928f\", \"final_seal_sha256\": \"84ae97a2cc10877c16366fdc31a1978ee1b272703ff254010b57b8232f28b97f\", \"packet\": \"/tmp/ts-app-canonical-default-test-c-221368445-_66f40va\", \"locks_released\": true}\n\n"
+    }
+  ]
+}

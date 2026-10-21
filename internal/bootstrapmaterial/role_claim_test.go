@@ -62,7 +62,7 @@ func TestRoleClaimAddsTheControllersRoleSigner(t *testing.T) {
 	}
 	legacy := mustDecode(t, generated)
 	for key := range legacy.SigningKeys {
-		if key != record.Public.HostNATSIssuerNKey {
+		if key != record.Public.HostNATSIssuerNKey && key != record.Public.ControllerAccountSignerNKey {
 			delete(legacy.SigningKeys, key)
 		}
 	}
@@ -81,7 +81,7 @@ func TestRoleClaimAddsTheControllersRoleSigner(t *testing.T) {
 	before, _ := jwt.DecodeAccountClaims(current)
 	after, err := jwt.DecodeAccountClaims(raw)
 	if err != nil || after.Issuer != record.Public.OperatorNKey || after.IssuedAt <= before.IssuedAt ||
-		len(after.SigningKeys) != 2 || !reflect.DeepEqual(after.Limits, before.Limits) || after.Expires != before.Expires {
+		len(after.SigningKeys) != 3 || !reflect.DeepEqual(after.Limits, before.Limits) || after.Expires != before.Expires {
 		t.Fatalf("role claim %+v: %v", after, err)
 	}
 	if _, host := after.SigningKeys.GetScope(record.Public.HostNATSIssuerNKey); !host {
@@ -91,7 +91,7 @@ func TestRoleClaimAddsTheControllersRoleSigner(t *testing.T) {
 		t.Fatalf("role-claim added signer %s, not new material's", signer)
 	}
 	time.Sleep(time.Second)
-	if again, _, err := bootstrapmaterial.RoleClaim(directory, raw); err != nil || len(mustDecode(t, again).SigningKeys) != 2 {
+	if again, _, err := bootstrapmaterial.RoleClaim(directory, raw); err != nil || len(mustDecode(t, again).SigningKeys) != 3 {
 		t.Fatalf("a second run added another signer: %v", err)
 	}
 	if err := issuer.ValidateRoleScope(raw); err != nil {
@@ -114,7 +114,7 @@ func TestRoleClaimAddsTheControllersRoleSigner(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 	if replaced, _, err := bootstrapmaterial.RoleClaim(directory, staleJWT); err != nil || issuer.ValidateRoleScope(replaced) != nil ||
-		len(mustDecode(t, replaced).SigningKeys) != 2 {
+		len(mustDecode(t, replaced).SigningKeys) != 3 {
 		t.Fatalf("role-claim did not replace the older scope: %v", err)
 	}
 	if _, _, err := bootstrapmaterial.RoleClaim(directory, string(read("system.jwt"))); err == nil {

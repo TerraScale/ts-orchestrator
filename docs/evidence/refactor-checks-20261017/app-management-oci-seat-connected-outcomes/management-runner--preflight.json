@@ -1,0 +1,50 @@
+{
+  "GOROOT_present": false,
+  "argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "180s",
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "LANG=C.UTF-8",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-json",
+    "-p=1",
+    "-parallel=1",
+    "-mod=readonly",
+    "./internal/swarmruntime",
+    "-run",
+    "^(TestManagementIntegration|TestManagementObservationIntegration|TestManagementObservationStoreBoundaries|TestManagementObservationSlowConsumer|TestManagementObservationBlockedSend|TestManagementObservationGRPCBlockedSend|TestManagementStatefulEffectBracket|TestManagementPeerPIDAdmission)$",
+    "-count=1",
+    "-timeout=120s"
+  ],
+  "default_vet": true,
+  "effective_child_environment": {
+    "GOFLAGS": "-p=2",
+    "GOMAXPROCS": "2",
+    "GOTOOLCHAIN": "local",
+    "HOME": "/home/mariogk",
+    "LANG": "C.UTF-8",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin"
+  },
+  "source": {
+    "head": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+    "request_sha256": "6622dcff83909fd593f1e810cc7f2c28a55a33edf26037d37282c511d742362c",
+    "status": "",
+    "tool_pins_sha256": "df053f503abcb269c3a81f79d47edb0dcc092c8ec6d7425b7be9885ab0764c90",
+    "tracked_count": 4208,
+    "tracked_manifest_sha256": "f5bfa15b9598eb7fa347693d3a451b2d0d599c56221a55c2ddc4c8be59adf175",
+    "tree": "89edb76c39969780081df545e6f6f4bf9759086d",
+    "wrapper_sha256": "5d0c94166da8ec52175bbb655a595a5991d210b8bcf1f6f7be2526caf020f19a"
+  }
+}

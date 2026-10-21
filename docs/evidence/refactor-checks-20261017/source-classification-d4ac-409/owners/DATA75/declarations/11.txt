@@ -1,0 +1,7 @@
+func TestOpenRejectsNegativeArtifactStoreLimit(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	_, err := Open(ctx, Config{JS: service.js, Cell: "lab", Replicas: 1, ArtifactStoreMaxBytes: -1})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Open() with negative artifact store limit = %v, want ErrInvalid", err)
+	}
+}

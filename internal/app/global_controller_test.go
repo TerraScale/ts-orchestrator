@@ -58,7 +58,7 @@ func TestGlobalAndInterRegionRejectRemovedEnabledFields(t *testing.T) {
 			`"controller":{"global":{"enabled":` + value + `}}`,
 			`"nats":{"embedded":{"interregion":{"enabled":` + value + `}}}`,
 		} {
-			if _, err := decodeConfig([]byte(`{"version":1,` + block + `}`)); err == nil {
+			if _, err := decodeConfig([]byte(`{"version":2,` + block + `}`)); err == nil {
 				t.Fatalf("removed field accepted: %s", block)
 			}
 		}
@@ -69,14 +69,17 @@ func TestGlobalControlAlwaysStartsWithHomeDeployment(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	dir := t.TempDir()
-	cfg := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "home", Replicas: 1, Lab: true,
+	cfg := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "home", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(dir, "nats")}},
 		Controller: ControllerConfig{SpecTrust: authorityTestSpecTrust(t, dir, "gru")}}
+	auth := newAuthenticatedNATS(t, "gru")
+	newAcceptedSpecTrust(t, &cfg)
+	cfg.NATS = auth.config(t, cfg.NATS)
 	services, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	broker, err := natscell.Start(ctx, cfg.NATS)
+	broker, err := auth.start(t, ctx, cfg.NATS)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,17 @@
+func TestRefuseIntentRequiresAuthorizationAndAuthority(t *testing.T) {
+	s, ctx := testService(t, &testWriter{})
+	i := testIntent(t, s, ctx)
+	denied := errors.New("not authorized")
+	s.config.Authorize = func(context.Context, string, Intent) error { return denied }
+	if err := s.RefuseIntent(ctx, i, "operator", i.AuthorityEpoch, "ineligible"); !errors.Is(err, denied) {
+		t.Fatal(err)
+	}
+	s.config.Authorize = func(context.Context, string, Intent) error { return nil }
+	i.AuthorityEpoch++
+	if err := s.RefuseIntent(ctx, i, "operator", i.AuthorityEpoch, "ineligible"); err == nil {
+		t.Fatal("stale authority wrote refusal")
+	}
+	if _, err := s.Status(ctx, i.OperationID); !errors.Is(err, ErrPending) {
+		t.Fatalf("unauthorized/fenced refusal persisted: %v", err)
+	}
+}

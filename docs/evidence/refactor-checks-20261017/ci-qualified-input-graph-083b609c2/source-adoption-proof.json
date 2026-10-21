@@ -1,0 +1,64 @@
+{
+  "candidate": "083b609c22b49e7e268610840a1e4f19bfdbc2b1",
+  "adopted_commit": "e3d62c368a05b5a83e4788e190f1b8ce5a224445",
+  "feature_parent": "748d00a1260eda190088a80725b25b3e69c7d8a3",
+  "paths": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "39cd77b90ee793498a8d6ec96ad5b6928b309d49333f8e370172393c1196dec6",
+      "candidate_and_adopted_byte_exact": true
+    },
+    {
+      "path": ".github/workflows/deploy.yml",
+      "sha256": "0ec1fe3241529dae253fa78f2a3cf02a2bcf6d36e5f9f812a114fffd48a84efb",
+      "candidate_and_adopted_byte_exact": true
+    },
+    {
+      "path": "Makefile",
+      "sha256": "5444ef5bb19204347424cb26ce05fcdd2feaf63b5aca57bfc226f5c1b46db182",
+      "candidate_and_adopted_byte_exact": true
+    },
+    {
+      "path": "deploy/image/build-image.sh",
+      "sha256": "de458891a03ff2ee9e2fc5846bc24d0fa86b0e59d05b4848d560caf7c73d7afb",
+      "candidate_and_adopted_byte_exact": true
+    },
+    {
+      "path": "docs/deploy-pipeline.md",
+      "sha256": "3890d643b6ca84819048273d21eccd1f43b8df6311b0853a133ac828ef018e3f",
+      "candidate_and_adopted_byte_exact": true
+    },
+    {
+      "path": "scripts/ci/deploy-fleet.sh",
+      "sha256": "3d7a15d5242dab0574e98c7b0628161229d15cd3af43eaa14e16307d4ee62a8a",
+      "candidate_and_adopted_byte_exact": true
+    },
+    {
+      "path": "scripts/ci/image-superseded.sh",
+      "sha256": "a56c8ec5ed834a92a64f05ccbad3bf002cd64dca0fda2b32d05f92c7da0cf784",
+      "candidate_and_adopted_byte_exact": true
+    },
+    {
+      "path": "scripts/ci/qualified_release.py",
+      "sha256": "f7a6b8877bb8a5b85cea3ad907e3df1616e3ee92fe986c45f213b527ebf050d3",
+      "candidate_and_adopted_byte_exact": true
+    },
+    {
+      "path": "scripts/ci/qualify-image-production.sh",
+      "sha256": "deebce3d43f960c44d285c3f1b623070dbceae1ccff1e7fcc571a5cd80eb700b",
+      "candidate_and_adopted_byte_exact": true
+    },
+    {
+      "path": "scripts/ci/release-inputs-changed.py",
+      "sha256": "6861c9b3d7e75ea5ff9df3f29c24ae8820f858634b3a8f224dc777d99a2bd3d6",
+      "candidate_and_adopted_byte_exact": true
+    },
+    {
+      "path": "scripts/ci/test_ci_artifact_graph.py",
+      "sha256": "85efb4812d5e4080821cef31d24510c984bf353803fb013678452d70b6a58c39",
+      "candidate_and_adopted_byte_exact": true
+    }
+  ],
+  "scope": "Exact tested eleven-file source patch; no new validation execution on integrated feature.",
+  "security_review": "ROOT relayed exact083 SEC source ACK; no independent artifact supplied here."
+}

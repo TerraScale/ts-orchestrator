@@ -1,0 +1,31 @@
+func TestSubmitOperationReadPreservesPermanentErrorsAndCancellation(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{"permission denied", nats.ErrPermissionViolation},
+		{"JetStream disabled", &nats.APIError{Code: 503, ErrorCode: 10076}},
+		{"missing operation", jetstream.ErrKeyNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			_, err := retrySubmitOperationRead(t.Context(), func(context.Context) (*operationValue, error) {
+				calls++
+				return nil, test.err
+			})
+			if !errors.Is(err, test.err) || calls != 1 {
+				t.Fatalf("operation read error=%v calls=%d, want immediate %v", err, calls, test.err)
+			}
+		})
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	calls := 0
+	_, err := retrySubmitOperationRead(ctx, func(context.Context) (*operationValue, error) {
+		calls++
+		cancel()
+		return nil, nats.ErrTimeout
+	})
+	if !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Fatalf("canceled operation read error=%v calls=%d, want caller cancellation", err, calls)
+	}
+}

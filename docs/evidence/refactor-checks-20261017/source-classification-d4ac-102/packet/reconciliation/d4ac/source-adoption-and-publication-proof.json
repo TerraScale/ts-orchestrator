@@ -1,0 +1,725 @@
+{
+  "accepted_publication58files": [
+    {
+      "bytes": 16725,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/MANIFEST.json",
+      "sha256": "ff9f559aab5e225a7d19594e699ac8feed11bc94b4a3d50bb19b9410a31dafdf"
+    },
+    {
+      "bytes": 1103,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/README.md",
+      "sha256": "5092b0aadb2e033bdb0c50acde0320044857b60d915a059b25abd1203120fc17"
+    },
+    {
+      "bytes": 5399,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/SHA256SUMS",
+      "sha256": "a0f0dfac0fb6589e482b67ad44692be460e03087f6bbee30a514c09e1384d6df"
+    },
+    {
+      "bytes": 0,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-additive-compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 0,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-additive-gofmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 14200,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-additive-independent-review.json",
+      "sha256": "b9b77c69d5c5cede76c0fa8f67da6232de6abd536864a9df59ff89e4cb362c45"
+    },
+    {
+      "bytes": 2623,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-additive-request.json",
+      "sha256": "f6929197b3bd9221c5d2d5ca9c3e32cc739bbaafa17938d057a94c8c790452bd"
+    },
+    {
+      "bytes": 6092,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-additive-result.json",
+      "sha256": "c1ab858972618202e49701f872913ed306d7597d25f65ccbc10d7c529b8f74ff"
+    },
+    {
+      "bytes": 8017,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-additive-run.py",
+      "sha256": "164bd5c2fb6cddd12bc722acd042384ece5616c670b7992836637fd0f0dbcd48"
+    },
+    {
+      "bytes": 12333,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-additive-runtime.log",
+      "sha256": "51a7f4722d337be318e2da7b3d83559e0dfa240dd99e6fc1cfdd200f360c4a6f"
+    },
+    {
+      "bytes": 29402,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-assertion-map.json",
+      "sha256": "738367a92d0bea2ff3d64cfc88381981049b900b7e55d5907898dcb868706027"
+    },
+    {
+      "bytes": 2623,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-readiness.json",
+      "sha256": "f6929197b3bd9221c5d2d5ca9c3e32cc739bbaafa17938d057a94c8c790452bd"
+    },
+    {
+      "bytes": 1612,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-removals-readiness.json",
+      "sha256": "df67c10d3e188d2735c15a221454b571027cdaf8d4bf6ef77eb42a70753b0cf0"
+    },
+    {
+      "bytes": 9032,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-removals-source-proof.json",
+      "sha256": "856ca1fa7bde2761e18551a594b4bf8a55ec9b9b360c79d3ff103f6a4384cbc0"
+    },
+    {
+      "bytes": 3105,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-removals.patch",
+      "sha256": "4f8d3027e4463ac24c3285ef3ede1b51f8c8075a6505fc0a4e0384284a3ff40e"
+    },
+    {
+      "bytes": 0,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-retirement-compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 7679,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-retirement-independent-review.json",
+      "sha256": "3c7b67d63b6a968ede268badecb317c45da24923e15b9d93eb206824f014dea2"
+    },
+    {
+      "bytes": 1613,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-retirement-request.json",
+      "sha256": "d66e90a6b6f6ce4af64ca8f0b6e46468fba2ddbc662df9c4b79928c0d7fa0d52"
+    },
+    {
+      "bytes": 3004,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-retirement-result.json",
+      "sha256": "0e2b3c40334b5e51d339016b476e087272ceb318b72a5bffea131fef3bfa4ba7"
+    },
+    {
+      "bytes": 6606,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-retirement-run.py",
+      "sha256": "d6684b8ed35a6dc32f2516cd830de9c9882f2301bdb449ee426465505c448fc8"
+    },
+    {
+      "bytes": 2791,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-source-proof.json",
+      "sha256": "2c5c148a64106c81afe3381611864f18eb48fa40d3045798fdffc542f0b4d13f"
+    },
+    {
+      "bytes": 5146,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-additive-independent-review.json",
+      "sha256": "ae1f150e081cf6c70abec383dc7c5c44cf90d4693f475dae10f3fcde3cfb5c51"
+    },
+    {
+      "bytes": 35557,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-assertion-map.json",
+      "sha256": "7415487381bde74e543a24d539df0f9009aa4f3b0bbe405ef01e0e630f515adb"
+    },
+    {
+      "bytes": 1285,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-b8-compile-result.json",
+      "sha256": "11d44358574d7fbc8f6087d95dd9e349aba7df7a95e088ce3b3fe0ccb9d9b167"
+    },
+    {
+      "bytes": 0,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-b8-compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 542,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-b8-duplicate-compile-result.json",
+      "sha256": "77de29e71b4ad19e3b22e74a4c36ccee83144733fae1008c006fdd217568af88"
+    },
+    {
+      "bytes": 14092,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-b8-independent-review.json",
+      "sha256": "e9611b2d27b4370bbd170ad81773022a06d0c1c5317128c96e7d5aac82649075"
+    },
+    {
+      "bytes": 4915,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-fixtures-events-summary.json",
+      "sha256": "471bc6bcbb40a9d94b1a3774d4433ace52f80f74bcfcb4c15e5319fb164f8d4f"
+    },
+    {
+      "bytes": 2323,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-fixtures-fixture-plan.json",
+      "sha256": "962a55de913070bd2d63bf771555dd66080406dc39fe3c1de8d3ad789ea8cf92"
+    },
+    {
+      "bytes": 187828,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-fixtures-raw.jsonl",
+      "sha256": "c25fa3ec14a5e41ba78e9f80c55f1aa40c071042b560388e58ea61f205d7688a"
+    },
+    {
+      "bytes": 0,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-fixtures-raw.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 3478,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-fixtures-result.json",
+      "sha256": "cca5c37a2c87dee8d88ff6afb3cad502b8e8a9456695f35eed7efaaf54816094"
+    },
+    {
+      "bytes": 5317,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-fixtures-run.py",
+      "sha256": "035904a29c1cd0e46c3742e167479dd9b275cab1be6995ec6332eb34cff5d927"
+    },
+    {
+      "bytes": 2782,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-fixtures-started.json",
+      "sha256": "332d8bd3a0f44a4779ece367483624f5635bf5386282544f30c42cc72cb7a1f8"
+    },
+    {
+      "bytes": 1244,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-compile-plan.json",
+      "sha256": "a8c45af1191806faa09c42781adf62580ea52e9ff19ae5591346a6364a81b077"
+    },
+    {
+      "bytes": 20201,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-retirement.patch",
+      "sha256": "b7fed8ac90c8f7b30432e01bf95911e6413894610db65c8adfbc8a1a117036a2"
+    },
+    {
+      "bytes": 15518,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json",
+      "sha256": "ce906c9e176236b8f606ceacfc52ff1e658b957deaaf2d544b526d512a7b4703"
+    },
+    {
+      "bytes": 1839,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-retirement-checks-summary.json",
+      "sha256": "c868cd88e4f9dc40b88b40a7861c56258f63d1760085ced506e5c256561b934a"
+    },
+    {
+      "bytes": 0,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-retirement-compile.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 0,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-retirement-compile.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 7655,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-retirement-independent-review.json",
+      "sha256": "d397e419a4bce2689118a37af02ac8fa05f2d2579a5cf6d06614a9f8b30e4a29"
+    },
+    {
+      "bytes": 3418,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-retirement-result.json",
+      "sha256": "57c595083adf1d5cc74068b2b23e74ee1e0739c52e62cf1ed22fb651c43f9393"
+    },
+    {
+      "bytes": 6384,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-retirement-run.py",
+      "sha256": "ea5cd7fd2f1f839c75bd4a608221403dd34d757edfa8afe69c953d24d2924a0e"
+    },
+    {
+      "bytes": 3143,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-sdk-additive-checks-summary.json",
+      "sha256": "e5ce196ffaaac8a1cd13d3ea8d9ebede9c0aa72b5f3a78d82ca7f047c6ab3d1a"
+    },
+    {
+      "bytes": 2208,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-sdk-additive-compile-result.json",
+      "sha256": "61ff9cc1fb45a56d766f8f3d2c2475c5243d898dc85d2c9b2967f1498ecb623e"
+    },
+    {
+      "bytes": 0,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-sdk-additive-compile.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 0,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-sdk-additive-compile.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 9122,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-sdk-additive-result.json",
+      "sha256": "91b67e04fe67be85e5e7de816060a75522324f8ac76d040e48aac050b4473406"
+    },
+    {
+      "bytes": 7522,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-sdk-additive-run.py",
+      "sha256": "980a6aa7025b582c3c992cdef63173b2c8927fc39817a4de99e07b2286287e6b"
+    },
+    {
+      "bytes": 5957,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-sdk-additive-runtime-result.json",
+      "sha256": "81b44a6745e234a72535cb67d11418609a88a425e452b26854a4dff7b1f61b0b"
+    },
+    {
+      "bytes": 0,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-sdk-additive-runtime.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 11221,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-sdk-additive-runtime.stdout",
+      "sha256": "2fb0c53f2b9ad183abeaa5ad990f94f6b6c417a9a6c6d7eb7de777f72f4119f6"
+    },
+    {
+      "bytes": 2323,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-terminal-fixture-plan.json",
+      "sha256": "962a55de913070bd2d63bf771555dd66080406dc39fe3c1de8d3ad789ea8cf92"
+    },
+    {
+      "bytes": 4407,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-terminal-raw.jsonl",
+      "sha256": "a14892fbe9e1351f27074a5d456dcd3834e6789d78e25fd94cf2f4a8dac503b8"
+    },
+    {
+      "bytes": 0,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-terminal-raw.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 1818,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-terminal-result.json",
+      "sha256": "98ce39ccc5b091593ab38ce994902bafeb0047371a7086a76b0fd4403936391c"
+    },
+    {
+      "bytes": 2679,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-terminal-run.py",
+      "sha256": "af3c7660af22e0ca0e9884fd4aff8c0d2c33907c79afc95707983457245328ef"
+    },
+    {
+      "bytes": 1219,
+      "exact_frozen_copy": true,
+      "mode": "100644",
+      "path": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-terminal-started.json",
+      "sha256": "557604d7786d71275e7e88d89468ece66d56c28972747746e2a6ccb9cac355c8"
+    }
+  ],
+  "accepted_source14_test_paths": [
+    {
+      "blob": "c2e30e865ea393a8ada9dc8a7fbcb9892d6adfff",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "path": "internal/oci/authenticated_journal_test.go",
+      "sha256": "6f9428ba15e41b97aeedc8b3d261daca6ff24b230aaaa2691e4c043d6131e663",
+      "status": "added"
+    },
+    {
+      "blob": "a792c3b650f5f6edc93c646c14f5821f2918031b",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "path": "internal/oci/capacity_request_integration_test.go",
+      "sha256": "2a3bc2af39a4429019edca97d1175c4a41dd04fe060dba4e5e71ee38518af230",
+      "status": "modified"
+    },
+    {
+      "blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "path": "internal/oci/journal_test.go",
+      "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+      "status": "modified"
+    },
+    {
+      "blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "path": "internal/oci/pool_receipt_integration_test.go",
+      "sha256": "c28f4b4cb0b38559bae127b59bfd34727b750e881abb885366ad98d4a465ae45",
+      "status": "modified"
+    },
+    {
+      "blob": "b870ce056b50f98059c72daf1585e9764dfc5a83",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "path": "internal/oci/sdk_socket_boundary_integration_test.go",
+      "sha256": "d113103cafd338cd1972de5c5a2021c711dfecf58efff30aae4a112418e649ed",
+      "status": "added"
+    },
+    {
+      "blob": "c661de5dafe957e9023a2b83a27972e833c6a7b4",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "path": "internal/oci/sdk_test.go",
+      "sha256": "59e219d851745e2c1be8aac162955ec7ace33d61ce9cffbf5c6bee7f45d602f9",
+      "status": "modified"
+    },
+    {
+      "blob": "f5715c84c4a2d272cc212975317672d6fef7718b",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "path": "internal/oci/terminal_sdk_boundary_integration_test.go",
+      "sha256": "eeeb9ae628e5a3139a287da00ba017a10f8652f55240d4412b1fced8efce7c2f",
+      "status": "added"
+    },
+    {
+      "blob": "cd2302e1d8bc2ab84e68cead0d7a85e9b3ad4c67",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "path": "internal/oci/volume_backup_history_review_test.go",
+      "sha256": "04b4b807e3604fa802b01c4059c86a9eccdcee4f65efa08c399f059e63a52a04",
+      "status": "modified"
+    },
+    {
+      "blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "path": "internal/oci/volume_observer_integration_test.go",
+      "sha256": "d00e66c587a18461e40b30da5cbfe5ea640e8f0229f8a079b5caed2495c1fa36",
+      "status": "modified"
+    },
+    {
+      "blob": "6b98a4e6cb99e9e791b9918651c5d99e352824f7",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "path": "internal/oci/volume_resize_test.go",
+      "sha256": "5aeeb8429e73df1972d8c1bf382d2b0ee17ee850a8daef42a7d8c1e4152c470c",
+      "status": "modified"
+    },
+    {
+      "blob": "38ce23d2c9aafe8e23780ae33e9a7fbd5304bfbe",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+      "path": "internal/oci/volume_termination_test.go",
+      "sha256": "c7ee17f335871ed1c27bfe6fd639f54e3f5495c55b6cd3303165318b865c76f6",
+      "status": "modified"
+    },
+    {
+      "blob": "08fd460f5ff45f97c5f12003ce4a341d6c367070",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+      "path": "internal/ociclient/factory_boundary_integration_test.go",
+      "sha256": "3059cbd54348685231ef87fd50ca1c3d5fa35242469199d8f129398dddd989b7",
+      "status": "added"
+    },
+    {
+      "blob": "d0b91273d6a8b61cccb4db81b2cdf11bdfd55317",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+      "path": "internal/ociclient/factory_test.go",
+      "sha256": "e62c2d16f4a21ee74e0978854f5461cc714fea675d807867df324bb991b68ced",
+      "status": "modified"
+    },
+    {
+      "blob": "9dfa310e5af91aba96054c4f6fa09349c6f793c6",
+      "current_blob_sha_and_mode_exact_to_accepted_source": true,
+      "donor": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+      "path": "internal/ociclient/ociclient_test.go",
+      "sha256": "074b894168ee60f6757fe47b1c6e06dd46178e240bb79c4213fc1d13ab7b6fa9",
+      "status": "modified"
+    }
+  ],
+  "all5062_source_parent_entries_current_byte_mode_blob_exact": true,
+  "all57_published_direct_checksums_verified": true,
+  "all_five_completion_categories": "OPEN",
+  "canonical_counts_not_promoted": true,
+  "exact_ten_new_absences": [
+    {
+      "batch": "oci7",
+      "path": "internal/oci/sdk_test.go",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json",
+      "root": "TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot"
+    },
+    {
+      "batch": "oci7",
+      "path": "internal/oci/sdk_test.go",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json",
+      "root": "TestLaunchInstanceMapsSignedProfileIntoOCIRequest"
+    },
+    {
+      "batch": "oci7",
+      "path": "internal/oci/sdk_test.go",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json",
+      "root": "TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK"
+    },
+    {
+      "batch": "oci7",
+      "path": "internal/oci/sdk_test.go",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json",
+      "root": "TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC"
+    },
+    {
+      "batch": "oci7",
+      "path": "internal/oci/sdk_test.go",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json",
+      "root": "TestNamedHostObservationRequiresTheNamedRunningPrivateInstance"
+    },
+    {
+      "batch": "oci7",
+      "path": "internal/oci/volume_resize_test.go",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json",
+      "root": "TestVolumeAttachmentLookupUsesVolumeFilter"
+    },
+    {
+      "batch": "oci7",
+      "path": "internal/oci/volume_backup_history_review_test.go",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-source-removals.json",
+      "root": "TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory"
+    },
+    {
+      "batch": "factory3",
+      "path": "internal/ociclient/factory_test.go",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-removals-source-proof.json",
+      "root": "TestOperationCardinalityIsBounded"
+    },
+    {
+      "batch": "factory3",
+      "path": "internal/ociclient/ociclient_test.go",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-removals-source-proof.json",
+      "root": "TestFactoryRejectsUncataloguedRegionsAndBadLimits"
+    },
+    {
+      "batch": "factory3",
+      "path": "internal/ociclient/ociclient_test.go",
+      "proof": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-removals-source-proof.json",
+      "root": "TestTenancyHomeRegionComesFromTheCatalog"
+    }
+  ],
+  "head": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "input_hashes": {
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/SHA256SUMS": {
+      "bytes": 4141,
+      "sha256": "99dbd0acc00e77d2c3bb33cbf9461d6f04bb410aedbb8206a00762030c62cc64"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/baseline-firstparty-declarations.tsv": {
+      "bytes": 1712685,
+      "sha256": "aaee505db0b7d4a059b799225856041958afba856ab00c5eb3eea5f9cf5d545e"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/baseline-firstparty-files.tsv": {
+      "bytes": 269232,
+      "sha256": "cb9fafab233df88f2f1a14285643e311c607e36b5aa44dbd776ebcb4fcaa95f9"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/frozen-vendor-cases.tsv": {
+      "bytes": 4848737,
+      "sha256": "9141736e797b71bfe604b0b7526ba56317676707360765ba3f6c25c588a8bc79"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/frozen-vendor-source-files.tsv": {
+      "bytes": 15178,
+      "sha256": "9916ed35b0584bfa256c0d94134ac778551c0aae284100ec861f999cd0232cd7"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/original-scanner.py.txt": {
+      "bytes": 16864,
+      "sha256": "dbf6337c37f840891f7f6545c60417bfee3b358eaa35b13004716c2367c06880"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/summary.json": {
+      "bytes": 11498,
+      "sha256": "33624282107de6aba8367aff2ea82d1935b88a7bf75e5d725137992fa1dab1a4"
+    },
+    "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu/SHA256SUMS": {
+      "bytes": 1560,
+      "sha256": "9a7b87f7d7491730b19f9a570ab4f4bf6c6383336e5b2825d5f4d390d174e4d0"
+    },
+    "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu/firstparty-survival.tsv": {
+      "bytes": 1641762,
+      "sha256": "2ae73c1f2b7dbff5c0708873fc42f2a3010cd43eb561fbf73158d2db3e5fb0de"
+    },
+    "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu/nine-source-retirement-dispositions.json": {
+      "bytes": 9062,
+      "sha256": "54cbbf3f801af79f7590db339ecae8d14b7f6bcf477133964661d85a0cb5b78d"
+    },
+    "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu/summary.json": {
+      "bytes": 6220,
+      "sha256": "22c9272caa978055ea3048dca43419208194e942d4451ed883df2c495333337e"
+    },
+    "/tmp/ts-nats-vendor-migration-20261016/cases.tsv": {
+      "bytes": 570785,
+      "sha256": "d3433286cbe27b087bce9822edb869208f5d064eb37fba6dda25ee6c9024a918"
+    },
+    "/tmp/ts-nats-vendor-migration-20261016/progress.json": {
+      "bytes": 14996,
+      "sha256": "96695331b5efec6d151027fd8bf23b69ecf45f48c8ddabb6695e98eb8e9dec1f"
+    },
+    "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json": {
+      "bytes": 12249,
+      "sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b"
+    },
+    "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json": {
+      "bytes": 4315,
+      "sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7"
+    }
+  },
+  "new_absences_match_original_survival_changes": true,
+  "other_original_changes": [
+    {
+      "current_declaration_sha256": "c1e3f015356bb5d1754e6b565954627d5bbe72f47c1ce50ff3a0f8d8c4132e46",
+      "current_name": "TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+      "kind": "test",
+      "original_declaration_sha256": "d9bda0fac58e26ea00a6cb0e9fb184c8a10c1f27953330955b5583cc053e69cb",
+      "original_name": "TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+      "path": "internal/oci/capacity_request_integration_test.go",
+      "previous_current_declaration_sha256": "d9bda0fac58e26ea00a6cb0e9fb184c8a10c1f27953330955b5583cc053e69cb",
+      "previous_state": "retained_body_exact",
+      "state": "retained_body_changed"
+    },
+    {
+      "current_declaration_sha256": "ad7be2f9e1e611c5341a901ff3e8038d57ec318fbc3d629d0f1031b2df23d624",
+      "current_name": "testJournalBucket",
+      "kind": "helper",
+      "original_declaration_sha256": "b3d1a42cf9626f95580b00ca3effeddd00979a920f99e303c25837a364f32d1b",
+      "original_name": "testJournalBucket",
+      "path": "internal/oci/journal_test.go",
+      "previous_current_declaration_sha256": "b3d1a42cf9626f95580b00ca3effeddd00979a920f99e303c25837a364f32d1b",
+      "previous_state": "retained_body_exact",
+      "state": "retained_body_changed"
+    },
+    {
+      "current_declaration_sha256": "e1c905060d11b2b51ff3868ff047bc5ab05db80d3bc9f96f5f18090d0e944389",
+      "current_name": "TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+      "kind": "test",
+      "original_declaration_sha256": "ddbada1578f8dae01bfd144d68097b79d79854740560ecc63dfd166860500388",
+      "original_name": "TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+      "path": "internal/oci/pool_receipt_integration_test.go",
+      "previous_current_declaration_sha256": "ddbada1578f8dae01bfd144d68097b79d79854740560ecc63dfd166860500388",
+      "previous_state": "retained_body_exact",
+      "state": "retained_body_changed"
+    },
+    {
+      "current_declaration_sha256": "69bb127a4502de5f04ccbc89a1272665ab9e80d03479954cdf05046b91b15a62",
+      "current_name": "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+      "kind": "test",
+      "original_declaration_sha256": "e99d7e2c54cdbe91d325e715c327d146400396b2c5a31ba7f694655da8418287",
+      "original_name": "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+      "path": "internal/oci/volume_observer_integration_test.go",
+      "previous_current_declaration_sha256": "e99d7e2c54cdbe91d325e715c327d146400396b2c5a31ba7f694655da8418287",
+      "previous_state": "retained_body_exact",
+      "state": "retained_body_changed"
+    },
+    {
+      "current_declaration_sha256": "390548938af4af943e551fdd2b21dffb15f72474f8958bce06617e6677483b8d",
+      "current_name": "TestVolumeTerminationProofSurvivesBrokerRestart",
+      "kind": "test",
+      "original_declaration_sha256": "362c60a4e59f812db5b97dfe689cd4bb1e43d64f488882134c877397f1860b87",
+      "original_name": "TestVolumeTerminationProofSurvivesBrokerRestart",
+      "path": "internal/oci/volume_termination_test.go",
+      "previous_current_declaration_sha256": "362c60a4e59f812db5b97dfe689cd4bb1e43d64f488882134c877397f1860b87",
+      "previous_state": "retained_body_exact",
+      "state": "retained_body_changed"
+    }
+  ],
+  "source_parent": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+  "tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "verified_accepted_predecessor_chain": [
+    {
+      "SHA256SUMS_sha256": "9a7b87f7d7491730b19f9a570ab4f4bf6c6383336e5b2825d5f4d390d174e4d0",
+      "direct_checksums_verified": 16,
+      "packet": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu"
+    },
+    {
+      "SHA256SUMS_sha256": "99dbd0acc00e77d2c3bb33cbf9461d6f04bb410aedbb8206a00762030c62cc64",
+      "direct_checksums_verified": 40,
+      "packet": "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu"
+    }
+  ]
+}

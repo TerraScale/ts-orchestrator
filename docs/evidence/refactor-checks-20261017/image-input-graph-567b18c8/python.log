@@ -1,0 +1,10 @@
+test_changed_image_inputs (test_image_inputs_changed.ImageInputsChanged.test_changed_image_inputs) ... ok
+test_deleted_and_renamed_inputs (test_image_inputs_changed.ImageInputsChanged.test_deleted_and_renamed_inputs) ... ok
+test_incomplete_release_does_not_hide_changed_input (test_image_inputs_changed.ImageInputsChanged.test_incomplete_release_does_not_hide_changed_input) ... ok
+test_unchanged_image_inputs (test_image_inputs_changed.ImageInputsChanged.test_unchanged_image_inputs) ... ok
+test_unknown_graph_or_pins_build (test_image_inputs_changed.ImageInputsChanged.test_unknown_graph_or_pins_build) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 5.114s
+
+OK

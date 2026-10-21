@@ -1,0 +1,80 @@
+{
+  "source": {
+    "head": "620dab4633c50988c800b68ec5d4b7dd1dcbb881",
+    "tree": "16588948874f281cde2ba4efc582646be5c8ed1d",
+    "status": "",
+    "manifest_sha256": "775e654f43d25a3b76a2631104b21074c84f7d166d30625f1758908252f097d4",
+    "request_sha256": "05d2625f32feaf08cb1894f905552f0f1ecc63a6ee7417f6c158fb377cc71a43",
+    "wrapper_sha256": "83a61044a9620a4dc0c40aab35ac9f9b4aa8806274033bf2043e0ff5cfd78f6f",
+    "tools": {
+      "go": {
+        "path": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624"
+      },
+      "python": {
+        "path": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+        "sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+      },
+      "git": {
+        "path": "/run/current-system/sw/bin/git",
+        "sha256": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027"
+      },
+      "nice": {
+        "path": "/run/current-system/sw/bin/nice",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "timeout": {
+        "path": "/run/current-system/sw/bin/timeout",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "env": {
+        "path": "/run/current-system/sw/bin/env",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      }
+    }
+  },
+  "argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "240s",
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG=C.UTF-8",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-c",
+    "-tags=fixturetest",
+    "-mod=readonly",
+    "-p=1",
+    "-o",
+    "/tmp/ts-oci-compile-620dab463-capacity-sealed/binaries/",
+    "./internal/region",
+    "./internal/rootoci",
+    "./internal/rootfoundation",
+    "./internal/rootociread",
+    "./internal/rootsecret",
+    "./internal/bootstrapmaterial",
+    "./internal/releasechannel",
+    "./internal/foundationbinding",
+    "./internal/bootstrap/cli"
+  ],
+  "environment": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "compile_only": true,
+  "binary_execution_count": 0
+}

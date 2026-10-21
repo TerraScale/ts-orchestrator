@@ -30,6 +30,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/roleconfig"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -1156,7 +1157,7 @@ func (c command) rolloutStep(layout selfupdate.Layout, unit, configPath string) 
 		if _, err := os.Stat(filepath.Join(filepath.Dir(configPath), "controller.json")); err == nil {
 			return
 		}
-		if role.NATS.Lab || role.Host.Node == "" {
+		if role.Host.Node == "" {
 			return
 		}
 		var decoded []byte
@@ -1253,7 +1254,6 @@ type rolloutRole struct {
 	NATS    struct {
 		Cell     string `json:"cell"`
 		Instance string `json:"instance"`
-		Lab      bool   `json:"lab"`
 	} `json:"nats"`
 	Controller struct {
 		ResponseKeyFile string         `json:"response_key_file"`
@@ -1282,8 +1282,8 @@ func readRolloutRole(path string) (rolloutRole, error) {
 	if err := json.Unmarshal(data, &role); err != nil {
 		return role, err
 	}
-	if role.Version != 1 {
-		return role, errors.New("rollout role config requires version 1")
+	if role.Version != roleconfig.Version {
+		return role, fmt.Errorf("rollout role config requires version %d", roleconfig.Version)
 	}
 	if len(role.Controller.Rollouts) != 0 {
 		return role, errors.New("rollout role config contains a retired rollout control")
@@ -1292,7 +1292,7 @@ func readRolloutRole(path string) (rolloutRole, error) {
 }
 
 // roleProof returns the proof file and identity key that a controller or
-// host config names for unit, requiring the admitted version-1 contract.
+// host config names for unit, requiring the admitted role-config contract.
 func roleProof(path, root, unit string) (string, string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -1322,8 +1322,8 @@ func roleProof(path, root, unit string) (string, string, error) {
 	if err := json.Unmarshal(data, &config); err != nil {
 		return "", "", err
 	}
-	if config.Version != 1 {
-		return "", "", errors.New("self-update role config requires version 1")
+	if config.Version != roleconfig.Version {
+		return "", "", fmt.Errorf("self-update role config requires version %d", roleconfig.Version)
 	}
 	var proof, key, configured string
 	switch unit {

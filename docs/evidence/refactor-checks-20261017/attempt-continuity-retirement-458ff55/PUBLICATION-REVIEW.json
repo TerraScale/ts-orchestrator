@@ -1,0 +1,38 @@
+{
+  "accepted_evidence": {
+    "458_compile": "f0459155197860afb83e82c5a754a47740fff7d6819821a5c55ac6510a74cd7e",
+    "b3_compile": "23c5a565c58522d4360c71a96c44ecd008a0223841cf2d230d5b7e8281c2696b",
+    "cc37_runtime": "de6f185ae94fdf9eb453cd4c2e3d7b9392c5c6fabd6f89d3884179484c8ab094"
+  },
+  "counts": {
+    "actual_applied_retirements": 0,
+    "build_candidates_and_modules": 1378,
+    "canonical_count_changes": 0,
+    "external_embed_assets_current_inventory_only": 1,
+    "external_static_source_files": 3657,
+    "feature_evidence_only_additions_since_b8": 112,
+    "local_static_closure_files": 737,
+    "proposed_original_retirements": 1,
+    "remaining_original_cloud_test_declarations": 8,
+    "selected_or_ambiguous_local_files": 700,
+    "tracked_embed_assets": 3
+  },
+  "exact_patch_sha256": "8880308de9699680f9596ebffc03f6b6e1121d0c84f78771ec918ecd0de92623",
+  "feature": "457e8960217109666b17817e861db59b8f0d41a6",
+  "feature_tree": "a94ab502511c61790c0a89f78b983897b010e450",
+  "flat_text_only": true,
+  "helper_observation": "Successful-uninstall output candidly retained with no filesystem proof or host repair; pinned compile inputs/env unaffected.",
+  "intended_repository_directory": "docs/evidence/refactor-checks-20261017/attempt-continuity-retirement-458ff55",
+  "no_direct_go_ELF_symlink_archive": true,
+  "prepared_at_utc": "2026-10-17T05:08:19.810947+00:00",
+  "proposal": "Exactly one covered original retirement: add exact accepted external Attempt root and remove253B/7lines only from cloud_test.go.",
+  "source_equivalence": "After in-memory patch, every repository blob/mode equals accepted458 except112 added evidence UTF8 text paths. All737 static local closure files (700 selected/ambiguous), package build candidates/modulefiles and3 tracked embed assets match; one external protobuf embed inventoried with cache provenance limitation.",
+  "source_specific_limits": [
+    "Runtime pass applies only to cc37 exact selected root; defaultvet compile passes apply only to b3 and458 frozen candidates.",
+    "No new Go, discovery, runner, lock, testbinary, runtime or shellhook execution in publication preparation.",
+    "No feature/source/count mutation, adoption, canonical retirement or push.",
+    "No whole-feature/global/main/native/race/liveSDK/production/performance qualification.",
+    "Historical unused predecessor requests and source-only seals retain their original labels; later accepted receipts do not relabel them as execution."
+  ],
+  "state": "FROZEN_PUBLICATION_PREPARATION_ONLY_AWAITING_INDEPENDENT_REVIEW"
+}

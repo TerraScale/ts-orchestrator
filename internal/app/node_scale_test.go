@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"maps"
+	"net"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,17 +12,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
+	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/manager/controlapi"
+	"github.com/moby/swarmkit/v2/manager/state/store"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
-
-// fakeScaleHosts has no quorum or pool hosts; the pool's instances are the nodes.
-type fakeScaleHosts struct{}
-
-func (fakeScaleHosts) ListHosts(context.Context) ([]host.HostStatus, error)        { return nil, nil }
-func (fakeScaleHosts) ListDesired(context.Context, string) ([]host.Desired, error) { return nil, nil }
-func (fakeScaleHosts) Cordon(context.Context, string) error                        { return nil }
-func (fakeScaleHosts) Unretire(context.Context, string) error                      { return nil }
 
 // fakeScalePool is the pool OCI lists: its instances, all running and named.
 type fakeScalePool struct{ instances []nodescale.PoolInstance }
@@ -29,12 +27,25 @@ type fakeScalePool struct{ instances []nodescale.PoolInstance }
 func (pool fakeScalePool) Observe(context.Context) (nodescale.PoolState, error) {
 	return nodescale.PoolState{Exists: true, Size: len(pool.instances), Instances: pool.instances}, nil
 }
+func (pool fakeScalePool) TargetSize(context.Context, nodescale.Recipe) (int, error) {
+	return len(pool.instances), nil
+}
 func (fakeScalePool) Ensure(context.Context, nodescale.Recipe) (nodescale.PoolState, error) {
 	return nodescale.PoolState{}, nil
 }
 func (fakeScalePool) Grow(context.Context, int) error            { return nil }
 func (fakeScalePool) Name(context.Context, string, string) error { return nil }
 func (fakeScalePool) Remove(context.Context, string) error       { return nil }
+
+func (fakeScalePool) PrepareGrowth(context.Context, nodescale.Record) (rootoci.PoolChildExpectation, error) {
+	return rootoci.PoolChildExpectation{}, nodescale.ErrCapacityPending
+}
+
+func (fakeScalePool) PrepareRetirement(context.Context, string, string) (rootoci.PoolRetirementExpectation, error) {
+	return rootoci.PoolRetirementExpectation{}, nodescale.ErrCapacityPending
+}
+
+func (fakeScalePool) Recover(context.Context) error { return nodescale.ErrCapacityPending }
 
 // fakeScaleRecords keeps the scaler record in memory.
 type fakeScaleRecords struct{ record nodescale.Record }
@@ -58,8 +69,24 @@ func (leader *fakeScaleLeader) Current() authority.Snapshot {
 
 func (*fakeScaleLeader) Guard(context.Context, uint64) error { return nil }
 
-func newFakeScaler(pool fakeScalePool, records nodescale.RecordStore, leader authority.Fencer) *nodescale.Scaler {
-	return &nodescale.Scaler{Cell: "gru", Pool: pool, Hosts: fakeScaleHosts{}, Store: records, Leader: leader,
+func newFakeScaler(t *testing.T, pool fakeScalePool, records nodescale.RecordStore, leader authority.Fencer) *nodescale.Scaler {
+	t.Helper()
+	state := store.NewMemoryStore(nil)
+	t.Cleanup(func() { _ = state.Close() })
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer()
+	api.RegisterControlServer(server, controlapi.NewServer(state, nil, nil, nil, nil))
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	connection, err := grpc.NewClient("passthrough:///"+listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	return &nodescale.Scaler{Cell: "gru", Pool: pool, Control: api.NewControlClient(connection), Store: records, Leader: leader,
 		Now:       time.Now,
 		Loads:     func() []nodescale.NodeLoad { return nil },
 		Allowance: func(time.Time) (int, bool) { return 0, false },
@@ -75,7 +102,7 @@ func TestScaleStatusIsTheLeadersOwn(t *testing.T) {
 	records := &fakeScaleRecords{}
 	leader := &fakeScaleLeader{leader: true}
 	pool := fakeScalePool{instances: []nodescale.PoolInstance{{ID: "ocid1.instance.a", Name: "ts-gru-4", State: "RUNNING", PrivateIP: "10.0.0.4"}}}
-	scaler := newFakeScaler(pool, records, leader)
+	scaler := newFakeScaler(t, pool, records, leader)
 	scale := scaleStatus(scaler)
 	if status := scale(); status != nil {
 		t.Fatalf("a scaler that never ran published %+v", status)
@@ -103,7 +130,7 @@ func TestReleaseFenceNamesThePoolNodes(t *testing.T) {
 	pool := fakeScalePool{instances: []nodescale.PoolInstance{
 		{ID: "ocid1.instance.a", Name: "ts-gru-4", State: "RUNNING", PrivateIP: "10.0.0.4"},
 		{ID: "ocid1.instance.b", Name: "ts-gru-5", State: "RUNNING", PrivateIP: "10.0.0.5"}}}
-	scaler := newFakeScaler(pool, &fakeScaleRecords{}, &fakeScaleLeader{leader: true})
+	scaler := newFakeScaler(t, pool, &fakeScaleRecords{}, &fakeScaleLeader{leader: true})
 	if err := scaler.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -40,7 +41,7 @@ func verifiedCaptureAnchor(t *testing.T, now time.Time) (bootstrap.VerifiedBoots
 	if err != nil {
 		t.Fatal(err)
 	}
-	slots := []string{"controller-a", "controller-b", "seed-a"}
+	slots := []string{"controller-a", "controller-b", "controller-c"}
 	var capabilities []trust.Capability
 	for _, domain := range bootstrap.BootstrapLedgerCapabilityDomains() {
 		capabilities = append(capabilities, trust.Capability{Domain: domain, DeploymentID: "0000000000F9PR1WNVDTEXS31Z",
@@ -92,7 +93,7 @@ func TestCapturedInventoryUsesAnchorDomainAndExactKeys(t *testing.T) {
 	}
 	body := []byte(`{"signed":"record"}`)
 	digest := sha256.Sum256(body)
-	objectName := "private/bootstrap/seed-a/attempt-1/result.json"
+	objectName := "private/bootstrap/controller-c/attempt-1/result.json"
 	_, err = store.PutObject(t.Context(), objectstorage.PutObjectRequest{
 		NamespaceName: new("namespace-a"), BucketName: new("ledger-bucket"), ObjectName: &objectName,
 		PutObjectBody: io.NopCloser(bytes.NewReader(body)), ContentLength: new(int64(len(body))),
@@ -103,7 +104,7 @@ func TestCapturedInventoryUsesAnchorDomainAndExactKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	absent := "private/bootstrap/seed-a/attempt-1/absent.json"
+	absent := "private/bootstrap/controller-c/attempt-1/absent.json"
 	_, err = store.GetObject(t.Context(), objectstorage.GetObjectRequest{
 		NamespaceName: new("namespace-a"), BucketName: new("ledger-bucket"), ObjectName: &absent})
 	if !isCaptureStatus(err, http.StatusNotFound) {
@@ -112,7 +113,7 @@ func TestCapturedInventoryUsesAnchorDomainAndExactKeys(t *testing.T) {
 	controllers := []Controller{
 		{Slot: "controller-a", InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.a", GuestRoot: "controllers/controller-a/guest-root"},
 		{Slot: "controller-b", InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.b", GuestRoot: "controllers/controller-b/guest-root"},
-		{Slot: "seed-a", InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.seed", GuestRoot: "controllers/seed-a/guest-root"},
+		{Slot: "controller-c", InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.seed", GuestRoot: "controllers/controller-c/guest-root"},
 	}
 	inventory, err := BuildCapturedInventory(anchor, controllers, store)
 	if err != nil {
@@ -127,7 +128,7 @@ func TestCapturedInventoryUsesAnchorDomainAndExactKeys(t *testing.T) {
 			t.Fatalf("unbound captured route: %+v", route)
 		}
 	}
-	wrong := controllers
+	wrong := slices.Clone(controllers)
 	wrong[0].Slot = "another-slot"
 	if _, err := BuildCapturedInventory(anchor, wrong, store); err == nil {
 		t.Fatal("slot set outside signed anchor accepted")

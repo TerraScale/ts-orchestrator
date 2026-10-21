@@ -1,0 +1,196 @@
+{
+  "state": "TRUE_COMPILE_PASS_SHORT_A_RELEASED",
+  "commit": "97d30105e6d4c0258d6caf119721045a9851db67",
+  "tree": "3a4938e8d0c9427b1d4a9e9cecca812530b2ac84",
+  "source_prepost_equal": true,
+  "tool_pre": {
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+    "/run/current-system/sw/bin/git": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027",
+    "/run/current-system/sw/bin/nice": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/timeout": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/env": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+  },
+  "tool_post": {
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+    "/run/current-system/sw/bin/git": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027",
+    "/run/current-system/sw/bin/nice": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/timeout": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/run/current-system/sw/bin/env": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+  },
+  "native_exit_code": 0,
+  "wall_seconds": 108.0007939490024,
+  "max_child_rss_kib": 1036024,
+  "binary_execution_count": 0,
+  "expected_binaries": [
+    "natscell.test",
+    "oci.test",
+    "capacityinventory.test",
+    "ociresource.test",
+    "nlb.test",
+    "placement.test",
+    "capacity.test",
+    "integration.test"
+  ],
+  "short_a_lock_available_after_exit": true,
+  "artifacts": [
+    {
+      "path": "actual-tool-launch.json",
+      "sha256": "78f04b3a0abc9ca50e93f87373386eb083e1648de2fbd44ec756bd27ac9097ff",
+      "bytes": 230,
+      "mode": "0o644"
+    },
+    {
+      "path": "actual-tool-poll-1.json",
+      "sha256": "2b5b950c63dda965447a680555c2a4cbe0ed8e73521b3add7af2962f5714c3d1",
+      "bytes": 108,
+      "mode": "0o644"
+    },
+    {
+      "path": "actual-tool-poll-2.json",
+      "sha256": "448510dd9995bfc630d76e710eb5e72e075bda98384e392497658dd1b1f1a7ec",
+      "bytes": 110,
+      "mode": "0o644"
+    },
+    {
+      "path": "actual-tool-poll-3.json",
+      "sha256": "292d5ecbccbb2a7586382b806327d6f9afb1e1748e1bbff6c362bd0eaf73a2d8",
+      "bytes": 111,
+      "mode": "0o644"
+    },
+    {
+      "path": "actual-tool-poll-4.json",
+      "sha256": "9cb2dccc830085d9d5521a30d5dcc2731ec4fae7bfe9f34ab4867a0113442f36",
+      "bytes": 111,
+      "mode": "0o644"
+    },
+    {
+      "path": "actual-tool-poll-5.json",
+      "sha256": "b65618526d85cfa71c2c63e2a3e6911844b7474ae705f713b23b149127fe9280",
+      "bytes": 3896,
+      "mode": "0o644"
+    },
+    {
+      "path": "actual-tool-readiness.json",
+      "sha256": "535a40878929946245a6a905f862cbac0e19d64cfefcee205edf30eb3245bbb8",
+      "bytes": 304,
+      "mode": "0o644"
+    },
+    {
+      "path": "actual-tool-terminal.json",
+      "sha256": "b65618526d85cfa71c2c63e2a3e6911844b7474ae705f713b23b149127fe9280",
+      "bytes": 3896,
+      "mode": "0o644"
+    },
+    {
+      "path": "binaries/capacity.test",
+      "sha256": "55da17541fa95dfe7af6600c739f788c0e750f78739bb63d19f8e58d99e2122b",
+      "bytes": 27167468,
+      "mode": "0o600"
+    },
+    {
+      "path": "binaries/capacityinventory.test",
+      "sha256": "cace46c01eb75751288bb79515231abc41d4865d6a3193cd7996213e04bd4783",
+      "bytes": 30529939,
+      "mode": "0o600"
+    },
+    {
+      "path": "binaries/integration.test",
+      "sha256": "dd29d865ff30fc53eadbe604b04e7a4b2ba7c3f0a1218d85198e52d60eb18320",
+      "bytes": 28896355,
+      "mode": "0o600"
+    },
+    {
+      "path": "binaries/natscell.test",
+      "sha256": "3b192c7b8077c758f91512c54f086da4852235ec0b8001948ec4520fc3aaa516",
+      "bytes": 50072313,
+      "mode": "0o600"
+    },
+    {
+      "path": "binaries/nlb.test",
+      "sha256": "465227a28035cc47a38d785a5b33f3f7be1e1141560822d5f1c93b195dcb91be",
+      "bytes": 30462621,
+      "mode": "0o600"
+    },
+    {
+      "path": "binaries/oci.test",
+      "sha256": "6c56813cbfa0fc15b393ee0da28afea35d22d554e6158551d44faf345854d4a8",
+      "bytes": 34578015,
+      "mode": "0o600"
+    },
+    {
+      "path": "binaries/ociresource.test",
+      "sha256": "ceb5e2d59972cb803abecf3bd5865e217fb9a0ed36fca2b0d22e9a4cf72bcf23",
+      "bytes": 29189739,
+      "mode": "0o600"
+    },
+    {
+      "path": "binaries/placement.test",
+      "sha256": "0c42671ce4d96a4c6138d4b022230fd8722bfbdb7745cf35025114f95427366f",
+      "bytes": 50057775,
+      "mode": "0o600"
+    },
+    {
+      "path": "compile.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "mode": "0o644"
+    },
+    {
+      "path": "compile.stdout",
+      "sha256": "dbf74ad474b61b17a5a7692befd25e1f28841946e1945fe38a31f6c789273d42",
+      "bytes": 86,
+      "mode": "0o644"
+    },
+    {
+      "path": "fullsource-manifest.json",
+      "sha256": "4e1eed552f523477d527dff2bcc76989753dcf3feb240d68e1069e9d15c14c47",
+      "bytes": 677241,
+      "mode": "0o600"
+    },
+    {
+      "path": "preflight.json",
+      "sha256": "ac3a2a7f4c55b1a3dcb8716c2c9a7da7f980a583d5cab91ad26788841f071af5",
+      "bytes": 1812,
+      "mode": "0o644"
+    },
+    {
+      "path": "receipt.json",
+      "sha256": "b3c53b414dfd44d41f3cde5cb6a6f30aed78985ad10985c26c3f3050e04f5342",
+      "bytes": 4001,
+      "mode": "0o644"
+    },
+    {
+      "path": "request.json",
+      "sha256": "edd37b480838f99b95ca439515d74f0330b6f51a9584d6f39614a9725c4e9f14",
+      "bytes": 4400,
+      "mode": "0o600"
+    },
+    {
+      "path": "run.py",
+      "sha256": "09d6e52deba9094a95b4f3fafd291472845df6d2669a318fa994f11bef4d2a2a",
+      "bytes": 3452,
+      "mode": "0o600"
+    },
+    {
+      "path": "seal.json",
+      "sha256": "4a6cc83ca24b1bfcf8a2ec2074c8abdb7cf40630400e4018f2261b53c2d309fc",
+      "bytes": 2559,
+      "mode": "0o600"
+    },
+    {
+      "path": "started.json",
+      "sha256": "a72440ddbc68f06ddc8215402df4e1f42c24242775ec5ce19f22ac3c7f70dc5c",
+      "bytes": 954,
+      "mode": "0o644"
+    },
+    {
+      "path": "static-package-inventory.json",
+      "sha256": "9ce6d2355dd6219666bbfd7080dcf0cfda54b04a3cfd3449ed244bd99ec823f6",
+      "bytes": 71842,
+      "mode": "0o600"
+    }
+  ],
+  "scope": "true test-c compile/link and default vet only; no tests or binaries executed; firecracker ignored sources excluded/no credit; no runtime/equivalence/retirement credit"
+}

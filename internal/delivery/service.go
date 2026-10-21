@@ -81,20 +81,24 @@ type DesiredWriter interface {
 }
 
 type Config struct {
-	Conn                  *nats.Conn
-	JS                    jetstream.JetStream
-	Cell                  string
-	Replicas              int
-	ArtifactStoreMaxBytes int64
-	Signer                Signer
-	Verifier              Verifier
-	ArtifactSigner        ArtifactSigner
-	ArtifactVerifier      ArtifactVerifier
-	AuthorizeArtifact     func(context.Context, string, ArtifactRecord) error
-	Authorize             func(context.Context, string, Intent) error
-	Fencer                Fencer
-	Planner               Planner
-	Writer                DesiredWriter
+	// ContainerApply admits the exact signed OCI release through SwarmKit and
+	// returns only after application readiness. Replays must be idempotent.
+	ContainerApply          func(context.Context, Intent) error
+	CaptureContainerProfile func(context.Context, Intent) (string, error)
+	Conn                    *nats.Conn
+	JS                      jetstream.JetStream
+	Cell                    string
+	Replicas                int
+	ArtifactStoreMaxBytes   int64
+	Signer                  Signer
+	Verifier                Verifier
+	ArtifactSigner          ArtifactSigner
+	ArtifactVerifier        ArtifactVerifier
+	AuthorizeArtifact       func(context.Context, string, ArtifactRecord) error
+	Authorize               func(context.Context, string, Intent) error
+	Fencer                  Fencer
+	Planner                 Planner
+	Writer                  DesiredWriter
 	// MaxPlannerAttempts bounds deliveries of an intent the planner keeps
 	// refusing, such as a missing profile or no eligible host, before it is
 	// held with a durable receipt. Zero uses DefaultMaxPlannerAttempts.
@@ -137,12 +141,13 @@ type Receipt struct {
 }
 
 type operation struct {
-	Intent      Intent         `json:"intent"`
-	Fingerprint string         `json:"fingerprint"`
-	Actor       string         `json:"actor"`
-	Plan        []host.Desired `json:"plan"`
-	Shape       *PlanShape     `json:"shape,omitempty"`
-	Receipt     *Receipt       `json:"receipt,omitempty"`
+	ProfileRecord string         `json:"profileRecord,omitempty"`
+	Intent        Intent         `json:"intent"`
+	Fingerprint   string         `json:"fingerprint"`
+	Actor         string         `json:"actor"`
+	Plan          []host.Desired `json:"plan"`
+	Shape         *PlanShape     `json:"shape,omitempty"`
+	Receipt       *Receipt       `json:"receipt,omitempty"`
 }
 
 func IntentSubject(cell string) string { return protocol.DeliveryIntentSubject(cell) }
@@ -266,6 +271,9 @@ func (s *Service) Submit(ctx context.Context, intent Intent) error {
 	if err != nil {
 		return err
 	}
+	if len(b) > MaxIntentBytes {
+		return fmt.Errorf("%w: intent too large", ErrInvalid)
+	}
 	fingerprint, err := intent.fingerprint()
 	if err != nil {
 		return err
@@ -313,12 +321,15 @@ func (s *Service) SubmitVerified(ctx context.Context, intent Intent, actor strin
 	if intent.Cell != s.config.Cell {
 		return fmt.Errorf("%w: wrong cell", ErrInvalid)
 	}
-	if err := s.config.Authorize(ctx, actor, intent); err != nil {
+	if err := s.config.Authorize(ctx, actor, intent.Clone()); err != nil {
 		return err
 	}
 	wire, err := json.Marshal(intent)
 	if err != nil {
 		return err
+	}
+	if len(wire) > MaxIntentBytes {
+		return fmt.Errorf("%w: intent too large", ErrInvalid)
 	}
 	fingerprint, err := intent.fingerprint()
 	if err != nil {

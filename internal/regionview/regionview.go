@@ -111,11 +111,13 @@ type Capacity struct {
 
 // TerraBase counts managed databases and seats.
 type TerraBase struct {
-	NativeRegion string    `json:"native_region,omitempty"`
-	Databases    int       `json:"databases"`
-	DesiredSeats int       `json:"desired_seats"`
-	ServingSeats int       `json:"serving_seats"`
-	WAN          []WANPeer `json:"wan,omitempty"`
+	NativeRegion    string    `json:"native_region,omitempty"`
+	Databases       int       `json:"databases"`
+	DesiredSeats    int       `json:"desired_seats"`
+	ServingSeats    int       `json:"serving_seats"`
+	Readiness       string    `json:"readiness"`
+	ReadinessReason string    `json:"readiness_reason"`
+	WAN             []WANPeer `json:"wan,omitempty"`
 }
 
 // Member is one answering member, for other regions' topology views.
@@ -131,9 +133,11 @@ type Member struct {
 
 // Host is a host that carries TerraBase seats.
 type Host struct {
-	Name    string `json:"name"`
-	Seats   int    `json:"seats"`
-	Serving int    `json:"serving"`
+	Name            string `json:"name"`
+	Seats           int    `json:"seats"`
+	Serving         int    `json:"serving"`
+	Readiness       string `json:"readiness"`
+	ReadinessReason string `json:"readiness_reason"`
 }
 
 // Node is one cell server and what runs on it, for the topology view.
@@ -158,13 +162,12 @@ type Node struct {
 	Resources *ResourceView `json:"resources,omitempty"`
 }
 
-// Service is one role a host grant places on a node and its host report.
+// Service is one role a host grant places on a node and its observed state.
 type Service struct {
-	Role   string `json:"role"`
-	Digest string `json:"digest,omitempty"`
-	// State is the verified report's state (running, starting, stopped,
-	// failed); empty when no current report verifies.
-	State string `json:"state,omitempty"`
+	Role        string `json:"role"`
+	Digest      string `json:"digest,omitempty"`
+	State       string `json:"state,omitempty"`
+	StateReason string `json:"state_reason,omitempty"`
 }
 
 // Backend is one of a node's load balancer backends. Offline is from the
@@ -242,7 +245,8 @@ func (provider *Provider) now() time.Time {
 func (provider *Provider) Local(ctx context.Context) Summary {
 	region := strings.ToLower(provider.Cell)
 	summary := Summary{Version: summaryVersion, Region: region, Local: true, Reach: decisionlog.RegionOK,
-		ObservedAt: provider.now()}
+		ObservedAt: provider.now(), TerraBase: TerraBase{Readiness: "unknown",
+			ReadinessReason: "current native root task and member readiness source is unavailable"}}
 	if provider.LinkProbes != nil {
 		summary.Links = provider.LinkProbes()
 	}
@@ -416,16 +420,15 @@ func fillFromCluster(summary *Summary, cluster observability.ClusterSnapshot) {
 				}
 				host := hosts[seat.HostNode]
 				if host == nil {
-					host = &Host{Name: seat.HostNode}
+					host = &Host{Name: seat.HostNode, Readiness: "unknown",
+						ReadinessReason: "current native root task and member readiness source is unavailable"}
 					hosts[seat.HostNode] = host
 				}
 				host.Seats++
-				if seat.Stage == "serving" {
-					host.Serving++
-				}
 			}
 			summary.TerraBase.DesiredSeats += database.DesiredSeats
-			summary.TerraBase.ServingSeats += database.Serving
+			summary.TerraBase.Readiness = "unknown"
+			summary.TerraBase.ReadinessReason = "current native root task and member readiness source is unavailable"
 			if rollout := database.Rollout; rollout != nil && rollout.Completed < rollout.Seats {
 				summary.Rollouts = append(summary.Rollouts, *rollout)
 			}

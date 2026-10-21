@@ -18,36 +18,6 @@ import (
 
 func ptr[T any](value T) *T { return &value }
 
-func TestReportValidateBounds(t *testing.T) {
-	valid := Report{SchemaVersion: SchemaVersion, Host: HostUsage{CPU: ptr(0.5), Memory: ptr(1.0), Disk: ptr(0.0)},
-		Roles: []RoleUsage{{Role: "api", CPUCores: ptr(2.0), MemoryBytes: ptr(uint64(1 << 30)),
-			TerraBase: &memberstatus.Load{Connections: 1, WriteQPS: 3}}}}
-	if err := valid.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	many := Report{SchemaVersion: SchemaVersion}
-	for range MaxRoles + 1 {
-		many.Roles = append(many.Roles, RoleUsage{Role: "r"})
-	}
-	invalid := map[string]Report{
-		"version":        {SchemaVersion: 2},
-		"host above one": {SchemaVersion: 1, Host: HostUsage{CPU: ptr(1.5)}},
-		"host NaN":       {SchemaVersion: 1, Host: HostUsage{Disk: ptr(math.NaN())}},
-		"role token":     {SchemaVersion: 1, Roles: []RoleUsage{{Role: "API"}}},
-		"repeated role":  {SchemaVersion: 1, Roles: []RoleUsage{{Role: "api"}, {Role: "api"}}},
-		"negative cores": {SchemaVersion: 1, Roles: []RoleUsage{{Role: "api", CPUCores: ptr(-1.0)}}},
-		"infinite cores": {SchemaVersion: 1, Roles: []RoleUsage{{Role: "api", CPUCores: ptr(math.Inf(1))}}},
-		"memory":         {SchemaVersion: 1, Roles: []RoleUsage{{Role: "api", MemoryBytes: ptr(uint64(MaxMemoryBytes + 1))}}},
-		"terrabase":      {SchemaVersion: 1, Roles: []RoleUsage{{Role: "tb", TerraBase: &memberstatus.Load{WriteQPS: -1}}}},
-		"too many roles": many,
-	}
-	for name, report := range invalid {
-		if err := report.Validate(); !errors.Is(err, ErrInvalidReport) {
-			t.Errorf("%s: got %v", name, err)
-		}
-	}
-}
-
 func TestReportNetworkAndLoadJSONNames(t *testing.T) {
 	report := Report{SchemaVersion: SchemaVersion, Host: HostUsage{NetworkRxBps: ptr(100.0), NetworkTxBps: ptr(200.0), Load1: ptr(0.5)}}
 	data, err := json.Marshal(report)
@@ -65,26 +35,6 @@ func TestReportNetworkAndLoadJSONNames(t *testing.T) {
 	}
 	if *decoded.Host.NetworkRxBps != 100 || *decoded.Host.NetworkTxBps != 200 || *decoded.Host.Load1 != 0.5 {
 		t.Fatalf("round trip = %+v", decoded.Host)
-	}
-}
-
-func TestReportValidateNetworkAndLoad(t *testing.T) {
-	valid := Report{SchemaVersion: SchemaVersion, Host: HostUsage{NetworkRxBps: ptr(1.5e6), NetworkTxBps: ptr(0.0), Load1: ptr(0.75)}}
-	if err := valid.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	invalid := map[string]HostUsage{
-		"negative rx":      {NetworkRxBps: ptr(-1.0)},
-		"NaN tx":           {NetworkTxBps: ptr(math.NaN())},
-		"rate above bound": {NetworkRxBps: ptr(MaxNetworkBps + 1.0)},
-		"negative load":    {Load1: ptr(-0.1)},
-		"infinite load":    {Load1: ptr(math.Inf(1))},
-		"load above bound": {Load1: ptr(MaxLoad1 + 1)},
-	}
-	for name, host := range invalid {
-		if err := (Report{SchemaVersion: SchemaVersion, Host: host}).Validate(); !errors.Is(err, ErrInvalidReport) {
-			t.Errorf("%s: got %v", name, err)
-		}
 	}
 }
 

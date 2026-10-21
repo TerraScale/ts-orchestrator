@@ -73,6 +73,16 @@ func SignSequenceMigration(migration SequenceMigration, now time.Time, root ed25
 	if err := migration.Validate(); err != nil {
 		return trust.Envelope{}, err
 	}
+	if len(root) != ed25519.PrivateKeySize {
+		return trust.Envelope{}, trust.ErrInvalid
+	}
+	rootID, err := trust.KeyID(root.Public().(ed25519.PublicKey))
+	if err != nil {
+		return trust.Envelope{}, err
+	}
+	if rootID == migration.SignerKeyID {
+		return trust.Envelope{}, fmt.Errorf("%w: online sequence signer must differ from offline root", ErrInvalidReceipt)
+	}
 	payload, err := trust.EncodePayload(migration)
 	if err != nil {
 		return trust.Envelope{}, err
@@ -112,6 +122,9 @@ func verifySequenceMigration(envelope trust.Envelope, roots trust.Keyring, role,
 	}
 	if err := migration.Validate(); err != nil {
 		return SequenceMigration{}, err
+	}
+	if roots[migration.SignerKeyID] != nil {
+		return SequenceMigration{}, fmt.Errorf("%w: sequence signer is an offline root", ErrInvalidReceipt)
 	}
 	if migration.Role != role || migration.Environment != environment {
 		return SequenceMigration{}, trust.ErrScopeMismatch

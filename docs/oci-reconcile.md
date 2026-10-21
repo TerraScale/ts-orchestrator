@@ -1,152 +1,95 @@
-# Declarative OCI reconcile
+# Regional OCI reconciliation
 
-The [zero-configuration contract](zero-configuration.md) is required production policy.
-Configuration fields, manual bootstrap paths and dated observations below are
-legacy implementation inventory, not feature/region activation or credential-copy
-instructions. Removing runtime guards and completing automatic NetBird admission,
-region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
-authorization, quorum, residency and destructive-operation safeguards still apply.
+Regional reconciliation is always on at a fixed one-minute cadence. The ordinary
+controller calls the concrete `rootoci.Client.ReconcileFoundation` endpoint; it
+has no OCI SDK fallback. Root reconciles the signed regional foundation before
+reconciling signed amendments. An absent `controller.oci_reconcile` section means
+there are no configured amendments; foundation reconciliation still runs.
 
-`internal/ociresource` reconciles regional OCI resources other than member
-hosts and their data volumes, which stay with the journaled `internal/oci`
-fleet. It is off unless `controller.oci_reconcile.enabled` is set, and it runs
-only on the regional authority leader.
+The retired `enabled`, `interval_seconds`, `tag_mode` and `tag_namespace` fields
+are rejected. Ownership always uses the region owner and the existing freeform
+`terrascale-managed-by`, `terrascale-owner` and `terrascale-resource-key` tags.
+Foreign resources are reported and never adopted or changed.
 
-## What it manages today
+## Signed amendment authority
+
+Root independently opens the exact accepted controller configuration, current
+root chain and current root-signed cell spec. `oci_reconcile.desired` supplies
+the installed baseline; a current root-signed `oci_desired` cell-spec section
+replaces that baseline. A leaf-signed current spec cannot authorize amendments.
+All admitted desired entries enforce their signed specs.
+
+Root uses ordered stream-leader reads. A missing stream, deletion, purge or
+missing source after prior history fails closed. An untouched, empty source
+stream can represent the installed baseline. The protected journal retains the
+accepted spec generation even when there are no desired resources, so a later
+pass cannot silently roll back to the baseline.
+
+The ordinary controller supplies no desired payload, provider or cloud target
+through IPC. Root derives these values and checks the sealed call, exact runtime
+candidate, deployment, own cell, current lease and original deadline. Observing
+a lease never promotes it into root mutation authority. Source, drain and
+placement facts are reread at mutation fences. Renewed leases or credentials
+cannot extend an operation's original effect deadline.
+
+## Managed amendments
 
 | Kind | Desired state | Effect |
 |---|---|---|
-| `nsg-rules` | `oci_reconcile.desired.nsg_rules`, or records written to `TS_OCI_DESIRED` | Adds and removes the NSG's managed security rules. The NSG itself is never created or deleted. |
-| `nlb-backends` | Published from placement when `oci_reconcile.public_nlb` is set | Keeps one NLB backend set equal to the RUNNING member hosts. The NLB and backend set are never created or deleted. |
-| `lb-backends` | Published from the cell's signed `terrabase` profile when `oci_reconcile.public_lb` is set | Keeps one L7 load balancer backend set equal to the TerraBase seats, with drain flags; holds a drain or removal while no backend that keeps serving reports health OK. The load balancer and backend set are never created or deleted. |
-| `security-list-rules` | `oci_reconcile.desired.security_lists` | Replaces all ingress and egress rules of an owned security list in one If-Match update. |
-| `route-table-rules` | `oci_reconcile.desired.route_tables` | Replaces all static route rules of an owned route table in one If-Match update. OCI-generated `LOCAL` rules are neither compared nor sent. |
-| `bucket-protection` | `oci_reconcile.desired.buckets` | Sets versioning (Enabled or Suspended) and the bucket's marked retention rules. |
+| `nsg-rules` | Signed `desired.nsg_rules` | Converges rules on an already owned, region-admitted NSG. |
+| `security-list-rules` | Signed `desired.security_lists` | Replaces rules under If-Match on an owned security list. |
+| `route-table-rules` | Signed `desired.route_tables` | Replaces static routes under If-Match; OCI `LOCAL` routes stay untouched. |
+| `bucket-protection` | Signed `desired.buckets` | Observes versioning and marked retention rules; property mutations require CAP admission. |
+| `nlb-backends` | Signed `public_nlb` plus observed placement | Converges one owned NLB backend set to RUNNING member hosts. |
+| `lb-backends` | Signed `public_lb` plus the TerraBase profile and drain records | Converges one owned L7 backend set while preserving the serving-health guard. |
 
-## Desired specs from the controller configuration
+NSGs, security lists, route tables, buckets and load balancers themselves are
+never created or deleted by these amendment reconcilers. Member hosts and data
+volumes remain with the journaled regional fleet.
 
-`controller.oci_reconcile.desired` lists desired specs by logical name. The
-regional leader publishes them into `TS_OCI_DESIRED` at the start of every
-pass, writing a new generation only when a spec or policy changes. On a
-baked controller this configuration is bound to the signed controller
-manifest, so the desired state is as trusted as the rest of the
-controller configuration. A [cell spec](cell-spec.md) `oci_desired` section,
-with the same shape, replaces it on running controllers from the next pass;
-a root signs any change that alters OCI resources.
+## Protected operations and observations
 
-```json
-"oci_reconcile": {
-  "enabled": true,
-  "desired": {
-    "nsg_rules": {"members": {"policy": "enforce", "spec": {"nsgId": "ocid1.networksecuritygroup...", "rules": [
-      {"direction": "INGRESS", "protocol": "6", "peer": "10.0.0.0/16", "portMin": 4222, "portMax": 4222}]}}},
-    "security_lists": {"private": {"spec": {"securityListId": "ocid1.securitylist...", "rules": [...]}}},
-    "route_tables": {"private": {"spec": {"routeTableId": "ocid1.routetable...", "routes": [
-      {"destination": "0.0.0.0/0", "networkEntityId": "ocid1.natgateway..."}]}}},
-    "buckets": {"backups": {"policy": "enforce", "spec": {"namespace": "tenancy", "bucket": "backups",
-      "retention": [{"name": "daily", "days": 30}]}}}
-  }
-}
-```
+Amendment desired state and operation history live in `OCIResources` inside the
+existing protected own-cell foundation object. They share its unchanged
+128 KiB whole-object bound and compare-and-set revision. Each update rereads the
+whole record and preserves unrelated foundation, IAM, capacity and original
+create history. A conflicting or uncertain conditional write is not retried
+blindly.
 
-- Every entry defaults to the `report` policy: drift is recorded and shown,
-  and nothing in OCI changes until the entry says `"policy": "enforce"`.
-- An NSG spec may only name an NSG listed in the signed region
-  configuration's `network_security_group_ids`.
-- The whole configuration is validated before anything is written; one bad
-  entry fails controller start rather than publishing half a set.
-- `prune` (off by default) tombstones records of these four kinds that the
-  configuration no longer lists, `prune_delay_seconds` later (default one
-  hour, at most seven days). With prune off, unlisted records, including
-  records written by tools, are left alone.
+Before each cloud mutation, root checkpoints its exact method, URL, body,
+If-Match, retry token, start and original deadline. Authorization headers are
+never stored. Each operation retains at most 128 requests; each body is bounded
+at 64 KiB, with the smaller shared whole-object limit still applying. Retries
+retain original bytes, token and deadline. An uncertain request prevents a
+different mutation until its original outcome is resolved. Revoked desired
+authority may still be observed to confirm an original operation; it cannot
+start a new effect.
 
-## Kinds that never strip protection
+`TS_OCI_OBSERVED` remains an observation store for drift insights. It does not
+authorize cloud writes. Seat rollout obtains fresh backend observations through
+root IPC on every request. Root checks exact load-balancer identity, ownership
+and signed TerraBase membership, with bounded backend and health rows.
 
-Security lists, route tables and buckets are shared infrastructure, so a
-tombstone for these kinds **relinquishes** management: the record is
-purged without any cloud write, and the rules, routes, versioning and
-retention stay as they were. Other safety rules:
+## Pruning and protection
 
-- Security list and route table specs must not leave a direction (or the
-  table) empty unless `allowEmpty` is set.
-- Bucket specs cannot combine versioning with retention rules (Object
-  Storage refuses it). The reconciler removes unwanted managed retention
-  rules before switching versioning on, and adds rules last.
-- The reconciler never creates a locked retention rule and never changes or
-  deletes a locked one: a locked managed rule that differs from the spec
-  fails the record and shows as an insight. Retention rules created by
-  other tools (without the `terrascale/<name>/` display-name prefix) are
-  left alone.
+Pruning requires current signed removal authority over a prior protected entry.
+It first records a tombstone with removal provenance and a not-before time.
+NSG and load-balancer cleanup remains fenced and ownership checked; a later
+observation confirms removal before the protected entry is purged.
 
-## Decisions and insights
+Security-list, route-table and bucket tombstones relinquish management without
+changing cloud protection. Locked retention rules are never created, shortened
+or deleted. Retention rules outside this reconciler's display-name marker remain
+untouched. Existing empty-rule, empty-route and serving-backend safeguards still
+apply.
 
-Published desired sets, corrected drift, cloud deletes and released records
-are journaled (`oci_desired_published`, `oci_drift_corrected`,
-`oci_resource_deleted`, `oci_resource_released`). Every controller with the
-reconcile enabled reads `TS_OCI_OBSERVED` for the dashboard's `oci_drift`
-insight: a foreign object raises a warning at once; a record that keeps
-failing, or stays out of sync for ten minutes, raises a warning under
-`enforce` and an info item under `report`. Persistence needs a later pass
-that observed the condition again (re-reading one stored observation is
-not evidence), and the drift of a pass that just applied a correction is
-not counted. Observations older than three hours are treated as unknown
-and raise one "observations are stale" info item instead.
+## Open integration requirements
 
-Desired publication re-checks the authority epoch before every desired
-write and every prune tombstone, so a controller that loses leadership in
-the middle of a set stops at once.
+Unsigned legacy `TS_OCI_DESIRED` records are never imported as authority. Their
+migration is **OPEN**; discovering legacy desired state stops the amendment pass.
 
-## Ownership must exist before enforcement
-
-A resource is managed only when it carries this controller's ownership tags:
-the `terrascale-managed-by`, `terrascale-owner` and `terrascale-resource-key`
-freeform tags, or the same values in the defined-tag namespace when
-`tag_mode` is `defined`. A resource without them is reported as foreign and is
-never mutated or deleted. The reconciler does not adopt resources by itself.
-
-`public_nlb` syncs a network load balancer's backend set to the RUNNING
-member hosts. The cell's public API is now the flexible load balancer
-`gru-1-api` (see [region bootstrap](region-bootstrap.md#public-terrabase-api)),
-so leave `public_nlb` unset for it.
-
-`public_lb` syncs that load balancer's TerraBase backend set to the seats the
-cell's signed `terrabase` profile names: every `TERRABASE_PEERS` member at
-`TERRABASE_CLIENT_PORT`, drained while its `TS_TERRABASE_SEATS` record says so
-(TS-571, see
-[zero-downtime TerraBase rollouts](terrabase-zero-downtime-rollouts.md)).
-`seats` limits it to the listed members; a listed seat the profile does not
-name stops publication, and the previous set stays in force. The load
-balancer must carry this controller's freeform ownership for
-`<CELL>/lb-backends/public-terrabase`: `public-api apply` stamps it when the
-plan names `orchestrator_owner`, the same key the controller uses. Apply
-stamps freeform tags only, so the controller refuses `public_lb` with a
-defined `tag_mode`. Apply refuses a load balancer another owner or
-resource key claims. It seeds the set when it creates the load balancer and,
-with an owner, never converges its backends afterwards; a plan without
-`orchestrator_owner` keeps apply converging them to the seed, and is refused
-before any change on a load balancer that already carries ts-orchestrator
-ownership.
-
-```json
-"public_lb": {
-  "load_balancer_id": "ocid1.loadbalancer.oc1...",
-  "backend_set": "terrabase",
-  "seats": ["gru-1-db-1"]
-}
-```
-
-## Safety
-
-- Every individual mutation re-checks the authority epoch, so a controller
-  that loses leadership mid-pass stops.
-- Ownership restamps after backend or rule changes re-read the object for a
-  fresh ETag and re-check ownership.
-- Deletion is two-phase: the desired record is tombstoned first, the managed
-  parts are removed after its not-before instant, and the record is purged
-  by compare-and-set once a later pass confirms nothing is left. A tombstone
-  whose NSG, NLB or backend set no longer exists is purged.
-- An exclusive NSG spec removes every rule it did not ask for while
-  enforced. Its tombstone removes the rules it managed, including unmarked
-  rules that matched the spec, and leaves rules the spec never named.
-- NSG specs are limited to OCI's 120 rules per NSG and require canonical
-  CIDRs, so a rule is never re-added on every pass.
+The additive protected-object schema requires final ROOT and security approval.
+Bucket property-spend admission requires CAP authority; absent that authority,
+property mutations fail closed. Source fixtures do not qualify the full real
+root-IPC and OCI-SDK amendment path. That end-to-end qualification remains
+**OPEN** until the integrated candidate passes its leased QA run.

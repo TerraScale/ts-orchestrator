@@ -1,0 +1,16 @@
+{
+  "tool": "exec_command",
+  "args": {
+    "cmd": "/run/current-system/sw/bin/env -i HOME=/home/mariogk PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin GOMAXPROCS=2 GOFLAGS=-p=2 GOTOOLCHAIN=local LANG=C.UTF-8 /home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B /tmp/ts-management-observation-6af-runner-3k0i9cmj/run.py",
+    "workdir": "/tmp/ts-core-management-observation-fixtures",
+    "yield_time_ms": 1000,
+    "max_output_tokens": 10000
+  },
+  "result": {
+    "chunk_id": "2206f8",
+    "wall_time_seconds": 1.00107299,
+    "session_id": 51751,
+    "original_token_count": 25,
+    "output": "{\"state\": \"STARTED\", \"pid\": 698796, \"output\": \"/tmp/ts-management-observation-6af-runner-3k0i9cmj\"}\n"
+  }
+}

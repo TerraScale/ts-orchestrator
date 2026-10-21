@@ -32,19 +32,23 @@ import (
 // TestMain gives the test executable the same hidden-command dispatch as the
 // production binary. Both callers below use the real /proc/self/exe path.
 func TestMain(m *testing.M) {
-	if len(os.Args) == 2 && (os.Args[1] == "bootstrap-credential-check" || os.Args[1] == "bootstrap-admit-restart") {
+	if len(os.Args) == 2 && (os.Args[1] == "bootstrap-credential-check" || os.Args[1] == "bootstrap-admit-restart" || os.Args[1] == runtimeControllerHostSourceCommand) {
 		command := os.Args[1]
+		var output io.Writer = io.Discard
+		if command == runtimeControllerHostSourceCommand {
+			output = os.Stdout
+		}
 		if command == "bootstrap-credential-check" {
 			block := credentialDelayPath(os.Getppid())
 			if _, err := os.Stat(block); err == nil {
 				_ = os.WriteFile(block+".entered", []byte(strconv.Itoa(os.Getpid())), 0o600)
 				time.Sleep(30 * time.Second)
 			}
-		} else {
+		} else if command == "bootstrap-admit-restart" {
 			clock := &fixedControllerClock{bound: brokerauth.ClockBound{SampledAt: time.Now(), MaxError: time.Millisecond}}
 			controllerBrokerClockProbe = func() brokerauth.ClockProbe { return clock }
 		}
-		err := Run(context.Background(), os.Args[1:], io.Discard)
+		err := Run(context.Background(), os.Args[1:], output)
 		if command == "bootstrap-admit-restart" {
 			_ = os.WriteFile(hiddenAdmissionPath(os.Getppid()), []byte(fmt.Sprint(err)), 0o600)
 		}
@@ -155,7 +159,7 @@ func credentialLauncherManifest(t *testing.T, expected map[string]string) bootst
 		Profiles: []bootstrap.LaunchProfile{{Slot: "controller-a", CompartmentOCID: "ocid1.compartment.oc1..fixture",
 			AvailabilityDomain: "fixture:SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-1",
 			SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.fixture", Shape: "VM.Standard.E4.Flex"}},
-		ControllerConfig: []byte(`{"version":1,"nats":{},"controller":{}}`)}
+		ControllerConfig: []byte(`{"version":2,"nats":{},"controller":{}}`)}
 	manifest.ControllerConfigSHA256 = controllerSHA256(manifest.ControllerConfig)
 	for _, name := range bootstrap.ControllerConfigFileNames {
 		manifest.ControllerFiles = append(manifest.ControllerFiles, bootstrap.ControllerConfigFile{Name: name, Bytes: []byte(`{}`), SHA256: controllerSHA256([]byte(`{}`))})

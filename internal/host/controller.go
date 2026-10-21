@@ -42,8 +42,13 @@ type Controller struct {
 	managedDesiredVerifier ManagedDesiredVerifier
 	managedEffectGate      func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	materialProvider       ManagedMaterialProvider
+	functionMaterial       FunctionMaterialProvider
 	credentialFloor        func(context.Context, Registration) (uint64, error)
 	volumeInspector        ManagedVolumeInspector
+	runtimeEffects         RuntimeEffectHandler
+	containerMaterial      ContainerMaterialProvider
+	registryAdmission      RegistryAdmissionProvider
+	taskLoadRoles          func(context.Context, Registration) ([]string, error)
 	terraBaseCA            *terrabase.CA
 	roleIdentity           RoleIdentityIssuer
 	nodeAddress            func(string) string
@@ -72,7 +77,8 @@ type Controller struct {
 	authorityGuard  func(context.Context, uint64) error
 	authorityLeader func() bool
 	// loadSink, when set, accepts "load" host telemetry; see SetLoadSink.
-	loadSink atomic.Pointer[LoadSink]
+	loadSink            atomic.Pointer[LoadSink]
+	loadObservationSink atomic.Pointer[LoadObservationSink]
 	// rolloutSink, when set, serves host self-updates; see SetRolloutSink.
 	rolloutSink atomic.Pointer[RolloutSink]
 	netbirdSink atomic.Pointer[NetBirdSink]
@@ -138,8 +144,11 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations,
 		managedVerifier: cfg.ManagedRegistrationVerifier, managedDesiredVerifier: cfg.ManagedDesiredVerifier,
 		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
-		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector,
-		terraBaseCA: cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, nodeAddress: cfg.NodeAddress, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
+		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector, runtimeEffects: cfg.RuntimeEffects,
+		containerMaterial: cfg.ContainerMaterialProvider, registryAdmission: cfg.RegistryAdmissionProvider,
+		taskLoadRoles:    cfg.TaskLoadRoles,
+		functionMaterial: cfg.FunctionMaterialProvider,
+		terraBaseCA:      cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, nodeAddress: cfg.NodeAddress, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
 		authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, authorityLeader: cfg.AuthorityLeader,
 		cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
@@ -392,6 +401,9 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 	c.retireMu.RLock()
 	defer c.retireMu.RUnlock()
 	if !d.Withdrawn {
+		if err := c.guardNativeOwner(ctx, d.Environment, d.Role); err != nil {
+			return Receipt{}, err
+		}
 		retired, err := c.retired(ctx, d.Node)
 		if err != nil {
 			return Receipt{}, err
@@ -735,8 +747,8 @@ func sameReportMeaning(a, b Report) bool {
 }
 
 // hostOperations are the host request subjects a leader serves.
-var hostOperations = []string{"session", "desired", "artifact", "material", "cycle", "report",
-	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format",
+var hostOperations = []string{"session", "desired", "artifact", "material", "function-material", "cycle", "report",
+	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "managed-native", "container-material", "registry-admission",
 	"role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary"}
 
 // hostLeaderPoll is how often Run follows authority leadership.
@@ -810,10 +822,10 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 		return
 	}
 	deadline := 4 * time.Second
-	if len(msg.Data) > 0 && (strings.Contains(msg.Subject, ".material") ||
+	if len(msg.Data) > 0 && (strings.Contains(msg.Subject, ".material") || strings.Contains(msg.Subject, ".function-material") ||
 		strings.Contains(msg.Subject, ".drain-command") || strings.Contains(msg.Subject, ".drain-result") ||
 		strings.Contains(msg.Subject, ".backup-command") || strings.Contains(msg.Subject, ".backup-result") ||
-		strings.Contains(msg.Subject, ".volume-init")) {
+		strings.Contains(msg.Subject, ".volume-init") || strings.HasSuffix(msg.Subject, ".runtime-effect") || strings.HasSuffix(msg.Subject, ".container-material") || strings.HasSuffix(msg.Subject, ".registry-admission")) {
 		deadline = 30 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(observability.ContinueTrace(parent, msg.Header.Get("traceparent")), deadline)
@@ -827,6 +839,12 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 		return
 	}
 	req.Envelope = envelope
+	var materialDeadline time.Time
+	if req.Operation == "container-material" {
+		materialDeadline = (ContainerMaterialEvidence{Request: envelope}).Deadline()
+		ctx, cancel = context.WithDeadline(ctx, materialDeadline)
+		defer cancel()
+	}
 	expectedSubject, err := protocol.AgentObservationSubject(c.cell, req.NATSUserPublicKey, req.Operation)
 	if err != nil || expectedSubject != msg.Subject || envelope.Actor != req.Node || envelope.Kind != "host."+req.Operation {
 		return
@@ -840,7 +858,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	switch req.Operation {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
-	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format",
+	case "desired", "artifact", "cycle", "report", "material", "function-material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "managed-native", "container-material", "registry-admission",
 		"role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
@@ -856,17 +874,32 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	} else if payload != nil {
 		result.Payload, _ = json.Marshal(payload)
 	}
+	if req.Operation == "container-material" {
+		if reply, ok := payload.(containerMaterialReply); ok {
+			materialDeadline = containerMaterialDeadline(materialDeadline, reply.InventoryExpiresAt)
+		}
+		if ctx.Err() != nil || !time.Now().Before(materialDeadline) {
+			return
+		}
+	}
 	data, err := protocol.EncodeJSON(result)
 	if err != nil {
 		return
 	}
 	issued := time.Now().UTC()
-	signed, err := protocol.SignEnvelope(data, protocol.EnvelopeScope{Region: c.cell, Kind: "host.response." + req.Operation, Actor: "controller", OperationID: entityid.Derive("host-request", req.Nonce), Epoch: req.Epoch}, issued, issued.Add(requestTTL), c.responseKey)
+	expires := issued.Add(requestTTL)
+	if req.Operation == "container-material" {
+		expires = containerMaterialDeadline(expires, materialDeadline)
+	}
+	signed, err := protocol.SignEnvelope(data, protocol.EnvelopeScope{Region: c.cell, Kind: "host.response." + req.Operation, Actor: "controller", OperationID: entityid.Derive("host-request", req.Nonce), Epoch: req.Epoch}, issued, expires, c.responseKey)
 	if err != nil {
 		return
 	}
 	wire, err := protocol.EncodeJSON(signed)
 	if err != nil {
+		return
+	}
+	if req.Operation == "container-material" && (ctx.Err() != nil || !time.Now().Before(materialDeadline)) {
 		return
 	}
 	_ = msg.Respond(wire)
@@ -1143,11 +1176,55 @@ func waitSessionConflict(ctx context.Context, attempt int) error {
 	}
 }
 
-func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, error) {
+func (c *Controller) handleAuthorized(ctx context.Context, req request) (payload any, resultErr error) {
 	r, s, err := c.authorize(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	var stopDeadline time.Time
+	requireActive := req.Operation == "material" || req.Operation == "container-material" || req.Operation == "registry-admission" || req.Operation == "function-material"
+	if req.Operation == "runtime-effect" {
+		var operation struct {
+			Action    string           `json:"action"`
+			StopProof *json.RawMessage `json:"stop_proof,omitempty"`
+		}
+		if err := json.Unmarshal(req.Payload, &operation); err != nil {
+			return nil, err
+		}
+		requireActive = operation.Action != "close"
+		if operation.Action == "close" && operation.StopProof != nil {
+			stopDeadline = req.Envelope.ExpiresAt
+			if s.ExpiresAt.Before(stopDeadline) {
+				stopDeadline = s.ExpiresAt
+			}
+			if original, ok := ctx.Deadline(); ok && original.Before(stopDeadline) {
+				stopDeadline = original
+			}
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, stopDeadline)
+			defer cancel()
+		}
+	}
+	epoch := c.authorityEpoch()
+	if err := c.guard(ctx, epoch); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if resultErr != nil {
+			return
+		}
+		if err := c.recheckReplyAuthority(ctx, epoch, req, r, requireActive); err != nil {
+			payload, resultErr = nil, err
+			return
+		}
+		if !stopDeadline.IsZero() {
+			if err := ctx.Err(); err != nil {
+				payload, resultErr = nil, err
+			} else if !time.Now().Before(stopDeadline) {
+				payload, resultErr = nil, context.DeadlineExceeded
+			}
+		}
+	}()
 	switch req.Operation {
 	case "desired":
 		registration, registrationRevision, exists, err := c.readRegistration(ctx, req.Node)
@@ -1173,13 +1250,28 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 		if !exists {
 			return desiredReply{Registration: &registration, RegistrationRevision: registrationRevision}, nil
 		}
+		if !desired.Withdrawn {
+			if err := c.guardNativeOwner(ctx, desired.Environment, desired.Role); err != nil {
+				return nil, err
+			}
+		}
 		return desiredReply{Desired: &desired, Revision: revision, Registration: &registration, RegistrationRevision: registrationRevision}, nil
 	case "artifact":
 		return c.serveArtifact(ctx, req, r)
 	case "material":
 		return c.serveMaterial(ctx, req, r, s)
+	case "function-material":
+		return c.serveFunctionMaterial(ctx, req, r, s)
 	case "volume-init":
 		return c.serveVolumeInit(ctx, req, r, s)
+	case "runtime-effect":
+		return c.serveRuntimeEffect(ctx, req, r, s)
+	case "managed-native":
+		return c.serveManagedNative(ctx, req, r, s)
+	case "container-material":
+		return c.serveContainerMaterial(ctx, req, r, s)
+	case "registry-admission":
+		return c.serveRegistryAdmission(ctx, req, r, s)
 	case "drain-command":
 		return c.serveManagedDrainCommand(ctx, req, r)
 	case "drain-result":

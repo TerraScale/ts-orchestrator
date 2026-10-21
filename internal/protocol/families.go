@@ -1,6 +1,10 @@
 package protocol
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/nats-io/nkeys"
+)
 
 // Subject roots. Every NATS subject the orchestrator publishes, subscribes to,
 // grants, or stores is built from one of these roots in this package, so the
@@ -137,6 +141,11 @@ func GlobalState(tokens ...string) string { return joinSubject(GlobalStateRoot, 
 // GlobalStateStreamSubject is the single subject filter of TS_GLOBAL_CONTROL.
 func GlobalStateStreamSubject() string { return GlobalStateRoot + ".>" }
 
+// FunctionQueueSubject names one function revision's queue; callers validate the manifest scope.
+func FunctionQueueSubject(tenantID, functionID, revision string) string {
+	return "ts.functions." + tenantID + "." + functionID + "." + revision
+}
+
 // GlobalControlRequest is the global-authority mutation request subject.
 func GlobalControlRequest(action string) string {
 	subject, err := GlobalControlSubject(action)
@@ -150,6 +159,43 @@ func GlobalControlRequest(action string) string {
 // leader to set the monthly budget. It sits outside the control and global
 // state streams, which would acknowledge the request before the leader answers.
 func GlobalBudgetSetSubject() string { return GlobalControlRequest("budget-set") }
+
+// CapacityReservationSubject names one source region's spending-authority RPC.
+// No wildcard or other action can become an authority grant.
+func CapacityReservationSubject(cell, action string) string {
+	if token, err := RegionToken(cell); err != nil || token == GlobalScope {
+		return ""
+	}
+	switch action {
+	case "reserve", "revalidate", "observe":
+		return Regional(cell, "capacity", action)
+	default:
+		return ""
+	}
+}
+
+// CapacityReservationReplySubject keeps spending replies outside the legacy
+// inbox namespaces which region-link credentials may publish to.
+func CapacityReservationReplySubject(cell, userKey, nonce string) string {
+	if !nkeys.IsValidPublicUserKey(userKey) || !validFamilyToken(nonce, false) || strings.ContainsAny(nonce, ".*>{}") {
+		return ""
+	}
+	if token, err := RegionToken(cell); err != nil || token == GlobalScope {
+		return ""
+	}
+	return Regional(cell, "capacity-reply", userKey, nonce)
+}
+
+// CapacityReservationReplyGrant permits only this controller's reply inboxes.
+func CapacityReservationReplyGrant(cell, userKey string) string {
+	if !nkeys.IsValidPublicUserKey(userKey) && userKey != TemplateSubject {
+		return ""
+	}
+	if token, err := RegionToken(cell); err != nil || token == GlobalScope {
+		return ""
+	}
+	return Regional(cell, "capacity-reply", userKey, ">")
+}
 
 // HostRegisterSubject is the controller host registration request subject.
 func HostRegisterSubject(cell string) string { return Regional(cell, VerbHostRegister) }

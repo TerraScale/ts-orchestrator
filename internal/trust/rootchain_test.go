@@ -68,6 +68,13 @@ func mustVerifyChain(t *testing.T, genesis Keyring, chain RootChain) VerifiedRoo
 }
 
 func TestRootChainRotatesAndRevokesTheReplacedRoot(t *testing.T) {
+	production, err := DiscoveryGenesis()
+	if err != nil || len(production) != 1 {
+		t.Fatalf("reviewed production genesis: keys=%d err=%v", len(production), err)
+	}
+	if _, err := VerifyRootChain(production, testChainID, RootChain{Version: 1}); err != nil {
+		t.Fatal(err)
+	}
 	r0, r1, r2 := testRootKey(t), testRootKey(t), testRootKey(t)
 	genesis := testRoots(t, r0)
 	start := mustVerifyChain(t, genesis, RootChain{Version: 1})

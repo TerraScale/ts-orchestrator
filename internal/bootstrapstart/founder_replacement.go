@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -47,19 +49,67 @@ func NewAdmittedFounderReplacer(ctx context.Context, baked BakedInputs, accepted
 	if err != nil {
 		return nil, fmt.Errorf("%w: open selected founder authority: %v", ErrFounderReplacement, err)
 	}
+	return newAdmittedFounderReplacer(ctx, baked, accepted, reader, serviceUID, serviceGID)
+}
+
+// NewAdmittedDerivedFounderReplacer retains the original source authority for
+// replacement while preserving root-signed retirement and the existing floor.
+func NewAdmittedDerivedFounderReplacer(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
+	authority bootstrap.DerivedStartupAuthority, serviceUID, serviceGID uint32,
+) (*FounderReplacer, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if accepted.validate() != nil || accepted.Slot != accepted.SeedSlot || accepted.DeploymentID != baked.Identity.DeploymentID || accepted.Cell != string(baked.Identity.Cell) || serviceUID == 0 || serviceGID == 0 {
+		return nil, ErrFounderReplacement
+	}
+	floor, err := NewServiceFounderSelectionFloorStore(serviceUID)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyExistingFounderFloor(floor); err != nil {
+		return nil, err
+	}
+	reader, err := NewDerivedCurrentFounderAuthorityReaderContext(ctx, baked, accepted, authority, floor)
+	if err != nil {
+		return nil, err
+	}
+	return newAdmittedFounderReplacer(ctx, baked, accepted, reader, serviceUID, serviceGID)
+}
+
+func newAdmittedFounderReplacer(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
+	reader *CurrentFounderAuthorityReader, serviceUID, serviceGID uint32,
+) (*FounderReplacer, error) {
 	selected, err := reader.ReadCurrent(ctx, time.Now().UTC())
 	if err != nil || selected.Plan.Plan().SeedSlot != accepted.Slot {
 		return nil, fmt.Errorf("%w: read selected seed authority: %v", ErrFounderReplacement, err)
 	}
-	config, err := currentLedgerConfig(selected.Anchor, baked.Roots)
+	var config bootstrap.LedgerConfig
+	if selected.Derived != nil {
+		config, err = selected.Derived.SeedAuthority().LedgerConfig(baked.Roots)
+	} else {
+		config, err = currentLedgerConfig(selected.Anchor, baked.Roots)
+	}
 	if err != nil {
 		return nil, err
 	}
-	provider, err := newOCIAdmissionProvider(config)
-	if err != nil {
-		return nil, err
+	var provider common.ConfigurationProvider
+	if selected.Derived != nil {
+		if _, err := selected.Derived.SeedAuthority().OriginalLaunch(); err == nil {
+			factory, err := ociclient.InstancePrincipalContext(ctx, selected.Derived.SeedAuthority().Template().StartupIdentity().OCIRegion)
+			if err != nil {
+				return nil, err
+			}
+			provider = factory.Provider()
+		}
 	}
-	material, err := LoadLaunchMaterial()
+	if provider == nil {
+		provider, err = newOCIAdmissionProvider(config)
+		if err != nil {
+			return nil, err
+		}
+	}
+	material, err := LoadLaunchMaterialContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +297,7 @@ func (caller founderCaller) finishStagedAdvance(ctx context.Context, slot string
 		clock = time.Now
 	}
 	now := clock().UTC().Truncate(time.Second)
-	keys, err := caller.signers.Load(selected, caller.accepted, caller.roots, now)
+	keys, err := caller.signers.LoadContext(ctx, selected, caller.accepted, caller.roots, now)
 	if err != nil {
 		return err
 	}
@@ -285,7 +335,7 @@ func (caller founderCaller) advancePeer(ctx context.Context, snapshot founderSna
 	now := clock().UTC().Truncate(time.Second)
 	selected := snapshot.selected
 	state := snapshot.recovery.State()
-	keys, err := caller.signers.Load(selected, caller.accepted, caller.roots, now)
+	keys, err := caller.signers.LoadContext(ctx, selected, caller.accepted, caller.roots, now)
 	if err != nil {
 		return err
 	}

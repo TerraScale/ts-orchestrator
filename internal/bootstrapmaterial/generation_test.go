@@ -185,13 +185,13 @@ func TestCheckGenerationFilesWithRoleSigner(t *testing.T) {
 	other := generationtest.New(t, generationNow)
 	extraSigner, _ := other.Signer.PublicKey()
 	config := string(material.Files["controller-controller-a.json"])
-	for _, version := range []string{"", `"version":0`, `"version":2`, `"version":6`} {
-		changed := strings.Replace(config, `"version":1`, version, 1)
+	for _, version := range []string{"", `"version":0`, `"version":1`, `"version":3`, `"version":6`} {
+		changed := strings.Replace(config, `"version":2`, version, 1)
 		if version == "" {
-			changed = strings.Replace(config, `,"version":1`, "", 1)
+			changed = strings.Replace(config, `,"version":2`, "", 1)
 		}
 		if changed == config {
-			t.Fatal("version-1 fixture was not changed")
+			t.Fatal("version-2 fixture was not changed")
 		}
 		if _, err := check(material.With(map[string][]byte{"controller-controller-a.json": []byte(changed)})); err == nil || !strings.Contains(err.Error(), "not a controller config") {
 			t.Errorf("invalid config version %q: %v", version, err)
@@ -263,13 +263,13 @@ func TestCheckGenerationControllerCredentials(t *testing.T) {
 	for name, files := range map[string]map[string][]byte{
 		"another slot's user": {"controller-a.creds": material.Files["controller-b.creds"]},
 		"missing config version": {"controller-controller-a.json": []byte(strings.Replace(string(material.Files["controller-controller-a.json"]),
-			`"version":1,`, "", 1))},
+			`"version":2,`, "", 1))},
 		"zero config version": {"controller-controller-a.json": []byte(strings.Replace(string(material.Files["controller-controller-a.json"]),
-			`"version":1`, `"version":0`, 1))},
+			`"version":2`, `"version":0`, 1))},
 		"unsupported config version": {"controller-controller-a.json": []byte(strings.Replace(string(material.Files["controller-controller-a.json"]),
-			`"version":1`, `"version":2`, 1))},
+			`"version":2`, `"version":3`, 1))},
 		"null config version": {"controller-controller-a.json": []byte(strings.Replace(string(material.Files["controller-controller-a.json"]),
-			`"version":1`, `"version":null`, 1))},
+			`"version":2`, `"version":null`, 1))},
 		"tampered user":           {"controller-a.creds": []byte("invalid")},
 		"wrong config slot":       {"controller-controller-a.json": material.Files["controller-controller-b.json"]},
 		"another credential path": {"controller-controller-a.json": []byte(strings.ReplaceAll(string(material.Files["controller-controller-a.json"]), "controller-a.creds", "controller-b.creds"))},
@@ -350,7 +350,7 @@ func TestCheckGenerationControllerCredentialsWithoutInterRegion(t *testing.T) {
 				if test.global != nil {
 					controller["global"] = test.global
 				}
-				config, err := json.Marshal(map[string]any{"version": 1, "controller": controller,
+				config, err := json.Marshal(map[string]any{"version": 2, "controller": controller,
 					"nats": natscell.Config{Cell: "gru", Instance: slot, Embedded: test.embedded}})
 				if err != nil {
 					t.Fatal(err)

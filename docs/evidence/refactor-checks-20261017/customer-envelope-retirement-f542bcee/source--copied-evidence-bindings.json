@@ -1,0 +1,142 @@
+{
+  "source-preparation.json": {
+    "origin": "/tmp/ts-customer-retirement-d64-cysw70m3/source-preparation.json",
+    "sha256": "185245fe8553099018221810cdd400fac1a7c08617838a59c9b2ceb869f8bdbd",
+    "copy_byte_exact": true
+  },
+  "modern-go-guidance.json": {
+    "origin": "/tmp/ts-customer-retirement-d64-cysw70m3/modern-go-guidance.json",
+    "sha256": "c28889be24abf6f6e255cd79994e57a97a2c157256d813ecece96c6d9091bb3b",
+    "copy_byte_exact": true
+  },
+  "candidate.patch": {
+    "origin": "/tmp/ts-customer-retirement-d64-cysw70m3/candidate.patch",
+    "sha256": "88695c9c74e4c893538204403fcd4d160ec8b117e664288983e56c5677240a54",
+    "copy_byte_exact": true
+  },
+  "packet-builder.py.txt": {
+    "origin": "/tmp/ts-customer-f542-packet-builder.py",
+    "sha256": "7ab675262e604b24a3e8e2bfbc1c2ae5f1f1719f167ac899471b90c7ac0b755b",
+    "copy_byte_exact": true
+  },
+  "prior-proposal--proposal.json": {
+    "origin": "/tmp/ts-next-customer-retirement-source-proposal-65k8m7lf/proposal.json",
+    "sha256": "2d2c21bf8d6aea24a701951ee1837eb1a903f23c0650da5f7d8a86fe8bdda837",
+    "copy_byte_exact": true
+  },
+  "prior-proposal--SHA256SUMS": {
+    "origin": "/tmp/ts-next-customer-retirement-source-proposal-65k8m7lf/SHA256SUMS",
+    "sha256": "ab2522cfd0ad0c1a49c774a7bf7d8092f2e6ea5a4296684e61b0add67c02b85c",
+    "copy_byte_exact": true
+  },
+  "prior-proposal--watched-source-and-module-comparison.json": {
+    "origin": "/tmp/ts-next-customer-retirement-source-proposal-65k8m7lf/watched-source-and-module-comparison.json",
+    "sha256": "45b3c9cb1dd1381e70be7b79d05f7c8f3145c7c16ef35ac567de19f1bf44f554",
+    "copy_byte_exact": true
+  },
+  "independent-source--review.json": {
+    "origin": "/tmp/ts-customer-retirement-source-independent-v64j4p_a/review.json",
+    "sha256": "b6c659e2a9f3f12b01ff8fc694302df124f28ad365a14fbfa39d4794384cf940",
+    "copy_byte_exact": true
+  },
+  "independent-source--verified-inputs.json": {
+    "origin": "/tmp/ts-customer-retirement-source-independent-v64j4p_a/verified-inputs.json",
+    "sha256": "6ba581894ff21d1743a45ba99ccafbf9bd96f6527cb71db940842da8f6da10f0",
+    "copy_byte_exact": true
+  },
+  "independent-source--closure-no-renames-supplement.json": {
+    "origin": "/tmp/ts-customer-retirement-source-independent-v64j4p_a/closure-no-renames-supplement.json",
+    "sha256": "f7b8807db19ab2efa4d171b2ec245e7ecd93250501432a3907c935dc23018eef",
+    "copy_byte_exact": true
+  },
+  "independent-source--verification.json": {
+    "origin": "/tmp/ts-customer-retirement-source-independent-v64j4p_a/verification.json",
+    "sha256": "43dfac7ac61ae5fce01017283a3fd9368fee2320c46c3cb34a3d73da316888ca",
+    "copy_byte_exact": true
+  },
+  "independent-source--SHA256SUMS": {
+    "origin": "/tmp/ts-customer-retirement-source-independent-v64j4p_a/SHA256SUMS",
+    "sha256": "5862345a2f942c0518cb2c107ba9d2dec42d8fbcc6b668474001f6f5e4ac8977",
+    "copy_byte_exact": true
+  },
+  "historical-source--SOURCEPROOF.json": {
+    "origin": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/SOURCEPROOF.json",
+    "sha256": "e720486b4442ca7330cb35cb97176593849d99c9951515512c1c5ba02cd577ff",
+    "copy_byte_exact": true
+  },
+  "historical-source--PREREQUISITE-PROOF.json": {
+    "origin": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/PREREQUISITE-PROOF.json",
+    "sha256": "66c4390b7f38078b7d378a356e966e96123c53862d6850b108ae130dd4f521ad",
+    "copy_byte_exact": true
+  },
+  "historical-source--COMPATIBILITY-REVIEW.json": {
+    "origin": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/COMPATIBILITY-REVIEW.json",
+    "sha256": "a3e635e9188915930580c2b9cd999f9a728d600d517089dfe19e3f16b157ff94",
+    "copy_byte_exact": true
+  },
+  "historical-source--INITIALIZER-closure.json": {
+    "origin": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/INITIALIZER-closure.json",
+    "sha256": "078720616509a6d864ca6d13cd846b89d306a4b0aacdaf3ec338f0b947109f74",
+    "copy_byte_exact": true
+  },
+  "historical-source--INITIALIZER-classification.json": {
+    "origin": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/INITIALIZER-classification.json",
+    "sha256": "e13f87a0209f9068d35dc1f6f0006cb537a567813c306307b3a3285ee05c205d",
+    "copy_byte_exact": true
+  },
+  "historical-source--INITIALIZER-AUDIT.md": {
+    "origin": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/INITIALIZER-AUDIT.md",
+    "sha256": "544c7576743c563b2e2b946d5e5fcf18dc194ab89fa517a4a11ab6b9bea9ac09",
+    "copy_byte_exact": true
+  },
+  "historical-runtime--receipt.json": {
+    "origin": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/qa-output/receipt.json",
+    "sha256": "3c2861104770be7c406797fd91aaeaac531979d3de9e433a2b346aa7dfd020d4",
+    "copy_byte_exact": true
+  },
+  "historical-runtime--stdout.jsonl": {
+    "origin": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/qa-output/stdout.jsonl",
+    "sha256": "5592c045b4842cea40f90b2b6e9cd6487e139e1587b02886cf61b315a2515e2f",
+    "copy_byte_exact": true
+  },
+  "historical-runtime--stderr.log": {
+    "origin": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/qa-output/stderr.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "copy_byte_exact": true
+  },
+  "historical-runtime--SHA256SUMS": {
+    "origin": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/qa-output/SHA256SUMS",
+    "sha256": "de41b540f1532cb4ebf3724eefd27ac41b2c83e51102c18ba8df9a95723c2e65",
+    "copy_byte_exact": true
+  },
+  "historical-native--launch-tool-result.json": {
+    "origin": "/tmp/ts-customer-67bc-shortb-native-results-eahwwmpb/launch-tool-result.json",
+    "sha256": "97f5e6b2f998203393ac550d1066205c535fc5c475000bf32a9ca915f8e341e1",
+    "copy_byte_exact": true
+  },
+  "historical-native--poll-008-tool-result.json": {
+    "origin": "/tmp/ts-customer-67bc-shortb-native-results-eahwwmpb/poll-008-tool-result.json",
+    "sha256": "aced8062bd4f033b9d527ac4ca414bbef13d61f7e7830a9327e14155c545cfda",
+    "copy_byte_exact": true
+  },
+  "historical-native--final-review-tool-result.json": {
+    "origin": "/tmp/ts-customer-67bc-shortb-native-results-eahwwmpb/final-review-tool-result.json",
+    "sha256": "151b210cfc7cd3212931c1e807b3f74aae2a0700efcf51bc7f775f73c8d6cb05",
+    "copy_byte_exact": true
+  },
+  "historical-native--final-review.json": {
+    "origin": "/tmp/ts-customer-67bc-shortb-native-results-eahwwmpb/final-review.json",
+    "sha256": "630fe5051d6a7efe8c710f8816c2864607a7aa2387c98dd511216f75fed21bfa",
+    "copy_byte_exact": true
+  },
+  "historical-native--SHA256SUMS": {
+    "origin": "/tmp/ts-customer-67bc-shortb-native-results-eahwwmpb/SHA256SUMS",
+    "sha256": "178b75cbed8b2ad0235503dcc3d77ee5b90397791fdefdb78059da3ce381d5f6",
+    "copy_byte_exact": true
+  },
+  "reviewed-attempt-runner-pattern.py.txt": {
+    "origin": "/tmp/ts-attempt-458ff55-truecompile-shortb-sealed-7qtri3ou/run.py",
+    "sha256": "5afcbd76a236e8c1b5ca2061cedc14680a9487b3e86573db0fa5211a5aa6daac",
+    "copy_byte_exact": true
+  }
+}

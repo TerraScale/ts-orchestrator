@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/budget"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -25,10 +27,15 @@ var ErrRecordChanged = errors.New("node scaler record changed under the leader")
 
 // Record is the scaler's durable state for one region.
 type Record struct {
-	LastChange time.Time `json:"last_change,omitzero"`
-	Action     *InFlight `json:"action,omitempty"` // the action in flight, nil when idle
-	From       int       `json:"from,omitzero"`    // pool size before a scale-up
-	Status     Status    `json:"status"`           // last published status
+	LastChange  time.Time                          `json:"last_change,omitzero"`
+	Action      *InFlight                          `json:"action,omitempty"`      // the action in flight, nil when idle
+	From        int                                `json:"from,omitzero"`         // pool size before a scale-up
+	TargetFrom  *int                               `json:"target_from,omitempty"` // selected capacity pool's durable starting size
+	Recipe      *Recipe                            `json:"recipe,omitempty"`      // chosen launch identity; persisted before OCI mutations
+	Reservation *budget.Reservation                `json:"reservation,omitempty"` // home commitment retained before OCI writes
+	Child       *rootoci.PoolChildExpectation      `json:"child,omitempty"`
+	Retirement  *rootoci.PoolRetirementExpectation `json:"retirement,omitempty"`
+	Status      Status                             `json:"status"` // last published status
 }
 
 // RecordStore is the scaler's durable record. Store is the JetStream one; tests fake it.

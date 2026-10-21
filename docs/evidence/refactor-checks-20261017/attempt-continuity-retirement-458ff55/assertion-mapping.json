@@ -1,0 +1,112 @@
+{
+  "accepted_compile_commit": "458ff55c3d78ce4be754094d93d4825f51c67d5d",
+  "actual_retirements_applied_by_packet": 0,
+  "assertion_map": [
+    {
+      "original": "Phase(\"continuity\") returns nonnil error",
+      "replacement": "Run returns exactly 1 (root line 31); valid config reaches Phase at attempt.go:1493, then e!=nil branch 1495-1498 returns 1."
+    },
+    {
+      "original": "error contains \"unknown attempt phase\"",
+      "replacement": "diagnostic exactly unknown attempt phase \"continuity\" plus newline (root line 34); Phase default 1475-1477 produces error and Run 1496 prints it. Exact text implies original substring."
+    }
+  ],
+  "canonical_count_changes": 0,
+  "complete_original_assertion_mapping": [
+    {
+      "connected_production": "New108-172 validates equivalent fixture and returns clean Attempt; Run1491-1493 reaches Phase; Phase1439-1479 default1475-1477 sets unknown-phase error; Run1495-1498 prints it and returns1.",
+      "original_assertion": "Phase(\"continuity\") must return nonnil error",
+      "original_line": 219,
+      "root_assertion": "Run(...,\"continuity\") returns exactly 1",
+      "root_assertion_line": 31,
+      "runtime_evidence": "cc37 accepted exact root run/pass in8 JSONL events, zero child/skips/failures; no instrumented direct-call trace."
+    },
+    {
+      "connected_production": "Phase1476 constructs same error; Run1496 prints same error with newline. Exact diagnostic implies original substring.",
+      "original_assertion": "error text contains \"unknown attempt phase\"",
+      "original_line": 219,
+      "root_assertion": "diagnostic equals unknown attempt phase \"continuity\" plus exactly one newline",
+      "root_assertion_line": 34,
+      "runtime_evidence": "Actual historical cc37 root PASS attests this assertion; no new runtime on b3,458,457 or planned feature."
+    }
+  ],
+  "coverage_gaps_for_original_assertions": [],
+  "feature": "457e8960217109666b17817e861db59b8f0d41a6",
+  "feature_tree": "a94ab502511c61790c0a89f78b983897b010e450",
+  "fixture_details": "Same temp workdir/deployment0000000000F9PR1WNVDTEXS31Z/prefixbootstrap/a. New object(nil) makes omittedtools equivalentto originaltools:{}. New installs Runner/Sleep closures; neither is called. Phase default never calls cloud/bootstrap/NATS. Original made no Cloud/Runner/Sleep side-effect or internalErr-state assertion.",
+  "fixture_equivalence": "New uses equivalent temp workdir/deployment/prefix; object(nil) makes omitted tools equivalent to tools:{}. No cloud, runner, sleep, bootstrap or NATS call occurs in the rejected phase body.",
+  "historical_qualification_sources": {
+    "fresh_compile_commit": "458ff55c3d78ce4be754094d93d4825f51c67d5d",
+    "fresh_compile_qa": "qa-compile-458.json",
+    "older_compile_commit": "b3e1fde77998257aef756bc02310019aa173a522",
+    "older_compile_qa": "qa-compile-b3.json",
+    "runtime_commit": "cc37fe13cace70584c45ee368d6edcd80ebc5f2d",
+    "runtime_qa": "qa-runtime-cc37.json"
+  },
+  "in_memory_result_matches_historically_compiled_attempt_target_files": true,
+  "no_missing_original_assertions": true,
+  "original": {
+    "declaration_bytes_without_final_newline": 251,
+    "declaration_lines": [
+      217,
+      222
+    ],
+    "declaration_sha256_without_final_newline": "fc3bf5936665894c1b0471343b3375eac7c21bba5b73549b828913f796dd26e0",
+    "file_sha256": "69a11044751e5737dd6116f372f03d2c3717c62e4fe35e5b043369c868e524bd",
+    "name": "TestAttemptRejectsRetiredContinuityPhase",
+    "path": "internal/attempt/cloud_test.go"
+  },
+  "paths": [
+    {
+      "action": "add exact accepted root",
+      "bytes": 972,
+      "git_blob": "8f41c9575c8e0b0d4f8b85a7c87026fd2ca62fa8",
+      "lines": 37,
+      "path": "internal/attempt/phase_dispatch_integration_test.go",
+      "sha256": "0778c923f4cd774814acbcfb9bc5f2f0e006ca58ae3c37f4087bb033c3240892"
+    },
+    {
+      "action": "remove only preceding blank and final original declaration",
+      "after_sha256": "b620119b63bc747e68e2a8e40e4a92f9c06d7eefd637b41d4b900187e222083d",
+      "before_sha256": "69a11044751e5737dd6116f372f03d2c3717c62e4fe35e5b043369c868e524bd",
+      "path": "internal/attempt/cloud_test.go",
+      "remaining_test_names": [
+        "TestLaunchDetailsCarriesTheSeedLaunchInputIntoTheVNIC",
+        "TestLaunchDetailsRefusesUnknownOrMissingMembers",
+        "TestLaunchRetryTokenBindsTheInputBytes",
+        "TestControllerObjectGrantsReplaceOnlyDifferingStatements",
+        "TestControllerObjectGrantsRefuseAnUnconditionalPolicyUpdate",
+        "TestLaunchDetailsDecodesTheSeedLaunchWriterOutput",
+        "TestLaunchDetailsDecodesTheMemberLaunchWriterOutput",
+        "TestSlotRecordPrefixesScopeToTheDeployment"
+      ],
+      "removed_bytes": 253,
+      "removed_lines": 7,
+      "removed_sha256": "fbfd1c9f6466ea7c7cb2d93200e21c6c2e2159e4e5d10db02a4b1e01a392f6a1"
+    }
+  ],
+  "proposed_retirement_originals": 1,
+  "remaining_declarations": "All eight remaining cloud_test.go declarations and every retained byte are identical; strings and smallAttempt remain used.",
+  "replacement": {
+    "declaration_lines": [
+      14,
+      37
+    ],
+    "declaration_sha256_without_final_newline": "8ecff4ffb804854ba12efa36dc25f665fd28f50da156dcfb23cbda9fb8a08da8",
+    "file_sha256": "0778c923f4cd774814acbcfb9bc5f2f0e006ca58ae3c37f4087bb033c3240892",
+    "git_blob": "8f41c9575c8e0b0d4f8b85a7c87026fd2ca62fa8",
+    "name": "TestRetiredContinuityPhaseThroughAttemptRun",
+    "path": "internal/attempt/phase_dispatch_integration_test.go"
+  },
+  "retained_original_declarations": [
+    "TestLaunchDetailsCarriesTheSeedLaunchInputIntoTheVNIC",
+    "TestLaunchDetailsRefusesUnknownOrMissingMembers",
+    "TestLaunchRetryTokenBindsTheInputBytes",
+    "TestControllerObjectGrantsReplaceOnlyDifferingStatements",
+    "TestControllerObjectGrantsRefuseAnUnconditionalPolicyUpdate",
+    "TestLaunchDetailsDecodesTheSeedLaunchWriterOutput",
+    "TestLaunchDetailsDecodesTheMemberLaunchWriterOutput",
+    "TestSlotRecordPrefixesScopeToTheDeployment"
+  ],
+  "state": "PROPOSED_ONE_ORIGINAL_RETIREMENT_NO_FEATURE_ADOPTION_OR_COUNT_CHANGE"
+}

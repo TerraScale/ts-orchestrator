@@ -199,7 +199,14 @@ func readMaterialCredentialStatus(ctx context.Context, wire []byte, cell string,
 	}); err != nil {
 		return materialCredentialStatusReply{}, request, 0, err
 	}
-	if envelope.Epoch == 0 || service.Preparation.Fencer.Current().Epoch != envelope.Epoch {
+	return readCurrentMaterialCredentialStatus(ctx, request, envelope.Epoch, service, hosts)
+}
+
+// Both signed operator reads and authenticated observations use the same source validation.
+func readCurrentMaterialCredentialStatus(ctx context.Context, request materialCredentialStatusRequest,
+	epoch uint64, service managedmaterial.CredentialService, hosts *host.Controller,
+) (materialCredentialStatusReply, materialCredentialStatusRequest, uint64, error) {
+	if epoch == 0 || service.Preparation.Fencer.Current().Epoch != epoch {
 		return materialCredentialStatusReply{}, request, 0, errors.New("credential status authority changed")
 	}
 	initial, _, err := service.Preparation.CurrentBundle(ctx, request.DatabaseID, request.PartitionID)
@@ -237,13 +244,13 @@ func readMaterialCredentialStatus(ctx context.Context, wire []byte, cell string,
 		return materialCredentialStatusReply{}, request, 0, errors.New("credential generation changed during status read")
 	}
 	confirmedSHA, err := managedmaterial.CredentialStateDigest(confirmed)
-	if err != nil || confirmedSHA != stateSHA || service.Preparation.Fencer.Current().Epoch != envelope.Epoch {
+	if err != nil || confirmedSHA != stateSHA || service.Preparation.Fencer.Current().Epoch != epoch {
 		return materialCredentialStatusReply{}, request, 0, errors.New("credential authority changed during status read")
 	}
 	if applied {
 		reply.Status = "applied"
 	}
-	return reply, request, envelope.Epoch, nil
+	return reply, request, epoch, nil
 }
 
 func credentialMembersApplied(expected [2]managedmaterial.InitialMember, generation uint64,

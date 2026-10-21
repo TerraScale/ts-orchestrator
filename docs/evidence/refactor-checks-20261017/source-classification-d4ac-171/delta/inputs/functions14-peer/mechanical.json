@@ -1,0 +1,252 @@
+{
+  "candidate_sha256": "9510b271f01831ed0d0b8607f14d62f841a2e248bf1bcb491f2878e40154caf2",
+  "sha256sums_sha256": "c8920a09b3e4340c2e52b0bf3466207b398875ca37cc87e9c9995b8692acfb7d",
+  "sum_entries": 2,
+  "modes": {
+    "classification.json": "0o444",
+    "README.md": "0o444",
+    "SHA256SUMS": "0o444"
+  },
+  "allocation_root_count": 14,
+  "declaration_checks": 28,
+  "source_pins": 25,
+  "citation_checks": 115,
+  "distinct_citations": 40,
+  "assertion_blocks": 43,
+  "bridge_commit": "7330ca87c377d2cbe5f8c269282039039df550ad",
+  "bridge_tree": "1824f64d1b77aae3c7e3b2736d29426af5892e88",
+  "bridge_file_comparisons": [
+    {
+      "path": "go.mod",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "fc02b166f70e905696d006992f24d6f6e641302b"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "c69f64d31440880c16cec9de8173b0cd11d5a650"
+      },
+      "same_file_blob_and_mode": false,
+      "selected_declarations": []
+    },
+    {
+      "path": "internal/functions/admission.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "f8a08053baecc50196de9038980ba939212aab8a"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "f8a08053baecc50196de9038980ba939212aab8a"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/admission_integration_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "27350e1b7621666584389be386e4f7b35704a6e5"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "27350e1b7621666584389be386e4f7b35704a6e5"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/broker.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "062dd9a909b502409e7bc6314811c6f857bb79c9"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "062dd9a909b502409e7bc6314811c6f857bb79c9"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/broker_integration_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "c2a7ba4d11448138e452a573a1c7804833109323"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "c2a7ba4d11448138e452a573a1c7804833109323"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/contract.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "adff327b2fa98ff9648d3c07429ded1115dea9af"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "adff327b2fa98ff9648d3c07429ded1115dea9af"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/http.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "b72391d20f23cf17d56f6d2a707b5d5810a04bf4"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "b72391d20f23cf17d56f6d2a707b5d5810a04bf4"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/process.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "a6a25af034a4b26ba79868e1eaf74800b79f5f81"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "a6a25af034a4b26ba79868e1eaf74800b79f5f81"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/process_integration_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/queue.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "66a9e895c2bb2def870992936dba66841769b1e9"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "66a9e895c2bb2def870992936dba66841769b1e9"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/runtime.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "27c4bda47946b013951ad4f0f2ce3f2c7bd4643d"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/runtime_integration_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/runtime_limits.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "a70736257575cd068b51e2ea25f8081c89a1f797"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "a70736257575cd068b51e2ea25f8081c89a1f797"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/runtime_limits_integration_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "841664089ac3951035fb0c2f2861155a39cd79d1"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "841664089ac3951035fb0c2f2861155a39cd79d1"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/snapshot_client.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "f619a8b010568984cb786cd9527370ad11d043f0"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "f619a8b010568984cb786cd9527370ad11d043f0"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/functions/transports_integration_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "905495b7025a92d634419e135ea54778f12509d6"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "905495b7025a92d634419e135ea54778f12509d6"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/release/function.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "b2aaf7520dfa9aa3240b6b3b0d23d55e95741bbd"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "b2aaf7520dfa9aa3240b6b3b0d23d55e95741bbd"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/release/function_receipt.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "9ec4278a4eacaf316114dd8a4d83ef82362fe078"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "9ec4278a4eacaf316114dd8a4d83ef82362fe078"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/release/receipt.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "fc23b8d57779c03a4635611dcb6389de345700d5"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "fc23b8d57779c03a4635611dcb6389de345700d5"
+      },
+      "same_file_blob_and_mode": true
+    }
+  ],
+  "bridge_cited_declarations": [],
+  "frozen_inventory_roots_verified": 14,
+  "errors": []
+}

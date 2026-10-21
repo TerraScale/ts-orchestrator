@@ -24,10 +24,7 @@ func TestSnapshotSamplerOmitsUnavailableFilesystemGauges(t *testing.T) {
 		view.CPUSeconds.User += float64(index) * 10
 		view.CPUSeconds.Idle += float64(index) * 10
 		samples := sampler.Samples(ClusterSnapshot{Members: []MemberSnapshot{{Member: "c1", System: &view}}})
-		values := map[string]float64{}
-		for _, sample := range samples {
-			values[seriesKey(sample.Metric, sortedLabels(sample.Labels))] = sample.Value
-		}
+		values := historySampleValues(t, samples)
 		for _, role := range []string{"nats", "store"} {
 			for metric, want := range map[string]float64{HistFSUsed: 60, HistFSSize: 100, HistFSRatio: 0.6} {
 				got, present := values[Series(metric, "member", "c1", "role", role)]
@@ -67,20 +64,21 @@ func TestSnapshotSamplerExcludesTerminalPartitionsFromActiveGauges(t *testing.T)
 	cluster := ClusterSnapshot{Members: []MemberSnapshot{{Member: "c1", Placement: placement}}}
 	for range 2 {
 		samples := sampler.Samples(cluster)
-		values := map[string]float64{}
-		for _, sample := range samples {
-			values[seriesKey(sample.Metric, sortedLabels(sample.Labels))] = sample.Value
-		}
+		values := historySampleValues(t, samples)
 		for key, want := range map[string]float64{
-			HistDatabases: 2, HistSeatsDesired: 5, HistSeatsServing: 3,
+			HistDatabases: 2, HistSeatsDesired: 5,
 			Series(HistStageMembers, "stage", "serving"):                            3,
 			Series(HistStageMembers, "stage", "retired"):                            0,
 			Series(HistRolloutProgress, "operation", "active-update"):               0.5,
 			Series(HistPartitionDesired, "database", "archived", "partition", "p0"): 7,
-			Series(HistPartitionServing, "database", "archived", "partition", "p0"): 7,
 		} {
 			if got, present := values[key]; !present || got != want {
 				t.Errorf("%s = %v (present %v), want %v", key, got, present, want)
+			}
+		}
+		for _, metric := range []string{HistSeatsServing, Series(HistPartitionServing, "database", "orders", "partition", "p0"), Series(HistPartitionServing, "database", "archived", "partition", "p0")} {
+			if _, present := values[metric]; present {
+				t.Errorf("durable placement stages asserted current serving metric %s", metric)
 			}
 		}
 		if _, present := values[Series(HistRolloutProgress, "operation", "retired-update")]; present {

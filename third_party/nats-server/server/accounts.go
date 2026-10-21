@@ -71,6 +71,7 @@ type Account struct {
 	ic           *client
 	sq           *sendq
 	isid         uint64
+	serviceSubs  map[*serviceImportSubscription]struct{} // includes pending and detached imports
 	etmr         *time.Timer
 	ctmr         *time.Timer
 	strack       map[string]sconns
@@ -185,6 +186,17 @@ type serviceImport struct {
 	didDeliver  bool
 	atrc        bool        // allow trace (got from service export)
 	trackingHdr http.Header // header from request
+	serviceSub  *serviceImportSubscription
+}
+
+// Ownership survives both a.ic replacement and removal from the import map.
+type serviceImportSubscription struct {
+	mu       sync.Mutex // never acquired while holding the account lock
+	client   *client
+	si       *serviceImport
+	sid      []byte
+	sub      *subscription
+	canceled bool
 }
 
 // This is used to record when we create a mapping for implicit service
@@ -417,6 +429,7 @@ func (a *Account) shallowCopy(na *Account) {
 			sis := make([]*serviceImport, 0, len(v))
 			for _, si := range v {
 				csi := *si
+				csi.sid, csi.serviceSub = nil, nil
 				sis = append(sis, &csi)
 			}
 			na.imports.services[k] = sis
@@ -1924,11 +1937,25 @@ func (a *Account) getServiceImportForAccountLocked(dstAccName, subject string) *
 
 // removeServiceImport will remove the route by subject.
 func (a *Account) removeServiceImport(dstAccName, subject string) {
+	a.removeServiceImportWithSubscription(dstAccName, subject, nil)
+}
+
+func (a *Account) removeServiceImportWithSubscription(dstAccName, subject string, expected *serviceImportSubscription) {
+	if expected != nil {
+		defer a.removeServiceImportSub(expected)
+	}
 	a.mu.Lock()
 	sis, ok := a.imports.services[subject]
 	if !ok {
 		a.mu.Unlock()
 		return
+	}
+	if expected != nil && (!slices.Contains(sis, expected.si) || expected.si.serviceSub != expected) {
+		a.mu.Unlock()
+		return
+	}
+	if expected != nil {
+		dstAccName = expected.si.acc.Name
 	}
 	var si *serviceImport
 	if len(sis) == 1 {
@@ -1956,16 +1983,11 @@ func (a *Account) removeServiceImport(dstAccName, subject string) {
 		a.mu.Unlock()
 		return
 	}
-	var sid []byte
-	c := a.ic
-	if c != nil && si.sid != nil {
-		sid = si.sid
-	}
+	sub := si.serviceSub
+	si.sid, si.serviceSub = nil, nil
 	a.mu.Unlock()
 
-	if sid != nil {
-		c.processUnsub(sid)
-	}
+	a.removeServiceImportSub(sub)
 }
 
 // This tracks responses to service requests mappings. This is used for cleanup.
@@ -2203,14 +2225,13 @@ func (a *Account) addServiceImport(dest *Account, from, to string, claim *jwt.Im
 	if claim != nil {
 		share = claim.Share
 	}
-	si := &serviceImport{dest, claim, se, nil, from, to, tr, 0, rt, lat, nil, nil, nil, usePub, false, false, share, false, false, atrc, nil}
+	si := &serviceImport{dest, claim, se, nil, from, to, tr, 0, rt, lat, nil, nil, nil, usePub, false, false, share, false, false, atrc, nil, nil}
 	sis := a.imports.services[from]
 	sis = append(sis, si)
 	a.imports.services[from] = sis
 	a.mu.Unlock()
 
 	if err := a.addServiceImportSub(si); err != nil {
-		a.removeServiceImport(destAccName, si.from)
 		return nil, err
 	}
 	return si, nil
@@ -2259,30 +2280,57 @@ func (a *Account) subscribeInternalEx(subject string, cb msgHandler, ri bool) (*
 
 // This will add an account subscription that matches the "from" from a service import entry.
 func (a *Account) addServiceImportSub(si *serviceImport) error {
+	sub, err := a.reserveServiceImportSub(si)
+	if err != nil || sub == nil {
+		return err
+	}
+	if err := sub.subscribe(a); err != nil {
+		a.removeServiceImportWithSubscription(_EMPTY_, si.from, sub)
+		return err
+	}
+	return nil
+}
+
+func (a *Account) reserveServiceImportSub(si *serviceImport) (*serviceImportSubscription, error) {
 	a.mu.Lock()
+	defer a.mu.Unlock()
+	// addAllServiceImportSubs may have captured a replaced import.
+	if !slices.Contains(a.imports.services[si.from], si) {
+		return nil, nil
+	}
 	c := a.internalClient()
 	// This will happen in parsing when the account has not been properly setup.
 	if c == nil {
-		a.mu.Unlock()
-		return nil
+		return nil, nil
 	}
 	if si.sid != nil {
-		a.mu.Unlock()
-		return fmt.Errorf("duplicate call to create subscription for service import")
+		return nil, fmt.Errorf("duplicate call to create subscription for service import")
 	}
 	a.isid++
 	sid := strconv.FormatUint(a.isid, 10)
-	si.sid = []byte(sid)
-	subject := si.from
-	a.mu.Unlock()
-
-	cb := func(sub *subscription, c *client, acc *Account, subject, reply string, msg []byte) {
-		c.pa.delivered = c.processServiceImport(si, acc, msg)
+	sub := &serviceImportSubscription{client: c, si: si, sid: []byte(sid)}
+	si.sid, si.serviceSub = sub.sid, sub
+	if a.serviceSubs == nil {
+		a.serviceSubs = make(map[*serviceImportSubscription]struct{})
 	}
-	sub, err := c.processSubEx([]byte(subject), nil, []byte(sid), cb, true, true, false)
+	a.serviceSubs[sub] = struct{}{}
+	return sub, nil
+}
+
+func (s *serviceImportSubscription) subscribe(a *Account) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.canceled {
+		return nil
+	}
+	cb := func(sub *subscription, c *client, acc *Account, subject, reply string, msg []byte) {
+		c.pa.delivered = c.processServiceImport(s.si, acc, msg)
+	}
+	sub, err := s.client.processSubEx([]byte(s.si.from), nil, s.sid, cb, true, true, false)
 	if err != nil {
 		return err
 	}
+	s.sub = sub
 	// Leafnodes introduce a new way to introduce messages into the system. Therefore forward import subscription
 	// This is similar to what initLeafNodeSmapAndSendSubs does
 	// TODO we need to consider performing this update as we get client subscriptions.
@@ -2291,29 +2339,49 @@ func (a *Account) addServiceImportSub(si *serviceImport) error {
 	return nil
 }
 
+func (a *Account) removeServiceImportSub(s *serviceImportSubscription) {
+	if s == nil {
+		return
+	}
+	// The same mutex covers insertion and leaf propagation, so cancellation
+	// either prevents insertion or removes it after its interest is published.
+	s.mu.Lock()
+	if !s.canceled {
+		s.canceled = true
+		if s.sub != nil {
+			s.client.processUnsub(s.sid)
+		}
+	}
+	s.mu.Unlock()
+
+	a.mu.Lock()
+	delete(a.serviceSubs, s)
+	if s.si.serviceSub == s {
+		s.si.sid, s.si.serviceSub = nil, nil
+	}
+	a.mu.Unlock()
+}
+
 // Remove all the subscriptions associated with service imports.
 func (a *Account) removeAllServiceImportSubs() {
 	a.mu.Lock()
-	var sids [][]byte
 	for _, sis := range a.imports.services {
 		for _, si := range sis {
-			if si.sid != nil {
-				sids = append(sids, si.sid)
-				si.sid = nil
-			}
+			si.sid, si.serviceSub = nil, nil
 		}
 	}
+	subs := a.serviceSubs
+	a.serviceSubs = nil
 	c := a.ic
 	a.ic = nil
 	a.mu.Unlock()
 
-	if c == nil {
-		return
+	for sub := range subs {
+		a.removeServiceImportSub(sub)
 	}
-	for _, sid := range sids {
-		c.processUnsub(sid)
+	if c != nil {
+		c.closeConnection(InternalClient)
 	}
-	c.closeConnection(InternalClient)
 }
 
 // Add in subscriptions for all registered service imports.
@@ -2672,7 +2740,7 @@ func (a *Account) addRespServiceImport(dest *Account, to string, osi *serviceImp
 
 	// dest is the requestor's account. a is the service responder with the export.
 	// Marked as internal here, that is how we distinguish.
-	si := &serviceImport{dest, nil, osi.se, nil, nrr, to, nil, 0, rt, nil, nil, nil, mt, false, true, false, osi.share, false, false, false, nil}
+	si := &serviceImport{dest, nil, osi.se, nil, nrr, to, nil, 0, rt, nil, nil, nil, mt, false, true, false, osi.share, false, false, false, nil, nil}
 
 	if a.exports.responses == nil {
 		a.exports.responses = make(map[string]*serviceImport)
@@ -3487,6 +3555,7 @@ func (s *Server) updateAccountClaimsWithRefresh(a *Account, ac *jwt.AccountClaim
 	s.Debugf("Updating account claims: %s/%s", a.Name, ac.Name)
 	a.checkExpiration(ac.Claims())
 
+	var oldServiceSubs []*serviceImportSubscription
 	a.mu.Lock()
 	// Clone to update, only select certain fields.
 	old := &Account{
@@ -3542,6 +3611,12 @@ func (s *Server) updateAccountClaimsWithRefresh(a *Account, ac *jwt.AccountClaim
 		for k, v := range a.imports.services {
 			sis := append([]*serviceImport(nil), v...)
 			old.imports.services[k] = sis
+			for _, si := range sis {
+				if si.serviceSub != nil {
+					oldServiceSubs = append(oldServiceSubs, si.serviceSub)
+				}
+				si.sid, si.serviceSub = nil, nil
+			}
 			delete(a.imports.services, k)
 		}
 	}
@@ -3821,21 +3896,8 @@ func (s *Server) updateAccountClaimsWithRefresh(a *Account, ac *jwt.AccountClaim
 	}
 
 	// Now make sure we shutdown the old service import subscriptions.
-	var sids [][]byte
-	a.mu.RLock()
-	c := a.ic
-	if c != nil {
-		for _, sis := range old.imports.services {
-			for _, si := range sis {
-				if si.sid != nil {
-					sids = append(sids, si.sid)
-				}
-			}
-		}
-	}
-	a.mu.RUnlock()
-	for _, sid := range sids {
-		c.processUnsub(sid)
+	for _, sub := range oldServiceSubs {
+		a.removeServiceImportSub(sub)
 	}
 
 	// Now do limits if they are present.

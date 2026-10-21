@@ -1,0 +1,16 @@
+{
+  "state": "QA accepts NSG evidence packet; exact source and one scoped compile/runtime retained",
+  "created_utc": "2026-10-17T00:44:40.500128+00:00",
+  "candidate": "e502eed69cd2c020448b94c6970d9bacd8942cd8",
+  "tree": "31d1fd6d1811db28dfa86b1207ab492b02aab2c8",
+  "parent": "7512c426670cef4558c94ee62350fd1f29b850e9",
+  "archive_sha256": "3b929a819dc0f28bdf0cd375a077007ef02278edfd27d81a4199fd9fbf3390c9",
+  "members": 101,
+  "original_inputs_verified": 96,
+  "binary_omitted_with_hash_and_original_manifest": true,
+  "all_member_hashes_and_safe_metadata_verified": true,
+  "deterministic_tar_gzip_rebuild": true,
+  "source_not_modified_by_review": true,
+  "no_runner": true,
+  "limits": "Local synthetic SDK/static ingress only; original isolated test retained; no live/real peerTCP/replication/F3/global closure"
+}

@@ -1,0 +1,201 @@
+{
+  "state": "PASS_INDEPENDENT_RAW_RUNTIME_REVIEW",
+  "checks": {
+    "all_runtime_manifest_assets_match": true,
+    "actual_native_terminal_exit0_and_receipt_exact": true,
+    "exact_five_run_identities": true,
+    "exact_five_pass_identities": true,
+    "exact_one_package_pass": true,
+    "no_skips_failures_extra_tests": true,
+    "raw_hashes_match_stderr_empty": true,
+    "prepost_identical_clean": true,
+    "exact_granted_commit_tree_pins": true,
+    "actual_go_nice19_exact_env_i6_no_GOROOT": true,
+    "actual_timeout_and_go_pids_gone": true,
+    "ShortB_nonblocking_available": true,
+    "final_source_clean": true,
+    "old_7a69_packets_unused_and_byte_exact": true
+  },
+  "actual_timeout_pid": 611628,
+  "actual_go_pid": 611629,
+  "native_session_id": 61859,
+  "runtime": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/qa-output",
+  "event_count": 24,
+  "events": [
+    {
+      "Time": "2026-10-17T01:18:55.306243881-03:00",
+      "Action": "start",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.365121282-03:00",
+      "Action": "run",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.365301219-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary",
+      "Output": "=== RUN   TestCustomerEnvelopeFilesystemBoundary\n",
+      "OutputType": "frame"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.378010519-03:00",
+      "Action": "run",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/Success"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.378056352-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/Success",
+      "Output": "=== RUN   TestCustomerEnvelopeFilesystemBoundary/Success\n",
+      "OutputType": "frame"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.381469672-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/Success",
+      "Output": "--- PASS: TestCustomerEnvelopeFilesystemBoundary/Success (0.00s)\n",
+      "OutputType": "frame"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.381508421-03:00",
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/Success",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-17T01:18:55.381541901-03:00",
+      "Action": "run",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/WrongRecipient"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.381548905-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/WrongRecipient",
+      "Output": "=== RUN   TestCustomerEnvelopeFilesystemBoundary/WrongRecipient\n",
+      "OutputType": "frame"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.383098888-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/WrongRecipient",
+      "Output": "--- PASS: TestCustomerEnvelopeFilesystemBoundary/WrongRecipient (0.00s)\n",
+      "OutputType": "frame"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.38312518-03:00",
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/WrongRecipient",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-17T01:18:55.383142848-03:00",
+      "Action": "run",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/FlippedCiphertext"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.383149248-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/FlippedCiphertext",
+      "Output": "=== RUN   TestCustomerEnvelopeFilesystemBoundary/FlippedCiphertext\n",
+      "OutputType": "frame"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.385319237-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/FlippedCiphertext",
+      "Output": "--- PASS: TestCustomerEnvelopeFilesystemBoundary/FlippedCiphertext (0.00s)\n",
+      "OutputType": "frame"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.385346122-03:00",
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/FlippedCiphertext",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-17T01:18:55.385356854-03:00",
+      "Action": "run",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/AlternatePartition"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.385363314-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/AlternatePartition",
+      "Output": "=== RUN   TestCustomerEnvelopeFilesystemBoundary/AlternatePartition\n",
+      "OutputType": "frame"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.386554008-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/AlternatePartition",
+      "Output": "--- PASS: TestCustomerEnvelopeFilesystemBoundary/AlternatePartition (0.00s)\n",
+      "OutputType": "frame"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.386596674-03:00",
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary/AlternatePartition",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-17T01:18:55.386805346-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary",
+      "Output": "--- PASS: TestCustomerEnvelopeFilesystemBoundary (0.02s)\n",
+      "OutputType": "frame"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.386828208-03:00",
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestCustomerEnvelopeFilesystemBoundary",
+      "Elapsed": 0.02
+    },
+    {
+      "Time": "2026-10-17T01:18:55.386858573-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Output": "PASS\n",
+      "OutputType": "frame"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.39107087-03:00",
+      "Action": "output",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Output": "ok  \tgithub.com/TerraScale/ts-orchestrator/internal/bootstrap/cli\t0.084s\n"
+    },
+    {
+      "Time": "2026-10-17T01:18:55.391114881-03:00",
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Elapsed": 0.085
+    }
+  ],
+  "wall_seconds": 115.05856716702692,
+  "max_child_rss_kib": 1007032,
+  "receipt_sha256": "3c2861104770be7c406797fd91aaeaac531979d3de9e433a2b346aa7dfd020d4",
+  "runtime_manifest_sha256": "de41b540f1532cb4ebf3724eefd27ac41b2c83e51102c18ba8df9a95723c2e65",
+  "stdout_sha256": "5592c045b4842cea40f90b2b6e9cd6487e139e1587b02886cf61b315a2515e2f",
+  "scope": "One granted ShortB actual new root plus four leaves; one launch, no retry. Originals retained. No retirement/canonical adoption/global closure. Old7a69 packets unused."
+}

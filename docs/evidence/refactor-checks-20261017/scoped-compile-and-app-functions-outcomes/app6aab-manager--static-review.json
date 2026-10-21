@@ -1,0 +1,20 @@
+{
+  "selector": "TestGenericRuntimeSignedManagerIntegration",
+  "entry": "internal/app/generic_runtime_integration_test.go:51",
+  "package_init_review": "Compile451 did not execute init. Actual local init inventory from static-import-closure.json: authority runtime starts idle diagnostic consumer; host native_exec/runtime_probe dispatch only absent exact hidden argv; SDK publicapi/sdkcli register handler maps with no SDK calls. Dependency *_test.go excluded. APP TestMain bootstrap_credential_launcher_test.go:34 exact2arg hidden dispatch absent, normal os.Exit(m.Run()). Selected root/helpers have no t.Run or t.Parallel.",
+  "closure": [
+    "signed test root/spec/release + retained real native artifact history",
+    "authenticatedNATS JWT+mTLS embedded NATS/JetStream and host controller/agent in-memory runner",
+    "OCI SDK HTTPS object transport pinned to local httptest TLS endpoint; all unexpected endpoints refused, proxy disabled, fake RSA key only",
+    "real swarmruntime.StartNode embeds3manager SwarmKit nodes with in-memory exec controllers; application readiness local HTTP",
+    "autoscale real manager CAS, task failure/reconciliation, rollout102, rollback103, replay refusal/recovery104, manager election, drain/removal, OBS view"
+  ],
+  "listeners": "at most6 concurrent TCP loopback listeners: broker1 + OCI fixture1 + readyz1 + managers3; manager control.sock under t.TempDir. No wildcard listener/cloud/DNS mutation. All addresses127.0.0.1; TLS SDK hostname remapped to exact local endpoint.",
+  "subprocesses": "Go compiler/linker and one selected app test executable only; no native executor, docker, podman, live daemon command, IAM/cloud process.",
+  "state": "UID1000; all runtime state t.TempDir under /tmp plus dedicated /tmp/ts-host-install-* removed by cleanup. No /var/lib branch at UID1000; HOME read only tool/module caches. Existing persisted state untouched.",
+  "bounds": "fixture context240s across all phases; each node Stop cleanup15s (3 nodes total45s); Go timeout300s includes cleanup; outer timeout420s plus kill-after5s includes compile; estimated<=2GiBRSS,<=1GiB additional scratch/cache, GOMAXPROCS2/packagep1/nice19. Broker JWT memory256MiB/disk8GiB are configured maxima; actual small fixture messages.",
+  "phases": "setup/session/nativefloor\u2192signature/allocation negatives\u2192signedapply/repair/autoscale\u2192102rollout/103rollback/stalereplay/104recovery\u2192HTTP/sessionloss\u2192signedpolicyrevocation\u21923manager election\u21920replicas/drain/removal\u2192cleanup. All waits share240s fixture context except bounded node cleanup.",
+  "cleanup": "consumer+agent+host contexts canceled and awaited; managers Stop15s each; broker/HTTP/SDK servers closed; t.TempDir/install parent removed. If test reaches Go timeout process exit drops in-process listeners; outer timeout TERM/KILL5 bounds process group.",
+  "scope": "Actual local connected scenario; external recipient adapter and native execution remain explicit simulation. No OCI/IAM/native production qualification claim.",
+  "external_init_review": "Management reviewed closure reused: vendored NATS build metadata/TLS maps; pse linux reads own /proc+Sysinfo on1s sampler; ats channel only, file timestamp goroutine at Register; SwarmKit protobuf/store/log/metrics registration, ca logging level; no daemon from init. APP additional imported package initializer inventory conservative source-only in static-import-closure.json; no native helper mode requested. Root test body explicitly starts embedded broker+3managers."
+}

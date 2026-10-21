@@ -2,20 +2,22 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"net"
 	"sync/atomic"
 	"time"
 
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/budget"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 // allowanceTimeout bounds the read of the global capacity document. A read
@@ -25,44 +27,99 @@ const allowanceTimeout = 5 * time.Second
 // nodeScaling is what the node scaler runs on: the cell's pool and the host,
 // load and global state it reads, and the leader it acts under.
 type nodeScaling struct {
-	cell     string
-	js       jetstream.JetStream
-	replicas int
-	ready    func() bool
-	pool     *nodescale.OCIPool
-	factory  *ociclient.Factory
-	hosts    *host.Controller
-	load     *hostTelemetry
-	global   *globalControl
-	fencer   authority.Fencer
-	fences   *releaseFence
+	cell      string
+	js        jetstream.JetStream
+	replicas  int
+	ready     func() bool
+	pool      *nodescale.OCIPool
+	factory   *ociclient.Factory
+	control   api.ControlClient
+	canRetire func(context.Context, string, string) error
+	load      *hostTelemetry
+	global    *globalControl
+	fencer    authority.Fencer
+	fences    *releaseFence
 	// enrollment revokes a removed node's grant; nil when the region admits no pool nodes.
 	enrollment *managedHostEnrollment
 	// scaler publishes the running scaler to the release fence's spec.
 	scaler *atomic.Pointer[nodescale.Scaler]
 	// costViews prices the node and forecasts the region for the scaler's Cost (TS-807).
-	costViews *ociCostViews
+	costViews      *ociCostViews
+	reservations   *capacityReservations
+	root           *rootoci.Client
+	functionDemand func(context.Context) ([]nodescale.CapacityDemand, error)
 }
 
 // startNodeScaler runs the region's node scaler on every regional leader and
 // returns the status each member publishes in its region summary.
-func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Status, error) {
-	store, _, err := retryControllerOpen(ctx, "open node scaler state", in.ready, false,
-		func(attempt context.Context) (*nodescale.Store, error) {
-			return nodescale.OpenStore(attempt, in.js, in.replicas)
-		}, nil)
+func startNodeScaler(ctx context.Context, in nodeScaling, store *nodescale.Store) (boundNodePool, error) {
+	pool, err := nodescale.NewChosenPool(in.pool, store, in.root, in.currentPoolAuthority)
 	if err != nil {
-		return nil, err
+		return boundNodePool{}, err
 	}
 	prober := &nodescale.Prober{Regions: ociRegionNames(in.factory), Dial: (&net.Dialer{}).DialContext, Now: time.Now}
 	recipe := func(ctx context.Context) (nodescale.Recipe, error) {
-		return nodeRecipe(ctx, in.factory, in.cell)
+		record, _, err := store.Load(ctx)
+		if err != nil {
+			return nodescale.Recipe{}, err
+		}
+		if record.Action != nil && record.Action.Kind == nodescale.Up && record.Recipe != nil {
+			return in.reservations.choose(ctx, *record.Recipe, in.pool, in.factory, store, "")
+		}
+		base, compartment, err := in.reservations.workerBase(ctx, nodescale.RoleContainer, "")
+		if err != nil {
+			return nodescale.Recipe{}, err
+		}
+		if compartment != in.pool.CompartmentID() {
+			return nodescale.Recipe{}, fmt.Errorf("%w: authorized worker compartment differs from bound pool", nodescale.ErrCapacityPending)
+		}
+		return in.reservations.choose(ctx, base, in.pool, in.factory, store, "")
 	}
-	scaler := &nodescale.Scaler{Cell: in.cell, Pool: in.pool, Hosts: in.hosts, Store: store, Leader: in.fencer,
+	pricedRecipe := func(ctx context.Context) (nodescale.Recipe, error) {
+		record, _, err := store.Load(ctx)
+		if err != nil {
+			return nodescale.Recipe{}, err
+		}
+		if record.Recipe != nil {
+			return *record.Recipe, nil
+		}
+		return recipe(ctx)
+	}
+	scaler := &nodescale.Scaler{Cell: in.cell, Pool: pool, Control: in.control, CanRetire: in.canRetire, Store: store, Leader: in.fencer,
 		Now:    time.Now,
 		Recipe: recipe,
-		Cost:   in.costViews.nodeCost(recipe, time.Now),
-		Loads:  func() []nodescale.NodeLoad { return nodeLoads(in.load) },
+		FunctionDemand: func(ctx context.Context) ([]nodescale.CapacityDemand, error) {
+			if in.functionDemand == nil {
+				return nil, fmt.Errorf("%w: current signed function service capacity is unavailable", nodescale.ErrCapacityPending)
+			}
+			return in.functionDemand(ctx)
+		},
+		FunctionRecipe: func(ctx context.Context, architecture string) (nodescale.Recipe, error) {
+			record, _, err := store.Load(ctx)
+			if err != nil {
+				return nodescale.Recipe{}, err
+			}
+			if record.Action != nil && record.Action.Kind == nodescale.Up && record.Recipe != nil {
+				return in.reservations.choose(ctx, *record.Recipe, in.pool, in.factory, store, architecture)
+			}
+			base, compartment, err := in.reservations.workerBase(ctx, nodescale.RoleWasm, architecture)
+			if err != nil {
+				return nodescale.Recipe{}, err
+			}
+			if compartment != in.pool.CompartmentID() {
+				return nodescale.Recipe{}, fmt.Errorf("%w: authorized worker compartment differs from bound pool", nodescale.ErrCapacityPending)
+			}
+			return in.reservations.choose(ctx, base, in.pool, in.factory, store, architecture)
+		},
+		Reserve: func(ctx context.Context, operationID string, recipe nodescale.Recipe) (budget.Reservation, error) {
+			request, err := in.reservations.prepare(ctx, operationID, recipe, in.pool.CompartmentID())
+			if err != nil {
+				return budget.Reservation{}, err
+			}
+			return in.reservations.request(ctx, "reserve", request)
+		},
+		Cost:  in.costViews.nodeCost(in.reservations, in.pool.CompartmentID(), pricedRecipe, time.Now),
+		Loads: func() []nodescale.NodeLoad { return nodeLoads(in.load) },
 		Allowance: func(now time.Time) (int, bool) {
 			return allowance(in.global, in.cell, now)
 		},
@@ -87,7 +144,38 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 	in.scaler.Store(scaler)
 	go prober.Run(ctx)
 	go scaler.Run(ctx)
-	return scaleStatus(scaler), nil
+	return boundNodePool{pool: pool, status: scaleStatus(scaler)}, nil
+}
+
+// Recovery selects current authority without requiring new purchase facts.
+func (in nodeScaling) currentPoolAuthority(ctx context.Context, _ nodescale.Record) (rootoci.PoolChildExpectation, error) {
+	if in.fencer == nil || in.reservations == nil || in.reservations.spending == nil {
+		return rootoci.PoolChildExpectation{}, fmt.Errorf("%w: current signed capacity authority is unavailable", nodescale.ErrCapacityPending)
+	}
+	snapshot := in.fencer.Current()
+	if !snapshot.CanMutate() {
+		return rootoci.PoolChildExpectation{}, authority.ErrNotLeader
+	}
+	if err := in.fencer.Guard(ctx, snapshot.Epoch); err != nil {
+		return rootoci.PoolChildExpectation{}, err
+	}
+	proof, err := in.reservations.spending.InfrastructureSpend(ctx)
+	if err != nil {
+		return rootoci.PoolChildExpectation{}, err
+	}
+	if !proof.ValidAt(time.Now()) || proof.Generation() == 0 {
+		return rootoci.PoolChildExpectation{}, fmt.Errorf("%w: current signed capacity grant is unavailable", nodescale.ErrCapacityPending)
+	}
+	if err := proof.RevalidateBindings(ctx); err != nil {
+		return rootoci.PoolChildExpectation{}, err
+	}
+	if !proof.ValidAt(time.Now()) {
+		return rootoci.PoolChildExpectation{}, fmt.Errorf("%w: current signed capacity grant expired during binding readback", nodescale.ErrCapacityPending)
+	}
+	if err := in.fencer.Guard(ctx, snapshot.Epoch); err != nil {
+		return rootoci.PoolChildExpectation{}, err
+	}
+	return rootoci.PoolChildExpectation{Cell: in.cell, GrantSHA256: proof.GrantDigest(), Generation: proof.Generation(), Epoch: snapshot.Epoch}, nil
 }
 
 // ociRegionNames lists every OCI region's name through the instance principal the pool uses.
@@ -154,14 +242,14 @@ func allowance(global *globalControl, cell string, now time.Time) (int, bool) {
 }
 
 // backendsAt counts the load balancer backends at address in every backend set
-// of the release fence. Without a fence or an address, none can point there.
+// of the release fence. Missing inventory holds retirement.
 func backendsAt(ctx context.Context, fence *releaseFence, address string) (int, error) {
 	if fence == nil || address == "" {
-		return 0, nil
+		return 0, fmt.Errorf("node retirement requires a current load balancer fence and private address")
 	}
 	spec, _ := fence.spec()
 	if spec == nil {
-		return 0, nil
+		return 0, fmt.Errorf("node retirement load balancer inventory is unavailable")
 	}
 	api, err := fence.client(ctx)
 	if err != nil {

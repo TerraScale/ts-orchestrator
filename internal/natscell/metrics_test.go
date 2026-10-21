@@ -2,7 +2,6 @@ package natscell
 
 import (
 	"context"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -12,12 +11,11 @@ import (
 )
 
 func TestObserveReportsEmbeddedJetStreamHealth(t *testing.T) {
-	cfg := Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
-		Embedded: &Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream"),
-			StoreMaxBytes: 1 << 30}}
+	cfg := productionTestConfig(t, "lab", "one")
+	cfg.Embedded.StoreMaxBytes = 1 << 30
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, cfg)
+	runtime, err := openTestBroker(t, ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

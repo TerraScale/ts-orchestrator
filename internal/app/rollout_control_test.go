@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
@@ -58,25 +56,12 @@ func testRolloutStore(t *testing.T, fence authority.Fencer) *rollout.Store {
 // testRolloutJetStream starts a fresh single broker.
 func testRolloutJetStream(t *testing.T) jetstream.JetStream {
 	t.Helper()
-	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	auth := newAuthenticatedNATS(t, "gru")
+	runtime, err := auth.start(t, t.Context(), natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	go srv.Start()
-	if !srv.ReadyForConnections(5 * time.Second) {
-		t.Fatal("NATS did not start")
-	}
-	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
-	conn, err := nats.Connect(srv.ClientURL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(conn.Close)
-	js, err := jetstream.New(conn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return js
+	return runtime.JetStream()
 }
 
 func newRolloutRequester(t *testing.T) *rolloutRequester {
@@ -91,7 +76,7 @@ func newRolloutRequester(t *testing.T) *rolloutRequester {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{{
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{{
 		Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(public), Roles: []string{"terrabase"},
 		Environments: []string{"canary"}, CanRollOutOrchestrator: true}, {
 		Actor: "ci", PublicKey: base64.StdEncoding.EncodeToString(reader.Public().(ed25519.PublicKey)),
@@ -140,16 +125,16 @@ func (r *rolloutRequester) serve(wire []byte) (rolloutReply, error) {
 func TestRolloutRequestsPublishPauseAndRollBack(t *testing.T) {
 	r := newRolloutRequester(t)
 	first, second := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:" + first)}, nil))
+	reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:9:" + first)}, nil))
 	if err != nil || reply.Status != "published" || reply.Desired == nil || reply.Desired.Generation != 1 ||
 		reply.Desired.Actor != "ops" || reply.Desired.Receipt != nil || reply.Desired.RunNumber != 9 ||
 		reply.Desired.SourceRevision != strings.Repeat("e", 40) {
 		t.Fatalf("publish = %+v %v", reply, err)
 	}
-	if reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:" + first)}, nil)); err != nil || reply.Status != "unchanged" {
+	if reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:9:" + first)}, nil)); err != nil || reply.Status != "unchanged" {
 		t.Fatalf("republish = %+v %v", reply, err)
 	}
-	if _, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:" + second)}, nil)); err != nil {
+	if _, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:10:" + second)}, nil)); err != nil {
 		t.Fatal(err)
 	}
 	if reply, err := r.serve(r.sign(rolloutPauseKind, struct{}{}, nil)); err != nil || reply.Status != "paused" || !reply.Paused {
@@ -211,14 +196,14 @@ func TestRolloutRequestsDeferFutureReceiptAndRefuseEarlyRollback(t *testing.T) {
 func TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests(t *testing.T) {
 	r := newRolloutRequester(t)
 	digest := strings.Repeat("a", 64)
-	publish := rolloutPublishRequest{Receipt: []byte("receipt:" + digest)}
+	publish := rolloutPublishRequest{Receipt: []byte("receipt:9:" + digest)}
 	_, stranger, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tampered := r.sign(rolloutPublishKind, publish, nil)
-	tampered = []byte(strings.Replace(string(tampered), base64.StdEncoding.EncodeToString([]byte("receipt:"+digest)),
-		base64.StdEncoding.EncodeToString([]byte("receipt:"+strings.Repeat("c", 64))), 1))
+	tampered = []byte(strings.Replace(string(tampered), base64.StdEncoding.EncodeToString([]byte("receipt:9:"+digest)),
+		base64.StdEncoding.EncodeToString([]byte("receipt:9:"+strings.Repeat("c", 64))), 1))
 	foreign := *r
 	foreign.key = stranger
 	for name, test := range map[string]struct {
@@ -263,7 +248,7 @@ func TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests(t *testing.T) {
 	if _, err := r.serve(r.sign(rolloutPublishKind, publish, nil)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:" + strings.Repeat("b", 64))}, nil)); err != nil {
+	if _, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:10:" + strings.Repeat("b", 64))}, nil)); err != nil {
 		t.Fatal(err)
 	}
 	r.control.verify = func(receipt, _ []byte, _ time.Time) (rollout.Release, error) {
@@ -297,7 +282,7 @@ func TestRolloutConfigAndCommandFlagsAreChecked(t *testing.T) {
 	}
 	for _, key := range []string{"enabled", "executor", "channel", "allow_scoped_auto_sign"} {
 		for _, value := range []string{"true", "false", "null"} {
-			wire := []byte(`{"version":1,"controller":{"rollouts":{"` + key + `":` + value + `}}}`)
+			wire := []byte(`{"version":2,"controller":{"rollouts":{"` + key + `":` + value + `}}}`)
 			if _, err := decodeConfig(wire); err == nil {
 				t.Fatalf("retired control accepted: %s=%s", key, value)
 			}
@@ -326,7 +311,8 @@ func (proofs fixedProofs) Latest(unit string) (rolloutexec.HealthProof, bool) {
 // Every cell uses the same policy without a configuration override.
 func TestNextRolloutUsesTheFixedPolicy(t *testing.T) {
 	ctx := t.Context()
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}}
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}}
+	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)

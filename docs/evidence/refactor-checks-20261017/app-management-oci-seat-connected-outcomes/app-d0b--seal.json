@@ -1,0 +1,23 @@
+{
+  "request_sha256": "e10f808fa48933de79e56fdd533c1b1432774b0b3b39aac28fe5774dac66e0cb",
+  "wrapper_sha256": "de50a17b60ae8f4a3a69323822ee961f1499be92384b36edcfd054dbf1e4a734",
+  "source_manifest_sha256": "d00e8518785acaea61a761a03edbf890f412db7a48bff00a610d8ca68c7f7c7f",
+  "static_review_sha256": "5a7a9346341a8de13457b84823b3e9447a26a077544842ccc230dcb08a429b2c",
+  "static_closure_sha256": "dbb00d284344a03e4a09251e8557b60a2375b66c1f026e0368e08a8d3b266442",
+  "launch_argv": [
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "LANG=C.UTF-8",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/run.py",
+    "e10f808fa48933de79e56fdd533c1b1432774b0b3b39aac28fe5774dac66e0cb",
+    "de50a17b60ae8f4a3a69323822ee961f1499be92384b36edcfd054dbf1e4a734"
+  ]
+}

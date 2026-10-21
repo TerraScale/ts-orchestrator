@@ -1,0 +1,39 @@
+{
+  "accepted_compile_review_sha256": "5fa6e9eda88ce6124e5084ee631eb488d0fdf640cfec9ef5f722e8269c57aa19",
+  "accepted_source_mapping_sha256": "b6c659e2a9f3f12b01ff8fc694302df124f28ad365a14fbfa39d4794384cf940",
+  "adoption_patch_sha256": "88695c9c74e4c893538204403fcd4d160ec8b117e664288983e56c5677240a54",
+  "candidate": "f542bcee00e93adf636e392900864e05face8aa5",
+  "candidate_tree": "9a0c582da0662395b0979f56f3d12c74cfd37d87",
+  "checks": {
+    "accepted_compile_report_byte_exact": true,
+    "all_copies_byte_exact": true,
+    "all_text_utf8_flat_no_direct_go_ELF_archive_symlink": true,
+    "exact63_existing_evidence_only_differences": true,
+    "exact_patch_in_memory_full_blob_mode_tree_compared": true,
+    "historical_references_git_verified": true,
+    "terminal_native_object_equals_receipt": true
+  },
+  "compiled_ELFs_excluded": 2,
+  "compiled_ELFs_executed": 0,
+  "counts_unchanged": {
+    "firstparty_globally_unadjudicated": 4312,
+    "firstparty_retired": 7,
+    "vendor_central_closures": 0,
+    "vendor_originals_present": 1449,
+    "vendor_retired": 0
+  },
+  "feature_source_compatibility_sha256": "b46138ea3f03e1143c3fdb65e90cf8f9ea2ccdc71122fab3d5b14ac6005ff75d",
+  "historical_preparation_records": "Original source-only/no-grant/pending states remain unchanged time-specific evidence; accepted compile report supersedes draft pending status without editing it.",
+  "historical_runtime_review_sha256": "145828034116228cacab564f0e1a0ce0037d7cd5e1b801d4a4e56d22d5d57b32",
+  "limits": [
+    "Distinct independent publication review remains required.",
+    "No actual adoption or eighth retirement; no source/ledger/count mutation.",
+    "Historical67bc runtime and exactf542 truecompile remain separately source-specific.",
+    "Identity-rekey sibling runtime unknown; NATS/import/initializer/transitive provenance limits retained."
+  ],
+  "manifest_sha256": "da866fc4bc16280bb5913fb609870d8ff88f326f17d2c948eacdbed41d6be76d",
+  "native_launches": 1,
+  "native_polls": 5,
+  "native_session": 18865,
+  "state": "OWNER_FROZEN_PUBLICATION_READY_FOR_DISTINCT_INDEPENDENT_REVIEW_NOT_ADOPTED"
+}

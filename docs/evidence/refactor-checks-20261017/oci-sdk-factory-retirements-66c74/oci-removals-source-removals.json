@@ -1,0 +1,432 @@
+{
+  "base_head": "e5e72bbbfbf83f02c251ffe1fa98246137a3cedc",
+  "base_tree": "727f82020910c067fd106af5094a0e81d736dea2",
+  "removed_roots": [
+    {
+      "file": "internal/oci/sdk_test.go",
+      "root": "TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot",
+      "line": 26,
+      "declaration_bytes": 1220,
+      "declaration_lines": 23,
+      "declaration_sha256": "1ad51c32306ae9af9c403236ecabd951ed6ae8e2ad4591e3a3e8b07c5041576c",
+      "with_doc_bytes": 1220,
+      "with_doc_sha256": "1ad51c32306ae9af9c403236ecabd951ed6ae8e2ad4591e3a3e8b07c5041576c",
+      "raw_removed_bytes": 1222,
+      "raw_removed_lines": 24
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "root": "TestLaunchInstanceMapsSignedProfileIntoOCIRequest",
+      "line": 50,
+      "declaration_bytes": 4921,
+      "declaration_lines": 83,
+      "declaration_sha256": "9a8cba00d59aedb6b6db6cc77eab6908c5331ffb9ec3d5d1da134c3cc42dcba4",
+      "with_doc_bytes": 4921,
+      "with_doc_sha256": "9a8cba00d59aedb6b6db6cc77eab6908c5331ffb9ec3d5d1da134c3cc42dcba4",
+      "raw_removed_bytes": 4923,
+      "raw_removed_lines": 84
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "root": "TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK",
+      "line": 134,
+      "declaration_bytes": 696,
+      "declaration_lines": 15,
+      "declaration_sha256": "f206ec25523984c1d77a00a85957fdd1d8a6be02216dd206bdedc5556a38846c",
+      "with_doc_bytes": 696,
+      "with_doc_sha256": "f206ec25523984c1d77a00a85957fdd1d8a6be02216dd206bdedc5556a38846c",
+      "raw_removed_bytes": 698,
+      "raw_removed_lines": 16
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "root": "TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC",
+      "line": 150,
+      "declaration_bytes": 6814,
+      "declaration_lines": 126,
+      "declaration_sha256": "3ef766618c7dddaeb8653b3ff2e832311b358302717d23503f559f36949a406f",
+      "with_doc_bytes": 6814,
+      "with_doc_sha256": "3ef766618c7dddaeb8653b3ff2e832311b358302717d23503f559f36949a406f",
+      "raw_removed_bytes": 6816,
+      "raw_removed_lines": 127
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "root": "TestNamedHostObservationRequiresTheNamedRunningPrivateInstance",
+      "line": 319,
+      "declaration_bytes": 2128,
+      "declaration_lines": 48,
+      "declaration_sha256": "4998b2a12435f09f5963158310c84364b9f0662aefa2278a1b52bbb0553ebf4b",
+      "with_doc_bytes": 2271,
+      "with_doc_sha256": "26f5629631d36ed72222e6d1ff649539238efa4c34573effbcd7b0ed07611ea1",
+      "raw_removed_bytes": 2272,
+      "raw_removed_lines": 50
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "root": "TestVolumeAttachmentLookupUsesVolumeFilter",
+      "line": 261,
+      "declaration_bytes": 645,
+      "declaration_lines": 11,
+      "declaration_sha256": "a444f773815caab42e1fc08c1ba68abacceaef15e879524a0dc3941c5f636b5d",
+      "with_doc_bytes": 645,
+      "with_doc_sha256": "a444f773815caab42e1fc08c1ba68abacceaef15e879524a0dc3941c5f636b5d",
+      "raw_removed_bytes": 647,
+      "raw_removed_lines": 12
+    },
+    {
+      "file": "internal/oci/volume_backup_history_review_test.go",
+      "root": "TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory",
+      "line": 55,
+      "declaration_bytes": 1032,
+      "declaration_lines": 19,
+      "declaration_sha256": "e8174121f22736cbd86571234a3be817f95b245a637ef3784d52654a29d28c31",
+      "with_doc_bytes": 1183,
+      "with_doc_sha256": "5721ff045de677692639c618f32610d94c14586661b64a09096afa804d44a748",
+      "raw_removed_bytes": 1184,
+      "raw_removed_lines": 21
+    }
+  ],
+  "files": [
+    {
+      "file": "internal/oci/sdk_test.go",
+      "source_before_sha256": "70a23c5af82fa26050cbb832766dcdc9af152a74f50b55a78c758000d6cd2dc9",
+      "source_after_before_gofmt_sha256": "f36dec2fdf823805cbfce8929460c4978e53911f671ba8e47f49461dabc29966",
+      "unused_imports_removed": [
+        "errors",
+        "testing",
+        "github.com/TerraScale/ts-orchestrator/internal/hostboot",
+        "github.com/oracle/oci-go-sdk/v65/common"
+      ]
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "source_before_sha256": "ac7aae80bcbaeaa3e8330278098e5823f4643af5cf680647ee25347785f5b0c5",
+      "source_after_before_gofmt_sha256": "5aeeb8429e73df1972d8c1bf382d2b0ee17ee850a8daef42a7d8c1e4152c470c",
+      "unused_imports_removed": []
+    },
+    {
+      "file": "internal/oci/volume_backup_history_review_test.go",
+      "source_before_sha256": "461426dbd1cda010a56306c0b2983e95bdbc5a9a4af8430122e44c648773025b",
+      "source_after_before_gofmt_sha256": "c434c90bb325094aa986c6642ff21bd51791c51bc4b8aa06a5aa26ddb457b3a9",
+      "unused_imports_removed": [
+        "testing",
+        "github.com/oracle/oci-go-sdk/v65/common",
+        "github.com/oracle/oci-go-sdk/v65/core"
+      ]
+    }
+  ],
+  "helpers_removed": 0,
+  "production_or_replacement_or_fixture_edits": false,
+  "compiled": false,
+  "runtime_executed": false,
+  "adoption": false,
+  "global_count_or_ledger_update": false,
+  "actual_file_changes": [
+    {
+      "file": "internal/oci/sdk_test.go",
+      "before_bytes": 17863,
+      "after_bytes": 1808,
+      "deleted_bytes": 16055,
+      "before_lines": 366,
+      "after_lines": 60,
+      "deleted_lines": 306,
+      "after_sha256": "59e219d851745e2c1be8aac162955ec7ace33d61ce9cffbf5c6bee7f45d602f9"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "before_bytes": 20362,
+      "after_bytes": 19715,
+      "deleted_bytes": 647,
+      "before_lines": 450,
+      "after_lines": 438,
+      "deleted_lines": 12,
+      "after_sha256": "5aeeb8429e73df1972d8c1bf382d2b0ee17ee850a8daef42a7d8c1e4152c470c"
+    },
+    {
+      "file": "internal/oci/volume_backup_history_review_test.go",
+      "before_bytes": 2813,
+      "after_bytes": 1532,
+      "deleted_bytes": 1281,
+      "before_lines": 73,
+      "after_lines": 47,
+      "deleted_lines": 26,
+      "after_sha256": "04b4b807e3604fa802b01c4059c86a9eccdcee4f65efa08c399f059e63a52a04"
+    }
+  ],
+  "deleted_bytes": 17983,
+  "deleted_lines": 344,
+  "preserved_declarations": [
+    {
+      "file": "internal/oci/sdk_test.go",
+      "name": "terminalSDKRecorder",
+      "line": 12,
+      "bytes": 61,
+      "sha256": "88f45774f41d39caafcad51e681414d4161a1f6814488acc7da53bd38bffae72"
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "name": "Do",
+      "line": 16,
+      "bytes": 298,
+      "sha256": "f669b3a6e9c23387dca0ef9c38ae71c5f598b19464ad9f454f999183766d6b47"
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "name": "fakeInstanceReadback",
+      "line": 22,
+      "bytes": 242,
+      "sha256": "5566b705a9b6c98a80a2c80be4454e7587bc07e4e53b9bc874febabb88b1b925"
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "name": "ListBootVolumeAttachments",
+      "line": 31,
+      "bytes": 195,
+      "sha256": "42e87a02b9e225cc6ff27695d8e7991f71311432ca7f40335d99943d697ccd74"
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "name": "GetBootVolume",
+      "line": 35,
+      "bytes": 177,
+      "sha256": "86d2b7d7c2f09bd16063afbbab2aaeffb3199ded9febacedb2ae3773ee0b87f7"
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "name": "ListVnicAttachments",
+      "line": 40,
+      "bytes": 183,
+      "sha256": "400c87726edc25c8e0f522408b1dc11ffa6d63377534aa9c515ba6d007d02287"
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "name": "GetVnic",
+      "line": 44,
+      "bytes": 159,
+      "sha256": "2968aa7323154f400b9e56adb497ffc2156e58aa72255f8118b616300ac8d45e"
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "name": "fakeLaunchSDKClient",
+      "line": 49,
+      "bytes": 141,
+      "sha256": "8a85c8dcaedcdc48eadf546dc2b6791beb7040a938e17081f3cec3f6585a45c4"
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "name": "LaunchInstance",
+      "line": 56,
+      "bytes": 228,
+      "sha256": "669e0bcef7d0b51ba1921d0602dc1eab831c178f75cbf638097a1d123b8a0373"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "resizeProvider",
+      "line": 17,
+      "bytes": 168,
+      "sha256": "5e249bb088af1d867562b10faef8f77340acca356e4422067e87d71c23d4ee5b"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "UpdateVolumeSize",
+      "line": 26,
+      "bytes": 558,
+      "sha256": "c83a0560a547dc6a996f32091f9742d78a716fee1efd77a11099ca042c95f486"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "ListVolumeAttachments",
+      "line": 45,
+      "bytes": 260,
+      "sha256": "8645901ca5af6ee290e26449710a1680938f34b24acf84b8f30c3e4259e52a52"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "ListVolumeAttachmentsByVolume",
+      "line": 52,
+      "bytes": 641,
+      "sha256": "07e7e7fe08d2e6b6c5d8e6229910d2202b3e2d0f79548cdf42774df5e0bc9d9e"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "resizeFixture",
+      "line": 68,
+      "bytes": 878,
+      "sha256": "775574fbecd4be3fef8b68540170a3c5e5f609fe1a8963aadd66bb1012f0268d"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "resizeRequest",
+      "line": 90,
+      "bytes": 222,
+      "sha256": "5e8036c0a75207d3690f236a2ce8e9ba643b005780e95d2b66f82c687128c14f"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "TestResizeRetainedVolumeGrowsAndKeepsDurableOwnership",
+      "line": 94,
+      "bytes": 2410,
+      "sha256": "1baa89f3220b608357d9267bb075095d0ef40fc8446190679f434b4abf96196a"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "TestResizeRetainedVolumeRecoversLostResponseAndHoldsStaleState",
+      "line": 142,
+      "bytes": 2656,
+      "sha256": "4c9ccca365821368b7e0fd6b7c21cf5e2ad4aa2c3e29a5990acb0508995175d8"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "TestResizeAttemptsKeepTheUnmovedETagAndAreBounded",
+      "line": 192,
+      "bytes": 1864,
+      "sha256": "cfe869038f8d0814e82665099212c71313c189a1473c3703060319beb2ca4008"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "TestResizeRetainedVolumeRefusesUnownedFencedAndOutOfBoundRequests",
+      "line": 231,
+      "bytes": 1511,
+      "sha256": "1df1cf560a08e08283aca7a8deb4f634eb341e333bba4bf6104ee70ad5f0a368"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "TestKVJournalAdvancesAndRepairsResizedVolumeOwnership",
+      "line": 261,
+      "bytes": 3976,
+      "sha256": "bbe410ee64b47bc525cde13bfe31dd036d9a913cf0a4c53cc81e9c53962f36f7"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "TestTerminalTreatsObservedSupersededResizesAsSettled",
+      "line": 348,
+      "bytes": 1040,
+      "sha256": "88308d6995a1baad7cd834b18eb3e11c530d76148a32c45110e7ca150336bad1"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "TestTerminalSettlesAResizeWhoseETagCanNoLongerMatch",
+      "line": 371,
+      "bytes": 631,
+      "sha256": "4f5699dfd3b5ea3965d35ab6f906272132e4795a85f5cbb6d449f2f3c671da0f"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "name": "TestKVJournalRepairsOwnershipFromALaterResizeAttempt",
+      "line": 388,
+      "bytes": 2463,
+      "sha256": "3cb1fb1f7498773bd9dfa6c5e7228c3f68210f814f8e4a3ba41324ea97736de3"
+    },
+    {
+      "file": "internal/oci/volume_backup_history_review_test.go",
+      "name": "backupHistorySDK",
+      "line": 15,
+      "bytes": 72,
+      "sha256": "b5800ff5df198275a18c1a213511109bbb5fead057ae8804cc8d43db63969799"
+    },
+    {
+      "file": "internal/oci/volume_backup_history_review_test.go",
+      "name": "Do",
+      "line": 20,
+      "bytes": 1205,
+      "sha256": "acf16400539e11aed2039357d0150525519e7365880abcb12b9300c5523e96d3"
+    }
+  ],
+  "preserved_declaration_count": 25,
+  "remaining_helper_uses": {
+    "terminalSDKRecorder": {
+      "remaining_references": [
+        {
+          "file": "internal/oci/sdk_test.go",
+          "line": 12,
+          "text": "type terminalSDKRecorder struct {"
+        },
+        {
+          "file": "internal/oci/sdk_test.go",
+          "line": 16,
+          "text": "func (recorder *terminalSDKRecorder) Do(request *http.Request) (*http.Response, error) {"
+        }
+      ],
+      "construction_or_call_uses_remaining": 0,
+      "retained_by_instruction": true
+    },
+    "fakeInstanceReadback": {
+      "remaining_references": [
+        {
+          "file": "internal/oci/sdk_test.go",
+          "line": 22,
+          "text": "type fakeInstanceReadback struct {"
+        },
+        {
+          "file": "internal/oci/sdk_test.go",
+          "line": 31,
+          "text": "func (reader *fakeInstanceReadback) ListBootVolumeAttachments(context.Context, core.ListBootVolumeAttachmentsRequest) (core.ListBootVolumeAttachmentsResponse, error) {"
+        },
+        {
+          "file": "internal/oci/sdk_test.go",
+          "line": 35,
+          "text": "func (reader *fakeInstanceReadback) GetBootVolume(context.Context, core.GetBootVolumeRequest) (core.GetBootVolumeResponse, error) {"
+        },
+        {
+          "file": "internal/oci/sdk_test.go",
+          "line": 40,
+          "text": "func (reader *fakeInstanceReadback) ListVnicAttachments(context.Context, core.ListVnicAttachmentsRequest) (core.ListVnicAttachmentsResponse, error) {"
+        },
+        {
+          "file": "internal/oci/sdk_test.go",
+          "line": 44,
+          "text": "func (reader *fakeInstanceReadback) GetVnic(context.Context, core.GetVnicRequest) (core.GetVnicResponse, error) {"
+        }
+      ],
+      "construction_or_call_uses_remaining": 0,
+      "retained_by_instruction": true
+    },
+    "fakeLaunchSDKClient": {
+      "remaining_references": [
+        {
+          "file": "internal/oci/sdk_test.go",
+          "line": 49,
+          "text": "type fakeLaunchSDKClient struct {"
+        },
+        {
+          "file": "internal/oci/sdk_test.go",
+          "line": 56,
+          "text": "func (client *fakeLaunchSDKClient) LaunchInstance(_ context.Context, request core.LaunchInstanceRequest) (core.LaunchInstanceResponse, error) {"
+        }
+      ],
+      "construction_or_call_uses_remaining": 0,
+      "retained_by_instruction": true
+    },
+    "backupHistorySDK": {
+      "remaining_references": [
+        {
+          "file": "internal/oci/volume_backup_history_review_test.go",
+          "line": 13,
+          "text": "// backupHistorySDK serves a volume's backup history newest first in pages"
+        },
+        {
+          "file": "internal/oci/volume_backup_history_review_test.go",
+          "line": 15,
+          "text": "type backupHistorySDK struct {"
+        },
+        {
+          "file": "internal/oci/volume_backup_history_review_test.go",
+          "line": 20,
+          "text": "func (sdk *backupHistorySDK) Do(request *http.Request) (*http.Response, error) {"
+        }
+      ],
+      "construction_or_call_uses_remaining": 0,
+      "retained_by_instruction": true
+    }
+  },
+  "all_other_tracked_source_unchanged": true,
+  "removed_roots_absent_from_internal_oci": true,
+  "patch_sha256": "b7fed8ac90c8f7b30432e01bf95911e6413894610db65c8adfbc8a1a117036a2",
+  "head": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+  "tree": "fa1475d043de69482d8a7884d920b134899ff973",
+  "worktree": "/tmp/ts-oci-sdk-volume-retirement",
+  "branch": "refactor/oci-sdk-volume-retirement",
+  "source_clean": true,
+  "checked_donor_unchanged_and_clean": true
+}

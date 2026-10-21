@@ -30,7 +30,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
-	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
 type retainedConsumerFixture struct {
@@ -278,16 +277,7 @@ func TestHostTelemetryAdoptionAndRecoveryUseCommittedResources(t *testing.T) {
 	good := nativeGoodRelease{Binding: a, Nodes: []string{"ctl-1"}, GoodAt: time.Now()}
 	f.save(t, tsauth.Role, nativeReleaseHistory{Schema: 1, Pending: &a, Good: []nativeGoodRelease{good}})
 	f.desired(t, a)
-	specs := []workload.ServiceSpec{{Role: tsauth.Role, Environment: "test", Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 1}}}
-	reconciler, telemetry, err := startWorkloadAutoscale("gru", nil, profiles, specs, f.history.hosts, f.history.fencer, f.history)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.history.services.changed = func(profiles map[string]WorkloadProfile, specs []workload.ServiceSpec) {
-		if err := reconciler.SetServices(specs, profileResources(profiles)); err != nil {
-			t.Fatal(err)
-		}
-	}
+	telemetry := startHostTelemetry(profiles, f.history.hosts, f.history.fencer)
 	usage := &runtimeObservability{usage: capacity.NewStore("gru")}
 	at := time.Now()
 	telemetry.load = hostload.NewAggregator(hostload.AggregatorConfig{Requests: loadRequests(profileResources(profiles)), Now: func() time.Time { return at }})
@@ -336,6 +326,7 @@ func TestHostTelemetryAdoptionAndRecoveryUseCommittedResources(t *testing.T) {
 	check("serving-b", bProfile.Resources, true)
 	recovery := a
 	recovery.Intent.OperationID, recovery.Intent.Generation = entityid.New(), 3
+	var err error
 	recovery.Fingerprint, err = recovery.Intent.Fingerprint()
 	if err != nil {
 		t.Fatal(err)

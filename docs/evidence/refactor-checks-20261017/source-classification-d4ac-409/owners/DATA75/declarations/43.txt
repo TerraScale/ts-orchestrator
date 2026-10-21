@@ -1,0 +1,27 @@
+func TestArtifactAdmissionBindsSourceAndReadback(t *testing.T) {
+	s, ctx := testService(t, &testWriter{})
+	client, err := ConnectClient(ctx, Config{Conn: s.config.Conn, JS: s.js, Cell: "lab", ArtifactSigner: testCodec{}, ArtifactVerifier: testCodec{}, AuthorizeArtifact: func(context.Context, string, ArtifactRecord) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Run(ctx); err == nil {
+		t.Fatal("client unexpectedly started a consumer")
+	}
+	i := testIntent(t, s, ctx)
+	r, err := client.readAdmission(ctx, i.ArtifactDigest, i.Cell, i.Role, i.Environment)
+	if err != nil || r.ManifestDigest != i.ManifestDigest {
+		t.Fatalf("admission: %+v %v", r, err)
+	}
+	other := i.Source
+	other.Commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	_, wire, err := s.PrepareArtifact(ctx, bytes.NewReader([]byte("#!/bin/sh\necho ready\n")), ArtifactClaimRequest{Source: other, Cell: "lab", Role: "worker", Environment: "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AcceptArtifactClaim(ctx, wire); !errors.Is(err, ErrConflict) {
+		t.Fatalf("same bytes with different source: %v", err)
+	}
+	if err := s.verifyArtifact(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+}

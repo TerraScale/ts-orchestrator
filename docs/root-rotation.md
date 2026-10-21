@@ -18,7 +18,7 @@ genesis and adopts it only when it extends the chain it already holds. It
 writes the adopted chain to
 `/var/lib/terrascale-orchestrator-controller/trust/root-chain.json` before it
 switches. The leader rewrites a removed, forked or shorter record with its
-adopted chain. With `kv_snapshot` enabled the record is snapshotted to OCI
+adopted chain. The record is automatically snapshotted to OCI
 Object Storage with the other configuration buckets (see
 [storage](storage.md)), so a rebuilt cell restores its rotations before the
 chain opens; a restored record still verifies from genesis.

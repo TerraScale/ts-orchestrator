@@ -1,0 +1,277 @@
+{
+  "state": "ACCEPT_EXACT_B8FEE_CANDIDATE_COMPILE_AND_SELECTED_RUNTIME_SCOPES",
+  "reviewed_utc": "2026-10-17T13:15:54.814128+00:00",
+  "source": {
+    "path": "/tmp/ts-terminal-sdk-boundary-7cswu3af/source",
+    "base": "9988b2b8406b4ed808b628ee838d9190d5354a3c",
+    "head": "b8fee5fcdcae1de49fc36313869ed332e66f00f6",
+    "tree": "dec3814e47b6f3facdab666d265677f184756663",
+    "clean_current_and_recorded_prepost": true,
+    "changed_paths": [
+      "internal/oci/authenticated_journal_test.go",
+      "internal/oci/capacity_request_integration_test.go",
+      "internal/oci/journal_test.go",
+      "internal/oci/pool_receipt_integration_test.go",
+      "internal/oci/terminal_sdk_boundary_integration_test.go",
+      "internal/oci/volume_observer_integration_test.go",
+      "internal/oci/volume_termination_test.go"
+    ],
+    "test_only_no_tags_skips_production_changes": true,
+    "reviewed_source_sha256": {
+      "internal/oci/authenticated_journal_test.go": "6f9428ba15e41b97aeedc8b3d261daca6ff24b230aaaa2691e4c043d6131e663",
+      "internal/oci/capacity_request_integration_test.go": "2a3bc2af39a4429019edca97d1175c4a41dd04fe060dba4e5e71ee38518af230",
+      "internal/oci/journal_test.go": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+      "internal/oci/pool_receipt_integration_test.go": "c28f4b4cb0b38559bae127b59bfd34727b750e881abb885366ad98d4a465ae45",
+      "internal/oci/terminal_sdk_boundary_integration_test.go": "eeeb9ae628e5a3139a287da00ba017a10f8652f55240d4412b1fced8efce7c2f",
+      "internal/oci/volume_observer_integration_test.go": "d00e66c587a18461e40b30da5cbfe5ea640e8f0229f8a079b5caed2495c1fa36",
+      "internal/oci/volume_termination_test.go": "c7ee17f335871ed1c27bfe6fd639f54e3f5495c55b6cd3303165318b865c76f6",
+      "internal/oci/sdk.go": "fb5b600a5ff7ed525f4a34b558295277be1c79257f8d5286ba7fc3ef1f3f6400",
+      "internal/oci/sdk_test.go": "70a23c5af82fa26050cbb832766dcdc9af152a74f50b55a78c758000d6cd2dc9",
+      "internal/natscell/runtime.go": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf",
+      "internal/natscell/bridge.go": "40e089ec3dbb2173fb7348f963ef2dfefccc8c3209596c82b1597434b8a5a548"
+    }
+  },
+  "preservation": {
+    "original_TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot_byte_identical": true,
+    "original_not_selected_for_runtime_in_this_evidence": true,
+    "five_fixture_assertion_and_Run_sites": 172,
+    "counts": {
+      "Fatal": 115,
+      "Fatalf": 48,
+      "Run": 2,
+      "Error": 5,
+      "Errorf": 2
+    },
+    "all_assertion_call_lines_preserved_in_order": true,
+    "all14_original_root_names_preserved": true,
+    "files": {
+      "internal/oci/capacity_request_integration_test.go": {
+        "test_roots": [
+          "TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity"
+        ],
+        "assertion_and_Run_receiver_calls": 13,
+        "counts": {
+          "Fatal": 8,
+          "Fatalf": 4,
+          "Run": 1
+        }
+      },
+      "internal/oci/journal_test.go": {
+        "test_roots": [
+          "TestRegionIntentUsesFixedProductMapping",
+          "TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+          "TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+          "TestJournalPinsSignedPlacementComputeProfile",
+          "TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+          "TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+          "TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+          "TestJournalConcurrentConflictingResultsHaveOneImmutableWinner"
+        ],
+        "assertion_and_Run_receiver_calls": 55,
+        "counts": {
+          "Fatal": 32,
+          "Fatalf": 23
+        }
+      },
+      "internal/oci/pool_receipt_integration_test.go": {
+        "test_roots": [
+          "TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission"
+        ],
+        "assertion_and_Run_receiver_calls": 36,
+        "counts": {
+          "Fatal": 26,
+          "Error": 2,
+          "Errorf": 1,
+          "Fatalf": 7
+        }
+      },
+      "internal/oci/volume_observer_integration_test.go": {
+        "test_roots": [
+          "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects"
+        ],
+        "assertion_and_Run_receiver_calls": 46,
+        "counts": {
+          "Fatal": 32,
+          "Error": 3,
+          "Errorf": 1,
+          "Fatalf": 10
+        }
+      },
+      "internal/oci/volume_termination_test.go": {
+        "test_roots": [
+          "TestVolumeTerminationProofRejectsDifferentOrCorruptScope",
+          "TestVolumeTerminationProofRequiresSuccessfulWrite",
+          "TestVolumeTerminationProofSurvivesBrokerRestart"
+        ],
+        "assertion_and_Run_receiver_calls": 22,
+        "counts": {
+          "Fatal": 17,
+          "Fatalf": 4,
+          "Run": 1
+        }
+      }
+    }
+  },
+  "terminal_assertion_mapping": [
+    {
+      "original": "Three success-wrapper calls",
+      "successor": "Three TLS leaves call actual sdkProvider wrappers; HTTP204 must return nil."
+    },
+    {
+      "original": "Three exact If-Match ETags",
+      "successor": "Each leaf accepts only its own exact ETag; stale-etag returns SDK ServiceError with HTTP412/code PreconditionFailed/opc-request-id terminal-boundary, exactly two requests."
+    },
+    {
+      "original": "Terminate preserves boot volume",
+      "successor": "TerminateInstance exact query asserts preserveBootVolume=true and preserveDataVolumesCreatedAtLaunch=true; other deletes have empty query."
+    }
+  ],
+  "transport_scope": {
+    "terminal": "Real OCI SDK clients with generated test RSA signer, literal-loopback httptest TLS server and server.Client certificate trust; redirects refused, dialer refuses any other endpoint. DELETE method/path/query, TLS presence and Signature header prefix checked. Server does not independently cryptographically verify OCI request signature. No mutual TLS claim for this SDK fixture.",
+    "journal": "Generated operator/system/account/user JWT chain, controller credentials, nonce signatures, local CA with server/client peer cert, ValidateProductionCredentials, applied cell claim and finite bridge OpenUntil. A separate nonembedded client crosses unchanged production JWT/mutual-TLS bridge. Embedded bootstrap/system client remains in-process. Direct test bridge opening is not production authority-ticket admission proof.",
+    "auth_relaxation": "None in production. Seven-path delta changes tests only; existing runtime mandatory TLS/JWT checks and tls.RequireAndVerifyClientCert remain byte-identical."
+  },
+  "canonical_compile": {
+    "packet": "/tmp/ts-qa-terminal-b8fee-compile-gbm7co7t",
+    "exit_code": 0,
+    "seconds": 27.500621694955043,
+    "default_tags": true,
+    "default_vet": true,
+    "true_test_c_no_execution": true,
+    "ELF": {
+      "path": "/tmp/ts-qa-terminal-b8fee-compile-gbm7co7t/oci.test",
+      "mode": "0o600",
+      "bytes": 34651334,
+      "sha256": "81af7248c68a4ece306179e58d47698b4d17bc40de42d95743cea1bbe7162185",
+      "never_executed": true
+    },
+    "shortB_released_recorded": true,
+    "raw_log_empty": true
+  },
+  "duplicate_compile": {
+    "record": "/tmp/ts-terminal-sdk-boundary-7cswu3af/duplicate-compile-result.json",
+    "sha256": "77de29e71b4ad19e3b22e74a4c36ccee83144733fae1008c006fdd217568af88",
+    "lock_acquired": false,
+    "preserved_separately_not_canonical": true,
+    "matching_ELF_hash": true,
+    "additional_qualification": false,
+    "note": "Owner duplicate compile occurred before corrected routing; record retained, no new qualification requested or inferred."
+  },
+  "independent_raw_runtime_reviews": [
+    {
+      "packet": "/tmp/ts-terminal-b8fee-runtime-artifact-tests",
+      "events": 20,
+      "counts": {
+        "start": 1,
+        "run": 4,
+        "output": 10,
+        "pass": 5
+      },
+      "roots": 1,
+      "leaves": 3,
+      "test_RUN": 4,
+      "test_PASS": 4,
+      "package_PASS": 1,
+      "unexpected_malformed_duplicate_fail_skip_lifecycle_errors": 0,
+      "package_seconds": 0.1,
+      "wrapper_seconds": 2.2744819759973325,
+      "raw_sha256": {
+        "raw.jsonl": "a14892fbe9e1351f27074a5d456dcd3834e6789d78e25fd94cf2f4a8dac503b8",
+        "raw.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "GENERAL_released_recorded": true,
+      "cleanup_joined_recorded": "Not independently enumerated by terminal-only wrapper",
+      "argv": [
+        "nice",
+        "-n",
+        "19",
+        "timeout",
+        "--signal=TERM",
+        "--kill-after=5s",
+        "120s",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "test",
+        "-json",
+        "-mod=readonly",
+        "-p=1",
+        "-count=1",
+        "-parallel=1",
+        "-timeout=60s",
+        "-run",
+        "^TestTerminalSDKDeleteSocketBoundary$",
+        "./internal/oci"
+      ]
+    },
+    {
+      "packet": "/tmp/ts-terminal-b8fee-fixtures-artifact-tests",
+      "events": 677,
+      "counts": {
+        "start": 1,
+        "run": 30,
+        "output": 615,
+        "pass": 31
+      },
+      "roots": 14,
+      "leaves": 16,
+      "test_RUN": 30,
+      "test_PASS": 30,
+      "package_PASS": 1,
+      "unexpected_malformed_duplicate_fail_skip_lifecycle_errors": 0,
+      "package_seconds": 11.057,
+      "wrapper_seconds": 13.19397605600534,
+      "raw_sha256": {
+        "raw.jsonl": "c25fa3ec14a5e41ba78e9f80c55f1aa40c071042b560388e58ea61f205d7688a",
+        "raw.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "GENERAL_released_recorded": true,
+      "cleanup_joined_recorded": true,
+      "argv": [
+        "nice",
+        "-n",
+        "19",
+        "timeout",
+        "--signal=TERM",
+        "--kill-after=5s",
+        "240s",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "test",
+        "-json",
+        "-mod=readonly",
+        "-p=1",
+        "-count=1",
+        "-parallel=1",
+        "-timeout=180s",
+        "-run",
+        "^(TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity|TestRegionIntentUsesFixedProductMapping|TestJournalBootBindingSurvivesReopenAndRejectsRebinding|TestJournalRepairsOwnershipProjectionAfterPartialFailure|TestJournalPinsSignedPlacementComputeProfile|TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome|TestJournalOperationLookupRecoversPersistedAttachmentDevice|TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding|TestJournalConcurrentConflictingResultsHaveOneImmutableWinner|TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission|TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects|TestVolumeTerminationProofRejectsDifferentOrCorruptScope|TestVolumeTerminationProofRequiresSuccessfulWrite|TestVolumeTerminationProofSurvivesBrokerRestart)$",
+        "./internal/oci"
+      ]
+    }
+  ],
+  "evidence_sha256": {
+    "/tmp/ts-terminal-b8fee-runtime-artifact-tests/run.py": "af3c7660af22e0ca0e9884fd4aff8c0d2c33907c79afc95707983457245328ef",
+    "/tmp/ts-terminal-b8fee-runtime-artifact-tests/started.json": "557604d7786d71275e7e88d89468ece66d56c28972747746e2a6ccb9cac355c8",
+    "/tmp/ts-terminal-b8fee-runtime-artifact-tests/raw.jsonl": "a14892fbe9e1351f27074a5d456dcd3834e6789d78e25fd94cf2f4a8dac503b8",
+    "/tmp/ts-terminal-b8fee-runtime-artifact-tests/raw.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-terminal-b8fee-runtime-artifact-tests/result.json": "98ce39ccc5b091593ab38ce994902bafeb0047371a7086a76b0fd4403936391c",
+    "/tmp/ts-terminal-b8fee-runtime-artifact-tests/fixture-plan.json": "962a55de913070bd2d63bf771555dd66080406dc39fe3c1de8d3ad789ea8cf92",
+    "/tmp/ts-terminal-b8fee-fixtures-artifact-tests/run.py": "035904a29c1cd0e46c3742e167479dd9b275cab1be6995ec6332eb34cff5d927",
+    "/tmp/ts-terminal-b8fee-fixtures-artifact-tests/fixture-plan.json": "962a55de913070bd2d63bf771555dd66080406dc39fe3c1de8d3ad789ea8cf92",
+    "/tmp/ts-terminal-b8fee-fixtures-artifact-tests/started.json": "332d8bd3a0f44a4779ece367483624f5635bf5386282544f30c42cc72cb7a1f8",
+    "/tmp/ts-terminal-b8fee-fixtures-artifact-tests/raw.jsonl": "c25fa3ec14a5e41ba78e9f80c55f1aa40c071042b560388e58ea61f205d7688a",
+    "/tmp/ts-terminal-b8fee-fixtures-artifact-tests/raw.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-terminal-b8fee-fixtures-artifact-tests/running.json": "24d6ec3ec7add0f5858ae6927c9260c85470d467a3d863ffc56559a019ebaeea",
+    "/tmp/ts-terminal-b8fee-fixtures-artifact-tests/result.json": "cca5c37a2c87dee8d88ff6afb3cad502b8e8a9456695f35eed7efaaf54816094",
+    "/tmp/ts-terminal-b8fee-fixtures-artifact-tests/events-summary.json": "471bc6bcbb40a9d94b1a3774d4433ace52f80f74bcfcb4c15e5319fb164f8d4f",
+    "/tmp/ts-qa-terminal-b8fee-compile-gbm7co7t/result.json": "11d44358574d7fbc8f6087d95dd9e349aba7df7a95e088ce3b3fe0ccb9d9b167",
+    "/tmp/ts-qa-terminal-b8fee-compile-gbm7co7t/raw.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-terminal-sdk-boundary-7cswu3af/duplicate-compile-result.json": "77de29e71b4ad19e3b22e74a4c36ccee83144733fae1008c006fdd217568af88"
+  },
+  "findings": [],
+  "limits": [
+    "Exact default-tag/default-vet internal/oci compile and selected roots only; no full-package test, race, live OCI, production safety, retirement, adoption, canonical/main/global/count or additional qualification credit.",
+    "Source identity uses clean Git HEAD/tree, reviewed blobs and recorded pre/post snapshots. Artifacts provide wrapper/result provenance; no independent backend/syscall log or fabricated missing native arguments.",
+    "ELF never-executed status is retained compile receipt/runner scope plus current0600/hash evidence, not an OS-wide execution history audit.",
+    "GENERAL cleanup/release comes from retained wrappers/results; reviewer made no present process or lock probes.",
+    "Reviewer ran no Go/tests/retained runner/binary, changed no source/Git/ledger, acquired no locks and spawned no agents."
+  ]
+}

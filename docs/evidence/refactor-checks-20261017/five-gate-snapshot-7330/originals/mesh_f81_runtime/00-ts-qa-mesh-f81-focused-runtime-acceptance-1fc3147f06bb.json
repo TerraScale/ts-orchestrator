@@ -1,0 +1,165 @@
+{
+  "verdict": "ACCEPT_EXACT_MESH_F81_FOCUSED_LOCAL_TRANSPORT_ACCOUNT_RUNTIME_PASS_NO_GLOBAL_CREDIT",
+  "findings": [],
+  "packet": "/tmp/ts-mesh-nativef81-runtime-strict-20261017T143928330260Z",
+  "source_commit": "f81aa359ed95c7efb9521e05b46bf0e78e968215",
+  "source_tree": "264932eda7e32cacaebac43bae7792784a5785cb",
+  "pins": {
+    "/tmp/ts-mesh-nativef81-runtime-strict-20261017T143928330260Z/terminal.json": "54c3924b17ea5c33252df203fa2c7e176af85bc9c9449e5b10115ac368fd1646",
+    "/tmp/ts-mesh-nativef81-runtime-strict-20261017T143928330260Z/result.json": "4b6a2ba317fee206acd72da6c123527626962cdbc236f859d8023ba7cf51eb32",
+    "/tmp/ts-mesh-nativef81-runtime-strict-20261017T143928330260Z/native-tool-transcript.jsonl": "f291224b0f42cbc29bee3d1fb011f143b67576b8332ed73c2e7bd5a16d37a072",
+    "/tmp/ts-mesh-nativef81-runtime-strict-20261017T143928330260Z/runtime-natscell-nativef81-default.log": "0e45ca6da718369498cecd3e938b02477983c50ac166a487fb580e695a2a5e5a"
+  },
+  "complete_artifact_hashes_verified": {
+    "freeze.json": "7ca2ec0284382c1cd9e4ef9102d496df13535854d9588dec9f7a1ce286ef06cc",
+    "request.json": "3315d8937ad605dd4cb5a456d1ec4660c74e4990786cdc391c0017729dfa15f4",
+    "run.py": "863967dd9d23ab1087695c40a010e610e74183fb8ad6698785745fd638cfa0da",
+    "parser-check.json": "a6bb542a1dec281af7dfc49e12bbb2367bbcdbe12fab30a28814c698eec2d441",
+    "result.json": "4b6a2ba317fee206acd72da6c123527626962cdbc236f859d8023ba7cf51eb32",
+    "native-tool-transcript.jsonl": "f291224b0f42cbc29bee3d1fb011f143b67576b8332ed73c2e7bd5a16d37a072",
+    "runtime-natscell-nativef81-default.log": "0e45ca6da718369498cecd3e938b02477983c50ac166a487fb580e695a2a5e5a"
+  },
+  "independent_readiness_review": {
+    "path": "/tmp/ts-mesh-nativef81-focused-independent-storage-review-j7km7pxc/review.json",
+    "sha256": "6584a3e90a5969ee9899f917a05e604d15b091446ffbc363bfa93fa90b857b59"
+  },
+  "executed_command": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-json",
+    "-count=1",
+    "-p=1",
+    "-parallel=1",
+    "-mod=readonly",
+    "-timeout=90s",
+    "-run",
+    "^(TestStartupControllerPrivateTLSAndInProcessAuthentication|TestStartupControllerDeadlineClosesAuthenticatedConnection|TestStartupControllerSendsNoNATSBeforeTLSAndKeepsEarlierContextDeadline|TestStartupControllerReconnectUsesExistingPublicGate|TestReadControllerAccountCopiesInstalledOperatorAndCurrentNativeJWT|TestReadControllerAccountRejectsTransportOnlyRuntime)$",
+    "./internal/natscell"
+  ],
+  "environment": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "default_tags_and_vet": true,
+  "test_timeout_seconds": 90,
+  "outer_timeout_seconds": 180,
+  "strict_actual_event_review": {
+    "events": 217,
+    "actions": {
+      "start": 1,
+      "run": 10,
+      "output": 195,
+      "pass": 11
+    },
+    "roots": 6,
+    "terminal_leaves": 9,
+    "total_named_nodes": 10,
+    "named_runs_exactly_once": {
+      "TestReadControllerAccountCopiesInstalledOperatorAndCurrentNativeJWT": 1,
+      "TestReadControllerAccountRejectsTransportOnlyRuntime": 1,
+      "TestStartupControllerPrivateTLSAndInProcessAuthentication": 1,
+      "TestStartupControllerPrivateTLSAndInProcessAuthentication/valid": 1,
+      "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-account": 1,
+      "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-connection-type": 1,
+      "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-tls": 1,
+      "TestStartupControllerDeadlineClosesAuthenticatedConnection": 1,
+      "TestStartupControllerSendsNoNATSBeforeTLSAndKeepsEarlierContextDeadline": 1,
+      "TestStartupControllerReconnectUsesExistingPublicGate": 1
+    },
+    "named_passes_exactly_once": {
+      "TestReadControllerAccountCopiesInstalledOperatorAndCurrentNativeJWT": 1,
+      "TestReadControllerAccountRejectsTransportOnlyRuntime": 1,
+      "TestStartupControllerPrivateTLSAndInProcessAuthentication/valid": 1,
+      "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-account": 1,
+      "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-connection-type": 1,
+      "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-tls": 1,
+      "TestStartupControllerPrivateTLSAndInProcessAuthentication": 1,
+      "TestStartupControllerDeadlineClosesAuthenticatedConnection": 1,
+      "TestStartupControllerSendsNoNATSBeforeTLSAndKeepsEarlierContextDeadline": 1,
+      "TestStartupControllerReconnectUsesExistingPublicGate": 1
+    },
+    "package_start": 1,
+    "package_pass": 1,
+    "malformed_unexpected_fail_skip_build_events": 0,
+    "all_package_test_parent_child_output_terminal_lifecycles_valid": true,
+    "strict_json_rejection_self_checks": 5,
+    "lifecycle_rejection_self_checks": 3,
+    "runner_not_imported_or_executed": true
+  },
+  "source_verification": {
+    "clean_exact_head_tree": true,
+    "tracked_source_pins_rehashed": 4472,
+    "regular_git_blob_modes_and_sha256_verified": 4471,
+    "symlink_target_and_dereferenced_content_verified": [
+      "CLAUDE.md"
+    ],
+    "pre_post_and_run_identity_equal": true,
+    "tools_rehashed": {
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+      "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+      "/run/current-system/sw/bin/git": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027",
+      "/run/current-system/sw/bin/nice": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/asm": "4720bbf4ea8c95da4bef7d716b89c914ce678b57e7833f327f3ea2c2f51d16a6",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/cgo": "a4d0ca3e67972d33fc28016a82b4e3a4fa551d9449a550f3cc68b0a7787281fd",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/compile": "3780fc07130d6d45096373acf062cc316940d253e2a1d892ece03a3bdd0d21d4",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/cover": "7ee54cc95f7f179cb8352834b0756349f8b6672c175b1204bd60b007d74b9824",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/fix": "da08f00a50483a08118af99fb54471847567f14d5bf0902b18a0a550bbddc0fd",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/link": "a29ac5e8f64111b0b5c5d31e452f18abf7ee79f44b421081b5509c8939d92ba9",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/preprofile": "4f4e30080736b81938c53865b7561347cc5b92d01f7f64745efa668da724d839",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/vet": "46e5add9e558ca24000deadf2fa072f3f374f42120907ab087119ec544498cb1"
+    }
+  },
+  "native": {
+    "session": 21316,
+    "terminal_chunk": "117497",
+    "exit_code": 0,
+    "captured_calls": 2,
+    "terminal_summary_exactly_matches_state_and_run_count": true
+  },
+  "elapsed_seconds": 13.183683,
+  "package_runtime_elapsed_seconds": 10.049,
+  "cleanup": {
+    "recorded_owned_group": 1268729,
+    "recorded_group_absence": "ABSENT",
+    "recorded_remaining_members": [],
+    "recorded_gate_released": true,
+    "runner_source_orders_actual_group_absence_before_postpins_and_gate_release": true,
+    "evidence_limit": "Pinned runner/results/terminal receipts only; no fresh process/listener/lock probes."
+  },
+  "retained_compile_artifact": {
+    "path": "/tmp/ts-mesh-nativef81-capacity-compile-20261017T143312844927Z/natscell-nativef81-default.test",
+    "bytes": 50187773,
+    "mode": "0600",
+    "sha256": "78832505947e617d9c6a28f2ddf51c888ce0a9afd0845c6c70795aac34519a57",
+    "executed": false
+  },
+  "history_preserved": {
+    "prior_failure_terminal": "/tmp/ts-mesh-startup5a46-compile-20261017T141904701189Z/terminal.json",
+    "prior_failure_terminal_sha256": "74658782951aacbfa0ed7f883dfbc94407f765ca00cc5d5bcbe7d188e8b4b9b8",
+    "prior_failure_state": "COMPILE_FAILED_NO_EXECUTION",
+    "unlaunched_predecessor_packet": "/tmp/ts-mesh-nativef81-runtime-20261017T143702864256Z",
+    "unlaunched_predecessor_files_sha256": {
+      "freeze.json": "7ca2ec0284382c1cd9e4ef9102d496df13535854d9588dec9f7a1ce286ef06cc",
+      "request.json": "1f67931a293549de7dd0ffd756526fde198f3bc80de02ea6edd7130a40c2c9d9",
+      "run.py": "44b92c832f5896d833b74b7f5ab01109214a441edd041b00994f6c9e608bcaee"
+    }
+  },
+  "source_scope": {
+    "verified": "Ephemeral generated JWT/mTLS, localhost embedded NATS/JetStream and net.Pipe: private authentication positives/negatives, deadline/TLS ordering, native reconnect retained handles, installed operator copy/current account resolver readback and rejection cases.",
+    "reconnect_limit": "Test directly invokes Bridge.OpenUntil after applying native claim; no APP signed-ticket verifier or actual production gate-admission chain is qualified."
+  },
+  "retirement_delta": 0,
+  "limits": [
+    "Exactf81 source and these six roots/nine leaves/ten named nodes only;42fixture migration names remain source history, not42runtime passes.",
+    "No actual MainPID/process admission, original root custody, rekey, production root gate, signed-ticket APP integration, containerd/runc/native process/cloud/global/main/production/financial qualification.",
+    "Prior compile ELF remains0600/never executed; runtime command was genuine go test -json, not retained ELF invocation. No retry or source/retirement/adoption credit.",
+    "No Go, compiler, runner/parser import, tests, retained ELF or runtime execution during review. No source/Git/ledger mutation or fresh process/listener/lock probes; sole write is this exclusive immutable report."
+  ]
+}
