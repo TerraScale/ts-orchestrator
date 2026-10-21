@@ -101,8 +101,9 @@ the host (it creates the certificate if absent):
 sudo ts-orch release pin --state /var/lib/ts-orch
 ```
 
-gru's pin is empty until ts-orch is installed on ts-gru-1, so every push fails
-for gru until its line is filled.
+gru's pin was read on ts-gru-1 on 2026-10-21 with the command above and
+cross-checked with `openssl x509 -in /var/lib/ts-orch/nats/tls.crt -pubkey`
+(`3100cce0…5ad9`).
 
 ### CI
 
