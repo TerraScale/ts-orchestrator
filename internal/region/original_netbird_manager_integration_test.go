@@ -298,8 +298,9 @@ func (f *originalNetBirdManagerSDKFixture) admission(t *testing.T) (*ociclient.F
 		t.Fatal(err)
 	}
 	reader.factory = factory
-	if _, _, err := reader.verifyGrant(f.bundle.GrantWire); err == nil {
-		t.Fatal("schema3 original escaped generic grant refusal")
+	// Schema3 reachability admits complete original producer purposes to generic readers.
+	if _, _, err := reader.verifyGrant(f.bundle.GrantWire); err != nil {
+		t.Fatalf("complete schema3 original failed generic grant verification: %v", err)
 	}
 	store, err := NewObjectFoundationStore(&objects, f.approval.HomeStorageDomain.Namespace, f.approval.HomeStorageDomain.HeadBucket)
 	if err != nil {
@@ -459,8 +460,9 @@ func TestOriginalNetBirdManagerSDK(t *testing.T) {
 	}
 	source := f.approval.SourceVaultTarget
 	wantCredential := vaultsecret.Target{CompartmentID: source.CompartmentOCID, VaultID: source.VaultOCID, KeyID: source.KMSKeyOCID}
-	if manager.CredentialTarget() != wantCredential || manager.VaultTarget() == wantCredential || manager.RecoveryRequired() {
-		t.Fatal("original manager substituted generated GRU Vault for exact source credential escrow or reset genesis")
+	// The original GRU foundation selects the exact source escrow Vault as its regional Vault.
+	if manager.CredentialTarget() != wantCredential || manager.VaultTarget() != wantCredential || manager.RecoveryRequired() {
+		t.Fatal("original manager substituted another Vault for exact source credential escrow or reset genesis")
 	}
 	material, err := ReadNetBirdComponents(t.Context(), factory, resolver, manager)
 	if err != nil {

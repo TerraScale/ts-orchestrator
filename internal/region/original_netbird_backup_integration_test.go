@@ -19,8 +19,9 @@ func TestOriginalNetBirdBackupRefusesPendingProtection(t *testing.T) {
 		if err := manager.Check(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if manager.VaultTarget() == manager.CredentialTarget() {
-			t.Fatal("original regional backup Vault was replaced with credential escrow")
+		// The original GRU foundation selects the exact source escrow Vault as its regional Vault.
+		if manager.VaultTarget() != manager.CredentialTarget() {
+			t.Fatal("original regional backup Vault differs from its selected credential escrow")
 		}
 		record, _, err := resolver.Store.Load(ctx, "GRU")
 		if err != nil {
