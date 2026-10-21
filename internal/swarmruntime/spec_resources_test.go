@@ -15,7 +15,6 @@ func containerTestResources(cpu, memory int64) *api.ResourceRequirements {
 }
 
 func TestContainerDiskBudget(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	for _, test := range []struct {
 		name   string
 		mutate func(*api.ResourceRequirements)
@@ -43,7 +42,8 @@ func TestContainerDiskBudget(t *testing.T) {
 			r.Limits.Generic[0] = genericresource.NewString(DiskResource, "64MiB")
 			r.Reservations = r.Limits.Copy()
 		}},
-		{"nil", func(r *api.ResourceRequirements) { r.Limits.Generic[0] = nil; r.Reservations = r.Limits.Copy() }},
+		// Copy panics on a nil entry, so nil both sides directly.
+		{"nil", func(r *api.ResourceRequirements) { r.Limits.Generic[0] = nil; r.Reservations.Generic[0] = nil }},
 		{"empty", func(r *api.ResourceRequirements) {
 			r.Limits.Generic[0] = &api.GenericResource{}
 			r.Reservations = r.Limits.Copy()

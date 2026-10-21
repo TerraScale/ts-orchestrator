@@ -23,7 +23,6 @@ import (
 // Real persistent Raft and the authenticated Unix stream cover both sides of
 // the snapshot/watch handoff; no executor, native runtime or provider is used.
 func TestManagementObservationIntegration(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	cfg := nodeFixtureConfig(t, "founder", "manager")
@@ -71,7 +70,8 @@ func TestManagementObservationIntegration(t *testing.T) {
 	if err == nil {
 		_, err = broad.Recv()
 	}
-	if status.Code(err) != codes.PermissionDenied {
+	// Watch is not registered on the management socket, so gRPC answers before any interceptor.
+	if status.Code(err) != codes.Unimplemented {
 		t.Fatalf("unrestricted upstream Watch became reachable: %v", err)
 	}
 	if _, err := upstream.CreateSecret(ctx, &api.CreateSecretRequest{Spec: &api.SecretSpec{Annotations: api.Annotations{Name: "observation-private-proof"}, Data: []byte("test-only-private-proof")}}); err != nil {
