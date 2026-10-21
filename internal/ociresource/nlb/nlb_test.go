@@ -324,7 +324,6 @@ func (f *fenceAfter) Guard(context.Context, uint64) error {
 }
 
 func TestApplyReguardsBeforeEveryMutation(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	api := &providerState{balancer: LoadBalancer{ID: nlbID, Tags: owner.Stamp(key, 0, "")}}
 	store := persistentStore(t)
 	spec := Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{
@@ -332,9 +331,10 @@ func TestApplyReguardsBeforeEveryMutation(t *testing.T) {
 	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
 		t.Fatal(err)
 	}
-	// The controller's own guard plus one mutation, then leadership is lost.
+	// The controller's own guard plus one mutation (seven guards: controller,
+	// write authority and wire authority), then leadership is lost.
 	fenced := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store,
-		Ownership: owner, Authority: &fenceAfter{remaining: 7}}
+		Ownership: owner, Authority: &fenceAfter{remaining: 1 + 7}}
 	if _, err := fenced.Reconcile(t.Context(), 1); err == nil {
 		t.Fatal("a fenced pass reported success")
 	}
