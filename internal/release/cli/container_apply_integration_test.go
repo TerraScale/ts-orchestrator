@@ -29,7 +29,6 @@ import (
 // Actual OCI layout, Git, delegated signatures, allocator and OCI SDK/HTTP are
 // exercised. HTTP models regional admission; live runtime readiness is separate.
 func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: flaky on main since the 2026-10-21 integration-line merge")
 	base := newApplyHTTPFixture(t)
 	f := &containerHTTPFixture{applyHTTPFixture: base}
 	base.reset("")

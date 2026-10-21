@@ -209,7 +209,6 @@ func TestSnapshotStatusReadsCurrentAuthority(t *testing.T) {
 }
 
 func TestSnapshotDeadlineDoesNotStarveLaterBuckets(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	js := startJetStream(t)
 	put(t, openBucket(t, js, testBucket), "a", []byte("blocked"))
 	put(t, openBucket(t, js, "TS_OTHER"), "a", []byte("healthy"))
@@ -394,7 +393,6 @@ func TestSnapshotErrorClassesAreBounded(t *testing.T) {
 }
 
 func TestSnapshotClassifiesAnHTTPDeadline(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	js := startJetStream(t)
 	put(t, openBucket(t, js, testBucket), "a", []byte("value"))
 	storage := newObjectStorage(t)
