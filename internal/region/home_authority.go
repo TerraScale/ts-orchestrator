@@ -62,6 +62,8 @@ type HomeIAMAuthority struct {
 	domain            bootstrap.StorageDomain
 	ownerID           string
 	bucketCompartment string
+	// memo is this authority's bounded verification memo; nil disables it.
+	memo *foundationVerificationMemo
 }
 
 func NewHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourceFounder, resolver FoundationResolver) (*HomeIAMAuthority, error) {
@@ -73,7 +75,7 @@ func NewHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourc
 }
 
 func newHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourceFounder, resolver FoundationResolver, objects *objectstorage.ObjectStorageClient, genesis trust.Keyring) (*HomeIAMAuthority, error) {
-	authority := &HomeIAMAuthority{proof: proof, resolver: resolver, currentGenesis: genesis,
+	authority := &HomeIAMAuthority{proof: proof, resolver: resolver, currentGenesis: genesis, memo: newFoundationVerificationMemo(),
 		instanceID: proof.InstanceID(), tenancyID: proof.TenancyID(), installationID: proof.InstallationID(),
 		grantDigest: proof.GrantDigest(), grantGeneration: proof.Generation(), planDigest: proof.PlanDigest()}
 	factory, guarded, err := proof.GuardedFactory(ctx)
@@ -92,7 +94,7 @@ func NewRuntimeHomeIAMAuthority(ctx context.Context, reader *bootstrapstart.Curr
 		return nil, err
 	}
 	scope := proof.FoundationScope()
-	authority := &HomeIAMAuthority{runtime: proof, resolver: resolver, currentGenesis: genesis,
+	authority := &HomeIAMAuthority{runtime: proof, resolver: resolver, currentGenesis: genesis, memo: newFoundationVerificationMemo(),
 		instanceID: proof.InstanceID(), tenancyID: scope.TenancyID, installationID: scope.InstallationID,
 		grantDigest: scope.GrantSHA256, grantGeneration: scope.GrantGeneration}
 	factory, guarded, err := proof.GuardedFactory(ctx)
@@ -179,7 +181,7 @@ func (authority *HomeIAMAuthority) guardScope(ctx context.Context) error {
 	}
 	// The production constructor pins the independent embedded genesis. Every
 	// guard rereads the full remote lineage and the durable anti-rollback floor.
-	current, err := discoverCurrentFoundation(ctx, authority.objects, authority.tenancyID, authority.currentGenesis)
+	current, err := discoverCurrentFoundationWith(ctx, authority.objects, authority.tenancyID, authority.currentGenesis, authority.memo)
 	if err != nil {
 		return err
 	}

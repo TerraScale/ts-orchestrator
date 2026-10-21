@@ -31,6 +31,7 @@ type foundationOperator struct {
 	id       string
 	deadline time.Time
 	buckets  map[string]string
+	memo     *foundationVerificationMemo
 }
 
 func (authority *HomeIAMAuthority) reserveFoundationWorkloadOrigin(ctx context.Context) error {
@@ -166,7 +167,7 @@ func (operator *foundationOperator) guard(ctx context.Context) error {
 	if err != nil || tenancy != operator.bundle.TenancyID {
 		return errors.New("initial foundation operator tenancy changed")
 	}
-	resolver, err := verifyRetainedFoundation(ctx, operator.bundle, operator.genesis)
+	resolver, err := verifyRetainedFoundationWith(ctx, operator.bundle, operator.genesis, operator.memo)
 	if err != nil {
 		return err
 	}
@@ -301,7 +302,7 @@ func newOperatorHomeIAMAuthority(ctx context.Context, factory *ociclient.Factory
 		return nil, FoundationResolver{}, err
 	}
 	resolver.Store, reader.factory, reader.client = store, home, &objects
-	operator := &foundationOperator{factory: home, objects: &objects, genesis: genesis, bundle: bundle.clone(), domain: reader.storage, id: principal, deadline: deadline}
+	operator := &foundationOperator{factory: home, objects: &objects, genesis: genesis, bundle: bundle.clone(), domain: reader.storage, id: principal, deadline: deadline, memo: newFoundationVerificationMemo()}
 	authority := &HomeIAMAuthority{operator: operator, resolver: resolver, currentGenesis: genesis,
 		tenancyID: tenancy, installationID: reader.home.InstallationID, grantDigest: reader.home.GrantSHA256, grantGeneration: reader.home.GrantGeneration}
 	authority, err = authority.initialize(ctx, home, ctx, &objects, nil)

@@ -56,6 +56,10 @@ func VerifyRetainedFoundation(ctx context.Context, snapshot RetainedFoundation) 
 }
 
 func verifyRetainedFoundation(ctx context.Context, snapshot RetainedFoundation, genesis trust.Keyring) (FoundationResolver, error) {
+	return verifyRetainedFoundationWith(ctx, snapshot, genesis, nil)
+}
+
+func verifyRetainedFoundationWith(ctx context.Context, snapshot RetainedFoundation, genesis trust.Keyring, memo *foundationVerificationMemo) (FoundationResolver, error) {
 	if !strings.HasPrefix(snapshot.TenancyID, "ocid1.tenancy.") || len(snapshot.TenancyID) > 512 ||
 		snapshot.Namespace == "" || len(snapshot.Namespace) > 255 || strings.ContainsAny(snapshot.Namespace, "/\\\r\n") ||
 		len(snapshot.RootChainWire) == 0 || len(snapshot.RootChainWire) > trust.MaxRootChainBytes ||
@@ -63,7 +67,7 @@ func verifyRetainedFoundation(ctx context.Context, snapshot RetainedFoundation, 
 		len(snapshot.GrantWire) == 0 || len(snapshot.GrantWire) > foundationGrantLimit {
 		return FoundationResolver{}, errors.New("retained foundation has invalid locators or document bounds")
 	}
-	resolver, _, err := resolveCurrentFoundation(ctx, nil, snapshot.TenancyID, genesis, &snapshot)
+	resolver, _, err := resolveCurrentFoundationWith(ctx, nil, snapshot.TenancyID, genesis, &snapshot, memo)
 	return resolver, err
 }
 

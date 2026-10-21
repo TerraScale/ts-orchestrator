@@ -1,0 +1,77 @@
+package region
+
+import (
+	"crypto/sha256"
+	"encoding/json/v2"
+	"sync"
+	"time"
+)
+
+// foundationVerificationMemoLimit bounds one authority's remembered documents.
+const foundationVerificationMemoLimit = 32
+
+// foundationVerificationMemo remembers grant documents that already passed
+// full signature and schema verification under one exact trust binding. Keys
+// are the binding digest plus the exact document digest, so different roots,
+// anchors, scope or bytes never share an entry. Only successes are stored, and
+// every hit rechecks the signed validity window against the current time.
+// Callers still read current remote bytes; the memo only skips re-verifying
+// bytes that are identical to ones already verified.
+type foundationVerificationMemo struct {
+	mu      sync.Mutex
+	entries map[[sha256.Size]byte]verifiedFoundationDocument
+}
+
+type verifiedFoundationDocument struct {
+	payload   []byte
+	issuedAt  time.Time
+	expiresAt time.Time
+}
+
+func newFoundationVerificationMemo() *foundationVerificationMemo {
+	return &foundationVerificationMemo{entries: map[[sha256.Size]byte]verifiedFoundationDocument{}}
+}
+
+func foundationVerificationKey(binding, document [sha256.Size]byte) [sha256.Size]byte {
+	return sha256.Sum256(append(binding[:], document[:]...))
+}
+
+func (m *foundationVerificationMemo) lookup(key [sha256.Size]byte) (verifiedFoundationDocument, bool) {
+	if m == nil {
+		return verifiedFoundationDocument{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry, ok := m.entries[key]
+	return entry, ok
+}
+
+func (m *foundationVerificationMemo) store(key [sha256.Size]byte, entry verifiedFoundationDocument) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.entries[key]; !ok && len(m.entries) >= foundationVerificationMemoLimit {
+		clear(m.entries)
+	}
+	m.entries[key] = entry
+}
+
+// signedFootprintBinding digests every input of verifyOriginalDocument other
+// than the document bytes and the clock.
+func signedFootprintBinding(s *SignedFootprint) ([sha256.Size]byte, error) {
+	wire, err := json.Marshal(struct {
+		Scope   any
+		Roots   any
+		Home    any
+		Local   any
+		Storage any
+		Tenancy string
+		Expires time.Time
+	}{s.scope, s.roots, s.home, s.local, s.storage, s.tenancy, s.expires}, json.Deterministic(true))
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	return sha256.Sum256(wire), nil
+}
