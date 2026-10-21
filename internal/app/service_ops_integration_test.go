@@ -137,8 +137,8 @@ func TestContainerdSingleHostOperatorCommands(t *testing.T) {
 	waitFor("a running task", func() bool {
 		out, err := run("ps", "opsproof")
 		lines := strings.Split(out, "\n")
-		// TASK NODE STATE DESIRED ...: DESIRED is "running" from the start, so read STATE.
-		return err == nil && len(lines) > 1 && len(strings.Fields(lines[1])) > 3 && strings.Fields(lines[1])[2] == "running"
+		// TASK NODE STATE DESIRED ...: DESIRED is "running" from the start and NODE is blank until assigned.
+		return err == nil && len(lines) > 1 && len(strings.Fields(lines[1])) > 3 && strings.Fields(lines[1])[1] == "single-host" && strings.Fields(lines[1])[2] == "running"
 	})
 	out, err := run("ps", "opsproof")
 	if err != nil || !strings.HasPrefix(out, "TASK ") || !strings.Contains(out, "single-host") {
