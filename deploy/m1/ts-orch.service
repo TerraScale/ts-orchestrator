@@ -8,10 +8,11 @@ After=network-online.target containerd.service
 Type=notify
 NotifyAccess=main
 TimeoutStartSec=5min
-# Root: the containerd executor, the :80/:443 edge and data-dir chown need it.
+# Root: the containerd executor, the :80/:443 edge, the :4222 firewall rule and data-dir chown need it.
 ExecStart=/usr/local/bin/terrascale-orchestrator single-host --state /var/lib/ts-orch
 Restart=always
-RestartSec=5s
+# A pushed release exits ts-orch; restart the new binary at once.
+RestartSec=1s
 TimeoutStopSec=60s
 KillMode=mixed
 LimitNOFILE=65536

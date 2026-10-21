@@ -40,3 +40,53 @@ if err != nil { return err }
 defer conn.Close()
 services, err := client.ListServices(ctx, &api.ListServicesRequest{})
 ```
+
+## Release push over NATS (W14)
+
+`single-host` also runs a minimal embedded NATS server (`internal/releasepush`):
+one TLS client listener on `0.0.0.0:4222`, 64 KiB max payload, no JetStream,
+cluster, gateway or leaf. The self-signed ECDSA listener certificate is created
+once under `<state>/nats/`. ts-orch adds an iptables `INPUT` ACCEPT for tcp/4222
+above Ubuntu's REJECT on every start; the edge NSG allows tcp/4222.
+
+CI holds no secret. Its GitHub Actions OIDC token (audience `ts-orch`) is the
+NATS token and is embedded in every release message. ts-orch verifies RS256
+against GitHub's JWKS, `iss`, `aud=ts-orch`, `exp`/`nbf` (1 min skew),
+`repository_owner=TerraScale` and `ref=refs/heads/main`. A CI connection may
+publish only `ts.release.>` and subscribe only `_INBOX.>`; ts-orch's own
+in-process connection uses an in-memory token. Everything else is refused.
+
+| Subject | Request | Reply |
+|---|---|---|
+| `ts.release.version` | none | `{"version": "<vcs.revision>"}` |
+| `ts.release.ts-orch` | `{"sha", "binaries": {"<goarch>": {"url", "sha256"}}, "token"}` | `{"state": "current" \| "installed" \| "stale" \| "rejected"}` |
+| `ts.release.app` | `{"service", "image": "ghcr.io/terrascale/<name>@sha256:...", "token"}` | not wired yet (slice B) |
+
+A ts-orch release needs a token from `TerraScale/ts-orchestrator` whose `sha`
+claim equals `sha`, and a URL under
+`https://github.com/TerraScale/ts-orchestrator/releases/download/<tag>/terrascale-orchestrator-linux-<goarch>`.
+ts-orch downloads it (60 s, one immediate retry), checks `sha256`, keeps the old
+binary as `terrascale-orchestrator.prev`, renames the new one over the real path
+of its executable, replies `installed` and exits non-zero; systemd restarts it
+after `RestartSec=1s`. Containers keep running: the executor's `Close` only
+disconnects from containerd, whose shims own the tasks, `Node.Stop` cancels
+before leaving so workloads survive, and `KillMode=mixed` only kills what is left in ts-orch's own cgroup (the shims live under `containerd.service`). A
+release from an older GitHub run (`run_id`) than the installed one is `stale`.
+
+CI pushes with
+
+```sh
+ts-orch release push --sha "$GITHUB_SHA" --tag "<release tag>" --dir dist
+```
+
+`--dir` holds `terrascale-orchestrator-linux-{amd64,arm64}` (the uploaded
+assets). The job needs `permissions: id-token: write`. Push reads
+`deploy/m1/regions.json` (a new region is one line there), pushes to every
+region concurrently, polls `ts.release.version` every 250 ms until it equals
+`--sha` (3 min limit) and prints one JSON line per region:
+
+```json
+{"region":"gru","state":"installed","connect_ms":180,"accepted_ms":4200,"serving_ms":9800}
+```
+
+It exits non-zero if any region failed; one region's failure never stops the others.

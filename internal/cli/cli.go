@@ -42,6 +42,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/qualification/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	releasecli "github.com/TerraScale/ts-orchestrator/internal/release/cli"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
 	selfupdatecli "github.com/TerraScale/ts-orchestrator/internal/selfupdate/cli"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
@@ -101,6 +102,7 @@ Operator tooling:
   disaster-recovery      Prepare cross-region Object Storage and Vault recovery copies
 
 Use ts-orch bootstrap --help or ts-orch release --help to list their commands.
+ts-orch release push sends a main build to every region in deploy/m1/regions.json (CI only).
 `
 
 // Run dispatches CLI commands before runtime configuration or NATS startup.
@@ -153,6 +155,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "bootstrap":
 		return bootstrapcli.Run(ctx, args[1:], output)
 	case "release":
+		if len(args) > 1 && args[1] == "push" {
+			return releasepush.Push(ctx, args[2:], output)
+		}
 		return releasecli.Run(ctx, args[1:], output)
 	case "selfupdate":
 		return selfupdatecli.Run(ctx, args[1:], commandio.NewWriter(output))

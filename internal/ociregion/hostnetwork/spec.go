@@ -80,8 +80,9 @@ func desired(cellName string) (spec, error) {
 				{egress: true, proto: "6", cidr: "0.0.0.0/0", port: 80}, {egress: true, proto: "6", cidr: "0.0.0.0/0", port: 443},
 				{egress: true, proto: "17", cidr: "0.0.0.0/0"}, {egress: true, proto: "1", cidr: "0.0.0.0/0"},
 			}},
-			// The public edge: HTTPS, ACME and the NetBird ports in docs/netbird-m1.md.
-			{cellName + "-edge-nsg", []rule{tcp(80), tcp(443), udp(3478), udp(51820)}},
+			// The public edge: HTTPS, ACME, the NetBird ports in docs/netbird-m1.md
+			// and release pushes over NATS (docs/m1-single-host.md).
+			{cellName + "-edge-nsg", []rule{tcp(80), tcp(443), udp(3478), udp(51820), tcp(4222)}},
 			// shortcut: operator SSH from the internet, remove once SSH over NetBird is proven.
 			{cellName + "-operator-ssh-nsg", []rule{{proto: "6", cidr: operatorEgress, port: 22}}},
 		},
