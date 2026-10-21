@@ -524,6 +524,9 @@ func (a *foundationAttempt) checkpoint(ctx context.Context, key, id string) erro
 	if old := a.record.ResourceIDs[key]; old != "" && old != id {
 		return errors.New("foundation resource identity cannot be silently replaced")
 	}
+	if a.record.ResourceIDs == nil {
+		a.record.ResourceIDs = make(map[string]string)
+	}
 	a.record.ResourceIDs[key] = id
 	if err := a.completeCreate(key, id); err != nil {
 		return err
@@ -539,6 +542,9 @@ func (a *foundationAttempt) checkpointAuxiliary(ctx context.Context, key, id str
 	defer a.mu.Unlock()
 	if old := a.record.AuxiliaryIDs[key]; old != "" && old != id {
 		return errors.New("auxiliary foundation identity cannot be silently replaced")
+	}
+	if a.record.AuxiliaryIDs == nil {
+		a.record.AuxiliaryIDs = make(map[string]string)
 	}
 	a.record.AuxiliaryIDs[key] = id
 	if err := a.completeCreate(key, id); err != nil {
@@ -578,6 +584,9 @@ func (a *foundationAttempt) completeCreate(key, id string) error {
 		if validFoundationDigest(a.record.GrantSHA256) {
 			if a.record.ResourceProvenance == nil {
 				a.record.ResourceProvenance = map[string]FoundationResourceProvenance{}
+			}
+			if a.record.ResourceProvenance == nil {
+				a.record.ResourceProvenance = make(map[string]FoundationResourceProvenance)
 			}
 			a.record.ResourceProvenance[key] = FoundationResourceProvenance{Create: pending, ResourceID: id, Generation: a.record.Generation, GrantSHA256: a.record.GrantSHA256}
 		}
