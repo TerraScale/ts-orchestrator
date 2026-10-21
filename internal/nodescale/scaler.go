@@ -267,7 +267,8 @@ func (s *Scaler) observe(pool PoolState, hosts []*api.Node) observation {
 			continue
 		}
 		obs.pool++
-		if node := byInstance[in.ID]; in.Birth != nil && s.admitted(node, api.NodeRoleWorker) && node.Spec.Annotations.Name == in.Birth.Node && node.Status.State == api.NodeStatus_READY {
+		// Workers join SwarmKit under their registration ID, never the birth hostname; the unique OCI identity is the binding.
+		if node := byInstance[in.ID]; in.Birth != nil && s.admitted(node, api.NodeRoleWorker) && node.Status.State == api.NodeStatus_READY {
 			obs.live[in.Name] = true
 			obs.counted[in.Name] = true
 		}
