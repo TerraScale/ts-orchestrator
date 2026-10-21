@@ -3,9 +3,7 @@ package vaultsecret
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"flag"
@@ -36,10 +34,10 @@ const usage = `Usage: ts-orch vault <command> [flags]
       Read a JSON map of keys to {vault, name} using the instance principal.
       Publish owner-only files named by lowercasing each key. Poll CURRENT versions;
       changed versions atomically replace files without redeploying the consumer.
-  check   KEY...
-      On a host, as root: read each environment KEY as a task start does (the Vault
-      <cell>-vault of the instance's compartment, secret <cell>-1-<key>) and print
-      its name, length and a 4-byte sha256 prefix, never the value.
+  check   NAME...
+      On a host, as root: read each secret NAME from the Vault <cell>-vault of the
+      instance's compartment, as a task start does, and print its name and length,
+      never the value.
   version --vault-id OCID --name NAME --secret-id OCID --expect-current N --file FILE [--instance-principal]
       Publish an owner-supplied value as a new CURRENT version with If-Match.
       On any uncertain result, reread CURRENT before retrying. Never generates keys.
@@ -317,18 +315,25 @@ func printLine(output io.Writer, value any) error {
 	return err
 }
 
-func checkInstance(ctx context.Context, keys []string, output io.Writer) error {
-	if len(keys) == 0 {
-		return errors.New("check requires at least one environment KEY")
+func checkInstance(ctx context.Context, names []string, output io.Writer) error {
+	if len(names) == 0 {
+		return errors.New("check requires at least one secret NAME")
 	}
-	values, err := ReadInstanceSecrets(ctx, keys)
+	_, vaultID, err := discoverInstanceVault(ctx)
+	if err != nil {
+		return err
+	}
+	refs := make(map[string]Ref, len(names))
+	for _, name := range names {
+		refs[name] = Ref{Vault: vaultID, Name: name}
+	}
+	values, err := Resolve(ctx, refs, instanceClient(ctx))
 	if err != nil {
 		return err
 	}
 	defer clear(values)
-	for _, key := range keys {
-		sum := sha256.Sum256([]byte(values[key]))
-		if err := printLine(output, map[string]any{"key": key, "length": len(values[key]), "sha256Prefix": hex.EncodeToString(sum[:4])}); err != nil {
+	for _, name := range names {
+		if err := printLine(output, map[string]any{"name": name, "length": len(values[name])}); err != nil {
 			return err
 		}
 	}

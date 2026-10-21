@@ -2,8 +2,10 @@ package swarmruntime
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,9 +21,6 @@ import (
 const ContainerMaterialDirectory = "/run/ts-orch/secrets"
 
 var ErrContainerMaterialPending = errors.New("current signed container material is pending")
-
-// secretsLabel lists the env keys a service spec takes from Vault (W3's secrets[]).
-const secretsLabel = "terrascale.secrets"
 
 // ContainerTaskBinding contains lookup selectors, never authority or Vault refs.
 type ContainerTaskBinding struct {
@@ -65,9 +64,9 @@ func (e *Executor) BindContainerMaterial(admitted Admission, provider ContainerM
 // TaskSecretDirectory holds each task's Vault secret files on tmpfs.
 const TaskSecretDirectory = "/run/ts-orch/task-secrets"
 
-// SecretResolver returns the current value of each named environment key.
-// Errors name keys or secrets, never values.
-type SecretResolver func(ctx context.Context, keys []string) (map[string]string, error)
+// SecretResolver returns the current value of each of service's refs after
+// checking that the service may read them. Errors name keys or secrets, never values.
+type SecretResolver func(ctx context.Context, service string, refs map[string]vaultsecret.Ref) (map[string]string, error)
 
 // BindVaultSecrets makes every task start read the secrets its service spec
 // names, so a rotated secret reaches the next start. It replaces signed
@@ -97,7 +96,7 @@ func (c *controller) containerMaterialMount(ctx context.Context) ([]runtimespec.
 	if c.task.ServiceAnnotations.Labels[LabelRole] == "function-worker" {
 		return nil, nil, nil // The dedicated function verifier owns this task's material.
 	}
-	if e.containerMaterial == nil && c.task.ServiceAnnotations.Labels[secretsLabel] == "" {
+	if labels := c.task.ServiceAnnotations.Labels; e.containerMaterial == nil && labels[LabelSecrets] == "" && labels[LabelSecretRefs] == "" {
 		// shortcut: no signed-material authority and no named secrets means nothing to deliver; drop once every host binds one.
 		return nil, nil, nil
 	}
@@ -208,20 +207,29 @@ func (c *controller) verifyContainerMaterial(ctx context.Context, ctr containerd
 	return nil
 }
 
-// vaultSecretMount resolves the spec's secrets at this start. Plain keys go
-// into the task env; a *_FILE key's value is a read-only file on tmpfs and the
-// key is set to its in-container path.
+// vaultSecretMount resolves exactly the spec's secret refs at this start. Each
+// *_FILE key's value is a read-only file on tmpfs and the key is set to its
+// in-container path; a plain key would put the value in the OCI spec env.
 func (c *controller) vaultSecretMount(ctx context.Context) ([]runtimespec.Mount, []string, error) {
-	label := c.task.ServiceAnnotations.Labels[secretsLabel]
-	if label == "" {
+	labels := c.task.ServiceAnnotations.Labels
+	if labels[LabelSecrets] == "" && labels[LabelSecretRefs] == "" {
 		return nil, nil, nil
 	}
-	keys := strings.Split(label, ",")
-	values, err := c.executor.vaultSecrets(ctx, keys)
+	var refs map[string]vaultsecret.Ref
+	if err := json.Unmarshal([]byte(labels[LabelSecretRefs]), &refs); err != nil ||
+		!slices.Equal(slices.Sorted(maps.Keys(refs)), slices.Sorted(slices.Values(strings.Split(labels[LabelSecrets], ",")))) {
+		return nil, nil, fmt.Errorf("service %s needs %s naming exactly its %s", labels[LabelServiceSpec], LabelSecretRefs, LabelSecrets)
+	}
+	for key := range refs {
+		if !secretName.MatchString(key) || !vaultsecret.FileKey(key) {
+			return nil, nil, fmt.Errorf("Vault secret key %q must match %s and end in _FILE", key, secretName)
+		}
+	}
+	values, err := c.executor.vaultSecrets(ctx, labels[LabelServiceSpec], refs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve Vault secrets: %w", err)
 	}
-	files, environment, err := secretEnvironment(keys, values)
+	files, environment, err := secretFiles(refs, values)
 	clear(values)
 	if err != nil {
 		return nil, nil, err
@@ -232,36 +240,51 @@ func (c *controller) vaultSecretMount(ctx context.Context) ([]runtimespec.Mount,
 	if uErr != nil || gErr != nil {
 		return nil, nil, errors.New("Vault secrets need a numeric uid:gid container user")
 	}
-	if err := os.MkdirAll(TaskSecretDirectory, 0o700); err != nil {
+	if err := ownerOnlyDirectory(TaskSecretDirectory); err != nil {
 		return nil, nil, err
 	}
 	if err := vaultsecret.RequireMemoryFilesystem(TaskSecretDirectory); err != nil {
 		return nil, nil, err
 	}
-	// The mount is staged even with no files: the caller applies the env only with a mount.
 	if err := stageTaskMaterial(c.containerMaterialPath(), files, uint32(u), uint32(g)); err != nil {
 		return nil, nil, err
 	}
 	return []runtimespec.Mount{{Destination: ContainerMaterialDirectory, Type: "bind", Source: c.containerMaterialPath(), Options: []string{"bind", "ro", "nosuid", "nodev", "noexec"}}}, environment, nil
 }
 
-// secretEnvironment splits resolved secrets into files (by lowercase key) and
-// sorted env entries; a key the resolver did not return fails the start.
-func secretEnvironment(keys []string, values map[string]string) (map[string][]byte, []string, error) {
+// ownerOnlyDirectory creates directory if needed and re-asserts that it is a
+// real directory owned by this process with mode 0700, whatever made it.
+func ownerOnlyDirectory(directory string) error {
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	info, err := os.Lstat(directory)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", directory)
+	}
+	return errors.Join(os.Chown(directory, os.Geteuid(), os.Getegid()), os.Chmod(directory, 0o700))
+}
+
+// secretFiles maps resolved *_FILE secrets to files (by lowercase key) and
+// sorted env entries holding their paths; a key the resolver did not return
+// fails the start.
+func secretFiles(refs map[string]vaultsecret.Ref, values map[string]string) (map[string][]byte, []string, error) {
 	files := map[string][]byte{}
 	var environment []string
-	for _, key := range keys {
+	for key := range refs {
 		value, ok := values[key]
 		if !ok || value == "" {
 			return nil, nil, fmt.Errorf("Vault secret for %s is missing or empty", key)
 		}
-		if vaultsecret.FileKey(key) {
-			name := strings.ToLower(key)
-			files[name] = []byte(value)
-			environment = append(environment, key+"="+ContainerMaterialDirectory+"/"+name)
-			continue
+		if !vaultsecret.FileKey(key) {
+			return nil, nil, fmt.Errorf("Vault secret %s must be a _FILE key", key)
 		}
-		environment = append(environment, key+"="+value)
+		name := strings.ToLower(key)
+		files[name] = []byte(value)
+		environment = append(environment, key+"="+ContainerMaterialDirectory+"/"+name)
 	}
 	slices.Sort(environment)
 	return files, environment, nil

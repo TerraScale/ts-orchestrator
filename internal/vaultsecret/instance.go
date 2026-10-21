@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -19,45 +21,93 @@ import (
 // instanceVault is the regional Vault of the instance's own cell, found once.
 var instanceVault struct {
 	sync.Mutex
-	scope, vaultID string
+	cell, vaultID string
 }
 
-// ReadInstanceSecrets reads the current value of each environment key from the
-// Vault of the instance's own cell, with its instance principal. It needs no
-// configuration: the cell comes from the instance metadata region, and the
-// Vault is the one named <cell>-vault in the instance's compartment.
-func ReadInstanceSecrets(ctx context.Context, keys []string) (map[string]string, error) {
+// serviceKeyRE is a single-host service's secret key; it also names the file.
+var serviceKeyRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+
+// sharedSecrets lists the Vault secrets, by purpose after <cell>-<n>-, that a
+// service other than their owner reads, and which services.
+var sharedSecrets = map[string][]string{
+	"terrabase-peer-secret":           {"ts-auth", "ts-dashboard"},
+	"ts-auth-dashboard-client-secret": {"ts-dashboard"},
+	"cloudflare-account-id":           {"ts-auth"},
+	"cloudflare-email-token":          {"ts-auth"},
+	"stripe-secret-key":               {"ts-dashboard"},
+	"stripe-webhook-secret":           {"ts-dashboard"},
+}
+
+// ValidateServiceRefs binds a single-host service's secrets to one Vault of
+// cell (vaultID, or any one Vault in the cell's region when vaultID is ""):
+// each key is a *_FILE name, so a value never enters the task environment,
+// and each ref names <cell>-<n>-<service>-<purpose> or a secret sharedSecrets
+// lets the service read. A service named like an infrastructure family (or a
+// prefix of one, such as "ts") names no secrets.
+func ValidateServiceRefs(cell, vaultID, service string, refs map[string]Ref) error {
+	if len(refs) == 0 {
+		return nil
+	}
+	if slices.ContainsFunc(infrastructure, func(family string) bool {
+		return family != "ts-dashboard" && (service == family || strings.HasPrefix(family, service+"-"))
+	}) {
+		return fmt.Errorf("service %s shares a name with the cell's infrastructure secrets and names no Vault secrets", service)
+	}
+	entry, known := catalog.LookupName(cell)
+	own := map[string]Ref{}
+	for key, ref := range refs {
+		if !serviceKeyRE.MatchString(key) || !FileKey(key) {
+			return fmt.Errorf("Vault secret key %q of %s must match %s and end in _FILE", key, service, serviceKeyRE)
+		}
+		if vaultID == "" {
+			vaultID = ref.Vault
+		}
+		if !known || ref.Vault != vaultID || ref.region() != entry.OCIRegion {
+			return fmt.Errorf("Vault secret %s of %s must name cell %s's Vault", key, service, cell)
+		}
+		index, purpose, _ := strings.Cut(strings.TrimPrefix(ref.Name, cell+"-"), "-")
+		if strings.HasPrefix(ref.Name, cell+"-") && strings.Trim(index, "0123456789") == "" && slices.Contains(sharedSecrets[purpose], service) {
+			continue
+		}
+		own[key] = ref
+	}
+	return ValidateDeliveryRefs(cell, service, own, nil)
+}
+
+// ReadInstanceSecrets reads the current value of each of service's refs from
+// the Vault of the instance's own cell, with its instance principal, after
+// ValidateServiceRefs. It needs no configuration: the cell comes from the
+// instance metadata region, and the Vault is the one named <cell>-vault in the
+// instance's compartment.
+func ReadInstanceSecrets(ctx context.Context, service string, refs map[string]Ref) (map[string]string, error) {
 	if err := safeEnv(); err != nil {
 		return nil, err
 	}
-	scope, vaultID, err := discoverInstanceVault(ctx)
+	cell, vaultID, err := discoverInstanceVault(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return ReadScoped(ctx, vaultID, scope, keys, func(region string) (BundleClient, error) {
+	if err := ValidateServiceRefs(cell, vaultID, service, refs); err != nil {
+		return nil, err
+	}
+	return Resolve(ctx, refs, instanceClient(ctx))
+}
+
+func instanceClient(ctx context.Context) func(region string) (BundleClient, error) {
+	return func(region string) (BundleClient, error) {
 		factory, err := ociclient.InstancePrincipalContext(ctx, region)
 		if err != nil {
 			return nil, err
 		}
 		return SecretsClient(factory)
-	})
-}
-
-// ReadScoped reads keys as the Vault secrets of scope. A key ending in _FILE
-// names the secret without that suffix: the value is delivered as a file.
-func ReadScoped(ctx context.Context, vaultID, scope string, keys []string, client func(region string) (BundleClient, error)) (map[string]string, error) {
-	refs := make(map[string]Ref, len(keys))
-	for _, key := range keys {
-		refs[key] = Ref{Vault: vaultID, Name: Name(scope, strings.TrimSuffix(key, "_FILE"))}
 	}
-	return Resolve(ctx, refs, client)
 }
 
 func discoverInstanceVault(ctx context.Context) (string, string, error) {
 	instanceVault.Lock()
 	defer instanceVault.Unlock()
 	if instanceVault.vaultID != "" {
-		return instanceVault.scope, instanceVault.vaultID, nil
+		return instanceVault.cell, instanceVault.vaultID, nil
 	}
 	metadata, err := instanceMetadata(ctx)
 	if err != nil {
@@ -99,9 +149,8 @@ func discoverInstanceVault(ctx context.Context) (string, string, error) {
 	if len(found) != 1 {
 		return "", "", fmt.Errorf("instance compartment needs exactly one active Vault %s, found %d", name, len(found))
 	}
-	// shortcut: one cell per region (scope <cell>-1); derive the number when a region gets a second cell.
-	instanceVault.scope, instanceVault.vaultID = entry.Name()+"-1", found[0]
-	return instanceVault.scope, instanceVault.vaultID, nil
+	instanceVault.cell, instanceVault.vaultID = entry.Name(), found[0]
+	return instanceVault.cell, instanceVault.vaultID, nil
 }
 
 type metadata struct {
