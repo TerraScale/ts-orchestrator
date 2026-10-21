@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
@@ -99,5 +100,11 @@ func TestServerBootstrapClaimsOnceAndStoresSecretsWithoutLeakingThem(t *testing.
 	if vault.creates != creates || len(f.setupKeys) != keys || len(f.setups) != 1 {
 		t.Fatalf("rerun: %d Vault creates, %d setup keys, %d claims; want no change",
 			vault.creates-creates, len(f.setupKeys)-keys, len(f.setups)-1)
+	}
+}
+
+func TestClientPinMatchesUpstreamRelease(t *testing.T) {
+	if err := client.ValidatePin(clientPin); err != nil {
+		t.Fatal(err)
 	}
 }

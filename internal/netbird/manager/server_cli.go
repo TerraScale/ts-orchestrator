@@ -7,12 +7,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
@@ -96,7 +99,60 @@ func serveOnce(ctx context.Context, vault ServerVault, dir string) error {
 	if err := BootstrapServer(ctx, vault, ServerURL); err != nil {
 		return err
 	}
+	if err := ensureClient(ctx); err != nil {
+		return err
+	}
 	return enrollHost(ctx, vault)
+}
+
+// clientPin is the NetBird client every TerraScale host runs, the same
+// release as the server image.
+var clientPin = func() client.Pin {
+	p := client.Pin{Version: "0.81.3"}
+	p.Archives.Arm64 = client.Archive{URL: "https://github.com/netbirdio/netbird/releases/download/v0.81.3/netbird_0.81.3_linux_arm64.tar.gz",
+		Bytes: 14607827, SHA256: "980eef938177108bdfa7d802566b6309123592a58631349a78f11cd97c76c22d",
+		BinarySHA256: "da0c759ba50c0e1fd652d6f584587db3d3523dcc6bd18c11fab479969a3057ce"}
+	p.Archives.AMD64 = client.Archive{URL: "https://github.com/netbirdio/netbird/releases/download/v0.81.3/netbird_0.81.3_linux_amd64.tar.gz",
+		Bytes: 15954874, SHA256: "cbdea310068e35449f034544d5137fefee8f6d948fffd020883ffc8b3bab63b1",
+		BinarySHA256: "2bef5a5a44249443c0c492883e1b243ff5bc9d835266a8c5644a2a664bb3b846"}
+	return p
+}()
+
+const clientBinary = "/usr/local/bin/netbird"
+
+// ensureClient keeps this host's pinned NetBird client installed, its daemon
+// enabled and running, and restarts it after an upgrade.
+func ensureClient(ctx context.Context) error {
+	archive, err := clientPin.Archive(runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+	upgraded := false
+	if current, err := client.SHA256(clientBinary); err != nil || current != archive.BinarySHA256 {
+		if err := client.Fetch(ctx, clientPin, runtime.GOARCH, clientBinary, "", &http.Client{Timeout: 5 * time.Minute}); err != nil {
+			return fmt.Errorf("install NetBird client %s: %w", clientPin.Version, err)
+		}
+		// Fetch writes the binary owner-only; the CLI must run for every user.
+		if err := os.Chmod(clientBinary, 0o755); err != nil {
+			return err
+		}
+		upgraded = true
+	}
+	if exec.CommandContext(ctx, "systemctl", "is-enabled", "--quiet", "netbird").Run() != nil {
+		if output, err := exec.CommandContext(ctx, clientBinary, "service", "install").CombinedOutput(); err != nil {
+			return fmt.Errorf("netbird service install: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+	}
+	action := "start"
+	if upgraded {
+		action = "restart"
+	}
+	for _, args := range [][]string{{"enable", "netbird"}, {action, "netbird"}} {
+		if output, err := exec.CommandContext(ctx, "systemctl", args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("systemctl %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+		}
+	}
+	return nil
 }
 
 // enrollHost joins this host's NetBird daemon with the servers' setup key
@@ -107,7 +163,7 @@ func enrollHost(ctx context.Context, vault ServerVault) error {
 			Connected bool `json:"connected"`
 		} `json:"management"`
 	}
-	output, err := exec.CommandContext(ctx, "netbird", "status", "--json").Output()
+	output, err := exec.CommandContext(ctx, clientBinary, "status", "--json").Output()
 	if err == nil && json.Unmarshal(output, &status) == nil && status.Management.Connected {
 		return nil
 	}
@@ -115,7 +171,7 @@ func enrollHost(ctx context.Context, vault ServerVault) error {
 	if err != nil {
 		return err
 	}
-	up := exec.CommandContext(ctx, "netbird", "up", "--management-url", DefaultManagementURL, "--setup-key-file", "/dev/stdin")
+	up := exec.CommandContext(ctx, clientBinary, "up", "--management-url", DefaultManagementURL, "--setup-key-file", "/dev/stdin")
 	up.Stdin = strings.NewReader(key)
 	if output, err := up.CombinedOutput(); err != nil {
 		return fmt.Errorf("netbird up: %w: %s", err, strings.TrimSpace(string(output)))
