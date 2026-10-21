@@ -103,6 +103,19 @@ oci secrets secret-bundle get-secret-bundle-by-name --region sa-saopaulo-1 \
 sudo netbird up --management-url https://netbird.terrascale.tech --setup-key-file /dev/stdin
 ```
 
+## Login (M1)
+
+The owner `mariogk@terrascale.tech` is NetBird's built-in local account; its
+password is `gru-1-netbird-owner-password` in `gru-vault`. Log in through the
+embedded IdP at `https://netbird.terrascale.tech/oauth2`, for example with
+`netbird up --management-url https://netbird.terrascale.tech` on a PC
+(browser SSO instead of a setup key). M1 runs no NetBird dashboard UI: the
+upstream image rewrites its files at start and listens on 8080, which the
+single-host model (read-only rootfs, uid 65532, TerraBase on 8080) refuses.
+ts-auth OIDC replaces the local account after M1 by changing the `auth`
+block of `ServerConfigTemplate` (`internal/netbird/manager/server.go`), the
+only IdP setting.
+
 ## Proof
 
 ```sh
