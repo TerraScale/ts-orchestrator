@@ -4,6 +4,10 @@ Wants=network-online.target containerd.service
 After=network-online.target containerd.service
 
 [Service]
+# READY=1 once the node is up, so systemctl is-active means serving.
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=5min
 # Root: the containerd executor, the :80/:443 edge and data-dir chown need it.
 ExecStart=/usr/local/bin/terrascale-orchestrator single-host --state /var/lib/ts-orch
 Restart=always
