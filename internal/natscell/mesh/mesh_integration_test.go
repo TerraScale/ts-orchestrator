@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -188,9 +189,17 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 		}
 	}
 
+	// CI's bridge returns the same rows as JSON, one per region.
+	if data, err := bridge(t.Context(), sjc.conn, "ping", nil); err != nil || strings.Count(string(data), `"region"`) != len(regions) {
+		t.Fatalf("bridge ping = %s, %v", data, err)
+	}
+	if _, err := bridge(t.Context(), sjc.conn, "apply", json.RawMessage(`{"name":"whoami","unknown":1}`)); err == nil {
+		t.Fatal("bridge applied a spec with an unknown field")
+	}
+
 	spec := swarmruntime.ServiceSpec{Name: "whoami", Image: "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764", Port: 8099, Replicas: 1}
 	out.Reset()
-	if err := send(t.Context(), gru.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 1, Spec: &spec}}, 5*time.Second, &out); err != nil {
+	if err := printApply(&out)(send(t.Context(), gru.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 1, Spec: &spec}}, 5*time.Second)); err != nil {
 		t.Fatalf("apply from %s: %v\n%s", regions[0], err, out.String())
 	}
 	for _, region := range regions {
@@ -203,7 +212,7 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	delete(nodes, fra)
 	spec.Args = []string{"/bin/true"}
 	out.Reset()
-	err = send(t.Context(), sjc.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 2, Spec: &spec}}, 2*time.Second, &out)
+	err = printApply(&out)(send(t.Context(), sjc.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 2, Spec: &spec}}, 2*time.Second))
 	if err == nil || !strings.Contains(err.Error(), "failed in "+fra) || !strings.Contains(out.String(), "NO REPLY") {
 		t.Fatalf("apply with %s down: %v\n%s", fra, err, out.String())
 	}
@@ -216,7 +225,7 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 
 	// A removal not targeting a region is still a removal there.
 	out.Reset()
-	if err := send(t.Context(), gru.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 3}}, 5*time.Second, &out); err != nil {
+	if err := printApply(&out)(send(t.Context(), gru.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 3}}, 5*time.Second)); err != nil {
 		t.Fatalf("remove: %v\n%s", err, out.String())
 	}
 	for _, region := range regions {

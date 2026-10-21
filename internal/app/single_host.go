@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -67,6 +68,7 @@ func RunSingleHost(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	releases.Mesh = mesh.Bridge(*state)
 	natsServer, natsConn, err := releasepush.Start(*state)
 	if err != nil {
 		return err
