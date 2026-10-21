@@ -20,7 +20,8 @@ import (
 
 // Even a publisher reaching a victim's reply subject cannot manufacture home authority.
 func TestCapacityReservationSignedReplyNATS(t *testing.T) {
-	conn := testRolloutJetStream(t).Conn()
+	// An open broker: this proves the signed reply checks, not the broker grants.
+	conn := startEmbeddedNATS(t)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
