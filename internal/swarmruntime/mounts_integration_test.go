@@ -36,7 +36,7 @@ func TestContainerdBindMountSurvivesTaskRestart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		task := &api.Task{ID: fmt.Sprintf("%s%d", name, time.Now().UnixNano()), ServiceID: "mountintegration", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
+		task := &api.Task{ID: fmt.Sprintf("%s%d", name, time.Now().UnixNano()), ServiceID: "mountintegration", Spec: api.TaskSpec{Runtime: runtime, Resources: containerTestResources(250_000_000, 64<<20)}}
 		c, err := integrationContainerController(e, task)
 		if err != nil {
 			t.Fatal(err)
@@ -113,7 +113,7 @@ func TestContainerdReadinessUsesServicePath(t *testing.T) {
 	service, err := applyService(ctx, client, ServiceIntent{
 		ID: entityid.Derive("integration", "readiness-path"), Role: "smoke", Region: "sa-saopaulo-1", Environment: "integration", Architecture: runtime.GOARCH, Replicas: 1,
 		Container: container,
-		Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}},
+		Resources: containerTestResources(250_000_000, 64<<20),
 		Ports:     []*api.PortConfig{{Name: "http", Protocol: api.ProtocolTCP, PublishMode: api.PublishModeHost, TargetPort: port, PublishedPort: port}},
 	})
 	if err != nil {
