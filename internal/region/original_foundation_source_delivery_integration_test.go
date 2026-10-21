@@ -236,6 +236,12 @@ func TestOriginalFoundationPublicDeliverySDK(t *testing.T) {
 				prepared.Grant = grant
 				if fault == "signed environment" {
 					prepared.Anchor.Environment = "canary"
+					// The anchor must stay self-consistent so the delivery verifier, not signing, refuses it.
+					if registration := prepared.Anchor.InitialSourceRegistration; registration != nil {
+						changed := *registration
+						changed.Environment = "canary"
+						prepared.Anchor.InitialSourceRegistration = &changed
+					}
 				}
 				bundle = signProvisionFoundation(t, prepared, bundle.RootChainWire, f.root, f.now)
 			}
