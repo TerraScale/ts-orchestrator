@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,16 @@ func execLines(t *testing.T, path, key string) []string {
 func TestSelfUpdateUnitsMatchLayout(t *testing.T) {
 	deploy := filepath.Join("..", "..", "..", "deploy", "systemd")
 	dir := filepath.Join(deploy, "selfupdate")
+	for relative, expected := range map[string]string{
+		selfupdate.ManagedRuntimeUnit:                                                                   selfupdate.ManagedRuntimeService,
+		"selfupdate/" + selfupdate.HostUnit + ".d/90-managed-runtime.conf":                              selfupdate.ManagedRuntimeHostDropin,
+		"selfupdate/" + selfupdate.ControllerUnit + ".d/90-managed-runtime.conf":                        selfupdate.ManagedRuntimeControllerDropin,
+		"selfupdate/terrascale-orchestrator-selfupdate-watchdog@host.service.d/90-managed-runtime.conf": selfupdate.ManagedRuntimeWatchdogDropin,
+	} {
+		if actual, err := os.ReadFile(filepath.Join(deploy, relative)); err != nil || string(actual) != expected {
+			t.Fatalf("managed runtime image contract differs: %s: %v", relative, err)
+		}
+	}
 	for role, unit := range map[string]string{"controller": selfupdate.ControllerUnit, "host": selfupdate.HostUnit} {
 		dropin := filepath.Join(dir, unit+".d", "60-selfupdate.conf")
 		base := execLines(t, filepath.Join(deploy, unit), "ExecStart")
@@ -244,6 +255,96 @@ func TestPrepareReloadsSystemdForNewDropins(t *testing.T) {
 		string(data) != selfupdate.HostSetupDropin {
 		t.Fatalf("host-setup drop-in: %v", err)
 	}
+	uninstalled := filepath.Join(temp, "uninstalled-root")
+	if err := run(t.Context(), []string{"prepare-managed-runtime", "--unit", selfupdate.HostUnit, "--root", uninstalled,
+		"--owner", fmt.Sprint(os.Getuid()), "--systemd-dir", systemd}, &strings.Builder{}, time.Now, func(context.Context, string) error { t.Fatal("uninstalled runtime restarted"); return nil }); err == nil {
+		t.Fatal("specialized prepare accepted a native installation")
+	}
+	if _, err := os.Stat(uninstalled); !os.IsNotExist(err) {
+		t.Fatal("refused prepare created its release root")
+	}
+	managed := managedRuntimeSystemd(t)
+	if installed, err := selfupdate.ManagedRuntimeInstalled(managed, os.Getuid()); err != nil || !installed {
+		t.Fatalf("image alias contract = %v, %v", installed, err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, selfupdate.HostSetupUnit), []byte("[Service]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := selfupdate.InstallNetBirdAgent(managed); err != nil {
+		t.Fatal(err)
+	}
+	for _, relative := range []string{selfupdate.NetBirdAgentUnit, "terrascale-netbird-enroll.service.d/zz-selfupdate.conf"} {
+		if _, err := os.Stat(filepath.Join(managed, relative)); err != nil {
+			t.Fatalf("real NetBird installer omitted %s: %v", relative, err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(managed, selfupdate.HostUnit+".d/65-netbird-agent.conf")); !os.IsNotExist(err) {
+		t.Fatalf("NetBird installer restored controller-dependent ordering: %v", err)
+	}
+	// The old native ExecStart remains below the fixed 90 file.
+	for relative, contents := range map[string]string{
+		selfupdate.HostUnit + ".d/60-selfupdate.conf": "[Service]\nExecStart=\nExecStart=/var/lib/terrascale-orchestrator/current/terrascale-orchestrator host --config /etc/terrascale-orchestrator/host.json\n",
+	} {
+		if err := os.WriteFile(filepath.Join(managed, relative), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	managedArgs := slices.Clone(args)
+	for index, value := range managedArgs {
+		if value == systemd {
+			managedArgs[index] = managed
+		}
+	}
+	if err := run(t.Context(), managedArgs, &strings.Builder{}, time.Now, func(context.Context, string) error { t.Fatal("prepare restarted service"); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if installed, err := selfupdate.ManagedRuntimeInstalled(managed, os.Getuid()); err != nil || !installed {
+		t.Fatalf("legacy prepare replaced managed runtime: %v, %v", installed, err)
+	}
+	wrongOwner := slices.Clone(managedArgs)
+	wrongOwner[0] = "prepare-managed-runtime"
+	for index, value := range wrongOwner {
+		if value == selfupdate.HostUnit {
+			wrongOwner[index] = selfupdate.ControllerUnit
+		}
+	}
+	if err := run(t.Context(), wrongOwner, &strings.Builder{}, time.Now, func(context.Context, string) error { t.Fatal("wrong owner restarted"); return nil }); err == nil {
+		t.Fatal("managed worker accepted controller prepare owner")
+	}
+	for _, damage := range []string{"alias", "primary", "dropin", "directory", "native-ordering"} {
+		t.Run(damage, func(t *testing.T) {
+			installed := managedRuntimeSystemd(t)
+			switch damage {
+			case "alias":
+				file := filepath.Join(installed, selfupdate.ManagedRuntimeUnit)
+				if err := os.Remove(file); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("another.service", file); err != nil {
+					t.Fatal(err)
+				}
+			case "primary":
+				if err := os.Chmod(filepath.Join(installed, selfupdate.HostUnit), 0o666); err != nil {
+					t.Fatal(err)
+				}
+			case "dropin":
+				if err := os.WriteFile(filepath.Join(installed, selfupdate.HostUnit+".d/90-managed-runtime.conf"), []byte("[Service]\nExecStart=host\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			case "directory":
+				if err := os.Chmod(installed, 0o777); err != nil {
+					t.Fatal(err)
+				}
+			case "native-ordering":
+				if err := os.WriteFile(filepath.Join(installed, selfupdate.HostUnit+".d/65-netbird-agent.conf"), []byte(selfupdate.NetBirdAgentHostDropin), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if recognized, err := selfupdate.ManagedRuntimeInstalled(installed, os.Getuid()); err == nil || recognized {
+				t.Fatalf("unsafe image contract accepted: %v, %v", recognized, err)
+			}
+		})
+	}
 }
 
 // Bootstrap's restore step fails the unit on any restore failure; only a
@@ -285,4 +386,28 @@ func TestBootstrapRestoreStepSkipsOnlyAnOlderRelease(t *testing.T) {
 			t.Errorf("%s: exit %d, want %d", tc.name, code, tc.want)
 		}
 	}
+}
+
+// managedRuntimeSystemd installs the same fixed filesystem contract as the image.
+func managedRuntimeSystemd(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	for relative, contents := range map[string]string{
+		selfupdate.HostUnit: selfupdate.ManagedRuntimeService,
+		selfupdate.HostUnit + ".d/90-managed-runtime.conf":                                   selfupdate.ManagedRuntimeHostDropin,
+		selfupdate.ControllerUnit + ".d/90-managed-runtime.conf":                             selfupdate.ManagedRuntimeControllerDropin,
+		"terrascale-orchestrator-selfupdate-watchdog@host.service.d/90-managed-runtime.conf": selfupdate.ManagedRuntimeWatchdogDropin,
+	} {
+		file := filepath.Join(directory, relative)
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(selfupdate.HostUnit, filepath.Join(directory, selfupdate.ManagedRuntimeUnit)); err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }

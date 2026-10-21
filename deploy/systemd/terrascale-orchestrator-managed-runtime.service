@@ -4,6 +4,7 @@ Wants=network-online.target
 Requires=containerd.service terrascale-orchestrator-managed-host-start.service
 After=network-online.target containerd.service terrascale-orchestrator-managed-host-start.service
 Before=terrascale-orchestrator-controller.service
+PartOf=terrascale-orchestrator-controller.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -29,3 +30,4 @@ Delegate=yes
 [Install]
 WantedBy=multi-user.target
 RequiredBy=terrascale-orchestrator-controller.service
+Alias=terrascale-orchestrator-managed-runtime.service

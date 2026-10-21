@@ -213,7 +213,7 @@ func runManagedRuntimeHostSession(ctx context.Context, controller Config, reader
 		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot, TaskLoad: source.taskLoad,
 		WorkloadIdentity: host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
 		ClockCheck:       controllerClockCheck(hostClockProbe()),
-		FollowRollouts:   hostRollouts(cfg, key, public), FollowNetBird: hostNetBird(cfg, public), Initialized: func() { close(ready) },
+		FollowNetBird:    hostNetBird(cfg, public), Initialized: func() { close(ready) },
 	})
 	if err != nil {
 		return err

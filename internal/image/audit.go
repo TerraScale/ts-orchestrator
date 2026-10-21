@@ -548,14 +548,28 @@ func installLinks(g *Guest, work, repo string, out io.Writer) error {
 		return e
 	}
 	etc := filepath.Join(stage, "etc/systemd/system")
-	for _, name := range append(append([]string{"terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...), HostUnitFiles...) {
-		if e := copyFile(filepath.Join(repo, "deploy/systemd", name), filepath.Join(etc, name), 0644); e != nil {
+	for _, name := range append(append([]string{"terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...), HostUnitFiles...) {
+		if e := copyFile(filepath.Join(repo, "deploy/systemd", imageUnitSource(name)), filepath.Join(etc, name), 0644); e != nil {
 			return e
 		}
 	}
 	for _, name := range SelfUpdateUnitFiles {
 		if e := copyFile(filepath.Join(repo, "deploy/systemd/selfupdate", name), filepath.Join(etc, name), 0644); e != nil {
 			return e
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(etc, "terrascale-orchestrator-managed-runtime.service")); !errors.Is(err, os.ErrNotExist) {
+		return errors.New("managed runtime alias already exists in the base image")
+	}
+	if err := g.AssertAbsent("/etc/systemd/system/terrascale-orchestrator-managed-runtime.service", "managed runtime alias"); err != nil {
+		return err
+	}
+	if err := g.AssertAbsent("/etc/systemd/system/terrascale-orchestrator-host.service.d/65-netbird-agent.conf", "native host dependency"); err != nil {
+		return err
+	}
+	for _, directory := range []string{"/run/systemd/system", "/usr/local/lib/systemd/system", "/usr/lib/systemd/system"} {
+		if err := g.AssertAbsent(directory+"/terrascale-orchestrator-managed-runtime.service", "managed runtime alias override"); err != nil {
+			return err
 		}
 	}
 	names := append(append(append([]string{}, Units...), HostUnits...), SelfUpdateTimers...)

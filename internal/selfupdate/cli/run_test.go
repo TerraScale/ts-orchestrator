@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -146,6 +147,12 @@ func TestWatchdogConfirmsOrRollsBackFromTheRoleConfig(t *testing.T) {
 			proof := filepath.Join(dir, "custom-proof.json")
 			return `{"version":2,"host":{"identity_key_file":"` + key + `","self_update_proof_file":"` + proof + `"}}`, proof
 		}, false, true},
+		{"managed-runtime-default-host-proof", host, func(key, proof, _ string) (string, string) {
+			return `{"version":2,"host":{"identity_key_file":"` + key + `"}}`, proof
+		}, false, true},
+		{"managed-runtime-rejects-another-key", host, func(key, proof, _ string) (string, string) {
+			return `{"version":2,"host":{"identity_key_file":"` + key + `"}}`, proof
+		}, true, false},
 		{"proof-signed-by-another-key", controller, func(key, proof, _ string) (string, string) {
 			return `{"version":2,"controller":{"response_key_file":"` + key + `"}}`, proof
 		}, true, false},
@@ -182,7 +189,11 @@ func TestWatchdogConfirmsOrRollsBackFromTheRoleConfig(t *testing.T) {
 				})
 				return output.String(), err
 			}
-			if _, err := invoke("prepare", "--root", root, "--owner", owner, "--unit", tc.unit, "--baked-binary", baked); err != nil {
+			prepare := []string{"prepare", "--root", root, "--owner", owner, "--unit", tc.unit, "--baked-binary", baked}
+			if strings.HasPrefix(tc.name, "managed-runtime-") {
+				prepare = append(prepare, "--systemd-dir", managedRuntimeSystemd(t))
+			}
+			if _, err := invoke(prepare...); err != nil {
 				t.Fatal(err)
 			}
 			previous, err := layout.Current()
@@ -301,13 +312,20 @@ func TestRootStepsRunTheKnownGoodRelease(t *testing.T) {
 		return output.String(), err
 	}
 	unit := selfupdate.HostUnit
-	prepare := []string{"prepare", "--root", root, "--owner", owner, "--unit", unit, "--baked-binary", baked}
+	systemd := managedRuntimeSystemd(t)
+	t.Setenv("DELEGATE_SYSTEMD", systemd)
+	prepare := []string{"prepare", "--root", root, "--owner", owner, "--unit", unit, "--baked-binary", baked, "--systemd-dir", systemd}
 	if _, err := invoke(prepare...); err != nil {
 		t.Fatal(err)
 	}
 	// A confirmed release, staged as `selfupdate stage` leaves it.
 	script := []byte("#!/bin/sh\nprintf '%s %s\\n' \"$" + delegatedEnv + "\" \"$*\" >> \"$DELEGATE_LOG\"\n" +
-		"[ -z \"$DELEGATE_SLEEP\" ] || exec sleep \"$DELEGATE_SLEEP\"\nexit \"${DELEGATE_EXIT:-0}\"\n")
+		"[ -z \"$DELEGATE_SLEEP\" ] || exec sleep \"$DELEGATE_SLEEP\"\n" +
+		"if [ \"$2\" = prepare ]; then\n" +
+		"printf '%s' '" + selfupdate.NetBirdAgentHostDropin + "' > \"$DELEGATE_SYSTEMD/terrascale-orchestrator-host.service.d/65-netbird-agent.conf\"\n" +
+		"fi\nif [ \"$2\" = prepare ] || [ \"$2\" = prepare-managed-runtime ]; then\n" +
+		"printf '%s\\n' '[Service]' 'ExecStart=' 'ExecStart=/var/lib/terrascale-orchestrator/current/terrascale-orchestrator host --config /etc/terrascale-orchestrator/host.json' > \"$DELEGATE_SYSTEMD/terrascale-orchestrator-host.service.d/60-selfupdate.conf\"\n" +
+		"fi\nexit \"${DELEGATE_EXIT:-0}\"\n")
 	sum := sha256.Sum256(script)
 	digest := hex.EncodeToString(sum[:])
 	if err := os.Mkdir(layout.ReleaseDir(digest), 0o755); err != nil {
@@ -344,9 +362,22 @@ func TestRootStepsRunTheKnownGoodRelease(t *testing.T) {
 		if err != nil || strings.Contains(output, "selfupdate "+step[0]+" unit=") {
 			t.Fatalf("%s ran in the image-baked binary: %q %v", step[0], output, err)
 		}
-		if got, want := calls()[len(calls())-1], "1 selfupdate "+strings.Join(step, " "); got != want {
+		forwarded := slices.Clone(step)
+		if forwarded[0] == "prepare" {
+			forwarded[0] = "prepare-managed-runtime"
+		}
+		if got, want := calls()[len(calls())-1], "1 selfupdate "+strings.Join(forwarded, " "); got != want {
 			t.Fatalf("delegated call = %q, want %q", got, want)
 		}
+	}
+	if installed, err := selfupdate.ManagedRuntimeInstalled(systemd, os.Getuid()); err != nil || !installed {
+		t.Fatalf("old known-good prepare changed the runtime startup contract: %v, %v", installed, err)
+	}
+	if legacy, err := os.ReadFile(filepath.Join(systemd, selfupdate.HostUnit+".d/60-selfupdate.conf")); err != nil || !strings.Contains(string(legacy), " host --config ") {
+		t.Fatalf("legacy delegate did not exercise native startup replacement: %s, %v", legacy, err)
+	}
+	if _, err := os.Lstat(filepath.Join(systemd, selfupdate.HostUnit+".d/65-netbird-agent.conf")); !os.IsNotExist(err) {
+		t.Fatalf("compatible delegate entered native prepare: %v", err)
 	}
 	// A release that fails the step leaves it to the image-baked binary.
 	t.Setenv("DELEGATE_EXIT", "1")
@@ -397,6 +428,20 @@ func TestRootStepsRunTheKnownGoodRelease(t *testing.T) {
 	}
 	if current, err := layout.Current(); err != nil || current == unproven {
 		t.Fatalf("unproven target still current: %v", err)
+	}
+	// An interrupted compatible prepare leaves the real installation restartable.
+	knownGood()
+	t.Setenv("DELEGATE_SLEEP", "30")
+	delegateTimeout = 2 * time.Second
+	if _, err := invoke(prepare...); err != nil {
+		t.Fatal(err)
+	}
+	if installed, err := selfupdate.ManagedRuntimeInstalled(systemd, os.Getuid()); err != nil || !installed {
+		t.Fatalf("interrupted prepare left an unsafe restart graph: %v, %v", installed, err)
+	}
+	t.Setenv("DELEGATE_SLEEP", "")
+	if _, err := invoke(prepare...); err != nil {
+		t.Fatalf("prepare could not resume after interruption: %v", err)
 	}
 }
 

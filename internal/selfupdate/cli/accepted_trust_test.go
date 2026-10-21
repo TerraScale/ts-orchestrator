@@ -292,6 +292,14 @@ func TestControllerPrestartGateRefusesBeforeSelfupdateEffects(t *testing.T) {
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Fatal("gate refusal created release root")
 	}
+	managed := managedRuntimeSystemd(t)
+	err = run(t.Context(), []string{"prepare", "--unit", selfupdate.HostUnit, "--root", root, "--owner", fmt.Sprint(os.Getuid()), "--systemd-dir", managed, "--baked-binary", filepath.Join(t.TempDir(), "absent-binary")}, &bytes.Buffer{}, time.Now, func(context.Context, string) error { t.Fatal("runtime restarted before controller gate"); return nil })
+	if err == nil || !strings.Contains(err.Error(), "pending journal diverges") {
+		t.Fatalf("runtime bypassed accepted controller gate: %v", err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatal("runtime gate refusal created release root")
+	}
 }
 
 func TestAcceptedControllerAllowsSuccessorAndRefusesIncompatibleRollback(t *testing.T) {
@@ -333,6 +341,66 @@ func TestAcceptedControllerAllowsSuccessorAndRefusesIncompatibleRollback(t *test
 	if _, err := selfupdate.Activate(layout, next, selfupdate.ControllerUnit, now, time.Minute); err != nil {
 		t.Fatal(err)
 	}
+	managed := managedRuntimeSystemd(t)
+	var prepared bytes.Buffer
+	if err := run(t.Context(), []string{"prepare", "--unit", selfupdate.HostUnit, "--root", layout.Root,
+		"--owner", fmt.Sprint(os.Getuid()), "--systemd-dir", managed, "--baked-binary", binary}, &prepared,
+		func() time.Time { return now.Add(time.Second) }, func(context.Context, string) error { t.Fatal("runtime prepare restarted controller"); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prepared.String(), "unit="+selfupdate.ControllerUnit) {
+		t.Fatalf("runtime did not prepare the canonical controller owner: %s", &prepared)
+	}
+	if activation, pending, err := layout.Pending(); err != nil || !pending || activation.Unit != selfupdate.ControllerUnit || activation.Target != next {
+		t.Fatalf("runtime created a second activation owner: %+v, %v, %v", activation, pending, err)
+	}
+	// A signed legacy dispatcher rejects the new verb before any unit installation.
+	delegateLog := filepath.Join(t.TempDir(), "delegate-owner")
+	t.Setenv("DELEGATE_LOG", delegateLog)
+	t.Setenv(delegatedEnv, "")
+	t.Setenv("DELEGATE_SYSTEMD", managed)
+	t.Setenv("DELEGATE_LEGACY", "1")
+	delegate := []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DELEGATE_LOG\"\n" +
+		"if [ \"$DELEGATE_LEGACY\" = 1 ] && [ \"$2\" = prepare-managed-runtime ]; then printf '%s\\n' 'unknown selfupdate command prepare-managed-runtime' >&2; exit 2; fi\n" +
+		"if [ \"$2\" = prepare ]; then printf '%s' '" + selfupdate.NetBirdAgentHostDropin + "' > \"$DELEGATE_SYSTEMD/terrascale-orchestrator-host.service.d/65-netbird-agent.conf\"; fi\n")
+	delegateReceipt, delegateDelegation := signAcceptedSuccessor(t, delegate, now, private, roots)
+	delegateDigest, err := selfupdate.Stage(layout, bytes.NewReader(delegate), delegateReceipt, delegateDelegation,
+		selfupdate.ReceiptPolicy{Roots: roots, Environment: accepted.Environment, Cell: accepted.Cell, Architecture: runtime.GOARCH}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("releases/"+delegateDigest, filepath.Join(layout.Root, "known-good")); err != nil {
+		t.Fatal(err)
+	}
+	legacyLogs := captureLog(t)
+	prepared.Reset()
+	if err := run(t.Context(), []string{"prepare", "--unit", selfupdate.HostUnit, "--root", layout.Root,
+		"--owner", fmt.Sprint(os.Getuid()), "--systemd-dir", managed, "--baked-binary", binary}, &prepared,
+		func() time.Time { return now.Add(time.Second) }, func(context.Context, string) error { t.Fatal("legacy runtime prepare restarted"); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prepared.String(), "unit="+selfupdate.ControllerUnit+" outcome=") || !strings.Contains(legacyLogs.String(), "known-good release failed the step") {
+		t.Fatalf("legacy command rejection did not preserve logged baked fallback: %s, %s", &prepared, legacyLogs)
+	}
+	if installed, err := selfupdate.ManagedRuntimeInstalled(managed, os.Getuid()); err != nil || !installed {
+		t.Fatalf("rejected signed legacy delegate mutated the installation: %v, %v", installed, err)
+	}
+	if delegated, err := os.ReadFile(delegateLog); err != nil || !strings.Contains(string(delegated), "selfupdate\nprepare-managed-runtime\n") {
+		t.Fatalf("legacy release received its unsafe prepare command: %s, %v", delegated, err)
+	}
+	t.Setenv("DELEGATE_LEGACY", "0")
+	prepared.Reset()
+	if err := run(t.Context(), []string{"prepare-managed-runtime", "--unit", selfupdate.HostUnit, "--root", layout.Root,
+		"--owner", fmt.Sprint(os.Getuid()), "--systemd-dir", managed, "--baked-binary", binary}, &prepared,
+		func() time.Time { return now.Add(time.Second) }, func(context.Context, string) error { t.Fatal("delegated runtime prepare restarted"); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if delegated, err := os.ReadFile(delegateLog); err != nil || !strings.HasSuffix(strings.TrimSpace(string(delegated)), "--unit\n"+selfupdate.ControllerUnit) {
+		t.Fatalf("compatible delegate did not receive the canonical controller owner: %s, %v", delegated, err)
+	}
+	if activation, pending, err := layout.Pending(); err != nil || !pending || activation.Unit != selfupdate.ControllerUnit || activation.Target != next {
+		t.Fatalf("delegated runtime prepare changed the shared selection: %+v, %v, %v", activation, pending, err)
+	}
 	checkAcceptedBinary = func(_ context.Context, path string, _ bootstrapstart.AcceptedIdentity) error {
 		if path == layout.BinaryPath(previous) {
 			return errors.New("cannot read accepted contract")
@@ -344,6 +412,23 @@ func TestAcceptedControllerAllowsSuccessorAndRefusesIncompatibleRollback(t *test
 	}
 	if current, err := layout.Current(); err != nil || current != next {
 		t.Fatal("refusal rolled back current")
+	}
+	checkAcceptedBinary = func(context.Context, string, bootstrapstart.AcceptedIdentity) error { return nil }
+	t.Setenv(delegatedEnv, "1")
+	var restarted []string
+	if err := run(t.Context(), []string{"watchdog", "--unit", selfupdate.ControllerUnit, "--root", layout.Root,
+		"--owner", fmt.Sprint(os.Getuid())}, &bytes.Buffer{}, func() time.Time { return now.Add(2 * time.Minute) },
+		func(_ context.Context, unit string) error { restarted = append(restarted, unit); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if current, err := layout.Current(); err != nil || current != previous || len(restarted) != 1 || restarted[0] != selfupdate.ControllerUnit {
+		t.Fatalf("shared runtime rollback lost controller ownership: current=%s restarts=%v error=%v", current, restarted, err)
+	}
+	if _, pending, err := layout.Pending(); err != nil || pending {
+		t.Fatalf("controller rollback retained a second activation: %v, %v", pending, err)
+	}
+	if installed, err := selfupdate.ManagedRuntimeInstalled(managed, os.Getuid()); err != nil || !installed {
+		t.Fatalf("controller rollback changed the installed runtime: %v, %v", installed, err)
 	}
 }
 
@@ -512,6 +597,11 @@ func TestControllerRecoveryPreservesHostOwnedActivation(t *testing.T) {
 			}
 			if err := c.watchdog([]string{"--unit", selfupdate.ControllerUnit, "--root", layout.Root, "--owner", fmt.Sprint(os.Getuid())}); err == nil {
 				t.Fatal("incompatible shared selection must refuse controller watchdog")
+			}
+			managed := managedRuntimeSystemd(t)
+			if err := c.prepare([]string{"--unit", selfupdate.HostUnit, "--root", layout.Root, "--owner", fmt.Sprint(os.Getuid()),
+				"--systemd-dir", managed, "--baked-binary", binary}); err == nil {
+				t.Fatal("runtime prepare reinterpreted incompatible host-owned activation")
 			}
 			after, err := os.ReadFile(path)
 			if err != nil || !bytes.Equal(before, after) {

@@ -20,6 +20,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 )
 
 func TestManagedRuntimeImageIntegration(t *testing.T) {
@@ -318,14 +320,17 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Wri
 	if err := os.WriteFile(filepath.Join(root, "usr/lib/systemd/system/ssh.socket"), []byte("[Socket]\nListenStream=22\n[Install]\nWantedBy=sockets.target\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	unitNames := append([]string{"terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...)
+	unitNames := append([]string{"terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...)
 	unitNames = append(unitNames, HostUnitFiles...)
 	for _, name := range unitNames {
-		if err := g.Upload(filepath.Join(repo, "deploy/systemd", name), "/etc/systemd/system/"+name, 0644); err != nil {
+		if err := g.Upload(filepath.Join(repo, "deploy/systemd", imageUnitSource(name)), "/etc/systemd/system/"+name, 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range SelfUpdateUnitFiles {
+	for _, name := range append(append([]string{}, SelfUpdateUnitFiles...), SelfUpdateDropins...) {
+		if err := g.Directory(filepath.Dir("/etc/systemd/system/"+name), 0, 0, 0755); err != nil {
+			t.Fatal(err)
+		}
 		if err := g.Upload(filepath.Join(repo, "deploy/systemd/selfupdate", name), "/etc/systemd/system/"+name, 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -333,14 +338,24 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Wri
 	if err := installLinks(g, work, repo, out); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service"} {
+	for _, name := range []string{"containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-host.service", "terrascale-orchestrator-controller.service"} {
 		state, err := Execute(t.Context(), "", append(os.Environ(), "SYSTEMD_OFFLINE=1"), "systemctl", "--root="+root, "is-enabled", name)
 		if err != nil || state != "enabled" {
 			t.Fatalf("guest %s is not enabled: %s, %v", name, state, err)
 		}
 	}
-	if _, err := os.Lstat(filepath.Join(root, "etc/systemd/system/multi-user.target.wants/terrascale-orchestrator-host.service")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("image activates a second native host Agent: %v", err)
+	alias, err := os.Readlink(filepath.Join(root, "etc/systemd/system", selfupdate.ManagedRuntimeUnit))
+	if err != nil || resolveLink(selfupdate.ManagedRuntimeUnit, alias) != "/etc/systemd/system/"+selfupdate.HostUnit {
+		t.Fatalf("runtime does not share the canonical native volume cgroup: %q, %v", alias, err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "etc/systemd/system/multi-user.target.wants", selfupdate.ManagedRuntimeUnit)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("image activates a second runtime owner: %v", err)
+	}
+	if runtime, err := os.ReadFile(filepath.Join(root, "etc/systemd/system", selfupdate.HostUnit)); err != nil || string(runtime) != selfupdate.ManagedRuntimeService || strings.Contains(string(runtime), " host --config ") {
+		t.Fatalf("canonical host starts a second native Agent: %s, %v", runtime, err)
+	}
+	if native, err := os.ReadFile(filepath.Join(repo, "deploy/systemd", selfupdate.HostUnit)); err != nil || !strings.Contains(string(native), " host --config ") || !strings.Contains(string(native), "KillMode=control-group") {
+		t.Fatalf("legacy native host installation changed: %s, %v", native, err)
 	}
 	// Supply distribution targets and inert executable files so systemd verifies the real project dependency graph offline.
 	for _, name := range []string{"basic", "sysinit", "sockets", "shutdown", "network", "network-online", "local-fs", "multi-user"} {
@@ -361,9 +376,8 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Wri
 		t.Fatal(err)
 	}
 	for _, edge := range []struct{ unit, dependency string }{
-		{"terrascale-orchestrator-controller.service", "terrascale-orchestrator-managed-runtime.service"},
-		{"terrascale-orchestrator-managed-runtime.service", "containerd.service"},
-		{"terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-managed-host-start.service"},
+		{"terrascale-orchestrator-host.service", "containerd.service"},
+		{"terrascale-orchestrator-host.service", "terrascale-orchestrator-managed-host-start.service"},
 	} {
 		data, err := os.ReadFile(filepath.Join(root, "etc/systemd/system", edge.unit))
 		if err != nil {
@@ -380,6 +394,42 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Wri
 				t.Fatalf("%s lacks %s=%s", edge.unit, relationship, edge.dependency)
 			}
 		}
+	}
+	dependency := selfupdate.ControllerUnit + ".requires/" + selfupdate.HostUnit
+	if target, err := os.Readlink(filepath.Join(root, "etc/systemd/system", dependency)); err != nil || resolveLink(dependency, target) != "/etc/systemd/system/"+selfupdate.HostUnit {
+		t.Fatalf("controller lacks the required shared runtime: %q, %v", target, err)
+	}
+	for relative, expected := range map[string]string{
+		selfupdate.HostUnit + ".d/90-managed-runtime.conf":                                   selfupdate.ManagedRuntimeHostDropin,
+		selfupdate.ControllerUnit + ".d/90-managed-runtime.conf":                             selfupdate.ManagedRuntimeControllerDropin,
+		"terrascale-orchestrator-selfupdate-watchdog@host.service.d/90-managed-runtime.conf": selfupdate.ManagedRuntimeWatchdogDropin,
+	} {
+		if contents, err := os.ReadFile(filepath.Join(root, "etc/systemd/system", relative)); err != nil || string(contents) != expected {
+			t.Fatalf("shared runtime contract differs: %s: %s, %v", relative, contents, err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(root, "etc/systemd/system", selfupdate.HostUnit+".d/65-netbird-agent.conf")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("image installs controller-dependent native host ordering: %v", err)
+	}
+	dropins, err := os.ReadDir(filepath.Join(root, "etc/systemd/system", selfupdate.HostUnit+".d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dropin := range dropins {
+		contents, err := os.ReadFile(filepath.Join(root, "etc/systemd/system", selfupdate.HostUnit+".d", dropin.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for line := range strings.SplitSeq(string(contents), "\n") {
+			if value, ok := strings.CutPrefix(line, "After="); ok && (slices.Contains(strings.Fields(value), selfupdate.NetBirdAgentUnit) || slices.Contains(strings.Fields(value), selfupdate.HostSetupUnit)) {
+				t.Fatalf("runtime waits for controller-dependent enrollment: %s: %s", dropin.Name(), line)
+			}
+		}
+	}
+	if !strings.Contains(selfupdate.ManagedRuntimeHostDropin, "InaccessiblePaths=\n") || !strings.Contains(selfupdate.ManagedRuntimeHostDropin, "KillMode=process\n") ||
+		!strings.Contains(selfupdate.ManagedRuntimeService, "PartOf="+selfupdate.ControllerUnit+"\n") || !strings.Contains(selfupdate.ManagedRuntimeService, "Before="+selfupdate.ControllerUnit+"\n") ||
+		selfupdate.ManagedRuntimeControllerDropin[strings.LastIndex(selfupdate.ManagedRuntimeControllerDropin, "ExecStartPre="):] != "ExecStartPre=\n" {
+		t.Fatal("shared runtime lacks fixed restart, isolation or single prepare ordering")
 	}
 	for _, role := range []string{"host", "controller"} {
 		data, err := os.ReadFile(filepath.Join(root, "etc/systemd/system/terrascale-orchestrator-"+role+".service.d/70-containerd.conf"))

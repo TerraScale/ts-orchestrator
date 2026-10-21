@@ -39,6 +39,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+	"github.com/oracle/oci-go-sdk/v65/vault"
 	"golang.org/x/sys/unix"
 )
 
@@ -139,6 +140,12 @@ type ociPolicyRetry struct {
 	id      string
 }
 
+type ociManagedSecret struct {
+	value    vault.Secret
+	contents []byte
+	etag     string
+}
+
 type ociWorld struct {
 	mu             sync.Mutex
 	wire           ociWire
@@ -152,6 +159,9 @@ type ociWorld struct {
 	sessions       map[string]ociSession
 	objects        map[string]ociObject
 	policies       map[string]ociPolicy
+	groups         map[string]identity.DynamicGroup
+	groupETags     map[string]string
+	secrets        map[string]ociManagedSecret
 	retries        map[string]ociPolicyRetry
 	journal        *os.File
 	journalSHA     hash.Hash
@@ -266,7 +276,8 @@ func startOCIWorld(ctx context.Context, wire []byte) (_ *ociWorld, err error) {
 		return nil, err
 	}
 	world := &ociWorld{wire: input, ctx: ctx, sessions: map[string]ociSession{}, objects: map[string]ociObject{},
-		policies: map[string]ociPolicy{}, retries: map[string]ociPolicyRetry{}, journalSHA: sha256.New(), done: make(chan struct{})}
+		policies: map[string]ociPolicy{}, groups: map[string]identity.DynamicGroup{}, groupETags: map[string]string{}, secrets: map[string]ociManagedSecret{},
+		retries: map[string]ociPolicyRetry{}, journalSHA: sha256.New(), done: make(chan struct{})}
 	defer func() {
 		if err != nil {
 			_ = world.Close()
@@ -362,7 +373,7 @@ func (world *ociWorld) hosts() []string {
 	region := world.wire.Region
 	return []string{"auth." + region + ".oraclecloud.com", "iaas." + region + ".oraclecloud.com",
 		"identity." + region + ".oci.oraclecloud.com", "objectstorage." + region + ".oraclecloud.com",
-		"secrets.vaults." + region + ".oci.oraclecloud.com"}
+		"secrets.vaults." + region + ".oci.oraclecloud.com", "vaults." + region + ".oci.oraclecloud.com"}
 }
 
 func (world *ociWorld) server(handler http.Handler) *http.Server {
@@ -528,6 +539,12 @@ func (world *ociWorld) Close() error {
 		}
 		clear(world.objects)
 		clear(world.policies)
+		clear(world.groups)
+		clear(world.groupETags)
+		for _, secret := range world.secrets {
+			clear(secret.contents)
+		}
+		clear(world.secrets)
 		clear(world.retries)
 	})
 	return world.closeErr
@@ -649,8 +666,9 @@ func (world *ociWorld) serveOCI(w http.ResponseWriter, request *http.Request) {
 		world.reject(w, http.StatusUnauthorized)
 		return
 	}
-	// Session service authorization requires unimplemented IAM and dynamic-group evaluation.
-	if !operator {
+	// A valid federation session proves identity, never permission. Evaluate the
+	// current operator-created policy and dynamic-group state for every request.
+	if !operator && !world.authorizeInstance(request, body) {
 		world.reject(w, http.StatusForbidden)
 		return
 	}
@@ -663,7 +681,11 @@ func (world *ociWorld) serveOCI(w http.ResponseWriter, request *http.Request) {
 	case "identity." + world.wire.Region + ".oci.oraclecloud.com":
 		world.serveIAM(w, request, body)
 	case "secrets.vaults." + world.wire.Region + ".oci.oraclecloud.com":
-		world.serveVault(w, request)
+		if !world.serveManagedBundle(w, request) {
+			world.serveVault(w, request)
+		}
+	case "vaults." + world.wire.Region + ".oci.oraclecloud.com":
+		world.serveManagedSecrets(w, request, body)
 	default:
 		world.reject(w, http.StatusNotFound)
 	}
@@ -795,8 +817,8 @@ func (world *ociWorld) serveFederation(w http.ResponseWriter, request *http.Requ
 		world.reject(w, http.StatusUnauthorized)
 		return
 	}
-	deadline, _ := world.ctx.Deadline()
-	expires := min(deadline.Unix(), world.leaf.NotAfter.Unix())
+	// The SDK refreshes tokens five minutes early; the world context bounds all requests.
+	expires := min(time.Now().Add(time.Hour).Unix(), world.leaf.NotAfter.Unix())
 	if expires <= time.Now().Unix() || len(world.sessions) >= 256 {
 		world.reject(w, http.StatusServiceUnavailable)
 		return
@@ -1103,6 +1125,10 @@ func (world *ociWorld) serveObjects(w http.ResponseWriter, request *http.Request
 
 func (world *ociWorld) serveIAM(w http.ResponseWriter, request *http.Request, body []byte) {
 	path := request.URL.Path
+	if strings.HasPrefix(path, "/20160918/dynamicGroups") {
+		world.serveDynamicGroups(w, request, body)
+		return
+	}
 	if request.Method == http.MethodGet && request.URL.RawQuery == "" && path == "/20160918/tenancies/"+world.wire.TenancyID {
 		ociJSON(w, http.StatusOK, world.wire.Tenancy)
 		return
