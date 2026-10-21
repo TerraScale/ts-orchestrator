@@ -22,6 +22,17 @@
 # (-short); full, the default, runs every tier-gated test as well. Every
 # listed test runs once, and any failure fails CI. Vet runs separately over
 # the whole module in make verify/ci-verify.
+#
+# Packages that are not sharded run as one group per CI machine, packed by
+# their "<package> - <seconds>" estimates. TS_CI_SHARD=<index>/<count> runs
+# only this machine's part of the queue: every machine plans the same queue
+# and takes the shards that longest-first packing gives it, so a test always
+# lands on the same machine and its cached result stays valid.
+#
+# TS_CHANGE_BASE names the revision this change starts from. A shard whose
+# failed tests all lie in packages the change does not touch re-runs those
+# tests once, uncached; when they pass it prints "race flaky <package>
+# <tests>" and counts as passed. Without it no failure is retried.
 set -euo pipefail
 # wait -n -p needs bash 5.1; older shells would fail mid-suite with an
 # unbound variable instead of this message.
@@ -38,10 +49,12 @@ idle_jobs=${TS_RACE_IDLE_JOBS:-5}
 package_jobs=${TS_RACE_PACKAGE_JOBS:-4}
 test_jobs=${TS_RACE_TEST_JOBS:-2}
 tier=${TS_TEST_TIER:-full}
+ci_shard=${TS_CI_SHARD:-1/1}
+change_base=${TS_CHANGE_BASE:-}
 durations=${TS_RACE_DURATIONS:-$(dirname -- "$(realpath -- "$0")")/race-durations.txt}
 # The image contract suite drives the offline builder through hundreds of
 # command fakes per test; unsharded it serialised most of the CI job.
-sharded_packages=(./internal/app ./internal/bootstrapstart ./internal/natscell ./tests/deploy)
+sharded_packages=(./internal/app ./internal/bootstrapstart ./internal/natscell ./internal/swarmruntime ./tests/deploy)
 configured_packages=("${sharded_packages[@]}")
 # Shard, listing and log names use the package's last element.
 declare -A seen_base=()
@@ -60,6 +73,12 @@ case $tier in
 	full) short=() ;;
 	*) echo 'TS_TEST_TIER must be pr or full' >&2; exit 2 ;;
 esac
+if [[ $ci_shard =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] && ((BASH_REMATCH[1] <= BASH_REMATCH[2])); then
+	machine=${BASH_REMATCH[1]} machines=${BASH_REMATCH[2]}
+else
+	echo 'TS_CI_SHARD must be <index>/<count> with 1 <= index <= count' >&2
+	exit 2
+fi
 [[ -f $durations && -r $durations ]] || { echo "race durations file is not readable: $durations" >&2; exit 2; }
 
 # Every test binary and re-executed child skips the race runtime's default
@@ -67,8 +86,10 @@ esac
 export GORACE="${GORACE:+$GORACE }atexit_sleep_ms=0"
 
 # Each line: <package> <test or glob> <seconds>[/<seconds under -short>]
-# [cpu|solo|idle|norace], or "rest - <seconds>" for the shard of all other
-# packages. The first matching line wins; unmatched tests cost one second.
+# [cpu|solo|idle|norace], "<package> - <seconds>" for a package that is not
+# sharded, or "rest - <seconds>" for each such package without its own line.
+# The first matching line wins; unmatched tests cost one second.
+declare -A package_cost=()
 entry_package=()
 entry_test=()
 entry_cost=()
@@ -90,6 +111,10 @@ while IFS= read -r line || [[ -n $line ]]; do
 	if [[ $tier == pr ]]; then cost=${cost#*/}; else cost=${cost%%/*}; fi
 	if [[ $package == rest ]]; then
 		rest_cost=$cost
+		continue
+	fi
+	if [[ $test == - ]]; then
+		package_cost[$package]=$cost
 		continue
 	fi
 	entry_package+=("$package")
@@ -154,8 +179,15 @@ finish() {
 			exit 2
 		fi
 	fi
-	if ((rc == 0)); then status=ok; else status=FAIL; failed=1; fi
 	local name=${active[$completed]}
+	if ((rc == 0)); then
+		status=ok
+	elif retry_flaky "$logs/$name.log" "${active_pool[$completed]}"; then
+		status=flaky
+	else
+		status=FAIL
+		failed=1
+	fi
 	if [[ ${active_pool[$completed]} == idle ]]; then
 		running_idle=$((running_idle - 1))
 	else
@@ -164,6 +196,32 @@ finish() {
 	printf '=== race %s: %s\n' "$name" "$status"
 	cat "$logs/$name.log"
 	unset 'active[$completed]' 'active_pool[$completed]'
+}
+# retry_flaky <log> <pool>: re-run once, uncached, each failed test of a shard
+# whose failures all name a test in a package this change does not touch.
+# A build failure, timeout or panic outside a test names no test and is final.
+retry_flaky() {
+	local log=$1 pool=$2 failure package tests dir
+	local -a failures race=(-race)
+	[[ -n $change_base ]] || return 1
+	[[ $pool != norace ]] || race=()
+	# go test prints a package's output as one block: "--- FAIL: <test>" at
+	# column 0 for each failed top-level test, then "FAIL<tab><package>".
+	mapfile -t failures < <(awk -F '[ \t]+' '/^--- FAIL: /{t = t (t ? "|" : "") $3} /^FAIL\t/{print $2, (t ? t : "-"); t = ""}' "$log")
+	((${#failures[@]})) || return 1
+	for failure in "${failures[@]}"; do
+		read -r package tests <<< "$failure"
+		[[ $tests != - ]] || return 1
+		dir=${package#"$module"}
+		dir=${dir#/}
+		if grep -q -x -F -e "${dir:-.}" "$logs/changed"; then return 1; fi
+	done
+	for failure in "${failures[@]}"; do
+		read -r package tests <<< "$failure"
+		printf 'race retry %s %s\n' "$package" "$tests" >> "$log"
+		"${go[@]}" test "${race[@]}" -vet=off -count=1 -timeout=20m "${short[@]}" -parallel "$test_jobs" -run "^($tests)\$" "$package" >> "$log" 2>&1 || return 1
+		printf 'race flaky %s %s\n' "$package" "$tests" >> "$log"
+	done
 }
 available() {
 	if [[ $1 == idle ]]; then ((running_idle < idle_jobs)); else ((running_cpu < jobs)); fi
@@ -189,6 +247,14 @@ start() {
 }
 
 module=$("${go[@]}" list -m)
+# Directories this change touches, one per changed file. A base this clone
+# lacks (a force-pushed branch) leaves every failure final.
+if [[ -n $change_base ]] && ! git cat-file -e "$change_base^{commit}" 2>/dev/null; then
+	change_base=
+fi
+if [[ -n $change_base ]]; then
+	git diff --name-only "$change_base...HEAD" | sed -e 's|/[^/]*$||' -e 't' -e 's|.*|.|' | sort -u > "$logs/changed"
+fi
 "${go[@]}" list ./... > "$logs/packages"
 present=()
 for package in "${sharded_packages[@]}"; do
@@ -212,13 +278,10 @@ done
 tab=$'\t'
 declare -A matched=()
 : > "$logs/queue"
-if ((${#other_packages[@]})); then
-	printf '%s\tpackages\tcpu\t\t\n' "$rest_cost" >> "$logs/queue"
-fi
 # pack <package> <packed list> <shard name prefix> <pool> <shards>: longest processing
 # time first, each test joins the shard with the least estimated work so
 # far, or the fewest tests when estimates tie. Adds the packed tests to
-# covered.
+# covered. Without a package the list names packages, packed into groups.
 pack() {
 	local package=$1 list=$2 prefix=$3 pool=$4 bins=$5 bin best cost test shard=0 expression
 	local -a loads=() counts=() members=()
@@ -236,12 +299,25 @@ pack() {
 	done < <(LC_ALL=C sort -k1,1nr -k2,2 "$list")
 	for ((bin = 0; bin < bins; bin++)); do
 		[[ -n ${members[bin]} ]] || continue
+		if [[ -z $package ]]; then
+			printf '%s\t%s-%s\t%s\t%s\t\n' "${loads[bin]}" "$prefix" "$shard" "$pool" "${members[bin]//|/ }" >> "$logs/queue"
+			shard=$((shard + 1))
+			continue
+		fi
 		expression=$(tr '|' '\n' <<< "${members[bin]}" | LC_ALL=C sort | paste -s -d '|')
 		covered=$((covered + $(tr '|' '\n' <<< "$expression" | wc -l)))
 		printf '%s\t%s-%s\t%s\t%s\t^(%s)$\n' "${loads[bin]}" "$prefix" "$shard" "$pool" "$package" "$expression" >> "$logs/queue"
 		shard=$((shard + 1))
 	done
 }
+if ((${#other_packages[@]})); then
+	for package in "${other_packages[@]}"; do
+		local_package=./${package#"$module"/}
+		[[ $package != "$module" ]] || local_package=.
+		printf '%s %s\n' "${package_cost[$local_package]:-$rest_cost}" "$package"
+	done > "$logs/rest"
+	pack '' "$logs/rest" packages cpu "$machines"
+fi
 for package in "${sharded_packages[@]}"; do
 	base=${package##*/}
 	mapfile -t tests < <(grep -E '^(Test|Example|Fuzz)[A-Za-z0-9_]*$' "$logs/$base.list" | LC_ALL=C sort)
@@ -265,7 +341,23 @@ for package in "${sharded_packages[@]}"; do
 	[[ $covered == "${#tests[@]}" ]] || { echo "shards of $package cover $covered of ${#tests[@]} tests" >&2; exit 1; }
 done
 mapfile -t queue < <(LC_ALL=C sort -t "$tab" -k1,1nr -k2,2 "$logs/queue")
-printf 'race plan tier=%s cpu_jobs=%s idle_jobs=%s shards=%s\n' "$tier" "$jobs" "$idle_jobs" "${#queue[@]}"
+# Longest first, each shard goes to the CI machine with the least estimated
+# work so far; this machine keeps its own.
+if ((machines > 1)); then
+	declare -a machine_load=() kept=()
+	for ((m = 0; m < machines; m++)); do machine_load[m]=0; done
+	for entry in "${queue[@]}"; do
+		IFS="$tab" read -r cost _ <<< "$entry"
+		best=0
+		for ((m = 1; m < machines; m++)); do
+			if ((machine_load[m] < machine_load[best])); then best=$m; fi
+		done
+		machine_load[best]=$((machine_load[best] + cost))
+		if ((best == machine - 1)); then kept+=("$entry"); fi
+	done
+	queue=("${kept[@]}")
+fi
+printf 'race plan tier=%s cpu_jobs=%s idle_jobs=%s shards=%s machine=%s\n' "$tier" "$jobs" "$idle_jobs" "${#queue[@]}" "$ci_shard"
 for entry in "${queue[@]}"; do
 	IFS="$tab" read -r cost name pool _ _ <<< "$entry"
 	printf 'race queue %s pool=%s estimate=%ss\n' "$name" "$pool" "$cost"
@@ -294,6 +386,12 @@ for i in "${!entry_package[@]}"; do
 		stale=1
 	fi
 done
+for package in "${!package_cost[@]}"; do
+	if ! grep -q -x -F -e "$module/${package#./}" "$logs/packages" || [[ " ${sharded_packages[*]} " == *" $package "* ]]; then
+		printf 'race durations: %s is not an unsharded package\n' "$package" >&2
+		stale=1
+	fi
+done
 ((!stale)) || exit 1
 # Start the longest queued shard that has a free slot in its pool; a full
 # CPU pool never holds back an idle lab, nor the other way round.
@@ -305,11 +403,12 @@ while ((${#queue[@]})); do
 	done
 	if [[ -z $next ]]; then finish; continue; fi
 	unset 'queue[next]'
-	if [[ -z $package ]]; then
+	if [[ -z $expression ]]; then
+		read -r -a group <<< "$package"
 		# Script contract packages invoke thousands of bounded subprocesses.
 		# Under race instrumentation their aggregate can exceed Go's default
 		# ten minutes.
-		start "$name" "$pool" "${go[@]}" test -race -vet=off -timeout=20m "${short[@]}" -p "$package_jobs" -parallel "$test_jobs" "${other_packages[@]}"
+		start "$name" "$pool" "${go[@]}" test -race -vet=off -timeout=20m "${short[@]}" -p "$package_jobs" -parallel "$test_jobs" "${group[@]}"
 	else
 		race=(-race)
 		[[ $pool != norace ]] || race=()

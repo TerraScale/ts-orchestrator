@@ -6,132 +6,177 @@ on:
     branches: [develop, main]
   pull_request:
     branches: [develop, main]
+  # The merge queue tests each group on the latest main before it merges.
+  merge_group:
   workflow_dispatch:
   # Weekly full check of main that also rebuilds the image, so base and
   # package updates land even when no image input changed.
   schedule:
     - cron: '17 3 * * 1'
 
-# A newer push supersedes a running check of the same branch. On main the
-# newer revision contains the older one and becomes the candidate.
+# A newer push to a pull request cancels its running check. Other runs
+# finish, so main always completes a check; a newer main revision waiting
+# behind it replaces any older one still waiting.
 concurrency:
   group: ts-orchestrator-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 env:
   GH_TOKEN: ${{ github.token }}
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  # The revision this change starts from; empty for scheduled and manual runs.
+  CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+  # Bound nested parallelism: make, Go packages and race shards otherwise
+  # each try to use every CPU of the runner.
+  GOFLAGS: -p=4
+  GOMAXPROCS: '2'
+  # Pull requests run the fast tier (go test -short); the merge queue and
+  # main run every tier-gated test and the fixturetest build, so the full
+  # tier still gates every merge and image.
+  TS_TEST_TIER: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
 
 jobs:
-  # TS-795 switch guard: fails when the change adds an on/off setting.
-  # Policy is vendored so fork PRs require no external credentials.
-  guard:
+  # Formatting, generated files, vet, shell lint, the release build and the
+  # TS-795 switch guard (fails when the change adds an on/off setting; the
+  # policy is vendored so fork PRs require no external credentials).
+  lint:
+    name: verify/lint
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - env:
-          ZERO_CONFIG_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-          ZERO_CONFIG_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -eu
-          if [ -z "$ZERO_CONFIG_BASE" ] || [ "$ZERO_CONFIG_BASE" = "0000000000000000000000000000000000000000" ]; then
-            ZERO_CONFIG_BASE=$(git rev-parse "$ZERO_CONFIG_HEAD^")
-          fi
-          python3 scripts/ci/zero-config-check.py "$ZERO_CONFIG_BASE" "$ZERO_CONFIG_HEAD"
-          python3 scripts/ci/test_zero_config_check.py -v
-          python3 -I -B -m unittest discover -s scripts/ci -p test_image_inputs_changed.py -v
-          python3 -I -B -m unittest discover -s scripts/ci -p test_ci_artifact_graph.py -v
-
-  build:
-    permissions:
-      contents: write
-      actions: write
-      statuses: write
-    needs: [guard]
-    name: verify/go + artifact/linux-amd64-arm64
-    outputs:
-      publication: ${{ steps.inputs.outputs.publication }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    env:
-      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      # Bound nested parallelism: make, Go packages and race shards
-      # otherwise each try to use every CPU on the shared builder.
-      GOFLAGS: -p=4
-      GOMAXPROCS: '2'
-      TS_RACE_JOBS: '6'
-      # Timer-bound controller labs run in their own pool beside the CPU jobs.
-      TS_RACE_IDLE_JOBS: '5'
-      # Pull requests run the fast tier (go test -short); pushes run every
-      # tier-gated test and the fixturetest build. Images are built only
-      # from main pushes, so the full tier still gates every image.
-      TS_TEST_TIER: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
+    timeout-minutes: 30
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Install the pinned Go toolchain
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: '1.27.1'
-          cache-dependency-path: |
-            go.sum
-            e2e/go.sum
-
-      - name: Verify the source revision and Go toolchain
-        shell: bash
+      - name: Check the change against the zero-configuration policy
+        env:
+          ZERO_CONFIG_BASE: ${{ env.CHANGE_BASE }}
         run: |
-          set -euo pipefail
-          source_commit="$(git rev-parse HEAD)"
-          test "${source_commit}" = "${SOURCE_SHA:?event SHA is required}"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          go_version="$(go env GOVERSION)"
-          test "${go_version}" = "go1.27.1"
-          mkdir -p "$(go env GOCACHE)" "$(go env GOMODCACHE)"
-          test -w "$(go env GOCACHE)"
-          test -w "$(go env GOMODCACHE)"
-          df -h /tmp
-          printf 'gocache=%s gomodcache=%s goflags=%s gomaxprocs=%s cpus=%s\n' \
-            "$(go env GOCACHE)" "$(go env GOMODCACHE)" "$(go env GOFLAGS)" "${GOMAXPROCS}" "$(nproc)"
-          for pressure in cpu io memory; do
-            if [[ -r /proc/pressure/${pressure} ]]; then
-              printf '%s pressure: ' "${pressure}"
-              cat "/proc/pressure/${pressure}"
-            fi
-          done
-          printf 'source=%s tree=%s go=%s\n' \
-            "${source_commit}" "$(git rev-parse "HEAD^{tree}")" "${go_version}"
-
-      # Go's test cache keys the repository files a test reads on size and
-      # modification time. Content-derived times let tests whose inputs did
-      # not change hit the persistent cache after this fresh checkout.
+          set -eu
+          if [ -z "$ZERO_CONFIG_BASE" ] || [ "$ZERO_CONFIG_BASE" = "0000000000000000000000000000000000000000" ]; then
+            ZERO_CONFIG_BASE=$(git rev-parse "$SOURCE_SHA^")
+          fi
+          python3 scripts/ci/zero-config-check.py "$ZERO_CONFIG_BASE" "$SOURCE_SHA"
+          python3 scripts/ci/test_zero_config_check.py -v
+          python3 -I -B -m unittest discover -s scripts/ci -p test_image_inputs_changed.py -v
+          python3 -I -B -m unittest discover -s scripts/ci -p test_ci_artifact_graph.py -v
+      - uses: ./.github/actions/go
+        with:
+          cache: lint
       - name: Install shell validation tools
         run: sudo apt-get update && sudo apt-get install -y shellcheck
-
-      - name: Stamp tracked files with content-derived times
-        shell: bash
-        run: go run ./scripts/ci/stablemtime
-
-      - name: Check and test every revision
-        shell: bash
-        run: make ci-check GO=go GOFMT=gofmt
-
       - name: Compare executable and image inputs with retained qualification
         id: inputs
         shell: bash
         env:
-          GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GITHUB_SHA: ${{ env.SOURCE_SHA }}
+        run: |
+          set -euo pipefail
+          status=0
+          python3 -B scripts/ci/release-inputs-changed.py || status=$?
+          case $status in
+            0) echo 'publication=required' >> "$GITHUB_OUTPUT" ;;
+            3) echo 'publication=unchanged' >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
+      # The release build runs beside the checks.
+      - name: Check every revision
+        run: make --jobs ci-lint ${{ steps.inputs.outputs.publication == 'required' && 'release-check' || '' }} GO=go GOFMT=gofmt
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-lint-${{ hashFiles('go.sum') }}-${{ github.sha }}
+
+  # The race suite, split across machines by scripts/ci/racetest/race-test.sh.
+  # Four machines: the org's free plan runs 20 jobs at once for every repository.
+  # A failed test in a package the change does not touch re-runs once.
+  race:
+    name: verify/race ${{ matrix.shard }}/4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      TS_CI_SHARD: ${{ matrix.shard }}/4
+      TS_RACE_JOBS: '6'
+      # Timer-bound controller labs run in their own pool beside the CPU jobs.
+      TS_RACE_IDLE_JOBS: '5'
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/go
+        with:
+          cache: race-${{ matrix.shard }}
+      - name: Run this machine's race shards
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ $CHANGE_BASE != 0000000000000000000000000000000000000000 ]]; then
+            export TS_CHANGE_BASE=$CHANGE_BASE
+          fi
+          make race-test GO=go 2>&1 | tee "$RUNNER_TEMP/race.log"
+      - name: Keep the tests that passed only on retry
+        if: ${{ always() }}
+        shell: bash
+        run: grep '^race flaky ' "$RUNNER_TEMP/race.log" > "$RUNNER_TEMP/flakes.txt" || rm -f "$RUNNER_TEMP/flakes.txt"
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flakes-${{ matrix.shard }}
+          path: ${{ runner.temp }}/flakes.txt
+          if-no-files-found: ignore
+          retention-days: 30
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-race-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+
+  # Publishes a verified revision. Pull requests and merge groups publish
+  # nothing; their release build runs in lint.
+  build:
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
+    permissions:
+      contents: write
+      actions: write
+      statuses: write
+    needs: [lint, race]
+    name: verify/go + artifact/linux-amd64-arm64
+    outputs:
+      publication: ${{ steps.inputs.outputs.publication }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/go
+        with:
+          cache: lint
+      - name: Compare executable and image inputs with retained qualification
+        id: inputs
+        shell: bash
+        env:
+          GITHUB_SHA: ${{ env.SOURCE_SHA }}
         run: |
           set -euo pipefail
           status=0
@@ -148,13 +193,12 @@ jobs:
         run: make --jobs=2 release-check GO=go
 
       - name: Retain verified binaries and qualification manifest
-        if: ${{ steps.inputs.outputs.publication == 'required' && github.event_name != 'pull_request' }}
+        if: ${{ steps.inputs.outputs.publication == 'required' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_READ_TOKEN: ${{ github.token }}
         run: bash scripts/ci/publish-qualification.sh
-
 
       # Deployment failure must not erase the time this build became qualified.
       - name: Record the qualified main build for the deployment-lag guard
@@ -175,7 +219,7 @@ jobs:
       # change to an image input (scripts/ci/image-inputs-changed.sh) or the
       # weekly schedule starts a build.
       - name: Start the image build for this revision
-        if: ${{ steps.inputs.outputs.publication == 'required' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+        if: ${{ steps.inputs.outputs.publication == 'required' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         shell: bash
         env:
@@ -224,3 +268,38 @@ jobs:
           jq -r '"| \(.region) | \(.state // "-") | \(.connect_ms) | \(.accepted_ms) | \(.serving_ms) | \(.error // "") |"' "${RUNNER_TEMP}/release-push.jsonl" \
             | { printf '| Region | State | Connect ms | Accepted ms | Serving ms | Error |\n|---|---|---|---|---|---|\n'; cat; } >> "${GITHUB_STEP_SUMMARY}"
           exit "$status"
+
+  # The one required check: passes only when every job above passed.
+  test:
+    name: test
+    if: ${{ always() }}
+    needs: [lint, race, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          LINT: ${{ needs.lint.result }}
+          RACE: ${{ needs.race.result }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          echo "lint=$LINT race=$RACE build=$BUILD"
+          test "$LINT" = success && test "$RACE" = success && { test "$BUILD" = success || test "$BUILD" = skipped; }
+
+  # Weekly list of the tests that passed only on retry.
+  flaky-report:
+    if: ${{ github.event_name == 'schedule' }}
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: bash scripts/ci/flaky-report.sh "$RUNNER_TEMP/flaky-list.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flaky-list
+          path: ${{ runner.temp }}/flaky-list.txt
+          retention-days: 90
