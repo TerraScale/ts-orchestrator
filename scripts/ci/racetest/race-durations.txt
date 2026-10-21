@@ -26,14 +26,9 @@ rest - 130/60
 ./internal/natscell TestPrepareNodeIdentityPreservesR3State 35/1 idle
 ./internal/natscell TestEmbeddedRouteRTTFlowsToMetricsAndHistory 5 idle
 
-# Multi-process controller and host labs: real 10-30s lease and session
+# Multi-process controller labs: real 10-30s lease and session
 # timers, little CPU. tier.Integration skips them under -short.
-./internal/app TestJWTMTLSHostSessionFencesAndRestartsAfterControllerLoss 70/1 idle
-./internal/app TestControllerThreeProcessBootstrapAndRestart 55/1 idle
-./internal/app TestJWTMTLSHostSessionRecoversAfterBlackholedController 55/1 idle
 ./internal/app TestBrokerGateR3TicketRevocationAndOfflineFence 40/1 idle
-./internal/app TestJWTMTLSHostSessionRecoversAfterControllerLoss 30/1 idle
-./internal/app TestAuthenticatedOperatorToHostDeliveryWithControllerLoss 25/1 idle
 ./internal/app TestCellSpecAddsTSAuthToARunningCell 20/1 idle
 ./internal/app TestRolloutExecutorUpdatesARunningCell 30/1 idle
 ./internal/app TestReleaseChannelRollsCIReleasesOutRegionByRegion 30/1 idle
