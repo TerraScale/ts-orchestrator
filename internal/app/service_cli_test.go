@@ -1,6 +1,7 @@
 package app
 
 import (
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -79,6 +80,17 @@ func TestServiceSpecRejects(t *testing.T) {
 		mutate(&spec)
 		if _, err := spec.SwarmSpec(); err == nil {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// Without a mesh (no client token) apply and rm change this host's services.
+func TestServiceChangesWithoutMeshStayLocal(t *testing.T) {
+	spec := filepath.Join("..", "..", "deploy", "m1", "services", "terrabase.json")
+	for _, args := range [][]string{{"apply", "-f", spec}, {"rm", "terrabase"}} {
+		err := runServiceCLI(t.Context(), args, io.Discard, t.TempDir())
+		if err == nil || strings.Contains(err.Error(), "mesh is not running") {
+			t.Fatalf("%v: want the single-host dial error, got %v", args, err)
 		}
 	}
 }
