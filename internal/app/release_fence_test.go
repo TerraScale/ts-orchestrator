@@ -254,7 +254,7 @@ func (l *fenceLease) Guard(_ context.Context, epoch uint64) error {
 	return nil
 }
 
-var fenceAddresses = map[string]string{"ctl-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
+var fenceAddresses = map[string]string{"gru-1-ctl-1": "10.0.0.11", "gru-1-ctl-2": "10.0.0.12", "gru-1-ctl-3": "10.0.0.13"}
 
 func newFenceTest(t *testing.T) (*releaseFence, *fenceCell, *fenceLB, jetstream.KeyValue, delivery.Intent) {
 	t.Helper()
@@ -265,15 +265,15 @@ func newFenceTest(t *testing.T) (*releaseFence, *fenceCell, *fenceLB, jetstream.
 func newFenceTestWithStore(t *testing.T, kv jetstream.KeyValue) (*releaseFence, *fenceCell, *fenceLB, jetstream.KeyValue, delivery.Intent) {
 	t.Helper()
 	balancer := &fenceLB{t: t, down: map[string]bool{}, sets: map[string][]lb.Backend{}}
-	for _, node := range []string{"ctl-1", "ctl-2", "ctl-3"} {
+	for _, node := range []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"} {
 		balancer.sets["terrabase"] = append(balancer.sets["terrabase"], lb.Backend{IP: fenceAddresses[node], Port: 9465})
-		// ctl-1's ts-auth backend is out of rotation already.
+		// gru-1-ctl-1's ts-auth backend is out of rotation already.
 		balancer.sets["ts-auth"] = append(balancer.sets["ts-auth"],
-			lb.Backend{IP: fenceAddresses[node], Port: 8080}.Fenced(node == "ctl-1", node == "ctl-1"))
+			lb.Backend{IP: fenceAddresses[node], Port: 8080}.Fenced(node == "gru-1-ctl-1", node == "gru-1-ctl-1"))
 	}
 	spec := &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..x",
 		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465, MinServing: 1}, {Name: "ts-auth", Port: 8080, MinServing: 1}}}
-	cell := &fenceCell{t: t, gate: releaseGate(kv), lb: balancer, nodes: []string{"ctl-1", "ctl-2", "ctl-3"}, release: 7, role: "ts-auth",
+	cell := &fenceCell{t: t, gate: releaseGate(kv), lb: balancer, nodes: []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"}, release: 7, role: "ts-auth",
 		broken: map[string]bool{}}
 	fence := &releaseFence{kv: kv, hosts: cell, fencer: &fenceLease{},
 		spec: func() (*cellspec.ReleaseFence, map[string]string) { return spec, fenceAddresses },
@@ -292,13 +292,13 @@ func TestReleaseFenceRestartsOneFencedNodeAtATime(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Sequenced: no node restarts before the leader permits it.
-	if granted, err := cell.gate(ctx, "ctl-1", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || granted {
+	if granted, err := cell.gate(ctx, "gru-1-ctl-1", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || granted {
 		t.Fatalf("an unpermitted node may restart: %v %v", granted, err)
 	}
 	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) {
+	if !slices.Equal(cell.restarts, []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"}) {
 		t.Fatalf("restarts %q", cell.restarts)
 	}
 	want := []string{
@@ -340,7 +340,7 @@ func TestReleaseFenceKeepsTheLastHealthyBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := fence.sequence(ctx, intent, nil); !errors.Is(err, context.Canceled) ||
-		!strings.Contains(err.Error(), "terrabase backend of ctl-1") || !strings.Contains(err.Error(), "last healthy") {
+		!strings.Contains(err.Error(), "terrabase backend of gru-1-ctl-1") || !strings.Contains(err.Error(), "last healthy") {
 		t.Fatalf("fenced the last healthy backend: %v", err)
 	}
 	if len(balancer.log) != 0 || len(cell.restarts) != 0 {
@@ -351,22 +351,22 @@ func TestReleaseFenceKeepsTheLastHealthyBackend(t *testing.T) {
 func TestReleaseFenceLeavesAFailedNodeFencedAndANewLeaderReturnsIt(t *testing.T) {
 	fence, cell, balancer, kv, intent := newFenceTest(t)
 	ctx := t.Context()
-	cell.broken["ctl-1"] = true
+	cell.broken["gru-1-ctl-1"] = true
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
 	if err := fence.sequence(ctx, intent, nil); err == nil || !strings.Contains(err.Error(), "stay fenced") {
 		t.Fatalf("a failed node: %v", err)
 	}
-	if balancer.sets["terrabase"][0].Serving() || !slices.Equal(cell.restarts, []string{"ctl-1"}) {
+	if balancer.sets["terrabase"][0].Serving() || !slices.Equal(cell.restarts, []string{"gru-1-ctl-1"}) {
 		t.Fatalf("after the failure: %+v, restarts %q", balancer.sets["terrabase"][0], cell.restarts)
 	}
-	if _, err := kv.Get(ctx, fencedKey("ctl-1")); err != nil {
-		t.Fatalf("the fence of ctl-1 is not recorded: %v", err)
+	if _, err := kv.Get(ctx, fencedKey("gru-1-ctl-1")); err != nil {
+		t.Fatalf("the fence of gru-1-ctl-1 is not recorded: %v", err)
 	}
 	// The node serves after all (a rollback, say): the next sequence of the
 	// release, here by a new leader, returns its backends and goes on.
-	cell.broken["ctl-1"] = false
+	cell.broken["gru-1-ctl-1"] = false
 	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +384,7 @@ func TestReleaseFenceWithoutASpecRestartsEveryNode(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if granted, err := cell.gate(ctx, "ctl-2", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || !granted {
+	if granted, err := cell.gate(ctx, "gru-1-ctl-2", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || !granted {
 		t.Fatalf("an unsequenced release is held: %v %v", granted, err)
 	}
 	if err := fence.sequence(ctx, intent, nil); err != nil || len(balancer.log) != 0 {
@@ -401,14 +401,14 @@ func TestReleaseFenceFinishesAPartWayFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Recorded, but the load balancer never changed.
-	if _, err := kv.Put(ctx, fencedKey("ctl-1"), []byte(`{"backends":[{"load_balancer_id":"ocid1.loadbalancer.oc1..x",`+
+	if _, err := kv.Put(ctx, fencedKey("gru-1-ctl-1"), []byte(`{"backends":[{"load_balancer_id":"ocid1.loadbalancer.oc1..x",`+
 		`"set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) || balancer.log[0] != "terrabase 10.0.0.11:9465 drain" ||
+	if !slices.Equal(cell.restarts, []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"}) || balancer.log[0] != "terrabase 10.0.0.11:9465 drain" ||
 		balancer.log[1] != "terrabase 10.0.0.11:9465 offline" {
 		t.Fatalf("restarts %q, load balancer %q", cell.restarts, balancer.log)
 	}
@@ -420,14 +420,14 @@ func TestReleaseFenceRestoresTheRecordedLoadBalancer(t *testing.T) {
 	for _, drop := range []bool{false, true} {
 		fence, cell, balancer, _, intent := newFenceTest(t)
 		ctx := t.Context()
-		cell.broken["ctl-1"] = true
+		cell.broken["gru-1-ctl-1"] = true
 		if err := fence.prepare(ctx, intent); err != nil {
 			t.Fatal(err)
 		}
 		if err := fence.sequence(ctx, intent, nil); err == nil {
 			t.Fatal("a failed node passed")
 		}
-		cell.broken["ctl-1"], cell.unfenced = false, true
+		cell.broken["gru-1-ctl-1"], cell.unfenced = false, true
 		moved := &cellspec.ReleaseFence{LoadBalancerID: "ocid1.loadbalancer.oc1..moved",
 			BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465, MinServing: 1}}}
 		if drop {
@@ -439,7 +439,7 @@ func TestReleaseFenceRestoresTheRecordedLoadBalancer(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !balancer.sets["terrabase"][0].Serving() || len(balancer.ids) == 0 || balancer.ids[0] != "ocid1.loadbalancer.oc1..x" {
-			t.Fatalf("drop %v: ctl-1 %+v, updates on %q", drop, balancer.sets["terrabase"][0], balancer.ids)
+			t.Fatalf("drop %v: gru-1-ctl-1 %+v, updates on %q", drop, balancer.sets["terrabase"][0], balancer.ids)
 		}
 	}
 }
@@ -470,17 +470,17 @@ func TestReleaseFenceStopsOnALostLease(t *testing.T) {
 func TestReleaseFenceRollsBackTheFencedNodeFirst(t *testing.T) {
 	fence, cell, balancer, _, intent := newFenceTest(t)
 	ctx := t.Context()
-	cell.nodes = []string{"ctl-1", "ctl-2"}
+	cell.nodes = []string{"gru-1-ctl-1", "gru-1-ctl-2"}
 	balancer.sets = map[string][]lb.Backend{"terrabase": {{IP: "10.0.0.11", Port: 9465}, {IP: "10.0.0.12", Port: 9465}}}
-	cell.broken["ctl-2"] = true
+	cell.broken["gru-1-ctl-2"] = true
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
 	if err := fence.sequence(ctx, intent, nil); err == nil {
 		t.Fatal("a failed node passed")
 	}
-	// The rollback, a newer release that ctl-2 serves.
-	cell.broken["ctl-2"], cell.release, cell.restarts = false, 8, nil
+	// The rollback, a newer release that gru-1-ctl-2 serves.
+	cell.broken["gru-1-ctl-2"], cell.release, cell.restarts = false, 8, nil
 	rollback := delivery.Intent{Role: "ts-auth", Generation: 8}
 	if err := fence.prepare(ctx, rollback); err != nil {
 		t.Fatal(err)
@@ -490,7 +490,7 @@ func TestReleaseFenceRollsBackTheFencedNodeFirst(t *testing.T) {
 	if err := fence.sequence(limited, rollback, nil); err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
-	if !slices.Equal(cell.restarts, []string{"ctl-2", "ctl-1"}) {
+	if !slices.Equal(cell.restarts, []string{"gru-1-ctl-2", "gru-1-ctl-1"}) {
 		t.Fatalf("rollback restarts %q", cell.restarts)
 	}
 	for _, backend := range balancer.sets["terrabase"] {
@@ -535,7 +535,7 @@ func TestReleaseFenceNeedsAnotherHealthyNode(t *testing.T) {
 		},
 		"part-way fence": func(_ *releaseFence, balancer *fenceLB, kv jetstream.KeyValue) {
 			balancer.down["10.0.0.12:9465"], balancer.down["10.0.0.13:9465"] = true, true
-			if _, err := kv.Put(t.Context(), fencedKey("ctl-1"), []byte(`{"backends":[{"load_balancer_id":"ocid1.loadbalancer.oc1..x","set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
+			if _, err := kv.Put(t.Context(), fencedKey("gru-1-ctl-1"), []byte(`{"backends":[{"load_balancer_id":"ocid1.loadbalancer.oc1..x","set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -561,11 +561,11 @@ func TestReleaseFenceNeedsAnotherHealthyNode(t *testing.T) {
 }
 
 // The alternative is checked right before each change: here the terrabase
-// alternative fails while the fence waits for the ts-auth one, so ctl-1's
-// terrabase backend, drained while ctl-2 still served, is not set offline.
+// alternative fails while the fence waits for the ts-auth one, so gru-1-ctl-1's
+// terrabase backend, drained while gru-1-ctl-2 still served, is not set offline.
 func TestReleaseFenceChecksTheAlternativeAtEachChange(t *testing.T) {
 	fence, cell, balancer, _, intent := newFenceTest(t)
-	cell.nodes = []string{"ctl-1", "ctl-2"}
+	cell.nodes = []string{"gru-1-ctl-1", "gru-1-ctl-2"}
 	balancer.sets = map[string][]lb.Backend{
 		"terrabase": {{IP: "10.0.0.11", Port: 9465}, {IP: "10.0.0.12", Port: 9465}},
 		"ts-auth":   {{IP: "10.0.0.11", Port: 8080}, {IP: "10.0.0.12", Port: 8080}},
@@ -592,7 +592,7 @@ func TestReleaseFenceChecksTheAlternativeAtEachChange(t *testing.T) {
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := fence.sequence(ctx, intent, nil); !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "terrabase backend of ctl-1") || !strings.Contains(err.Error(), "last healthy") {
+	if err := fence.sequence(ctx, intent, nil); !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "terrabase backend of gru-1-ctl-1") || !strings.Contains(err.Error(), "last healthy") {
 		t.Fatalf("sequence: %v", err)
 	}
 	want := []string{"terrabase 10.0.0.11:9465 drain", "ts-auth 10.0.0.11:8080 drain"}
@@ -609,7 +609,7 @@ func TestReleaseFenceResumesADrainedBackendOnlyBesideAnAlternative(t *testing.T)
 	balancer.down["10.0.0.12:9465"], balancer.down["10.0.0.13:9465"] = true, true
 	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
 	defer cancel()
-	if _, err := kv.Put(ctx, fencedKey("ctl-1"), []byte(`{"backends":[{"load_balancer_id":"ocid1.loadbalancer.oc1..x",`+
+	if _, err := kv.Put(ctx, fencedKey("gru-1-ctl-1"), []byte(`{"backends":[{"load_balancer_id":"ocid1.loadbalancer.oc1..x",`+
 		`"set":"terrabase","ip":"10.0.0.11","port":9465}]}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -648,7 +648,7 @@ func TestReleaseFenceLeavesTerraBaseToSeats(t *testing.T) {
 func TestReleaseFenceSweepsOlderReleases(t *testing.T) {
 	fence, _, _, kv, intent := newFenceTest(t)
 	ctx := t.Context()
-	for _, key := range []string{"fence.ts-auth.5", "fence.ts-auth.5.ctl-1", "fence.ts-auth.9", "fence.terrabase.3"} {
+	for _, key := range []string{"fence.ts-auth.5", "fence.ts-auth.5.gru-1-ctl-1", "fence.ts-auth.9", "fence.terrabase.3"} {
 		if _, err := kv.Put(ctx, key, []byte("{}")); err != nil {
 			t.Fatal(err)
 		}
@@ -681,7 +681,7 @@ func TestReleaseFenceDroppedReturnsLeftBackends(t *testing.T) {
 	for _, through := range []string{"release", "pass"} {
 		fence, cell, balancer, kv, intent := newFenceTest(t)
 		ctx := t.Context()
-		cell.broken["ctl-1"] = true
+		cell.broken["gru-1-ctl-1"] = true
 		if err := fence.prepare(ctx, intent); err != nil {
 			t.Fatal(err)
 		}
@@ -701,10 +701,10 @@ func TestReleaseFenceDroppedReturnsLeftBackends(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !balancer.sets["terrabase"][0].Serving() {
-			t.Errorf("%s: ctl-1 stays out of rotation", through)
+			t.Errorf("%s: gru-1-ctl-1 stays out of rotation", through)
 		}
-		if _, err := kv.Get(ctx, fencedKey("ctl-1")); !errors.Is(err, jetstream.ErrKeyNotFound) {
-			t.Errorf("%s: the fence of ctl-1 is still recorded: %v", through, err)
+		if _, err := kv.Get(ctx, fencedKey("gru-1-ctl-1")); !errors.Is(err, jetstream.ErrKeyNotFound) {
+			t.Errorf("%s: the fence of gru-1-ctl-1 is still recorded: %v", through, err)
 		}
 	}
 }
@@ -721,7 +721,7 @@ func TestReleaseFenceKeepsABackendsWeight(t *testing.T) {
 		t.Fatal(err)
 	}
 	if weight, backup := balancer.sets["terrabase"][1].Shape(); weight != 3 || backup || !balancer.sets["terrabase"][1].Serving() {
-		t.Fatalf("ctl-2's terrabase backend returned as %d %v", weight, backup)
+		t.Fatalf("gru-1-ctl-2's terrabase backend returned as %d %v", weight, backup)
 	}
 }
 
@@ -731,7 +731,7 @@ func TestReleaseFenceKeepsABackendsWeight(t *testing.T) {
 func TestReleaseFenceDroppedReturnsWithoutWaitingAndClearsMarks(t *testing.T) {
 	fence, cell, balancer, kv, intent := newFenceTest(t)
 	ctx := t.Context()
-	cell.broken["ctl-1"] = true
+	cell.broken["gru-1-ctl-1"] = true
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
@@ -746,7 +746,7 @@ func TestReleaseFenceDroppedReturnsWithoutWaitingAndClearsMarks(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !balancer.sets["terrabase"][0].Serving() {
-		t.Fatal("ctl-1 stays out of rotation")
+		t.Fatal("gru-1-ctl-1 stays out of rotation")
 	}
 	keys, err := kv.ListKeys(ctx)
 	if err != nil {
@@ -755,15 +755,15 @@ func TestReleaseFenceDroppedReturnsWithoutWaitingAndClearsMarks(t *testing.T) {
 	for key := range keys.Keys() {
 		t.Errorf("left %s", key)
 	}
-	if granted, err := cell.gate(ctx, "ctl-2", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || !granted {
+	if granted, err := cell.gate(ctx, "gru-1-ctl-2", host.Desired{Role: "ts-auth", Generation: 7 << 24}); err != nil || !granted {
 		t.Fatalf("a restart stays held: %v %v", granted, err)
 	}
 }
 
 // A record an earlier release left under another fence configuration does
 // not stand for the current one: here the spec gained the ts-auth set
-// after ctl-2 failed, and the next release takes ctl-2's ts-auth backend
-// out too before ctl-2 restarts.
+// after gru-1-ctl-2 failed, and the next release takes gru-1-ctl-2's ts-auth backend
+// out too before gru-1-ctl-2 restarts.
 func TestReleaseFenceCompletesALeftRecordForTheCurrentSpec(t *testing.T) {
 	fence, cell, balancer, kv, intent := newFenceTest(t)
 	ctx := t.Context()
@@ -771,9 +771,9 @@ func TestReleaseFenceCompletesALeftRecordForTheCurrentSpec(t *testing.T) {
 		BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465, MinServing: 1}}}
 	both, _ := fence.spec()
 	fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return terrabaseOnly, fenceAddresses }
-	// Under the first fence ctl-2's ts-auth backend may serve while it
+	// Under the first fence gru-1-ctl-2's ts-auth backend may serve while it
 	// restarts.
-	cell.broken["ctl-2"], cell.unfenced = true, true
+	cell.broken["gru-1-ctl-2"], cell.unfenced = true, true
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
@@ -781,10 +781,10 @@ func TestReleaseFenceCompletesALeftRecordForTheCurrentSpec(t *testing.T) {
 		t.Fatal("a failed node passed")
 	}
 	if !balancer.sets["ts-auth"][1].Serving() {
-		t.Fatal("ctl-2's ts-auth backend was fenced without a ts-auth set")
+		t.Fatal("gru-1-ctl-2's ts-auth backend was fenced without a ts-auth set")
 	}
 	fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return both, fenceAddresses }
-	cell.broken["ctl-2"], cell.unfenced, cell.release, cell.restarts = false, false, 8, nil
+	cell.broken["gru-1-ctl-2"], cell.unfenced, cell.release, cell.restarts = false, false, 8, nil
 	next := delivery.Intent{Role: "ts-auth", Generation: 8}
 	if err := fence.prepare(ctx, next); err != nil {
 		t.Fatal(err)
@@ -792,11 +792,11 @@ func TestReleaseFenceCompletesALeftRecordForTheCurrentSpec(t *testing.T) {
 	if err := fence.sequence(ctx, next, nil); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(balancer.log, "ts-auth 10.0.0.12:8080 offline") || cell.restarts[0] != "ctl-2" {
+	if !slices.Contains(balancer.log, "ts-auth 10.0.0.12:8080 offline") || cell.restarts[0] != "gru-1-ctl-2" {
 		t.Fatalf("load balancer %q, restarts %q", balancer.log, cell.restarts)
 	}
-	if _, err := kv.Get(ctx, fencedKey("ctl-2")); !errors.Is(err, jetstream.ErrKeyNotFound) {
-		t.Fatalf("ctl-2's fence is still recorded: %v", err)
+	if _, err := kv.Get(ctx, fencedKey("gru-1-ctl-2")); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("gru-1-ctl-2's fence is still recorded: %v", err)
 	}
 }
 
@@ -840,16 +840,16 @@ func TestReleaseFencePrepareFailureIsRetried(t *testing.T) {
 	}
 }
 
-// The workload reconciler moves a replica while the release rolls: ctl-1's
-// allocation goes to ctl-3 after ctl-1 restarted. ctl-3 is fenced and
+// The workload reconciler moves a replica while the release rolls: gru-1-ctl-1's
+// allocation goes to gru-1-ctl-3 after gru-1-ctl-1 restarted. gru-1-ctl-3 is fenced and
 // permitted like the others before the release opens.
 func TestReleaseFenceFollowsReplicasTheReconcilerMoves(t *testing.T) {
 	fence, cell, balancer, kv, intent := newFenceTest(t)
 	ctx := t.Context()
-	cell.nodes = []string{"ctl-1", "ctl-2"}
+	cell.nodes = []string{"gru-1-ctl-1", "gru-1-ctl-2"}
 	cell.restarted = func(node string) {
-		if node == "ctl-1" {
-			cell.nodes = []string{"ctl-2", "ctl-3"}
+		if node == "gru-1-ctl-1" {
+			cell.nodes = []string{"gru-1-ctl-2", "gru-1-ctl-3"}
 		}
 	}
 	if err := fence.prepare(ctx, intent); err != nil {
@@ -858,7 +858,7 @@ func TestReleaseFenceFollowsReplicasTheReconcilerMoves(t *testing.T) {
 	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) || !slices.Contains(balancer.log, "terrabase 10.0.0.13:9465 offline") {
+	if !slices.Equal(cell.restarts, []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"}) || !slices.Contains(balancer.log, "terrabase 10.0.0.13:9465 offline") {
 		t.Fatalf("restarts %q, load balancer %q", cell.restarts, balancer.log)
 	}
 	if _, err := kv.Get(ctx, sequencedKey("ts-auth", 7)); !errors.Is(err, jetstream.ErrKeyNotFound) {
@@ -871,7 +871,7 @@ func TestReleaseFenceFollowsReplicasTheReconcilerMoves(t *testing.T) {
 func TestReleaseFenceDrainsAgainAfterACutShortRestore(t *testing.T) {
 	fence, cell, balancer, _, intent := newFenceTest(t)
 	ctx := t.Context()
-	cell.broken["ctl-1"] = true
+	cell.broken["gru-1-ctl-1"] = true
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
@@ -882,14 +882,14 @@ func TestReleaseFenceDrainsAgainAfterACutShortRestore(t *testing.T) {
 	// rotation, its record kept.
 	balancer.down["10.0.0.11:9465"] = true
 	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
-	if _, err := fence.restore(short, balancer, 3, "ctl-1", holdRelease, true); err == nil {
+	if _, err := fence.restore(short, balancer, 3, "gru-1-ctl-1", holdRelease, true); err == nil {
 		t.Fatal("the restore passed an unhealthy backend")
 	}
 	cancel()
 	if !balancer.sets["terrabase"][0].Serving() {
 		t.Fatal("the restore did not return the backend")
 	}
-	balancer.down["10.0.0.11:9465"], cell.broken["ctl-1"], cell.release, cell.restarts, balancer.log = false, false, 8, nil, nil
+	balancer.down["10.0.0.11:9465"], cell.broken["gru-1-ctl-1"], cell.release, cell.restarts, balancer.log = false, false, 8, nil, nil
 	rollback := delivery.Intent{Role: "ts-auth", Generation: 8}
 	if err := fence.prepare(ctx, rollback); err != nil {
 		t.Fatal(err)
@@ -915,25 +915,25 @@ func TestReleaseFenceFencesABackupBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.Contains(balancer.log, "terrabase 10.0.0.12:9465 offline") {
-		t.Fatalf("ctl-2's backup backend was not fenced: %q", balancer.log)
+		t.Fatalf("gru-1-ctl-2's backup backend was not fenced: %q", balancer.log)
 	}
 	if _, backup := balancer.sets["terrabase"][1].Shape(); !backup || !balancer.sets["terrabase"][1].Serving() {
-		t.Fatalf("ctl-2's backup backend returned as %+v", balancer.sets["terrabase"][1])
+		t.Fatalf("gru-1-ctl-2's backup backend returned as %+v", balancer.sets["terrabase"][1])
 	}
 }
 
-// The reconciler withdraws ctl-2's replica after it was permitted and
-// before it served: the release goes on to ctl-3 without waiting out its
-// deadline, and ctl-2's backends, which serve its other workloads, return
+// The reconciler withdraws gru-1-ctl-2's replica after it was permitted and
+// before it served: the release goes on to gru-1-ctl-3 without waiting out its
+// deadline, and gru-1-ctl-2's backends, which serve its other workloads, return
 // before the release opens.
 func TestReleaseFenceReturnsAWithdrawnNode(t *testing.T) {
 	fence, cell, balancer, kv, intent := newFenceTest(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	cell.stalled = map[string]bool{"ctl-2": true}
+	cell.stalled = map[string]bool{"gru-1-ctl-2": true}
 	cell.restarted = func(node string) {
-		if node == "ctl-2" {
-			cell.nodes = []string{"ctl-1", "ctl-3"}
+		if node == "gru-1-ctl-2" {
+			cell.nodes = []string{"gru-1-ctl-1", "gru-1-ctl-3"}
 		}
 	}
 	if err := fence.prepare(ctx, intent); err != nil {
@@ -942,26 +942,26 @@ func TestReleaseFenceReturnsAWithdrawnNode(t *testing.T) {
 	if err := fence.sequence(ctx, intent, nil); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(cell.restarts, []string{"ctl-1", "ctl-2", "ctl-3"}) {
+	if !slices.Equal(cell.restarts, []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"}) {
 		t.Fatalf("restarts %q", cell.restarts)
 	}
 	for _, set := range []string{"terrabase", "ts-auth"} {
 		if !balancer.sets[set][1].Serving() {
-			t.Fatalf("ctl-2's %s backend stays fenced: %q", set, balancer.log)
+			t.Fatalf("gru-1-ctl-2's %s backend stays fenced: %q", set, balancer.log)
 		}
 	}
-	if _, err := kv.Get(ctx, fencedKey("ctl-2")); !errors.Is(err, jetstream.ErrKeyNotFound) {
-		t.Fatalf("ctl-2's fence is still recorded: %v", err)
+	if _, err := kv.Get(ctx, fencedKey("gru-1-ctl-2")); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("gru-1-ctl-2's fence is still recorded: %v", err)
 	}
 }
 
 // A node fenced by a failed release and withdrawn since, its replica moved
-// to ctl-3, returns when the next release starts, before it takes another
+// to gru-1-ctl-3, returns when the next release starts, before it takes another
 // node out.
 func TestReleaseFenceReturnsANodeAFailedReleaseLeft(t *testing.T) {
 	fence, cell, balancer, kv, intent := newFenceTest(t)
 	ctx := t.Context()
-	cell.nodes, cell.broken["ctl-2"] = []string{"ctl-1", "ctl-2"}, true
+	cell.nodes, cell.broken["gru-1-ctl-2"] = []string{"gru-1-ctl-1", "gru-1-ctl-2"}, true
 	if err := fence.prepare(ctx, intent); err != nil {
 		t.Fatal(err)
 	}
@@ -971,7 +971,7 @@ func TestReleaseFenceReturnsANodeAFailedReleaseLeft(t *testing.T) {
 	if balancer.sets["terrabase"][1].Serving() {
 		t.Fatal("the failed node was not fenced")
 	}
-	cell.nodes, cell.release, cell.restarts = []string{"ctl-1", "ctl-3"}, 8, nil
+	cell.nodes, cell.release, cell.restarts = []string{"gru-1-ctl-1", "gru-1-ctl-3"}, 8, nil
 	next := delivery.Intent{Role: "ts-auth", Generation: 8}
 	if err := fence.prepare(ctx, next); err != nil {
 		t.Fatal(err)
@@ -981,10 +981,10 @@ func TestReleaseFenceReturnsANodeAFailedReleaseLeft(t *testing.T) {
 	}
 	for _, set := range []string{"terrabase", "ts-auth"} {
 		if !balancer.sets[set][1].Serving() {
-			t.Fatalf("ctl-2's %s backend stays fenced: %q", set, balancer.log)
+			t.Fatalf("gru-1-ctl-2's %s backend stays fenced: %q", set, balancer.log)
 		}
 	}
-	if _, err := kv.Get(ctx, fencedKey("ctl-2")); !errors.Is(err, jetstream.ErrKeyNotFound) {
-		t.Fatalf("ctl-2's fence is still recorded: %v", err)
+	if _, err := kv.Get(ctx, fencedKey("gru-1-ctl-2")); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("gru-1-ctl-2's fence is still recorded: %v", err)
 	}
 }

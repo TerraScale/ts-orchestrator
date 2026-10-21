@@ -24,17 +24,17 @@ func TestReleaseFenceContextLocksCancelWithoutEffectsAndRetry(t *testing.T) {
 				unlock = f.mu.Unlock
 				invoke = func(ctx context.Context) error { _, err := f.client(ctx); return err }
 			case "fence":
-				unlock = f.lockNode("ctl-1") // Existing holders use this API.
+				unlock = f.lockNode("gru-1-ctl-1") // Existing holders use this API.
 				invoke = func(ctx context.Context) error {
-					return f.fence(ctx, api, 3, *spec, "ctl-1", addresses["ctl-1"], 0, netbirdHold)
+					return f.fence(ctx, api, 3, *spec, "gru-1-ctl-1", addresses["gru-1-ctl-1"], 0, netbirdHold)
 				}
 			case "restore":
-				if err := f.save(ctx, 3, "ctl-1", fenceRecord{Holders: []string{netbirdHold}}); err != nil {
+				if err := f.save(ctx, 3, "gru-1-ctl-1", fenceRecord{Holders: []string{netbirdHold}}); err != nil {
 					t.Fatal(err)
 				}
-				unlock = f.lockNode("ctl-1")
+				unlock = f.lockNode("gru-1-ctl-1")
 				invoke = func(ctx context.Context) error {
-					_, err := f.restore(ctx, api, 3, "ctl-1", netbirdHold, true)
+					_, err := f.restore(ctx, api, 3, "gru-1-ctl-1", netbirdHold, true)
 					return err
 				}
 			case "quorum":
@@ -42,7 +42,7 @@ func TestReleaseFenceContextLocksCancelWithoutEffectsAndRetry(t *testing.T) {
 				unlock = f.quorum.Unlock
 				invoke = func(ctx context.Context) error {
 					return f.takeOut(ctx, api, 3, fencedBackend{LoadBalancerID: spec.LoadBalancerID, Set: "terrabase",
-						IP: addresses["ctl-1"], Port: 9465}, "ctl-1", false)
+						IP: addresses["gru-1-ctl-1"], Port: 9465}, "gru-1-ctl-1", false)
 				}
 			}
 			unlocked := false
@@ -66,7 +66,7 @@ func TestReleaseFenceContextLocksCancelWithoutEffectsAndRetry(t *testing.T) {
 			if len(api.log) != 0 || f.api != nil {
 				t.Fatalf("cancelled %s operation changed provider state: log=%v client=%v", operation, api.log, f.api)
 			}
-			if _, found, err := f.record(ctx, "ctl-1"); err != nil || found != (operation == "restore") {
+			if _, found, err := f.record(ctx, "gru-1-ctl-1"); err != nil || found != (operation == "restore") {
 				t.Fatalf("cancelled %s operation changed its journal: found=%t error=%v", operation, found, err)
 			}
 			unlock()
@@ -75,7 +75,7 @@ func TestReleaseFenceContextLocksCancelWithoutEffectsAndRetry(t *testing.T) {
 				t.Fatalf("released %s lock did not permit retry: %v", operation, err)
 			}
 			if operation == "restore" {
-				if _, found, err := f.record(ctx, "ctl-1"); err != nil || found {
+				if _, found, err := f.record(ctx, "gru-1-ctl-1"); err != nil || found {
 					t.Fatalf("retry did not release the original fence: found=%t error=%v", found, err)
 				}
 			}
@@ -123,13 +123,13 @@ func TestReleaseFenceContextQuorumSerializesObservationAndUpdate(t *testing.T) {
 		results <- f.takeOut(ctx, blocking, 3, fencedBackend{LoadBalancerID: spec.LoadBalancerID,
 			Set: "terrabase", IP: addresses[node], Port: 9465}, node, false)
 	}
-	go takeOut("ctl-1")
+	go takeOut("gru-1-ctl-1")
 	select {
 	case <-blocking.entered:
 	case <-ctx.Done():
 		t.Fatal("first operation did not reach its guarded update")
 	}
-	go takeOut("ctl-2")
+	go takeOut("gru-1-ctl-2")
 	select {
 	case <-blocking.entered:
 		t.Fatal("second operation updated during the first quorum guard")

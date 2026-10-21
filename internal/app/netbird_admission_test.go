@@ -23,7 +23,7 @@ func TestNetBirdAdmissionSurvivesFenceAndGrantRemovalWithoutLosingQuorum(t *test
 	spec, _ := f.spec()
 	spec.BackendSets[0].MinServing = 3
 	api.sets["terrabase"] = append(api.sets["terrabase"], lb.Backend{IP: "10.0.0.14", Port: 9465})
-	record := network.Record{ID: "06RK99WTQK58C48FH8SYH45C8S", Node: "ctl-2", Phase: "drain", Deadline: time.Now().Add(time.Minute)}
+	record := network.Record{ID: "06RK99WTQK58C48FH8SYH45C8S", Node: "gru-1-ctl-2", Phase: "drain", Deadline: time.Now().Add(time.Minute)}
 	if err := saveNetBirdTestAdmission(t.Context(), &n, 3, record); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestNetBirdAdmissionSurvivesFenceAndGrantRemovalWithoutLosingQuorum(t *test
 	if err := saveNetBirdTestAdmission(t.Context(), &restarted, 3, record); err != nil {
 		t.Fatal(err)
 	}
-	api.down[lb.Backend{IP: fenceAddresses["ctl-3"], Port: 9465}.Name()] = true
+	api.down[lb.Backend{IP: fenceAddresses["gru-1-ctl-3"], Port: 9465}.Name()] = true
 	limited, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
 	defer cancel()
 	if err := restarted.drainNode(limited, 3, record.Node); !errors.Is(err, context.DeadlineExceeded) || len(api.log) != 0 {
@@ -73,7 +73,7 @@ func TestNetBirdAdmissionRequiresVerifiedFenceAndAddress(t *testing.T) {
 	f, _, _, _, _ := newFenceTest(t)
 	f.spec = func() (*cellspec.ReleaseFence, map[string]string) { return nil, map[string]string{} }
 	n := netbirdRollout{fence: f}
-	if err := saveNetBirdTestAdmission(t.Context(), &n, 3, network.Record{ID: "3H43XCS35PSC8Z1HC82FZJC2PK", Node: "ctl-1", Phase: "drain"}); err == nil {
+	if err := saveNetBirdTestAdmission(t.Context(), &n, 3, network.Record{ID: "3H43XCS35PSC8Z1HC82FZJC2PK", Node: "gru-1-ctl-1", Phase: "drain"}); err == nil {
 		t.Fatal("new transaction admitted without its fence/address snapshot")
 	}
 }
