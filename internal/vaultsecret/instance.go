@@ -93,6 +93,24 @@ func ReadInstanceSecrets(ctx context.Context, service string, refs map[string]Re
 	return Resolve(ctx, refs, instanceClient(ctx))
 }
 
+// ReadInstanceSecret reads the cell secret <cell>-<purpose> from the Vault of
+// the instance's own cell with its instance principal; errors name the secret.
+func ReadInstanceSecret(ctx context.Context, purpose string) (string, error) {
+	if err := safeEnv(); err != nil {
+		return "", err
+	}
+	cell, vaultID, err := discoverInstanceVault(ctx)
+	if err != nil {
+		return "", err
+	}
+	name := cell + "-" + purpose
+	bundles, err := instanceClient(ctx)(Ref{Vault: vaultID}.region())
+	if err != nil {
+		return "", fmt.Errorf("Vault secret %s: %w", name, err)
+	}
+	return Read(ctx, bundles, vaultID, name)
+}
+
 func instanceClient(ctx context.Context) func(region string) (BundleClient, error) {
 	return func(region string) (BundleClient, error) {
 		factory, err := ociclient.InstancePrincipalContext(ctx, region)

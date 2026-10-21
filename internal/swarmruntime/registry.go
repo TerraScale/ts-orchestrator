@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -83,6 +85,37 @@ func NewOCIRegistryResolver(factory *ociclient.Factory, lookup func(context.Cont
 		}
 		return privateRegistryResolver(spec.Image, admitted.Scope.RegistryHost, credentials.ForHost, nil), nil
 	}, nil
+}
+
+const ghcrHost = "ghcr.io"
+
+// ghcrUser owns the GHCR pull PAT; GHCR accepts any username with a PAT.
+const ghcrUser = "MarioGK"
+
+// GHCRResolver authenticates ghcr.io pulls with the token read at pull time
+// (in memory, once per pull); every other registry stays anonymous.
+func GHCRResolver(token func(context.Context) (string, error)) RegistryResolver {
+	return ghcrResolver(token, nil)
+}
+
+func ghcrResolver(token func(context.Context) (string, error), transport http.RoundTripper) RegistryResolver {
+	return func(ctx context.Context, task *api.Task, node *api.Node) (remotes.Resolver, error) {
+		spec, err := DecodeContainer(task)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasPrefix(spec.Image, ghcrHost+"/") {
+			return publicRegistryResolver(ctx, task, node)
+		}
+		read := sync.OnceValues(func() (string, error) { return token(ctx) })
+		return privateRegistryResolver(spec.Image, ghcrHost, func(host string) (string, string, error) {
+			if host != ghcrHost {
+				return "", "", errors.New("GHCR credentials requested for another host")
+			}
+			value, err := read()
+			return ghcrUser, value, err
+		}, transport), nil
+	}
 }
 
 func publicRegistryResolver(_ context.Context, task *api.Task, _ *api.Node) (remotes.Resolver, error) {
