@@ -11,7 +11,7 @@ Runs as root. Entry point: `app.RunSingleHost(ctx, args, output)` (W6 registers
 | Path | Content |
 |---|---|
 | `<state>/swarm/` | SwarmKit certificates, Raft log, `admission.json`, `node.lock` |
-| `<state>/swarm/control.sock` | Control socket (below) |
+| `<state>/control.sock` | Control socket (below); symlink to the upstream `<state>/swarm/control.sock` |
 | `<state>/runtime-logs/` | Container logs written by the executor |
 
 Restart reopens the same node ID and Raft state. A missing certificate or Raft
@@ -20,7 +20,7 @@ directory with existing state is refused, never re-founded. Other features
 
 ## Control socket contract (for W3 `service` CLI and W6)
 
-- Transport: gRPC over the unix socket `<state>/swarm/control.sock`.
+- Transport: gRPC over the unix socket `<state>/control.sock` (default `/var/lib/ts-orch/control.sock`).
 - Security: TLS pinned to the node's root CA (`<state>/swarm/certificates/swarm-root-ca.crt`),
   server name `swarm-manager`. Access is root-only (state dir mode 0700).
 - API: upstream SwarmKit `api.ControlClient`

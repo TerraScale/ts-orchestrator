@@ -26,9 +26,8 @@ const SingleHostAddress = "127.0.0.1:4242"
 func SingleHostSwarmDir(stateDir string) string { return filepath.Join(stateDir, "swarm") }
 
 // SingleHostSocket is the root-only SwarmKit control API (api.ControlClient).
-func SingleHostSocket(stateDir string) string {
-	return filepath.Join(SingleHostSwarmDir(stateDir), "control.sock")
-}
+// It links to the upstream socket inside the 0700 swarm directory.
+func SingleHostSocket(stateDir string) string { return filepath.Join(stateDir, "control.sock") }
 
 // StartSingleHost founds (or reopens) a one-node cluster whose manager is also
 // its only Active worker.
@@ -36,13 +35,24 @@ func StartSingleHost(ctx context.Context, stateDir string, executor exec.Executo
 	if !filepath.IsAbs(stateDir) {
 		return nil, errors.New("single-host state directory must be absolute")
 	}
-	return StartNode(ctx, NodeConfig{
+	node, err := StartNode(ctx, NodeConfig{
 		StateDir:         SingleHostSwarmDir(stateDir),
 		ListenAddress:    SingleHostAddress,
 		AdvertiseAddress: SingleHostAddress,
 		Admission: Admission{Region: "local", HostID: singleHostID, InstanceID: singleHostID,
 			FounderID: singleHostID, Role: "manager"},
 	}, executor)
+	if err != nil {
+		return nil, err
+	}
+	link := SingleHostSocket(stateDir)
+	if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, errors.Join(err, node.Stop(context.WithoutCancel(ctx)))
+	}
+	if err := os.Symlink(filepath.Join("swarm", "control.sock"), link); err != nil {
+		return nil, errors.Join(err, node.Stop(context.WithoutCancel(ctx)))
+	}
+	return node, nil
 }
 
 // DialSingleHost connects to a single host's control socket over TLS pinned to
