@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 var seedFields = []string{"schema_version", "slot", "shape", "ocpus", "memory_gb", "boot_gb", "boot_vpus_per_gb", "assign_public_ip", "compartment_id", "availability_domain", "fault_domain", "subnet_id", "network_security_group_ids", "image_id", "anchor_sha256", "manifest_sha256", "image_receipt_sha256", "admission_sha256", "inventory_sha256", "admission_admitted_at", "admission_expires_at", "monthly_estimate_usd", "create_identity"}
@@ -243,16 +244,34 @@ func (e *Engine) verifySeed(plan Object, inventoryPath, admissionPath string, an
 		}
 	}
 	profile := obj(manifest["profile"])
+	architecture := text(seed["architecture"])
+	if architecture != "arm64" && architecture != "amd64" {
+		fail("seed controller-a host has no qualified architecture")
+	}
 	nsgIDs := []string{str(ids["network_security_group"])}
-	if !eq(manifest["schemaVersion"], bootstrap.ManifestSchemaVersion) || manifest["cell"] != plan["cell"] || manifest["ociRegion"] != plan["region"] || manifest["slot"] != seed["slot"] || manifest["imageArchitecture"] != "linux-arm64" || profile["slot"] != seed["slot"] || profile["compartmentOcid"] != ids["control_compartment"] || profile["availabilityDomain"] != plan["availability_domain"] || profile["faultDomain"] != seed["fault_domain"] || profile["subnetOcid"] != ids["subnet"] || !eq(profile["networkSecurityGroupOcids"], nsgIDs) || profile["shape"] != seed["shape"] || !safeMatch(`[0-9a-f]{64}`, manifest["anchorSha256"]) || !safeMatch(`[0-9a-f]{64}`, manifest["manifestSha256"]) || !safeMatch(`[0-9a-f]{64}`, manifest["releaseReceiptSha256"]) {
+	if !eq(manifest["schemaVersion"], bootstrap.ManifestSchemaVersion) || manifest["cell"] != plan["cell"] || manifest["ociRegion"] != plan["region"] || manifest["slot"] != seed["slot"] || manifest["imageArchitecture"] != "linux-"+architecture || profile["slot"] != seed["slot"] || profile["compartmentOcid"] != ids["control_compartment"] || profile["availabilityDomain"] != plan["availability_domain"] || profile["faultDomain"] != seed["fault_domain"] || profile["subnetOcid"] != ids["subnet"] || !eq(profile["networkSecurityGroupOcids"], nsgIDs) || profile["shape"] != seed["shape"] || !safeMatch(`[0-9a-f]{64}`, manifest["anchorSha256"]) || !safeMatch(`[0-9a-f]{64}`, manifest["manifestSha256"]) || !safeMatch(`[0-9a-f]{64}`, manifest["releaseReceiptSha256"]) {
 		fail("verified seed manifest differs from the recorded controller-a profile")
 	}
 	if fileSHA(receiptPath) != manifest["releaseReceiptSha256"] {
 		fail("verified image receipt bytes differ from the signed seed manifest")
 	}
 	image := text(manifest["imageOcid"])
-	if !safeMatch(`ocid1\.image\.[a-z0-9-]+\.[a-z0-9-]*\.[a-z0-9-]+`, image) || !strings.HasPrefix(verification, "verified OCI image="+image+" region="+str(plan["cell"])+" ") || !strings.Contains(verification, " arch=arm64 ") {
-		fail("verified ARM image candidate differs from the signed seed manifest")
+	if !safeMatch(`ocid1\.image\.[a-z0-9-]+\.[a-z0-9-]*\.[a-z0-9-]+`, image) || !strings.HasPrefix(verification, "verified OCI image="+image+" region="+str(plan["cell"])+" ") || !strings.Contains(verification, " arch="+architecture+" ") {
+		fail("verified image candidate differs from the signed seed manifest")
+	}
+	compatible := false
+	for _, v := range rows(e.oci(str(plan["region"]), "compute", "shape", "list", "--compartment-id", str(ids["control_compartment"]), "--availability-domain", str(plan["availability_domain"]), "--image-id", image, "--all")) {
+		shape := obj(v)
+		if shape["shape"] == seed["shape"] {
+			observed, err := catalog.ShapeArchitecture(text(shape["processor-description"]))
+			if err != nil || observed != architecture {
+				fail("seed image shape has an unknown or mismatched processor architecture")
+			}
+			compatible = true
+		}
+	}
+	if !compatible {
+		fail("seed image is not compatible with the planned host shape")
 	}
 	for _, v := range active(inventory["resources"], "instance") {
 		m := obj(v)
