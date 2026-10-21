@@ -54,7 +54,17 @@ func runServiceCLI(ctx context.Context, args []string, output io.Writer, state s
 		if err := protocol.DecodeStrict(data, &spec, 64<<10); err != nil {
 			return fmt.Errorf("decode %s: %w", args[2], err)
 		}
-		return meshRequest(ctx, state, func(conn *nats.Conn) error { return mesh.Apply(ctx, conn, spec, output) })
+		if sent, err := viaMesh(state, output, func(conn *nats.Conn) error { return mesh.Apply(ctx, conn, spec, output) }); sent {
+			return err
+		}
+		run = func(ctx context.Context, client api.ControlClient) error {
+			service, err := swarmruntime.ApplyServiceSpec(ctx, client, spec)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(output, "applied %s (%s) version %d on this host\n", spec.Name, service.ID, service.Meta.Version.Index)
+			return err
+		}
 	case len(args) == 1 && args[0] == "ls":
 		run = func(ctx context.Context, client api.ControlClient) error {
 			rows, err := swarmruntime.ListServiceSpecs(ctx, client)
@@ -69,7 +79,16 @@ func runServiceCLI(ctx context.Context, args []string, output io.Writer, state s
 			return table.Flush()
 		}
 	case len(args) == 2 && args[0] == "rm":
-		return meshRequest(ctx, state, func(conn *nats.Conn) error { return mesh.Remove(ctx, conn, args[1], output) })
+		if sent, err := viaMesh(state, output, func(conn *nats.Conn) error { return mesh.Remove(ctx, conn, args[1], output) }); sent {
+			return err
+		}
+		run = func(ctx context.Context, client api.ControlClient) error {
+			if err := swarmruntime.RemoveServiceSpec(ctx, client, args[1]); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintf(output, "removed %s on this host\n", args[1])
+			return err
+		}
 	default:
 		_, err := io.WriteString(output, serviceCLIUsage)
 		if len(args) == 0 || strings.HasPrefix(args[0], "-h") || args[0] == "--help" || args[0] == "help" {
@@ -87,12 +106,15 @@ func runServiceCLI(ctx context.Context, args []string, output io.Writer, state s
 	return run(ctx, client)
 }
 
-// meshRequest runs one global service change through this host's mesh node.
-func meshRequest(ctx context.Context, state string, request func(*nats.Conn) error) error {
+// viaMesh sends one global service change through this host's mesh node. A
+// host whose mesh is not up (no Vault or IMDS yet, or a CI runner) changes
+// only itself: sent is false and the caller applies locally.
+func viaMesh(state string, output io.Writer, request func(*nats.Conn) error) (sent bool, err error) {
 	conn, err := mesh.Connect(state)
 	if err != nil {
-		return err
+		_, err = fmt.Fprintf(output, "%v; changing this host only\n", err)
+		return err != nil, err
 	}
 	defer conn.Close()
-	return request(conn)
+	return true, request(conn)
 }

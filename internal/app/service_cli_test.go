@@ -82,3 +82,16 @@ func TestServiceSpecRejects(t *testing.T) {
 		}
 	}
 }
+
+// Without a running mesh (a CI runner, or Vault not reachable yet) apply and
+// rm fall back to this host instead of failing.
+func TestServiceChangesFallBackToThisHostWithoutMesh(t *testing.T) {
+	state := t.TempDir()
+	for _, args := range [][]string{{"apply", "-f", "../../deploy/m1/services/whoami.json"}, {"rm", "whoami"}} {
+		var out strings.Builder
+		err := runServiceCLI(t.Context(), args, &out, state)
+		if !strings.Contains(out.String(), "changing this host only") || err == nil || !strings.Contains(err.Error(), "swarm") {
+			t.Fatalf("%v: output %q error %v", args, out.String(), err)
+		}
+	}
+}
