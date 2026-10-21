@@ -1,33 +1,45 @@
 package teardown
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
-type netBirdTeardownHTTP struct {
-	next     http.RoundTripper
-	endpoint *url.URL
-}
-
-func (transport netBirdTeardownHTTP) RoundTrip(request *http.Request) (*http.Response, error) {
-	copy := request.Clone(request.Context())
-	copy.URL.Scheme, copy.URL.Host = transport.endpoint.Scheme, transport.endpoint.Host
-	return transport.next.RoundTrip(copy)
+// pinOCITLS routes every OCI SDK HTTPS dial to server. The SDK clones
+// http.DefaultTransport, so the replacement must stay an *http.Transport.
+func pinOCITLS(t *testing.T, server *httptest.Server) {
+	t.Helper()
+	original := http.DefaultTransport
+	transport := original.(*http.Transport).Clone()
+	transport.Proxy = nil
+	dialer := tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()}
+	transport.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("fixture refuses plaintext dialing")
+	}
+	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
+	http.DefaultTransport = transport
+	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
 }
 
 func TestNetBirdTeardownBlocksBeforeLegacyDeletion(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	for _, missing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "malformed-current-authority", true: "unreadable-current-authority"}[missing], func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			var requests atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 				requests.Add(1)
 				if request.Method != http.MethodGet || !strings.HasPrefix(request.Header.Get("Authorization"), "Signature ") {
 					t.Errorf("teardown attempted an unsigned request or mutation: %s %s", request.Method, request.URL)
@@ -48,16 +60,10 @@ func TestNetBirdTeardownBlocksBeforeLegacyDeletion(t *testing.T) {
 				io.WriteString(w, `{"untrusted":"not a signed foundation"}`)
 			}))
 			t.Cleanup(server.Close)
+			pinOCITLS(t, server)
 			provider := sdkProvider(t, server)
-			endpoint, err := url.Parse(server.URL)
-			if err != nil {
-				t.Fatal(err)
-			}
-			original := http.DefaultTransport
-			http.DefaultTransport = netBirdTeardownHTTP{next: original, endpoint: endpoint}
-			t.Cleanup(func() { http.DefaultTransport = original })
 			var out strings.Builder
-			err = provider.teardown(t.Context(), gruPlan(), true, &out)
+			err := provider.teardown(t.Context(), gruPlan(), true, &out)
 			if err == nil || !strings.Contains(err.Error(), "GRU teardown blocked: current foundation authority") || requests.Load() < 2 {
 				t.Fatalf("legacy apply bypassed current signed authority: requests=%d err=%v output=%s", requests.Load(), err, out.String())
 			}
