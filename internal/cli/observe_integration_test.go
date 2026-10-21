@@ -40,7 +40,7 @@ func newObserveFixture(t *testing.T) *observeFixture {
 	}
 	bus := observability.NewEventBus(8)
 	bus.Publish(observability.Event{Level: "INFO", Component: "release", Message: "release observed", Attrs: map[string]string{"operation_id": "op-1"}})
-	token := strings.Repeat("a", 32)
+	token := "observe-test-bearer-token-not-in-any-payload"
 	server, err := observability.NewTokenServer(observability.Config{ListenAddress: "127.0.0.1:9463"}, token, observability.ServerDeps{Registry: registry, Health: health, Snapshots: collector, Events: bus})
 	if err != nil {
 		t.Fatal(err)

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	jsonv1 "encoding/json"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -116,7 +117,8 @@ func writeObserveFeature(out io.Writer, view, format string, data []byte) (any, 
 		return result, partial, nil
 	case "summary":
 		var result insights.Summary
-		if err := json.Unmarshal(data, &result); err != nil || result.Generated.IsZero() || result.Window <= 0 {
+		// insights serves encoding/json v1, which writes time.Duration as nanoseconds.
+		if err := json.Unmarshal(data, &result, jsonv1.FormatDurationAsNano(true)); err != nil || result.Generated.IsZero() || result.Window <= 0 {
 			return nil, false, errors.New("invalid summary JSON")
 		}
 		if format == "table" {
