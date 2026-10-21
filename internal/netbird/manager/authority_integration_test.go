@@ -83,7 +83,6 @@ func TestManagementAuthorityCancelsCommittedWriteAndRecoversFromSnapshot(t *test
 }
 
 func TestManagementAuthorityFencesEveryPeerRenameWriteAndRecovers(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
 	if _, err := Sync(t.Context(), f.api(t), GRU(), true); err != nil {
