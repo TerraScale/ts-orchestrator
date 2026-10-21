@@ -119,6 +119,36 @@ func (f *originalCompartmentSDKFixture) run(t *testing.T) error {
 	return retainOriginalFoundationCompartments(ctx, stage.authority)
 }
 
+// Full provisioning reconciles infrastructure before writer admission. These
+// cases need the real material stage and its refusal of unpublished startup.
+func (f *originalCompartmentSDKFixture) prepareMaterialWithStartupRefusal(t *testing.T) {
+	t.Helper()
+	stage, err := provisionFoundationMaterial(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	if err != nil {
+		t.Fatalf("material-only preparation failed: %v", err)
+	}
+	defer stage.cancel()
+	retained, materialPosts := f.wire(t), f.cloud.materialPosts
+	reader := stage.resolver.Footprint.(*SignedFootprint)
+	if _, err := bootstrap.VerifyRegionalStartupTemplate(f.bundle.GrantWire, f.roots, reader.bootstrapAnchor, reader.bootstrapAnchor.Anchor().Cell, time.Now()); !errors.Is(err, bootstrap.ErrManifestInvalid) {
+		t.Fatalf("unbound prospective startup lost its schema refusal: %v", err)
+	}
+	err = stage.authority.verifyFoundationWorkloadStartup(stage.ctx)
+	var service common.ServiceError
+	ok := errors.As(err, &service)
+	if !ok || service.GetHTTPStatusCode() != http.StatusNotFound || !strings.Contains(err.Error(), "read current protected foundation grant") {
+		t.Fatalf("prospective startup bypassed its unpublished protected grant: %v", err)
+	}
+	home := f.approval.HomeStorageDomain
+	if _, err := os.Stat(f.cloud.objectPath(home.HeadBucket + "/" + home.Prefix + "/" + foundationGrantObject)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unpublished current grant unexpectedly exists: %v", err)
+	}
+	f.assertMaterial(t)
+	if len(f.dispatches()) != 0 || f.cloud.materialPosts != materialPosts || !bytes.Equal(retained, f.wire(t)) {
+		t.Fatal("refused prospective startup changed compartment or material effects or protected birth")
+	}
+}
+
 func (f *originalCompartmentSDKFixture) record(t *testing.T) FoundationRecord {
 	t.Helper()
 	f.cloud.mu.Lock()
@@ -407,9 +437,7 @@ func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
 	// and process environment while still exercising real authenticated SDK I/O.
 	t.Run("five exact original creates and selected GRU read only", func(t *testing.T) {
 		f := newOriginalCompartmentSDKFixture(t, "")
-		if err := ProvisionFoundationBundle(t.Context(), f.factoryFor(), f.roots, f.bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) || f.cloud.creates != 0 {
-			t.Fatalf("ordinary prospective path changed its existing startup refusal: %v", err)
-		}
+		f.prepareMaterialWithStartupRefusal(t)
 		origin := f.prepared.Grant.WorkloadGenesis[0]
 		name, err := release.WorkloadGenesisObject(origin.TenancyID, origin.Cell, origin.Environment, origin.Role)
 		if err != nil {
@@ -727,9 +755,7 @@ func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
 		for _, refusal := range []string{"missing birth", "missing origin", "different signed original", "expired signed document"} {
 			t.Run(refusal, func(t *testing.T) {
 				f := newOriginalCompartmentSDKFixture(t, "")
-				if err := ProvisionFoundationBundle(t.Context(), f.factoryFor(), f.roots, f.bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
-					t.Fatal(err)
-				}
+				f.prepareMaterialWithStartupRefusal(t)
 				switch refusal {
 				case "missing birth":
 					f.replaceRecord(t, func(record *FoundationRecord) { record.OriginalSourceProducers = nil })
