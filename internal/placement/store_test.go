@@ -227,7 +227,6 @@ func placementTestObserver(t *testing.T, runtime *natscell.Runtime, config natsc
 }
 
 func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22 (Q-MAIN-GREEN), owner ts-orch consolidation thread: flaky on main and M1 PRs since the 2026-10-21 integration-line merge")
 	config := placementTestBrokerConfig(t, "member-reader")
 	runtime, err := natscell.Start(t.Context(), config)
 	if err != nil {
@@ -316,6 +315,13 @@ func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
 	if _, err := reader.ReadMember(t.Context(), state.DatabaseID, state.PartitionID, state.MemberID); !errors.Is(err, ErrStoreCorrupt) {
 		t.Fatalf("ordered member reader accepted a tombstone: %v", err)
 	}
+	// The reply can reach the reader before the server fans the request out to the observer,
+	// so wait for each leader read instead of counting after a flush of the observer connection.
+	for range 3 {
+		if _, err := leader.NextMsg(10 * time.Second); err != nil {
+			t.Fatalf("member reader did not use the leader: %v", err)
+		}
+	}
 	if err := observer.Flush(); err != nil {
 		t.Fatal(err)
 	}
@@ -323,8 +329,8 @@ func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count, _, err := direct.Pending(); err != nil || count != 0 || reads != 3 {
-		t.Fatalf("member reader bypassed leader: leader=%d, direct=%d, error=%v", reads, count, err)
+	if count, _, err := direct.Pending(); err != nil || count != 0 || reads != 0 {
+		t.Fatalf("member reader bypassed leader: extra leader=%d, direct=%d, error=%v", reads, count, err)
 	}
 
 	lookupIntent := validIntent(oci.RegionGRU)
