@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json/v2"
 	"strings"
 	"testing"
@@ -32,6 +34,7 @@ func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyrin
 	}
 	digest := strings.Repeat("a", 64)
 	receipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: strings.Repeat("a", 40), GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13, BinarySHA256: digest, QualificationSHA256: digest, BaseImageOCID: "ocid1.image.oc1." + config.Region + ".base", BaseImageRegion: strings.ToUpper(config.Cell), BaseImageSHA256: digest, KernelRelease: "6.1.0", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: digest, OCIImageOCID: "ocid1.image.oc1." + config.Region + ".custom", OCIRegion: strings.ToUpper(config.Cell)}
+	receipt.Production = imageQualification(t, receipt, root, now)
 	scope := release.ImageScope(receipt, "production")
 	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded, Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(time.Hour), root)
 	if err != nil {
@@ -70,35 +73,30 @@ func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyrin
 	return template, receipt
 }
 
-func sourcePinnedLedger(t *testing.T, root ed25519.PrivateKey, record bootstrapmaterial.Record, now time.Time) []byte {
+// imageQualification signs test-only production qualification independently of the image publisher.
+func imageQualification(t *testing.T, image release.ImageReceipt, root ed25519.PrivateKey, at time.Time) *release.ProductionProof {
 	t.Helper()
-	public, err := base64.StdEncoding.Strict().DecodeString(record.Public.LedgerSignerPublicKey)
+	record := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
+		Candidate: release.ProductionExpectation{SourceRevision: image.SourceRevision, ArtifactSHA256: image.ImageSHA256,
+			QualificationSHA256: image.QualificationSHA256, Cell: image.OCIRegion, Environment: "production",
+			Runtime: release.ProductionRuntime, Architecture: image.Architecture, Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		evidence := []byte("test-only " + gate + " image evidence")
+		sum := sha256.Sum256(evidence)
+		record.Evidence = append(record.Evidence, release.ProductionGateEvidence{Gate: gate,
+			SHA256: hex.EncodeToString(sum[:]), Bytes: int64(len(evidence)), CompletedAt: at.Add(-time.Second)})
+	}
+	payload, err := trust.EncodePayload(record)
 	if err != nil {
 		t.Fatal(err)
 	}
-	keyID, err := trust.KeyID(ed25519.PublicKey(public))
+	proof, err := trust.Sign(payload, release.ProductionQualificationScope(record.Candidate), at, at.Add(time.Hour), root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := trust.EncodeDelegatedPublicKey(ed25519.PublicKey(public))
+	wire, err := trust.EncodeEnvelope(proof)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var slots []string
-	for _, slot := range record.Config.Slots {
-		slots = append(slots, slot.Name)
-	}
-	var capabilities []trust.Capability
-	for _, domain := range bootstrap.BootstrapLedgerCapabilityDomains() {
-		capabilities = append(capabilities, trust.Capability{Domain: domain, DeploymentID: record.Config.DeploymentID, Cell: strings.ToUpper(record.Config.Cell), Environment: record.Config.Environment, Role: "controller", Slots: slots, Actions: []string{"sign"}})
-	}
-	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded, Capabilities: capabilities}, now.Add(-time.Minute), now.Add(time.Hour), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire, err := trust.EncodeEnvelope(delegation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return wire
+	return &release.ProductionProof{Qualification: wire}
 }

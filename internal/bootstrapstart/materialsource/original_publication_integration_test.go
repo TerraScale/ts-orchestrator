@@ -233,7 +233,6 @@ func originalMaterialMechanicalProvision(t *testing.T, f *originalMechanicalSDK,
 }
 
 func TestOriginalMaterialPublicationSDKDurableRecovery(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	for _, fault := range []string{"", "lost material create"} {
 		t.Run(fault, func(t *testing.T) {
 			f, clients, state, etag, archive := originalMaterialMechanicalFixture(t)
