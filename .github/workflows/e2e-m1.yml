@@ -35,7 +35,7 @@ jobs:
       - name: Build ts-orch
         run: |
           start=$(date +%s)
-          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/terrascale-orchestrator" ./cmd/terrascale-orchestrator
+          go build -trimpath -o "$RUNNER_TEMP/terrascale-orchestrator" ./cmd/terrascale-orchestrator
           echo "build: $(($(date +%s) - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run the M1 flow
         run: test/e2e/m1/run.sh "$RUNNER_TEMP/terrascale-orchestrator"
