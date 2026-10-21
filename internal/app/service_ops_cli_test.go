@@ -143,12 +143,12 @@ func TestServiceLogsReadsBothStreamsAndFollowsTruncation(t *testing.T) {
 
 func TestOperatorErrorsNameTheFix(t *testing.T) {
 	for message, want := range map[string]string{
-		"open /var/lib/ts-orch/swarm/certificates/swarm-root-ca.crt: permission denied":                         "sudo",
+		"open /var/lib/ts-orch/swarm/certificates/swarm-root-ca.crt: permission denied":                             "sudo",
 		"rpc error: code = Unavailable desc = dial unix /var/lib/ts-orch/control.sock: connect: connection refused": "systemctl status ts-orch",
-		"resolve current signed container material: current signed container material is pending":               "OCI Vault",
-		"task disk capacity or retained storage is unavailable":                                                 "df -h",
-		"no suitable node (insufficient resources on 1 node)":                                                   "service ls",
-		"load admitted container image: failed to resolve reference":                                            "images pull",
+		"resolve current signed container material: current signed container material is pending":                   "OCI Vault",
+		"task disk capacity or retained storage is unavailable":                                                     "df -h",
+		"no suitable node (insufficient resources on 1 node)":                                                       "service ls",
+		"load admitted container image: failed to resolve reference":                                                "images pull",
 	} {
 		if err := explain(errors.New(message)); !strings.Contains(err.Error(), ". Fix: ") || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q -> %v", message, err)
