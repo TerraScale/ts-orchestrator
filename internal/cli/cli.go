@@ -108,6 +108,7 @@ Operator tooling:
 Use ts-orch bootstrap --help or ts-orch release --help to list their commands.
 ts-orch release push sends a main build to every region in deploy/m1/regions.json (CI only);
 ts-orch release pin --state /var/lib/ts-orch prints a host's listener pin for that file.
+ts-orch release mesh-check re-proves mesh ping, service apply and HTTPS in every region (CI only).
 `
 
 // Run dispatches CLI commands before runtime configuration or NATS startup.
@@ -170,6 +171,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "release":
 		if len(args) > 1 && args[1] == "push" {
 			return releasepush.Push(ctx, args[2:], output)
+		}
+		if len(args) > 1 && args[1] == "mesh-check" {
+			return mesh.Check(ctx, args[2:], output)
 		}
 		if len(args) > 1 && args[1] == "pin" {
 			return releasepush.Pin(args[2:], output)
