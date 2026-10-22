@@ -69,6 +69,12 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 			fmt.Fprintf(output, "edge firewall: %v\n", err)
 		}
 	}
+	// NetBird WireGuard (51820) and the server's STUN (3478); without them every peer path stays relayed.
+	for _, port := range []int{3478, 51820} {
+		if err := releasepush.OpenUDP(ctx, port); err != nil {
+			fmt.Fprintf(output, "netbird firewall: %v\n", err)
+		}
+	}
 	releases, err := releasepush.NewHandler(state)
 	if err != nil {
 		return err
