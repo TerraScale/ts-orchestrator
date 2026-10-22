@@ -91,7 +91,7 @@ Operator tooling:
   member                 List this region's cluster hosts; drain and remove a worker (ls | leave HOSTNAME)
   mesh                   Show which regions answer on the cross-region mesh (ping)
   status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
-  edge                   Plan the GeoDNS steering policy to the nearest healthy region (edge geodns --plan)
+  edge                   Apply (or --plan) the GeoDNS steering policy to the nearest healthy region (edge geodns)
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
   node                   Drain, reboot, resize, add and retire a cell's nodes, one at a time behind the load balancer
   bootstrap              Prepare, sign, verify, and publish bootstrap material
