@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +37,8 @@ type originalNetBirdBackupSDKFixture struct {
 	gets     [2][2]int
 	rows     map[string]map[string]any
 	upstream http.HandlerFunc
+	// Earlier-stage pins without the later original NetBird manager scope.
+	stableNetwork, stableVault []byte
 }
 
 func newOriginalNetBirdBackupSDKFixture(t *testing.T, fault string) *originalNetBirdBackupSDKFixture {
@@ -294,9 +297,47 @@ func (f *originalNetBirdBackupSDKFixture) verifySignature(r *http.Request, body 
 	return rsa.VerifyPKCS1v15(&key.PublicKey, crypto.SHA256, digest[:], signature) == nil
 }
 
+// The inherited network and Vault fixtures pin every field they own and were
+// written before the manager stage existed. The manager scope is added later by
+// design, so re-pin it only while every earlier-stage pin stays byte-identical.
+func (f *originalNetBirdBackupSDKFixture) admitLaterManagerScope() {
+	wire, err := os.ReadFile(f.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + "GRU.json"))
+	var record FoundationRecord
+	if err != nil || json.Unmarshal(wire, &record) != nil || record.OriginalFoundationCompartments == nil {
+		return
+	}
+	earlier := record
+	section := *record.OriginalFoundationCompartments
+	for index := range section.Regions {
+		section.Regions[index].NetBirdManager = nil
+	}
+	earlier.OriginalFoundationCompartments = &section
+	network, networkErr := originalNetworkUpstream(earlier)
+	vault, vaultErr := originalVaultUpstream(earlier)
+	full, fullErr := originalNetworkUpstream(record)
+	fullVault, fullVaultErr := originalVaultUpstream(record)
+	if errors.Join(networkErr, vaultErr, fullErr, fullVaultErr) != nil {
+		return
+	}
+	pins := f.originalNetworkSDKFixture
+	if f.stableNetwork == nil && pins.upstream != nil && bytes.Equal(pins.upstream, network) {
+		f.stableNetwork = network
+	}
+	if f.stableVault == nil && f.vaultUpstream != nil && bytes.Equal(f.vaultUpstream, vault) {
+		f.stableVault = vault
+	}
+	if f.stableNetwork != nil && bytes.Equal(f.stableNetwork, network) {
+		pins.upstream = full
+	}
+	if f.stableVault != nil && bytes.Equal(f.stableVault, vault) {
+		f.vaultUpstream = fullVault
+	}
+}
+
 func (f *originalNetBirdBackupSDKFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	f.backupMu.Lock()
 	defer f.backupMu.Unlock()
+	f.admitLaterManagerScope()
 	if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/o/"+foundationObjectPrefix+"GRU.json") && !f.faulted && (f.fault == "response before CAS" || f.fault == "lost accepted CAS") {
 		body, _, err := originalNetworkBody(r)
 		var record FoundationRecord
@@ -443,7 +484,6 @@ func (f *originalNetBirdBackupSDKFixture) serveHTTP(w http.ResponseWriter, r *ht
 }
 
 func TestOriginalNetBirdBackupSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Run("short original authority refuses all backup dispatch", func(t *testing.T) {
 		base := newOriginalVaultSDKFixture(t, "", 0)
 		f := installOriginalNetBirdBackupSDKFixture(t, base, base.serveHTTP, "")

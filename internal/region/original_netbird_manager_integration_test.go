@@ -349,7 +349,6 @@ func WithOriginalNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory
 }
 
 func TestOriginalNetBirdManagerFirstLaunchAccountBirth(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalNetBirdManagerSDKFixture(t)
 	var birth FoundationRecord
 	var birthETag string
@@ -432,7 +431,6 @@ func TestOriginalNetBirdManagerFirstLaunchAccountBirth(t *testing.T) {
 }
 
 func TestOriginalNetBirdManagerSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalNetBirdManagerSDKFixture(t)
 	f.lostLaunch = true
 	if err := f.run(t); err == nil || f.launchPosts != 1 {
