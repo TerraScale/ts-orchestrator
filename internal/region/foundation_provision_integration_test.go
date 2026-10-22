@@ -591,7 +591,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	}
 	var legacyFields struct {
 		FoundationWriter map[string]any        `json:"foundationWriter"`
-		NetBirdManager   *NetBirdManagerLaunch `json:"netBirdManager"`
+		NetBirdManager   *NetBirdManagerLaunch `json:"netbirdManager"`
 	}
 	if err := json.Unmarshal(legacyWire, &legacyFields); err != nil || legacyFields.FoundationWriter == nil {
 		t.Fatalf("historical writer missing from legacy wire: %v", err)
@@ -722,7 +722,10 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		}
 		for index := range old.Grant.Regions {
 			old.Grant.Regions[index].BootstrapMaterial.OriginalSourceProducer = nil
+			old.Grant.Regions[index].BootstrapMaterial.OriginalStartupAdmission = nil
 		}
+		// Every later original recipe binds the producer purpose, so a document signed before it carries none.
+		old.Grant.OriginalActorAdmissionReads, old.Grant.OriginalPublication, old.Grant.OriginalMaterialPublicationIAM = nil, nil, nil
 		previous := signProvisionFoundation(t, old, bundle.RootChainWire, fixture.root, fixture.now)
 		resolver, err := verifyRetainedFoundation(t.Context(), previous, fixture.roots)
 		if err != nil {
@@ -807,6 +810,24 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 					}
 					regional.BootstrapMaterial.OriginalStartupAdmission = new(startupPurpose)
 				}
+				// Grant-level original recipes bind the producer digests, so re-derive them exactly as preparation does.
+				home := fixture.approval.HomeStorageDomain
+				candidate.Grant.OriginalActorAdmissionReads, candidate.Grant.OriginalPublication, candidate.Grant.OriginalMaterialPublicationIAM = nil, nil, nil
+				readRecipes, err := originalAdmissionReadIntents(candidate.Grant, home)
+				if err != nil {
+					t.Fatal(err)
+				}
+				candidate.Grant.OriginalActorAdmissionReads = &readRecipes
+				publication, err := originalFoundationPublicationIntent(candidate.Grant, home)
+				if err != nil {
+					t.Fatal(err)
+				}
+				candidate.Grant.OriginalPublication = &publication
+				materialIAM, err := originalMaterialIAMIntents(candidate.Grant, home)
+				if err != nil {
+					t.Fatal(err)
+				}
+				candidate.Grant.OriginalMaterialPublicationIAM = &materialIAM
 				if err := ValidatePreparedFoundation(candidate.Grant); err != nil {
 					t.Fatalf("startup refusal fixture did not pass structural preparation: %v", err)
 				}
@@ -1162,8 +1183,9 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	if spending, err := resolver.Footprint.(*SignedFootprint).InfrastructureSpend(t.Context()); err == nil || !strings.Contains(err.Error(), "logical spending scope requires independently verified foundation bindings") || spending.IsVerified() {
 		t.Fatal("document-only origin minted direct infrastructure spending without physical bindings")
 	}
-	if _, err := resolver.Footprint.(*SignedFootprint).OCIRIssuers(t.Context()); err == nil || !strings.Contains(err.Error(), "authenticated production OCI factory") {
-		t.Fatalf("document-only origin exposed OCIR credentials without physical bindings: %v", err)
+	// Issuers over the exact signed home Vault resolve from the document; credentials still need a reconciled foundation.
+	if _, err := resolver.OCIRIssuers(t.Context()); err == nil || !strings.Contains(err.Error(), "durable store") {
+		t.Fatalf("document-only origin exposed OCIR credentials without a reconciled foundation: %v", err)
 	}
 	footprint, err := resolver.Footprint.AuthorizedRegions(t.Context())
 	if err != nil || footprint.GrantSHA256 != preparationDigest(bundle.GrantWire) || footprint.TenancyID != prepared.Grant.TenancyID ||
