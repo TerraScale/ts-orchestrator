@@ -194,6 +194,27 @@ https://github.com/TerraScale/ts-orchestrator/actions/runs/39711912422
 Known gaps: updating an existing service in place waits on W14's #28 (the
 old task keeps its host port); the 45.9 s sjc time above is not explained yet.
 
+## A second host in a region joins by itself
+
+`ts-orch single-host` decides at start (`internal/app/single_host.go` `planHost`):
+
+1. A host with stored swarm state (`/var/lib/ts-orch/swarm/admission.json`) keeps its role: the founder stays manager, a worker reconnects from its persisted manager list.
+2. Outside OCI (IMDS `/opc/v2/` does not answer, e.g. a CI runner), the host founds a loopback-only cluster at 127.0.0.1:4242, as before.
+3. A fresh OCI host reads the gru-vault secret `ts-orch-join-<region>` (JSON: `founder` hostname, `manager` address, `workerToken`) with its instance principal. If the region has no such secret, the host creates it holding only `{"founder":"<hostname>"}`. OCI keeps secret names unique, so one claimer wins and founds the cluster. Every other host waits until the founder has published `manager` and `workerToken`, then joins as a `container` worker. Its HostID is its hostname and its InstanceID comes from IMDS.
+
+The founder listens on 0.0.0.0:4242 and advertises `<private VCN IP>:4242`. A founder created before this change advertised 127.0.0.1:4242. At every start it re-registers its Raft member at the new address (same cluster, Raft log and services; `TestSingleHostFounderMovesAddressIntegration`). It publishes the join material, and updates it only when it differs. If Vault refuses (the hosts' IAM policy lacks `manage secret-family` for `ts-orch-join-*`), the founder logs `region join material not published; retrying` and retries every 30 s while it keeps serving.
+
+Ports: 4242/tcp (SwarmKit) is reachable inside the VCN only. The host NSG admits all VCN traffic, the edge NSG never opens 4242, and ts-orch adds the iptables ACCEPT. A worker runs no control socket, mesh server or edge yet. `ts-orch service ls` and `member` work on the manager only.
+
+Check and leave, on the manager:
+
+```
+sudo ts-orch member ls                  # HOSTNAME ROLE STATUS AVAILABILITY ADDRESS; the worker shows READY
+sudo ts-orch member leave <hostname>    # drain, wait until its tasks stop (max 5 min), remove
+```
+
+A removed host cannot rejoin with its old identity. Terminate it, or stop ts-orch and delete `/var/lib/ts-orch/swarm` before it starts again. Services without mounts may run up to 8 replicas, at most one per host (host-mode ports). For example, whoami at `"replicas": 2, "regions": ["gru"]` puts one task on each gru host.
+
 ## Deploy speed
 
 ### ts-orch itself: green main -> live on every region

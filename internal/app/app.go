@@ -39,14 +39,31 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-// RunSingleHostServing runs RunSingleHost together with the public HTTPS edge,
-// which routes each service's hostnames to its published loopback port, and
-// the cross-region mesh that applies services in every region.
+// RunSingleHostServing runs this host's SwarmKit node (founder or joiner of
+// its region's cluster, planHost) together with the public HTTPS edge, which
+// routes each service's hostnames to its published loopback port, and the
+// cross-region mesh that applies services in every region.
 func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("single-host", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	state := flags.String("state", "/var/lib/ts-orch", "")
-	_ = flags.Parse(args) // RunSingleHost reports flag errors.
+	flags.SetOutput(output)
+	state := flags.String("state", "/var/lib/ts-orch", "absolute state directory")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("single-host accepts only --state")
+	}
+	if os.Geteuid() != 0 {
+		return errors.New("single-host requires root")
+	}
+	plan, err := planHost(ctx, *state, output)
+	if err != nil {
+		return err
+	}
+	if plan.joiner() {
+		// shortcut: a worker runs only its tasks and the release listener (it receives no release push: CI pushes only deploy/m1/regions.json hosts); its edge and mesh server come with the in-region NATS cluster.
+		return runSingleHost(ctx, *state, output, plan)
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	public := edge.New(*state)
@@ -60,7 +77,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	// The mesh never stops local serving; it retries until it reaches Vault and peers.
 	meshDone := make(chan struct{})
 	go func() { mesh.Run(ctx, *state); close(meshDone) }()
-	err := RunSingleHost(ctx, args, output)
+	err = runSingleHost(ctx, *state, output, plan)
 	cancel()
 	<-meshDone
 	return errors.Join(err, <-edgeDone)
