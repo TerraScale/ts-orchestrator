@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -28,6 +29,11 @@ The default host is VM.Standard.A1.Flex 2 OCPU/12 GB; --shape SHAPE launches
 the smallest SHAPE host (1 OCPU, 6 GB on Ampere, 8 GB on x86). Every new
 region needs the user's approval. Prints one line per resource:
 unchanged|created|updated KIND NAME ID (--dry-run: "plan" first, no change).
+
+       ts-orch region rm CODE [--host NAME] [--yes] [--dry-run]
+
+Terminates --host NAME (never the region host), or with no --host and an
+interactive --yes the region host, then drops its DNS record, IAM and pin.
 `
 
 // Run is `ts-orch region add|rm`; args start with add or rm.
@@ -38,6 +44,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	shape := fs.String("shape", "", "launch the smallest host of this shape")
 	host := fs.String("host", "", "adopt or launch exactly this instance")
 	dry := fs.Bool("dry-run", false, "print the plan, change nothing")
+	yes := fs.Bool("yes", false, "rm: confirm terminating the region host")
 	if err := fs.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -53,11 +60,15 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	entry, ok := catalog.LookupName(code)
 	if !ok || fs.NArg() != 0 {
-		return errors.New("usage: ts-orch region add CODE [--shape SHAPE] [--host NAME] [--dry-run]")
+		return errors.New("usage: ts-orch region add|rm CODE [--shape SHAPE] [--host NAME] [--yes] [--dry-run]")
 	}
 	r, err := connect(ctx, entry, *dry, out)
 	if err != nil {
 		return err
+	}
+	if args[0] == "rm" {
+		stdin, err := os.Stdin.Stat()
+		return r.rm(*host, *yes && err == nil && stdin.Mode()&os.ModeCharDevice != 0)
 	}
 	return r.add(*host, *shape)
 }
@@ -69,6 +80,7 @@ type run struct {
 	dry                  bool
 	code, cell, region   string
 	tenancy, compartment string
+	parent               string                  // the TerraScale compartment
 	home, ids            identity.IdentityClient // home region (writes) and this region (ADs)
 	compute              core.ComputeClient
 	net                  core.VirtualNetworkClient
@@ -118,7 +130,24 @@ func (r *run) add(host, shape string) error {
 	if err != nil || r.compartment == "" {
 		return err // a dry run cannot plan inside a compartment it has not created
 	}
-	return r.ensureNetwork(created)
+	if err := r.ensureNetwork(created); err != nil {
+		return err
+	}
+	inst, err := r.ensureInstance(host, shape)
+	if err != nil {
+		return err
+	}
+	if err := r.ensureIAM(); err != nil || host != "" || inst == nil {
+		return err // DNS and the pin belong to the region host only
+	}
+	ip, err := r.publicIP(inst)
+	if err != nil {
+		return err
+	}
+	if err := r.ensureDNS(ip); err != nil {
+		return err
+	}
+	return r.ensurePin(ip, false)
 }
 
 func (r *run) ensureCompartment() (created bool, err error) {
@@ -127,6 +156,7 @@ func (r *run) ensureCompartment() (created bool, err error) {
 	if err != nil {
 		return false, err
 	}
+	r.parent = parent
 	if r.compartment, err = r.oneCompartment(parent, name); err != nil {
 		return false, err
 	}

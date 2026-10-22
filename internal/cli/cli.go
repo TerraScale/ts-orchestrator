@@ -188,7 +188,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		if len(args) > 1 && args[1] == "create" {
 			return provisionOriginalFoundationFromFile(ctx, args[2:], commandio.NewWriter(output))
 		}
-		if len(args) > 1 && args[1] == "add" {
+		if len(args) > 1 && (args[1] == "add" || args[1] == "rm") {
 			return regionhost.Run(ctx, args[1:], output)
 		}
 		return region.Run(ctx, args[1:], commandio.NewWriter(output), os.Stderr)
