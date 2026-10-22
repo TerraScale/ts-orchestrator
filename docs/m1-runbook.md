@@ -193,3 +193,40 @@ https://github.com/TerraScale/ts-orchestrator/actions/runs/39711912422
 
 Known gaps: updating an existing service in place waits on W14's #28 (the
 old task keeps its host port); the 45.9 s sjc time above is not explained yet.
+
+## Deploy speed
+
+### ts-orch itself: green main -> live on every region
+
+Every green main push with a changed binary runs `deploy/release-push`
+(`.github/workflows/ci.yml`): it pushes the run's release over NATS to every
+region in `deploy/m1/regions.json` (TLS on :4222, listener key pinned, GitHub
+OIDC credential, see `docs/m1-single-host.md`), each host verifies, installs,
+exits and is restarted by systemd (`RestartSec=1s`), and the job polls each
+region's `ts.release.version` every 250 ms until it equals the SHA. No ssh, no
+manual step, no switch. A region failing never stops the others.
+
+"Green" = the last lint/race job finished; "live" = the push job finished with
+every region serving the SHA. Per region: ms from connect to accepted
+(download + verify + install) and to serving (restarted, answering with the
+new version).
+
+| Main SHA | Run | Build | Green -> live | gru accepted / serving | sjc | fra |
+|---|---|---|---|---|---|---|
+| bfa55583 | [39706433147](https://github.com/TerraScale/ts-orchestrator/actions/runs/39706433147) | after checks | 190 s | 5978 / 9904 | 1382 / 4117 | 4421 / 7691 |
+| e728ed36 | [39707217972](https://github.com/TerraScale/ts-orchestrator/actions/runs/39707217972) | after checks | 132 s | 6696 / 10077 | 3346 / 6136 | 4509 / 8053 |
+| 320ab132 (#72) | [39708202161](https://github.com/TerraScale/ts-orchestrator/actions/runs/39708202161) | beside checks | 35 s | 5889 / 9476 | 3221 / 6200 | 19372 / 22733 |
+| 8fe8b0d8 | [39708941852](https://github.com/TerraScale/ts-orchestrator/actions/runs/39708941852) | beside checks | 27 s | 8980 / 12906 | 1369 / 4094 | 4712 / 8746 |
+| d8779fca | [39711008818](https://github.com/TerraScale/ts-orchestrator/actions/runs/39711008818) | beside checks | 17 s | 5310 / 8681 | 3195 / 6212 | 4434 / 7848 |
+| 5d67e59e | [39711436111](https://github.com/TerraScale/ts-orchestrator/actions/runs/39711436111) | beside checks | 23 s | 5784 / 9707 | 3546 / 6288 | 4504 / 8116 |
+
+Every row: all three regions `installed`. Target green -> live <= 60 s: met
+since #72 (17-35 s, n=4). Before (ts-orch deploy.yml, failing since
+2026-10-16): never.
+
+What was removed to get here: the old `deploy.yml`/`deploy-fleet.sh` admission
+chain (dispatch, admission, Vault signing, polling); the 3-4 min release build
+now runs beside lint and race (#72) instead of after them; restart delay 5 s ->
+1 s. Remaining time per region is the binary download from GitHub releases
+(~3-6 s, the accepted column) plus restart and SwarmKit reopen (~3-4 s).
+Merge -> live is dominated by CI checks (~8-13 min, race shards).
