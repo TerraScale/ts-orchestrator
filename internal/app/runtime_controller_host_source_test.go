@@ -66,7 +66,7 @@ func TestControllerHostSpecRequiresExactLeaderRevision(t *testing.T) {
 	if err := controllerHostSpecCurrent(ctx, js, services, entry, head); err == nil {
 		t.Fatal("deleted signed profile preserved retained recipient authority")
 	}
-	if count := finish(); count != 3 {
+	if count := finish(3); count != 3 {
 		t.Fatalf("profile leader reads=%d, want 3", count)
 	}
 }

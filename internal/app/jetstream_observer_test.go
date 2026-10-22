@@ -57,13 +57,16 @@ func testRolloutJetStreamWithObserver(t *testing.T, bucket string) (jetstream.Je
 	return runtime.JetStream(), observer
 }
 
-func watchJetStreamLeaderReads(t *testing.T, observer *nats.Conn, bucket string) func() int {
+// watchJetStreamLeaderReads counts leader and follower reads of bucket. The
+// server can answer a read before it copies the request to the observer, so
+// finish waits for want leader reads before checking that no more arrived.
+func watchJetStreamLeaderReads(t *testing.T, observer *nats.Conn, bucket string) func(want int) int {
 	t.Helper()
 	leader, direct := jetStreamObserverSubjects(bucket)
-	subscribe := func(subjects []string) []*nats.Subscription {
+	subscribe := func(subjects []string, messages chan *nats.Msg) []*nats.Subscription {
 		var subscriptions []*nats.Subscription
 		for _, subject := range subjects {
-			subscription, err := observer.SubscribeSync(subject)
+			subscription, err := observer.ChanSubscribe(subject, messages)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -71,33 +74,36 @@ func watchJetStreamLeaderReads(t *testing.T, observer *nats.Conn, bucket string)
 		}
 		return subscriptions
 	}
-	leaderSubscriptions, directSubscriptions := subscribe(leader), subscribe(direct)
+	leaderReads, directReads := make(chan *nats.Msg, 1024), make(chan *nats.Msg, 1024)
+	subscriptions := append(subscribe(leader, leaderReads), subscribe(direct, directReads)...)
 	if err := observer.Flush(); err != nil {
 		t.Fatal(err)
 	}
-	return func() int {
+	return func(want int) int {
 		t.Helper()
+		reads := 0
+		deadline := time.After(10 * time.Second)
+	wait:
+		for reads < want {
+			select {
+			case <-leaderReads:
+				reads++
+			case <-deadline:
+				break wait
+			}
+		}
 		if err := observer.Flush(); err != nil {
 			t.Fatal(err)
+		}
+		for _, subscription := range subscriptions {
+			_ = subscription.Unsubscribe()
 		}
 		if err := observer.LastError(); err != nil {
 			t.Fatalf("JetStream observer authorization failed: %v", err)
 		}
-		reads := 0
-		for _, subscription := range leaderSubscriptions {
-			count, _, err := subscription.Pending()
-			_ = subscription.Unsubscribe()
-			if err != nil {
-				t.Fatal(err)
-			}
-			reads += count
-		}
-		for _, subscription := range directSubscriptions {
-			count, _, err := subscription.Pending()
-			_ = subscription.Unsubscribe()
-			if err != nil || count != 0 {
-				t.Fatalf("authorization used follower reads=%d: %v", count, err)
-			}
+		reads += len(leaderReads)
+		if count := len(directReads); count != 0 {
+			t.Fatalf("authorization used follower reads=%d", count)
 		}
 		return reads
 	}

@@ -66,7 +66,7 @@ func TestRootTrustHeadRequiresCurrentLeaderChain(t *testing.T) {
 	if err := rootTrustHeadCurrent(ctx, js, roots, head); err == nil {
 		t.Fatal("deleted leader root chain preserved local authority")
 	}
-	if count := finish(); count != 6 {
+	if count := finish(6); count != 6 {
 		t.Fatalf("root leader reads=%d, want 6", count)
 	}
 }

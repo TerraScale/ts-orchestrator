@@ -104,7 +104,7 @@ func assertGrantReadsUseLeader(t *testing.T, observer *nats.Conn) func() {
 	t.Helper()
 	finish := watchJetStreamLeaderReads(t, observer, hostenroll.GrantBucket)
 	return func() {
-		if reads := finish(); reads == 0 {
+		if reads := finish(1); reads == 0 {
 			t.Fatal("no leader enrollment reads")
 		}
 	}
