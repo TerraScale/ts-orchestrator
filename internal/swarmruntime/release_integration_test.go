@@ -24,6 +24,7 @@ import (
 )
 
 func TestSignedReleaseRaftIntegration(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-23T23:00Z (Q-MAIN-GREEN), owner R1 region-autojoin thread: rollback readiness times out under CI -race load (#109 runs 39800401568, 39841913076); passes 5/5 locally on main 879a692 and #109")
 	ctx, cancel := context.WithTimeout(t.Context(), 240*time.Second)
 	defer cancel()
 	cfg := serviceConfig(t, "ts-gru-1", "manager")
