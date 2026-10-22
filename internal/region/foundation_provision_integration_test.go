@@ -1219,14 +1219,17 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	if err != nil || !bytes.Equal(actual, conflict) {
 		t.Fatal("conflicting origin bytes were overwritten")
 	}
-	t.Run("public first bootstrap reaches original writer", func(t *testing.T) {
+	// Schema3 grants found through the original actor path; the legacy writer
+	// path refuses their original startup admission before any writer launch.
+	t.Run("public first bootstrap refuses original startup before writer", func(t *testing.T) {
 		fixture := newFoundationProvisionFixture(t)
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 		fixture.cloud.bundle = bundle
 		err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle)
-		if err == nil || fixture.cloud.lostLaunch || fixture.cloud.hasAnchor() {
-			t.Fatalf("first bootstrap did not retain the accepted original writer response loss before discovery: %v", err)
+		// The NetBird manager launches during reconciliation; the controller-a writer never does.
+		if !errors.Is(err, bootstrap.ErrManifestInvalid) || !fixture.cloud.lostLaunch || fixture.cloud.hasAnchor() {
+			t.Fatalf("first bootstrap did not refuse schema3 original startup before writer launch: %v", err)
 		}
 		for name, expected := range map[string][]byte{fixture.approval.HomeStorageDomain.Prefix + "/" + foundationGrantObject: bundle.GrantWire, foundationRootChainObject: bundle.RootChainWire} {
 			actual, err := os.ReadFile(fixture.cloud.objectPath("gru-1-head/" + name))
@@ -1241,16 +1244,17 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSJC, oci.RegionFRA} {
 			record := fixture.cloud.journal(string(cell))
 			if record.Stage != "reconciled" || record.CompletedAt.IsZero() || len(record.ResourceIDs) == 0 {
-				t.Fatalf("first bootstrap reached writer admission before %s reconciliation", cell)
+				t.Fatalf("first bootstrap refused before %s reconciliation", cell)
 			}
-			if _, err := bootstrap.VerifyBoundRegionalStartupTemplate(t.Context(), fixture.factoryFor(), bundle.GrantWire, fixture.roots, anchor, cell, time.Now()); err != nil {
-				t.Fatalf("first bootstrap lacks full current %s startup binding: %v", cell, err)
+			if record.FoundationWriter != nil {
+				t.Fatalf("refused %s startup still journaled a writer launch", cell)
+			}
+			if _, err := bootstrap.VerifyBoundRegionalStartupTemplate(t.Context(), fixture.factoryFor(), bundle.GrantWire, fixture.roots, anchor, cell, time.Now()); !errors.Is(err, bootstrap.ErrManifestInvalid) {
+				t.Fatalf("regional %s startup verifier admitted schema3 original startup: %v", cell, err)
 			}
 		}
-		token, id := fixture.cloud.original("GRU")
-		writer := fixture.cloud.journal("GRU").FoundationWriter
-		if token == "" || id == "" || writer == nil || writer.OriginalQuote == nil || writer.OriginalQuote.Validate() != nil {
-			t.Fatal("public first bootstrap did not reach the original quoted SDK writer launch")
+		if token, id := fixture.cloud.original("GRU"); token != "" || id != "" {
+			t.Fatal("refused schema3 startup dispatched an original writer launch")
 		}
 	})
 }

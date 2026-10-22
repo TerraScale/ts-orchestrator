@@ -72,6 +72,18 @@ func retainNetBirdComponentFloors(old, next *[3]NetBirdComponentFloor) error {
 	return nil
 }
 
+// checkedGuard serves the requests of a floor write whose operation already
+// passed Check; every request still enforces expiry and cancellation, and the
+// write ends with a fresh Check.
+func (v NetBirdComponents) checkedGuard(ctx context.Context) context.Context {
+	return ociclient.WithRequestGuard(ctx, func(context.Context) error {
+		if !time.Now().Before(v.state.expires) {
+			return errNetBirdComponents
+		}
+		return ctx.Err()
+	})
+}
+
 // RetainReleaseFloors atomically retains the complete CURRENT component set.
 // The caller must separately establish OS custody before any runtime effect.
 func (v NetBirdComponents) RetainReleaseFloors(ctx context.Context) error {
@@ -84,7 +96,7 @@ func (v NetBirdComponents) RetainReleaseFloors(ctx context.Context) error {
 	if s.original {
 		return v.retainOriginalReleaseFloors(ctx)
 	}
-	guarded := ociclient.WithRequestGuard(ctx, func(context.Context) error { return v.Check(ctx) })
+	guarded := v.checkedGuard(ctx)
 	record, etag, err := s.resolver.Store.Load(guarded, "GRU")
 	if err != nil {
 		return err
@@ -139,7 +151,7 @@ func (v NetBirdComponents) retainOriginalReleaseFloors(ctx context.Context) erro
 	}
 	// This writes the state it reads; never share or reuse a memoized state here.
 	ctx = withoutOriginalNetBirdStateMemo(ctx)
-	guarded := ociclient.WithRequestGuard(ctx, func(context.Context) error { return v.Check(ctx) })
+	guarded := v.checkedGuard(ctx)
 	state, err := s.reader.originalNetBirdState(guarded, s.resolver)
 	if err != nil {
 		return err
