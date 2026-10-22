@@ -79,3 +79,36 @@ func TestFoundationVerificationMemoNeverWidensTrust(t *testing.T) {
 		}
 	})
 }
+
+func TestOriginalRecordChecksRememberOnlyExactSuccesses(t *testing.T) {
+	record := FoundationRecord{Cell: "GRU", Stage: "probe-" + time.Now().Format(time.RFC3339Nano)}
+	calls := 0
+	check := func(r FoundationRecord) error {
+		calls++
+		if r.Stage == "refused" {
+			return ErrOriginalSourceProducerHold
+		}
+		return nil
+	}
+	if rememberOriginalRecordCheck("probe", record, check) != nil || rememberOriginalRecordCheck("probe", record, check) != nil || calls != 1 {
+		t.Fatal("an identical successful record check was not remembered")
+	}
+	changed := record
+	changed.Stage += "x"
+	if rememberOriginalRecordCheck("probe", changed, check) != nil || calls != 2 {
+		t.Fatal("a changed record reused a remembered check")
+	}
+	if rememberOriginalRecordCheck("other", record, check) != nil || calls != 3 {
+		t.Fatal("a different check reused a remembered result")
+	}
+	refused := record
+	refused.Stage = "refused"
+	for range 2 {
+		if rememberOriginalRecordCheck("probe", refused, check) == nil {
+			t.Fatal("a refused record passed")
+		}
+	}
+	if calls != 5 {
+		t.Fatal("a refused record check was remembered")
+	}
+}

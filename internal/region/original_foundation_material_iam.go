@@ -249,6 +249,10 @@ func (group OriginalFoundationMaterialPeerGroup) scopeOnly() OriginalFoundationM
 }
 
 func completeOriginalMaterialIAMPrerequisites(record FoundationRecord) error {
+	return rememberOriginalRecordCheck("material-iam-prerequisites", record, completeOriginalMaterialIAMPrerequisitesChecked)
+}
+
+func completeOriginalMaterialIAMPrerequisitesChecked(record FoundationRecord) error {
 	if completeOriginalFoundationAdmissionReads(record) != nil || record.validateOriginalFoundationPublication() != nil || record.OriginalFoundationCompartments.Publication == nil || record.OriginalFoundationCompartments.Publication.Readbacks == nil {
 		return ErrOriginalSourceProducerHold
 	}

@@ -167,6 +167,10 @@ type OriginalFoundationAdmissionReads struct {
 }
 
 func completeOriginalAdmissionReadPrerequisites(record FoundationRecord) error {
+	return rememberOriginalRecordCheck("admission-read-prerequisites", record, completeOriginalAdmissionReadPrerequisitesChecked)
+}
+
+func completeOriginalAdmissionReadPrerequisitesChecked(record FoundationRecord) error {
 	if originalActorReadsActors(record) != nil {
 		return ErrOriginalSourceProducerHold
 	}
@@ -188,6 +192,10 @@ func completeOriginalAdmissionReadPrerequisitesFromValidatedActors(record Founda
 }
 
 func completeOriginalFoundationAdmissionReads(record FoundationRecord) error {
+	return rememberOriginalRecordCheck("admission-reads-complete", record, completeOriginalFoundationAdmissionReadsChecked)
+}
+
+func completeOriginalFoundationAdmissionReadsChecked(record FoundationRecord) error {
 	if completeOriginalAdmissionReadPrerequisites(record) != nil || record.validateOriginalFoundationAdmissionReads() != nil {
 		return ErrOriginalSourceProducerHold
 	}
