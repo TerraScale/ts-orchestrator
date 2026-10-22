@@ -29,6 +29,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -141,12 +142,8 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
-	token := make([]byte, 32)
-	if _, err := rand.Read(token); err != nil {
-		return nil, err
-	}
-	secret := hex.EncodeToString(token)
-	if err := writePrivate(filepath.Join(cfg.dir, "client.token"), []byte(secret)); err != nil {
+	secret, err := clientToken(cfg.dir)
+	if err != nil {
 		return nil, err
 	}
 	tlsConfig := cfg.ca.TLS(cfg.region + "." + Domain)
@@ -436,6 +433,25 @@ func saveDesired(dir string, desired map[string]Entry) error {
 }
 
 // writePrivate replaces path atomically with an owner-only file.
+// clientToken keeps the root CLI's token across restarts, so a CLI that read
+// it before ts-orch restarted still authenticates afterwards.
+func clientToken(dir string) (string, error) {
+	path := filepath.Join(dir, "client.token")
+	if data, err := os.ReadFile(path); err == nil {
+		if token := strings.TrimSpace(string(data)); len(token) == 64 {
+			if _, err := hex.DecodeString(token); err == nil {
+				return token, nil
+			}
+		}
+	}
+	token := make([]byte, 32)
+	if _, err := rand.Read(token); err != nil {
+		return "", err
+	}
+	secret := hex.EncodeToString(token)
+	return secret, writePrivate(path, []byte(secret))
+}
+
 func writePrivate(path string, data []byte) error {
 	temp := path + ".tmp" + strconv.Itoa(os.Getpid())
 	if err := os.WriteFile(temp, data, 0o600); err != nil {
