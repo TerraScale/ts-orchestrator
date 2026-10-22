@@ -76,7 +76,7 @@ own in-process connection uses an in-memory token. Everything else is refused.
 | `ts.release.app` | `{"service", "image": "ghcr.io/terrascale/<service>@sha256:...", "token"}` | `{"state": "done" \| "failed" \| "rejected", "result": [<mesh rows>]}` |
 
 An app release needs a token from a workflow `appServices` allows to release
-`service` (`app-canary.yml` here: `app-canary`; terrascale `images-ghcr.yml`:
+`service` (`app-canary.yml` here: `app-canary`; terrascale `ci.yml`:
 `terrabase`, `ts-auth`; ts-dashboard `images-ghcr.yml`: `ts-dashboard`), and
 the image name must equal the service. The receiving host reads the service's
 newest desired spec on the mesh, changes only its digest (same repository) and
