@@ -581,6 +581,17 @@ func TestMeshBridge(t *testing.T) {
 			t.Fatalf("%s: VerifyMesh err = %v, want ok %t", name, err, c.ok)
 		}
 	}
+	// The app-digests workflow may only read state, on a schedule too.
+	digests := i.sign(t, with(meshClaims(now), "job_workflow_ref", digestsWorkflow))
+	h := &Handler{Verifier: v, Mesh: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+		return json.RawMessage(`{"whoami":"x"}`), nil
+	}}
+	for op, want := range map[string]string{"state": "done", "apply": "rejected", "rm": "rejected", "ping": "rejected"} {
+		data, _ := json.Marshal(MeshRequest{Token: digests})
+		if reply := h.mesh(context.Background(), op, data); reply.State != want {
+			t.Fatalf("app-digests %s = %+v, want %s", op, reply, want)
+		}
+	}
 	if _, err := v.Verify(context.Background(), i.sign(t, meshClaims(now))); err == nil {
 		t.Fatal("a multi-region token verified as a release token")
 	}
@@ -591,7 +602,7 @@ func TestMeshBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer local.Close()
-	h := &Handler{Verifier: v, Revision: testSHA, Installed: make(chan struct{}, 1),
+	h = &Handler{Verifier: v, Revision: testSHA, Installed: make(chan struct{}, 1),
 		Mesh: func(_ context.Context, op string, spec json.RawMessage) (json.RawMessage, error) {
 			if op == "apply" && string(spec) != `{"name":"x"}` {
 				return nil, errors.New("spec not forwarded")

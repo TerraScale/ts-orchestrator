@@ -29,7 +29,7 @@ import (
 // every region reads it cross-region with its instance principal.
 const (
 	vaultRegion   = "sa-saopaulo-1"
-	vaultID       = "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq"
+	vaultID       = vaultsecret.SharedVault
 	vaultKeyID    = "ocid1.key.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljr2bdwyvlua7oi6gpg7gl72ln6t2l2fb63tl2cvhllvokc4l2afeeq"
 	compartmentID = "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq"
 	secretName    = "ts-orch-mesh-key"
@@ -208,9 +208,7 @@ func (a swarmApplier) PrePull(ctx context.Context, image string) error {
 	}
 	defer executor.Close()
 	// The same pull authority `ts-orch single-host` installs for its tasks.
-	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(func(ctx context.Context) (string, error) {
-		return vaultsecret.ReadInstanceSecret(ctx, "ghcr-pull-token")
-	})); err != nil {
+	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(vaultsecret.ReadGHCRPullToken)); err != nil {
 		return err
 	}
 	return executor.PrePull(ctx, image)

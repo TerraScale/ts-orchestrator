@@ -17,8 +17,8 @@ import (
 // Committed specs must pass the same decode and validation as `service apply`.
 func TestM1ServiceSpecsValidate(t *testing.T) {
 	paths, err := filepath.Glob("../../deploy/m1/services/*.json")
-	if err != nil || len(paths) != 5 {
-		t.Fatalf("want 5 M1 service specs, got %d (%v)", len(paths), err)
+	if err != nil || len(paths) != 6 {
+		t.Fatalf("want 6 M1 service specs, got %d (%v)", len(paths), err)
 	}
 	for _, path := range paths {
 		data, err := os.ReadFile(path)

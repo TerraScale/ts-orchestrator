@@ -31,6 +31,7 @@ const (
 	SubjectPing    = protocol.ReleaseMeshPing
 	SubjectApply   = protocol.ReleaseMeshApply
 	SubjectRemove  = protocol.ReleaseMeshRemove
+	SubjectState   = protocol.ReleaseMeshState
 
 	orchRepository = owner + "/ts-orchestrator"
 	downloadPrefix = "https://github.com/" + orchRepository + "/releases/download/"
@@ -149,6 +150,7 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 		SubjectPing:    func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "ping", data) },
 		SubjectApply:   func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "apply", data) },
 		SubjectRemove:  func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "rm", data) },
+		SubjectState:   func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "state", data) },
 	} {
 		if _, err := conn.Subscribe(subject, func(m *nats.Msg) {
 			// Each request runs on its own goroutine so a download never blocks version polls.
@@ -361,14 +363,19 @@ func (h *Handler) validateApp(ctx context.Context, release AppRelease) error {
 	return nil
 }
 
-// mesh admits only ts-orchestrator's multi-region workflow tokens.
+// mesh admits ts-orchestrator's multi-region workflow tokens, and
+// app-digests tokens for state only.
 func (h *Handler) mesh(ctx context.Context, op string, data []byte) Reply {
 	var request MeshRequest
 	if err := protocol.DecodeStrict(data, &request, 64<<10); err != nil {
 		return rejected(err)
 	}
-	if _, err := h.Verifier.VerifyMesh(ctx, request.Token); err != nil {
+	claims, err := h.Verifier.VerifyMesh(ctx, request.Token)
+	if err != nil {
 		return rejected(err)
+	}
+	if claims.JobWorkflowRef != meshWorkflow && op != "state" {
+		return rejected(errors.New("the app-digests workflow may only read state"))
 	}
 	if h.Mesh == nil {
 		return rejected(errors.New("this host runs no mesh bridge"))

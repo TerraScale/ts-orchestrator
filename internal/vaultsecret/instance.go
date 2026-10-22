@@ -93,22 +93,21 @@ func ReadInstanceSecrets(ctx context.Context, service string, refs map[string]Re
 	return Resolve(ctx, refs, instanceClient(ctx))
 }
 
-// ReadInstanceSecret reads the cell secret <cell>-<purpose> from the Vault of
-// the instance's own cell with its instance principal; errors name the secret.
-func ReadInstanceSecret(ctx context.Context, purpose string) (string, error) {
+// SharedVault is gru-vault (compartment gru-1-control), the one Vault every
+// region reads cross-region with its instance principal (policy ts-orch-hosts-vault).
+const SharedVault = "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq"
+
+// ReadGHCRPullToken reads the read-only GHCR pull token every region shares
+// from SharedVault.
+func ReadGHCRPullToken(ctx context.Context) (string, error) {
 	if err := safeEnv(); err != nil {
 		return "", err
 	}
-	cell, vaultID, err := discoverInstanceVault(ctx)
+	bundles, err := instanceClient(ctx)(Ref{Vault: SharedVault}.region())
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("Vault secret gru-1-ghcr-pull-token: %w", err)
 	}
-	name := cell + "-" + purpose
-	bundles, err := instanceClient(ctx)(Ref{Vault: vaultID}.region())
-	if err != nil {
-		return "", fmt.Errorf("Vault secret %s: %w", name, err)
-	}
-	return Read(ctx, bundles, vaultID, name)
+	return Read(ctx, bundles, SharedVault, "gru-1-ghcr-pull-token")
 }
 
 func instanceClient(ctx context.Context) func(region string) (BundleClient, error) {

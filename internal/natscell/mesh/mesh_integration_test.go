@@ -265,6 +265,10 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 		}
 	}
 
+	if data, err := bridge(t.Context(), gru.conn, "state", nil); err != nil || string(data) != `{"whoami":"`+good+`"}` {
+		t.Fatalf("bridge state = %s, %v", data, err)
+	}
+
 	// A removal not targeting a region is still a removal there.
 	out.Reset()
 	if err := printApply(&out)(send(t.Context(), gru.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: time.Now().UnixNano()}}, 5*time.Second)); err != nil {

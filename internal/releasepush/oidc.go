@@ -52,6 +52,10 @@ var appServices = map[string][]string{
 // (ts.release.mesh.>): it runs on main by schedule, by hand or after CI.
 const meshWorkflow = orchRepository + "/.github/workflows/multi-region.yml@" + mainRef
 
+// digestsWorkflow may only read desired images (ts.release.mesh.state) to
+// record them in git.
+const digestsWorkflow = orchRepository + "/.github/workflows/app-digests.yml@" + mainRef
+
 // Claims are the GitHub Actions OIDC claims ts-orch acts on.
 type Claims struct {
 	Issuer          string   `json:"iss"`
@@ -123,8 +127,8 @@ func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 // multi-region workflow on main, audience ts-orch.
 func (v *Verifier) VerifyMesh(ctx context.Context, token string) (Claims, error) {
 	claims, err := v.verify(ctx, token)
-	if err == nil && (claims.Repository != orchRepository || claims.JobWorkflowRef != meshWorkflow) {
-		err = errors.New("token is not from the multi-region workflow")
+	if err == nil && (claims.Repository != orchRepository || claims.JobWorkflowRef != meshWorkflow && claims.JobWorkflowRef != digestsWorkflow) {
+		err = errors.New("token is not from the multi-region or app-digests workflow")
 	}
 	if err != nil {
 		return Claims{}, err
