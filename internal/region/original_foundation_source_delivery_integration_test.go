@@ -20,6 +20,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
@@ -265,7 +266,7 @@ func TestOriginalFoundationPublicDeliverySDK(t *testing.T) {
 }
 
 func TestOriginalFoundationLaunchMetadataNeverRetrofitsRetainedActors(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	f := newOriginalActorSDKFixture(t, "", 0)
 	if err := f.run(t); err != nil {
 		t.Fatal(err)

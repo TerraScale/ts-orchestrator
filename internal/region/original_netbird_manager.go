@@ -35,7 +35,7 @@ func ProvisionOriginalNetBirdFoundation(ctx context.Context, factory *ociclient.
 		return err
 	}
 	defer release()
-	record, _, grant, _, err := originalActorPrerequisites(ctx, stage.authority)
+	record, _, grant, _, err := originalActorPrerequisites(ctx, stage.authority, true)
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func originalNetBirdSignedSlot(grant FoundationGrant) (BootstrapSlotIntent, erro
 }
 
 func originalNetBirdAuthority(ctx context.Context, authority *HomeIAMAuthority) (FoundationRecord, string, verifiedNetBirdIntent, originalNetBirdAllocation, error) {
-	record, etag, grant, expires, err := originalActorPrerequisites(ctx, authority)
+	record, etag, grant, expires, err := originalActorPrerequisites(ctx, authority, false)
 	if err != nil {
 		return record, etag, verifiedNetBirdIntent{}, originalNetBirdAllocation{}, err
 	}
@@ -218,7 +218,7 @@ func originalNetBirdAuthority(ctx context.Context, authority *HomeIAMAuthority) 
 	allocation := originalNetBirdAllocation{intent: intent, slot: slot, scope: physical, logical: logical.SHA256, binding: digestSource(wire), currency: grant.Currency}
 	allocation.slot.CompartmentID = scope.ControlCompartmentID
 	allocation.check = func(ctx context.Context) error {
-		current, _, _, _, err := originalActorPrerequisites(ctx, authority)
+		current, _, _, _, err := originalActorPrerequisites(ctx, authority, false)
 		if err != nil {
 			return err
 		}

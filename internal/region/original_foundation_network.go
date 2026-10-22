@@ -90,7 +90,7 @@ func retainOriginalFoundationNetwork(ctx context.Context, authority *HomeIAMAuth
 	}
 	changed := false
 	for index, region := range record.OriginalFoundationCompartments.Regions {
-		if err := originalNetworkPrerequisites(ctx, authority, index); err != nil {
+		if err := originalNetworkPrerequisites(ctx, authority, index, true); err != nil {
 			return err
 		}
 		var plan map[string]any
@@ -177,9 +177,28 @@ func originalCompartmentID(entry OriginalFoundationCompartment) string {
 	return entry.SelectedID
 }
 
-func originalNetworkPrerequisites(ctx context.Context, authority *HomeIAMAuthority, index int) error {
+// originalNetworkPrerequisites requires both verified original compartments of
+// region index. With fresh it also re-reads them; the network stage does that
+// once per region per run, while each create and its dispatch guard rely on the
+// validated journal.
+func originalNetworkPrerequisites(ctx context.Context, authority *HomeIAMAuthority, index int, fresh bool) error {
 	if _, err := originalCompartmentScope(ctx, authority); err != nil {
 		return err
+	}
+	if !fresh {
+		record, _, err := authority.resolver.Store.Load(ctx, "GRU")
+		if err != nil {
+			return err
+		}
+		if record.OriginalFoundationCompartments == nil || index < 0 || index >= len(record.OriginalFoundationCompartments.Regions) {
+			return ErrOriginalSourceProducerHold
+		}
+		for _, compartment := range record.OriginalFoundationCompartments.Regions[index].Compartments {
+			if compartment.VerifiedAt.IsZero() || compartment.ReadbackSHA256 == "" || compartment.HoldReason != "" {
+				return ErrOriginalSourceProducerHold
+			}
+		}
+		return nil
 	}
 	for role := range 2 {
 		if err := provisionOriginalCompartment(ctx, authority, index, role); err != nil {
@@ -525,7 +544,7 @@ func readOriginalNetworkResource(ctx context.Context, client core.VirtualNetwork
 }
 
 func provisionOriginalNetworkCreate(ctx context.Context, authority *HomeIAMAuthority, index, slot int) error {
-	if err := originalNetworkPrerequisites(ctx, authority, index); err != nil {
+	if err := originalNetworkPrerequisites(ctx, authority, index, false); err != nil {
 		return err
 	}
 	record, etag, err := authority.resolver.Store.Load(ctx, "GRU")
@@ -581,7 +600,7 @@ func provisionOriginalNetworkCreate(ctx context.Context, authority *HomeIAMAutho
 		}
 		guard := func(dispatchCtx context.Context) error {
 			checkCtx := ociclient.CheckpointContext(dispatchCtx)
-			if err := originalNetworkPrerequisites(checkCtx, authority, index); err != nil {
+			if err := originalNetworkPrerequisites(checkCtx, authority, index, false); err != nil {
 				return err
 			}
 			current, _, err := authority.resolver.Store.Load(checkCtx, "GRU")
@@ -741,7 +760,7 @@ func readOriginalNetworkRules(ctx context.Context, client core.VirtualNetworkCli
 }
 
 func provisionOriginalNetworkRules(ctx context.Context, authority *HomeIAMAuthority, index int) error {
-	if err := originalNetworkPrerequisites(ctx, authority, index); err != nil {
+	if err := originalNetworkPrerequisites(ctx, authority, index, false); err != nil {
 		return err
 	}
 	record, etag, err := authority.resolver.Store.Load(ctx, "GRU")
@@ -802,7 +821,7 @@ func provisionOriginalNetworkRules(ctx context.Context, authority *HomeIAMAuthor
 		reservation := *rules
 		guard := func(dispatchCtx context.Context) error {
 			checkCtx := ociclient.CheckpointContext(dispatchCtx)
-			if err := originalNetworkPrerequisites(checkCtx, authority, index); err != nil {
+			if err := originalNetworkPrerequisites(checkCtx, authority, index, false); err != nil {
 				return err
 			}
 			saved, _, err := authority.resolver.Store.Load(checkCtx, "GRU")

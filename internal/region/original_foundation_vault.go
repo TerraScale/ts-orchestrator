@@ -66,7 +66,7 @@ func provisionOriginalFoundationVault(ctx context.Context, authority *HomeIAMAut
 }
 
 func retainOriginalFoundationVault(ctx context.Context, authority *HomeIAMAuthority) error {
-	record, etag, err := originalVaultPrerequisites(ctx, authority)
+	record, etag, err := originalVaultPrerequisites(ctx, authority, true)
 	if err != nil {
 		return err
 	}
@@ -134,7 +134,10 @@ func retainOriginalFoundationVault(ctx context.Context, authority *HomeIAMAuthor
 	return nil
 }
 
-func originalVaultPrerequisites(ctx context.Context, authority *HomeIAMAuthority) (FoundationRecord, string, error) {
+// originalVaultPrerequisites requires the complete original network journal.
+// With fresh it also re-reads every network resource; the Vault stage does
+// that once per run, since KMS effects do not use network resources.
+func originalVaultPrerequisites(ctx context.Context, authority *HomeIAMAuthority, fresh bool) (FoundationRecord, string, error) {
 	if _, err := originalCompartmentScope(ctx, authority); err != nil {
 		return FoundationRecord{}, "", err
 	}
@@ -149,6 +152,12 @@ func originalVaultPrerequisites(ctx context.Context, authority *HomeIAMAuthority
 		if region.Network == nil || !region.Network.Complete {
 			return record, "", ErrOriginalSourceProducerHold
 		}
+	}
+	if !fresh {
+		if err := record.validateOriginalFoundationNetwork(); err != nil {
+			return record, "", err
+		}
+		return authority.resolver.Store.Load(ctx, "GRU")
 	}
 	// The complete journal permits only fresh exact network reads in this helper.
 	if err := retainOriginalFoundationNetwork(ctx, authority); err != nil {
@@ -309,7 +318,7 @@ func readOriginalVaultKey(ctx context.Context, reader *sdkcli.Client, region str
 }
 
 func provisionOriginalVaultResource(ctx context.Context, authority *HomeIAMAuthority, index, slot int) error {
-	record, etag, err := originalVaultPrerequisites(ctx, authority)
+	record, etag, err := originalVaultPrerequisites(ctx, authority, false)
 	if err != nil {
 		return err
 	}
@@ -359,7 +368,7 @@ func provisionOriginalVaultResource(ctx context.Context, authority *HomeIAMAutho
 		}
 		guard := func(dispatchCtx context.Context) error {
 			checkCtx := ociclient.CheckpointContext(dispatchCtx)
-			saved, _, err := originalVaultPrerequisites(checkCtx, authority)
+			saved, _, err := originalVaultPrerequisites(checkCtx, authority, false)
 			if err != nil {
 				return err
 			}

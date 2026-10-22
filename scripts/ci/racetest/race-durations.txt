@@ -106,3 +106,23 @@ rest - 1
 ./tests/deploy TestOfflineRejectsBadPublicInputsBeforeImageEffects 30
 ./tests/deploy TestOfflineRejectsDeploymentFlagsBeforeImageEffects 25
 ./tests/deploy * 10
+
+# Original foundation SDK tests (tier.Integration): skipped under -short.
+# solo lines give race seconds, norace solo lines non-race seconds, measured
+# with GOMAXPROCS=2 -cpu 2 on dev hosts (2026-10-22). Tests over about 5 min
+# with -race on a loaded host run without it.
+./internal/region TestOriginalFoundationLaunchMetadataNeverRetrofitsRetainedActors 330/1 solo
+./internal/region TestOriginalFoundationCompartmentsSDK 60/1 norace solo
+./internal/region TestOriginalFoundationAdmissionReadRetainedScope 35/1 norace solo
+./internal/region TestOriginalFoundationCurrentnessSignedAndRetainedContract 40/1 norace solo
+./internal/region TestOriginalFoundationAdmissionReadEffectPredecessors 55/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMPeerGroupHistoryCannotResetSDK 65/1 norace solo
+./internal/region TestOriginalFoundationAdmissionReadVersionsSDK 85/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMV1Compatibility 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMV2Compatibility 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMRetainedContract 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMRequiresOwningLease 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMEffectPredecessors 90/1 norace solo
+./internal/region TestOriginalFoundationNetworkSDK 230/1 norace solo
+./internal/region TestOriginalFoundationAdmissionReadsSDK 265/1 norace solo
+./internal/region TestOriginalFoundationVaultSDK 350/1 norace solo

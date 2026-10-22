@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
+
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 type originalAdmissionReadDispatch struct {
@@ -420,7 +422,7 @@ func (f *originalAdmissionReadsSDKFixture) assertComplete(t *testing.T) {
 }
 
 func TestOriginalFoundationAdmissionReadVersionsSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	for _, version := range []string{originalAdmissionReadPurpose, originalAdmissionReadPurposeV2} {
 		t.Run(version, func(t *testing.T) {
 			t.Setenv(common.UsingExpectHeaderEnvVar, "false")
@@ -498,7 +500,7 @@ func TestOriginalFoundationAdmissionReadVersionsSDK(t *testing.T) {
 }
 
 func TestOriginalFoundationAdmissionReadsSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	t.Run("automatic finite policies and restart", func(t *testing.T) {
 		f := newOriginalAdmissionReadsSDKFixture(t, "", false)
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) {
@@ -614,7 +616,7 @@ func TestOriginalFoundationAdmissionReadSignedContract(t *testing.T) {
 }
 
 func TestOriginalFoundationAdmissionReadRetainedScope(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	f := newOriginalAdmissionReadsSDKFixture(t, "", false)
 	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) {
 		t.Fatal(err)
@@ -660,7 +662,7 @@ func TestOriginalFoundationAdmissionReadRetainedScope(t *testing.T) {
 }
 
 func TestOriginalFoundationAdmissionReadEffectPredecessors(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	for _, fault := range []string{"reservation checkpoint", "receipt checkpoint"} {
 		t.Run(fault, func(t *testing.T) {
 			f := newOriginalAdmissionReadsSDKFixture(t, fault, false)

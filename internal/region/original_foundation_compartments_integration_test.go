@@ -22,6 +22,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
@@ -433,7 +434,7 @@ func (f *originalCompartmentSDKFixture) dispatches() []originalCompartmentDispat
 }
 
 func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	// Subtests stay sequential: the inherited fixture owns the default transport
 	// and process environment while still exercising real authenticated SDK I/O.
 	t.Run("five exact original creates and selected GRU read only", func(t *testing.T) {
