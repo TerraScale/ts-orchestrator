@@ -354,6 +354,8 @@ type SignedFootprint struct {
 	tenancy            string
 	home               bootstrap.FoundationScope
 	local              bootstrap.BootstrapAnchor
+	// memo skips re-verifying identical grant bytes under this exact binding.
+	memo *foundationVerificationMemo
 }
 
 func NewSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, tenancy string) (*SignedFootprint, error) {
@@ -380,7 +382,7 @@ func newSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBoots
 	}
 	identity := anchor.Anchor()
 	return &SignedFootprint{bootstrapAnchor: anchor, client: client, storage: home.StorageDomain, expires: anchor.ExpiresAt(), home: home, local: identity,
-		scope: trust.Scope{Domain: foundationGrantDomain, DeploymentID: home.DeploymentID, Cell: "GRU", Environment: identity.Environment, Role: "foundation", Slot: home.ClusterID}, roots: maps.Clone(roots), independentGenesis: maps.Clone(genesis), tenancy: tenancy}, nil
+		scope: trust.Scope{Domain: foundationGrantDomain, DeploymentID: home.DeploymentID, Cell: "GRU", Environment: identity.Environment, Role: "foundation", Slot: home.ClusterID}, roots: maps.Clone(roots), independentGenesis: maps.Clone(genesis), tenancy: tenancy, memo: newFoundationVerificationMemo()}, nil
 }
 
 func (s *SignedFootprint) AuthorizedRegions(ctx context.Context) (ApprovedFootprint, error) {
@@ -475,6 +477,29 @@ func (s *SignedFootprint) verifyOriginalDocument(wire []byte) (FoundationGrant, 
 	if hex.EncodeToString(digest[:]) != s.home.GrantSHA256 {
 		return FoundationGrant{}, time.Time{}, errors.New("foundation grant differs from root-pinned exact wire")
 	}
+	var memoKey [sha256.Size]byte
+	memoized := false
+	if s.memo != nil {
+		binding, err := signedFootprintBinding(s)
+		if err != nil {
+			return FoundationGrant{}, time.Time{}, err
+		}
+		memoKey, memoized = foundationVerificationKey(binding, digest), true
+		if entry, ok := s.memo.lookup(memoKey); ok {
+			now := time.Now()
+			if entry.issuedAt.Sub(now) > bootstrap.BootstrapAnchorTrustPolicy().ClockSkew {
+				return FoundationGrant{}, time.Time{}, trust.ErrNotYetValid
+			}
+			if !now.Before(entry.expiresAt) {
+				return FoundationGrant{}, time.Time{}, trust.ErrExpired
+			}
+			var grant FoundationGrant
+			if err := json.Unmarshal(entry.payload, &grant, json.RejectUnknownMembers(true)); err != nil {
+				return FoundationGrant{}, time.Time{}, errors.New("foundation scope schema invalid")
+			}
+			return grant, entry.expiresAt, nil
+		}
+	}
 	envelope, err := trust.DecodeEnvelope(wire)
 	if err != nil {
 		return FoundationGrant{}, time.Time{}, err
@@ -524,6 +549,9 @@ func (s *SignedFootprint) verifyOriginalDocument(wire []byte) (FoundationGrant, 
 	}
 	if err := validateFootprint(footprint); err != nil {
 		return FoundationGrant{}, time.Time{}, err
+	}
+	if memoized {
+		s.memo.store(memoKey, verifiedFoundationDocument{payload: bytes.Clone(payload), issuedAt: envelope.IssuedAt, expiresAt: envelope.ExpiresAt})
 	}
 	return grant, envelope.ExpiresAt, nil
 }

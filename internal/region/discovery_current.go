@@ -55,11 +55,22 @@ type foundationFloor struct {
 }
 
 func discoverCurrentFoundation(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring) (FoundationResolver, error) {
-	resolver, _, err := resolveCurrentFoundation(ctx, client, tenancy, genesis, nil)
+	return discoverCurrentFoundationWith(ctx, client, tenancy, genesis, nil)
+}
+
+func discoverCurrentFoundationWith(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring, memo *foundationVerificationMemo) (FoundationResolver, error) {
+	resolver, _, err := resolveCurrentFoundationWith(ctx, client, tenancy, genesis, nil, memo)
 	return resolver, err
 }
 
 func resolveCurrentFoundation(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring, retained *RetainedFoundation) (FoundationResolver, RetainedFoundation, error) {
+	return resolveCurrentFoundationWith(ctx, client, tenancy, genesis, retained, nil)
+}
+
+// resolveCurrentFoundationWith shares one authority's verification memo with
+// the reader it builds. It still reads, verifies the lineage and checks the
+// durable floor on every call.
+func resolveCurrentFoundationWith(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring, retained *RetainedFoundation, memo *foundationVerificationMemo) (FoundationResolver, RetainedFoundation, error) {
 	if len(genesis) == 0 || tenancy == "" {
 		return FoundationResolver{}, RetainedFoundation{}, errors.New("current foundation requires independent genesis and authenticated tenancy")
 	}
@@ -140,6 +151,9 @@ func resolveCurrentFoundation(ctx context.Context, client foundationDiscoveryObj
 	reader, err := newSignedFootprint(client, anchor, verified.Current, tenancy)
 	if err != nil {
 		return FoundationResolver{}, RetainedFoundation{}, err
+	}
+	if memo != nil {
+		reader.memo = memo
 	}
 	grantWire := snapshot.GrantWire
 	if retained == nil {
