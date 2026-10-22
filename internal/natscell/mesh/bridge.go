@@ -39,6 +39,15 @@ func bridge(ctx context.Context, conn *nats.Conn, op string, spec json.RawMessag
 		}
 		// Shorter than the release handler's 2 min, so a missing region still yields rows.
 		rows, failed = applySpec(ctx, conn, service, applyWait-5*time.Second)
+	case "rm":
+		var service swarmruntime.ServiceSpec
+		if err := protocol.DecodeStrict(spec, &service, 64<<10); err != nil {
+			return nil, err
+		}
+		if !serviceName.MatchString(service.Name) {
+			return nil, errors.New("service name must match ^[a-z][a-z0-9-]{0,62}$")
+		}
+		rows, failed = send(ctx, conn, ApplyRequest{Name: service.Name, Entry: Entry{Generation: time.Now().UnixNano()}}, applyWait-5*time.Second)
 	default:
 		return nil, errors.New("unknown mesh request " + op)
 	}

@@ -29,6 +29,7 @@ const (
 	SubjectApp     = protocol.ReleaseApp
 	SubjectPing    = protocol.ReleaseMeshPing
 	SubjectApply   = protocol.ReleaseMeshApply
+	SubjectRemove  = protocol.ReleaseMeshRemove
 
 	orchRepository = owner + "/ts-orchestrator"
 	downloadPrefix = "https://github.com/" + orchRepository + "/releases/download/"
@@ -63,7 +64,7 @@ type AppRelease struct {
 	Token   string `json:"token"`
 }
 
-// MeshRequest is the ts.release.mesh.ping and ts.release.mesh.apply request;
+// MeshRequest is the ts.release.mesh.ping, .apply and .rm request;
 // Spec is the service to apply.
 type MeshRequest struct {
 	Token string          `json:"token"`
@@ -147,6 +148,7 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 		SubjectApp:     h.app,
 		SubjectPing:    func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "ping", data) },
 		SubjectApply:   func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "apply", data) },
+		SubjectRemove:  func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "rm", data) },
 	} {
 		if _, err := conn.Subscribe(subject, func(m *nats.Msg) {
 			// Each request runs on its own goroutine so a download never blocks version polls.

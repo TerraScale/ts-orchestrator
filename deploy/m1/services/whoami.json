@@ -5,5 +5,7 @@
   "port": 8099,
   "readyPath": "/readyz",
   "hostnames": ["gru.mesh.terrascale.tech", "sjc.mesh.terrascale.tech", "fra.mesh.terrascale.tech"],
-  "replicas": 1
+  "replicas": 1,
+  "milliCPU": 100,
+  "memoryMiB": 64
 }

@@ -12,4 +12,5 @@ const (
 	ReleaseMeshWildcard = "ts.release.mesh.>"
 	ReleaseMeshPing     = "ts.release.mesh.ping"
 	ReleaseMeshApply    = "ts.release.mesh.apply"
+	ReleaseMeshRemove   = "ts.release.mesh.rm"
 )

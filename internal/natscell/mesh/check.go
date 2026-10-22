@@ -103,6 +103,11 @@ func Check(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// Remove first so every run creates the service: in-place updates wait on
+	// the executor's host-port handover (W14), which this check does not test.
+	if _, err := call(ctx, conns[entry], releasepush.SubjectRemove, releasepush.MeshRequest{Token: token, Spec: encoded}, 150*time.Second); err != nil {
+		failed = errors.Join(failed, fmt.Errorf("remove before apply: %w", err))
+	}
 	fmt.Fprintf(output, "\n### Apply %s from %s (WHOAMI_NAME=%s)\n\n| Region | Result | Ms until running |\n|---|---|---|\n", spec.Name, entry, marker)
 	rows, err := call(ctx, conns[entry], releasepush.SubjectApply, releasepush.MeshRequest{Token: token, Spec: encoded}, 150*time.Second)
 	if err != nil {
