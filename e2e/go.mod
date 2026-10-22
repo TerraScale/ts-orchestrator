@@ -1,6 +1,6 @@
 module terrascale.tech/ts-orchestrator/e2e
 
-go 1.27.1
+go 1.27.3
 
 require terrascale.tech/sdk v0.0.0-20261009173424-f8f51d8a46c6
 

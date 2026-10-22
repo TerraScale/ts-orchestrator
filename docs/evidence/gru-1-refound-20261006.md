@@ -12,7 +12,7 @@ token, key or passcode appears here; Vault secrets are named by name and OCID.
 | `/` | 302 to `/scalar/` |
 | `https://gru.auth.terrascale.tech/readyz` | 200, `0.1.0+f8e359658198` |
 | `…/terrascale/.well-known/openid-configuration` directly, and via `https://auth.terrascale.tech/terrascale/…` | 200, issuer `https://gru.auth.terrascale.tech/terrascale` |
-| `https://dash.terrascale.tech/health/ready` | `{"status":"ok","version":"15826c9e…","backend":"terrabase"}` (Fly release 90) |
+| `https://dash.terrascale.tech/health/ready` | `{"status":"ok","version":"15826c9e…","backend":"terrabase"}` (former hosted dashboard, release 90) |
 | `dash/login` | to `gru.auth/terrascale/oauth/authorize` (client `ts-dashboard`, PKCE S256, redirect `https://dash.terrascale.tech/login/callback`), then 302 to the ts-auth sign-in page (200, "Sign in · ts-auth") |
 | ts-auth JWT smoke test, 08:41:57Z | `client_credentials` (`ops-smoke`, HTTP Basic) 200; claims `iss https://gru.auth.terrascale.tech/terrascale`, `aud https://gru.api.terrascale.tech`, `sub ops-smoke`; `GET gru.api/v1/management/organizations` with it 200, without a token 401 |
 | KV snapshots | `gru-1-head/kv-snapshot/v1/gru/TS_HOST_ENROLLMENT.json` (08:31Z), `TS_SERVICE_SET.json` (08:39Z) |
@@ -126,7 +126,7 @@ TerraBase `b9d16432` (`7da6542c…`) generation 3 `ready` on 2 members; ts-auth
 - ts-auth metadata firewall on `gru-1-ctl-1..3` with the DNS exception (#210).
 - Vault (names): `gru-1-ts-auth-{master,audit-signing,operator}-key`, `gru-1-ts-auth-dashboard-client-secret`, `gru-1-ts-auth-terrascale-{api-key,project-id}`, `gru-1-ts-dashboard-terrabase-{api-key,project-id}` (control compartment); `gru-1-terrabase-management-credential`, `gru-1-ts-dashboard-csrf-secret` (`TerraScale`).
 - TerraBase tenant (phase A): organization `terrascale` `01a10fec-3981-7b7a-9128-c783f9bf62a1`, projects `ts-auth` (database `auth`) and `ts-dashboard` (database `dashboard`). The ten collections ts-auth requires were created in `auth` (ts-auth's `AuthStore.ProvisionAsync` is an operator step nothing ran).
-- Fly `ts-dashboard`: `TERRABASE_URL`, `TERRABASE_API_KEY`, `TERRABASE_PROJECT_ID`, `TERRABASE_DATABASE`, `TS_AUTH_ISSUER`, `TS_AUTH_CLIENT_ID`, `TS_AUTH_CLIENT_SECRET`, `TS_AUTH_REDIRECT_URL`, `TS_DASHBOARD_CSRF_SECRET`; `import-org --org terrascale --owner-email mariogk@terrascale.tech` imported the organization with 2 projects.
+- Former hosted `ts-dashboard` settings: `TERRABASE_URL`, `TERRABASE_API_KEY`, `TERRABASE_PROJECT_ID`, `TERRABASE_DATABASE`, `TS_AUTH_ISSUER`, `TS_AUTH_CLIENT_ID`, `TS_AUTH_CLIENT_SECRET`, `TS_AUTH_REDIRECT_URL`, `TS_DASHBOARD_CSRF_SECRET`; `import-org --org terrascale --owner-email mariogk@terrascale.tech` imported the organization with 2 projects.
 
 ## Removed
 

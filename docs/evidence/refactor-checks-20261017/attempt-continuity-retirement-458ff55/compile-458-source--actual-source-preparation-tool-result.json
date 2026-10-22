@@ -1,7 +1,0 @@
-{
-  "chunk_id": "bec483",
-  "wall_time_seconds": 1.659126307,
-  "exit_code": 0,
-  "original_token_count": 289,
-  "output": "{\n  \"state\": \"ISOLATED_SOURCE_ONLY_COMMITTED_UNPUSHED_NOT_COMPILED\",\n  \"worktree\": \"/tmp/ts-attempt-retirement-b8-gsewmzm1/source\",\n  \"branch\": \"refactor/attempt-continuity-retirement-b8-gsewmzm1\",\n  \"base\": \"b8c3c96d03f552770f6370097fd89f4cbd406e5e\",\n  \"commit\": \"458ff55c3d78ce4be754094d93d4825f51c67d5d\",\n  \"tree\": \"e48c102cf49f21d338a09050d60854217cc70f2d\",\n  \"status\": \"\",\n  \"changed_paths\": [\n    \"M\\tinternal/attempt/cloud_test.go\",\n    \"A\\tinternal/attempt/phase_dispatch_integration_test.go\"\n  ],\n  \"cloud_test_sha256\": \"b620119b63bc747e68e2a8e40e4a92f9c06d7eefd637b41d4b900187e222083d\",\n  \"root_sha256\": \"0778c923f4cd774814acbcfb9bc5f2f0e006ca58ae3c37f4087bb033c3240892\",\n  \"root_git_blob\": \"8f41c9575c8e0b0d4f8b85a7c87026fd2ca62fa8\",\n  \"source_prepare_output\": \"[refactor/attempt-continuity-retirement-b8-gsewmzm1 458ff55c3] test(attempt): replace continuity rejection with public phase root\\n 2 files changed, 37 insertions(+), 7 deletions(-)\\n create mode 100644 internal/attempt/phase_dispatch_integration_test.go\\n\",\n  \"compatibility_packet\": \"/tmp/ts-attempt-b8-narrow-compatibility-14x9e7qk\",\n  \"no_push\": true,\n  \"hooks_disabled\": true\n}\n"
-}

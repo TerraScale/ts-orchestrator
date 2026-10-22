@@ -5,9 +5,11 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
+# The newest run of a pull request or branch cancels its older runs (user
+# decision 2026-10-22); each merge-queue entry keeps its own run.
 concurrency:
-  group: deployment-lag-guard
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 permissions:
   contents: read
@@ -37,7 +39,7 @@ jobs:
       - name: Install the pinned Go toolchain
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.3'
 
 
       - name: Compare qualified builds with fresh regional deployment proofs

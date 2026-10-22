@@ -69,8 +69,8 @@ func main() {
 	revision := strings.TrimSpace(applyFixtureCommand(t, sourceDir, "git", "rev-parse", "HEAD"))
 	tree := strings.TrimSpace(applyFixtureCommand(t, sourceDir, "git", "rev-parse", "HEAD^{tree}"))
 	goVersion := strings.TrimSpace(applyFixtureCommand(t, sourceDir, "go", "env", "GOVERSION"))
-	if goVersion != "go1.27.1" {
-		t.Fatalf("image pipeline fixture requires go1.27.1, got %s", goVersion)
+	if goVersion != "go1.27.3" {
+		t.Fatalf("image pipeline fixture requires go1.27.3, got %s", goVersion)
 	}
 	c := command{ctx: t.Context(), output: io.Discard}
 	var binaries []binaryReceipt

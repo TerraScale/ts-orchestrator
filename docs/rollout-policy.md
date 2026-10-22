@@ -101,7 +101,7 @@ persisted intent retains conservative recovery because hosts may have changed.
 | NetBird agents | 19 minutes per node: 10-minute drain, 3-minute install and three 2-minute check/confirm/return phases; independent 6-minute recovery | Bound the whole release across nodes; preserve independent connectivity recovery |
 | Machines API / generic workloads | Separate reconciliation; health timing fields have no runtime consumer | Add serving evidence and release-wide observation/rollback rather than claiming schema fields provide it |
 | Firecracker/runtime-priority qualification | Several independent scenario deadlines and caller-provided durations | Bound release qualification without weakening fixture/evidence checks |
-| `ts-dashboard` | Fly app; deployment workflow lives in ts-dashboard | Integrate its release/rollback boundary and retain native-login ancestry protection (at least Fly v98 / #180) |
+| `ts-dashboard` | ts-orch service on `ts-gru-1` (`deploy/m1/services`); image built in ts-dashboard | Integrate its release/rollback boundary and retain native-login ancestry protection (at least ts-dashboard #180) |
 
 Embedded NATS and the operator dashboard follow the orchestrator binary.
 `ts-atlas` and `ts-status` are external Cloudflare Workers rather than native

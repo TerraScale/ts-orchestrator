@@ -186,7 +186,7 @@ func rcBootstrapFixture(t *testing.T) *rcBootstrap {
 	header[18] = 62
 	script.Write(t, f.binary, header, 0700)
 	source, tree, digest := strings.Repeat("a", 40), strings.Repeat("b", 40), strings.Repeat("c", 64)
-	f.record = rcObject{"schema": "terrascale.bootstrap.local-build.v1", "repository": "TerraScale/ts-orchestrator", "source_revision": source, "source_tree": tree, "source_clean_before": true, "source_clean_after": true, "go_version": "go1.27.1", "go_mod_sha256": digest, "go_sum_sha256": digest, "goos": "linux", "goarch": "amd64", "cgo_enabled": false, "binary_name": "ts-bootstrap", "binary_sha256": rcSHA(header), "binary_bytes": 20, "vcs_revision": source, "vcs_modified": false, "elf_machine": "Advanced Micro Devices X86-64", "has_interp": false, "has_needed": false, "build_exit": 0, "test_exit": 0}
+	f.record = rcObject{"schema": "terrascale.bootstrap.local-build.v1", "repository": "TerraScale/ts-orchestrator", "source_revision": source, "source_tree": tree, "source_clean_before": true, "source_clean_after": true, "go_version": "go1.27.3", "go_mod_sha256": digest, "go_sum_sha256": digest, "goos": "linux", "goarch": "amd64", "cgo_enabled": false, "binary_name": "ts-bootstrap", "binary_sha256": rcSHA(header), "binary_bytes": 20, "vcs_revision": source, "vcs_modified": false, "elf_machine": "Advanced Micro Devices X86-64", "has_interp": false, "has_needed": false, "build_exit": 0, "test_exit": 0}
 	for _, name := range []string{"build_command", "build_log", "test_command", "test_log"} {
 		p := filepath.Join(dir, name)
 		b := []byte("retained " + name + "\n")
@@ -204,7 +204,7 @@ func (f *rcBootstrap) provenance(t *testing.T) (rcObject, error) {
 	return realcaller.BootstrapProvenance(t.Context(), f.receipt, rcSHA(b), f.binary, f.record["binary_sha256"].(string), f.qualified, f.retained, func(ctx context.Context, timeout time.Duration, args []string) ([]byte, error) {
 		switch args[0] {
 		case "go":
-			return []byte("go1.27.1\nCGO_ENABLED=0\nvcs.revision=" + strings.Repeat("a", 40) + "\nvcs.modified=false\n"), nil
+			return []byte("go1.27.3\nCGO_ENABLED=0\nvcs.revision=" + strings.Repeat("a", 40) + "\nvcs.modified=false\n"), nil
 		case "readelf":
 			return []byte("ELF has no dynamic loader"), nil
 		}

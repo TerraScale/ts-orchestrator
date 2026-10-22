@@ -1,4 +1,4 @@
-// Package volume owns managed persistent volumes: Fly-style OCI block volumes
+// Package volume owns managed persistent volumes: app-scoped OCI block volumes
 // that keep a machine's data off its boot disk. A volume belongs to an app,
 // lives in one availability domain and is mounted by at most one machine.
 // See docs/managed-volumes.md.
@@ -21,7 +21,7 @@ import (
 // SchemaVersion is the version of a stored volume record.
 const SchemaVersion = 1
 
-// OCI block volume limits and the Fly-style defaults an API applies.
+// OCI block volume limits and the defaults an API applies.
 const (
 	MinSizeGB                    = 50
 	MaxSizeGB                    = 32768
@@ -96,8 +96,7 @@ type Volume struct {
 	// VPUsPerGB is the OCI performance tier: 0 (Lower Cost), 10 (Balanced)
 	// or 20 to 120 in steps of 10.
 	VPUsPerGB int `json:"vpus_per_gb"`
-	// SnapshotRetentionDays is Fly's snapshot_retention: days of daily
-	// snapshots.
+	// SnapshotRetentionDays is snapshot_retention: days of daily snapshots.
 	SnapshotRetentionDays int `json:"snapshot_retention"`
 	// MachineID is the machine that may mount the volume.
 	MachineID          string    `json:"machine_id,omitempty"`
@@ -230,7 +229,7 @@ func checkUpdate(prev, next Volume) error {
 	return nil
 }
 
-// Mount is the volume a machine mounts, in the Fly machine config shape.
+// Mount is the volume a machine mounts, as a machine config lists it.
 type Mount struct {
 	Volume string `json:"volume"`
 	Path   string `json:"path"`

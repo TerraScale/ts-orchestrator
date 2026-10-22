@@ -4,8 +4,7 @@
 # the NetBird with ~/.oci/config: it picks this host's NetBird client and
 # hands the rest to "ts-orch log-scan", which reads every server peer in the
 # NetBird (ts-gru-N, ts-sjc-N, ...). Extra arguments pass through, e.g.
-# --since 24h --top 30. Overrides: TS_ORCH, TS_LOG_SCAN_NODES (names),
-# TS_LOG_SCAN_FLY_APPS, NB.
+# --since 24h --top 30. Overrides: TS_ORCH, TS_LOG_SCAN_NODES (names), NB.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -14,8 +13,6 @@ ts_orch=${TS_ORCH:-dist/ts-orch}
 
 vault=ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq
 nodes=${TS_LOG_SCAN_NODES:-}
-# Only ts-dashboard runs on Fly; ts-atlas and ts-status are Cloudflare Workers.
-apps=${TS_LOG_SCAN_FLY_APPS-ts-dashboard}
 
 # The NetBird client: NixOS dev VMs (netbird-wt0), the operator automation
 # container (deploy/netbird/README.md), else netbird on PATH.
@@ -31,5 +28,4 @@ fi
 
 args=(--vault-id "$vault" --netbird "$NB")
 for node in $nodes; do args+=(--node "$node"); done
-for app in $apps; do args+=(--fly-app "$app"); done
 exec "$ts_orch" log-scan "${args[@]}" "$@"

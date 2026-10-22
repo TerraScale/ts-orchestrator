@@ -1,7 +1,0 @@
-Review proposed.patch before authorizing the OCI original retirement.
-
-Qualified d45 and its runtime packet remain untouched. This isolated TMP proposal removes only the43-line original declaration, its final newline/adjacent blank separator, and the now-unused errors import. All remaining source bytes are exact concatenated retained segments. Five remaining free declarations and fakeDispatcher type/method are byte-identical.
-
-The replacement calls real Factory.Compute and signed SDK GetInstance requests over loopback HTTP, observing200,429 and a dropped connection. The complete original assertion block is byte-identical: operation presence/template, calls3/errors2/throttled1, exact duration totals, four Prometheus series and OCID nonleak. The fresh one-shot QA run passed root0.830s/package0.842s.
-
-No worktree edit, commit, Go command, compilation, integration or original retirement was performed to prepare this proposal.

@@ -1,6 +1,6 @@
 # Machines API
 
-The Machines API is a REST API in the style of Fly Machines for one region's
+The Machines API is a REST API for one region's
 apps and machines. The region's controllers serve it at
 `https://gru.orch.terrascale.tech`, and the `ts-orch` CLI uses the same API.
 It serves the shared model of [apps and machines](apps-machines.md) (TS-563)

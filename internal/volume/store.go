@@ -227,8 +227,8 @@ func (s *Store) RequestDestroy(ctx context.Context, id string, now time.Time) (V
 }
 
 // Zone returns the availability domain a machine of app must run in to use
-// mounts, or "" when it mounts nothing. Like Fly, a machine mounts at most
-// one volume. The volume must belong to app, be unclaimed or claimed by
+// mounts, or "" when it mounts nothing. A machine mounts at most one
+// volume. The volume must belong to app, be unclaimed or claimed by
 // machineID, and be neither destroying nor failed.
 func (s *Store) Zone(ctx context.Context, app, machineID string, mounts []Mount) (string, error) {
 	switch len(mounts) {

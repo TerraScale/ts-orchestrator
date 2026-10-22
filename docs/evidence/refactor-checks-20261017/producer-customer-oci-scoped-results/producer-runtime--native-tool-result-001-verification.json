@@ -1,7 +1,0 @@
-{
-  "chunk_id": "18a897",
-  "wall_time_seconds": 0.040852767,
-  "exit_code": 0,
-  "original_token_count": 130,
-  "output": "{\"state\": \"VERIFIED_BEFORE_SOLE_GRANTED_ATTEMPT\", \"head\": \"8f3e9ec45991b63e713c807cf0e0d0764dc915a3\", \"tree\": \"6ec6d2d06799ab93c6fc3e2386dfe4def2749d8f\", \"status\": \"\", \"MemAvailable_kib\": 26879384, \"load\": [1.5, 1.80078125, 2.27294921875], \"compiler_processes\": [], \"request_sha256\": \"c9bbb1e119927330391b0443573428d5578a4d976e5281cc1b2363052e02a5e2\", \"seal_sha256\": \"c868fa94babc26cb257f1efbbb69e043e4f810e6f4078f8f0b32386d5126837f\", \"runner_sha256\": \"8c508c07c347c0ac68de8778b911d2ba510120451bf79f0fc41ed02df4144923\"}\n"
-}

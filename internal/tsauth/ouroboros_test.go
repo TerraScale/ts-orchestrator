@@ -2,13 +2,10 @@ package tsauth
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -74,91 +71,6 @@ func TestOuroborosTSAuthUserLookup(t *testing.T) {
 	}
 }
 
-func TestOuroborosFlySecrets(t *testing.T) {
-	// ts-auth ac893792 OidcIssuer.DashboardClientId is the registration contract.
-	const registeredDashboardClientID = "01M4EQ2FRJ8S8B29E8TQVWNW4J"
-	const projectID, key = "01K78000000000000000000001", "tb_SENTINEL-0123456789abcdef"
-	clientSecret := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("C"), 32))
-	newDashboardVault := func() *fakeVault {
-		return newVault(t).withSecrets("gru-1", map[string]string{dashboard.ProjectIDKey: projectID, dashboard.APIKeyKey: key,
-			EnvDashboardClientSecret: clientSecret})
-	}
-	// The dashboard's ts-auth client is the one ts-auth registers: its
-	// issuer, client id and callback.
-	settings := map[string]any{"TERRABASE_URL": "https://gru.api.terrascale.tech", "TERRABASE_PROJECT_ID": projectID, "TERRABASE_DATABASE": "dashboard",
-		"TS_AUTH_ISSUER": "https://gru.auth.terrascale.tech/terrascale", "TS_AUTH_CLIENT_ID": registeredDashboardClientID,
-		"TS_AUTH_REDIRECT_URL": "https://dash.terrascale.tech/login/callback"}
-	check := func(output string, staged bool) {
-		t.Helper()
-		var result map[string]any
-		if err := json.Unmarshal([]byte(output), &result); err != nil || strings.Count(output, "\n") != 1 || strings.Contains(output, key) ||
-			strings.Contains(output, clientSecret) || result["app"] != "ts-dashboard" || result["staged"] != staged ||
-			result["api_key_secret"] != "gru-1-ts-dashboard-terrabase-api-key" ||
-			result["client_secret_secret"] != "gru-1-ts-auth-dashboard-client-secret" || fmt.Sprint(result["settings"]) != fmt.Sprint(settings) {
-			t.Fatalf("output %q: %v", output, err)
-		}
-	}
-
-	// Without a Fly token the key is not even read.
-	t.Setenv("FLY_API_TOKEN", "")
-	vault := newDashboardVault()
-	var output bytes.Buffer
-	if err := flySecrets(t.Context(), vault, testTarget.VaultID, "gru-1", &output); err != nil {
-		t.Fatal(err)
-	}
-	check(output.String(), false)
-	if len(vault.reads) != 1 || *vault.reads[0].SecretName != "gru-1-ts-dashboard-terrabase-project-id" {
-		t.Fatalf("reads %d secrets", len(vault.reads))
-	}
-
-	// With one, flyctl stages all eight, the values on stdin only.
-	stub := t.TempDir()
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$FLY_STUB/args\"\ncat > \"$FLY_STUB/stdin\"\n" +
-		"if [ -n \"$FLY_STUB_FAIL\" ]; then cat \"$FLY_STUB/stdin\" >&2; exit 1; fi\n"
-	if err := os.WriteFile(filepath.Join(stub, "flyctl"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("FLY_STUB", stub)
-	t.Setenv("FLY_API_TOKEN", "fly-token")
-	output.Reset()
-	if err := flySecrets(t.Context(), newDashboardVault(), testTarget.VaultID, "gru-1", &output); err != nil {
-		t.Fatal(err)
-	}
-	check(output.String(), true)
-	args, _ := os.ReadFile(filepath.Join(stub, "args"))
-	stdin, _ := os.ReadFile(filepath.Join(stub, "stdin"))
-	lines := strings.Split(strings.TrimSuffix(string(stdin), "\n"), "\n")
-	slices.Sort(lines)
-	if string(args) != "secrets import --app ts-dashboard --stage\n" || fmt.Sprint(lines) != "[TERRABASE_API_KEY="+key+
-		" TERRABASE_DATABASE=dashboard TERRABASE_PROJECT_ID="+projectID+" TERRABASE_URL=https://gru.api.terrascale.tech"+
-		" TS_AUTH_CLIENT_ID="+registeredDashboardClientID+" TS_AUTH_CLIENT_SECRET="+clientSecret+" TS_AUTH_ISSUER=https://gru.auth.terrascale.tech/terrascale"+
-		" TS_AUTH_REDIRECT_URL=https://dash.terrascale.tech/login/callback]" {
-		t.Fatalf("flyctl %q with stdin %q", args, stdin)
-	}
-
-	// A Vault prepared before the dashboard client secret existed stages
-	// nothing and names the command that creates it.
-	t.Setenv("FLY_STUB_FAIL", "")
-	_ = os.Remove(filepath.Join(stub, "args"))
-	older := newVault(t).withSecrets("gru-1", map[string]string{dashboard.ProjectIDKey: projectID, dashboard.APIKeyKey: key})
-	if err := flySecrets(t.Context(), older, testTarget.VaultID, "gru-1", &bytes.Buffer{}); err == nil ||
-		!strings.Contains(err.Error(), "ts-orch ts-auth secrets") || strings.Contains(err.Error(), key) {
-		t.Fatalf("Vault without the client secret: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(stub, "args")); !os.IsNotExist(err) {
-		t.Fatal("flyctl ran without the client secret")
-	}
-
-	// A failing flyctl may echo its input; the error never carries the key.
-	t.Setenv("FLY_STUB_FAIL", "1")
-	err := flySecrets(t.Context(), newDashboardVault(), testTarget.VaultID, "gru-1", &bytes.Buffer{})
-	if err == nil || strings.Contains(err.Error(), key) || strings.Contains(err.Error(), clientSecret) ||
-		!strings.Contains(err.Error(), "TERRABASE_API_KEY=[redacted]") || !strings.Contains(err.Error(), "TS_AUTH_CLIENT_SECRET=[redacted]") {
-		t.Fatalf("failing flyctl: %v", err)
-	}
-}
-
 func TestRunOuroborosRejectsIncompleteCommands(t *testing.T) {
 	var output bytes.Buffer
 	if err := RunOuroboros(t.Context(), nil, &output, nil); err != nil || !strings.HasPrefix(output.String(), "Usage: ts-orch ouroboros") ||
@@ -174,9 +86,8 @@ func TestRunOuroborosRejectsIncompleteCommands(t *testing.T) {
 	}{
 		{[]string{"rotate"}, "unknown ouroboros command"},
 		{[]string{"bootstrap", "--plan", "plan.json"}, "bootstrap requires"},
-		{[]string{"fly-secrets"}, "fly-secrets requires"},
 		{append(slices.Clone(member), "--management-listener", "public"), "client or admin"},
-		{[]string{"fly-secrets", "--plan", "plan.json", "extra"}, "unexpected"},
+		{[]string{"bootstrap", "--plan", "plan.json", "extra"}, "unexpected"},
 		{append(slices.Clone(member), "--owner-email", "mariogk@terrascale.tech", "--ts-auth-key-file", key), "--owner-email needs"},
 		{append(slices.Clone(member), "--ts-auth-instance", "terrascale", "--ts-auth-key-file", key), "--owner-email needs"},
 		{append(slices.Clone(member), "--owner-email", "Mario <mariogk@terrascale.tech>", "--ts-auth-instance", "terrascale", "--ts-auth-key-file", key), "--owner-email needs"},

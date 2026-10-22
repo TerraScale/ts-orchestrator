@@ -25,7 +25,7 @@ const (
 	BinarySchema = "terrascale.release.binary.v2"
 	ImageSchema  = "terrascale.release.image.v2"
 
-	DefaultGoVersion       = "go1.27.1"
+	DefaultGoVersion       = "go1.27.3"
 	MaxArtifactBytes int64 = 512 << 20
 
 	// MaxDelegationLifetime is the release-specific ceiling for a root-signed

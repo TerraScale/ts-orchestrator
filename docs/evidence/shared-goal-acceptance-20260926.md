@@ -755,7 +755,7 @@ Additional complete test conversions preserve their original behaviors:
 commandio original `1d5bf843` → QA `c85e30d6` uses real OS pipes/filesystem
 (PASS 0.005s); tier original `c93482e6` → QA `a8719cae` uses bounded actual test
 processes for all eleven modes (PASS 0.057s); logscan original `e936b728` → QA
-`569975a9` uses actual journal/Fly fixture pipelines and CLI processes for all
+`569975a9` uses actual journal fixture pipelines and CLI processes for all
 six tests (PASS 0.217s). None changes production policy or closes the remaining
 repository-wide test-classification work.
 

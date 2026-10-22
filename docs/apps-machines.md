@@ -1,7 +1,7 @@
 # Apps and machines
 
 TS-563 turns ts-orch into a full orchestrator for TerraBase, ts-auth and
-tenant workloads. Its model, in the style of Fly.io Machines, is shared by
+tenant workloads. Its app and machine model is shared by
 the Machines REST API (TS-564), autoscaling (TS-565), dedicated tenants
 (TS-566), managed volumes (TS-567) and self-healing (TS-568). Package
 [`internal/machines`](../internal/machines) owns the types and their store.

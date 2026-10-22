@@ -1,6 +1,0 @@
-=== RUN   TestFoundationRecordsPersistAndFenceConcurrentWriters
-=== RUN   TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals
-    foundation_provision_integration_test.go:195: expected accepted launch response loss: launch signed original GRU writer: foundation vault lacks persisted create provenance
---- FAIL: TestFoundationRecordsPersistAndFenceConcurrentWriters (28.54s)
-    --- FAIL: TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals (27.93s)
-FAIL

@@ -1,3 +1,0 @@
-# github.com/TerraScale/ts-orchestrator/internal/swarmruntime [github.com/TerraScale/ts-orchestrator/internal/swarmruntime.test]
-internal/swarmruntime/accepted_pause_integration_test.go:93:71: undefined: api.TaskState_PENDING
-internal/swarmruntime/accepted_pause_integration_test.go:96:45: undefined: api.TaskState_PENDING
