@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -33,6 +35,8 @@ type region struct {
 	public  *httptest.Server // the client side, plain HTTP for the test
 	backend *httptest.Server
 	stop    context.CancelFunc
+	dir     string // state directory
+	plain   string // the :80 listener
 	hits    atomic.Int32
 }
 
@@ -60,7 +64,8 @@ func startRegions(t *testing.T, answer func(name string, w http.ResponseWriter, 
 		peers[name] = peerLns[name].Addr().String()
 	}
 	for name := range rtt {
-		reg := &region{edge: newEdge(t.TempDir(), nil)}
+		reg := &region{dir: t.TempDir()}
+		reg.edge = newEdge(reg.dir, nil)
 		reg.backend = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			reg.hits.Add(1)
 			answer(name, w, r)
@@ -75,7 +80,9 @@ func startRegions(t *testing.T, answer func(name string, w http.ResponseWriter, 
 		ctx, cancel := context.WithCancel(context.Background())
 		reg.stop = cancel
 		done := make(chan struct{})
-		go func() { reg.edge.serve(ctx, listen(t), tlsLn); close(done) }()
+		plainLn := listen(t)
+		reg.plain = plainLn.Addr().String()
+		go func() { reg.edge.serve(ctx, plainLn, tlsLn); close(done) }()
 		t.Cleanup(func() { cancel(); <-done })
 		regions[name] = reg
 	}
@@ -182,5 +189,35 @@ func TestReplayPortNeedsMeshCertificate(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("handshake without a mesh certificate succeeded")
+	}
+}
+
+func TestChallengeComesFromThePeerHoldingIt(t *testing.T) {
+	regions := startRegions(t, terraBase)
+	// autocert keeps a pending HTTP-01 key authorization in its cache.
+	if err := os.MkdirAll(filepath.Join(regions["gru"].dir, "edge-certs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(regions["gru"].dir, "edge-certs", "tok123+http-01"), []byte("tok123.thumb"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	get := func(reg *region, token string) (int, string) {
+		req, _ := http.NewRequest(http.MethodGet, "http://"+reg.plain+challengePath+token, nil)
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(body)
+	}
+	for _, name := range []string{"gru", "sjc", "fra"} {
+		if code, body := get(regions[name], "tok123"); code != 200 || body != "tok123.thumb" {
+			t.Fatalf("%s: challenge = %d %q", name, code, body)
+		}
+	}
+	if code, _ := get(regions["fra"], "unknown"); code != http.StatusNotFound {
+		t.Fatalf("unknown token = %d, want 404", code)
 	}
 }
