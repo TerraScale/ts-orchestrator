@@ -17,7 +17,6 @@ import (
 
 const portsLabel = "terrascale.ports"
 
-
 // SwarmKit's inert network allocator leaves generic task ports unallocated;
 // container metadata reserves them locally. An exited container releases its
 // ports at once: its task never runs again, and SwarmKit retains stopped

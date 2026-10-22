@@ -7,9 +7,10 @@ Runs as root. Entry point: `app.RunSingleHost(ctx, args, output)` (W6 registers
 `case "single-host"` in `internal/cli/cli.go`).
 
 Image pulls from `ghcr.io` authenticate as `MarioGK` with the OCI Vault secret
-`<cell>-1-ghcr-pull-token` (`gru-1-ghcr-pull-token` on ts-gru-1), read at pull
-time with the instance principal from the instance's `<cell>-vault`; other
-registries pull anonymously.
+`gru-1-ghcr-pull-token`, read at pull time from gru-vault with the instance
+principal (every region, cross-region); blob downloads follow GHCR's redirect to
+`pkg-containers.githubusercontent.com` without credentials. Other registries
+pull anonymously.
 
 ## State layout
 
