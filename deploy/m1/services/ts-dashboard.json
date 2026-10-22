@@ -3,6 +3,7 @@
   "image": "ghcr.io/terrascale/ts-dashboard@sha256:5c011ba30d26e3106c9e30ef6281a32320764bd6d9f2ecbb775b3b077e6a7df3",
   "env": {
     "ASPNETCORE_URLS": "http://127.0.0.1:8085",
+    "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp",
     "TS_DASHBOARD_TERRABASE_URL": "http://127.0.0.1:8081"
   },
   "secrets": {
@@ -35,5 +36,7 @@
   "replicas": 1,
   "milliCPU": 500,
   "memoryMiB": 2048,
-  "regions": ["gru"]
+  "regions": [
+    "gru"
+  ]
 }

@@ -191,6 +191,10 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 			oci.WithCPUCFS(limits.NanoCPUs/10_000, 100_000),
 			// Host netns, so the host's resolvers (including the 127.0.0.53 stub) are reachable as-is.
 			oci.WithHostNamespace(runtimespec.NetworkNamespace), oci.WithHostResolvconf, oci.WithHostHostsFile,
+			// The root is read-only; runtimes such as .NET single-file apps need a scratch
+			// directory. tmpfs pages count against the task's own memory limit.
+			oci.WithMounts([]runtimespec.Mount{{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs",
+				Options: []string{"nosuid", "nodev", "mode=1777", "size=1g"}}}),
 		}
 		if len(c.spec.Command) != 0 {
 			opts = append(opts, oci.WithProcessArgs(append(slices.Clone(c.spec.Command), c.spec.Args...)...))
