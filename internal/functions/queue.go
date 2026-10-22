@@ -67,21 +67,44 @@ func provisionQueue(ctx context.Context, nc *nats.Conn, manifest Manifest) error
 	if err != nil {
 		return err
 	}
-	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{Name: scope.Stream, Subjects: []string{scope.Subject},
-		Storage: jetstream.FileStorage, Replicas: 3, Retention: jetstream.WorkQueuePolicy, Discard: jetstream.DiscardNew,
-		MaxAge: time.Hour, MaxMsgs: 10000, MaxBytes: 64 << 20, MaxMsgSize: MaxPayloadBytes + 8192, Duplicates: 2 * time.Minute})
+	_, err = provisionRequest(ctx, func(ctx context.Context) (jetstream.Stream, error) {
+		return js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{Name: scope.Stream, Subjects: []string{scope.Subject},
+			Storage: jetstream.FileStorage, Replicas: 3, Retention: jetstream.WorkQueuePolicy, Discard: jetstream.DiscardNew,
+			MaxAge: time.Hour, MaxMsgs: 10000, MaxBytes: 64 << 20, MaxMsgSize: MaxPayloadBytes + 8192, Duplicates: 2 * time.Minute})
+	})
 	if err != nil {
 		return fmt.Errorf("function queue: %w", err)
 	}
-	_, err = js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: scope.ReceiptBucket, Storage: jetstream.FileStorage, Replicas: 3, History: 1, TTL: 24 * time.Hour, MaxBytes: 64 << 20, MaxValueSize: 512})
+	_, err = provisionRequest(ctx, func(ctx context.Context) (jetstream.KeyValue, error) {
+		return js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: scope.ReceiptBucket, Storage: jetstream.FileStorage, Replicas: 3, History: 1, TTL: 24 * time.Hour, MaxBytes: 64 << 20, MaxValueSize: 512})
+	})
 	if err != nil {
 		return fmt.Errorf("function receipts: %w", err)
 	}
-	_, err = js.CreateOrUpdateConsumer(ctx, scope.Stream, jetstream.ConsumerConfig{Durable: "worker", FilterSubject: scope.Subject, AckPolicy: jetstream.AckExplicitPolicy, AckWait: 30 * time.Second, MaxDeliver: -1, MaxAckPending: 1, MaxWaiting: 32, MaxRequestBatch: 1, MaxRequestExpires: time.Second})
+	_, err = provisionRequest(ctx, func(ctx context.Context) (jetstream.Consumer, error) {
+		return js.CreateOrUpdateConsumer(ctx, scope.Stream, jetstream.ConsumerConfig{Durable: "worker", FilterSubject: scope.Subject, AckPolicy: jetstream.AckExplicitPolicy, AckWait: 30 * time.Second, MaxDeliver: -1, MaxAckPending: 1, MaxWaiting: 32, MaxRequestBatch: 1, MaxRequestExpires: time.Second})
+	})
 	if err != nil {
 		return fmt.Errorf("function consumer: %w", err)
 	}
 	return nil
+}
+
+// provisionRequestTimeout bounds one JetStream API request; it matches the nats.go default API timeout.
+const provisionRequestTimeout = 5 * time.Second
+
+// provisionRequest retries an idempotent create-or-update whose reply never came.
+// Clustered JetStream answers an update only from the asset leader, so an update
+// applied during a leader election is never answered.
+func provisionRequest[T any](ctx context.Context, request func(context.Context) (T, error)) (T, error) {
+	for {
+		attempt, cancel := context.WithTimeout(ctx, provisionRequestTimeout)
+		value, err := request(attempt)
+		cancel()
+		if ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
+			return value, err
+		}
+	}
 }
 
 // NewQueueWorker binds only preprovisioned resources. Subject-restricted NATS

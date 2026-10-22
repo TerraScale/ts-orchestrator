@@ -37,7 +37,7 @@ import (
 func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 70*time.Second)
 	defer cancel()
-	js, connection := effectSessionR3(t)
+	js, connection, _ := effectSessionR3(t)
 	config := authority.Config{Scope: "gru", DeploymentID: entityid.New(), CandidateID: entityid.New(), Replicas: 3}
 	old, err := authority.Start(ctx, js, config)
 	if err != nil {
@@ -468,7 +468,8 @@ func (c effectStopDelayedControl) ListClusters(ctx context.Context, query *api.L
 	return actual, err
 }
 
-func effectSessionR3(t *testing.T) (jetstream.JetStream, *nats.Conn) {
+// effectSessionR3 also returns the broker its connection uses, for interest checks.
+func effectSessionR3(t *testing.T) (jetstream.JetStream, *nats.Conn, *server.Server) {
 	t.Helper()
 	var brokers []*server.Server
 	for index := range 3 {
@@ -529,7 +530,7 @@ func effectSessionR3(t *testing.T) (jetstream.JetStream, *nats.Conn) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return js, connection
+	return js, connection, brokers[0]
 }
 
 func effectHostExchange(ctx context.Context, connection *nats.Conn, registration host.Registration, key ed25519.PrivateKey, controller ed25519.PublicKey, sessionID string, epoch uint64, operation string, payload any) (protocol.Envelope, jsontext.Value, error) {
