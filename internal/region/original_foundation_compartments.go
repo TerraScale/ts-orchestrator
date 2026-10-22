@@ -151,7 +151,7 @@ func originalCompartmentScope(ctx context.Context, authority *HomeIAMAuthority) 
 	if grant.SchemaVersion != 3 || grant.Generation != 1 || grant.MonthlyLimitMinor <= 0 || grant.CleanupOwner == "" {
 		return scope, ErrOriginalSourceProducerHold
 	}
-	if err := ValidatePreparedFoundation(grant); err != nil {
+	if err := reader.validatePreparedOriginalDocument(authority.operator.bundle.GrantWire, grant); err != nil {
 		return scope, err
 	}
 	// Prepared validation required the producer purposes on this exact local grant.

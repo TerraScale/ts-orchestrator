@@ -204,6 +204,8 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 	if response.ETag == nil || *response.ETag == "" {
 		return "", errors.New("foundation write returned no conditional-write ETag")
 	}
+	// These exact bytes passed validate above; the next Load of them need not repeat it.
+	s.validated.store(sha256.Sum256(wire), verifiedFoundationDocument{})
 	return *response.ETag, nil
 }
 

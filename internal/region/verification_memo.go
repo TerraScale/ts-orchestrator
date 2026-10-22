@@ -75,3 +75,26 @@ func signedFootprintBinding(s *SignedFootprint) ([sha256.Size]byte, error) {
 	}
 	return sha256.Sum256(wire), nil
 }
+
+// validatePreparedOriginalDocument runs ValidatePreparedFoundation on a grant
+// that verifyOriginalDocument just returned for wire. The check is a pure
+// function of those verified bytes, so a success is remembered under the same
+// binding; the caller re-verifies signature, digest and validity every call.
+func (s *SignedFootprint) validatePreparedOriginalDocument(wire []byte, grant FoundationGrant) error {
+	if s.memo == nil {
+		return ValidatePreparedFoundation(grant)
+	}
+	binding, err := signedFootprintBinding(s)
+	if err != nil {
+		return err
+	}
+	key := foundationVerificationKey(binding, sha256.Sum256(append([]byte("prepared\x00"), wire...)))
+	if _, ok := s.memo.lookup(key); ok {
+		return nil
+	}
+	if err := ValidatePreparedFoundation(grant); err != nil {
+		return err
+	}
+	s.memo.store(key, verifiedFoundationDocument{})
+	return nil
+}

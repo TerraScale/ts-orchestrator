@@ -146,7 +146,7 @@ func originalActorPrerequisites(ctx context.Context, authority *HomeIAMAuthority
 	if grant.SchemaVersion != 3 || grant.Generation != 1 || digestSource(authority.operator.bundle.GrantWire) != record.OriginalFoundationCompartments.GrantSHA256 {
 		return record, "", empty, time.Time{}, ErrOriginalSourceProducerHold
 	}
-	if err := ValidatePreparedFoundation(grant); err != nil {
+	if err := reader.validatePreparedOriginalDocument(authority.operator.bundle.GrantWire, grant); err != nil {
 		return record, "", empty, time.Time{}, err
 	}
 	logical, err := originalActorSignedScope(record)
