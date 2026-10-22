@@ -52,6 +52,12 @@ func RunSingleHost(ctx context.Context, args []string, output io.Writer) error {
 		// Workloads keep serving; only release pushes are blocked until the next start.
 		fmt.Fprintf(output, "release listener firewall: %v\n", err)
 	}
+	// The edge's :80/:443 sit behind the same Ubuntu OCI image INPUT REJECT.
+	for _, port := range []int{80, 443} {
+		if err := releasepush.OpenTCP(ctx, port); err != nil {
+			fmt.Fprintf(output, "edge firewall: %v\n", err)
+		}
+	}
 	releases, err := releasepush.NewHandler(*state)
 	if err != nil {
 		return err
