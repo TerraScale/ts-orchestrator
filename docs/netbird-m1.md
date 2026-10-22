@@ -19,8 +19,8 @@ once the proof below passes; until then 22 stays open from
 
 ## Server
 
-- Image: `docker.io/netbirdio/netbird-server:0.81.3@sha256:541ecef7e98a66b17411d44e9d4dcfdb65913415f39b3b944b8e7e748f997f1d`
-  (upstream combined server: management, signal, relay, STUN and the embedded
+- Image: `docker.io/netbirdio/netbird-server:0.81.3@sha256:9b2f606efefa8ea176e2afbb35c79622ca318e2e605ff1a0f6cb7e158ac08336`
+  (linux/arm64 manifest of the upstream combined server: management, signal, relay, STUN and the embedded
   IdP in one process).
 - ts-orch service `netbird-server` (`deploy/m1/services/netbird-server.json`),
   host network, plain HTTP on `127.0.0.1:8095`, STUN on `0.0.0.0:3478/udp`,
@@ -94,7 +94,7 @@ deleted at first start.
 
 | Host | OS | How it is enrolled |
 |---|---|---|
-| ts-gru-1 | Ubuntu 24.04 arm64 | `ts-orch netbird server` runs `netbird up` with `gru-1-netbird-setup-key` on stdin |
+| ts-gru-1, ts-sjc-1, ts-fra-1 | Ubuntu 24.04 arm64 | `ts-orch netbird server` (unit on every M1 host) installs the pinned client and runs `netbird up` with `gru-1-netbird-setup-key` on stdin; only the host declaring the `netbird-server` service also runs the server side |
 | delta, mariogk-dev, beta | NixOS | Homelab fleet module `services.netbird.clients.terrascale` with `gru-1-netbird-operators-setup-key` |
 | operator PC | any | the one command below |
 

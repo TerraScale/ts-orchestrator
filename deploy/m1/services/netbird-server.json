@@ -1,8 +1,8 @@
 {
   "name": "netbird-server",
-  "image": "docker.io/netbirdio/netbird-server:0.81.3@sha256:541ecef7e98a66b17411d44e9d4dcfdb65913415f39b3b944b8e7e748f997f1d",
+  "image": "docker.io/netbirdio/netbird-server:0.81.3@sha256:9b2f606efefa8ea176e2afbb35c79622ca318e2e605ff1a0f6cb7e158ac08336",
   "args": ["--config", "/var/lib/netbird/config.yaml"],
-  "env": {"NB_SETUP_PAT_ENABLED": "true"},
+  "env": {"NB_SETUP_PAT_ENABLED": "true", "NB_DISABLE_GEOLOCATION": "true"},
   "mounts": [{"source": "/var/lib/ts-data/netbird", "target": "/var/lib/netbird"}],
   "port": 8095,
   "readyPath": "/api/instance",

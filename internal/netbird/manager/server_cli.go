@@ -23,8 +23,10 @@ import (
 
 const serverUsage = `Usage: ts-orch netbird server --vault-id OCID --key-id OCID --compartment-id OCID --dir DIR
 
-On ts-gru-1, as root, with the instance principal: create the NetBird server's
-generated secrets in Vault once, write DIR/config.yaml (mode 0600, owned by the
+On every M1 host, as root, with the instance principal, keep the pinned NetBird
+client installed, running and enrolled with the servers' setup key. On the host
+whose single-host node declares the netbird-server service, also create the
+server's generated secrets in Vault once, write DIR/config.yaml (mode 0600, owned by the
 container user) for the netbird-server service, wait for it on ` + ServerURL + `, claim the owner and
 keep the admin PAT and setup keys in Vault, then re-sync GRU() every 10 minutes.
 `
@@ -83,8 +85,46 @@ func runServer(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 }
 
-// serveOnce converges config and manager state; each step is idempotent.
+// serveOnce converges config and manager state on the host that runs the
+// netbird-server service, and this host's client everywhere; each step is
+// idempotent.
 func serveOnce(ctx context.Context, vault ServerVault, dir string) error {
+	server, err := runsServer(ctx)
+	if err != nil {
+		return err
+	}
+	if server {
+		if err := runServerSide(ctx, vault, dir); err != nil {
+			return err
+		}
+	}
+	if err := ensureClient(ctx); err != nil {
+		return err
+	}
+	return enrollHost(ctx, vault)
+}
+
+// runsServer reports whether this host's single-host node declares the
+// netbird-server service (deploy/m1/services/netbird-server.json).
+func runsServer(ctx context.Context) (bool, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return false, err
+	}
+	// manager cannot import swarmruntime (import cycle); ask ts-orch itself.
+	output, err := exec.CommandContext(ctx, self, "service", "ls").Output()
+	if err != nil {
+		return false, fmt.Errorf("ts-orch service ls: %w", err)
+	}
+	for line := range strings.Lines(string(output)) {
+		if strings.HasPrefix(line, "netbird-server ") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func runServerSide(ctx context.Context, vault ServerVault, dir string) error {
 	if err := PrepareServer(ctx, vault); err != nil {
 		return err
 	}
@@ -96,13 +136,7 @@ func serveOnce(ctx context.Context, vault ServerVault, dir string) error {
 	if err := writePrivate(dir, "config.yaml", config); err != nil {
 		return err
 	}
-	if err := BootstrapServer(ctx, vault, ServerURL); err != nil {
-		return err
-	}
-	if err := ensureClient(ctx); err != nil {
-		return err
-	}
-	return enrollHost(ctx, vault)
+	return BootstrapServer(ctx, vault, ServerURL)
 }
 
 // clientPin is the NetBird client every TerraScale host runs, the same
