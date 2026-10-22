@@ -47,50 +47,58 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	if cell == "" || fs.NArg() != 0 {
 		return errors.New("usage: ts-orch oci-region network CELL [--apply]")
 	}
-	s, err := desired(cell)
+	changes, err := Converge(ctx, cell, *apply, out)
 	if err != nil {
 		return err
+	}
+	switch {
+	case changes == 0:
+		_, err = fmt.Fprintf(out, "%s network converged: no drift\n", cell)
+	case !*apply:
+		_, err = fmt.Fprintf(out, "%d changes planned; rerun with --apply to make them\n", changes)
+	default:
+		_, err = fmt.Fprintf(out, "%d changes applied\n", changes)
+	}
+	return err
+}
+
+// Converge plans (apply false) or makes CELL's network changes, printing one
+// line per change to out, and returns how many there were.
+func Converge(ctx context.Context, cell string, apply bool, out io.Writer) (int, error) {
+	s, err := desired(cell)
+	if err != nil {
+		return 0, err
 	}
 	factory, err := ociclient.OperatorConfig(s.region)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	r := &reconciler{ctx: ctx, s: s, apply: *apply, out: out}
+	r := &reconciler{ctx: ctx, s: s, apply: apply, out: out}
 	if r.net, err = factory.Network(); err != nil {
-		return err
+		return 0, err
 	}
 	if r.compute, err = factory.Compute(); err != nil {
-		return err
+		return 0, err
 	}
 	ids, err := factory.Identity()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	tenancy, err := factory.Provider().TenancyOCID()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	c, err := ids.ListCompartments(ctx, identity.ListCompartmentsRequest{CompartmentId: &tenancy, Name: &s.compartment,
 		CompartmentIdInSubtree: new(true), AccessLevel: identity.ListCompartmentsAccessLevelAccessible})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if len(c.Items) != 1 {
-		return fmt.Errorf("want one compartment %s, found %d", s.compartment, len(c.Items))
+		return 0, fmt.Errorf("want one compartment %s, found %d", s.compartment, len(c.Items))
 	}
 	r.compartment = *c.Items[0].Id
-	if err := r.reconcile(); err != nil {
-		return err
-	}
-	switch {
-	case r.changes == 0:
-		_, err = fmt.Fprintf(out, "%s network converged: no drift\n", s.cell)
-	case !r.apply:
-		_, err = fmt.Fprintf(out, "%d changes planned; rerun with --apply to make them\n", r.changes)
-	default:
-		_, err = fmt.Fprintf(out, "%d changes applied\n", r.changes)
-	}
-	return err
+	err = r.reconcile()
+	return r.changes, err
 }
 
 type reconciler struct {

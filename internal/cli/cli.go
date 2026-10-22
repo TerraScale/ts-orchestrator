@@ -42,6 +42,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/qualification/firecracker"
 	"github.com/TerraScale/ts-orchestrator/internal/qualification/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
 	releasecli "github.com/TerraScale/ts-orchestrator/internal/release/cli"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
@@ -186,6 +187,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "region":
 		if len(args) > 1 && args[1] == "create" {
 			return provisionOriginalFoundationFromFile(ctx, args[2:], commandio.NewWriter(output))
+		}
+		if len(args) > 1 && args[1] == "add" {
+			return regionhost.Run(ctx, args[1:], output)
 		}
 		return region.Run(ctx, args[1:], commandio.NewWriter(output), os.Stderr)
 	case "image", "netbird":
