@@ -75,10 +75,7 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 			if fixture.inspections.Load() != 1 {
 				t.Fatalf("same digest inspected %d times", fixture.inspections.Load())
 			}
-			// Race builds need time to read back and hash the real binary on retry.
-			retryEnv := fixture.env
-			retryEnv.timeout = 5 * time.Second
-			if err := c.applyWith(fixture.args, retryEnv); err != nil {
+			if err := c.applyWith(fixture.args, fixture.env); err != nil {
 				t.Fatalf("retry did not recover: %v\n%s", err, output.String())
 			}
 			fixture.mu.Lock()
@@ -107,10 +104,12 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 }
 
 type applyHTTPFixture struct {
-	mu             sync.Mutex
-	failure        string
-	objects        map[string]map[string][]byte
-	channelWrites  map[string]int
+	mu            sync.Mutex
+	failure       string
+	objects       map[string]map[string][]byte
+	channelWrites map[string]int
+	// healthy closes once FRA and GRU have both published their channel.
+	healthy        chan struct{}
 	binaryCreates  map[string]int
 	inspections    atomic.Int64
 	binaryPath     string
@@ -133,6 +132,7 @@ func (f *applyHTTPFixture) reset(failure string) {
 	f.objects = make(map[string]map[string][]byte)
 	f.channelWrites = make(map[string]int)
 	f.binaryCreates = make(map[string]int)
+	f.healthy = make(chan struct{})
 	f.inspections.Store(0)
 }
 
@@ -298,7 +298,7 @@ func newApplyHTTPFixture(t *testing.T) *applyHTTPFixture {
 	client.HTTPClient = applyHTTPDispatcher{server}
 	policy := common.NoRetryPolicy()
 	client.SetCustomClientConfiguration(common.CustomClientConfiguration{RetryPolicy: &policy})
-	f.env = deployEnv{timeout: 500 * time.Millisecond,
+	f.env = deployEnv{
 		storage: func(string) (releasechannel.ObjectClient, error) { return client, nil },
 		inspect: func(path, version, revision string) (binaryReceipt, error) {
 			f.inspections.Add(1)
@@ -322,9 +322,20 @@ func (f *applyHTTPFixture) serve(w http.ResponseWriter, r *http.Request) {
 		f.objects[cell] = make(map[string][]byte)
 	}
 	if cell == "SJC" && f.failure == "unreachable" && name == releasechannel.StatusObject {
+		// SJC stays unreachable while the healthy regions publish, then its
+		// connection drops: no wall-clock budget decides the outcome.
+		healthy := f.healthy
 		f.mu.Unlock()
-		<-r.Context().Done()
+		select {
+		case <-healthy:
+		case <-r.Context().Done():
+		}
 		f.mu.Lock()
+		if hijacker, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hijacker.Hijack(); err == nil {
+				_ = conn.Close()
+			}
+		}
 		return
 	}
 	if cell == "SJC" && f.failure == "storage" && r.Method == http.MethodPut {
@@ -345,6 +356,13 @@ func (f *applyHTTPFixture) serve(w http.ResponseWriter, r *http.Request) {
 		f.objects[cell][name] = data
 		if name == releasechannel.ChannelObject {
 			f.channelWrites[cell]++
+			if f.channelWrites["FRA"] > 0 && f.channelWrites["GRU"] > 0 {
+				select {
+				case <-f.healthy:
+				default:
+					close(f.healthy)
+				}
+			}
 		} else {
 			f.binaryCreates[cell]++
 		}
