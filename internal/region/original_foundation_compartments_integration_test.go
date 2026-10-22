@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
@@ -525,11 +526,11 @@ func TestOriginalFoundationCompartmentsSDK(t *testing.T) {
 		f.replaceRecord(t, func(record *FoundationRecord) {
 			birth := &record.OriginalSourceProducers[0]
 			birth.Intent.PlanSHA256 = preparationDigest([]byte("foreign original producer plan"))
-			wire, err := json.Marshal(birth.Intent, json.Deterministic(true))
+			intentDigest, err := foundationbinding.CanonicalDigest(birth.Intent)
 			if err != nil {
 				t.Fatal(err)
 			}
-			birth.IntentSHA256 = preparationDigest(wire)
+			birth.IntentSHA256 = intentDigest
 			record.OriginalFoundationCompartments.Regions[0].ProducerIntentSHA256 = birth.IntentSHA256
 			if err := record.validate(); err != nil {
 				t.Fatalf("fresh birth drift must remain structurally valid: %v", err)

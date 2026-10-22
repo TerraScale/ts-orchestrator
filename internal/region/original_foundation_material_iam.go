@@ -80,7 +80,7 @@ func originalMaterialIAMRecipe(version string, purpose OriginalSourceProducerInt
 	default:
 		return recipe, ErrOriginalSourceProducerHold
 	}
-	wire, err := json.Marshal(purpose, json.Deterministic(true))
+	producerDigest, err := foundationbinding.CanonicalDigest(purpose)
 	plan, configErr := json.Marshal(config, json.Deterministic(true))
 	names, namesErr := bootstrapmaterial.OriginalPublicationSecretNames(config)
 	if err != nil || configErr != nil || namesErr != nil || len(names) != 33 || purpose.Home.Validate() != nil || purpose.PlanSHA256 != digestSource(plan) ||
@@ -89,7 +89,7 @@ func originalMaterialIAMRecipe(version string, purpose OriginalSourceProducerInt
 		return recipe, ErrOriginalSourceProducerHold
 	}
 	recipe = OriginalMaterialPublicationIAMIntent{Purpose: version, Cell: purpose.Cell, OCIRegion: purpose.OCIRegion,
-		TenancyID: purpose.TenancyID, InstallationID: purpose.InstallationID, ProducerIntentSHA256: digestSource(wire),
+		TenancyID: purpose.TenancyID, InstallationID: purpose.InstallationID, ProducerIntentSHA256: producerDigest,
 		PlanSHA256: purpose.PlanSHA256, AdmissionAuthorizationSHA256: purpose.AdmissionAuthorizationSHA256,
 		ActorOperationID: purpose.OperationID, ActorRecipeSHA256: purpose.Allocation.RecipeSHA256,
 		ControlCompartment: control, Vault: vault, Key: key, SecretNames: names, Operations: originalMaterialIAMOperations(), PolicyRead: policyRead}
@@ -312,17 +312,21 @@ func originalMaterialIAMScope(record FoundationRecord, index int, recipe Origina
 		value any
 		out   *string
 	}{{birth, &scope.BirthSHA256}, {actor, &scope.ActorSHA256}, {v, &scope.VaultSHA256}, {regional.AdmissionReads, &scope.AdmissionSHA256}, {root.Publication, &scope.PublicationSHA256}} {
-		wire, err := json.Marshal(pin.value, json.Deterministic(true))
+		sum, err := foundationbinding.CanonicalDigest(pin.value, foundationRecordWire...)
 		if err != nil {
 			return scope, err
 		}
-		*pin.out = digestSource(wire)
+		*pin.out = sum
 	}
-	wire, err := json.Marshal(scope, json.Deterministic(true))
+	wire, err := json.Marshal(scope, foundationRecordWire...)
+	var entry map[string]any
+	if err == nil {
+		err = json.Unmarshal(wire, &entry)
+	}
 	if err != nil {
 		return scope, err
 	}
-	scope.IdentitySHA256 = digestSource(wire)
+	scope.IdentitySHA256 = foundationbinding.OriginalMaterialIAMIdentity(entry)
 	if recipe.Purpose == originalMaterialIAMPurposeV3 || recipe.Purpose == originalMaterialIAMPurposeV4 {
 		scope.PeerDynamicGroup = &OriginalFoundationMaterialPeerGroup{Request: identity.CreateDynamicGroupDetails{CompartmentId: new(recipe.TenancyID), Name: new("ts-original-peer-" + scope.IdentitySHA256[:32]), Description: new("Original regional controllers admitted by exact control compartment"), MatchingRule: new(fmt.Sprintf("ALL {instance.compartment.id='%s'}", scope.Target.CompartmentOCID)), FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}}
 	}

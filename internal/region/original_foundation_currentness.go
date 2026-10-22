@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -48,12 +49,12 @@ func originalPublicationRecipe(purposes [3]OriginalSourceProducerIntent, recipes
 			purpose.Generation != q.Generation || purpose.OriginalUserID != q.OriginalUserID || purpose.Home != q.Home || recipes[index].Home != q.Home {
 			return intent, ErrOriginalSourceProducerHold
 		}
-		wire, err := json.Marshal(purpose, json.Deterministic(true))
+		producerDigest, err := foundationbinding.CanonicalDigest(purpose)
 		if err != nil {
 			return intent, err
 		}
-		intent.ProducerIntentSHA256[index] = digestSource(wire)
-		wire, err = json.Marshal(recipes[index], json.Deterministic(true))
+		intent.ProducerIntentSHA256[index] = producerDigest
+		wire, err := json.Marshal(recipes[index], json.Deterministic(true))
 		if err != nil {
 			return intent, err
 		}

@@ -21,6 +21,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/jwt/v2"
@@ -78,6 +79,72 @@ func originalStartupJSON(t *testing.T, value any) []byte {
 	return wire
 }
 
+// Member orders of bootstrap's typed original source and link states.
+var (
+	originalSourceStateOrder = map[string][]string{
+		"":                         {"schemaVersion", "kind", "scope", "intentSha256", "admissionAuthorizationSha256", "target", "secretName", "retryToken", "startedAt", "candidate", "reference", "originalAdmissionInventory", "publication", "startup", "seedCompletion"},
+		"candidate":                {"sha256", "maxBytes", "createSha256"},
+		"reference":                {"secretOcid", "sha256", "maxBytes"},
+		"publication":              {"scope", "journal", "result"},
+		"target":                   {"compartmentOcid", "vaultOcid", "kmsKeyOcid"},
+		"publication.scope":        {"target", "policyId", "policyEtag", "policySha256", "readbackSha256"},
+		"publication.scope.target": {"compartmentOcid", "vaultOcid", "kmsKeyOcid"},
+	}
+	originalLinkStateOrder = map[string][]string{
+		"":          {"schemaVersion", "kind", "installationId", "generation", "cell", "grantSha256", "bindingSha256", "regionalSource", "homeSource", "homeLinkSha256", "target", "secretName", "retryToken", "startedAt", "candidate", "reference", "journal", "publication", "delivery"},
+		"candidate": {"sha256", "maxBytes", "createSha256"},
+		"reference": {"secretOcid", "sha256", "maxBytes"},
+		"target":    {"compartmentOcid", "vaultOcid", "kmsKeyOcid"},
+	}
+)
+
+// originalTypedStateJSON encodes a state map in the producer's typed member
+// order; json/v2 sorts map keys, but the verifier requires the typed wire.
+func originalTypedStateJSON(t *testing.T, state map[string]any, order map[string][]string) []byte {
+	t.Helper()
+	var encode func(name string, object map[string]any) []byte
+	encode = func(name string, object map[string]any) []byte {
+		keys := slices.Clone(order[name])
+		for key := range object {
+			if !slices.Contains(keys, key) {
+				keys = append(keys, key)
+			}
+		}
+		wire := []byte("{")
+		for _, key := range keys {
+			value, ok := object[key]
+			if !ok {
+				continue
+			}
+			var member []byte
+			path := key
+			if name != "" {
+				path = name + "." + key
+			}
+			if nested, isMap := value.(map[string]any); isMap && order[path] != nil {
+				member = encode(path, nested)
+			} else {
+				member = originalStartupJSON(t, value)
+			}
+			if len(wire) > 1 {
+				wire = append(wire, ',')
+			}
+			wire = append(append(append(wire, originalStartupJSON(t, key)...), ':'), member...)
+		}
+		return append(wire, '}')
+	}
+	return encode("", state)
+}
+
+func originalStartupIntentDigest(t *testing.T, intent any) string {
+	t.Helper()
+	sum, err := foundationbinding.CanonicalDigest(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sum
+}
+
 func originalStartupSign(t *testing.T, value any, scope trust.Scope, key ed25519.PrivateKey, issued, expires time.Time) []byte {
 	t.Helper()
 	envelope, err := trust.Sign(originalStartupJSON(t, value), scope, issued, expires, key)
@@ -110,6 +177,12 @@ func originalStartupLedgerSDK(t *testing.T, f *originalMaterialIAMSDKFixture, on
 					}
 				}
 			}
+		}
+		// Runtime ledger and source objects belong to this client; the IAM-phase
+		// fixtures refuse archive reads and unrelated ledger writes by design.
+		if strings.HasPrefix(r.URL.Path, "/n/ns/b/") && strings.Contains(r.URL.Path, "/o/") {
+			f.cloud.serveHTTP(w, r)
+			return
 		}
 		f.serveHTTP(w, r)
 	}))
@@ -262,12 +335,12 @@ func newOriginalStartupLedgerFixture(t *testing.T) *originalStartupLedgerFixture
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := map[string]any{"schemaVersion": 3, "kind": "original-source-archive/v1", "scope": scope, "intentSha256": digestSource(originalStartupJSON(t, intent)), "admissionAuthorizationSha256": authSHA, "target": intent.Escrow, "secretName": intent.SourceSecretName, "retryToken": originalStartupTestUUID, "startedAt": f.now, "candidate": map[string]any{"sha256": sourceSHA, "maxBytes": len(archive), "createSha256": digestSource(originalStartupJSON(t, scope))}, "reference": map[string]any{"secretOcid": "ocid1.vaultsecret.oc1.sa-saopaulo-1.originalarchive", "sha256": sourceSHA, "maxBytes": len(archive)}, "originalAdmissionInventory": inventoryWire, "publication": map[string]any{"scope": publicationScope, "journal": journal, "result": publication}}
+	state := map[string]any{"schemaVersion": 3, "kind": "original-source-archive/v1", "scope": scope, "intentSha256": originalStartupIntentDigest(t, intent), "admissionAuthorizationSha256": authSHA, "target": intent.Escrow, "secretName": intent.SourceSecretName, "retryToken": originalStartupTestUUID, "startedAt": f.now, "candidate": map[string]any{"sha256": sourceSHA, "maxBytes": len(archive), "createSha256": digestSource(originalStartupJSON(t, scope))}, "reference": map[string]any{"secretOcid": "ocid1.vaultsecret.oc1.sa-saopaulo-1.originalarchive", "sha256": sourceSHA, "maxBytes": len(archive)}, "originalAdmissionInventory": inventoryWire, "publication": map[string]any{"scope": publicationScope, "journal": journal, "result": publication}}
 	domain, sourceKey, err := bootstrap.OriginalSourceObject(template)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stateWire := originalStartupJSON(t, state)
+	stateWire := originalTypedStateJSON(t, state, originalSourceStateOrder)
 	f.cloud.writeObject(domain.HeadBucket+"/"+sourceKey, stateWire)
 	proof, err := bootstrap.LoadRegionalSource(t.Context(), template, client, f.now)
 	if err != nil || !proof.IsVerified() {
@@ -312,7 +385,7 @@ func newOriginalStartupLedgerFixture(t *testing.T) *originalStartupLedgerFixture
 		t.Fatal(err)
 	}
 	linkState := map[string]any{"schemaVersion": 3, "kind": "original-startup-link/v1", "installationId": template.InstallationID(), "generation": template.Generation(), "cell": "gru", "grantSha256": template.GrantDigest(), "bindingSha256": recipient.BindingSHA256(), "regionalSource": sourceBinding, "homeSource": sourceBinding, "target": intent.Escrow, "secretName": secretName, "retryToken": originalStartupTestUUID, "startedAt": f.now, "candidate": map[string]any{"sha256": linkSHA, "maxBytes": len(linkArchive), "createSha256": digestSource(payload)}, "reference": map[string]any{"secretOcid": "ocid1.vaultsecret.oc1.sa-saopaulo-1.originallinkarchive", "sha256": linkSHA, "maxBytes": len(linkArchive)}, "journal": linkJournal, "publication": linkPublication, "delivery": evidence.Delivery}
-	f.cloud.writeObject(domain.HeadBucket+"/"+recipient.LinkObjectKey(), originalStartupJSON(t, linkState))
+	f.cloud.writeObject(domain.HeadBucket+"/"+recipient.LinkObjectKey(), originalTypedStateJSON(t, linkState, originalLinkStateOrder))
 	verifiedLink, err := bootstrap.VerifyStartupLink(t.Context(), template, client, evidence, f.now)
 	if err != nil || !verifiedLink.IsVerified() {
 		t.Fatalf("verify actual signed original Link: %v", err)
@@ -344,7 +417,7 @@ func newOriginalStartupLedgerFixture(t *testing.T) *originalStartupLedgerFixture
 		startup[slot] = originalStartupSign(t, binding, bootstrap.DerivedStartupScope(manifest), key, f.now, template.ExpiresAt())
 	}
 	state["startup"] = startup
-	f.cloud.writeObject(domain.HeadBucket+"/"+sourceKey, originalStartupJSON(t, state))
+	f.cloud.writeObject(domain.HeadBucket+"/"+sourceKey, originalTypedStateJSON(t, state, originalSourceStateOrder))
 	wire := startup[template.Template().SeedSlot]
 	authority, err := bootstrap.VerifyDerivedStartupAuthority(t.Context(), template, client, wire, f.now)
 	if err != nil || !authority.IsVerified() {
@@ -393,7 +466,6 @@ func (f *originalStartupLedgerFixture) signRecord(t *testing.T, intent bootstrap
 }
 
 func TestOriginalStartupLedgerSDKExactExternalSeedAndRestart(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalStartupLedgerFixture(t)
 	intent := f.intent(t)
 	scope := bootstrap.BootstrapScope{DeploymentID: intent.DeploymentID, Cell: intent.Cell, Slot: intent.Slot}
@@ -417,8 +489,9 @@ func TestOriginalStartupLedgerSDKExactExternalSeedAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := bootstrap.Result{SchemaVersion: 1, Mode: intent.Mode, DeploymentID: intent.DeploymentID, Cell: intent.Cell, Environment: intent.Environment, Role: intent.Role, Slot: intent.Slot, Attempt: 1, Generation: 1, RegionIntentGeneration: intent.RegionIntentGeneration, IntentDigest: digestSource(intentWire), InstanceOCID: facts.InstanceOCID, ProviderRequestID: "retained-original-provider-read", ETag: "retained-original-etag", OCIRegion: intent.OCIRegion, CompartmentOCID: intent.CompartmentOCID, ImageOCID: intent.ImageOCID, Shape: intent.Shape, ObservedProfileDigest: intent.LaunchRequestDigest, CreateKey: intent.CreateKey, ObservedAt: intent.CreatedAt, SeedReceiptDigest: digestSource(receiptWire)}
-	resultWire := f.signRecord(t, intent, "bootstrap-result", result)
+	result := bootstrap.Result{SchemaVersion: 1, Mode: intent.Mode, DeploymentID: intent.DeploymentID, Cell: intent.Cell, Environment: intent.Environment, Role: intent.Role, Slot: intent.Slot, Attempt: 1, Generation: 1, RegionIntentGeneration: intent.RegionIntentGeneration, IntentDigest: digestSource(intentWire), InstanceOCID: facts.InstanceOCID, ProviderRequestID: "retained-original-provider-read", ETag: "retained-original-etag", OCIRegion: intent.OCIRegion, CompartmentOCID: intent.CompartmentOCID, ImageOCID: intent.ImageOCID, Shape: intent.Shape, ObservedProfileDigest: intent.LaunchRequestDigest, CreateKey: intent.CreateKey, ObservedAt: time.Now().UTC().Truncate(time.Second), SeedReceiptDigest: digestSource(receiptWire)}
+	// The seed is observed just before its result is recorded, not when the intent was created.
+	resultWire := originalStartupSign(t, result, trust.Scope{Domain: "bootstrap-result", DeploymentID: intent.DeploymentID, Cell: intent.Cell, Environment: intent.Environment, Role: intent.Role, Slot: intent.Slot}, f.key, result.ObservedAt, f.authority.ExpiresAt())
 	head.ResultDigest = digestSource(resultWire)
 	headWire := f.signRecord(t, intent, "bootstrap-slot-head", head)
 	wrongFacts := facts
@@ -451,7 +524,6 @@ func TestOriginalStartupLedgerSDKExactExternalSeedAndRestart(t *testing.T) {
 }
 
 func TestOriginalStartupLedgerSDKRejectsSchemaAndBirthChanges(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalStartupLedgerFixture(t)
 	cases := []struct {
 		name   string
@@ -505,7 +577,6 @@ func TestOriginalStartupLedgerSDKRejectsSchemaAndBirthChanges(t *testing.T) {
 }
 
 func TestOriginalStartupLedgerSDKPreservesOrdinarySchema1(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalStartupLedgerFixture(t)
 	config, err := f.authority.LedgerConfig(f.producer.roots)
 	if err != nil {
@@ -561,7 +632,6 @@ func TestOriginalStartupLedgerSDKPreservesOrdinarySchema1(t *testing.T) {
 }
 
 func TestOriginalStartupTrustSDKCancellationHoldsAtIAMBoundary(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f, anchor := originalStartupTrustFixture(t, false)
 	originalStartupTemplate(t, f, anchor, oci.RegionGRU)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -594,7 +664,6 @@ func TestOriginalStartupTrustSDKCancellationHoldsAtIAMBoundary(t *testing.T) {
 }
 
 func TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalStartupLedgerFixture(t)
 	original := originalStartupJSON(t, f.source)
 	for _, mutation := range []string{"scope", "inventory", "unknown-field"} {
@@ -611,7 +680,7 @@ func TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges(t *testing.T) {
 			case "unknown-field":
 				state["unexpectedAuthority"] = true
 			}
-			f.producer.cloud.writeObject(f.sourceKey, originalStartupJSON(t, state))
+			f.producer.cloud.writeObject(f.sourceKey, originalTypedStateJSON(t, state, originalSourceStateOrder))
 			if proof, err := bootstrap.LoadRegionalSource(t.Context(), f.template, f.client, time.Now()); err == nil || proof.IsVerified() {
 				t.Fatal("changed protected source minted inventory authority")
 			}
@@ -624,7 +693,7 @@ func TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges(t *testing.T) {
 	}
 	delete(pending, "startup")
 	delete(pending["publication"].(map[string]any), "result")
-	f.producer.cloud.writeObject(f.sourceKey, originalStartupJSON(t, pending))
+	f.producer.cloud.writeObject(f.sourceKey, originalTypedStateJSON(t, pending, originalSourceStateOrder))
 	if proof, err := bootstrap.LoadRegionalSource(t.Context(), f.template, f.client, time.Now()); !errors.Is(err, bootstrap.ErrOriginalSourcePending) || proof.IsVerified() {
 		t.Fatal("legitimate incomplete source did not hold without authority", err)
 	}

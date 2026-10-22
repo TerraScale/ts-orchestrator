@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -23,11 +24,11 @@ func originalStartupAdmission(producer OriginalSourceProducerIntent, ruleID stri
 	if !validOriginalStartupRetentionID(ruleID) {
 		return bootstrap.OriginalStartupAdmissionIntent{}, ErrOriginalSourceProducerHold
 	}
-	wire, err := json.Marshal(producer, json.Deterministic(true))
+	producerDigest, err := foundationbinding.CanonicalDigest(producer)
 	if err != nil {
 		return bootstrap.OriginalStartupAdmissionIntent{}, err
 	}
-	return bootstrap.OriginalStartupAdmissionIntent{Purpose: bootstrap.OriginalStartupAdmissionPurpose, ProducerIntentSHA256: digestSource(wire), LedgerRetentionRuleID: ruleID}, nil
+	return bootstrap.OriginalStartupAdmissionIntent{Purpose: bootstrap.OriginalStartupAdmissionPurpose, ProducerIntentSHA256: producerDigest, LedgerRetentionRuleID: ruleID}, nil
 }
 
 func validateOriginalStartupAdmissions(grant FoundationGrant) error {

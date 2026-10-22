@@ -12,6 +12,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
@@ -408,9 +409,9 @@ func verifyOriginalSourceActorImage(ctx context.Context, factory *ociclient.Fact
 func originalSourceActorScope(record FoundationRecord, index int, instance string, deadline time.Time) (OriginalSourceActorScope, error) {
 	root := record.OriginalFoundationCompartments
 	regional, birth := root.Regions[index], (*record.OriginalSourceProducers)[index]
+	// The verifier recomputes these from the stored record and signed grant wire.
 	digest := func(value any) (string, error) {
-		wire, err := json.Marshal(value, json.Deterministic(true))
-		return digestSource(wire), err
+		return foundationbinding.CanonicalDigest(value, foundationRecordWire...)
 	}
 	scope := OriginalSourceActorScope{InstanceID: instance, Cell: regional.Cell, InstallationID: birth.Intent.InstallationID, Generation: birth.Intent.Generation, GrantSHA256: root.GrantSHA256, BundleSHA256: root.BundleSHA256, ActorRequestSHA256: regional.Actor.Pending.Request.RequestDigest, ActorReadbackSHA256: regional.Actor.ReadbackSHA256, PlanSHA256: birth.Intent.PlanSHA256, Deadline: deadline}
 	var err error
@@ -426,9 +427,9 @@ func originalSourceActorScope(record FoundationRecord, index int, instance strin
 	if scope.PublicationSHA256, err = digest(root.Publication); err != nil {
 		return OriginalSourceActorScope{}, err
 	}
-	if scope.TemplateSHA256, err = digest(regional.Actor.Startup); err != nil {
+	if scope.TemplateSHA256, err = foundationbinding.CanonicalDigest(regional.Actor.Startup); err != nil {
 		return OriginalSourceActorScope{}, err
 	}
-	scope.SHA256, err = digest(scope)
+	scope.SHA256, err = foundationbinding.CanonicalDigest(scope)
 	return scope, err
 }
