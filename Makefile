@@ -23,7 +23,7 @@ verify: format-check generate-check vet race-test nats-identity-check netbird-ba
 ci-verify: ci-check release-check
 
 CI_LINT = format-check generate-check vet shellcheck nats-identity-check netbird-backup-check retired-host-check \
-	$(if $(filter pr,$(TS_TEST_TIER)),,fixturetest-check)
+	$(if $(filter pr change,$(TS_TEST_TIER)),,fixturetest-check)
 
 ci-check:
 	$(MAKE) --jobs --keep-going --output-sync=none $(CI_LINT) race-test

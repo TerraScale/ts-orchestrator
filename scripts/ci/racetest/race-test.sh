@@ -19,7 +19,8 @@
 # stable between runs. TS_RACE_JOBS bounds concurrent go test processes for
 # CPU-bound shards; TS_RACE_IDLE_JOBS more run the process labs that mostly
 # wait on real lease and session timers. TS_TEST_TIER=pr runs the fast tier
-# (-short); full, the default, runs every tier-gated test as well. Every
+# (-short); change runs it only in the packages the change reaches (see
+# below); full, the default, runs every tier-gated test as well. Every
 # listed test runs once, and any failure fails CI. Vet runs separately over
 # the whole module in make verify/ci-verify.
 #
@@ -69,9 +70,9 @@ done
 [[ $package_jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_PACKAGE_JOBS must be a positive integer' >&2; exit 2; }
 [[ $test_jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_TEST_JOBS must be a positive integer' >&2; exit 2; }
 case $tier in
-	pr) short=(-short) ;;
+	pr | change) short=(-short) ;;
 	full) short=() ;;
-	*) echo 'TS_TEST_TIER must be pr or full' >&2; exit 2 ;;
+	*) echo 'TS_TEST_TIER must be pr, change or full' >&2; exit 2 ;;
 esac
 if [[ $ci_shard =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] && ((BASH_REMATCH[1] <= BASH_REMATCH[2])); then
 	machine=${BASH_REMATCH[1]} machines=${BASH_REMATCH[2]}
@@ -109,7 +110,7 @@ while IFS= read -r line || [[ -n $line ]]; do
 		exit 2
 	}
 	[[ -z $extra ]] || pool=norace-solo
-	if [[ $tier == pr ]]; then cost=${cost#*/}; else cost=${cost%%/*}; fi
+	if [[ $tier != full ]]; then cost=${cost#*/}; else cost=${cost%%/*}; fi
 	if [[ $package == rest ]]; then
 		rest_cost=$cost
 		continue
@@ -266,6 +267,52 @@ for package in "${sharded_packages[@]}"; do
 done > "$logs/sharded"
 sharded_packages=("${present[@]}")
 mapfile -t other_packages < <(grep -v -x -F -f "$logs/sharded" "$logs/packages")
+# The change tier tests only the packages the change reaches: the package
+# holding each changed file (for a file in a non-package directory such as
+# testdata, its nearest package ancestor) and every package whose code or
+# tests import one of those. Markdown and docs/ reach no package; any other
+# file without a package ancestor (go.mod, scripts, third_party, workflows),
+# or no change base, reaches every package. The merge queue still runs the
+# whole fast tier, so this only shortens pull request feedback.
+if [[ $tier == change ]]; then
+	declare -A package_at=()
+	root=$("${go[@]}" list -m -f '{{.Dir}}')
+	while read -r dir package; do
+		dir=${dir#"$root"}
+		package_at[${dir#/}]=$package
+	done < <("${go[@]}" list -f '{{.Dir}} {{.ImportPath}}' ./...)
+	reach_all=0
+	[[ -n $change_base ]] || reach_all=1
+	: > "$logs/touched"
+	while ((!reach_all)) && IFS= read -r file; do
+		case $file in docs/* | *.md) continue ;; esac
+		dir=$file
+		while [[ $dir == */* ]]; do
+			dir=${dir%/*}
+			[[ -z ${package_at[$dir]:-} ]] || break
+		done
+		if [[ -z ${package_at[$dir]:-} ]]; then reach_all=1; break; fi
+		printf '%s\n' "${package_at[$dir]}" >> "$logs/touched"
+	done < <(git diff --name-only --no-renames "$change_base...HEAD")
+	if ((reach_all)); then
+		cp "$logs/packages" "$logs/selected"
+	else
+		# -test lists each test variant as "<path> [<path>.test]" with its test
+		# imports among the dependencies.
+		"${go[@]}" list -test -f '{{.ImportPath}}|{{join .Deps "|"}}' ./... | awk -F '|' -v touched="$logs/touched" '
+			function bare(p) { sub(/ \[.*/, "", p); sub(/\.test$/, "", p); sub(/_test$/, "", p); return p }
+			BEGIN { while ((getline p < touched) > 0) hit[p] = 1 }
+			{ for (i = 1; i <= NF; i++) if (bare($i) in hit) { print bare($1); next } }
+		' | LC_ALL=C sort -u | grep -x -F -f "$logs/packages" > "$logs/selected" || true
+	fi
+	printf 'race change reaches %s of %s packages\n' "$(wc -l < "$logs/selected")" "$(wc -l < "$logs/packages")"
+	present=()
+	for package in "${sharded_packages[@]}"; do
+		if grep -q -x -F -e "$module/${package#./}" "$logs/selected"; then present+=("$package"); fi
+	done
+	sharded_packages=("${present[@]}")
+	mapfile -t other_packages < <(printf '%s\n' "${other_packages[@]}" | grep -x -F -f "$logs/selected")
+fi
 # Discover all shards before running tests: a failed listing must fail CI,
 # and no package has several cold compilers/linkers running simultaneously.
 for package in "${sharded_packages[@]}"; do

@@ -2,7 +2,7 @@ name: Deployment lag guard
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '23 */6 * * *'
   workflow_dispatch:
 
 # The newest run of a pull request or branch cancels its older runs (user

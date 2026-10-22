@@ -3,9 +3,9 @@ name: M1 end to end
 # The whole milestone 1 flow on a disposable arm64 host, like ts-gru-1:
 # install.sh, single-host, service apply, the HTTPS edge, restarts, service rm.
 # Step timings land in the job summary (test/e2e/m1/run.sh).
+# The merge queue proves the exact tree main receives, so main pushes do not
+# run it again.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   merge_group:
