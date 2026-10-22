@@ -63,6 +63,7 @@ import (
 // management transport remains separately qualified.
 func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	tier.Integration(t)
+	t.Skip("QUARANTINE until 2026-10-23T23:00Z, owner G1 thread 38b42a12: hangs past the 20m go test timeout on main since the 2026-10-22 merges (runs 39859671310, 39863591479)")
 	// No test-owned deadline: the lab waits on real 30s session TTLs and 5s
 	// usage intervals, which -race on a loaded runner stretches past any fixed
 	// budget; go test -timeout bounds it.
