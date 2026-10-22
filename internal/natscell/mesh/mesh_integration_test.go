@@ -97,7 +97,7 @@ func (f *fakeApplier) Remove(_ context.Context, name string) (bool, error) {
 	return ok, nil
 }
 
-func (f *fakeApplier) PrePull(context.Context, string) error { return nil }
+func (f *fakeApplier) PrePull(context.Context, swarmruntime.ServiceSpec) error { return nil }
 
 func (f *fakeApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error) {
 	if ok, err := f.Running(ctx, spec.Name); err != nil || !ok {

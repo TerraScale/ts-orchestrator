@@ -191,7 +191,9 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 // PrePull fetches and unpacks a digest-pinned public image ahead of its task,
 // so a later Prepare only creates the container. It is idempotent and safe
 // to run concurrently with Prepare. Admitted registries pull per task only.
-func (e *Executor) PrePull(ctx context.Context, imageRef string) error {
+// labels are the service annotations its tasks carry, so a GHCR pull reads
+// the token from the Vault the service names.
+func (e *Executor) PrePull(ctx context.Context, imageRef string, labels map[string]string) error {
 	if err := pinnedImage(imageRef); err != nil {
 		return err
 	}
@@ -213,7 +215,8 @@ func (e *Executor) PrePull(ctx context.Context, imageRef string) error {
 		return err
 	}
 	limits := &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 1 << 30, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 1<<30)}}
-	task := &api.Task{ID: "prepull", ServiceID: "prepull", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()}}}
+	task := &api.Task{ID: "prepull", ServiceID: "prepull", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()}},
+		ServiceAnnotations: api.Annotations{Labels: labels}}
 	resolver, err := registry(runtimeContext(ctx), task, node)
 	if err != nil {
 		return fmt.Errorf("resolve pre-pull registry: %w", err)

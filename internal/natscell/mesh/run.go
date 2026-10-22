@@ -219,7 +219,11 @@ func (a swarmApplier) Remove(ctx context.Context, name string) (removed bool, er
 	return removed, err
 }
 
-func (a swarmApplier) PrePull(ctx context.Context, image string) error {
+func (a swarmApplier) PrePull(ctx context.Context, spec swarmruntime.ServiceSpec) error {
+	swarm, err := spec.SwarmSpec()
+	if err != nil {
+		return err
+	}
 	executor, err := swarmruntime.NewExecutor(swarmruntime.HostContainerdSocket, a.state)
 	if err != nil {
 		return err
@@ -229,7 +233,7 @@ func (a swarmApplier) PrePull(ctx context.Context, image string) error {
 	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(vaultsecret.ReadGHCRPullToken)); err != nil {
 		return err
 	}
-	return executor.PrePull(ctx, image)
+	return executor.PrePull(ctx, spec.Image, swarm.Annotations.Labels)
 }
 
 func (a swarmApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error) {

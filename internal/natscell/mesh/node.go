@@ -114,7 +114,7 @@ type Applier interface {
 	Remove(ctx context.Context, name string) (bool, error)
 	// PrePull fetches image before Apply, outside the mesh lock, so a
 	// replacement only creates and starts its container.
-	PrePull(ctx context.Context, image string) error
+	PrePull(ctx context.Context, spec swarmruntime.ServiceSpec) error
 	// Wait returns once every replica of spec runs it (and answers its ready
 	// path when the spec names one).
 	Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error)
@@ -356,7 +356,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 	var pulled time.Duration
 	if spec := request.Entry.Spec; err == nil && spec != nil && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
 		// The task's own Prepare still pulls, so a failed pre-pull only costs speed.
-		if pullErr := n.cfg.applier.PrePull(ctx, spec.Image); pullErr != nil {
+		if pullErr := n.cfg.applier.PrePull(ctx, *spec); pullErr != nil {
 			slog.WarnContext(ctx, "mesh pre-pull failed; the task pulls instead", "service", request.Name, "error", pullErr)
 		}
 		pulled = time.Since(start)
