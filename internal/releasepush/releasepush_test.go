@@ -515,3 +515,29 @@ func TestPushRegionWithoutPin(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 }
+
+// TestCommittedRegionsArePinned keeps every deploy/m1/regions.json line
+// pushable: a region without a valid pin fails every main release push.
+func TestCommittedRegionsArePinned(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "deploy", "m1", "regions.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var regions []Region
+	if err := json.Unmarshal(data, &regions); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, region := range regions {
+		if region.Region == "" || seen[region.Region] || !strings.HasPrefix(region.NATS, "tls://") {
+			t.Errorf("bad region entry %+v", region)
+		}
+		seen[region.Region] = true
+		if _, err := pinnedTLS(region.SPKISHA256); err != nil {
+			t.Errorf("%s: %v", region.Region, err)
+		}
+	}
+	if len(regions) == 0 {
+		t.Fatal("no regions")
+	}
+}
