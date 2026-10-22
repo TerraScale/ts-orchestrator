@@ -71,7 +71,7 @@ func startRegions(t *testing.T, answer func(name string, w http.ResponseWriter, 
 			answer(name, w, r)
 		}))
 		t.Cleanup(reg.backend.Close)
-		reg.edge.SetRoutes(map[string]int{host: reg.backend.Listener.Addr().(*net.TCPAddr).Port})
+		reg.edge.SetRoutes(map[string]int{host: reg.backend.Listener.Addr().(*net.TCPAddr).Port}, nil)
 		reg.edge.SetMesh(fakeMesh{region: name, tls: ca.TLS(name + "." + mesh.Domain), rtt: rtt[name]})
 		reg.edge.peerAddr = func(r string) string { return peers[r] }
 		reg.public = httptest.NewServer(http.HandlerFunc(reg.edge.serveHTTPS))
@@ -83,7 +83,7 @@ func startRegions(t *testing.T, answer func(name string, w http.ResponseWriter, 
 		reg.stop = func() { cancel(); <-done }
 		plainLn := listen(t)
 		reg.plain = plainLn.Addr().String()
-		go func() { reg.edge.serve(ctx, plainLn, tlsLn); close(done) }()
+		go func() { reg.edge.serve(ctx, plainLn, tlsLn, listen(t)); close(done) }()
 		t.Cleanup(reg.stop)
 		regions[name] = reg
 	}

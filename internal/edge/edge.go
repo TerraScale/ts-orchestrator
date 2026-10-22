@@ -3,7 +3,8 @@
 // loopback port of the service that claims it. HTTP/1.1, websocket and SSE
 // reach the backend over HTTP/1.1; gRPC reaches it over cleartext HTTP/2.
 // A backend answer asking for a replay goes to the nearest region it names
-// (replay.go).
+// (replay.go). Postgres clients reach a service's loopback Postgres port over
+// TLS on :5432 (postgres.go).
 package edge
 
 import (
@@ -29,11 +30,12 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
-// Edge serves :80 and :443 for the hostnames in its route table.
+// Edge serves :80, :443 and :5432 for the hostnames in its route tables.
 type Edge struct {
-	certs  *autocert.Manager
-	routes atomic.Pointer[map[string]int]
-	proxy  *httputil.ReverseProxy
+	certs    *autocert.Manager
+	routes   atomic.Pointer[map[string]int]
+	postgres atomic.Pointer[map[string]int]
+	proxy    *httputil.ReverseProxy
 	// challenges answers HTTP-01 for the tokens this edge holds.
 	challenges http.Handler
 	mesh       atomic.Pointer[Mesh]
@@ -51,6 +53,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	e := &Edge{peerAddr: func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") }}
 	e.peers = newPeerTransport(e)
 	e.routes.Store(&map[string]int{})
+	e.postgres.Store(&map[string]int{})
 	e.certs = &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		Cache:      autocert.DirCache(filepath.Join(stateDir, "edge-certs")),
@@ -116,35 +119,42 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	return e
 }
 
-// SetRoutes replaces the hostname -> 127.0.0.1 port table. Certificates are
-// issued only for hostnames in the table.
-func (e *Edge) SetRoutes(routes map[string]int) {
-	table := make(map[string]int, len(routes))
-	for host, port := range routes {
-		table[strings.ToLower(host)] = port
+// SetRoutes replaces the hostname -> 127.0.0.1 port tables for HTTPS (web)
+// and Postgres. Certificates are issued only for hostnames in the tables.
+func (e *Edge) SetRoutes(web, postgres map[string]int) {
+	lower := func(routes map[string]int) *map[string]int {
+		table := make(map[string]int, len(routes))
+		for host, port := range routes {
+			table[strings.ToLower(host)] = port
+		}
+		return &table
 	}
-	e.routes.Store(&table)
+	e.routes.Store(lower(web))
+	e.postgres.Store(lower(postgres))
 }
 
-// Run serves :80 and :443 until ctx ends.
+// Run serves :80, :443 and :5432 until ctx ends.
 func (e *Edge) Run(ctx context.Context) error {
-	httpLn, err := net.Listen("tcp", ":80")
-	if err != nil {
-		return fmt.Errorf("edge: listen :80: %w", err)
+	var lns []net.Listener
+	for _, addr := range []string{":80", ":443", ":" + strconv.Itoa(PostgresPort)} {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			for _, ln := range lns {
+				ln.Close()
+			}
+			return fmt.Errorf("edge: listen %s: %w", addr, err)
+		}
+		lns = append(lns, ln)
 	}
-	tlsLn, err := net.Listen("tcp", ":443")
-	if err != nil {
-		httpLn.Close()
-		return fmt.Errorf("edge: listen :443: %w", err)
-	}
-	return e.serve(ctx, httpLn, tlsLn)
+	return e.serve(ctx, lns[0], lns[1], lns[2])
 }
 
-func (e *Edge) serve(ctx context.Context, httpLn, tlsLn net.Listener) error {
+func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener) error {
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
 	plain := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if _, ok := e.port(r.Host); !ok {
+			// A Postgres hostname needs :80 only for its certificate's challenge.
+			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
 				http.NotFound(w, r)
 				return
 			}
@@ -177,9 +187,10 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn net.Listener) error {
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 	}
-	errs := make(chan error, 2)
+	errs := make(chan error, 3)
 	go func() { errs <- plain.Serve(httpLn) }()
 	go func() { errs <- public.ServeTLS(tlsLn, "", "") }()
+	go func() { errs <- e.servePostgres(pgLn) }()
 	var err error
 	select {
 	case <-ctx.Done():
@@ -187,7 +198,8 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn net.Listener) error {
 	}
 	plain.Close()
 	public.Close()
-	if errors.Is(err, http.ErrServerClosed) {
+	pgLn.Close()
+	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		err = nil
 	}
 	return err
@@ -237,7 +249,7 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (e *Edge) hostPolicy(_ context.Context, host string) error {
-	if _, ok := e.port(host); !ok {
+	if _, ok := e.port(host); !ok && !e.postgresHost(host) {
 		return fmt.Errorf("edge: no route for host %q", host)
 	}
 	return nil

@@ -23,3 +23,30 @@ func TestHostnameClaimedByOtherRefusesTakeover(t *testing.T) {
 		t.Fatalf("service without hostnames refused: %v", err)
 	}
 }
+
+func TestServiceSpecPostgresPublishesSecondPort(t *testing.T) {
+	base := ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764",
+		Port: 8080, Replicas: 1, Postgres: &ServicePostgres{Port: 6432, Hostname: "pg.example.com"}}
+	spec, err := base.SwarmSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ports := spec.Endpoint.Ports; len(ports) != 2 || ports[0].PublishedPort != 8080 || ports[1].PublishedPort != 6432 || ports[1].TargetPort != 6432 || spec.Annotations.Labels[LabelPostgres] != "pg.example.com" {
+		t.Fatalf("endpoint %v labels %v", spec.Endpoint.Ports, spec.Annotations.Labels)
+	}
+	inspected, err := InspectService(&api.Service{Spec: *spec})
+	if err != nil || *inspected.Spec.Postgres != *base.Postgres {
+		t.Fatalf("inspect postgres = %+v, %v", inspected.Spec.Postgres, err)
+	}
+	owner := &api.Service{Spec: *spec}
+	if err := hostnameClaimedByOther([]*api.Service{owner}, "evil", []string{"pg.example.com"}); err == nil {
+		t.Fatal("another service took over the postgres hostname")
+	}
+	for _, pg := range []ServicePostgres{{Port: 8080, Hostname: "pg.example.com"}, {Port: 80, Hostname: "pg.example.com"}, {Port: 6432, Hostname: "Not A Host"}} {
+		bad := base
+		bad.Postgres = &pg
+		if _, err := bad.SwarmSpec(); err == nil {
+			t.Fatalf("postgres %+v accepted", pg)
+		}
+	}
+}

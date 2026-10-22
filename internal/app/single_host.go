@@ -13,6 +13,7 @@ import (
 
 	"github.com/moby/swarmkit/v2/api"
 
+	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
@@ -63,8 +64,9 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		// Workloads keep serving; only release pushes are blocked until the next start.
 		fmt.Fprintf(output, "release listener firewall: %v\n", err)
 	}
-	// The edge's :80/:443 sit behind the same Ubuntu OCI image INPUT REJECT.
-	for _, port := range []int{80, 443} {
+	// The edge's :80/:443/:5432 sit behind the same Ubuntu OCI image INPUT REJECT;
+	// service ports (8080, 6432, ...) stay rejected, reachable on loopback only.
+	for _, port := range []int{80, 443, edge.PostgresPort} {
 		if err := releasepush.OpenTCP(ctx, port); err != nil {
 			fmt.Fprintf(output, "edge firewall: %v\n", err)
 		}

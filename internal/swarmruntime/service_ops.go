@@ -148,6 +148,9 @@ func InspectService(service *api.Service) (ServiceInspection, error) {
 	}
 	if service.Spec.Endpoint != nil && len(service.Spec.Endpoint.Ports) != 0 {
 		spec.Port = service.Spec.Endpoint.Ports[0].PublishedPort
+		if host := labels[LabelPostgres]; host != "" && len(service.Spec.Endpoint.Ports) == 2 {
+			spec.Postgres = &ServicePostgres{Port: service.Spec.Endpoint.Ports[1].PublishedPort, Hostname: host}
+		}
 	}
 	created, _ := types.TimestampFromProto(service.Meta.CreatedAt)
 	updated, _ := types.TimestampFromProto(service.Meta.UpdatedAt)

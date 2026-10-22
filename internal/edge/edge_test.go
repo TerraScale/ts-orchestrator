@@ -2,9 +2,11 @@ package edge
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -38,6 +40,8 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	t.Setenv("PEBBLE_WFE_NONCEREJECT", "0")
 	httpLn := listen(t)
 	tlsLn := listen(t)
+	pgLn := listen(t)
+	pgBackend, pgGot := echoBackend(t)
 
 	logger := log.New(io.Discard, "", 0)
 	store := db.NewMemoryStore()
@@ -60,11 +64,11 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	e := newEdge(stateDir, &acme.Client{DirectoryURL: acmeServer.URL + wfe.DirectoryPath, HTTPClient: acmeServer.Client()})
 	e.SetRoutes(map[string]int{
 		"App.Edge.Test": app.Listener.Addr().(*net.TCPAddr).Port,
-	})
+	}, map[string]int{"PG.Edge.Test": pgBackend})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	served := make(chan error, 1)
-	go func() { served <- e.serve(ctx, httpLn, tlsLn) }()
+	go func() { served <- e.serve(ctx, httpLn, tlsLn, pgLn) }()
 
 	roots := x509.NewCertPool()
 	roots.AddCert(authority.GetRootCert(0).Cert)
@@ -194,10 +198,118 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		}
 	})
 
+	pg := func(t *testing.T, packets ...[]byte) net.Conn {
+		t.Helper()
+		conn, err := net.Dial("tcp", pgLn.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { conn.Close() })
+		conn.SetDeadline(time.Now().Add(30 * time.Second))
+		for _, packet := range packets {
+			if _, err := conn.Write(packet); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return conn
+	}
+	roundTrip := func(t *testing.T, conn net.Conn) {
+		t.Helper()
+		if _, err := conn.Write([]byte("hello")); err != nil {
+			t.Fatal(err)
+		}
+		reply := make([]byte, 5)
+		if _, err := io.ReadFull(conn, reply); err != nil || string(reply) != "hello" || string(<-pgGot) != "hello" {
+			t.Fatalf("echo = %q, %v", reply, err)
+		}
+	}
+	startup := func(code uint32) []byte { return binary.BigEndian.AppendUint32([]byte{0, 0, 0, 8}, code) }
+
+	t.Run("postgres plaintext refused", func(t *testing.T) {
+		conn := pg(t, append(binary.BigEndian.AppendUint32([]byte{0, 0, 0, 17}, 196608), "user\x00x\x00\x00"...))
+		reply, _ := io.ReadAll(conn)
+		if len(reply) == 0 || reply[0] != 'E' || !bytes.Contains(reply, []byte("C28000\x00")) || !bytes.Contains(reply, []byte("sslmode=require")) {
+			t.Fatalf("reply = %q", reply)
+		}
+	})
+
+	t.Run("postgres sslrequest", func(t *testing.T) {
+		conn := pg(t, startup(gssencRequest))
+		reply := make([]byte, 1)
+		if _, err := io.ReadFull(conn, reply); err != nil || reply[0] != 'N' {
+			t.Fatalf("GSSENCRequest reply = %q, %v", reply, err)
+		}
+		conn.Write(startup(sslRequest))
+		if _, err := io.ReadFull(conn, reply); err != nil || reply[0] != 'S' {
+			t.Fatalf("SSLRequest reply = %q, %v", reply, err)
+		}
+		client := tls.Client(conn, &tls.Config{RootCAs: roots, ServerName: "pg.edge.test"})
+		roundTrip(t, client)
+	})
+
+	t.Run("postgres direct tls", func(t *testing.T) {
+		client := tls.Client(pg(t), &tls.Config{RootCAs: roots, ServerName: "pg.edge.test", NextProtos: []string{"postgresql"}})
+		roundTrip(t, client)
+		// Direct TLS without the Postgres ALPN is closed before the backend.
+		client = tls.Client(pg(t), &tls.Config{RootCAs: roots, ServerName: "pg.edge.test"})
+		if _, err := client.Read(make([]byte, 1)); err == nil {
+			t.Fatal("direct TLS without ALPN was proxied")
+		}
+	})
+
+	t.Run("postgres unknown sni", func(t *testing.T) {
+		conn := pg(t, startup(sslRequest))
+		io.ReadFull(conn, make([]byte, 1))
+		if err := tls.Client(conn, &tls.Config{RootCAs: roots, ServerName: "app.edge.test"}).Handshake(); err == nil {
+			t.Fatal("handshake for a web-only hostname succeeded on :5432")
+		}
+	})
+
+	t.Run("postgres cancel", func(t *testing.T) {
+		request := binary.BigEndian.AppendUint32(binary.BigEndian.AppendUint32([]byte{0, 0, 0, 16}, cancelRequest), 42)
+		request = binary.BigEndian.AppendUint32(request, 7)
+		pg(t, request)
+		select {
+		case got := <-pgGot:
+			if !bytes.Equal(got, request) {
+				t.Fatalf("backend got %x, want %x", got, request)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("cancel request never reached the backend")
+		}
+	})
+
 	cancel()
 	if err := <-served; err != nil {
 		t.Fatalf("serve: %v", err)
 	}
+}
+
+// echoBackend stands in for a plaintext Postgres server: it reports each
+// connection's first read on got and echoes everything back.
+func echoBackend(t *testing.T) (port int, got chan []byte) {
+	ln := listen(t)
+	got = make(chan []byte, 8)
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				buf := make([]byte, 64)
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				got <- buf[:n]
+				conn.Write(buf[:n])
+				io.Copy(conn, conn)
+			}()
+		}
+	}()
+	return ln.Addr().(*net.TCPAddr).Port, got
 }
 
 func appBackend() http.Handler {
@@ -282,7 +394,7 @@ func (zeros) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
 func TestEdgeRefusesPublicNetBirdSetup(t *testing.T) {
 	e := newEdge(t.TempDir(), nil)
-	e.SetRoutes(map[string]int{netbirdHost: 1})
+	e.SetRoutes(map[string]int{netbirdHost: 1}, nil)
 	for _, target := range []string{"/api/setup", "//api/./setup", "/api/setup/"} {
 		r := httptest.NewRequest(http.MethodPost, "https://"+netbirdHost+target, nil)
 		w := httptest.NewRecorder()

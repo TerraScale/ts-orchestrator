@@ -96,10 +96,10 @@ func probeLocalPort(ctx context.Context, task *api.Task) error {
 }
 
 func hostPort(task *api.Task) (uint16, error) {
-	if task.Endpoint == nil || task.Endpoint.Spec == nil || len(task.Endpoint.Spec.Ports) != 1 {
-		return 0, errors.New("task readiness requires one reserved host port")
+	if task.Endpoint == nil || task.Endpoint.Spec == nil || len(task.Endpoint.Spec.Ports) == 0 {
+		return 0, errors.New("task readiness requires a reserved host port")
 	}
-	// Generic host ports remain in Spec; the executor owns their durable host reservations.
+	// The first port serves readiness (a spec's postgres port follows it). Generic host ports remain in Spec; the executor owns their durable host reservations.
 	port := task.Endpoint.Spec.Ports[0]
 	if port == nil || port.PublishMode != api.PublishModeHost || port.Protocol != api.ProtocolTCP || port.PublishedPort < 1024 || port.PublishedPort > 65535 || port.TargetPort != port.PublishedPort {
 		return 0, errors.New("task readiness requires a non-privileged host TCP port")

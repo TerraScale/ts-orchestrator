@@ -117,28 +117,32 @@ func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge) {
 	}
 }
 
-// edgeRoutes maps every hostname a service declares to its published port.
-// The oldest service keeps a hostname another service also claims, so a later
-// spec cannot take over traffic (apply refuses that too).
-func edgeRoutes(services []*api.Service) map[string]int {
+// edgeRoutes maps every hostname a service declares to its published port,
+// and every postgres hostname to its postgres port. The oldest service keeps
+// a hostname another service also claims, so a later spec cannot take over
+// traffic (apply refuses that too).
+func edgeRoutes(services []*api.Service) (web, postgres map[string]int) {
 	services = slices.Clone(services)
 	slices.SortStableFunc(services, func(a, b *api.Service) int {
 		at, bt := a.Meta.CreatedAt, b.Meta.CreatedAt
 		return cmp.Or(cmp.Compare(at.GetSeconds(), bt.GetSeconds()), cmp.Compare(at.GetNanos(), bt.GetNanos()), strings.Compare(a.ID, b.ID))
 	})
-	routes := map[string]int{}
+	web, postgres = map[string]int{}, map[string]int{}
 	for _, svc := range services {
-		hosts := svc.Spec.Annotations.Labels[swarmruntime.LabelHostnames]
-		if hosts == "" || svc.Spec.Endpoint == nil || len(svc.Spec.Endpoint.Ports) == 0 {
+		if svc.Spec.Endpoint == nil || len(svc.Spec.Endpoint.Ports) == 0 {
 			continue
 		}
-		for host := range strings.SplitSeq(hosts, ",") {
-			if _, owned := routes[host]; !owned {
-				routes[host] = int(svc.Spec.Endpoint.Ports[0].PublishedPort)
+		ports, labels := svc.Spec.Endpoint.Ports, svc.Spec.Annotations.Labels
+		for host := range strings.SplitSeq(labels[swarmruntime.LabelHostnames], ",") {
+			if _, owned := web[host]; host != "" && !owned {
+				web[host] = int(ports[0].PublishedPort)
 			}
 		}
+		if _, owned := postgres[labels[swarmruntime.LabelPostgres]]; labels[swarmruntime.LabelPostgres] != "" && len(ports) == 2 && !owned {
+			postgres[labels[swarmruntime.LabelPostgres]] = int(ports[1].PublishedPort)
+		}
 	}
-	return routes
+	return web, postgres
 }
 
 func Run(ctx context.Context, args []string, output io.Writer) error {

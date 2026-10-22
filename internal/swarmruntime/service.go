@@ -380,6 +380,8 @@ const (
 	LabelSecretRefs = "terrascale.secret-refs"
 	// LabelGeneration is the mesh desired-state generation the service runs.
 	LabelGeneration = "terrascale.generation"
+	// LabelPostgres is ServiceSpec.Postgres.Hostname; its port is the second endpoint port.
+	LabelPostgres = "terrascale.postgres"
 )
 
 var (
@@ -425,12 +427,20 @@ type ServiceSpec struct {
 	// Regions lists the region tokens that run the service; empty means every
 	// ordered region. The mesh reads it; the local service ignores it.
 	Regions []string `json:"regions,omitempty"`
+	// Postgres declares a plaintext Postgres listener on loopback that the edge
+	// serves over TLS on public :5432 for Hostname.
+	Postgres *ServicePostgres `json:"postgres,omitempty"`
 	// Generation is the mesh desired-state generation, stamped as a label.
 	Generation int64 `json:"-"`
 	// Region and Node are the mesh host's region and node name; when set,
 	// the task gets TS_REGION, TS_NODE and TS_PEERS_FILE.
 	Region string `json:"-"`
 	Node   string `json:"-"`
+}
+
+type ServicePostgres struct {
+	Port     uint32 `json:"port"`
+	Hostname string `json:"hostname"`
 }
 
 type ServiceMount struct {
@@ -493,6 +503,13 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 			return nil, fmt.Errorf("invalid hostname %q", host)
 		}
 	}
+	ports := []*api.PortConfig{{Protocol: api.ProtocolTCP, TargetPort: s.Port, PublishedPort: s.Port, PublishMode: api.PublishModeHost}}
+	if pg := s.Postgres; pg != nil {
+		if pg.Port < 1024 || pg.Port > 65535 || pg.Port == s.Port || len(pg.Hostname) > 253 || !hostname.MatchString(pg.Hostname) {
+			return nil, errors.New("postgres needs a port in 1024..65535 other than port, and a valid hostname")
+		}
+		ports = append(ports, &api.PortConfig{Protocol: api.ProtocolTCP, TargetPort: pg.Port, PublishedPort: pg.Port, PublishMode: api.PublishModeHost})
+	}
 	env, err := s.taskEnv()
 	if err != nil {
 		return nil, err
@@ -515,6 +532,9 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	if len(s.Hostnames) != 0 {
 		labels[LabelHostnames] = strings.Join(s.Hostnames, ",")
+	}
+	if s.Postgres != nil {
+		labels[LabelPostgres] = s.Postgres.Hostname
 	}
 	if len(s.Secrets) != 0 {
 		labels[LabelSecrets] = strings.Join(slices.Sorted(maps.Keys(s.Secrets)), ",")
@@ -553,7 +573,7 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		Task:        task,
 		Mode:        &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: s.Replicas}},
 		Update:      &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(serviceUpdateMonitor), Order: api.UpdateConfig_STOP_FIRST},
-		Endpoint:    &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: []*api.PortConfig{{Protocol: api.ProtocolTCP, TargetPort: s.Port, PublishedPort: s.Port, PublishMode: api.PublishModeHost}}},
+		Endpoint:    &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: ports},
 	}, nil
 }
 
@@ -689,7 +709,11 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 	if err != nil {
 		return nil, err
 	}
-	if err := hostnameClaimedByOther(all.Services, s.Name, s.Hostnames); err != nil {
+	claimed := s.Hostnames
+	if s.Postgres != nil {
+		claimed = append(slices.Clone(claimed), s.Postgres.Hostname)
+	}
+	if err := hostnameClaimedByOther(all.Services, s.Name, claimed); err != nil {
 		return nil, err
 	}
 	current, err := specService(ctx, client, s.Name)
@@ -720,7 +744,8 @@ func hostnameClaimedByOther(services []*api.Service, name string, hostnames []st
 		if svc.Spec.Annotations.Name == name {
 			continue
 		}
-		for owned := range strings.SplitSeq(svc.Spec.Annotations.Labels[LabelHostnames], ",") {
+		labels := svc.Spec.Annotations.Labels
+		for owned := range strings.SplitSeq(labels[LabelHostnames]+","+labels[LabelPostgres], ",") {
 			if owned != "" && slices.Contains(hostnames, owned) {
 				return fmt.Errorf("hostname %q is already routed to service %q", owned, svc.Spec.Annotations.Name)
 			}
