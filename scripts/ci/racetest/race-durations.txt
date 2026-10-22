@@ -129,6 +129,15 @@ rest - 1
 ./internal/region TestOriginalFoundationSourceIAMSDK 90/1 norace solo
 ./internal/region TestOriginalFoundationCurrentnessSDK 205/1 norace solo
 ./internal/region TestOriginalFoundationMaterialIAMPeerGroupSDK 290/1 norace solo
+./internal/region TestOriginalStartupLedgerSDKExactExternalSeedAndRestart 180/1 norace solo
+./internal/region TestOriginalStartupLedgerSDKRejectsSchemaAndBirthChanges 100/1 norace solo
+./internal/region TestOriginalStartupLedgerSDKPreservesOrdinarySchema1 100/1 norace solo
+./internal/region TestOriginalStartupTrustSDKCancellationHoldsAtIAMBoundary 100/1 norace solo
+./internal/region TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges 100/1 norace solo
+./internal/region TestOriginalStartupActorCannotBypassRunningBinarySDK 90/1 norace solo
+./internal/region TestOriginalMaterialPublicationUsesProtectedV2Policy 90/1 norace solo
+./internal/region TestOriginalSourceActorRequiresCompleteSignedOriginalRecord 50/1 norace solo
+./internal/region TestOriginalSourceActorOwnPrincipalSDKStopsAtRunningBinary 50/1 norace solo
 
 # Original NetBird SDK scenarios (tier.Integration), same rules; race
 # seconds and non-race seconds from dev hosts (2026-10-22).
