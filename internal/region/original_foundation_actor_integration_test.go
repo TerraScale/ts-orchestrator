@@ -1332,41 +1332,73 @@ func testOriginalFoundationActorsSDK(t *testing.T, part *originalSubtestPart) {
 }
 
 func TestOriginalFoundationActorsSDKPart1(t *testing.T) {
-	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(1, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(1, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
 }
 
 func TestOriginalFoundationActorsSDKPart2(t *testing.T) {
-	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(2, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(2, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
 }
 
 func TestOriginalFoundationActorsSDKPart3(t *testing.T) {
-	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(3, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(3, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
 }
 
 func TestOriginalFoundationActorsSDKPart4(t *testing.T) {
-	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(4, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(4, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
 }
 
 func TestOriginalFoundationActorsSDKPart5(t *testing.T) {
-	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(5, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(5, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
 }
 
 func TestOriginalFoundationActorsSDKPart6(t *testing.T) {
-	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(6, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(6, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
 }
 
 func TestOriginalFoundationActorsSDKPart7(t *testing.T) {
-	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(7, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(7, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
 }
 
 func TestOriginalFoundationActorsSDKPart8(t *testing.T) {
-	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(8, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(8, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
 }
 
 func TestOriginalFoundationActorsSDKPart9(t *testing.T) {
-	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(9, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(9, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
 }
 
 func TestOriginalFoundationActorsSDKPart10(t *testing.T) {
-	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(10, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(10, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart11(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(11, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart12(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(12, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart13(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(13, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart14(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(14, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart15(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(15, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart16(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(16, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart17(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(17, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart18(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(18, 18, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
 }
