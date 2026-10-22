@@ -859,7 +859,6 @@ func (f *originalMaterialIAMSDKFixture) assertRuntimeJoinSDK(t *testing.T, permi
 }
 
 func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes with the shared fixture but takes 457s on idle delta, 601 to 681s beside 7 jobs and 1075s on a loaded mariogk-dev without -race at GOMAXPROCS=2 -cpu 2; too close to the 20m shard timeout")
 	tier.Integration(t)
 	shared := newOriginalMaterialIAMSDKFixture(t, "")
 	// Subtests start with every stage below material IAM complete: a refused

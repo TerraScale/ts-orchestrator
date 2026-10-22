@@ -556,7 +556,6 @@ func (f *originalActorReadsSDKFixture) assertReadsState(t *testing.T) {
 }
 
 func TestOriginalFoundationActorReadsSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes with the shared fixture but takes 737s alone and 1019s beside 5 jobs without -race at GOMAXPROCS=2 -cpu 2; each of its ~115 subtests replays the actor chain")
 	tier.Integration(t)
 	shared := newOriginalActorReadsSDKFixture(t, "", 0)
 	// Every subtest starts after the genuine actor stage it does not exercise.
