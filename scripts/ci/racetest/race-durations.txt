@@ -25,22 +25,25 @@
 
 rest - 1
 
-# Unsharded packages, from CI run 39670774526 (pull request, 2026-10-21).
-./internal/authority - 96
-./internal/bootstrapmaterial - 68
-./internal/region - 55
-./internal/oci - 53
-./tests/imagequalification - 35
-./internal/bootstrap/cli - 32
-./internal/functions - 27
-./internal/release/cli - 23
-./tests/firecracker/production/fixturegen - 20
-./internal/ociclient - 19
-./internal/bootstrapstart/materialsource - 18
-./internal/selfupdate/cli - 15
-./internal/dashboard/devfake - 13
-./internal/placement - 10
-./internal/dashboard - 9
+# Unsharded packages, from CI run 39670774526 (pull request, 2026-10-21),
+# doubled and tests/deploy times five from four-machine runs 39698932024
+# and 39699003343 (2026-10-22), where they ran that much over their
+# estimates and left one machine with twice the work of the others.
+./internal/authority - 192
+./internal/bootstrapmaterial - 136
+./internal/region - 110
+./internal/oci - 106
+./tests/imagequalification - 70
+./internal/bootstrap/cli - 64
+./internal/functions - 54
+./internal/release/cli - 46
+./tests/firecracker/production/fixturegen - 40
+./internal/ociclient - 38
+./internal/bootstrapstart/materialsource - 36
+./internal/selfupdate/cli - 30
+./internal/dashboard/devfake - 26
+./internal/placement - 20
+./internal/dashboard - 18
 
 # Swarm manager integration suites run one after another; local -race timings
 # (2026-10-21). -short skips none of them.
@@ -81,27 +84,27 @@ rest - 1
 # Offline image builder: a successful build is about 25s, a rejection inside
 # the guest phase about 6s, a rejection before image effects a few seconds.
 # Under -short each rejection family keeps one case.
-./tests/deploy TestOfflineReadbackMismatchDiscardsCandidate 60/25 solo
-./tests/deploy TestOfflineRejectsBaseArtifacts 15/10 solo
-./tests/deploy TestOfflineVerifiedInputsInstalled 25
-./tests/deploy TestOfflineDeploymentMaterialNeverBaked 25
-./tests/deploy TestOfflineManagedRootAndVolumeInitUnits 25
-./tests/deploy TestOfflineInstallsSelfUpdateEnabled 25
-./tests/deploy TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex 25
-./tests/deploy TestOfflineCreatesMissingUploadParents 25
-./tests/deploy TestOfflineBuildAcceptsRelativeOutputPaths 25/1
-./tests/deploy TestOfflineTimesyncSectionsAndMaskPrecedence 25/1
-./tests/deploy TestOfflineBaseKernelMustBeOneARM64ImageWithModules 30/6
-./tests/deploy TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange 28/5
-./tests/deploy TestOfflineRejectsUnsafeNativeVerifierParents 18/6
-./tests/deploy TestOfflineEveryImageRequiresEnabledOpenSSHServer 12/6
-./tests/deploy TestOfflineRejectsMaskedOrConflictingSelfUpdate 20/6
-./tests/deploy TestOfflineRejectsReservedWorkloadIdentityBeforeInstall 6
-./tests/deploy TestOfflineRejectsSymlinkedUploadParents 6
-./tests/deploy TestOfflineRequiresAuditedSystemdAndInstallDirectives 6
-./tests/deploy TestOfflineRequiresPinnedVolumeTools 6
-./tests/deploy TestOfflineRejectsCompetingTimesyncConfiguration 6
-./tests/deploy TestOfflineMissingTimeSyncUnitsAbortImage 6/1
-./tests/deploy TestOfflineRejectsBadPublicInputsBeforeImageEffects 6
-./tests/deploy TestOfflineRejectsDeploymentFlagsBeforeImageEffects 5
-./tests/deploy * 2
+./tests/deploy TestOfflineReadbackMismatchDiscardsCandidate 300/125 solo
+./tests/deploy TestOfflineRejectsBaseArtifacts 75/50 solo
+./tests/deploy TestOfflineVerifiedInputsInstalled 125
+./tests/deploy TestOfflineDeploymentMaterialNeverBaked 125
+./tests/deploy TestOfflineManagedRootAndVolumeInitUnits 125
+./tests/deploy TestOfflineInstallsSelfUpdateEnabled 125
+./tests/deploy TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex 125
+./tests/deploy TestOfflineCreatesMissingUploadParents 125
+./tests/deploy TestOfflineBuildAcceptsRelativeOutputPaths 125/5
+./tests/deploy TestOfflineTimesyncSectionsAndMaskPrecedence 125/5
+./tests/deploy TestOfflineBaseKernelMustBeOneARM64ImageWithModules 150/30
+./tests/deploy TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange 140/25
+./tests/deploy TestOfflineRejectsUnsafeNativeVerifierParents 90/30
+./tests/deploy TestOfflineEveryImageRequiresEnabledOpenSSHServer 60/30
+./tests/deploy TestOfflineRejectsMaskedOrConflictingSelfUpdate 100/30
+./tests/deploy TestOfflineRejectsReservedWorkloadIdentityBeforeInstall 30
+./tests/deploy TestOfflineRejectsSymlinkedUploadParents 30
+./tests/deploy TestOfflineRequiresAuditedSystemdAndInstallDirectives 30
+./tests/deploy TestOfflineRequiresPinnedVolumeTools 30
+./tests/deploy TestOfflineRejectsCompetingTimesyncConfiguration 30
+./tests/deploy TestOfflineMissingTimeSyncUnitsAbortImage 30/5
+./tests/deploy TestOfflineRejectsBadPublicInputsBeforeImageEffects 30
+./tests/deploy TestOfflineRejectsDeploymentFlagsBeforeImageEffects 25
+./tests/deploy * 10
