@@ -18,11 +18,13 @@ func TestUserDataInstallsEveryUnitAndVerifiesTheBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"#!/bin/bash\n", "echo '" + sum + "  '\"$tmp\" | sha256sum -c --quiet",
-		"/etc/systemd/system/ts-orch.service", "/etc/systemd/system/netbird-server.service",
-		"systemctl enable ts-orch.service netbird-server.service\n", "apt-get install -y -qq netbird"} {
+		"/etc/systemd/system/ts-orch.service", "systemctl enable ts-orch.service\n", "apt-get install -y -qq netbird"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("user data lacks %q", want)
 		}
+	}
+	if strings.Contains(script, "netbird-server") || strings.Count(script, "/etc/systemd/system/") != 2 {
+		t.Error("cloud-init installs a unit besides ts-orch.service; gru runs the one NetBird server")
 	}
 	runtime, _ := m1.Files.ReadFile("host-runtime.sh")
 	if !strings.Contains(script, base64.StdEncoding.EncodeToString(runtime)) {

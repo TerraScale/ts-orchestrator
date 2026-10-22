@@ -4,8 +4,8 @@ package m1
 
 import "embed"
 
-// Files holds host-runtime.sh, ts-orch.service and services/*.service, the
-// same files deploy/m1/install.sh copies over ssh.
+// Files holds host-runtime.sh and ts-orch.service, which deploy/m1/install.sh
+// also copies over ssh.
 //
-//go:embed host-runtime.sh ts-orch.service services/*.service
+//go:embed host-runtime.sh ts-orch.service
 var Files embed.FS
