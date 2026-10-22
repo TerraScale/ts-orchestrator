@@ -1,0 +1,76 @@
+name: App release canary
+
+# Proves app auto-deploy (W22) end to end on every main push: publishes
+# ghcr.io/terrascale/app-canary (traefik/whoami relabelled with this commit,
+# so every push is a new digest) and releases its linux/arm64 digest to every
+# region with `ts-orch release app`. Hosts admit this workflow's OIDC token
+# for the app-canary service only (releasepush appServices). The job summary
+# shows published -> serving in every region.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: app-canary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: app-canary/release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: deploy/m1/regions.json
+          sparse-checkout-cone-mode: false
+
+      - name: Publish the canary image
+        id: image
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image=ghcr.io/terrascale/app-canary
+          printf '%s\n' 'FROM docker.io/traefik/whoami@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44' \
+            'ARG REVISION' 'LABEL org.opencontainers.image.revision=$REVISION' > "${RUNNER_TEMP}/Dockerfile"
+          echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker buildx create --use --driver docker-container >/dev/null
+          # FROM + LABEL only: no emulation needed for arm64.
+          docker buildx build --platform linux/amd64,linux/arm64 --build-arg "REVISION=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --tag "${image}:${GITHUB_SHA}" --push "${RUNNER_TEMP}"
+          digest=$(docker buildx imagetools inspect "${image}:${GITHUB_SHA}" --format '{{json .Manifest}}' |
+            jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64") | .digest')
+          test -n "$digest"
+          echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
+          echo "Published \`${image}@${digest}\` (linux/arm64)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Download the newest main ts-orch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$(gh release list --repo TerraScale/ts-orchestrator --limit 30 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("ci-"))] | sort_by(.createdAt) | last | .tagName // ""')
+          test -n "$tag"
+          gh release download "$tag" --repo TerraScale/ts-orchestrator --dir dist --pattern terrascale-orchestrator-linux-amd64
+          chmod +x dist/terrascale-orchestrator-linux-amd64
+
+      - name: Release to every region
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        run: |
+          set -euo pipefail
+          dist/terrascale-orchestrator-linux-amd64 release app --service app-canary --image "$IMAGE" | tee -a "$GITHUB_STEP_SUMMARY"
