@@ -101,7 +101,7 @@ func (c *Controller) CommitUsageObservation(ctx context.Context, observation Usa
 		}
 	}
 	if observation.CoveredSequence != 0 {
-		raw, err := c.controlLog.GetMsg(ctx, observation.PreviousSequence)
+		raw, err := c.controlLogMsg(ctx, observation.PreviousSequence)
 		if err != nil {
 			return CommittedUsage{}, err
 		}
@@ -120,7 +120,7 @@ func (c *Controller) CommitUsageObservation(ctx context.Context, observation Usa
 			if observation.CoveredSequence == 0 {
 				break
 			}
-			raw, err := c.controlLog.GetMsg(ctx, observation.PreviousSequence+1,
+			raw, err := c.controlLogMsg(ctx, observation.PreviousSequence+1,
 				jetstream.WithGetMsgSubject(protocol.Control(c.cell, "host")+"."+kind+"."+key))
 			if err != nil && !errors.Is(err, jetstream.ErrMsgNotFound) {
 				return CommittedUsage{}, err
@@ -154,7 +154,7 @@ func (c *Controller) CommitUsageObservation(ctx context.Context, observation Usa
 	}
 	// Read this exact acknowledged sequence; a newer report must not substitute
 	// its receive timestamp or resource requests for this sample.
-	raw, err := c.controlLog.GetMsg(ctx, sequence)
+	raw, err := c.controlLogMsg(ctx, sequence)
 	if err != nil {
 		return CommittedUsage{}, err
 	}

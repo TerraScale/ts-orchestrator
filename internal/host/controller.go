@@ -634,6 +634,16 @@ func (c *Controller) controlLogSubjects(ctx context.Context, filter string) (*je
 	return c.controlLog.Info(ctx, jetstream.WithSubjectFilter(filter))
 }
 
+// controlLogMsg reads one control log message under the Info lock, because
+// GetMsg reads the handle's cached Info reply.
+func (c *Controller) controlLogMsg(ctx context.Context, sequence uint64, opts ...jetstream.GetMsgOpt) (*jetstream.RawStreamMsg, error) {
+	if err := c.lockControlLog(ctx); err != nil {
+		return nil, err
+	}
+	defer func() { <-c.controlLogInfoGate }()
+	return c.controlLog.GetMsg(ctx, sequence, opts...)
+}
+
 func (c *Controller) lockControlLog(ctx context.Context) error {
 	c.controlLogInfoOnce.Do(func() { c.controlLogInfoGate = make(chan struct{}, 1) })
 	if err := ctx.Err(); err != nil {
