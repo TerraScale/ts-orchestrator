@@ -214,6 +214,10 @@ func (c *Controller) verifyManagedEnrollmentHistory(ctx context.Context, native 
 	if c.controlLog == nil {
 		return errors.New("native enrollment has no retained ordered history")
 	}
+	if err := c.lockControlLog(ctx); err != nil {
+		return err
+	}
+	defer func() { <-c.controlLogInfoGate }()
 	info, err := c.controlLog.Info(ctx)
 	if err != nil {
 		return err
