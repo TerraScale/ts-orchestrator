@@ -73,6 +73,11 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
+	// The fixture's 5-minute bridge ticket would fence the host transport
+	// mid-run: this lab takes about 5 minutes idle and longer under -race load.
+	if err := broker.Bridge().OpenUntil(1, auth.cellJWT, time.Now().Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
 	signer := newFunctionPublicationSigner(t)
 	identity := cellspec.Identity{DeploymentID: entityid.New(), Cell: "gru", Environment: "canary"}
 	keys := newTestSpecTrustWithRoot(t, t.TempDir(), identity, signer.root)

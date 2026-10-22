@@ -64,7 +64,7 @@ rest - 1
 ./internal/app TestTerraBaseReleaseUnderLoadServesNoErrors 6 idle
 ./internal/app TestTerraBaseReleaseFenceUnderLoad 8 idle
 ./internal/app TestServiceReleasePinsRefusedClaimsDoNotAccumulate 35
-./internal/app TestGenericRuntimeSignedManagerIntegration 420/1 idle
+./internal/app TestGenericRuntimeSignedManagerIntegration 420/1 solo
 ./internal/app * 1
 
 # Founder fixture tests re-verify signed plans on every
