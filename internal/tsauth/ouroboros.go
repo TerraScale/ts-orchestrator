@@ -1,7 +1,6 @@
 package tsauth
 
 import (
-	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -11,16 +10,10 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
-	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
-
-// FlyApp is the dashboard's Fly app. TS-472 reads its TerraBase settings
-// from the app's TERRABASE_* secrets.
-const FlyApp = "ts-dashboard"
 
 func ouroborosUsage() string {
 	var projects []string
@@ -48,14 +41,7 @@ func ouroborosUsage() string {
       With --owner-email and --management-listener admin, once that address
       has signed in to ts-auth: add its ts-auth user as a member, make it the
       owner and keep %[3]s as an admin. Prints the steps taken.
-  fly-secrets  --plan FILE
-      Hand the dashboard, Fly app %[4]s, TERRABASE_URL, TERRABASE_PROJECT_ID,
-      TERRABASE_DATABASE and TERRABASE_API_KEY, and its ts-auth client
-      TS_AUTH_ISSUER, TS_AUTH_CLIENT_ID, TS_AUTH_REDIRECT_URL and
-      TS_AUTH_CLIENT_SECRET. With FLY_API_TOKEN set, stage them with flyctl
-      secrets import --stage; otherwise print all but the key and the client
-      secret and the names of the Vault secrets that hold them.
-`, OrganizationName, strings.Join(projects, ", "), BootstrapUser, FlyApp)
+`, OrganizationName, strings.Join(projects, ", "), BootstrapUser)
 }
 
 // RunOuroboros dispatches the ouroboros commands. Output never carries a
@@ -120,15 +106,6 @@ func RunOuroboros(ctx context.Context, args []string, output io.Writer, loadPlan
 			return err
 		}
 		return own(ctx, terraBase, users, organization, *ownerEmail, output)
-	case "fly-secrets":
-		if *plan == "" {
-			return errors.New("fly-secrets requires --plan")
-		}
-		cell, target, _, bundles, err := OperatorVault(*plan, loadPlan)
-		if err != nil {
-			return err
-		}
-		return flySecrets(ctx, bundles, target.VaultID, cell, output)
 	default:
 		_, _ = io.WriteString(output, ouroborosUsage())
 		return fmt.Errorf("unknown ouroboros command %q", args[0])
@@ -281,51 +258,6 @@ func (u TSAuthUsers) UserID(ctx context.Context, email string) (string, error) {
 		return "", fmt.Errorf("ts-auth user %s has an unusable id", email)
 	}
 	return owner.ID, nil
-}
-
-// flySecrets hands the dashboard its TerraBase settings and its ts-auth
-// client. With FLY_API_TOKEN set it reads the project ID, the API key and the
-// client secret from the Vault and stages all eight with flyctl, values on
-// stdin so no argument carries a secret; the dashboard loads them at its next
-// deploy. Otherwise it reads only the project ID and prints the settings
-// without the two secrets, naming the Vault secrets that hold them. The
-// endpoints are those of cell, a cell name such as gru-1.
-func flySecrets(ctx context.Context, bundles BundleClient, vaultID, cell string, output io.Writer) error {
-	projectID, err := readSecret(ctx, bundles, vaultID, cell, dashboard.ProjectIDKey)
-	if err != nil {
-		return err
-	}
-	region, _, _ := strings.Cut(cell, "-")
-	settings := map[string]string{"TERRABASE_URL": APIURL(region), "TERRABASE_PROJECT_ID": projectID, "TERRABASE_DATABASE": dashboard.Database,
-		"TS_AUTH_ISSUER": Issuer(region), "TS_AUTH_CLIENT_ID": DashboardClientID, "TS_AUTH_REDIRECT_URL": DashboardRedirectURI}
-	result := map[string]any{"app": FlyApp, "settings": settings, "api_key_secret": SecretName(cell, dashboard.APIKeyKey),
-		"client_secret_secret": SecretName(cell, EnvDashboardClientSecret), "staged": false}
-	if os.Getenv("FLY_API_TOKEN") == "" {
-		return printLine(output, result)
-	}
-	key, err := readSecret(ctx, bundles, vaultID, cell, dashboard.APIKeyKey)
-	if err != nil {
-		return err
-	}
-	// ts-auth secrets creates the client secret; a Vault prepared before it
-	// existed needs that rerun, which keeps every existing secret.
-	clientSecret, err := readSecret(ctx, bundles, vaultID, cell, EnvDashboardClientSecret)
-	if err != nil {
-		return fmt.Errorf("%w; create it with ts-orch ts-auth secrets --plan FILE, then rerun", err)
-	}
-	input := []byte("TERRABASE_API_KEY=" + key + "\nTS_AUTH_CLIENT_SECRET=" + clientSecret + "\n")
-	for name, value := range settings {
-		input = fmt.Appendf(input, "%s=%s\n", name, value)
-	}
-	defer clear(input)
-	command := exec.CommandContext(ctx, "flyctl", "secrets", "import", "--app", FlyApp, "--stage")
-	command.Stdin = bytes.NewReader(input)
-	if reply, err := command.CombinedOutput(); err != nil {
-		redacted := strings.NewReplacer(key, "[redacted]", clientSecret, "[redacted]").Replace(string(reply))
-		return fmt.Errorf("flyctl secrets import: %w: %s", err, redacted)
-	}
-	result["staged"] = true
-	return printLine(output, result)
 }
 
 // printLine writes value as one JSON line.

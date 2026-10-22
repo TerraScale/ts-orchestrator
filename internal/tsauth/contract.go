@@ -58,7 +58,7 @@ const (
 	Database = "auth"
 
 	// DashboardClientID is ts-auth's confidential OIDC client for ts-dashboard,
-	// which the dashboard (Fly app ts-dashboard) serves at DashboardOrigin.
+	// which ts-dashboard serves at DashboardOrigin.
 	// Keep this identical to ts-auth's OidcIssuer.DashboardClientId.
 	DashboardClientID    = "01M4EQ2FRJ8S8B29E8TQVWNW4J"
 	DashboardOrigin      = "https://dash.terrascale.tech"
@@ -117,8 +117,8 @@ const (
 	EnvMasterKey       = "TS_AUTH_MASTER_KEY"
 	EnvAuditSigningKey = "TS_AUTH_AUDIT_SIGNING_KEY"
 	EnvOperatorKey     = "TS_AUTH_OPERATOR_KEY"
-	// EnvDashboardClientSecret is the ts-dashboard client's secret, which
-	// ouroboros fly-secrets also hands the dashboard as TS_AUTH_CLIENT_SECRET.
+	// EnvDashboardClientSecret is the ts-dashboard client's secret; ts-orch
+	// delivers it to the dashboard from the Vault (deploy/m1/services).
 	EnvDashboardClientSecret = "TS_AUTH_DASHBOARD_CLIENT_SECRET"
 	EnvAPIKey                = "TS_AUTH_TERRASCALE_API_KEY"
 	EnvProjectID             = "TS_AUTH_TERRASCALE_PROJECT_ID"

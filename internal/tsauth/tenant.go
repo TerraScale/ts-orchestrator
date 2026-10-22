@@ -47,7 +47,7 @@ var Projects = []Project{
 	{Name: "atlas", Database: "atlas", ProjectIDKey: "ATLAS_TERRABASE_PROJECT_ID", APIKeyKey: "ATLAS_STORE_KEY"},
 }
 
-// dashboard is ts-dashboard's project; fly-secrets hands it to the dashboard.
+// dashboard is ts-dashboard's project.
 var dashboard = Project{Name: "ts-dashboard", Database: "dashboard",
 	ProjectIDKey: "TS_DASHBOARD_TERRABASE_PROJECT_ID", APIKeyKey: "TS_DASHBOARD_TERRABASE_API_KEY"}
 

@@ -4,7 +4,7 @@
   "env": {
     "TERRABASE_AUTH_AUDIENCE": "https://api.terrascale.tech",
     "TERRABASE_AUTH_ISSUER": "https://auth.terrascale.tech/terrascale",
-    "AWS_ENDPOINT_URL_S3": "https://fly.storage.tigris.dev",
+    "AWS_ENDPOINT_URL_S3": "https://t3.storage.dev",
     "AWS_REGION": "auto",
     "BUCKET_NAME": "terrascale-gru-terrabase-backups",
     "TERRABASE_BACKUP_RETENTION_DAYS": "hobby=7,pro=7,enterprise=7"

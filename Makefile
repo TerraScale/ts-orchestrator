@@ -15,14 +15,14 @@ BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 TS_TEST_TIER ?= full
 export TS_TEST_TIER
 
-.PHONY: verify ci-check ci-lint ci-verify format-check generate generate-check test test-fast vet fixturetest-check race-test nats-identity-check terrabase-walkthrough-process terrabase-release-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-check ci-lint ci-verify retired-host-check format-check generate generate-check test test-fast vet fixturetest-check race-test nats-identity-check terrabase-walkthrough-process terrabase-release-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
 
 verify: format-check generate-check vet race-test nats-identity-check netbird-backup-check
 
 # Every revision runs checks; CI separately builds a changed release candidate.
 ci-verify: ci-check release-check
 
-CI_LINT = format-check generate-check vet shellcheck nats-identity-check netbird-backup-check \
+CI_LINT = format-check generate-check vet shellcheck nats-identity-check netbird-backup-check retired-host-check \
 	$(if $(filter pr,$(TS_TEST_TIER)),,fixturetest-check)
 
 ci-check:
@@ -98,6 +98,10 @@ terrabase-release-process:
 # ts-builder image ships it).
 shellcheck:
 	git ls-files -z -- 'scripts/*.sh' 'deploy/*.sh' scripts/check-dashboard-netbird deploy/netbird/manager/netbird-firewall | xargs -0 shellcheck -S warning
+
+# No tracked file may mention the retired Fly.io hosting.
+retired-host-check:
+	bash scripts/ci/retired-host-check.sh
 
 # The ts-ops NetBird store backup script carries its own self-check.
 netbird-backup-check:
