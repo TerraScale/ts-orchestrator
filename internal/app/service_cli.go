@@ -44,6 +44,8 @@ func runServiceCLI(ctx context.Context, args []string, output io.Writer, state s
 	if len(args) != 0 && slices.Contains([]string{"ps", "logs", "inspect"}, args[0]) {
 		return runServiceOps(ctx, args, output, state)
 	}
+	// The 30s RPC bound below does not cover WaitServiceSpec, which bounds itself.
+	outer := ctx
 	var run func(context.Context, api.ControlClient) error
 	switch {
 	case len(args) == 3 && args[0] == "apply" && args[1] == "-f":
@@ -60,7 +62,15 @@ func runServiceCLI(ctx context.Context, args []string, output io.Writer, state s
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(output, "applied %s (%s) version %d on this host only\n", spec.Name, service.ID, service.Meta.Version.Index)
+			if _, err := fmt.Fprintf(output, "applied %s (%s) version %d on this host only\n", spec.Name, service.ID, service.Meta.Version.Index); err != nil {
+				return err
+			}
+			// A new task that is not ready in time rolls back; the previous spec keeps serving.
+			rollout, err := swarmruntime.WaitServiceSpec(outer, client, service, nil)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(output, "%s running in %dms, ready in %dms\n", spec.Name, rollout.Running.Milliseconds(), rollout.Ready.Milliseconds())
 			return err
 		}
 		if done, err := meshRequest(state, func(conn *nats.Conn) error { return mesh.Apply(ctx, conn, spec, output) }); done {

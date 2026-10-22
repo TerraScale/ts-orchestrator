@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -35,6 +36,9 @@ var operatorFixes = []struct{ match, fix string }{
 	{"address already in use", "another process holds the service port: sudo ss -ltnp | grep <port>"},
 	{"bind mount", "check the mount source is a directory under /var/lib/ts-data and the image contains the target directory"},
 	{"container image requires a sha256 digest", "pin the image by digest: <registry>/<repo>@sha256:<digest>"},
+	{"rolled back to", "the previous spec is serving again; fix the new image or spec, check ts-orch service logs <svc>, then re-apply"},
+	{"not ready within", "the new task never answered its readyPath with 200: check ts-orch service logs <svc> or raise readyTimeoutSeconds"},
+	{"OOM-killed", "the container used more memory than its limit: raise memoryMiB in the service spec, then re-apply"},
 	{"exited with status", "the container exited: ts-orch service logs <svc>"},
 	{"task: non-zero exit", "the container exited: ts-orch service logs <svc>"},
 }
@@ -106,7 +110,14 @@ func serviceEvent(action string, service *api.Service) event {
 	if action == "removed" {
 		at = time.Now()
 	}
-	return event{at, fmt.Sprintf("service %s %s version %d", service.Spec.Annotations.Name, action, service.Meta.Version.Index)}
+	line := fmt.Sprintf("service %s %s version %d", service.Spec.Annotations.Name, action, service.Meta.Version.Index)
+	if status := service.UpdateStatus; status != nil {
+		line += fmt.Sprintf(" update=%s", strings.ToLower(status.State.String()))
+		if status.Message != "" {
+			line += fmt.Sprintf(" message=%q", status.Message)
+		}
+	}
+	return event{at, line}
 }
 
 func writeEvent(output io.Writer, e event) error {
@@ -255,9 +266,13 @@ func runServiceOps(ctx context.Context, args []string, output io.Writer, state s
 
 func writeTaskRows(output io.Writer, rows []swarmruntime.TaskRow, now time.Time) error {
 	table := tabwriter.NewWriter(output, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "TASK\tNODE\tSTATE\tDESIRED\tSINCE\tERROR")
+	fmt.Fprintln(table, "TASK\tNODE\tSTATE\tDESIRED\tSINCE\tRESTARTS\tEXIT\tERROR")
 	for _, row := range rows {
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s ago\t%s\n", row.ID, row.Node, strings.ToLower(row.State), strings.ToLower(row.Desired), now.Sub(row.Since).Round(time.Second), row.Error)
+		exit := "-"
+		if row.Exit >= 0 {
+			exit = strconv.Itoa(int(row.Exit))
+		}
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s ago\t%d\t%s\t%s\n", row.ID, row.Node, strings.ToLower(row.State), strings.ToLower(row.Desired), now.Sub(row.Since).Round(time.Second), row.Restarts, exit, row.Error)
 	}
 	if err := table.Flush(); err != nil {
 		return err
