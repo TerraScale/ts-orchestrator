@@ -538,7 +538,7 @@ func assertOriginalMaterialV3Policy(t *testing.T, record FoundationRecord, index
 }
 
 func TestOriginalFoundationMaterialIAMPeerGroupSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes but takes 497s without -race at GOMAXPROCS=2 -cpu 2, over the 8 min norace budget; every subtest rebuilds the actor-reads chain")
 	for _, fault := range []string{"lost group create response", "group reservation checkpoint", "group receipt checkpoint", "group completion checkpoint"} {
 		t.Run(fault+" preserves retry", func(t *testing.T) {
 			f := newOriginalMaterialIAMSDKFixture(t, fault)
@@ -851,7 +851,7 @@ func (f *originalMaterialIAMSDKFixture) assertRuntimeJoinSDK(t *testing.T, permi
 }
 
 func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes but takes 1107s without -race at GOMAXPROCS=2 -cpu 2; every subtest rebuilds the actor-reads chain (about 16s) before its own runs")
 	t.Run("automatic completion and unchanged restart", func(t *testing.T) {
 		f := newOriginalMaterialIAMSDKFixture(t, "")
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
