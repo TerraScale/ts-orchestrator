@@ -230,3 +230,39 @@ now runs beside lint and race (#72) instead of after them; restart delay 5 s ->
 1 s. Remaining time per region is the binary download from GitHub releases
 (~3-6 s, the accepted column) plus restart and SwarmKit reopen (~3-4 s).
 Merge -> live is dominated by CI checks (~8-13 min, race shards).
+
+### Apps: new image digest -> new task serving, every region
+
+`ts-orch service apply -f` on ts-gru-1 sends the spec over the mesh to every
+region. Each node pre-pulls the image before touching the running task,
+applies, then polls every 100 ms until the task is RUNNING and its `readyPath`
+answers (#28); the reply carries the phases (ms since the node received it).
+
+Measured 2026-10-22 on ts-gru-1 with a throwaway service `w14-speed`
+(`docker.io/traefik/whoami`, arm64 child digests v1.10.3 `7865582e…` and
+v1.10.2 `d57ef47b…`, port 8097, `readyPath /health`; removed afterwards).
+A probe hit `http://127.0.0.1:8097/health` on gru every 50 ms during each
+switch.
+
+| Step | gru pulled / running / ready | sjc ready | fra ready | Wall (CLI) | gru probes failed | gru port refused |
+|---|---|---|---|---|---|---|
+| Create v1.10.3 (cold) | 697 / 1108 / 1212 ms | 1125 ms | 1105 ms | 1.35 s | - | - |
+| Switch -> v1.10.2 (cold, never pulled) | 712 / 1530 / 1531 ms | 1092 ms | 1267 ms | 1.59 s | 9 / 77 | 0.48 s |
+| Switch -> v1.10.3 (warm) | 2 / 516 / 516 ms | 628 ms | 619 ms | 0.86 s | 4 / 65 | 0.18 s |
+| Switch -> v1.10.2 (warm) | 2 / 620 / 621 ms | 623 ms | 721 ms | 0.96 s | 7 / 67 | 0.36 s |
+
+Targets: warm <= 10 s: met (0.5-0.7 s per region). Cold: 1.1-1.5 s for this
+~3 MB image; larger images add their pull time to the `pulled` phase, which
+ends before the old task is touched. Before #28 an update on a live port never
+completed: the stopped task kept its port, the new task was rejected and the
+update rolled back.
+
+What was removed: the stopped container's port hold, the native snapshotter
+(full copies per layer), the executor lock around pulls, SwarmKit's 1 s
+cancel wait, the 30 s monitor (now 5 s) and 5 s restart delay (now 1 s); pulls
+happen before the old task stops.
+
+Not zero-downtime yet: one host port per service means the old process must
+exit before the new one binds, so the port refuses connections for 0.2-0.5 s
+per update. Closing that gap needs the edge to retry the dial during the
+handoff (or two ports per service); not done.
