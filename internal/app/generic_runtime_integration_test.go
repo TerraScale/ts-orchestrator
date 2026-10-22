@@ -45,6 +45,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 	swarmexec "github.com/moby/swarmkit/v2/agent/exec"
@@ -61,6 +62,7 @@ import (
 // The local privileged observer proves applied history; authenticated Unix
 // management transport remains separately qualified.
 func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
+	tier.Integration(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 360*time.Second)
 	defer cancel()
 	auth := newAuthenticatedNATS(t, "gru")
