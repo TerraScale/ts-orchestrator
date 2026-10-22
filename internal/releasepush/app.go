@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -78,4 +79,57 @@ func PushApp(ctx context.Context, args []string, output io.Writer) error {
 		return fmt.Errorf("release %s %s: %s %s", *service, *image, result.State, result.Error)
 	}
 	return nil
+}
+
+const digestsUsage = "usage: ts-orch release digests --out <file> [--regions deploy/m1/regions.json]"
+
+// Digests writes every mesh service's desired image as {"<service>": "<image>"}
+// to --out, from the app-digests workflow (id-token: write).
+func Digests(ctx context.Context, args []string, output io.Writer) error {
+	flags := flag.NewFlagSet("release digests", flag.ContinueOnError)
+	flags.SetOutput(output)
+	out := flags.String("out", "", "file to write")
+	regionsFile := flags.String("regions", "deploy/m1/regions.json", "region list")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *out == "" {
+		return errors.New(digestsUsage)
+	}
+	regions, err := LoadRegions(*regionsFile)
+	if err != nil {
+		return err
+	}
+	token, err := MintToken(ctx)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(MeshRequest{Token: token})
+	if err != nil {
+		return err
+	}
+	var failed error
+	for _, region := range regions {
+		conn, err := Dial(region, token, nats.Name("ts-orch release digests"))
+		if err != nil {
+			failed = errors.Join(failed, fmt.Errorf("region %s: %w", region.Region, err))
+			continue
+		}
+		reply, err := request(ctx, conn, SubjectState, payload, 30*time.Second)
+		conn.Close()
+		if err == nil && reply.State != "done" {
+			err = errors.New(reply.State + ": " + reply.Error)
+		}
+		if err != nil {
+			failed = errors.Join(failed, fmt.Errorf("region %s: %w", region.Region, err))
+			continue
+		}
+		var images map[string]string
+		if err := json.Unmarshal(reply.Result, &images); err != nil || len(images) == 0 {
+			return errors.Join(errors.New("region "+region.Region+" returned no desired images"), err)
+		}
+		data, _ := json.MarshalIndent(images, "", "  ")
+		return os.WriteFile(*out, append(data, '\n'), 0o644)
+	}
+	return errors.Join(errors.New("no region returned desired images"), failed)
 }

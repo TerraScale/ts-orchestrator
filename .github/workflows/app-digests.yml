@@ -1,0 +1,67 @@
+name: App digests
+
+# Records every mesh service's desired image in git (W22): app image
+# workflows release new digests straight to the hosts (ts-orch release app),
+# so this job reads the mesh's desired state from a region's release listener
+# and commits it as deploy/m1/app-digests.json on branch app-digests. Hosts
+# admit this workflow's OIDC token for ts.release.mesh.state only.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+  workflow_run:
+    workflows: [App release canary]
+    types: [completed]
+
+concurrency:
+  group: app-digests
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    name: app-digests/record
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: deploy/m1/regions.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: app-digests
+          path: state
+
+      - name: Download the newest main ts-orch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 30 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("ci-"))] | sort_by(.createdAt) | last | .tagName // ""')
+          test -n "$tag"
+          gh release download "$tag" --repo "${GITHUB_REPOSITORY}" --dir dist --pattern terrascale-orchestrator-linux-amd64
+          chmod +x dist/terrascale-orchestrator-linux-amd64
+
+      - name: Record the desired images
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p state/deploy/m1
+          dist/terrascale-orchestrator-linux-amd64 release digests --out state/deploy/m1/app-digests.json
+          cd state
+          git add deploy/m1/app-digests.json
+          if git diff --cached --quiet; then echo "Unchanged" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit -q -m "chore(deploy): record desired app images"
+          git push -q origin HEAD:app-digests
+          { echo '```json'; cat deploy/m1/app-digests.json; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"

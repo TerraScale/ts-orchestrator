@@ -13,4 +13,6 @@ const (
 	ReleaseMeshPing     = "ts.release.mesh.ping"
 	ReleaseMeshApply    = "ts.release.mesh.apply"
 	ReleaseMeshRemove   = "ts.release.mesh.rm"
+	// ReleaseMeshState reads every mesh service's desired image.
+	ReleaseMeshState = "ts.release.mesh.state"
 )
