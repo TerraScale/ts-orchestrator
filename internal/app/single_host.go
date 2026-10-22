@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -54,6 +55,9 @@ func RunSingleHost(ctx context.Context, args []string, output io.Writer) error {
 		defer done()
 		_ = node.Stop(stop)
 	}()
+	healthCtx, stopHealth := context.WithCancel(ctx)
+	defer stopHealth()
+	go regionhealth.Run(healthCtx, *state)
 	if err := releasepush.EnsureFirewall(ctx); err != nil {
 		// Workloads keep serving; only release pushes are blocked until the next start.
 		fmt.Fprintf(output, "release listener firewall: %v\n", err)
