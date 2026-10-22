@@ -7,14 +7,13 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 )
@@ -47,7 +46,6 @@ func (b *lockedBuffer) String() string {
 
 // The operator commands run against a real single-host node and containerd.
 func TestContainerdSingleHostOperatorCommands(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: the running-task wait matches the DESIRED column while STATE is pending, so ps can run before a node is assigned")
 	if *containerdSocket == "" {
 		t.Skip("runs in the containerd workflow, which passes -containerd-socket")
 	}
@@ -107,26 +105,27 @@ func TestContainerdSingleHostOperatorCommands(t *testing.T) {
 		"arm64": "docker.io/library/alpine@sha256:2e1a7aa4cbc4e9e5222bb4c24a839aa1a6170ea5492d644777ce7b178824e44f",
 	}[runtime.GOARCH]
 	spec := fmt.Sprintf(`{"name":"opsproof","image":%q,"args":["/bin/sh","-c","echo hello from opsproof; echo warn from opsproof >&2; exec sleep 600"],"port":%d,"replicas":1,"secrets":{"OPS_TOKEN_FILE":{"vault":"ocid1.vault.oc1.sa-saopaulo-1.aa.bb","name":"gru-1-opsproof-token"}}}`, image, port)
-	path := filepath.Join(t.TempDir(), "opsproof.json")
-	if err := os.WriteFile(path, []byte(spec), 0o600); err != nil {
+	var declared swarmruntime.ServiceSpec
+	if err := protocol.DecodeStrict([]byte(spec), &declared, 64<<10); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := run("apply", "-f", path); err != nil {
-		t.Fatalf("apply: %s%v", out, err)
+	client, conn, err := swarmruntime.DialSingleHost(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	// `service apply` goes through the mesh, which this node does not run; the read commands are under test.
+	if _, err := swarmruntime.ApplyServiceSpec(ctx, client, declared); err != nil {
+		t.Fatalf("apply: %v", err)
 	}
 	t.Cleanup(func() {
 		cleanup, done := context.WithTimeout(context.Background(), 30*time.Second)
 		defer done()
-		client, conn, err := swarmruntime.DialSingleHost(state)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
 		tasks, err := client.ListTasks(cleanup, &api.ListTasksRequest{})
 		if err != nil {
 			return
 		}
-		_ = runServiceCLI(cleanup, []string{"rm", "opsproof"}, &bytes.Buffer{}, state)
+		_ = swarmruntime.RemoveServiceSpec(cleanup, client, "opsproof")
 		// Remove containers before the node stops, or their shims outlive the test.
 		for _, task := range tasks.Tasks {
 			if c, err := executor.Controller(task); err == nil {
