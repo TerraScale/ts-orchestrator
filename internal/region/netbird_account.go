@@ -174,6 +174,8 @@ func ReadNetBirdAccount(ctx context.Context, factory *ociclient.Factory, resolve
 	if !ok {
 		return NetBirdAccount{}, errors.New("NetBird account requires original signed authority")
 	}
+	// The read below and the first account check verify the foundation once; nothing between writes it.
+	ctx = withOriginalNetBirdStateMemo(ctx)
 	state, err := reader.originalNetBirdState(ctx, resolver)
 	if err != nil {
 		return NetBirdAccount{}, err
@@ -222,6 +224,12 @@ func (s *netBirdAccount) current(ctx context.Context) (originalNetBirdState, err
 	if state.intent.intent.Account == nil || *state.intent.intent.Account != s.authority || s.manager.CredentialTarget() != state.target() || state.manager == nil || state.manager.Launch == nil || state.manager.Launch.Account.validate(&s.authority) != nil {
 		return state, errors.New("NetBird account original authority changed")
 	}
+	// This full check is the operation's one request guard pass.
+	if scope, _ := ctx.Value(netBirdAccountGuardKey{}).(*netBirdAccountGuardScope); scope != nil {
+		scope.mu.Lock()
+		scope.passed = true
+		scope.mu.Unlock()
+	}
 	return state, nil
 }
 
@@ -255,13 +263,7 @@ func (s *netBirdAccount) requestContext(base context.Context) context.Context {
 				return base.Err()
 			}
 		}
-		// One request's guard verifies the original foundation once for every nested check.
-		_, err := s.current(withOriginalNetBirdStateMemo(base))
-		if err == nil && scope != nil {
-			scope.mu.Lock()
-			scope.passed = true
-			scope.mu.Unlock()
-		}
+		_, err := s.current(base)
 		return err
 	})
 }
