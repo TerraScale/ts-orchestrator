@@ -891,6 +891,10 @@ func provisionOriginalNetworkRules(ctx context.Context, authority *HomeIAMAuthor
 }
 
 func (r FoundationRecord) validateOriginalFoundationNetwork() error {
+	return rememberOriginalRecordCheck("network", r, FoundationRecord.validateOriginalFoundationNetworkChecked)
+}
+
+func (r FoundationRecord) validateOriginalFoundationNetworkChecked() error {
 	root := r.OriginalFoundationCompartments
 	if root == nil {
 		return nil

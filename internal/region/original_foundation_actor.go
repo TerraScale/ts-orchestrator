@@ -157,6 +157,10 @@ func originalActorPrerequisites(ctx context.Context, authority *HomeIAMAuthority
 }
 
 func originalActorPrerequisiteRecord(record FoundationRecord) error {
+	return rememberOriginalRecordCheck("actor-prerequisites", record, originalActorPrerequisiteRecordChecked)
+}
+
+func originalActorPrerequisiteRecordChecked(record FoundationRecord) error {
 	root := record.OriginalFoundationCompartments
 	if root == nil || record.OriginalSourceProducers == nil || record.Stage != "original-foundation" || !record.netBirdMaterialOnly() {
 		return ErrOriginalSourceProducerHold

@@ -101,6 +101,10 @@ func retainOriginalFoundationActorReads(ctx context.Context, authority *HomeIAMA
 // All actor results must already be durable and complete. This path never
 // calls a producer that could create an absent actor or prerequisite.
 func originalActorReadsActors(record FoundationRecord) error {
+	return rememberOriginalRecordCheck("actor-reads-actors", record, originalActorReadsActorsChecked)
+}
+
+func originalActorReadsActorsChecked(record FoundationRecord) error {
 	if err := record.validateOriginalFoundationActors(); err != nil {
 		return err
 	}
