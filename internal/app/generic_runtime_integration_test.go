@@ -1467,6 +1467,9 @@ func (session *genericRuntimeHostSession) start(t *testing.T, ctx context.Contex
 	go func() { done <- run(agent, runCtx) }()
 	select {
 	case <-ready:
+	case err := <-done:
+		done <- err // stop still joins this exit
+		t.Fatal("signed host session ended before it initialized: ", err)
 	case <-ctx.Done():
 		t.Fatal("signed host session did not initialize: ", ctx.Err())
 	}
