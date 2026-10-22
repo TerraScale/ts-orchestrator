@@ -142,7 +142,8 @@ func (c *Cluster) UpdateMember(id uint64, m *api.RaftMember) error {
 		// nothing to do
 		return nil
 	}
-	oldMember.RaftMember = m
+	// Replace, never mutate: Members() hands out the old pointer to unlocked readers.
+	c.members[id] = &Member{RaftMember: m}
 	c.broadcastUpdate()
 	return nil
 }
