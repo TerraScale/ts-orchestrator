@@ -34,10 +34,14 @@ func ServiceByName(ctx context.Context, client api.ControlClient, name string) (
 	return nil, fmt.Errorf("service %q not found; list services with `ts-orch service ls`", name)
 }
 
-// TaskRow is one `service ps` row.
+// TaskRow is one `service ps` row. Restarts counts the exited tasks its slot
+// retains; Exit is -1 until the container reports a status.
 type TaskRow struct {
 	ID, Node, State, Desired, Error string
 	Since                           time.Time
+	Slot                            uint64
+	Restarts                        int
+	Exit                            int32
 }
 
 // ServiceTasks lists the service's tasks, newest first, with node hostnames.
@@ -47,7 +51,6 @@ func ServiceTasks(ctx context.Context, client api.ControlClient, service *api.Se
 		return nil, err
 	}
 	hosts := map[string]string{}
-	rows := make([]TaskRow, 0, len(listed.Tasks))
 	for _, task := range listed.Tasks {
 		if _, ok := hosts[task.NodeID]; !ok && task.NodeID != "" {
 			hosts[task.NodeID] = task.NodeID
@@ -55,11 +58,42 @@ func ServiceTasks(ctx context.Context, client api.ControlClient, service *api.Se
 				hosts[task.NodeID] = node.Node.Description.Hostname
 			}
 		}
-		rows = append(rows, TaskRow{ID: task.ID, Node: hosts[task.NodeID], State: task.Status.State.String(),
-			Desired: task.DesiredState.String(), Error: task.Status.Err, Since: TaskTime(task)})
+	}
+	return TaskRows(listed.Tasks, hosts, time.Now()), nil
+}
+
+// TaskRows builds newest-first rows; the newest task of a slot with
+// CrashLoopFailures failures within CrashLoopWindow shows state CRASH-LOOP.
+func TaskRows(tasks []*api.Task, hosts map[string]string, now time.Time) []TaskRow {
+	restarts, recent := map[uint64]int{}, map[uint64]int{}
+	rows := make([]TaskRow, 0, len(tasks))
+	for _, task := range tasks {
+		row := TaskRow{ID: task.ID, Node: hosts[task.NodeID], State: task.Status.State.String(), Slot: task.Slot,
+			Desired: task.DesiredState.String(), Error: task.Status.Err, Since: TaskTime(task), Exit: -1}
+		if container := task.Status.GetContainer(); container != nil {
+			row.Exit = container.ExitCode
+		}
+		switch task.Status.State {
+		case api.TaskStateFailed, api.TaskStateRejected:
+			if now.Sub(row.Since) < CrashLoopWindow {
+				recent[task.Slot]++
+			}
+			restarts[task.Slot]++
+		case api.TaskStateCompleted:
+			restarts[task.Slot]++
+		}
+		rows = append(rows, row)
 	}
 	slices.SortFunc(rows, func(a, b TaskRow) int { return cmp.Or(b.Since.Compare(a.Since), strings.Compare(a.ID, b.ID)) })
-	return rows, nil
+	seen := map[uint64]bool{}
+	for i := range rows {
+		rows[i].Restarts = restarts[rows[i].Slot]
+		if !seen[rows[i].Slot] && recent[rows[i].Slot] >= CrashLoopFailures {
+			rows[i].State = "CRASH-LOOP"
+		}
+		seen[rows[i].Slot] = true
+	}
+	return rows
 }
 
 // TaskTime is when the task entered its current state.

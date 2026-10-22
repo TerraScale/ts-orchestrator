@@ -55,7 +55,8 @@ type Executor struct {
 	loadMu            sync.Mutex
 	loadTasks         map[string]*controller
 	loadSampler       *hostload.Sampler
-	pulls             sync.Map // image reference -> *sync.Mutex
+	pulls             sync.Map               // image reference -> *sync.Mutex
+	restarts          map[string]slotRestart // guarded by mu
 }
 
 var _ exec.Executor = (*Executor)(nil)

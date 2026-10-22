@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -35,6 +36,7 @@ var operatorFixes = []struct{ match, fix string }{
 	{"address already in use", "another process holds the service port: sudo ss -ltnp | grep <port>"},
 	{"bind mount", "check the mount source is a directory under /var/lib/ts-data and the image contains the target directory"},
 	{"container image requires a sha256 digest", "pin the image by digest: <registry>/<repo>@sha256:<digest>"},
+	{"OOM-killed", "the container used more memory than its limit: raise memoryMiB in the service spec, then re-apply"},
 	{"exited with status", "the container exited: ts-orch service logs <svc>"},
 	{"task: non-zero exit", "the container exited: ts-orch service logs <svc>"},
 }
@@ -236,9 +238,13 @@ func runServiceOps(ctx context.Context, args []string, output io.Writer, state s
 
 func writeTaskRows(output io.Writer, rows []swarmruntime.TaskRow, now time.Time) error {
 	table := tabwriter.NewWriter(output, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "TASK\tNODE\tSTATE\tDESIRED\tSINCE\tERROR")
+	fmt.Fprintln(table, "TASK\tNODE\tSTATE\tDESIRED\tSINCE\tRESTARTS\tEXIT\tERROR")
 	for _, row := range rows {
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s ago\t%s\n", row.ID, row.Node, strings.ToLower(row.State), strings.ToLower(row.Desired), now.Sub(row.Since).Round(time.Second), row.Error)
+		exit := "-"
+		if row.Exit >= 0 {
+			exit = strconv.Itoa(int(row.Exit))
+		}
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s ago\t%d\t%s\t%s\n", row.ID, row.Node, strings.ToLower(row.State), strings.ToLower(row.Desired), now.Sub(row.Since).Round(time.Second), row.Restarts, exit, row.Error)
 	}
 	if err := table.Flush(); err != nil {
 		return err

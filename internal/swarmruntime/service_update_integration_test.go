@@ -168,6 +168,7 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 	if len(containers) < 2 || live != 1 {
 		t.Fatalf("want retained exited predecessors and one live holder, got %d containers, %d live", len(containers), live)
 	}
+	containerdCrashLoops(t, ctx, e, client)
 }
 
 func getBody(port uint32) string {

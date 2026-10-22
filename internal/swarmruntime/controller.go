@@ -86,6 +86,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	if c.stateful == nil {
 		c.executor.trackLoadTask(c)
 	}
+	backoff := c.executor.restartDelayLocked(c.task, c.fingerprint, time.Now())
 	registry := c.executor.registry
 	var node *api.Node
 	if c.executor.node != nil {
@@ -94,6 +95,9 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	c.executor.mu.Unlock()
 	if registry == nil {
 		registry = publicRegistryResolver
+	}
+	if err := sleepContext(ctx, backoff); err != nil {
+		return err
 	}
 	resolved, err := registry(runtimeContext(ctx), c.task.Copy(), node)
 	if err != nil {
@@ -432,6 +436,7 @@ func exitError(code uint32) error {
 func (c *controller) Wait(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStateRunning, operationErr) }()
 	ctx = runtimeContext(ctx)
+	started := time.Now()
 	t, err := c.runtimeTask(ctx)
 	if err != nil {
 		return err
@@ -446,9 +451,15 @@ func (c *controller) Wait(ctx context.Context) (operationErr error) {
 	case <-ctx.Done():
 		return ctx.Err()
 	case status := <-wait:
-		code, _, err := status.Result()
+		code, exited, err := status.Result()
 		if err != nil {
 			return err
+		}
+		c.executor.mu.Lock()
+		c.executor.recordExitLocked(c.task, c.fingerprint, exited.Sub(started), time.Now())
+		c.executor.mu.Unlock()
+		if code != 0 && c.oomKilled(ctx) {
+			return taskOOMError{code: code, limitMiB: c.task.Spec.Resources.Limits.MemoryBytes >> 20}
 		}
 		return exitError(code)
 	}
