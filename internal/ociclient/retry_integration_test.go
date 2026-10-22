@@ -230,24 +230,28 @@ func (d *cancellationDispatcher) Do(request *http.Request) (*http.Response, erro
 	return response, err
 }
 
-type lateResponseDispatcher struct{ body *trackedResponseBody }
+// lateResponseDispatcher ends the request context while the response is in flight.
+type lateResponseDispatcher struct {
+	body   *trackedResponseBody
+	cancel context.CancelFunc
+}
 
 func (d lateResponseDispatcher) Do(*http.Request) (*http.Response, error) {
+	d.cancel()
 	return &http.Response{StatusCode: http.StatusOK, Body: d.body}, nil
 }
 
-func TestReadResponseRacingDeadlineIsNotSuccess(t *testing.T) {
-	ctx, cancel := context.WithDeadline(t.Context(), time.Now())
+func TestReadResponseRacingContextEndIsNotSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	<-ctx.Done()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://objectstorage.invalid/o/checkpoint", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := &trackedResponseBody{ReadCloser: http.NoBody}
-	response, err := readDispatcher{next: lateResponseDispatcher{body: body}}.Do(request)
-	if response != nil || !errors.Is(err, context.DeadlineExceeded) || body.closes.Load() != 1 {
-		t.Fatalf("late read = %v, %v, closes %d; want closed body and context deadline exceeded", response, err, body.closes.Load())
+	response, err := readDispatcher{next: lateResponseDispatcher{body: body, cancel: cancel}}.Do(request)
+	if response != nil || !errors.Is(err, context.Canceled) || body.closes.Load() != 1 {
+		t.Fatalf("late read = %v, %v, closes %d; want closed body and context canceled", response, err, body.closes.Load())
 	}
 }
 
