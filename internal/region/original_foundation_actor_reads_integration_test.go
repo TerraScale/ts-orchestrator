@@ -1101,33 +1101,45 @@ func testOriginalFoundationActorReadsSDK(t *testing.T, part *originalSubtestPart
 }
 
 func TestOriginalFoundationActorReadsSDKPart1(t *testing.T) {
-	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(1, 8, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(1, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
 }
 
 func TestOriginalFoundationActorReadsSDKPart2(t *testing.T) {
-	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(2, 8, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(2, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
 }
 
 func TestOriginalFoundationActorReadsSDKPart3(t *testing.T) {
-	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(3, 8, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(3, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
 }
 
 func TestOriginalFoundationActorReadsSDKPart4(t *testing.T) {
-	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(4, 8, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(4, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
 }
 
 func TestOriginalFoundationActorReadsSDKPart5(t *testing.T) {
-	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(5, 8, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(5, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
 }
 
 func TestOriginalFoundationActorReadsSDKPart6(t *testing.T) {
-	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(6, 8, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(6, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
 }
 
 func TestOriginalFoundationActorReadsSDKPart7(t *testing.T) {
-	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(7, 8, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(7, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
 }
 
 func TestOriginalFoundationActorReadsSDKPart8(t *testing.T) {
-	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(8, 8, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(8, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart9(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(9, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart10(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(10, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart11(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(11, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects"))
 }
