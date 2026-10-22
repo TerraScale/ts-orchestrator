@@ -30,7 +30,7 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	if err := Run(t.Context(), []string{"sync", "--apply", "--management-url", f.server.URL}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.policies) != len(GRU().Policies)+8 {
+	if len(f.policies) != len(GRU().Policies)+9 {
 		t.Fatalf("SJC access policies: %d", len(f.policies))
 	}
 	// A new empty region is seen on the next controller cycle, before its
@@ -42,7 +42,7 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	if err := loop.cycle(t.Context(), map[string]bool{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.policies) != len(GRU().Policies)+16 {
+	if len(f.policies) != len(GRU().Policies)+18 {
 		t.Fatalf("new region access policies: %d", len(f.policies))
 	}
 	for group, groupID := range map[string]string{"sjc-servers": sjc, "fra-servers": fra} {
@@ -58,6 +58,7 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 			{"operators-to-" + group + "-dashboard", "tcp", []string{"9463"}, []string{ids.operators, f.groupByName("ops-automation").ID}, []string{groupID}},
 			{group + "-to-" + group + "-ping", "icmp", nil, []string{groupID}, []string{groupID}},
 			{group + "-to-" + group + "-service-health", "tcp", []string{"4222", "8080", "9465"}, []string{groupID}, []string{groupID}},
+			{group + "-to-" + group + "-terrabase-peers", "tcp", []string{"8081", "18081"}, []string{groupID}, []string{groupID}},
 		} {
 			index := slices.IndexFunc(f.policies, func(policy apiPolicy) bool { return policy.Name == expected.name })
 			if index < 0 || len(f.policies[index].Rules) != 1 {

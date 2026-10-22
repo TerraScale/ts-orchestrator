@@ -244,6 +244,14 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	eventually(t, "every region's peers file to list every region", func() bool {
 		return peersFile(regions[0]) == every && peersFile(regions[1]) == every && peersFile(fra) == every
 	})
+	// The task's non-root user reads the file through the bound directory.
+	dir := filepath.Join(configs[regions[0]].peersDir, "whoami")
+	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o755 {
+		t.Fatalf("peers directory mode: %v %v", info, err)
+	}
+	if info, err := os.Stat(filepath.Join(dir, "peers")); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("peers file mode: %v %v", info, err)
+	}
 
 	nodes[fra].Close()
 	delete(nodes, fra)

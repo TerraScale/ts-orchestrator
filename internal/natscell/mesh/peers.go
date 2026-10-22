@@ -121,11 +121,19 @@ func (p *peers) write(service string) error {
 		return nil
 	}
 	// The task runs as a non-root user and reads the file through a read-only bind.
+	// Explicit chmod: the ts-orch unit's umask would leave 0700/0600.
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
 		return err
 	}
 	temp := filepath.Join(dir, ".peers.tmp")
 	if err := os.WriteFile(temp, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Chmod(temp, 0o644); err != nil {
+		_ = os.Remove(temp)
 		return err
 	}
 	if err := os.Rename(temp, file); err != nil {
