@@ -29,7 +29,6 @@ import (
 // Actual OCI layout, Git, delegated signatures, allocator and OCI SDK/HTTP are
 // exercised. HTTP models regional admission; live runtime readiness is separate.
 func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: flaky on main since the 2026-10-21 integration-line merge")
 	base := newApplyHTTPFixture(t)
 	f := &containerHTTPFixture{applyHTTPFixture: base}
 	base.reset("")
@@ -43,7 +42,7 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	client.Host = server.URL
 	client.HTTPClient = applyHTTPDispatcher{server}
 	f.allocations = release.SequenceLocation{Client: client, Namespace: "ns", Bucket: "gru-1-head"}
-	env := deployEnv{timeout: 2 * time.Second, storage: func(string) (releasechannel.ObjectClient, error) { return client, nil }}
+	env := deployEnv{storage: func(string) (releasechannel.ObjectClient, error) { return client, nil }}
 	leaf, err := readDelegatedPrivateKey(base.leafPath)
 	if err != nil {
 		t.Fatal(err)
