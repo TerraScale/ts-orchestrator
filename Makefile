@@ -99,7 +99,7 @@ terrabase-release-process:
 shellcheck:
 	git ls-files -z -- 'scripts/*.sh' 'deploy/*.sh' scripts/check-dashboard-netbird deploy/netbird/manager/netbird-firewall | xargs -0 shellcheck -S warning
 
-# No tracked file may mention the retired Fly.io hosting.
+# No tracked file may mention the retired hosting provider (see the script).
 retired-host-check:
 	bash scripts/ci/retired-host-check.sh
 
