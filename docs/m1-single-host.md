@@ -62,9 +62,9 @@ CI holds no secret. Its GitHub Actions OIDC token (audience `ts-orch`) is the
 NATS token and is embedded in every release message. ts-orch verifies RS256
 against GitHub's JWKS, `iss`, `aud=ts-orch`, `exp`/`nbf` (1 min skew),
 `repository_owner=TerraScale`, `ref=refs/heads/main`, `event_name=push` and
-`job_workflow_ref` in the code list `releaseWorkflows` (today only
-`TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main`; the
-token's `repository` must own that workflow). A CI connection may publish only
+`job_workflow_ref` either `TerraScale/ts-orchestrator/.github/workflows/ci.yml@refs/heads/main`
+(ts-orch releases) or a key of the code map `appServices` (app image
+workflows; the token's `repository` must own that workflow). A CI connection may publish only
 `ts.release.>` and subscribe only its run's inbox `_INBOX.<run_id>.>`; ts-orch's
 own in-process connection uses an in-memory token. Everything else is refused.
 
@@ -72,7 +72,25 @@ own in-process connection uses an in-memory token. Everything else is refused.
 |---|---|---|
 | `ts.release.version` | none | `{"version": "<vcs.revision>"}` |
 | `ts.release.ts-orch` | `{"sha", "binaries": {"<goarch>": {"url", "sha256"}}, "token"}` | `{"state": "current" \| "installed" \| "stale" \| "rejected"}` |
-| `ts.release.app` | `{"service", "image": "ghcr.io/terrascale/<name>@sha256:...", "token"}` | not wired yet (slice B) |
+| `ts.release.app` | `{"service", "image": "ghcr.io/terrascale/<service>@sha256:...", "token"}` | `{"state": "done" \| "failed" \| "rejected", "result": [<mesh rows>]}` |
+
+An app release needs a token from a workflow `appServices` allows to release
+`service` (`app-canary.yml` here: `app-canary`; terrascale `images-ghcr.yml`:
+`terrabase`, `ts-auth`; ts-dashboard `images-ghcr.yml`: `ts-dashboard`), and
+the image name must equal the service. The receiving host reads the service's
+newest desired spec on the mesh, changes only its digest (same repository) and
+applies it to every region it targets: pre-pull, fast replacement, ready path.
+If a targeted region fails or is not ready within 70 s, it re-applies the
+previous spec everywhere (40 s) unless a newer release replaced it. A service
+must have been applied once with `ts-orch service apply -f`. From an image
+workflow:
+
+```sh
+ts-orch release app --service terrabase --image ghcr.io/terrascale/terrabase@sha256:<arm64 digest>
+```
+
+It tries the regions in `deploy/m1/regions.json` order until one accepts the
+connection and prints `{"via","state","serving_ms","error","regions"}`.
 
 A ts-orch release needs a token from `TerraScale/ts-orchestrator` whose `sha`
 claim equals `sha`, and the URL must be exactly that run's release asset:

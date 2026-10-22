@@ -69,6 +69,7 @@ func RunSingleHost(ctx context.Context, args []string, output io.Writer) error {
 		return err
 	}
 	releases.Mesh = mesh.Bridge(*state)
+	releases.App = mesh.Release(*state)
 	natsServer, natsConn, err := releasepush.Start(*state)
 	if err != nil {
 		return err
