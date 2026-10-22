@@ -17,9 +17,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
-// operatorEgress is the shared public egress of delta, mariogk-dev and beta.
-const operatorEgress = "179.124.206.245/32"
-
 // rule is one stateful CIDR security rule. port 0 is every port; icmp is
 // "type/code", "type" or "" for every ICMP message.
 type rule struct {
@@ -90,8 +87,6 @@ func desired(cellName string) (spec, error) {
 			// and release pushes over NATS (docs/m1-single-host.md) on 4222, and the
 			// cross-region mesh gateways (mutual TLS, internal/natscell/mesh) on 7222.
 			{cellName + "-edge-nsg", []rule{tcp(80), tcp(443), udp(3478), udp(51820), tcp(4222), tcp(7222)}},
-			// shortcut: operator SSH from the internet, remove once SSH over NetBird is proven.
-			{cellName + "-operator-ssh-nsg", []rule{{proto: "6", cidr: operatorEgress, port: 22}}},
 		},
 	}, nil
 }

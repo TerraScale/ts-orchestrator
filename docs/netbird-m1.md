@@ -13,9 +13,10 @@ key is read from OCI Vault on the PC.
 | 3478 | udp | 0.0.0.0/0 | STUN (NAT discovery), served directly by `netbird-server` |
 | 51820 | udp | 0.0.0.0/0 | WireGuard on ts-gru-1's own client, so peers connect directly instead of through the relay |
 
-Nothing else is public. SSH (22/tcp) moves to the NetBird interface `wt0`
-once the proof below passes; until then 22 stays open from
-179.124.206.245/32.
+Nothing else is public. SSH (22/tcp) is NetBird-only: delta, beta and
+mariogk-dev reach `ts-gru-1`, `ts-sjc-1` and `ts-fra-1` by their NetBird IPs
+(their `~/.ssh/config` aliases point there), and no NSG opens 22 to the
+internet.
 
 ## Server
 
