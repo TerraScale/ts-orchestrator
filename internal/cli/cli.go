@@ -22,6 +22,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard/accesscheck"
 	"github.com/TerraScale/ts-orchestrator/internal/disasterrecovery"
+	"github.com/TerraScale/ts-orchestrator/internal/edge/geodns"
 	"github.com/TerraScale/ts-orchestrator/internal/functions"
 	"github.com/TerraScale/ts-orchestrator/internal/image"
 	"github.com/TerraScale/ts-orchestrator/internal/liveverify"
@@ -86,6 +87,7 @@ Operator tooling:
   apply                  Apply a signed cell spec to the running cell
   service                Apply and remove services in every region, list this host's (apply -f FILE | ls | rm NAME)
   mesh                   Show which regions answer on the cross-region mesh (ping)
+  edge                   Plan the GeoDNS steering policy to the nearest healthy region (edge geodns --plan)
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
   node                   Drain, reboot, resize, add and retire a cell's nodes, one at a time behind the load balancer
   bootstrap              Prepare, sign, verify, and publish bootstrap material
@@ -146,6 +148,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return app.RunSingleHostServing(ctx, args[1:], output)
 	case "service":
 		return app.RunServiceCLI(ctx, args[1:], output)
+	case "edge":
+		return geodns.Run(ctx, args[1:], output)
 	case "mesh":
 		return mesh.RunCLI(ctx, args[1:], "/var/lib/ts-orch", output)
 	case "observe":
