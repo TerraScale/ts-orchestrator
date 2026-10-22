@@ -33,71 +33,19 @@ env:
   # each try to use every CPU of the runner.
   GOFLAGS: -p=4
   GOMAXPROCS: '2'
-  # Pull requests run the fast tier (go test -short); the merge queue and
-  # main run every tier-gated test and the fixturetest build, so the full
-  # tier still gates every merge and image.
-  TS_TEST_TIER: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
+  # Pull requests and the merge queue run the fast tier (go test -short);
+  # main runs every tier-gated test and the fixturetest build after the
+  # merge, so the full tier still gates every image and release.
+  TS_TEST_TIER: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'pr' || 'full' }}
 
 jobs:
-  # Formatting, generated files, vet, shell lint, the release build and the
-  # TS-795 switch guard (fails when the change adds an on/off setting; the
-  # policy is vendored so fork PRs require no external credentials).
-  lint:
-    name: verify/lint
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Check out the exact source revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ env.SOURCE_SHA }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Check the change against the zero-configuration policy
-        env:
-          ZERO_CONFIG_BASE: ${{ env.CHANGE_BASE }}
-        run: |
-          set -eu
-          if [ -z "$ZERO_CONFIG_BASE" ] || [ "$ZERO_CONFIG_BASE" = "0000000000000000000000000000000000000000" ]; then
-            ZERO_CONFIG_BASE=$(git rev-parse "$SOURCE_SHA^")
-          fi
-          python3 scripts/ci/zero-config-check.py "$ZERO_CONFIG_BASE" "$SOURCE_SHA"
-          python3 scripts/ci/test_zero_config_check.py -v
-          python3 -I -B -m unittest discover -s scripts/ci -p test_image_inputs_changed.py -v
-          python3 -I -B -m unittest discover -s scripts/ci -p test_ci_artifact_graph.py -v
-      - uses: ./.github/actions/go
-        with:
-          cache: lint
-      - name: Install shell validation tools
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - name: Compare executable and image inputs with retained qualification
-        id: inputs
-        shell: bash
-        env:
-          GITHUB_SHA: ${{ env.SOURCE_SHA }}
-        run: |
-          set -euo pipefail
-          status=0
-          python3 -B scripts/ci/release-inputs-changed.py || status=$?
-          case $status in
-            0) echo 'publication=required' >> "$GITHUB_OUTPUT" ;;
-            3) echo 'publication=unchanged' >> "$GITHUB_OUTPUT" ;;
-            *) exit "$status" ;;
-          esac
-      # The release build runs beside the checks.
-      - name: Check every revision
-        run: make --jobs ci-lint ${{ steps.inputs.outputs.publication == 'required' && 'release-check' || '' }} GO=go GOFMT=gofmt
-      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-lint-${{ hashFiles('go.sum') }}-${{ github.sha }}
-
   # The race suite, split across machines by scripts/ci/racetest/race-test.sh.
   # Four machines: the org's free plan runs 20 jobs at once for every repository.
   # A failed test in a package the change does not touch re-runs once.
+  # Machine 1, which has the least race work, also runs formatting, generated
+  # files, vet, shell lint, the release build and the TS-795 switch guard
+  # (fails when the change adds an on/off setting; the policy is vendored so
+  # fork PRs require no external credentials).
   race:
     name: verify/race ${{ matrix.shard }}/4
     runs-on: ubuntu-24.04
@@ -118,17 +66,55 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Check the change against the zero-configuration policy
+        if: ${{ matrix.shard == 1 }}
+        env:
+          ZERO_CONFIG_BASE: ${{ env.CHANGE_BASE }}
+        run: |
+          set -eu
+          if [ -z "$ZERO_CONFIG_BASE" ] || [ "$ZERO_CONFIG_BASE" = "0000000000000000000000000000000000000000" ]; then
+            ZERO_CONFIG_BASE=$(git rev-parse "$SOURCE_SHA^")
+          fi
+          python3 scripts/ci/zero-config-check.py "$ZERO_CONFIG_BASE" "$SOURCE_SHA"
+          python3 scripts/ci/test_zero_config_check.py -v
+          python3 -I -B -m unittest discover -s scripts/ci -p test_image_inputs_changed.py -v
+          python3 -I -B -m unittest discover -s scripts/ci -p test_ci_artifact_graph.py -v
       - uses: ./.github/actions/go
         with:
           cache: race-${{ matrix.shard }}
+      - name: Install shell validation tools
+        if: ${{ matrix.shard == 1 }}
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Compare executable and image inputs with retained qualification
+        if: ${{ matrix.shard == 1 }}
+        id: inputs
+        shell: bash
+        env:
+          GITHUB_SHA: ${{ env.SOURCE_SHA }}
+        run: |
+          set -euo pipefail
+          status=0
+          python3 -B scripts/ci/release-inputs-changed.py || status=$?
+          case $status in
+            0) echo 'publication=required' >> "$GITHUB_OUTPUT" ;;
+            3) echo 'publication=unchanged' >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
       - name: Run this machine's race shards
         shell: bash
+        env:
+          RELEASE_CHECK: ${{ steps.inputs.outputs.publication == 'required' && 'release-check' || '' }}
         run: |
           set -euo pipefail
           if [[ $CHANGE_BASE != 0000000000000000000000000000000000000000 ]]; then
             export TS_CHANGE_BASE=$CHANGE_BASE
           fi
-          make race-test GO=go 2>&1 | tee "$RUNNER_TEMP/race.log"
+          targets=race-test
+          if [[ $TS_CI_SHARD == 1/4 ]]; then
+            targets="ci-check $RELEASE_CHECK"
+          fi
+          # shellcheck disable=SC2086 # targets is a word list
+          make --jobs $targets GO=go GOFMT=gofmt 2>&1 | tee "$RUNNER_TEMP/race.log"
       - name: Keep the tests that passed only on retry
         if: ${{ always() }}
         shell: bash
@@ -149,12 +135,12 @@ jobs:
           key: go-race-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
 
   # Publishes a verified revision. Pull requests and merge groups publish
-  # nothing; their release build runs in lint.
+  # nothing; their release build runs on race machine 1.
   build:
     if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
     permissions:
       contents: write
-    # Builds beside lint and race so the release is ready the moment the
+    # Builds beside the race machines so the release is ready the moment the
     # checks pass; nothing deploys or qualifies before they do.
     name: verify/go + artifact/linux-amd64-arm64
     outputs:
@@ -170,7 +156,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/go
         with:
-          cache: lint
+          cache: race-1
       - name: Compare executable and image inputs with retained qualification
         id: inputs
         shell: bash
@@ -201,7 +187,7 @@ jobs:
 
   # Records qualification and starts the image only once every check passed.
   qualified:
-    needs: [lint, race, build]
+    needs: [race, build]
     if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' && needs.build.outputs.publication == 'required' }}
     name: verify/qualified
     runs-on: ubuntu-24.04
@@ -246,7 +232,7 @@ jobs:
   # (deploy/m1/regions.json); fails when any region does not serve it. Only
   # this job can mint the GitHub OIDC token that is the push credential.
   release-push:
-    needs: [lint, race, build]
+    needs: [race, build]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}
     name: deploy/release-push
     runs-on: ubuntu-24.04
@@ -289,17 +275,16 @@ jobs:
   test:
     name: test
     if: ${{ always() }}
-    needs: [lint, race, build]
+    needs: [race, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - env:
-          LINT: ${{ needs.lint.result }}
           RACE: ${{ needs.race.result }}
           BUILD: ${{ needs.build.result }}
         run: |
-          echo "lint=$LINT race=$RACE build=$BUILD"
-          test "$LINT" = success && test "$RACE" = success && { test "$BUILD" = success || test "$BUILD" = skipped; }
+          echo "race=$RACE build=$BUILD"
+          test "$RACE" = success && { test "$BUILD" = success || test "$BUILD" = skipped; }
 
   # Weekly list of the tests that passed only on retry.
   flaky-report:
