@@ -221,3 +221,24 @@ func TestChallengeComesFromThePeerHoldingIt(t *testing.T) {
 		t.Fatalf("unknown token = %d, want 404", code)
 	}
 }
+
+func TestReadyzAnswersOnPlainHTTP(t *testing.T) {
+	regions := startRegions(t, func(_ string, w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ready "+r.URL.Path) })
+	req, _ := http.NewRequest(http.MethodGet, "http://"+regions["sjc"].plain+"/readyz", nil)
+	req.Host = host
+	resp, err := http.DefaultTransport.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || string(body) != "ready /readyz" {
+		t.Fatalf("readyz on :80 = %d %q", resp.StatusCode, body)
+	}
+	req, _ = http.NewRequest(http.MethodGet, "http://"+regions["sjc"].plain+"/v1/db", nil)
+	req.Host = host
+	if resp, err = http.DefaultTransport.RoundTrip(req); err != nil || resp.StatusCode != http.StatusFound {
+		t.Fatalf("other paths on :80 must redirect: %v %v", resp, err)
+	}
+	resp.Body.Close()
+}
