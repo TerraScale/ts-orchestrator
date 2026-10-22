@@ -33,6 +33,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
@@ -126,7 +127,7 @@ func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationOb
 }
 
 func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: schema3 grants with original startup admission are refused by the regional startup verifier before original writer launch (verifyFoundationWorkloadStartup and launchFoundationWriter -> bootstrap startup_authority.go original-bindings check)")
+	tier.Integration(t)
 	t.Run("provision_originals", foundationProvisionSDKScenario)
 	store, client, raw := foundationProtocolStore(t)
 	now := time.Now().UTC()
