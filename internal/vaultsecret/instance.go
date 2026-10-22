@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"regexp"
 	"slices"
@@ -74,23 +75,70 @@ func ValidateServiceRefs(cell, vaultID, service string, refs map[string]Ref) err
 	return ValidateDeliveryRefs(cell, service, own, nil)
 }
 
-// ReadInstanceSecrets reads the current value of each of service's refs from
-// the Vault of the instance's own cell, with its instance principal, after
-// ValidateServiceRefs. It needs no configuration: the cell comes from the
-// instance metadata region, and the Vault is the one named <cell>-vault in the
-// instance's compartment.
+// ReadInstanceSecrets reads the current value of each of service's refs, with
+// the instance principal, from the one Vault they name (SwarmSpec allows one),
+// after ValidateServiceRefs against the cell of that Vault's region. So a host
+// in a region without a cell Vault reads the platform Vault IAM grants it.
 func ReadInstanceSecrets(ctx context.Context, service string, refs map[string]Ref) (map[string]string, error) {
 	if err := safeEnv(); err != nil {
 		return nil, err
 	}
-	cell, vaultID, err := discoverInstanceVault(ctx)
-	if err != nil {
-		return nil, err
+	if len(refs) == 0 {
+		return map[string]string{}, nil
 	}
-	if err := ValidateServiceRefs(cell, vaultID, service, refs); err != nil {
+	if _, _, err := refsVault(service, refs); err != nil {
 		return nil, err
 	}
 	return Resolve(ctx, refs, instanceClient(ctx))
+}
+
+// ReadPullToken reads the GHCR pull token for service's task: from the Vault
+// its refs name, as <cell>-<n>-ghcr-pull-token in the refs' namespace
+// (gru-1-ghcr-pull-token), else from the instance's own cell Vault.
+func ReadPullToken(ctx context.Context, service string, refs map[string]Ref) (string, error) {
+	if len(refs) == 0 {
+		return ReadInstanceSecret(ctx, "ghcr-pull-token")
+	}
+	if err := safeEnv(); err != nil {
+		return "", err
+	}
+	cell, vaultID, err := refsVault(service, refs)
+	if err != nil {
+		return "", err
+	}
+	name := pullTokenName(cell, refs)
+	bundles, err := instanceClient(ctx)(Ref{Vault: vaultID}.region())
+	if err != nil {
+		return "", fmt.Errorf("Vault secret %s: %w", name, err)
+	}
+	return Read(ctx, bundles, vaultID, name)
+}
+
+// refsVault is the cell and Vault of service's non-empty refs: the Vault of
+// the first key, whose region names the cell; ValidateServiceRefs binds every
+// ref to that one Vault and to the cell's name rules.
+func refsVault(service string, refs map[string]Ref) (string, string, error) {
+	ref := refs[slices.Min(slices.Collect(maps.Keys(refs)))]
+	entry, ok := catalog.CellForOCIRegion(ref.region())
+	if !ok {
+		return "", "", fmt.Errorf("Vault secrets of %s must name a Vault in a TerraScale cell's region", service)
+	}
+	if err := ValidateServiceRefs(entry.Name(), ref.Vault, service, refs); err != nil {
+		return "", "", err
+	}
+	return entry.Name(), ref.Vault, nil
+}
+
+// pullTokenName keeps the cell-number namespace of the refs; cell resources
+// are otherwise <cell>-1-<name>.
+func pullTokenName(cell string, refs map[string]Ref) string {
+	for _, key := range slices.Sorted(maps.Keys(refs)) {
+		index, _, _ := strings.Cut(strings.TrimPrefix(refs[key].Name, cell+"-"), "-")
+		if strings.HasPrefix(refs[key].Name, cell+"-") && index != "" && strings.Trim(index, "0123456789") == "" {
+			return cell + "-" + index + "-ghcr-pull-token"
+		}
+	}
+	return cell + "-1-ghcr-pull-token"
 }
 
 // ReadInstanceSecret reads the cell secret <cell>-<purpose> from the Vault of

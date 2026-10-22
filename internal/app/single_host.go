@@ -40,9 +40,7 @@ func RunSingleHost(ctx context.Context, args []string, output io.Writer) error {
 		return err
 	}
 	defer executor.Close()
-	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(func(ctx context.Context) (string, error) {
-		return vaultsecret.ReadInstanceSecret(ctx, "ghcr-pull-token")
-	})); err != nil {
+	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(vaultsecret.ReadPullToken)); err != nil {
 		return err
 	}
 	node, err := swarmruntime.StartSingleHost(ctx, *state, executor)

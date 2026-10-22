@@ -2,7 +2,9 @@ package swarmruntime
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	ociregistry "github.com/TerraScale/ts-orchestrator/internal/ociregion/registry"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/moby/swarmkit/v2/api"
@@ -94,11 +97,16 @@ const ghcrUser = "MarioGK"
 
 // GHCRResolver authenticates ghcr.io pulls with the token read at pull time
 // (in memory, once per pull); every other registry stays anonymous.
-func GHCRResolver(token func(context.Context) (string, error)) RegistryResolver {
+// token gets the task's service and Vault secret refs, so the token comes
+// from the Vault the service names.
+func GHCRResolver(token PullToken) RegistryResolver {
 	return ghcrResolver(token, nil)
 }
 
-func ghcrResolver(token func(context.Context) (string, error), transport http.RoundTripper) RegistryResolver {
+// PullToken reads a GHCR pull token for service, whose task names refs.
+type PullToken func(ctx context.Context, service string, refs map[string]vaultsecret.Ref) (string, error)
+
+func ghcrResolver(token PullToken, transport http.RoundTripper) RegistryResolver {
 	return func(ctx context.Context, task *api.Task, node *api.Node) (remotes.Resolver, error) {
 		spec, err := DecodeContainer(task)
 		if err != nil {
@@ -107,7 +115,14 @@ func ghcrResolver(token func(context.Context) (string, error), transport http.Ro
 		if !strings.HasPrefix(spec.Image, ghcrHost+"/") {
 			return publicRegistryResolver(ctx, task, node)
 		}
-		read := sync.OnceValues(func() (string, error) { return token(ctx) })
+		labels := task.ServiceAnnotations.Labels
+		var refs map[string]vaultsecret.Ref
+		if labels[LabelSecretRefs] != "" {
+			if err := json.Unmarshal([]byte(labels[LabelSecretRefs]), &refs); err != nil {
+				return nil, fmt.Errorf("service %s has unreadable %s", labels[LabelServiceSpec], LabelSecretRefs)
+			}
+		}
+		read := sync.OnceValues(func() (string, error) { return token(ctx, labels[LabelServiceSpec], refs) })
 		return privateRegistryResolver(spec.Image, ghcrHost, func(host string) (string, string, error) {
 			if host != ghcrHost {
 				return "", "", errors.New("GHCR credentials requested for another host")

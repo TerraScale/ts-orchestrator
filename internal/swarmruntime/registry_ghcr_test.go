@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -24,10 +25,17 @@ func TestGHCRRegistryResolverAuthenticatesOnlyGHCR(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return &api.Task{ID: "ghcrfixture", ServiceID: "ghcr", NodeID: "node", Spec: api.TaskSpec{Runtime: runtime, Resources: intent.Resources.Copy()}}
+		labels := map[string]string{LabelServiceSpec: "app", LabelSecretRefs: `{"KEY_FILE":{"vault":"ocid1.vault.oc1.sa-saopaulo-1.vault","name":"gru-1-app-key"}}`}
+		return &api.Task{ID: "ghcrfixture", ServiceID: "ghcr", NodeID: "node", Spec: api.TaskSpec{Runtime: runtime, Resources: intent.Resources.Copy()},
+			ServiceAnnotations: api.Annotations{Labels: labels}}
 	}
 	reads := 0
-	token := func(context.Context) (string, error) { reads++; return "vault-memory-token", nil }
+	var asked string
+	token := func(_ context.Context, service string, refs map[string]vaultsecret.Ref) (string, error) {
+		reads++
+		asked = service + " " + refs["KEY_FILE"].Name
+		return "vault-memory-token", nil
+	}
 	var authorized bool
 	transport := registryRoundTrip(func(request *http.Request) (*http.Response, error) {
 		if request.Host != "ghcr.io" {
@@ -49,6 +57,9 @@ func TestGHCRRegistryResolverAuthenticatesOnlyGHCR(t *testing.T) {
 	}
 	if _, _, err := private.Resolve(t.Context(), image); err == nil || !authorized || reads != 1 {
 		t.Fatalf("ghcr.io pull did not authenticate with Vault token: err=%v authorized=%v reads=%d", err, authorized, reads)
+	}
+	if asked != "app gru-1-app-key" {
+		t.Fatalf("pull token asked for %q, want the task's service and refs", asked)
 	}
 
 	image = "docker.io/library/nginx" + digest

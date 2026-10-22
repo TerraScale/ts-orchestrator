@@ -208,9 +208,7 @@ func (a swarmApplier) PrePull(ctx context.Context, image string) error {
 	}
 	defer executor.Close()
 	// The same pull authority `ts-orch single-host` installs for its tasks.
-	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(func(ctx context.Context) (string, error) {
-		return vaultsecret.ReadInstanceSecret(ctx, "ghcr-pull-token")
-	})); err != nil {
+	if err := executor.SetRegistryResolver(swarmruntime.GHCRResolver(vaultsecret.ReadPullToken)); err != nil {
 		return err
 	}
 	return executor.PrePull(ctx, image)
