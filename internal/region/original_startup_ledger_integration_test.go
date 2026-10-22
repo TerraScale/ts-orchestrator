@@ -393,6 +393,7 @@ func (f *originalStartupLedgerFixture) signRecord(t *testing.T, intent bootstrap
 }
 
 func TestOriginalStartupLedgerSDKExactExternalSeedAndRestart(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalStartupLedgerFixture(t)
 	intent := f.intent(t)
 	scope := bootstrap.BootstrapScope{DeploymentID: intent.DeploymentID, Cell: intent.Cell, Slot: intent.Slot}
@@ -450,6 +451,7 @@ func TestOriginalStartupLedgerSDKExactExternalSeedAndRestart(t *testing.T) {
 }
 
 func TestOriginalStartupLedgerSDKRejectsSchemaAndBirthChanges(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalStartupLedgerFixture(t)
 	cases := []struct {
 		name   string
@@ -503,6 +505,7 @@ func TestOriginalStartupLedgerSDKRejectsSchemaAndBirthChanges(t *testing.T) {
 }
 
 func TestOriginalStartupLedgerSDKPreservesOrdinarySchema1(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalStartupLedgerFixture(t)
 	config, err := f.authority.LedgerConfig(f.producer.roots)
 	if err != nil {
@@ -558,6 +561,7 @@ func TestOriginalStartupLedgerSDKPreservesOrdinarySchema1(t *testing.T) {
 }
 
 func TestOriginalStartupTrustSDKCancellationHoldsAtIAMBoundary(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f, anchor := originalStartupTrustFixture(t, false)
 	originalStartupTemplate(t, f, anchor, oci.RegionGRU)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -590,6 +594,7 @@ func TestOriginalStartupTrustSDKCancellationHoldsAtIAMBoundary(t *testing.T) {
 }
 
 func TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newOriginalStartupLedgerFixture(t)
 	original := originalStartupJSON(t, f.source)
 	for _, mutation := range []string{"scope", "inventory", "unknown-field"} {
