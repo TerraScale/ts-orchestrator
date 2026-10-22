@@ -104,7 +104,6 @@ func TestSDKOrphanPruningRequiresPositiveSourceDeletion(t *testing.T) {
 }
 
 func TestSDKOrphanTerminationSurvivesRetentionAndLeaderHandoff(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: flaky on main since the 2026-10-21 integration-line merge")
 	for _, placed := range [][]string{nil, {"ocid1.volume.exact"}} {
 		t.Run(fmt.Sprint(placed), func(t *testing.T) {
 			const volumeID = "ocid1.volume.exact"
