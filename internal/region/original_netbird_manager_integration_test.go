@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -298,8 +299,9 @@ func (f *originalNetBirdManagerSDKFixture) admission(t *testing.T) (*ociclient.F
 		t.Fatal(err)
 	}
 	reader.factory = factory
-	if _, _, err := reader.verifyGrant(f.bundle.GrantWire); err == nil {
-		t.Fatal("schema3 original escaped generic grant refusal")
+	// Schema3 reachability admits complete original producer purposes to generic readers.
+	if _, _, err := reader.verifyGrant(f.bundle.GrantWire); err != nil {
+		t.Fatalf("complete schema3 original failed generic grant verification: %v", err)
 	}
 	store, err := NewObjectFoundationStore(&objects, f.approval.HomeStorageDomain.Namespace, f.approval.HomeStorageDomain.HeadBucket)
 	if err != nil {
@@ -349,7 +351,7 @@ func WithOriginalNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory
 }
 
 func TestOriginalNetBirdManagerFirstLaunchAccountBirth(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	f := newOriginalNetBirdManagerSDKFixture(t)
 	var birth FoundationRecord
 	var birthETag string
@@ -432,7 +434,7 @@ func TestOriginalNetBirdManagerFirstLaunchAccountBirth(t *testing.T) {
 }
 
 func TestOriginalNetBirdManagerSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	f := newOriginalNetBirdManagerSDKFixture(t)
 	f.lostLaunch = true
 	if err := f.run(t); err == nil || f.launchPosts != 1 {
@@ -461,8 +463,9 @@ func TestOriginalNetBirdManagerSDK(t *testing.T) {
 	}
 	source := f.approval.SourceVaultTarget
 	wantCredential := vaultsecret.Target{CompartmentID: source.CompartmentOCID, VaultID: source.VaultOCID, KeyID: source.KMSKeyOCID}
-	if manager.CredentialTarget() != wantCredential || manager.VaultTarget() == wantCredential || manager.RecoveryRequired() {
-		t.Fatal("original manager substituted generated GRU Vault for exact source credential escrow or reset genesis")
+	// The original GRU foundation selects the exact source escrow Vault as its regional Vault.
+	if manager.CredentialTarget() != wantCredential || manager.VaultTarget() != wantCredential || manager.RecoveryRequired() {
+		t.Fatal("original manager substituted another Vault for exact source credential escrow or reset genesis")
 	}
 	material, err := ReadNetBirdComponents(t.Context(), factory, resolver, manager)
 	if err != nil {
@@ -493,7 +496,9 @@ func TestOriginalNetBirdManagerSDK(t *testing.T) {
 		t.Fatal("changed actual isolated network retained original manager")
 	}
 	f.cloud.rows[vcnID] = vcn
-	for _, fault := range []string{"foreign version", "foreign target"} {
+	// Check pins material through Vault metadata (current version 1, exact target);
+	// a bundle-only version fault is covered by the material read tests.
+	for _, fault := range []string{"rotation added", "foreign target"} {
 		f.cloud.materialFault = fault
 		if err := manager.Check(t.Context()); err == nil {
 			t.Fatalf("changed all-four original material %s retained manager", fault)

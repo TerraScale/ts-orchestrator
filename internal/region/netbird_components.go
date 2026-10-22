@@ -53,6 +53,8 @@ type netBirdComponents struct {
 	original   bool
 	expires    time.Time
 	components [3]NetBirdComponent
+	// guardID marks this material's guard as passed within one memoized operation.
+	guardID, checkID *byte
 }
 
 func (v NetBirdComponents) ExpiresAt() time.Time {
@@ -83,8 +85,14 @@ func (v NetBirdComponents) Check(ctx context.Context) error {
 	s := v.state
 	ctx, cancel := context.WithDeadline(ctx, s.expires)
 	defer cancel()
+	// One check verifies the original foundation once for all of its requests;
+	// nested checks of the same operation (account guards) reuse a passed check.
+	ctx = withOriginalNetBirdStateMemo(ctx)
 	if err := s.guard(ctx); err != nil {
 		return err
+	}
+	if originalNetBirdChecked(ctx, s.checkID) {
+		return nil
 	}
 	location, err := s.location()
 	if err != nil {
@@ -116,7 +124,11 @@ func (v NetBirdComponents) Check(ctx context.Context) error {
 			return errors.Join(errNetBirdComponents, err)
 		}
 	}
-	return s.guard(ctx)
+	if err := s.guard(ctx); err != nil {
+		return err
+	}
+	markOriginalNetBirdChecked(ctx, s.checkID)
+	return nil
 }
 
 // ReadNetBirdComponents reads only genuine signed OCI material before NATS.
@@ -128,6 +140,8 @@ func ReadNetBirdComponents(ctx context.Context, factory *ociclient.Factory, reso
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
+	// One read verifies the original foundation once for all of its requests.
+	ctx = withOriginalNetBirdStateMemo(ctx)
 	if err := manager.Check(ctx); err != nil {
 		return NetBirdComponents{}, err
 	}
@@ -149,7 +163,7 @@ func ReadNetBirdComponents(ctx context.Context, factory *ociclient.Factory, reso
 		}
 	}
 	deadline, _ := ctx.Deadline()
-	s := &netBirdComponents{factory: factory, resolver: resolver, reader: reader, manager: manager, intent: intent, original: original, expires: deadline}
+	s := &netBirdComponents{factory: factory, resolver: resolver, reader: reader, manager: manager, intent: intent, original: original, expires: deadline, guardID: new(byte), checkID: new(byte)}
 	s.capDeadline(intent.expires)
 	if err := s.guard(ctx); err != nil {
 		return NetBirdComponents{}, err
@@ -185,6 +199,19 @@ func (s *netBirdComponents) guard(ctx context.Context) error {
 	if !time.Now().Before(s.expires) || s.reader.factory != s.factory || s.resolver.Footprint != s.reader {
 		return errNetBirdComponents
 	}
+	// One operation verifies the foundation and manager once for all of its requests.
+	ctx = withOriginalNetBirdStateMemo(ctx)
+	if originalNetBirdChecked(ctx, s.guardID) {
+		return ctx.Err()
+	}
+	if err := s.fullGuard(ctx); err != nil {
+		return err
+	}
+	markOriginalNetBirdChecked(ctx, s.guardID)
+	return nil
+}
+
+func (s *netBirdComponents) fullGuard(ctx context.Context) error {
 	tenancy, err := s.factory.Provider().TenancyOCID()
 	if err != nil || tenancy != s.reader.tenancy {
 		return errors.Join(errNetBirdComponents, err)
@@ -228,14 +255,16 @@ func (s *netBirdComponents) guard(ctx context.Context) error {
 
 func (s *netBirdComponents) requestContext(base context.Context, issuer *VerifiedOCIRIssuer) context.Context {
 	return ociclient.WithRequestGuard(base, func(context.Context) error {
-		// Revalidation uses the original context, avoiding recursive wire guards.
-		if err := s.guard(base); err != nil {
+		// Revalidation uses the original context, avoiding recursive wire guards;
+		// one request's guard verifies the original foundation once.
+		scope := withOriginalNetBirdStateMemo(base)
+		if err := s.guard(scope); err != nil {
 			return err
 		}
 		if issuer != nil {
 			var err error
 			if s.original {
-				err = GuardNetBirdOCIRIssuer(base, s.factory, s.resolver, s.manager, *issuer)
+				err = GuardNetBirdOCIRIssuer(scope, s.factory, s.resolver, s.manager, *issuer)
 			} else {
 				err = s.resolver.GuardOCIRIssuer(base, *issuer)
 			}

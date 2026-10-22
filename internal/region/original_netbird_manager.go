@@ -1,6 +1,7 @@
 package region
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -234,7 +236,59 @@ func originalNetBirdAuthority(ctx context.Context, authority *HomeIAMAuthority) 
 	return record, etag, intent, allocation, nil
 }
 
+type originalNetBirdAuthorityMemoKey struct{}
+
+// originalNetBirdAuthorityMemo holds the read-only verified manager authority
+// of one manager reconciliation.
+type originalNetBirdAuthorityMemo struct {
+	mu         sync.Mutex
+	verified   bool
+	intent     verifiedNetBirdIntent
+	allocation originalNetBirdAllocation
+	scope      bool
+}
+
+func (m *originalNetBirdAuthorityMemo) scopeVerified() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.scope
+}
+
+func (m *originalNetBirdAuthorityMemo) markScopeVerified() {
+	if m != nil {
+		m.mu.Lock()
+		m.scope = true
+		m.mu.Unlock()
+	}
+}
+
+// verifiedOriginalNetBirdAuthority serves read-only write guards. Within one
+// manager reconciliation it verifies the original authority once; every
+// journal step still reads and fully verifies its own write base.
+func verifiedOriginalNetBirdAuthority(ctx context.Context, authority *HomeIAMAuthority) (verifiedNetBirdIntent, originalNetBirdAllocation, error) {
+	memo, _ := ctx.Value(originalNetBirdAuthorityMemoKey{}).(*originalNetBirdAuthorityMemo)
+	if memo != nil {
+		memo.mu.Lock()
+		verified, intent, allocation := memo.verified, memo.intent, memo.allocation
+		memo.mu.Unlock()
+		if verified {
+			return intent, allocation, nil
+		}
+	}
+	_, _, intent, allocation, err := originalNetBirdAuthority(ctx, authority)
+	if err == nil && memo != nil {
+		memo.mu.Lock()
+		memo.verified, memo.intent, memo.allocation = true, intent, allocation
+		memo.mu.Unlock()
+	}
+	return intent, allocation, err
+}
+
 func retainOriginalNetBirdManager(ctx context.Context, authority *HomeIAMAuthority) error {
+	ctx = context.WithValue(ctx, originalNetBirdAuthorityMemoKey{}, &originalNetBirdAuthorityMemo{})
 	record, etag, intent, allocation, err := originalNetBirdAuthority(ctx, authority)
 	if err != nil {
 		return err
@@ -265,11 +319,11 @@ func retainOriginalNetBirdManager(ctx context.Context, authority *HomeIAMAuthori
 	journal := &originalNetBirdNetworkJournal{authority: authority}
 	progress := FoundationProgress{OperationID: allocation.OperationID(), AuxiliaryIDs: originalNetBirdManagerIDs(manager), NetBirdManager: manager.Launch,
 		ManagerAuthority: func(ctx context.Context) (verifiedNetBirdIntent, error) {
-			_, _, current, _, err := originalNetBirdAuthority(ctx, authority)
+			current, _, err := verifiedOriginalNetBirdAuthority(ctx, authority)
 			return current, err
 		},
 		BeforeWrite: func(ctx context.Context, _ bool) (context.Context, func(), error) {
-			_, _, current, currentAllocation, err := originalNetBirdAuthority(ctx, authority)
+			current, currentAllocation, err := verifiedOriginalNetBirdAuthority(ctx, authority)
 			if err != nil {
 				return ctx, nil, err
 			}
@@ -302,6 +356,10 @@ func retainOriginalNetBirdManager(ctx context.Context, authority *HomeIAMAuthori
 			if launch.InstanceID != "" && !validOriginalActorID("instance", foundationHomeRegion, launch.InstanceID) {
 				return journal.managerHold(ctx, "create-unresolved")
 			}
+			before, err := json.Marshal(m, json.Deterministic(true))
+			if err != nil {
+				return err
+			}
 			m.Launch = &launch
 			if launch.BootVolumeID != "" {
 				boot, vnic, err := observeNetBirdManagerGeometry(ctx, authority.factory, m.Intent, launch, m.ControlCompartmentID)
@@ -317,6 +375,10 @@ func retainOriginalNetBirdManager(ctx context.Context, authority *HomeIAMAuthori
 					m.VerifiedAt = time.Now().UTC()
 				}
 			}
+			// A reopened ready manager re-observes the same launch; do not rewrite it.
+			if after, err := json.Marshal(m, json.Deterministic(true)); err != nil || bytes.Equal(before, after) {
+				return err
+			}
 			return checkpointOriginalCompartments(ctx, authority, &saved, &etag)
 		}}
 	if manager.Launch != nil && manager.Launch.InstanceID == "" && !time.Now().Before(manager.Launch.StartedAt.Add(bootstrapRetryLifetime)) {
@@ -324,7 +386,7 @@ func retainOriginalNetBirdManager(ctx context.Context, authority *HomeIAMAuthori
 	}
 	err = reconcileNetBirdManagerAllocation(ctx, authority.factory, originalNetBirdManagerPlan(manager), progress,
 		func(ctx context.Context, slot string) (netBirdManagerAllocation, error) {
-			_, _, _, current, err := originalNetBirdAuthority(ctx, authority)
+			_, current, err := verifiedOriginalNetBirdAuthority(ctx, authority)
 			if err == nil && current.slot.SlotID != slot {
 				err = ErrOriginalSourceProducerHold
 			}

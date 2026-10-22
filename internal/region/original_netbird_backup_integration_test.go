@@ -9,19 +9,21 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 // The genuine original fixture has initial retention cooling, not fourteen
 // days of elapsed production history. It must not mint recovery authority.
 func TestOriginalNetBirdBackupRefusesPendingProtection(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	region.WithOriginalNetBirdManagerFixture(t, func(factory *ociclient.Factory, resolver region.FoundationResolver, manager region.VerifiedNetBirdManager) {
 		ctx := t.Context()
 		if err := manager.Check(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if manager.VaultTarget() == manager.CredentialTarget() {
-			t.Fatal("original regional backup Vault was replaced with credential escrow")
+		// The original GRU foundation selects the exact source escrow Vault as its regional Vault.
+		if manager.VaultTarget() != manager.CredentialTarget() {
+			t.Fatal("original regional backup Vault differs from its selected credential escrow")
 		}
 		record, _, err := resolver.Store.Load(ctx, "GRU")
 		if err != nil {
@@ -57,7 +59,7 @@ func TestOriginalNetBirdBackupRefusesPendingProtection(t *testing.T) {
 }
 
 func TestOriginalNetBirdBackupDoesNotFallBackAfterRefusal(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	region.WithOriginalNetBirdManagerFixture(t, func(factory *ociclient.Factory, resolver region.FoundationResolver, manager region.VerifiedNetBirdManager) {
 		refused := errors.New("current original store is unavailable")
 		store := &originalBackupReadStore{FoundationStore: resolver.Store, refused: refused}

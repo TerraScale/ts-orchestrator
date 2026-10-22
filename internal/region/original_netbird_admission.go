@@ -18,6 +18,8 @@ func admitOriginalNetBirdManager(ctx context.Context, resolver FoundationResolve
 		return VerifiedNetBirdManager{}, ErrOriginalSourceProducerHold
 	}
 	current := func(ctx context.Context) (originalNetBirdState, error) {
+		// One check verifies the foundation once; its guarded observations reuse it.
+		ctx = withOriginalNetBirdStateMemo(ctx)
 		state, err := reader.originalNetBirdState(ctx, resolver)
 		if err != nil {
 			return state, err
@@ -74,7 +76,12 @@ func admitOriginalNetBirdManager(ctx context.Context, resolver FoundationResolve
 	target, credentialTarget := state.regionalTarget(), state.target()
 	store := state.intent.intent.Material.Context.StoreGeneration
 	binding := netBirdOriginalBinding(*state.manager.Launch)
+	// Identifies this admitted manager's check within one memoized operation.
+	checkID := new(byte)
 	check := func(ctx context.Context) error {
+		if originalNetBirdChecked(ctx, checkID) {
+			return ctx.Err()
+		}
 		next, err := current(ctx)
 		if err != nil {
 			return err
@@ -83,9 +90,12 @@ func admitOriginalNetBirdManager(ctx context.Context, resolver FoundationResolve
 			next.intent.intent.Material.Context.StoreGeneration != store || netBirdOriginalBinding(*next.manager.Launch) != binding {
 			return ErrOriginalSourceProducerHold
 		}
+		markOriginalNetBirdChecked(ctx, checkID)
 		return nil
 	}
 	transition := func(ctx context.Context, ready bool) error {
+		// This writes the state it reads; never reuse a memoized check or state here.
+		ctx = withoutOriginalNetBirdStateMemo(ctx)
 		if err := check(ctx); err != nil {
 			return err
 		}

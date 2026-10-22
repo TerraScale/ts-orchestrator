@@ -36,6 +36,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -46,7 +47,7 @@ import (
 // This fixture crosses the real OCI SDK, public-price HTTP and disk-backed
 // Object Storage CAS; only the remote services and ARM64 binary measurement are fixtures.
 func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	withNetBirdManagerFixture(t, nil)
 }
 
@@ -822,7 +823,7 @@ func withNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory, Founda
 	nextBundle.Sequence = payload
 	nextBundle.Claim = sign(nextClaim, release.ContainerScope(release.ContainerTarget{Cell: "GRU", Role: nextClaim.Role, Environment: "production", Architecture: "arm64"}), first.signer)
 	location := releasechannel.Location{Client: objects, Namespace: reader.storage.Namespace, Bucket: reader.storage.HeadBucket}
-	if err := releasechannel.PublishContainer(t.Context(), location, nextBundle, roots, release.ContainerTarget{Cell: "GRU", Role: nextClaim.Role, Environment: "production", Architecture: "arm64"}, now, now.Add(time.Minute), func(ctx context.Context, digest string) (io.ReadCloser, error) {
+	if err := releasechannel.PublishContainer(t.Context(), location, nextBundle, roots, release.ContainerTarget{Cell: "GRU", Role: nextClaim.Role, Environment: "production", Architecture: "arm64"}, time.Now().UTC(), time.Now().UTC().Add(time.Minute), func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		return releasechannel.ReadContainerEvidence(ctx, location, nextClaim.Role, digest)
 	}, allocations); err != nil {
 		t.Fatal(err)
@@ -1115,7 +1116,7 @@ func netBirdComponentFixtures(t *testing.T, root ed25519.PrivateKey, roots trust
 		claim.Production = release.ProductionProof{Qualification: sign(qualification, release.ProductionQualificationScope(qualification.Candidate), root)}
 		bundle := release.ContainerBundle{Claim: sign(claim, scope, signer), Delegation: delegationWire, Migration: migrationWire, Sequence: familyWire}
 		location := releasechannel.Location{Client: objects, Namespace: home.Namespace, Bucket: home.HeadBucket}
-		if err := releasechannel.PublishContainer(t.Context(), location, bundle, roots, target, now, now.Add(time.Minute), func(ctx context.Context, digest string) (io.ReadCloser, error) {
+		if err := releasechannel.PublishContainer(t.Context(), location, bundle, roots, target, time.Now().UTC(), time.Now().UTC().Add(time.Minute), func(ctx context.Context, digest string) (io.ReadCloser, error) {
 			return releasechannel.ReadContainerEvidence(ctx, location, role, digest)
 		}, allocations); err != nil {
 			t.Fatal(err)
