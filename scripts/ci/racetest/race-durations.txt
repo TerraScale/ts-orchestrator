@@ -106,18 +106,21 @@ rest - 1
 ./tests/deploy TestOfflineRejectsDeploymentFlagsBeforeImageEffects 25
 ./tests/deploy * 10
 
-# Original foundation SDK tests (tier.Integration): non-race seconds for
-# norace solo, race seconds for solo, measured at GOMAXPROCS=2 -cpu 2.
+# Original foundation SDK tests (tier.Integration): skipped under -short.
+# solo lines give race seconds, norace solo lines non-race seconds, measured
+# with GOMAXPROCS=2 -cpu 2 on a 16-core dev host (2026-10-22).
 ./internal/region TestOriginalFoundationCompartmentsSDK 460/1 solo
-./internal/region TestOriginalFoundationLaunchMetadataNeverRetrofitsRetainedActors 300/1 solo
-./internal/region TestOriginalFoundationAdmissionReadRetainedScope 120/1 norace solo
-./internal/region TestOriginalFoundationAdmissionReadEffectPredecessors 195/1 norace solo
-./internal/region TestOriginalFoundationMaterialIAMPeerGroupHistoryCannotResetSDK 205/1 norace solo
-./internal/region TestOriginalFoundationAdmissionReadVersionsSDK 335/1 norace solo
-./internal/region TestOriginalFoundationMaterialIAMV1Compatibility 240/1 norace solo
-./internal/region TestOriginalFoundationMaterialIAMV2Compatibility 245/1 norace solo
-./internal/region TestOriginalFoundationMaterialIAMRetainedContract 230/1 norace solo
-./internal/region TestOriginalFoundationMaterialIAMRequiresOwningLease 235/1 norace solo
-./internal/region TestOriginalFoundationMaterialIAMEffectPredecessors 345/1 norace solo
-./internal/region TestOriginalFoundationNetworkSDK 365/1 norace solo
-./internal/region TestOriginalFoundationCurrentnessSignedAndRetainedContract 145/1 norace solo
+./internal/region TestOriginalFoundationLaunchMetadataNeverRetrofitsRetainedActors 130/1 solo
+./internal/region TestOriginalFoundationAdmissionReadRetainedScope 290/1 solo
+./internal/region TestOriginalFoundationCurrentnessSignedAndRetainedContract 330/1 solo
+./internal/region TestOriginalFoundationAdmissionReadEffectPredecessors 55/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMPeerGroupHistoryCannotResetSDK 65/1 norace solo
+./internal/region TestOriginalFoundationAdmissionReadVersionsSDK 85/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMV1Compatibility 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMV2Compatibility 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMRetainedContract 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMRequiresOwningLease 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMEffectPredecessors 90/1 norace solo
+./internal/region TestOriginalFoundationNetworkSDK 230/1 norace solo
+./internal/region TestOriginalFoundationAdmissionReadsSDK 265/1 norace solo
+./internal/region TestOriginalFoundationVaultSDK 350/1 norace solo

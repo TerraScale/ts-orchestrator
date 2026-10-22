@@ -500,7 +500,7 @@ func TestOriginalFoundationAdmissionReadVersionsSDK(t *testing.T) {
 }
 
 func TestOriginalFoundationAdmissionReadsSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	t.Run("automatic finite policies and restart", func(t *testing.T) {
 		f := newOriginalAdmissionReadsSDKFixture(t, "", false)
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) {
