@@ -81,3 +81,98 @@ cf dns records create -z terrascale.tech --body \
 | Date | Binary (CI release) | Check | Result |
 |---|---|---|---|
 | 2026-10-21 | local arm64 build of W2+W3+W4+W5 branches (smoke, state `/var/lib/ts-orch-smoke`) | `curl https://m1-test.terrascale.tech/` | Let's Encrypt cert issued, edge 502 (task blocked by container-material gate) |
+
+## Multi-region
+
+Three regions, one host each: ts-gru-1 (sa-saopaulo-1), ts-sjc-1
+(us-sanjose-1), ts-fra-1 (eu-frankfurt-1). Each runs `ts-orch single-host`
+with its own SwarmKit node and its own NATS cluster (`internal/natscell/mesh`).
+
+- DECISION: full-mesh NATS gateways (a supercluster of one-node regional
+  clusters) on public tcp/7222. Reason: one NATS cluster per region (repo
+  rule), and sjc and fra keep talking when gru is down (no GRU-rooted tree).
+- DECISION: one Vault for every region, `gru-vault`, read cross-region by
+  instance principal. Gateway mTLS comes from the single secret
+  `ts-orch-mesh-key`: every node derives the same CA from it and issues
+  itself a leaf certificate at start. Reason: one secret, no per-region copies.
+- Global services: `ts-orch service apply -f|rm` on any host publishes on
+  `ts.svc.apply` and prints one row per region. Each node keeps a
+  last-writer-wins map in `<state>/mesh/desired.json` and pulls the other
+  regions' maps at start and every 30 s (`ts.svc.state`), so a region that
+  was down catches up by itself. `regions` in a spec limits it (M1 specs: `["gru"]`).
+- Auto-deploy: ci.yml `deploy/release-push` (W14) pushes each green main
+  release to every region in `deploy/m1/regions.json` over TLS :4222.
+- Live check: `.github/workflows/multi-region.yml` (every 6 h, after main CI,
+  or `gh workflow run multi-region.yml --ref main`) runs `ts-orch release
+  mesh-check`: ping matrix, one apply to all regions, HTTPS per region.
+
+### Infrastructure
+
+Created 2026-10-21 with `deploy/m1/oci-host.sh` and `deploy/m1/oci-iam.sh`. Each cell (compartment, ts-orch network, host launch) took 2-3 minutes.
+
+| | sjc-1 (us-sanjose-1) | fra-1 (eu-frankfurt-1) |
+|---|---|---|
+| compartment | `sjc-1-control` ocid1.compartment.oc1..aaaaaaaaysxjvhdqptflhspi7tqb2c44yhqifcjgfewxjhc2skelpiyugqva | `fra-1-control` ocid1.compartment.oc1..aaaaaaaavvrkl4p77rj3e2sigkf2vvpal45h5bnw7v4vlrphkwmqjabzbnca |
+| VCN | `sjc-1-vcn` 10.252.0.0/24 ocid1.vcn.oc1.us-sanjose-1.amaaaaaappuhpdqavgiiwj7fcggty3cqens4zcpa26w5jla5afvuuxinthnq | `fra-1-vcn` 10.253.0.0/24 ocid1.vcn.oc1.eu-frankfurt-1.amaaaaaappuhpdqano5bmeydhkuu43c2maak2ox3hsl6ea5j3vfr65zh4ldq |
+| host subnet | 10.252.0.0/25 ocid1.subnet.oc1.us-sanjose-1.aaaaaaaapv7ua3usk3qomfrsyxsxrwpcahqrcv4aazkb6qawztv7umu4ekxq | 10.253.0.0/25 ocid1.subnet.oc1.eu-frankfurt-1.aaaaaaaaqbj7ot2jvw7jjigm3ulkgnn37yn2wkdx3ewpdskgrdohlpn36f4q |
+| private subnet | 10.252.0.192/26 ocid1.subnet.oc1.us-sanjose-1.aaaaaaaarjcjej3gxrws6imvwmozlxi3ym7kupobvl5ll4uk55mkeqzjdlya | 10.253.0.192/26 ocid1.subnet.oc1.eu-frankfurt-1.aaaaaaaahsaxngd7rzfsqywtt35wmhokcgwqlvcfuka7qlaw5m5nkolvmlpq |
+| IGW | ocid1.internetgateway.oc1.us-sanjose-1.aaaaaaaaddd4a6hq7b6v77soerldw6zzwxqt4rsqnpniofzuvktacyhsp4rq | ocid1.internetgateway.oc1.eu-frankfurt-1.aaaaaaaa7vsowzuoaxljsz5redfolyr62gms5kwsrkylrrzfzpriclcwf42a |
+| host SL (empty) | ocid1.securitylist.oc1.us-sanjose-1.aaaaaaaaddq24dkx4eamns6tmcblbkvgwwg3k4c6vqz2kpcybi24hn2bxqaa | ocid1.securitylist.oc1.eu-frankfurt-1.aaaaaaaatcqoyzhokjwu547x7vhj7237ds63iiaelgocbuud56p3zi7i5ryq |
+| host NSG | ocid1.networksecuritygroup.oc1.us-sanjose-1.aaaaaaaaqfbxtxwngr3eonyzqvbsieh3n32lsb3xwpbrjzj744roxcu667ra | ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaaaaaaxbbsta4gnjup72xtxj75assgn6udapyf2bqs7knooi2hcf76wrwa |
+| edge NSG (80, 443, 4222/tcp, 3478, 51820/udp world) | ocid1.networksecuritygroup.oc1.us-sanjose-1.aaaaaaaa6ouqqcuv4jdje62cwdvrvvzn7g7tgg5gszl2dilqrmwj2tzgwafa | ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaaaaaa2skml3t4xbcrus4wjyaiogg3wr4al3uhztpwgr7j5rqcxvah5qhq |
+| operator SSH NSG (22 from 179.124.206.245/32) | ocid1.networksecuritygroup.oc1.us-sanjose-1.aaaaaaaauyuwubdjesqh7jcnowpvtkv2kzzp552sfoecwncusfjskpphjcyq | ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaaaaaadcrfy44zny5tu2rtmdsjkaqa2g7hwipdzwsqmopq3x2r3hsmcz5q |
+| instance (A1 2 OCPU/12 GB, 50 GB, Ubuntu 24.04 aarch64 2026.09.18) | `ts-sjc-1` ocid1.instance.oc1.us-sanjose-1.anzwuljrppuhpdqc7opmuobxfqj7xwwoms6eufmjesl4i56ejyayfkhzqkda, AD-1 | `ts-fra-1` ocid1.instance.oc1.eu-frankfurt-1.antheljtppuhpdqchc25czozfaofnepsli2no3yw6ydyyxkyi7ka5mnanl2q, AD-1 |
+| public IP | 163.192.54.17 | 130.162.238.198 |
+
+IAM (home region): dynamic group `ts-orch-hosts` ocid1.dynamicgroup.oc1..aaaaaaaa4p2jqmkzg2fh3jbycndc2r42fp2zohnjh45g3fyp2jwakcz2242a (instances in gru-1/sjc-1/fra-1-control); policy `ts-orch-hosts-vault` in gru-1-control ocid1.policy.oc1..aaaaaaaao3hynxzhoqd7ehwdkamnsoxbzfms6kxyywowyvtuzxjgsrnlzbha. Both hosts read `gru-1-vault-canary` (version 1) by instance principal.
+
+DNS (terrascale.tech, DNS only): `gru.mesh` 163.176.124.12 id 1f12e527d20e86d81d9700fd381451d1; `sjc.mesh` 163.192.54.17 id de05828b8740ab51fc8f9773a2d298c3; `fra.mesh` 130.162.238.198 id 6484cf7fdbeea2f5a4945cda65c4f6b1.
+DNS (terrascale.tech, DNS only): `gru.mesh` 163.176.124.12 id `1f12e527d20e86d81d9700fd381451d1`; `sjc.mesh` 163.192.54.17 id `de05828b8740ab51fc8f9773a2d298c3`; `fra.mesh` 130.162.238.198 id `6484cf7fdbeea2f5a4945cda65c4f6b1`.
+
+Mesh ports (ts-orch's `oci-region network <cell> --apply`, 2026-10-22): edge
+NSG ingress tcp/7222 and host NSG egress tcp/7222 on gru-1, sjc-1, fra-1.
+ts-orch adds the matching iptables ACCEPTs (7222, 4222, 80, 443) at every start.
+
+### Proof, 2026-10-22 (PR #62 build on all three hosts)
+
+NATS round trip, `sudo ts-orch mesh ping` on each host:
+
+| From \ to | gru | sjc | fra |
+|---|---|---|---|
+| gru | 0 ms | 169 ms | 188 ms |
+| sjc | 169 ms | 1 ms | 131 ms |
+| fra | 188 ms | 131 ms | 0 ms |
+
+One apply from sjc deploys to every region (`w15-probe`, traefik/whoami,
+new service, image cached), 1.75 s wall clock:
+
+```
+$ ssh ts-sjc-1 sudo ts-orch service apply -f /tmp/w15-probe.json
+REGION  RESULT   READY
+gru     applied  1526ms
+sjc     applied  1530ms
+fra     applied  1524ms
+```
+
+`curl localhost:8094/` on each host answered `Name: w15-probe` with its own
+hostname (gru-1-ctl-1, ts-sjc-1, ts-fra-1).
+
+Failure test (approved): `systemctl stop ts-orch` on ts-gru-1 at 00:21:05 UTC.
+
+```
+$ ssh ts-sjc-1 sudo ts-orch mesh ping
+gru     -         NO REPLY
+sjc     ts-sjc-1  0ms
+fra     ts-fra-1  145ms
+$ ssh ts-sjc-1 sudo ts-orch service apply -f /tmp/w15-probe-b.json
+gru     NO REPLY  -
+sjc     applied   45944ms
+fra     applied   1535ms
+```
+
+Started ts-orch on ts-gru-1 at 00:23:21; it ran `w15-probe-b` 33 s later
+(anti-entropy pull, no operator step) and `mesh ping` saw all three again.
+Removal is global too (`service rm`, 3-9 ms per region).
+
+Known gaps: updating an existing service in place waits on W14's #28 (the
+old task keeps its host port); the 45.9 s sjc time above is not explained yet.
