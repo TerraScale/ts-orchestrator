@@ -52,10 +52,14 @@ func NewObjectFoundationStore(client FoundationObjects, namespace, bucket string
 	return &ObjectFoundationStore{client: client, namespace: namespace, bucket: bucket, validated: newFoundationVerificationMemo()}, nil
 }
 
+// foundationRecordWire is the durable record encoding; digests over record
+// contents use it so verifiers can recompute them from the stored wire.
+var foundationRecordWire = []json.Options{json.FormatNilSliceAsNull(true), json.FormatNilMapAsNull(true)}
+
 // MarshalJSONTo preserves omitted OCI SDK fields across durable record roundtrips.
 func (r FoundationRecord) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type foundationRecord FoundationRecord
-	return json.MarshalEncode(enc, foundationRecord(r), json.FormatNilSliceAsNull(true), json.FormatNilMapAsNull(true))
+	return json.MarshalEncode(enc, foundationRecord(r), foundationRecordWire...)
 }
 
 func (s *ObjectFoundationStore) Load(ctx context.Context, cell string) (FoundationRecord, string, error) {

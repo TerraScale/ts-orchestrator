@@ -312,17 +312,21 @@ func originalMaterialIAMScope(record FoundationRecord, index int, recipe Origina
 		value any
 		out   *string
 	}{{birth, &scope.BirthSHA256}, {actor, &scope.ActorSHA256}, {v, &scope.VaultSHA256}, {regional.AdmissionReads, &scope.AdmissionSHA256}, {root.Publication, &scope.PublicationSHA256}} {
-		wire, err := json.Marshal(pin.value, json.Deterministic(true))
+		sum, err := foundationbinding.CanonicalDigest(pin.value, foundationRecordWire...)
 		if err != nil {
 			return scope, err
 		}
-		*pin.out = digestSource(wire)
+		*pin.out = sum
 	}
-	wire, err := json.Marshal(scope, json.Deterministic(true))
+	wire, err := json.Marshal(scope, foundationRecordWire...)
+	var entry map[string]any
+	if err == nil {
+		err = json.Unmarshal(wire, &entry)
+	}
 	if err != nil {
 		return scope, err
 	}
-	scope.IdentitySHA256 = digestSource(wire)
+	scope.IdentitySHA256 = foundationbinding.OriginalMaterialIAMIdentity(entry)
 	if recipe.Purpose == originalMaterialIAMPurposeV3 || recipe.Purpose == originalMaterialIAMPurposeV4 {
 		scope.PeerDynamicGroup = &OriginalFoundationMaterialPeerGroup{Request: identity.CreateDynamicGroupDetails{CompartmentId: new(recipe.TenancyID), Name: new("ts-original-peer-" + scope.IdentitySHA256[:32]), Description: new("Original regional controllers admitted by exact control compartment"), MatchingRule: new(fmt.Sprintf("ALL {instance.compartment.id='%s'}", scope.Target.CompartmentOCID)), FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}}
 	}

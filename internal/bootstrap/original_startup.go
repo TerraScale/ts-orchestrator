@@ -634,8 +634,9 @@ func validateOriginalPublication(template VerifiedStartupTemplate, state origina
 	p := state.Publication
 	result := p.Result
 	target := template.VaultTarget()
-	scopeWire, scopeErr := json.Marshal(p.Scope, json.Deterministic(true))
-	if scopeErr != nil || !bytes.Equal(scopeWire, template.bindings.original.resources.PublicationScope) {
+	// The verifier's scope wire is a decoded map; compare content, not member order.
+	var signedScope originalPublicationScope
+	if json.Unmarshal(template.bindings.original.resources.PublicationScope, &signedScope, json.RejectUnknownMembers(true)) != nil || p.Scope != signedScope {
 		return ErrManifestInvalid
 	}
 	if p.Scope.Target != target || !isOCID(p.Scope.PolicyID, "policy") || p.Scope.PolicyETag == "" || !validDigest(p.Scope.PolicySHA256) || !validDigest(p.Scope.ReadbackSHA256) || result.SchemaVersion != 1 || result.Target != target || len(result.References) != 33 {

@@ -1,7 +1,6 @@
 package foundationbinding
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -220,8 +219,18 @@ func ResolveOriginalStartup(ctx context.Context, factory *ociclient.Factory, aut
 	if originalText(vault, "controlCompartmentId") != ids["control_compartment"] {
 		return deny()
 	}
-	for _, key := range []string{"vault", "key"} {
-		id, err := originalResourceBirth(originalMap(vault, key), key, regional, authority.GrantSHA256)
+	escrow := originalMap(material, "sourceVaultTarget")
+	for key, signed := range map[string]string{"vault": originalText(escrow, "vaultOcid"), "key": originalText(escrow, "kmsKeyOcid")} {
+		entry := originalMap(vault, key)
+		if selected := originalText(entry, "selectedId"); selected != "" && entry["provenance"] == nil && entry["pending"] == nil {
+			// The home Vault/key is the signed escrow prerequisite, selected rather than born.
+			if selected != signed || originalText(vault, "controlCompartmentId") != originalText(escrow, "compartmentOcid") || originalText(entry, "holdReason") != "" || originalText(entry, "verifiedAt") == "" || !canonicalDigest(originalText(entry, "readbackSha256")) {
+				return deny()
+			}
+			ids[key] = selected
+			continue
+		}
+		id, err := originalResourceBirth(entry, key, regional, authority.GrantSHA256)
 		if err != nil {
 			return deny()
 		}
@@ -234,7 +243,7 @@ func ResolveOriginalStartup(ctx context.Context, factory *ociclient.Factory, aut
 	create := originalMap(pending, "request")
 	var createIdentity CreateIdentity
 	createWire, _ := json.Marshal(create, json.Deterministic(true))
-	if json.Unmarshal(createWire, &createIdentity, json.RejectUnknownMembers(true)) != nil || createIdentity.Validate() != nil || !canonicalDigest(createIdentity.RequestDigest) || !canonicalDigest(createIdentity.RetryToken) || createIdentity.Key != "controller-a" || createIdentity.Region != catalog.OCIRegion(authority.Cell) || createIdentity.RequestDigest != originalDigest(request) || originalText(pending, "operationId") != originalText(purpose, "operationId") || !entityid.Valid(originalText(purpose, "operationId")) || originalText(pending, "intentDigest") != originalText(regional, "intentSha256") || originalDigest(originalMap(actorProof, "create")) != originalDigest(pending) || originalText(actorProof, "grantSha256") != authority.GrantSHA256 || originalNumber(actorProof, "generation") != 1 || originalText(actor, "holdReason") != "" || originalText(actor, "verifiedAt") == "" || !canonicalDigest(originalText(actor, "readbackSha256")) {
+	if json.Unmarshal(createWire, &createIdentity, json.RejectUnknownMembers(true)) != nil || createIdentity.Validate() != nil || !canonicalDigest(createIdentity.RequestDigest) || !canonicalDigest(createIdentity.RetryToken) || createIdentity.Key != "controller-a" || createIdentity.Region != catalog.OCIRegion(authority.Cell) || createIdentity.RequestDigest != originalLaunchDigest(request) || originalText(pending, "operationId") != originalText(purpose, "operationId") || !entityid.Valid(originalText(purpose, "operationId")) || originalText(pending, "intentDigest") != originalText(regional, "intentSha256") || originalDigest(originalMap(actorProof, "create")) != originalDigest(pending) || originalText(actorProof, "grantSha256") != authority.GrantSHA256 || originalNumber(actorProof, "generation") != 1 || originalText(actor, "holdReason") != "" || originalText(actor, "verifiedAt") == "" || !canonicalDigest(originalText(actor, "readbackSha256")) {
 		return deny()
 	}
 	retry := sha256.Sum256([]byte("foundation-host-request:" + originalText(purpose, "operationId") + ":" + createIdentity.RequestDigest))
@@ -242,7 +251,7 @@ func ResolveOriginalStartup(ctx context.Context, factory *ociclient.Factory, aut
 		return deny()
 	}
 	actorID := originalText(actorProof, "resourceId")
-	if !resourceID(actorID, "instance", createIdentity.Region) || originalDigest(originalMap(actor, "startup")) != originalDigest(startup) || originalDigest(originalMap(actor, "config")) != originalText(material, "planSha256") || originalText(purpose, "planSha256") != originalText(material, "planSha256") {
+	if !resourceID(actorID, "instance", createIdentity.Region) || originalDigest(originalMap(actor, "startup")) != originalDigest(startup) || originalDigest(originalMap(actor, "config")) != originalDigest(originalMap(material, "config")) || originalText(purpose, "planSha256") != originalText(material, "planSha256") {
 		return deny()
 	}
 	var launch core.LaunchInstanceDetails
@@ -483,19 +492,29 @@ func originalNumber(parent map[string]any, key string) float64 {
 	v, _ := parent[key].(float64)
 	return v
 }
+
+// originalDigest hashes a value decoded from the wire (sorted keys) or a typed
+// SDK value both sides encode the same way.
 func originalDigest(value any) string {
-	sum, err := CanonicalDigest(value)
+	wire, err := json.Marshal(value, json.Deterministic(true))
 	if err != nil {
 		return ""
 	}
+	return digest(wire)
+}
+
+// originalCanonical compares a wire-decoded value with a typed expectation.
+func originalCanonical(value any) string {
+	sum, _ := CanonicalDigest(value)
 	return sum
 }
 
 // CanonicalDigest is the one original-protocol digest: SHA-256 of the sorted-key
 // JSON of the decoded value. A verifier recomputes it from the signed wire alone,
-// without knowing Go struct field order.
-func CanonicalDigest(value any) (string, error) {
-	wire, err := json.Marshal(value, json.Deterministic(true))
+// without knowing Go struct field order. Options must match the encoding of the
+// wire the value is read from (durable records encode nil maps and slices as null).
+func CanonicalDigest(value any, options ...json.Options) (string, error) {
+	wire, err := json.Marshal(value, append(options, json.Deterministic(true))...)
 	if err != nil {
 		return "", err
 	}
@@ -522,7 +541,8 @@ func (resources OriginalStartupResources) Resolve(reference string) (string, err
 
 func (resources OriginalStartupResources) MatchesScope(wire []byte) bool {
 	var actual, want map[string]any
-	return json.Unmarshal(wire, &actual) == nil && json.Unmarshal(resources.Scope, &want) == nil && originalDigest(actual) == originalDigest(want) && bytes.Equal(bytes.TrimSpace(wire), bytes.TrimSpace(resources.Scope))
+	// Producers encode their typed scope; content, not member order, is the identity.
+	return json.Unmarshal(wire, &actual) == nil && json.Unmarshal(resources.Scope, &want) == nil && originalDigest(actual) == originalDigest(want)
 }
 
 type originalVaultTarget struct {
@@ -577,6 +597,47 @@ func originalStartupPublicationOperations() [7]originalIAMOperation {
 	return [7]originalIAMOperation{
 		{"ListSecrets", "secrets", "SECRET_INSPECT", "regional-control-list"}, {"CreateSecret", "secrets", "SECRET_CREATE", "material-names-vault"}, {"GetSecret", "secrets", "SECRET_READ", "material-names-vault"}, {"GetSecretBundle", "secret-bundles", "SECRET_BUNDLE_READ", "material-names-vault"}, {"CreateSecret", "vaults", "VAULT_CREATE_SECRET", "material-vault"}, {"CreateSecret", "keys", "KEY_ENCRYPT", "material-key"}, {"CreateSecret", "keys", "KEY_DECRYPT", "material-key"},
 	}
+}
+
+// OriginalMaterialIAMIdentity digests a retained material IAM entry without its
+// effect state; the producer and every verifier share this one definition.
+func OriginalMaterialIAMIdentity(entry map[string]any) string {
+	identityScope := maps.Clone(entry)
+	for _, key := range []string{"pending", "provenance", "policyEtag", "readbackSha256", "verifiedAt", "holdReason", "peerDynamicGroup"} {
+		delete(identityScope, key)
+	}
+	identityScope["identitySha256"] = ""
+	identityScope["request"] = identity.CreatePolicyDetails{}
+	return originalDigest(identityScope)
+}
+
+// originalVaultResourceID is the born ID, or the selected home prerequisite ID.
+func originalVaultResourceID(entry map[string]any) string {
+	if id := originalText(originalMap(entry, "provenance"), "resourceId"); id != "" {
+		return id
+	}
+	return originalText(entry, "selectedId")
+}
+
+// originalLaunchDigest matches the dispatched create identity: the SDK wire body
+// of the retained launch details, digested canonically.
+func originalLaunchDigest(request map[string]any) string {
+	var launch core.LaunchInstanceDetails
+	wire, err := json.Marshal(request, json.Deterministic(true))
+	if err != nil || json.Unmarshal(wire, &launch) != nil {
+		return ""
+	}
+	httpRequest, err := (core.LaunchInstanceRequest{LaunchInstanceDetails: launch}).HTTPRequest(http.MethodPost, "/20160918/instances", nil, nil)
+	if err != nil || httpRequest.Body == nil {
+		return ""
+	}
+	defer httpRequest.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(httpRequest.Body, recordLimit+1))
+	var object any
+	if err != nil || len(body) > recordLimit || json.Unmarshal(body, &object) != nil {
+		return ""
+	}
+	return originalDigest(object)
 }
 
 func originalPolicyBody(request identity.CreatePolicyDetails) ([]byte, error) {
@@ -757,19 +818,13 @@ func verifyOriginalMaterialScope(ctx context.Context, factory *ociclient.Factory
 		if !ok {
 			return deny()
 		}
-		actualTarget := map[string]any{"compartmentOcid": originalText(vault, "controlCompartmentId"), "vaultOcid": originalText(originalMap(originalMap(vault, "vault"), "provenance"), "resourceId"), "kmsKeyOcid": originalText(originalMap(originalMap(vault, "key"), "provenance"), "resourceId")}
+		actualTarget := map[string]any{"compartmentOcid": originalText(vault, "controlCompartmentId"), "vaultOcid": originalVaultResourceID(originalMap(vault, "vault")), "kmsKeyOcid": originalVaultResourceID(originalMap(vault, "key"))}
 		producer := originalMap(peer, "producer")
 		if originalText(producer, "cell") != cell || originalDigest(producer) != originalText(signed, "producerIntentSha256") || originalDigest(peer["target"]) != originalDigest(actualTarget) || originalText(peer, "networkCompartmentId") != originalText(network, "compartmentId") || originalText(peer, "imageCompartmentId") != originalText(slot, "imageCompartmentOcid") || originalDigest(peer["secretNames"]) != originalDigest(signed["secretNames"]) || originalDigest(peer["linkSecretNames"]) != originalDigest(signed["linkSecretNames"]) || originalText(peer, "linkObject") != originalText(signed, "linkObject") || originalText(peer, "linkEscrowSecretName") != originalText(signed, "linkEscrowSecretName") {
 			return deny()
 		}
 	}
-	identityScope := maps.Clone(entry)
-	for _, key := range []string{"pending", "provenance", "policyEtag", "readbackSha256", "verifiedAt", "holdReason", "peerDynamicGroup"} {
-		delete(identityScope, key)
-	}
-	identityScope["identitySha256"] = ""
-	identityScope["request"] = identity.CreatePolicyDetails{}
-	identitySHA := originalDigest(identityScope)
+	identitySHA := OriginalMaterialIAMIdentity(entry)
 	if !canonicalDigest(identitySHA) || originalText(entry, "identitySha256") != identitySHA {
 		return deny()
 	}
@@ -789,7 +844,7 @@ func verifyOriginalMaterialScope(ctx context.Context, factory *ociclient.Factory
 		return nil, err
 	}
 	expectedPolicy := identity.CreatePolicyDetails{CompartmentId: new(authority.TenancyID), Name: new("ts-original-material-iam-" + identitySHA[:32]), Description: new("Prospectively authorized finite original startup and material publication"), Statements: statements, FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}
-	if originalDigest(entry["request"]) != originalDigest(expectedPolicy) {
+	if wire, want := originalCanonical(entry["request"]), originalCanonical(expectedPolicy); wire == "" || wire != want {
 		return deny()
 	}
 	home, err := factory.ForRegion("sa-saopaulo-1")

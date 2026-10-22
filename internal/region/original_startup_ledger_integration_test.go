@@ -21,6 +21,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/jwt/v2"
@@ -78,6 +79,55 @@ func originalStartupJSON(t *testing.T, value any) []byte {
 	return wire
 }
 
+// originalSourceStateJSON encodes the source state in the producer's typed
+// field order; json/v2 sorts map keys, but the verifier requires the typed wire.
+func originalSourceStateJSON(t *testing.T, state map[string]any) []byte {
+	t.Helper()
+	order := map[string][]string{
+		"":            {"schemaVersion", "kind", "scope", "intentSha256", "admissionAuthorizationSha256", "target", "secretName", "retryToken", "startedAt", "candidate", "reference", "originalAdmissionInventory", "publication", "startup", "seedCompletion"},
+		"candidate":   {"sha256", "maxBytes", "createSha256"},
+		"reference":   {"secretOcid", "sha256", "maxBytes"},
+		"publication": {"scope", "journal", "result"},
+	}
+	var encode func(name string, object map[string]any) []byte
+	encode = func(name string, object map[string]any) []byte {
+		keys := slices.Clone(order[name])
+		for key := range object {
+			if !slices.Contains(keys, key) {
+				keys = append(keys, key)
+			}
+		}
+		wire := []byte("{")
+		for _, key := range keys {
+			value, ok := object[key]
+			if !ok {
+				continue
+			}
+			var member []byte
+			if nested, isMap := value.(map[string]any); isMap && order[key] != nil && name == "" {
+				member = encode(key, nested)
+			} else {
+				member = originalStartupJSON(t, value)
+			}
+			if len(wire) > 1 {
+				wire = append(wire, ',')
+			}
+			wire = append(append(append(wire, originalStartupJSON(t, key)...), ':'), member...)
+		}
+		return append(wire, '}')
+	}
+	return encode("", state)
+}
+
+func originalStartupIntentDigest(t *testing.T, intent any) string {
+	t.Helper()
+	sum, err := foundationbinding.CanonicalDigest(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sum
+}
+
 func originalStartupSign(t *testing.T, value any, scope trust.Scope, key ed25519.PrivateKey, issued, expires time.Time) []byte {
 	t.Helper()
 	envelope, err := trust.Sign(originalStartupJSON(t, value), scope, issued, expires, key)
@@ -107,6 +157,16 @@ func originalStartupLedgerSDK(t *testing.T, f *originalMaterialIAMSDKFixture, on
 						w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
 						w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 						w.Header().Set("Content-Length", fmt.Sprint(info.Size()))
+						// The IAM-phase fixture refuses archive reads; runtime ledger reads are this client's job.
+						if strings.Contains(key, "/material-source/") {
+							wire, err := os.ReadFile(f.cloud.objectPath(bucket + "/" + key))
+							if err != nil {
+								t.Error(err)
+							}
+							w.Header().Set("etag", digestSource(wire))
+							w.Write(wire)
+							return
+						}
 					}
 				}
 			}
@@ -262,12 +322,12 @@ func newOriginalStartupLedgerFixture(t *testing.T) *originalStartupLedgerFixture
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := map[string]any{"schemaVersion": 3, "kind": "original-source-archive/v1", "scope": scope, "intentSha256": digestSource(originalStartupJSON(t, intent)), "admissionAuthorizationSha256": authSHA, "target": intent.Escrow, "secretName": intent.SourceSecretName, "retryToken": originalStartupTestUUID, "startedAt": f.now, "candidate": map[string]any{"sha256": sourceSHA, "maxBytes": len(archive), "createSha256": digestSource(originalStartupJSON(t, scope))}, "reference": map[string]any{"secretOcid": "ocid1.vaultsecret.oc1.sa-saopaulo-1.originalarchive", "sha256": sourceSHA, "maxBytes": len(archive)}, "originalAdmissionInventory": inventoryWire, "publication": map[string]any{"scope": publicationScope, "journal": journal, "result": publication}}
+	state := map[string]any{"schemaVersion": 3, "kind": "original-source-archive/v1", "scope": scope, "intentSha256": originalStartupIntentDigest(t, intent), "admissionAuthorizationSha256": authSHA, "target": intent.Escrow, "secretName": intent.SourceSecretName, "retryToken": originalStartupTestUUID, "startedAt": f.now, "candidate": map[string]any{"sha256": sourceSHA, "maxBytes": len(archive), "createSha256": digestSource(originalStartupJSON(t, scope))}, "reference": map[string]any{"secretOcid": "ocid1.vaultsecret.oc1.sa-saopaulo-1.originalarchive", "sha256": sourceSHA, "maxBytes": len(archive)}, "originalAdmissionInventory": inventoryWire, "publication": map[string]any{"scope": publicationScope, "journal": journal, "result": publication}}
 	domain, sourceKey, err := bootstrap.OriginalSourceObject(template)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stateWire := originalStartupJSON(t, state)
+	stateWire := originalSourceStateJSON(t, state)
 	f.cloud.writeObject(domain.HeadBucket+"/"+sourceKey, stateWire)
 	proof, err := bootstrap.LoadRegionalSource(t.Context(), template, client, f.now)
 	if err != nil || !proof.IsVerified() {
@@ -344,7 +404,7 @@ func newOriginalStartupLedgerFixture(t *testing.T) *originalStartupLedgerFixture
 		startup[slot] = originalStartupSign(t, binding, bootstrap.DerivedStartupScope(manifest), key, f.now, template.ExpiresAt())
 	}
 	state["startup"] = startup
-	f.cloud.writeObject(domain.HeadBucket+"/"+sourceKey, originalStartupJSON(t, state))
+	f.cloud.writeObject(domain.HeadBucket+"/"+sourceKey, originalSourceStateJSON(t, state))
 	wire := startup[template.Template().SeedSlot]
 	authority, err := bootstrap.VerifyDerivedStartupAuthority(t.Context(), template, client, wire, f.now)
 	if err != nil || !authority.IsVerified() {
@@ -606,7 +666,7 @@ func TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges(t *testing.T) {
 			case "unknown-field":
 				state["unexpectedAuthority"] = true
 			}
-			f.producer.cloud.writeObject(f.sourceKey, originalStartupJSON(t, state))
+			f.producer.cloud.writeObject(f.sourceKey, originalSourceStateJSON(t, state))
 			if proof, err := bootstrap.LoadRegionalSource(t.Context(), f.template, f.client, time.Now()); err == nil || proof.IsVerified() {
 				t.Fatal("changed protected source minted inventory authority")
 			}
