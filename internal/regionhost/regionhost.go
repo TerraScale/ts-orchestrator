@@ -69,6 +69,7 @@ type run struct {
 	dry                  bool
 	code, cell, region   string
 	tenancy, compartment string
+	parent               string                  // the TerraScale compartment
 	home, ids            identity.IdentityClient // home region (writes) and this region (ADs)
 	compute              core.ComputeClient
 	net                  core.VirtualNetworkClient
@@ -121,8 +122,10 @@ func (r *run) add(host, shape string) error {
 	if err := r.ensureNetwork(created); err != nil {
 		return err
 	}
-	_, err = r.ensureInstance(host, shape)
-	return err
+	if _, err := r.ensureInstance(host, shape); err != nil {
+		return err
+	}
+	return r.ensureIAM()
 }
 
 func (r *run) ensureCompartment() (created bool, err error) {
@@ -131,6 +134,7 @@ func (r *run) ensureCompartment() (created bool, err error) {
 	if err != nil {
 		return false, err
 	}
+	r.parent = parent
 	if r.compartment, err = r.oneCompartment(parent, name); err != nil {
 		return false, err
 	}
