@@ -12,7 +12,7 @@ ACME HTTP-01 + redirect, `:443`). Services come from
 | ssh | `ssh ts-gru-1` (`ubuntu@163.176.124.12`, passwordless sudo) |
 | Shape | OCI `gru-1-ctl-1`, A1.Flex 4 OCPU / 24 GB, Ubuntu 24.04 aarch64 |
 | Runtime | containerd 2.2.1 + runc 1.3.4 (Ubuntu packages) |
-| Open ports | 80, 443 from anywhere; 22 from the operator egress IP |
+| Open ports | 80, 443, 5432 from anywhere; 22 from the operator egress IP |
 | State | `/var/lib/ts-orch` (Raft, edge certificates, socket) |
 | Data | `/var/lib/ts-data/<service>` (bind mounts; TerraBase uses `terrabase`) |
 | Edge certificates | `/var/lib/ts-orch/edge-certs` (Let's Encrypt, HTTP-01 on :80) |
@@ -57,6 +57,24 @@ scp deploy/m1/services/whoami.json ts-gru-1:/tmp/whoami.json
 ssh ts-gru-1 sudo ts-orch service apply -f /tmp/whoami.json
 ssh ts-gru-1 sudo ts-orch service ls
 ssh ts-gru-1 sudo ts-orch service rm whoami
+```
+
+## Postgres (pg.terrascale.tech:5432)
+
+A spec's `"postgres": {"port": 6432, "hostname": "pg.terrascale.tech"}`
+publishes a second loopback port; the edge serves it on public `:5432` over TLS
+only (`sslmode=require`, or PG17 `sslnegotiation=direct` with ALPN
+`postgresql`), with the same Let's Encrypt certificates as `:443`. A plaintext
+startup gets `FATAL 28000` and never reaches TerraBase. CancelRequests go in
+plaintext to every postgres port. At most 1024 connections at once.
+
+ts-orch opens tcp/5432 in iptables at start; the edge NSG
+(`ts-orch oci-region network <cell> --apply`) opens it in OCI. 6432 stays
+behind the INPUT REJECT. Check:
+
+```sh
+ssh ts-gru-1 sudo iptables -S INPUT | grep -E 'dport (5432|6432)'   # 5432 ACCEPT only
+psql "host=pg.terrascale.tech port=5432 sslmode=require user=... dbname=..."
 ```
 
 ## Operator commands

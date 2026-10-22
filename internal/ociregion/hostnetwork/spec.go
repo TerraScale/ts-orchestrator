@@ -85,8 +85,9 @@ func desired(cellName string) (spec, error) {
 			}},
 			// The public edge: HTTPS, ACME, the NetBird ports in docs/netbird-m1.md
 			// and release pushes over NATS (docs/m1-single-host.md) on 4222, and the
-			// cross-region mesh gateways (mutual TLS, internal/natscell/mesh) on 7222.
-			{cellName + "-edge-nsg", []rule{tcp(80), tcp(443), udp(3478), udp(51820), tcp(4222), tcp(7222)}},
+			// cross-region mesh gateways (mutual TLS, internal/natscell/mesh) on 7222,
+			// and Postgres over TLS (internal/edge/postgres.go) on 5432.
+			{cellName + "-edge-nsg", []rule{tcp(80), tcp(443), udp(3478), udp(51820), tcp(4222), tcp(7222), tcp(5432)}},
 		},
 	}, nil
 }
