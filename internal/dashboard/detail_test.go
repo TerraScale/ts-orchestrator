@@ -69,6 +69,8 @@ func detailDashboard(t *testing.T) http.Handler {
 		})
 	}
 	snapshot := memberSnapshot()
+	// Serving counts only render with live native readiness.
+	snapshot.Placement.Databases[0].Readiness = "observed"
 	other := memberSnapshot()
 	other.Member, other.Authority.Leader, other.Checks = "ctl-2", false,
 		[]observability.CheckResult{{Name: "authority", OK: false, Detail: "lease not observed"}}
@@ -81,7 +83,6 @@ func detailDashboard(t *testing.T) http.Handler {
 }
 
 func TestDetailPagesRenderTheirEntity(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	handler := detailDashboard(t)
 	for path, wants := range map[string][]string{
@@ -163,7 +164,6 @@ func TestHostDetailChartsDiscloseReplayCapacity(t *testing.T) {
 }
 
 func TestHostDetailChartsWaitForRegionalReplay(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	for _, test := range []struct {
 		name               string
@@ -192,7 +192,8 @@ func TestHostDetailChartsWaitForRegionalReplay(t *testing.T) {
 			}
 			if response.Code != http.StatusOK ||
 				strings.Count(body, `aria-label="Loading regional metric history"`) != test.loadingCharts ||
-				strings.Count(body, `<p class="note warn" role="status">`+warning+`</p>`) != 5 {
+				// The lone cached sample is a partial minute, so its chart also reports one gap after the replay status.
+				strings.Count(body, `<p class="note warn" role="status">`+warning) != 5 {
 				t.Fatalf("host charts hid replay status: status=%d body=%s", response.Code, body)
 			}
 			matches := regexp.MustCompile(`<ts-chart[^>]*data-spec="([^"]*)"`).FindAllStringSubmatch(body, -1)
@@ -226,7 +227,6 @@ func TestHostDetailChartsWaitForRegionalReplay(t *testing.T) {
 }
 
 func TestHostDetailChartsScopeNodeAndRange(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Hour)
 	history := observability.NewHistory(observability.HistoryConfig{})
@@ -307,19 +307,24 @@ func TestHostDetailChartsScopeNodeAndRange(t *testing.T) {
 					spec.Start != now.Add(-test.duration).UnixMilli() || spec.End != now.UnixMilli() {
 					t.Fatalf("%s chart has wrong units, range or empty state: %+v", want.metric, spec)
 				}
-				if len(spec.Series) != len(want.values) {
-					t.Fatalf("%s has %d series, want %d", want.metric, len(spec.Series), len(want.values))
-				}
+				// A retention gap splits one host/service series into segments.
+				points := map[string][][2]float64{}
 				for _, series := range spec.Series {
-					value, found := want.values[series.Name]
-					if !found || len(series.Points) != test.points {
-						t.Fatalf("%s includes wrong host/service or point count: %+v", want.metric, series)
+					points[series.Name] = append(points[series.Name], series.Points...)
+				}
+				if len(points) != len(want.values) {
+					t.Fatalf("%s has %d series, want %d: %+v", want.metric, len(points), len(want.values), spec.Series)
+				}
+				for name, seriesPoints := range points {
+					value, found := want.values[name]
+					if !found || len(seriesPoints) != test.points {
+						t.Fatalf("%s includes wrong host/service or point count: %s %v", want.metric, name, seriesPoints)
 					}
 					values := []float64{value}
 					if test.points == 2 {
 						values = []float64{value / 2, value}
 					}
-					for pointIndex, point := range series.Points {
+					for pointIndex, point := range seriesPoints {
 						if point[0] < float64(spec.Start) || point[0] > float64(spec.End) || point[1] != values[pointIndex] {
 							t.Fatalf("%s wrong history point: %v, want value %v within range", want.metric, point, values[pointIndex])
 						}

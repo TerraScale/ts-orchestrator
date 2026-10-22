@@ -498,7 +498,13 @@ func TestToastLinksTheRegionScopedInsight(t *testing.T) {
 	reader.next()
 	insight := testInsight("oci:x", "OCI errors", insights.SeverityWarning, "sjc")
 	source.push(insights.Change{Time: testNow.Add(time.Second), Type: insights.ChangeOpened, Insight: insight})
-	_, body := reader.next()
+	// A ticker re-render of the page may precede the toast, which is its own #toasts patch.
+	var body string
+	for range 5 {
+		if _, body = reader.next(); strings.Contains(body, "#toasts") {
+			break
+		}
+	}
 	if !strings.Contains(body, "id="+insight.Key) || !strings.Contains(body, "region=all") || !strings.Contains(body, "#insight-"+insight.Key) {
 		t.Fatalf("toast lost region scoped link: %s", body)
 	}

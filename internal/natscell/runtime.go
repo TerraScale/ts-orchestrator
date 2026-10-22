@@ -480,7 +480,8 @@ func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err
 			return nil, err
 		}
 		if !identityRekey {
-			r.bridge, err = startBridge(r.server, net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port)),
+			// Port -1 is the NATS "any free port" value; net.Listen spells it 0.
+			r.bridge, err = startBridge(r.server, net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(max(cfg.Embedded.Port, 0))),
 				r.brokerTLS.ServerConfig(), r.resolver.cell)
 			if err != nil {
 				return nil, err

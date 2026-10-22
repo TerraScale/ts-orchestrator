@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -203,6 +204,10 @@ func originalMaterialMechanicalFixture(t *testing.T) (*originalMechanicalSDK, or
 func originalMaterialMechanicalProvision(t *testing.T, f *originalMechanicalSDK, clients originalSourceClients, state *originalSourceState, etag *string, archive materialSourceArchive) (bootstrapmaterial.Publication, error) {
 	t.Helper()
 	directory := t.TempDir()
+	// t.TempDir creates with 0777 & umask; material directories must be exactly 0700.
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	for name, body := range archive.Files {
 		if err := writeSourceFile(filepath.Join(directory, name), body); err != nil {
 			t.Fatal(err)
@@ -233,7 +238,6 @@ func originalMaterialMechanicalProvision(t *testing.T, f *originalMechanicalSDK,
 }
 
 func TestOriginalMaterialPublicationSDKDurableRecovery(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	for _, fault := range []string{"", "lost material create"} {
 		t.Run(fault, func(t *testing.T) {
 			f, clients, state, etag, archive := originalMaterialMechanicalFixture(t)

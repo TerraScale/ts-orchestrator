@@ -38,7 +38,6 @@ import (
 )
 
 func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	for _, mode := range []string{"exact publication pins", "sole founder compartment reference", "unbound publication key", "logical publication key", "consumed dynamic control compartment", "mixed dynamic control and consumed pinned key"} {
 		t.Run(mode, func(t *testing.T) {
 			var birthRoles []string

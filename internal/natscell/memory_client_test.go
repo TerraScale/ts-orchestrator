@@ -1,6 +1,7 @@
 package natscell
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,6 @@ import (
 )
 
 func TestMemoryClientRejectsExpiredAndMismatchedCredentials(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	root := t.TempDir()
 	files := testBridgeTLS(t, root)
 	config, err := loadTLS(files, false)
@@ -46,12 +46,17 @@ func TestMemoryClientRejectsExpiredAndMismatchedCredentials(t *testing.T) {
 	}
 	other, _ := nkeys.CreateUser()
 	defer other.Wipe()
-	seed, _ := other.Seed()
+	seed, _ := user.Seed()
 	defer clear(seed)
-	mismatch, err := jwt.FormatUserConfig(raw, seed)
+	otherSeed, _ := other.Seed()
+	defer clear(otherSeed)
+	// jwt.FormatUserConfig itself refuses a mismatched pair, so swap the seed afterwards.
+	valid, err := jwt.FormatUserConfig(raw, seed)
 	if err != nil {
 		t.Fatal(err)
 	}
+	mismatch := bytes.Replace(valid, seed, otherSeed, 1)
+	clear(valid)
 	defer clear(mismatch)
 	if conn, err := ConnectMemory(t.Context(), "gru", "tls://127.0.0.1:1", mismatch, config); conn != nil || err == nil || !strings.Contains(err.Error(), "seed and user JWT differ") {
 		t.Fatal("another seed was accepted", err)

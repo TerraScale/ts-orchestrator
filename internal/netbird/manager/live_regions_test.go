@@ -11,7 +11,6 @@ import (
 )
 
 func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
 	operator := f.addPeer("ts-fra-1", "203.0.113.8", true, time.Now(), ids.operators)

@@ -36,7 +36,6 @@ func observeOperationContract(view string) (string, string, []string) {
 }
 
 func TestObserveCurrentOperationHTTP(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newObserveFixture(t)
 	f.server.HandleAuthenticated("GET /v1/regions", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `[{"cell":"gru"}]`)
@@ -136,7 +135,6 @@ func TestObserveCurrentOperationUnavailable(t *testing.T) {
 }
 
 func TestObserveCurrentOperationValidationAndUnknown(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newObserveFixture(t)
 	var requests atomic.Int64
 	f.server.HandleAuthenticated("GET /v1/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

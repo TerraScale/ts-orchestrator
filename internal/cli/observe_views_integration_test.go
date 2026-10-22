@@ -40,7 +40,6 @@ func observeFeatureFixture(t *testing.T) (*observeFixture, *decisionlog.Journal,
 }
 
 func TestObserveExistingFeatureAPIs(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f, _, _, _ := observeFeatureFixture(t)
 	for _, scenario := range []struct {
 		view, want string
@@ -85,7 +84,6 @@ func TestObserveExistingFeatureAPIs(t *testing.T) {
 }
 
 func TestObserveExistingFeaturePartialStates(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f, journal, _, logView := observeFeatureFixture(t)
 	journal.MarkCoveredFrom(time.Now())
 	logView.Add(logs.Window{Version: 1, Region: "gru", Node: "node-gap", Boot: "boot", Seq: 0,

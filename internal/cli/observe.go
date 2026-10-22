@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	jsonv1 "encoding/json"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -534,7 +535,7 @@ func writeObserve(out io.Writer, view, format, source, search string, data []byt
 			Source  string `json:"source"`
 			Partial bool   `json:"partial"`
 			Data    any    `json:"data"`
-		}{1, view, source, partial, value}, jsontext.WithIndent("  "))
+		}{1, view, source, partial, value}, jsontext.WithIndent("  "), jsonv1.FormatDurationAsNano(true)) // same duration shape the API serves
 		if err == nil {
 			_, err = io.WriteString(out, "\n")
 		}
