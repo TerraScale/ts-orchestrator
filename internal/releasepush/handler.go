@@ -27,6 +27,9 @@ const (
 	SubjectVersion = protocol.ReleaseVersion
 	SubjectOrch    = protocol.ReleaseOrch
 	SubjectApp     = protocol.ReleaseApp
+	SubjectPing    = protocol.ReleaseMeshPing
+	SubjectApply   = protocol.ReleaseMeshApply
+	SubjectRemove  = protocol.ReleaseMeshRemove
 
 	orchRepository = owner + "/ts-orchestrator"
 	downloadPrefix = "https://github.com/" + orchRepository + "/releases/download/"
@@ -61,11 +64,20 @@ type AppRelease struct {
 	Token   string `json:"token"`
 }
 
+// MeshRequest is the ts.release.mesh.ping, .apply and .rm request;
+// Spec is the service to apply.
+type MeshRequest struct {
+	Token string          `json:"token"`
+	Spec  json.RawMessage `json:"spec,omitempty"`
+}
+
 // Reply answers every release request.
 type Reply struct {
-	State   string `json:"state,omitempty"` // current, installed, stale, rejected
+	State   string `json:"state,omitempty"` // current, installed, stale, rejected; done, failed for mesh
 	Version string `json:"version,omitempty"`
 	Error   string `json:"error,omitempty"`
+	// Result is the mesh's per-region rows.
+	Result json.RawMessage `json:"result,omitempty"`
 }
 
 // Handler serves the release subjects on any connection with full permissions.
@@ -82,6 +94,9 @@ type Handler struct {
 	// update the single-host service (swarmruntime.DialSingleHost +
 	// ApplyServiceSpec); nil refuses app releases.
 	App func(ctx context.Context, release AppRelease) error
+	// Mesh runs a multi-region workflow request (op "ping" or "apply") on the
+	// cross-region mesh and returns its rows, also when it fails; nil refuses them.
+	Mesh func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
 	// Installed receives once after a new binary is in place; the caller exits
 	// so systemd restarts the new binary.
 	Installed chan struct{}
@@ -131,6 +146,9 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 		SubjectVersion: func(context.Context, []byte) Reply { return Reply{Version: h.Revision} },
 		SubjectOrch:    h.orch,
 		SubjectApp:     h.app,
+		SubjectPing:    func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "ping", data) },
+		SubjectApply:   func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "apply", data) },
+		SubjectRemove:  func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "rm", data) },
 	} {
 		if _, err := conn.Subscribe(subject, func(m *nats.Msg) {
 			// Each request runs on its own goroutine so a download never blocks version polls.
@@ -340,4 +358,23 @@ func (h *Handler) validateApp(ctx context.Context, release AppRelease) error {
 		return errors.New("token repository does not own the image")
 	}
 	return nil
+}
+
+// mesh admits only ts-orchestrator's multi-region workflow tokens.
+func (h *Handler) mesh(ctx context.Context, op string, data []byte) Reply {
+	var request MeshRequest
+	if err := protocol.DecodeStrict(data, &request, 64<<10); err != nil {
+		return rejected(err)
+	}
+	if _, err := h.Verifier.VerifyMesh(ctx, request.Token); err != nil {
+		return rejected(err)
+	}
+	if h.Mesh == nil {
+		return rejected(errors.New("this host runs no mesh bridge"))
+	}
+	result, err := h.Mesh(ctx, op, request.Spec)
+	if err != nil {
+		return Reply{State: "failed", Error: err.Error(), Result: result}
+	}
+	return Reply{State: "done", Result: result}
 }

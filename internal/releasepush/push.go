@@ -60,13 +60,9 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	if flags.NArg() != 0 || !hex40.MatchString(*sha) || *dir == "" {
 		return errors.New(pushUsage)
 	}
-	data, err := os.ReadFile(*regionsFile)
+	regions, err := LoadRegions(*regionsFile)
 	if err != nil {
 		return err
-	}
-	var regions []Region
-	if err := protocol.DecodeStrict(data, &regions, 64<<10); err != nil || len(regions) == 0 {
-		return fmt.Errorf("%s: %w", *regionsFile, errors.Join(err, errors.New("needs at least one region")))
 	}
 	token, err := MintToken(ctx)
 	if err != nil {
@@ -93,7 +89,7 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 	results := make([]Result, len(regions))
 	var wg sync.WaitGroup
 	for i, region := range regions {
-		wg.Go(func() { results[i] = pushRegion(ctx, region, release, run) })
+		wg.Go(func() { results[i] = pushRegion(ctx, region, release) })
 	}
 	wg.Wait()
 	var failed error
@@ -107,6 +103,38 @@ func Push(ctx context.Context, args []string, output io.Writer) error {
 		}
 	}
 	return failed
+}
+
+// LoadRegions reads deploy/m1/regions.json.
+func LoadRegions(path string) ([]Region, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var regions []Region
+	if err := protocol.DecodeStrict(data, &regions, 64<<10); err != nil || len(regions) == 0 {
+		return nil, fmt.Errorf("%s: %w", path, errors.Join(err, errors.New("needs at least one region")))
+	}
+	return regions, nil
+}
+
+// Dial opens a CI connection to region's pinned release listener; replies
+// arrive on the token's run inbox.
+func Dial(region Region, token string, options ...nats.Option) (*nats.Conn, error) {
+	config, err := pinnedTLS(region.SPKISHA256)
+	if err != nil {
+		return nil, err
+	}
+	run, err := tokenRunID(token)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := nats.Connect(region.NATS, append([]nats.Option{nats.Secure(config), nats.CustomInboxPrefix(Inbox(run)),
+		nats.Token(token), nats.Timeout(10 * time.Second)}, options...)...)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	return conn, nil
 }
 
 func fileSHA256(path string) (string, error) {
@@ -151,21 +179,16 @@ func MintToken(ctx context.Context) (string, error) {
 }
 
 // pushRegion never returns early for another region's failure.
-func pushRegion(ctx context.Context, region Region, release OrchRelease, run string) Result {
+func pushRegion(ctx context.Context, region Region, release OrchRelease) Result {
 	result := Result{Region: region.Region}
 	start := time.Now()
 	since := func() int64 { return time.Since(start).Milliseconds() }
 	fail := func(err error) Result { result.Error = err.Error(); return result }
-	config, err := pinnedTLS(region.SPKISHA256)
-	if err != nil {
-		return fail(err)
-	}
-	conn, err := nats.Connect(region.NATS, nats.Secure(config), nats.CustomInboxPrefix(Inbox(run)),
-		nats.Token(release.Token), nats.Name("ts-orch release push"), nats.Timeout(10*time.Second),
+	conn, err := Dial(region, release.Token, nats.Name("ts-orch release push"),
 		// The host restarts mid-push; reconnect immediately and keep trying.
 		nats.MaxReconnects(-1), nats.ReconnectWait(250*time.Millisecond), nats.ReconnectJitter(0, 0))
 	if err != nil {
-		return fail(fmt.Errorf("connect: %w", err))
+		return fail(err)
 	}
 	defer conn.Close()
 	result.ConnectMS = since()

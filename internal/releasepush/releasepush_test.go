@@ -510,7 +510,7 @@ func TestListenerPin(t *testing.T) {
 
 // One region without a pin fails alone and is reported.
 func TestPushRegionWithoutPin(t *testing.T) {
-	result := pushRegion(context.Background(), Region{Region: "new", NATS: "tls://127.0.0.1:1"}, OrchRelease{}, "100")
+	result := pushRegion(context.Background(), Region{Region: "new", NATS: "tls://127.0.0.1:1"}, OrchRelease{})
 	if result.Region != "new" || !strings.Contains(result.Error, "spki_sha256") {
 		t.Fatalf("result = %+v", result)
 	}
@@ -539,5 +539,82 @@ func TestCommittedRegionsArePinned(t *testing.T) {
 	}
 	if len(regions) == 0 {
 		t.Fatal("no regions")
+	}
+}
+
+func meshClaims(now time.Time) map[string]any {
+	return with(with(goodClaims(now), "event_name", "schedule"), "job_workflow_ref", meshWorkflow)
+}
+
+// The multi-region workflow may only use the mesh bridge; release workflows may not.
+func TestMeshBridge(t *testing.T) {
+	now := time.Now()
+	i := newIssuer(t)
+	v := i.verifier(now)
+	for name, c := range map[string]struct {
+		claims map[string]any
+		ok     bool
+	}{
+		"schedule":        {meshClaims(now), true},
+		"dispatch":        {with(meshClaims(now), "event_name", "workflow_dispatch"), true},
+		"branch":          {with(meshClaims(now), "ref", "refs/heads/x"), false},
+		"other repo":      {with(meshClaims(now), "repository", owner+"/terrabase"), false},
+		"release ci.yml":  {goodClaims(now), false},
+		"workflow branch": {with(meshClaims(now), "job_workflow_ref", orchRepository+"/.github/workflows/multi-region.yml@refs/heads/x"), false},
+	} {
+		if _, err := v.VerifyMesh(context.Background(), i.sign(t, c.claims)); (err == nil) != c.ok {
+			t.Fatalf("%s: VerifyMesh err = %v, want ok %t", name, err, c.ok)
+		}
+	}
+	if _, err := v.Verify(context.Background(), i.sign(t, meshClaims(now))); err == nil {
+		t.Fatal("a multi-region token verified as a release token")
+	}
+
+	srv, auth, url := startServer(t, v)
+	local, err := auth.Connect(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	h := &Handler{Verifier: v, Revision: testSHA, Installed: make(chan struct{}, 1),
+		Mesh: func(_ context.Context, op string, spec json.RawMessage) (json.RawMessage, error) {
+			if op == "apply" && string(spec) != `{"name":"x"}` {
+				return nil, errors.New("spec not forwarded")
+			}
+			return json.RawMessage(`["` + op + `"]`), nil
+		}}
+	if err := h.Serve(local); err != nil {
+		t.Fatal(err)
+	}
+	errs := make(chan error, 4)
+	token := i.sign(t, meshClaims(now))
+	ci, err := dialCI(url, token, errs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ci.Close()
+	for subject, spec := range map[string]string{SubjectPing: "", SubjectApply: `{"name":"x"}`} {
+		data, _ := json.Marshal(MeshRequest{Token: token, Spec: json.RawMessage(spec)})
+		reply, err := request(context.Background(), ci, subject, data, 2*time.Second)
+		if err != nil || reply.State != "done" || !strings.Contains(string(reply.Result), strings.TrimPrefix(subject, "ts.release.mesh.")) {
+			t.Fatalf("%s = %+v, %v", subject, reply, err)
+		}
+	}
+	// A release token is refused by the bridge.
+	data, _ := json.Marshal(MeshRequest{Token: i.sign(t, goodClaims(now))})
+	if reply, err := request(context.Background(), ci, SubjectPing, data, 2*time.Second); err != nil || reply.State != "rejected" {
+		t.Fatalf("release token ping = %+v, %v", reply, err)
+	}
+	// The workflow may not publish release subjects.
+	if err := ci.Publish(SubjectVersion, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errs:
+		if !errors.Is(err, nats.ErrPermissionViolation) {
+			t.Fatalf("async err = %v, want permissions violation", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("multi-region token published a release subject")
 	}
 }

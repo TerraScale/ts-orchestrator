@@ -1,9 +1,11 @@
 {
   "name": "whoami",
-  "image": "docker.io/library/alpine@sha256:2e1a7aa4cbc4e9e5222bb4c24a839aa1a6170ea5492d644777ce7b178824e44f",
-  "args": ["/bin/sh", "-c", "exec nc -lk -p 8099 -e /bin/sh -c \"printf 'HTTP/1.1 200 OK\\r\\nContent-Length: 6\\r\\nConnection: close\\r\\n\\r\\nwhoami'\""],
+  "image": "docker.io/traefik/whoami@sha256:c2c89736959e8830c3db090e2f54500499ceb0460267f91dce494728d7327770",
+  "env": {"WHOAMI_PORT_NUMBER": "8099"},
   "port": 8099,
   "readyPath": "/readyz",
-  "hostnames": ["whoami.terrascale.tech"],
-  "replicas": 1
+  "hostnames": ["gru.mesh.terrascale.tech", "sjc.mesh.terrascale.tech", "fra.mesh.terrascale.tech"],
+  "replicas": 1,
+  "milliCPU": 100,
+  "memoryMiB": 64
 }

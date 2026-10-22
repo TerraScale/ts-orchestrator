@@ -32,7 +32,8 @@ const Port = 4222
 
 // Auth admits exactly two kinds of client: ts-orch's own in-process
 // connection (full permissions) and CI presenting a GitHub OIDC token
-// (publish ts.release.>, subscribe _INBOX.>).
+// (publish ts.release.>, or only ts.release.mesh.> for the multi-region
+// workflow; subscribe _INBOX.<run>.>).
 type Auth struct {
 	verifier *Verifier
 	local    string
@@ -65,13 +66,17 @@ func (a *Auth) Check(c server.ClientAuthentication) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 	defer cancel()
 	claims, err := a.verifier.Verify(ctx, token)
+	publish := protocol.ReleaseWildcard
 	if err != nil {
-		return false
+		if claims, err = a.verifier.VerifyMesh(ctx, token); err != nil {
+			return false
+		}
+		publish = protocol.ReleaseMeshWildcard
 	}
 	c.RegisterUser(&server.User{
 		Username: "ci:" + claims.Repository + ":" + claims.RunID,
 		Permissions: &server.Permissions{
-			Publish: &server.SubjectPermission{Allow: []string{protocol.ReleaseWildcard}},
+			Publish: &server.SubjectPermission{Allow: []string{publish}},
 			// Each run sees only its own replies (the client sets this inbox prefix).
 			Subscribe: &server.SubjectPermission{Allow: []string{Inbox(claims.RunID) + ".>"}},
 		},
