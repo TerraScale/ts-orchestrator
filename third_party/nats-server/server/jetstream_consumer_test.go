@@ -6430,6 +6430,66 @@ func TestJetStreamConsumerAckSampling(t *testing.T) {
 	}
 }
 
+func TestJetStreamConsumerAckSamplingBounds(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+
+	mset, err := s.GlobalAccount().addStream(&StreamConfig{
+		Name: "TEST", Subjects: []string{"foo"}, Storage: MemoryStorage,
+	})
+	require_NoError(t, err)
+
+	cases := []struct {
+		frequency string
+		want      int32
+	}{
+		{"0%", 0},
+		{"50%", 50},
+		{"100%", 100},
+		{"101%", 100},
+	}
+	if strconv.IntSize == 64 {
+		cases = append(cases,
+			struct {
+				frequency string
+				want      int32
+			}{"2147483648%", 100},
+		)
+	}
+	checkSampling := func(t *testing.T, o *consumer, want int32) {
+		t.Helper()
+		o.mu.RLock()
+		defer o.mu.RUnlock()
+		if o.sfreq != want {
+			t.Fatalf("Expected sampling frequency %d, got %d", want, o.sfreq)
+		}
+		if (want == 0 || want == 100) && o.shouldSample() != (want == 100) {
+			t.Fatalf("Unexpected deterministic sampling decision for %d", want)
+		}
+	}
+	for i, tc := range cases {
+		t.Run(tc.frequency, func(t *testing.T) {
+			cfg := ConsumerConfig{
+				Durable: fmt.Sprintf("C%d", i), AckPolicy: AckExplicit,
+				FilterSubject: "foo", SampleFrequency: tc.frequency,
+			}
+			o, err := mset.addConsumer(&cfg)
+			require_NoError(t, err)
+			checkSampling(t, o, tc.want)
+
+			cfg.SampleFrequency = "0%"
+			o, err = mset.addConsumer(&cfg)
+			require_NoError(t, err)
+			checkSampling(t, o, 0)
+
+			cfg.SampleFrequency = tc.frequency
+			o, err = mset.addConsumer(&cfg)
+			require_NoError(t, err)
+			checkSampling(t, o, tc.want)
+		})
+	}
+}
+
 func TestJetStreamConsumerAckSamplingSpecifiedUsingUpdateConsumer(t *testing.T) {
 	s := RunBasicJetStreamServer(t)
 	defer s.Shutdown()

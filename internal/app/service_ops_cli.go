@@ -153,11 +153,30 @@ func recentEvents(ctx context.Context, client api.ControlClient, output io.Write
 
 // followEvents streams service changes and task state transitions from the manager's watch API.
 func followEvents(ctx context.Context, watch api.WatchClient, output io.Writer) error {
+	stream, err := startEventWatch(ctx, watch)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return err
+	}
+	return streamEvents(ctx, stream, output)
+}
+
+func startEventWatch(ctx context.Context, watch api.WatchClient) (api.Watch_WatchClient, error) {
 	actions := api.WatchActionKindCreate | api.WatchActionKindUpdate | api.WatchActionKindRemove
 	stream, err := watch.Watch(ctx, &api.WatchRequest{Entries: []*api.WatchRequest_WatchEntry{{Kind: "task", Action: actions}, {Kind: "service", Action: actions}}})
 	if err != nil {
-		return err
+		return nil, err
 	}
+	// The first empty message confirms the manager has registered the watch.
+	if _, err := stream.Recv(); err != nil {
+		return nil, err
+	}
+	return stream, nil
+}
+
+func streamEvents(ctx context.Context, stream api.Watch_WatchClient, output io.Writer) error {
 	states := map[string]api.TaskState{}
 	for {
 		message, err := stream.Recv()
