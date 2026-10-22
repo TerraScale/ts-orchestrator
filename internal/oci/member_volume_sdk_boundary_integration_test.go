@@ -581,8 +581,6 @@ func memberSDKVerifyRestoredAttachmentReadsExactScratchCopyWithoutMutatingOCI(t 
 }
 
 func memberSDKVerifyRestoredAttachmentFailsClosedOnWrongVolumeScopeStateAndAttachments(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
-	defer cancel()
 	for _, scenario := range []string{
 		"member data volume", "missing volume", "wrong returned volume ID", "wrong compartment", "wrong domain", "wrong tier", "wrong size tag",
 		"wrong resource tag", "wrong owner tag", "wrong region tag", "wrong generation tag", "wrong managed tag", "wrong create key", "unfinished restore",
@@ -590,6 +588,10 @@ func memberSDKVerifyRestoredAttachmentFailsClosedOnWrongVolumeScopeStateAndAttac
 		"second scratch volume", "duplicate scratch attachment", "second volume attachment", "member instance", "foreign scratch", "stopped scratch",
 	} {
 		t.Run(scenario, func(t *testing.T) {
+			// One deadline per scenario: a shared one expires under -race load and makes
+			// later scenarios fail closed on the deadline instead of on verification.
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
 			volumes, ledger, restored := memberSDKRestoreFixture(t)
 			volume := ledger.volumes[restored.VolumeID]
 			attachment := ledger.attachments[restored.ID]
@@ -755,10 +757,10 @@ func memberSDKMemberVolumeRetireRetainsAndNameReuseCreatesFreshVolume(t *testing
 }
 
 func memberSDKMemberVolumeRetirementRetriesUnknownOutcomes(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
-	defer cancel()
 	for _, scenario := range []string{"lost detach response", "lost tag response", "rejected tags", "pending detach"} {
 		t.Run(scenario, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
 			volumes, ledger, request, attachment := memberSDKRetireFixture(t)
 			switch scenario {
 			case "lost detach response":
@@ -827,10 +829,10 @@ func memberSDKMemberNameReuseLostCreateResponseReplaysFreshIncarnation(t *testin
 }
 
 func memberSDKMemberVolumeRetireRefusesOtherLiveAttachmentAndWrongRecordedData(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
-	defer cancel()
 	for _, scenario := range []string{"other instance", "multiple attachments", "wrong recorded ID", "wrong member", "missing recorded ID", "missing recorded data", "foreign instance"} {
 		t.Run(scenario, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
 			volumes, ledger, request, attachment := memberSDKRetireFixture(t)
 			switch scenario {
 			case "other instance":
