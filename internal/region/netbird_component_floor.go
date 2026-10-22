@@ -133,6 +133,12 @@ func (s *netBirdComponents) currentReleaseFloors(previous *[3]NetBirdComponentFl
 
 func (v NetBirdComponents) retainOriginalReleaseFloors(ctx context.Context) error {
 	s := v.state
+	// Already retained floors need no write: verify them read-only within one check.
+	if peek := withOriginalNetBirdStateMemo(ctx); v.originalReleaseFloorsRetained(peek) {
+		return v.Check(peek)
+	}
+	// This writes the state it reads; never share or reuse a memoized state here.
+	ctx = withoutOriginalNetBirdStateMemo(ctx)
 	guarded := ociclient.WithRequestGuard(ctx, func(context.Context) error { return v.Check(ctx) })
 	state, err := s.reader.originalNetBirdState(guarded, s.resolver)
 	if err != nil {
@@ -165,4 +171,16 @@ func (v NetBirdComponents) retainOriginalReleaseFloors(ctx context.Context) erro
 		}
 	}
 	return v.Check(ctx)
+}
+
+func (v NetBirdComponents) originalReleaseFloorsRetained(ctx context.Context) bool {
+	s := v.state
+	state, err := s.reader.originalNetBirdState(ctx, s.resolver)
+	if err != nil || state.intent.grantDigest != s.intent.grantDigest || state.manager.Launch == nil || state.manager.Launch.RecipeSHA256 != s.intent.recipeDigest ||
+		state.manager.Launch.ProfileSHA256 != s.intent.profileDigest || state.manager.Launch.ComponentFloors == nil {
+		return false
+	}
+	retained := *state.manager.Launch.ComponentFloors
+	floors := s.currentReleaseFloors(&retained)
+	return retainNetBirdComponentFloors(&retained, &floors) == nil && retained == floors
 }

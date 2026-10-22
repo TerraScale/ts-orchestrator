@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -57,6 +58,76 @@ func (s *SignedFootprint) originalNetBirdState(ctx context.Context, resolver Fou
 	if s == nil || ctx == nil || s.retainedGrant != nil {
 		return originalNetBirdState{}, ErrOriginalSourceProducerHold
 	}
+	memo, _ := ctx.Value(originalNetBirdStateMemoKey{}).(*originalNetBirdStateMemo)
+	if memo != nil {
+		memo.mu.Lock()
+		hit, state := memo.verified && memo.reader == s && memo.store == resolver.Store, memo.state
+		memo.mu.Unlock()
+		if hit {
+			return state, nil
+		}
+	}
+	// The read runs unlocked: its own OCI requests may evaluate nested guards.
+	state, err := s.readOriginalNetBirdState(ctx, resolver)
+	if err == nil && memo != nil {
+		memo.mu.Lock()
+		memo.reader, memo.store, memo.state, memo.verified = s, resolver.Store, state, true
+		memo.mu.Unlock()
+	}
+	return state, err
+}
+
+type originalNetBirdStateMemoKey struct{}
+
+// originalNetBirdStateMemo holds the state one guard evaluation or manager
+// check verified, so its nested request guards reuse it instead of
+// re-reading and re-verifying the whole original foundation per request.
+type originalNetBirdStateMemo struct {
+	mu       sync.Mutex
+	reader   *SignedFootprint
+	store    FoundationStore
+	state    originalNetBirdState
+	verified bool
+	checked  map[*byte]bool
+}
+
+// originalNetBirdChecked reports whether this operation already passed the
+// check identified by id; markOriginalNetBirdChecked records a pass.
+func originalNetBirdChecked(ctx context.Context, id *byte) bool {
+	memo, _ := ctx.Value(originalNetBirdStateMemoKey{}).(*originalNetBirdStateMemo)
+	if memo == nil {
+		return false
+	}
+	memo.mu.Lock()
+	defer memo.mu.Unlock()
+	return memo.checked[id]
+}
+
+func markOriginalNetBirdChecked(ctx context.Context, id *byte) {
+	if memo, _ := ctx.Value(originalNetBirdStateMemoKey{}).(*originalNetBirdStateMemo); memo != nil {
+		memo.mu.Lock()
+		defer memo.mu.Unlock()
+		if memo.checked == nil {
+			memo.checked = map[*byte]bool{}
+		}
+		memo.checked[id] = true
+	}
+}
+
+// withOriginalNetBirdStateMemo scopes one operation; nested scopes share it.
+func withOriginalNetBirdStateMemo(ctx context.Context) context.Context {
+	if memo, _ := ctx.Value(originalNetBirdStateMemoKey{}).(*originalNetBirdStateMemo); memo != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, originalNetBirdStateMemoKey{}, &originalNetBirdStateMemo{})
+}
+
+// withoutOriginalNetBirdStateMemo detaches an operation that writes the state it reads.
+func withoutOriginalNetBirdStateMemo(ctx context.Context) context.Context {
+	return context.WithValue(ctx, originalNetBirdStateMemoKey{}, (*originalNetBirdStateMemo)(nil))
+}
+
+func (s *SignedFootprint) readOriginalNetBirdState(ctx context.Context, resolver FoundationResolver) (originalNetBirdState, error) {
 	client, ok := s.client.(foundationDiscoveryObjects)
 	if !ok {
 		return originalNetBirdState{}, ErrOriginalSourceProducerHold

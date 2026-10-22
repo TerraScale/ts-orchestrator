@@ -1,6 +1,7 @@
 package region
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -302,6 +303,10 @@ func retainOriginalNetBirdManager(ctx context.Context, authority *HomeIAMAuthori
 			if launch.InstanceID != "" && !validOriginalActorID("instance", foundationHomeRegion, launch.InstanceID) {
 				return journal.managerHold(ctx, "create-unresolved")
 			}
+			before, err := json.Marshal(m, json.Deterministic(true))
+			if err != nil {
+				return err
+			}
 			m.Launch = &launch
 			if launch.BootVolumeID != "" {
 				boot, vnic, err := observeNetBirdManagerGeometry(ctx, authority.factory, m.Intent, launch, m.ControlCompartmentID)
@@ -316,6 +321,10 @@ func retainOriginalNetBirdManager(ctx context.Context, authority *HomeIAMAuthori
 				if m.VerifiedAt.IsZero() {
 					m.VerifiedAt = time.Now().UTC()
 				}
+			}
+			// A reopened ready manager re-observes the same launch; do not rewrite it.
+			if after, err := json.Marshal(m, json.Deterministic(true)); err != nil || bytes.Equal(before, after) {
+				return err
 			}
 			return checkpointOriginalCompartments(ctx, authority, &saved, &etag)
 		}}

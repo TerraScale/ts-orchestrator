@@ -222,7 +222,11 @@ func (s *netBirdAccount) current(ctx context.Context) (originalNetBirdState, err
 }
 
 func (s *netBirdAccount) requestContext(base context.Context) context.Context {
-	return ociclient.WithRequestGuard(base, func(context.Context) error { _, err := s.current(base); return err })
+	return ociclient.WithRequestGuard(base, func(context.Context) error {
+		// One request's guard verifies the original foundation once for every nested check.
+		_, err := s.current(withOriginalNetBirdStateMemo(base))
+		return err
+	})
 }
 
 func (s *netBirdAccount) checkpoint(ctx context.Context, state *originalNetBirdState) error {

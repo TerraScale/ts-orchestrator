@@ -493,7 +493,9 @@ func TestOriginalNetBirdManagerSDK(t *testing.T) {
 		t.Fatal("changed actual isolated network retained original manager")
 	}
 	f.cloud.rows[vcnID] = vcn
-	for _, fault := range []string{"foreign version", "foreign target"} {
+	// Check pins material through Vault metadata (current version 1, exact target);
+	// a bundle-only version fault is covered by the material read tests.
+	for _, fault := range []string{"rotation added", "foreign target"} {
 		f.cloud.materialFault = fault
 		if err := manager.Check(t.Context()); err == nil {
 			t.Fatalf("changed all-four original material %s retained manager", fault)
