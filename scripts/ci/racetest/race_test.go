@@ -40,6 +40,9 @@ const solo = "TestOfflineReadbackMismatchDiscardsCandidate"
 // noraceTest is the fixture test estimated as norace.
 const noraceTest = "TestRetry"
 
+// noraceSolo is the fixture test estimated as "norace solo".
+const noraceSolo = "TestMaterial"
+
 // The fixture estimates make cost order differ from name order: round-robin
 // by name would pair TestThree with TestFail and TestOne with Example.
 const fixtureDurations = `# fixture estimates
@@ -54,6 +57,7 @@ rest - 5
 ./internal/app Test* 1
 ./internal/bootstrapstart TestStart 30
 ./internal/bootstrapstart TestRetry 4 norace
+./internal/bootstrapstart TestMaterial 3 norace solo
 ./tests/deploy TestOfflineReadbackMismatchDiscardsCandidate 300/60 solo
 ./tests/deploy * 10
 `
@@ -290,7 +294,7 @@ func (f schedulerFixture) complete(t *testing.T, r script.Result, short bool) {
 	for _, args := range commands {
 		// Only the norace shard runs without the race detector, and it
 		// runs exactly the norace test.
-		norace := slices.Contains(args, "^("+noraceTest+")$")
+		norace := slices.Contains(args, "^("+noraceTest+")$") || slices.Contains(args, "^("+noraceSolo+")$")
 		if slices.Contains(args, "-race") == norace || !slices.Contains(args, "-vet=off") {
 			t.Fatalf("wrong race/vet flags: %v", args)
 		}
@@ -310,7 +314,7 @@ func (f schedulerFixture) complete(t *testing.T, r script.Result, short bool) {
 	}
 	// Solo and idle tests own a shard, and cost, not name order, packs the
 	// rest: the two costly app tests do not share a shard.
-	for _, owner := range append(slices.Clone(schedulerLabs), solo, "TestThree", "TestOne", "TestStart", noraceTest) {
+	for _, owner := range append(slices.Clone(schedulerLabs), solo, "TestThree", "TestOne", "TestStart", noraceTest, noraceSolo) {
 		var matching []string
 		for _, expression := range shards(commands) {
 			ok, err := regexp.MatchString(expression, owner)
@@ -340,6 +344,7 @@ func (f schedulerFixture) complete(t *testing.T, r script.Result, short bool) {
 		estimates = append(estimates, seconds)
 	}
 	requireText(t, r.Stdout, "race queue bootstrapstart-norace-0 pool=norace estimate=4s")
+	requireText(t, r.Stdout, "race queue bootstrapstart-"+noraceSolo+" pool=norace estimate=3s")
 	if len(queue) != 14 || !slices.IsSortedFunc(estimates, func(a, b int) int { return b - a }) {
 		t.Fatalf("queue is not longest first: %v", queue)
 	}
