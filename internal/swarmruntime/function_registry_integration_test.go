@@ -229,7 +229,7 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 		t.Fatal("unchanged actual manager state rejected a fresh registry receipt: ", err)
 	}
 	t.Run("durable intent changes during final authority wait", func(t *testing.T) {
-		js, _ := effectSessionR3(t)
+		js, _, broker := effectSessionR3(t)
 		control, err := authority.Start(ctx, js, authority.Config{Scope: "gru", DeploymentID: entityid.New(), CandidateID: entityid.New(), Replicas: 3})
 		if err != nil {
 			t.Fatal(err)
@@ -243,6 +243,16 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 		artifacts, err := js.CreateObjectStore(ctx, jetstream.ObjectStoreConfig{Bucket: "FUNCTION_REGISTRY_INTENT", Replicas: 3, Storage: jetstream.FileStorage})
 		if err != nil {
 			t.Fatal(err)
+		}
+		// The create reply travels on the system account route and the stream's subject interest
+		// on the account route, so a publish can reach the broker before that interest does.
+		for !broker.GlobalAccount().SubscriptionInterest("$O.FUNCTION_REGISTRY_INTENT.C.probe") ||
+			!broker.GlobalAccount().SubscriptionInterest("$O.FUNCTION_REGISTRY_INTENT.M.probe") {
+			select {
+			case <-ctx.Done():
+				t.Fatal("function registry object store interest: ", ctx.Err())
+			case <-time.After(10 * time.Millisecond):
+			}
 		}
 		if _, err := artifacts.PutBytes(ctx, "sha256-"+claim.Digest, module); err != nil {
 			t.Fatal(err)
