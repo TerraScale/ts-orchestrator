@@ -1,8 +1,0 @@
-{
-  "pid": 718926,
-  "pid_exists": false,
-  "locks": {
-    "/tmp/ts-orch-refactor-general-check.lock": "FREE",
-    "/tmp/ts-orch-refactor-gate-check.lock": "FREE"
-  }
-}

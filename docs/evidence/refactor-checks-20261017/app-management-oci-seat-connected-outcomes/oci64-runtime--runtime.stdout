@@ -1,8 +1,0 @@
-=== RUN   TestFoundationRecordsPersistAndFenceConcurrentWriters
-=== RUN   TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals
-    foundation_provision_integration_test.go:114: signed worker policy omits an approved role or architecture
-=== NAME  TestFoundationRecordsPersistAndFenceConcurrentWriters
-    foundation_integration_test.go:179: original pending launch lost: original home writer checkpoint is invalid
---- FAIL: TestFoundationRecordsPersistAndFenceConcurrentWriters (0.69s)
-    --- FAIL: TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals (0.03s)
-FAIL

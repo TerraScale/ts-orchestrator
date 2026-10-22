@@ -1,8 +1,0 @@
-{
-  "bytes": 59608166,
-  "excluded": true,
-  "manifest_note": "Historical original output manifests are byte-exact and may name the excluded ELF. Their entries refer to historical origins; this packet SHA256SUMS governs copied files only.",
-  "never_executed": true,
-  "origin": "/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp/qa-output/binaries/attempt.test",
-  "sha256": "56b4cfed63770bf2b42047b1e418fc23a73ba506166e9302fbcbcc7b332432e6"
-}

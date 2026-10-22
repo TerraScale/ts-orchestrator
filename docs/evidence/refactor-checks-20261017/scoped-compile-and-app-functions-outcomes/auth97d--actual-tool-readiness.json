@@ -1,1 +1,0 @@
-{"chunk_id":"b2be93","wall_time_seconds":0.00003519,"exit_code":0,"original_token_count":45,"output":"{\"available_gib\": 25.173728942871094, \"load1\": 1.5009765625, \"active_compilers_or_go_builds\": [{\"pid\": 631695, \"kind\": \"go\"}, {\"pid\": 632067, \"kind\": \"compile\"}], \"ready\": true}\n"}

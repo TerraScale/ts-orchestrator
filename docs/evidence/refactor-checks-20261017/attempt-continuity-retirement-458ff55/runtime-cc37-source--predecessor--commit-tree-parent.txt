@@ -1,4 +1,0 @@
-cc37fe13cace70584c45ee368d6edcd80ebc5f2d
-98aa116b8e32c0240b4fa1151bac47a5a7a410bd
-09fbf0bbac1d54b4ad31d12bcd8c37cf8115ef23
-test(attempt): reject retired phase through public command

@@ -1,7 +1,0 @@
-{
-  "chunk_id": "14bb26",
-  "wall_time_seconds": 0.000025946,
-  "exit_code": 0,
-  "original_token_count": 331,
-  "output": "{\"elapsed_seconds\": 34.852333068847656, \"processes\": [{\"pid\": 611628, \"ppid\": 611566, \"comm\": \"timeout\", \"nice\": 19, \"argv\": [\"/run/current-system/sw/bin/timeout\", \"--signal=TERM\", \"--kill-after=5s\", \"180s\", \"/run/current-system/sw/bin/env\", \"-i\", \"HOME=/home/mariogk\", \"PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin\", \"GOMAXPROCS=2\", \"GOFLAGS=-p=2\", \"GOTOOLCHAIN=local\", \"LANG=C.UTF-8\", \"/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go\", \"test\", \"-json\", \"-mod=readonly\", \"-vet=off\", \"-p=1\", \"./internal/bootstrap/cli\", \"-run\", \"^TestCustomerEnvelopeFilesystemBoundary$\", \"-count=1\", \"-parallel=1\", \"-timeout=30s\"], \"cwd\": \"/tmp/ts-customer-envelope-rekey-successor-b6z4p8l7\", \"environment_key_count\": 87, \"environment_matches_exact_six\": false, \"GOROOT_present\": true}, {\"pid\": 611629, \"ppid\": 611628, \"comm\": \"go\", \"nice\": 19, \"argv\": [\"/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go\", \"test\", \"-json\", \"-mod=readonly\", \"-vet=off\", \"-p=1\", \"./internal/bootstrap/cli\", \"-run\", \"^TestCustomerEnvelopeFilesystemBoundary$\", \"-count=1\", \"-parallel=1\", \"-timeout=30s\"], \"cwd\": \"/tmp/ts-customer-envelope-rekey-successor-b6z4p8l7\", \"environment_key_count\": 6, \"environment_matches_exact_six\": true, \"GOROOT_present\": false}], \"stdout_bytes\": 0, \"stderr_bytes\": 0}\n"
-}

@@ -1,8 +1,0 @@
-{
-  "commit": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
-  "request_sha256": "6622dcff83909fd593f1e810cc7f2c28a55a33edf26037d37282c511d742362c",
-  "state": "SOURCE_ONLY_NO_GRANT_NO_EXECUTION",
-  "tree": "89edb76c39969780081df545e6f6f4bf9759086d",
-  "wrapper": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35/run.py",
-  "wrapper_sha256": "5d0c94166da8ec52175bbb655a595a5991d210b8bcf1f6f7be2526caf020f19a"
-}

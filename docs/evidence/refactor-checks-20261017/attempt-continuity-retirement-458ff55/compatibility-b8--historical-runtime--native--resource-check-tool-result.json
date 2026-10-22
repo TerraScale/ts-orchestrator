@@ -1,7 +1,0 @@
-{
-  "chunk_id": "015512",
-  "wall_time_seconds": 0.007444544,
-  "exit_code": 0,
-  "original_token_count": 228,
-  "output": "{\"native_directory\": \"/tmp/ts-attempt-cc37-shortb-native-results-pzacv5bw\", \"resource_check\": {\"epoch\": 1792210289.373633, \"available_memory_kib\": 26348756, \"available_memory_gib\": 25.128131866455078, \"load1\": 0.98046875, \"existing_go_compiler_flows\": [{\"pid\": 595085, \"argv\": [\"/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go\", \"test\", \"-json\", \"-mod=readonly\", \"-vet=off\", \"-p=1\", \"-parallel=1\", \"-count=1\", \"-timeout=300s\", \"-run\", \"^TestGenericRuntimeSignedManagerIntegration$\", \"./internal/app\"]}], \"existing_compile_link_processes\": [{\"pid\": 595144, \"comm\": \"compile\"}], \"new_flow_count_if_started\": 2, \"runner_directory_entries\": [\"run.py\"], \"runner_sha256\": \"48bb6ab42b2af1a3aaf36bcf96e2446c2f3467e6b8c949c6aa45767cdbaf6806\", \"request_sha256\": \"f157b41fa9029e661e2bb33b4a9bc508c81cfebe992cb86c8c914665ec5815de\", \"grant\": \"QA one Attempt cc37 ShortB f157b41f/48bb6ab no retry\", \"pass\": true}}\n"
-}
