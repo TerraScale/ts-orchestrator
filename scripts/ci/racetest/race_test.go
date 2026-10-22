@@ -440,7 +440,7 @@ func TestRaceScheduler(t *testing.T) {
 			t.Fatalf("exit %d: %s %s", r.Code, r.Stdout, r.Stderr)
 		}
 		forbidText(t, r.Stderr, "is not a sharded package")
-		requireText(t, r.Stdout, "race queue deploy-"+solo+" pool=cpu estimate=60s")
+		requireText(t, r.Stdout, "race queue deploy-"+solo+" pool=cpu estimate=300s")
 	})
 	// Machines split the one plan: together they run every test once.
 	t.Run("ci_shards", func(t *testing.T) {
