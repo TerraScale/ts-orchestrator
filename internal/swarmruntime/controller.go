@@ -143,6 +143,11 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	if err != nil {
 		return err
 	}
+	peersMounts, err := c.peersMount()
+	if err != nil {
+		return err
+	}
+	dataMounts = append(dataMounts, peersMounts...)
 	ctr, err := c.container(ctx)
 	if err != nil && !errdefs.IsNotFound(err) {
 		return err

@@ -427,6 +427,10 @@ type ServiceSpec struct {
 	Regions []string `json:"regions,omitempty"`
 	// Generation is the mesh desired-state generation, stamped as a label.
 	Generation int64 `json:"-"`
+	// Region and Node are the mesh host's region and node name; when set,
+	// the task gets TS_REGION, TS_NODE and TS_PEERS_FILE.
+	Region string `json:"-"`
+	Node   string `json:"-"`
 }
 
 type ServiceMount struct {
@@ -464,7 +468,7 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	var cell, vault string
 	for _, name := range slices.Sorted(maps.Keys(s.Secrets)) {
 		ref := s.Secrets[name]
-		if _, shadowed := s.Env[name]; shadowed || !secretName.MatchString(name) {
+		if _, shadowed := s.Env[name]; shadowed || slices.Contains(peersEnv, name) || !secretName.MatchString(name) {
 			return nil, fmt.Errorf("invalid or env-shadowed secret name %q", name)
 		}
 		// Vault values reach the container only as files (W20 M5): the key names the path variable.
@@ -489,13 +493,14 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 			return nil, fmt.Errorf("invalid hostname %q", host)
 		}
 	}
-	container := &api.ContainerSpec{Image: s.Image, User: "65532:65532", Args: slices.Clone(s.Args)}
+	env, err := s.taskEnv()
+	if err != nil {
+		return nil, err
+	}
+	container := &api.ContainerSpec{Image: s.Image, User: "65532:65532", Args: slices.Clone(s.Args), Env: env}
 	if s.ReadyPath != "" {
 		// Only a spec that names its ready path promises to answer it; the executor gates on it.
 		container.Labels = map[string]string{LabelReadyPath: s.ReadyPath}
-	}
-	for _, key := range slices.Sorted(maps.Keys(s.Env)) {
-		container.Env = append(container.Env, key+"="+s.Env[key])
 	}
 	for _, m := range s.Mounts {
 		container.Mounts = append(container.Mounts, api.Mount{Type: api.MountTypeBind, Source: m.Source, Target: m.Target})

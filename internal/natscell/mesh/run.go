@@ -107,6 +107,7 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 		advertise:   fmt.Sprintf("%s.%s:%d", region, Domain, GatewayPort),
 		gatewayPort: GatewayPort, localPort: LocalPort, clusterHost: cluster.Address, clusterPort: ClusterPort, routes: routes,
 		gateways: gateways, ca: ca, applier: applier, every: antiEntropyEvery,
+		peersDir: swarmruntime.PeersDirectory, peersEvery: peersEvery, address: wt0Address,
 	})
 }
 

@@ -87,8 +87,10 @@ type ApplyRequest struct {
 
 // Reply answers ts.svc.apply and ts.mesh.ping.
 type Reply struct {
-	Region    string `json:"region"`
-	Server    string `json:"server"`
+	Region string `json:"region"`
+	Server string `json:"server"`
+	// Address is the replying node's NetBird IPv4 (ping only).
+	Address   string `json:"address,omitempty"`
 	Result    string `json:"result,omitempty"`
 	Error     string `json:"error,omitempty"`
 	ElapsedMS int64  `json:"elapsed_ms,omitempty"`
@@ -129,6 +131,9 @@ type config struct {
 	ca                        *CA
 	applier                   Applier // nil on a worker, which serves no region requests
 	every                     time.Duration
+	peersDir                  string // host root of every service's peers file
+	peersEvery                time.Duration
+	address                   func() (string, error) // this node's NetBird IPv4
 }
 
 // Node is one region's running mesh server.
@@ -142,6 +147,7 @@ type Node struct {
 
 	mu      sync.Mutex
 	desired map[string]Entry
+	peers   *peers
 }
 
 func start(cfg config) (_ *Node, err error) {
@@ -204,10 +210,12 @@ func start(cfg config) (_ *Node, err error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, ctx: ctx, cancel: cancel, desired: desired}
+	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, ctx: ctx, cancel: cancel, desired: desired,
+		peers: &peers{root: cfg.peersDir, region: cfg.region, node: cfg.server, address: cfg.address}}
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) {
-			node.respond(m, Reply{Region: cfg.region, Server: cfg.server, Regions: node.regions()})
+			address, _ := cfg.address() // a node without NetBird still answers; peers skip it
+			node.respond(m, Reply{Region: cfg.region, Server: cfg.server, Regions: node.regions(), Address: address})
 		},
 		StateSubject: func(m *nats.Msg) {
 			node.mu.Lock()
@@ -287,6 +295,7 @@ func (n *Node) regions() []string {
 
 // run pulls peer state now and every cfg.every until ctx ends.
 func (n *Node) run(ctx context.Context) {
+	go n.watchPeers(ctx)
 	tick := time.NewTicker(n.cfg.every)
 	defer tick.Stop()
 	for {
@@ -397,13 +406,19 @@ func (n *Node) reconcile(ctx context.Context, name string, entry Entry) (string,
 		if _, err := n.cfg.applier.Remove(ctx, name); err != nil {
 			return "", err
 		}
+		if err := n.peers.untrack(name); err != nil {
+			return "", err
+		}
 		if entry.Spec == nil {
 			return "removed", nil
 		}
 		return "skipped-not-targeted", nil
 	}
 	spec := *entry.Spec
-	spec.Generation = entry.Generation
+	spec.Generation, spec.Region, spec.Node = entry.Generation, n.cfg.region, n.cfg.server
+	if err := n.peers.track(name, spec.Regions); err != nil {
+		return "", err
+	}
 	changed, err := n.cfg.applier.Apply(ctx, spec)
 	if err != nil {
 		return "", err
