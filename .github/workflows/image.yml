@@ -84,7 +84,7 @@ jobs:
             "$([[ -w /dev/kvm ]] && echo available || echo unavailable)"
 
       - name: Install Nix for checksum-pinned image tooling
-        uses: cachix/install-nix-action@3c6342b75005b9cc7c7d4069c3e9179247c89012 # v31
+        uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
 
       - name: Prepare the pinned image tools
         shell: bash
