@@ -1,6 +1,6 @@
 {
   "name": "whoami",
-  "image": "docker.io/traefik/whoami@sha256:200689790a0a0ea48ca45992e0450bc26ccab5307375b41c84dfc4f2475937ab",
+  "image": "docker.io/traefik/whoami@sha256:c2c89736959e8830c3db090e2f54500499ceb0460267f91dce494728d7327770",
   "env": {"WHOAMI_PORT_NUMBER": "8099"},
   "port": 8099,
   "readyPath": "/readyz",
