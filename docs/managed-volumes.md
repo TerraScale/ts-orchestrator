@@ -2,7 +2,7 @@
 
 TerraBase members keep their SQLite data on the boot volume today, so a
 relaunched VM loses it. Managed volumes are orchestrator-owned OCI block
-volumes in the style of Fly volumes: a volume belongs to an app, lives in one
+volumes scoped to an app: a volume belongs to an app, lives in one
 availability domain, and is mounted by at most one machine. Package
 [`internal/volume`](../internal/volume) owns the model. This note is the
 design for TS-567; the [slices](#slices) section says what exists.
@@ -16,10 +16,10 @@ knows its volumes.
 
 | Field | Owner | Meaning |
 | --- | --- | --- |
-| `id`, `app`, `name`, `region`, `zone`, `created_at` | creator, immutable | `zone` is the OCI availability domain, chosen when the volume is created. Names are not unique: like Fly, an app scales by giving several machines a volume of the same name. |
+| `id`, `app`, `name`, `region`, `zone`, `created_at` | creator, immutable | `zone` is the OCI availability domain, chosen when the volume is created. Names are not unique: an app scales by giving several machines a volume of the same name. |
 | `size_gb` | API, grow only | Desired size, 50 to 32768 GB (OCI's limits). |
 | `vpus_per_gb` | API | OCI performance tier: 0 (Lower Cost), 10 (Balanced, the default), 20 to 120. |
-| `snapshot_retention` | API | Days of daily snapshots, 1 to 60 (default 5), as in Fly. |
+| `snapshot_retention` | API | Days of daily snapshots, 1 to 60 (default 5). |
 | `machine_id` | scheduler | The machine that may mount the volume. |
 | `destroy_requested_at` | API, final | Starts the destroy. |
 | `status` | reconciler | `state`, the `epoch` of the writing leader, the OCI volume `ocid`, the confirmed `size_gb`, the machine it is attached to, and a message. |
@@ -45,8 +45,8 @@ fixed member device `/dev/oracleoci/oraclevdb` is not enough.
 
 ## Placement
 
-A machine mounts a volume with `{"volume": "vol_...", "path": "/data"}`, the
-Fly machine config shape. Like Fly, a machine mounts at most one volume.
+A machine mounts a volume with `{"volume": "vol_...", "path": "/data"}` in
+its machine config. A machine mounts at most one volume.
 `Store.Zone` checks the mount and returns the availability domain the
 machine must run in: the volume must belong to the machine's app, be
 unclaimed or claimed by that machine, and be neither destroying nor failed;
@@ -182,5 +182,5 @@ scratch volumes.
 
 Volume records use the app name, machine ID and region rules of
 [`internal/machines`](../internal/machines) (TS-563). Its `MachineConfig` has
-no mounts yet; slice 4 adds `mounts` there as `[]volume.Mount`, the Fly
-shape.
+no mounts yet; slice 4 adds `mounts` there as `[]volume.Mount`, the
+mount shape above.

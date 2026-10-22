@@ -37,13 +37,13 @@ These pages describe the current greenfield Go implementation.
 | [Production readiness plan](production-readiness-plan.md) | Dated readiness audit, historical canary, and open gate order |
 | [TerraBase runtime contract](terrabase-runtime-contract.md) | C# TerraBase binary: release assets, settings, member certificates, host launch, health gate and drain |
 | [TerraBase deployment](terrabase-deployment.md) | Member CA, workload profile and `operator terrabase-release` rollout with automatic rollback |
-| [Managed volumes](managed-volumes.md) | Fly-style OCI block volumes for machines: model, placement, reconciler, migration and cost (TS-567) |
+| [Managed volumes](managed-volumes.md) | App-scoped OCI block volumes for machines: model, placement, reconciler, migration and cost (TS-567) |
 | [Secrets in OCI Vault](secrets.md) | Automatic provisioning/delivery contract, least-privilege grants and remaining runtime gaps |
 | [Cell spec](cell-spec.md) | A running cell's signed desired state: `ts-orch get`, `diff` and `apply`, root-gated changes, binary levels; runbook "Add a service to a running region" |
 | [Apps and machines](apps-machines.md) | The shared orchestration model (apps, machines, regions, node pools) in `TS_APPS`, its invariants and the TS-563 slices |
 | [Material generations](material-generation.md) | TS-568 in-place renewal: root-signed generations that pin a cell's renewable material, and `ts-orch bootstrap sign-material-generation` |
 | [Settings in the cell spec](settings-in-cell-spec.md) | TS-569 design: raw config digest, versioned config and tolerant record decoding, and moving each mutable setting into a cell spec section |
-| [Machines API](machines-api.md) | The controllers' Fly-style REST API: ts-auth token verification, scopes and organization tenancy, endpoints, errors and the planned slices |
+| [Machines API](machines-api.md) | The controllers' Machines REST API: ts-auth token verification, scopes and organization tenancy, endpoints, errors and the planned slices |
 | [Image updates in place](image-updates.md) | Host image allow-list and launch image in the cell spec; planned OS package and boot volume replacement slices |
 | [Root key rotation](root-rotation.md) | Baked roots as genesis of a KV root chain, the leaked-root threat model and the rotation runbook |
 | [Dedicated tenants](dedicated-tenants.md) | A tenant's own TerraBase cluster and ts-auth: model, lifecycle, isolation, endpoints, secrets, backups and metering |

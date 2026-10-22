@@ -59,9 +59,9 @@ writes `INFO` and above; `DEBUG` records exist for tests and local runs.
   the one console formatter: record v1 from `TS_*`, `trace_id` from
   `Activity.Current`, single line. Framework categories that log every
   request (`Microsoft.AspNetCore.*`, `System.Net.Http.*`) default to `WARN`.
-- **Workers and Fly** (ts-atlas, ts-status, ts-dashboard). The same keys in
-  `console.log(JSON.stringify(...))` or slog; `region` is the Cloudflare
-  colo or Fly region, `node` the isolate or machine ID.
+- **Workers and ts-dashboard** (ts-atlas, ts-status, ts-dashboard). Same
+  keys in `console.log(JSON.stringify(...))` or slog; `region` is the
+  Cloudflare colo or OCI region, `node` the isolate ID or node name.
 
 ## Trace IDs
 
