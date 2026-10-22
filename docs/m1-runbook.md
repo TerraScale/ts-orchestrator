@@ -200,11 +200,13 @@ old task keeps its host port); the 45.9 s sjc time above is not explained yet.
 
 1. A host with stored swarm state (`/var/lib/ts-orch/swarm/admission.json`) keeps its role: the founder stays manager, a worker reconnects from its persisted manager list.
 2. Outside OCI (IMDS `/opc/v2/` does not answer, e.g. a CI runner), the host founds a loopback-only cluster at 127.0.0.1:4242, as before.
-3. A fresh OCI host reads the gru-vault secret `ts-orch-join-<region>` (JSON: `founder` hostname, `manager` address, `workerToken`) with its instance principal. If the region has no such secret, the host creates it holding only `{"founder":"<hostname>"}`. OCI keeps secret names unique, so one claimer wins and founds the cluster. Every other host waits until the founder has published `manager` and `workerToken`, then joins as a `container` worker. Its HostID is its hostname and its InstanceID comes from IMDS.
+3. A fresh OCI host reads the gru-vault secret `ts-orch-join-<region>` (JSON: `founder` hostname, `manager` address, `workerToken`, mesh `route`) with its instance principal. If the region has no such secret, the host creates it holding only `{"founder":"<hostname>"}`. OCI keeps secret names unique, so one claimer wins and founds the cluster. Every other host waits until the founder has published `manager` and `workerToken`, then joins as a `container` worker. Its HostID is its hostname and its InstanceID comes from IMDS.
 
 The founder listens on 0.0.0.0:4242 and advertises `<private VCN IP>:4242`. A founder created before this change advertised 127.0.0.1:4242. At every start it re-registers its Raft member at the new address (same cluster, Raft log and services; `TestSingleHostFounderMovesAddressIntegration`). It publishes the join material, and updates it only when it differs. If Vault refuses (the hosts' IAM policy lacks `manage secret-family` for `ts-orch-join-*`), the founder logs `region join material not published; retrying` and retries every 30 s while it keeps serving.
 
-Ports: 4242/tcp (SwarmKit) is reachable inside the VCN only. The host NSG admits all VCN traffic, the edge NSG never opens 4242, and ts-orch adds the iptables ACCEPT. A worker runs no control socket, mesh server or edge yet. `ts-orch service ls` and `member` work on the manager only.
+Each host's mesh server joins its region's NATS cluster (name = region, `<private IP>:6222`, the same mesh mTLS). A worker dials the founder's `route` from the secret. A worker answers no ping, state or apply, so each region answers once, from its founder. Its `ts-orch mesh ping` and `service apply` reach every region over the cluster route. A worker advertises the region's gateway name (`<region>.mesh.terrascale.tech:7222`), so other regions always dial the founder.
+
+Ports: 4242/tcp (SwarmKit) and 6222/tcp (NATS cluster) are reachable inside the VCN only. The host NSG admits all VCN traffic, the edge NSG opens neither port, and ts-orch adds the iptables ACCEPTs. A worker has no control socket or edge. `ts-orch service ls` and `member` work on the manager only.
 
 Check and leave, on the manager:
 

@@ -116,8 +116,11 @@ type config struct {
 	advertise                 string // host:port peers dial for this region's gateway
 	gatewayPort, localPort    int
 	gateways                  map[string]string // region -> gateway URL
+	clusterHost               string            // "" runs no in-region cluster listener
+	clusterPort               int
+	routes                    []string // in-region route URLs to dial
 	ca                        *CA
-	applier                   Applier
+	applier                   Applier // nil on a worker, which serves no region requests
 	every                     time.Duration
 }
 
@@ -166,6 +169,17 @@ func start(cfg config) (_ *Node, err error) {
 		options.Gateway.Gateways = append(options.Gateway.Gateways,
 			&server.RemoteGatewayOpts{Name: region, URLs: []*url.URL{address}, TLSConfig: tlsConfig, TLSTimeout: 5})
 	}
+	if cfg.clusterHost != "" {
+		// The region's servers form one NATS cluster with the same mesh mTLS.
+		options.Cluster = server.ClusterOpts{Name: cfg.region, Host: cfg.clusterHost, Port: cfg.clusterPort, TLSConfig: tlsConfig, TLSTimeout: 5}
+		for _, route := range cfg.routes {
+			address, err := url.Parse(route)
+			if err != nil {
+				return nil, err
+			}
+			options.Routes = append(options.Routes, address)
+		}
+	}
 	embedded, err := server.NewServer(options)
 	if err != nil {
 		return nil, err
@@ -197,6 +211,9 @@ func start(cfg config) (_ *Node, err error) {
 		},
 		// An apply waits for its tasks to run, so it must not hold up the next message.
 		ApplySubject: func(m *nats.Msg) { go node.handleApply(m) },
+	}
+	if cfg.applier == nil {
+		handlers = nil // the region's founder answers; a worker only carries messages
 	}
 	for subject, handler := range handlers {
 		if _, err := conn.Subscribe(subject, handler); err != nil {
@@ -231,7 +248,9 @@ func (n *Node) run(ctx context.Context) {
 	tick := time.NewTicker(n.cfg.every)
 	defer tick.Stop()
 	for {
-		n.sync(ctx)
+		if n.cfg.applier != nil {
+			n.sync(ctx)
+		}
 		select {
 		case <-ctx.Done():
 			return

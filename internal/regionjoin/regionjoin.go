@@ -30,6 +30,23 @@ type Material struct {
 	// Manager is the founder's SwarmKit remote API, <private VCN IP>:4242.
 	Manager     string `json:"manager,omitempty"`
 	WorkerToken string `json:"workerToken,omitempty"`
+	// Route is the founder's mesh NATS cluster route, nats://<private VCN IP>:6222.
+	Route string `json:"route,omitempty"`
+}
+
+// Read returns the region's current join material.
+func Read(ctx context.Context, region string) (Material, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	v, err := open(ctx)
+	if err != nil {
+		return Material{}, err
+	}
+	value, err := vaultsecret.Read(ctx, v.bundles, mesh.SharedVault.VaultID, SecretName(region))
+	if err != nil {
+		return Material{}, err
+	}
+	return decode(region, value)
 }
 
 // SecretName is the gru-vault secret holding region's join material.
