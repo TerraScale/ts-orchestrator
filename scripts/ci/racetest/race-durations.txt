@@ -129,4 +129,3 @@ rest - 1
 ./internal/region TestOriginalFoundationSourceIAMSDK 90/1 norace solo
 ./internal/region TestOriginalFoundationCurrentnessSDK 205/1 norace solo
 ./internal/region TestOriginalFoundationMaterialIAMPeerGroupSDK 290/1 norace solo
-./internal/region TestOriginalFoundationMaterialIAMSDK 460/1 norace solo
