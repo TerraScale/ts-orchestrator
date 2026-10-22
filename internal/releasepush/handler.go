@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -90,10 +91,9 @@ type Handler struct {
 	// RunIDFile records the installed release's GitHub run_id; an older run is refused.
 	RunIDFile string
 	Client    *http.Client
-	// App updates a service's image. TODO(slice B): pre-pull the image and
-	// update the single-host service (swarmruntime.DialSingleHost +
-	// ApplyServiceSpec); nil refuses app releases.
-	App func(ctx context.Context, release AppRelease) error
+	// App swaps service's image in every region (rolling back on failure) and
+	// returns the per-region rows, also when it fails; nil refuses app releases.
+	App func(ctx context.Context, service, image string) (json.RawMessage, error)
 	// Mesh runs a multi-region workflow request (op "ping" or "apply") on the
 	// cross-region mesh and returns its rows, also when it fails; nil refuses them.
 	Mesh func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
@@ -231,7 +231,7 @@ func (h *Handler) validateOrch(ctx context.Context, release OrchRelease) (Binary
 	if err != nil {
 		return Binary{}, Claims{}, err
 	}
-	if claims.Repository != orchRepository || claims.SHA != release.SHA {
+	if claims.JobWorkflowRef != orchWorkflow || claims.SHA != release.SHA {
 		return Binary{}, Claims{}, errors.New("token is not for this ts-orchestrator commit")
 	}
 	// The URL is unsigned: only the signed run's own release asset is accepted,
@@ -335,27 +335,28 @@ func (h *Handler) app(ctx context.Context, data []byte) Reply {
 		return rejected(err)
 	}
 	if h.App == nil {
-		return rejected(errors.New("app releases are not wired yet"))
+		return rejected(errors.New("this host runs no mesh"))
 	}
-	if err := h.App(ctx, release); err != nil {
-		return rejected(err)
+	result, err := h.App(ctx, release.Service, release.Image)
+	if err != nil {
+		return Reply{State: "failed", Error: err.Error(), Result: result}
 	}
-	return Reply{State: "installed"}
+	return Reply{State: "done", Result: result}
 }
 
-// validateApp admits a ghcr.io/terrascale/<name> image only with a token from
-// the TerraScale repository of the same name.
+// validateApp admits only ghcr.io/terrascale/<service>@sha256:<digest> with a
+// token from a workflow appServices allows to release service.
 func (h *Handler) validateApp(ctx context.Context, release AppRelease) error {
 	match := appImage.FindStringSubmatch(release.Image)
-	if match == nil || release.Service == "" {
-		return errors.New("image must be ghcr.io/terrascale/<name>@sha256:<64 hex>")
+	if match == nil || match[1] != release.Service {
+		return errors.New("image must be ghcr.io/terrascale/<service>@sha256:<64 hex>")
 	}
 	claims, err := h.Verifier.Verify(ctx, release.Token)
 	if err != nil {
 		return err
 	}
-	if !strings.EqualFold(claims.Repository, owner+"/"+match[1]) {
-		return errors.New("token repository does not own the image")
+	if !slices.Contains(appServices[claims.JobWorkflowRef], release.Service) {
+		return errors.New("token workflow may not release " + release.Service)
 	}
 	return nil
 }
