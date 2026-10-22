@@ -557,6 +557,7 @@ func TestMemberVolumeSocketBackupPolicyPrecedesAttachment(t *testing.T) {
 }
 
 func TestMemberVolumeSocketScratchRestoreAndReadOnlyVerification(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-23T00:30Z (Q-MAIN-GREEN), owner W17c: data race in vendored oci-go-sdk common.Retry (retry.go:882/918) fails main race 2/4, run 39695851202")
 	t.Run("VerifyRestoredAttachmentReadsExactScratchCopyWithoutMutatingOCI", memberSDKVerifyRestoredAttachmentReadsExactScratchCopyWithoutMutatingOCI)
 	t.Run("VerifyRestoredAttachmentFailsClosedOnWrongVolumeScopeStateAndAttachments", memberSDKVerifyRestoredAttachmentFailsClosedOnWrongVolumeScopeStateAndAttachments)
 	t.Run("MemberVolumeRestoreDrill", memberSDKMemberVolumeRestoreDrill)
