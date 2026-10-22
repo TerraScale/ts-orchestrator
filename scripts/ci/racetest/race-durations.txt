@@ -108,11 +108,12 @@ rest - 1
 
 # Original foundation SDK tests (tier.Integration): skipped under -short.
 # solo lines give race seconds, norace solo lines non-race seconds, measured
-# with GOMAXPROCS=2 -cpu 2 on a 16-core dev host (2026-10-22).
-./internal/region TestOriginalFoundationCompartmentsSDK 460/1 solo
-./internal/region TestOriginalFoundationLaunchMetadataNeverRetrofitsRetainedActors 130/1 solo
-./internal/region TestOriginalFoundationAdmissionReadRetainedScope 290/1 solo
-./internal/region TestOriginalFoundationCurrentnessSignedAndRetainedContract 330/1 solo
+# with GOMAXPROCS=2 -cpu 2 on dev hosts (2026-10-22). Tests over about 5 min
+# with -race on a loaded host run without it.
+./internal/region TestOriginalFoundationLaunchMetadataNeverRetrofitsRetainedActors 330/1 solo
+./internal/region TestOriginalFoundationCompartmentsSDK 60/1 norace solo
+./internal/region TestOriginalFoundationAdmissionReadRetainedScope 35/1 norace solo
+./internal/region TestOriginalFoundationCurrentnessSignedAndRetainedContract 40/1 norace solo
 ./internal/region TestOriginalFoundationAdmissionReadEffectPredecessors 55/1 norace solo
 ./internal/region TestOriginalFoundationMaterialIAMPeerGroupHistoryCannotResetSDK 65/1 norace solo
 ./internal/region TestOriginalFoundationAdmissionReadVersionsSDK 85/1 norace solo
