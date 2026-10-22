@@ -10,7 +10,7 @@
 # marked norace are packed the same way into CPU shards that run without
 # the race detector: single-goroutine suites whose code paths start no
 # goroutine, where instrumentation costs about twelve times the CPU and can
-# find nothing. Every
+# find nothing; "norace solo" gives one such test a shard of its own. Every
 # shard, and one shard for all other packages, then joins a single queue
 # ordered by estimated cost, so the slowest work starts first.
 #
@@ -54,7 +54,7 @@ change_base=${TS_CHANGE_BASE:-}
 durations=${TS_RACE_DURATIONS:-$(dirname -- "$(realpath -- "$0")")/race-durations.txt}
 # The image contract suite drives the offline builder through hundreds of
 # command fakes per test; unsharded it serialised most of the CI job.
-sharded_packages=(./internal/app ./internal/bootstrapstart ./internal/natscell ./internal/swarmruntime ./tests/deploy)
+sharded_packages=(./internal/app ./internal/bootstrapstart ./internal/natscell ./internal/region ./internal/swarmruntime ./tests/deploy)
 configured_packages=("${sharded_packages[@]}")
 # Shard, listing and log names use the package's last element.
 declare -A seen_base=()
@@ -86,7 +86,7 @@ fi
 export GORACE="${GORACE:+$GORACE }atexit_sleep_ms=0"
 
 # Each line: <package> <test or glob> <seconds>[/<seconds under -short>]
-# [cpu|solo|idle|norace], "<package> - <seconds>" for a package that is not
+# [cpu|solo|idle|norace|norace solo], "<package> - <seconds>" for a package that is not
 # sharded, or "rest - <seconds>" for each such package without its own line.
 # The first matching line wins; unmatched tests cost one second.
 declare -A package_cost=()
@@ -104,10 +104,11 @@ while IFS= read -r line || [[ -n $line ]]; do
 	[[ -n $package ]] || continue
 	pool=${pool:-cpu}
 	# No leading zeros: arithmetic would read them as octal.
-	[[ -n $test && $cost =~ ^(0|[1-9][0-9]*)(/(0|[1-9][0-9]*))?$ && $pool =~ ^(cpu|solo|idle|norace)$ && -z $extra ]] || {
-		echo "$durations:$line_number: want <package> <test> <seconds>[/<short seconds>] [cpu|solo|idle|norace]" >&2
+	[[ -n $test && $cost =~ ^(0|[1-9][0-9]*)(/(0|[1-9][0-9]*))?$ && $pool =~ ^(cpu|solo|idle|norace)$ && (-z $extra || $pool$extra == noracesolo) ]] || {
+		echo "$durations:$line_number: want <package> <test> <seconds>[/<short seconds>] [cpu|solo|idle|norace|norace solo]" >&2
 		exit 2
 	}
+	[[ -z $extra ]] || pool=norace-solo
 	if [[ $tier == pr ]]; then cost=${cost#*/}; else cost=${cost%%/*}; fi
 	if [[ $package == rest ]]; then
 		rest_cost=$cost
@@ -330,6 +331,10 @@ for package in "${sharded_packages[@]}"; do
 		case $est_pool in
 			cpu) printf '%s %s\n' "$est_cost" "$test" >> "$logs/$base.packed" ;;
 			norace) printf '%s %s\n' "$est_cost" "$test" >> "$logs/$base.norace" ;;
+			norace-solo)
+				printf '%s\t%s-%s\t%s\t%s\t^(%s)$\n' "$est_cost" "$base" "$test" norace "$package" "$test" >> "$logs/queue"
+				covered=$((covered + 1))
+				;;
 			*)
 				printf '%s\t%s-%s\t%s\t%s\t^(%s)$\n' "$est_cost" "$base" "$test" "${est_pool/solo/cpu}" "$package" "$test" >> "$logs/queue"
 				covered=$((covered + 1))
