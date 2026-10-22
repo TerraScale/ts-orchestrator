@@ -437,27 +437,42 @@ func TestAppValidation(t *testing.T) {
 	now := time.Now()
 	i := newIssuer(t)
 	h := &Handler{Verifier: i.verifier(now)}
-	// An app repository's CI workflow is one releaseWorkflows entry.
-	terrabaseWorkflow := owner + "/TerraBase/.github/workflows/ci.yml@" + mainRef
-	releaseWorkflows = append(releaseWorkflows, terrabaseWorkflow)
-	t.Cleanup(func() { releaseWorkflows = releaseWorkflows[:len(releaseWorkflows)-1] })
-	image := "ghcr.io/terrascale/terrabase@sha256:" + strings.Repeat("a", 64)
-	terrabase := i.sign(t, with(with(goodClaims(now), "repository", owner+"/TerraBase"), "job_workflow_ref", terrabaseWorkflow))
-	if err := h.validateApp(context.Background(), AppRelease{Service: "terrabase", Image: image, Token: terrabase}); err != nil {
-		t.Fatal(err)
+	workflow := owner + "/terrascale/.github/workflows/images-ghcr.yml@" + mainRef
+	terrascale := i.sign(t, with(with(goodClaims(now), "repository", owner+"/terrascale"), "job_workflow_ref", workflow))
+	image := func(name string) string { return "ghcr.io/terrascale/" + name + "@sha256:" + strings.Repeat("a", 64) }
+	for _, service := range []string{"terrabase", "ts-auth"} {
+		if err := h.validateApp(context.Background(), AppRelease{Service: service, Image: image(service), Token: terrascale}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for name, release := range map[string]AppRelease{
-		"other repo":  {Service: "terrabase", Image: image, Token: i.sign(t, goodClaims(now))},
-		"tag":         {Service: "terrabase", Image: "ghcr.io/terrascale/terrabase:latest", Token: terrabase},
-		"other owner": {Service: "terrabase", Image: "ghcr.io/evil/terrabase@sha256:" + strings.Repeat("a", 64), Token: terrabase},
+		"orch workflow":     {Service: "terrabase", Image: image("terrabase"), Token: i.sign(t, goodClaims(now))},
+		"not allowlisted":   {Service: "ts-dashboard", Image: image("ts-dashboard"), Token: terrascale},
+		"image not service": {Service: "terrabase", Image: image("ts-auth"), Token: terrascale},
+		"tag":               {Service: "terrabase", Image: "ghcr.io/terrascale/terrabase:latest", Token: terrascale},
+		"other owner":       {Service: "terrabase", Image: "ghcr.io/evil/terrabase@sha256:" + strings.Repeat("a", 64), Token: terrascale},
 	} {
 		if err := h.validateApp(context.Background(), release); err == nil {
 			t.Fatalf("%s: accepted", name)
 		}
 	}
-	data, _ := json.Marshal(AppRelease{Service: "terrabase", Image: image, Token: terrabase})
-	if reply := h.app(context.Background(), data); reply.State != "rejected" || !bytes.Contains([]byte(reply.Error), []byte("not wired")) {
-		t.Fatalf("unwired app reply = %+v", reply)
+	// An app workflow's token cannot push a ts-orch release even for this repository.
+	canary := i.sign(t, with(goodClaims(now), "job_workflow_ref", orchRepository+"/.github/workflows/app-canary.yml@"+mainRef))
+	if _, _, err := h.validateOrch(context.Background(), OrchRelease{SHA: strings.Repeat("a", 40),
+		Binaries: map[string]Binary{runtime.GOARCH: {SHA256: strings.Repeat("b", 64)}}, Token: canary}); err == nil {
+		t.Fatal("app workflow token pushed a ts-orch release")
+	}
+	data, _ := json.Marshal(AppRelease{Service: "terrabase", Image: image("terrabase"), Token: terrascale})
+	if reply := h.app(context.Background(), data); reply.State != "rejected" {
+		t.Fatalf("app reply without a mesh = %+v", reply)
+	}
+	var got string
+	h.App = func(_ context.Context, service, image string) (json.RawMessage, error) {
+		got = service + " " + image
+		return json.RawMessage(`[{"region":"gru"}]`), errors.New("rolled back")
+	}
+	if reply := h.app(context.Background(), data); reply.State != "failed" || string(reply.Result) != `[{"region":"gru"}]` || got != "terrabase "+image("terrabase") {
+		t.Fatalf("failed app reply = %+v, App got %q", reply, got)
 	}
 }
 

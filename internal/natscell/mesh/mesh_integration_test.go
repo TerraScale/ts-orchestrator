@@ -73,6 +73,8 @@ func TestMeshTLSTrustsOnlyItsCA(t *testing.T) {
 type fakeApplier struct {
 	mu      sync.Mutex
 	running map[string]int64
+	// unready is an image that never gets ready.
+	unready string
 }
 
 func (f *fakeApplier) Apply(_ context.Context, spec swarmruntime.ServiceSpec) (bool, error) {
@@ -98,6 +100,9 @@ func (f *fakeApplier) PrePull(context.Context, string) error { return nil }
 func (f *fakeApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error) {
 	if ok, err := f.Running(ctx, spec.Name); err != nil || !ok {
 		return swarmruntime.ServiceRollout{}, errors.Join(errors.New("not running"), err)
+	}
+	if spec.Image == f.unready {
+		return swarmruntime.ServiceRollout{}, errors.New("not ready")
 	}
 	return swarmruntime.ServiceRollout{}, nil
 }
@@ -234,9 +239,37 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	launch(fra)
 	eventually(t, fra+" to converge by anti-entropy", func() bool { return appliers[fra].generation("whoami") == 2 })
 
+	// An app release changes only the digest; an unready one rolls back everywhere.
+	image := func(region string) string {
+		node := nodes[region]
+		node.mu.Lock()
+		defer node.mu.Unlock()
+		return node.desired["whoami"].Spec.Image
+	}
+	good, bad := "docker.io/library/alpine@sha256:"+strings.Repeat("a", 64), "docker.io/library/alpine@sha256:"+strings.Repeat("b", 64)
+	if rows, err := release(t.Context(), gru.conn, "whoami", good, 5*time.Second, 5*time.Second); err != nil || len(rows) != len(regions) {
+		t.Fatalf("release = %+v, %v", rows, err)
+	}
+	if _, err := release(t.Context(), gru.conn, "whoami", "docker.io/library/busybox@sha256:"+strings.Repeat("a", 64), 5*time.Second, 5*time.Second); err == nil {
+		t.Fatal("a release changed the image repository")
+	}
+	if _, err := release(t.Context(), gru.conn, "absent", good, 5*time.Second, 5*time.Second); err == nil {
+		t.Fatal("released a service the mesh does not run")
+	}
+	appliers[fra].unready = bad
+	rows, err := release(t.Context(), sjc.conn, "whoami", bad, 2*time.Second, 5*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "rolled back to "+good) || len(rows) != 2*len(regions) {
+		t.Fatalf("unready release = %+v, %v", rows, err)
+	}
+	for _, region := range regions {
+		if got := image(region); got != good {
+			t.Fatalf("%s desires %s after rollback", region, got)
+		}
+	}
+
 	// A removal not targeting a region is still a removal there.
 	out.Reset()
-	if err := printApply(&out)(send(t.Context(), gru.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 3}}, 5*time.Second)); err != nil {
+	if err := printApply(&out)(send(t.Context(), gru.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: time.Now().UnixNano()}}, 5*time.Second)); err != nil {
 		t.Fatalf("remove: %v\n%s", err, out.String())
 	}
 	for _, region := range regions {

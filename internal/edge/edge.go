@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/acme"
@@ -45,6 +46,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	}
 	http1 := http.DefaultTransport.(*http.Transport).Clone()
 	http1.Proxy = nil
+	http1.DialContext = dialHandoff
 	h2c := http1.Clone()
 	h2c.Protocols = new(http.Protocols)
 	h2c.Protocols.SetUnencryptedHTTP2(true)
@@ -189,5 +191,26 @@ func isGRPC(r *http.Request) bool {
 }
 
 type roundTripper func(*http.Request) (*http.Response, error)
+
+// handoffWait bounds how long a refused backend dial is retried. A service
+// update stops the old task before the new one binds the same port (0.2-0.5 s
+// measured); a refused dial sent nothing, so retrying is safe for any method.
+const handoffWait = 2 * time.Second
+
+func dialHandoff(ctx context.Context, network, address string) (net.Conn, error) {
+	var dialer net.Dialer
+	deadline := time.Now().Add(handoffWait)
+	for {
+		conn, err := dialer.DialContext(ctx, network, address)
+		if err == nil || !errors.Is(err, syscall.ECONNREFUSED) || time.Now().After(deadline) {
+			return conn, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
 
 func (f roundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

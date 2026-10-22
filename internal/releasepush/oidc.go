@@ -16,7 +16,6 @@ import (
 	"math/big"
 	"net/http"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -37,11 +36,16 @@ const (
 	fetchTimeout = 10 * time.Second
 )
 
-// releaseWorkflows are the only workflows whose tokens may push releases:
-// `<repository>/<workflow path>@refs/heads/main`. Add an app repository's CI
-// workflow here when app pushes are wired.
-var releaseWorkflows = []string{
-	owner + "/ts-orchestrator/.github/workflows/ci.yml@" + mainRef,
+// orchWorkflow is the only workflow whose tokens may push ts-orch releases.
+const orchWorkflow = orchRepository + "/.github/workflows/ci.yml@" + mainRef
+
+// appServices maps each app image workflow on main
+// (`<repository>/<workflow path>@refs/heads/main`) to the services its
+// tokens may release; a new app is one more line.
+var appServices = map[string][]string{
+	orchRepository + "/.github/workflows/app-canary.yml@" + mainRef:      {"app-canary"},
+	owner + "/terrascale/.github/workflows/images-ghcr.yml@" + mainRef:   {"terrabase", "ts-auth"},
+	owner + "/ts-dashboard/.github/workflows/images-ghcr.yml@" + mainRef: {"ts-dashboard"},
 }
 
 // meshWorkflow is the only workflow whose tokens may use the mesh bridge
@@ -108,7 +112,7 @@ func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 		return Claims{}, err
 	case claims.EventName != "push":
 		return Claims{}, errors.New("token is not from a push to " + mainRef)
-	case !slices.Contains(releaseWorkflows, claims.JobWorkflowRef) ||
+	case claims.JobWorkflowRef != orchWorkflow && appServices[claims.JobWorkflowRef] == nil ||
 		!strings.HasPrefix(claims.JobWorkflowRef, claims.Repository+"/.github/workflows/"):
 		return Claims{}, errors.New("token is not from a release workflow")
 	}
