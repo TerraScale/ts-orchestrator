@@ -190,7 +190,12 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 		if !strings.Contains(rollback.Reason, "not ready within 3s") {
 			t.Errorf("rollback reason %q does not name the readiness timeout", rollback.Reason)
 		}
-		if body := getBody(port); body != "v3" {
+		// The restored v3 names no readyPath, so RUNNING does not promise it listens yet.
+		body := getBody(port)
+		for deadline := time.Now().Add(10 * time.Second); body != "v3" && time.Now().Before(deadline); body = getBody(port) {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if body != "v3" {
 			t.Fatalf("after rollback the port serves %q, want v3", body)
 		}
 	})
