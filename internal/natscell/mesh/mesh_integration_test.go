@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -299,5 +301,98 @@ func TestNewRegionJoinsByGossip(t *testing.T) {
 	}
 	if appliers["ams"].generation("whoami") != 1 || !strings.Contains(out.String(), "ams ") {
 		t.Fatalf("apply from fra did not reach ams:\n%s", out.String())
+	}
+}
+
+// A second host of a region joins its founder's NATS cluster as a worker:
+// its ping and apply reach every region, and its region answers once.
+func TestMeshWorkerJoinsItsRegionCluster(t *testing.T) {
+	regions := Regions()
+	ca, err := DeriveCA(bytes.Repeat([]byte{43}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports := freePorts(t, 2*len(regions)+4)
+	founderRoute, workerPorts := ports[2*len(regions)], ports[2*len(regions)+1:]
+	configs := map[string]config{}
+	appliers := map[string]*fakeApplier{}
+	for i, region := range regions {
+		gateways := map[string]string{}
+		for j, peer := range regions {
+			if peer != region {
+				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
+			}
+		}
+		appliers[region] = &fakeApplier{running: map[string]int64{}}
+		configs[region] = config{
+			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
+			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
+			gateways: gateways, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
+		}
+	}
+	home := regions[0]
+	founder := configs[home]
+	founder.clusterHost, founder.clusterPort = "127.0.0.1", founderRoute
+	configs[home] = founder
+	worker := founder
+	worker.server, worker.dir, worker.applier = "ts-"+home+"-2", t.TempDir(), nil
+	worker.gatewayPort, worker.localPort, worker.clusterPort = workerPorts[0], workerPorts[1], workerPorts[2]
+	worker.routes = []string{fmt.Sprintf("nats://127.0.0.1:%d", founderRoute)}
+	var nodes []*Node
+	t.Cleanup(func() {
+		for _, node := range nodes {
+			node.Close()
+		}
+	})
+	for _, cfg := range append(slices.Collect(maps.Values(configs)), worker) {
+		node, err := start(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes = append(nodes, node)
+		go node.run(t.Context())
+	}
+	joined := nodes[len(nodes)-1]
+
+	var out bytes.Buffer
+	eventually(t, "every region to answer the worker's ping", func() bool {
+		out.Reset()
+		return Ping(t.Context(), joined.conn, time.Second, &out) == nil
+	})
+	inbox := nats.NewInbox()
+	replies, err := joined.conn.SubscribeSync(inbox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := joined.conn.PublishRequest(PingSubject, inbox, nil); err != nil {
+		t.Fatal(err)
+	}
+	answered := map[string]int{}
+	for {
+		msg, err := replies.NextMsg(time.Second)
+		if err != nil {
+			break
+		}
+		var reply Reply
+		if err := json.Unmarshal(msg.Data, &reply); err != nil {
+			t.Fatal(err)
+		}
+		answered[reply.Region]++
+	}
+	for _, region := range regions {
+		if answered[region] != 1 {
+			t.Fatalf("ping answers per region %v, want one each", answered)
+		}
+	}
+
+	spec := swarmruntime.ServiceSpec{Name: "whoami", Image: "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764", Port: 8099, Replicas: 2}
+	out.Reset()
+	if err := printApply(&out)(send(t.Context(), joined.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 1, Spec: &spec}}, 5*time.Second)); err != nil {
+		t.Fatalf("apply from the worker: %v\n%s", err, out.String())
+	}
+	for _, region := range regions {
+		if appliers[region].generation("whoami") != 1 {
+			t.Fatalf("%s did not apply the worker's generation 1:\n%s", region, out.String())
+		}
 	}
 }

@@ -200,6 +200,17 @@
       "upstream_sha256": "6b1b7f3467c0ed2cd1d149504eb845353d7a3d88381ce85392951c2846ee419c"
     },
     {
+      "bytes": 5461,
+      "path": "manager/state/raft/membership/cluster.go",
+      "rationale": "Replace a Raft member on an address update instead of mutating the shared *Member that Members() hands to unlocked readers (data race on a manager's own address move).",
+      "sha256": "84e057560cea1b5919bfaaca1ae37a97232c2312e7baf4d89b00e8abd397d1cf",
+      "source_history": [
+        "fix(swarmkit): replace, not mutate, a Raft member on address update"
+      ],
+      "upstream_bytes": 5363,
+      "upstream_sha256": "eaa516fc90febb68a9747a371b2b6a8911106feb531a24f4ad58c74bf69c9d33"
+    },
+    {
       "bytes": 66318,
       "path": "manager/state/raft/raft.go",
       "rationale": "Bind proposal callbacks, follower applies and snapshot restoration to exact committed Raft indices; bound observation WAL replay and reject partial history.",
