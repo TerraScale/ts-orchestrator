@@ -65,10 +65,10 @@ func TestWorkflowContracts(t *testing.T) {
 		// holds a builder slot while the checks run.
 		build, _, _ := strings.Cut(ci, "\n  release-push:\n")
 		steps := matches(build, `(?m)^      - name: (.+)$`)
-		if len(steps) < 3 || steps[len(steps)-1] != "Start the image build for this revision" ||
-			steps[len(steps)-2] != "Record the qualified main build for the deployment-lag guard" ||
-			steps[len(steps)-3] != "Retain verified binaries and qualification manifest" {
-			t.Fatalf("image dispatch must follow the retained release: %v", steps)
+		// The qualified job (after build, lint and race) records and dispatches.
+		if len(steps) < 2 || steps[len(steps)-1] != "Start the image build for this revision" ||
+			steps[len(steps)-2] != "Record the qualified main build for the deployment-lag guard" {
+			t.Fatalf("image dispatch must follow qualification: %v", steps)
 		}
 		_, dispatchStep, _ := strings.Cut(ci, "- name: Start the image build for this revision")
 		dispatchStep, _, _ = strings.Cut(dispatchStep, "- name:")
@@ -261,7 +261,17 @@ func TestReleasePushJob(t *testing.T) {
 		t.Fatal("id-token: write must be granted to the release-push job only, with contents: read")
 	}
 	requireText(t, build, "    outputs:\n      publication: ${{ steps.inputs.outputs.publication }}\n")
-	requireText(t, push, "    needs: [build]\n")
+	// The release builds beside the checks; only pushing waits for all of them.
+	requireText(t, push, "    needs: [lint, race, build]\n")
+	_, buildJob, _ := strings.Cut(build, "\n  build:\n")
+	buildJob, _, _ = strings.Cut(buildJob, "\n  qualified:\n")
+	forbidText(t, buildJob, "    needs:")
+	forbidText(t, buildJob, "deployment/qualified")
+	forbidText(t, buildJob, "dispatch-image.sh")
+	_, qualified, _ := strings.Cut(build, "\n  qualified:\n")
+	requireText(t, qualified, "    needs: [lint, race, build]\n")
+	requireText(t, qualified, "context=deployment/qualified")
+	requireText(t, qualified, "run: bash scripts/ci/dispatch-image.sh\n")
 	requireText(t, push, "    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}\n")
 	if steps := matches(push, `(?m)^      - name: (.+)$`); !reflect.DeepEqual(steps, []string{
 		"Check out the region list", "Download this run's release binaries", "Push the release to every region"}) {
