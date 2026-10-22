@@ -63,8 +63,10 @@ import (
 // management transport remains separately qualified.
 func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	tier.Integration(t)
-	ctx, cancel := context.WithTimeout(t.Context(), 360*time.Second)
-	defer cancel()
+	// No test-owned deadline: the lab waits on real 30s session TTLs and 5s
+	// usage intervals, which -race on a loaded runner stretches past any fixed
+	// budget; go test -timeout bounds it.
+	ctx := t.Context()
 	auth := newAuthenticatedNATS(t, "gru")
 	broker, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{}})
 	if err != nil {
