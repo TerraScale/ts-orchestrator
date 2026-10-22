@@ -106,9 +106,10 @@ the host (it creates the certificate if absent):
 sudo ts-orch release pin --state /var/lib/ts-orch
 ```
 
-gru's pin was read on ts-gru-1 on 2026-10-21 with the command above and
-cross-checked with `openssl x509 -in /var/lib/ts-orch/nats/tls.crt -pubkey`
-(`3100cce0…5ad9`).
+Pins were read on each host with the command above and cross-checked against
+the live listener's TLS key from outside (2026-10-22): gru `3100cce0…5ad9`,
+sjc `c4007100…94fd`, fra `b54fe502…6181`. `TestCommittedRegionsArePinned`
+fails CI when a region line has no valid pin.
 
 ### CI
 

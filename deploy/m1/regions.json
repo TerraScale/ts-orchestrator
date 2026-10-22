@@ -1,3 +1,5 @@
 [
-  {"region": "gru", "nats": "tls://163.176.124.12:4222", "spki_sha256": "3100cce0e49b4c9561a96d8d3f4209c25d9bef74444b8ed8981fcdc7d1785ad9"}
+  {"region": "gru", "nats": "tls://163.176.124.12:4222", "spki_sha256": "3100cce0e49b4c9561a96d8d3f4209c25d9bef74444b8ed8981fcdc7d1785ad9"},
+  {"region": "sjc", "nats": "tls://163.192.54.17:4222", "spki_sha256": "c40071009151e353ca84ec3d93682a17e8dd3204e241f8faa40aa74a553294fd"},
+  {"region": "fra", "nats": "tls://130.162.238.198:4222", "spki_sha256": "b54fe502145fc7bf38900325fabadd47871a2e60c81b75b42de27557e82d6181"}
 ]
