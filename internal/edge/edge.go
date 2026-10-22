@@ -150,6 +150,12 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn net.Listener) error {
 				e.serveChallenge(w, r)
 				return
 			}
+			// GeoDNS health checks probe region IPs, where SNI cannot pick a
+			// certificate; readiness carries no secrets, so :80 answers it.
+			if r.URL.Path == "/readyz" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+				e.proxy.ServeHTTP(w, r)
+				return
+			}
 			e.challenges.ServeHTTP(w, r)
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
