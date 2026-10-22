@@ -154,7 +154,6 @@ jobs:
     if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
     permissions:
       contents: write
-      actions: write
     # Builds beside lint and race so the release is ready the moment the
     # checks pass; nothing deploys or qualifies before they do.
     name: verify/go + artifact/linux-amd64-arm64

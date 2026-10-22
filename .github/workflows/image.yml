@@ -66,7 +66,7 @@ jobs:
       - name: Install the pinned Go toolchain
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.3'
           cache-dependency-path: |
             go.sum
             e2e/go.sum
@@ -79,12 +79,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
           git merge-base --is-ancestor "${SOURCE_SHA}" refs/remotes/origin/main
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          test "$(go env GOVERSION)" = go1.27.1
+          test "$(go env GOVERSION)" = go1.27.3
           printf 'source=%s tree=%s kvm=%s\n' "${SOURCE_SHA}" "$(git rev-parse 'HEAD^{tree}')" \
             "$([[ -w /dev/kvm ]] && echo available || echo unavailable)"
 
       - name: Install Nix for checksum-pinned image tooling
-        uses: cachix/install-nix-action@3c6342b75005b9cc7c7d4069c3e9179247c89012 # v31
+        uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
 
       - name: Prepare the pinned image tools
         shell: bash

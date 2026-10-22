@@ -57,7 +57,7 @@ jobs:
       - name: Install the pinned Go toolchain
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.3'
           cache-dependency-path: |
             go.sum
             e2e/go.sum
@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA:?event SHA is required}"
-          test "$(go env GOVERSION)" = go1.27.1
+          test "$(go env GOVERSION)" = go1.27.3
           mkdir -p "$(go env GOCACHE)" "$(go env GOMODCACHE)"
           test -w "$(go env GOCACHE)"
           test -w "$(go env GOMODCACHE)"
@@ -79,6 +79,7 @@ jobs:
           go build ./...
 
       - name: Run local E2E
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           # Read-only artifact and source credentials; no production identity.
           TERRABASE_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
@@ -112,7 +113,7 @@ jobs:
       - name: Install the pinned Go toolchain
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.3'
           cache-dependency-path: |
             go.sum
             e2e/go.sum
@@ -121,7 +122,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA:?event SHA is required}"
-          test "$(go env GOVERSION)" = go1.27.1
+          test "$(go env GOVERSION)" = go1.27.3
           mkdir -p "$(go env GOCACHE)" "$(go env GOMODCACHE)"
           test -w "$(go env GOCACHE)"
           test -w "$(go env GOMODCACHE)"
