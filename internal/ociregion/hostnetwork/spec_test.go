@@ -17,7 +17,7 @@ func TestDesiredGRU(t *testing.T) {
 		s.vcn != "10.251.0.0/24" || s.publicSubnet != "10.251.0.0/25" || s.privateSubnet != "10.251.0.192/26" {
 		t.Fatalf("spec = %+v", s)
 	}
-	// The internet reaches only the edge ports, release NATS and operator SSH.
+	// The internet reaches only the edge ports and release NATS; SSH is NetBird-only.
 	var public []string
 	for _, g := range s.nsgs {
 		for _, r := range g.rules {
@@ -26,7 +26,7 @@ func TestDesiredGRU(t *testing.T) {
 			}
 		}
 	}
-	want := []string{"6:0.0.0.0/0:80", "6:0.0.0.0/0:443", "17:0.0.0.0/0:3478", "17:0.0.0.0/0:51820", "6:0.0.0.0/0:4222", "6:0.0.0.0/0:7222", "6:179.124.206.245/32:22"}
+	want := []string{"6:0.0.0.0/0:80", "6:0.0.0.0/0:443", "17:0.0.0.0/0:3478", "17:0.0.0.0/0:51820", "6:0.0.0.0/0:4222", "6:0.0.0.0/0:7222"}
 	if !slices.Equal(public, want) {
 		t.Fatalf("public ingress = %v, want %v", public, want)
 	}
