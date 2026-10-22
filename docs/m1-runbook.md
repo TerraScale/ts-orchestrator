@@ -221,8 +221,10 @@ install, DNS and pin steps. In order, it creates or adopts:
    adopts or launches exactly NAME; `--shape SHAPE` launches the smallest
    SHAPE host (1 OCPU, 6 GB Ampere / 8 GB x86) with the matching arm64/amd64
    image and binary. Cloud-init installs host-runtime.sh, NetBird, the
-   newest CI release binary (sha256 checked) and every unit, without ssh;
-   later cloud-init changes never relaunch a host;
+   newest CI release binary (sha256 checked) and only `ts-orch.service`,
+   without ssh. Never `deploy/m1/services/*.service`: netbird-server.service
+   is gru's one NetBird server; a region's other services ship as mesh
+   services. Later cloud-init changes never relaunch a host;
 4. IAM: dynamic group `ts-orch-hosts` matches every cell compartment with a
    host; policy `ts-orch-hosts-vault` (gru-1-control) holds the gru-vault
    statements plus one `manage secret-family` per region for its join secret
