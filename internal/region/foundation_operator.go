@@ -136,7 +136,8 @@ func (operator *foundationOperator) guardWorkloadOrigin(ctx context.Context, rea
 			if err != nil {
 				return err
 			}
-			wire, err := readDiscoveryObject(ctx, operator.objects, operator.domain.Namespace, name, int64(len(expected)))
+			// Read up to the evidence bound so a different lineage is refused as such, not as oversized.
+			wire, err := readDiscoveryObject(ctx, operator.objects, operator.domain.Namespace, name, MaxWorkloadGenesisEvidenceBytes)
 			if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() == 404 {
 				continue
 			}

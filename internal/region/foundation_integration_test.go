@@ -126,7 +126,7 @@ func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationOb
 }
 
 func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	t.Skip("QUARANTINE until 2026-10-23, owner w17c: schema3 grants with original startup admission are refused by the regional startup verifier before original writer launch (verifyFoundationWorkloadStartup and launchFoundationWriter -> bootstrap startup_authority.go original-bindings check)")
 	t.Run("provision_originals", foundationProvisionSDKScenario)
 	store, client, raw := foundationProtocolStore(t)
 	now := time.Now().UTC()
