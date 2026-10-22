@@ -1,6 +1,6 @@
 {
   "name": "ts-auth",
-  "image": "ghcr.io/terrascale/ts-auth@sha256:fe1c4b6f698e4617ba86e0fdbae0ec320bb22c189389132e13269877987758ce",
+  "image": "ghcr.io/terrascale/ts-auth@sha256:6b995909c7de3a7fc39e1a393e0f0262df647d732a99c309a5a809d1329618cb",
   "env": {
     "TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS": "https://dash.terrascale.tech/login",
     "TS_AUTH_DASHBOARD_REDIRECT_URIS": "https://dash.terrascale.tech/login/callback",
