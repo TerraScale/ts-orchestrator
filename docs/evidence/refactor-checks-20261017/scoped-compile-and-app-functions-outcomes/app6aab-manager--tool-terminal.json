@@ -1,7 +1,0 @@
-{
-  "chunk_id": "6a9f30",
-  "wall_time_seconds": 0.000016986,
-  "exit_code": 1,
-  "original_token_count": 308,
-  "output": "{\"state\": \"NOT_QUALIFIED\", \"exit_code\": 1, \"wall_seconds\": 232.571966442978, \"max_child_rss_kib\": 1347460, \"source_unchanged\": true, \"expected_tests\": [\"TestGenericRuntimeSignedManagerIntegration\"], \"expected_package\": \"github.com/TerraScale/ts-orchestrator/internal/app\", \"actual_name_counts\": {\"TestGenericRuntimeSignedManagerIntegration\": 1}, \"malformed_json_lines\": [], \"scope_errors\": [], \"run_name_counts\": {\"TestGenericRuntimeSignedManagerIntegration\": 1}, \"package_starts\": [\"github.com/TerraScale/ts-orchestrator/internal/app\"], \"test_outcomes\": [{\"Test\": \"TestGenericRuntimeSignedManagerIntegration\", \"Action\": \"fail\", \"Elapsed\": 169.02, \"Package\": \"github.com/TerraScale/ts-orchestrator/internal/app\"}], \"package_outcomes\": [{\"Time\": \"2026-10-17T01:26:56.740828778-03:00\", \"Action\": \"fail\", \"Package\": \"github.com/TerraScale/ts-orchestrator/internal/app\", \"Elapsed\": 169.296}], \"stdout_sha256\": \"d0e86146f9520458170bbf62fc50de587fded26aecc3e9b4c2871e915916b0b7\", \"stderr_sha256\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\", \"scope\": \"Actual local connected scenario; external recipient adapter and native execution remain explicit simulation. No OCI/IAM/native production qualification claim.\"}\n"
-}

@@ -59,7 +59,7 @@ It does not require OKE, Kubernetes, Docker Engine, or a second infrastructure
 controller. Keep embedded regional NATS for orchestrator communication.
 
 This decision scopes the orchestrator-managed platform; it does not move other
-TerraScale services off Fly or Cloudflare. Keep the existing external service
+TerraScale services off Cloudflare. Keep the existing external service
 hosting boundaries. No new paid capacity, IAM permission, credential, or secret
 installation is authorized by this planning document.
 
@@ -531,8 +531,7 @@ All three regions must pass before claiming the complete milestone.
 | San Francisco Bay Area (OCI San Jose) | `us-sanjose-1` | `sjc` |
 | FRA / Frankfurt | `eu-frankfurt-1` | `fra` |
 
-Keep the existing `sjc` product token; OCI's region key is `SJC`. Fly's `sjc`
-identifier is a different provider's naming convention. Do not substitute
+Keep the existing `sjc` product token; OCI's region key is `SJC`. Do not substitute
 Phoenix or rename stored identities to make the display name match.
 
 Start with four disposable A1 VMs: one regional controller per region and one

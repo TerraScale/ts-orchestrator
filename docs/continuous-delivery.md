@@ -1009,7 +1009,7 @@ Immutable proof metadata is append-only; the active index retains ten good
 pairs, but this slice does not collect unreferenced proof records.
 
 This retention foundation does not add a fleet rollback command or dashboard
-mutation. It does not establish managed-member, generic-workload, Fly
+mutation. It does not establish managed-member, generic-workload,
 `ts-dashboard`, orchestrator role-config recovery or live drill coverage.
 The native smoke gate does not establish a sustained traffic/error-rate
 observation window. Channel work resumes under a new leader; this slice does
@@ -1135,7 +1135,7 @@ deploys: the canary credentials in `gru-1-control` and a root-signed cell
 spec amendment adding `release_fence.canary`. Until then gru-1 releases
 without a canary. Its `canary` leaves `dashboard_login_url` unset: the
 controllers' egress (the VCN, Oracle services and Cloudflare on 443) does
-not reach the dashboard on Fly, no egress rule is added for it, and the
+not reach the dashboard, no egress rule is added for it, and the
 dashboard is not part of the cell. TS-601 checks `/login` from CI instead.
 
 #### gru-1 wiring

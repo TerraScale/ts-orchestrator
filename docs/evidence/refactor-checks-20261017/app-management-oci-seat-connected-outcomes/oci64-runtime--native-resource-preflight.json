@@ -1,1 +1,0 @@
-{"chunk_id":"a04788","wall_time_seconds":0.102130553,"exit_code":0,"original_token_count":44,"output":"{\n  \"euid\": 1000,\n  \"mem_available_kib\": 27022568,\n  \"load\": [\n    0.46875,\n    1.35498046875,\n    1.90234375\n  ],\n  \"bounded_compiler_processes\": [],\n  \"compiler_count\": 0\n}\n"}

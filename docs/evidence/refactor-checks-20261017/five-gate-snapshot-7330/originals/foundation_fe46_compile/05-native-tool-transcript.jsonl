@@ -1,6 +1,0 @@
-{"tool":"exec_command","args":{"cmd":"/run/current-system/sw/bin/nice -n 19 /home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B /tmp/ts-foundation-fe46-fixturetest-compile-20261017T140702385401Z/run.py","login":false,"yield_time_ms":1000,"max_output_tokens":2000},"result":{"chunk_id":"eff08e","wall_time_seconds":1.000407237,"session_id":74921,"original_token_count":0,"output":""}}
-
-{"tool":"write_stdin","args":{"session_id":74921,"chars":"","yield_time_ms":1000,"max_output_tokens":2000},"result":{"chunk_id":"8a15e1","wall_time_seconds":5.00043107,"session_id":74921,"original_token_count":0,"output":""}}
-
-{"tool":"write_stdin","args":{"session_id":74921,"chars":"","yield_time_ms":1000,"max_output_tokens":2000},"result":{"chunk_id":"90c9f1","wall_time_seconds":0.000028405,"exit_code":0,"original_token_count":31,"output":"{\"state\": \"PASS\", \"output\": \"/tmp/ts-foundation-fe46-fixturetest-compile-20261017T140702385401Z\", \"error\": null, \"runs\": 1}\n"}}
-

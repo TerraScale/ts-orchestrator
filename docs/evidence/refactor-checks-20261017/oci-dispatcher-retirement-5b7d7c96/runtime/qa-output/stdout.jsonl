@@ -1,8 +1,0 @@
-{"Time":"2026-10-17T00:56:24.256263124-03:00","Action":"start","Package":"github.com/TerraScale/ts-orchestrator/internal/ociclient"}
-{"Time":"2026-10-17T00:56:24.266397738-03:00","Action":"run","Package":"github.com/TerraScale/ts-orchestrator/internal/ociclient","Test":"TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling"}
-{"Time":"2026-10-17T00:56:24.266522-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/ociclient","Test":"TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling","Output":"=== RUN   TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling\n","OutputType":"frame"}
-{"Time":"2026-10-17T00:56:25.096965512-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/ociclient","Test":"TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling","Output":"--- PASS: TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling (0.83s)\n","OutputType":"frame"}
-{"Time":"2026-10-17T00:56:25.097024096-03:00","Action":"pass","Package":"github.com/TerraScale/ts-orchestrator/internal/ociclient","Test":"TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling","Elapsed":0.83}
-{"Time":"2026-10-17T00:56:25.097056198-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/ociclient","Output":"PASS\n","OutputType":"frame"}
-{"Time":"2026-10-17T00:56:25.098258319-03:00","Action":"output","Package":"github.com/TerraScale/ts-orchestrator/internal/ociclient","Output":"ok  \tgithub.com/TerraScale/ts-orchestrator/internal/ociclient\t0.841s\n"}
-{"Time":"2026-10-17T00:56:25.098295394-03:00","Action":"pass","Package":"github.com/TerraScale/ts-orchestrator/internal/ociclient","Elapsed":0.842}

@@ -289,8 +289,8 @@ nice -n 19 scripts/log-scan.sh --since 24h --top 30
 It reads each node's `terrascale-orchestrator*` units over `ts-orch netbird
 ssh`: the controller, the host agent, embedded NATS (`[WRN]`, `[ERR]`) and
 the TerraBase and ts-auth members (`warn:`, `fail:`, `crit:`), attributed by
-process name. Fly app `ts-dashboard` comes from `fly logs --no-tail`, which
-holds only its last 100 lines. The nodes are every peer the host's NetBird
+process name. ts-dashboard runs on ts-orch on `ts-gru-1`, so its lines come
+from that node's journal. The nodes are every peer the host's NetBird
 client lists under a cell node or server name (`ts-gru-1`, `ts-sjc-2`,
 `gru-1-ctl-1`); `TS_LOG_SCAN_NODES` names them instead. A node it cannot
 read prints `unreadable` and fails the command; warnings and errors do not.

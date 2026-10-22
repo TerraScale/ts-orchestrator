@@ -1,7 +1,0 @@
-{
-  "chunk_id": "cea7a0",
-  "wall_time_seconds": 1.000972943,
-  "session_id": 64733,
-  "original_token_count": 36,
-  "output": "{\"state\": \"STARTED_COMPILE_ONLY\", \"native_pid\": 568687, \"output\": \"/tmp/ts-ociclient-retirement-5b7d7c96-compile-sealed-dn88hob4/qa-output\"}\n"
-}

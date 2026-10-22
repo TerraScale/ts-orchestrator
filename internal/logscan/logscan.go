@@ -1,8 +1,8 @@
 // Package logscan counts the warnings and errors TerraScale's services
 // logged recently, per service and node: ts-orchestrator (controller, host
 // agent, embedded NATS) and the TerraBase and ts-auth members it runs, read
-// from each node's journal over NetBird SSH, and Fly apps from "fly logs".
-// COS runs it every check; the goal is zero.
+// from each node's journal over NetBird SSH. COS runs it every check; the
+// goal is zero.
 package logscan
 
 import (
@@ -13,8 +13,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os/exec"
-	"regexp"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -25,7 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 )
 
-const usage = `Usage: ts-orch log-scan --vault-id OCID [--netbird COMMAND] [--since 20m] [--top 10] [--node NAME]... [--fly-app NAME]...
+const usage = `Usage: ts-orch log-scan --vault-id OCID [--netbird COMMAND] [--since 20m] [--top 10] [--node NAME]...
 
 Counts WARN and ERROR records per service and node over the last --since.
 Without --node it reads every server the NetBird client lists: each peer
@@ -33,9 +31,8 @@ named like a cell node or server (ts-gru-1, gru-1-ctl-1). Each node is read
 from its journal (units terrascale-orchestrator*: the
 controller, the host agent, embedded NATS and the TerraBase and ts-auth
 members) over "ts-orch netbird ssh" as the automation user, with the same
---vault-id and --netbird. Each --fly-app is read from "fly logs --no-tail",
-which holds only its last 100 lines. Then lists the --top most frequent
-classes. Exits unsuccessfully when a node or app cannot be read.
+--vault-id and --netbird. Then lists the --top most frequent classes. Exits
+unsuccessfully when a node cannot be read.
 `
 
 // Record is one warning or error.
@@ -46,7 +43,6 @@ type Record struct {
 // Fetchers read the logs; tests replace them.
 type Fetchers struct {
 	Node func(ctx context.Context, node, command string) ([]byte, error)
-	Fly  func(ctx context.Context, app string) ([]byte, error)
 }
 
 type names []string
@@ -62,9 +58,8 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	netbird := flags.String("netbird", "netbird", "the NetBird client command, split on spaces")
 	since := flags.Duration("since", 20*time.Minute, "how far back to read")
 	top := flags.Int("top", 10, "how many classes to list")
-	var nodes, apps names
+	var nodes names
 	flags.Var(&nodes, "node", "a NetBird peer name to read, repeatable")
-	flags.Var(&apps, "fly-app", "a Fly app to read, repeatable")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			_, err = io.WriteString(stdout, usage)
@@ -91,11 +86,8 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 			}
 			return out.Bytes(), nil
 		},
-		Fly: func(ctx context.Context, app string) ([]byte, error) {
-			return exec.CommandContext(ctx, "fly", "logs", "-a", app, "--no-tail").Output()
-		},
 	}
-	return Scan(ctx, stdout, nodes, apps, *since, *top, time.Now(), fetch)
+	return Scan(ctx, stdout, nodes, *since, *top, time.Now(), fetch)
 }
 
 // Servers are the peers named like a cell's node or server, sorted.
@@ -111,8 +103,8 @@ func Servers(peers map[string]string) []string {
 	return servers
 }
 
-// Scan reads every node and app and prints the report.
-func Scan(ctx context.Context, stdout io.Writer, nodes, apps []string, since time.Duration, top int, now time.Time, fetch Fetchers) error {
+// Scan reads every node and prints the report.
+func Scan(ctx context.Context, stdout io.Writer, nodes []string, since time.Duration, top int, now time.Time, fetch Fetchers) error {
 	type row struct{ service, node string }
 	counts := map[row][2]int{}
 	classes := map[Record]int{}
@@ -139,15 +131,6 @@ func Scan(ctx context.Context, stdout io.Writer, nodes, apps []string, since tim
 			continue
 		}
 		add(node, ParseJournal(out), "ts-orchestrator")
-	}
-	for _, app := range apps {
-		out, err := fetch.Fly(ctx, app)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("fly app %s: %w", app, err))
-			unreadable = append(unreadable, app)
-			continue
-		}
-		add("fly", ParseFly(app, out, now.Add(-since)), app)
 	}
 
 	fmt.Fprintf(stdout, "log-scan: the %s before %s\n", since, now.UTC().Format(time.RFC3339))
@@ -243,46 +226,6 @@ func class(r logs.Record) string {
 		return r.Message
 	}
 	return r.Component + ": " + r.Message
-}
-
-var (
-	ansi      = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-	flyLine   = regexp.MustCompile(`^(\S+Z) (\S+) \S+ \[(\w+)\]\s*(.*)$`)
-	slogLevel = regexp.MustCompile(`\blevel=(WARN|ERROR) msg=("(?:[^"\\]|\\.)*"|\S+)(?:.*?\berror=("(?:[^"\\]|\\.)*"|\S+))?`)
-)
-
-// ParseFly reads "fly logs --no-tail" output, keeping lines from after.
-func ParseFly(app string, out []byte, after time.Time) []Record {
-	var records []Record
-	for line := range strings.Lines(ansi.ReplaceAllString(string(out), "")) {
-		m := flyLine.FindStringSubmatch(strings.TrimSpace(line))
-		if m == nil {
-			continue
-		}
-		at, err := time.Parse(time.RFC3339, m[1])
-		if err != nil || at.Before(after) {
-			continue
-		}
-		if r, ok := logs.Classify(logs.Entry{Comm: app, Message: m[4]}); ok && warning(r.Level) {
-			records = append(records, Record{app, r.Level, class(r)})
-			continue
-		}
-		s := slogLevel.FindStringSubmatch(m[4])
-		if s == nil {
-			// Fly's proxy and runner tag their own lines warn or error.
-			if level := strings.ToUpper(m[3]); level == "WARN" || level == "ERROR" {
-				source, _, _ := strings.Cut(m[2], "[")
-				records = append(records, Record{app, level, source + ": " + logs.Normalize(m[4])})
-			}
-			continue
-		}
-		class := strings.Trim(s[2], `"`)
-		if s[3] != "" {
-			class += ": " + strings.Trim(s[3], `"`)
-		}
-		records = append(records, Record{app, s[1], logs.Normalize(class)})
-	}
-	return records
 }
 
 func lastLine(s string) string {

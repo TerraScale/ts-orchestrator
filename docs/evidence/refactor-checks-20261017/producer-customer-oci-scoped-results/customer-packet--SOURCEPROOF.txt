@@ -1,5 +1,0 @@
-Customer successor 67bc9eea1b118c7beff0c62914f20a53c3d3483d tree e5d3f47d33441ff8b3e54a97fc98614151cd7f79
-Base 09fbf0bbac1d54b4ad31d12bcd8c37cf8115ef23; exact two-path scope, customer root first and fixture prerequisite second.
-Root source SHA256 427cbd0b8915e25aed5a13c68dde44b90f01b028337573b706fa236da33604fd unchanged; prerequisite SHA256 1f46d832fd901a6549c3dba569f08b8eafa721e335b3747e586a57c5303cc0b0.
-Original source proof retained as PRIOR-SOURCEPROOF.json; source equivalence review and original initializer assessment preserved byte-exact. Bounded compatibility and import membership proofs added.
-Source only. No Go, runner, runtime, lease, retirement or global qualification.

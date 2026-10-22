@@ -177,8 +177,9 @@ with discovery at `https://gru.auth.terrascale.tech/terrascale/.well-known/openi
 At startup it registers the dashboard confidential client
 `01M4EQ2FRJ8S8B29E8TQVWNW4J` from
 `TS_AUTH_DASHBOARD_CLIENT_SECRET` and the two profile URIs above.
-`ouroboros fly-secrets` hands the dashboard the matching `TS_AUTH_ISSUER`,
-`TS_AUTH_CLIENT_ID`, `TS_AUTH_REDIRECT_URL` and `TS_AUTH_CLIENT_SECRET`.
+ts-orch delivers the dashboard the matching `TS_AUTH_ISSUER`,
+`TS_AUTH_CLIENT_ID`, `TS_AUTH_REDIRECT_URL` and `TS_AUTH_CLIENT_SECRET`
+from OCI Vault.
 This ID matches `OidcIssuer.DashboardClientId` in ts-auth revision
 `ac893792853c564b54947b2bcf9b0019d5e9cd9f`. Qualify a release with this
 registration before the coordinated greenfield deployment; old auth releases
@@ -472,8 +473,7 @@ Safe serving still requires:
 
 Automatic dashboard provisioning must deliver its database and confidential-client
 credentials directly from Vault, preserve CSRF and exact issuer/redirect bindings,
-and verify persistence and native login. Existing `ouroboros fly-secrets` tooling
-and per-service refs are delivery dependencies to remove, not copy instructions.
+and verify persistence and native login.
 
 ## Qualification
 
@@ -502,9 +502,7 @@ TerraBase release binary.
   TerraBase's role rules; a rerun only lists members),
   `TestOuroborosTSAuthUserLookup` (paging;
   unverified, banned, duplicate and missing users; HTTP errors without the
-  key) and `TestOuroborosFlySecrets` (no-token mode reads no API key; token
-  mode stages through a stub `flyctl` with the values on stdin and redacts the
-  key from a failure). Also profile rules and secret refs, `TestValidateSecrets`
+  key). Also profile rules and secret refs, `TestValidateSecrets`
   (value forms, no value in any error), probe, release verification, the
   backend set from the real `plan.json`, and Vault create-once with a fake OCI
   Vault (existing, pending deletion, duplicate and paged secrets, retry token).

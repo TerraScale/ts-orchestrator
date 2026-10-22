@@ -65,10 +65,10 @@ No OCI load balancer, custom image, NATS federation, admission service or
 | NetBird | Required by image | `internal/image/guest.go:40`, `internal/netbird/**` | N1 (ts-orch-managed server + clients) |
 | Dashboard (ts-orch) | PARTIAL | served by `ts-orch run`; mixes SwarmKit and old rollout data | Not needed for M1 |
 | ts-orch release binary | WORKS | `ci.yml` publishes linux arm64/amd64 to release `ci-<sha>-run-<id>` | Used by W7 |
-| TerraBase / ts-auth images | NOT USABLE | `terrascale/Dockerfile` linux-x64 only; pushed only to private `registry.fly.io` | W8 |
-| Off-Fly runtime | MISSING | ts-auth/TerraBase/dashboard hardcode `*.ts-terrabase.internal`; off Fly only `127.0.0.1:8081` in Development | W9, W10 |
-| ts-dashboard image | NOT USABLE | amd64 only, `registry.fly.io` | W10 |
-| Fly apps | GONE | `flyctl apps list` empty; `auth.` CNAME dangles; data volumes destroyed 2026-10-13 | M1 starts with fresh data |
+| TerraBase / ts-auth images | NOT USABLE | `terrascale/Dockerfile` linux-x64 only; pushed only to the former private registry | W8 |
+| OCI runtime | MISSING | ts-auth/TerraBase/dashboard hardcode `*.ts-terrabase.internal`; otherwise only `127.0.0.1:8081` in Development | W9, W10 |
+| ts-dashboard image | NOT USABLE | amd64 only, former private registry | W10 |
+| Former hosted apps | GONE | No apps left; `auth.` CNAME dangles; data volumes destroyed 2026-10-13 | M1 starts with fresh data |
 
 ## Decisions
 
@@ -76,7 +76,7 @@ No OCI load balancer, custom image, NATS federation, admission service or
 - DECISION: own edge TLS in ts-orch (`golang.org/x/crypto/acme/autocert` + `httputil.ReverseProxy`), Cloudflare DNS-only. Reason: no LB, no Origin CA, no Vault; about 150 lines.
 - DECISION: images on public GHCR (`ghcr.io/terrascale/<name>`), multi-arch, built by `GITHUB_TOKEN`. Reason: all repos are public; no pull credential on the VM.
 - Secrets: OCI Vault for all OCI-hosted TerraScale services (user, 2026-10-21). The OCI Vault thread owns Vault infra and ts-orch secret injection (W11); no other item touches secret-injection code.
-- DECISION: fresh data. Reason: Fly volumes are gone; snapshot restore is Later.
+- DECISION: fresh data. Reason: the former data volumes are gone; snapshot restore is Later.
 - DECISION: `single-host` is a separate command, not a flag on the cluster path. Reason: repo zero-config rule (no on/off switches).
 
 ## Work items
@@ -135,13 +135,13 @@ Hours are for one Opus 5.5 worker. Threads (2026-10-21): W2, W3, W4, W5, W6+W7, 
 - Done = `docker manifest inspect ghcr.io/terrascale/ts-auth@sha256:...` lists arm64, anonymous pull works.
 - ~3 h. Deps: none.
 
-### W9 TerraBase + ts-auth run off Fly in Production (terrascale)
-- Owns: `src/TerraScale.Authentication/App.cs` and its settings file, TerraBase Fly-detection/listener files under `src/TerraBase/Hosting/`
-- Do: setting `TS_AUTH_TERRABASE_URL` (used when set, any environment); TerraBase without `FLY_*` runs Production with internal 8081 on loopback and issuer from `TERRABASE_TOKEN_ISSUER` (default `https://auth.terrascale.tech/terrascale`). No Fly DNS peer discovery when `FLY_APP_NAME` is unset.
-- Done = CI integration test starts both binaries without `FLY_*` in Production and ts-auth `/healthz` = 200 against TerraBase on 127.0.0.1:8081.
-- ~4 h. Deps: none. Not a Fly-mode toggle: it is a URL setting.
+### W9 TerraBase + ts-auth run on ts-orch in Production (terrascale)
+- Owns: `src/TerraScale.Authentication/App.cs` and its settings file, TerraBase host-detection/listener files under `src/TerraBase/Hosting/`
+- Do: setting `TS_AUTH_TERRABASE_URL` (used when set, any environment); TerraBase runs Production with internal 8081 on loopback and issuer from `TERRABASE_TOKEN_ISSUER` (default `https://auth.terrascale.tech/terrascale`). No platform DNS peer discovery.
+- Done = CI integration test starts both binaries in Production and ts-auth `/healthz` = 200 against TerraBase on 127.0.0.1:8081.
+- ~4 h. Deps: none. Not a mode toggle: it is a URL setting.
 
-### W10 ts-dashboard off Fly + multi-arch GHCR image (ts-dashboard)
+### W10 ts-dashboard on ts-orch + multi-arch GHCR image (ts-dashboard)
 - Owns: `Dockerfile`, `.github/workflows/images-ghcr.yml` (new), the TerraBase/ts-auth address config file(s)
 - Do: `TS_DASHBOARD_TERRABASE_URL` setting, listen URL from `ASPNETCORE_URLS` (M1 uses `http://127.0.0.1:8085`), amd64 + arm64 image to public `ghcr.io/terrascale/ts-dashboard`.
 - Done = image digest published with arm64; CI test boots it in Production with the URL setting.
@@ -187,5 +187,4 @@ Hours are for one Opus 5.5 worker. Threads (2026-10-21): W2, W3, W4, W5, W6+W7, 
 - ts-orch dashboard on SwarmKit data only; cluster CLI parity.
 - Signed releases, regional channels, self-update, production qualification gates.
 - Integration-only test migration, unit-test deletion, cost studies, evidence ledgers.
-- Restore old data from Fly snapshots (if they still exist; retention ends ~2026-12-11).
 - TerraBase backup to Tigris/S3.
