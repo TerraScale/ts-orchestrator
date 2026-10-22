@@ -129,3 +129,16 @@ rest - 1
 ./internal/region TestOriginalFoundationSourceIAMSDK 90/1 norace solo
 ./internal/region TestOriginalFoundationCurrentnessSDK 205/1 norace solo
 ./internal/region TestOriginalFoundationMaterialIAMPeerGroupSDK 290/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart1 120/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart2 120/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart3 120/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart4 120/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart5 120/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart1 120/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart2 120/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart3 120/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart4 120/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart5 120/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart6 120/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart7 120/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart8 120/1 norace solo
