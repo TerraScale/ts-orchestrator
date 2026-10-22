@@ -25,6 +25,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -484,6 +485,7 @@ func (f *originalNetBirdBackupSDKFixture) serveHTTP(w http.ResponseWriter, r *ht
 }
 
 func TestOriginalNetBirdBackupSDK(t *testing.T) {
+	tier.Integration(t)
 	t.Run("short original authority refuses all backup dispatch", func(t *testing.T) {
 		base := newOriginalVaultSDKFixture(t, "", 0)
 		f := installOriginalNetBirdBackupSDKFixture(t, base, base.serveHTTP, "")

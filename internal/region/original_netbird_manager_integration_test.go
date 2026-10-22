@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -350,6 +351,7 @@ func WithOriginalNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory
 }
 
 func TestOriginalNetBirdManagerFirstLaunchAccountBirth(t *testing.T) {
+	tier.Integration(t)
 	f := newOriginalNetBirdManagerSDKFixture(t)
 	var birth FoundationRecord
 	var birthETag string
@@ -432,6 +434,7 @@ func TestOriginalNetBirdManagerFirstLaunchAccountBirth(t *testing.T) {
 }
 
 func TestOriginalNetBirdManagerSDK(t *testing.T) {
+	tier.Integration(t)
 	f := newOriginalNetBirdManagerSDKFixture(t)
 	f.lostLaunch = true
 	if err := f.run(t); err == nil || f.launchPosts != 1 {

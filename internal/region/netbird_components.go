@@ -53,6 +53,8 @@ type netBirdComponents struct {
 	original   bool
 	expires    time.Time
 	components [3]NetBirdComponent
+	// guardID marks this material's guard as passed within one memoized operation.
+	guardID *byte
 }
 
 func (v NetBirdComponents) ExpiresAt() time.Time {
@@ -153,7 +155,7 @@ func ReadNetBirdComponents(ctx context.Context, factory *ociclient.Factory, reso
 		}
 	}
 	deadline, _ := ctx.Deadline()
-	s := &netBirdComponents{factory: factory, resolver: resolver, reader: reader, manager: manager, intent: intent, original: original, expires: deadline}
+	s := &netBirdComponents{factory: factory, resolver: resolver, reader: reader, manager: manager, intent: intent, original: original, expires: deadline, guardID: new(byte)}
 	s.capDeadline(intent.expires)
 	if err := s.guard(ctx); err != nil {
 		return NetBirdComponents{}, err
@@ -189,12 +191,24 @@ func (s *netBirdComponents) guard(ctx context.Context) error {
 	if !time.Now().Before(s.expires) || s.reader.factory != s.factory || s.resolver.Footprint != s.reader {
 		return errNetBirdComponents
 	}
+	// One operation verifies the foundation and manager once for all of its requests.
+	ctx = withOriginalNetBirdStateMemo(ctx)
+	if originalNetBirdChecked(ctx, s.guardID) {
+		return ctx.Err()
+	}
+	if err := s.fullGuard(ctx); err != nil {
+		return err
+	}
+	markOriginalNetBirdChecked(ctx, s.guardID)
+	return nil
+}
+
+func (s *netBirdComponents) fullGuard(ctx context.Context) error {
 	tenancy, err := s.factory.Provider().TenancyOCID()
 	if err != nil || tenancy != s.reader.tenancy {
 		return errors.Join(errNetBirdComponents, err)
 	}
 	if s.original {
-		ctx = withOriginalNetBirdStateMemo(ctx)
 		state, err := s.reader.originalNetBirdState(ctx, s.resolver)
 		if err != nil || state.intent.grantDigest != s.intent.grantDigest || state.intent.installationID != s.intent.installationID || state.intent.generation != s.intent.generation ||
 			s.manager.originalGrantSHA256 != state.intent.grantDigest || s.manager.CredentialTarget() != state.target() || s.manager.VaultTarget() != state.regionalTarget() ||

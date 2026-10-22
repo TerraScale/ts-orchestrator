@@ -36,6 +36,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -46,6 +47,7 @@ import (
 // This fixture crosses the real OCI SDK, public-price HTTP and disk-backed
 // Object Storage CAS; only the remote services and ARM64 binary measurement are fixtures.
 func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
+	tier.Integration(t)
 	withNetBirdManagerFixture(t, nil)
 }
 

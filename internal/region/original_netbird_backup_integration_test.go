@@ -9,11 +9,13 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 // The genuine original fixture has initial retention cooling, not fourteen
 // days of elapsed production history. It must not mint recovery authority.
 func TestOriginalNetBirdBackupRefusesPendingProtection(t *testing.T) {
+	tier.Integration(t)
 	region.WithOriginalNetBirdManagerFixture(t, func(factory *ociclient.Factory, resolver region.FoundationResolver, manager region.VerifiedNetBirdManager) {
 		ctx := t.Context()
 		if err := manager.Check(ctx); err != nil {
@@ -57,6 +59,7 @@ func TestOriginalNetBirdBackupRefusesPendingProtection(t *testing.T) {
 }
 
 func TestOriginalNetBirdBackupDoesNotFallBackAfterRefusal(t *testing.T) {
+	tier.Integration(t)
 	region.WithOriginalNetBirdManagerFixture(t, func(factory *ociclient.Factory, resolver region.FoundationResolver, manager region.VerifiedNetBirdManager) {
 		refused := errors.New("current original store is unavailable")
 		store := &originalBackupReadStore{FoundationStore: resolver.Store, refused: refused}

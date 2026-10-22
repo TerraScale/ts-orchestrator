@@ -12,12 +12,14 @@ import (
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // Actual signed original-manager admission, OCI SDK/TLS and durable foundation
 // CAS remain in the shared fixture; only the account's remote Vault is simulated.
 func TestOriginalNetBirdAccountEscrowInterruptedPublication(t *testing.T) {
+	tier.Integration(t)
 	type secret struct {
 		id, name string
 		value    []byte
