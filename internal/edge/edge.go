@@ -33,9 +33,11 @@ type Edge struct {
 	certs  *autocert.Manager
 	routes atomic.Pointer[map[string]int]
 	proxy  *httputil.ReverseProxy
-	mesh   atomic.Pointer[Mesh]
-	local  http.RoundTripper // to the loopback backends
-	peers  http.RoundTripper // to other regions' edges
+	// challenges answers HTTP-01 for the tokens this edge holds.
+	challenges http.Handler
+	mesh       atomic.Pointer[Mesh]
+	local      http.RoundTripper // to the loopback backends
+	peers      http.RoundTripper // to other regions' edges
 	// peerAddr is region's edge; tests replace it.
 	peerAddr func(region string) string
 }
@@ -54,6 +56,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 		HostPolicy: e.hostPolicy,
 		Client:     client,
 	}
+	e.challenges = e.certs.HTTPHandler(nil)
 	http1 := http.DefaultTransport.(*http.Transport).Clone()
 	http1.Proxy = nil
 	h2c := http1.Clone()
@@ -137,14 +140,17 @@ func (e *Edge) Run(ctx context.Context) error {
 
 func (e *Edge) serve(ctx context.Context, httpLn, tlsLn net.Listener) error {
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
-	challenges := e.certs.HTTPHandler(nil)
 	plain := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, ok := e.port(r.Host); !ok {
 				http.NotFound(w, r)
 				return
 			}
-			challenges.ServeHTTP(w, r)
+			if isChallenge(r) {
+				e.serveChallenge(w, r)
+				return
+			}
+			e.challenges.ServeHTTP(w, r)
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -183,6 +189,10 @@ const netbirdHost = "netbird.terrascale.tech"
 
 func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	peer := fromPeer(r)
+	if peer && isChallenge(r) {
+		e.serveChallenge(w, r)
+		return
+	}
 	if _, ok := e.port(r.Host); !ok {
 		if peer {
 			w.Header().Set(replayDownHeader, "1")
