@@ -1,6 +1,7 @@
 package mesh
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -94,15 +95,15 @@ func printApply(output io.Writer) func([]Reply, error) error {
 			return failed
 		}
 		table := tabwriter.NewWriter(output, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(table, "REGION\tRESULT\tREADY")
+		fmt.Fprintln(table, "REGION\tRESULT\tREADY\tPHASES")
 		for _, row := range rows {
 			switch row.Error {
 			case "":
-				fmt.Fprintf(table, "%s\t%s\t%dms\n", row.Region, row.Result, row.ElapsedMS)
+				fmt.Fprintf(table, "%s\t%s\t%dms\t%s\n", row.Region, row.Result, row.ElapsedMS, cmp.Or(row.Phases, "-"))
 			case noReply:
-				fmt.Fprintf(table, "%s\tNO REPLY\t-\n", row.Region)
+				fmt.Fprintf(table, "%s\tNO REPLY\t-\t-\n", row.Region)
 			default:
-				fmt.Fprintf(table, "%s\tERROR %s\t-\n", row.Region, row.Error)
+				fmt.Fprintf(table, "%s\tERROR %s\t-\t-\n", row.Region, row.Error)
 			}
 		}
 		return errors.Join(table.Flush(), failed)

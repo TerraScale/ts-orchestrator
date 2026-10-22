@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containerd/containerd/v2/client"
+	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"
 	"github.com/gofrs/flock"
 	"github.com/moby/swarmkit/v2/agent/exec"
@@ -18,8 +18,15 @@ import (
 const portsLabel = "terrascale.ports"
 
 // SwarmKit's inert network allocator leaves generic task ports unallocated;
-// container metadata reserves them locally until the container is removed.
-func (c *controller) reservePorts(ctx context.Context) (string, func(), error) {
+// container metadata reserves them locally. An exited container releases its
+// ports at once: its task never runs again, and SwarmKit retains stopped
+// tasks (and their containers) long after a replacement needs the port.
+//
+// Prepare (starting=false) refuses a port held by another service's live or
+// prepared container; a replacement task of the same service may prepare
+// while its predecessor still serves. Start (starting=true) refuses any live
+// holder, so one port never has two running owners.
+func (c *controller) reservePorts(ctx context.Context, starting bool) (string, func(), error) {
 	var requested []string
 	if c.task.Endpoint != nil {
 		ports := c.task.Endpoint.Ports
@@ -44,59 +51,82 @@ func (c *controller) reservePorts(ctx context.Context) (string, func(), error) {
 		return "", nil, fmt.Errorf("runtime port reservation interrupted")
 	}
 	unlock := func() { _ = lock.Unlock() }
-	containers, err := c.executor.client.Containers(runtimeContext(ctx))
-	if err != nil {
+	if err := c.checkPortHolders(runtimeContext(ctx), requested, starting); err != nil {
 		unlock()
 		return "", nil, err
+	}
+	return encoded, unlock, nil
+}
+
+func (c *controller) checkPortHolders(ctx context.Context, requested []string, starting bool) error {
+	containers, err := c.executor.client.Containers(ctx)
+	if err != nil {
+		return err
 	}
 	for _, container := range containers {
 		if container.ID() == c.id {
 			continue
 		}
-		labels, err := container.Labels(runtimeContext(ctx))
+		labels, err := container.Labels(ctx)
 		if err != nil {
-			unlock()
-			return "", nil, err
+			return err
 		}
 		claimed, known := labels[portsLabel]
 		if !known {
-			unlock()
-			return "", nil, fmt.Errorf("container %s has unknown host-port ownership", container.ID())
+			return fmt.Errorf("container %s has unknown host-port ownership", container.ID())
 		}
-		// A failed task's container lingers until SwarmKit reaps the task; with
-		// its process gone it holds no port and must not block the replacement.
-		if held, err := holdsPorts(ctx, container); err != nil {
-			unlock()
-			return "", nil, err
-		} else if !held {
+		if !slices.ContainsFunc(strings.Split(claimed, ","), func(port string) bool { return slices.Contains(requested, port) }) {
 			continue
 		}
-		for port := range strings.SplitSeq(claimed, ",") {
-			if slices.Contains(requested, port) {
-				unlock()
-				return "", nil, fmt.Errorf("host port %s is reserved by container %s", port, container.ID())
-			}
+		holder, err := portHolderState(ctx, container)
+		if err != nil {
+			return err
+		}
+		if portConflict(holder, labels["terrascale.service"] == c.task.ServiceID, starting) {
+			return fmt.Errorf("host port %s is reserved by container %s", claimed, container.ID())
 		}
 	}
-	return encoded, unlock, nil
+	return nil
 }
 
-// holdsPorts reports whether container may still bind its host ports: it has
-// no task yet (prepared, not started) or its task has not stopped. A task that
-// failed to prepare or start released its claim (releaseFailedPorts).
-func holdsPorts(ctx context.Context, container client.Container) (bool, error) {
-	task, err := container.Task(runtimeContext(ctx), nil)
+type portHolder int
+
+const (
+	holderPrepared portHolder = iota // container without a runtime task
+	holderLive                       // runtime task created, running or paused
+	holderExited
+)
+
+func portHolderState(ctx context.Context, container containerd.Container) (portHolder, error) {
+	task, err := container.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
-		return true, nil
+		return holderPrepared, nil
 	}
 	if err != nil {
-		return false, err
+		return 0, err
 	}
-	status, err := task.Status(runtimeContext(ctx))
+	status, err := task.Status(ctx)
+	if errdefs.IsNotFound(err) {
+		return holderPrepared, nil
+	}
 	if err != nil {
-		return false, err
+		return 0, err
 	}
-	return status.Status != client.Stopped, nil
+	if status.Status == containerd.Stopped {
+		return holderExited, nil
+	}
+	return holderLive, nil
+}
+
+func portConflict(holder portHolder, sameService, starting bool) bool {
+	switch {
+	case holder == holderExited:
+		return false
+	case starting:
+		return holder == holderLive
+	default:
+		return !sameService
+	}
 }
 
 // releaseFailedPorts drops the host-port claim of a task that failed to

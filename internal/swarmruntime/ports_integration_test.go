@@ -60,6 +60,8 @@ func TestContainerdHostPortReservationRecovery(t *testing.T) {
 	}
 	second := first.Copy()
 	second.ID = fmt.Sprintf("portsecond%d", time.Now().UnixNano())
+	// A replacement of the same service may prepare beside its predecessor; another service may not.
+	second.ServiceID = "portintegrationother"
 	conflicting, err := integrationContainerController(e, second)
 	if err != nil {
 		t.Fatal(err)

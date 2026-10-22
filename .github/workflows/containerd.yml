@@ -52,7 +52,7 @@ jobs:
           go test -c -o "$RUNNER_TEMP/swarmruntime.test" ./internal/swarmruntime
           cd internal/swarmruntime
           sudo "$RUNNER_TEMP/swarmruntime.test" -test.v -test.count=1 -test.timeout=10m \
-            -test.run '^(TestContainerdBindMountSurvivesTaskRestart|TestContainerdReadinessUsesServicePath)$' \
+            -test.run '^(TestContainerdBindMountSurvivesTaskRestart|TestContainerdReadinessUsesServicePath|TestContainerdServiceUpdateOnLivePort)$' \
             -containerd-socket /run/ts-containerd/containerd.sock
       - name: Run the single-host operator commands as root
         run: |

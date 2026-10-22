@@ -50,9 +50,9 @@ func TestContainerdImportedImageWithoutRegistryEgress(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = e.Close() })
 	image, marker := importCacheFixture(t, ctx, e.client)
-	unpacked, err := image.IsUnpacked(ctx, "native")
+	unpacked, err := image.IsUnpacked(ctx, imageSnapshotter)
 	if err != nil || unpacked {
-		t.Fatalf("import must leave unique native rootfs unpacked=false: %t, %v", unpacked, err)
+		t.Fatalf("import must leave unique rootfs unpacked=false: %t, %v", unpacked, err)
 	}
 	registry := new(deniedCacheRegistry)
 	admitted, admissions := true, 0
@@ -93,7 +93,7 @@ func TestContainerdImportedImageWithoutRegistryEgress(t *testing.T) {
 	if err := c.Prepare(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if unpacked, err := image.IsUnpacked(ctx, "native"); err != nil || !unpacked {
+	if unpacked, err := image.IsUnpacked(ctx, imageSnapshotter); err != nil || !unpacked {
 		t.Fatalf("Prepare did not unpack imported local content: %t, %v", unpacked, err)
 	}
 	if err := c.Prepare(ctx); err != nil {

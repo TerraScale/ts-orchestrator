@@ -189,6 +189,17 @@
   },
   "modified_upstream_files": [
     {
+      "bytes": 6693,
+      "path": "agent/task.go",
+      "rationale": "Re-run a task operation at once when a manager update cancelled it, instead of the 1 s retry backoff before shutdown.",
+      "sha256": "17da170e6fd8e9871fe50c1a0ad85b7749aa25e6b01a2de1be56679efd710e49",
+      "source_history": [
+        "1668fe358a514d8434e812011d661473d8683261 fix(swarmkit): run a task's update at once when it cancels the current operation"
+      ],
+      "upstream_bytes": 6464,
+      "upstream_sha256": "6b1b7f3467c0ed2cd1d149504eb845353d7a3d88381ce85392951c2846ee419c"
+    },
+    {
       "bytes": 66318,
       "path": "manager/state/raft/raft.go",
       "rationale": "Bind proposal callbacks, follower applies and snapshot restoration to exact committed Raft indices; bound observation WAL replay and reject partial history.",

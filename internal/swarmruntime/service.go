@@ -520,7 +520,7 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	limits := &api.Resources{NanoCPUs: cpu, MemoryBytes: memory, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 10<<30)}}
 	task := api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()},
-		Restart: &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(5 * time.Second)}}
+		Restart: &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(serviceRestartDelay)}}
 	// Refuse at apply what the executor would refuse on every task.
 	if _, err := DecodeContainer(&api.Task{ID: "validation", ServiceID: "validation", Spec: task, ServiceAnnotations: api.Annotations{Labels: labels}}); err != nil {
 		return nil, err
@@ -532,9 +532,79 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		Annotations: api.Annotations{Name: s.Name, Labels: labels},
 		Task:        task,
 		Mode:        &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: s.Replicas}},
-		Update:      &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_STOP_FIRST},
+		Update:      &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(serviceUpdateMonitor), Order: api.UpdateConfig_STOP_FIRST},
 		Endpoint:    &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: []*api.PortConfig{{Protocol: api.ProtocolTCP, TargetPort: s.Port, PublishedPort: s.Port, PublishMode: api.PublishModeHost}}},
 	}, nil
+}
+
+const (
+	// A crash-on-start shows within a few seconds of RUNNING; watching longer
+	// only delays the update's completion and a rollback.
+	serviceUpdateMonitor = 5 * time.Second
+	// A crashed task's port is free once it exits; a cached image restarts in
+	// well under a second, so a longer delay is pure downtime.
+	serviceRestartDelay = time.Second
+	// servicePoll bounds how late `service apply` notices each phase.
+	servicePoll = 100 * time.Millisecond
+	// serviceRollout bounds a cold pull plus start and readiness.
+	serviceRollout = 2 * time.Minute
+)
+
+// ServiceRollout is the elapsed time from submission to each phase.
+type ServiceRollout struct{ Running, Ready time.Duration }
+
+// WaitServiceSpec waits until every replica of the service's current spec is
+// RUNNING and passes probe (when given). A rollback or a paused update is an error.
+func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api.Service, probe func(context.Context, *api.Task) error) (ServiceRollout, error) {
+	ctx, cancel := context.WithTimeout(ctx, serviceRollout)
+	defer cancel()
+	start := time.Now()
+	var rollout ServiceRollout
+	if service.Spec.GetReplicated() == nil {
+		return rollout, errors.New("service rollout requires a replicated service")
+	}
+	replicas := service.Spec.GetReplicated().Replicas
+	for ; ; time.Sleep(servicePoll) {
+		if err := ctx.Err(); err != nil {
+			return rollout, fmt.Errorf("service %s is not ready: %w", service.Spec.Annotations.Name, err)
+		}
+		latest, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
+		if err != nil {
+			return rollout, err
+		}
+		if status := latest.Service.UpdateStatus; !proto.Equal(latest.Service.SpecVersion, service.SpecVersion) ||
+			status != nil && status.State != api.UpdateStatus_UPDATING && status.State != api.UpdateStatus_COMPLETED {
+			message := ""
+			if status != nil {
+				message = status.State.String() + ": " + status.Message
+			}
+			return rollout, fmt.Errorf("service %s update did not complete (%s)", service.Spec.Annotations.Name, message)
+		}
+		listed, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}, DesiredStates: []api.TaskState{api.TaskStateRunning}, UpToDate: true}})
+		if err != nil {
+			return rollout, err
+		}
+		running := make([]*api.Task, 0, len(listed.Tasks))
+		for _, task := range listed.Tasks {
+			if task.Status.State == api.TaskStateRunning {
+				running = append(running, task)
+			}
+		}
+		if uint64(len(running)) != replicas || len(listed.Tasks) != len(running) {
+			continue
+		}
+		if rollout.Running == 0 {
+			rollout.Running = time.Since(start)
+		}
+		ready := true
+		for _, task := range running {
+			ready = ready && (probe == nil || probe(ctx, task) == nil)
+		}
+		if ready {
+			rollout.Ready = time.Since(start)
+			return rollout, nil
+		}
+	}
 }
 
 // ApplyServiceSpec creates the named service or replaces its spec in place.

@@ -183,17 +183,24 @@ func hasFunctionWorkerSlot(resources []*api.GenericResource) bool {
 	return err == nil && slot
 }
 
-func validateContainer(s *api.ContainerSpec) error {
-	if s == nil {
-		return fmt.Errorf("container spec required")
-	}
-	ref, err := reference.ParseNormalizedNamed(s.Image)
+func pinnedImage(image string) error {
+	ref, err := reference.ParseNormalizedNamed(image)
 	if err != nil {
 		return fmt.Errorf("invalid container image: %w", err)
 	}
 	canonical, ok := ref.(reference.Canonical)
 	if !ok || canonical.Digest().Algorithm().String() != "sha256" || canonical.Digest().Validate() != nil {
 		return fmt.Errorf("container image requires a sha256 digest")
+	}
+	return nil
+}
+
+func validateContainer(s *api.ContainerSpec) error {
+	if s == nil {
+		return fmt.Errorf("container spec required")
+	}
+	if err := pinnedImage(s.Image); err != nil {
+		return err
 	}
 	uid, gid, ok := strings.Cut(s.User, ":")
 	u, ue := strconv.ParseUint(uid, 10, 32)

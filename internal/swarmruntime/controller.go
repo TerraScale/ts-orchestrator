@@ -23,6 +23,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/errdefs"
+	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/opencontainers/image-spec/identity"
@@ -82,11 +83,38 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 		}
 	}
 	c.executor.mu.Lock()
-	defer c.executor.mu.Unlock()
 	if c.stateful == nil {
 		c.executor.trackLoadTask(c)
 	}
-	ports, unlock, err := c.reservePorts(ctx)
+	registry := c.executor.registry
+	var node *api.Node
+	if c.executor.node != nil {
+		node = c.executor.node.Copy()
+	}
+	c.executor.mu.Unlock()
+	if registry == nil {
+		registry = publicRegistryResolver
+	}
+	resolved, err := registry(runtimeContext(ctx), c.task.Copy(), node)
+	if err != nil {
+		return fmt.Errorf("resolve admitted container registry: %w", err)
+	}
+	if resolved == nil {
+		return errors.New("registry admission returned no resolver")
+	}
+	// Pull and unpack outside executor.mu so tasks prepare in parallel; the
+	// image record keeps the content, and the locked section re-verifies it.
+	if _, err := c.container(ctx); errdefs.IsNotFound(err) {
+		if err := c.diskAvailable(ctx); err != nil {
+			return err
+		}
+		if err := c.executor.pullImage(ctx, c.spec.Image, resolved); err != nil {
+			return fmt.Errorf("load admitted container image: %w", err)
+		}
+	}
+	c.executor.mu.Lock()
+	defer c.executor.mu.Unlock()
+	ports, unlock, err := c.reservePorts(ctx, false)
 	if err != nil {
 		return err
 	}
@@ -109,37 +137,15 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	if err != nil {
 		return err
 	}
-	resolver := c.executor.registry
-	if resolver == nil {
-		resolver = publicRegistryResolver
-	}
-	var node *api.Node
-	if c.executor.node != nil {
-		node = c.executor.node.Copy()
-	}
-	resolved, err := resolver(ctx, c.task.Copy(), node)
-	if err != nil {
-		return fmt.Errorf("resolve admitted container registry: %w", err)
-	}
-	if resolved == nil {
-		return errors.New("registry admission returned no resolver")
-	}
 	ctr, err := c.container(ctx)
 	if err != nil && !errdefs.IsNotFound(err) {
 		return err
 	}
 	if errdefs.IsNotFound(err) {
-		if c.diskAccounted() {
-			budget, budgetErr := DiskBytes(c.task.Spec.Resources)
-			available, capacityErr := c.executor.diskCapacity(ctx)
-			if budgetErr != nil || capacityErr != nil || available < budget {
-				return errors.Join(ErrDiskPending, budgetErr, capacityErr)
-			}
+		if err := c.diskAvailable(ctx); err != nil {
+			return err
 		}
 		image, err := c.executor.client.GetImage(ctx, c.spec.Image)
-		if errdefs.IsNotFound(err) {
-			image, err = c.executor.client.Pull(ctx, c.spec.Image, containerd.WithResolver(resolved))
-		}
 		if err != nil {
 			return fmt.Errorf("load admitted container image: %w", err)
 		}
@@ -157,14 +163,8 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 		if config.OS != "linux" || config.Architecture != runtime.GOARCH {
 			return fmt.Errorf("container image architecture does not match host")
 		}
-		unpacked, err := image.IsUnpacked(ctx, "native")
-		if err != nil {
-			return fmt.Errorf("check native container image: %w", err)
-		}
-		if !unpacked {
-			if err := image.Unpack(ctx, "native"); err != nil {
-				return fmt.Errorf("unpack native container image: %w", err)
-			}
+		if unpacked, err := image.IsUnpacked(ctx, imageSnapshotter); err != nil || !unpacked {
+			return errors.Join(errors.New("container image is not unpacked"), err)
 		}
 		uid, gid, _ := strings.Cut(c.spec.User, ":")
 		u, _ := strconv.ParseUint(uid, 10, 32)
@@ -220,7 +220,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 			labels["terrascale.task-binding"] = c.fingerprint
 		}
 		ctr, err = c.executor.client.NewContainer(ctx, c.id,
-			containerd.WithSnapshotter("native"),
+			containerd.WithSnapshotter(imageSnapshotter),
 			containerd.WithImage(image), containerd.WithRuntime("io.containerd.runc.v2", nil),
 			containerd.WithContainerLabels(labels),
 			containerd.WithNewSpec(opts...))
@@ -349,6 +349,12 @@ func (c *controller) Start(ctx context.Context) (operationErr error) {
 		if !c.credentialExpiresAt.IsZero() && !c.credentialExpiresAt.After(time.Now()) {
 			return ErrContainerMaterialPending
 		}
+		// The predecessor of a replacement may still be exiting; never start a second port owner.
+		_, unlock, err := c.reservePorts(ctx, true)
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		if err := t.Start(ctx); err != nil {
 			return err
 		}
@@ -473,24 +479,54 @@ func (c *controller) Shutdown(ctx context.Context) (operationErr error) {
 	if status.Status == containerd.Created {
 		return c.Terminate(ctx)
 	}
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	wait, err := t.Wait(waitCtx)
+	wait, err := t.Wait(ctx)
 	if err != nil {
 		return err
 	}
 	if err := t.Kill(ctx, syscall.SIGTERM, containerd.WithKillAll); err != nil && !errdefs.IsNotFound(err) {
 		return err
 	}
+	grace := time.NewTimer(c.stopGrace())
+	defer grace.Stop()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-waitCtx.Done():
-		return c.Terminate(ctx)
 	case status := <-wait:
 		_, _, err := status.Result()
 		return err
+	case <-grace.C:
 	}
+	if err := c.Terminate(ctx); err != nil {
+		return err
+	}
+	// Report SHUTDOWN only once the process is gone, so its replacement can bind the port.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-wait:
+		return nil
+	}
+}
+
+// A replacement waits on this exit, so the default stays short; a spec may ask
+// for more, up to the SIGKILL bound. Stateful tasks always get the full bound.
+const (
+	defaultStopGrace = 5 * time.Second
+	maxStopGrace     = 10 * time.Second
+)
+
+func (c *controller) stopGrace() time.Duration {
+	if c.stateful != nil {
+		return maxStopGrace
+	}
+	if c.spec.StopGracePeriod == nil {
+		return defaultStopGrace
+	}
+	grace, err := gogotypes.DurationFromProto(c.spec.StopGracePeriod)
+	if err != nil || grace <= 0 {
+		return defaultStopGrace
+	}
+	return min(grace, maxStopGrace)
 }
 
 func (c *controller) Terminate(ctx context.Context) error {

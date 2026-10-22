@@ -88,6 +88,8 @@ type Reply struct {
 	Result    string `json:"result,omitempty"`
 	Error     string `json:"error,omitempty"`
 	ElapsedMS int64  `json:"elapsed_ms,omitempty"`
+	// Phases is this region's elapsed time to each rollout phase.
+	Phases string `json:"phases,omitempty"`
 }
 
 type stateReply struct {
@@ -101,8 +103,12 @@ type Applier interface {
 	Apply(ctx context.Context, spec swarmruntime.ServiceSpec) (bool, error)
 	// Remove deletes name; false when it was absent.
 	Remove(ctx context.Context, name string) (bool, error)
-	// Running reports whether every replica of name runs its current spec.
-	Running(ctx context.Context, name string) (bool, error)
+	// PrePull fetches image before Apply, outside the mesh lock, so a
+	// replacement only creates and starts its container.
+	PrePull(ctx context.Context, image string) error
+	// Wait returns once every replica of spec runs it (and answers its ready
+	// path when the spec names one).
+	Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error)
 }
 
 type config struct {
@@ -277,11 +283,26 @@ func (n *Node) handleApply(m *nats.Msg) {
 	reply := Reply{Region: n.cfg.region, Server: n.cfg.server}
 	var request ApplyRequest
 	result, err := "", protocol.DecodeTolerant(m.Data, &request, maxWire)
+	var pulled time.Duration
+	if spec := request.Entry.Spec; err == nil && spec != nil && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
+		// The task's own Prepare still pulls, so a failed pre-pull only costs speed.
+		if pullErr := n.cfg.applier.PrePull(ctx, spec.Image); pullErr != nil {
+			slog.WarnContext(ctx, "mesh pre-pull failed; the task pulls instead", "service", request.Name, "error", pullErr)
+		}
+		pulled = time.Since(start)
+	}
 	if err == nil {
 		result, err = n.apply(ctx, request)
 	}
 	if err == nil && (result == "applied" || result == "unchanged") {
-		err = n.waitRunning(ctx, request.Name)
+		submitted := time.Since(start)
+		var rollout swarmruntime.ServiceRollout
+		if rollout, err = n.cfg.applier.Wait(ctx, *request.Entry.Spec); err == nil {
+			reply.Phases = fmt.Sprintf("pulled %dms, submitted %dms, running %dms", pulled.Milliseconds(), submitted.Milliseconds(), (submitted + rollout.Running).Milliseconds())
+			if rollout.Ready != 0 {
+				reply.Phases += fmt.Sprintf(", ready %dms", (submitted + rollout.Ready).Milliseconds())
+			}
+		}
 	}
 	reply.Result, reply.ElapsedMS = result, time.Since(start).Milliseconds()
 	if err != nil {
@@ -307,23 +328,6 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) 
 		}
 	}
 	return n.reconcile(ctx, request.Name, n.desired[request.Name])
-}
-
-func (n *Node) waitRunning(ctx context.Context, name string) error {
-	for {
-		running, err := n.cfg.applier.Running(ctx, name)
-		if err == nil && running {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			if err != nil {
-				return err
-			}
-			return errors.New("not running before the apply deadline")
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
 }
 
 // reconcile makes the local service match entry; the caller holds n.mu.

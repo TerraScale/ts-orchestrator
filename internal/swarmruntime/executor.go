@@ -16,8 +16,10 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 
 	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/containerd/containerd/v2/core/runtime/v2/logging"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
+	"github.com/containerd/errdefs"
 	"github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/api/genericresource"
@@ -26,6 +28,13 @@ import (
 
 const runtimeNamespace = "terrascale"
 const logSegmentBytes = 1 << 20
+
+// overlayfs shares unpacked layers between images and containers; a native
+// snapshot copies the whole rootfs per layer and per container.
+const imageSnapshotter = "overlayfs"
+
+// HostContainerdSocket is the host containerd a single host executes on.
+const HostContainerdSocket = "/run/containerd/containerd.sock"
 
 // Executor translates upstream SwarmKit tasks directly into containerd objects.
 type Executor struct {
@@ -46,6 +55,7 @@ type Executor struct {
 	loadMu            sync.Mutex
 	loadTasks         map[string]*controller
 	loadSampler       *hostload.Sampler
+	pulls             sync.Map // image reference -> *sync.Mutex
 }
 
 var _ exec.Executor = (*Executor)(nil)
@@ -175,6 +185,62 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 	e.trackLoadTask(controller)
 	e.mu.Unlock()
 	return controller, nil
+}
+
+// PrePull fetches and unpacks a digest-pinned public image ahead of its task,
+// so a later Prepare only creates the container. It is idempotent and safe
+// to run concurrently with Prepare. Admitted registries pull per task only.
+func (e *Executor) PrePull(ctx context.Context, imageRef string) error {
+	if err := pinnedImage(imageRef); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	registry := e.registry
+	var node *api.Node
+	if e.node != nil {
+		node = e.node.Copy()
+	}
+	e.mu.Unlock()
+	if registry == nil {
+		registry = publicRegistryResolver
+	}
+	// Registry authority is per task; a pre-pull presents only the image. A
+	// per-image resolver (single-host GHCR) answers it, a task-admitting one
+	// refuses it and the task pulls in Prepare instead.
+	runtime, err := ContainerRuntime(&api.ContainerSpec{Image: imageRef, User: "65532:65532"})
+	if err != nil {
+		return err
+	}
+	limits := &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 1 << 30, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 1<<30)}}
+	task := &api.Task{ID: "prepull", ServiceID: "prepull", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()}}}
+	resolver, err := registry(runtimeContext(ctx), task, node)
+	if err != nil {
+		return fmt.Errorf("resolve pre-pull registry: %w", err)
+	}
+	if resolver == nil {
+		return errors.New("registry admission returned no resolver")
+	}
+	return e.pullImage(ctx, imageRef, resolver)
+}
+
+// pullImage serialises work per image only; distinct images pull in parallel.
+func (e *Executor) pullImage(ctx context.Context, ref string, resolver remotes.Resolver) error {
+	lock, _ := e.pulls.LoadOrStore(ref, new(sync.Mutex))
+	lock.(*sync.Mutex).Lock()
+	defer lock.(*sync.Mutex).Unlock()
+	ctx = runtimeContext(ctx)
+	image, err := e.client.GetImage(ctx, ref)
+	if errdefs.IsNotFound(err) {
+		_, err = e.client.Pull(ctx, ref, containerd.WithResolver(resolver), containerd.WithPullUnpack, containerd.WithPullSnapshotter(imageSnapshotter))
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	if unpacked, err := image.IsUnpacked(ctx, imageSnapshotter); err != nil || unpacked {
+		return err
+	}
+	return image.Unpack(ctx, imageSnapshotter)
 }
 
 // Close disconnects the agent; shim-owned tasks and logging continue running.

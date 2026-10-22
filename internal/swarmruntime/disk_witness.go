@@ -41,6 +41,19 @@ func (c *controller) diskAccounted() bool {
 	return c.stateful == nil && c.task.ServiceAnnotations.Labels[LabelRole] != FunctionWorkerRole
 }
 
+// diskAvailable refuses a new container while the host cannot hold its whole budget.
+func (c *controller) diskAvailable(ctx context.Context) error {
+	if !c.diskAccounted() {
+		return nil
+	}
+	budget, budgetErr := DiskBytes(c.task.Spec.Resources)
+	available, capacityErr := c.executor.diskCapacity(ctx)
+	if budgetErr != nil || capacityErr != nil || available < budget {
+		return errors.Join(ErrDiskPending, budgetErr, capacityErr)
+	}
+	return nil
+}
+
 func (c *controller) prepareDisk(ctx context.Context, image containerd.Image) (*runtimeDiskWitness, error) {
 	budget, err := DiskBytes(c.task.Spec.Resources)
 	if err != nil {
@@ -227,11 +240,12 @@ func (c *controller) verifyDisk(ctx context.Context, ctr containerd.Container) e
 	if err != nil {
 		return err
 	}
-	if info.Snapshotter != "native" || info.SnapshotKey != c.id || info.Labels[diskBytesLabel] != strconv.FormatInt(witness.DiskBytes, 10) ||
+	// Containers prepared before the overlayfs switch keep their native snapshot.
+	if (info.Snapshotter != imageSnapshotter && info.Snapshotter != "native") || info.SnapshotKey != c.id || info.Labels[diskBytesLabel] != strconv.FormatInt(witness.DiskBytes, 10) ||
 		info.Labels[diskImageBytesLabel] != strconv.FormatInt(witness.ImageBytes, 10) {
 		return ErrDiskPending
 	}
-	snapshot, err := c.executor.client.SnapshotService("native").Stat(ctx, c.id)
+	snapshot, err := c.executor.client.SnapshotService(info.Snapshotter).Stat(ctx, c.id)
 	if err != nil || snapshot.Kind != snapshots.KindActive || snapshot.Parent != witness.SnapshotParent ||
 		snapshot.Labels["terrascale.task"] != c.task.ID || snapshot.Labels["terrascale.spec"] != c.fingerprint {
 		return errors.Join(ErrDiskPending, err)
