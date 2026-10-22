@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
@@ -582,7 +583,7 @@ func TestOriginalFoundationMaterialIAMPeerGroupSDK(t *testing.T) {
 }
 
 func TestOriginalFoundationMaterialIAMPeerGroupHistoryCannotResetSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	f := newOriginalMaterialIAMSDKFixture(t, "")
 	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 		t.Fatal(err)
@@ -1030,7 +1031,7 @@ type originalMaterialIAMV2Wire struct {
 }
 
 func TestOriginalFoundationMaterialIAMV1Compatibility(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
 	reads := newOriginalActorReadsSDKFixture(t, "", 0)
 	if reads.prepared.Grant.OriginalMaterialPublicationIAM == nil {
@@ -1098,7 +1099,7 @@ func TestOriginalFoundationMaterialIAMV1Compatibility(t *testing.T) {
 }
 
 func TestOriginalFoundationMaterialIAMV2Compatibility(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
 	reads := newOriginalActorReadsSDKFixture(t, "", 0)
 	recipes := *reads.prepared.Grant.OriginalMaterialPublicationIAM
@@ -1232,7 +1233,7 @@ func TestOriginalFoundationMaterialIAMSignedContract(t *testing.T) {
 }
 
 func TestOriginalFoundationMaterialIAMRetainedContract(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	f := newOriginalMaterialIAMSDKFixture(t, "")
 	if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 		t.Fatal(err)
@@ -1292,7 +1293,7 @@ func TestOriginalFoundationMaterialIAMRetainedContract(t *testing.T) {
 }
 
 func TestOriginalFoundationMaterialIAMEffectPredecessors(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	for _, fault := range []string{"reservation checkpoint", "receipt checkpoint"} {
 		t.Run(fault, func(t *testing.T) {
 			f := newOriginalMaterialIAMSDKFixture(t, fault)
@@ -1346,7 +1347,7 @@ func TestOriginalFoundationMaterialIAMEffectPredecessors(t *testing.T) {
 }
 
 func TestOriginalFoundationMaterialIAMRequiresOwningLease(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	if err := provisionOriginalFoundationMaterialIAM(t.Context(), nil); err == nil {
 		t.Fatal("nil original operator acquired material IAM")
 	}

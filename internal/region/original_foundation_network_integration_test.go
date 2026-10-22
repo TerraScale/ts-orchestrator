@@ -20,6 +20,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -580,7 +581,7 @@ func (f *originalNetworkSDKFixture) assertNetworkState(t *testing.T, complete bo
 }
 
 func TestOriginalFoundationNetworkSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	tier.Integration(t)
 	t.Run("eighteen exact private creates and three acknowledged rule sends", func(t *testing.T) {
 		f := newOriginalNetworkSDKFixture(t, "")
 		if err := f.run(t); err != nil {
