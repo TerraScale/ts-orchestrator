@@ -2,8 +2,6 @@ package region
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -16,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/drainwire"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
@@ -57,22 +56,8 @@ type FoundationIntent struct {
 
 // FoundationIntentDigest binds every signed authority field to its generation.
 func FoundationIntentDigest(intent FoundationIntent) (string, error) {
-	wire, err := json.Marshal(intent, json.Deterministic(true))
-	if err != nil {
-		return "", err
-	}
-	// Independent verifiers read the signed JSON as objects, so normalize struct
-	// field order to the same recursively sorted representation before hashing.
-	var object map[string]any
-	if err := json.Unmarshal(wire, &object); err != nil {
-		return "", err
-	}
-	wire, err = json.Marshal(object, json.Deterministic(true))
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(wire)
-	return hex.EncodeToString(sum[:]), nil
+	// Independent verifiers read the signed JSON as objects.
+	return foundationbinding.CanonicalDigest(intent)
 }
 
 // FoundationAuthority is the existing scoped foundation authority. HomeWrite

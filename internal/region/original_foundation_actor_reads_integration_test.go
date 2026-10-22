@@ -555,8 +555,7 @@ func (f *originalActorReadsSDKFixture) assertReadsState(t *testing.T) {
 	}
 }
 
-func TestOriginalFoundationActorReadsSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes with the shared fixture but takes 737s alone and 1019s beside 5 jobs without -race at GOMAXPROCS=2 -cpu 2; each of its ~115 subtests replays the actor chain")
+func testOriginalFoundationActorReadsSDK(t *testing.T, part *originalSubtestPart) {
 	tier.Integration(t)
 	shared := newOriginalActorReadsSDKFixture(t, "", 0)
 	// Every subtest starts after the genuine actor stage it does not exercise.
@@ -571,7 +570,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		return shared
 	}
 	// Sequential: inherited fixtures own the process transport and signed roots.
-	t.Run("three finite exact READ policies retain downstream HOLD and replay GET only", func(t *testing.T) {
+	part.run(t, "three finite exact READ policies retain downstream HOLD and replay GET only", func(t *testing.T) {
 		f := sharedFixture(t, "", 0)
 		if err := f.run(t); err != nil {
 			network, rules := f.effects()
@@ -613,10 +612,10 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		t.Logf("public canonical bundle sha256=%s bytes=%d gzip_bytes=%d gzip_base64_bytes=%d", preparationDigest(f.publicBundle), len(f.publicBundle), compressed.Len(), base64.StdEncoding.EncodedLen(compressed.Len()))
 	})
 
-	t.Run("durable reservations actual IDs and readbacks bound recovery", func(t *testing.T) {
+	part.run(t, "durable reservations actual IDs and readbacks bound recovery", func(t *testing.T) {
 		for slot := range 3 {
 			for _, fault := range []string{"scope checkpoint", "reservation checkpoint", "stale lease", "unknown create", "lost create response", "response before CAS", "lost accepted checkpoint", "readback checkpoint", "lost readback checkpoint", "throttle", "timeout"} {
-				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
+				part.run(t, fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
 					f := sharedFixture(t, fault, slot)
 					if err := f.run(t); err == nil {
 						t.Fatal("interrupted READ operation reached downstream completion HOLD")
@@ -676,7 +675,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("genuine historical unknown policy exceeds23h without replacement", func(t *testing.T) {
+	part.run(t, "genuine historical unknown policy exceeds23h without replacement", func(t *testing.T) {
 		f := newOriginalActorReadsSDKFixture(t, "unknown create", 0)
 		f.bundle = signHistoricalOriginalCompartmentBundle(t, f.foundationProvisionFixture)
 		f.cloud.bundle = f.bundle.clone()
@@ -759,13 +758,13 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("definite refusal and invalid actual IDs retain permanent HOLD", func(t *testing.T) {
+	part.run(t, "definite refusal and invalid actual IDs retain permanent HOLD", func(t *testing.T) {
 		for slot := range 3 {
 			for _, fault := range []string{"conflict", "bad request", "empty ID", "wrong kind ID", "duplicate ID"} {
 				if slot == 0 && fault == "duplicate ID" {
 					continue
 				}
-				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
+				part.run(t, fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
 					f := sharedFixture(t, fault, slot)
 					if err := f.run(t); err == nil {
 						t.Fatal("invalid/refused original policy acquired accepted readback")
@@ -792,9 +791,9 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("known IDs never adopt repair or recreate conflicting policies", func(t *testing.T) {
+	part.run(t, "known IDs never adopt repair or recreate conflicting policies", func(t *testing.T) {
 		for _, fault := range []string{"policy missing", "policy pending", "policy identity", "policy compartment", "policy name", "policy description", "policy extra statement", "policy object write", "policy tags", "policy defined tags"} {
-			t.Run(fault, func(t *testing.T) {
+			part.run(t, fault, func(t *testing.T) {
 				f := sharedFixture(t, fault, 0)
 				if err := f.run(t); err == nil {
 					t.Fatal("conflicting/missing exact GetPolicy accepted original public READ")
@@ -811,9 +810,9 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("exact document bucket and current physical identity precede any READ reservation", func(t *testing.T) {
+	part.run(t, "exact document bucket and current physical identity precede any READ reservation", func(t *testing.T) {
 		for _, fault := range []string{"namespace", "bucket identity", "bucket compartment", "bucket KMS", "bucket namespace", "bucket name", "document missing", "document bytes", "document oversized"} {
-			t.Run(fault, func(t *testing.T) {
+			part.run(t, fault, func(t *testing.T) {
 				f := sharedFixture(t, fault, 0)
 				if err := f.run(t); err == nil || len(f.readDispatches()) != 0 || f.cloud.creates != 30 {
 					t.Fatal("foreign/missing public original storage acquired policy creation")
@@ -826,7 +825,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 			})
 		}
 		for _, actorFault := range []string{"instance identity", "instance image", "instance missing", "VNIC public", "boot image"} {
-			t.Run(actorFault, func(t *testing.T) {
+			part.run(t, actorFault, func(t *testing.T) {
 				f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
 				if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 					t.Fatal("current physical refusal setup did not stop before READ scope retention")
@@ -844,9 +843,9 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("changed original authority cannot acquire public READ effects", func(t *testing.T) {
+	part.run(t, "changed original authority cannot acquire public READ effects", func(t *testing.T) {
 		for _, fault := range []string{"wrong user", "wrong tenancy", "expired original", "corrupt original"} {
-			t.Run(fault, func(t *testing.T) {
+			part.run(t, fault, func(t *testing.T) {
 				f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
 				if err := f.run(t); err == nil || len(f.readDispatches()) != 0 || f.cloud.creates != 30 {
 					t.Fatal("authority control lacks complete genuine actors before READ scopes")
@@ -881,7 +880,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("protected CAS retains every original READ binding and effect", func(t *testing.T) {
+	part.run(t, "protected CAS retains every original READ binding and effect", func(t *testing.T) {
 		f := sharedFixture(t, "", 0)
 		if err := f.run(t); err != nil {
 			t.Fatal(err)
@@ -915,7 +914,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 			"readback":      func(e *OriginalFoundationActorReads) { e.ReadbackSHA256 = strings.Repeat("a", 64) },
 			"verified time": func(e *OriginalFoundationActorReads) { e.VerifiedAt = e.VerifiedAt.Add(-time.Second) },
 		} {
-			t.Run(name, func(t *testing.T) {
+			part.run(t, name, func(t *testing.T) {
 				record, etag, err := store.Load(t.Context(), "GRU")
 				if err != nil {
 					t.Fatal(err)
@@ -927,7 +926,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 			})
 		}
 		for _, erase := range []string{"one scope", "all scopes", "all upstream"} {
-			t.Run(erase, func(t *testing.T) {
+			part.run(t, erase, func(t *testing.T) {
 				record, etag, err := store.Load(t.Context(), "GRU")
 				if err != nil {
 					t.Fatal(err)
@@ -949,7 +948,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("direct component requires the same live HomeWrite and rejects incomplete actors", func(t *testing.T) {
+	part.run(t, "direct component requires the same live HomeWrite and rejects incomplete actors", func(t *testing.T) {
 		f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
 		if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 			t.Fatal("lease test setup did not reach all-three actual actors before READ reservation")
@@ -1025,7 +1024,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("full signed public selection rejects missing duplicate or foreign origins", func(t *testing.T) {
+	part.run(t, "full signed public selection rejects missing duplicate or foreign origins", func(t *testing.T) {
 		f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
 		if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 			t.Fatal("selection controls lack genuine complete actors")
@@ -1074,7 +1073,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 				}
 			},
 		} {
-			t.Run(name, func(t *testing.T) {
+			part.run(t, name, func(t *testing.T) {
 				wire, err := json.Marshal(f.prepared.Grant)
 				if err != nil {
 					t.Fatal(err)
@@ -1099,4 +1098,48 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestOriginalFoundationActorReadsSDKPart1(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(1, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects", "protected CAS retains every original READ binding and effect", "full signed public selection rejects missing duplicate or foreign origins"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart2(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(2, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects", "protected CAS retains every original READ binding and effect", "full signed public selection rejects missing duplicate or foreign origins"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart3(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(3, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects", "protected CAS retains every original READ binding and effect", "full signed public selection rejects missing duplicate or foreign origins"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart4(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(4, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects", "protected CAS retains every original READ binding and effect", "full signed public selection rejects missing duplicate or foreign origins"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart5(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(5, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects", "protected CAS retains every original READ binding and effect", "full signed public selection rejects missing duplicate or foreign origins"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart6(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(6, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects", "protected CAS retains every original READ binding and effect", "full signed public selection rejects missing duplicate or foreign origins"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart7(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(7, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects", "protected CAS retains every original READ binding and effect", "full signed public selection rejects missing duplicate or foreign origins"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart8(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(8, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects", "protected CAS retains every original READ binding and effect", "full signed public selection rejects missing duplicate or foreign origins"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart9(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(9, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects", "protected CAS retains every original READ binding and effect", "full signed public selection rejects missing duplicate or foreign origins"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart10(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(10, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects", "protected CAS retains every original READ binding and effect", "full signed public selection rejects missing duplicate or foreign origins"))
+}
+
+func TestOriginalFoundationActorReadsSDKPart11(t *testing.T) {
+	testOriginalFoundationActorReadsSDK(t, newOriginalSubtestPart(11, 11, "durable reservations actual IDs and readbacks bound recovery", "definite refusal and invalid actual IDs retain permanent HOLD", "known IDs never adopt repair or recreate conflicting policies", "exact document bucket and current physical identity precede any READ reservation", "changed original authority cannot acquire public READ effects", "protected CAS retains every original READ binding and effect", "full signed public selection rejects missing duplicate or foreign origins"))
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -77,12 +78,12 @@ func originalAdmissionReadRecipeVersion(version string, purpose OriginalSourcePr
 	if version != originalAdmissionReadPurpose && version != originalAdmissionReadPurposeV2 {
 		return OriginalActorAdmissionReadIntent{}, ErrOriginalSourceProducerHold
 	}
-	wire, err := json.Marshal(purpose, json.Deterministic(true))
+	producerDigest, err := foundationbinding.CanonicalDigest(purpose)
 	if err != nil || purpose.Home.Validate() != nil || purpose.JournalObject != foundationObjectPrefix+"GRU.json" || network == "" {
 		return OriginalActorAdmissionReadIntent{}, errors.Join(ErrOriginalSourceProducerHold, err)
 	}
 	return OriginalActorAdmissionReadIntent{Purpose: version, Cell: purpose.Cell, OCIRegion: purpose.OCIRegion,
-		TenancyID: purpose.TenancyID, InstallationID: purpose.InstallationID, ProducerIntentSHA256: digestSource(wire),
+		TenancyID: purpose.TenancyID, InstallationID: purpose.InstallationID, ProducerIntentSHA256: producerDigest,
 		ActorOperationID: purpose.OperationID, ActorRecipeSHA256: purpose.Allocation.RecipeSHA256, Home: purpose.Home,
 		Objects:            [3]string{purpose.JournalObject, foundationRootChainObject, strings.TrimSuffix(purpose.Home.Prefix, "/") + "/" + foundationGrantObject},
 		ControlCompartment: purpose.Profile.CompartmentOCID, NetworkCompartment: network,
