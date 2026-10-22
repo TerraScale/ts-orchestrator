@@ -81,7 +81,7 @@ func originalMaterialIAMRecipe(version string, purpose OriginalSourceProducerInt
 	default:
 		return recipe, ErrOriginalSourceProducerHold
 	}
-	wire, err := json.Marshal(purpose, json.Deterministic(true))
+	producerDigest, err := foundationbinding.CanonicalDigest(purpose)
 	plan, configErr := json.Marshal(config, json.Deterministic(true))
 	names, namesErr := bootstrapmaterial.OriginalPublicationSecretNames(config)
 	if err != nil || configErr != nil || namesErr != nil || len(names) != 33 || purpose.Home.Validate() != nil || purpose.PlanSHA256 != digestSource(plan) ||
@@ -90,7 +90,7 @@ func originalMaterialIAMRecipe(version string, purpose OriginalSourceProducerInt
 		return recipe, ErrOriginalSourceProducerHold
 	}
 	recipe = OriginalMaterialPublicationIAMIntent{Purpose: version, Cell: purpose.Cell, OCIRegion: purpose.OCIRegion,
-		TenancyID: purpose.TenancyID, InstallationID: purpose.InstallationID, ProducerIntentSHA256: digestSource(wire),
+		TenancyID: purpose.TenancyID, InstallationID: purpose.InstallationID, ProducerIntentSHA256: producerDigest,
 		PlanSHA256: purpose.PlanSHA256, AdmissionAuthorizationSHA256: purpose.AdmissionAuthorizationSHA256,
 		ActorOperationID: purpose.OperationID, ActorRecipeSHA256: purpose.Allocation.RecipeSHA256,
 		ControlCompartment: control, Vault: vault, Key: key, SecretNames: names, Operations: originalMaterialIAMOperations(), PolicyRead: policyRead}

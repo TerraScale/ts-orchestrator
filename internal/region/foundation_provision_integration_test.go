@@ -33,6 +33,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -855,25 +856,25 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 			}
 		},
 		"producer digest in config": func(grant *FoundationGrant) {
-			wire, err := json.Marshal(grant.Regions[0].BootstrapMaterial.OriginalSourceProducer, json.Deterministic(true))
+			producerDigest, err := foundationbinding.CanonicalDigest(grant.Regions[0].BootstrapMaterial.OriginalSourceProducer)
 			if err != nil {
 				t.Fatal(err)
 			}
-			grant.Regions[0].BootstrapMaterial.PlanSHA256 = preparationDigest(wire)
+			grant.Regions[0].BootstrapMaterial.PlanSHA256 = producerDigest
 		},
 		"producer digest in source registration": func(grant *FoundationGrant) {
-			wire, err := json.Marshal(grant.Regions[0].BootstrapMaterial.OriginalSourceProducer, json.Deterministic(true))
+			producerDigest, err := foundationbinding.CanonicalDigest(grant.Regions[0].BootstrapMaterial.OriginalSourceProducer)
 			if err != nil {
 				t.Fatal(err)
 			}
-			grant.Regions[0].BootstrapMaterial.SourceRegistration.PlanSHA256 = preparationDigest(wire)
+			grant.Regions[0].BootstrapMaterial.SourceRegistration.PlanSHA256 = producerDigest
 		},
 		"producer digest in attestor": func(grant *FoundationGrant) {
-			wire, err := json.Marshal(grant.Regions[0].BootstrapMaterial.OriginalSourceProducer, json.Deterministic(true))
+			producerDigest, err := foundationbinding.CanonicalDigest(grant.Regions[0].BootstrapMaterial.OriginalSourceProducer)
 			if err != nil {
 				t.Fatal(err)
 			}
-			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.SourceRegistrationSHA256 = preparationDigest(wire)
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.SourceRegistrationSHA256 = producerDigest
 		},
 		"missing producer purpose": func(grant *FoundationGrant) { grant.Regions[0].BootstrapMaterial.OriginalSourceProducer = nil },
 		"foreign producer user": func(grant *FoundationGrant) {
@@ -1047,11 +1048,11 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 			// Rehashing a modified scope cannot replace its immutable original.
 			if record.OriginalSourceProducers != nil {
 				for index := range record.OriginalSourceProducers {
-					wire, err := json.Marshal(record.OriginalSourceProducers[index].Intent, json.Deterministic(true))
+					intentDigest, err := foundationbinding.CanonicalDigest(record.OriginalSourceProducers[index].Intent)
 					if err != nil {
 						t.Fatal(err)
 					}
-					record.OriginalSourceProducers[index].IntentSHA256 = preparationDigest(wire)
+					record.OriginalSourceProducers[index].IntentSHA256 = intentDigest
 				}
 			}
 			if _, err := store.CompareAndSwap(t.Context(), record, etag); err == nil {

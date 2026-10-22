@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -306,11 +307,11 @@ func (operator *foundationOperator) originalSourceProducerBirthFromPreparedGrant
 			if intent.OriginalUserID != operator.id || intent.TenancyID != operator.bundle.TenancyID || intent.Home != operator.domain {
 				return births, ErrOriginalSourceProducerHold
 			}
-			wire, err := json.Marshal(intent, json.Deterministic(true))
+			intentDigest, err := foundationbinding.CanonicalDigest(intent)
 			if err != nil {
 				return births, err
 			}
-			births[index] = OriginalSourceProducerBirth{Intent: intent, IntentSHA256: preparationDigest(wire), OriginalGrantSHA256: preparationDigest(operator.bundle.GrantWire),
+			births[index] = OriginalSourceProducerBirth{Intent: intent, IntentSHA256: intentDigest, OriginalGrantSHA256: preparationDigest(operator.bundle.GrantWire),
 				OriginalBundleSHA256: preparationDigest(bundleWire), OriginalGRUIntentSHA256: homeDigest, OriginalGeneration: homeIntent.Generation,
 				OriginalOperationID: entityid.Derive("regional-foundation", grant.TenancyID, "GRU", fmt.Sprint(homeIntent.Generation)),
 				HeadBucketID:        operator.buckets["head_bucket"], LedgerBucketID: operator.buckets["ledger_bucket"], OriginObjects: origins}
@@ -331,8 +332,8 @@ func (r FoundationRecord) validateOriginalSourceProducers() error {
 	}
 	for index, birth := range r.OriginalSourceProducers {
 		intent := birth.Intent
-		wire, err := json.Marshal(intent, json.Deterministic(true))
-		if err != nil || birth.IntentSHA256 != preparationDigest(wire) || intent.Purpose != originalSourceProducerPurpose || intent.Cell != [3]string{"GRU", "SJC", "FRA"}[index] ||
+		intentDigest, err := foundationbinding.CanonicalDigest(intent)
+		if err != nil || birth.IntentSHA256 != intentDigest || intent.Purpose != originalSourceProducerPurpose || intent.Cell != [3]string{"GRU", "SJC", "FRA"}[index] ||
 			intent.TenancyID != r.TenancyID || intent.Generation != birth.OriginalGeneration || intent.OriginalUserID != r.NetBirdMaterial.Authority.Context.ProducerUserID ||
 			intent.InstallationID != r.NetBirdMaterial.Authority.Context.InstallationID || intent.Home.Validate() != nil || intent.Escrow != r.NetBirdMaterial.Authority.Context.Target ||
 			birth.OriginalGrantSHA256 != r.NetBirdMaterial.OriginalGrantSHA256 || birth.OriginalBundleSHA256 != r.NetBirdMaterial.OriginalBundleSHA256 ||

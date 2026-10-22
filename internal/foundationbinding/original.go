@@ -484,11 +484,30 @@ func originalNumber(parent map[string]any, key string) float64 {
 	return v
 }
 func originalDigest(value any) string {
-	wire, err := json.Marshal(value, json.Deterministic(true))
+	sum, err := CanonicalDigest(value)
 	if err != nil {
 		return ""
 	}
-	return digest(wire)
+	return sum
+}
+
+// CanonicalDigest is the one original-protocol digest: SHA-256 of the sorted-key
+// JSON of the decoded value. A verifier recomputes it from the signed wire alone,
+// without knowing Go struct field order.
+func CanonicalDigest(value any) (string, error) {
+	wire, err := json.Marshal(value, json.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
+	var decoded any
+	if err := json.Unmarshal(wire, &decoded); err != nil {
+		return "", err
+	}
+	wire, err = json.Marshal(decoded, json.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
+	return digest(wire), nil
 }
 
 // Resolve checks only the finite IDs returned by independent verification.
