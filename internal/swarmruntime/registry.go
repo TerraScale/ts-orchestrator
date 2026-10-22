@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -92,6 +93,9 @@ const ghcrHost = "ghcr.io"
 // ghcrUser owns the GHCR pull PAT; GHCR accepts any username with a PAT.
 const ghcrUser = "MarioGK"
 
+// ghcrBlobHost serves GHCR layer blobs: blob GETs answer 307 to it.
+const ghcrBlobHost = "pkg-containers.githubusercontent.com"
+
 // GHCRResolver authenticates ghcr.io pulls with the token read at pull time
 // (in memory, once per pull); every other registry stays anonymous.
 func GHCRResolver(token func(context.Context) (string, error)) RegistryResolver {
@@ -114,7 +118,7 @@ func ghcrResolver(token func(context.Context) (string, error), transport http.Ro
 			}
 			value, err := read()
 			return ghcrUser, value, err
-		}, transport), nil
+		}, transport, ghcrBlobHost), nil
 	}
 }
 
@@ -126,12 +130,19 @@ func publicRegistryResolver(_ context.Context, task *api.Task, _ *api.Node) (rem
 	return &boundRegistryResolver{Resolver: docker.NewResolver(docker.ResolverOptions{}), image: spec.Image}, nil
 }
 
-func privateRegistryResolver(image, host string, credentials func(string) (string, string, error), transport http.RoundTripper) remotes.Resolver {
+// blobHosts are the only hosts a pull may be redirected to (a registry's blob
+// CDN); credentials never reach them.
+func privateRegistryResolver(image, host string, credentials func(string) (string, string, error), transport http.RoundTripper, blobHosts ...string) remotes.Resolver {
 	if transport == nil {
 		transport = &http.Transport{DisableKeepAlives: true, TLSHandshakeTimeout: 10 * time.Second}
 	}
-	client := &http.Client{Transport: registryTransport{host: host, base: transport}, Timeout: 30 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: registryTransport{host: host, blobHosts: blobHosts, base: transport}, Timeout: 30 * time.Second,
+		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+			if len(via) > 3 || !slices.Contains(blobHosts, request.URL.Host) {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		}}
 	authorizer := docker.NewDockerAuthorizer(docker.WithAuthClient(client), docker.WithAuthCreds(credentials))
 	resolver := docker.NewResolver(docker.ResolverOptions{Hosts: func(requested string) ([]docker.RegistryHost, error) {
 		if requested != host {
@@ -144,13 +155,18 @@ func privateRegistryResolver(image, host string, credentials func(string) (strin
 }
 
 type registryTransport struct {
-	host string
-	base http.RoundTripper
+	host      string
+	blobHosts []string
+	base      http.RoundTripper
 }
 
 func (t registryTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	if request.URL.Scheme != "https" || request.URL.Host != t.host || request.URL.User != nil {
+	blob := slices.Contains(t.blobHosts, request.URL.Host)
+	if request.URL.Scheme != "https" || request.URL.Host != t.host && !blob || request.URL.User != nil {
 		return nil, errors.New("registry authentication endpoint differs from admitted host")
+	}
+	if blob && request.Header.Get("Authorization") != "" {
+		return nil, errors.New("registry credentials must not reach the blob host")
 	}
 	return t.base.RoundTrip(request)
 }

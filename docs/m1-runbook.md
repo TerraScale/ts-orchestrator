@@ -379,3 +379,57 @@ probes every 50 ms from ts-sjc-1 through the public HTTPS edge):
 |---|---|---|---|---|
 | before #111 | 6 | 92, 25 failed (502) | 19, 4 failed (502) | 0.5-0.9 s |
 | with #111 | 20 | 134, 0 failed | 45, 0 failed | 0.62 / 0.93 / 1.85 s (min / median / max) |
+## Go-live proof: TerraBase, ts-auth, ts-dashboard (W12, 2026-10-22)
+
+Host ts-gru-1 (163.176.124.12), ts-orch `b6a7f25dd` (main + this PR), specs
+`deploy/m1/services/{terrabase,ts-auth,ts-dashboard}.json` applied in that
+order with `ts-orch service apply -f`. Images pull from private GHCR with
+`gru-1-ghcr-pull-token` (Vault, instance principal). Secrets reach the tasks
+as `*_FILE` from `gru-vault`.
+
+DNS (Cloudflare `terrascale.tech`, DNS-only, TTL auto), all -> 163.176.124.12:
+
+| Name | Record ID | Change |
+|---|---|---|
+| `api` | `ca6cb548d99346fc4e5fef10b492069a` | A edited from the retired host 66.241.125.72; its AAAA `f57a336c…` deleted |
+| `auth` | `0009eae684d826ac79981d4c54fb1ad5` | A created; the retired host's CNAME `20631e8b…` deleted |
+| `dash` | `31e6166055f63ecd292b7d16ad8690d1` | A edited from the retired host 66.241.124.105; its AAAA `d55f47bb…` deleted |
+| `netbird` | `a795b0e0754299b95fab9d7426e2938e` | A created |
+| `whoami` | `0685c40e1acd61687aaf893ec3755d6f` | A created (multi-layer image test) |
+
+Milestone 1 Done rows:
+
+| # | Check | Result |
+|---|---|---|
+| 1 | `curl -fsS https://api.terrascale.tech/readyz` | 200 `{"status":"ready","revision":"e7fa366d…","region":"local"}` |
+| 2 | `curl -fsS https://auth.terrascale.tech/healthz` | 200 |
+| 3 | `curl -fsS https://dash.terrascale.tech/readyz` | 200 `ok` |
+| 4 | OIDC issuer | `https://auth.terrascale.tech/terrascale` |
+| 5 | `sudo ts-orch service ls` | terrabase, ts-auth, ts-dashboard `1/1 running`, `ghcr.io/terrascale/<svc>@sha256:1d91e807…`, `@sha256:d30a0d70…`, `@sha256:5c011ba3…` |
+| 6 | Email-code sign-in as mariogk@terrascale.tech on dash | code mailed, verify 303 + `ts-dashboard-session`, `/api/v1/auth/me` email matches, onboarding (Free plan, project "M1 proof") -> Overview 200, orgs TerraScale + Personal, project listed |
+| 7 | `systemctl restart ts-orch`, 60 s; then a VM reboot | rows 1-3 200 and dashboard data identical both times; after the reboot all 200 in ~7 min (13:39:14 -> 13:46:26 UTC) |
+| 8 | `dig +short api auth dash` | 163.176.124.12 each, no AAAA |
+
+Sign-in proof: `~/.local/state/w12-proof/src/w12_signin.py` on mariogk-dev
+(read-only IMAP, mailbox password on stdin only; prints statuses, never codes).
+Codes are limited to 5 per hour per email with a 60 s cooldown; the script
+keeps the session (0600) so reruns need no new code.
+
+Found and fixed on the way (this PR and #25): ghcr.io pulls (token name
+`<cell>-1-`, blob redirect to `pkg-containers.githubusercontent.com`), canceled
+long pulls failing as fatal, a private `/tmp` for the .NET single-file
+services, and a port claim deleted by an empty containerd label. After a
+reboot ts-dashboard (and netbird-server) start before their dependencies and
+wedge without listening; the proof build restarted them with a 5 min liveness
+check (the ~7 min). #97's `awaitReady` replaces it: a task that is not ready
+in time is stopped gracefully and restarted.
+
+Open:
+- TerraBase names its region `local` outside a cluster, so onboarding accepts only
+  `LOCAL`; project "M1 proof" is homed there. terrascale #349 (`TS_REGION`
+  from ts-orch) fixes the name; re-home or recreate the project after it.
+- `dotnet TerraScale.Dashboard.dll audit-stripe` (run in the task with
+  `ctr -n terrascale t exec`): mode test, webhook endpoint, events and
+  `webhook_api_version` (`2026-09-30.endive`) pass; the six published prices
+  and the billing-portal configuration are missing in the Stripe account.
+- ts-dashboard should exit when host start fails instead of hanging.

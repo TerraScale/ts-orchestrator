@@ -95,7 +95,8 @@ func (c *controller) checkPortHolders(ctx context.Context, requested []string, s
 	return nil
 }
 
-// releasedPorts marks a failed task's container as claiming no host port.
+// releasedPorts is the claim of a container that holds no host port (created
+// without ports, or a failed task's). Never "": containerd deletes such a label.
 const releasedPorts = "released"
 
 type portHolder int
@@ -143,7 +144,7 @@ func portConflict(holder portHolder, sameService, starting bool) bool {
 // would otherwise block every replacement.
 func (c *controller) releaseFailedPorts(ctx context.Context, err error) {
 	// Stateful tasks fence their runtime separately; never touch their claim.
-	if err == nil || c.stateful != nil || errors.Is(err, exec.ErrTaskStarted) || errors.Is(err, exec.ErrTaskPrepared) || exec.IsTemporary(err) {
+	if err == nil || c.stateful != nil || errors.Is(err, exec.ErrTaskStarted) || errors.Is(err, exec.ErrTaskPrepared) || exec.IsTemporary(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return
 	}
 	ctx = runtimeContext(context.WithoutCancel(ctx))

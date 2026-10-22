@@ -1,6 +1,7 @@
 package swarmruntime
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -77,6 +78,7 @@ func (c *controller) container(ctx context.Context) (containerd.Container, error
 func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStatePreparing, operationErr) }()
 	defer func() { c.releaseFailedPorts(ctx, operationErr) }()
+	defer func() { operationErr = canceledAsRetry(ctx, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -190,6 +192,10 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 			oci.WithCPUCFS(limits.NanoCPUs/10_000, 100_000),
 			// Host netns, so the host's resolvers (including the 127.0.0.53 stub) are reachable as-is.
 			oci.WithHostNamespace(runtimespec.NetworkNamespace), oci.WithHostResolvconf, oci.WithHostHostsFile,
+			// The root is read-only; runtimes such as .NET single-file apps need a scratch
+			// directory. tmpfs pages count against the task's own memory limit.
+			oci.WithMounts([]runtimespec.Mount{{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs",
+				Options: []string{"nosuid", "nodev", "mode=1777", "size=1g"}}}),
 		}
 		if len(c.spec.Command) != 0 {
 			opts = append(opts, oci.WithProcessArgs(append(slices.Clone(c.spec.Command), c.spec.Args...)...))
@@ -206,7 +212,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 		if len(dataMounts) != 0 {
 			opts = append(opts, oci.WithMounts(dataMounts))
 		}
-		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports, credentialExpiryLabel: c.credentialExpiryLabel()}
+		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: cmp.Or(ports, releasedPorts), credentialExpiryLabel: c.credentialExpiryLabel()}
 		if c.diskAccounted() {
 			witness, err := c.prepareDisk(ctx, image)
 			if err != nil {
@@ -280,6 +286,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 func (c *controller) Start(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStateStarting, operationErr) }()
 	defer func() { c.releaseFailedPorts(ctx, operationErr) }()
+	defer func() { operationErr = canceledAsRetry(ctx, operationErr) }()
 	if err := c.start(ctx); err != nil {
 		return err
 	}
@@ -746,4 +753,14 @@ func (c *controller) Logs(ctx context.Context, publisher exec.LogPublisher, opti
 		}
 	}
 	return nil
+}
+
+// canceledAsRetry returns the bare context error when the agent canceled the
+// operation (it does on every task update). SwarmKit retries only an unwrapped
+// context.Canceled; a wrapped one failed every long image pull as fatal.
+func canceledAsRetry(ctx context.Context, err error) error {
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
 }
