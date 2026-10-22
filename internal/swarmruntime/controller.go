@@ -77,6 +77,7 @@ func (c *controller) container(ctx context.Context) (containerd.Container, error
 func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStatePreparing, operationErr) }()
 	defer func() { c.releaseFailedPorts(ctx, operationErr) }()
+	defer func() { operationErr = canceledAsRetry(ctx, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -280,6 +281,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 func (c *controller) Start(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStateStarting, operationErr) }()
 	defer func() { c.releaseFailedPorts(ctx, operationErr) }()
+	defer func() { operationErr = canceledAsRetry(ctx, operationErr) }()
 	if err := c.start(ctx); err != nil {
 		return err
 	}
@@ -746,4 +748,14 @@ func (c *controller) Logs(ctx context.Context, publisher exec.LogPublisher, opti
 		}
 	}
 	return nil
+}
+
+// canceledAsRetry returns the bare context error when the agent canceled the
+// operation (it does on every task update). SwarmKit retries only an unwrapped
+// context.Canceled; a wrapped one failed every long image pull as fatal.
+func canceledAsRetry(ctx context.Context, err error) error {
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
 }
