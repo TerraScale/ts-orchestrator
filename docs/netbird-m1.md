@@ -94,7 +94,7 @@ deleted at first start.
 
 | Host | OS | How it is enrolled |
 |---|---|---|
-| ts-gru-1 | Ubuntu 24.04 arm64 | `ts-orch netbird server` runs `netbird up` with `gru-1-netbird-setup-key` on stdin |
+| ts-gru-1, ts-sjc-1, ts-fra-1 | Ubuntu 24.04 arm64 | `ts-orch netbird server` (unit on every M1 host) installs the pinned client and runs `netbird up` with `gru-1-netbird-setup-key` on stdin; only the host declaring the `netbird-server` service also runs the server side |
 | delta, mariogk-dev, beta | NixOS | Homelab fleet module `services.netbird.clients.terrascale` with `gru-1-netbird-operators-setup-key` |
 | operator PC | any | the one command below |
 
