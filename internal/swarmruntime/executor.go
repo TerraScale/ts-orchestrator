@@ -17,7 +17,6 @@ import (
 
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/remotes"
-	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/containerd/v2/core/runtime/v2/logging"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
@@ -192,16 +191,35 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 // so a later Prepare only creates the container. It is idempotent and safe
 // to run concurrently with Prepare. Admitted registries pull per task only.
 func (e *Executor) PrePull(ctx context.Context, imageRef string) error {
-	e.mu.Lock()
-	admitted := e.registry != nil
-	e.mu.Unlock()
-	if admitted {
-		return errors.New("pre-pull needs task registry admission on this host")
-	}
 	if err := pinnedImage(imageRef); err != nil {
 		return err
 	}
-	resolver := &boundRegistryResolver{Resolver: docker.NewResolver(docker.ResolverOptions{}), image: imageRef}
+	e.mu.Lock()
+	registry := e.registry
+	var node *api.Node
+	if e.node != nil {
+		node = e.node.Copy()
+	}
+	e.mu.Unlock()
+	if registry == nil {
+		registry = publicRegistryResolver
+	}
+	// Registry authority is per task; a pre-pull presents only the image. A
+	// per-image resolver (single-host GHCR) answers it, a task-admitting one
+	// refuses it and the task pulls in Prepare instead.
+	runtime, err := ContainerRuntime(&api.ContainerSpec{Image: imageRef, User: "65532:65532"})
+	if err != nil {
+		return err
+	}
+	limits := &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 1 << 30, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 1<<30)}}
+	task := &api.Task{ID: "prepull", ServiceID: "prepull", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()}}}
+	resolver, err := registry(runtimeContext(ctx), task, node)
+	if err != nil {
+		return fmt.Errorf("resolve pre-pull registry: %w", err)
+	}
+	if resolver == nil {
+		return errors.New("registry admission returned no resolver")
+	}
 	return e.pullImage(ctx, imageRef, resolver)
 }
 
