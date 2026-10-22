@@ -103,7 +103,7 @@ class ArtifactGraph(unittest.TestCase):
                             "sha256": hashlib.sha256(data).hexdigest()})
         q = {"schema": "terrascale.release.qualification.v1", "repository": REPOSITORY,
              "source_revision": source, "source_tree": self.git("rev-parse", source + "^{tree}"),
-             "go_version": "go1.27.1", "artifacts": records,
+             "go_version": "go1.27.3", "artifacts": records,
              "verification": {"workflow": "ci.yml", "job": JOB, "run_id": run_id,
                               "run_number": run_id, "conclusion": "success"}}
         for name in ("go.mod", "go.sum"):
@@ -243,7 +243,7 @@ if pathlib.Path(sys.argv[0]).name == "go":
         source, architecture = re.search(r"source=([0-9a-f]{40}) architecture=(amd64|arm64)", data).groups()
         if fault == "vcs":
             source = "0" * 40
-        print("fixture: go1.27.1")
+        print("fixture: go1.27.3")
         for setting in ["GOOS=linux", "CGO_ENABLED=0", "GOARCH=" + architecture,
                         "vcs.revision=" + source, "vcs.modified=false"]:
             print("\tbuild\t" + setting)

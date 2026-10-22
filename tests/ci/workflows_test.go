@@ -132,7 +132,7 @@ func TestWorkflowContracts(t *testing.T) {
 		forbidText(t, ci, "prepare-fj-admission.sh")
 		for _, text := range []string{ci, image} {
 			requireText(t, text, "runs-on: ubuntu-24.04")
-			requireText(t, text, "go-version: '1.27.1'")
+			requireText(t, text, "go-version: '1.27.3'")
 			forbidText(t, text, "container:")
 			forbidText(t, text, "FORGEJO_")
 			forbidText(t, text, "/cache/")

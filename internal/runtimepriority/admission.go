@@ -7,7 +7,7 @@ import (
 )
 
 func validateReleaseQualification(q Object) {
-	if !exact(q, "schema", "repository", "source_revision", "source_tree", "go_version", "go_mod_sha256", "go_sum_sha256", "verification", "artifacts") || str(q, "schema") != "terrascale.release.qualification.v1" || str(q, "repository") != "TerraScale/ts-orchestrator" || str(q, "go_version") != "go1.27.1" || !hashRE.MatchString(str(q, "go_mod_sha256")) || !hashRE.MatchString(str(q, "go_sum_sha256")) {
+	if !exact(q, "schema", "repository", "source_revision", "source_tree", "go_version", "go_mod_sha256", "go_sum_sha256", "verification", "artifacts") || str(q, "schema") != "terrascale.release.qualification.v1" || str(q, "repository") != "TerraScale/ts-orchestrator" || str(q, "go_version") != "go1.27.3" || !hashRE.MatchString(str(q, "go_mod_sha256")) || !hashRE.MatchString(str(q, "go_sum_sha256")) {
 		fail("CI qualification is not a strict v1 two-binary manifest")
 	}
 	artifacts, ok := q["artifacts"].([]any)
