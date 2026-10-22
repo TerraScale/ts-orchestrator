@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -110,7 +109,7 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 	})
 }
 
-// ownRegion maps the instance's OCI region to its ordered region token.
+// ownRegion maps the instance's OCI region to its catalog region token.
 func ownRegion(ctx context.Context) (string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://169.254.169.254/opc/v2/instance/canonicalRegionName", nil)
 	if err != nil {
@@ -127,8 +126,8 @@ func ownRegion(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("read OCI region from IMDS: status %d", response.StatusCode)
 	}
 	entry, ok := catalog.CellForOCIRegion(strings.TrimSpace(string(body)))
-	if !ok || !slices.Contains(Regions(), entry.Name()) {
-		return "", fmt.Errorf("OCI region %q is not an ordered region", strings.TrimSpace(string(body)))
+	if !ok {
+		return "", fmt.Errorf("OCI region %q is not a catalog region", strings.TrimSpace(string(body)))
 	}
 	return entry.Name(), nil
 }
