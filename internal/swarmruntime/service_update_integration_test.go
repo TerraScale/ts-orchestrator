@@ -2,10 +2,12 @@ package swarmruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -168,6 +170,32 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 	if len(containers) < 2 || live != 1 {
 		t.Fatalf("want retained exited predecessors and one live holder, got %d containers, %d live", len(containers), live)
 	}
+
+	// A spec whose task never answers its readyPath rolls back; the previous spec serves again.
+	t.Run("never ready rolls back", func(t *testing.T) {
+		bad := spec("v4")
+		bad.ReadyPath, bad.ReadyTimeoutSeconds = "/readyz", 3
+		bad.Env["HANDLER"] = `read -r line; printf 'HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n'`
+		start := time.Now()
+		updated, err := ApplyServiceSpec(ctx, client, bad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = WaitServiceSpec(ctx, client, updated, nil)
+		var rollback *RollbackError
+		if !errors.As(err, &rollback) {
+			t.Fatalf("want a rollback, got %v", err)
+		}
+		t.Logf("rolled back in %s: %v", time.Since(start), err)
+		if !strings.Contains(rollback.Reason, "not ready within 3s") {
+			t.Errorf("rollback reason %q does not name the readiness timeout", rollback.Reason)
+		}
+		if body := getBody(port); body != "v3" {
+			t.Fatalf("after rollback the port serves %q, want v3", body)
+		}
+	})
+
+	containerdCrashLoops(t, ctx, e, client)
 }
 
 func getBody(port uint32) string {

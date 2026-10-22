@@ -9,4 +9,7 @@ const (
 	MeshStateSubject = "ts.svc.state"
 	// MeshPingSubject answers with the region and server name.
 	MeshPingSubject = "ts.mesh.ping"
+	// MeshHealthSubject answers with the region's host and SwarmKit health
+	// (internal/regionhealth).
+	MeshHealthSubject = "ts.mesh.health"
 )

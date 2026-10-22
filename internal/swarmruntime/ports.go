@@ -89,6 +89,9 @@ func (c *controller) checkPortHolders(ctx context.Context, requested []string, s
 	return nil
 }
 
+// releasedPorts marks a failed task's container as claiming no host port.
+const releasedPorts = "released"
+
 type portHolder int
 
 const (
@@ -139,6 +142,7 @@ func (c *controller) releaseFailedPorts(ctx context.Context, err error) {
 	}
 	ctx = runtimeContext(context.WithoutCancel(ctx))
 	if container, loadErr := c.executor.client.LoadContainer(ctx, c.id); loadErr == nil {
-		_, _ = container.SetLabels(ctx, map[string]string{portsLabel: ""})
+		// containerd deletes a label set to "", which would read as unknown ownership.
+		_, _ = container.SetLabels(ctx, map[string]string{portsLabel: releasedPorts})
 	}
 }
