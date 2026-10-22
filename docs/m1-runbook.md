@@ -293,7 +293,14 @@ What was removed: the stopped container's port hold, the native snapshotter
 cancel wait, the 30 s monitor (now 5 s) and 5 s restart delay (now 1 s); pulls
 happen before the old task stops.
 
-Not zero-downtime yet: one host port per service means the old process must
-exit before the new one binds, so the port refuses connections for 0.2-0.5 s
-per update. Closing that gap needs the edge to retry the dial during the
-handoff (or two ports per service); not done.
+Zero-downtime through the edge (#111): one host port per service means the
+old process exits before the new one binds (0.2-0.5 s refused above). The edge
+retries a refused backend dial every 25 ms for up to 2 s, so clients see no
+error. Proof 2026-10-22 on sjc and fra (`w14-speed` with
+`"regions": ["sjc","fra"]`, hostnames `w14-sjc`/`w14-fra.terrascale.tech`,
+probes every 50 ms from ts-sjc-1 through the public HTTPS edge):
+
+| Edge | Updates | Probes `w14-sjc` | Probes `w14-fra` | Ready per update (40 region applies) |
+|---|---|---|---|---|
+| before #111 | 6 | 92, 25 failed (502) | 19, 4 failed (502) | 0.5-0.9 s |
+| with #111 | 20 | 134, 0 failed | 45, 0 failed | 0.62 / 0.93 / 1.85 s (min / median / max) |
