@@ -99,8 +99,10 @@ func newControllerRecipientFixtureWithSetup(t *testing.T, setup func(*founderSig
 		return ledger, nil
 	}
 	caller.now = time.Now
+	// OCI's Date follows the same real clock; a per-peer frozen Date made every
+	// re-observation stale once a slow (-race) peer outlasted the 10s window.
+	cloud.clock = func() time.Time { return time.Now().UTC().Truncate(time.Second) }
 	for _, row := range founder.plan.Peers {
-		cloud.now = time.Now().UTC().Truncate(time.Second)
 		if err := caller.runPeer(t.Context(), row.Slot); err != nil {
 			t.Fatal(err)
 		}
