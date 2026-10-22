@@ -415,6 +415,9 @@ type ServiceSpec struct {
 	ReadyPath string                     `json:"readyPath,omitempty"`
 	Hostnames []string                   `json:"hostnames,omitempty"`
 	Replicas  uint64                     `json:"replicas"`
+	// ReadyTimeoutSeconds bounds how long a new task may take to answer
+	// readyPath before the update rolls back; zero keeps DefaultReadyTimeout.
+	ReadyTimeoutSeconds uint32 `json:"readyTimeoutSeconds,omitempty"`
 	// MilliCPU and MemoryMiB size the fully reserved budget; zero keeps the
 	// 1 CPU / 4 GiB default sized for the M1 services.
 	MilliCPU  uint32 `json:"milliCPU,omitempty"`
@@ -452,6 +455,9 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	if !strings.HasPrefix(readyPath, "/") || strings.ContainsAny(readyPath, "?# \t\r\n") {
 		return nil, errors.New("readyPath must be an absolute URL path")
 	}
+	if s.ReadyTimeoutSeconds != 0 && (s.ReadyPath == "" || s.ReadyTimeoutSeconds > maxReadyTimeoutSeconds) {
+		return nil, fmt.Errorf("readyTimeoutSeconds needs readyPath and must be at most %d", maxReadyTimeoutSeconds)
+	}
 	if len(s.Hostnames) != len(slices.Compact(slices.Sorted(slices.Values(s.Hostnames)))) {
 		return nil, errors.New("hostnames must not repeat")
 	}
@@ -484,6 +490,10 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		}
 	}
 	container := &api.ContainerSpec{Image: s.Image, User: "65532:65532", Args: slices.Clone(s.Args)}
+	if s.ReadyPath != "" {
+		// Only a spec that names its ready path promises to answer it; the executor gates on it.
+		container.Labels = map[string]string{LabelReadyPath: s.ReadyPath}
+	}
 	for _, key := range slices.Sorted(maps.Keys(s.Env)) {
 		container.Env = append(container.Env, key+"="+s.Env[key])
 	}
@@ -495,6 +505,9 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		return nil, err
 	}
 	labels := map[string]string{LabelServiceSpec: s.Name, LabelReadyPath: readyPath}
+	if s.ReadyTimeoutSeconds != 0 {
+		labels[LabelReadyTimeout] = strconv.FormatUint(uint64(s.ReadyTimeoutSeconds), 10)
+	}
 	if len(s.Hostnames) != 0 {
 		labels[LabelHostnames] = strings.Join(s.Hostnames, ",")
 	}
@@ -546,6 +559,9 @@ const (
 	// A crashed task's port is free once it exits; a cached image restarts in
 	// well under a second, so a longer delay is pure downtime.
 	serviceRestartDelay = time.Second
+	// DefaultReadyTimeout fits a cold .NET start; a spec may ask for up to maxReadyTimeoutSeconds.
+	DefaultReadyTimeout    = time.Minute
+	maxReadyTimeoutSeconds = 600
 	// servicePoll bounds how late `service apply` notices each phase.
 	servicePoll = 100 * time.Millisecond
 	// serviceRollout bounds a cold pull plus start and readiness.
@@ -555,10 +571,30 @@ const (
 // ServiceRollout is the elapsed time from submission to each phase.
 type ServiceRollout struct{ Running, Ready time.Duration }
 
+// LabelReadyTimeout holds ServiceSpec.ReadyTimeoutSeconds when set.
+const LabelReadyTimeout = "terrascale.ready-timeout"
+
+// ReadyTimeout is how long a task of a service with these labels may take to become ready.
+func ReadyTimeout(labels map[string]string) time.Duration {
+	if seconds, err := strconv.ParseUint(labels[LabelReadyTimeout], 10, 32); err == nil && seconds != 0 && seconds <= maxReadyTimeoutSeconds {
+		return time.Duration(seconds) * time.Second
+	}
+	return DefaultReadyTimeout
+}
+
+// RollbackError reports an update SwarmKit rolled back: the previous spec runs again.
+type RollbackError struct {
+	Service, Reason, Restored string
+}
+
+func (e *RollbackError) Error() string {
+	return fmt.Sprintf("service %s update failed and rolled back to %s: %s", e.Service, e.Restored, e.Reason)
+}
+
 // WaitServiceSpec waits until every replica of the service's current spec is
 // RUNNING and passes probe (when given). A rollback or a paused update is an error.
 func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api.Service, probe func(context.Context, *api.Task) error) (ServiceRollout, error) {
-	ctx, cancel := context.WithTimeout(ctx, serviceRollout)
+	ctx, cancel := context.WithTimeout(ctx, serviceRollout+2*ReadyTimeout(service.Spec.Annotations.Labels))
 	defer cancel()
 	start := time.Now()
 	var rollout ServiceRollout
@@ -574,8 +610,18 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 		if err != nil {
 			return rollout, err
 		}
-		if status := latest.Service.UpdateStatus; !proto.Equal(latest.Service.SpecVersion, service.SpecVersion) ||
-			status != nil && status.State != api.UpdateStatus_UPDATING && status.State != api.UpdateStatus_COMPLETED {
+		status := latest.Service.UpdateStatus
+		// UpdateService clears UpdateStatus, so a rollback seen here is of the
+		// update being waited on, unless the caller's spec was the one restored.
+		restored := service.UpdateStatus != nil && service.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED
+		if status != nil && status.State == api.UpdateStatus_ROLLBACK_STARTED {
+			continue
+		}
+		if status != nil && status.State == api.UpdateStatus_ROLLBACK_COMPLETED && !restored {
+			return rollout, rollbackError(ctx, client, latest.Service, start)
+		}
+		if !proto.Equal(latest.Service.SpecVersion, service.SpecVersion) ||
+			status != nil && status.State != api.UpdateStatus_UPDATING && status.State != api.UpdateStatus_COMPLETED && !restored {
 			message := ""
 			if status != nil {
 				message = status.State.String() + ": " + status.Message
@@ -607,6 +653,25 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 			return rollout, nil
 		}
 	}
+}
+
+// rollbackError names the image running again and why the new task failed.
+func rollbackError(ctx context.Context, client api.ControlClient, service *api.Service, since time.Time) error {
+	err := &RollbackError{Service: service.Spec.Annotations.Name, Reason: service.UpdateStatus.Message}
+	if container, cerr := containerOf(service.Spec); cerr == nil {
+		err.Restored = container.Image
+	}
+	listed, lerr := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}}})
+	if lerr != nil {
+		return err
+	}
+	var newest time.Time
+	for _, task := range listed.Tasks {
+		if at := TaskTime(task); task.Status.Err != "" && task.Status.State > api.TaskStateRunning && at.After(since) && at.After(newest) {
+			newest, err.Reason = at, task.Status.Err
+		}
+	}
+	return err
 }
 
 // ApplyServiceSpec creates the named service or replaces its spec in place.

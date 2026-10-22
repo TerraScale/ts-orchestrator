@@ -83,6 +83,19 @@ func taskPort(task *api.Task) (uint16, error) {
 	if task.DesiredState != api.TaskStateRunning || task.Status.State != api.TaskStateRunning {
 		return 0, errors.New("task is not running with running intent")
 	}
+	return hostPort(task)
+}
+
+// probeLocalPort probes a task the executor is starting, before SwarmKit sees it RUNNING.
+func probeLocalPort(ctx context.Context, task *api.Task) error {
+	port, err := hostPort(task)
+	if err != nil {
+		return err
+	}
+	return probeReady(ctx, task, netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), port))
+}
+
+func hostPort(task *api.Task) (uint16, error) {
 	if task.Endpoint == nil || task.Endpoint.Spec == nil || len(task.Endpoint.Spec.Ports) != 1 {
 		return 0, errors.New("task readiness requires one reserved host port")
 	}

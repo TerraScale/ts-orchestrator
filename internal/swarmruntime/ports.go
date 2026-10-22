@@ -82,12 +82,21 @@ func (c *controller) checkPortHolders(ctx context.Context, requested []string, s
 		if err != nil {
 			return err
 		}
-		if portConflict(holder, labels["terrascale.service"] == c.task.ServiceID, starting) {
-			return fmt.Errorf("host port %s is reserved by container %s", claimed, container.ID())
+		sameService := labels["terrascale.service"] == c.task.ServiceID
+		if portConflict(holder, sameService, starting) {
+			err := fmt.Errorf("host port %s is reserved by container %s", claimed, container.ID())
+			if starting && sameService {
+				// The predecessor is still stopping (up to dataStopGrace); the agent retries each second.
+				return exec.MakeTemporary(err)
+			}
+			return err
 		}
 	}
 	return nil
 }
+
+// releasedPorts marks a failed task's container as claiming no host port.
+const releasedPorts = "released"
 
 type portHolder int
 
@@ -139,6 +148,7 @@ func (c *controller) releaseFailedPorts(ctx context.Context, err error) {
 	}
 	ctx = runtimeContext(context.WithoutCancel(ctx))
 	if container, loadErr := c.executor.client.LoadContainer(ctx, c.id); loadErr == nil {
-		_, _ = container.SetLabels(ctx, map[string]string{portsLabel: ""})
+		// containerd deletes a label set to "", which would read as unknown ownership.
+		_, _ = container.SetLabels(ctx, map[string]string{portsLabel: releasedPorts})
 	}
 }

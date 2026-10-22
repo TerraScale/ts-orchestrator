@@ -42,6 +42,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/qualification/firecracker"
 	"github.com/TerraScale/ts-orchestrator/internal/qualification/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
 	releasecli "github.com/TerraScale/ts-orchestrator/internal/release/cli"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -88,6 +89,7 @@ Operator tooling:
   service                Apply and remove services in every region, list this host's (apply -f FILE | ls | rm NAME)
   member                 List this region's cluster hosts; drain and remove a worker (ls | leave HOSTNAME)
   mesh                   Show which regions answer on the cross-region mesh (ping)
+  status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
   node                   Drain, reboot, resize, add and retire a cell's nodes, one at a time behind the load balancer
   bootstrap              Prepare, sign, verify, and publish bootstrap material
@@ -153,6 +155,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return app.RunMemberCLI(ctx, args[1:], output)
 	case "mesh":
 		return mesh.RunCLI(ctx, args[1:], "/var/lib/ts-orch", output)
+	case "status":
+		return regionhealth.RunCLI(ctx, args[1:], "/var/lib/ts-orch", output)
 	case "observe":
 		return runObserve(ctx, args[1:], output)
 	case "usage":

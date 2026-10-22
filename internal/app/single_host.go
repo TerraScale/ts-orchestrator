@@ -14,6 +14,7 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
@@ -54,6 +55,12 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		defer done()
 		_ = node.Stop(stop)
 	}()
+	healthCtx, stopHealth := context.WithCancel(ctx)
+	defer stopHealth()
+	// shortcut: a worker has no control socket and would answer for its region a second time; give workers their own health row when they serve.
+	if !plan.joiner() {
+		go regionhealth.Run(healthCtx, state)
+	}
 	if err := releasepush.EnsureFirewall(ctx); err != nil {
 		// Workloads keep serving; only release pushes are blocked until the next start.
 		fmt.Fprintf(output, "release listener firewall: %v\n", err)

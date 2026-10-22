@@ -86,6 +86,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	if c.stateful == nil {
 		c.executor.trackLoadTask(c)
 	}
+	backoff := c.executor.restartDelayLocked(c.task, c.fingerprint, time.Now())
 	registry := c.executor.registry
 	var node *api.Node
 	if c.executor.node != nil {
@@ -94,6 +95,9 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	c.executor.mu.Unlock()
 	if registry == nil {
 		registry = publicRegistryResolver
+	}
+	if err := sleepContext(ctx, backoff); err != nil {
+		return err
 	}
 	resolved, err := registry(runtimeContext(ctx), c.task.Copy(), node)
 	if err != nil {
@@ -276,6 +280,61 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 func (c *controller) Start(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStateStarting, operationErr) }()
 	defer func() { c.releaseFailedPorts(ctx, operationErr) }()
+	if err := c.start(ctx); err != nil {
+		return err
+	}
+	return c.awaitReady(ctx)
+}
+
+// awaitReady holds a task whose spec names a readyPath in STARTING until the
+// path answers 200, so SwarmKit counts a never-ready update as a failed task
+// and rolls back to the previous spec. It runs outside executor.mu.
+func (c *controller) awaitReady(ctx context.Context) error {
+	if c.stateful != nil {
+		return nil
+	}
+	if _, named := c.spec.Labels[LabelReadyPath]; !named {
+		return nil
+	}
+	timeout := ReadyTimeout(c.task.ServiceAnnotations.Labels)
+	ctx = runtimeContext(ctx)
+	t, err := c.runtimeTask(ctx)
+	if err != nil {
+		return err
+	}
+	waitCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	exited, err := t.Wait(waitCtx)
+	if err != nil {
+		return err
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	tick := time.NewTicker(readyPoll)
+	defer tick.Stop()
+	for {
+		probeErr := probeLocalPort(ctx, c.task)
+		if probeErr == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case status := <-exited:
+			code, _, _ := status.Result()
+			return fmt.Errorf("container exited with status %d before it was ready", code)
+		case <-deadline.C:
+			// Stop (gracefully: it may own data) before failing so the rollback's task can start.
+			return errors.Join(fmt.Errorf("not ready within %s: %w", timeout, probeErr), c.stopTask(ctx))
+		case <-tick.C:
+		}
+	}
+}
+
+// readyPoll bounds how late a ready task leaves STARTING.
+const readyPoll = 100 * time.Millisecond
+
+func (c *controller) start(ctx context.Context) error {
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -432,6 +491,7 @@ func exitError(code uint32) error {
 func (c *controller) Wait(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStateRunning, operationErr) }()
 	ctx = runtimeContext(ctx)
+	started := time.Now()
 	t, err := c.runtimeTask(ctx)
 	if err != nil {
 		return err
@@ -446,9 +506,15 @@ func (c *controller) Wait(ctx context.Context) (operationErr error) {
 	case <-ctx.Done():
 		return ctx.Err()
 	case status := <-wait:
-		code, _, err := status.Result()
+		code, exited, err := status.Result()
 		if err != nil {
 			return err
+		}
+		c.executor.mu.Lock()
+		c.executor.recordExitLocked(c.task, c.fingerprint, exited.Sub(started), time.Now())
+		c.executor.mu.Unlock()
+		if code != 0 && c.oomKilled(ctx) {
+			return taskOOMError{code: code, limitMiB: c.task.Spec.Resources.Limits.MemoryBytes >> 20}
 		}
 		return exitError(code)
 	}
@@ -461,6 +527,12 @@ func (c *controller) Shutdown(ctx context.Context) (operationErr error) {
 			return execution.ErrUnsafe
 		}
 	}
+	return c.stopTask(ctx)
+}
+
+// stopTask sends SIGTERM and SIGKILLs only after stopGrace; it returns once
+// the process is gone, so a replacement can take the port and the data.
+func (c *controller) stopTask(ctx context.Context) error {
 	ctx = runtimeContext(ctx)
 	t, err := c.runtimeTask(ctx)
 	if errdefs.IsNotFound(err) {
@@ -513,11 +585,14 @@ func (c *controller) Shutdown(ctx context.Context) (operationErr error) {
 const (
 	defaultStopGrace = 5 * time.Second
 	maxStopGrace     = 10 * time.Second
+	// A task that owns data (bind mounts or qualified volumes) flushes on
+	// SIGTERM; a SIGKILL mid-write can lose acked TerraBase writes.
+	dataStopGrace = 2 * time.Minute
 )
 
 func (c *controller) stopGrace() time.Duration {
-	if c.stateful != nil {
-		return maxStopGrace
+	if c.stateful != nil || len(c.spec.Mounts) != 0 {
+		return dataStopGrace
 	}
 	if c.spec.StopGracePeriod == nil {
 		return defaultStopGrace
@@ -560,6 +635,12 @@ func (c *controller) Remove(ctx context.Context) error {
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
+		}
+	}
+	// Delete below kills a live process; give a data-owning one its grace first.
+	if len(c.spec.Mounts) != 0 {
+		if err := c.stopTask(ctx); err != nil && !errdefs.IsNotFound(err) {
+			return err
 		}
 	}
 	c.executor.mu.Lock()

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/moby/swarmkit/v2/api"
 	"google.golang.org/grpc"
@@ -47,10 +48,49 @@ func TestWaitServiceSpecPhases(t *testing.T) {
 	}
 
 	rolledBack := service.Copy()
-	rolledBack.SpecVersion = &api.Version{Index: 9}
-	rolledBack.UpdateStatus = &api.UpdateStatus{State: api.UpdateStatus_ROLLBACK_STARTED, Message: "update rolled back due to failure"}
+	rolledBack.SpecVersion = &api.Version{Index: 6}
+	rolledBack.UpdateStatus = &api.UpdateStatus{State: api.UpdateStatus_ROLLBACK_COMPLETED, Message: "update rolled back due to failure"}
 	control = &rolloutControl{service: rolledBack, states: []api.TaskState{api.TaskStateRunning}}
-	if _, err := WaitServiceSpec(t.Context(), control, service, func(context.Context, *api.Task) error { return nil }); err == nil || !strings.Contains(err.Error(), "ROLLBACK_STARTED") {
+	var rollback *RollbackError
+	if _, err := WaitServiceSpec(t.Context(), control, service, nil); !errors.As(err, &rollback) || rollback.Reason != "update rolled back due to failure" {
 		t.Fatalf("rollback reported as %v", err)
+	}
+	// Re-applying the spec a rollback restored is a completed no-op, not a new failure.
+	if _, err := WaitServiceSpec(t.Context(), control, rolledBack, nil); err != nil {
+		t.Fatalf("restored spec: %v", err)
+	}
+
+	paused := service.Copy()
+	paused.UpdateStatus = &api.UpdateStatus{State: api.UpdateStatus_ROLLBACK_PAUSED, Message: "rollback paused"}
+	control = &rolloutControl{service: paused, states: []api.TaskState{api.TaskStateRunning}}
+	if _, err := WaitServiceSpec(t.Context(), control, service, nil); err == nil || !strings.Contains(err.Error(), "ROLLBACK_PAUSED") {
+		t.Fatalf("paused rollback reported as %v", err)
+	}
+}
+
+func TestServiceSpecReadyGate(t *testing.T) {
+	base := ServiceSpec{Name: "web", Image: "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764", Port: 8099, Replicas: 1}
+	ungated, err := base.SwarmSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := containerOf(*ungated); len(c.Labels) != 0 || ReadyTimeout(ungated.Annotations.Labels) != DefaultReadyTimeout {
+		t.Fatalf("spec without readyPath is gated: %v", c.Labels)
+	}
+	gated := base
+	gated.ReadyPath, gated.ReadyTimeoutSeconds = "/health", 7
+	swarm, err := gated.SwarmSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := containerOf(*swarm); c.Labels[LabelReadyPath] != "/health" || ReadyTimeout(swarm.Annotations.Labels) != 7*time.Second {
+		t.Fatalf("gate labels %v %v", c.Labels, swarm.Annotations.Labels)
+	}
+	for _, bad := range []ServiceSpec{{ReadyTimeoutSeconds: 5}, {ReadyPath: "/health", ReadyTimeoutSeconds: maxReadyTimeoutSeconds + 1}} {
+		spec := base
+		spec.ReadyPath, spec.ReadyTimeoutSeconds = bad.ReadyPath, bad.ReadyTimeoutSeconds
+		if _, err := spec.SwarmSpec(); err == nil {
+			t.Fatalf("accepted %+v", bad)
+		}
 	}
 }
