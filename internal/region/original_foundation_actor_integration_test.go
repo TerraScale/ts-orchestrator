@@ -24,6 +24,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
@@ -729,12 +730,25 @@ func (f *originalActorSDKFixture) assertActorState(t *testing.T) {
 }
 
 func TestOriginalFoundationActorsSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes but takes 2197s without -race at GOMAXPROCS=2 -cpu 2; every fault subtest rebuilds and reruns the compartment, network and Vault chain")
+	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes with the shared fixture but takes 1811s without -race at GOMAXPROCS=2 -cpu 2 (delta, 6 jobs); each of its ~140 fault subtests still replays the compartment, network and Vault stages")
+	tier.Integration(t)
+	shared := newOriginalActorSDKFixture(t, "", 0)
+	// Every subtest starts after the genuine Vault stage it does not exercise.
+	if err := shared.originalVaultSDKFixture.run(t); err != nil {
+		t.Fatal(err)
+	}
+	state := snapshotOriginalFixture(t, shared)
+	sharedFixture := func(t *testing.T, fault string, slot int) *originalActorSDKFixture {
+		t.Helper()
+		state.restore(t)
+		shared.actorFault, shared.actorSlot = fault, slot
+		return shared
+	}
 	// Sequential: the inherited real signed SDK fixture owns the process transport.
 	t.Run("three finite originals and complete physical replay remain downstream HOLD", func(t *testing.T) {
 		for _, fault := range []string{"", "complete pagination"} {
 			t.Run(fault, func(t *testing.T) {
-				f := newOriginalActorSDKFixture(t, fault, 0)
+				f := sharedFixture(t, fault, 0)
 				if err := f.run(t); err != nil {
 					t.Fatalf("actor component did not retain complete original physical history: %v", err)
 				}
@@ -845,7 +859,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 					continue
 				}
 				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
-					f := newOriginalActorSDKFixture(t, fault, slot)
+					f := sharedFixture(t, fault, slot)
 					if err := f.run(t); err == nil {
 						t.Fatal("refused or unresolved original create claimed completion")
 					}
@@ -874,7 +888,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			}
 		}
 		t.Run("fresh tariff drift cannot replace the original quote", func(t *testing.T) {
-			f := newOriginalActorSDKFixture(t, "unknown create", 0)
+			f := sharedFixture(t, "unknown create", 0)
 			if err := f.run(t); err == nil {
 				t.Fatal("unknown response unexpectedly completed")
 			}
@@ -898,7 +912,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			f.assertActorState(t)
 		})
 		t.Run("fresh quote exceeds signed finite slot", func(t *testing.T) {
-			f := newOriginalActorSDKFixture(t, "", 0)
+			f := sharedFixture(t, "", 0)
 			f.cloud.mu.Lock()
 			f.cloud.tariff = 100
 			f.cloud.mu.Unlock()
@@ -1198,7 +1212,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 	})
 
 	t.Run("protected CAS retains original scope request quote and physical proof", func(t *testing.T) {
-		f := newOriginalActorSDKFixture(t, "", 0)
+		f := sharedFixture(t, "", 0)
 		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
