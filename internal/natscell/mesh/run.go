@@ -35,14 +35,15 @@ const (
 	retryEvery    = 30 * time.Second
 )
 
-// Run serves this host's region on the mesh until ctx ends. A missing Vault
-// secret, IMDS answer or peer never stops local serving: Run logs and retries,
-// and gateways reconnect on their own.
-func Run(ctx context.Context, state string, cluster Cluster) {
+// Run serves this host's region on the mesh until ctx ends, calling started
+// once the node runs. A missing Vault secret, IMDS answer or peer never stops
+// local serving: Run logs and retries, and gateways reconnect on their own.
+func Run(ctx context.Context, state string, cluster Cluster, started func(*Node)) {
 	for {
 		node, err := startHost(ctx, state, cluster)
 		if err == nil {
 			slog.InfoContext(ctx, "mesh started", "region", node.cfg.region, "server", node.cfg.server)
+			started(node)
 			node.run(ctx)
 			node.Close()
 			return
