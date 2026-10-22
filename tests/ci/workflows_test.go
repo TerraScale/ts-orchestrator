@@ -78,7 +78,8 @@ func TestWorkflowContracts(t *testing.T) {
 		requireText(t, ci, "  schedule:\n    - cron: ")
 		requireText(t, workflowText(t, "scripts/ci/dispatch-image.sh"), `-f "inputs[source_ci_run_id]=$GITHUB_RUN_ID" -f "inputs[source_ci_run_number]=$GITHUB_RUN_NUMBER"`)
 		requireText(t, image, "inputs.trigger == 'ci'")
-		requireText(t, image, "  cancel-in-progress: false\n")
+		// A newer image run of the same ref cancels an older one (user decision 2026-10-22).
+		requireText(t, image, "  cancel-in-progress: ${{ github.event_name != 'merge_group' }}\n")
 		requireText(t, image, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 6000`)
 		if tools, gate := strings.Index(image, "deploy/image/tools.sh true"), strings.Index(image, "scripts/ci/image-superseded.sh"); tools < 0 || tools > gate {
 			t.Error("image tools are not prepared before the CI gate")
