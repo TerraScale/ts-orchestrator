@@ -11,7 +11,7 @@ func TestMaterialJSON(t *testing.T) {
 	if err != nil || string(data) != `{"founder":"ts-gru-1","manager":"10.0.0.2:4242","workerToken":"token"}` {
 		t.Fatalf("material JSON %s, %v", data, err)
 	}
-	if claim, err := decode("gru", `{"founder":"ts-gru-2","route":"later"}`); err != nil || claim != (Material{Founder: "ts-gru-2"}) {
+	if claim, err := decode("gru", `{"founder":"ts-gru-2","later":"field"}`); err != nil || claim != (Material{Founder: "ts-gru-2"}) {
 		t.Fatalf("claim decode %+v, %v", claim, err)
 	}
 	for _, bad := range []string{`{}`, `not json`, `{"manager":"10.0.0.2:4242"}`} {

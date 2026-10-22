@@ -60,23 +60,28 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	if err != nil {
 		return err
 	}
-	if plan.joiner() {
-		// shortcut: a worker runs only its tasks and the release listener (it receives no release push: CI pushes only deploy/m1/regions.json hosts); its edge and mesh server come with the in-region NATS cluster.
-		return runSingleHost(ctx, *state, output, plan)
-	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	public := edge.New(*state)
 	edgeDone := make(chan error, 1)
-	go func() {
-		err := public.Run(ctx)
-		cancel() // a failed edge stops the node, so systemd restarts both
-		edgeDone <- err
-	}()
-	go syncEdgeRoutes(ctx, *state, public)
+	if plan.joiner() {
+		// shortcut: a worker serves no edge (it has no control socket for routes; the founder's edge serves the region) and receives no release push (CI pushes only deploy/m1/regions.json hosts).
+		edgeDone <- nil
+	} else {
+		public := edge.New(*state)
+		go func() {
+			err := public.Run(ctx)
+			cancel() // a failed edge stops the node, so systemd restarts both
+			edgeDone <- err
+		}()
+		go syncEdgeRoutes(ctx, *state, public)
+	}
 	// The mesh never stops local serving; it retries until it reaches Vault and peers.
 	meshDone := make(chan struct{})
-	go func() { mesh.Run(ctx, *state); close(meshDone) }()
+	if plan.joiner() && plan.address == "" {
+		close(meshDone) // a worker without IMDS stays out of the region's NATS cluster
+	} else {
+		go func() { mesh.Run(ctx, *state, meshCluster(plan)); close(meshDone) }()
+	}
 	err = runSingleHost(ctx, *state, output, plan)
 	cancel()
 	<-meshDone

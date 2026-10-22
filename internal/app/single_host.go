@@ -79,7 +79,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		return err
 	}
 	if founder {
-		go publishJoin(ctx, state, plan.region, plan.advertise)
+		go publishJoin(ctx, state, plan)
 	}
 	notifier := sdnotify.FromEnvironment()
 	if err := notifier.Ready("single-host node ready"); err != nil {
@@ -107,8 +107,9 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 type hostPlan struct {
 	listen, advertise string
 	admission         swarmruntime.Admission
-	// region is the OCI region token; "" outside OCI, where no host joins.
-	region string
+	// region is the OCI region token and address the private VCN IP; both
+	// are "" outside OCI, where no host joins.
+	region, address string
 }
 
 func (p hostPlan) joiner() bool { return p.admission.HostID != p.admission.FounderID }
@@ -123,10 +124,6 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 	if err != nil {
 		return hostPlan{}, err
 	}
-	if restarted && stored.HostID != stored.FounderID {
-		// A worker binds no remote API and reconnects from its persisted manager list.
-		return hostPlan{listen: loopback.listen, advertise: loopback.advertise, admission: stored}, nil
-	}
 	var instance regionjoin.Instance
 	for attempt := range 3 {
 		if attempt > 0 {
@@ -136,6 +133,12 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 			break
 		}
 	}
+	if restarted && stored.HostID != stored.FounderID {
+		// A worker binds no remote API and reconnects from its persisted manager
+		// list; without IMDS it only runs its tasks, outside the mesh.
+		return hostPlan{listen: loopback.listen, advertise: loopback.advertise, admission: stored,
+			region: instance.Region, address: instance.PrivateIP}, nil
+	}
 	if err != nil {
 		// shortcut: an IMDS outage at an OCI host's first start founds a loopback cluster no host joins; fence it if one is ever seen.
 		fmt.Fprintf(output, "not an OCI host (%v); founding a loopback-only cluster\n", err)
@@ -143,7 +146,7 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 	}
 	port := strconv.Itoa(swarmruntime.SwarmPort)
 	founder := hostPlan{listen: net.JoinHostPort("0.0.0.0", port), advertise: net.JoinHostPort(instance.PrivateIP, port),
-		admission: loopback.admission, region: instance.Region}
+		admission: loopback.admission, region: instance.Region, address: instance.PrivateIP}
 	if restarted {
 		return founder, nil
 	}
@@ -160,7 +163,7 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 			return founder, nil
 		case material.Manager != "" && material.WorkerToken != "":
 			fmt.Fprintf(output, "joining %s at %s\n", material.Founder, material.Manager)
-			return hostPlan{listen: loopback.listen, advertise: loopback.advertise, region: instance.Region,
+			return hostPlan{listen: loopback.listen, advertise: loopback.advertise, region: instance.Region, address: instance.PrivateIP,
 				admission: swarmruntime.JoinerAdmission(hostname, instance.ID, material.Manager, material.WorkerToken)}, nil
 		default:
 			fmt.Fprintf(output, "waiting for founder %s to publish %s\n", material.Founder, regionjoin.SecretName(instance.Region))
@@ -176,7 +179,7 @@ func planHost(ctx context.Context, state string, output io.Writer) (hostPlan, er
 // publishJoin keeps the region's join material current in Vault. A denial
 // (hosts not yet allowed to manage the secret) is logged and retried; the
 // founder keeps serving.
-func publishJoin(ctx context.Context, state, region, advertise string) {
+func publishJoin(ctx context.Context, state string, plan hostPlan) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		slog.WarnContext(ctx, "region join material not published", "error", err)
@@ -193,12 +196,12 @@ func publishJoin(ctx context.Context, state, region, advertise string) {
 			if err != nil || len(clusters.Clusters) != 1 {
 				return errors.Join(errors.New("read the cluster's worker join token"), err)
 			}
-			return regionjoin.Publish(ctx, region, regionjoin.Material{Founder: hostname, Manager: advertise,
-				WorkerToken: clusters.Clusters[0].RootCA.JoinTokens.Worker})
+			return regionjoin.Publish(ctx, plan.region, regionjoin.Material{Founder: hostname, Manager: plan.advertise,
+				WorkerToken: clusters.Clusters[0].RootCA.JoinTokens.Worker, Route: meshRoute(plan.address)})
 		}()
 		wait := 10 * time.Minute
 		if err != nil {
-			slog.WarnContext(ctx, "region join material not published; retrying", "secret", regionjoin.SecretName(region), "error", err)
+			slog.WarnContext(ctx, "region join material not published; retrying", "secret", regionjoin.SecretName(plan.region), "error", err)
 			wait = 30 * time.Second
 		}
 		select {
@@ -207,4 +210,24 @@ func publishJoin(ctx context.Context, state, region, advertise string) {
 		case <-time.After(wait):
 		}
 	}
+}
+
+func meshRoute(address string) string {
+	return "nats://" + net.JoinHostPort(address, strconv.Itoa(mesh.ClusterPort))
+}
+
+// meshCluster places this host's mesh server in its region's NATS cluster;
+// a worker routes to the founder that published the region's join material.
+func meshCluster(plan hostPlan) mesh.Cluster {
+	cluster := mesh.Cluster{Address: plan.address, Worker: plan.joiner()}
+	if cluster.Worker {
+		cluster.Routes = func(ctx context.Context, region string) ([]string, error) {
+			material, err := regionjoin.Read(ctx, region)
+			if err == nil && material.Route == "" {
+				err = fmt.Errorf("%s names no mesh route yet", regionjoin.SecretName(region))
+			}
+			return []string{material.Route}, err
+		}
+	}
+	return cluster
 }
