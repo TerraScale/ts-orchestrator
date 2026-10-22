@@ -33,6 +33,10 @@ type originalSourceIAMSDKFixture struct {
 	gets         map[string]int
 	absenceReads int
 	secretReads  int
+	// checkedWire is the last journal whose upstream pins passed; serveHTTP
+	// only reads checkedRecord, so identical bytes need no second parse.
+	checkedWire   []byte
+	checkedRecord FoundationRecord
 }
 
 func originalSourceIAMUpstream(record FoundationRecord) ([]byte, error) {
@@ -134,13 +138,20 @@ func (f *originalSourceIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http.R
 		f.originalCompartmentSDKFixture.serveHTTP(w, r)
 		return
 	}
-	record := f.record(f.cloud.test)
-	upstream, err := originalSourceIAMUpstream(record)
-	if err != nil || !bytes.Equal(upstream, f.upstream) {
-		f.cloud.test.Error("source IAM changed a preexisting original journal byte outside UpdatedAt")
-		originalCompartmentFailure(w, 400, "InvalidParameter")
-		return
+	f.cloud.mu.Lock()
+	journal, err := os.ReadFile(f.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + "GRU.json"))
+	f.cloud.mu.Unlock()
+	if err != nil || !bytes.Equal(journal, f.checkedWire) {
+		record := f.record(f.cloud.test)
+		upstream, err := originalSourceIAMUpstream(record)
+		if err != nil || !bytes.Equal(upstream, f.upstream) {
+			f.cloud.test.Error("source IAM changed a preexisting original journal byte outside UpdatedAt")
+			originalCompartmentFailure(w, 400, "InvalidParameter")
+			return
+		}
+		f.checkedWire, f.checkedRecord = journal, record
 	}
+	record := f.checkedRecord
 	for _, birth := range *record.OriginalSourceProducers {
 		if strings.HasSuffix(r.URL.Path, "/o/"+birth.Intent.SourceObject) {
 			if r.Method != http.MethodHead {

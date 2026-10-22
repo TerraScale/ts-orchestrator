@@ -170,7 +170,11 @@ func (f *originalMaterialIAMSDKFixture) serveHTTP(w http.ResponseWriter, r *http
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
 		f.cloud.test.Error("material IAM request lacks actual SDK signing")
 	}
-	record := f.record(f.cloud.test)
+	// Only journal writes and IAM effects are checked against the journal.
+	var record FoundationRecord
+	if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/o/"+foundationObjectPrefix+"GRU.json") || strings.Contains(r.URL.Path, "/dynamicGroups") || strings.Contains(r.URL.Path, "/policies") {
+		record = f.record(f.cloud.test)
+	}
 	if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/o/"+foundationObjectPrefix+"GRU.json") {
 		wire, err := io.ReadAll(io.LimitReader(r.Body, foundationJournalLimit+1))
 		var next FoundationRecord

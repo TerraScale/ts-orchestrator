@@ -82,12 +82,13 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 		HomeStorageDomain: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: foundationDiscoveryBucket, LedgerBucket: "gru-1-ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "bootstrap"},
 		SourceVaultTarget: bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.home", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}, TrustedSigners: signers, GRUController: host, SFOController: host, FRAController: host, NetBirdManager: host}
 	approval.ReleaseAuthorities = provisionReleaseAuthorities(t, root, leafPublic, approval.HomeStorageDomain, now)
-	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	// The smallest key the SDK signs with: every fixture request is RSA-signed, and 2048 bits dominated runtime.
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
 	rawProvider := common.NewRawConfigurationProvider(approval.TenancyID, "ocid1.user.oc1..test", foundationHomeRegion, "test", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(rsaKey)})), nil)
-	provider := &provisionProvider{ConfigurationProvider: rawProvider}
+	provider := &provisionProvider{ConfigurationProvider: rawProvider, key: rsaKey}
 	historicalAuthorities := approval.ReleaseAuthorities
 	approval.ReleaseAuthorities = slices.Clone(historicalAuthorities)
 	for index := range approval.ReleaseAuthorities {
@@ -1232,6 +1233,12 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 type provisionProvider struct {
 	common.ConfigurationProvider
 	reads atomic.Int64
+	// key is the parsed private key; the raw provider re-parses its PEM per request.
+	key *rsa.PrivateKey
+}
+
+func (p *provisionProvider) PrivateRSAKey() (*rsa.PrivateKey, error) {
+	return p.key, nil
 }
 
 func (p *provisionProvider) KeyIDContext(ctx context.Context) (string, error) {
@@ -1245,7 +1252,7 @@ func (p *provisionProvider) PrivateRSAKeyContext(ctx context.Context) (*rsa.Priv
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return p.ConfigurationProvider.PrivateRSAKey()
+	return p.key, nil
 }
 
 func (p *provisionProvider) TenancyOCID() (string, error) {

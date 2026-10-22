@@ -40,6 +40,8 @@ type originalAdmissionReadsSDKFixture struct {
 	prior                []byte
 	sources              []byte
 	projectionWire       []byte
+	decodedWire          []byte
+	decodedRecord        FoundationRecord
 	priorProjection      []byte
 	sourceProjection     []byte
 	expectedRejectedWire []byte
@@ -62,7 +64,7 @@ func originalAdmissionReadPrior(record FoundationRecord, sources bool) ([]byte, 
 }
 
 // projection reuses only a pure serialization; callers compare the expected bytes
-// on every request and retain no decoded journal record between requests.
+// on every request.
 func (f *originalAdmissionReadsSDKFixture) projection(record FoundationRecord, wire []byte, sources bool) ([]byte, error) {
 	if !bytes.Equal(wire, f.projectionWire) {
 		f.projectionWire = bytes.Clone(wire)
@@ -227,10 +229,16 @@ func (f *originalAdmissionReadsSDKFixture) serveHTTP(w http.ResponseWriter, r *h
 	f.cloud.mu.Lock()
 	wire, err := os.ReadFile(f.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + "GRU.json"))
 	var record FoundationRecord
-	if err == nil {
+	if err == nil && f.decodedWire != nil && bytes.Equal(wire, f.decodedWire) {
+		// Identical bytes decode identically; serveHTTP only reads the record.
+		record = f.decodedRecord
+	} else if err == nil {
 		err = json.Unmarshal(wire, &record)
 		if err == nil && record.OriginalFoundationCompartments == nil {
 			err = errors.New("admission journal omitted original compartments")
+		}
+		if err == nil {
+			f.decodedWire, f.decodedRecord = bytes.Clone(wire), record
 		}
 	}
 	f.cloud.mu.Unlock()

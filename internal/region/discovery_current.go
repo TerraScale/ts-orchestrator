@@ -1,6 +1,7 @@
 package region
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -188,10 +189,19 @@ func resolveCurrentFoundationWith(ctx context.Context, client foundationDiscover
 	if err := ctx.Err(); err != nil {
 		return FoundationResolver{}, RetainedFoundation{}, err
 	}
-	if err := writeFoundationFloor(directory, name, next); err != nil {
-		return FoundationResolver{}, RetainedFoundation{}, fmt.Errorf("persist foundation trust floor: %w", err)
+	// An identical durable floor needs no rewrite and fsync.
+	if !found || !sameFoundationFloor(previous, next) {
+		if err := writeFoundationFloor(directory, name, next); err != nil {
+			return FoundationResolver{}, RetainedFoundation{}, fmt.Errorf("persist foundation trust floor: %w", err)
+		}
 	}
 	return FoundationResolver{Footprint: reader, Store: store}, snapshot, nil
+}
+
+func sameFoundationFloor(a, b foundationFloor) bool {
+	return a.Version == b.Version && a.TenancyID == b.TenancyID && a.InstallationID == b.InstallationID && a.DeploymentID == b.DeploymentID &&
+		a.ClusterID == b.ClusterID && a.Generation == b.Generation && a.GrantSHA256 == b.GrantSHA256 && a.AnchorSHA256 == b.AnchorSHA256 &&
+		bytes.Equal(a.ChainWire, b.ChainWire)
 }
 
 func foundationChainIdentity(deployment string) trust.ChainIdentity {

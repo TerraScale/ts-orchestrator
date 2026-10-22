@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -32,6 +33,11 @@ type foundationOperator struct {
 	deadline time.Time
 	buckets  map[string]string
 	memo     *foundationVerificationMemo
+
+	originOnce   sync.Once
+	originWire   []byte
+	originSchema int
+	originErr    error
 }
 
 func (authority *HomeIAMAuthority) reserveFoundationWorkloadOrigin(ctx context.Context) error {
@@ -95,17 +101,33 @@ func (authority *HomeIAMAuthority) verifyFoundationWorkloadStartup(ctx context.C
 	return err
 }
 
+// workloadOrigin derives the immutable bundle bytes and grant schema once; the
+// operator bundle never changes after construction.
+func (operator *foundationOperator) workloadOrigin() ([]byte, int, error) {
+	operator.originOnce.Do(func() {
+		expected, err := json.Marshal(operator.bundle, json.Deterministic(true))
+		if err != nil {
+			operator.originErr = err
+			return
+		}
+		envelope, err := trust.DecodeEnvelope(operator.bundle.GrantWire)
+		if err != nil {
+			operator.originErr = err
+			return
+		}
+		var grant FoundationGrant
+		if err := json.Unmarshal(envelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
+			operator.originErr = err
+			return
+		}
+		operator.originWire, operator.originSchema = expected, grant.SchemaVersion
+	})
+	return operator.originWire, operator.originSchema, operator.originErr
+}
+
 func (operator *foundationOperator) guardWorkloadOrigin(ctx context.Context, reader *SignedFootprint) error {
-	expected, err := json.Marshal(operator.bundle, json.Deterministic(true))
+	expected, schema, err := operator.workloadOrigin()
 	if err != nil {
-		return err
-	}
-	envelope, err := trust.DecodeEnvelope(operator.bundle.GrantWire)
-	if err != nil {
-		return err
-	}
-	var grant FoundationGrant
-	if err := json.Unmarshal(envelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
 		return err
 	}
 	for _, cell := range []string{"GRU", "SJC", "FRA"} {
@@ -121,7 +143,7 @@ func (operator *foundationOperator) guardWorkloadOrigin(ctx context.Context, rea
 			if err != nil {
 				return err
 			}
-			if grant.SchemaVersion != 3 || !bytes.Equal(wire, expected) {
+			if schema != 3 || !bytes.Equal(wire, expected) {
 				return errors.New("permanent founding workload origin refuses a different or historical lineage")
 			}
 		}
