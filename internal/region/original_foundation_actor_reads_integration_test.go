@@ -676,7 +676,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	})
 
 	t.Run("genuine historical unknown policy exceeds23h without replacement", func(t *testing.T) {
-		f := sharedFixture(t, "unknown create", 0)
+		f := newOriginalActorReadsSDKFixture(t, "unknown create", 0)
 		f.bundle = signHistoricalOriginalCompartmentBundle(t, f.foundationProvisionFixture)
 		f.cloud.bundle = f.bundle.clone()
 		var err error
@@ -846,7 +846,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	t.Run("changed original authority cannot acquire public READ effects", func(t *testing.T) {
 		for _, fault := range []string{"wrong user", "wrong tenancy", "expired original", "corrupt original"} {
 			t.Run(fault, func(t *testing.T) {
-				f := sharedFixture(t, "scope checkpoint", 0)
+				f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
 				if err := f.run(t); err == nil || len(f.readDispatches()) != 0 || f.cloud.creates != 30 {
 					t.Fatal("authority control lacks complete genuine actors before READ scopes")
 				}
@@ -949,7 +949,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	})
 
 	t.Run("direct component requires the same live HomeWrite and rejects incomplete actors", func(t *testing.T) {
-		f := sharedFixture(t, "scope checkpoint", 0)
+		f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
 		if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 			t.Fatal("lease test setup did not reach all-three actual actors before READ reservation")
 		}
@@ -1025,7 +1025,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	})
 
 	t.Run("full signed public selection rejects missing duplicate or foreign origins", func(t *testing.T) {
-		f := sharedFixture(t, "scope checkpoint", 0)
+		f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
 		if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 			t.Fatal("selection controls lack genuine complete actors")
 		}

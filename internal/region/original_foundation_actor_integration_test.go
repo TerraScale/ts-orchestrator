@@ -920,7 +920,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			}
 		})
 		t.Run("genuine historical first attempt exceeds23h", func(t *testing.T) {
-			f := sharedFixture(t, "unknown create", 0)
+			f := newOriginalActorSDKFixture(t, "unknown create", 0)
 			f.bundle = signHistoricalOriginalCompartmentBundle(t, f.foundationProvisionFixture)
 			f.cloud.bundle = f.bundle.clone()
 			if err := VerifyFoundationProvisionBundle(t.Context(), f.roots, f.bundle); err != nil {
@@ -992,7 +992,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		t.Run("root-signed spending currency must match original grant", func(t *testing.T) {
 			for _, trusted := range []bool{false, true} {
 				t.Run(fmt.Sprintf("trusted journal %t", trusted), func(t *testing.T) {
-					f := sharedFixture(t, "", 0)
+					f := newOriginalActorSDKFixture(t, "", 0)
 					if trusted {
 						if err := f.run(t); err != nil {
 							t.Fatal(err)
@@ -1069,7 +1069,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			},
 		} {
 			t.Run(name, func(t *testing.T) {
-				f := sharedFixture(t, "", 0)
+				f := newOriginalActorSDKFixture(t, "", 0)
 				wire, err := json.Marshal(f.prepared)
 				if err != nil {
 					t.Fatal(err)
@@ -1109,7 +1109,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		}
 		for _, fault := range []string{"image identity", "image compartment", "image nonready", "image missing", "writer evidence", "wrong user", "wrong tenancy", "expired original", "corrupt original"} {
 			t.Run(fault, func(t *testing.T) {
-				f := sharedFixture(t, "reservation checkpoint", 0)
+				f := newOriginalActorSDKFixture(t, "reservation checkpoint", 0)
 				if err := f.run(t); err == nil || len(f.actorDispatches()) != 0 || f.cloud.creates != 27 {
 					t.Fatal("authority refusal setup did not stop after genuine prerequisites and before launch")
 				}
