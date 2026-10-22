@@ -1409,11 +1409,8 @@ func TestFounderRuntimeSupersededSelectionStopsBeforeLaunch(t *testing.T) {
 }
 
 type founderFakeOCI struct {
-	rows map[string]bootstrap.FounderPeerRow
-	now  time.Time
-	// clock, when set, replaces now: OCI's Date header advances with the
-	// caller's real clock, so a re-observation is genuinely fresh.
-	clock           func() time.Time
+	rows            map[string]bootstrap.FounderPeerRow
+	now             time.Time
 	instanceChanged bool
 	omitBootDate    bool
 	launches        int
@@ -1589,11 +1586,7 @@ func (fake *founderFakeOCI) GetBootVolume(_ context.Context, request core.GetBoo
 		if *request.BootVolumeId == "ocid1.bootvolume.oc1.sa-saopaulo-1."+slot {
 			headers := make(http.Header)
 			if !fake.omitBootDate {
-				now := fake.now
-				if fake.clock != nil {
-					now = fake.clock()
-				}
-				headers.Set("Date", now.Format(http.TimeFormat))
+				headers.Set("Date", fake.now.Format(http.TimeFormat))
 			}
 			if fake.afterBoot != nil {
 				fake.afterBoot()
