@@ -356,6 +356,7 @@ func TestNewRegionJoinsByGossip(t *testing.T) {
 			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
 			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
 			gateways: gateways, ca: ca, applier: appliers[region], every: time.Hour,
+			peersDir: t.TempDir(), peersEvery: time.Hour, address: func() (string, error) { return fmt.Sprintf("10.200.1.%d", i+1), nil },
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -409,6 +410,7 @@ func TestMeshWorkerJoinsItsRegionCluster(t *testing.T) {
 			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
 			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
 			gateways: gateways, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
+			peersDir: t.TempDir(), peersEvery: 300 * time.Millisecond, address: func() (string, error) { return fmt.Sprintf("10.200.2.%d", i+1), nil },
 		}
 	}
 	home := regions[0]

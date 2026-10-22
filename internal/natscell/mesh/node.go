@@ -214,7 +214,10 @@ func start(cfg config) (_ *Node, err error) {
 		peers: &peers{root: cfg.peersDir, region: cfg.region, node: cfg.server, address: cfg.address}}
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) {
-			address, _ := cfg.address() // a node without NetBird still answers; peers skip it
+			var address string // a node without NetBird (or a worker) still answers; peers skip it
+			if cfg.address != nil {
+				address, _ = cfg.address()
+			}
 			node.respond(m, Reply{Region: cfg.region, Server: cfg.server, Regions: node.regions(), Address: address})
 		},
 		StateSubject: func(m *nats.Msg) {
