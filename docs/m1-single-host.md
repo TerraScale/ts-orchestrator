@@ -7,7 +7,7 @@ Runs as root. Entry point: `app.RunSingleHost(ctx, args, output)` (W6 registers
 `case "single-host"` in `internal/cli/cli.go`).
 
 Image pulls from `ghcr.io` authenticate as `MarioGK` with the OCI Vault secret
-`<cell>-ghcr-pull-token` (`gru-1-ghcr-pull-token` on ts-gru-1), read at pull
+`<cell>-1-ghcr-pull-token` (`gru-1-ghcr-pull-token` on ts-gru-1), read at pull
 time with the instance principal from the instance's `<cell>-vault`; other
 registries pull anonymously.
 
