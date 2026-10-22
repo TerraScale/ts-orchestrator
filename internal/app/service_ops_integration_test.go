@@ -88,9 +88,19 @@ func TestContainerdSingleHostOperatorCommands(t *testing.T) {
 
 	follow, stopFollow := context.WithCancel(ctx)
 	defer stopFollow()
+	client, conn, err := swarmruntime.DialSingleHost(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	// Await the Watch API's readiness message before creating the service.
+	stream, err := startEventWatch(follow, api.NewWatchClient(conn))
+	if err != nil {
+		t.Fatal(err)
+	}
 	streamed := &lockedBuffer{}
 	followed := make(chan error, 1)
-	go func() { followed <- runEventsCLI(follow, []string{"-f"}, streamed, state) }()
+	go func() { followed <- streamEvents(follow, stream, streamed) }()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -109,11 +119,6 @@ func TestContainerdSingleHostOperatorCommands(t *testing.T) {
 	if err := protocol.DecodeStrict([]byte(spec), &declared, 64<<10); err != nil {
 		t.Fatal(err)
 	}
-	client, conn, err := swarmruntime.DialSingleHost(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = conn.Close() })
 	// `service apply` goes through the mesh, which this node does not run; the read commands are under test.
 	if _, err := swarmruntime.ApplyServiceSpec(ctx, client, declared); err != nil {
 		t.Fatalf("apply: %v", err)

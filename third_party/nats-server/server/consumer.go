@@ -1233,7 +1233,7 @@ func (mset *stream) addConsumerWithAssignmentAndMode(config *ConsumerConfig, ona
 		mqch:      make(chan struct{}),
 		uch:       make(chan struct{}, 1),
 		mch:       make(chan struct{}, 1),
-		sfreq:     int32(sampleFreq),
+		sfreq:     int32(min(sampleFreq, 100)),
 		maxdc:     uint64(max(config.MaxDeliver, 0)), // MaxDeliver is negative (-1) when infinite.
 		maxp:      config.MaxAckPending,
 		retention: cfg.Retention,
@@ -2656,8 +2656,8 @@ func (o *consumer) updateConfig(cfg *ConsumerConfig) error {
 	}
 	if cfg.SampleFrequency != o.cfg.SampleFrequency {
 		s := strings.TrimSuffix(cfg.SampleFrequency, "%")
-		if sampleFreq, err := strconv.ParseInt(s, 10, 32); err == nil {
-			o.sfreq = int32(sampleFreq)
+		if sampleFreq, err := strconv.Atoi(s); err == nil {
+			o.sfreq = int32(min(sampleFreq, 100))
 		}
 	}
 	// Set MaxDeliver if changed
