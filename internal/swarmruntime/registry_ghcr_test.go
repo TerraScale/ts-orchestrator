@@ -2,11 +2,14 @@ package swarmruntime
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/opencontainers/go-digest"
+	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type registryRoundTrip func(*http.Request) (*http.Response, error)
@@ -61,5 +64,37 @@ func TestGHCRRegistryResolverAuthenticatesOnlyGHCR(t *testing.T) {
 	cancel()
 	if _, _, err := public.Resolve(canceled, image); err == nil || strings.Contains(err.Error(), "differs from admitted") || reads != 1 {
 		t.Fatalf("docker.io must stay anonymous: err=%v reads=%d", err, reads)
+	}
+}
+
+// GHCR answers blob GETs with a 307 to its CDN; the pull follows it without credentials.
+func TestGHCRBlobRedirectReachesCDNWithoutCredentials(t *testing.T) {
+	image := "ghcr.io/terrascale/app@sha256:" + strings.Repeat("a", 64)
+	blob := imagespec.Descriptor{MediaType: imagespec.MediaTypeImageLayerGzip, Digest: digest.Digest("sha256:" + strings.Repeat("b", 64)), Size: 4}
+	var cdn bool
+	transport := registryRoundTrip(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Host {
+		case "ghcr.io":
+			header := http.Header{"Location": {"https://" + ghcrBlobHost + "/blob?sig=1"}}
+			return &http.Response{StatusCode: http.StatusTemporaryRedirect, Header: header, Body: http.NoBody, Request: request}, nil
+		case ghcrBlobHost:
+			cdn = request.Header.Get("Authorization") == ""
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, ContentLength: 4, Body: io.NopCloser(strings.NewReader("data")), Request: request}, nil
+		}
+		t.Errorf("request to %q", request.URL.Host)
+		return nil, io.EOF
+	})
+	resolver := privateRegistryResolver(image, "ghcr.io", func(string) (string, string, error) { return ghcrUser, "token", nil }, transport, ghcrBlobHost)
+	fetcher, err := resolver.Fetcher(t.Context(), image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := fetcher.Fetch(t.Context(), blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if data, err := io.ReadAll(reader); err != nil || string(data) != "data" || !cdn {
+		t.Fatalf("blob = %q, %v, reached CDN without credentials = %v", data, err, cdn)
 	}
 }
