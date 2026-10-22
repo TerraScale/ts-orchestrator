@@ -14,11 +14,13 @@ on:
   schedule:
     - cron: '17 3 * * 1'
 
-# The newest run of a pull request or branch cancels its older runs (user
-# decision 2026-10-22); each merge-queue entry keeps its own run.
+# The newest run of a pull request cancels its older runs (user decision
+# 2026-10-22). A main run always finishes, so it qualifies, releases and saves
+# its caches; a newer main revision waiting behind it replaces any older one
+# still waiting. Each merge-queue entry keeps its own run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
