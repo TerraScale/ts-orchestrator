@@ -50,7 +50,7 @@ done
 	exit 1
 }
 gh auth status --hostname github.com >/dev/null
-test "$(go env GOVERSION)" = go1.27.1
+test "$(go env GOVERSION)" = go1.27.3
 for tool in curl gh jq sha256sum stat gpgv qemu-img guestfish systemctl systemd-sysusers; do
 	command -v "$tool" >/dev/null || { echo "missing image build tool: $tool" >&2; exit 1; }
 done

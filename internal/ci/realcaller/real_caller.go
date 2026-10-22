@@ -217,7 +217,7 @@ func Qualification(path, digest, schema, workflow, sourceSHA, artifact, artifact
 	if workflow == "fast.yml" {
 		e = check(r["build_profile"] == "release" && r["linkage"] == "static", "native qualification build is invalid")
 	} else {
-		e = check(r["go_version"] == "go1.27.1" && lowerHex(str(r, "go_mod_sha256"), 64) && lowerHex(str(r, "go_sum_sha256"), 64), "qualified Go module source hashes are invalid")
+		e = check(r["go_version"] == "go1.27.3" && lowerHex(str(r, "go_mod_sha256"), 64) && lowerHex(str(r, "go_sum_sha256"), 64), "qualified Go module source hashes are invalid")
 	}
 	if e != nil {
 		return nil, e
@@ -263,7 +263,7 @@ func BootstrapProvenance(ctx context.Context, path, expectedSHA, binaryPath, bin
 		_, exists := r[k]
 		ok = ok && exists
 	}
-	ok = ok && r["schema"] == "terrascale.bootstrap.local-build.v1" && r["repository"] == "TerraScale/ts-orchestrator" && r["source_revision"] == qualified["source_revision"] && r["source_tree"] == qualified["source_tree"] && r["source_clean_before"] == true && r["source_clean_after"] == true && r["go_version"] == "go1.27.1" && r["go_mod_sha256"] == qualified["go_mod_sha256"] && r["go_sum_sha256"] == qualified["go_sum_sha256"] && r["goos"] == "linux" && r["goarch"] == "amd64" && r["cgo_enabled"] == false && slices.Contains(BootstrapToolNames, str(r, "binary_name")) && r["binary_sha256"] == binarySHA && number(r["binary_bytes"]) == float64(info.Size()) && r["vcs_revision"] == r["source_revision"] && r["vcs_modified"] == false && r["elf_machine"] == "Advanced Micro Devices X86-64" && r["has_interp"] == false && r["has_needed"] == false && number(r["build_exit"]) == 0 && number(r["test_exit"]) == 0
+	ok = ok && r["schema"] == "terrascale.bootstrap.local-build.v1" && r["repository"] == "TerraScale/ts-orchestrator" && r["source_revision"] == qualified["source_revision"] && r["source_tree"] == qualified["source_tree"] && r["source_clean_before"] == true && r["source_clean_after"] == true && r["go_version"] == "go1.27.3" && r["go_mod_sha256"] == qualified["go_mod_sha256"] && r["go_sum_sha256"] == qualified["go_sum_sha256"] && r["goos"] == "linux" && r["goarch"] == "amd64" && r["cgo_enabled"] == false && slices.Contains(BootstrapToolNames, str(r, "binary_name")) && r["binary_sha256"] == binarySHA && number(r["binary_bytes"]) == float64(info.Size()) && r["vcs_revision"] == r["source_revision"] && r["vcs_modified"] == false && r["elf_machine"] == "Advanced Micro Devices X86-64" && r["has_interp"] == false && r["has_needed"] == false && number(r["build_exit"]) == 0 && number(r["test_exit"]) == 0
 	for _, k := range []string{"go_mod_sha256", "go_sum_sha256", "build_command_sha256", "build_log_sha256", "test_command_sha256", "test_log_sha256"} {
 		ok = ok && lowerHex(str(r, k), 64)
 	}
@@ -288,7 +288,7 @@ func BootstrapProvenance(ctx context.Context, path, expectedSHA, binaryPath, bin
 	if e != nil {
 		return nil, fmt.Errorf("bootstrap binary Go build metadata differs from clean local receipt")
 	}
-	for _, s := range []string{"go1.27.1", "vcs.revision=" + str(r, "source_revision"), "vcs.modified=false", "CGO_ENABLED=0"} {
+	for _, s := range []string{"go1.27.3", "vcs.revision=" + str(r, "source_revision"), "vcs.modified=false", "CGO_ENABLED=0"} {
 		if !bytes.Contains(metadata, []byte(s)) {
 			return nil, fmt.Errorf("bootstrap binary Go build metadata differs from clean local receipt")
 		}

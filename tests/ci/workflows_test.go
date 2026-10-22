@@ -65,7 +65,7 @@ func TestWorkflowContracts(t *testing.T) {
 		// holds a builder slot while the checks run.
 		build, _, _ := strings.Cut(ci, "\n  release-push:\n")
 		steps := matches(build, `(?m)^      - name: (.+)$`)
-		// The qualified job (after build, lint and race) records and dispatches.
+		// The qualified job (after build and race) records and dispatches.
 		if len(steps) < 2 || steps[len(steps)-1] != "Start the image build for this revision" ||
 			steps[len(steps)-2] != "Record the qualified main build for the deployment-lag guard" {
 			t.Fatalf("image dispatch must follow qualification: %v", steps)
@@ -78,7 +78,8 @@ func TestWorkflowContracts(t *testing.T) {
 		requireText(t, ci, "  schedule:\n    - cron: ")
 		requireText(t, workflowText(t, "scripts/ci/dispatch-image.sh"), `-f "inputs[source_ci_run_id]=$GITHUB_RUN_ID" -f "inputs[source_ci_run_number]=$GITHUB_RUN_NUMBER"`)
 		requireText(t, image, "inputs.trigger == 'ci'")
-		requireText(t, image, "  cancel-in-progress: false\n")
+		// A newer image run of the same ref cancels an older one (user decision 2026-10-22).
+		requireText(t, image, "  cancel-in-progress: ${{ github.event_name != 'merge_group' }}\n")
 		requireText(t, image, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 6000`)
 		if tools, gate := strings.Index(image, "deploy/image/tools.sh true"), strings.Index(image, "scripts/ci/image-superseded.sh"); tools < 0 || tools > gate {
 			t.Error("image tools are not prepared before the CI gate")
@@ -127,12 +128,12 @@ func TestWorkflowContracts(t *testing.T) {
 		}
 	})
 	t.Run("test_tiers", func(t *testing.T) {
-		requireText(t, ci, "      TS_TEST_TIER: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}\n")
+		requireText(t, ci, "  TS_TEST_TIER: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'pr' || 'full' }}\n")
 		requireText(t, ci, "      TS_RACE_IDLE_JOBS: '5'\n")
 		forbidText(t, ci, "prepare-fj-admission.sh")
 		for _, text := range []string{ci, image} {
 			requireText(t, text, "runs-on: ubuntu-24.04")
-			requireText(t, text, "go-version: '1.27.1'")
+			requireText(t, text, "go-version: '1.27.3'")
 			forbidText(t, text, "container:")
 			forbidText(t, text, "FORGEJO_")
 			forbidText(t, text, "/cache/")
@@ -262,14 +263,14 @@ func TestReleasePushJob(t *testing.T) {
 	}
 	requireText(t, build, "    outputs:\n      publication: ${{ steps.inputs.outputs.publication }}\n")
 	// The release builds beside the checks; only pushing waits for all of them.
-	requireText(t, push, "    needs: [lint, race, build]\n")
+	requireText(t, push, "    needs: [race, build]\n")
 	_, buildJob, _ := strings.Cut(build, "\n  build:\n")
 	buildJob, _, _ = strings.Cut(buildJob, "\n  qualified:\n")
 	forbidText(t, buildJob, "    needs:")
 	forbidText(t, buildJob, "deployment/qualified")
 	forbidText(t, buildJob, "dispatch-image.sh")
 	_, qualified, _ := strings.Cut(build, "\n  qualified:\n")
-	requireText(t, qualified, "    needs: [lint, race, build]\n")
+	requireText(t, qualified, "    needs: [race, build]\n")
 	requireText(t, qualified, "context=deployment/qualified")
 	requireText(t, qualified, "run: bash scripts/ci/dispatch-image.sh\n")
 	requireText(t, push, "    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}\n")
