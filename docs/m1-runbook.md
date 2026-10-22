@@ -391,9 +391,9 @@ DNS (Cloudflare `terrascale.tech`, DNS-only, TTL auto), all -> 163.176.124.12:
 
 | Name | Record ID | Change |
 |---|---|---|
-| `api` | `ca6cb548d99346fc4e5fef10b492069a` | A edited from Fly 66.241.125.72; Fly AAAA `f57a336c…` deleted |
-| `auth` | `0009eae684d826ac79981d4c54fb1ad5` | A created; Fly CNAME `20631e8b…` (ts-auth.fly.dev) deleted |
-| `dash` | `31e6166055f63ecd292b7d16ad8690d1` | A edited from Fly 66.241.124.105; Fly AAAA `d55f47bb…` deleted |
+| `api` | `ca6cb548d99346fc4e5fef10b492069a` | A edited from the retired host 66.241.125.72; its AAAA `f57a336c…` deleted |
+| `auth` | `0009eae684d826ac79981d4c54fb1ad5` | A created; the retired host's CNAME `20631e8b…` deleted |
+| `dash` | `31e6166055f63ecd292b7d16ad8690d1` | A edited from the retired host 66.241.124.105; its AAAA `d55f47bb…` deleted |
 | `netbird` | `a795b0e0754299b95fab9d7426e2938e` | A created |
 | `whoami` | `0685c40e1acd61687aaf893ec3755d6f` | A created (multi-layer image test) |
 
@@ -425,7 +425,7 @@ their dependencies, wedge without listening, and are restarted by liveness;
 that is the ~7 min.
 
 Open:
-- TerraBase names its region `local` off Fly, so onboarding accepts only
+- TerraBase names its region `local` outside a cluster, so onboarding accepts only
   `LOCAL`; project "M1 proof" is homed there. terrascale #349 (`TS_REGION`
   from ts-orch) fixes the name; re-home or recreate the project after it.
 - `dotnet TerraScale.Dashboard.dll audit-stripe` (run in the task with
