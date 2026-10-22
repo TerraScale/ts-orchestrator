@@ -1,8 +1,8 @@
 # TerraScale address plan (TS-675)
 
 Keep the verified, disjoint live allocations: NetBird `10.200.0.0/16`,
-GRU `10.251.0.0/24`, SJC `10.252.0.0/24`, and Fly
-`fdaa:2:ebb9::/48`. Reserve a stable `/16` for each region under
+GRU `10.251.0.0/24` and SJC `10.252.0.0/24`. Reserve a stable `/16` for each
+region under
 `10.240.0.0/12`; the current `/24` VCNs occupy only part of their reservations.
 Changing a reservation does not change a live VCN or subnet.
 
@@ -33,13 +33,12 @@ be disjoint. A route to an existing subnet is not another allocated network.
 | Additional regional reservations | `10.240.0.0/16` through `10.249.0.0/16`, `10.254.0.0/16`, `10.255.0.0/16` | Not assigned | Twelve free `/16`s; add explicit reviewed mappings before use |
 | TerraScale container-bridge parent pool | `10.208.0.0/12` | Not assigned | Reserve unique `/24`s per host and network; do not advertise the pool or reuse defaults |
 | Tailscale, external owner | `100.64.0.0/10` | `fd7a:115c:a1e0::/48` | Retain addresses, routes and MagicDNS; never allocate to NetBird, OCI or bridges |
-| Fly organization `personal`, provider owner | No customer IPv4 private pool observed | `fdaa:2:ebb9::/48` | Reserve full organization 6PN; per-machine `/112`s lie within it; use `.internal` DNS for moving machines |
 
 The reservation implementation is `internal/networkplan/plan.go`.
 Regional allocations are explicit, independent of catalog order. Adding a
 catalog region without its address reservation fails validation. The invariant
-test compares every assigned region with meshes, external exclusions, bridge
-space and Fly; it also verifies that all regions fit the regional parent pool.
+test compares every assigned region with meshes, external exclusions and bridge
+space; it also verifies that all regions fit the regional parent pool.
 
 Initial private/API subnets keep `.0/25` and `.128/26` inside each region's
 `.0.0/24`. Additional VCNs/subnets require separate, disjoint suballocations
@@ -101,8 +100,7 @@ TerraScale networks. Default routes are forwarding entries, not reservations.
 | Six regional nodes | VCN private `/25`s, mesh IPv4/IPv6; NATS4222/6222 on private VNICs; no active bridges or Tailscale; no7422 listener at cutoff | Same OCI/node inventory |
 | delta + beta + mariogk-dev | LAN10.10.10/24; dev10.11.99/24; NetBird10.200/16; Tailscale CGNAT; IPv6 scopes disjoint; six unused Podman defaults | [Host, route, DNS and client inventory](../evidence/ts-675-host-audit-20261007.md) |
 | mariogk-desktop, refreshed audit | LAN10.10.10/24; both meshes; Docker172.17/16,172.18/16,172.19/16 are dormant without endpoints | Same refreshed host inventory |
-| NetBird management0.80 | IPv4/IPv6 settings,12 peers, GRU `/25` resource, scoped DNS objects and policy IDs | [Management API inventory](../evidence/ts-675-mesh-fly-audit-20261007.md) |
-| Fly | Organization `/48`, nine machines and16 registered WireGuard connections; guest IPv4/DNS/bridges not inspectable from the dashboard image | Same management/Fly inventory |
+| NetBird management0.80 | IPv4/IPv6 settings,12 peers, GRU `/25` resource, scoped DNS objects and policy IDs | [Management API inventory](../evidence/ts-675-mesh-audit-20261007.md) |
 
 The supplied `mariogk-dev` facts actually identify **delta**:
 `10.200.87.10`, `100.77.52.68`. Verified mariogk-dev uses
@@ -163,8 +161,8 @@ during the live check.
 
 NetBird DNS is restricted to `nb.ts.internal`, the managed `gru.ts.internal`
 zone and their reverse zones; no `~.`, `~ts.net`, or Tailscale reverse-zone
-claim. With a Fly `.internal` resolver, these more-specific NetBird suffixes
-must keep their own resolver. Neither NetBird nor Fly replaces MagicDNS.
+claim. These more-specific NetBird suffixes keep their own resolver.
+NetBird does not replace MagicDNS.
 TS-672 owns live scoped DNS, TS-674 owns the NetBird0.80 client rollout, and
 TS-668 owns private peering and the NATS leaf runtime.
 

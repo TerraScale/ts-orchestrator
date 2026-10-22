@@ -1,7 +1,0 @@
-{
-  "chunk_id": "17ed65",
-  "wall_time_seconds": 0.000016099,
-  "exit_code": 0,
-  "original_token_count": 286,
-  "output": "{\"state\": \"FOCUSED_REGRESSION_PASS\", \"exit_code\": 0, \"wall_seconds\": 82.61647389200516, \"max_child_rss_kib\": 1028612, \"source_unchanged\": true, \"expected_tests\": [\"TestServiceIntentGeneration\"], \"expected_package\": \"github.com/TerraScale/ts-orchestrator/internal/swarmruntime\", \"actual_name_counts\": {\"TestServiceIntentGeneration\": 1}, \"malformed_json_lines\": [], \"scope_errors\": [], \"run_name_counts\": {\"TestServiceIntentGeneration\": 1}, \"package_starts\": [\"github.com/TerraScale/ts-orchestrator/internal/swarmruntime\"], \"test_outcomes\": [{\"Test\": \"TestServiceIntentGeneration\", \"Action\": \"pass\", \"Elapsed\": 0, \"Package\": \"github.com/TerraScale/ts-orchestrator/internal/swarmruntime\"}], \"package_outcomes\": [{\"Time\": \"2026-10-17T01:21:46.715598974-03:00\", \"Action\": \"pass\", \"Package\": \"github.com/TerraScale/ts-orchestrator/internal/swarmruntime\", \"Elapsed\": 0.057}], \"stdout_sha256\": \"c93b25f6f699adb1cb773116f771990f44f0c9e1f4af5e29c203efe6024db94d\", \"stderr_sha256\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\", \"scope\": \"Focused pure regression only; no connected manager, native runtime or cloud qualification.\"}\n"
-}

@@ -1,7 +1,0 @@
-{
-  "chunk_id": "cece30",
-  "wall_time_seconds": 1.000556221,
-  "session_id": 47689,
-  "original_token_count": 27,
-  "output": "{\"state\": \"STARTED_COMPILE_ONLY\", \"pid\": 643824, \"output\": \"/tmp/ts-rootbackup-38645-defaultvet-gxbnkeej\"}\n"
-}

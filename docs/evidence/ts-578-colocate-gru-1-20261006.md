@@ -54,7 +54,7 @@ unauthenticated Management request (401 expected), once a second.
    db-1, and its readiness probe timed out. Fix: db-1's 9465 rejected the
    controllers until its sender lag was 0; db-2 was restarted fenced the
    same way.
-3. **16:06–16:26 and 17:00–17:20, dashboard sign-in broken (Fly logs:
+3. **16:06–16:26 and 17:00–17:20, dashboard sign-in broken (dashboard logs:
    `404 unknown_collection`). Cause: TS-578.** ctl-1..3 lacked 11 empty
    collections that db-1/db-2 hold: `verification_tokens` (ts-auth `auth`),
    `access_tokens`, `api_keys`, `audit_events`, `checkout_sessions`,
@@ -101,7 +101,7 @@ without any change.
   key, against every member: 201/200/200. ctl-2's replica with storage on
   ctl-1..3 is ready, 0 failed checks.
 
-ctl-1..3 then went back one at a time while Fly logs were watched (above).
+ctl-1..3 then went back one at a time while dashboard logs were watched (above).
 
 ## Later incidents
 
@@ -155,7 +155,7 @@ copy only) answered 201.
 ## db-1/db-2 retirement
 
 After 30 clean minutes (22:28–22:58: 1,248 probe samples, one timeout,
-0 Fly store errors): backends removed from `terrabase` and
+0 dashboard store errors): backends removed from `terrabase` and
 `terrabase-primary`; FULL boot-volume backups, tagged `ts-issue=TS-578`,
 `delete-after=2026-10-13` (deletion: TS-628):
 

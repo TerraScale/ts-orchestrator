@@ -1,1 +1,0 @@
-{"arguments":{"session_id":53963,"chars":"","yield_time_ms":1000,"max_output_tokens":8000},"result":{"chunk_id":"8bc8aa","wall_time_seconds":5.001909456,"session_id":53963,"original_token_count":32,"output":"{\"state\": \"STARTED_LOCAL_PROVISION_SCENARIO\", \"pid\": 727769, \"output\": \"/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed\"}\n"}}

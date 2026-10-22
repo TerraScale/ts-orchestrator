@@ -102,8 +102,7 @@ This matters for release publication and snapshot rollback protection. Signed
 bytes prevent tampering; they do not replace atomic channel publication.
 
 [Tigris regions](https://www.tigrisdata.com/docs/concepts/regions/) lists `sjc`
-and `fra` on `t3.storage.dev`, but lists `gru` only in the separate Fly.io region
-table. Establish product/account availability and placement in São Paulo before
+and `fra` on `t3.storage.dev`, but does not list `gru` as a storage region. Establish product/account availability and placement in São Paulo before
 assuming local GRU storage. Keep OCI product token `sjc` mapped to
 `us-sanjose-1`; Tigris's `sjc` is a different provider's identifier.
 
