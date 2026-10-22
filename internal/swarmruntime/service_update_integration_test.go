@@ -64,7 +64,7 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 	apply := func(version string) (*api.Service, time.Duration, ServiceRollout) {
 		t.Helper()
 		start := time.Now()
-		if err := e.PrePull(ctx, integrationImage); err != nil {
+		if err := e.PrePull(ctx, integrationImage, nil); err != nil {
 			t.Fatal(err)
 		}
 		pulled := time.Since(start)

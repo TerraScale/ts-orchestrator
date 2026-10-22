@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -95,7 +97,7 @@ func (f *fakeApplier) Remove(_ context.Context, name string) (bool, error) {
 	return ok, nil
 }
 
-func (f *fakeApplier) PrePull(context.Context, string) error { return nil }
+func (f *fakeApplier) PrePull(context.Context, swarmruntime.ServiceSpec) error { return nil }
 
 func (f *fakeApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error) {
 	if ok, err := f.Running(ctx, spec.Name); err != nil || !ok {
@@ -164,10 +166,12 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 			}
 		}
 		appliers[region] = &fakeApplier{running: map[string]int64{}}
+		address := fmt.Sprintf("10.200.0.%d", i+1)
 		configs[region] = config{
 			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
 			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
 			gateways: gateways, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
+			peersDir: t.TempDir(), peersEvery: 300 * time.Millisecond, address: func() (string, error) { return address, nil },
 		}
 	}
 	nodes := map[string]*Node{}
@@ -230,9 +234,28 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 			t.Fatalf("%s did not apply generation 1:\n%s", region, out.String())
 		}
 	}
+	peersFile := func(region string) string {
+		data, _ := os.ReadFile(filepath.Join(configs[region].peersDir, "whoami", "peers"))
+		return string(data)
+	}
+	// Lines sort by node name; region i's node has address 10.200.0.<i+1>.
+	every := fmt.Sprintf("ts-%[3]s-1 %[3]s 10.200.0.3\nts-%[1]s-1 %[1]s 10.200.0.1\nts-%[2]s-1 %[2]s 10.200.0.2\n", regions[0], regions[1], fra)
+	withoutFra := fmt.Sprintf("ts-%[1]s-1 %[1]s 10.200.0.1\nts-%[2]s-1 %[2]s 10.200.0.2\n", regions[0], regions[1])
+	eventually(t, "every region's peers file to list every region", func() bool {
+		return peersFile(regions[0]) == every && peersFile(regions[1]) == every && peersFile(fra) == every
+	})
+	// The task's non-root user reads the file through the bound directory.
+	dir := filepath.Join(configs[regions[0]].peersDir, "whoami")
+	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o755 {
+		t.Fatalf("peers directory mode: %v %v", info, err)
+	}
+	if info, err := os.Stat(filepath.Join(dir, "peers")); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("peers file mode: %v %v", info, err)
+	}
 
 	nodes[fra].Close()
 	delete(nodes, fra)
+	eventually(t, fra+" to leave the peers file", func() bool { return peersFile(regions[0]) == withoutFra })
 	spec.Args = []string{"/bin/true"}
 	out.Reset()
 	err = printApply(&out)(send(t.Context(), sjc.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 2, Spec: &spec}}, 2*time.Second))
@@ -245,6 +268,7 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 
 	launch(fra)
 	eventually(t, fra+" to converge by anti-entropy", func() bool { return appliers[fra].generation("whoami") == 2 })
+	eventually(t, fra+" to rejoin the peers file", func() bool { return peersFile(regions[0]) == every })
 
 	// An app release changes only the digest; an unready one rolls back everywhere.
 	image := func(region string) string {
@@ -276,6 +300,19 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 
 	if data, err := bridge(t.Context(), gru.conn, "state", nil); err != nil || string(data) != `{"whoami":"`+good+`"}` {
 		t.Fatalf("bridge state = %s, %v", data, err)
+	}
+
+	// A service targeting one region lists only that region's node.
+	spec.Regions = []string{regions[1]}
+	out.Reset()
+	if err := printApply(&out)(send(t.Context(), gru.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: time.Now().UnixNano(), Spec: &spec}}, 5*time.Second)); err != nil {
+		t.Fatalf("apply to %s only: %v\n%s", regions[1], err, out.String())
+	}
+	if got, want := peersFile(regions[1]), fmt.Sprintf("ts-%s-1 %s 10.200.0.2\n", regions[1], regions[1]); got != want {
+		t.Fatalf("%s peers file = %q, want %q", regions[1], got, want)
+	}
+	if got := peersFile(regions[0]); got != "" {
+		t.Fatalf("untargeted %s kept a peers file: %q", regions[0], got)
 	}
 
 	// A removal not targeting a region is still a removal there.
@@ -319,6 +356,7 @@ func TestNewRegionJoinsByGossip(t *testing.T) {
 			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
 			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
 			gateways: gateways, ca: ca, applier: appliers[region], every: time.Hour,
+			peersDir: t.TempDir(), peersEvery: time.Hour, address: func() (string, error) { return fmt.Sprintf("10.200.1.%d", i+1), nil },
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -372,6 +410,7 @@ func TestMeshWorkerJoinsItsRegionCluster(t *testing.T) {
 			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
 			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
 			gateways: gateways, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
+			peersDir: t.TempDir(), peersEvery: 300 * time.Millisecond, address: func() (string, error) { return fmt.Sprintf("10.200.2.%d", i+1), nil },
 		}
 	}
 	home := regions[0]

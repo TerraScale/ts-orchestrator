@@ -68,3 +68,26 @@ func TestValidateServiceRefs(t *testing.T) {
 		}
 	}
 }
+
+// A service's refs bind it to the cell of the Vault they name, wherever the
+// host runs.
+func TestRefsVaultBindsTheNamedVault(t *testing.T) {
+	refs := map[string]Ref{"TERRABASE_MASTER_KEY_FILE": {testTarget.VaultID, "gru-1-terrabase-e2e-master-key"},
+		"TERRABASE_PEER_SECRET_FILE": {testTarget.VaultID, "gru-1-terrabase-e2e-peer-secret"}}
+	cell, vaultID, err := refsVault("terrabase-e2e", refs)
+	if err != nil || cell != "gru" || vaultID != testTarget.VaultID {
+		t.Fatalf("refsVault = %q %q %v", cell, vaultID, err)
+	}
+	refused := map[string]map[string]Ref{
+		"two Vaults":            {"A_FILE": refs["TERRABASE_MASTER_KEY_FILE"], "B_FILE": {"ocid1.vault.oc1.sa-saopaulo-1.other", "gru-1-terrabase-e2e-x"}},
+		"another service":       {"A_FILE": {testTarget.VaultID, "gru-1-ts-auth-master-key"}},
+		"another cell's name":   {"A_FILE": {testTarget.VaultID, "sjc-1-terrabase-e2e-x"}},
+		"Vault outside a cell":  {"A_FILE": {"ocid1.vault.oc1.us-ashburn-1.vault", "gru-1-terrabase-e2e-x"}},
+		"infrastructure secret": {"A_FILE": {testTarget.VaultID, "gru-1-ghcr-pull-token"}},
+	}
+	for name, bad := range refused {
+		if _, _, err := refsVault("terrabase-e2e", bad); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

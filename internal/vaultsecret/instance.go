@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"regexp"
 	"slices"
@@ -74,20 +75,18 @@ func ValidateServiceRefs(cell, vaultID, service string, refs map[string]Ref) err
 	return ValidateDeliveryRefs(cell, service, own, nil)
 }
 
-// ReadInstanceSecrets reads the current value of each of service's refs from
-// the Vault of the instance's own cell, with its instance principal, after
-// ValidateServiceRefs. It needs no configuration: the cell comes from the
-// instance metadata region, and the Vault is the one named <cell>-vault in the
-// instance's compartment.
+// ReadInstanceSecrets reads the current value of each of service's refs, with
+// the instance principal, from the one Vault they name (SwarmSpec allows one),
+// after ValidateServiceRefs against the cell of that Vault's region. So a host
+// in a region without a cell Vault reads the platform Vault IAM grants it.
 func ReadInstanceSecrets(ctx context.Context, service string, refs map[string]Ref) (map[string]string, error) {
 	if err := safeEnv(); err != nil {
 		return nil, err
 	}
-	cell, vaultID, err := discoverInstanceVault(ctx)
-	if err != nil {
-		return nil, err
+	if len(refs) == 0 {
+		return map[string]string{}, nil
 	}
-	if err := ValidateServiceRefs(cell, vaultID, service, refs); err != nil {
+	if _, _, err := refsVault(service, refs); err != nil {
 		return nil, err
 	}
 	return Resolve(ctx, refs, instanceClient(ctx))
@@ -195,4 +194,19 @@ func instanceMetadata(ctx context.Context) (metadata, error) {
 		return metadata{}, errors.New("OCI instance metadata has no region or compartment")
 	}
 	return result, nil
+}
+
+// refsVault is the cell and Vault of service's non-empty refs: the Vault of
+// the first key, whose region names the cell; ValidateServiceRefs binds every
+// ref to that one Vault and to the cell's name rules.
+func refsVault(service string, refs map[string]Ref) (string, string, error) {
+	ref := refs[slices.Min(slices.Collect(maps.Keys(refs)))]
+	entry, ok := catalog.CellForOCIRegion(ref.region())
+	if !ok {
+		return "", "", fmt.Errorf("Vault secrets of %s must name a Vault in a TerraScale cell's region", service)
+	}
+	if err := ValidateServiceRefs(entry.Name(), ref.Vault, service, refs); err != nil {
+		return "", "", err
+	}
+	return entry.Name(), ref.Vault, nil
 }
