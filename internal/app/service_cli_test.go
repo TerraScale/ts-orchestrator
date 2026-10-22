@@ -48,6 +48,11 @@ func TestServiceSpecRejects(t *testing.T) {
 	if _, err := valid.SwarmSpec(); err != nil {
 		t.Fatal(err)
 	}
+	small := valid
+	small.MilliCPU, small.MemoryMiB = 100, 64
+	if got, err := small.SwarmSpec(); err != nil || got.Task.Resources.Reservations.NanoCPUs != 100_000_000 || got.Task.Resources.Reservations.MemoryBytes != 64<<20 {
+		t.Fatalf("small budget: %v", err)
+	}
 	for name, mutate := range map[string]func(*swarmruntime.ServiceSpec){
 		"tag image":       func(s *swarmruntime.ServiceSpec) { s.Image = "docker.io/library/alpine:3" },
 		"two replicas":    func(s *swarmruntime.ServiceSpec) { s.Replicas = 2 },
@@ -75,6 +80,8 @@ func TestServiceSpecRejects(t *testing.T) {
 		"repeat hostname": func(s *swarmruntime.ServiceSpec) { s.Hostnames = []string{"a.example.com", "a.example.com"} },
 		"bad hostname":    func(s *swarmruntime.ServiceSpec) { s.Hostnames = []string{"https://a.example.com"} },
 		"relative ready":  func(s *swarmruntime.ServiceSpec) { s.ReadyPath = "readyz" },
+		"tiny cpu":        func(s *swarmruntime.ServiceSpec) { s.MilliCPU = 1 },
+		"huge memory":     func(s *swarmruntime.ServiceSpec) { s.MemoryMiB = 1 << 20 },
 	} {
 		spec := valid
 		mutate(&spec)

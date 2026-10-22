@@ -39,5 +39,7 @@
     "api.terrascale.tech"
   ],
   "replicas": 1,
+  "milliCPU": 1500,
+  "memoryMiB": 8192,
   "regions": ["gru"]
 }
