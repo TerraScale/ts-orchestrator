@@ -562,10 +562,16 @@ func originalPublicationSecretName(template VerifiedStartupTemplate, file string
 	return "ts-" + identity.Environment + "-" + identity.OCIRegion + "-" + strings.ReplaceAll(identity.DeploymentID, ":", "-") + "-" + suffix + "-" + string(purpose) + "-" + slot + "-" + strings.ReplaceAll(file, ".", "-")
 }
 
+// matchesOriginalPublicationScope compares content with the verifier's scope
+// wire, a decoded map whose member order differs from this typed scope.
+func matchesOriginalPublicationScope(template VerifiedStartupTemplate, scope originalPublicationScope) bool {
+	var signed originalPublicationScope
+	return json.Unmarshal(template.bindings.original.resources.PublicationScope, &signed, json.RejectUnknownMembers(true)) == nil && scope == signed
+}
+
 func validateOriginalPendingPublication(template VerifiedStartupTemplate, state originalSourceState, now time.Time) error {
 	p := state.Publication
-	wire, err := json.Marshal(p.Scope, json.Deterministic(true))
-	if err != nil || !bytes.Equal(wire, template.bindings.original.resources.PublicationScope) {
+	if !matchesOriginalPublicationScope(template, p.Scope) {
 		return ErrManifestInvalid
 	}
 	if len(p.Journal) == 0 {
@@ -634,9 +640,7 @@ func validateOriginalPublication(template VerifiedStartupTemplate, state origina
 	p := state.Publication
 	result := p.Result
 	target := template.VaultTarget()
-	// The verifier's scope wire is a decoded map; compare content, not member order.
-	var signedScope originalPublicationScope
-	if json.Unmarshal(template.bindings.original.resources.PublicationScope, &signedScope, json.RejectUnknownMembers(true)) != nil || p.Scope != signedScope {
+	if !matchesOriginalPublicationScope(template, p.Scope) {
 		return ErrManifestInvalid
 	}
 	if p.Scope.Target != target || !isOCID(p.Scope.PolicyID, "policy") || p.Scope.PolicyETag == "" || !validDigest(p.Scope.PolicySHA256) || !validDigest(p.Scope.ReadbackSHA256) || result.SchemaVersion != 1 || result.Target != target || len(result.References) != 33 {

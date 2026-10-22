@@ -79,16 +79,29 @@ func originalStartupJSON(t *testing.T, value any) []byte {
 	return wire
 }
 
-// originalSourceStateJSON encodes the source state in the producer's typed
-// field order; json/v2 sorts map keys, but the verifier requires the typed wire.
-func originalSourceStateJSON(t *testing.T, state map[string]any) []byte {
-	t.Helper()
-	order := map[string][]string{
-		"":            {"schemaVersion", "kind", "scope", "intentSha256", "admissionAuthorizationSha256", "target", "secretName", "retryToken", "startedAt", "candidate", "reference", "originalAdmissionInventory", "publication", "startup", "seedCompletion"},
-		"candidate":   {"sha256", "maxBytes", "createSha256"},
-		"reference":   {"secretOcid", "sha256", "maxBytes"},
-		"publication": {"scope", "journal", "result"},
+// Member orders of bootstrap's typed original source and link states.
+var (
+	originalSourceStateOrder = map[string][]string{
+		"":                         {"schemaVersion", "kind", "scope", "intentSha256", "admissionAuthorizationSha256", "target", "secretName", "retryToken", "startedAt", "candidate", "reference", "originalAdmissionInventory", "publication", "startup", "seedCompletion"},
+		"candidate":                {"sha256", "maxBytes", "createSha256"},
+		"reference":                {"secretOcid", "sha256", "maxBytes"},
+		"publication":              {"scope", "journal", "result"},
+		"target":                   {"compartmentOcid", "vaultOcid", "kmsKeyOcid"},
+		"publication.scope":        {"target", "policyId", "policyEtag", "policySha256", "readbackSha256"},
+		"publication.scope.target": {"compartmentOcid", "vaultOcid", "kmsKeyOcid"},
 	}
+	originalLinkStateOrder = map[string][]string{
+		"":          {"schemaVersion", "kind", "installationId", "generation", "cell", "grantSha256", "bindingSha256", "regionalSource", "homeSource", "homeLinkSha256", "target", "secretName", "retryToken", "startedAt", "candidate", "reference", "journal", "publication", "delivery"},
+		"candidate": {"sha256", "maxBytes", "createSha256"},
+		"reference": {"secretOcid", "sha256", "maxBytes"},
+		"target":    {"compartmentOcid", "vaultOcid", "kmsKeyOcid"},
+	}
+)
+
+// originalTypedStateJSON encodes a state map in the producer's typed member
+// order; json/v2 sorts map keys, but the verifier requires the typed wire.
+func originalTypedStateJSON(t *testing.T, state map[string]any, order map[string][]string) []byte {
+	t.Helper()
 	var encode func(name string, object map[string]any) []byte
 	encode = func(name string, object map[string]any) []byte {
 		keys := slices.Clone(order[name])
@@ -104,8 +117,12 @@ func originalSourceStateJSON(t *testing.T, state map[string]any) []byte {
 				continue
 			}
 			var member []byte
-			if nested, isMap := value.(map[string]any); isMap && order[key] != nil && name == "" {
-				member = encode(key, nested)
+			path := key
+			if name != "" {
+				path = name + "." + key
+			}
+			if nested, isMap := value.(map[string]any); isMap && order[path] != nil {
+				member = encode(path, nested)
 			} else {
 				member = originalStartupJSON(t, value)
 			}
@@ -157,19 +174,15 @@ func originalStartupLedgerSDK(t *testing.T, f *originalMaterialIAMSDKFixture, on
 						w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
 						w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 						w.Header().Set("Content-Length", fmt.Sprint(info.Size()))
-						// The IAM-phase fixture refuses archive reads; runtime ledger reads are this client's job.
-						if strings.Contains(key, "/material-source/") {
-							wire, err := os.ReadFile(f.cloud.objectPath(bucket + "/" + key))
-							if err != nil {
-								t.Error(err)
-							}
-							w.Header().Set("etag", digestSource(wire))
-							w.Write(wire)
-							return
-						}
 					}
 				}
 			}
+		}
+		// Runtime ledger and source objects belong to this client; the IAM-phase
+		// fixtures refuse archive reads and unrelated ledger writes by design.
+		if strings.HasPrefix(r.URL.Path, "/n/ns/b/") && strings.Contains(r.URL.Path, "/o/") {
+			f.cloud.serveHTTP(w, r)
+			return
 		}
 		f.serveHTTP(w, r)
 	}))
@@ -327,7 +340,7 @@ func newOriginalStartupLedgerFixture(t *testing.T) *originalStartupLedgerFixture
 	if err != nil {
 		t.Fatal(err)
 	}
-	stateWire := originalSourceStateJSON(t, state)
+	stateWire := originalTypedStateJSON(t, state, originalSourceStateOrder)
 	f.cloud.writeObject(domain.HeadBucket+"/"+sourceKey, stateWire)
 	proof, err := bootstrap.LoadRegionalSource(t.Context(), template, client, f.now)
 	if err != nil || !proof.IsVerified() {
@@ -372,7 +385,7 @@ func newOriginalStartupLedgerFixture(t *testing.T) *originalStartupLedgerFixture
 		t.Fatal(err)
 	}
 	linkState := map[string]any{"schemaVersion": 3, "kind": "original-startup-link/v1", "installationId": template.InstallationID(), "generation": template.Generation(), "cell": "gru", "grantSha256": template.GrantDigest(), "bindingSha256": recipient.BindingSHA256(), "regionalSource": sourceBinding, "homeSource": sourceBinding, "target": intent.Escrow, "secretName": secretName, "retryToken": originalStartupTestUUID, "startedAt": f.now, "candidate": map[string]any{"sha256": linkSHA, "maxBytes": len(linkArchive), "createSha256": digestSource(payload)}, "reference": map[string]any{"secretOcid": "ocid1.vaultsecret.oc1.sa-saopaulo-1.originallinkarchive", "sha256": linkSHA, "maxBytes": len(linkArchive)}, "journal": linkJournal, "publication": linkPublication, "delivery": evidence.Delivery}
-	f.cloud.writeObject(domain.HeadBucket+"/"+recipient.LinkObjectKey(), originalStartupJSON(t, linkState))
+	f.cloud.writeObject(domain.HeadBucket+"/"+recipient.LinkObjectKey(), originalTypedStateJSON(t, linkState, originalLinkStateOrder))
 	verifiedLink, err := bootstrap.VerifyStartupLink(t.Context(), template, client, evidence, f.now)
 	if err != nil || !verifiedLink.IsVerified() {
 		t.Fatalf("verify actual signed original Link: %v", err)
@@ -404,7 +417,7 @@ func newOriginalStartupLedgerFixture(t *testing.T) *originalStartupLedgerFixture
 		startup[slot] = originalStartupSign(t, binding, bootstrap.DerivedStartupScope(manifest), key, f.now, template.ExpiresAt())
 	}
 	state["startup"] = startup
-	f.cloud.writeObject(domain.HeadBucket+"/"+sourceKey, originalSourceStateJSON(t, state))
+	f.cloud.writeObject(domain.HeadBucket+"/"+sourceKey, originalTypedStateJSON(t, state, originalSourceStateOrder))
 	wire := startup[template.Template().SeedSlot]
 	authority, err := bootstrap.VerifyDerivedStartupAuthority(t.Context(), template, client, wire, f.now)
 	if err != nil || !authority.IsVerified() {
@@ -666,7 +679,7 @@ func TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges(t *testing.T) {
 			case "unknown-field":
 				state["unexpectedAuthority"] = true
 			}
-			f.producer.cloud.writeObject(f.sourceKey, originalSourceStateJSON(t, state))
+			f.producer.cloud.writeObject(f.sourceKey, originalTypedStateJSON(t, state, originalSourceStateOrder))
 			if proof, err := bootstrap.LoadRegionalSource(t.Context(), f.template, f.client, time.Now()); err == nil || proof.IsVerified() {
 				t.Fatal("changed protected source minted inventory authority")
 			}
@@ -679,7 +692,7 @@ func TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges(t *testing.T) {
 	}
 	delete(pending, "startup")
 	delete(pending["publication"].(map[string]any), "result")
-	f.producer.cloud.writeObject(f.sourceKey, originalStartupJSON(t, pending))
+	f.producer.cloud.writeObject(f.sourceKey, originalTypedStateJSON(t, pending, originalSourceStateOrder))
 	if proof, err := bootstrap.LoadRegionalSource(t.Context(), f.template, f.client, time.Now()); !errors.Is(err, bootstrap.ErrOriginalSourcePending) || proof.IsVerified() {
 		t.Fatal("legitimate incomplete source did not hold without authority", err)
 	}
