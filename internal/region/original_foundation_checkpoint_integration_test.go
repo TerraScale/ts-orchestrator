@@ -81,7 +81,8 @@ func TestOriginalProviderCheckpointSDK(t *testing.T) {
 						entered <- struct{}{}
 						<-r.Context().Done()
 						canceled <- struct{}{}
-						return
+						// Abort: a fabricated 200 can still race the client's cancellation.
+						panic(http.ErrAbortHandler)
 					}
 					wire, err := os.ReadFile(checkpointPath)
 					if err != nil {

@@ -165,6 +165,13 @@ func (d readDispatcher) Do(request *http.Request) (*http.Response, error) {
 		return nil, &readTransportError{err: finalErr, ctx: request.Context()}
 	}
 	response, err := d.next.Do(request)
+	if read := request.Method == http.MethodGet || request.Method == http.MethodHead || request.Method == http.MethodOptions; read && err == nil && request.Context().Err() != nil {
+		// net/http may return a response that raced the context end; a read past its deadline is never a success.
+		if response != nil && response.Body != nil {
+			_ = response.Body.Close()
+		}
+		response, err = nil, request.Context().Err()
+	}
 	if finish != nil {
 		if recordErr := finish(response, err, true); recordErr != nil {
 			if response != nil && response.Body != nil {
