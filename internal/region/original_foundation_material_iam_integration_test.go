@@ -861,6 +861,13 @@ func (f *originalMaterialIAMSDKFixture) assertRuntimeJoinSDK(t *testing.T, permi
 func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 	tier.Integration(t)
 	shared := newOriginalMaterialIAMSDKFixture(t, "")
+	// Subtests start with every stage below material IAM complete: a refused
+	// first material checkpoint stops this run before any material effect.
+	shared.fault = "scope checkpoint"
+	if err := shared.run(t); err == nil || !shared.faulted || len(shared.posts) != 0 {
+		t.Fatal("prebuilt material fixture did not stop before material IAM", err)
+	}
+	shared.fault, shared.faulted = "", false
 	state := snapshotOriginalFixture(t, shared)
 	sharedFixture := func(t *testing.T, fault string) *originalMaterialIAMSDKFixture {
 		t.Helper()

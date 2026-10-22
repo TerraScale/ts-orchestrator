@@ -778,7 +778,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		for slot := range 3 {
 			for _, fault := range []string{"scope checkpoint", "reservation checkpoint", "stale lease", "lost create response", "unknown create", "lost accepted checkpoint", "response before CAS", "throttle", "timeout", "instance pending"} {
 				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
-					f := sharedFixture(t, fault, slot)
+					f := newOriginalActorSDKFixture(t, fault, slot)
 					if err := f.run(t); err == nil {
 						t.Fatal("interrupted actor operation claimed complete startup")
 					}
@@ -1090,7 +1090,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		}
 		for _, fault := range []string{"network no add ACK", "Vault nonready"} {
 			t.Run(fault, func(t *testing.T) {
-				f := sharedFixture(t, "", 0)
+				f := newOriginalActorSDKFixture(t, "", 0)
 				if fault == "network no add ACK" {
 					f.networkFault = "unknown rule response"
 				} else {
@@ -1180,7 +1180,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		}
 		for _, fault := range faults {
 			t.Run(fault, func(t *testing.T) {
-				f := sharedFixture(t, fault, 0)
+				f := newOriginalActorSDKFixture(t, fault, 0)
 				if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationActorPending) {
 					t.Fatalf("physical mismatch reached completed physical actor stage: %v", err)
 				}

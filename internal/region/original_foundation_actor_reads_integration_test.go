@@ -826,7 +826,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		}
 		for _, actorFault := range []string{"instance identity", "instance image", "instance missing", "VNIC public", "boot image"} {
 			t.Run(actorFault, func(t *testing.T) {
-				f := sharedFixture(t, "scope checkpoint", 0)
+				f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
 				if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 					t.Fatal("current physical refusal setup did not stop before READ scope retention")
 				}
