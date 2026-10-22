@@ -292,3 +292,29 @@ func TestEdgeRefusesPublicNetBirdSetup(t *testing.T) {
 		}
 	}
 }
+
+// A backend that binds its port during the handoff window still gets the request.
+func TestDialHandoffWaitsForBackend(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := probe.Addr().String()
+	probe.Close()
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		ln, err := net.Listen("tcp", address)
+		if err != nil {
+			return
+		}
+		defer ln.Close()
+		if conn, err := ln.Accept(); err == nil {
+			conn.Close()
+		}
+	}()
+	conn, err := dialHandoff(context.Background(), "tcp", address)
+	if err != nil {
+		t.Fatalf("dial during handoff: %v", err)
+	}
+	conn.Close()
+}
