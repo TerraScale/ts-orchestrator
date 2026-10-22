@@ -129,3 +129,13 @@ rest - 1
 ./internal/region TestOriginalFoundationSourceIAMSDK 90/1 norace solo
 ./internal/region TestOriginalFoundationCurrentnessSDK 205/1 norace solo
 ./internal/region TestOriginalFoundationMaterialIAMPeerGroupSDK 290/1 norace solo
+
+# Original NetBird SDK scenarios (tier.Integration), same rules; race
+# seconds and non-race seconds from dev hosts (2026-10-22).
+./internal/region TestNetBirdManagerSignedLaunchAndStoreRecovery 160/1 solo
+./internal/region TestOriginalNetBirdManagerFirstLaunchAccountBirth 320/1 solo
+./internal/region TestOriginalNetBirdManagerSDK 60/1 norace solo
+./internal/region TestOriginalNetBirdAccountEscrowInterruptedPublication 150/1 norace solo
+./internal/region TestOriginalNetBirdBackupSDK 440/1 norace solo
+./internal/region TestOriginalNetBirdBackupRefusesPendingProtection 150/1 norace solo
+./internal/region TestOriginalNetBirdBackupDoesNotFallBackAfterRefusal 160/1 norace solo
