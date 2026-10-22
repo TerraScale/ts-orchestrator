@@ -415,6 +415,10 @@ type ServiceSpec struct {
 	ReadyPath string                     `json:"readyPath,omitempty"`
 	Hostnames []string                   `json:"hostnames,omitempty"`
 	Replicas  uint64                     `json:"replicas"`
+	// MilliCPU and MemoryMiB size the fully reserved budget; zero keeps the
+	// 1 CPU / 4 GiB default sized for the M1 services.
+	MilliCPU  uint32 `json:"milliCPU,omitempty"`
+	MemoryMiB uint32 `json:"memoryMiB,omitempty"`
 	// Regions lists the region tokens that run the service; empty means every
 	// ordered region. The mesh reads it; the local service ignores it.
 	Regions []string `json:"regions,omitempty"`
@@ -504,7 +508,17 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		labels[LabelGeneration] = strconv.FormatInt(s.Generation, 10)
 	}
 	// shortcut: fixed, fully reserved budget sized so the three M1 services fit one A1 host (3.75 schedulable CPUs); size per service when a host is added or one is starved.
-	limits := &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 4 << 30, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 10<<30)}}
+	cpu, memory := int64(1_000_000_000), int64(4<<30)
+	if s.MilliCPU != 0 {
+		cpu = int64(s.MilliCPU) * 1_000_000
+	}
+	if s.MemoryMiB != 0 {
+		memory = int64(s.MemoryMiB) << 20
+	}
+	if cpu < 10_000_000 || cpu > 4_000_000_000 || memory < 16<<20 || memory > 24<<30 {
+		return nil, errors.New("milliCPU must be 10-4000 and memoryMiB 16-24576")
+	}
+	limits := &api.Resources{NanoCPUs: cpu, MemoryBytes: memory, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 10<<30)}}
 	task := api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()},
 		Restart: &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(5 * time.Second)}}
 	// Refuse at apply what the executor would refuse on every task.

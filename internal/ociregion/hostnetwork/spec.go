@@ -82,6 +82,8 @@ func desired(cellName string) (spec, error) {
 				{proto: "all", cidr: vcn}, {proto: "1", cidr: "0.0.0.0/0", icmp: "3/4"},
 				{egress: true, proto: "all", cidr: vcn}, {egress: true, proto: "all", cidr: "169.254.0.0/16"},
 				{egress: true, proto: "6", cidr: "0.0.0.0/0", port: 80}, {egress: true, proto: "6", cidr: "0.0.0.0/0", port: 443},
+				// Outbound mesh gateways to the other regions' public 7222.
+				{egress: true, proto: "6", cidr: "0.0.0.0/0", port: 7222},
 				{egress: true, proto: "17", cidr: "0.0.0.0/0"}, {egress: true, proto: "1", cidr: "0.0.0.0/0"},
 			}},
 			// The public edge: HTTPS, ACME, the NetBird ports in docs/netbird-m1.md
