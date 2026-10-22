@@ -45,6 +45,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 	swarmexec "github.com/moby/swarmkit/v2/agent/exec"
@@ -61,15 +62,22 @@ import (
 // The local privileged observer proves applied history; authenticated Unix
 // management transport remains separately qualified.
 func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
-	ctx, cancel := context.WithTimeout(t.Context(), 360*time.Second)
-	defer cancel()
+	tier.Integration(t)
+	// No test-owned deadline: the lab waits on real 30s session TTLs and 5s
+	// usage intervals, which -race on a loaded runner stretches past any fixed
+	// budget; go test -timeout bounds it.
+	ctx := t.Context()
 	auth := newAuthenticatedNATS(t, "gru")
 	broker, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
+	// The fixture's 5-minute bridge ticket would fence the host transport
+	// mid-run: this lab takes about 5 minutes idle and longer under -race load.
+	if err := broker.Bridge().OpenUntil(1, auth.cellJWT, time.Now().Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
 	signer := newFunctionPublicationSigner(t)
 	identity := cellspec.Identity{DeploymentID: entityid.New(), Cell: "gru", Environment: "canary"}
 	keys := newTestSpecTrustWithRoot(t, t.TempDir(), identity, signer.root)
@@ -1464,6 +1472,9 @@ func (session *genericRuntimeHostSession) start(t *testing.T, ctx context.Contex
 	go func() { done <- run(agent, runCtx) }()
 	select {
 	case <-ready:
+	case err := <-done:
+		done <- err // stop still joins this exit
+		t.Fatal("signed host session ended before it initialized: ", err)
 	case <-ctx.Done():
 		t.Fatal("signed host session did not initialize: ", ctx.Err())
 	}
