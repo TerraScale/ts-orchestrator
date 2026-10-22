@@ -3,8 +3,10 @@
 //
 // Each region is its own one-server NATS cluster named by its region token;
 // full-mesh gateways on 7222 link the regions, so any two keep talking while
-// a third is down. Gateways accept only peers holding a leaf of the mesh CA,
-// which every node derives from one shared OCI Vault secret. The only client
+// a third is down. A node dials the founded regions as seeds; gateway gossip
+// announces any other region that dials one of them, so a new region joins
+// without a release. Gateways accept only peers holding a leaf of the mesh
+// CA, which every node derives from one shared OCI Vault secret. The only client
 // listener is loopback: the root CLI and the node itself connect with a
 // token the node writes at start. (:4222 is the release listener, internal/releasepush.)
 //
@@ -61,7 +63,7 @@ const (
 
 var serviceName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
-// Regions is the ordered region list every node gateways to.
+// Regions is the seed list every node dials; gossip adds the other regions.
 func Regions() []string {
 	names := []string{}
 	for _, entry := range catalog.Founded() {
@@ -91,6 +93,9 @@ type Reply struct {
 	ElapsedMS int64  `json:"elapsed_ms,omitempty"`
 	// Phases is this region's elapsed time to each rollout phase.
 	Phases string `json:"phases,omitempty"`
+	// Regions is every region the replying node reaches, so a caller also
+	// waits for regions that joined after its own node's seeds.
+	Regions []string `json:"regions,omitempty"`
 }
 
 type stateReply struct {
@@ -117,8 +122,11 @@ type config struct {
 	advertise                 string // host:port peers dial for this region's gateway
 	gatewayPort, localPort    int
 	gateways                  map[string]string // region -> gateway URL
+	clusterHost               string            // "" runs no in-region cluster listener
+	clusterPort               int
+	routes                    []string // in-region route URLs to dial
 	ca                        *CA
-	applier                   Applier
+	applier                   Applier // nil on a worker, which serves no region requests
 	every                     time.Duration
 }
 
@@ -152,7 +160,7 @@ func start(cfg config) (_ *Node, err error) {
 		NoSigs: true, MaxPayload: maxWire,
 		Gateway: server.GatewayOpts{
 			Name: cfg.region, Host: cfg.host, Port: cfg.gatewayPort, Advertise: cfg.advertise,
-			TLSConfig: tlsConfig, TLSTimeout: 5, RejectUnknown: true,
+			TLSConfig: tlsConfig, TLSTimeout: 5,
 		},
 	}
 	for _, region := range slices.Sorted(maps.Keys(cfg.gateways)) {
@@ -162,6 +170,17 @@ func start(cfg config) (_ *Node, err error) {
 		}
 		options.Gateway.Gateways = append(options.Gateway.Gateways,
 			&server.RemoteGatewayOpts{Name: region, URLs: []*url.URL{address}, TLSConfig: tlsConfig, TLSTimeout: 5})
+	}
+	if cfg.clusterHost != "" {
+		// The region's servers form one NATS cluster with the same mesh mTLS.
+		options.Cluster = server.ClusterOpts{Name: cfg.region, Host: cfg.clusterHost, Port: cfg.clusterPort, TLSConfig: tlsConfig, TLSTimeout: 5}
+		for _, route := range cfg.routes {
+			address, err := url.Parse(route)
+			if err != nil {
+				return nil, err
+			}
+			options.Routes = append(options.Routes, address)
+		}
 	}
 	embedded, err := server.NewServer(options)
 	if err != nil {
@@ -185,7 +204,9 @@ func start(cfg config) (_ *Node, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	node := &Node{cfg: cfg, server: embedded, conn: conn, ctx: ctx, cancel: cancel, desired: desired}
 	handlers := map[string]nats.MsgHandler{
-		PingSubject: func(m *nats.Msg) { node.respond(m, Reply{Region: cfg.region, Server: cfg.server}) },
+		PingSubject: func(m *nats.Msg) {
+			node.respond(m, Reply{Region: cfg.region, Server: cfg.server, Regions: node.regions()})
+		},
 		StateSubject: func(m *nats.Msg) {
 			node.mu.Lock()
 			state := stateReply{Region: cfg.region, Desired: maps.Clone(node.desired)}
@@ -194,6 +215,9 @@ func start(cfg config) (_ *Node, err error) {
 		},
 		// An apply waits for its tasks to run, so it must not hold up the next message.
 		ApplySubject: func(m *nats.Msg) { go node.handleApply(m) },
+	}
+	if cfg.applier == nil {
+		handlers = nil // the region's founder answers; a worker only carries messages
 	}
 	for subject, handler := range handlers {
 		if _, err := conn.Subscribe(subject, handler); err != nil {
@@ -223,12 +247,25 @@ func (n *Node) Close() {
 	n.server.WaitForShutdown()
 }
 
+// regions is this region, its seeds and every region its gateways reach now.
+func (n *Node) regions() []string {
+	names := append([]string{n.cfg.region}, slices.Collect(maps.Keys(n.cfg.gateways))...)
+	if gateways, err := n.server.Gatewayz(nil); err == nil {
+		names = slices.AppendSeq(names, maps.Keys(gateways.OutboundGateways))
+		names = slices.AppendSeq(names, maps.Keys(gateways.InboundGateways))
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
 // run pulls peer state now and every cfg.every until ctx ends.
 func (n *Node) run(ctx context.Context) {
 	tick := time.NewTicker(n.cfg.every)
 	defer tick.Stop()
 	for {
-		n.sync(ctx)
+		if n.cfg.applier != nil {
+			n.sync(ctx)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -243,7 +280,7 @@ func (n *Node) run(ctx context.Context) {
 // reconciles every entry so a missed or failed apply is retried.
 func (n *Node) sync(ctx context.Context) {
 	peers := map[string]map[string]Entry{}
-	_ = collect(ctx, n.conn, StateSubject, nil, len(Regions()), stateWait, func(data []byte) bool {
+	_ = collect(ctx, n.conn, StateSubject, nil, len(n.regions()), stateWait, func(data []byte) bool {
 		var reply stateReply
 		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
 			peers[reply.Region] = reply.Desired
@@ -277,7 +314,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(n.ctx, applyWait-10*time.Second)
 	defer cancel()
-	reply := Reply{Region: n.cfg.region, Server: n.cfg.server}
+	reply := Reply{Region: n.cfg.region, Server: n.cfg.server, Regions: n.regions()}
 	var request ApplyRequest
 	result, err := "", protocol.DecodeTolerant(m.Data, &request, maxWire)
 	var pulled time.Duration
@@ -371,7 +408,8 @@ func validEntry(name string, entry Entry) error {
 		return errors.New("spec name differs from the entry name")
 	}
 	for _, region := range entry.Spec.Regions {
-		if !slices.Contains(Regions(), region) {
+		// Any catalog region may join; spending approval gates instance creation, not this.
+		if _, ok := catalog.LookupName(region); !ok {
 			return fmt.Errorf("unknown region %q", region)
 		}
 	}

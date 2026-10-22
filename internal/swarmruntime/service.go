@@ -440,8 +440,10 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	if !intentName.MatchString(s.Name) {
 		return nil, errors.New("service name must match ^[a-z][a-z0-9-]{0,62}$")
 	}
-	if s.Replicas != 1 {
-		return nil, errors.New("single-host services run exactly one replica")
+	// Host-mode ports spread replicas one per host (SwarmKit's HostPortFilter);
+	// a mount is one host's data, so a service with mounts runs once.
+	if s.Replicas < 1 || s.Replicas > 8 || len(s.Mounts) != 0 && s.Replicas != 1 {
+		return nil, errors.New("services run 1 to 8 replicas, and exactly one when they mount host data")
 	}
 	if s.Port < 1024 || s.Port > 65535 {
 		return nil, errors.New("service port must be in 1024..65535")

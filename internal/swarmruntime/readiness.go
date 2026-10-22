@@ -26,6 +26,7 @@ func ProbeTask(ctx context.Context, task *api.Task, nodeAddress netip.Addr) erro
 }
 
 // ProbeLocalTask checks a task on this host; host networking binds its port on loopback.
+// shortcut: a replica on another host of the region passes when this host's replica answers; probe its node address (ProbeTask) once multi-host readiness matters.
 func ProbeLocalTask(ctx context.Context, task *api.Task) error {
 	port, err := taskPort(task)
 	if err != nil {

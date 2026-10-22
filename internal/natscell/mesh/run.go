@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -39,9 +38,9 @@ const (
 // Run serves this host's region on the mesh until ctx ends. A missing Vault
 // secret, IMDS answer or peer never stops local serving: Run logs and retries,
 // and gateways reconnect on their own.
-func Run(ctx context.Context, state string) {
+func Run(ctx context.Context, state string, cluster Cluster) {
 	for {
-		node, err := startHost(ctx, state)
+		node, err := startHost(ctx, state, cluster)
 		if err == nil {
 			slog.InfoContext(ctx, "mesh started", "region", node.cfg.region, "server", node.cfg.server)
 			node.run(ctx)
@@ -57,10 +56,21 @@ func Run(ctx context.Context, state string) {
 	}
 }
 
-func startHost(ctx context.Context, state string) (*Node, error) {
+func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error) {
 	region, err := ownRegion(ctx)
 	if err != nil {
 		return nil, err
+	}
+	var routes []string
+	if cluster.Routes != nil {
+		if routes, err = cluster.Routes(ctx, region); err != nil {
+			return nil, err
+		}
+	}
+	if cluster.Address != "" {
+		if err := releasepush.OpenTCP(ctx, ClusterPort); err != nil {
+			slog.WarnContext(ctx, "mesh cluster firewall", "error", err)
+		}
 	}
 	secret, err := loadSecret(ctx)
 	if err != nil {
@@ -85,15 +95,21 @@ func startHost(ctx context.Context, state string) (*Node, error) {
 			gateways[peer] = fmt.Sprintf("nats://%s.%s:%d", peer, Domain, GatewayPort)
 		}
 	}
+	var applier Applier = swarmApplier{state: state}
+	if cluster.Worker {
+		applier = nil
+	}
 	return start(config{
 		region: region, server: name, dir: filepath.Join(state, "mesh"), host: "0.0.0.0",
+		// A worker advertises the region name too: other regions dial the
+		// founder, and a worker's replies reach them over the cluster route.
 		advertise:   fmt.Sprintf("%s.%s:%d", region, Domain, GatewayPort),
-		gatewayPort: GatewayPort, localPort: LocalPort,
-		gateways: gateways, ca: ca, applier: swarmApplier{state: state}, every: antiEntropyEvery,
+		gatewayPort: GatewayPort, localPort: LocalPort, clusterHost: cluster.Address, clusterPort: ClusterPort, routes: routes,
+		gateways: gateways, ca: ca, applier: applier, every: antiEntropyEvery,
 	})
 }
 
-// ownRegion maps the instance's OCI region to its ordered region token.
+// ownRegion maps the instance's OCI region to its catalog region token.
 func ownRegion(ctx context.Context) (string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://169.254.169.254/opc/v2/instance/canonicalRegionName", nil)
 	if err != nil {
@@ -110,8 +126,8 @@ func ownRegion(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("read OCI region from IMDS: status %d", response.StatusCode)
 	}
 	entry, ok := catalog.CellForOCIRegion(strings.TrimSpace(string(body)))
-	if !ok || !slices.Contains(Regions(), entry.Name()) {
-		return "", fmt.Errorf("OCI region %q is not an ordered region", strings.TrimSpace(string(body)))
+	if !ok {
+		return "", fmt.Errorf("OCI region %q is not a catalog region", strings.TrimSpace(string(body)))
 	}
 	return entry.Name(), nil
 }

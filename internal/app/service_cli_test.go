@@ -54,8 +54,12 @@ func TestServiceSpecRejects(t *testing.T) {
 		t.Fatalf("small budget: %v", err)
 	}
 	for name, mutate := range map[string]func(*swarmruntime.ServiceSpec){
-		"tag image":       func(s *swarmruntime.ServiceSpec) { s.Image = "docker.io/library/alpine:3" },
-		"two replicas":    func(s *swarmruntime.ServiceSpec) { s.Replicas = 2 },
+		"tag image":     func(s *swarmruntime.ServiceSpec) { s.Image = "docker.io/library/alpine:3" },
+		"no replicas":   func(s *swarmruntime.ServiceSpec) { s.Replicas = 0 },
+		"nine replicas": func(s *swarmruntime.ServiceSpec) { s.Replicas = 9 },
+		"two mounted": func(s *swarmruntime.ServiceSpec) {
+			s.Replicas, s.Mounts = 2, []swarmruntime.ServiceMount{{Source: "/var/lib/x", Target: "/data"}}
+		},
 		"privileged port": func(s *swarmruntime.ServiceSpec) { s.Port = 80 },
 		"bad secret":      func(s *swarmruntime.ServiceSpec) { s.Secrets = map[string]vaultsecret.Ref{"lower": ref} },
 		"shadowed secret": func(s *swarmruntime.ServiceSpec) {

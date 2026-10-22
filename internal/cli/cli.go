@@ -43,6 +43,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/qualification/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
+	"github.com/TerraScale/ts-orchestrator/internal/regionhost"
 	releasecli "github.com/TerraScale/ts-orchestrator/internal/release/cli"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
@@ -86,6 +87,7 @@ Operator tooling:
   diff                   Plan a cell spec file against the running cell's spec
   apply                  Apply a signed cell spec to the running cell
   service                Apply and remove services in every region, list this host's (apply -f FILE | ls | rm NAME)
+  member                 List this region's cluster hosts; drain and remove a worker (ls | leave HOSTNAME)
   mesh                   Show which regions answer on the cross-region mesh (ping)
   status                 Print every region's health: ok, degraded (memory, disk, replicas) or down
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
@@ -150,6 +152,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return app.RunSingleHostServing(ctx, args[1:], output)
 	case "service":
 		return app.RunServiceCLI(ctx, args[1:], output)
+	case "member":
+		return app.RunMemberCLI(ctx, args[1:], output)
 	case "mesh":
 		return mesh.RunCLI(ctx, args[1:], "/var/lib/ts-orch", output)
 	case "status":
@@ -198,6 +202,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "region":
 		if len(args) > 1 && args[1] == "create" {
 			return provisionOriginalFoundationFromFile(ctx, args[2:], commandio.NewWriter(output))
+		}
+		if len(args) > 1 && (args[1] == "add" || args[1] == "rm") {
+			return regionhost.Run(ctx, args[1:], output)
 		}
 		return region.Run(ctx, args[1:], commandio.NewWriter(output), os.Stderr)
 	case "image", "netbird":

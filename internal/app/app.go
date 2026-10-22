@@ -39,28 +39,50 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-// RunSingleHostServing runs RunSingleHost together with the public HTTPS edge,
-// which routes each service's hostnames to its published loopback port, and
-// the cross-region mesh that applies services in every region.
+// RunSingleHostServing runs this host's SwarmKit node (founder or joiner of
+// its region's cluster, planHost) together with the public HTTPS edge, which
+// routes each service's hostnames to its published loopback port, and the
+// cross-region mesh that applies services in every region.
 func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("single-host", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	state := flags.String("state", "/var/lib/ts-orch", "")
-	_ = flags.Parse(args) // RunSingleHost reports flag errors.
+	flags.SetOutput(output)
+	state := flags.String("state", "/var/lib/ts-orch", "absolute state directory")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("single-host accepts only --state")
+	}
+	if os.Geteuid() != 0 {
+		return errors.New("single-host requires root")
+	}
+	plan, err := planHost(ctx, *state, output)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	public := edge.New(*state)
 	edgeDone := make(chan error, 1)
-	go func() {
-		err := public.Run(ctx)
-		cancel() // a failed edge stops the node, so systemd restarts both
-		edgeDone <- err
-	}()
-	go syncEdgeRoutes(ctx, *state, public)
+	if plan.joiner() {
+		// shortcut: a worker serves no edge (it has no control socket for routes; the founder's edge serves the region) and receives no release push (CI pushes only deploy/m1/regions.json hosts).
+		edgeDone <- nil
+	} else {
+		public := edge.New(*state)
+		go func() {
+			err := public.Run(ctx)
+			cancel() // a failed edge stops the node, so systemd restarts both
+			edgeDone <- err
+		}()
+		go syncEdgeRoutes(ctx, *state, public)
+	}
 	// The mesh never stops local serving; it retries until it reaches Vault and peers.
 	meshDone := make(chan struct{})
-	go func() { mesh.Run(ctx, *state); close(meshDone) }()
-	err := RunSingleHost(ctx, args, output)
+	if plan.joiner() && plan.address == "" {
+		close(meshDone) // a worker without IMDS stays out of the region's NATS cluster
+	} else {
+		go func() { mesh.Run(ctx, *state, meshCluster(plan)); close(meshDone) }()
+	}
+	err = runSingleHost(ctx, *state, output, plan)
 	cancel()
 	<-meshDone
 	return errors.Join(err, <-edgeDone)
