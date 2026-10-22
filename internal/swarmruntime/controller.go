@@ -184,7 +184,8 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 			oci.WithCapabilities(nil), seccomp.WithDefaultProfile(), oci.WithPidsLimit(256),
 			oci.WithMemoryLimit(uint64(limits.MemoryBytes)), oci.WithMemorySwap(limits.MemoryBytes),
 			oci.WithCPUCFS(limits.NanoCPUs/10_000, 100_000),
-			oci.WithHostNamespace(runtimespec.NetworkNamespace),
+			// Host netns, so the host's resolvers (including the 127.0.0.53 stub) are reachable as-is.
+			oci.WithHostNamespace(runtimespec.NetworkNamespace), oci.WithHostResolvconf, oci.WithHostHostsFile,
 		}
 		if len(c.spec.Command) != 0 {
 			opts = append(opts, oci.WithProcessArgs(append(slices.Clone(c.spec.Command), c.spec.Args...)...))

@@ -100,6 +100,7 @@ end "apply -> e2e-whoami ready (edge 200)"
 wait_for 60 edge data.e2e.test /boots
 end "apply -> e2e-data ready (edge 200)"
 edge whoami.e2e.test / | grep -q '^Host: whoami.e2e.test'
+edge data.e2e.test /dns | grep -Eq '^Name:[[:space:]]+github.com' || { echo "container DNS lookup failed" >&2; edge data.e2e.test /dns; exit 1; }
 first=$(edge data.e2e.test /boots | head -1)
 orch service ls | tee ls.txt
 grep -Eq '^e2e-whoami +1/1 running' ls.txt

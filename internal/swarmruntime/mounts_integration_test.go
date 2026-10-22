@@ -61,6 +61,8 @@ func TestContainerdBindMountSurvivesTaskRestart(t *testing.T) {
 	}
 	run("writer", `set -eu; test "$(id -u)" = 65532; printf persisted > /data/value`)
 	run("reader", `set -eu; test "$(cat /data/value)" = persisted; printf again >> /data/value`)
+	// Without the host resolv.conf the image's empty /etc falls back to [::1]:53 and fails.
+	run("resolver", `set -eu; test -s /etc/resolv.conf; grep -q localhost /etc/hosts; nslookup github.com`)
 	data, err := os.ReadFile(filepath.Join(source, "value"))
 	if err != nil || string(data) != "persistedagain" {
 		t.Fatalf("host data = %q, %v", data, err)
