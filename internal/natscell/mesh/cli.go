@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -51,22 +52,43 @@ func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSp
 	return send(ctx, conn, ApplyRequest{Name: spec.Name, Entry: Entry{Generation: time.Now().UnixNano(), Spec: &spec}}, wait)
 }
 
-// send returns one row per ordered region; it fails when a targeted region
+// gather publishes a request and returns the regions it expects (the seeds
+// plus every region a reply names) and each one's reply, once all replied or
+// wait elapsed. rtt stamps each reply's ElapsedMS with its round trip.
+func gather(ctx context.Context, conn *nats.Conn, subject string, payload []byte, wait time.Duration, rtt bool) ([]string, map[string]Reply, error) {
+	sent := time.Now()
+	regions, replies := Regions(), map[string]Reply{}
+	err := collect(ctx, conn, subject, payload, math.MaxInt, wait, func(data []byte) bool {
+		var reply Reply
+		if protocol.DecodeTolerant(data, &reply, maxWire) != nil {
+			return true
+		}
+		if rtt {
+			reply.ElapsedMS = time.Since(sent).Milliseconds()
+		}
+		replies[reply.Region] = reply
+		pending := false
+		for _, region := range slices.Concat(regions, reply.Regions) {
+			if !slices.Contains(regions, region) {
+				regions = append(regions, region)
+			}
+			_, ok := replies[region]
+			pending = pending || !ok
+		}
+		return pending
+	})
+	return regions, replies, err
+}
+
+// send returns one row per known region; it fails when a targeted region
 // failed or did not reply.
 func send(ctx context.Context, conn *nats.Conn, request ApplyRequest, wait time.Duration) ([]Reply, error) {
 	payload, err := protocol.EncodeJSON(request)
 	if err != nil {
 		return nil, err
 	}
-	regions := Regions()
-	replies := map[string]Reply{}
-	if err := collect(ctx, conn, ApplySubject, payload, len(regions), wait, func(data []byte) bool {
-		var reply Reply
-		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
-			replies[reply.Region] = reply
-		}
-		return true
-	}); err != nil {
+	regions, replies, err := gather(ctx, conn, ApplySubject, payload, wait, false)
+	if err != nil {
 		return nil, err
 	}
 	var rows []Reply
@@ -111,7 +133,7 @@ func printApply(output io.Writer) func([]Reply, error) error {
 }
 
 // Ping prints every region that answers on the mesh with its round trip, and
-// fails when an ordered region is missing.
+// fails when a known region is missing.
 func Ping(ctx context.Context, conn *nats.Conn, wait time.Duration, output io.Writer) error {
 	rows, failed := ping(ctx, conn, wait)
 	if rows == nil {
@@ -129,23 +151,15 @@ func Ping(ctx context.Context, conn *nats.Conn, wait time.Duration, output io.Wr
 	return errors.Join(table.Flush(), failed)
 }
 
-// ping returns one row per ordered region, ElapsedMS being its round trip.
+// ping returns one row per known region, ElapsedMS being its round trip.
 func ping(ctx context.Context, conn *nats.Conn, wait time.Duration) ([]Reply, error) {
-	sent := time.Now()
-	answers := map[string]Reply{}
-	if err := collect(ctx, conn, PingSubject, nil, len(Regions()), wait, func(data []byte) bool {
-		var reply Reply
-		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
-			reply.ElapsedMS = time.Since(sent).Milliseconds()
-			answers[reply.Region] = reply
-		}
-		return true
-	}); err != nil {
+	regions, answers, err := gather(ctx, conn, PingSubject, nil, wait, true)
+	if err != nil {
 		return nil, err
 	}
 	var rows []Reply
 	var missing []string
-	for _, region := range Regions() {
+	for _, region := range regions {
 		reply, ok := answers[region]
 		if !ok {
 			reply = Reply{Region: region, Error: noReply}

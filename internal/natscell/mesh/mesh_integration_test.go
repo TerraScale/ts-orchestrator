@@ -243,3 +243,61 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 		}
 	}
 }
+
+// A region outside the seeds joins by dialing one seed: gateway gossip
+// introduces it to the rest, and pings and applies from every region reach it.
+func TestNewRegionJoinsByGossip(t *testing.T) {
+	ca, err := DeriveCA(bytes.Repeat([]byte{43}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	regions := append(Regions(), "ams")
+	ports := freePorts(t, 2*len(regions))
+	nodes := map[string]*Node{}
+	appliers := map[string]*fakeApplier{}
+	t.Cleanup(func() {
+		for _, node := range nodes {
+			node.Close()
+		}
+	})
+	for i, region := range regions {
+		gateways := map[string]string{}
+		for j, peer := range Regions() {
+			// ams knows only gru; the seeds know only each other.
+			if peer != region && (region != "ams" || j == 0) {
+				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
+			}
+		}
+		appliers[region] = &fakeApplier{running: map[string]int64{}}
+		node, err := start(config{
+			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
+			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
+			gateways: gateways, ca: ca, applier: appliers[region], every: time.Hour,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes[region] = node
+	}
+
+	began := time.Now()
+	for _, from := range []string{"sjc", "fra"} {
+		var out bytes.Buffer
+		for Ping(t.Context(), nodes[from].conn, time.Second, &out) != nil || !strings.Contains(out.String(), "ams ") {
+			if time.Since(began) > 60*time.Second {
+				t.Fatalf("%s got no ping reply from ams within 60 s:\n%s", from, out.String())
+			}
+			out.Reset()
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	t.Logf("sjc and fra see ams after %s", time.Since(began))
+	spec := swarmruntime.ServiceSpec{Name: "whoami", Image: "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764", Port: 8099, Replicas: 1, Regions: []string{"ams", "fra"}}
+	var out bytes.Buffer
+	if err := printApply(&out)(send(t.Context(), nodes["fra"].conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 1, Spec: &spec}}, 5*time.Second)); err != nil {
+		t.Fatalf("apply from fra: %v\n%s", err, out.String())
+	}
+	if appliers["ams"].generation("whoami") != 1 || !strings.Contains(out.String(), "ams ") {
+		t.Fatalf("apply from fra did not reach ams:\n%s", out.String())
+	}
+}

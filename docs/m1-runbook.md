@@ -126,6 +126,11 @@ with its own SwarmKit node and its own NATS cluster (`internal/natscell/mesh`).
   instance principal. Gateway mTLS comes from the single secret
   `ts-orch-mesh-key`: every node derives the same CA from it and issues
   itself a leaf certificate at start. Reason: one secret, no per-region copies.
+- A new region joins with no release and no other host touched: its node
+  dials the founded regions (gru, sjc, fra) as seeds, gateway gossip
+  announces it, and every region opens a gateway to its advertised
+  `<region>.mesh.terrascale.tech:7222` (that DNS record must exist). The
+  mesh-CA mTLS is the only gate; ping and apply then wait for it too.
 - Global services: `ts-orch service apply -f|rm` on any host publishes on
   `ts.svc.apply` and prints one row per region. Each node keeps a
   last-writer-wins map in `<state>/mesh/desired.json` and pulls the other
