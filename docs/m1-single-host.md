@@ -92,6 +92,13 @@ ts-orch release app --service terrabase --image ghcr.io/terrascale/terrabase@sha
 It tries the regions in `deploy/m1/regions.json` order until one accepts the
 connection and prints `{"via","state","serving_ms","error","regions"}`.
 
+`ts.release.mesh.state` returns `{"<service>": "<desired image>"}`; besides the
+multi-region workflow, only `app-digests.yml` may call it, and only it. That
+workflow (every 10 min and after each canary release) runs `ts-orch release
+digests --out deploy/m1/app-digests.json` and commits the file to branch
+`app-digests`, so the git record of every released digest never lags the
+hosts by more than 10 min.
+
 A ts-orch release needs a token from `TerraScale/ts-orchestrator` whose `sha`
 claim equals `sha`, and the URL must be exactly that run's release asset:
 `https://github.com/TerraScale/ts-orchestrator/releases/download/ci-<sha>-run-<run_id>/terrascale-orchestrator-linux-<goarch>`

@@ -70,24 +70,50 @@ func release(ctx context.Context, conn *nats.Conn, service, image string, wait, 
 
 // desiredSpec is service's newest desired spec among the regions that answer.
 func desiredSpec(ctx context.Context, conn *nats.Conn, service string) (*swarmruntime.ServiceSpec, error) {
-	var newest Entry
-	if err := collect(ctx, conn, StateSubject, nil, len(Regions()), stateWait, func(data []byte) bool {
-		var reply stateReply
-		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && reply.Desired[service].Generation > newest.Generation {
-			newest = reply.Desired[service]
-		}
-		return true
-	}); err != nil {
+	newest, err := desiredEntries(ctx, conn)
+	if err != nil {
 		return nil, err
 	}
-	if newest.Spec == nil {
+	if newest[service].Spec == nil {
 		return nil, fmt.Errorf("%s is not a mesh service; apply its deploy/m1/services spec once with `ts-orch service apply -f`", service)
 	}
-	return newest.Spec, nil
+	return newest[service].Spec, nil
 }
 
 // repository is image without its digest.
 func repository(image string) string {
 	name, _, _ := strings.Cut(image, "@")
 	return name
+}
+
+// desiredImages maps every mesh service that runs to its desired image.
+func desiredImages(ctx context.Context, conn *nats.Conn) (map[string]string, error) {
+	newest, err := desiredEntries(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+	images := map[string]string{}
+	for name, entry := range newest {
+		if entry.Spec != nil {
+			images[name] = entry.Spec.Image
+		}
+	}
+	return images, nil
+}
+
+// desiredEntries is each service's newest entry among the regions that answer.
+func desiredEntries(ctx context.Context, conn *nats.Conn) (map[string]Entry, error) {
+	newest := map[string]Entry{}
+	err := collect(ctx, conn, StateSubject, nil, len(Regions()), stateWait, func(data []byte) bool {
+		var reply stateReply
+		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
+			for name, entry := range reply.Desired {
+				if entry.Generation > newest[name].Generation {
+					newest[name] = entry
+				}
+			}
+		}
+		return true
+	})
+	return newest, err
 }
