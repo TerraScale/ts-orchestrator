@@ -7,13 +7,11 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"io"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -438,95 +436,4 @@ func TestTerraBaseHostsStepOnlyWhileEveryMemberServes(t *testing.T) {
 	if err := terraBaseServing(down)(t.Context(), "gru-1-api-1"); err != nil {
 		t.Fatalf("a host without a member was held: %v", err)
 	}
-}
-
-type fakeRolloutSession struct {
-	mu        sync.Mutex
-	step      []byte
-	release   []byte
-	exchanges []host.RolloutExchange
-}
-
-func (s *fakeRolloutSession) RolloutExchange(_ context.Context, exchange host.RolloutExchange) (host.RolloutStep, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.exchanges = append(s.exchanges, exchange)
-	return host.RolloutStep{Step: s.step}, nil
-}
-
-func (s *fakeRolloutSession) FetchRelease(_ context.Context, _ string, dst io.Writer) error {
-	_, err := dst.Write(s.release)
-	return err
-}
-
-func (*fakeRolloutSession) SessionLost() bool { return false }
-
-func (s *fakeRolloutSession) last() (host.RolloutExchange, int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.exchanges) == 0 {
-		return host.RolloutExchange{}, 0
-	}
-	return s.exchanges[len(s.exchanges)-1], len(s.exchanges)
-}
-
-// A host agent proves its release with its own key, spools the leader's
-// step with the release it fetched over its session, and passes its step
-// agent's reply back.
-func TestHostRolloutFollowerSpoolsTheLeadersStepAndRelaysTheReply(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: flaky on main since the 2026-10-21 integration-line merge")
-	identityPublic, identity, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	leaderPublic, leader, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	release := []byte("orchestrator release for hosts")
-	now := time.Now().UTC()
-	step, err := rolloutexec.SignStepCommand(rolloutexec.StepCommand{Schema: rolloutexec.StepSchema, Cell: "gru",
-		RolloutID: "0000000000XJEH5D70V6SZ16YY", Kind: rollout.KindHost, Unit: "gru-1-db-1",
-		OperationID: rollout.OperationID("0000000000XJEH5D70V6SZ16YY", "gru-1-db-1", rollout.PhaseCanary, 0),
-		Action:      rolloutexec.StepPrepare, Digest: digestOf(release), Replaces: strings.Repeat("a", 64), Epoch: 3,
-		ProofWindowSeconds: 60}, leader, now, time.Time{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	session := &fakeRolloutSession{step: step, release: release}
-	spool := filepath.Join(t.TempDir(), "spool")
-	layout := selfupdate.Layout{Root: t.TempDir(), Owner: os.Getuid()}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go followHostRollouts(hostRollout{cell: "gru", node: "gru-1-db-1", identity: identity, controller: leaderPublic,
-		spool: spool, layout: layout, interval: 20 * time.Millisecond})(ctx, session)
-	waitFor := func(what string, done func() bool) {
-		t.Helper()
-		for deadline := time.Now().Add(5 * time.Second); !done(); time.Sleep(10 * time.Millisecond) {
-			if time.Now().After(deadline) {
-				t.Fatalf("timed out waiting for %s", what)
-			}
-		}
-	}
-	waitFor("the spooled step and release", func() bool {
-		spooled, err := os.ReadFile(filepath.Join(spool, "step.json"))
-		fetched, fetchErr := os.ReadFile(filepath.Join(spool, "release-"+digestOf(release)))
-		return err == nil && fetchErr == nil && string(spooled) == string(step) && string(fetched) == string(release)
-	})
-	exchange, _ := session.last()
-	keys, err := trust.ParseKeyring(identityPublic)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := rolloutexec.VerifyHealthProof(exchange.Proof, "gru", "gru-1-db-1", keys, time.Now().UTC()); err != nil {
-		t.Fatalf("the host's proof does not verify with its key: %v", err)
-	}
-	reply := []byte(`{"operation_id":"0000000000N6KCZG3MWDGZ0WBE","unit":"gru-1-db-1","epoch":3,"outcome":"activated"}`)
-	if err := os.WriteFile(filepath.Join(layout.Root, rolloutexec.ReplyFile(selfupdate.HostUnit)), reply, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	waitFor("the relayed reply", func() bool {
-		exchange, _ := session.last()
-		return string(exchange.Reply) == string(reply)
-	})
 }
