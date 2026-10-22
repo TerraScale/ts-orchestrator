@@ -87,7 +87,7 @@ Operator tooling:
   apply                  Apply a signed cell spec to the running cell
   service                Apply and remove services in every region, list this host's (apply -f FILE | ls | rm NAME)
   mesh                   Show which regions answer on the cross-region mesh (ping)
-  edge                   Plan the GeoDNS steering policy to the nearest healthy region (edge geodns --plan)
+  edge                   Apply (or --plan) the GeoDNS steering policy to the nearest healthy region (edge geodns)
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
   node                   Drain, reboot, resize, add and retire a cell's nodes, one at a time behind the load balancer
   bootstrap              Prepare, sign, verify, and publish bootstrap material

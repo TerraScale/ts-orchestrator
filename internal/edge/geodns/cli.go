@@ -7,20 +7,17 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"slices"
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
-// Run implements `ts-orch edge geodns --plan`. It reads DNS and creates nothing.
+// Run implements `ts-orch edge geodns [--plan]`. --plan reads DNS and creates
+// nothing; without it the OCI objects are created or updated in place.
 func Run(ctx context.Context, args []string, output io.Writer) error {
-	if len(args) == 0 || args[0] != "geodns" {
-		return errors.New("usage: ts-orch edge geodns --plan")
-	}
-	if !slices.Equal(args[1:], []string{"--plan"}) {
-		return errors.New("edge geodns: only --plan exists; the live apply waits for the Q-GEODNS decision")
+	if len(args) == 0 || args[0] != "geodns" || len(args) > 2 || (len(args) == 2 && args[1] != "--plan") {
+		return errors.New("usage: ts-orch edge geodns [--plan]")
 	}
 	var regions []Region
 	for _, name := range mesh.Regions() {
@@ -33,6 +30,9 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		regions = append(regions, Region{Name: name, IP: ips[0].String(), Latitude: entry.Latitude, Longitude: entry.Longitude})
 	}
 	plans := Build(regions, Hosts)
+	if len(args) == 1 {
+		return runApply(ctx, plans, output)
+	}
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
 	encoder.SetEscapeHTML(false)
@@ -63,5 +63,31 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	b.WriteString("\nPrerequisite before the switch: every region needs certificates for " + strings.Join(Hosts, ", ") +
 		". HTTP-01 challenges then land on any region, so the edge must forward unknown ACME HTTP-01 tokens to peer regions over the mesh (or use DNS-01).\n")
 	_, err := io.WriteString(output, b.String())
+	return err
+}
+
+// runApply creates or updates the OCI objects with the operator's OCI profile
+// and prints them with the Cloudflare records the switch needs.
+func runApply(ctx context.Context, plans []HostPlan, output io.Writer) error {
+	call, err := operatorCaller()
+	if err != nil {
+		return fmt.Errorf("edge geodns: OCI operator credentials: %w", err)
+	}
+	changes, nameservers, err := apply(ctx, call, plans)
+	if err != nil {
+		return fmt.Errorf("edge geodns: %w", err)
+	}
+	var b strings.Builder
+	for _, c := range changes {
+		fmt.Fprintf(&b, "%-9s %-10s %-26s %s\n", c.Action, c.Kind, c.Name, c.ID)
+	}
+	b.WriteString("\nCloudflare terrascale.tech records for the switch (DNS only):\n")
+	for _, ns := range nameservers {
+		fmt.Fprintf(&b, "  NS    %s -> %s\n", Zone, ns)
+	}
+	for _, p := range plans {
+		fmt.Fprintf(&b, "  CNAME %s -> %s\n", p.Host, p.Attachment.DomainName)
+	}
+	_, err = io.WriteString(output, b.String())
 	return err
 }
