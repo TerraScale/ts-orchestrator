@@ -122,10 +122,21 @@ func (r *run) add(host, shape string) error {
 	if err := r.ensureNetwork(created); err != nil {
 		return err
 	}
-	if _, err := r.ensureInstance(host, shape); err != nil {
+	inst, err := r.ensureInstance(host, shape)
+	if err != nil {
 		return err
 	}
-	return r.ensureIAM()
+	if err := r.ensureIAM(); err != nil || host != "" || inst == nil {
+		return err // DNS and the pin belong to the region host only
+	}
+	ip, err := r.publicIP(inst)
+	if err != nil {
+		return err
+	}
+	if err := r.ensureDNS(ip); err != nil {
+		return err
+	}
+	return r.ensurePin(ip, false)
 }
 
 func (r *run) ensureCompartment() (created bool, err error) {

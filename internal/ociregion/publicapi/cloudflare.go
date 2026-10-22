@@ -306,6 +306,54 @@ func (c Cloudflare) edgeSteps(ctx context.Context, names []string, address netip
 	return steps, nil
 }
 
+// DNSOnlyA converges name to one DNS-only A record for address, or with
+// address "" deletes it. It returns "unchanged", "created", "updated" or
+// "deleted" and the record ID; dry only reads.
+func (c Cloudflare) DNSOnlyA(ctx context.Context, name, address string, dry bool) (verb, id string, err error) {
+	if c.BaseURL == "" {
+		c.BaseURL = cloudflareAPI
+	}
+	zone, err := c.zoneID(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	var records []record
+	if err := c.do(ctx, http.MethodGet, "/zones/"+zone+"/dns_records?name="+url.QueryEscape(name), nil, &records); err != nil {
+		return "", "", err
+	}
+	path, want := "/zones/"+zone+"/dns_records", record{Type: "A", Name: name, Content: address, TTL: 1}
+	method := http.MethodPost
+	switch {
+	case len(records) > 1 || len(records) == 1 && records[0].Type != "A":
+		return "", "", fmt.Errorf("%s holds %d records; resolve them by hand", name, len(records))
+	case len(records) == 0 && address == "":
+		return "unchanged", "-", nil
+	case len(records) == 0:
+		verb, id = "created", "-"
+	case address == "":
+		verb, id, method, path = "deleted", records[0].ID, http.MethodDelete, path+"/"+records[0].ID
+	case records[0].Content == address && !records[0].Proxied:
+		return "unchanged", records[0].ID, nil
+	default:
+		verb, id, method, path = "updated", records[0].ID, http.MethodPut, path+"/"+records[0].ID
+	}
+	if dry {
+		return verb, id, nil
+	}
+	var body any = want
+	if method == http.MethodDelete {
+		body = nil
+	}
+	var done record
+	if err := c.do(ctx, method, path, body, &done); err != nil {
+		return "", "", err
+	}
+	if done.ID != "" {
+		id = done.ID
+	}
+	return verb, id, nil
+}
+
 // OriginCertificate asks Cloudflare's Origin CA to sign a certificate
 // request for hostnames, valid for 15 years, and returns its PEM and ID.
 func (c Cloudflare) OriginCertificate(ctx context.Context, csrPEM []byte, hostnames []string) (certificate []byte, id string, err error) {

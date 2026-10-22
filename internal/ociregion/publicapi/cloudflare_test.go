@@ -164,6 +164,13 @@ func (f *fakeCloudflare) serve(w http.ResponseWriter, r *http.Request) {
 		f.reply(w, 200, map[string]bool{"enabled": f.aop})
 	case path == "/zones/zone/dns_records" && r.Method == http.MethodGet:
 		f.reply(w, 200, f.records[r.URL.Query().Get("name")])
+	case strings.HasPrefix(path, "/zones/zone/dns_records/") && r.Method == http.MethodDelete:
+		for name, records := range f.records {
+			if records[0].ID == strings.TrimPrefix(path, "/zones/zone/dns_records/") {
+				delete(f.records, name)
+			}
+		}
+		f.reply(w, 200, map[string]string{"id": strings.TrimPrefix(path, "/zones/zone/dns_records/")})
 	case strings.HasPrefix(path, "/zones/zone/dns_records"):
 		var rec record
 		decode(&rec)
@@ -424,5 +431,36 @@ func TestStrictTLSReadbackBlocksLateDrift(t *testing.T) {
 				t.Fatalf("late TLS drift published DNS: %v, %v", err, f.writes)
 			}
 		})
+	}
+}
+
+// region add's mesh record: created once, then unchanged; a proxied or moved
+// record is fixed; rm deletes it.
+func TestDNSOnlyAConvergesAndDeletes(t *testing.T) {
+	f, cloudflare := newFakeCloudflare(t)
+	name := "gru.mesh.terrascale.tech"
+	step := func(address string, dry bool, wantVerb string) {
+		t.Helper()
+		verb, id, err := cloudflare.DNSOnlyA(t.Context(), name, address, dry)
+		if err != nil || verb != wantVerb || id == "" {
+			t.Fatalf("DNSOnlyA(%q, dry %t) = %s %s %v, want %s", address, dry, verb, id, err, wantVerb)
+		}
+	}
+	step("203.0.113.10", true, "created")
+	if len(f.writes) != 0 {
+		t.Fatalf("dry run wrote %v", f.writes)
+	}
+	step("203.0.113.10", false, "created")
+	step("203.0.113.10", false, "unchanged")
+	if r := f.records[name][0]; r.Type != "A" || r.Content != "203.0.113.10" || r.Proxied || r.TTL != 1 {
+		t.Fatalf("record %+v", r)
+	}
+	f.records[name][0].Proxied = true
+	step("203.0.113.10", false, "updated")
+	step("203.0.113.11", false, "updated")
+	step("", false, "deleted")
+	step("", false, "unchanged")
+	if len(f.records) != 0 || len(f.writes) != 4 {
+		t.Fatalf("records %v writes %v", f.records, f.writes)
 	}
 }
