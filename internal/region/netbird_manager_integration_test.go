@@ -821,7 +821,7 @@ func withNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory, Founda
 	nextBundle.Sequence = payload
 	nextBundle.Claim = sign(nextClaim, release.ContainerScope(release.ContainerTarget{Cell: "GRU", Role: nextClaim.Role, Environment: "production", Architecture: "arm64"}), first.signer)
 	location := releasechannel.Location{Client: objects, Namespace: reader.storage.Namespace, Bucket: reader.storage.HeadBucket}
-	if err := releasechannel.PublishContainer(t.Context(), location, nextBundle, roots, release.ContainerTarget{Cell: "GRU", Role: nextClaim.Role, Environment: "production", Architecture: "arm64"}, now, now.Add(time.Minute), func(ctx context.Context, digest string) (io.ReadCloser, error) {
+	if err := releasechannel.PublishContainer(t.Context(), location, nextBundle, roots, release.ContainerTarget{Cell: "GRU", Role: nextClaim.Role, Environment: "production", Architecture: "arm64"}, time.Now().UTC(), time.Now().UTC().Add(time.Minute), func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		return releasechannel.ReadContainerEvidence(ctx, location, nextClaim.Role, digest)
 	}, allocations); err != nil {
 		t.Fatal(err)
@@ -1114,7 +1114,7 @@ func netBirdComponentFixtures(t *testing.T, root ed25519.PrivateKey, roots trust
 		claim.Production = release.ProductionProof{Qualification: sign(qualification, release.ProductionQualificationScope(qualification.Candidate), root)}
 		bundle := release.ContainerBundle{Claim: sign(claim, scope, signer), Delegation: delegationWire, Migration: migrationWire, Sequence: familyWire}
 		location := releasechannel.Location{Client: objects, Namespace: home.Namespace, Bucket: home.HeadBucket}
-		if err := releasechannel.PublishContainer(t.Context(), location, bundle, roots, target, now, now.Add(time.Minute), func(ctx context.Context, digest string) (io.ReadCloser, error) {
+		if err := releasechannel.PublishContainer(t.Context(), location, bundle, roots, target, time.Now().UTC(), time.Now().UTC().Add(time.Minute), func(ctx context.Context, digest string) (io.ReadCloser, error) {
 			return releasechannel.ReadContainerEvidence(ctx, location, role, digest)
 		}, allocations); err != nil {
 			t.Fatal(err)
