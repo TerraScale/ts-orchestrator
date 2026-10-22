@@ -52,7 +52,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	b.WriteString("\nOCI DNS (would create, nothing created):\n")
 	fmt.Fprintf(&b, "  zone %s (PRIMARY)\n", Zone)
 	for _, p := range plans {
-		fmt.Fprintf(&b, "  monitor %s HTTPS GET /readyz Host=%s every 30s on %d targets\n", p.Monitor.DisplayName, p.Host, len(p.Monitor.Targets))
+		fmt.Fprintf(&b, "  monitor %s HTTP GET :80/readyz Host=%s every 30s on %d targets\n", p.Monitor.DisplayName, p.Host, len(p.Monitor.Targets))
 		fmt.Fprintf(&b, "  policy %s ROUTE_BY_GEO FILTER>HEALTH>PRIORITY>LIMIT 1, attached at %s\n", p.Policy.DisplayName, p.Attachment.DomainName)
 	}
 	b.WriteString("\nCloudflare terrascale.tech (would change, nothing changed):\n")

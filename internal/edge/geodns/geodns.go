@@ -152,7 +152,8 @@ func Build(regions []Region, hosts []string) []HostPlan {
 			Host: host,
 			Monitor: Monitor{
 				CompartmentID: compartment, DisplayName: name, Targets: targets,
-				Protocol: "HTTPS", Port: 443, Method: "GET", Path: "/readyz",
+				// :80 answers /readyz unredirected: a probe of a bare IP has no SNI for HTTPS.
+				Protocol: "HTTP", Port: 80, Method: "GET", Path: "/readyz",
 				Headers:           map[string]string{"Host": host},
 				IntervalInSeconds: 30, TimeoutInSeconds: 10,
 			},
