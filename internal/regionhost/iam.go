@@ -46,7 +46,7 @@ func sameRule(live string, ids []string) bool {
 	return live == matchingRule(have) && slices.Equal(slices.Sorted(slices.Values(have)), slices.Sorted(slices.Values(ids)))
 }
 
-// statements are oci-iam.sh's gru-vault statements plus, per region, read
+// statements are the gru-vault statements (formerly oci-iam.sh) plus, per region, read
 // and write of its in-region join secret ts-orch-join-<region>.
 func statements(regions []string) []string {
 	in := "in compartment id " + gruCompartment

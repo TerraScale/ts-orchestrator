@@ -108,7 +108,7 @@ with its own SwarmKit node and its own NATS cluster (`internal/natscell/mesh`).
 
 ### Infrastructure
 
-Created 2026-10-21 with `deploy/m1/oci-host.sh` and `deploy/m1/oci-iam.sh`. Each cell (compartment, ts-orch network, host launch) took 2-3 minutes.
+Created 2026-10-21 with deploy/m1/oci-host.sh and oci-iam.sh, since replaced by `ts-orch region add` (below). Each cell (compartment, ts-orch network, host launch) took 2-3 minutes.
 
 | | sjc-1 (us-sanjose-1) | fra-1 (eu-frankfurt-1) |
 |---|---|---|
@@ -193,6 +193,51 @@ https://github.com/TerraScale/ts-orchestrator/actions/runs/39711912422
 
 Known gaps: updating an existing service in place waits on W14's #28 (the
 old task keeps its host port); the 45.9 s sjc time above is not explained yet.
+
+## Adding a region (ts-orch region add)
+
+Every new region (and every extra host) costs money: it needs the user's
+approval before anyone runs `region add` for it. The tenancy must already be
+subscribed to the OCI region.
+
+```bash
+# From the repository root, with the operator OCI config (~/.oci), gh and a
+# Cloudflare DNS token (CF_API_TOKEN, or the cf CLI's CLOUDFLARE_API_TOKEN).
+ts-orch region add <code> --dry-run       # the plan; changes nothing
+ts-orch region add <code>                 # create or adopt everything below
+ts-orch region add <code> --host ts-<code>-2 --shape VM.Standard.A1.Flex   # an extra host
+ts-orch region rm <code> --host ts-<code>-2                                # remove it
+```
+
+It replaces `deploy/m1/oci-host.sh`, `deploy/m1/oci-iam.sh` and the manual
+install, DNS and pin steps. In order, it creates or adopts:
+
+1. compartment `<cell>-control` under `TerraScale` (waits until it is visible
+   in the region);
+2. the network (`ts-orch oci-region network <cell> --apply`);
+3. the host: without `--host`, the oldest live instance in the compartment
+   (so `region add gru` adopts `gru-1-ctl-1`), else a new `ts-<code>-1`
+   (A1.Flex 2 OCPU/12 GB, 50 GB, Ubuntu 24.04, AD fallback). `--host NAME`
+   adopts or launches exactly NAME; `--shape SHAPE` launches the smallest
+   SHAPE host (1 OCPU, 6 GB Ampere / 8 GB x86) with the matching arm64/amd64
+   image and binary. Cloud-init installs host-runtime.sh, NetBird, the
+   newest CI release binary (sha256 checked) and every unit, without ssh;
+   later cloud-init changes never relaunch a host;
+4. IAM: dynamic group `ts-orch-hosts` matches every cell compartment with a
+   host; policy `ts-orch-hosts-vault` (gru-1-control) holds the gru-vault
+   statements plus one `manage secret-family` per region for its join secret
+   `ts-orch-join-<region>`;
+5. region host only: DNS-only A `<code>.mesh.terrascale.tech` to its public
+   IP, and its release-listener pin (read from the TLS handshake on :4222)
+   in `deploy/m1/regions.json` through PR `region-<code>-pin` (auto-merge).
+
+Output is one line per resource, `unchanged|created|updated KIND NAME ID`.
+A second run changes nothing and prints only `unchanged`.
+
+`region rm <code> --host NAME` terminates only NAME and refuses the region
+host. `region rm <code> --yes`, typed interactively, terminates the region
+host, deletes its DNS record, drops it from the IAM and opens the
+regions.json PR. The compartment and network stay (free).
 
 ## Deploy speed
 

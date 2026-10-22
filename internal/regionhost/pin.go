@@ -2,6 +2,7 @@ package regionhost
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -129,14 +130,14 @@ func (r *run) ensurePin(ip string, remove bool) error {
 		}
 	}
 	if _, changed := withRegion(regions, want, remove); !changed {
-		return r.report("unchanged", "pin", r.code, want.SPKISHA256)
+		return r.report("unchanged", "pin", r.code, cmp.Or(want.SPKISHA256, "-"))
 	}
 	verb := "updated"
 	if remove {
 		verb = "deleted"
 	}
 	if r.dry {
-		return r.report(verb, "pin", r.code, want.SPKISHA256)
+		return r.report(verb, "pin", r.code, cmp.Or(want.SPKISHA256, "-"))
 	}
 	url, err := r.pinPR(want, remove)
 	if err != nil {
