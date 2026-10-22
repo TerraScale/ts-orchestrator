@@ -34,7 +34,7 @@ type region struct {
 	edge    *Edge
 	public  *httptest.Server // the client side, plain HTTP for the test
 	backend *httptest.Server
-	stop    context.CancelFunc
+	stop    func()
 	dir     string // state directory
 	plain   string // the :80 listener
 	hits    atomic.Int32
@@ -78,12 +78,13 @@ func startRegions(t *testing.T, answer func(name string, w http.ResponseWriter, 
 		t.Cleanup(reg.public.Close)
 		tlsLn := peerLns[name]
 		ctx, cancel := context.WithCancel(context.Background())
-		reg.stop = cancel
 		done := make(chan struct{})
+		// stop returns once the edge has closed its listeners and connections.
+		reg.stop = func() { cancel(); <-done }
 		plainLn := listen(t)
 		reg.plain = plainLn.Addr().String()
 		go func() { reg.edge.serve(ctx, plainLn, tlsLn); close(done) }()
-		t.Cleanup(func() { cancel(); <-done })
+		t.Cleanup(reg.stop)
 		regions[name] = reg
 	}
 	return regions
