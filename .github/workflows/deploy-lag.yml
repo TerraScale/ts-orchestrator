@@ -1,9 +1,16 @@
 name: Deployment lag guard
 
+# After each main push's checks and deploy/release-push, and hourly so a
+# deployment that never happens (here or in another service) still alerts
+# within the 30-minute lag limit's next hour.
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '23 * * * *'
   workflow_dispatch:
+  workflow_run:
+    workflows: [TerraScale Orchestrator Go checks]
+    types: [completed]
+    branches: [main]
 
 # The newest run of a pull request or branch cancels its older runs (user
 # decision 2026-10-22); each merge-queue entry keeps its own run.
@@ -19,6 +26,7 @@ env:
 
 jobs:
   check:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' }}
     environment: production
     permissions:
       contents: read

@@ -7,7 +7,7 @@ name: Multi-region mesh check
 # job's GitHub OIDC token; hosts admit this workflow for ts.release.mesh.> only.
 on:
   schedule:
-    - cron: '41 */6 * * *'
+    - cron: '41 6 * * *'
   workflow_dispatch:
   # After each main push's checks, so a fresh deploy/release-push is re-proved.
   workflow_run:

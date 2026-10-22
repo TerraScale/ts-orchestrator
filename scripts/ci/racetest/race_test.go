@@ -506,6 +506,46 @@ func TestRaceScheduler(t *testing.T) {
 			requireText(t, r.Stdout, ": flaky\n")
 		})
 	}
+	// The change tier runs only the packages a change reaches; a file outside
+	// every package reaches all of them, and docs reach none.
+	for touch, want := range map[string]string{"internal/bootstrapstart/testdata/spec.txt": "bootstrapstart/", "scripts/tool.sh": "", "docs/notes.md": "-"} {
+		t.Run("change_"+touch, func(t *testing.T) {
+			t.Parallel()
+			f := newScheduler(t)
+			git := func(args ...string) string {
+				t.Helper()
+				r := script.Exec(t, f.root, map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}, "git", args...)
+				if r.Code != 0 {
+					t.Fatalf("git %v: %s", args, r.Stderr)
+				}
+				return strings.TrimSpace(r.Stdout)
+			}
+			git("init", "-q")
+			git("add", ".")
+			git("commit", "-q", "-m", "base")
+			base := git("rev-parse", "HEAD")
+			script.Write(t, filepath.Join(f.root, touch), []byte("change\n"), 0o644)
+			git("add", ".")
+			git("commit", "-q", "-m", "change")
+			r := f.run(t, map[string]string{"TS_TEST_TIER": "change", "TS_CHANGE_BASE": base})
+			if r.Code != 0 {
+				t.Fatalf("exit %d: %s %s", r.Code, r.Stdout, r.Stderr)
+			}
+			if want == "" {
+				f.complete(t, r, true)
+				return
+			}
+			record, _ := os.ReadFile(f.record)
+			for _, test := range strings.Fields(string(record)) {
+				if !strings.HasPrefix(test, want) {
+					t.Fatalf("%s ran for a change to %s", test, touch)
+				}
+			}
+			if ran := len(strings.Fields(string(record))) > 0; ran != (want != "-") {
+				t.Fatalf("tests ran=%v for a change to %s: %s", ran, touch, r.Stdout)
+			}
+		})
+	}
 	for setting, value := range map[string]string{"TS_RACE_SHARDS": "0", "TS_RACE_NORACE_SHARDS": "0", "TS_RACE_JOBS": "0", "TS_RACE_IDLE_JOBS": "0", "TS_RACE_PACKAGE_JOBS": "0", "TS_RACE_TEST_JOBS": "0", "TS_TEST_TIER": "qualification"} {
 		t.Run("invalid_"+setting, func(t *testing.T) {
 			t.Parallel()
@@ -516,7 +556,7 @@ func TestRaceScheduler(t *testing.T) {
 			}
 			message := setting + " must be a positive integer"
 			if setting == "TS_TEST_TIER" {
-				message = "TS_TEST_TIER must be pr or full"
+				message = "TS_TEST_TIER must be pr, change or full"
 			}
 			requireText(t, r.Stderr, message)
 			if len(f.readState(t).Commands) != 0 {

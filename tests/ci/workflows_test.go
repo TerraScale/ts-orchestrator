@@ -128,7 +128,7 @@ func TestWorkflowContracts(t *testing.T) {
 		}
 	})
 	t.Run("test_tiers", func(t *testing.T) {
-		requireText(t, ci, "  TS_TEST_TIER: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'pr' || 'full' }}\n")
+		requireText(t, ci, "  TS_TEST_TIER: ${{ github.event_name == 'pull_request' && 'change' || github.event_name == 'merge_group' && 'pr' || 'full' }}\n")
 		requireText(t, ci, "      TS_RACE_IDLE_JOBS: '5'\n")
 		forbidText(t, ci, "prepare-fj-admission.sh")
 		for _, text := range []string{ci, image} {
@@ -142,7 +142,7 @@ func TestWorkflowContracts(t *testing.T) {
 			}
 		}
 		makefile := workflowText(t, "Makefile")
-		requireText(t, makefile, "$(if $(filter pr,$(TS_TEST_TIER)),,fixturetest-check)")
+		requireText(t, makefile, "$(if $(filter pr change,$(TS_TEST_TIER)),,fixturetest-check)")
 		requireText(t, makefile, "$(GO) vet -tags fixturetest ./...")
 		requireText(t, makefile, "GO=\"$(GO)\" bash scripts/ci/racetest/race-test.sh")
 	})
