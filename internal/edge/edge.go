@@ -82,6 +82,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 				for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
 					pr.Out.Header[h] = pr.In.Header[h]
 				}
+				pr.Out = traceWrite(pr.In, pr.Out)
 			} else {
 				pr.SetXForwarded()
 			}
@@ -102,10 +103,9 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 		Transport: e.local,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			slog.WarnContext(r.Context(), "edge proxy error", "host", r.Host, "error", err)
-			// A backend that refused the connection never saw the request, so
-			// the source edge may try the next region.
-			var op *net.OpError
-			if fromPeer(r) && errors.As(err, &op) && op.Op == "dial" {
+			// A backend that never received the whole request did not run it,
+			// so the source edge may try the next region.
+			if fromPeer(r) && !wroteBackend(r) {
 				w.Header().Set(replayDownHeader, "1")
 			}
 			w.WriteHeader(http.StatusBadGateway)
@@ -218,7 +218,9 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if !peer {
+	if peer {
+		r = r.WithContext(context.WithValue(r.Context(), wroteKey{}, new(atomic.Bool)))
+	} else {
 		r.Header.Del(replaySrcHeader)
 		r.Header.Del(replayFailedHeader)
 	}

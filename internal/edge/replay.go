@@ -87,6 +87,29 @@ func newPeerTransport(e *Edge) *http.Transport {
 	}
 }
 
+// wroteKey marks a peer request whose backend received it whole.
+type wroteKey struct{}
+
+// traceWrite records on in's context when out has been written whole.
+func traceWrite(in, out *http.Request) *http.Request {
+	wrote, ok := in.Context().Value(wroteKey{}).(*atomic.Bool)
+	if !ok {
+		return out
+	}
+	return out.WithContext(httptrace.WithClientTrace(out.Context(), &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err == nil {
+				wrote.Store(true)
+			}
+		},
+	}))
+}
+
+func wroteBackend(r *http.Request) bool {
+	wrote, ok := r.Context().Value(wroteKey{}).(*atomic.Bool)
+	return ok && wrote.Load()
+}
+
 // bufferBody keeps a body of up to maxReplayBody in memory so a replay can
 // send it again; GetBody marks the request replayable.
 func bufferBody(r *http.Request) error {
