@@ -729,7 +729,7 @@ func (f *originalActorSDKFixture) assertActorState(t *testing.T) {
 }
 
 func TestOriginalFoundationActorsSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes but takes 2197s without -race at GOMAXPROCS=2 -cpu 2; every fault subtest rebuilds and reruns the compartment, network and Vault chain")
 	// Sequential: the inherited real signed SDK fixture owns the process transport.
 	t.Run("three finite originals and complete physical replay remain downstream HOLD", func(t *testing.T) {
 		for _, fault := range []string{"", "complete pagination"} {

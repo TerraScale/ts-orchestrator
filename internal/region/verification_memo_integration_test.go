@@ -34,6 +34,12 @@ func TestFoundationVerificationMemoNeverWidensTrust(t *testing.T) {
 	if third, _, err := reader.verifyOriginalDocument(f.bundle.GrantWire); err != nil || !sameOriginalSourceValue(third, first) {
 		t.Fatal("caller mutation reached the remembered grant", err)
 	}
+	if err := reader.validatePreparedOriginalDocument(f.bundle.GrantWire, first); err != nil || len(memo.entries) != 2 {
+		t.Fatal("prepared grant check was not remembered", err)
+	}
+	if err := reader.validatePreparedOriginalDocument(f.bundle.GrantWire, first); err != nil || len(memo.entries) != 2 {
+		t.Fatal("remembered prepared grant check changed", err)
+	}
 
 	t.Run("changed byte", func(t *testing.T) {
 		changed := bytes.Clone(f.bundle.GrantWire)
@@ -41,7 +47,7 @@ func TestFoundationVerificationMemoNeverWidensTrust(t *testing.T) {
 		if _, _, err := reader.verifyOriginalDocument(changed); err == nil {
 			t.Fatal("changed grant bytes reused a remembered verification")
 		}
-		if len(memo.entries) != 1 {
+		if len(memo.entries) != 2 {
 			t.Fatal("refused grant was remembered")
 		}
 	})
@@ -59,7 +65,7 @@ func TestFoundationVerificationMemoNeverWidensTrust(t *testing.T) {
 		if _, _, err := revoked.verifyOriginalDocument(f.bundle.GrantWire); err == nil {
 			t.Fatal("a different root set reused a remembered verification")
 		}
-		if len(memo.entries) != 1 {
+		if len(memo.entries) != 2 {
 			t.Fatal("refused root set was remembered")
 		}
 	})

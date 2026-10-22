@@ -425,7 +425,7 @@ func (f *originalSourceIAMSDKFixture) assertState(t *testing.T, complete bool) {
 }
 
 func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
+	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes but takes 498s without -race at GOMAXPROCS=2 -cpu 2, over the 8 min norace budget; every subtest reruns the actor stage (about 12s)")
 	// Sequential: the inherited signed SDK fixture owns the process transport.
 	t.Run("missing upstream prerequisites cause zero mutations", func(t *testing.T) {
 		for _, missing := range []string{"material", "actors", "actor readbacks"} {
