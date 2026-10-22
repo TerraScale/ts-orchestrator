@@ -79,7 +79,7 @@ func newPeerTransport(e *Edge) *http.Transport {
 			}
 			config := m.TLS().Clone()
 			config.ServerName = replaySNI
-			// A region that does not answer in 2s counts as down, as Fly's replay timeout did.
+			// A region that does not answer in 2s counts as down.
 			return (&tls.Dialer{NetDialer: &net.Dialer{Timeout: 2 * time.Second}, Config: config}).DialContext(ctx, network, addr)
 		},
 		ResponseHeaderTimeout: 30 * time.Second,
