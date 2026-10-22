@@ -112,21 +112,27 @@ func originalActorPrerequisites(ctx context.Context, authority *HomeIAMAuthority
 	if !ok || lease == nil || lease.authority != authority {
 		return FoundationRecord{}, "", empty, time.Time{}, ErrOriginalSourceProducerHold
 	}
-	if _, err := originalCompartmentScope(ctx, authority); err != nil {
-		return FoundationRecord{}, "", empty, time.Time{}, err
-	}
-	record, _, err := authority.resolver.Store.Load(ctx, "GRU")
-	if err != nil {
-		return record, "", empty, time.Time{}, err
-	}
-	if err := originalActorPrerequisiteRecord(record); err != nil {
-		return record, "", empty, time.Time{}, err
-	}
-	// Complete prerequisite components repeat exact authenticated reads only.
-	if fresh {
-		if err := retainOriginalFoundationVault(ctx, authority); err != nil {
+	// One NetBird manager reconciliation verifies the compartment scope once;
+	// every call still loads and validates its exact journal below.
+	memo, _ := ctx.Value(originalNetBirdAuthorityMemoKey{}).(*originalNetBirdAuthorityMemo)
+	if fresh || !memo.scopeVerified() {
+		if _, err := originalCompartmentScope(ctx, authority); err != nil {
+			return FoundationRecord{}, "", empty, time.Time{}, err
+		}
+		record, _, err := authority.resolver.Store.Load(ctx, "GRU")
+		if err != nil {
 			return record, "", empty, time.Time{}, err
 		}
+		if err := originalActorPrerequisiteRecord(record); err != nil {
+			return record, "", empty, time.Time{}, err
+		}
+		// Complete prerequisite components repeat exact authenticated reads only.
+		if fresh {
+			if err := retainOriginalFoundationVault(ctx, authority); err != nil {
+				return record, "", empty, time.Time{}, err
+			}
+		}
+		memo.markScopeVerified()
 	}
 	record, etag, err := authority.resolver.Store.Load(ctx, "GRU")
 	if err != nil {

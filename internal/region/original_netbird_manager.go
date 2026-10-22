@@ -245,6 +245,24 @@ type originalNetBirdAuthorityMemo struct {
 	verified   bool
 	intent     verifiedNetBirdIntent
 	allocation originalNetBirdAllocation
+	scope      bool
+}
+
+func (m *originalNetBirdAuthorityMemo) scopeVerified() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.scope
+}
+
+func (m *originalNetBirdAuthorityMemo) markScopeVerified() {
+	if m != nil {
+		m.mu.Lock()
+		m.scope = true
+		m.mu.Unlock()
+	}
 }
 
 // verifiedOriginalNetBirdAuthority serves read-only write guards. Within one
