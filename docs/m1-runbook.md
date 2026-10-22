@@ -418,11 +418,11 @@ keeps the session (0600) so reruns need no new code.
 Found and fixed on the way (this PR and #25): ghcr.io pulls (token name
 `<cell>-1-`, blob redirect to `pkg-containers.githubusercontent.com`), canceled
 long pulls failing as fatal, a private `/tmp` for the .NET single-file
-services, a port claim deleted by an empty containerd label, and liveness: a
-task with a port that stays unready for 1 min after a 5 min start grace is
-restarted. After every reboot ts-dashboard (and netbird-server) start before
-their dependencies, wedge without listening, and are restarted by liveness;
-that is the ~7 min.
+services, and a port claim deleted by an empty containerd label. After a
+reboot ts-dashboard (and netbird-server) start before their dependencies and
+wedge without listening; the proof build restarted them with a 5 min liveness
+check (the ~7 min). #97's `awaitReady` replaces it: a task that is not ready
+in time is stopped gracefully and restarted.
 
 Open:
 - TerraBase names its region `local` outside a cluster, so onboarding accepts only
