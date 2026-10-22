@@ -155,8 +155,8 @@ jobs:
     permissions:
       contents: write
       actions: write
-      statuses: write
-    needs: [lint, race]
+    # Builds beside lint and race so the release is ready the moment the
+    # checks pass; nothing deploys or qualifies before they do.
     name: verify/go + artifact/linux-amd64-arm64
     outputs:
       publication: ${{ steps.inputs.outputs.publication }}
@@ -200,9 +200,26 @@ jobs:
           GH_READ_TOKEN: ${{ github.token }}
         run: bash scripts/ci/publish-qualification.sh
 
+  # Records qualification and starts the image only once every check passed.
+  qualified:
+    needs: [lint, race, build]
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' && needs.build.outputs.publication == 'required' }}
+    name: verify/qualified
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+      statuses: write
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
       # Deployment failure must not erase the time this build became qualified.
       - name: Record the qualified main build for the deployment-lag guard
-        if: ${{ steps.inputs.outputs.publication == 'required' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        if: ${{ needs.build.outputs.publication == 'required' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -219,7 +236,7 @@ jobs:
       # change to an image input (scripts/ci/image-inputs-changed.sh) or the
       # weekly schedule starts a build.
       - name: Start the image build for this revision
-        if: ${{ steps.inputs.outputs.publication == 'required' && github.ref == 'refs/heads/main' }}
+        if: ${{ needs.build.outputs.publication == 'required' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         shell: bash
         env:
@@ -230,7 +247,7 @@ jobs:
   # (deploy/m1/regions.json); fails when any region does not serve it. Only
   # this job can mint the GitHub OIDC token that is the push credential.
   release-push:
-    needs: [build]
+    needs: [lint, race, build]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}
     name: deploy/release-push
     runs-on: ubuntu-24.04
