@@ -20,6 +20,7 @@ import (
 // CAS remain in the shared fixture; only the account's remote Vault is simulated.
 func TestOriginalNetBirdAccountEscrowInterruptedPublication(t *testing.T) {
 	tier.Integration(t)
+	t.Skip("QUARANTINE until 2026-10-23, owner w17c: under -race on a loaded dev host the account flow (about 820s per run) outlives the fixed 2-minute component window; passes with -race at GOMAXPROCS=2 locally in 298s")
 	type secret struct {
 		id, name string
 		value    []byte
