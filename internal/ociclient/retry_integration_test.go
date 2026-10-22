@@ -230,6 +230,31 @@ func (d *cancellationDispatcher) Do(request *http.Request) (*http.Response, erro
 	return response, err
 }
 
+// lateResponseDispatcher ends the request context while the response is in flight.
+type lateResponseDispatcher struct {
+	body   *trackedResponseBody
+	cancel context.CancelFunc
+}
+
+func (d lateResponseDispatcher) Do(*http.Request) (*http.Response, error) {
+	d.cancel()
+	return &http.Response{StatusCode: http.StatusOK, Body: d.body}, nil
+}
+
+func TestReadResponseRacingContextEndIsNotSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://objectstorage.invalid/o/checkpoint", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := &trackedResponseBody{ReadCloser: http.NoBody}
+	response, err := readDispatcher{next: lateResponseDispatcher{body: body, cancel: cancel}}.Do(request)
+	if response != nil || !errors.Is(err, context.Canceled) || body.closes.Load() != 1 {
+		t.Fatalf("late read = %v, %v, closes %d; want closed body and context canceled", response, err, body.closes.Load())
+	}
+}
+
 func TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite(t *testing.T) {
 	var writes atomic.Int64
 	accepted := make(chan string, 1)
