@@ -2,12 +2,15 @@
 // from Let's Encrypt with ACME HTTP-01 and proxies each hostname to the
 // loopback port of the service that claims it. HTTP/1.1, websocket and SSE
 // reach the backend over HTTP/1.1; gRPC reaches it over cleartext HTTP/2.
+// A backend answer asking for a replay goes to the nearest region it names
+// (replay.go).
 package edge
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -22,6 +25,8 @@ import (
 
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
+
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
 // Edge serves :80 and :443 for the hostnames in its route table.
@@ -29,6 +34,13 @@ type Edge struct {
 	certs  *autocert.Manager
 	routes atomic.Pointer[map[string]int]
 	proxy  *httputil.ReverseProxy
+	// challenges answers HTTP-01 for the tokens this edge holds.
+	challenges http.Handler
+	mesh       atomic.Pointer[Mesh]
+	local      http.RoundTripper // to the loopback backends
+	peers      http.RoundTripper // to other regions' edges
+	// peerAddr is region's edge; tests replace it.
+	peerAddr func(region string) string
 }
 
 // New returns an edge that caches certificates under stateDir/edge-certs.
@@ -36,7 +48,8 @@ func New(stateDir string) *Edge { return newEdge(stateDir, nil) }
 
 // newEdge uses client as the ACME client; nil means Let's Encrypt.
 func newEdge(stateDir string, client *acme.Client) *Edge {
-	e := &Edge{}
+	e := &Edge{peerAddr: func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") }}
+	e.peers = newPeerTransport(e)
 	e.routes.Store(&map[string]int{})
 	e.certs = &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
@@ -44,6 +57,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 		HostPolicy: e.hostPolicy,
 		Client:     client,
 	}
+	e.challenges = e.certs.HTTPHandler(nil)
 	http1 := http.DefaultTransport.(*http.Transport).Clone()
 	http1.Proxy = nil
 	http1.DialContext = dialHandoff
@@ -52,29 +66,50 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	h2c.Protocols.SetUnencryptedHTTP2(true)
 	// gRPC streams may hold response headers back, so only HTTP/1.1 gets this.
 	http1.ResponseHeaderTimeout = 30 * time.Second
+	e.local = roundTripper(func(r *http.Request) (*http.Response, error) {
+		if isGRPC(r) {
+			return h2c.RoundTrip(r)
+		}
+		return http1.RoundTrip(r)
+	})
 	e.proxy = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			port, _ := e.port(pr.In.Host)
 			pr.SetURL(&url.URL{Scheme: "http", Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port))})
 			pr.Out.Host = pr.In.Host
-			pr.SetXForwarded()
+			if fromPeer(pr.In) {
+				// The source edge already set them from the client's connection.
+				for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
+					pr.Out.Header[h] = pr.In.Header[h]
+				}
+				pr.Out = traceWrite(pr.In, pr.Out)
+			} else {
+				pr.SetXForwarded()
+			}
 			// Client-supplied address headers would spoof the X-Forwarded-For value.
 			for _, h := range []string{"X-Real-IP", "True-Client-IP", "CF-Connecting-IP"} {
 				pr.Out.Header.Del(h)
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
+			if err := e.replay(resp); err != nil {
+				return err
+			}
 			if resp.Header.Get("Strict-Transport-Security") == "" {
 				resp.Header.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 			}
 			return nil
 		},
-		Transport: roundTripper(func(r *http.Request) (*http.Response, error) {
-			if isGRPC(r) {
-				return h2c.RoundTrip(r)
+		Transport: e.local,
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			slog.WarnContext(r.Context(), "edge proxy error", "host", r.Host, "error", err)
+			// A backend that never received the whole request did not run it,
+			// so the source edge may try the next region.
+			if fromPeer(r) && !wroteBackend(r) {
+				w.Header().Set(replayDownHeader, "1")
 			}
-			return http1.RoundTrip(r)
-		}),
+			w.WriteHeader(http.StatusBadGateway)
+		},
 		// gRPC and SSE streams must reach the client as each message arrives.
 		FlushInterval: -1,
 	}
@@ -107,14 +142,23 @@ func (e *Edge) Run(ctx context.Context) error {
 
 func (e *Edge) serve(ctx context.Context, httpLn, tlsLn net.Listener) error {
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
-	challenges := e.certs.HTTPHandler(nil)
 	plain := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, ok := e.port(r.Host); !ok {
 				http.NotFound(w, r)
 				return
 			}
-			challenges.ServeHTTP(w, r)
+			if isChallenge(r) {
+				e.serveChallenge(w, r)
+				return
+			}
+			// GeoDNS health checks probe region IPs, where SNI cannot pick a
+			// certificate; readiness carries no secrets, so :80 answers it.
+			if r.URL.Path == "/readyz" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+				e.proxy.ServeHTTP(w, r)
+				return
+			}
+			e.challenges.ServeHTTP(w, r)
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -124,9 +168,11 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn net.Listener) error {
 	}
 	// No read or write timeout on :443: gRPC, SSE and websocket streams stay
 	// open for hours.
+	tlsConfig := e.certs.TLSConfig()
+	tlsConfig.GetConfigForClient = e.meshTLS
 	public := &http.Server{
 		Handler:           http.HandlerFunc(e.serveHTTPS),
-		TLSConfig:         e.certs.TLSConfig(),
+		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    64 << 10,
@@ -150,7 +196,15 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn net.Listener) error {
 const netbirdHost = "netbird.terrascale.tech"
 
 func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
+	peer := fromPeer(r)
+	if peer && isChallenge(r) {
+		e.serveChallenge(w, r)
+		return
+	}
 	if _, ok := e.port(r.Host); !ok {
+		if peer {
+			w.Header().Set(replayDownHeader, "1")
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -164,8 +218,20 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if peer {
+		r = r.WithContext(context.WithValue(r.Context(), wroteKey{}, new(atomic.Bool)))
+	} else {
+		r.Header.Del(replaySrcHeader)
+		r.Header.Del(replayFailedHeader)
+	}
 	if !isGRPC(r) {
 		r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
+		if !peer && r.Header.Get("Upgrade") == "" {
+			if err := bufferBody(r); err != nil {
+				http.Error(w, "bad request body", http.StatusBadRequest)
+				return
+			}
+		}
 	}
 	e.proxy.ServeHTTP(w, r)
 }

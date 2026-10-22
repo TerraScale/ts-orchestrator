@@ -63,11 +63,12 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	edgeDone := make(chan error, 1)
+	var public *edge.Edge // nil on a joiner, which serves no edge
 	if plan.joiner() {
 		// shortcut: a worker serves no edge (it has no control socket for routes; the founder's edge serves the region) and receives no release push (CI pushes only deploy/m1/regions.json hosts).
 		edgeDone <- nil
 	} else {
-		public := edge.New(*state)
+		public = edge.New(*state)
 		go func() {
 			err := public.Run(ctx)
 			cancel() // a failed edge stops the node, so systemd restarts both
@@ -80,7 +81,14 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	if plan.joiner() && plan.address == "" {
 		close(meshDone) // a worker without IMDS stays out of the region's NATS cluster
 	} else {
-		go func() { mesh.Run(ctx, *state, meshCluster(plan)); close(meshDone) }()
+		go func() {
+			mesh.Run(ctx, *state, meshCluster(plan), func(node *mesh.Node) {
+				if public != nil {
+					public.SetMesh(node)
+				}
+			})
+			close(meshDone)
+		}()
 	}
 	err = runSingleHost(ctx, *state, output, plan)
 	cancel()
