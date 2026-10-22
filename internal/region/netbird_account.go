@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
@@ -202,6 +203,9 @@ func ReadNetBirdAccount(ctx context.Context, factory *ociclient.Factory, resolve
 }
 
 func (s *netBirdAccount) current(ctx context.Context) (originalNetBirdState, error) {
+	// One account check verifies the foundation, manager and material once; a
+	// scope created here ends with this call, so callers may mutate the result.
+	ctx = withOriginalNetBirdStateMemo(ctx)
 	if err := s.manager.Check(ctx); err != nil {
 		return originalNetBirdState{}, err
 	}
@@ -221,10 +225,43 @@ func (s *netBirdAccount) current(ctx context.Context) (originalNetBirdState, err
 	return state, nil
 }
 
+type netBirdAccountGuardKey struct{}
+
+type netBirdAccountGuardScope struct {
+	mu     sync.Mutex
+	passed bool
+}
+
+// withNetBirdAccountGuardScope lets one account operation run its full
+// request guard once; its later requests reuse that pass until expiry.
+func withNetBirdAccountGuardScope(ctx context.Context) context.Context {
+	if _, ok := ctx.Value(netBirdAccountGuardKey{}).(*netBirdAccountGuardScope); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, netBirdAccountGuardKey{}, &netBirdAccountGuardScope{})
+}
+
 func (s *netBirdAccount) requestContext(base context.Context) context.Context {
 	return ociclient.WithRequestGuard(base, func(context.Context) error {
+		scope, _ := base.Value(netBirdAccountGuardKey{}).(*netBirdAccountGuardScope)
+		if scope != nil {
+			scope.mu.Lock()
+			passed := scope.passed
+			scope.mu.Unlock()
+			if passed {
+				if !time.Now().Before(s.material.ExpiresAt()) {
+					return errNetBirdComponents
+				}
+				return base.Err()
+			}
+		}
 		// One request's guard verifies the original foundation once for every nested check.
 		_, err := s.current(withOriginalNetBirdStateMemo(base))
+		if err == nil && scope != nil {
+			scope.mu.Lock()
+			scope.passed = true
+			scope.mu.Unlock()
+		}
 		return err
 	})
 }
@@ -241,6 +278,7 @@ func (s *netBirdAccount) checkpoint(ctx context.Context, state *originalNetBirdS
 
 // OwnerPassword returns an encoding of bytes generated inside OCI Vault.
 func (v NetBirdAccount) OwnerPassword(ctx context.Context) ([]byte, error) {
+	ctx = withNetBirdAccountGuardScope(ctx)
 	if v.state == nil {
 		return nil, errors.New("NetBird account authority absent")
 	}
@@ -261,6 +299,7 @@ func (v NetBirdAccount) OwnerPassword(ctx context.Context) ([]byte, error) {
 
 // CurrentPAT never treats a missing pinned version as permission to regenerate it.
 func (v NetBirdAccount) CurrentPAT(ctx context.Context) (vaultsecret.Current, error) {
+	ctx = withNetBirdAccountGuardScope(ctx)
 	if v.state == nil {
 		return vaultsecret.Current{}, errors.New("NetBird account authority absent")
 	}
@@ -287,6 +326,7 @@ func (v NetBirdAccount) CurrentPAT(ctx context.Context) (vaultsecret.Current, er
 
 // PublishPAT retains an issuance before dispatch and reconciles uncertain writes by exact CURRENT.
 func (v NetBirdAccount) PublishPAT(ctx context.Context, value []byte) error {
+	ctx = withNetBirdAccountGuardScope(ctx)
 	if v.state == nil || !netbird.ValidAdminPAT(value) {
 		return errors.New("NetBird PAT publication requires finite original account authority")
 	}
