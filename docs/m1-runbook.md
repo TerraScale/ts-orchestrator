@@ -174,5 +174,22 @@ Started ts-orch on ts-gru-1 at 00:23:21; it ran `w15-probe-b` 33 s later
 (anti-entropy pull, no operator step) and `mesh ping` saw all three again.
 Removal is global too (`service rm`, 3-9 ms per region).
 
+Auto-deploy: main CI run 39707217972 (`e728ed36b`) pushed the release to
+every region in `deploy/m1/regions.json`, no manual step; afterwards all
+three hosts reported `vcs.revision=e728ed36b...` and `mesh ping` saw all three.
+
+| Region | Connect ms | Accepted ms | Serving ms |
+|---|---|---|---|
+| gru | 610 | 6696 | 10077 |
+| sjc | 95 | 3346 | 6136 |
+| fra | 544 | 4509 | 8053 |
+
+Automated check: `multi-region.yml` run 39711912422 (after main CI, `5d67e59ef`,
+release `ci-d8779fca...-run-39711008818`) passed. Ping matrix as above
+(168/188/138 ms); whoami removed and re-applied from gru: gru 10608 ms,
+sjc 10597 ms, fra 1526 ms until running; HTTPS on gru/sjc/fra.mesh.terrascale.tech
+answered with the run marker and each host's name (460/143/408 ms).
+https://github.com/TerraScale/ts-orchestrator/actions/runs/39711912422
+
 Known gaps: updating an existing service in place waits on W14's #28 (the
 old task keeps its host port); the 45.9 s sjc time above is not explained yet.
