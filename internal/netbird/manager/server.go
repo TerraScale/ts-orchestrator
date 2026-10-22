@@ -39,6 +39,9 @@ const ServerConfigTemplate = `server:
     signKeyRefreshEnabled: true
     sessionCookieEncryptionKey: {{NETBIRD_SESSION_COOKIE_KEY}}
     cliRedirectURIs: ["http://localhost:53000/"]
+  # Only the loopback edge may set X-Forwarded-For.
+  reverseProxy:
+    trustedPeers: ["127.0.0.1/32"]
   store:
     engine: "sqlite"
     encryptionKey: {{NETBIRD_DATASTORE_ENCRYPTION_KEY}}
