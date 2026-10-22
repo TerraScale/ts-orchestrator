@@ -85,6 +85,7 @@ Operator tooling:
   diff                   Plan a cell spec file against the running cell's spec
   apply                  Apply a signed cell spec to the running cell
   service                Apply and remove services in every region, list this host's (apply -f FILE | ls | rm NAME)
+  member                 List this region's cluster hosts; drain and remove a worker (ls | leave HOSTNAME)
   mesh                   Show which regions answer on the cross-region mesh (ping)
   rollout                Status, publish, pause, resume and roll back the cell's orchestrator release
   node                   Drain, reboot, resize, add and retire a cell's nodes, one at a time behind the load balancer
@@ -146,6 +147,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return app.RunSingleHostServing(ctx, args[1:], output)
 	case "service":
 		return app.RunServiceCLI(ctx, args[1:], output)
+	case "member":
+		return app.RunMemberCLI(ctx, args[1:], output)
 	case "mesh":
 		return mesh.RunCLI(ctx, args[1:], "/var/lib/ts-orch", output)
 	case "observe":

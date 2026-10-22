@@ -45,7 +45,7 @@ func RunSingleHost(ctx context.Context, args []string, output io.Writer) error {
 	})); err != nil {
 		return err
 	}
-	node, err := swarmruntime.StartSingleHost(ctx, *state, executor)
+	node, err := swarmruntime.StartSingleHost(ctx, *state, executor, swarmruntime.SingleHostAddress, swarmruntime.SingleHostAddress, swarmruntime.FounderAdmission())
 	if err != nil {
 		return err
 	}

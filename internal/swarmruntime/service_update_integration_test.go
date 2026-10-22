@@ -30,7 +30,7 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = e.Close() })
-	node, err := StartSingleHost(ctx, state, e)
+	node, err := StartSingleHost(ctx, state, e, SingleHostAddress, SingleHostAddress, FounderAdmission())
 	if err != nil {
 		t.Fatal(err)
 	}

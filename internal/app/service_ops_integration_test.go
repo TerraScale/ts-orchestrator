@@ -62,7 +62,7 @@ func TestContainerdSingleHostOperatorCommands(t *testing.T) {
 	if err := executor.BindContainerMaterial(swarmruntime.Admission{Role: "manager", Region: "local", HostID: "single-host", InstanceID: "single-host"}, noSecretMaterial{}); err != nil {
 		t.Fatal(err)
 	}
-	node, err := swarmruntime.StartSingleHost(ctx, state, executor)
+	node, err := swarmruntime.StartSingleHost(ctx, state, executor, swarmruntime.SingleHostAddress, swarmruntime.SingleHostAddress, swarmruntime.FounderAdmission())
 	if err != nil {
 		t.Fatal(err)
 	}
