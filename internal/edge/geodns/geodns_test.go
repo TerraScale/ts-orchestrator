@@ -26,7 +26,7 @@ func TestBuildSteersToNearestHealthyRegion(t *testing.T) {
 	if got := fmt.Sprint(types); got != "[FILTER HEALTH PRIORITY LIMIT]" {
 		t.Fatalf("rules = %s", got)
 	}
-	if p.Monitor.Headers["Host"] != "api.terrascale.tech" || p.Monitor.Path != "/readyz" || p.Monitor.Protocol != "HTTPS" {
+	if p.Monitor.Headers["Host"] != "api.terrascale.tech" || p.Monitor.Path != "/readyz" || p.Monitor.Protocol != "HTTP" || p.Monitor.Port != 80 {
 		t.Fatalf("monitor = %+v", p.Monitor)
 	}
 	if p.Attachment.DomainName != "api.edge.terrascale.tech" {
