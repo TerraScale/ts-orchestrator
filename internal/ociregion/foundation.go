@@ -606,6 +606,8 @@ func (e *Engine) liveBuckets(plan, ids Object) string {
 			if len(retention) > 0 {
 				fail("live " + role + " bucket has an unplanned retention rule")
 			}
+		} else if role == "ledger" && name == e.HomeStorageDomain.LedgerBucket && len(retention) == 1 && obj(retention[0])["duration"] == nil && obj(retention[0])["time-rule-locked"] != nil {
+			// The signed home ledger keeps the locked indefinite rule that original startup admission requires.
 		} else if len(retention) != 1 || obj(retention[0])["display-name"] != retentionName {
 			fail("live " + role + " bucket retention differs from the exact plan")
 		} else {

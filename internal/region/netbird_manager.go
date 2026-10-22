@@ -241,7 +241,7 @@ func AdmitNetBirdManager(ctx context.Context, factory *ociclient.Factory, resolv
 	if !ok {
 		return VerifiedNetBirdManager{}, errors.New("NetBird manager requires the current root-signed foundation producer")
 	}
-	observer, err := bootstrapstart.NewOCIInstanceObserver(oci.RegionGRU, factory.Provider())
+	observer, err := bootstrapstart.NewOCIInstanceObserverWithFactory(oci.RegionGRU, factory)
 	if err != nil {
 		return VerifiedNetBirdManager{}, err
 	}

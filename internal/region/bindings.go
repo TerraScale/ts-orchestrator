@@ -71,7 +71,7 @@ func (s *SignedFootprint) resourceBindingsFor(ctx context.Context, cell string, 
 		Bucket: s.storage.HeadBucket, Prefix: s.storage.Prefix, Cell: cell, Keys: keys}, wire)
 }
 
-func (s *SignedFootprint) boundStartup(ctx context.Context, startup BootstrapStartupIntent, plan map[string]any, wire []byte) (BootstrapStartupIntent, map[string]any, *bootstrap.VerifiedStartupTemplate, error) {
+func (s *SignedFootprint) boundStartup(ctx context.Context, startup BootstrapStartupIntent, plan map[string]any, wire []byte, originalAdmission bool) (BootstrapStartupIntent, map[string]any, *bootstrap.VerifiedStartupTemplate, error) {
 	if _, _, err := s.verifyGrant(wire); err != nil {
 		return BootstrapStartupIntent{}, nil, nil, err
 	}
@@ -94,7 +94,12 @@ func (s *SignedFootprint) boundStartup(ctx context.Context, startup BootstrapSta
 	if err != nil {
 		return BootstrapStartupIntent{}, nil, nil, err
 	}
-	verified, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, s.factory, wire, s.roots, s.bootstrapAnchor, oci.Region(cell), time.Now())
+	verify, roots := bootstrap.VerifyBoundRegionalStartupTemplate, s.roots
+	if originalAdmission {
+		// Original startup admission is bound to the independent genesis, never to transported terminal roots.
+		verify, roots = bootstrap.VerifyBoundOriginalStartupTemplate, s.independentGenesis
+	}
+	verified, err := verify(ctx, s.factory, wire, roots, s.bootstrapAnchor, oci.Region(cell), time.Now())
 	if err != nil {
 		return BootstrapStartupIntent{}, nil, nil, err
 	}

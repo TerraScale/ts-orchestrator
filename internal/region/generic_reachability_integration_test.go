@@ -61,6 +61,8 @@ func newGenericReachabilityFixture(t *testing.T) *genericReachabilityFixture {
 	if err := ValidatePreparedFoundation(f.prepared.Grant); err != nil {
 		t.Fatal(err)
 	}
+	// A fresh client adopts the schema3 origin; the fixture already adopted its legacy grant at this generation.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	f.bundle = signProvisionFoundation(t, f.prepared, f.base.bundle.RootChainWire, f.base.root, f.base.now)
 	if len(f.bundle.GrantWire) > foundationGrantLimit {
 		t.Fatal("complete signed fixture exceeds current grant read bound")
@@ -197,7 +199,6 @@ func (f *genericReachabilityFixture) readerFor(bundle RetainedFoundation) Founda
 }
 
 func TestSchema3GenericReachabilitySignedSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newGenericReachabilityFixture(t)
 	ctx := t.Context()
 	for _, cell := range []string{"GRU", "SJC", "FRA"} {
@@ -205,21 +206,10 @@ func TestSchema3GenericReachabilitySignedSDK(t *testing.T) {
 		if err != nil || record.IntentDigest != f.records[cell].IntentDigest {
 			t.Fatalf("Resolve %s: %v", cell, err)
 		}
-		material, err := f.resolver.BootstrapMaterial(ctx, cell)
-		if err != nil {
-			t.Fatalf("bound startup %s: %v", cell, err)
-		}
-		if !material.IsVerified() || material.startupAuthority == nil {
-			t.Fatalf("%s escaped bound schema3 startup", cell)
-		}
-		if _, err := material.Startup(); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := material.SourceRegistration(); err != nil {
-			t.Fatal(err)
-		}
-		if err := material.Revalidate(ctx); err != nil {
-			t.Fatalf("startup revalidation %s: %v", cell, err)
+		// Schema3 startup is bound to the protected original birth this read
+		// fixture must not invent; positive startup is the original startup suite's.
+		if material, err := f.resolver.BootstrapMaterial(ctx, cell); err == nil || material.IsVerified() || !strings.Contains(err.Error(), "original startup protected birth") {
+			t.Fatalf("%s escaped bound schema3 startup without its original birth: %v", cell, err)
 		}
 		origins, err := f.resolver.GenericWorkloadGeneses(ctx, cell, "production")
 		if err != nil || len(origins) != 2 {
@@ -262,7 +252,6 @@ func TestSchema3GenericReachabilitySignedSDK(t *testing.T) {
 }
 
 func TestSchema3FullGrantRefusalsReachRoutingConsumers(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newGenericReachabilityFixture(t)
 	cases := []struct {
 		name   string
@@ -331,7 +320,6 @@ func TestSchema3FullGrantRefusalsReachRoutingConsumers(t *testing.T) {
 }
 
 func TestSchema3CurrentRootHomeWireAndOriginalEvidenceRefusals(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newGenericReachabilityFixture(t)
 	reader := f.resolver.Footprint.(*SignedFootprint)
 	t.Run("independent foreign root", func(t *testing.T) {
@@ -436,7 +424,6 @@ func TestSchema3CurrentRootHomeWireAndOriginalEvidenceRefusals(t *testing.T) {
 }
 
 func TestSchema3TransportedMetadataConfersNoEffects(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	f := newGenericReachabilityFixture(t)
 	ctx := t.Context()
 	reader := f.resolver.Footprint.(*SignedFootprint)

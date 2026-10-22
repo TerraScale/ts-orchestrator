@@ -22,7 +22,6 @@ import (
 // Permission and original births cross the actual signed SDK/ObjectStorage
 // boundary; a current signed profile alone cannot authorize adoption.
 func TestPoolMembershipUsesSignedPermissionAndOriginalProtectedBirth(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	store, client, publish := foundationProtocolStore(t)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -127,14 +126,11 @@ func TestPoolMembershipUsesSignedPermissionAndOriginalProtectedBirth(t *testing.
 	if _, err := resolver.PoolMembership(ctx, "GRU", "ocid1.instancepool.oc1.sa-saopaulo-1.discovered", configurationID); err == nil {
 		t.Fatal("adopted a discovered pool")
 	}
-	encoded, err := json.Marshal(proof)
-	if err != nil {
-		t.Fatal(err)
+	// json/v2 refuses opaque proofs; only the zero value can be fabricated.
+	if encoded, err := json.Marshal(proof); err == nil {
+		t.Fatalf("opaque proof serialized: %s", encoded)
 	}
 	var fabricated VerifiedPoolMembership
-	if err := json.Unmarshal(encoded, &fabricated); err != nil {
-		t.Fatal(err)
-	}
 	if fabricated.IsVerified() || fabricated.Revalidate(ctx) == nil {
 		t.Fatal("JSON minted membership authority")
 	}

@@ -99,7 +99,9 @@ func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationOb
 	}
 	provider := common.NewRawConfigurationProvider("ocid1.tenancy.oc1..test", "ocid1.user.oc1..test", "sa-saopaulo-1", "test",
 		string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
-	factory, err := ociclient.New(provider, ociclient.Options{Region: "sa-saopaulo-1", Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+	// The local fake is not OCI: production pacing would only stretch guarded reads past their budgets.
+	factory, err := ociclient.New(provider, ociclient.Options{Region: "sa-saopaulo-1", Retry: ociclient.RetryOptions{MaxAttempts: 1},
+		Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceObjectStorage: {PerSecond: 100000, Burst: 100000}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +238,6 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 }
 
 func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	_, client, write := foundationProtocolStore(t)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -567,6 +568,24 @@ func foundationImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Ke
 	}
 	digest := strings.Repeat("a", 64)
 	receipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: strings.Repeat("a", 40), GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13, BinarySHA256: digest, QualificationSHA256: digest, BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base", BaseImageRegion: "GRU", BaseImageSHA256: digest, KernelRelease: "6.1.0", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: digest, OCIImageOCID: "ocid1.image.oc1.sa-saopaulo-1.custom", OCIRegion: "GRU"}
+	qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: release.ProductionExpectation{SourceRevision: receipt.SourceRevision, ArtifactSHA256: receipt.ImageSHA256,
+		QualificationSHA256: receipt.QualificationSHA256, Cell: receipt.OCIRegion, Environment: "production", Runtime: release.ProductionRuntime, Architecture: receipt.Architecture, Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		qualification.Evidence = append(qualification.Evidence, release.ProductionGateEvidence{Gate: gate, SHA256: digest, Bytes: 1, CompletedAt: now.Add(-time.Hour)})
+	}
+	qualificationPayload, err := trust.EncodePayload(qualification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualified, err := trust.Sign(qualificationPayload, release.ProductionQualificationScope(qualification.Candidate), now.Add(-time.Minute), now.Add(time.Hour), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualifiedWire, err := trust.EncodeEnvelope(qualified)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.Production = &release.ProductionProof{Qualification: qualifiedWire}
 	scope := release.ImageScope(receipt, "production")
 	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded, Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(time.Hour), root)
 	if err != nil {

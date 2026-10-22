@@ -239,7 +239,7 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 		if material.Startup != nil {
 			startup := material.Startup.Clone()
 			var boundPlan map[string]any
-			startup, boundPlan, startupAuthority, err = s.boundStartup(ctx, startup, intent.Plan, grantWire)
+			startup, boundPlan, startupAuthority, err = s.boundStartup(ctx, startup, intent.Plan, grantWire, material.OriginalStartupAdmission != nil)
 			if err != nil {
 				return VerifiedBootstrapMaterial{}, err
 			}

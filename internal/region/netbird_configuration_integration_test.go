@@ -15,8 +15,9 @@ import (
 )
 
 func TestNetBirdConfigurationOriginalMaterialSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	fixture := newFoundationProvisionFixture(t)
+	// A fresh client adopts the schema3 origin; the fixture already adopted its legacy grant at this generation.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 	fixture.cloud.bundle = bundle
 	factory := fixture.factoryFor()

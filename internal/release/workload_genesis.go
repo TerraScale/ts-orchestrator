@@ -96,7 +96,8 @@ func VerifyWorkloadGenesis(wire []byte, roots trust.Keyring, originalScope trust
 	deny := func() (VerifiedWorkloadGenesis, error) {
 		return VerifiedWorkloadGenesis{}, errors.New("workload genesis differs from complete original root authority")
 	}
-	if len(wire) == 0 || len(wire) > 128<<10 || expected.Validate() != nil || expected.Environment != "production" || originalScope.Domain != "terrascale.foundation.scope" || originalScope.Cell != "GRU" || originalScope.Environment != expected.Environment || originalScope.Role != "foundation" || !entityid.Valid(originalScope.DeploymentID) || !entityid.Valid(originalScope.Slot) {
+	// Same bound as the region foundation grant reader.
+	if len(wire) == 0 || len(wire) > 256<<10 || expected.Validate() != nil || expected.Environment != "production" || originalScope.Domain != "terrascale.foundation.scope" || originalScope.Cell != "GRU" || originalScope.Environment != expected.Environment || originalScope.Role != "foundation" || !entityid.Valid(originalScope.DeploymentID) || !entityid.Valid(originalScope.Slot) {
 		return deny()
 	}
 	envelope, err := trust.DecodeEnvelope(wire)

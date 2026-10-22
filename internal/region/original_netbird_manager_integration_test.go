@@ -161,7 +161,7 @@ func (f *originalNetBirdManagerSDKFixture) serveHTTP(w http.ResponseWriter, r *h
 			originalCompartmentFailure(w, 404, "NotAuthorizedOrNotFound")
 			return
 		}
-		wire, err := json.Marshal(map[string]string{"username": "ns/fixture-ocir", "password": "fixture-only-issued-token"})
+		wire, err := json.Marshal(map[string]string{"username": "ns/fixture-ocir", "password": "fixture-only-issued-token"}, json.Deterministic(true))
 		if err != nil {
 			f.cloud.test.Error(err)
 			originalCompartmentFailure(w, 500, "InternalError")
@@ -306,7 +306,7 @@ func (f *originalNetBirdManagerSDKFixture) admission(t *testing.T) (*ociclient.F
 		t.Fatal(err)
 	}
 	resolver := FoundationResolver{Footprint: reader, Store: store}
-	observer, err := bootstrapstart.NewOCIInstanceObserver(oci.RegionGRU, factory.Provider())
+	observer, err := bootstrapstart.NewOCIInstanceObserverWithFactory(oci.RegionGRU, factory)
 	if err != nil {
 		t.Fatal(err)
 	}
