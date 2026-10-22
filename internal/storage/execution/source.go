@@ -288,7 +288,7 @@ func (s *Source) ResolveRuntime(ctx context.Context, task *api.Task) (RuntimePin
 		return RuntimePins{}, err
 	}
 	limits := task.Spec.Resources.Limits
-	base, err := containerdoci.GenerateSpec(namespaces.WithNamespace(ctx, "terrascale"), s.runtime.Client, &containers.Container{ID: "ts-" + task.ID}, containerdoci.WithDefaultSpec(), containerdoci.WithRootFSReadonly(), containerdoci.WithHostNamespace(runtimespec.NetworkNamespace), containerdoci.WithNoNewPrivileges, containerdoci.WithCapabilities(nil), containerdoci.WithUIDGID(uint32(uid), uint32(gid)), containerdoci.WithMemoryLimit(uint64(limits.MemoryBytes)), containerdoci.WithMemorySwap(limits.MemoryBytes), containerdoci.WithPidsLimit(256), containerdoci.WithCPUCFS(limits.NanoCPUs/10_000, 100_000))
+	base, err := containerdoci.GenerateSpec(namespaces.WithNamespace(ctx, "terrascale"), s.runtime.Client, &containers.Container{ID: "ts-" + task.ID}, containerdoci.WithDefaultSpec(), containerdoci.WithRootFSReadonly(), containerdoci.WithHostNamespace(runtimespec.NetworkNamespace), containerdoci.WithHostResolvconf, containerdoci.WithHostHostsFile, containerdoci.WithNoNewPrivileges, containerdoci.WithCapabilities(nil), containerdoci.WithUIDGID(uint32(uid), uint32(gid)), containerdoci.WithMemoryLimit(uint64(limits.MemoryBytes)), containerdoci.WithMemorySwap(limits.MemoryBytes), containerdoci.WithPidsLimit(256), containerdoci.WithCPUCFS(limits.NanoCPUs/10_000, 100_000))
 	if err != nil {
 		return RuntimePins{}, err
 	}

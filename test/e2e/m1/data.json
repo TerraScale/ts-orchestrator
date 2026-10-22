@@ -1,7 +1,7 @@
 {
   "name": "e2e-data",
   "image": "docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c",
-  "args": ["sh", "-c", "date +%s%N >> /tmp/boots && exec httpd -f -p 18082 -h /tmp"],
+  "args": ["sh", "-c", "date +%s%N >> /tmp/boots && { nslookup github.com > /tmp/dns 2>&1 || true; } && exec httpd -f -p 18082 -h /tmp"],
   "mounts": [{"source": "/var/lib/ts-data/e2e", "target": "/tmp"}],
   "port": 18082,
   "readyPath": "/boots",
