@@ -1054,23 +1054,31 @@ type originalMaterialIAMV2Wire struct {
 }
 
 func TestOriginalFoundationMaterialIAMSDKPart1(t *testing.T) {
-	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(1, 5))
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(1, 7))
 }
 
 func TestOriginalFoundationMaterialIAMSDKPart2(t *testing.T) {
-	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(2, 5))
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(2, 7))
 }
 
 func TestOriginalFoundationMaterialIAMSDKPart3(t *testing.T) {
-	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(3, 5))
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(3, 7))
 }
 
 func TestOriginalFoundationMaterialIAMSDKPart4(t *testing.T) {
-	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(4, 5))
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(4, 7))
 }
 
 func TestOriginalFoundationMaterialIAMSDKPart5(t *testing.T) {
-	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(5, 5))
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(5, 7))
+}
+
+func TestOriginalFoundationMaterialIAMSDKPart6(t *testing.T) {
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(6, 7))
+}
+
+func TestOriginalFoundationMaterialIAMSDKPart7(t *testing.T) {
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(7, 7))
 }
 
 func TestOriginalFoundationMaterialIAMV1Compatibility(t *testing.T) {

@@ -729,7 +729,7 @@ func (f *originalActorSDKFixture) assertActorState(t *testing.T) {
 	}
 }
 
-func TestOriginalFoundationActorsSDK(t *testing.T) {
+func testOriginalFoundationActorsSDK(t *testing.T, part *originalSubtestPart) {
 	tier.Integration(t)
 	shared := newOriginalActorSDKFixture(t, "", 0)
 	// Every subtest starts after the genuine Vault stage it does not exercise.
@@ -744,9 +744,9 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		return shared
 	}
 	// Sequential: the inherited real signed SDK fixture owns the process transport.
-	t.Run("three finite originals and complete physical replay remain downstream HOLD", func(t *testing.T) {
+	part.run(t, "three finite originals and complete physical replay remain downstream HOLD", func(t *testing.T) {
 		for _, fault := range []string{"", "complete pagination"} {
-			t.Run(fault, func(t *testing.T) {
+			part.run(t, fault, func(t *testing.T) {
 				f := sharedFixture(t, fault, 0)
 				if err := f.run(t); err != nil {
 					t.Fatalf("actor component did not retain complete original physical history: %v", err)
@@ -774,10 +774,10 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("acknowledged reservations and actual IDs bound recovery", func(t *testing.T) {
+	part.run(t, "acknowledged reservations and actual IDs bound recovery", func(t *testing.T) {
 		for slot := range 3 {
 			for _, fault := range []string{"scope checkpoint", "reservation checkpoint", "stale lease", "lost create response", "unknown create", "lost accepted checkpoint", "response before CAS", "throttle", "timeout", "instance pending"} {
-				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
+				part.run(t, fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
 					f := newOriginalActorSDKFixture(t, fault, slot)
 					if err := f.run(t); err == nil {
 						t.Fatal("interrupted actor operation claimed complete startup")
@@ -851,13 +851,13 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("terminal identities prices and original authority remain bounded", func(t *testing.T) {
+	part.run(t, "terminal identities prices and original authority remain bounded", func(t *testing.T) {
 		for slot := range 3 {
 			for _, fault := range []string{"conflict", "invalid token", "empty ID", "wrong region ID", "duplicate ID"} {
 				if fault == "duplicate ID" && slot == 0 {
 					continue
 				}
-				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
+				part.run(t, fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
 					f := sharedFixture(t, fault, slot)
 					if err := f.run(t); err == nil {
 						t.Fatal("refused or unresolved original create claimed completion")
@@ -886,7 +886,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 				})
 			}
 		}
-		t.Run("fresh tariff drift cannot replace the original quote", func(t *testing.T) {
+		part.run(t, "fresh tariff drift cannot replace the original quote", func(t *testing.T) {
 			f := sharedFixture(t, "unknown create", 0)
 			if err := f.run(t); err == nil {
 				t.Fatal("unknown response unexpectedly completed")
@@ -910,7 +910,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			}
 			f.assertActorState(t)
 		})
-		t.Run("fresh quote exceeds signed finite slot", func(t *testing.T) {
+		part.run(t, "fresh quote exceeds signed finite slot", func(t *testing.T) {
 			f := sharedFixture(t, "", 0)
 			f.cloud.mu.Lock()
 			f.cloud.tariff = 100
@@ -919,7 +919,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 				t.Fatal("over-budget fresh tariff quote authorized original launch")
 			}
 		})
-		t.Run("genuine historical first attempt exceeds23h", func(t *testing.T) {
+		part.run(t, "genuine historical first attempt exceeds23h", func(t *testing.T) {
 			f := newOriginalActorSDKFixture(t, "unknown create", 0)
 			f.bundle = signHistoricalOriginalCompartmentBundle(t, f.foundationProvisionFixture)
 			f.cloud.bundle = f.bundle.clone()
@@ -989,9 +989,9 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 				t.Fatal("expired unknown original reset time/token or bought replacement")
 			}
 		})
-		t.Run("root-signed spending currency must match original grant", func(t *testing.T) {
+		part.run(t, "root-signed spending currency must match original grant", func(t *testing.T) {
 			for _, trusted := range []bool{false, true} {
-				t.Run(fmt.Sprintf("trusted journal %t", trusted), func(t *testing.T) {
+				part.run(t, fmt.Sprintf("trusted journal %t", trusted), func(t *testing.T) {
 					f := newOriginalActorSDKFixture(t, "", 0)
 					if trusted {
 						if err := f.run(t); err != nil {
@@ -1068,7 +1068,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 				g.Regions[0].BootstrapMaterial.Startup.FounderResources.Slots[0].BootVolumeGB++
 			},
 		} {
-			t.Run(name, func(t *testing.T) {
+			part.run(t, name, func(t *testing.T) {
 				f := newOriginalActorSDKFixture(t, "", 0)
 				wire, err := json.Marshal(f.prepared)
 				if err != nil {
@@ -1089,7 +1089,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			})
 		}
 		for _, fault := range []string{"network no add ACK", "Vault nonready"} {
-			t.Run(fault, func(t *testing.T) {
+			part.run(t, fault, func(t *testing.T) {
 				f := newOriginalActorSDKFixture(t, "", 0)
 				if fault == "network no add ACK" {
 					f.networkFault = "unknown rule response"
@@ -1108,7 +1108,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			})
 		}
 		for _, fault := range []string{"image identity", "image compartment", "image nonready", "image missing", "writer evidence", "wrong user", "wrong tenancy", "expired original", "corrupt original"} {
-			t.Run(fault, func(t *testing.T) {
+			part.run(t, fault, func(t *testing.T) {
 				f := newOriginalActorSDKFixture(t, "reservation checkpoint", 0)
 				if err := f.run(t); err == nil || len(f.actorDispatches()) != 0 || f.cloud.creates != 27 {
 					t.Fatal("authority refusal setup did not stop after genuine prerequisites and before launch")
@@ -1171,7 +1171,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("independent physical graph geometry and complete pagination refuse drift", func(t *testing.T) {
+	part.run(t, "independent physical graph geometry and complete pagination refuse drift", func(t *testing.T) {
 		faults := []string{"instance missing", "instance identity", "instance compartment", "instance pending", "instance AD", "instance FD", "instance shape", "instance OCPU", "instance memory", "instance image", "instance source", "instance metadata", "instance extended metadata", "instance display name", "VNIC public", "VNIC IPv6", "VNIC forwarding", "VNIC secondary", "VNIC identity", "VNIC AD", "VNIC compartment", "VNIC subnet", "VNIC NSG", "VNIC extra NSG", "VNIC private IP", "VNIC nonready", "boot identity", "boot compartment", "boot AD", "boot image", "boot size", "boot tier", "boot autotune", "boot policy", "boot tuned tier", "boot nonready"}
 		for _, kind := range []string{"VNIC", "boot"} {
 			for _, suffix := range []string{"missing attachment", "extra attachment", "foreign attachment", "wrong compartment", "detached", "wrong AD", "empty attachment ID", "second page extra", "cyclic pages", "unbounded pages"} {
@@ -1179,7 +1179,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			}
 		}
 		for _, fault := range faults {
-			t.Run(fault, func(t *testing.T) {
+			part.run(t, fault, func(t *testing.T) {
 				f := newOriginalActorSDKFixture(t, fault, 0)
 				if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationActorPending) {
 					t.Fatalf("physical mismatch reached completed physical actor stage: %v", err)
@@ -1210,7 +1210,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		}
 	})
 
-	t.Run("protected CAS retains original scope request quote and physical proof", func(t *testing.T) {
+	part.run(t, "protected CAS retains original scope request quote and physical proof", func(t *testing.T) {
 		f := sharedFixture(t, "", 0)
 		if err := f.run(t); err != nil {
 			t.Fatal(err)
@@ -1301,7 +1301,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			}
 		}
 		f.assertActorState(t)
-		t.Run("component requires genuine held matching HomeWrite", func(t *testing.T) {
+		part.run(t, "component requires genuine held matching HomeWrite", func(t *testing.T) {
 			first, err := provisionFoundationMaterial(t.Context(), f.factoryFor(), f.roots, f.bundle)
 			if err != nil {
 				t.Fatal(err)
@@ -1329,4 +1329,44 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestOriginalFoundationActorsSDKPart1(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(1, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart2(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(2, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart3(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(3, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart4(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(4, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart5(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(5, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart6(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(6, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart7(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(7, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart8(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(8, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart9(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(9, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
+}
+
+func TestOriginalFoundationActorsSDKPart10(t *testing.T) {
+	testOriginalFoundationActorsSDK(t, newOriginalSubtestPart(10, 10, "three finite originals and complete physical replay remain downstream HOLD", "acknowledged reservations and actual IDs bound recovery", "terminal identities prices and original authority remain bounded", "independent physical graph geometry and complete pagination refuse drift", "protected CAS retains original scope request quote and physical proof"))
 }
