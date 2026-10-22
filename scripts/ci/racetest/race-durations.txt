@@ -126,3 +126,7 @@ rest - 1
 ./internal/region TestOriginalFoundationNetworkSDK 230/1 norace solo
 ./internal/region TestOriginalFoundationAdmissionReadsSDK 265/1 norace solo
 ./internal/region TestOriginalFoundationVaultSDK 350/1 norace solo
+./internal/region TestOriginalFoundationSourceIAMSDK 90/1 norace solo
+./internal/region TestOriginalFoundationCurrentnessSDK 205/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMPeerGroupSDK 290/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDK 460/1 norace solo

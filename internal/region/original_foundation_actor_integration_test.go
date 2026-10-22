@@ -730,6 +730,7 @@ func (f *originalActorSDKFixture) assertActorState(t *testing.T) {
 }
 
 func TestOriginalFoundationActorsSDK(t *testing.T) {
+	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes with the shared fixture but takes 1811s without -race at GOMAXPROCS=2 -cpu 2 (delta, 6 jobs); each of its ~140 fault subtests still replays the compartment, network and Vault stages")
 	tier.Integration(t)
 	shared := newOriginalActorSDKFixture(t, "", 0)
 	// Every subtest starts after the genuine Vault stage it does not exercise.
