@@ -118,7 +118,11 @@ func (r *run) add(host, shape string) error {
 	if err != nil || r.compartment == "" {
 		return err // a dry run cannot plan inside a compartment it has not created
 	}
-	return r.ensureNetwork(created)
+	if err := r.ensureNetwork(created); err != nil {
+		return err
+	}
+	_, err = r.ensureInstance(host, shape)
+	return err
 }
 
 func (r *run) ensureCompartment() (created bool, err error) {
