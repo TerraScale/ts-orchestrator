@@ -22,6 +22,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 type originalActorReadDispatch struct {
@@ -555,10 +556,22 @@ func (f *originalActorReadsSDKFixture) assertReadsState(t *testing.T) {
 }
 
 func TestOriginalFoundationActorReadsSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes but takes 1874s without -race at GOMAXPROCS=2 -cpu 2; every fault subtest rebuilds and reruns the actor chain")
+	tier.Integration(t)
+	shared := newOriginalActorReadsSDKFixture(t, "", 0)
+	// Every subtest starts after the genuine actor stage it does not exercise.
+	if err := shared.originalActorSDKFixture.run(t); err != nil {
+		t.Fatal(err)
+	}
+	state := snapshotOriginalFixture(t, shared)
+	sharedFixture := func(t *testing.T, fault string, slot int) *originalActorReadsSDKFixture {
+		t.Helper()
+		state.restore(t)
+		shared.readsFault, shared.readsSlot = fault, slot
+		return shared
+	}
 	// Sequential: inherited fixtures own the process transport and signed roots.
 	t.Run("three finite exact READ policies retain downstream HOLD and replay GET only", func(t *testing.T) {
-		f := newOriginalActorReadsSDKFixture(t, "", 0)
+		f := sharedFixture(t, "", 0)
 		if err := f.run(t); err != nil {
 			network, rules := f.effects()
 			t.Fatalf("automatic coordinator did not retain explicit host-entry/custody/source/archive HOLD (compartments=%d network=%d NSG-adds=%d KMS=%d actors=%d READs=%d creates=%d launches=%d): %v", len(f.dispatches()), len(network), rules, len(f.kmsDispatches()), len(f.actorDispatches()), len(f.readDispatches()), f.cloud.creates, f.cloud.launchPosts, err)
@@ -603,7 +616,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		for slot := range 3 {
 			for _, fault := range []string{"scope checkpoint", "reservation checkpoint", "stale lease", "unknown create", "lost create response", "response before CAS", "lost accepted checkpoint", "readback checkpoint", "lost readback checkpoint", "throttle", "timeout"} {
 				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
-					f := newOriginalActorReadsSDKFixture(t, fault, slot)
+					f := sharedFixture(t, fault, slot)
 					if err := f.run(t); err == nil {
 						t.Fatal("interrupted READ operation reached downstream completion HOLD")
 					}
@@ -663,7 +676,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	})
 
 	t.Run("genuine historical unknown policy exceeds23h without replacement", func(t *testing.T) {
-		f := newOriginalActorReadsSDKFixture(t, "unknown create", 0)
+		f := sharedFixture(t, "unknown create", 0)
 		f.bundle = signHistoricalOriginalCompartmentBundle(t, f.foundationProvisionFixture)
 		f.cloud.bundle = f.bundle.clone()
 		var err error
@@ -752,7 +765,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 					continue
 				}
 				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
-					f := newOriginalActorReadsSDKFixture(t, fault, slot)
+					f := sharedFixture(t, fault, slot)
 					if err := f.run(t); err == nil {
 						t.Fatal("invalid/refused original policy acquired accepted readback")
 					}
@@ -781,7 +794,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	t.Run("known IDs never adopt repair or recreate conflicting policies", func(t *testing.T) {
 		for _, fault := range []string{"policy missing", "policy pending", "policy identity", "policy compartment", "policy name", "policy description", "policy extra statement", "policy object write", "policy tags", "policy defined tags"} {
 			t.Run(fault, func(t *testing.T) {
-				f := newOriginalActorReadsSDKFixture(t, fault, 0)
+				f := sharedFixture(t, fault, 0)
 				if err := f.run(t); err == nil {
 					t.Fatal("conflicting/missing exact GetPolicy accepted original public READ")
 				}
@@ -800,7 +813,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	t.Run("exact document bucket and current physical identity precede any READ reservation", func(t *testing.T) {
 		for _, fault := range []string{"namespace", "bucket identity", "bucket compartment", "bucket KMS", "bucket namespace", "bucket name", "document missing", "document bytes", "document oversized"} {
 			t.Run(fault, func(t *testing.T) {
-				f := newOriginalActorReadsSDKFixture(t, fault, 0)
+				f := sharedFixture(t, fault, 0)
 				if err := f.run(t); err == nil || len(f.readDispatches()) != 0 || f.cloud.creates != 30 {
 					t.Fatal("foreign/missing public original storage acquired policy creation")
 				}
@@ -813,7 +826,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 		}
 		for _, actorFault := range []string{"instance identity", "instance image", "instance missing", "VNIC public", "boot image"} {
 			t.Run(actorFault, func(t *testing.T) {
-				f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
+				f := sharedFixture(t, "scope checkpoint", 0)
 				if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 					t.Fatal("current physical refusal setup did not stop before READ scope retention")
 				}
@@ -833,7 +846,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	t.Run("changed original authority cannot acquire public READ effects", func(t *testing.T) {
 		for _, fault := range []string{"wrong user", "wrong tenancy", "expired original", "corrupt original"} {
 			t.Run(fault, func(t *testing.T) {
-				f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
+				f := sharedFixture(t, "scope checkpoint", 0)
 				if err := f.run(t); err == nil || len(f.readDispatches()) != 0 || f.cloud.creates != 30 {
 					t.Fatal("authority control lacks complete genuine actors before READ scopes")
 				}
@@ -868,7 +881,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	})
 
 	t.Run("protected CAS retains every original READ binding and effect", func(t *testing.T) {
-		f := newOriginalActorReadsSDKFixture(t, "", 0)
+		f := sharedFixture(t, "", 0)
 		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
@@ -936,7 +949,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	})
 
 	t.Run("direct component requires the same live HomeWrite and rejects incomplete actors", func(t *testing.T) {
-		f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
+		f := sharedFixture(t, "scope checkpoint", 0)
 		if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 			t.Fatal("lease test setup did not reach all-three actual actors before READ reservation")
 		}
@@ -1012,7 +1025,7 @@ func TestOriginalFoundationActorReadsSDK(t *testing.T) {
 	})
 
 	t.Run("full signed public selection rejects missing duplicate or foreign origins", func(t *testing.T) {
-		f := newOriginalActorReadsSDKFixture(t, "scope checkpoint", 0)
+		f := sharedFixture(t, "scope checkpoint", 0)
 		if err := f.run(t); err == nil || len(f.readDispatches()) != 0 {
 			t.Fatal("selection controls lack genuine complete actors")
 		}

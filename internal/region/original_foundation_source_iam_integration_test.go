@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -425,7 +426,15 @@ func (f *originalSourceIAMSDKFixture) assertState(t *testing.T, complete bool) {
 }
 
 func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes but takes 498s without -race at GOMAXPROCS=2 -cpu 2, over the 8 min norace budget; every subtest reruns the actor stage (about 12s)")
+	tier.Integration(t)
+	shared := newOriginalSourceIAMSDKFixture(t, "")
+	state := snapshotOriginalFixture(t, shared)
+	sharedFixture := func(t *testing.T, fault string) *originalSourceIAMSDKFixture {
+		t.Helper()
+		state.restore(t)
+		shared.fault = fault
+		return shared
+	}
 	// Sequential: the inherited signed SDK fixture owns the process transport.
 	t.Run("missing upstream prerequisites cause zero mutations", func(t *testing.T) {
 		for _, missing := range []string{"material", "actors", "actor readbacks"} {
@@ -474,7 +483,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 		}
 	})
 	t.Run("three exact policies and GET-only replay retain downstream HOLD", func(t *testing.T) {
-		f := newOriginalSourceIAMSDKFixture(t, "")
+		f := sharedFixture(t, "")
 		material := f.cloud.materialPosts
 		if err := f.run(t); err != nil {
 			t.Fatal(err)
@@ -504,7 +513,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 	t.Run("absence and current roots refuse unauthorized effects", func(t *testing.T) {
 		for _, fault := range []string{"source exists", "source forbidden", "secret exists", "secret forbidden", "secret cyclic pages", "unreserved policy", "policy cyclic pages", "wrong roots"} {
 			t.Run(fault, func(t *testing.T) {
-				f := newOriginalSourceIAMSDKFixture(t, fault)
+				f := sharedFixture(t, fault)
 				before := f.wire(t)
 				if fault == "wrong roots" {
 					f.roots = trust.Keyring{}
@@ -521,7 +530,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 	t.Run("CAS and provider interruptions retain safe identity", func(t *testing.T) {
 		for _, fault := range []string{"reservation checkpoint", "stale lease", "unknown create", "lost create response", "response before CAS", "lost accepted checkpoint", "readback checkpoint", "readback unavailable", "readback conflict", "create refused"} {
 			t.Run(fault, func(t *testing.T) {
-				f := newOriginalSourceIAMSDKFixture(t, fault)
+				f := sharedFixture(t, fault)
 				if err := f.run(t); err == nil {
 					t.Fatal("interrupted IAM claimed completed policy set")
 				}
@@ -559,7 +568,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 	t.Run("fresh actor and escrow reads refuse drift before reservation", func(t *testing.T) {
 		for _, fault := range []string{"instance", "VNIC", "boot", "Vault", "key", "bucket"} {
 			t.Run(fault, func(t *testing.T) {
-				f := newOriginalSourceIAMSDKFixture(t, "")
+				f := sharedFixture(t, "")
 				record := f.record(t)
 				before := f.wire(t)
 				actor := record.OriginalFoundationCompartments.Regions[1].Actor
@@ -587,7 +596,7 @@ func TestOriginalFoundationSourceIAMSDK(t *testing.T) {
 		}
 	})
 	t.Run("retention rejects scope and actor substitutions", func(t *testing.T) {
-		f := newOriginalSourceIAMSDKFixture(t, "")
+		f := sharedFixture(t, "")
 		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}

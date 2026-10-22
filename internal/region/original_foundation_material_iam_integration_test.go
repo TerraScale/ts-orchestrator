@@ -538,10 +538,18 @@ func assertOriginalMaterialV3Policy(t *testing.T, record FoundationRecord, index
 }
 
 func TestOriginalFoundationMaterialIAMPeerGroupSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes but takes 497s without -race at GOMAXPROCS=2 -cpu 2, over the 8 min norace budget; every subtest rebuilds the actor-reads chain")
+	tier.Integration(t)
+	shared := newOriginalMaterialIAMSDKFixture(t, "")
+	state := snapshotOriginalFixture(t, shared)
+	sharedFixture := func(t *testing.T, fault string) *originalMaterialIAMSDKFixture {
+		t.Helper()
+		state.restore(t)
+		shared.fault = fault
+		return shared
+	}
 	for _, fault := range []string{"lost group create response", "group reservation checkpoint", "group receipt checkpoint", "group completion checkpoint"} {
 		t.Run(fault+" preserves retry", func(t *testing.T) {
-			f := newOriginalMaterialIAMSDKFixture(t, fault)
+			f := sharedFixture(t, fault)
 			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || !f.faulted || len(f.posts) != 0 {
 				t.Fatal("uncertain group admitted policy or startup", err)
 			}
@@ -560,7 +568,7 @@ func TestOriginalFoundationMaterialIAMPeerGroupSDK(t *testing.T) {
 	}
 	for _, fault := range []string{"group readback conflict", "group ETag missing", "group duplicate id"} {
 		t.Run(fault+" holds", func(t *testing.T) {
-			f := newOriginalMaterialIAMSDKFixture(t, fault)
+			f := sharedFixture(t, fault)
 			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 				t.Fatal("unproven peer group completed", err)
 			}
@@ -570,7 +578,7 @@ func TestOriginalFoundationMaterialIAMPeerGroupSDK(t *testing.T) {
 		})
 	}
 	t.Run("current group drift blocks completed replay", func(t *testing.T) {
-		f := newOriginalMaterialIAMSDKFixture(t, "")
+		f := sharedFixture(t, "")
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 			t.Fatal(err)
 		}
@@ -851,9 +859,17 @@ func (f *originalMaterialIAMSDKFixture) assertRuntimeJoinSDK(t *testing.T, permi
 }
 
 func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes but takes 1107s without -race at GOMAXPROCS=2 -cpu 2; every subtest rebuilds the actor-reads chain (about 16s) before its own runs")
+	tier.Integration(t)
+	shared := newOriginalMaterialIAMSDKFixture(t, "")
+	state := snapshotOriginalFixture(t, shared)
+	sharedFixture := func(t *testing.T, fault string) *originalMaterialIAMSDKFixture {
+		t.Helper()
+		state.restore(t)
+		shared.fault = fault
+		return shared
+	}
 	t.Run("automatic completion and unchanged restart", func(t *testing.T) {
-		f := newOriginalMaterialIAMSDKFixture(t, "")
+		f := sharedFixture(t, "")
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 			t.Fatal(err)
 		}
@@ -875,7 +891,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 		}
 	})
 	t.Run("unknown create outcome keeps body and retry token", func(t *testing.T) {
-		f := newOriginalMaterialIAMSDKFixture(t, "lost create response")
+		f := sharedFixture(t, "lost create response")
 		if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || !f.faulted || len(f.posts) != 1 {
 			t.Fatal("unknown material create outcome became completion", err)
 		}
@@ -890,7 +906,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 	})
 	for _, fault := range []string{"scope checkpoint", "reservation checkpoint", "receipt checkpoint", "completion checkpoint", "lost reservation checkpoint", "lost receipt checkpoint", "lost completion checkpoint"} {
 		t.Run(fault+" resumes", func(t *testing.T) {
-			f := newOriginalMaterialIAMSDKFixture(t, fault)
+			f := sharedFixture(t, fault)
 			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || !f.faulted {
 				t.Fatal("failed material checkpoint became completed authority", err)
 			}
@@ -915,7 +931,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 	}
 	for _, fault := range []string{"readback missing", "readback unavailable", "readback conflict", "readback compartment", "readback pending deletion", "readback ETag missing"} {
 		t.Run(fault+" cannot complete", func(t *testing.T) {
-			f := newOriginalMaterialIAMSDKFixture(t, fault)
+			f := sharedFixture(t, fault)
 			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 				t.Fatal("missing or changed material policy became completion", err)
 			}
@@ -926,7 +942,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 		})
 	}
 	t.Run("permanent create refusal retains HOLD", func(t *testing.T) {
-		f := newOriginalMaterialIAMSDKFixture(t, "create refused")
+		f := sharedFixture(t, "create refused")
 		if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 			t.Fatal("refused material create became completion", err)
 		}
@@ -940,7 +956,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 		}
 	})
 	t.Run("retained ETag does not replace current provider policy", func(t *testing.T) {
-		f := newOriginalMaterialIAMSDKFixture(t, "")
+		f := sharedFixture(t, "")
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 			t.Fatal(err)
 		}

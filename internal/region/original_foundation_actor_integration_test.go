@@ -24,6 +24,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
@@ -729,12 +730,24 @@ func (f *originalActorSDKFixture) assertActorState(t *testing.T) {
 }
 
 func TestOriginalFoundationActorsSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes but takes 2197s without -race at GOMAXPROCS=2 -cpu 2; every fault subtest rebuilds and reruns the compartment, network and Vault chain")
+	tier.Integration(t)
+	shared := newOriginalActorSDKFixture(t, "", 0)
+	// Every subtest starts after the genuine Vault stage it does not exercise.
+	if err := shared.originalVaultSDKFixture.run(t); err != nil {
+		t.Fatal(err)
+	}
+	state := snapshotOriginalFixture(t, shared)
+	sharedFixture := func(t *testing.T, fault string, slot int) *originalActorSDKFixture {
+		t.Helper()
+		state.restore(t)
+		shared.actorFault, shared.actorSlot = fault, slot
+		return shared
+	}
 	// Sequential: the inherited real signed SDK fixture owns the process transport.
 	t.Run("three finite originals and complete physical replay remain downstream HOLD", func(t *testing.T) {
 		for _, fault := range []string{"", "complete pagination"} {
 			t.Run(fault, func(t *testing.T) {
-				f := newOriginalActorSDKFixture(t, fault, 0)
+				f := sharedFixture(t, fault, 0)
 				if err := f.run(t); err != nil {
 					t.Fatalf("actor component did not retain complete original physical history: %v", err)
 				}
@@ -765,7 +778,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		for slot := range 3 {
 			for _, fault := range []string{"scope checkpoint", "reservation checkpoint", "stale lease", "lost create response", "unknown create", "lost accepted checkpoint", "response before CAS", "throttle", "timeout", "instance pending"} {
 				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
-					f := newOriginalActorSDKFixture(t, fault, slot)
+					f := sharedFixture(t, fault, slot)
 					if err := f.run(t); err == nil {
 						t.Fatal("interrupted actor operation claimed complete startup")
 					}
@@ -845,7 +858,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 					continue
 				}
 				t.Run(fmt.Sprintf("%d/%s", slot, fault), func(t *testing.T) {
-					f := newOriginalActorSDKFixture(t, fault, slot)
+					f := sharedFixture(t, fault, slot)
 					if err := f.run(t); err == nil {
 						t.Fatal("refused or unresolved original create claimed completion")
 					}
@@ -874,7 +887,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			}
 		}
 		t.Run("fresh tariff drift cannot replace the original quote", func(t *testing.T) {
-			f := newOriginalActorSDKFixture(t, "unknown create", 0)
+			f := sharedFixture(t, "unknown create", 0)
 			if err := f.run(t); err == nil {
 				t.Fatal("unknown response unexpectedly completed")
 			}
@@ -898,7 +911,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			f.assertActorState(t)
 		})
 		t.Run("fresh quote exceeds signed finite slot", func(t *testing.T) {
-			f := newOriginalActorSDKFixture(t, "", 0)
+			f := sharedFixture(t, "", 0)
 			f.cloud.mu.Lock()
 			f.cloud.tariff = 100
 			f.cloud.mu.Unlock()
@@ -907,7 +920,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			}
 		})
 		t.Run("genuine historical first attempt exceeds23h", func(t *testing.T) {
-			f := newOriginalActorSDKFixture(t, "unknown create", 0)
+			f := sharedFixture(t, "unknown create", 0)
 			f.bundle = signHistoricalOriginalCompartmentBundle(t, f.foundationProvisionFixture)
 			f.cloud.bundle = f.bundle.clone()
 			if err := VerifyFoundationProvisionBundle(t.Context(), f.roots, f.bundle); err != nil {
@@ -979,7 +992,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		t.Run("root-signed spending currency must match original grant", func(t *testing.T) {
 			for _, trusted := range []bool{false, true} {
 				t.Run(fmt.Sprintf("trusted journal %t", trusted), func(t *testing.T) {
-					f := newOriginalActorSDKFixture(t, "", 0)
+					f := sharedFixture(t, "", 0)
 					if trusted {
 						if err := f.run(t); err != nil {
 							t.Fatal(err)
@@ -1056,7 +1069,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 			},
 		} {
 			t.Run(name, func(t *testing.T) {
-				f := newOriginalActorSDKFixture(t, "", 0)
+				f := sharedFixture(t, "", 0)
 				wire, err := json.Marshal(f.prepared)
 				if err != nil {
 					t.Fatal(err)
@@ -1077,7 +1090,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		}
 		for _, fault := range []string{"network no add ACK", "Vault nonready"} {
 			t.Run(fault, func(t *testing.T) {
-				f := newOriginalActorSDKFixture(t, "", 0)
+				f := sharedFixture(t, "", 0)
 				if fault == "network no add ACK" {
 					f.networkFault = "unknown rule response"
 				} else {
@@ -1096,7 +1109,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		}
 		for _, fault := range []string{"image identity", "image compartment", "image nonready", "image missing", "writer evidence", "wrong user", "wrong tenancy", "expired original", "corrupt original"} {
 			t.Run(fault, func(t *testing.T) {
-				f := newOriginalActorSDKFixture(t, "reservation checkpoint", 0)
+				f := sharedFixture(t, "reservation checkpoint", 0)
 				if err := f.run(t); err == nil || len(f.actorDispatches()) != 0 || f.cloud.creates != 27 {
 					t.Fatal("authority refusal setup did not stop after genuine prerequisites and before launch")
 				}
@@ -1167,7 +1180,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 		}
 		for _, fault := range faults {
 			t.Run(fault, func(t *testing.T) {
-				f := newOriginalActorSDKFixture(t, fault, 0)
+				f := sharedFixture(t, fault, 0)
 				if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationActorPending) {
 					t.Fatalf("physical mismatch reached completed physical actor stage: %v", err)
 				}
@@ -1198,7 +1211,7 @@ func TestOriginalFoundationActorsSDK(t *testing.T) {
 	})
 
 	t.Run("protected CAS retains original scope request quote and physical proof", func(t *testing.T) {
-		f := newOriginalActorSDKFixture(t, "", 0)
+		f := sharedFixture(t, "", 0)
 		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}

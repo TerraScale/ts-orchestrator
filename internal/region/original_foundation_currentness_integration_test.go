@@ -231,9 +231,17 @@ func (f *originalPublicationSDKFixture) assertPublished(t *testing.T) {
 }
 
 func TestOriginalFoundationCurrentnessSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes but takes 550s without -race at GOMAXPROCS=2 -cpu 2, over the 8 min norace budget; every subtest rebuilds the admission chain")
+	tier.Integration(t)
+	shared := newOriginalPublicationSDKFixture(t, "")
+	state := snapshotOriginalFixture(t, shared)
+	sharedFixture := func(t *testing.T, fault string) *originalPublicationSDKFixture {
+		t.Helper()
+		state.restore(t)
+		shared.fault = fault
+		return shared
+	}
 	t.Run("automatic publication and unchanged restart", func(t *testing.T) {
-		f := newOriginalPublicationSDKFixture(t, "")
+		f := sharedFixture(t, "")
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) {
 			t.Fatal(err)
 		}
@@ -352,7 +360,7 @@ func TestOriginalFoundationCurrentnessSDK(t *testing.T) {
 		}
 	})
 	t.Run("origin discovery reads current signed bytes", func(t *testing.T) {
-		f := newOriginalPublicationSDKFixture(t, "")
+		f := sharedFixture(t, "")
 		authority, _, err := newOperatorHomeIAMAuthority(t.Context(), f.factoryFor(), f.roots, f.bundle)
 		if err != nil {
 			t.Fatal(err)
@@ -432,7 +440,7 @@ func TestOriginalFoundationCurrentnessSDK(t *testing.T) {
 	})
 	for _, boundary := range []string{"provider drift after signing", "operation cancellation after signing"} {
 		t.Run(boundary, func(t *testing.T) {
-			f := newOriginalPublicationSDKFixture(t, "lost reservation response")
+			f := sharedFixture(t, "lost reservation response")
 			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) || !f.faulted {
 				t.Fatal("boundary setup did not lose the genuine durable reservation acknowledgement", err)
 			}
@@ -492,14 +500,14 @@ func TestOriginalFoundationCurrentnessSDK(t *testing.T) {
 		})
 	}
 	t.Run("lost object response recovers through exact readback", func(t *testing.T) {
-		f := newOriginalPublicationSDKFixture(t, "lost object response")
+		f := sharedFixture(t, "lost object response")
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) || !f.faulted {
 			t.Fatal("lost write acknowledgement did not recover exact immutable bytes", err)
 		}
 		f.assertPublished(t)
 	})
 	t.Run("completed receipt cannot replace current readback", func(t *testing.T) {
-		f := newOriginalPublicationSDKFixture(t, "")
+		f := sharedFixture(t, "")
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) {
 			t.Fatal(err)
 		}
@@ -513,7 +521,7 @@ func TestOriginalFoundationCurrentnessSDK(t *testing.T) {
 	})
 	for _, fault := range []string{"reservation checkpoint", "lost reservation response", "completion checkpoint", "lost completion response"} {
 		t.Run(fault+" resumes original reservation", func(t *testing.T) {
-			f := newOriginalPublicationSDKFixture(t, fault)
+			f := sharedFixture(t, fault)
 			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) || !f.faulted {
 				t.Fatal("failed publication checkpoint became completed authority", err)
 			}
@@ -539,7 +547,7 @@ func TestOriginalFoundationCurrentnessSDK(t *testing.T) {
 	}
 	for _, fault := range []string{"readback missing", "readback forbidden", "readback conflict", "readback oversized", "missing readback etag"} {
 		t.Run(fault+" cannot complete", func(t *testing.T) {
-			f := newOriginalPublicationSDKFixture(t, fault)
+			f := sharedFixture(t, fault)
 			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationAdmissionReadsPending) {
 				t.Fatal("missing, uncertain or different current public authority became completion", err)
 			}
