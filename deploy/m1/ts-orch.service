@@ -13,7 +13,9 @@ ExecStart=/usr/local/bin/terrascale-orchestrator single-host --state /var/lib/ts
 Restart=always
 # A pushed release exits ts-orch; restart the new binary at once.
 RestartSec=1s
-TimeoutStopSec=60s
+# Above the 120s SIGTERM grace a data task (TerraBase) gets, so a stop or
+# reboot never cuts ts-orch off while it waits for that task to flush.
+TimeoutStopSec=180s
 KillMode=mixed
 LimitNOFILE=65536
 UMask=0077

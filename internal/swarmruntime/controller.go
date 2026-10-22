@@ -324,14 +324,8 @@ func (c *controller) awaitReady(ctx context.Context) error {
 			code, _, _ := status.Result()
 			return fmt.Errorf("container exited with status %d before it was ready", code)
 		case <-deadline.C:
-			// Free the port before failing so the rollback's task can start.
-			err := errors.Join(fmt.Errorf("not ready within %s: %w", timeout, probeErr), c.Terminate(ctx))
-			select {
-			case <-exited:
-			case <-ctx.Done():
-			case <-time.After(maxStopGrace):
-			}
-			return err
+			// Stop (gracefully: it may own data) before failing so the rollback's task can start.
+			return errors.Join(fmt.Errorf("not ready within %s: %w", timeout, probeErr), c.stopTask(ctx))
 		case <-tick.C:
 		}
 	}
@@ -533,6 +527,12 @@ func (c *controller) Shutdown(ctx context.Context) (operationErr error) {
 			return execution.ErrUnsafe
 		}
 	}
+	return c.stopTask(ctx)
+}
+
+// stopTask sends SIGTERM and SIGKILLs only after stopGrace; it returns once
+// the process is gone, so a replacement can take the port and the data.
+func (c *controller) stopTask(ctx context.Context) error {
 	ctx = runtimeContext(ctx)
 	t, err := c.runtimeTask(ctx)
 	if errdefs.IsNotFound(err) {
@@ -585,11 +585,14 @@ func (c *controller) Shutdown(ctx context.Context) (operationErr error) {
 const (
 	defaultStopGrace = 5 * time.Second
 	maxStopGrace     = 10 * time.Second
+	// A task that owns data (bind mounts or qualified volumes) flushes on
+	// SIGTERM; a SIGKILL mid-write can lose acked TerraBase writes.
+	dataStopGrace = 2 * time.Minute
 )
 
 func (c *controller) stopGrace() time.Duration {
-	if c.stateful != nil {
-		return maxStopGrace
+	if c.stateful != nil || len(c.spec.Mounts) != 0 {
+		return dataStopGrace
 	}
 	if c.spec.StopGracePeriod == nil {
 		return defaultStopGrace
@@ -632,6 +635,12 @@ func (c *controller) Remove(ctx context.Context) error {
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
+		}
+	}
+	// Delete below kills a live process; give a data-owning one its grace first.
+	if len(c.spec.Mounts) != 0 {
+		if err := c.stopTask(ctx); err != nil && !errdefs.IsNotFound(err) {
+			return err
 		}
 	}
 	c.executor.mu.Lock()

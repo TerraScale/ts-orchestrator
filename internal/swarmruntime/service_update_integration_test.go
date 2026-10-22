@@ -23,7 +23,7 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 		t.Skip("runs in the containerd workflow, which passes -containerd-socket")
 	}
 	// Not t.Context(): the node must outlive the test body so cleanup can remove its containers.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	t.Cleanup(cancel)
 	state := t.TempDir()
 	// The fixture binds container material; a bare single host has none yet.
@@ -201,6 +201,7 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 	})
 
 	containerdCrashLoops(t, ctx, e, client)
+	containerdDataTaskStopsGracefully(t, ctx, e, client)
 }
 
 func getBody(port uint32) string {

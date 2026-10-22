@@ -82,8 +82,14 @@ func (c *controller) checkPortHolders(ctx context.Context, requested []string, s
 		if err != nil {
 			return err
 		}
-		if portConflict(holder, labels["terrascale.service"] == c.task.ServiceID, starting) {
-			return fmt.Errorf("host port %s is reserved by container %s", claimed, container.ID())
+		sameService := labels["terrascale.service"] == c.task.ServiceID
+		if portConflict(holder, sameService, starting) {
+			err := fmt.Errorf("host port %s is reserved by container %s", claimed, container.ID())
+			if starting && sameService {
+				// The predecessor is still stopping (up to dataStopGrace); the agent retries each second.
+				return exec.MakeTemporary(err)
+			}
+			return err
 		}
 	}
 	return nil
