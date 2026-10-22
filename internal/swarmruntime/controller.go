@@ -1,6 +1,7 @@
 package swarmruntime
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -211,7 +212,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 		if len(dataMounts) != 0 {
 			opts = append(opts, oci.WithMounts(dataMounts))
 		}
-		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports, credentialExpiryLabel: c.credentialExpiryLabel()}
+		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: cmp.Or(ports, releasedPorts), credentialExpiryLabel: c.credentialExpiryLabel()}
 		if c.diskAccounted() {
 			witness, err := c.prepareDisk(ctx, image)
 			if err != nil {

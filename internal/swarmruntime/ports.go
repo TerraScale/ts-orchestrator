@@ -17,6 +17,7 @@ import (
 
 const portsLabel = "terrascale.ports"
 
+
 // SwarmKit's inert network allocator leaves generic task ports unallocated;
 // container metadata reserves them locally. An exited container releases its
 // ports at once: its task never runs again, and SwarmKit retains stopped
@@ -95,7 +96,8 @@ func (c *controller) checkPortHolders(ctx context.Context, requested []string, s
 	return nil
 }
 
-// releasedPorts marks a failed task's container as claiming no host port.
+// releasedPorts is the claim of a container that holds no host port (created
+// without ports, or a failed task's). Never "": containerd deletes such a label.
 const releasedPorts = "released"
 
 type portHolder int
