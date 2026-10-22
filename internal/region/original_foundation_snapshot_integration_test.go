@@ -286,18 +286,19 @@ func TestOriginalFixtureSnapshotRestoresEveryMutation(t *testing.T) {
 
 // originalSubtestPart runs one share of a split SDK test's subtests, so each
 // share is its own top-level test (its own race-test.sh shard and budget) while
-// the cases stay defined once. Top-level subtests rotate across the parts in
-// order; groups named in split run in every part and rotate their own direct
-// subtests instead. Deeper subtests always run.
+// the cases stay defined once. Top-level subtests, and the direct subtests of
+// groups named in split (which run in every part), take turns across the parts
+// in one rotation, so no part collects every group's remainder. Deeper
+// subtests always run.
 type originalSubtestPart struct {
 	part, parts int
 	split       map[string]bool
-	top         int
-	groups      map[*testing.T]int
+	turn        int
+	groups      map[*testing.T]bool
 }
 
 func newOriginalSubtestPart(part, parts int, split ...string) *originalSubtestPart {
-	p := &originalSubtestPart{part: part, parts: parts, split: map[string]bool{}, groups: map[*testing.T]int{}}
+	p := &originalSubtestPart{part: part, parts: parts, split: map[string]bool{}, groups: map[*testing.T]bool{}}
 	for _, name := range split {
 		p.split[name] = true
 	}
@@ -306,22 +307,19 @@ func newOriginalSubtestPart(part, parts int, split ...string) *originalSubtestPa
 
 func (p *originalSubtestPart) run(t *testing.T, name string, fn func(*testing.T)) bool {
 	t.Helper()
-	next, grouped := p.groups[t]
+	top := strings.Count(t.Name(), "/") == 0
 	switch {
-	case strings.Count(t.Name(), "/") == 0 && p.split[name]:
+	case top && p.split[name]:
 		return t.Run(name, func(t *testing.T) {
-			p.groups[t] = 0
+			p.groups[t] = true
 			fn(t)
 		})
-	case strings.Count(t.Name(), "/") == 0:
-		next = p.top
-		p.top++
-	case grouped:
-		p.groups[t] = next + 1
-	default:
+	case !top && !p.groups[t]:
 		return t.Run(name, fn)
 	}
-	if next%p.parts != p.part-1 {
+	turn := p.turn
+	p.turn++
+	if turn%p.parts != p.part-1 {
 		return true
 	}
 	return t.Run(name, fn)
