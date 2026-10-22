@@ -437,7 +437,7 @@ func TestAppValidation(t *testing.T) {
 	now := time.Now()
 	i := newIssuer(t)
 	h := &Handler{Verifier: i.verifier(now)}
-	workflow := owner + "/terrascale/.github/workflows/images-ghcr.yml@" + mainRef
+	workflow := owner + "/terrascale/.github/workflows/ci.yml@" + mainRef
 	terrascale := i.sign(t, with(with(goodClaims(now), "repository", owner+"/terrascale"), "job_workflow_ref", workflow))
 	image := func(name string) string { return "ghcr.io/terrascale/" + name + "@sha256:" + strings.Repeat("a", 64) }
 	for _, service := range []string{"terrabase", "ts-auth"} {
@@ -455,6 +455,11 @@ func TestAppValidation(t *testing.T) {
 		if err := h.validateApp(context.Background(), release); err == nil {
 			t.Fatalf("%s: accepted", name)
 		}
+	}
+	// The retired images-ghcr.yml identity no longer releases.
+	retired := i.sign(t, with(with(goodClaims(now), "repository", owner+"/terrascale"), "job_workflow_ref", owner+"/terrascale/.github/workflows/images-ghcr.yml@"+mainRef))
+	if err := h.validateApp(context.Background(), AppRelease{Service: "terrabase", Image: image("terrabase"), Token: retired}); err == nil {
+		t.Fatal("retired workflow released terrabase")
 	}
 	// An app workflow's token cannot push a ts-orch release even for this repository.
 	canary := i.sign(t, with(goodClaims(now), "job_workflow_ref", orchRepository+"/.github/workflows/app-canary.yml@"+mainRef))

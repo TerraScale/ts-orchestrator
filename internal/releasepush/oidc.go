@@ -44,7 +44,7 @@ const orchWorkflow = orchRepository + "/.github/workflows/ci.yml@" + mainRef
 // tokens may release; a new app is one more line.
 var appServices = map[string][]string{
 	orchRepository + "/.github/workflows/app-canary.yml@" + mainRef:      {"app-canary"},
-	owner + "/terrascale/.github/workflows/images-ghcr.yml@" + mainRef:   {"terrabase", "ts-auth"},
+	owner + "/terrascale/.github/workflows/ci.yml@" + mainRef:            {"terrabase", "ts-auth"},
 	owner + "/ts-dashboard/.github/workflows/images-ghcr.yml@" + mainRef: {"ts-dashboard"},
 }
 
