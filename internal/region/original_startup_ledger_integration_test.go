@@ -489,8 +489,9 @@ func TestOriginalStartupLedgerSDKExactExternalSeedAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := bootstrap.Result{SchemaVersion: 1, Mode: intent.Mode, DeploymentID: intent.DeploymentID, Cell: intent.Cell, Environment: intent.Environment, Role: intent.Role, Slot: intent.Slot, Attempt: 1, Generation: 1, RegionIntentGeneration: intent.RegionIntentGeneration, IntentDigest: digestSource(intentWire), InstanceOCID: facts.InstanceOCID, ProviderRequestID: "retained-original-provider-read", ETag: "retained-original-etag", OCIRegion: intent.OCIRegion, CompartmentOCID: intent.CompartmentOCID, ImageOCID: intent.ImageOCID, Shape: intent.Shape, ObservedProfileDigest: intent.LaunchRequestDigest, CreateKey: intent.CreateKey, ObservedAt: intent.CreatedAt, SeedReceiptDigest: digestSource(receiptWire)}
-	resultWire := f.signRecord(t, intent, "bootstrap-result", result)
+	result := bootstrap.Result{SchemaVersion: 1, Mode: intent.Mode, DeploymentID: intent.DeploymentID, Cell: intent.Cell, Environment: intent.Environment, Role: intent.Role, Slot: intent.Slot, Attempt: 1, Generation: 1, RegionIntentGeneration: intent.RegionIntentGeneration, IntentDigest: digestSource(intentWire), InstanceOCID: facts.InstanceOCID, ProviderRequestID: "retained-original-provider-read", ETag: "retained-original-etag", OCIRegion: intent.OCIRegion, CompartmentOCID: intent.CompartmentOCID, ImageOCID: intent.ImageOCID, Shape: intent.Shape, ObservedProfileDigest: intent.LaunchRequestDigest, CreateKey: intent.CreateKey, ObservedAt: time.Now().UTC().Truncate(time.Second), SeedReceiptDigest: digestSource(receiptWire)}
+	// The seed is observed just before its result is recorded, not when the intent was created.
+	resultWire := originalStartupSign(t, result, trust.Scope{Domain: "bootstrap-result", DeploymentID: intent.DeploymentID, Cell: intent.Cell, Environment: intent.Environment, Role: intent.Role, Slot: intent.Slot}, f.key, result.ObservedAt, f.authority.ExpiresAt())
 	head.ResultDigest = digestSource(resultWire)
 	headWire := f.signRecord(t, intent, "bootstrap-slot-head", head)
 	wrongFacts := facts
