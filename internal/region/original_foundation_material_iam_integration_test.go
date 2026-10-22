@@ -858,8 +858,7 @@ func (f *originalMaterialIAMSDKFixture) assertRuntimeJoinSDK(t *testing.T, permi
 	}
 }
 
-func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-23, owner w17c: passes with the shared fixture but takes 457s on idle delta, 601 to 681s beside 7 jobs and 1075s on a loaded mariogk-dev without -race at GOMAXPROCS=2 -cpu 2; too close to the 20m shard timeout")
+func testOriginalFoundationMaterialIAMSDK(t *testing.T, part *originalSubtestPart) {
 	tier.Integration(t)
 	shared := newOriginalMaterialIAMSDKFixture(t, "")
 	// Subtests start with every stage below material IAM complete: a refused
@@ -876,7 +875,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 		shared.fault = fault
 		return shared
 	}
-	t.Run("automatic completion and unchanged restart", func(t *testing.T) {
+	part.run(t, "automatic completion and unchanged restart", func(t *testing.T) {
 		f := sharedFixture(t, "")
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 			t.Fatal(err)
@@ -898,7 +897,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 			t.Fatal("completed material IAM replay changed history or repeated effects", err)
 		}
 	})
-	t.Run("unknown create outcome keeps body and retry token", func(t *testing.T) {
+	part.run(t, "unknown create outcome keeps body and retry token", func(t *testing.T) {
 		f := sharedFixture(t, "lost create response")
 		if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || !f.faulted || len(f.posts) != 1 {
 			t.Fatal("unknown material create outcome became completion", err)
@@ -913,7 +912,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 		}
 	})
 	for _, fault := range []string{"scope checkpoint", "reservation checkpoint", "receipt checkpoint", "completion checkpoint", "lost reservation checkpoint", "lost receipt checkpoint", "lost completion checkpoint"} {
-		t.Run(fault+" resumes", func(t *testing.T) {
+		part.run(t, fault+" resumes", func(t *testing.T) {
 			f := sharedFixture(t, fault)
 			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) || !f.faulted {
 				t.Fatal("failed material checkpoint became completed authority", err)
@@ -938,7 +937,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 		})
 	}
 	for _, fault := range []string{"readback missing", "readback unavailable", "readback conflict", "readback compartment", "readback pending deletion", "readback ETag missing"} {
-		t.Run(fault+" cannot complete", func(t *testing.T) {
+		part.run(t, fault+" cannot complete", func(t *testing.T) {
 			f := sharedFixture(t, fault)
 			if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 				t.Fatal("missing or changed material policy became completion", err)
@@ -949,7 +948,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 			}
 		})
 	}
-	t.Run("permanent create refusal retains HOLD", func(t *testing.T) {
+	part.run(t, "permanent create refusal retains HOLD", func(t *testing.T) {
 		f := sharedFixture(t, "create refused")
 		if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 			t.Fatal("refused material create became completion", err)
@@ -963,7 +962,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 			t.Fatal("permanent refusal recreated or reset material policy")
 		}
 	})
-	t.Run("retained ETag does not replace current provider policy", func(t *testing.T) {
+	part.run(t, "retained ETag does not replace current provider policy", func(t *testing.T) {
 		f := sharedFixture(t, "")
 		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationMaterialIAMPending) {
 			t.Fatal(err)
@@ -976,7 +975,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 			t.Fatal("retained receipt replaced current exact policy ETag or recreated policy", err)
 		}
 	})
-	t.Run("historical v3 retains exact policy without join authority", func(t *testing.T) {
+	part.run(t, "historical v3 retains exact policy without join authority", func(t *testing.T) {
 		reads := newOriginalActorReadsSDKFixture(t, "", 0)
 		recipes := *reads.prepared.Grant.OriginalMaterialPublicationIAM
 		for index := range recipes {
@@ -1013,7 +1012,7 @@ func TestOriginalFoundationMaterialIAMSDK(t *testing.T) {
 			t.Fatal("protected CAS upgraded retained v3 history", err)
 		}
 	})
-	t.Run("signed historical absence retains old HOLD", func(t *testing.T) {
+	part.run(t, "signed historical absence retains old HOLD", func(t *testing.T) {
 		f := newOriginalPublicationSDKFixture(t, "")
 		if f.prepared.Grant.OriginalMaterialPublicationIAM != nil {
 			t.Fatal("historical fixture has new prospective material permission")
@@ -1052,6 +1051,26 @@ type originalMaterialIAMV1Wire struct {
 type originalMaterialIAMV2Wire struct {
 	originalMaterialIAMV1Wire
 	PolicyRead *OriginalActorAdmissionReadOperation `json:"policyRead,omitempty"`
+}
+
+func TestOriginalFoundationMaterialIAMSDKPart1(t *testing.T) {
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(1, 5))
+}
+
+func TestOriginalFoundationMaterialIAMSDKPart2(t *testing.T) {
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(2, 5))
+}
+
+func TestOriginalFoundationMaterialIAMSDKPart3(t *testing.T) {
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(3, 5))
+}
+
+func TestOriginalFoundationMaterialIAMSDKPart4(t *testing.T) {
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(4, 5))
+}
+
+func TestOriginalFoundationMaterialIAMSDKPart5(t *testing.T) {
+	testOriginalFoundationMaterialIAMSDK(t, newOriginalSubtestPart(5, 5))
 }
 
 func TestOriginalFoundationMaterialIAMV1Compatibility(t *testing.T) {

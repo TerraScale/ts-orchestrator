@@ -283,3 +283,74 @@ func TestOriginalFixtureSnapshotRestoresEveryMutation(t *testing.T) {
 		t.Fatal("a restored map is shared with the snapshot")
 	}
 }
+
+// originalSubtestPart runs one share of a split SDK test's subtests, so each
+// share is its own top-level test (its own race-test.sh shard and budget) while
+// the cases stay defined once. Top-level subtests rotate across the parts in
+// order; groups named in split run in every part and rotate their own direct
+// subtests instead. Deeper subtests always run.
+type originalSubtestPart struct {
+	part, parts int
+	split       map[string]bool
+	top         int
+	groups      map[*testing.T]int
+}
+
+func newOriginalSubtestPart(part, parts int, split ...string) *originalSubtestPart {
+	p := &originalSubtestPart{part: part, parts: parts, split: map[string]bool{}, groups: map[*testing.T]int{}}
+	for _, name := range split {
+		p.split[name] = true
+	}
+	return p
+}
+
+func (p *originalSubtestPart) run(t *testing.T, name string, fn func(*testing.T)) bool {
+	t.Helper()
+	next, grouped := p.groups[t]
+	switch {
+	case strings.Count(t.Name(), "/") == 0 && p.split[name]:
+		return t.Run(name, func(t *testing.T) {
+			p.groups[t] = 0
+			fn(t)
+		})
+	case strings.Count(t.Name(), "/") == 0:
+		next = p.top
+		p.top++
+	case grouped:
+		p.groups[t] = next + 1
+	default:
+		return t.Run(name, fn)
+	}
+	if next%p.parts != p.part-1 {
+		return true
+	}
+	return t.Run(name, fn)
+}
+
+func TestOriginalSubtestPartsRunEveryCaseOnce(t *testing.T) {
+	seen := map[string]int{}
+	cases := func(t *testing.T, part *originalSubtestPart) {
+		for _, name := range []string{"a", "b", "c", "d"} {
+			part.run(t, name, func(t *testing.T) { seen[name]++ })
+		}
+		part.run(t, "group", func(t *testing.T) {
+			for _, name := range []string{"g1", "g2", "g3", "g4", "g5"} {
+				part.run(t, name, func(t *testing.T) {
+					seen["group/"+name]++
+					part.run(t, "deep", func(t *testing.T) { seen["group/"+name+"/deep"]++ })
+				})
+			}
+		})
+	}
+	for part := 1; part <= 3; part++ {
+		cases(t, newOriginalSubtestPart(part, 3, "group"))
+	}
+	if len(seen) != 14 {
+		t.Fatalf("parts ran %d distinct cases, want 14: %v", len(seen), seen)
+	}
+	for name, runs := range seen {
+		if runs != 1 {
+			t.Fatalf("%s ran %d times across parts", name, runs)
+		}
+	}
+}
