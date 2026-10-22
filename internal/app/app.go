@@ -59,7 +59,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	go syncEdgeRoutes(ctx, *state, public)
 	// The mesh never stops local serving; it retries until it reaches Vault and peers.
 	meshDone := make(chan struct{})
-	go func() { mesh.Run(ctx, *state); close(meshDone) }()
+	go func() { mesh.Run(ctx, *state, func(node *mesh.Node) { public.SetMesh(node) }); close(meshDone) }()
 	err := RunSingleHost(ctx, args, output)
 	cancel()
 	<-meshDone

@@ -198,6 +198,13 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 		}
 	}
 
+	// The edge orders replay targets by these round trips; gateways measure
+	// them about a second after connecting, then every 15 s.
+	eventually(t, "gru to measure RTT to sjc and fra", func() bool {
+		rtt := gru.RTT()
+		return rtt[sjc.Region()] > 0 && rtt[fra] > 0
+	})
+
 	// CI's bridge returns the same rows as JSON, one per region.
 	if data, err := bridge(t.Context(), sjc.conn, "ping", nil); err != nil || strings.Count(string(data), `"region"`) != len(regions) {
 		t.Fatalf("bridge ping = %s, %v", data, err)

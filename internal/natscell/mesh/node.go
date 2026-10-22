@@ -18,6 +18,7 @@ package mesh
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -124,6 +125,7 @@ type config struct {
 // Node is one region's running mesh server.
 type Node struct {
 	cfg    config
+	tls    *tls.Config
 	server *server.Server
 	conn   *nats.Conn
 	ctx    context.Context
@@ -186,7 +188,7 @@ func start(cfg config) (_ *Node, err error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	node := &Node{cfg: cfg, server: embedded, conn: conn, ctx: ctx, cancel: cancel, desired: desired}
+	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, ctx: ctx, cancel: cancel, desired: desired}
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) { node.respond(m, Reply{Region: cfg.region, Server: cfg.server}) },
 		StateSubject: func(m *nats.Msg) {
@@ -211,6 +213,31 @@ func start(cfg config) (_ *Node, err error) {
 		return nil, err
 	}
 	return node, nil
+}
+
+// Region is the region this node serves.
+func (n *Node) Region() string { return n.cfg.region }
+
+// TLS is the mesh mTLS config for both ends of a connection: it presents
+// this node's leaf and accepts only peers the mesh CA signed.
+func (n *Node) TLS() *tls.Config { return n.tls }
+
+// RTT is the measured round trip to every region with a live outbound gateway.
+func (n *Node) RTT() map[string]time.Duration {
+	rtt := map[string]time.Duration{}
+	gateways, err := n.server.Gatewayz(nil)
+	if err != nil {
+		return rtt
+	}
+	for region, gateway := range gateways.OutboundGateways {
+		if gateway.Connection == nil {
+			continue
+		}
+		if d, err := time.ParseDuration(gateway.Connection.RTT); err == nil && d > 0 {
+			rtt[region] = d
+		}
+	}
+	return rtt
 }
 
 func dialLocal(port int, token string) (*nats.Conn, error) {
