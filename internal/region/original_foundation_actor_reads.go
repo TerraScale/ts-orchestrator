@@ -134,7 +134,7 @@ func originalActorReadsPrerequisites(ctx context.Context, authority *HomeIAMAuth
 	if err != nil || originalActorReadsActors(record) != nil {
 		return record, "", scopes, time.Time{}, errors.Join(ErrOriginalSourceProducerHold, err)
 	}
-	record, etag, grant, expires, err := originalActorPrerequisites(ctx, authority)
+	record, etag, grant, expires, err := originalActorPrerequisites(ctx, authority, false)
 	if err != nil {
 		return record, etag, scopes, time.Time{}, err
 	}

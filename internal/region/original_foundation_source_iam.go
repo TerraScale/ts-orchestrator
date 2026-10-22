@@ -177,7 +177,7 @@ func originalSourceIAMCreateIdentity(entry OriginalFoundationSourceIAM, digest s
 }
 
 func originalSourceIAMAuthority(ctx context.Context, authority *HomeIAMAuthority) (FoundationRecord, string, error) {
-	record, _, _, _, err := originalActorPrerequisites(ctx, authority)
+	record, _, _, _, err := originalActorPrerequisites(ctx, authority, false)
 	if err != nil || completeOriginalSourceIAMActors(record) != nil {
 		return record, "", errors.Join(ErrOriginalSourceProducerHold, err)
 	}

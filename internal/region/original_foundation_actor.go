@@ -50,7 +50,7 @@ func provisionOriginalFoundationActors(ctx context.Context, authority *HomeIAMAu
 }
 
 func retainOriginalFoundationActorLaunches(ctx context.Context, authority *HomeIAMAuthority) error {
-	record, etag, grant, _, err := originalActorPrerequisites(ctx, authority)
+	record, etag, grant, _, err := originalActorPrerequisites(ctx, authority, true)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,11 @@ func originalActorMaterial(grant FoundationGrant, cell string) (*BootstrapMateri
 	return selected, nil
 }
 
-func originalActorPrerequisites(ctx context.Context, authority *HomeIAMAuthority) (FoundationRecord, string, FoundationGrant, time.Time, error) {
+// originalActorPrerequisites requires complete original compartments, network
+// and Vault in the journal. With fresh it also re-reads every Vault and network
+// resource; stage entry points do that once per run, while per-effect checks and
+// later stages rely on the validated journal.
+func originalActorPrerequisites(ctx context.Context, authority *HomeIAMAuthority, fresh bool) (FoundationRecord, string, FoundationGrant, time.Time, error) {
 	var empty FoundationGrant
 	lease, ok := ctx.Value(homeIAMLeaseKey{}).(*homeIAMLease)
 	if !ok || lease == nil || lease.authority != authority {
@@ -119,8 +123,10 @@ func originalActorPrerequisites(ctx context.Context, authority *HomeIAMAuthority
 		return record, "", empty, time.Time{}, err
 	}
 	// Complete prerequisite components repeat exact authenticated reads only.
-	if err := retainOriginalFoundationVault(ctx, authority); err != nil {
-		return record, "", empty, time.Time{}, err
+	if fresh {
+		if err := retainOriginalFoundationVault(ctx, authority); err != nil {
+			return record, "", empty, time.Time{}, err
+		}
 	}
 	record, etag, err := authority.resolver.Store.Load(ctx, "GRU")
 	if err != nil {
@@ -393,7 +399,7 @@ func originalActorResources(startup bootstrap.StartupTemplate) bootstrap.Startup
 }
 
 func provisionOriginalActorLaunch(ctx context.Context, authority *HomeIAMAuthority, index int) error {
-	record, etag, grant, grantExpires, err := originalActorPrerequisites(ctx, authority)
+	record, etag, grant, grantExpires, err := originalActorPrerequisites(ctx, authority, false)
 	if err != nil {
 		return err
 	}
@@ -461,7 +467,7 @@ func provisionOriginalActorLaunch(ctx context.Context, authority *HomeIAMAuthori
 	}
 	guard := func(dispatchCtx context.Context) error {
 		checkCtx := ociclient.CheckpointContext(dispatchCtx)
-		saved, _, currentGrant, currentExpires, err := originalActorPrerequisites(checkCtx, authority)
+		saved, _, currentGrant, currentExpires, err := originalActorPrerequisites(checkCtx, authority, false)
 		if err != nil {
 			return err
 		}
@@ -609,7 +615,7 @@ func originalActorDeadline(deadlines ...time.Time) time.Time {
 }
 
 func retainOriginalActorReadback(ctx context.Context, authority *HomeIAMAuthority, previous FoundationRecord, index int) error {
-	record, etag, grant, _, err := originalActorPrerequisites(ctx, authority)
+	record, etag, grant, _, err := originalActorPrerequisites(ctx, authority, false)
 	if err != nil {
 		return err
 	}
