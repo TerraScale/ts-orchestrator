@@ -1,75 +1,115 @@
 package mesh
 
 import (
+	"bytes"
 	"errors"
-	"regexp"
-	"strconv"
+
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 // Deployment is the signed workflow identity and approved immutable image.
-// Entries retain it as a separate floor so an old run cannot regain authority.
-type Deployment struct {
-	Repository string `json:"repository"`
-	RunID      string `json:"runId"`
-	Revision   string `json:"revision"`
-	Image      string `json:"image"`
+type Deployment = swarmruntime.Deployment
+
+// desiredState retains both authorities: a losing operator must survive a
+// signed winner whose authority a later run can permanently invalidate.
+type desiredState struct {
+	Operator *Entry      `json:"operator,omitempty"`
+	Signed   *Entry      `json:"signed,omitempty"`
+	Floor    *Deployment `json:"floor,omitempty"`
 }
 
-var revision = regexp.MustCompile(`^[0-9a-f]{40}$`)
-
-func validDeployment(d *Deployment) error {
-	if d == nil {
-		return nil
+func stateFor(entry Entry) desiredState {
+	if entry.Deployment != nil {
+		return desiredState{Signed: &entry, Floor: entry.Deployment}
 	}
-	run, err := strconv.ParseUint(d.RunID, 10, 64)
-	if err != nil || run == 0 || d.Repository == "" || !revision.MatchString(d.Revision) || !imageDigest.MatchString(d.Image) {
-		return errors.New("invalid deployment identity")
-	}
-	return nil
+	return desiredState{Operator: &entry}
 }
 
-var imageDigest = regexp.MustCompile(`^ghcr\.io/terrascale/[a-z0-9][a-z0-9._-]{0,127}@sha256:[0-9a-f]{64}$`)
-
-func (entry Entry) deploymentFloor() *Deployment {
-	if entry.DeploymentFloor != nil {
-		return entry.DeploymentFloor
+func (state desiredState) entry() Entry {
+	if state.Operator != nil && (state.Signed == nil || !state.Signed.supersedes(*state.Operator)) {
+		return *state.Operator
 	}
-	// A signed entry establishes its own run floor.
-	return entry.Deployment
+	if state.Signed != nil {
+		return *state.Signed
+	}
+	return Entry{}
 }
 
-// mergeEntry merges the watermark even when its carrier loses causal ordering.
-func mergeEntry(current, next Entry) Entry {
-	floor, incoming := current.deploymentFloor(), next.deploymentFloor()
-	if acceptsDeployment(floor, incoming) == nil {
-		if incoming != nil && (floor == nil || *incoming != *floor) {
-			floor = incoming
+// mergeState is component-wise max: causal order for operators, run order then
+// causal order for signed entries. Selection never discards the operator component.
+func mergeState(current, next desiredState) (desiredState, error) {
+	floor := current.Floor
+	if err := floor.Accepts(next.Floor); err == nil {
+		if next.Floor != nil {
+			floor = next.Floor
 		}
-	} else if acceptsDeployment(incoming, floor) != nil {
-		return current // Conflicting repositories or artifacts from the same run.
+	} else if err := next.Floor.Accepts(floor); err != nil {
+		return current, err // Same-run equivocation or a different repository.
 	}
-	// A newly learned floor also disqualifies an already selected stale signed entry.
-	if (next.supersedes(current) || acceptsDeployment(floor, current.Deployment) != nil) && acceptsDeployment(floor, next.Deployment) == nil {
-		current = next
+	operator, err := newestEntry(current.Operator, next.Operator)
+	if err != nil {
+		return current, err
 	}
-	current.DeploymentFloor = floor
-	return current
+	var signed *Entry
+	for _, candidate := range []*Entry{current.Signed, next.Signed} {
+		if candidate != nil && floor != nil && *candidate.Deployment == *floor {
+			signed, err = newestEntry(signed, candidate)
+			if err != nil {
+				return current, err
+			}
+		}
+	}
+	return desiredState{Operator: operator, Signed: signed, Floor: floor}, nil
 }
 
-func acceptsDeployment(current, next *Deployment) error {
-	if err := validDeployment(next); err != nil {
+func newestEntry(current, next *Entry) (*Entry, error) {
+	if current == nil {
+		return next, nil
+	}
+	if next == nil || current.supersedes(*next) {
+		return current, nil
+	}
+	if next.supersedes(*current) {
+		return next, nil
+	}
+	// Equal timestamps still need a total order across independently written specs.
+	a, err := protocol.EncodeJSON(current)
+	if err != nil {
+		return nil, err
+	}
+	b, err := protocol.EncodeJSON(next)
+	if err != nil {
+		return nil, err
+	}
+	if bytes.Compare(b, a) > 0 {
+		return next, nil
+	}
+	return current, nil
+}
+
+func validState(name string, state desiredState) error {
+	if state.Operator == nil && state.Signed == nil {
+		return errors.New("empty desired state")
+	}
+	if err := state.Floor.Validate(); err != nil {
 		return err
 	}
-	if current == nil || next == nil {
-		return nil
+	if state.Floor != nil && repository(state.Floor.Image) != "ghcr.io/terrascale/"+name {
+		return errors.New("deployment floor image does not belong to the service")
 	}
-	if err := validDeployment(current); err != nil {
-		return err
+	for _, entry := range []*Entry{state.Operator, state.Signed} {
+		if entry != nil {
+			if err := validEntry(name, *entry); err != nil {
+				return err
+			}
+		}
 	}
-	floor, _ := strconv.ParseUint(current.RunID, 10, 64)
-	run, _ := strconv.ParseUint(next.RunID, 10, 64)
-	if next.Repository != current.Repository || run < floor || run == floor && *next != *current {
-		return errors.New("deployment is stale or changes an already approved run")
+	if state.Operator != nil && state.Operator.Deployment != nil {
+		return errors.New("operator candidate carries signed authority")
+	}
+	if state.Signed != nil && (state.Signed.Deployment == nil || state.Floor == nil || *state.Signed.Deployment != *state.Floor) {
+		return errors.New("signed candidate does not match the deployment floor")
 	}
 	return nil
 }

@@ -49,15 +49,15 @@ func release(ctx context.Context, conn *nats.Conn, service, image string, wait, 
 }
 
 func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image string, deployment *Deployment, wait, rollbackWait time.Duration) ([]Reply, error) {
-	entries, err := desiredEntries(ctx, conn)
+	entries, err := desiredStates(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
-	previous := entries[service].Spec
+	previous := entries[service].entry().Spec
 	if previous == nil {
 		return nil, fmt.Errorf("%s is not a mesh service", service)
 	}
-	if err := acceptsDeployment(entries[service].deploymentFloor(), deployment); err != nil {
+	if err := entries[service].Floor.Accepts(deployment); err != nil {
 		return nil, err
 	}
 	if repository(previous.Image) != repository(image) {
@@ -65,13 +65,13 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	}
 	next := *previous
 	next.Image = image
-	generation := max(time.Now().UnixNano(), entries[service].Generation+1)
+	generation := max(time.Now().UnixNano(), entries[service].entry().Generation+1)
 	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment}}
 	rows, failed := send(ctx, conn, request, wait)
 	if failed == nil {
 		return rows, nil
 	}
-	if current, err := desiredEntries(ctx, conn); err != nil || current[service].Generation != generation {
+	if current, err := desiredStates(ctx, conn); err != nil || current[service].entry().Generation != generation {
 		return rows, errors.Join(failed, errors.New("not rolled back: a newer release replaced it"), err)
 	}
 	back, err := send(ctx, conn, ApplyRequest{Name: service, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: previous, Deployment: deployment}}, rollbackWait)
@@ -89,12 +89,13 @@ func repository(image string) string {
 
 // desiredImages maps every mesh service that runs to its desired image.
 func desiredImages(ctx context.Context, conn *nats.Conn) (map[string]string, error) {
-	newest, err := desiredEntries(ctx, conn)
+	newest, err := desiredStates(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
 	images := map[string]string{}
-	for name, entry := range newest {
+	for name, state := range newest {
+		entry := state.entry()
 		if entry.Spec != nil {
 			images[name] = entry.Spec.Image
 		}
@@ -102,19 +103,25 @@ func desiredImages(ctx context.Context, conn *nats.Conn) (map[string]string, err
 	return images, nil
 }
 
-// desiredEntries is each service's newest causal entry among replying regions.
-func desiredEntries(ctx context.Context, conn *nats.Conn) (map[string]Entry, error) {
-	newest := map[string]Entry{}
+// desiredStates merges both candidates and the floor from every replying region.
+func desiredStates(ctx context.Context, conn *nats.Conn) (map[string]desiredState, error) {
+	newest := map[string]desiredState{}
+	var conflict error
 	err := collect(ctx, conn, StateSubject, nil, len(Regions()), stateWait, func(data []byte) bool {
 		var reply stateReply
 		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
 			for name, entry := range reply.Desired {
-				if validEntry(name, entry) == nil {
-					newest[name] = mergeEntry(newest[name], entry)
+				if validState(name, entry) == nil {
+					merged, err := mergeState(newest[name], entry)
+					if err != nil {
+						conflict = errors.Join(conflict, fmt.Errorf("%s: %w", name, err))
+					} else {
+						newest[name] = merged
+					}
 				}
 			}
 		}
 		return true
 	})
-	return newest, err
+	return newest, errors.Join(err, conflict)
 }

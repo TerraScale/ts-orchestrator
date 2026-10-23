@@ -92,8 +92,8 @@ func TestPartialRollbackSyncPreservesInterveningApply(t *testing.T) {
 			if _, err := nodes[1].apply(t.Context(), rollback); err == nil {
 				t.Fatal("direct rollback accepted over intervening operator apply")
 			}
-			selected, err := desiredEntries(t.Context(), nodes[0].conn)
-			if err != nil || selected[spec.Name].Generation != 11 {
+			selected, err := desiredStates(t.Context(), nodes[0].conn)
+			if err != nil || selected[spec.Name].entry().Generation != 11 {
 				t.Fatalf("release state read selected rollback over operator: %+v, %v", selected, err)
 			}
 			// B rejected the direct CAS; peer sync must not bypass that decision.
@@ -104,7 +104,7 @@ func TestPartialRollbackSyncPreservesInterveningApply(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				entry := got[spec.Name]
+				entry := got[spec.Name].entry()
 				if entry.Generation != 11 || !reflect.DeepEqual(entry.Spec, operator.Entry.Spec) {
 					t.Fatalf("%s sync replaced the operator apply: %+v", node.cfg.region, entry)
 				}
@@ -112,7 +112,7 @@ func TestPartialRollbackSyncPreservesInterveningApply(t *testing.T) {
 				if scenario == "new signed run" {
 					wantRun = "101"
 				}
-				if floor := entry.deploymentFloor(); floor == nil || floor.RunID != wantRun {
+				if floor := got[spec.Name].Floor; floor == nil || floor.RunID != wantRun {
 					t.Fatalf("%s lost signed-run watermark: %+v", node.cfg.region, floor)
 				}
 				wantGeneration := int64(11)
@@ -158,9 +158,9 @@ func TestOperatorSyncConvergesAcrossUnequalDeploymentFloors(t *testing.T) {
 			if _, err := nodes[1].apply(t.Context(), rollback); err == nil {
 				t.Fatal("rollback overwrote the intervening operator entry")
 			}
-			selected, err := desiredEntries(t.Context(), nodes[0].conn)
-			if entry := selected[spec.Name]; err != nil || entry.Generation != 11 || entry.Deployment != nil || entry.deploymentFloor() == nil || *entry.deploymentFloor() != *approved {
-				t.Fatalf("release state read lost operator winner or highest floor: %+v, %v", entry, err)
+			selected, err := desiredStates(t.Context(), nodes[0].conn)
+			if state := selected[spec.Name]; err != nil || state.entry().Generation != 11 || state.entry().Deployment != nil || state.Floor == nil || *state.Floor != *approved {
+				t.Fatalf("release state read lost operator winner or highest floor: %+v, %v", state, err)
 			}
 			if !removal {
 				rows, err := releaseDeployment(t.Context(), nodes[0].conn, spec.Name, spec.Image, &older, time.Second, time.Second)
@@ -196,8 +196,9 @@ func TestOperatorSyncConvergesAcrossUnequalDeploymentFloors(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				entry := reloaded[spec.Name]
-				if entry.Generation != 11 || !reflect.DeepEqual(entry.Spec, operator.Spec) || entry.Deployment != nil || entry.deploymentFloor() == nil || *entry.deploymentFloor() != *approved {
+				state := reloaded[spec.Name]
+				entry := state.entry()
+				if entry.Generation != 11 || !reflect.DeepEqual(entry.Spec, operator.Spec) || entry.Deployment != nil || state.Floor == nil || *state.Floor != *approved {
 					t.Fatalf("%s did not converge durably: %+v", node.cfg.region, entry)
 				}
 				wantGeneration := int64(11)
@@ -222,7 +223,7 @@ func TestOperatorSyncConvergesAcrossUnequalDeploymentFloors(t *testing.T) {
 					if _, err := node.apply(t.Context(), ApplyRequest{Name: spec.Name, Entry: candidate}); err == nil {
 						t.Fatal("reloaded floor accepted stale or equivocal release")
 					}
-					if merged := mergeEntry(entry, candidate); !reflect.DeepEqual(merged, entry) {
+					if merged, _ := mergeState(state, stateFor(candidate)); !reflect.DeepEqual(merged, state) {
 						t.Fatal("peer merge bypassed the signed-run floor")
 					}
 				}
@@ -245,7 +246,7 @@ func TestRollbackSyncCatchesUpNodeThatMissedFailedRollout(t *testing.T) {
 			nodes[1].sync(t.Context())
 			for _, node := range nodes {
 				stored, err := loadDesired(node.cfg.dir)
-				if err != nil || stored[spec.Name].Generation != 12 || stored[spec.Name].RollbackOf != 10 || !reflect.DeepEqual(stored[spec.Name].Spec, previous) {
+				if err != nil || stored[spec.Name].entry().Generation != 12 || stored[spec.Name].entry().RollbackOf != 10 || !reflect.DeepEqual(stored[spec.Name].entry().Spec, previous) {
 					t.Fatalf("%s lost replicated rollback ancestry: %+v, %v", node.cfg.region, stored, err)
 				}
 			}
@@ -279,7 +280,7 @@ func TestFailedDesiredSaveCannotApplyOrAdvertiseUnsavedAuthority(t *testing.T) {
 				t.Fatal("apply ignored desired-state save failure")
 			}
 			node.sync(t.Context())
-			if got := node.cfg.applier.(*fakeApplier).generation(spec.Name); got != before[spec.Name].Generation {
+			if got := node.cfg.applier.(*fakeApplier).generation(spec.Name); got != before[spec.Name].entry().Generation {
 				t.Fatalf("sync applied unsaved generation %d", got)
 			}
 			message, err := node.conn.Request(StateSubject, nil, time.Second)
@@ -304,8 +305,67 @@ func TestFailedDesiredSaveCannotApplyOrAdvertiseUnsavedAuthority(t *testing.T) {
 				t.Fatalf("retry after restoring persistence: %v", err)
 			}
 			reloaded, err = loadDesired(node.cfg.dir)
-			if err != nil || reloaded[spec.Name].Generation != 11 || reloaded[spec.Name].Deployment == nil || reloaded[spec.Name].Deployment.RunID != "101" {
+			if err != nil || reloaded[spec.Name].entry().Generation != 11 || reloaded[spec.Name].entry().Deployment == nil || reloaded[spec.Name].entry().Deployment.RunID != "101" {
 				t.Fatalf("successful retry did not persist authority: %+v, %v", reloaded, err)
+			}
+		})
+	}
+}
+
+func TestStaggeredSyncRetainsSoleOperatorCandidateThroughReload(t *testing.T) {
+	for _, removal := range []bool{false, true} {
+		t.Run(fmt.Sprintf("removed=%t", removal), func(t *testing.T) {
+			nodes := stateTestNodes(t, "gru", "sjc", "fra")
+			spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+			older := &Deployment{Repository: "TerraScale/terrascale", RunID: "99", Revision: strings.Repeat("b", 40), Image: spec.Image}
+			approved := *older
+			approved.RunID = "100"
+			apply := func(node *Node, entry Entry, expected int64) {
+				t.Helper()
+				if _, err := node.apply(t.Context(), ApplyRequest{Name: spec.Name, Entry: entry, ExpectedGeneration: expected}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			apply(nodes[0], Entry{Generation: 9, Spec: &spec, Deployment: older}, 0)
+			operator := Entry{Generation: 11, Spec: &spec}
+			if removal {
+				operator.Spec = nil
+			}
+			apply(nodes[0], operator, 0)
+			apply(nodes[1], Entry{Generation: 13, Spec: &spec, Deployment: older}, 0)
+			// The sole operator holder first learns only S13/run99 and persists its losing operator.
+			nodes[0].sync(t.Context())
+			reloaded, err := loadDesired(nodes[0].cfg.dir)
+			if err != nil || reloaded[spec.Name].entry().Generation != 13 || !reflect.DeepEqual(reloaded[spec.Name].Operator, &operator) {
+				t.Fatalf("losing operator was not durable: %+v, %v", reloaded, err)
+			}
+			nodes[0].mu.Lock()
+			nodes[0].desired = reloaded
+			nodes[0].mu.Unlock()
+			// The third region knows only R12/rollbackOf10/run100, learned in a later round.
+			apply(nodes[2], Entry{Generation: 10, Spec: &spec, Deployment: &approved}, 0)
+			apply(nodes[2], Entry{Generation: 12, Spec: &spec, Deployment: &approved}, 10)
+			selected, err := desiredStates(t.Context(), nodes[1].conn)
+			if err != nil || !reflect.DeepEqual(selected[spec.Name].entry(), operator) {
+				t.Fatalf("partial peer states lost operator intent: %+v, %v", selected, err)
+			}
+			for _, node := range nodes {
+				node.sync(t.Context())
+				reloaded, err := loadDesired(node.cfg.dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				state := reloaded[spec.Name]
+				if !reflect.DeepEqual(state.entry(), operator) || state.Floor == nil || *state.Floor != approved || state.Signed == nil || state.Signed.Generation != 12 {
+					t.Fatalf("%s lost a component after staggered sync: %+v", node.cfg.region, state)
+				}
+				want := operator.Generation
+				if removal {
+					want = 0
+				}
+				if got := node.cfg.applier.(*fakeApplier).generation(spec.Name); got != want {
+					t.Fatalf("%s runs %d, want %d", node.cfg.region, got, want)
+				}
 			}
 		})
 	}

@@ -275,7 +275,7 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 		node := nodes[region]
 		node.mu.Lock()
 		defer node.mu.Unlock()
-		return node.desired["whoami"].Spec.Image
+		return node.desired["whoami"].entry().Spec.Image
 	}
 	good, bad := "docker.io/library/alpine@sha256:"+strings.Repeat("a", 64), "docker.io/library/alpine@sha256:"+strings.Repeat("b", 64)
 	if rows, err := release(t.Context(), gru.conn, "whoami", good, 5*time.Second, 5*time.Second); err != nil || len(rows) != len(regions) {

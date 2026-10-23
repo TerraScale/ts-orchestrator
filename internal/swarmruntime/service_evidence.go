@@ -12,13 +12,15 @@ import (
 
 // ServiceTaskEvidence contains runtime identity only, never task environments.
 type ServiceTaskEvidence struct {
-	ServiceID  string `json:"serviceId"`
-	TaskID     string `json:"taskId"`
-	NodeID     string `json:"nodeId"`
-	Machine    string `json:"machine"`
-	Image      string `json:"image"`
-	Generation int64  `json:"generation"`
-	Ready      bool   `json:"ready"`
+	ServiceID       string      `json:"serviceId"`
+	TaskID          string      `json:"taskId"`
+	NodeID          string      `json:"nodeId"`
+	Machine         string      `json:"machine"`
+	Image           string      `json:"image"`
+	Generation      int64       `json:"generation"`
+	Ready           bool        `json:"ready"`
+	Deployment      *Deployment `json:"deployment,omitempty"`
+	DeploymentFloor *Deployment `json:"deploymentFloor,omitempty"`
 }
 
 // WaitServiceSpecExact binds readiness to the requested mesh spec, not whichever
@@ -54,19 +56,23 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 	}
 	for _, task := range tasks.Tasks {
 		container, containerErr := containerOf(api.ServiceSpec{Task: task.Spec})
-		generation, rollbackOf, err := serviceGeneration(task.ServiceAnnotations.Labels)
+		generation, _, err := serviceGeneration(task.ServiceAnnotations.Labels)
+		if err != nil {
+			return rollout, err
+		}
+		deployment, floor, err := serviceDeployment(requested.Name, task.ServiceAnnotations.Labels)
 		if err != nil {
 			return rollout, err
 		}
 		taskLabels, serviceLabels := maps.Clone(task.ServiceAnnotations.Labels), maps.Clone(service.Spec.Annotations.Labels)
-		delete(taskLabels, LabelGeneration)
-		delete(serviceLabels, LabelGeneration)
-		delete(taskLabels, LabelRollbackOf)
-		delete(serviceLabels, LabelRollbackOf)
+		for _, key := range []string{LabelGeneration, LabelRollbackOf, LabelDeployment, LabelDeploymentFloor} {
+			delete(taskLabels, key)
+			delete(serviceLabels, key)
+		}
 		if task.ServiceID != service.ID || task.Status.State != api.TaskStateRunning || task.DesiredState != api.TaskStateRunning ||
 			containerErr != nil || container.Image != requested.Image || !proto.Equal(&task.Spec, &service.Spec.Task) ||
 			task.ServiceAnnotations.Name != service.Spec.Annotations.Name || !maps.Equal(taskLabels, serviceLabels) ||
-			ServiceGenerationAfter(generation, rollbackOf, requested.Generation, requested.RollbackOf) {
+			admitServiceSpec(task.ServiceAnnotations.Labels, requested) != nil {
 			return rollout, errors.New("running task does not match the requested artifact and generation")
 		}
 		node, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
@@ -82,7 +88,7 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 			}
 		}
 		rollout.Tasks = append(rollout.Tasks, ServiceTaskEvidence{ServiceID: service.ID, TaskID: task.ID, NodeID: task.NodeID,
-			Machine: node.Node.Description.Hostname, Image: container.Image, Generation: generation, Ready: probe != nil})
+			Machine: node.Node.Description.Hostname, Image: container.Image, Generation: generation, Ready: probe != nil, Deployment: deployment, DeploymentFloor: floor})
 	}
 	latest, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
 	if err != nil {

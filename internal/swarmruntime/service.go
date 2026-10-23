@@ -437,6 +437,9 @@ type ServiceSpec struct {
 	Generation int64 `json:"-"`
 	// RollbackOf is the failed generation when this spec restores an earlier artifact.
 	RollbackOf int64 `json:"-"`
+	// Deployment is actual signed authority; DeploymentFloor also accompanies operator entries.
+	Deployment      *Deployment `json:"-"`
+	DeploymentFloor *Deployment `json:"-"`
 	// Region and Node are the mesh host's region and node name; when set,
 	// the task gets TS_REGION, TS_NODE and TS_PEERS_FILE.
 	Region string `json:"-"`
@@ -456,6 +459,12 @@ type ServiceMount struct {
 // SwarmSpec maps the declaration to an upstream service; the executor
 // re-validates the container on every task.
 func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
+	if s.DeploymentFloor != nil && s.Generation <= 0 {
+		return nil, errors.New("deployment authority requires a positive generation")
+	}
+	if err := validateServiceDeployment(s.Name, s.Deployment, s.DeploymentFloor); err != nil {
+		return nil, err
+	}
 	if s.RollbackOf < 0 || s.RollbackOf != 0 && s.RollbackOf >= s.Generation {
 		return nil, errors.New("invalid rollback ancestry")
 	}
@@ -535,6 +544,15 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		return nil, err
 	}
 	labels := map[string]string{LabelServiceSpec: s.Name, LabelReadyPath: readyPath}
+	for key, deployment := range map[string]*Deployment{LabelDeployment: s.Deployment, LabelDeploymentFloor: s.DeploymentFloor} {
+		if deployment != nil {
+			data, err := json.Marshal(deployment)
+			if err != nil {
+				return nil, err
+			}
+			labels[key] = string(data)
+		}
+	}
 	if s.ReadyTimeoutSeconds != 0 {
 		labels[LabelReadyTimeout] = strconv.FormatUint(uint64(s.ReadyTimeoutSeconds), 10)
 	}
@@ -770,9 +788,8 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 			}
 			return created.Service, nil
 		}
-		generation, rollbackOf, err := serviceGeneration(current.Spec.Annotations.Labels)
-		if err != nil || s.Generation != 0 && ServiceGenerationAfter(generation, rollbackOf, s.Generation, s.RollbackOf) {
-			return nil, errors.New("service generation cannot move backward")
+		if err := admitServiceSpec(current.Spec.Annotations.Labels, s); err != nil {
+			return nil, err
 		}
 		if proto.Equal(&current.Spec, spec) {
 			return current, nil

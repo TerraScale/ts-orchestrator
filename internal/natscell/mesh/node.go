@@ -10,8 +10,8 @@
 // listener is loopback: the root CLI and the node itself connect with a
 // token the node writes at start. (:4222 is the release listener, internal/releasepush.)
 //
-// Desired state is a last-writer-wins map of service name to generation and
-// spec (nil once removed), persisted in <state>/mesh/desired.json. A node
+// Desired state retains operator and signed candidates per service (nil specs
+// are removals), persisted in <state>/mesh/desired.json. A node
 // merges every apply it receives and every peer map it pulls on start and
 // every 30 s, then reconciles its local services, so a region that was down
 // converges without operator action. Rollback retains its failed generation's
@@ -30,6 +30,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -79,9 +80,7 @@ type Entry struct {
 	Generation int64                     `json:"generation"`
 	Spec       *swarmruntime.ServiceSpec `json:"spec"`
 	Deployment *Deployment               `json:"deployment,omitempty"`
-	// DeploymentFloor survives independently of the winning entry's release authority.
-	DeploymentFloor *Deployment `json:"deploymentFloor,omitempty"`
-	RollbackOf      int64       `json:"rollbackOf,omitzero"`
+	RollbackOf int64                     `json:"rollbackOf,omitzero"`
 }
 
 // supersedes orders rollback after its failed rollout, before any later apply.
@@ -117,8 +116,8 @@ type Reply struct {
 }
 
 type stateReply struct {
-	Region  string           `json:"region"`
-	Desired map[string]Entry `json:"desired"`
+	Region  string                  `json:"region"`
+	Desired map[string]desiredState `json:"desired"`
 }
 
 // Applier changes this host's services.
@@ -161,7 +160,7 @@ type Node struct {
 	cancel context.CancelFunc
 
 	mu      sync.Mutex
-	desired map[string]Entry
+	desired map[string]desiredState
 	peers   *peers
 }
 
@@ -330,10 +329,10 @@ func (n *Node) run(ctx context.Context) {
 	}
 }
 
-// sync merges every replying peer's map, newest causal entry per name, then
+// sync merges every replying peer's candidates and floor per name, then
 // reconciles every entry so a missed or failed apply is retried.
 func (n *Node) sync(ctx context.Context) {
-	peers := map[string]map[string]Entry{}
+	peers := map[string]map[string]desiredState{}
 	_ = collect(ctx, n.conn, StateSubject, nil, len(n.regions()), stateWait, func(data []byte) bool {
 		var reply stateReply
 		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
@@ -347,10 +346,14 @@ func (n *Node) sync(ctx context.Context) {
 	changed := false
 	for _, desired := range peers {
 		for name, entry := range desired {
-			if validEntry(name, entry) == nil {
+			if validState(name, entry) == nil {
 				current := n.desired[name]
-				merged := mergeEntry(current, entry)
-				if merged != current {
+				merged, err := mergeState(current, entry)
+				if err != nil {
+					slog.WarnContext(ctx, "mesh desired state conflicts", "service", name, "error", err)
+					continue
+				}
+				if !reflect.DeepEqual(merged, current) {
 					n.desired[name] = merged
 					changed = true
 				}
@@ -394,17 +397,20 @@ func (n *Node) handleApply(m *nats.Msg) {
 		var rollout swarmruntime.ServiceRollout
 		spec := *request.Entry.Spec
 		spec.Generation, spec.Region, spec.Node = request.Entry.Generation, n.cfg.region, n.cfg.server
-		spec.RollbackOf = request.Entry.RollbackOf
 		if request.ExpectedGeneration != 0 {
-			spec.RollbackOf = request.ExpectedGeneration
+			request.Entry.RollbackOf = request.ExpectedGeneration
 		}
+		spec.RollbackOf = request.Entry.RollbackOf
+		n.mu.Lock()
+		spec.Deployment, spec.DeploymentFloor = request.Entry.Deployment, n.desired[request.Name].Floor
+		n.mu.Unlock()
 		if rollout, err = n.cfg.applier.Wait(ctx, spec); err == nil {
 			reply.Service, reply.Image, reply.Tasks, reply.Revision = spec.Name, spec.Image, rollout.Tasks, rollout.Revision
 			if deployment := request.Entry.Deployment; deployment != nil && spec.Image == deployment.Image && rollout.Revision != deployment.Revision {
 				err = errors.New("running image revision does not match the signed release commit")
 			}
 			n.mu.Lock()
-			if n.desired[request.Name].Generation != request.Entry.Generation {
+			if !reflect.DeepEqual(n.desired[request.Name].entry(), request.Entry) || !reflect.DeepEqual(n.desired[request.Name].Floor, spec.DeploymentFloor) {
 				err = errors.New("release superseded during readiness")
 			}
 			n.mu.Unlock()
@@ -422,9 +428,6 @@ func (n *Node) handleApply(m *nats.Msg) {
 }
 
 func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) {
-	if request.Entry.DeploymentFloor != nil {
-		return "", errors.New("deployment floor is mesh state, not apply authority")
-	}
 	if request.ExpectedGeneration != 0 {
 		if request.Entry.RollbackOf != 0 && request.Entry.RollbackOf != request.ExpectedGeneration {
 			return "", errors.New("rollback ancestry differs from expected generation")
@@ -439,27 +442,26 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) 
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	current, exists := n.desired[request.Name]
+	before, exists := n.desired[request.Name]
+	current := before.entry()
 	if request.Entry.RollbackOf != 0 && current.Generation != request.Entry.RollbackOf {
 		return "", errors.New("rollback superseded by another apply")
 	}
-	if err := acceptsDeployment(current.deploymentFloor(), request.Entry.Deployment); err != nil {
+	if err := before.Floor.Accepts(request.Entry.Deployment); err != nil {
 		return "", err
 	}
-	request.Entry.DeploymentFloor = current.deploymentFloor()
-	if request.Entry.Deployment != nil {
-		request.Entry.DeploymentFloor = request.Entry.Deployment
+	merged, err := mergeState(before, stateFor(request.Entry))
+	if err != nil {
+		return "", err
 	}
-	if current.Generation != request.Entry.Generation && !request.Entry.supersedes(current) {
+	if !reflect.DeepEqual(merged.entry(), request.Entry) {
 		return "", fmt.Errorf("superseded by generation %d", current.Generation)
 	}
-	if request.Entry.supersedes(current) {
-		n.desired[request.Name] = request.Entry
-	}
+	n.desired[request.Name] = merged
 	// Persist before reconciliation, including retries of a persisted generation.
 	if err := saveDesired(n.cfg.dir, n.desired); err != nil {
 		if exists {
-			n.desired[request.Name] = current
+			n.desired[request.Name] = before
 		} else {
 			delete(n.desired, request.Name)
 		}
@@ -470,7 +472,8 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) 
 }
 
 // reconcile makes the local service match entry; the caller holds n.mu.
-func (n *Node) reconcile(ctx context.Context, name string, entry Entry) (string, error) {
+func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (string, error) {
+	entry := state.entry()
 	if entry.Spec == nil || len(entry.Spec.Regions) != 0 && !slices.Contains(entry.Spec.Regions, n.cfg.region) {
 		if _, err := n.cfg.applier.Remove(ctx, name); err != nil {
 			return "", err
@@ -486,6 +489,7 @@ func (n *Node) reconcile(ctx context.Context, name string, entry Entry) (string,
 	spec := *entry.Spec
 	spec.Generation, spec.Region, spec.Node = entry.Generation, n.cfg.region, n.cfg.server
 	spec.RollbackOf = entry.RollbackOf
+	spec.Deployment, spec.DeploymentFloor = entry.Deployment, state.Floor
 	if err := n.peers.track(name, spec.Regions); err != nil {
 		return "", err
 	}
@@ -516,16 +520,11 @@ func validEntry(name string, entry Entry) error {
 	if entry.RollbackOf < 0 || entry.RollbackOf >= entry.Generation {
 		return errors.New("invalid rollback ancestry")
 	}
-	for _, deployment := range []*Deployment{entry.Deployment, entry.DeploymentFloor} {
-		if err := validDeployment(deployment); err != nil {
-			return err
-		}
-		if deployment != nil && repository(deployment.Image) != "ghcr.io/terrascale/"+name {
-			return errors.New("deployment image does not belong to the service")
-		}
-	}
-	if err := acceptsDeployment(entry.Deployment, entry.DeploymentFloor); err != nil {
+	if err := entry.Deployment.Validate(); err != nil {
 		return err
+	}
+	if entry.Deployment != nil && repository(entry.Deployment.Image) != "ghcr.io/terrascale/"+name {
+		return errors.New("deployment image does not belong to the service")
 	}
 	if entry.Spec == nil {
 		return nil
@@ -573,22 +572,30 @@ func collect(ctx context.Context, conn *nats.Conn, subject string, payload []byt
 	return nil
 }
 
-func loadDesired(dir string) (map[string]Entry, error) {
+func loadDesired(dir string) (map[string]desiredState, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "desired.json"))
 	if errors.Is(err, os.ErrNotExist) {
-		return map[string]Entry{}, nil
+		return map[string]desiredState{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	desired := map[string]Entry{}
+	desired := map[string]desiredState{}
 	if err := protocol.DecodeTolerant(data, &desired, maxWire); err != nil {
 		return nil, fmt.Errorf("decode mesh desired state: %w", err)
+	}
+	if desired == nil {
+		return nil, errors.New("mesh desired state must be an object")
+	}
+	for name, state := range desired {
+		if err := validState(name, state); err != nil {
+			return nil, fmt.Errorf("invalid desired state for %s: %w", name, err)
+		}
 	}
 	return desired, nil
 }
 
-func saveDesired(dir string, desired map[string]Entry) error {
+func saveDesired(dir string, desired map[string]desiredState) error {
 	data, err := protocol.EncodeJSON(desired)
 	if err != nil {
 		return err

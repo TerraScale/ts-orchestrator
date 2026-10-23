@@ -2,6 +2,7 @@ package swarmruntime
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -34,11 +35,12 @@ func TestServiceSpecLockSharedByRoot(t *testing.T) {
 
 type safetyControl struct {
 	api.ControlClient
-	service  *api.Service
-	task     *api.Task
-	conflict bool
-	writes   int
-	machine  string
+	service    *api.Service
+	task       *api.Task
+	conflict   bool
+	onConflict func(*api.Service)
+	writes     int
+	machine    string
 }
 
 func (c *safetyControl) ListServices(context.Context, *api.ListServicesRequest, ...grpc.CallOption) (*api.ListServicesResponse, error) {
@@ -62,6 +64,9 @@ func (c *safetyControl) UpdateService(_ context.Context, request *api.UpdateServ
 	if c.conflict {
 		c.conflict = false
 		c.service.Meta.Version.Index++
+		if c.onConflict != nil {
+			c.onConflict(c.service)
+		}
 		return nil, status.Error(codes.Unknown, "update out of sequence")
 	}
 	if *request.ServiceVersion != c.service.Meta.Version {
@@ -154,5 +159,150 @@ func TestServiceSpecExactEvidenceRejectsUnrelatedArtifact(t *testing.T) {
 		if _, err := WaitServiceSpecExact(t.Context(), control, spec); err == nil {
 			t.Fatal("unrelated task or service produced successful evidence")
 		}
+	}
+}
+
+func TestServiceSpecNewFloorReplacesOnlyStaleSignedRuntime(t *testing.T) {
+	for _, scenario := range []struct {
+		name       string
+		current    int64
+		generation int64
+		rollbackOf int64
+		signed     bool
+	}{
+		{name: "rollback over signed 11", current: 11, generation: 12, rollbackOf: 10, signed: true},
+		{name: "rollback over signed 13", current: 13, generation: 12, rollbackOf: 10, signed: true},
+		{name: "operator below invalid signed generation", current: 13, generation: 11},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			spec, control := safetyFixture(t)
+			older := &Deployment{Repository: "TerraScale/terrascale", RunID: "99", Revision: strings.Repeat("b", 40), Image: spec.Image}
+			approved := *older
+			approved.RunID = "100"
+			spec.Generation, spec.Deployment, spec.DeploymentFloor = scenario.current, older, older
+			swarm, err := spec.SwarmSpec()
+			if err != nil {
+				t.Fatal(err)
+			}
+			control.service.Spec = *swarm
+			control.task.ServiceAnnotations = *swarm.Annotations.Copy()
+			next := spec
+			next.Generation, next.RollbackOf, next.DeploymentFloor = scenario.generation, scenario.rollbackOf, &approved
+			next.Deployment = nil
+			if scenario.signed {
+				next.Deployment = &approved
+			}
+			control.conflict = true
+			if _, err := ApplyServiceSpec(t.Context(), control, next); err != nil || control.writes != 2 {
+				t.Fatalf("new floor did not replace invalid signed state through CAS retry: writes=%d, %v", control.writes, err)
+			}
+			// The workload is unchanged, so Swarm keeps its real task generation and authority.
+			rollout, err := WaitServiceSpecExact(t.Context(), control, next)
+			if err != nil || len(rollout.Tasks) != 1 || rollout.Tasks[0].Generation != scenario.current || rollout.Tasks[0].Deployment == nil || *rollout.Tasks[0].Deployment != *older || rollout.Tasks[0].DeploymentFloor == nil || *rollout.Tasks[0].DeploymentFloor != *older {
+				t.Fatalf("exact evidence lost actual task authority: %+v, %v", rollout, err)
+			}
+			d, floor, err := serviceDeployment(spec.Name, control.service.Spec.Annotations.Labels)
+			if err != nil || floor == nil || *floor != approved || !reflect.DeepEqual(d, next.Deployment) {
+				t.Fatalf("service labels lost selected authority: %+v / %+v, %v", d, floor, err)
+			}
+			writes := control.writes
+			spec.Generation = 20
+			if _, err := ApplyServiceSpec(t.Context(), control, spec); err == nil || control.writes != writes {
+				t.Fatal("old signed run regained authority with a higher generation")
+			}
+		})
+	}
+}
+
+func TestServiceSpecHigherFloorPreservesInterveningOperator(t *testing.T) {
+	spec, control := safetyFixture(t)
+	older := &Deployment{Repository: "TerraScale/terrascale", RunID: "99", Revision: strings.Repeat("b", 40), Image: spec.Image}
+	spec.Generation, spec.DeploymentFloor = 11, older
+	swarm, err := spec.SwarmSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	control.service.Spec = *swarm
+	for _, run := range []string{"99", "100", "101"} {
+		d := *older
+		d.RunID = run
+		rollback := spec
+		rollback.Generation, rollback.RollbackOf, rollback.Deployment, rollback.DeploymentFloor = 12, 10, &d, &d
+		if _, err := ApplyServiceSpec(t.Context(), control, rollback); err == nil || control.writes != 0 {
+			t.Fatalf("run %s bypassed intervening operator generation", run)
+		}
+	}
+	// Re-evaluate authority after a service-version conflict, including a new operator.
+	signed := spec
+	signed.Generation, signed.Deployment = 13, older
+	swarm, err = signed.SwarmSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	control.service.Spec = *swarm
+	approved := *older
+	approved.RunID = "100"
+	rollback := spec
+	rollback.Generation, rollback.RollbackOf, rollback.Deployment, rollback.DeploymentFloor = 12, 10, &approved, &approved
+	control.conflict = true
+	control.onConflict = func(service *api.Service) { service.Spec = swarmForTest(t, spec) }
+	if _, err := ApplyServiceSpec(t.Context(), control, rollback); err == nil || control.writes != 1 {
+		t.Fatalf("CAS retry overwrote intervening operator: writes=%d, %v", control.writes, err)
+	}
+}
+
+func swarmForTest(t *testing.T, spec ServiceSpec) api.ServiceSpec {
+	t.Helper()
+	swarm, err := spec.SwarmSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return *swarm
+}
+
+func TestServiceSpecRefusesInvalidDeploymentAuthority(t *testing.T) {
+	spec, _ := safetyFixture(t)
+	d := &Deployment{Repository: "TerraScale/terrascale", RunID: "100", Revision: strings.Repeat("b", 40), Image: spec.Image}
+	for _, invalid := range []ServiceSpec{
+		{Name: spec.Name, Image: spec.Image, Port: spec.Port, Replicas: 1, DeploymentFloor: d},
+		{Name: spec.Name, Image: spec.Image, Port: spec.Port, Replicas: 1, Generation: 1, Deployment: d},
+		{Name: spec.Name, Image: spec.Image, Port: spec.Port, Replicas: 1, Generation: 1, Deployment: d, DeploymentFloor: new(Deployment{Repository: d.Repository, RunID: "101", Revision: d.Revision, Image: d.Image})},
+	} {
+		if _, err := invalid.SwarmSpec(); err == nil {
+			t.Fatal("invalid requested authority accepted")
+		}
+	}
+	for _, mutate := range []func(*Deployment){
+		func(d *Deployment) { d.RunID = "99" },
+		func(d *Deployment) { d.Revision = strings.Repeat("c", 40) },
+		func(d *Deployment) { d.Image = "ghcr.io/terrascale/web@sha256:" + strings.Repeat("c", 64) },
+		func(d *Deployment) { d.Repository = "TerraScale/another" },
+	} {
+		spec, control := safetyFixture(t)
+		spec.Deployment, spec.DeploymentFloor = d, d
+		control.service.Spec = swarmForTest(t, spec)
+		candidate := *d
+		mutate(&candidate)
+		spec.Generation++
+		spec.Deployment, spec.DeploymentFloor = &candidate, &candidate
+		if _, err := ApplyServiceSpec(t.Context(), control, spec); err == nil || control.writes != 0 {
+			t.Fatal("stale or equivocal authority wrote runtime state")
+		}
+	}
+	for _, value := range []string{"null", "{}", "invalid", `{"runId":"100","runId":"101"}`} {
+		spec, control := safetyFixture(t)
+		control.service.Spec.Annotations.Labels[LabelDeploymentFloor] = value
+		spec.Generation++
+		if _, err := ApplyServiceSpec(t.Context(), control, spec); err == nil || control.writes != 0 {
+			t.Fatalf("invalid persisted authority %q accepted", value)
+		}
+	}
+	spec, control := safetyFixture(t)
+	spec.DeploymentFloor = d
+	control.service.Spec = swarmForTest(t, spec)
+	spec.Generation++
+	spec.DeploymentFloor = nil
+	if _, err := ApplyServiceSpec(t.Context(), control, spec); err == nil || control.writes != 0 {
+		t.Fatal("operator removed the accepted runtime floor")
 	}
 }
