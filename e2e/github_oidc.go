@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	githubClientID   = "client01M4GHA0E2E000000000000000"
+	githubClientID   = "01M4GHA0E2E000000000000000"
 	githubGrant      = "urn:terrascale:params:oauth:grant-type:github-actions"
 	githubRepository = "TerraScale/ts-orchestrator"
 	githubWorkflow   = githubRepository + "/.github/workflows/e2e.yml@refs/heads/main"

@@ -58,7 +58,7 @@ func githubProductionFake(t *testing.T, override func(http.ResponseWriter, *http
 		if r.URL.Path != "/terrascale/oauth/token" || r.ParseForm() != nil || r.Form.Get("grant_type") != githubGrant {
 			return false
 		}
-		if len(r.Form) < 3 || r.Form.Get("client_id") != githubClientID || r.Header.Get("Authorization") != "" || validateGitHubAssertion(r.Form.Get("subject_token")) != nil {
+		if len(r.Form) < 3 || r.Form.Get("client_id") != "01M4GHA0E2E000000000000000" || r.Header.Get("Authorization") != "" || validateGitHubAssertion(r.Form.Get("subject_token")) != nil {
 			t.Error("OIDC must use the fixed public client and a GitHub subject_token without native credentials")
 		}
 		assertion := r.Form.Get("subject_token")

@@ -9,7 +9,7 @@ environment, deployment or production data is created by the runner.
 
 | Binding | Exact value |
 | --- | --- |
-| Public OAuth client | `client01M4GHA0E2E000000000000000` |
+| Public OAuth client | `01M4GHA0E2E000000000000000` |
 | Grant type | `urn:terrascale:params:oauth:grant-type:github-actions` |
 | Token endpoint | `https://auth.terrascale.tech/terrascale/oauth/token` |
 | GitHub assertion issuer | `https://token.actions.githubusercontent.com` |
