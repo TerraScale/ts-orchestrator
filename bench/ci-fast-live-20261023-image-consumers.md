@@ -20,7 +20,7 @@ R1 PR [#109](https://github.com/TerraScale/ts-orchestrator/pull/109) merged at 2
 
 internal/releasepush/handler.go targets the running executable, verifies new binary bytes, swaps them atomically and retains .prev for rollback. This single-host self-update path does not import or admit custom images. The active internal/ociregion/catalog/catalog.go is region geography, not an image inventory.
 
-The older managed-capacity, image promotion and attempt tooling still references image receipts and final-byte evidence. Those are shared verification consumers, not serving entry points in the inspected single-host estate. Keep verify-image-production and its signed candidate-binding tests. Move the shared evidence-fetch transport out of scripts/ci and update direct offline promotion/attempt callers rather than breaking them.
+The separate managed controller runtime, image promotion and attempt tooling still reference image receipts and final-byte evidence. These shared verification consumers are preserved. The follow-up capacity audit in `bench/ci-fast-live-20261023-capacity-consumers.md` distinguishes their qualified-image recipe from the active single-host entry point; VM source inventory alone does not establish a recipe ImageID. Keep verify-image-production and its signed candidate-binding tests. Move the shared evidence-fetch transport out of scripts/ci and update direct offline promotion/attempt callers rather than breaking them.
 
 The conclusion is bounded to the accessible authorized three-region OCI estate and current serving paths, not a claim that custom-image tooling can never be activated. Any future custom-image activation still requires the unchanged signed final-byte admission gate.
 

@@ -508,10 +508,31 @@ func TestRaceScheduler(t *testing.T) {
 	}
 	// The change tier runs only the packages a change reaches; a file outside
 	// every package reaches all of them, and docs reach none.
-	for touch, want := range map[string]string{"internal/bootstrapstart/testdata/spec.txt": "bootstrapstart/", "scripts/tool.sh": "", "docs/notes.md": "-"} {
+	for touch, want := range map[string]string{
+		"internal/bootstrapstart/testdata/spec.txt": "bootstrapstart/",
+		"scripts/tool.sh": "", "docs/notes.md": "-",
+		".github/workflows/ci.yml":                  "ci/",
+		".github/actions/verify/action.yml":         "ci/",
+		".github/missing-owner.yml":                 "",
+		"deploy/image/build-image.sh":               "deploy/",
+		"deploy/image/publish-image.sh":             "deploy/",
+		"deploy/image/fetch-production-evidence.sh": "releasecli/ image/ attempt/ deploy/",
+		"deploy/image/image-inputs.json":            "",
+	} {
 		t.Run("change_"+touch, func(t *testing.T) {
 			t.Parallel()
 			f := newScheduler(t)
+			if touch != ".github/missing-owner.yml" {
+				for dir, identity := range map[string]string{"tests/ci": "ci", "internal/release/cli": "releasecli", "internal/image": "image", "internal/attempt": "attempt"} {
+					source := fmt.Sprintf(`package fixture
+import("fmt";"os";"testing")
+func TestOwner(t *testing.T){f,err:=os.OpenFile(os.Getenv("TEST_RECORD"),os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600);if err!=nil{t.Fatal(err)};defer f.Close();fmt.Fprintln(f,%q)}
+`, identity+"/TestOwner")
+					script.Write(t, filepath.Join(f.root, dir, "fixture_test.go"), []byte(source), 0o644)
+					f.expected = append(f.expected, identity+"/TestOwner")
+				}
+				slices.Sort(f.expected)
+			}
 			git := func(args ...string) string {
 				t.Helper()
 				r := script.Exec(t, f.root, map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}, "git", args...)
@@ -520,11 +541,20 @@ func TestRaceScheduler(t *testing.T) {
 				}
 				return strings.TrimSpace(r.Stdout)
 			}
+			if touch == "deploy/image/publish-image.sh" {
+				script.Write(t, filepath.Join(f.root, touch), []byte("old\n"), 0o644)
+			}
 			git("init", "-q")
 			git("add", ".")
 			git("commit", "-q", "-m", "base")
 			base := git("rev-parse", "HEAD")
-			script.Write(t, filepath.Join(f.root, touch), []byte("change\n"), 0o644)
+			if touch == "deploy/image/publish-image.sh" {
+				if err := os.Remove(filepath.Join(f.root, touch)); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				script.Write(t, filepath.Join(f.root, touch), []byte("change\n"), 0o644)
+			}
 			git("add", ".")
 			git("commit", "-q", "-m", "change")
 			r := f.run(t, map[string]string{"TS_TEST_TIER": "change", "TS_CHANGE_BASE": base})
@@ -537,8 +567,19 @@ func TestRaceScheduler(t *testing.T) {
 			}
 			record, _ := os.ReadFile(f.record)
 			for _, test := range strings.Fields(string(record)) {
-				if !strings.HasPrefix(test, want) {
+				allowed := false
+				for prefix := range strings.FieldsSeq(want) {
+					allowed = allowed || strings.HasPrefix(test, prefix)
+				}
+				if !allowed {
 					t.Fatalf("%s ran for a change to %s", test, touch)
+				}
+			}
+			if want != "-" {
+				for prefix := range strings.FieldsSeq(want) {
+					if !strings.Contains(string(record), prefix) {
+						t.Fatalf("owner %s did not run for %s: %s", prefix, touch, record)
+					}
 				}
 			}
 			if ran := len(strings.Fields(string(record))) > 0; ran != (want != "-") {
