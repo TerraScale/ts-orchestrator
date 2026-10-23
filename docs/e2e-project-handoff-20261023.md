@@ -9,16 +9,22 @@ impersonation, organization-wide keys, `tb_` keys or GitHub organization tokens.
 ## Approval and destination
 
 MarioGK approves the existing isolated organization, project, database and a
-different **existing project in the same organization** for the negative check.
-No customer project/data may be chosen. Confirm these non-secret identities
-before creating any credential or setting these `production` environment variables:
+different **existing project in the same organization containing an existing
+database with the exact same name** for the negative check. No customer
+project/data may be chosen. Before creating any credential, preparing these
+`production` environment variables or starting handoff, record the owner's
+explicit confirmation of the organization id and both exact project/database
+pairs, including the negative database's current existence. A project alone is
+insufficient: a nonexistent database returns the same `404 unknown_database`
+as a denied read. Missing confirmation or either database blocks this workflow;
+do not provision production data to satisfy the prerequisite.
 
 | Variable | Approved value |
 | --- | --- |
 | `E2E_ORGANIZATION_ID` | Existing isolated organization id |
 | `E2E_PROJECT_ID` | Existing isolated project id |
 | `E2E_DATABASE` | Existing database name in that project |
-| `E2E_UNRELATED_PROJECT_ID` | Different existing same-organization project id |
+| `E2E_UNRELATED_PROJECT_ID` | Different existing same-organization project id, owner-confirmed to already contain the exact `E2E_DATABASE` database |
 
 The only credential destination is GitHub.com, account **MarioGK**, repository
 **TerraScale/ts-orchestrator**, environment **production**, secret
@@ -40,8 +46,12 @@ patterns and additional branches are refused **before** any secret prompt.
    screenshots, command arguments, shell history or diagnostic logs.
 2. In a private interactive terminal at the approved checkout's repository root,
    run **one command**: `python3 scripts/e2e/install-production-credential.py`.
-   Paste the native response into its hidden `getpass` prompt; both one-line and
-   formatted JSON are supported, with hidden continuation prompts.
+   Reconfirm the exact owner-approved existing negative project/database pair
+   when prompted. Paste the native response into its hidden terminal prompt;
+   both one-line and formatted JSON are supported. Echo stays disabled across
+   the whole paste and is restored on completion or interruption; unsafe
+   terminals are refused. Finish with Enter (or an empty line to abort
+   incomplete JSON).
    The helper verifies the GitHub account/repository/environment, approved
    environment variables, native key/id, exact scope, database and expiry. It
    sends JSON only through protected subprocess stdin to
@@ -58,8 +68,11 @@ The helper validates metadata, not live authority. The runner exchanges the key
 **without project/scope narrowing**, asserts native project/database/read-only
 JWT claims and a lifetime at most 15 minutes, and requires server denial of
 cross-project exchange. An organization key disguised by edited metadata fails.
-The negative project's existence and same-organization membership must be
-verified by the owner beforehand; an unknown id alone proves no isolation.
+The negative project's same-organization membership and the existence of its
+exact same-name database must be confirmed by the owner beforehand. The helper
+requires the exact `<E2E_UNRELATED_PROJECT_ID>/<E2E_DATABASE>` confirmation before
+secret entry. Neither the restricted runner nor a `404 unknown_database` verifies
+existence; without the recorded prerequisite, that denial proves no isolation.
 
 ## Evidence and cleanup
 
@@ -82,7 +95,11 @@ administration read (`401 unauthorized`) and TerraBase compatibility management
 read (`404 unknown_database`). No write is attempted to prove write denial.
 Unexpected successes, redirects, outages and malformed responses fail; they
 never count as permission denials or pending features. Reports contain only
-source SHA, validated non-secret key metadata and sanitized scenario outcomes.
+source SHA, validated non-secret key metadata, the exact negative organization/
+project/database target and its owner-confirmation prerequisite, and sanitized
+scenario outcomes. The report explicitly states that target existence is not
+verified by the runner; retain the owner's prior confirmation with the evidence
+before claiming cross-project isolation.
 The authenticating data read lets TerraBase verify the JWT signature; decoded
 claim assertions in the runner do not replace server signature verification.
 

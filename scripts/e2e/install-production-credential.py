@@ -2,13 +2,12 @@
 """USER RUN ONLY: install a native project key response without displaying it."""
 
 import datetime as dt
-import getpass
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
-import warnings
 
 REPO = "TerraScale/ts-orchestrator"
 ENVIRONMENT = "production"
@@ -68,8 +67,57 @@ def validate(raw, expected, now):
             raise ValueError("Credential metadata must match the approved production environment variables.")
     unrelated = expected.get(VARIABLES[3])
     if not isinstance(unrelated, str) or not ID.fullmatch(unrelated) or unrelated == metadata["project_id"]:
-        raise ValueError("An approved existing unrelated same-organization project id is required.")
+        raise ValueError("An owner-confirmed existing unrelated same-organization project with the exact same database is required.")
     return metadata
+
+
+def read_hidden_json():
+    if not sys.stdin.isatty():
+        raise ValueError("Run interactively in a private terminal; piped secret entry is refused.")
+    try:
+        import termios
+    except ImportError:
+        raise ValueError("Safe terminal echo control is unavailable; secret entry refused.") from None
+    try:
+        fd = sys.stdin.fileno()
+        original = termios.tcgetattr(fd)
+    except (termios.error, OSError, ValueError):
+        raise ValueError("Safe terminal echo control is unavailable; secret entry refused.") from None
+
+    def interrupted(signum, frame):
+        raise SystemExit("Hidden credential entry stopped; no value displayed.")
+
+    handlers = {}
+    try:
+        for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
+            handlers[sig] = signal.signal(sig, interrupted)
+        hidden = original.copy()
+        hidden[3] &= ~(termios.ECHO | termios.ECHONL)
+        # TCSANOW preserves all queued paste lines; getpass flushes them per prompt.
+        termios.tcsetattr(fd, termios.TCSANOW, hidden)
+        print("Paste native create-response JSON (hidden; empty line finishes): ", end="", file=sys.stderr, flush=True)
+        raw = ""
+        while True:
+            line = sys.stdin.readline(65537 - len(raw))
+            raw += line
+            if not line.strip() or len(raw.encode("utf-8")) > 65536:
+                return raw
+            try:
+                parse_json(raw)
+                return raw
+            except ValueError:
+                continue
+    except (termios.error, OSError):
+        raise ValueError("Safe terminal input failed; secret entry refused.") from None
+    finally:
+        try:
+            termios.tcsetattr(fd, termios.TCSANOW, original)
+        except (termios.error, OSError):
+            raise ValueError("Terminal restoration failed; stop using this terminal until echo is restored.") from None
+        finally:
+            for sig, handler in handlers.items():
+                signal.signal(sig, handler)
+            print(file=sys.stderr)
 
 
 def gh(args, data=None):
@@ -105,20 +153,12 @@ def install():
     if not sys.stdin.isatty():
         raise ValueError("Run interactively in a private terminal; piped secret entry is refused.")
     print("Verified MarioGK / TerraScale/ts-orchestrator / production.")
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", getpass.GetPassWarning)
-        lines = []
-        while True:
-            line = getpass.getpass("Paste native create-response JSON (hidden): " if not lines else "Continue JSON (hidden; empty line finishes): ")
-            lines.append(line)
-            raw = "\n".join(lines)
-            if not line or len(raw.encode("utf-8")) > 65536:
-                break
-            try:
-                parse_json(raw)
-                break
-            except ValueError:
-                continue
+    target = expected[VARIABLES[3]] + "/" + expected[VARIABLES[2]]
+    print("Owner must confirm existing target: organization " + expected[VARIABLES[0]] + ", unrelated project/database " + target +
+          ". A missing database cannot prove isolation. Do not create production data for this check.")
+    if input("After owner confirmation of this exact existing target, type " + target + ": ") != target:
+        raise ValueError("Exact existing negative project/database confirmation required; installation refused.")
+    raw = read_hidden_json()
     metadata = validate(raw, expected, dt.datetime.now(dt.timezone.utc))
     gh(["secret", "set", "--repo", REPO, "--env", ENVIRONMENT, SECRET], data=raw.encode("utf-8"))
     print("Installed E2E_PROJECT_CREDENTIAL (value hidden); project " + metadata["project_id"] + ", database " + metadata["database"] + ".")
@@ -177,7 +217,7 @@ def self_test():
             for account, repo, environment in [("other", REPO, ENVIRONMENT), ("MarioGK", "TerraScale/other", ENVIRONMENT),
                                                ("MarioGK", REPO, "other")]:
                 with mock.patch.object(module, "gh", side_effect=[{"login": account}, {"full_name": repo}, {"name": environment}]), \
-                     mock.patch.object(getpass, "getpass") as prompt:
+                     mock.patch.object(module, "read_hidden_json") as prompt:
                     with self.assertRaises(ValueError):
                         install()
                     prompt.assert_not_called()
@@ -191,7 +231,7 @@ def self_test():
                                      (main_only, [{"name": "main", "type": "branch"}, {"name": "other", "type": "branch"}])]:
                 replies = [{"login": "MarioGK"}, {"full_name": REPO}, {"name": ENVIRONMENT, "deployment_branch_policy": policy},
                            {"total_count": len(branches), "branch_policies": branches}]
-                with mock.patch.object(module, "gh", side_effect=replies) as github, mock.patch.object(getpass, "getpass") as prompt:
+                with mock.patch.object(module, "gh", side_effect=replies) as github, mock.patch.object(module, "read_hidden_json") as prompt:
                     with self.assertRaises(ValueError):
                         install()
                     prompt.assert_not_called()
@@ -206,12 +246,78 @@ def self_test():
                        {"total_count": 1, "branch_policies": [{"name": "main", "type": "branch"}]},
                        {"variables": [{"name": name, "value": value} for name, value in expected.items()]}, None]
             with mock.patch.object(module, "gh", side_effect=replies) as github, mock.patch.object(sys.stdin, "isatty", return_value=True), \
-                 mock.patch.object(getpass, "getpass", side_effect=json.dumps(fresh, indent=2).splitlines()) as prompt, mock.patch("builtins.print"):
+                 mock.patch.object(module, "read_hidden_json", return_value=json.dumps(fresh, indent=2)) as prompt, \
+                 mock.patch("builtins.input", return_value=ids[3] + "/e2e"), mock.patch("builtins.print"):
                 install()
-                self.assertGreater(prompt.call_count, 1)
+                prompt.assert_called_once()
                 self.assertTrue(all(call.args[0][0] == "api" for call in github.call_args_list[:5]))
                 self.assertEqual(github.call_args_list[-1].args[0], ["secret", "set", "--repo", REPO, "--env", ENVIRONMENT, SECRET])
                 self.assertEqual(parse_json(github.call_args_list[-1].kwargs["data"]), fresh)
+
+        def test_exact_existing_negative_database_confirmation_required(self):
+            module = sys.modules[__name__]
+            replies = [{"login": "MarioGK"}, {"full_name": REPO},
+                       {"name": ENVIRONMENT, "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}},
+                       {"total_count": 1, "branch_policies": [{"name": "main", "type": "branch"}]},
+                       {"variables": [{"name": name, "value": value} for name, value in expected.items()]}]
+            for confirmation in ("", ids[3], ids[3] + "/other"):
+                with mock.patch.object(module, "gh", side_effect=replies) as github, \
+                     mock.patch.object(sys.stdin, "isatty", return_value=True), mock.patch("builtins.input", return_value=confirmation), \
+                     mock.patch.object(module, "read_hidden_json") as prompt, mock.patch("builtins.print"):
+                    with self.assertRaises(ValueError):
+                        install()
+                    prompt.assert_not_called()
+                    self.assertTrue(all(call.args[0][0] == "api" for call in github.call_args_list))
+
+        def test_hidden_json_requires_safe_terminal(self):
+            with mock.patch.object(sys.stdin, "isatty", return_value=False), self.assertRaises(ValueError):
+                read_hidden_json()
+
+        def test_real_pty_paste_is_complete_hidden_and_restores_terminal(self):
+            import hashlib
+            import select
+            import termios
+            import time
+
+            for mode in ("single-line", "multiline", "interrupt", "terminate"):
+                with self.subTest(mode=mode):
+                    master, slave = os.openpty()
+                    original = termios.tcgetattr(slave)
+                    digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+                    child = "import hashlib, json, runpy; m = runpy.run_path(" + repr(os.path.abspath(__file__)) + "); "
+                    child += "raw = m['read_hidden_json'](); assert hashlib.sha256(json.dumps(json.loads(raw), sort_keys=True).encode()).hexdigest() == " + repr(digest) + "; print('ACCEPTED')"
+                    process = subprocess.Popen([sys.executable, "-c", child], stdin=slave, stdout=slave, stderr=slave)
+                    output = b""
+                    try:
+                        deadline = time.monotonic() + 5
+                        while b"empty line finishes): " not in output:
+                            remaining = deadline - time.monotonic()
+                            self.assertGreater(remaining, 0, "hidden prompt timed out")
+                            self.assertTrue(select.select([master], [], [], remaining)[0], "hidden prompt timed out")
+                            output += os.read(master, 4096)
+                        self.assertFalse(termios.tcgetattr(slave)[3] & (termios.ECHO | termios.ECHONL))
+                        if mode in ("interrupt", "terminate"):
+                            process.send_signal(signal.SIGINT if mode == "interrupt" else signal.SIGTERM)
+                        else:
+                            paste = (json.dumps(body, indent=2) if mode == "multiline" else json.dumps(body)).encode() + b"\n"
+                            self.assertEqual(os.write(master, paste), len(paste))
+                        process.wait(timeout=5)
+                        while select.select([master], [], [], 0)[0]:
+                            output += os.read(master, 4096)
+                        if mode in ("single-line", "multiline"):
+                            self.assertEqual(process.returncode, 0, "complete JSON paste was not accepted")
+                            self.assertIn(b"ACCEPTED", output)
+                        else:
+                            self.assertNotEqual(process.returncode, 0)
+                        self.assertNotIn(body["key"].encode(), output)
+                        self.assertNotIn(b'"api_key"', output)
+                        self.assertEqual(termios.tcgetattr(slave), original)
+                    finally:
+                        if process.poll() is None:
+                            process.terminate()
+                            process.wait(timeout=5)
+                        os.close(master)
+                        os.close(slave)
 
     return 0 if unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(HandoffTests)).wasSuccessful() else 1
 
@@ -226,6 +332,6 @@ if __name__ == "__main__":
     except UnicodeError:
         print("Invalid credential text; no value displayed.", file=sys.stderr)
         sys.exit(1)
-    except (ValueError, EOFError, KeyboardInterrupt, getpass.GetPassWarning) as error:
+    except (ValueError, EOFError, KeyboardInterrupt) as error:
         print(str(error) if isinstance(error, ValueError) else "Hidden credential entry stopped; no value displayed.", file=sys.stderr)
         sys.exit(1)

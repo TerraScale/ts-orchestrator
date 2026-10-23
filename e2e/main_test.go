@@ -61,6 +61,37 @@ func TestProductionFailsBeforeNetworkWithoutDedicatedConfig(t *testing.T) {
 		t.Fatal("prod accepted missing credentials")
 	}
 }
+
+func TestProductionReportRecordsExactNegativeTargetAndExistencePrerequisite(t *testing.T) {
+	credential := testProjectCredential()
+	setProjectConfig(t, credential)
+	t.Setenv("E2E_TARGET", "prod")
+	path := filepath.Join(t.TempDir(), "report.json")
+	t.Setenv("E2E_REPORT", path)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // Exercise real report generation without any live request.
+	var stdout, stderr bytes.Buffer
+	if code := run(ctx, &stdout, &stderr); code != 1 {
+		t.Fatalf("canceled production run exit=%d", code)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got report
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	negative := got.NegativeReadTarget
+	if negative == nil || negative.OrganizationID != testOrg || negative.ProjectID != testOther || negative.Database != "e2e" ||
+		!strings.Contains(negative.Prerequisite, "before environment preparation and handoff") || !strings.Contains(negative.Prerequisite, "not verified by this runner") {
+		t.Fatal("report must identify the exact negative project/database and its owner-confirmed existence prerequisite")
+	}
+	if strings.Contains(string(data)+stdout.String()+stderr.String(), credential.Key) {
+		t.Fatal("report exposed synthetic credential")
+	}
+}
+
 func TestBootstrapCannotReachRemoteAdmin(t *testing.T) {
 	for _, origin := range []string{"http://example.test:9464", "https://127.0.0.1:9464", "http://[::ffff:8.8.8.8]:9464"} {
 		_, err := issueLocalKey(t.Context(), &environment{AdminURL: origin}, "org", "project")

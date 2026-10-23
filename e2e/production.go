@@ -32,6 +32,13 @@ type projectCredential struct {
 	Key    string             `json:"key"`
 }
 
+type negativeReadTarget struct {
+	OrganizationID string `json:"organization_id"`
+	ProjectID      string `json:"project_id"`
+	Database       string `json:"database"`
+	Prerequisite   string `json:"prerequisite"`
+}
+
 var (
 	nativeKeyPattern = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}_[0123456789abcdefghjkmnpqrstvwxyz]{52}$`)
 	databasePattern  = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
@@ -56,7 +63,7 @@ func production() (*environment, error) {
 	}
 	unrelated := os.Getenv("E2E_UNRELATED_PROJECT_ID")
 	if tb.ValidateID(unrelated) != nil || unrelated == m.ProjectID {
-		return nil, errors.New("E2E_UNRELATED_PROJECT_ID must identify an approved existing different project in the same organization")
+		return nil, errors.New("E2E_UNRELATED_PROJECT_ID must identify an owner-confirmed existing different same-organization project containing the exact E2E_DATABASE database")
 	}
 	return &environment{
 		Target: "prod", TerraBaseURL: "https://api.terrascale.tech", AuthURL: "https://auth.terrascale.tech", Region: "gru",
@@ -225,6 +232,7 @@ func unrelatedCollections(ctx context.Context, e *environment) error {
 	if err != nil {
 		return err
 	}
+	// The owner must confirm this exact database exists there; a missing database returns the same denial.
 	_, err = c.Database(e.UnrelatedProjectID, e.ProjectCredential.APIKey.Database).Collections(ctx, tb.ListOptions{Limit: 1})
 	denied, ok := errors.AsType[*tb.APIError](err)
 	if !ok || denied.Status != http.StatusNotFound || string(denied.Code) != "unknown_database" {

@@ -34,12 +34,13 @@ type result struct {
 	DurationMS int64    `json:"duration_ms"`
 }
 type report struct {
-	SourceSHA         string              `json:"source_sha,omitempty"`
-	ProjectCredential *projectKeyMetadata `json:"project_credential,omitempty"`
-	LocalPins         json.RawMessage     `json:"local_pins,omitempty"`
-	Target            string              `json:"target"`
-	Started           time.Time           `json:"started"`
-	Results           []result            `json:"scenarios"`
+	SourceSHA          string              `json:"source_sha,omitempty"`
+	ProjectCredential  *projectKeyMetadata `json:"project_credential,omitempty"`
+	NegativeReadTarget *negativeReadTarget `json:"negative_read_target,omitempty"`
+	LocalPins          json.RawMessage     `json:"local_pins,omitempty"`
+	Target             string              `json:"target"`
+	Started            time.Time           `json:"started"`
+	Results            []result            `json:"scenarios"`
 }
 type pending struct{ ticket, reason string }
 
@@ -76,6 +77,11 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	}
 	if e != nil && target == "prod" {
 		r.ProjectCredential = &e.ProjectCredential.APIKey
+		r.NegativeReadTarget = &negativeReadTarget{
+			OrganizationID: e.ProjectCredential.APIKey.OrganizationID,
+			ProjectID:      e.UnrelatedProjectID, Database: e.ProjectCredential.APIKey.Database,
+			Prerequisite: "Owner must confirm this exact database already exists in this same-organization project before environment preparation and handoff; existence is not verified by this runner.",
+		}
 	}
 	if err != nil {
 		r.Results = append(r.Results, result{Name: "stack", Components: []string{"terrabase", "ts-auth", "ts-dashboard"}, Tickets: []string{"TS-512"}, Status: "fail", Detail: redact(err.Error(), e)})
