@@ -323,7 +323,9 @@ class Session:
             return True
         except urllib.error.HTTPError as error:
             if error.code == 401 or (error.code == 302 and error.headers.get("Location") in
-                    ("/ui/terrascale/sign-in", AUTH + "/ui/terrascale/sign-in")):
+                    ("/ui/terrascale/sign-in", AUTH + "/ui/terrascale/sign-in",
+                     "/ui/terrascale/sign-in?next=%2Fui%2Fterrascale%2Fdevice",
+                     AUTH + "/ui/terrascale/sign-in?next=%2Fui%2Fterrascale%2Fdevice")):
                 return False
             raise
 
@@ -449,7 +451,7 @@ def run():
             raise ValueError("Native key name mismatch.")
         # Print only validated, allowlisted cleanup fields before any installation failure.
         print("Key id: " + metadata["id"] + "; expires: " +
-              dt.datetime.fromisoformat(metadata["expires_at"].replace("Z", "+00:00")).isoformat() +
+              dt.datetime.fromisoformat(metadata["expires_at"].replace("Z", "+00:00")).astimezone(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z") +
               "; target: " + expected["E2E_ORGANIZATION_ID"] + "/" + metadata["project_id"] + "/" + metadata["database"], flush=True)
         stage = "GitHub installation (outcome may be ambiguous; never retry)"
         installer.gh(["secret", "set", "--repo", installer.REPO, "--env", installer.ENVIRONMENT, installer.SECRET], data=raw.encode())

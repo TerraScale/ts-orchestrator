@@ -340,7 +340,16 @@ class CacheTests(SyntheticTests):
         self.assertEqual([(c.name, c.value) for c in jar], [("tsauth_session", "synthetic-session")])
 
     def test_only_absent_401_and_exact_signin_redirect_allow_email(self):
+        redirect = "/ui/terrascale/sign-in?next=%2Fui%2Fterrascale%2Fdevice"
         for status, location, allowed in [(401, None, True), (302, "/ui/terrascale/sign-in", True),
+                (302, redirect, True), (302, m.AUTH + redirect, True),
+                (302, "https://evil.example" + redirect, False),
+                (302, "http://auth.terrascale.tech" + redirect, False),
+                (302, "//auth.terrascale.tech" + redirect, False),
+                (302, redirect + "&next=%2Fui%2Fterrascale%2Fdevice", False),
+                (302, redirect + "&other=1", False), (302, redirect + "#fragment", False),
+                (302, redirect.replace("%2Fdevice", "%2Fother"), False),
+                (302, redirect.replace("sign-in?", "other?"), False),
                 (302, m.AUTH + "/ui/terrascale/sign-in", True), (302, "/ui/terrascale/sign-in?other", False),
                 (302, "https://evil.example/ui/terrascale/sign-in", False), (303, "/ui/terrascale/sign-in", False),
                 (403, None, False), (500, None, False)]:
@@ -349,8 +358,16 @@ class CacheTests(SyntheticTests):
                 (m.SESSION_DIR / "last-signin-at").unlink(missing_ok=True)
                 error = urllib.error.HTTPError(m.AUTH + "/ui/terrascale/device", status, "synthetic", {"Location": location}, io.BytesIO())
                 self.addCleanup(error.close)
-                with mock.patch.object(session, "call", side_effect=error), \
-                     mock.patch.object(session, "email_login") as login, mock.patch.object(session, "identify") as identify:
+                probes = []
+                def probe(*args):
+                    probes.append(session.cache.locked)
+                    raise error
+                def email_login(password):
+                    self.assert_locked(session)
+                    self.assertEqual(probes, [False, True])
+                with mock.patch.object(session, "call", side_effect=probe), \
+                     mock.patch.object(session, "email_login", side_effect=email_login) as login, \
+                     mock.patch.object(session, "identify") as identify, mock.patch.object(m, "mailbox_code") as mailbox:
                     if allowed:
                         session.login("synthetic-password")
                         self.assertTrue(session.cache.load(session.jar))
@@ -361,6 +378,8 @@ class CacheTests(SyntheticTests):
                             session.login("synthetic-password")
                         login.assert_not_called()
                         identify.assert_not_called()
+                        self.assertEqual(probes, [False])
+                    mailbox.assert_not_called()
         for error in (urllib.error.URLError("synthetic outage"), ValueError("synthetic response")):
             session = self.session(cached=True)
             with mock.patch.object(session, "call", side_effect=error), mock.patch.object(session, "email_login") as login:
@@ -526,6 +545,8 @@ class RunTests(SyntheticTests):
     def test_failures_never_leak_or_retry_and_always_clear(self):
         for failure in ("preflight", "confirm", "login", "targets", "changed", "issue", "validation", "install", "success"):
             body = native()
+            expiry = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=23)).replace(microsecond=0)
+            body["api_key"]["expires_at"] = expiry.isoformat()
             secret = body["key"]
             if failure == "validation":
                 body["api_key"]["scopes"] = ["documents:write"]
@@ -561,6 +582,7 @@ class RunTests(SyntheticTests):
                     session.issue.assert_not_called()
                 if failure in ("install", "success"):
                     self.assertIn("Key id: " + IDS[3], output.getvalue())
+                    self.assertIn("; expires: " + expiry.strftime("%Y-%m-%dT%H:%M:%SZ") + "; target: ", output.getvalue())
                     self.assertEqual(gh.call_args.args[0], ["secret", "set", "--repo", I.REPO, "--env", I.ENVIRONMENT, I.SECRET])
                     self.assertNotIn(secret, str(gh.call_args.args))
                     self.assertEqual(json.loads(gh.call_args.kwargs["data"])["key"], secret)
