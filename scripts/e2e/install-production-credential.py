@@ -134,7 +134,7 @@ def gh(args, data=None):
     return parse_json(result.stdout) if data is None else None
 
 
-def install():
+def preflight():
     account = gh(["api", "user"])
     repository = gh(["api", "repos/" + REPO])
     environment = gh(["api", "repos/" + REPO + "/environments/" + ENVIRONMENT])
@@ -150,6 +150,16 @@ def install():
     expected = {v["name"]: v["value"] for v in variables.get("variables", []) if v.get("name") in VARIABLES}
     if any(not expected.get(name) for name in VARIABLES):
         raise ValueError("The parent must prepare all four approved production environment variables first.")
+    if (any(not isinstance(expected[name], str) or not ID.fullmatch(expected[name])
+            for name in (VARIABLES[0], VARIABLES[1], VARIABLES[3])) or
+            expected[VARIABLES[1]] == expected[VARIABLES[3]] or
+            not isinstance(expected[VARIABLES[2]], str) or not DATABASE.fullmatch(expected[VARIABLES[2]])):
+        raise ValueError("Approved organization, distinct projects and database must have native identifiers.")
+    return expected
+
+
+def install():
+    expected = preflight()
     if not sys.stdin.isatty():
         raise ValueError("Run interactively in a private terminal; piped secret entry is refused.")
     print("Verified MarioGK / TerraScale/ts-orchestrator / production.")
