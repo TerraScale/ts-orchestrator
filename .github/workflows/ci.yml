@@ -1,6 +1,7 @@
 name: TerraScale Orchestrator Go checks
 
-# Every change is checked. Only changed executable/image inputs publish bytes.
+# PRs check affected packages; the merge queue qualifies the tree before main.
+# Main only builds and delivers changed executable/image inputs.
 on:
   push:
     branches: [develop, main]
@@ -34,35 +35,23 @@ env:
   # each try to use every CPU of the runner.
   GOFLAGS: -p=4
   GOMAXPROCS: '2'
-  # Pull requests run the fast tier (go test -short) in the packages the
-  # change reaches; the merge queue runs the whole fast tier; main runs every
-  # tier-gated test and the fixturetest build after the merge, so the full
-  # tier still gates every image and release.
-  TS_TEST_TIER: ${{ github.event_name == 'pull_request' && 'change' || github.event_name == 'merge_group' && 'pr' || 'full' }}
+  # All full-tier coverage moves before merge; main never repeats that suite.
+  TS_TEST_TIER: ${{ github.event_name == 'pull_request' && 'change' || 'full' }}
 
 jobs:
-  # The race suite, split across machines by scripts/ci/racetest/race-test.sh.
-  # Four machines (two for a pull request, which tests only what its change
-  # reaches): the org's free plan runs 20 jobs at once for every repository.
-  # A failed test in a package the change does not touch re-runs once.
-  # Machine 1, which has the least race work, also runs formatting, generated
-  # files, vet, shell lint, the pull request and merge queue release build and
-  # the TS-795 switch guard (fails when the change adds an on/off setting; the
-  # policy is vendored so fork PRs require no external credentials). Machine 2
-  # also runs the real containerd executor tests outside the merge queue.
-  race:
-    name: verify/race ${{ matrix.shard }}/${{ strategy.job-total }}
+  # PRs use one runner. The merge queue runs full coverage before main;
+  # scheduled/manual runs keep the same qualification path available.
+  change:
+    if: ${{ github.event_name == 'pull_request' }}
+    name: verify/change
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ${{ fromJSON(github.event_name == 'pull_request' && '[1, 2]' || '[1, 2, 3, 4]') }}
     env:
-      TS_CI_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
-      TS_RACE_JOBS: '6'
-      # Timer-bound controller labs run in their own pool beside the CPU jobs.
-      TS_RACE_IDLE_JOBS: '5'
+      TS_CI_SHARD: 1/1
+      TS_RACE_MACHINE: '1'
+      TS_RACE_JOBS: '2'
+      TS_RACE_PACKAGE_JOBS: '1'
+      TS_RACE_IDLE_JOBS: '1'
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -70,126 +59,56 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Check the change against the zero-configuration policy
-        if: ${{ matrix.shard == 1 }}
-        env:
-          ZERO_CONFIG_BASE: ${{ env.CHANGE_BASE }}
-        run: |
-          set -eu
-          if [ -z "$ZERO_CONFIG_BASE" ] || [ "$ZERO_CONFIG_BASE" = "0000000000000000000000000000000000000000" ]; then
-            ZERO_CONFIG_BASE=$(git rev-parse "$SOURCE_SHA^")
-          fi
-          python3 scripts/ci/zero-config-check.py "$ZERO_CONFIG_BASE" "$SOURCE_SHA"
-          python3 scripts/ci/test_zero_config_check.py -v
-          python3 -I -B -m unittest discover -s scripts/ci -p test_image_inputs_changed.py -v
-          python3 -I -B -m unittest discover -s scripts/ci -p test_ci_artifact_graph.py -v
-      - uses: ./.github/actions/go
+      - name: Select checks for changed files
+        id: changes
+        run: python3 scripts/ci/check-inputs.py "$CHANGE_BASE" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/verify
+        if: ${{ steps.changes.outputs.checks == 'true' }}
+
+  race:
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'push' || github.ref != 'refs/heads/main') }}
+    name: verify/race ${{ matrix.shard }}/${{ strategy.job-total }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      TS_CI_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+      TS_RACE_MACHINE: ${{ matrix.shard }}
+      TS_RACE_JOBS: '2'
+      TS_RACE_PACKAGE_JOBS: '1'
+      TS_RACE_IDLE_JOBS: '1'
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          cache: race-${{ matrix.shard }}
-      - name: Install shell validation tools
-        if: ${{ matrix.shard == 1 }}
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - name: Compare executable and image inputs with retained qualification
-        if: ${{ matrix.shard == 1 }}
-        id: inputs
-        shell: bash
-        env:
-          GITHUB_SHA: ${{ env.SOURCE_SHA }}
-        run: |
-          set -euo pipefail
-          status=0
-          python3 -B scripts/ci/release-inputs-changed.py || status=$?
-          case $status in
-            0) echo 'publication=required' >> "$GITHUB_OUTPUT" ;;
-            3) echo 'publication=unchanged' >> "$GITHUB_OUTPUT" ;;
-            *) exit "$status" ;;
-          esac
-      - name: Run this machine's race shards
-        shell: bash
-        env:
-          # Main's build job builds the release itself.
-          RELEASE_CHECK: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && steps.inputs.outputs.publication == 'required' && 'release-check' || '' }}
-        run: |
-          set -euo pipefail
-          if [[ $CHANGE_BASE != 0000000000000000000000000000000000000000 ]]; then
-            export TS_CHANGE_BASE=$CHANGE_BASE
-          fi
-          targets=race-test
-          if [[ ${TS_CI_SHARD%/*} == 1 ]]; then
-            targets="ci-check $RELEASE_CHECK"
-          fi
-          # shellcheck disable=SC2086 # targets is a word list
-          make --jobs $targets GO=go GOFMT=gofmt 2>&1 | tee "$RUNNER_TEMP/race.log"
-      - name: Keep the tests that passed only on retry
-        if: ${{ always() }}
-        shell: bash
-        run: grep '^race flaky ' "$RUNNER_TEMP/race.log" > "$RUNNER_TEMP/flakes.txt" || rm -f "$RUNNER_TEMP/flakes.txt"
-      - if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: flakes-${{ matrix.shard }}
-          path: ${{ runner.temp }}/flakes.txt
-          if-no-files-found: ignore
-          retention-days: 30
-      - name: Install containerd 2.4.2 and runc 1.3.4
-        if: ${{ matrix.shard == 2 && github.event_name != 'merge_group' }}
-        run: |
-          set -eu
-          work=$(mktemp -d)
-          curl -fsSL -o "$work/containerd.tar.gz" https://github.com/containerd/containerd/releases/download/v2.4.2/containerd-static-2.4.2-linux-amd64.tar.gz
-          curl -fsSL -o "$work/runc" https://github.com/opencontainers/runc/releases/download/v1.3.4/runc.amd64
-          printf '%s  %s\n' da656542e754c699a0f438eab925e6ffdbd6346a4428e659f83dc058f04dcffe "$work/containerd.tar.gz" 5966ca40b6187b30e33bfc299c5f1fe72e8c1aa01cf3fefdadf391668f47f103 "$work/runc" | sha256sum -c -
-          sudo systemctl stop containerd docker docker.socket 2>/dev/null || true
-          sudo tar -C /usr/local -xzf "$work/containerd.tar.gz"
-          sudo install -m 0755 "$work/runc" /usr/local/sbin/runc
-          sudo mkdir -p /run/ts-containerd
-          sudo sh -c '/usr/local/bin/containerd --address /run/ts-containerd/containerd.sock --root /var/lib/ts-containerd --state /run/ts-containerd/state > /tmp/containerd.log 2>&1 &'
-          for _ in $(seq 50); do sudo test -S /run/ts-containerd/containerd.sock && exit 0; sleep 0.2; done
-          cat /tmp/containerd.log
-          exit 1
-      - name: Run the containerd executor tests as root
-        if: ${{ matrix.shard == 2 && github.event_name != 'merge_group' }}
-        run: |
-          set -eu
-          go test -c -o "$RUNNER_TEMP/swarmruntime.test" ./internal/swarmruntime
-          cd internal/swarmruntime
-          sudo "$RUNNER_TEMP/swarmruntime.test" -test.v -test.count=1 -test.timeout=10m \
-            -test.run '^(TestContainerdBindMountSurvivesTaskRestart|TestContainerdReadinessUsesServicePath|TestContainerdServiceUpdateOnLivePort|TestContainerdFailedStartReleasesHostPort|TestContainerdMultiLayerImageStarts)$' \
-            -containerd-socket /run/ts-containerd/containerd.sock
-      - name: Run the single-host operator commands as root
-        if: ${{ matrix.shard == 2 && github.event_name != 'merge_group' }}
-        run: |
-          set -eu
-          go test -c -o "$RUNNER_TEMP/app.test" ./internal/app
-          cd internal/app
-          sudo "$RUNNER_TEMP/app.test" -test.v -test.count=1 -test.timeout=10m \
-            -test.run '^TestContainerdSingleHostOperatorCommands$' \
-            -containerd-socket /run/ts-containerd/containerd.sock
-      - name: Show containerd log on failure
-        if: ${{ failure() && matrix.shard == 2 && github.event_name != 'merge_group' }}
-        run: sudo cat /tmp/containerd.log || true
-      # Keep only the build and test cache entries this run used, so the four
-      # machines' caches stay inside the repository's 10 GB and none is
-      # evicted. Go refreshes a used entry's time at most hourly.
-      - name: Drop cache entries this run did not use
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: find ~/.cache/go-build -type f -mmin +120 -delete
-      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select checks for changed files
+        id: changes
+        run: python3 scripts/ci/check-inputs.py "$CHANGE_BASE" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/verify
+        if: ${{ steps.changes.outputs.checks == 'true' }}
+      # Weekly/manual main verification refreshes test caches; queue/PR runs only restore.
+      - if: ${{ github.ref == 'refs/heads/main' && steps.changes.outputs.checks == 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-race-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: go-race-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-${{ github.sha }}-${{ github.run_id }}
 
-  # Publishes a verified revision. Pull requests and merge groups publish
-  # nothing; their release build runs on race machine 1.
+  # Only retained main releases publish; the merge queue already checked the tree.
   build:
-    if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
+    needs: [race]
+    if: ${{ always() && github.event_name != 'pull_request' && github.event_name != 'merge_group' && (needs.race.result == 'success' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.race.result == 'skipped')) }}
     permissions:
       contents: write
-    # Builds beside the race machines so the release is ready the moment the
-    # checks pass; nothing deploys or qualifies before they do.
+      actions: write
+    # Main was qualified before merge; scheduled/develop builds await full checks.
     name: verify/go + artifact/linux-amd64-arm64
     outputs:
       publication: ${{ steps.inputs.outputs.publication }}
@@ -204,7 +123,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/go
         with:
-          cache: race-1
+          cache: release
       - name: Compare executable and image inputs with retained qualification
         id: inputs
         shell: bash
@@ -232,35 +151,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_READ_TOKEN: ${{ github.token }}
         run: bash scripts/ci/publish-qualification.sh
-
-  # Records qualification and starts the image only once every check passed.
-  qualified:
-    needs: [race, build]
-    if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' && needs.build.outputs.publication == 'required' }}
-    name: verify/qualified
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      actions: write
-      statuses: write
-    steps:
-      - name: Check out the exact source revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ env.SOURCE_SHA }}
-          persist-credentials: false
-      # Deployment failure must not erase the time this build became qualified.
-      - name: Record the qualified main build for the deployment-lag guard
-        if: ${{ needs.build.outputs.publication == 'required' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            -f state=success -f context=deployment/qualified \
-            -f description='Verified main build ready for automatic deployment'
       # Last, after the release is retained, so the image job never holds a
       # builder slot while it waits for these checks; it still confirms this
       # run succeeded and skips itself if it did not. The run's own result
@@ -269,19 +159,27 @@ jobs:
       # change to an image input (scripts/ci/image-inputs-changed.sh) or the
       # weekly schedule starts a build.
       - name: Start the image build for this revision
-        if: ${{ needs.build.outputs.publication == 'required' && github.ref == 'refs/heads/main' }}
+        if: ${{ steps.inputs.outputs.publication == 'required' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/dispatch-image.sh
 
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-release-${{ hashFiles('go.sum') }}-${{ github.sha }}
+
   # Push the retained release to every region's ts-orch over NATS
   # (deploy/m1/regions.json); fails when any region does not serve it. Only
   # this job can mint the GitHub OIDC token that is the push credential.
   release-push:
-    needs: [race, build]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}
+    needs: [build]
+    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}
     name: deploy/release-push
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -318,21 +216,36 @@ jobs:
           jq -r '"| \(.region) | \(.state // "-") | \(.connect_ms) | \(.accepted_ms) | \(.serving_ms) | \(.error // "") |"' "${RUNNER_TEMP}/release-push.jsonl" \
             | { printf '| Region | State | Connect ms | Accepted ms | Serving ms | Error |\n|---|---|---|---|---|---|\n'; cat; } >> "${GITHUB_STEP_SUMMARY}"
           exit "$status"
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-push-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-push.jsonl
+          if-no-files-found: ignore
+          retention-days: 30
 
   # The one required check: passes only when every job above passed.
   test:
     name: test
     if: ${{ always() }}
-    needs: [race, build]
+    needs: [change, race, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - env:
+          CHANGE: ${{ needs.change.result }}
           RACE: ${{ needs.race.result }}
           BUILD: ${{ needs.build.result }}
         run: |
-          echo "race=$RACE build=$BUILD"
-          test "$RACE" = success && { test "$BUILD" = success || test "$BUILD" = skipped; }
+          echo "change=$CHANGE race=$RACE build=$BUILD"
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            test "$CHANGE" = success
+          elif [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            test "$RACE" = skipped
+          else
+            test "$RACE" = success
+          fi
+          test "$BUILD" = success || test "$BUILD" = skipped
 
   # Weekly list of the tests that passed only on retry.
   flaky-report:

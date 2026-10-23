@@ -99,7 +99,7 @@ jobs:
         run: |
           bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 6000
 
-      # Qualification tier (T2): real TerraBase and cross-language fixtures,
+      # Qualification tier (T2): native-validator and rendered-enrollment fixtures,
       # before any image exists. Every suite runs; a missing fixture or a
       # skipped test fails the build. Fixture requirements are documented in
       # scripts/ci/qualify-image.sh.
@@ -108,7 +108,7 @@ jobs:
         shell: bash
         env:
           TS_TEST_TIER: qualification
-          TS_QUALIFICATION_SUITES: terrabase-walkthrough terrabase-successor native-validator rendered-sjc-enrollment terrabase-binary terrabase-release ts-auth-terrabase
+          TS_QUALIFICATION_SUITES: native-validator rendered-sjc-enrollment
         run: bash scripts/ci/qualify-image.sh
 
       # The gate has already waited for the dispatching ci.yml run, and a

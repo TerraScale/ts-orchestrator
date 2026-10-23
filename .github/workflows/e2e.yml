@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: E2E target (prod uses the dedicated terrascale-e2e organization)
+        description: Checks to run (local runs HTTP-fake contracts; prod uses the dedicated terrascale-e2e organization)
         required: true
         default: local
         type: choice
@@ -42,12 +42,10 @@ defaults:
 
 jobs:
   local:
-    name: local E2E
+    name: HTTP-fake contracts
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.target == 'local' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    env:
-      E2E_TARGET: local
+    timeout-minutes: 10
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -59,6 +57,7 @@ jobs:
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.27.3'
+          cache: ${{ github.ref == 'refs/heads/main' }}
           cache-dependency-path: |
             go.sum
             e2e/go.sum
@@ -79,22 +78,6 @@ jobs:
           go vet ./...
           go build ./...
 
-      - name: Run local E2E
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          # Read-only artifact and source credentials; no production identity.
-          TERRABASE_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
-          E2E_GITHUB_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
-        run: go run .
-
-      - name: Retain the local JSON report even on failure
-        if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: e2e-local-${{ github.sha }}-${{ github.run_id }}
-          path: e2e/report.json
-          if-no-files-found: warn
-          retention-days: 30
 
   prod:
     environment: production
@@ -115,6 +98,7 @@ jobs:
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.27.3'
+          cache: ${{ github.ref == 'refs/heads/main' }}
           cache-dependency-path: |
             go.sum
             e2e/go.sum

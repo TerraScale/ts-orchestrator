@@ -43,6 +43,7 @@ type Result struct {
 	ConnectMS  int64  `json:"connect_ms"`
 	AcceptedMS int64  `json:"accepted_ms"`
 	ServingMS  int64  `json:"serving_ms"`
+	ObservedAt string `json:"observed_at,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
 
@@ -208,6 +209,7 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	for {
 		if version, err := request(ctx, conn, SubjectVersion, nil, time.Second); err == nil && version.Version == release.SHA {
 			result.ServingMS = since()
+			result.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
 			return result
 		}
 		if time.Now().After(deadline) || ctx.Err() != nil {

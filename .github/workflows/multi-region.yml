@@ -49,8 +49,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 30 --json tagName,createdAt \
-            --jq '[.[] | select(.tagName | startswith("ci-"))] | sort_by(.createdAt) | last | .tagName // ""')
+          # Releases become visible before upload finishes; require the final qualification marker as well as the client.
+          tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=30" \
+            --jq '[.[] | select(.draft == false and (.tag_name | startswith("ci-")) and
+              any(.assets[]?; .name == "terrascale-orchestrator-linux-amd64") and
+              any(.assets[]?; .name == "qualification.json"))] |
+              sort_by(.created_at) | last | .tag_name // ""')
           test -n "$tag" || { echo "no ci-* release found" >&2; exit 1; }
           echo "Release: \`${tag}\`" | tee -a "${GITHUB_STEP_SUMMARY}"
           gh release download "$tag" --repo "${GITHUB_REPOSITORY}" --dir dist --pattern terrascale-orchestrator-linux-amd64

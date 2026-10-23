@@ -262,18 +262,12 @@ func TestReleasePushJob(t *testing.T) {
 		t.Fatal("id-token: write must be granted to the release-push job only, with contents: read")
 	}
 	requireText(t, build, "    outputs:\n      publication: ${{ steps.inputs.outputs.publication }}\n")
-	// The release builds beside the checks; only pushing waits for all of them.
-	requireText(t, push, "    needs: [race, build]\n")
+	// The merge queue qualifies main before the release is built and pushed.
+	requireText(t, push, "    needs: [build]\n")
 	_, buildJob, _ := strings.Cut(build, "\n  build:\n")
-	buildJob, _, _ = strings.Cut(buildJob, "\n  qualified:\n")
-	forbidText(t, buildJob, "    needs:")
-	forbidText(t, buildJob, "deployment/qualified")
-	forbidText(t, buildJob, "dispatch-image.sh")
-	_, qualified, _ := strings.Cut(build, "\n  qualified:\n")
-	requireText(t, qualified, "    needs: [race, build]\n")
-	requireText(t, qualified, "context=deployment/qualified")
-	requireText(t, qualified, "run: bash scripts/ci/dispatch-image.sh\n")
-	requireText(t, push, "    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}\n")
+	requireText(t, buildJob, "    needs: [race]\n")
+	requireText(t, buildJob, "run: bash scripts/ci/dispatch-image.sh\n")
+	requireText(t, push, "    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}\n")
 	if steps := matches(push, `(?m)^      - name: (.+)$`); !reflect.DeepEqual(steps, []string{
 		"Check out the region list", "Download this run's release binaries", "Push the release to every region"}) {
 		t.Fatalf("release-push steps: %v", steps)

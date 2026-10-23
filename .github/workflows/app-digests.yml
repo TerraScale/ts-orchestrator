@@ -7,11 +7,12 @@ name: App digests
 # admit this workflow's OIDC token for ts.release.mesh.state only.
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '17 6 * * *'
   workflow_dispatch:
   workflow_run:
     workflows: [App release canary]
     types: [completed]
+    branches: [main]
 
 concurrency:
   group: app-digests
@@ -22,6 +23,7 @@ permissions:
 
 jobs:
   record:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     name: app-digests/record
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -46,8 +48,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 30 --json tagName,createdAt \
-            --jq '[.[] | select(.tagName | startswith("ci-"))] | sort_by(.createdAt) | last | .tagName // ""')
+          # Releases become visible before upload finishes; require the final qualification marker as well as the client.
+          tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=30" \
+            --jq '[.[] | select(.draft == false and (.tag_name | startswith("ci-")) and
+              any(.assets[]?; .name == "terrascale-orchestrator-linux-amd64") and
+              any(.assets[]?; .name == "qualification.json"))] |
+              sort_by(.created_at) | last | .tag_name // ""')
           test -n "$tag"
           gh release download "$tag" --repo "${GITHUB_REPOSITORY}" --dir dist --pattern terrascale-orchestrator-linux-amd64
           chmod +x dist/terrascale-orchestrator-linux-amd64

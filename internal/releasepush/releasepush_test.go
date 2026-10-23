@@ -528,10 +528,35 @@ func TestListenerPin(t *testing.T) {
 	}
 }
 
+func TestPushRegionObservedAt(t *testing.T) {
+	now := time.Now()
+	i := newIssuer(t)
+	srv, auth, url, pin := startServerIn(t, i.verifier(now), t.TempDir())
+	local, err := auth.Connect(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	h := &Handler{Verifier: i.verifier(now), Revision: testSHA}
+	if err := h.Serve(local); err != nil {
+		t.Fatal(err)
+	}
+	release := OrchRelease{SHA: testSHA, Token: i.sign(t, goodClaims(now)), Binaries: map[string]Binary{
+		runtime.GOARCH: {URL: ReleaseURL(testSHA, "100", runtime.GOARCH), SHA256: strings.Repeat("0", 64)},
+	}}
+	start := time.Now()
+	result := pushRegion(t.Context(), Region{Region: "gru", NATS: url, SPKISHA256: pin}, release)
+	end := time.Now()
+	observed, err := time.Parse(time.RFC3339Nano, result.ObservedAt)
+	if result.Error != "" || err != nil || !strings.HasSuffix(result.ObservedAt, "Z") || observed.Before(start) || observed.After(end) {
+		t.Fatalf("result = %+v, observed timestamp error = %v", result, err)
+	}
+}
+
 // One region without a pin fails alone and is reported.
 func TestPushRegionWithoutPin(t *testing.T) {
 	result := pushRegion(context.Background(), Region{Region: "new", NATS: "tls://127.0.0.1:1"}, OrchRelease{})
-	if result.Region != "new" || !strings.Contains(result.Error, "spki_sha256") {
+	if result.Region != "new" || !strings.Contains(result.Error, "spki_sha256") || result.ObservedAt != "" {
 		t.Fatalf("result = %+v", result)
 	}
 }
