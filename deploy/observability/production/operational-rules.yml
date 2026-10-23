@@ -2,14 +2,13 @@ groups:
   - name: terrabase-operations
     rules:
       - alert: TerraBaseErasurePendingDay20
-        expr: max(terrabase_history_erasure_oldest_age_seconds) >= 1728000 or max(terrabase_purge_oldest_age_seconds) >= 1728000
-        for: 15m
+        expr: max(terrabase_history_erasure_oldest_age_seconds) >= 1728000 or max(terrabase_purge_oldest_age_seconds) >= 1728000 or max(terrabase_history_erasure_epoch_stalled) > 0
         labels:
           service: terrabase
           severity: warning
         annotations:
-          summary: A TerraBase deletion has been pending for 20 days
-          description: Inspect pending holders and erasure status; region removal requires explicit user authorization.
+          summary: A TerraBase deletion is overdue or stalled by a replica epoch change
+          description: Inspect pending holders; escalate epoch stalls to engineering (TS-875), never override coverage. Region removal requires explicit user authorization.
       - alert: TerraBaseBackupLag
         expr: terrabase_backup_lag_seconds{service="terrabase",region="gru"} > 600
         for: 2m

@@ -1,9 +1,12 @@
 # Pending deletion alert (TS-873)
 
 `TerraBaseErasurePendingDay20` fires when either a shared-history erasure or a
-database purge has remained pending for at least 20 days, sustained for 15
-minutes. It uses `terrabase_history_erasure_oldest_age_seconds` and
-`terrabase_purge_oldest_age_seconds` from TerraBase. An absent metric provides
+database purge has remained pending for at least 20 days, or a history erasure
+reports a replica-epoch stall. There is no additional hold: the rule fires on
+the first matching evaluation. It uses
+`terrabase_history_erasure_oldest_age_seconds`,
+`terrabase_purge_oldest_age_seconds` and
+`terrabase_history_erasure_epoch_stalled` from TerraBase. An absent metric provides
 no evidence that deletion completed.
 
 The rule is in `operational-rules.yml`, already loaded by the production
@@ -17,3 +20,9 @@ its GC hold and prevents completion. Bring it back; removing the region
 requires an explicit user decision. The alert never removes a region or
 overrides GC. Backup retention and rewrite failures can also keep a deletion
 pending, so the alert does not diagnose the cause.
+
+An epoch-stalled erasure stays stalled. Escalate to engineering (TS-875); there
+is no operator re-cut command or roots-only override. Missing old-epoch
+coverage is never accepted as completion. Scrape/evaluation intervals, normal
+Alertmanager grouping and delivery still apply; immediate rule firing is not
+a claim of instantaneous recipient delivery.
