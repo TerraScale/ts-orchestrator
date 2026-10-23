@@ -24,9 +24,6 @@ func scenarios() []scenario {
 		}},
 		{"terrabase.management-and-documents", []string{"terrabase", "ts-go"}, []string{"TS-481", "TS-512"}, documents},
 		{"terrabase.key-issuance", []string{"terrabase", "ts-go"}, []string{"TS-481", "TS-512"}, func(ctx context.Context, e *environment) error {
-			if e.Target == "prod" {
-				return pending{"TS-481", "SDK has no key-management method; production uses a pre-provisioned organization-scoped key"}
-			}
 			if !e.DocumentsKeyIssued {
 				return errors.New("document scenario did not issue its scoped API key")
 			}
@@ -78,36 +75,24 @@ func (t regionTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return res, nil
 }
 func documents(ctx context.Context, e *environment) (err error) {
-	managementURL := e.TerraBaseURL
-	if e.Target == "local" {
-		managementURL = e.AdminURL
+	if e.Target != "local" {
+		return errors.New("mutating document scenarios require the disposable local stack")
 	}
-	m, err := tb.NewManagement(tb.Config{Resolver: tb.StaticResolver(managementURL), Token: e.Credential, HTTPClient: e.HTTP, MaxRetries: -1})
+	m, err := tb.NewManagement(tb.Config{Resolver: tb.StaticResolver(e.AdminURL), Token: e.Credential, HTTPClient: e.HTTP, MaxRetries: -1})
 	if err != nil {
 		return err
 	}
 	u := m.As(e.UserID)
-	orgID := e.OrganizationID
-	if e.Target == "prod" {
-		org, err := u.Organization(ctx, orgID)
-		if err != nil {
-			return err
-		}
-		if org.Name != "terrascale-e2e" {
-			return errors.New("E2E_ORGANIZATION_ID must identify terrascale-e2e")
-		}
-	} else {
-		org, createErr := u.CreateOrganization(ctx, "terrascale-e2e")
-		if createErr != nil {
-			return createErr
-		}
-		orgID = org.ID
-		defer func() {
-			cleanup, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			err = errors.Join(err, u.DeleteOrganization(cleanup, orgID))
-		}()
+	org, createErr := u.CreateOrganization(ctx, "terrascale-e2e")
+	if createErr != nil {
+		return createErr
 	}
+	orgID := org.ID
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		err = errors.Join(err, u.DeleteOrganization(cleanup, orgID))
+	}()
 	projectName := "e2e-" + strings.ToLower(rand.Text())
 	// Register before the mutation: a lost create response still leaves an owned name.
 	defer func() {
@@ -123,14 +108,11 @@ func documents(ctx context.Context, e *environment) (err error) {
 	if err != nil {
 		return err
 	}
-	key := e.APIKey
-	if e.Target == "local" {
-		key, err = issueLocalKey(ctx, e, orgID, project.ID)
-		if err != nil {
-			return err
-		}
-		e.DocumentsKeyIssued = true
+	key, err := issueLocalKey(ctx, e, orgID, project.ID)
+	if err != nil {
+		return err
 	}
+	e.DocumentsKeyIssued = true
 	e.APIKey = key
 	hc := *e.HTTP
 	base := hc.Transport
@@ -276,8 +258,7 @@ func issueLocalKey(ctx context.Context, e *environment, org, project string) (st
 	return key.Secret, nil
 }
 
-// Reconcile the run's unique name even when a create response was lost. The
-// existing production organization and key are never cleanup targets.
+// Reconcile the local run's unique name even when a create response was lost.
 func cleanupProject(ctx context.Context, u *tb.ManagementUser, org, name string) error {
 	for cursor := ""; ; {
 		page, err := u.Projects(ctx, org, tb.PageOptions{Limit: 100, After: cursor})
