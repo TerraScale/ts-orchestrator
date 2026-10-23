@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-const fixtureTopic = "fixture-only-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+const fixtureTopic = "fixture-only-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func fixtureReadTopic(context.Context) (string, error) { return fixtureTopic, nil }
 

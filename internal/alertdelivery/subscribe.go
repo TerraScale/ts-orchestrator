@@ -17,7 +17,7 @@ import (
 )
 
 // Reject short topics and characters that could escape a URL path or terminal line.
-var pushTopicRE = regexp.MustCompile(`^[A-Za-z0-9_-]{43,128}$`)
+var pushTopicRE = regexp.MustCompile(`^[A-Za-z0-9_-]{43,64}$`)
 
 func validPushTopic(topic string) bool { return pushTopicRE.MatchString(topic) }
 
@@ -53,14 +53,28 @@ func (r relay) subscribe(ctx context.Context) error {
 	return confirmSubscription(ctx, terminal, topic, client)
 }
 
-func confirmSubscription(ctx context.Context, terminal io.ReadWriter, topic string, client *http.Client) error {
+func confirmSubscription(ctx context.Context, terminal io.ReadWriteCloser, topic string, client *http.Client) error {
 	if !validPushTopic(topic) {
 		return errors.New("push Vault topic invalid")
 	}
+	if ctx.Err() != nil {
+		return errors.New("subscription confirmation canceled; no test sent")
+	}
+	// Closing the owned terminal interrupts a pending read without a reader goroutine.
+	closed := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		_ = terminal.Close()
+		close(closed)
+	})
+	defer func() {
+		if !stop() {
+			<-closed
+		}
+	}()
 	if _, err := fmt.Fprintf(terminal, "Private topic: %s\nSubscribe: https://ntfy.sh/%s\nKeep this link private. Subscribe in ntfy, then press Enter to send one test alert: ", topic, topic); err != nil {
 		return errors.New("subscription terminal unavailable")
 	}
-	if _, err := bufio.NewReader(terminal).ReadString('\n'); err != nil {
+	if _, err := bufio.NewReader(terminal).ReadString('\n'); err != nil || ctx.Err() != nil {
 		return errors.New("subscription confirmation canceled; no test sent")
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://127.0.0.1:9094/alerts", strings.NewReader(`{"status":"firing","alerts":[{"status":"firing","labels":{"alertname":"SubscriptionTest","service":"ts-alerts","region":"gru","severity":"info"}}]}`))
