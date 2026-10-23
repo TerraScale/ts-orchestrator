@@ -738,7 +738,7 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 	evidenceDir := o.ProductionEvidenceDir
 	if evidenceDir == "" {
 		evidenceDir = filepath.Join(filepath.Dir(files.qualification), "image-production")
-		if _, e = p.run(false, "bash", filepath.Join(root, "scripts/ci/fetch-image-production-evidence.sh"), p.manifest.Candidate.Tag,
+		if _, e = p.run(false, "bash", filepath.Join(root, "deploy/image/fetch-production-evidence.sh"), p.manifest.Candidate.Tag,
 			p.manifest.Image.SHA256, region, "arm64", evidenceDir); e != nil {
 			return fmt.Errorf("acquire final image production qualification: %w", e)
 		}

@@ -35,6 +35,22 @@ jobs:
           sparse-checkout: deploy/m1/regions.json
           sparse-checkout-cone-mode: false
 
+      - name: Download the newest main ts-orch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Releases become visible before upload finishes; require the final qualification marker as well as the client.
+          tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=30" \
+            --jq '[.[] | select(.draft == false and (.tag_name | startswith("ci-")) and
+              any(.assets[]?; .name == "terrascale-orchestrator-linux-amd64") and
+              any(.assets[]?; .name == "qualification.json"))] |
+              sort_by(.created_at) | last | .tag_name // ""')
+          test -n "$tag"
+          gh release download "$tag" --repo TerraScale/ts-orchestrator --dir dist --pattern terrascale-orchestrator-linux-amd64
+          chmod +x dist/terrascale-orchestrator-linux-amd64
+
       - name: Publish the canary image
         id: image
         shell: bash
@@ -43,6 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           image=ghcr.io/terrascale/app-canary
+          # shellcheck disable=SC2016 # Docker expands this build argument.
           printf '%s\n' 'FROM docker.io/traefik/whoami@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44' \
             'ARG REVISION' 'LABEL org.opencontainers.image.revision=$REVISION' > "${RUNNER_TEMP}/Dockerfile"
           echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
@@ -56,18 +73,6 @@ jobs:
           test -n "$digest"
           echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
           echo "Published \`${image}@${digest}\` (linux/arm64)" | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Download the newest main ts-orch
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag=$(gh release list --repo TerraScale/ts-orchestrator --limit 30 --json tagName,createdAt \
-            --jq '[.[] | select(.tagName | startswith("ci-"))] | sort_by(.createdAt) | last | .tagName // ""')
-          test -n "$tag"
-          gh release download "$tag" --repo TerraScale/ts-orchestrator --dir dist --pattern terrascale-orchestrator-linux-amd64
-          chmod +x dist/terrascale-orchestrator-linux-amd64
 
       - name: Release to every region
         shell: bash

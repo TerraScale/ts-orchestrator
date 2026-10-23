@@ -13,7 +13,8 @@
 # detector: mark only tests whose code paths start no goroutine, and give
 # their cost without it. "norace solo" gives one such test its own shard.
 # The first matching line wins; a test no line matches costs one second.
-# Packages that are not sharded are packed into one group per CI machine
+# Packages that are not sharded are packed into one group per CPU worker slot
+# per CI machine
 # by their "<package> -" cost; "rest" is the cost of each one without a line.
 #
 # Refreshed from CI run 883 (main, 2026-10-03) and local timings at
@@ -23,7 +24,9 @@
 # times one test. Keep the numbers rounded; changing a cpu estimate can move
 # tests between shards, which re-runs those shards once.
 
-rest - 1
+# PR run 39893598465: 18 default-cost packages made the 238s group take
+# 360s including compilation. Include that overhead so it starts first.
+rest - 1/8
 
 # Unsharded packages, from CI run 39670774526 (pull request, 2026-10-21),
 # doubled and tests/deploy times five from four-machine runs 39698932024

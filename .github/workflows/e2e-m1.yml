@@ -30,14 +30,22 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+          fetch-depth: 0
+      - name: Select checks for changed files
+        id: changes
+        env:
+          CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: python3 scripts/ci/check-inputs.py "$CHANGE_BASE" HEAD >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/go
+        if: ${{ steps.changes.outputs.checks == 'true' }}
         with:
-          go-version: '1.27.3'
-          cache-dependency-path: go.sum
+          cache: release
       - name: Build ts-orch
+        if: ${{ steps.changes.outputs.checks == 'true' }}
         run: |
           start=$(date +%s)
           go build -trimpath -o "$RUNNER_TEMP/terrascale-orchestrator" ./cmd/terrascale-orchestrator
           echo "build: $(($(date +%s) - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run the M1 flow
+        if: ${{ steps.changes.outputs.checks == 'true' }}
         run: test/e2e/m1/run.sh "$RUNNER_TEMP/terrascale-orchestrator"

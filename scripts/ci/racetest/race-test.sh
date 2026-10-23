@@ -24,8 +24,9 @@
 # listed test runs once, and any failure fails CI. Vet runs separately over
 # the whole module in make verify/ci-verify.
 #
-# Packages that are not sharded run as one group per CI machine, packed by
-# their "<package> - <seconds>" estimates. TS_CI_SHARD=<index>/<count> runs
+# Packages that are not sharded use one group per CPU worker slot per CI
+# machine, packed by their "<package> - <seconds>" estimates.
+# TS_CI_SHARD=<index>/<count> runs
 # only this machine's part of the queue: every machine plans the same queue
 # and takes the shards that longest-first packing gives it, so a test always
 # lands on the same machine and its cached result stays valid.
@@ -271,9 +272,9 @@ mapfile -t other_packages < <(grep -v -x -F -f "$logs/sharded" "$logs/packages")
 # holding each changed file (for a file in a non-package directory such as
 # testdata, its nearest package ancestor) and every package whose code or
 # tests import one of those. Markdown and docs/ reach no package; any other
-# file without a package ancestor (go.mod, scripts, third_party, workflows),
+# file without a package ancestor or an explicit owner (go.mod, third_party),
 # or no change base, reaches every package. The merge queue still runs the
-# whole fast tier, so this only shortens pull request feedback.
+# whole full tier, so this only shortens pull request feedback.
 if [[ $tier == change ]]; then
 	declare -A package_at=()
 	root=$("${go[@]}" list -m -f '{{.Dir}}')
@@ -286,6 +287,19 @@ if [[ $tier == change ]]; then
 	: > "$logs/touched"
 	while ((!reach_all)) && IFS= read -r file; do
 		case $file in docs/* | *.md) continue ;; esac
+		owners=()
+		case $file in
+			.github/*) owners=(tests/ci) ;;
+			deploy/image/build-image.sh | deploy/image/publish-image.sh) owners=(tests/deploy) ;;
+			deploy/image/fetch-production-evidence.sh) owners=(internal/release/cli internal/image internal/attempt tests/deploy) ;;
+		esac
+		if ((${#owners[@]})); then
+			for owner in "${owners[@]}"; do
+				if [[ -z ${package_at[$owner]:-} ]]; then reach_all=1; break; fi
+				printf '%s\n' "${package_at[$owner]}" >> "$logs/touched"
+			done
+			continue
+		fi
 		dir=$file
 		while [[ $dir == */* ]]; do
 			dir=${dir%/*}
@@ -364,7 +378,7 @@ if ((${#other_packages[@]})); then
 		[[ $package != "$module" ]] || local_package=.
 		printf '%s %s\n' "${package_cost[$local_package]:-$rest_cost}" "$package"
 	done > "$logs/rest"
-	pack '' "$logs/rest" packages cpu "$machines"
+	pack '' "$logs/rest" packages cpu "$((machines * jobs))"
 fi
 for package in "${sharded_packages[@]}"; do
 	base=${package##*/}

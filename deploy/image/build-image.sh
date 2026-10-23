@@ -13,7 +13,7 @@
 #     ci.yml run on main for SOURCE, found through the Actions API. With
 #     --wait-for-ci, a still-running ci.yml run is awaited.
 # Writes the architecture-matching QCOW2, guest-kernel, image-qualification.json
-# and SHA256SUMS to DIRECTORY. Publishing is publish-image.sh's job.
+# and SHA256SUMS to DIRECTORY for offline inspection and admission.
 set -euo pipefail
 
 repository_root=$(cd -- "$(dirname -- "$(realpath -- "$0")")/../.." && pwd)

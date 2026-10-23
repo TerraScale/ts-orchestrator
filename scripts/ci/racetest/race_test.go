@@ -345,8 +345,20 @@ func (f schedulerFixture) complete(t *testing.T, r script.Result, short bool) {
 	}
 	requireText(t, r.Stdout, "race queue bootstrapstart-norace-0 pool=norace estimate=4s")
 	requireText(t, r.Stdout, "race queue bootstrapstart-"+noraceSolo+" pool=norace estimate=3s")
-	if len(queue) != 14 || !slices.IsSortedFunc(estimates, func(a, b int) int { return b - a }) {
-		t.Fatalf("queue is not longest first: %v", queue)
+	ordinary := map[string]bool{}
+	for _, test := range f.expected {
+		pkg, _, _ := strings.Cut(test, "/")
+		if pkg != "app" && pkg != "bootstrapstart" && pkg != "deploy" {
+			ordinary[pkg] = true
+		}
+	}
+	wantGroups := min(len(ordinary), 2)
+	if got := len(lines(r.Stdout, "race queue packages-")); got != wantGroups {
+		t.Fatalf("ordinary package groups=%d, want %d", got, wantGroups)
+	}
+	// The fixture's sharded packages contribute thirteen fixed shards.
+	if len(queue) != 13+wantGroups || !slices.IsSortedFunc(estimates, func(a, b int) int { return b - a }) {
+		t.Fatalf("queue count/order wrong (want %d): %v", 13+wantGroups, queue)
 	}
 }
 
@@ -471,6 +483,50 @@ func TestRaceScheduler(t *testing.T) {
 		}
 		requireText(t, r.Stderr, "TS_CI_SHARD must be <index>/<count>")
 	})
+	// Ordinary packages fill the CPU workers across machines instead of
+	// sharing one serial group per machine.
+	t.Run("package_groups", func(t *testing.T) {
+		t.Parallel()
+		f := newScheduler(t)
+		for i := range 4 {
+			identity := fmt.Sprintf("ordinary%d/TestOrdinary", i)
+			source := fmt.Sprintf(`package fixture
+import("fmt";"os";"testing")
+func TestOrdinary(t *testing.T){f,err:=os.OpenFile(os.Getenv("TEST_RECORD"),os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600);if err!=nil{t.Fatal(err)};defer f.Close();fmt.Fprintln(f,%q);if os.Getenv("FAIL_ORDINARY")==%q{t.Fatal("ordinary package failure")}}
+`, identity, identity)
+			script.Write(t, filepath.Join(f.root, "internal", fmt.Sprintf("ordinary%d", i), "fixture_test.go"), []byte(source), 0o644)
+			f.expected = append(f.expected, identity)
+		}
+		slices.Sort(f.expected)
+		groups := map[string]bool{}
+		for i := range 2 {
+			r := f.run(t, map[string]string{"TS_CI_SHARD": fmt.Sprintf("%d/2", i+1), "TS_RACE_PACKAGE_JOBS": "1"})
+			if r.Code != 0 {
+				t.Fatalf("machine %d exit %d: %s %s", i+1, r.Code, r.Stdout, r.Stderr)
+			}
+			for _, name := range lines(r.Stdout, "race start packages-") {
+				if groups[name] {
+					t.Fatalf("package group assigned twice: %s", name)
+				}
+				groups[name] = true
+			}
+			state := f.readState(t)
+			if state.Active != 0 || state.CPUMaximum > 2 || state.IdleMaximum > 1 {
+				t.Fatalf("worker bounds exceeded: %+v", state)
+			}
+		}
+		tests := strings.Fields(string(script.Read(t, f.record)))
+		slices.Sort(tests)
+		if len(groups) != 4 || !reflect.DeepEqual(tests, f.expected) {
+			t.Fatalf("four groups must cover every test once: groups=%v got=%v want=%v", groups, tests, f.expected)
+		}
+		r := f.run(t, map[string]string{"FAIL_ORDINARY": "ordinary2/TestOrdinary", "TS_RACE_PACKAGE_JOBS": "1"})
+		if r.Code == 0 {
+			t.Fatal("ordinary package failure passed")
+		}
+		requireText(t, r.Stdout, "ordinary package failure")
+	})
+
 	// A failure outside the changed packages re-runs once; inside, it is final.
 	for name, touch := range map[string]string{"untouched": "README", "touched": "internal/app/notes.txt"} {
 		t.Run("flaky_"+name, func(t *testing.T) {
@@ -508,10 +564,31 @@ func TestRaceScheduler(t *testing.T) {
 	}
 	// The change tier runs only the packages a change reaches; a file outside
 	// every package reaches all of them, and docs reach none.
-	for touch, want := range map[string]string{"internal/bootstrapstart/testdata/spec.txt": "bootstrapstart/", "scripts/tool.sh": "", "docs/notes.md": "-"} {
+	for touch, want := range map[string]string{
+		"internal/bootstrapstart/testdata/spec.txt": "bootstrapstart/",
+		"scripts/tool.sh": "", "docs/notes.md": "-",
+		".github/workflows/ci.yml":                  "ci/",
+		".github/actions/verify/action.yml":         "ci/",
+		".github/missing-owner.yml":                 "",
+		"deploy/image/build-image.sh":               "deploy/",
+		"deploy/image/publish-image.sh":             "deploy/",
+		"deploy/image/fetch-production-evidence.sh": "releasecli/ image/ attempt/ deploy/",
+		"deploy/image/image-inputs.json":            "",
+	} {
 		t.Run("change_"+touch, func(t *testing.T) {
 			t.Parallel()
 			f := newScheduler(t)
+			if touch != ".github/missing-owner.yml" {
+				for dir, identity := range map[string]string{"tests/ci": "ci", "internal/release/cli": "releasecli", "internal/image": "image", "internal/attempt": "attempt"} {
+					source := fmt.Sprintf(`package fixture
+import("fmt";"os";"testing")
+func TestOwner(t *testing.T){f,err:=os.OpenFile(os.Getenv("TEST_RECORD"),os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600);if err!=nil{t.Fatal(err)};defer f.Close();fmt.Fprintln(f,%q)}
+`, identity+"/TestOwner")
+					script.Write(t, filepath.Join(f.root, dir, "fixture_test.go"), []byte(source), 0o644)
+					f.expected = append(f.expected, identity+"/TestOwner")
+				}
+				slices.Sort(f.expected)
+			}
 			git := func(args ...string) string {
 				t.Helper()
 				r := script.Exec(t, f.root, map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}, "git", args...)
@@ -520,11 +597,20 @@ func TestRaceScheduler(t *testing.T) {
 				}
 				return strings.TrimSpace(r.Stdout)
 			}
+			if touch == "deploy/image/publish-image.sh" {
+				script.Write(t, filepath.Join(f.root, touch), []byte("old\n"), 0o644)
+			}
 			git("init", "-q")
 			git("add", ".")
 			git("commit", "-q", "-m", "base")
 			base := git("rev-parse", "HEAD")
-			script.Write(t, filepath.Join(f.root, touch), []byte("change\n"), 0o644)
+			if touch == "deploy/image/publish-image.sh" {
+				if err := os.Remove(filepath.Join(f.root, touch)); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				script.Write(t, filepath.Join(f.root, touch), []byte("change\n"), 0o644)
+			}
 			git("add", ".")
 			git("commit", "-q", "-m", "change")
 			r := f.run(t, map[string]string{"TS_TEST_TIER": "change", "TS_CHANGE_BASE": base})
@@ -537,8 +623,19 @@ func TestRaceScheduler(t *testing.T) {
 			}
 			record, _ := os.ReadFile(f.record)
 			for _, test := range strings.Fields(string(record)) {
-				if !strings.HasPrefix(test, want) {
+				allowed := false
+				for prefix := range strings.FieldsSeq(want) {
+					allowed = allowed || strings.HasPrefix(test, prefix)
+				}
+				if !allowed {
 					t.Fatalf("%s ran for a change to %s", test, touch)
+				}
+			}
+			if want != "-" {
+				for prefix := range strings.FieldsSeq(want) {
+					if !strings.Contains(string(record), prefix) {
+						t.Fatalf("owner %s did not run for %s: %s", prefix, touch, record)
+					}
 				}
 			}
 			if ran := len(strings.Fields(string(record))) > 0; ran != (want != "-") {

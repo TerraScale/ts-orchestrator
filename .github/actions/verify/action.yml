@@ -1,0 +1,109 @@
+name: Check one share of the change
+description: Run the existing Go, shell and policy checks with bounded CPU concurrency.
+runs:
+  using: composite
+  steps:
+    - name: Check the change against the zero-configuration policy
+      if: ${{ env.TS_RACE_MACHINE == '1' }}
+      env:
+        ZERO_CONFIG_BASE: ${{ env.CHANGE_BASE }}
+      shell: bash
+      run: |
+        set -eu
+        if [ -z "$ZERO_CONFIG_BASE" ] || [ "$ZERO_CONFIG_BASE" = "0000000000000000000000000000000000000000" ]; then
+          ZERO_CONFIG_BASE=$(git rev-parse "$SOURCE_SHA^")
+        fi
+        python3 scripts/ci/zero-config-check.py "$ZERO_CONFIG_BASE" "$SOURCE_SHA"
+        python3 scripts/ci/test_zero_config_check.py -v
+        python3 -I -B -m unittest discover -s scripts/ci -p test_ci_artifact_graph.py -v
+        python3 -I -B -m unittest discover -s scripts/ci -p test_check_inputs.py -v
+    - uses: ./.github/actions/go
+      with:
+        cache: race-${{ env.TS_RACE_MACHINE }}
+    - name: Install shell validation tools
+      if: ${{ env.TS_RACE_MACHINE == '1' }}
+      shell: bash
+      run: command -v shellcheck >/dev/null || { sudo apt-get update && sudo apt-get install -y shellcheck; }
+    - name: Compare executable inputs with retained qualification
+      if: ${{ env.TS_RACE_MACHINE == '1' }}
+      id: inputs
+      shell: bash
+      env:
+        GITHUB_SHA: ${{ env.SOURCE_SHA }}
+      run: |
+        set -euo pipefail
+        status=0
+        python3 -B scripts/ci/release-inputs-changed.py || status=$?
+        case $status in
+          0) echo 'publication=required' >> "$GITHUB_OUTPUT" ;;
+          3) echo 'publication=unchanged' >> "$GITHUB_OUTPUT" ;;
+          *) exit "$status" ;;
+        esac
+    - name: Run this machine's race shards
+      shell: bash
+      env:
+        # Main's build job builds the release itself.
+        RELEASE_CHECK: ${{ github.event_name == 'merge_group' && steps.inputs.outputs.publication == 'required' && 'release-check' || '' }}
+      run: |
+        set -euo pipefail
+        if [[ $CHANGE_BASE != 0000000000000000000000000000000000000000 ]]; then
+          export TS_CHANGE_BASE=$CHANGE_BASE
+        fi
+        targets=race-test
+        if [[ ${TS_CI_SHARD%/*} == 1 ]]; then
+          targets="ci-check $RELEASE_CHECK"
+        fi
+        # shellcheck disable=SC2086 # targets is a word list
+        make --jobs $targets GO=go GOFMT=gofmt 2>&1 | tee "$RUNNER_TEMP/race.log"
+    - name: Keep the tests that passed only on retry
+      if: ${{ always() }}
+      shell: bash
+      run: grep '^race flaky ' "$RUNNER_TEMP/race.log" > "$RUNNER_TEMP/flakes.txt" || rm -f "$RUNNER_TEMP/flakes.txt"
+    - if: ${{ always() }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: flakes-${{ env.TS_RACE_MACHINE }}
+        path: ${{ runner.temp }}/flakes.txt
+        if-no-files-found: ignore
+        retention-days: 30
+    - name: Install containerd 2.4.2 and runc 1.3.4
+      if: ${{ env.TS_RACE_MACHINE == '2' && github.event_name != 'pull_request' }}
+      shell: bash
+      run: |
+        set -eu
+        work=$(mktemp -d)
+        curl -fsSL -o "$work/containerd.tar.gz" https://github.com/containerd/containerd/releases/download/v2.4.2/containerd-static-2.4.2-linux-amd64.tar.gz
+        curl -fsSL -o "$work/runc" https://github.com/opencontainers/runc/releases/download/v1.3.4/runc.amd64
+        printf '%s  %s\n' da656542e754c699a0f438eab925e6ffdbd6346a4428e659f83dc058f04dcffe "$work/containerd.tar.gz" 5966ca40b6187b30e33bfc299c5f1fe72e8c1aa01cf3fefdadf391668f47f103 "$work/runc" | sha256sum -c -
+        sudo systemctl stop containerd docker docker.socket 2>/dev/null || true
+        sudo tar -C /usr/local -xzf "$work/containerd.tar.gz"
+        sudo install -m 0755 "$work/runc" /usr/local/sbin/runc
+        sudo mkdir -p /run/ts-containerd
+        sudo sh -c '/usr/local/bin/containerd --address /run/ts-containerd/containerd.sock --root /var/lib/ts-containerd --state /run/ts-containerd/state > /tmp/containerd.log 2>&1 &'
+        for _ in $(seq 50); do sudo test -S /run/ts-containerd/containerd.sock && exit 0; sleep 0.2; done
+        cat /tmp/containerd.log
+        exit 1
+    - name: Run the containerd executor tests as root
+      if: ${{ env.TS_RACE_MACHINE == '2' && github.event_name != 'pull_request' }}
+      shell: bash
+      run: |
+        set -eu
+        go test -c -o "$RUNNER_TEMP/swarmruntime.test" ./internal/swarmruntime
+        cd internal/swarmruntime
+        sudo "$RUNNER_TEMP/swarmruntime.test" -test.v -test.count=1 -test.timeout=10m \
+          -test.run '^(TestContainerdBindMountSurvivesTaskRestart|TestContainerdReadinessUsesServicePath|TestContainerdServiceUpdateOnLivePort|TestContainerdFailedStartReleasesHostPort|TestContainerdMultiLayerImageStarts)$' \
+          -containerd-socket /run/ts-containerd/containerd.sock
+    - name: Run the single-host operator commands as root
+      if: ${{ env.TS_RACE_MACHINE == '2' && github.event_name != 'pull_request' }}
+      shell: bash
+      run: |
+        set -eu
+        go test -c -o "$RUNNER_TEMP/app.test" ./internal/app
+        cd internal/app
+        sudo "$RUNNER_TEMP/app.test" -test.v -test.count=1 -test.timeout=10m \
+          -test.run '^TestContainerdSingleHostOperatorCommands$' \
+          -containerd-socket /run/ts-containerd/containerd.sock
+    - name: Show containerd log on failure
+      if: ${{ failure() && env.TS_RACE_MACHINE == '2' && github.event_name != 'pull_request' }}
+      shell: bash
+      run: sudo cat /tmp/containerd.log || true

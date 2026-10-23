@@ -1,11 +1,9 @@
 name: Deployment lag guard
 
-# After each main push's checks and deploy/release-push, and hourly so a
-# deployment that never happens (here or in another service) still alerts
-# within the 30-minute lag limit's next hour.
+# Check the live M1 release path after main delivery and once daily.
 on:
   schedule:
-    - cron: '23 * * * *'
+    - cron: '23 4 * * *'
   workflow_dispatch:
   workflow_run:
     workflows: [TerraScale Orchestrator Go checks]
@@ -31,7 +29,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-      statuses: read
+      checks: read
       issues: write
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -50,24 +48,11 @@ jobs:
           go-version: '1.27.3'
 
 
-      - name: Compare qualified builds with fresh regional deployment proofs
+      - name: Compare main publications with M1 release completion
         shell: bash
         env:
           GH_READ_TOKEN: ${{ github.token }}
           GH_WRITE_TOKEN: ${{ github.token }}
-          TS_OBJECT_NAMESPACE: ${{ vars.TS_OBJECT_NAMESPACE }}
-          TS_DEPLOY_OCI_USER: ${{ vars.TS_DEPLOY_OCI_USER }}
-          TS_DEPLOY_OCI_TENANCY: ${{ vars.TS_DEPLOY_OCI_TENANCY }}
-          TS_DEPLOY_OCI_FINGERPRINT: ${{ vars.TS_DEPLOY_OCI_FINGERPRINT }}
-          TS_DEPLOY_OCI_KEY: ${{ secrets.TS_DEPLOY_OCI_KEY }}
         run: |
           set -euo pipefail
-          umask 077
-          work=$(mktemp -d)
-          trap 'rm -rf -- "$work"' EXIT
-          printf '%s\n' "$TS_DEPLOY_OCI_KEY" > "$work/key.pem"
-          unset TS_DEPLOY_OCI_KEY
-          printf '[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=sa-saopaulo-1\nkey_file=%s\n' \
-            "$TS_DEPLOY_OCI_USER" "$TS_DEPLOY_OCI_FINGERPRINT" "$TS_DEPLOY_OCI_TENANCY" "$work/key.pem" > "$work/config"
-          export OCI_CONFIG_FILE="$work/config"
           go run ./scripts/ci/deploylag
