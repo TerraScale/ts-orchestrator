@@ -174,6 +174,12 @@ func TestServiceSpecExactEvidenceRejectsUnrelatedArtifact(t *testing.T) {
 	if err != nil || len(rollout.Tasks) != 1 || rollout.Tasks[0].Machine != spec.Node || rollout.Tasks[0].Image != spec.Image || rollout.Tasks[0].Ready {
 		t.Fatalf("runtime evidence: %+v, %v", rollout, err)
 	}
+	// A founder node keeps the fixed single-host identity: the task runs on the checking machine.
+	control.machine = singleHostID
+	if founder, err := WaitServiceSpecExact(t.Context(), control, spec); err != nil || founder.Tasks[0].Machine != spec.Node {
+		t.Fatalf("founder evidence: %+v, %v", founder, err)
+	}
+	control.machine = spec.Node
 	// An unchanged workload retains its original task metadata in SwarmKit.
 	control.task.SpecVersion.Index--
 	control.task.ServiceAnnotations.Labels[LabelGeneration] = "6"

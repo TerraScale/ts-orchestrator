@@ -79,7 +79,15 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 		if err != nil {
 			return rollout, err
 		}
-		if node.Node == nil || node.Node.Description == nil || node.Node.Description.Hostname != requested.Node {
+		if node.Node == nil || node.Node.Description == nil {
+			return rollout, fmt.Errorf("task %s runs on an unexpected machine", task.ID)
+		}
+		machine := node.Node.Description.Hostname
+		// The founder node keeps the fixed singleHostID; the mesh node checking is that founder.
+		if machine == singleHostID {
+			machine = requested.Node
+		}
+		if machine != requested.Node {
 			return rollout, fmt.Errorf("task %s runs on an unexpected machine", task.ID)
 		}
 		if probe != nil {
@@ -88,7 +96,7 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 			}
 		}
 		rollout.Tasks = append(rollout.Tasks, ServiceTaskEvidence{ServiceID: service.ID, TaskID: task.ID, NodeID: task.NodeID,
-			Machine: node.Node.Description.Hostname, Image: container.Image, Generation: generation, Ready: probe != nil, Deployment: deployment, DeploymentFloor: floor})
+			Machine: machine, Image: container.Image, Generation: generation, Ready: probe != nil, Deployment: deployment, DeploymentFloor: floor})
 	}
 	latest, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
 	if err != nil {
