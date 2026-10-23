@@ -42,9 +42,19 @@ metadata match. Verification adds no forced restart.
 Each mesh service persists its signed repository, workflow run ID, approved
 image and revision. Lower run IDs and different artifacts from the same run are
 rejected, even if they arrive with a newer wall-clock generation. Operator
-applies/removals and automatic rollback retain the watermark. Anti-entropy
-rejects older deployment identities too. Do not delete desired state to make an
-old workflow succeed.
+applies/removals and automatic rollback retain the watermark. `deployment` is
+the entry's signed release authority; operator entries leave it absent and inherit
+only `deploymentFloor`. Peer sync and release state reads merge the highest
+accepted floor independently of which entry wins, including from a losing
+rollback. A winning operator update/removal therefore converges even if its node
+missed a signed rollout and inherited a lower floor. Reconciliation waits for
+both the winner and floor to persist. Signed entries still reject older runs,
+different repositories and same-run artifact changes; inheriting a floor never
+turns an operator entry into a signed release. Do not delete desired state to make
+an old workflow succeed. Older persisted entries without `deploymentFloor` retain
+their existing `deployment` as both authority and floor conservatively; reissue a
+reviewed operator apply after all founders are upgraded if such an old entry is
+blocked by unequal floors.
 
 On release failure, the existing bounded rollback restores the previous spec.
 Its compare-and-swap requires the failed release's generation still to be

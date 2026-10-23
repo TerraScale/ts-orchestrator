@@ -57,7 +57,7 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	if previous == nil {
 		return nil, fmt.Errorf("%s is not a mesh service", service)
 	}
-	if err := acceptsDeployment(entries[service].Deployment, deployment); err != nil {
+	if err := acceptsDeployment(entries[service].deploymentFloor(), deployment); err != nil {
 		return nil, err
 	}
 	if repository(previous.Image) != repository(image) {
@@ -109,8 +109,8 @@ func desiredEntries(ctx context.Context, conn *nats.Conn) (map[string]Entry, err
 		var reply stateReply
 		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
 			for name, entry := range reply.Desired {
-				if validEntry(name, entry) == nil && entry.supersedes(newest[name]) {
-					newest[name] = entry
+				if validEntry(name, entry) == nil {
+					newest[name] = mergeEntry(newest[name], entry)
 				}
 			}
 		}

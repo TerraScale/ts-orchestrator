@@ -112,8 +112,8 @@ func TestPartialRollbackSyncPreservesInterveningApply(t *testing.T) {
 				if scenario == "new signed run" {
 					wantRun = "101"
 				}
-				if entry.Deployment == nil || entry.Deployment.RunID != wantRun {
-					t.Fatalf("%s lost signed-run watermark: %+v", node.cfg.region, entry.Deployment)
+				if floor := entry.deploymentFloor(); floor == nil || floor.RunID != wantRun {
+					t.Fatalf("%s lost signed-run watermark: %+v", node.cfg.region, floor)
 				}
 				wantGeneration := int64(11)
 				if operator.Entry.Spec == nil {
@@ -121,6 +121,110 @@ func TestPartialRollbackSyncPreservesInterveningApply(t *testing.T) {
 				}
 				if got := node.cfg.applier.(*fakeApplier).generation(spec.Name); got != wantGeneration {
 					t.Fatalf("%s runs generation %d, want %d", node.cfg.region, got, wantGeneration)
+				}
+			}
+		})
+	}
+}
+
+func TestOperatorSyncConvergesAcrossUnequalDeploymentFloors(t *testing.T) {
+	for _, removal := range []bool{false, true} {
+		t.Run(fmt.Sprintf("removed=%t", removal), func(t *testing.T) {
+			nodes := stateTestNodes(t, "gru", "sjc")
+			spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+			approved := &Deployment{Repository: "TerraScale/terrascale", RunID: "100", Revision: strings.Repeat("b", 40), Image: spec.Image}
+			older := *approved
+			older.RunID = "99"
+			for i, deployment := range []*Deployment{approved, &older} {
+				if _, err := nodes[i].apply(t.Context(), ApplyRequest{Name: spec.Name, Entry: Entry{Generation: int64(10 - i), Spec: &spec, Deployment: deployment}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			operatorSpec := spec
+			operatorSpec.Replicas = 2
+			operator := Entry{Generation: 11, Spec: &operatorSpec}
+			if removal {
+				operator.Spec = nil
+			}
+			if _, err := nodes[1].apply(t.Context(), ApplyRequest{Name: spec.Name, Entry: operator}); err != nil {
+				t.Fatal(err)
+			}
+			previous := spec
+			previous.Image = "ghcr.io/terrascale/web@sha256:" + strings.Repeat("c", 64)
+			rollback := ApplyRequest{Name: spec.Name, ExpectedGeneration: 10, Entry: Entry{Generation: 12, Spec: &previous, Deployment: approved}}
+			if _, err := nodes[0].apply(t.Context(), rollback); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := nodes[1].apply(t.Context(), rollback); err == nil {
+				t.Fatal("rollback overwrote the intervening operator entry")
+			}
+			selected, err := desiredEntries(t.Context(), nodes[0].conn)
+			if entry := selected[spec.Name]; err != nil || entry.Generation != 11 || entry.Deployment != nil || entry.deploymentFloor() == nil || *entry.deploymentFloor() != *approved {
+				t.Fatalf("release state read lost operator winner or highest floor: %+v, %v", entry, err)
+			}
+			if !removal {
+				rows, err := releaseDeployment(t.Context(), nodes[0].conn, spec.Name, spec.Image, &older, time.Second, time.Second)
+				if rows != nil || err == nil || !strings.Contains(err.Error(), "stale") {
+					t.Fatalf("release preflight bypassed the losing rollback's floor: %+v, %v", rows, err)
+				}
+			}
+			// B must save the losing rollback's higher floor; A must save the winning operator entry.
+			for _, node := range []*Node{nodes[1], nodes[0]} {
+				before, err := loadDesired(node.cfg.dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				running := node.cfg.applier.(*fakeApplier).generation(spec.Name)
+				blocked := filepath.Join(node.cfg.dir, "desired.json.tmp"+strconv.Itoa(os.Getpid()))
+				if err := os.Mkdir(blocked, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				node.sync(t.Context())
+				node.mu.Lock()
+				restored := reflect.DeepEqual(node.desired, before)
+				node.mu.Unlock()
+				if !restored || node.cfg.applier.(*fakeApplier).generation(spec.Name) != running {
+					t.Fatal("failed sync save changed authority or reconciled unsaved state")
+				}
+				if err := os.Remove(blocked); err != nil {
+					t.Fatal(err)
+				}
+				node.sync(t.Context())
+			}
+			for _, node := range nodes {
+				reloaded, err := loadDesired(node.cfg.dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				entry := reloaded[spec.Name]
+				if entry.Generation != 11 || !reflect.DeepEqual(entry.Spec, operator.Spec) || entry.Deployment != nil || entry.deploymentFloor() == nil || *entry.deploymentFloor() != *approved {
+					t.Fatalf("%s did not converge durably: %+v", node.cfg.region, entry)
+				}
+				wantGeneration := int64(11)
+				if removal {
+					wantGeneration = 0
+				}
+				if got := node.cfg.applier.(*fakeApplier).generation(spec.Name); got != wantGeneration {
+					t.Fatalf("%s runs %d, want %d", node.cfg.region, got, wantGeneration)
+				}
+				node.mu.Lock()
+				node.desired = reloaded
+				node.mu.Unlock()
+				for _, mutate := range []func(*Deployment){
+					func(d *Deployment) { d.RunID = "99" },
+					func(d *Deployment) { d.Revision = strings.Repeat("d", 40) },
+					func(d *Deployment) { d.Image = "ghcr.io/terrascale/web@sha256:" + strings.Repeat("d", 64) },
+					func(d *Deployment) { d.Repository = "TerraScale/another" },
+				} {
+					stale := *approved
+					mutate(&stale)
+					candidate := Entry{Generation: 20, Spec: &spec, Deployment: &stale}
+					if _, err := node.apply(t.Context(), ApplyRequest{Name: spec.Name, Entry: candidate}); err == nil {
+						t.Fatal("reloaded floor accepted stale or equivocal release")
+					}
+					if merged := mergeEntry(entry, candidate); !reflect.DeepEqual(merged, entry) {
+						t.Fatal("peer merge bypassed the signed-run floor")
+					}
 				}
 			}
 		})

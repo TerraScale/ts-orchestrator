@@ -79,7 +79,9 @@ type Entry struct {
 	Generation int64                     `json:"generation"`
 	Spec       *swarmruntime.ServiceSpec `json:"spec"`
 	Deployment *Deployment               `json:"deployment,omitempty"`
-	RollbackOf int64                     `json:"rollbackOf,omitzero"`
+	// DeploymentFloor survives independently of the winning entry's release authority.
+	DeploymentFloor *Deployment `json:"deploymentFloor,omitempty"`
+	RollbackOf      int64       `json:"rollbackOf,omitzero"`
 }
 
 // supersedes orders rollback after its failed rollout, before any later apply.
@@ -345,12 +347,13 @@ func (n *Node) sync(ctx context.Context) {
 	changed := false
 	for _, desired := range peers {
 		for name, entry := range desired {
-			if validEntry(name, entry) == nil && entry.supersedes(n.desired[name]) && acceptsDeployment(n.desired[name].Deployment, entry.Deployment) == nil {
-				if entry.Deployment == nil {
-					entry.Deployment = n.desired[name].Deployment
+			if validEntry(name, entry) == nil {
+				current := n.desired[name]
+				merged := mergeEntry(current, entry)
+				if merged != current {
+					n.desired[name] = merged
+					changed = true
 				}
-				n.desired[name] = entry
-				changed = true
 			}
 		}
 	}
@@ -419,6 +422,9 @@ func (n *Node) handleApply(m *nats.Msg) {
 }
 
 func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) {
+	if request.Entry.DeploymentFloor != nil {
+		return "", errors.New("deployment floor is mesh state, not apply authority")
+	}
 	if request.ExpectedGeneration != 0 {
 		if request.Entry.RollbackOf != 0 && request.Entry.RollbackOf != request.ExpectedGeneration {
 			return "", errors.New("rollback ancestry differs from expected generation")
@@ -437,11 +443,12 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) 
 	if request.Entry.RollbackOf != 0 && current.Generation != request.Entry.RollbackOf {
 		return "", errors.New("rollback superseded by another apply")
 	}
-	if err := acceptsDeployment(current.Deployment, request.Entry.Deployment); err != nil {
+	if err := acceptsDeployment(current.deploymentFloor(), request.Entry.Deployment); err != nil {
 		return "", err
 	}
-	if request.Entry.Deployment == nil {
-		request.Entry.Deployment = current.Deployment
+	request.Entry.DeploymentFloor = current.deploymentFloor()
+	if request.Entry.Deployment != nil {
+		request.Entry.DeploymentFloor = request.Entry.Deployment
 	}
 	if current.Generation != request.Entry.Generation && !request.Entry.supersedes(current) {
 		return "", fmt.Errorf("superseded by generation %d", current.Generation)
@@ -509,11 +516,16 @@ func validEntry(name string, entry Entry) error {
 	if entry.RollbackOf < 0 || entry.RollbackOf >= entry.Generation {
 		return errors.New("invalid rollback ancestry")
 	}
-	if err := validDeployment(entry.Deployment); err != nil {
-		return err
+	for _, deployment := range []*Deployment{entry.Deployment, entry.DeploymentFloor} {
+		if err := validDeployment(deployment); err != nil {
+			return err
+		}
+		if deployment != nil && repository(deployment.Image) != "ghcr.io/terrascale/"+name {
+			return errors.New("deployment image does not belong to the service")
+		}
 	}
-	if entry.Deployment != nil && repository(entry.Deployment.Image) != "ghcr.io/terrascale/"+name {
-		return errors.New("deployment image does not belong to the service")
+	if err := acceptsDeployment(entry.Deployment, entry.DeploymentFloor); err != nil {
+		return err
 	}
 	if entry.Spec == nil {
 		return nil

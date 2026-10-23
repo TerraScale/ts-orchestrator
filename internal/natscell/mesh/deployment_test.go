@@ -3,6 +3,8 @@ package mesh
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -55,8 +57,11 @@ func TestDeploymentFloorSurvivesRollbackAndOperatorApply(t *testing.T) {
 		t.Fatal("rollback overwrote a later operator apply")
 	}
 	restored, err := loadDesired(dir)
-	if err != nil || restored[spec.Name].Deployment == nil || *restored[spec.Name].Deployment != *approved {
+	if err != nil || restored[spec.Name].Deployment != nil || restored[spec.Name].deploymentFloor() == nil || *restored[spec.Name].deploymentFloor() != *approved {
 		t.Fatalf("persisted deployment watermark lost: %+v, %v", restored, err)
+	}
+	if _, err := node.apply(t.Context(), ApplyRequest{Name: spec.Name, Entry: Entry{Generation: 14, Spec: &spec, DeploymentFloor: approved}}); err == nil {
+		t.Fatal("direct apply accepted an inherited floor as authority")
 	}
 }
 
@@ -73,6 +78,36 @@ func TestDeploymentFloorAcceptsOnlyNewerOrIdenticalRun(t *testing.T) {
 	next.RunID = "18446744073709551616"
 	if err := acceptsDeployment(&current, &next); err == nil {
 		t.Fatal("overflowing run ID accepted")
+	}
+}
+
+func TestEntryMergeSeparatesInheritedFloorFromReleaseAuthority(t *testing.T) {
+	approved := &Deployment{Repository: "TerraScale/terrascale", RunID: "100", Revision: strings.Repeat("a", 40), Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("b", 64)}
+	older := *approved
+	older.RunID = "99"
+	rollback := Entry{Generation: 12, RollbackOf: 10, Deployment: approved}
+	for _, signed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("signed=%t", signed), func(t *testing.T) {
+			intervening := Entry{Generation: 11, DeploymentFloor: &older}
+			want := intervening
+			if signed {
+				intervening.Deployment = &older
+				want = rollback
+			}
+			want.DeploymentFloor = approved
+			for _, entries := range [][]Entry{{rollback, intervening}, {intervening, rollback}} {
+				got := mergeEntry(mergeEntry(Entry{}, entries[0]), entries[1])
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("reply order changed winner or authority: got %+v, want %+v", got, want)
+				}
+			}
+		})
+	}
+	equivocal := *approved
+	equivocal.Revision = strings.Repeat("c", 40)
+	operator := Entry{Generation: 11, DeploymentFloor: approved}
+	if got := mergeEntry(operator, Entry{Generation: 20, DeploymentFloor: &equivocal}); !reflect.DeepEqual(got, operator) {
+		t.Fatal("operator watermark bypassed same-run equivocation protection")
 	}
 }
 
