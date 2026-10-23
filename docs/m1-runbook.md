@@ -371,7 +371,10 @@ happen before the old task stops.
 Zero-downtime through the edge (#111): one host port per service means the
 old process exits before the new one binds (0.2-0.5 s refused above). The edge
 retries a refused backend dial every 25 ms for up to 2 s, so clients see no
-error. Proof 2026-10-22 on sjc and fra (`w14-speed` with
+error. Since then the executor also holds the port from the old task's SIGTERM
+until the new task answers its `readyPath`, and the edge waits on that hold (up
+to 20 s), so apps that take seconds to start and become ready (ts-auth: 3-6 s)
+never see a refused dial or a not-ready answer. Proof 2026-10-22 on sjc and fra (`w14-speed` with
 `"regions": ["sjc","fra"]`, hostnames `w14-sjc`/`w14-fra.terrascale.tech`,
 probes every 50 ms from ts-sjc-1 through the public HTTPS edge):
 

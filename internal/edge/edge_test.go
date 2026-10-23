@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/letsencrypt/pebble/v2/ca"
 	"github.com/letsencrypt/pebble/v2/db"
 	"github.com/letsencrypt/pebble/v2/va"
@@ -317,4 +318,32 @@ func TestDialHandoffWaitsForBackend(t *testing.T) {
 		t.Fatalf("dial during handoff: %v", err)
 	}
 	conn.Close()
+}
+
+// A held port gets no dial until its new task is ready, even while it already
+// accepts connections.
+func TestDialHandoffWaitsForHeldPort(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+	handoff.Hold(port)
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		close(released)
+		handoff.Release(port)
+	}()
+	conn, err := dialHandoff(context.Background(), "tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dial after release: %v", err)
+	}
+	conn.Close()
+	select {
+	case <-released:
+	default:
+		t.Fatal("dial finished before the port was released")
+	}
 }
