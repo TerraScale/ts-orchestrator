@@ -345,8 +345,20 @@ func (f schedulerFixture) complete(t *testing.T, r script.Result, short bool) {
 	}
 	requireText(t, r.Stdout, "race queue bootstrapstart-norace-0 pool=norace estimate=4s")
 	requireText(t, r.Stdout, "race queue bootstrapstart-"+noraceSolo+" pool=norace estimate=3s")
-	if len(queue) != 14 || !slices.IsSortedFunc(estimates, func(a, b int) int { return b - a }) {
-		t.Fatalf("queue is not longest first: %v", queue)
+	ordinary := map[string]bool{}
+	for _, test := range f.expected {
+		pkg, _, _ := strings.Cut(test, "/")
+		if pkg != "app" && pkg != "bootstrapstart" && pkg != "deploy" {
+			ordinary[pkg] = true
+		}
+	}
+	wantGroups := min(len(ordinary), 2)
+	if got := len(lines(r.Stdout, "race queue packages-")); got != wantGroups {
+		t.Fatalf("ordinary package groups=%d, want %d", got, wantGroups)
+	}
+	// The fixture's sharded packages contribute thirteen fixed shards.
+	if len(queue) != 13+wantGroups || !slices.IsSortedFunc(estimates, func(a, b int) int { return b - a }) {
+		t.Fatalf("queue count/order wrong (want %d): %v", 13+wantGroups, queue)
 	}
 }
 
