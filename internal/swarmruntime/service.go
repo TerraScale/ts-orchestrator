@@ -424,7 +424,7 @@ type ServiceSpec struct {
 	// readyPath before the update rolls back; zero keeps DefaultReadyTimeout.
 	ReadyTimeoutSeconds uint32 `json:"readyTimeoutSeconds,omitempty"`
 	// MilliCPU and MemoryMiB size the fully reserved budget; zero keeps the
-	// 1 CPU / 4 GiB default sized for the M1 services.
+	// 100m CPU / 256 MiB default of a test or probe service.
 	MilliCPU  uint32 `json:"milliCPU,omitempty"`
 	MemoryMiB uint32 `json:"memoryMiB,omitempty"`
 	// Regions lists the region tokens that run the service; empty means every
@@ -576,8 +576,9 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	if s.RollbackOf != 0 {
 		labels[LabelRollbackOf] = strconv.FormatInt(s.RollbackOf, 10)
 	}
-	// shortcut: fixed, fully reserved budget sized so the three M1 services fit one A1 host (3.75 schedulable CPUs); size per service when a host is added or one is starved.
-	cpu, memory := int64(1_000_000_000), int64(4<<30)
+	// A spec that names no budget (a test or probe service) reserves little, so it
+	// never starves TerraBase on a 2-CPU host; every production spec sizes its own.
+	cpu, memory := int64(100_000_000), int64(256<<20)
 	if s.MilliCPU != 0 {
 		cpu = int64(s.MilliCPU) * 1_000_000
 	}
