@@ -441,7 +441,7 @@ func TestAppValidation(t *testing.T) {
 	terrascale := i.sign(t, with(with(goodClaims(now), "repository", owner+"/terrascale"), "job_workflow_ref", workflow))
 	image := func(name string) string { return "ghcr.io/terrascale/" + name + "@sha256:" + strings.Repeat("a", 64) }
 	for _, service := range []string{"terrabase", "ts-auth"} {
-		if err := h.validateApp(context.Background(), AppRelease{Service: service, Image: image(service), Token: terrascale}); err != nil {
+		if _, err := h.validateApp(context.Background(), AppRelease{Service: service, Image: image(service), Token: terrascale}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -452,13 +452,13 @@ func TestAppValidation(t *testing.T) {
 		"tag":               {Service: "terrabase", Image: "ghcr.io/terrascale/terrabase:latest", Token: terrascale},
 		"other owner":       {Service: "terrabase", Image: "ghcr.io/evil/terrabase@sha256:" + strings.Repeat("a", 64), Token: terrascale},
 	} {
-		if err := h.validateApp(context.Background(), release); err == nil {
+		if _, err := h.validateApp(context.Background(), release); err == nil {
 			t.Fatalf("%s: accepted", name)
 		}
 	}
 	// The retired images-ghcr.yml identity no longer releases.
 	retired := i.sign(t, with(with(goodClaims(now), "repository", owner+"/terrascale"), "job_workflow_ref", owner+"/terrascale/.github/workflows/images-ghcr.yml@"+mainRef))
-	if err := h.validateApp(context.Background(), AppRelease{Service: "terrabase", Image: image("terrabase"), Token: retired}); err == nil {
+	if _, err := h.validateApp(context.Background(), AppRelease{Service: "terrabase", Image: image("terrabase"), Token: retired}); err == nil {
 		t.Fatal("retired workflow released terrabase")
 	}
 	// An app workflow's token cannot push a ts-orch release even for this repository.
@@ -472,7 +472,10 @@ func TestAppValidation(t *testing.T) {
 		t.Fatalf("app reply without a mesh = %+v", reply)
 	}
 	var got string
-	h.App = func(_ context.Context, service, image string) (json.RawMessage, error) {
+	h.App = func(_ context.Context, service, image string, claims Claims) (json.RawMessage, error) {
+		if claims.SHA != testSHA || claims.RunID != "100" || claims.Repository != owner+"/terrascale" {
+			t.Fatal("app callback lost the verified workflow identity")
+		}
 		got = service + " " + image
 		return json.RawMessage(`[{"region":"gru"}]`), errors.New("rolled back")
 	}

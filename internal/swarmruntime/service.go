@@ -23,6 +23,7 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/api/genericresource"
 	"github.com/moby/swarmkit/v2/manager/orchestrator"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -380,6 +381,8 @@ const (
 	LabelSecretRefs = "terrascale.secret-refs"
 	// LabelGeneration is the mesh desired-state generation the service runs.
 	LabelGeneration = "terrascale.generation"
+	// LabelRollbackOf preserves the failed rollout's causal ordering position.
+	LabelRollbackOf = "terrascale.rollback-of"
 	// LabelPostgres is ServiceSpec.Postgres.Hostname; its port is the second endpoint port.
 	LabelPostgres = "terrascale.postgres"
 )
@@ -432,6 +435,11 @@ type ServiceSpec struct {
 	Postgres *ServicePostgres `json:"postgres,omitempty"`
 	// Generation is the mesh desired-state generation, stamped as a label.
 	Generation int64 `json:"-"`
+	// RollbackOf is the failed generation when this spec restores an earlier artifact.
+	RollbackOf int64 `json:"-"`
+	// Deployment is actual signed authority; DeploymentFloor also accompanies operator entries.
+	Deployment      *Deployment `json:"-"`
+	DeploymentFloor *Deployment `json:"-"`
 	// Region and Node are the mesh host's region and node name; when set,
 	// the task gets TS_REGION, TS_NODE and TS_PEERS_FILE.
 	Region string `json:"-"`
@@ -451,6 +459,15 @@ type ServiceMount struct {
 // SwarmSpec maps the declaration to an upstream service; the executor
 // re-validates the container on every task.
 func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
+	if s.DeploymentFloor != nil && s.Generation <= 0 {
+		return nil, errors.New("deployment authority requires a positive generation")
+	}
+	if err := validateServiceDeployment(s.Name, s.Deployment, s.DeploymentFloor); err != nil {
+		return nil, err
+	}
+	if s.RollbackOf < 0 || s.RollbackOf != 0 && s.RollbackOf >= s.Generation {
+		return nil, errors.New("invalid rollback ancestry")
+	}
 	if !intentName.MatchString(s.Name) {
 		return nil, errors.New("service name must match ^[a-z][a-z0-9-]{0,62}$")
 	}
@@ -527,6 +544,15 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		return nil, err
 	}
 	labels := map[string]string{LabelServiceSpec: s.Name, LabelReadyPath: readyPath}
+	for key, deployment := range map[string]*Deployment{LabelDeployment: s.Deployment, LabelDeploymentFloor: s.DeploymentFloor} {
+		if deployment != nil {
+			data, err := json.Marshal(deployment)
+			if err != nil {
+				return nil, err
+			}
+			labels[key] = string(data)
+		}
+	}
 	if s.ReadyTimeoutSeconds != 0 {
 		labels[LabelReadyTimeout] = strconv.FormatUint(uint64(s.ReadyTimeoutSeconds), 10)
 	}
@@ -546,6 +572,9 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	if s.Generation != 0 {
 		labels[LabelGeneration] = strconv.FormatInt(s.Generation, 10)
+	}
+	if s.RollbackOf != 0 {
+		labels[LabelRollbackOf] = strconv.FormatInt(s.RollbackOf, 10)
 	}
 	// shortcut: fixed, fully reserved budget sized so the three M1 services fit one A1 host (3.75 schedulable CPUs); size per service when a host is added or one is starved.
 	cpu, memory := int64(1_000_000_000), int64(4<<30)
@@ -604,7 +633,11 @@ const (
 )
 
 // ServiceRollout is the elapsed time from submission to each phase.
-type ServiceRollout struct{ Running, Ready time.Duration }
+type ServiceRollout struct {
+	Running, Ready time.Duration
+	Tasks          []ServiceTaskEvidence
+	Revision       string
+}
 
 // LabelReadyTimeout holds ServiceSpec.ReadyTimeoutSeconds when set.
 const LabelReadyTimeout = "terrascale.ready-timeout"
@@ -723,10 +756,48 @@ func sameWorkload(a, b *api.ServiceSpec) bool {
 
 // ApplyServiceSpec creates the named service or replaces its spec in place.
 func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec) (*api.Service, error) {
+	return applyServiceSpec(ctx, client, s, nil)
+}
+
+// CompleteServiceSpec finishes metadata deferred by ApplyServiceSpec before exact
+// readiness. The original Apply snapshot pins identity and full spec across retries;
+// never recapture it here or hold the writer lock while waiting.
+func CompleteServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec, original *api.Service) error {
+	if original == nil {
+		return errors.New("metadata completion requires the original apply snapshot")
+	}
+	want, err := s.SwarmSpec()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, serviceRollout+2*ReadyTimeout(want.Annotations.Labels))
+	defer cancel()
+	for {
+		current, err := applyServiceSpec(ctx, client, s, original)
+		if err != nil {
+			return err
+		}
+		if proto.Equal(&current.Spec, want) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(servicePoll):
+		}
+	}
+}
+
+func applyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec, previous *api.Service) (*api.Service, error) {
 	spec, err := s.SwarmSpec()
 	if err != nil {
 		return nil, err
 	}
+	unlock, err := lockServiceSpecs(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	all, err := client.ListServices(ctx, &api.ListServicesRequest{})
 	if err != nil {
 		return nil, err
@@ -738,32 +809,51 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 	if err := hostnameClaimedByOther(all.Services, s.Name, claimed); err != nil {
 		return nil, err
 	}
-	current, err := specService(ctx, client, s.Name)
-	if err != nil {
-		return nil, err
-	}
-	if current == nil {
-		created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: spec})
+	for range 5 {
+		current, err := specService(ctx, client, s.Name)
 		if err != nil {
 			return nil, err
 		}
-		return created.Service, nil
+		if previous != nil && (current == nil || current.ID != previous.ID) {
+			return nil, errors.New("requested service was removed or replaced before metadata completion")
+		}
+		if current == nil {
+			created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: spec})
+			if err != nil {
+				return nil, err
+			}
+			return created.Service, nil
+		}
+		if err := admitServiceSpec(current.Spec.Annotations.Labels, s); err != nil {
+			return nil, err
+		}
+		if proto.Equal(&current.Spec, spec) {
+			return current, nil
+		}
+		if previous != nil && (!proto.Equal(&current.Spec, &previous.Spec) || !sameWorkload(&current.Spec, spec) ||
+			!proto.Equal(current.Spec.GetReplicated(), spec.GetReplicated()) || !proto.Equal(current.Spec.GetGlobal(), spec.GetGlobal())) {
+			return nil, errors.New("requested service spec was superseded before metadata completion")
+		}
+		// A label-only write (a new mesh generation) mid-update would restart the
+		// updater, which adopts the still-starting task and stops the old one at once;
+		// CompleteServiceSpec or the mesh's next sync writes it after completion.
+		if current.UpdateStatus != nil && current.UpdateStatus.State == api.UpdateStatus_UPDATING &&
+			sameWorkload(&current.Spec, spec) && proto.Equal(current.Spec.GetReplicated(), spec.GetReplicated()) && proto.Equal(current.Spec.GetGlobal(), spec.GetGlobal()) {
+			return current, nil
+		}
+		if previous != nil && current.UpdateStatus != nil && current.UpdateStatus.State != api.UpdateStatus_COMPLETED {
+			return nil, errors.New("service update did not complete before metadata completion")
+		}
+		updated, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: current.ID, ServiceVersion: &current.Meta.Version, Spec: spec})
+		if err == nil {
+			return updated.Service, nil
+		}
+		// SwarmKit can advance metadata while our spec lock is held.
+		if status.Convert(err).Message() != "update out of sequence" {
+			return nil, err
+		}
 	}
-	if proto.Equal(&current.Spec, spec) {
-		return current, nil
-	}
-	// A label-only write (a new mesh generation) mid-update would restart the
-	// updater, which adopts the still-starting task and stops the old one at once;
-	// the mesh's next sync writes the label once the update completes.
-	if current.UpdateStatus != nil && current.UpdateStatus.State == api.UpdateStatus_UPDATING &&
-		sameWorkload(&current.Spec, spec) && proto.Equal(current.Spec.GetReplicated(), spec.GetReplicated()) && proto.Equal(current.Spec.GetGlobal(), spec.GetGlobal()) {
-		return current, nil
-	}
-	updated, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: current.ID, ServiceVersion: &current.Meta.Version, Spec: spec})
-	if err != nil {
-		return nil, err
-	}
-	return updated.Service, nil
+	return nil, errors.New("service metadata kept changing during apply")
 }
 
 // hostnameClaimedByOther refuses a hostname another service already routes,
@@ -785,6 +875,11 @@ func hostnameClaimedByOther(services []*api.Service, name string, hostnames []st
 
 // RemoveServiceSpec deletes the named service; SwarmKit stops its tasks.
 func RemoveServiceSpec(ctx context.Context, client api.ControlClient, name string) error {
+	unlock, err := lockServiceSpecs(ctx, client)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	current, err := specService(ctx, client, name)
 	if err != nil {
 		return err

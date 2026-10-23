@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -22,6 +21,10 @@ type environment struct {
 	Target, TerraBaseURL, AdminURL, AuthURL, DashboardURL, StatusURL, Region string
 	Credential, UserID, OrganizationID, APIKey                               string
 	HTTP                                                                     *http.Client
+	ProjectCredential                                                        projectCredential
+	UnrelatedDatabase                                                        string
+	ProductionReady                                                          bool
+	OIDCAssertion, OIDCToken                                                 string
 }
 type result struct {
 	Name       string   `json:"name"`
@@ -32,10 +35,13 @@ type result struct {
 	DurationMS int64    `json:"duration_ms"`
 }
 type report struct {
-	LocalPins json.RawMessage `json:"local_pins,omitempty"`
-	Target    string          `json:"target"`
-	Started   time.Time       `json:"started"`
-	Results   []result        `json:"scenarios"`
+	SourceSHA          string              `json:"source_sha,omitempty"`
+	ProjectCredential  *projectKeyMetadata `json:"project_credential,omitempty"`
+	NegativeReadTarget *negativeReadTarget `json:"negative_read_target,omitempty"`
+	LocalPins          json.RawMessage     `json:"local_pins,omitempty"`
+	Target             string              `json:"target"`
+	Started            time.Time           `json:"started"`
+	Results            []result            `json:"scenarios"`
 }
 type pending struct{ ticket, reason string }
 
@@ -54,7 +60,11 @@ func main() {
 }
 func run(ctx context.Context, stdout, stderr io.Writer) int {
 	target := envDefault("E2E_TARGET", "local")
-	r := report{Target: target, Started: time.Now().UTC()}
+	r := report{Target: target, Started: time.Now().UTC(), SourceSHA: os.Getenv("SOURCE_SHA")}
+	suite := scenarios()
+	if target == "prod" {
+		suite = productionScenarios()
+	}
 	var e *environment
 	var closeStack func() error
 	var err error
@@ -66,13 +76,21 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	} else {
 		err = fmt.Errorf("E2E_TARGET must be local or prod")
 	}
+	if e != nil && target == "prod" {
+		r.ProjectCredential = &e.ProjectCredential.APIKey
+		r.NegativeReadTarget = &negativeReadTarget{
+			OrganizationID: e.ProjectCredential.APIKey.OrganizationID,
+			ProjectID:      e.ProjectCredential.APIKey.ProjectID, Database: e.UnrelatedDatabase,
+			Prerequisite: "Owner must confirm the distinct positive and negative databases already exist in the same approved project, with one document in the negative database and no key for it, before environment preparation and handoff; existence is not verified by this runner.",
+		}
+	}
 	if err != nil {
 		r.Results = append(r.Results, result{Name: "stack", Components: []string{"terrabase", "ts-auth", "ts-dashboard"}, Tickets: []string{"TS-512"}, Status: "fail", Detail: redact(err.Error(), e)})
-		for _, s := range scenarios() {
+		for _, s := range suite {
 			r.Results = append(r.Results, result{Name: s.name, Components: s.components, Tickets: s.tickets, Status: "fail", Detail: "stack setup failed; scenario not executed"})
 		}
 	} else {
-		for _, s := range scenarios() {
+		for _, s := range suite {
 			start := time.Now()
 			scenarioCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 			err := s.run(scenarioCtx, e)
@@ -110,21 +128,6 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 	}
 	return code
 }
-func production() (*environment, error) {
-	e := &environment{Target: "prod", TerraBaseURL: envDefault("E2E_TERRABASE_URL", "https://gru.api.terrascale.tech"), AuthURL: envDefault("E2E_AUTH_URL", "https://gru.auth.terrascale.tech"), DashboardURL: os.Getenv("E2E_DASHBOARD_URL"), StatusURL: envDefault("E2E_STATUS_URL", "https://status.terrascale.tech"), Region: envDefault("E2E_REGION", "gru-1"), Credential: os.Getenv("E2E_MANAGEMENT_CREDENTIAL"), UserID: os.Getenv("E2E_USER_ID"), OrganizationID: os.Getenv("E2E_ORGANIZATION_ID"), APIKey: os.Getenv("E2E_API_KEY"), HTTP: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
-	for name, value := range map[string]string{"E2E_MANAGEMENT_CREDENTIAL": e.Credential, "E2E_USER_ID": e.UserID, "E2E_ORGANIZATION_ID": e.OrganizationID, "E2E_API_KEY": e.APIKey, "E2E_DASHBOARD_URL": e.DashboardURL} {
-		if strings.TrimSpace(value) == "" {
-			return nil, fmt.Errorf("%s is required for prod", name)
-		}
-	}
-	for _, raw := range []string{e.TerraBaseURL, e.AuthURL, e.DashboardURL, e.StatusURL} {
-		u, err := url.Parse(raw)
-		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-			return nil, errors.New("production endpoints must be HTTPS origins without userinfo, path, query or fragment")
-		}
-	}
-	return e, nil
-}
 func envDefault(key, value string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -133,13 +136,13 @@ func envDefault(key, value string) string {
 }
 func redact(message string, e *environment) string {
 	if e != nil {
-		for _, secret := range []string{e.Credential, e.APIKey} {
+		for _, secret := range []string{e.Credential, e.APIKey, e.ProjectCredential.Key, e.OIDCAssertion, e.OIDCToken} {
 			if secret != "" {
 				message = strings.ReplaceAll(message, secret, "[redacted]")
 			}
 		}
 	}
-	for _, name := range []string{"E2E_GITHUB_TOKEN", "TERRABASE_TOKEN", "E2E_MANAGEMENT_CREDENTIAL", "E2E_API_KEY"} {
+	for _, name := range []string{"E2E_GITHUB_TOKEN", "TERRABASE_TOKEN", "E2E_MANAGEMENT_CREDENTIAL", "E2E_API_KEY", "E2E_PROJECT_CREDENTIAL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL"} {
 		if s := os.Getenv(name); s != "" {
 			message = strings.ReplaceAll(message, s, "[redacted]")
 		}

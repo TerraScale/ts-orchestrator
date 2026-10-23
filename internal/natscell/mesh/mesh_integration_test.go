@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
 )
 
@@ -79,14 +80,19 @@ type fakeApplier struct {
 	unready string
 }
 
-func (f *fakeApplier) Apply(_ context.Context, spec swarmruntime.ServiceSpec) (bool, error) {
+func (f *fakeApplier) Apply(_ context.Context, spec swarmruntime.ServiceSpec) (bool, *api.Service, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	swarm, err := spec.SwarmSpec()
+	if err != nil {
+		return false, nil, err
+	}
+	service := &api.Service{ID: spec.Name, Spec: *swarm}
 	if f.running[spec.Name] == spec.Generation {
-		return false, nil
+		return false, service, nil
 	}
 	f.running[spec.Name] = spec.Generation
-	return true, nil
+	return true, service, nil
 }
 
 func (f *fakeApplier) Remove(_ context.Context, name string) (bool, error) {
@@ -99,7 +105,7 @@ func (f *fakeApplier) Remove(_ context.Context, name string) (bool, error) {
 
 func (f *fakeApplier) PrePull(context.Context, swarmruntime.ServiceSpec) error { return nil }
 
-func (f *fakeApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error) {
+func (f *fakeApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec, _ *api.Service) (swarmruntime.ServiceRollout, error) {
 	if ok, err := f.Running(ctx, spec.Name); err != nil || !ok {
 		return swarmruntime.ServiceRollout{}, errors.Join(errors.New("not running"), err)
 	}
@@ -275,7 +281,7 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 		node := nodes[region]
 		node.mu.Lock()
 		defer node.mu.Unlock()
-		return node.desired["whoami"].Spec.Image
+		return node.desired["whoami"].entry().Spec.Image
 	}
 	good, bad := "docker.io/library/alpine@sha256:"+strings.Repeat("a", 64), "docker.io/library/alpine@sha256:"+strings.Repeat("b", 64)
 	if rows, err := release(t.Context(), gru.conn, "whoami", good, 5*time.Second, 5*time.Second); err != nil || len(rows) != len(regions) {

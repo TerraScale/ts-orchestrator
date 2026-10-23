@@ -176,14 +176,29 @@ func loadSecret(ctx context.Context) ([]byte, error) {
 }
 
 // swarmApplier drives the single-host SwarmKit node in state.
-type swarmApplier struct{ state string }
+type swarmApplier struct {
+	state    string
+	client   api.ControlClient
+	revision func(context.Context, string, string) (string, error)
+}
+
+func (a swarmApplier) control() (api.ControlClient, func(), error) {
+	if a.client != nil {
+		return a.client, func() {}, nil
+	}
+	client, conn, err := swarmruntime.DialSingleHost(a.state)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, func() { _ = conn.Close() }, nil
+}
 
 func (a swarmApplier) rows(ctx context.Context, name string, do func(row swarmruntime.ServiceSpecStatus, found bool, client api.ControlClient) error) error {
-	client, conn, err := swarmruntime.DialSingleHost(a.state)
+	client, close, err := a.control()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer close()
 	rows, err := swarmruntime.ListServiceSpecs(ctx, client)
 	if err != nil {
 		return err
@@ -196,16 +211,14 @@ func (a swarmApplier) rows(ctx context.Context, name string, do func(row swarmru
 	return do(swarmruntime.ServiceSpecStatus{}, false, client)
 }
 
-func (a swarmApplier) Apply(ctx context.Context, spec swarmruntime.ServiceSpec) (changed bool, err error) {
-	err = a.rows(ctx, spec.Name, func(row swarmruntime.ServiceSpecStatus, found bool, client api.ControlClient) error {
-		if found && row.Generation == spec.Generation {
-			return nil
-		}
+func (a swarmApplier) Apply(ctx context.Context, spec swarmruntime.ServiceSpec) (changed bool, original *api.Service, err error) {
+	err = a.rows(ctx, spec.Name, func(_ swarmruntime.ServiceSpecStatus, _ bool, client api.ControlClient) error {
 		changed = true
-		_, err := swarmruntime.ApplyServiceSpec(ctx, client, spec)
+		var err error
+		original, err = swarmruntime.ApplyServiceSpec(ctx, client, spec)
 		return err
 	})
-	return changed, err
+	return changed, original, err
 }
 
 func (a swarmApplier) Remove(ctx context.Context, name string) (removed bool, err error) {
@@ -236,25 +249,23 @@ func (a swarmApplier) PrePull(ctx context.Context, spec swarmruntime.ServiceSpec
 	return executor.PrePull(ctx, spec.Image, swarm.Annotations.Labels)
 }
 
-func (a swarmApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error) {
-	client, conn, err := swarmruntime.DialSingleHost(a.state)
+func (a swarmApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec, original *api.Service) (swarmruntime.ServiceRollout, error) {
+	client, close, err := a.control()
 	if err != nil {
 		return swarmruntime.ServiceRollout{}, err
 	}
-	defer conn.Close()
-	listed, err := client.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{spec.Name}}})
-	if err != nil {
+	defer close()
+	if err := swarmruntime.CompleteServiceSpec(ctx, client, spec, original); err != nil {
 		return swarmruntime.ServiceRollout{}, err
 	}
-	for _, service := range listed.Services {
-		if service.Spec.Annotations.Name == spec.Name {
-			// Only a spec that names its ready path promises to answer it.
-			var probe func(context.Context, *api.Task) error
-			if spec.ReadyPath != "" {
-				probe = swarmruntime.ProbeLocalTask
-			}
-			return swarmruntime.WaitServiceSpec(ctx, client, service, probe)
-		}
+	rollout, err := swarmruntime.WaitServiceSpecExact(ctx, client, spec)
+	if err != nil {
+		return rollout, err
 	}
-	return swarmruntime.ServiceRollout{}, fmt.Errorf("service %q is not on this host", spec.Name)
+	revision := a.revision
+	if revision == nil {
+		revision = swarmruntime.ImageRevision
+	}
+	rollout.Revision, err = revision(ctx, swarmruntime.HostContainerdSocket, spec.Image)
+	return rollout, err
 }

@@ -10,11 +10,12 @@
 // listener is loopback: the root CLI and the node itself connect with a
 // token the node writes at start. (:4222 is the release listener, internal/releasepush.)
 //
-// Desired state is a last-writer-wins map of service name to generation and
-// spec (nil once removed), persisted in <state>/mesh/desired.json. A node
+// Desired state retains operator and signed candidates per service (nil specs
+// are removals), persisted in <state>/mesh/desired.json. A node
 // merges every apply it receives and every peer map it pulls on start and
 // every 30 s, then reconciles its local services, so a region that was down
-// converges without operator action.
+// converges without operator action. Rollback retains its failed generation's
+// ordering position so it cannot supersede an intervening apply during sync.
 package mesh
 
 import (
@@ -29,6 +30,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -39,6 +41,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 )
@@ -77,12 +80,20 @@ func Regions() []string {
 type Entry struct {
 	Generation int64                     `json:"generation"`
 	Spec       *swarmruntime.ServiceSpec `json:"spec"`
+	Deployment *Deployment               `json:"deployment,omitempty"`
+	RollbackOf int64                     `json:"rollbackOf,omitzero"`
+}
+
+// supersedes orders rollback after its failed rollout, before any later apply.
+func (entry Entry) supersedes(current Entry) bool {
+	return swarmruntime.ServiceGenerationAfter(entry.Generation, entry.RollbackOf, current.Generation, current.RollbackOf)
 }
 
 // ApplyRequest is the ts.svc.apply payload.
 type ApplyRequest struct {
-	Name  string `json:"name"`
-	Entry Entry  `json:"entry"`
+	Name               string `json:"name"`
+	Entry              Entry  `json:"entry"`
+	ExpectedGeneration int64  `json:"expectedGeneration,omitempty"`
 }
 
 // Reply answers ts.svc.apply and ts.mesh.ping.
@@ -95,29 +106,33 @@ type Reply struct {
 	Error     string `json:"error,omitempty"`
 	ElapsedMS int64  `json:"elapsed_ms,omitempty"`
 	// Phases is this region's elapsed time to each rollout phase.
-	Phases string `json:"phases,omitempty"`
+	Phases   string                             `json:"phases,omitempty"`
+	Service  string                             `json:"service,omitempty"`
+	Image    string                             `json:"image,omitempty"`
+	Revision string                             `json:"revision,omitempty"`
+	Tasks    []swarmruntime.ServiceTaskEvidence `json:"tasks,omitempty"`
 	// Regions is every region the replying node reaches, so a caller also
 	// waits for regions that joined after its own node's seeds.
 	Regions []string `json:"regions,omitempty"`
 }
 
 type stateReply struct {
-	Region  string           `json:"region"`
-	Desired map[string]Entry `json:"desired"`
+	Region  string                  `json:"region"`
+	Desired map[string]desiredState `json:"desired"`
 }
 
 // Applier changes this host's services.
 type Applier interface {
-	// Apply makes spec run, stamped with spec.Generation; false when it already did.
-	Apply(ctx context.Context, spec swarmruntime.ServiceSpec) (bool, error)
+	// Apply returns the original service snapshot for this operation; false when unchanged.
+	Apply(ctx context.Context, spec swarmruntime.ServiceSpec) (bool, *api.Service, error)
 	// Remove deletes name; false when it was absent.
 	Remove(ctx context.Context, name string) (bool, error)
 	// PrePull fetches image before Apply, outside the mesh lock, so a
 	// replacement only creates and starts its container.
 	PrePull(ctx context.Context, spec swarmruntime.ServiceSpec) error
 	// Wait returns once every replica of spec runs it (and answers its ready
-	// path when the spec names one).
-	Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error)
+	// path when the spec names one), using the snapshot returned by Apply.
+	Wait(ctx context.Context, spec swarmruntime.ServiceSpec, original *api.Service) (swarmruntime.ServiceRollout, error)
 }
 
 type config struct {
@@ -146,7 +161,7 @@ type Node struct {
 	cancel context.CancelFunc
 
 	mu      sync.Mutex
-	desired map[string]Entry
+	desired map[string]desiredState
 	peers   *peers
 }
 
@@ -315,10 +330,10 @@ func (n *Node) run(ctx context.Context) {
 	}
 }
 
-// sync merges every replying peer's map, newest generation per name, then
+// sync merges every replying peer's candidates and floor per name, then
 // reconciles every entry so a missed or failed apply is retried.
 func (n *Node) sync(ctx context.Context) {
-	peers := map[string]map[string]Entry{}
+	peers := map[string]map[string]desiredState{}
 	_ = collect(ctx, n.conn, StateSubject, nil, len(n.regions()), stateWait, func(data []byte) bool {
 		var reply stateReply
 		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
@@ -328,18 +343,29 @@ func (n *Node) sync(ctx context.Context) {
 	})
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	before := maps.Clone(n.desired)
 	changed := false
 	for _, desired := range peers {
 		for name, entry := range desired {
-			if validEntry(name, entry) == nil && entry.Generation > n.desired[name].Generation {
-				n.desired[name] = entry
-				changed = true
+			if validState(name, entry) == nil {
+				current := n.desired[name]
+				merged, err := mergeState(current, entry)
+				if err != nil {
+					slog.WarnContext(ctx, "mesh desired state conflicts", "service", name, "error", err)
+					continue
+				}
+				if !reflect.DeepEqual(merged, current) {
+					n.desired[name] = merged
+					changed = true
+				}
 			}
 		}
 	}
 	if changed {
 		if err := saveDesired(n.cfg.dir, n.desired); err != nil {
 			slog.WarnContext(ctx, "mesh desired state save failed", "error", err)
+			n.desired = before
+			return
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(n.desired)) {
@@ -355,7 +381,8 @@ func (n *Node) handleApply(m *nats.Msg) {
 	defer cancel()
 	reply := Reply{Region: n.cfg.region, Server: n.cfg.server, Regions: n.regions()}
 	var request ApplyRequest
-	result, err := "", protocol.DecodeTolerant(m.Data, &request, maxWire)
+	var applied applyResult
+	err := protocol.DecodeTolerant(m.Data, &request, maxWire)
 	var pulled time.Duration
 	if spec := request.Entry.Spec; err == nil && spec != nil && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
 		// The task's own Prepare still pulls, so a failed pre-pull only costs speed.
@@ -365,71 +392,118 @@ func (n *Node) handleApply(m *nats.Msg) {
 		pulled = time.Since(start)
 	}
 	if err == nil {
-		result, err = n.apply(ctx, request)
+		applied, err = n.apply(ctx, request)
 	}
-	if err == nil && (result == "applied" || result == "unchanged") {
+	if err == nil && (applied.result == "applied" || applied.result == "unchanged") {
 		submitted := time.Since(start)
 		var rollout swarmruntime.ServiceRollout
-		if rollout, err = n.cfg.applier.Wait(ctx, *request.Entry.Spec); err == nil {
+		spec := applied.spec
+		if request.ExpectedGeneration != 0 {
+			request.Entry.RollbackOf = request.ExpectedGeneration
+		}
+		if rollout, err = n.cfg.applier.Wait(ctx, spec, applied.service); err == nil {
+			reply.Service, reply.Image, reply.Tasks, reply.Revision = spec.Name, spec.Image, rollout.Tasks, rollout.Revision
+			if deployment := request.Entry.Deployment; deployment != nil && spec.Image == deployment.Image && rollout.Revision != deployment.Revision {
+				err = errors.New("running image revision does not match the signed release commit")
+			}
+			n.mu.Lock()
+			if !reflect.DeepEqual(n.desired[request.Name].entry(), request.Entry) || !reflect.DeepEqual(n.desired[request.Name].Floor, spec.DeploymentFloor) {
+				err = errors.New("release superseded during readiness")
+			}
+			n.mu.Unlock()
 			reply.Phases = fmt.Sprintf("pulled %dms, submitted %dms, running %dms", pulled.Milliseconds(), submitted.Milliseconds(), (submitted + rollout.Running).Milliseconds())
 			if rollout.Ready != 0 {
 				reply.Phases += fmt.Sprintf(", ready %dms", (submitted + rollout.Ready).Milliseconds())
 			}
 		}
 	}
-	reply.Result, reply.ElapsedMS = result, time.Since(start).Milliseconds()
+	reply.Result, reply.ElapsedMS = applied.result, time.Since(start).Milliseconds()
 	if err != nil {
 		reply.Error = err.Error()
 	}
 	n.respond(m, reply)
 }
 
-func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) {
+type applyResult struct {
+	result  string
+	spec    swarmruntime.ServiceSpec
+	service *api.Service
+}
+
+func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, error) {
+	if request.ExpectedGeneration != 0 {
+		if request.Entry.RollbackOf != 0 && request.Entry.RollbackOf != request.ExpectedGeneration {
+			return applyResult{}, errors.New("rollback ancestry differs from expected generation")
+		}
+		request.Entry.RollbackOf = request.ExpectedGeneration
+	}
 	if err := validEntry(request.Name, request.Entry); err != nil {
-		return "", err
+		return applyResult{}, err
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	current := n.desired[request.Name]
-	if current.Generation > request.Entry.Generation {
-		return "", fmt.Errorf("superseded by generation %d", current.Generation)
+	if err := ctx.Err(); err != nil {
+		return applyResult{}, err
 	}
-	if current.Generation < request.Entry.Generation {
-		n.desired[request.Name] = request.Entry
-		if err := saveDesired(n.cfg.dir, n.desired); err != nil {
-			return "", err
+	before, exists := n.desired[request.Name]
+	current := before.entry()
+	if request.Entry.RollbackOf != 0 && current.Generation != request.Entry.RollbackOf {
+		return applyResult{}, errors.New("rollback superseded by another apply")
+	}
+	if err := before.Floor.Accepts(request.Entry.Deployment); err != nil {
+		return applyResult{}, err
+	}
+	merged, err := mergeState(before, stateFor(request.Entry))
+	if err != nil {
+		return applyResult{}, err
+	}
+	if !reflect.DeepEqual(merged.entry(), request.Entry) {
+		return applyResult{}, fmt.Errorf("superseded by generation %d", current.Generation)
+	}
+	n.desired[request.Name] = merged
+	// Persist before reconciliation, including retries of a persisted generation.
+	if err := saveDesired(n.cfg.dir, n.desired); err != nil {
+		if exists {
+			n.desired[request.Name] = before
+		} else {
+			delete(n.desired, request.Name)
 		}
+		return applyResult{}, err
 	}
+
 	return n.reconcile(ctx, request.Name, n.desired[request.Name])
 }
 
 // reconcile makes the local service match entry; the caller holds n.mu.
-func (n *Node) reconcile(ctx context.Context, name string, entry Entry) (string, error) {
+func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (applyResult, error) {
+	entry := state.entry()
 	if entry.Spec == nil || len(entry.Spec.Regions) != 0 && !slices.Contains(entry.Spec.Regions, n.cfg.region) {
 		if _, err := n.cfg.applier.Remove(ctx, name); err != nil {
-			return "", err
+			return applyResult{}, err
 		}
 		if err := n.peers.untrack(name); err != nil {
-			return "", err
+			return applyResult{}, err
 		}
 		if entry.Spec == nil {
-			return "removed", nil
+			return applyResult{result: "removed"}, nil
 		}
-		return "skipped-not-targeted", nil
+		return applyResult{result: "skipped-not-targeted"}, nil
 	}
 	spec := *entry.Spec
 	spec.Generation, spec.Region, spec.Node = entry.Generation, n.cfg.region, n.cfg.server
+	spec.RollbackOf = entry.RollbackOf
+	spec.Deployment, spec.DeploymentFloor = entry.Deployment, state.Floor
 	if err := n.peers.track(name, spec.Regions); err != nil {
-		return "", err
+		return applyResult{}, err
 	}
-	changed, err := n.cfg.applier.Apply(ctx, spec)
+	changed, service, err := n.cfg.applier.Apply(ctx, spec)
 	if err != nil {
-		return "", err
+		return applyResult{}, err
 	}
 	if changed {
-		return "applied", nil
+		return applyResult{result: "applied", spec: spec, service: service}, nil
 	}
-	return "unchanged", nil
+	return applyResult{result: "unchanged", spec: spec, service: service}, nil
 }
 
 func (n *Node) respond(m *nats.Msg, value any) {
@@ -445,6 +519,15 @@ func (n *Node) respond(m *nats.Msg, value any) {
 func validEntry(name string, entry Entry) error {
 	if !serviceName.MatchString(name) || entry.Generation <= 0 {
 		return errors.New("invalid service name or generation")
+	}
+	if entry.RollbackOf < 0 || entry.RollbackOf >= entry.Generation {
+		return errors.New("invalid rollback ancestry")
+	}
+	if err := entry.Deployment.Validate(); err != nil {
+		return err
+	}
+	if entry.Deployment != nil && repository(entry.Deployment.Image) != "ghcr.io/terrascale/"+name {
+		return errors.New("deployment image does not belong to the service")
 	}
 	if entry.Spec == nil {
 		return nil
@@ -492,22 +575,30 @@ func collect(ctx context.Context, conn *nats.Conn, subject string, payload []byt
 	return nil
 }
 
-func loadDesired(dir string) (map[string]Entry, error) {
+func loadDesired(dir string) (map[string]desiredState, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "desired.json"))
 	if errors.Is(err, os.ErrNotExist) {
-		return map[string]Entry{}, nil
+		return map[string]desiredState{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	desired := map[string]Entry{}
+	desired := map[string]desiredState{}
 	if err := protocol.DecodeTolerant(data, &desired, maxWire); err != nil {
 		return nil, fmt.Errorf("decode mesh desired state: %w", err)
+	}
+	if desired == nil {
+		return nil, errors.New("mesh desired state must be an object")
+	}
+	for name, state := range desired {
+		if err := validState(name, state); err != nil {
+			return nil, fmt.Errorf("invalid desired state for %s: %w", name, err)
+		}
 	}
 	return desired, nil
 }
 
-func saveDesired(dir string, desired map[string]Entry) error {
+func saveDesired(dir string, desired map[string]desiredState) error {
 	data, err := protocol.EncodeJSON(desired)
 	if err != nil {
 		return err
@@ -537,12 +628,24 @@ func clientToken(dir string) (string, error) {
 
 func writePrivate(path string, data []byte) error {
 	temp := path + ".tmp" + strconv.Itoa(os.Getpid())
-	if err := os.WriteFile(temp, data, 0o600); err != nil {
+	file, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(data)
+	err = errors.Join(err, file.Sync(), file.Close())
+	if err != nil {
+		_ = os.Remove(temp)
 		return err
 	}
 	if err := os.Rename(temp, path); err != nil {
 		_ = os.Remove(temp)
 		return err
 	}
-	return nil
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }

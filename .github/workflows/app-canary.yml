@@ -10,11 +10,10 @@ on:
   push:
     branches: [main]
 
-# The newest run of a pull request or branch cancels its older runs (user
-# decision 2026-10-22); each merge-queue entry keeps its own run.
+# An admitted rollout must finish or roll back before another canary starts.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
+  group: production-app-canary
+  cancel-in-progress: false
 
 permissions:
   contents: read
