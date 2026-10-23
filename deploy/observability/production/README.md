@@ -1,0 +1,23 @@
+# Existing gru host monitoring (TS-820)
+
+1. Validate without installing: `nice -n 19 deploy/observability/production/install.sh --check`.
+2. Deploy the monitoring backend to the existing host: `deploy/observability/production/install.sh ts-gru-1`.
+3. On that host, inspect `systemctl status ts-prometheus ts-alertmanager` and query `curl -fsS http://127.0.0.1:9090/api/v1/targets`.
+
+The SSH host argument must resolve through existing trusted SSH configuration. The host needs systemd, sudo, curl, tar, sha256sum, useradd and outbound HTTPS. No host, IAM, credentials, paid capacity or relay is provisioned. Installation has not been run against production. Only these two monitoring services are enabled/restarted; unchanged reruns start them without restart. Existing data directories are retained. Validation downloads official binaries into a unique temporary directory and deletes only that directory.
+
+Prometheus 3.15.0 and Alertmanager 0.34.1 are pinned with SHA256 hashes from their official GitHub release `sha256sums.txt` files (retrieved 2026-10-23); 0.34.1 was the official latest stable Alertmanager release at discovery. Both amd64 and arm64 are supported. The pinned tools validate all configs and rules before installation changes any host files. Configs live under `/etc/ts-monitoring`; systemd uses dedicated unprivileged users and state directories. Both HTTP listeners bind loopback; Alertmanager clustering is disabled. No secrets are in these files.
+
+Prometheus retains 35 days of data. Disk consumption depends on real series cardinality: check available space before activation and measure actual growth. The reported 21 GiB spare memory is not a measured monitoring memory budget. This is a single-node backend on ts-gru-1, not an independent availability monitor: host failure also stops its alert delivery.
+
+Only TerraBase at `127.0.0.1:9091/metrics` is scraped, with `region=gru` and `service=terrabase`. There is no Fly filter. The original `../slo-rules.yml` is installed unchanged, including its missing-telemetry alerts for all five policy services. ts-auth and ts-dashboard metrics ports are dynamic and deliberately not guessed. No request SLO success or burn-rate evidence is inferred from `up`; absent request counters produce policy telemetry warnings. ts-atlas/ts-router telemetry is likewise not configured here.
+
+Operational alerts use existing backup/replication metric names. Failed daily restore drills use the existing `terrabase_backup_drills_total{result="failed"}` counter. Missing operational series cannot prove backup health. Counter rules use a five-minute increase plus first-observation detection: an existing nonzero value fires when collection starts, then ages out after five minutes without another failure. This also detects counter resets followed by failures. A failed scrape alerts immediately on the next evaluation.
+
+Alertmanager sends firing and resolved webhooks to `http://127.0.0.1:9094/alerts`. The separately managed relay must already be listening and handling the standard Alertmanager webhook schema. Backend readiness checks do not prove relay receipt or downstream delivery; parent must verify a controlled test alert and its resolution before claiming end-to-end production proof. No relay secret or destination is configured here.
+
+The relay is the single binary's `ts-orch alert-delivery` command. It binds only `127.0.0.1:9094`, reads the two existing Cloudflare refs via OCI instance principal on each delivery, and sends allowlisted alert labels to mariogk@terrascale.tech. It never forwards annotations or tenant labels. Alertmanager retries a failed provider request or permanent bounce. HTTP 202 and the `production alert email accepted` journal event mean provider acceptance, not phone/inbox receipt.
+
+Activation hold: `ValidateServiceRefs` currently permits the shared email refs only to ts-auth. The relay preserves that validator and therefore fails closed until the user approves sharing `gru-1-cloudflare-account-id` and `gru-1-cloudflare-email-token` with ts-alerts. No permission expansion is included. After approval, add only ts-alerts to those two existing allowlists, provision the unprivileged ts-alerts account, and install `ts-alert-delivery.service` against the released binary. No new credentials or IAM policy are needed for that option.
+
+Push delivery still requires the owner's approved private endpoint/subscription and receipt confirmation. No public unauthenticated ntfy topic is used. Request-based SLO telemetry remains missing; the shipped missing-telemetry alerts disclose that gap instead of claiming measured availability.

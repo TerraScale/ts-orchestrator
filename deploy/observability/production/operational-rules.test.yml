@@ -1,0 +1,27 @@
+rule_files:
+  - operational-rules.yml
+evaluation_interval: 15s
+tests:
+  - interval: 15s
+    input_series:
+      - series: 'terrabase_backup_abandoned_total{service="terrabase",region="gru"}'
+        values: '0+0x3 1+0x24'
+      - series: 'terrabase_backup_holes_total{service="terrabase",region="gru"}'
+        values: '0+0x3 1+0x24'
+      - series: 'terrabase_backup_drills_total{service="terrabase",region="gru",result="failed"}'
+        values: '0+0x3 1+0x24'
+      - series: 'terrabase_replication_send_lag_seconds{service="terrabase",region="gru"}'
+        values: '31+0x28'
+      - series: 'terrabase_backup_lag_seconds{service="terrabase",region="gru"}'
+        values: '601+0x28'
+      - series: 'up{job="terrabase",service="terrabase",region="gru"}'
+        values: '0+0x28'
+    promql_expr_test:
+      - expr: 'count(ALERTS{alertstate="firing"})'
+        eval_time: 5m
+        exp_samples:
+          - value: 6
+      - expr: 'count(ALERTS{alertstate="firing"})'
+        eval_time: 7m
+        exp_samples:
+          - value: 3
