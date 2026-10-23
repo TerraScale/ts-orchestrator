@@ -3,7 +3,9 @@ package swarmruntime
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -33,7 +35,8 @@ func containerdTaskPortUpdateServesThroughout(t *testing.T, ctx context.Context,
 			return ServiceSpec{Name: name, Image: integrationImage, Port: port, Replicas: 1, ReadyPath: "/readyz",
 				Env: map[string]string{"LISTEN": listen,
 					"HANDLER": `read -r line; printf 'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n` + version + `'`},
-				Args: []string{"/bin/sh", "-c", `trap 'kill $! 2>/dev/null; exit 0' TERM; sleep 3; nc -lk -p "$LISTEN" -e /bin/sh -c "$HANDLER" & wait`}}
+				// Like Kestrel, it drains for a second after SIGTERM before it exits.
+				Args: []string{"/bin/sh", "-c", `trap 'sleep 1; kill $! 2>/dev/null; exit 0' TERM; sleep 3; nc -lk -p "$LISTEN" -e /bin/sh -c "$HANDLER" & wait`}}
 		}
 		var serviceID string
 		t.Cleanup(func() {
@@ -61,37 +64,47 @@ func containerdTaskPortUpdateServesThroughout(t *testing.T, ctx context.Context,
 		apply("v1", false)
 
 		var mu sync.Mutex
-		failures := 0
+		var failures []string
+		start := time.Now()
 		probing, stopProbing := context.WithCancel(ctx)
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
 			for probing.Err() == nil {
-				if getBody(port) == "" {
+				client := http.Client{Timeout: time.Second}
+				sent := time.Since(start)
+				response, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
+				var body []byte
+				if err == nil {
+					body, err = io.ReadAll(response.Body)
+					response.Body.Close()
+				}
+				if err != nil || len(body) == 0 {
 					mu.Lock()
-					failures++
+					failures = append(failures, fmt.Sprintf("at %s: %v", sent.Round(time.Millisecond), err))
 					mu.Unlock()
 				}
 				time.Sleep(20 * time.Millisecond)
 			}
 		}()
-		count := func() int {
+		count := func() []string {
 			mu.Lock()
 			defer mu.Unlock()
 			n := failures
-			failures = 0
+			failures = nil
 			return n
 		}
 		apply("v2", true)
 		// The self-bound v1 frees the port at SIGTERM; the forwarder takes it within bindRetry.
-		t.Logf("v1 (self-bound) -> v2 (${PORT}): %d failed probes", count())
+		t.Logf("v1 (self-bound) -> v2 (${PORT}): failed probes %v", count())
 		for _, version := range []string{"v3", "v4"} {
+			t.Logf("update to %s from %s", version, time.Since(start).Round(time.Millisecond))
 			apply(version, true)
 			if body := getBody(port); body != version {
 				t.Fatalf("updated task serves %q, want %s", body, version)
 			}
-			if n := count(); n != 0 {
-				t.Fatalf("update to %s: %d probes failed, want 0", version, n)
+			if n := count(); len(n) != 0 {
+				t.Fatalf("update to %s: probes failed %v, want none", version, n)
 			}
 		}
 		stopProbing()
