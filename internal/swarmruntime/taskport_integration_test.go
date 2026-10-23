@@ -107,6 +107,24 @@ func containerdTaskPortUpdateServesThroughout(t *testing.T, ctx context.Context,
 				t.Fatalf("update to %s: probes failed %v, want none", version, n)
 			}
 		}
+		// A concurrent re-apply of the same workload (the mesh stamps a new
+		// generation) mid-update must not fail the first apply's wait.
+		first, err := ApplyServiceSpec(ctx, client, spec("v5", true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second)
+		again := spec("v5", true)
+		again.Generation = time.Now().UnixNano()
+		if _, err := ApplyServiceSpec(ctx, client, again); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := WaitServiceSpec(ctx, client, first, ProbeLocalTask); err != nil {
+			t.Fatalf("wait across a same-workload re-apply: %v", err)
+		}
+		if n := count(); len(n) != 0 {
+			t.Fatalf("update to v5: probes failed %v, want none", n)
+		}
 		stopProbing()
 		<-done
 	})
