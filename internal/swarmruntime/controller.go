@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 
 	"github.com/containerd/containerd/api/types"
@@ -327,6 +328,9 @@ func (c *controller) awaitReady(ctx context.Context) error {
 	for {
 		probeErr := probeLocalPort(ctx, c.task)
 		if probeErr == nil {
+			if port, err := hostPort(c.task); err == nil {
+				handoff.Release(port)
+			}
 			return nil
 		}
 		select {
@@ -566,6 +570,12 @@ func (c *controller) stopTask(ctx context.Context) error {
 	wait, err := t.Wait(ctx)
 	if err != nil {
 		return err
+	}
+	// The edge holds new requests for the port until a replacement is ready.
+	if _, named := c.spec.Labels[LabelReadyPath]; named && c.stateful == nil {
+		if port, err := hostPort(c.task); err == nil {
+			handoff.Hold(port)
+		}
 	}
 	if err := t.Kill(ctx, syscall.SIGTERM, containerd.WithKillAll); err != nil && !errdefs.IsNotFound(err) {
 		return err

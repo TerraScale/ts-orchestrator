@@ -27,6 +27,7 @@ import (
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 
+	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
@@ -270,14 +271,20 @@ func isGRPC(r *http.Request) bool {
 
 type roundTripper func(*http.Request) (*http.Response, error)
 
-// handoffWait bounds how long a refused backend dial is retried. A service
-// update stops the old task before the new one binds the same port (0.2-0.5 s
-// measured); a refused dial sent nothing, so retrying is safe for any method.
-const handoffWait = 2 * time.Second
+// handoffWait bounds how long a backend dial waits out a service update. The
+// executor holds the port from the old task's SIGTERM until the new task answers
+// its readyPath (stop grace, process start and first readiness check: ts-auth
+// needs 3-6 s); a refused dial sent nothing, so retrying is safe for any method.
+const handoffWait = 20 * time.Second
 
 func dialHandoff(ctx context.Context, network, address string) (net.Conn, error) {
 	var dialer net.Dialer
 	deadline := time.Now().Add(handoffWait)
+	if _, p, err := net.SplitHostPort(address); err == nil {
+		if port, err := strconv.ParseUint(p, 10, 16); err == nil {
+			handoff.Wait(ctx, uint16(port), deadline)
+		}
+	}
 	for {
 		conn, err := dialer.DialContext(ctx, network, address)
 		if err == nil || !errors.Is(err, syscall.ECONNREFUSED) || time.Now().After(deadline) {
