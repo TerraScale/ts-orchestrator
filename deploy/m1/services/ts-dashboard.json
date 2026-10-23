@@ -1,6 +1,6 @@
 {
   "name": "ts-dashboard",
-  "image": "ghcr.io/terrascale/ts-dashboard@sha256:5c011ba30d26e3106c9e30ef6281a32320764bd6d9f2ecbb775b3b077e6a7df3",
+  "image": "ghcr.io/terrascale/ts-dashboard@sha256:8b6dd7dde79ecd6f86c368ad56cd7864a223ac8789c73292543a95eb09dc67f7",
   "env": {
     "ASPNETCORE_URLS": "http://127.0.0.1:8085",
     "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp",
@@ -31,7 +31,9 @@
   "port": 8085,
   "readyPath": "/readyz",
   "hostnames": [
-    "dash.terrascale.tech"
+    "dash.terrascale.tech",
+    "mcp.terrascale.tech",
+    "platform.terrascale.tech"
   ],
   "replicas": 1,
   "milliCPU": 500,

@@ -1,6 +1,6 @@
 {
   "name": "terrabase",
-  "image": "ghcr.io/terrascale/terrabase@sha256:509165626e0ef74e10a711e4bd1be61b35e4ea238f1e3b8780ff1b7afe509a7e",
+  "image": "ghcr.io/terrascale/terrabase@sha256:cab7b961090c0dd113c59b780b1af2d7f924adc62b73170758c140ecd52bf4ec",
   "env": {
     "AWS_ENDPOINT_URL_S3": "https://fly.storage.tigris.dev",
     "AWS_REGION": "auto",
@@ -38,14 +38,19 @@
   "port": 8080,
   "readyPath": "/readyz",
   "hostnames": [
-    "api.terrascale.tech"
+    "api.terrascale.tech",
+    "gru.api.terrascale.tech"
   ],
   "postgres": {
     "port": 6432,
     "hostname": "pg.terrascale.tech"
   },
   "replicas": 1,
-  "milliCPU": 1500,
-  "memoryMiB": 12288,
-  "regions": ["gru"]
+  "milliCPU": 1000,
+  "memoryMiB": 4096,
+  "regions": [
+    "gru",
+    "sjc",
+    "fra"
+  ]
 }
