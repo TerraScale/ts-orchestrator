@@ -15,7 +15,6 @@ runs:
         fi
         python3 scripts/ci/zero-config-check.py "$ZERO_CONFIG_BASE" "$SOURCE_SHA"
         python3 scripts/ci/test_zero_config_check.py -v
-        python3 -I -B -m unittest discover -s scripts/ci -p test_image_inputs_changed.py -v
         python3 -I -B -m unittest discover -s scripts/ci -p test_ci_artifact_graph.py -v
         python3 -I -B -m unittest discover -s scripts/ci -p test_check_inputs.py -v
     - uses: ./.github/actions/go
@@ -25,7 +24,7 @@ runs:
       if: ${{ env.TS_RACE_MACHINE == '1' }}
       shell: bash
       run: command -v shellcheck >/dev/null || { sudo apt-get update && sudo apt-get install -y shellcheck; }
-    - name: Compare executable and image inputs with retained qualification
+    - name: Compare executable inputs with retained qualification
       if: ${{ env.TS_RACE_MACHINE == '1' }}
       id: inputs
       shell: bash

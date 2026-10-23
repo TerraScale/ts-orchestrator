@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the host image for SOURCE on this machine from the same retained CI
-# release and pinned inputs image.yml uses, without waiting for the runner.
+# release and pinned inputs, without an Actions image workflow.
 #
 # usage: build-image-local.sh SOURCE_SHA [OUTPUT_DIRECTORY]
 #

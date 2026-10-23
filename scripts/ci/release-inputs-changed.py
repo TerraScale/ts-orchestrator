@@ -55,11 +55,6 @@ def changed():
     if os.environ.get("GITHUB_EVENT_NAME") == "schedule":
         print("scheduled refresh requires current-source binaries")
         return 0
-    # Images always consume this run's candidate, even when only baked inputs changed.
-    image = subprocess.run(["bash", "scripts/ci/image-inputs-changed.sh"], timeout=300)
-    if image.returncode != 3:
-        print("image refresh requires current-source binaries")
-        return 0
     paths = inputs()
     retained = []
     for page in range(1, 11):

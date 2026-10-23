@@ -653,7 +653,7 @@ func (a *Attempt) PhaseImage() {
 	production := filepath.Join(release, "image-production")
 	if !exists(filepath.Join(production, cell.Cell, "arm64", "production.json")) {
 		tag := "ci-" + revision + "-run-" + text(orch["ci_run_id"])
-		a.execute(Command{Args: []string{"bash", a.Path("source", "scripts/ci/fetch-image-production-evidence.sh"), tag, digest, cell.Cell, "arm64", production}, Dir: a.Path("source")})
+		a.execute(Command{Args: []string{"bash", a.Path("source", "deploy/image/fetch-production-evidence.sh"), tag, digest, cell.Cell, "arm64", production}, Dir: a.Path("source")})
 	}
 	// Recheck the exact final disk and retained proof before any import, including resumed attempts.
 	a.release("verify-image-production", "--image-file", qcow2, "--qualification", qualification, "--root-key", a.trust("root_public"), "--cell", cell.Cell, "--environment", "canary", "--arch", "arm64", "--production-evidence-dir", production)

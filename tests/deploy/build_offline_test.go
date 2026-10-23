@@ -524,8 +524,7 @@ func (f *offlineFixture) cleanTemp() {
 
 // representative keeps one case of a rejection family in the fast tier.
 // Every other case pays for its own complete offline build through hundreds
-// of command fakes, so it runs in the integration tier, which still gates
-// every image: image.yml builds only revisions whose full ci.yml run passed.
+// of command fakes, so it runs in the integration tier before merge.
 // guestName names a subtest after a guest path without '/', which -run
 // reads as a subtest separator: /usr/local/bin becomes usr_local_bin, so
 // one case can be selected, for example

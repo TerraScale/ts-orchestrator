@@ -23,8 +23,7 @@ class ArtifactGraph(unittest.TestCase):
         self.work = Path(self.temporary.name)
         self.root = self.work / "repo"
         self.root.mkdir()
-        for name in ("qualified_release.py", "release-inputs-changed.py",
-                     "image-inputs-changed.sh", "image-superseded.sh"):
+        for name in ("qualified_release.py", "release-inputs-changed.py"):
             self.write("scripts/ci/" + name, (SCRIPTS / name).read_text())
         for name, content in {
             "go.mod": "module example.invalid/fixture\n",
@@ -171,13 +170,13 @@ class ArtifactGraph(unittest.TestCase):
         self.advance("docs/guide.md")
         self.classification(3)
 
-    def test_schedule_and_image_pin_change_require_current_candidate(self):
+    def test_schedule_refreshes_but_unused_image_pin_does_not_publish(self):
         self.advance("docs/guide.md")
         self.env["GITHUB_EVENT_NAME"] = "schedule"
         self.classification(0)
         self.env["GITHUB_EVENT_NAME"] = "push"
         self.advance("internal/trust/root.pem")
-        self.classification(0)
+        self.classification(3)
 
     def test_unknown_graph_or_qualification_cannot_skip(self):
         self.advance("docs/guide.md")
@@ -202,18 +201,6 @@ class ArtifactGraph(unittest.TestCase):
                 if tool.exists():
                     self.assertEqual(tool.stat().st_mode & 0o111, 0)
 
-    def test_docs_run_does_not_supersede_retained_candidate(self):
-        docs = self.advance("docs/guide.md")
-        newer = self.retain(docs, 2)
-        newer["view"]["assets"] = []  # successful checks without a runtime publication
-        result = self.run_script("image-superseded.sh", self.base, "1", "1", "30")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual((self.work / "output").read_text().strip(), "skip=false")
-        newer["view"]["assets"] = self.state["candidates"][f"ci-{self.base}-run-1"]["view"]["assets"]
-        (self.work / "output").unlink()
-        result = self.run_script("image-superseded.sh", self.base, "1", "1", "30")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual((self.work / "output").read_text().strip(), "skip=true")
 
 
 TOOL = r'''
