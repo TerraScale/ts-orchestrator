@@ -1,25 +1,31 @@
 #!/usr/bin/env python3
 """USER RUN ONLY. One issuance and GitHub installation; password via redirected stdin."""
 
+import contextlib
 import datetime as dt
 import email
 import email.header
 import email.utils
+import fcntl
 import http.cookiejar
 import imaplib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
 import resource
 import signal
 import ssl
+import stat
 import sys
 import termios
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
+import warnings
 
 # Load the existing installer without executing its interactive entry point.
 sys.dont_write_bytecode = True
@@ -34,6 +40,7 @@ API = "https://api.terrascale.tech"
 ADDRESS = "mariogk@terrascale.tech"
 CLIENT = "00000000000000000000000007"
 KEY_NAME = "deployment-e2e-read"
+SESSION_DIR = Path.home() / ".cache/ts-session"
 SUBJECT = re.compile(r"([0-9]{6})(?: is your (?:TerraScale|ts-auth) sign-in code| é o seu código de acesso para (?:TerraScale|ts-auth))")
 
 
@@ -50,9 +57,108 @@ class AuthCookies(urllib.request.HTTPCookieProcessor):
     https_request = http_request
 
 
+class SessionCache:
+    def __init__(self):
+        SESSION_DIR.parent.mkdir(parents=True, exist_ok=True)
+        SESSION_DIR.mkdir(mode=0o700, exist_ok=True)
+        self.fd = os.open(SESSION_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        self.locked = False
+        try:
+            self.validate(os.fstat(self.fd), directory=True)
+        except BaseException:
+            os.close(self.fd)
+            raise
+
+    @staticmethod
+    def validate(info, directory=False):
+        if (info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != (0o700 if directory else 0o600) or
+                not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode) and info.st_nlink == 1)):
+            raise ValueError("Private session cache permissions required.")
+
+    def open(self, name, flags):
+        fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=self.fd)
+        try:
+            self.validate(os.fstat(fd))
+            return fd
+        except BaseException:
+            os.close(fd)
+            raise
+
+    @contextlib.contextmanager
+    def lock(self):
+        if self.locked:
+            yield
+            return
+        with os.fdopen(self.open("signin.lock", os.O_CREAT | os.O_RDWR), "r+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self.locked = True
+            try:
+                yield
+            finally:
+                self.locked = False
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+    def number(self, name):
+        try:
+            with os.fdopen(self.open(name, os.O_RDONLY)) as source:
+                value = float(source.read(128))
+                if not math.isfinite(value) or value < 0 or source.read(1):
+                    raise ValueError("Invalid shared sign-in timestamp.")
+                return value
+        except FileNotFoundError:
+            return 0
+
+    def check_cooldown(self):
+        if time.time() < self.number("cooldown-until"):
+            raise ValueError("Shared HTTP 429 cooldown active; wait 15 minutes after the last rate limit.")
+
+    def save(self, name, writer):
+        if not self.locked:
+            raise ValueError("Session cache writes require the sign-in lock.")
+        # Reject unsafe existing entries; rename publishes only a complete private file.
+        try:
+            os.close(self.open(name, os.O_RDONLY))
+        except FileNotFoundError:
+            pass
+        temporary = ".tmp-" + os.urandom(16).hex()
+        fd = self.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        try:
+            writer(fd)
+            os.fsync(fd)
+            os.replace(temporary, name, src_dir_fd=self.fd, dst_dir_fd=self.fd)
+            os.fsync(self.fd)
+        finally:
+            os.close(fd)
+            try:
+                os.unlink(temporary, dir_fd=self.fd)
+            except FileNotFoundError:
+                pass
+
+    def timestamp(self, name, value):
+        def write(fd):
+            with os.fdopen(os.dup(fd), "w") as target:
+                target.write(str(value))
+        self.save(name, write)
+
+    def load(self, jar):
+        jar.clear()
+        try:
+            fd = self.open("mariogk.cookies", os.O_RDONLY)
+        except FileNotFoundError:
+            return False
+        try:
+            # Descriptor paths keep CookieJar's filename API on the validated inode.
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", UserWarning)
+                jar.load("/proc/self/fd/" + str(fd), ignore_discard=True)
+        finally:
+            os.close(fd)
+        return True
+
+
 def confirm(expected):
     target = expected["E2E_PROJECT_ID"] + "/" + expected["E2E_DATABASE"]
-    negative = expected["E2E_UNRELATED_PROJECT_ID"] + "/" + expected["E2E_DATABASE"]
+    negative = expected["E2E_PROJECT_ID"] + "/" + expected["E2E_UNRELATED_DATABASE"]
     phrase = "issue " + target + " negative " + negative
     try:
         with open("/dev/tty", "r") as control, open("/dev/tty", "w") as terminal:
@@ -68,7 +174,7 @@ def confirm(expected):
                 terminal.write("USER ONLY: issue one 23-hour documents:read key and install into MarioGK / "
                                "TerraScale/ts-orchestrator / production / E2E_PROJECT_CREDENTIAL.\n"
                                "Organization: " + expected["E2E_ORGANIZATION_ID"] + "\n"
-                               "Confirm both exact approved existing project/database pairs.\n"
+                               "Confirm both exact databases in this one approved project; no negative-database key.\n"
                                "Type (hidden): " + phrase + "\n> ")
                 terminal.flush()
                 answer = control.readline(512).rstrip("\r\n")
@@ -145,21 +251,33 @@ def mailbox_code(password, started):
 
 class Session:
     def __init__(self):
-        self.jar = http.cookiejar.CookieJar()
+        self.jar = http.cookiejar.MozillaCookieJar()
         self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}),
             urllib.request.HTTPSHandler(context=ssl.create_default_context()), AuthCookies(self.jar), NoRedirect())
         self.token = None
         self.issuance_attempted = False
+        self.cache = None
+
+    def session_cache(self):
+        if self.cache is None:
+            self.cache = SessionCache()
+        return self.cache
 
     def close(self):
         self.token = None
         self.jar.clear()
         self.http.close()
+        if self.cache is not None:
+            os.close(self.cache.fd)
+            self.cache = None
 
     def call(self, url, method="GET", data=None, token=None, form=False, status=200):
         parsed = urllib.parse.urlsplit(url)
         if parsed.scheme != "https" or parsed.netloc not in ("auth.terrascale.tech", "api.terrascale.tech") or parsed.fragment:
             raise ValueError("Only pinned TLS endpoints are allowed.")
+        if (method == "POST" and url in (AUTH + "/ui/terrascale/sign-in", AUTH + "/ui/terrascale/sign-in/verify") and
+                (self.cache is None or not self.cache.locked)):
+            raise ValueError("Email sign-in requires the shared lock.")
         headers = {"Accept": "application/json"}
         if token:
             headers["Authorization"] = "Bearer " + token
@@ -173,7 +291,18 @@ class Session:
             headers["Content-Type"] = "application/x-www-form-urlencoded" if form else "application/json"
             body = (urllib.parse.urlencode(data) if form else json.dumps(data)).encode()
         # HTTPError and private response bodies are never rendered by the entry point.
-        with self.http.open(urllib.request.Request(url, body, headers, method=method), timeout=20) as response:
+        try:
+            response = self.http.open(urllib.request.Request(url, body, headers, method=method), timeout=20)
+        except urllib.error.HTTPError as error:
+            try:
+                if error.code == 429:
+                    cache = self.session_cache()
+                    with cache.lock():
+                        cache.timestamp("cooldown-until", max(cache.number("cooldown-until"), time.time() + 900))
+            finally:
+                error.close()
+            raise
+        with response:
             content = response.read(65537)
             if response.status != status or response.geturl() != url or len(content) > 65536:
                 raise ValueError("Pinned endpoint response rejected.")
@@ -186,7 +315,37 @@ class Session:
                 return content
             raise ValueError("Native JSON response required.")
 
+    def cached_session(self, cache):
+        if not cache.load(self.jar):
+            return False
+        try:
+            self.call(AUTH + "/ui/terrascale/device")
+            return True
+        except urllib.error.HTTPError as error:
+            if error.code == 401 or (error.code == 302 and error.headers.get("Location") in
+                    ("/ui/terrascale/sign-in", AUTH + "/ui/terrascale/sign-in")):
+                return False
+            raise
+
     def login(self, password):
+        cache = self.session_cache()
+        cache.check_cooldown()
+        if not self.cached_session(cache):
+            with cache.lock():
+                cache.check_cooldown()
+                if not self.cached_session(cache):
+                    now = time.time()
+                    if now < cache.number("last-signin-at") + 300:
+                        raise ValueError("Shared five-minute sign-in request limit active.")
+                    cache.timestamp("last-signin-at", now)
+                    self.email_login(password)
+                    cache.save("mariogk.cookies", lambda fd: self.jar.save("/proc/self/fd/" + str(fd), ignore_discard=True))
+        password = None
+        self.identify()
+
+    def email_login(self, password):
+        if self.cache is None or not self.cache.locked:
+            raise ValueError("Email sign-in requires the shared lock.")
         started = dt.datetime.now(dt.timezone.utc)
         self.call(AUTH + "/ui/terrascale/sign-in", "POST", {"email": ADDRESS}, form=True)
         code = mailbox_code(password, started)
@@ -195,6 +354,8 @@ class Session:
         code = None
         if b"Signed in" not in page or not any(c.name == "tsauth_session" and c.secure for c in self.jar):
             raise ValueError("Hosted signed session required.")
+
+    def identify(self):
         issued = self.call(ISSUER + "/oauth/device", "POST", {"client_id": CLIENT, "scope": "openid email"}, form=True)
         interval = issued.get("interval")
         if (issued.get("verification_uri") != AUTH + "/ui/terrascale/device" or
@@ -224,20 +385,22 @@ class Session:
         org = self.call(root, token=self.token)
         if org.get("id") != organization or org.get("role") not in ("owner", "admin"):
             raise ValueError("Organization owner/admin required.")
-        for selected in (project, negative):
-            metadata = self.call(root + "/projects/" + selected, token=self.token)
-            if metadata.get("id") != selected or metadata.get("organization_id") != organization:
-                raise ValueError("Both exact projects must belong to the approved organization.")
-            tokens = self.call(ISSUER + "/oauth/token", "POST", {"client_id": CLIENT,
-                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange", "subject_token": self.token,
-                "subject_token_type": "urn:ietf:params:oauth:token-type:access_token", "organization": organization,
-                "project": selected, "scope": "databases:read"}, form=True)
-            if tokens.get("token_type") != "Bearer" or "refresh_token" in tokens or not isinstance(tokens.get("access_token"), str) or not tokens["access_token"]:
-                raise ValueError("Read-only metadata exchange rejected.")
-            metadata = self.call(API + "/v1/projects/" + selected + "/databases/" + database, token=tokens["access_token"])
-            tokens.clear()
-            if metadata.get("projectId") != selected or metadata.get("name") != database:
+        if database == negative:
+            raise ValueError("Two distinct databases in one approved project required.")
+        metadata = self.call(root + "/projects/" + project, token=self.token)
+        if metadata.get("id") != project or metadata.get("organization_id") != organization:
+            raise ValueError("Exact project must belong to the approved organization.")
+        tokens = self.call(ISSUER + "/oauth/token", "POST", {"client_id": CLIENT,
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange", "subject_token": self.token,
+            "subject_token_type": "urn:ietf:params:oauth:token-type:access_token", "organization": organization,
+            "project": project, "scope": "databases:read"}, form=True)
+        if tokens.get("token_type") != "Bearer" or "refresh_token" in tokens or not isinstance(tokens.get("access_token"), str) or not tokens["access_token"]:
+            raise ValueError("Read-only metadata exchange rejected.")
+        for selected in (database, negative):
+            metadata = self.call(API + "/v1/projects/" + project + "/databases/" + selected, token=tokens["access_token"])
+            if metadata.get("projectId") != project or metadata.get("name") != selected:
                 raise ValueError("Both exact databases must already exist.")
+        tokens.clear()
         keys_url = root + "/projects/" + project + "/api-keys"
         prior = self.call(keys_url, token=self.token)
         if prior.get("items") != [] or prior.get("next", "missing") is not None:
