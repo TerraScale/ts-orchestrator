@@ -34,7 +34,7 @@ func (entry Entry) deploymentFloor() *Deployment {
 	if entry.DeploymentFloor != nil {
 		return entry.DeploymentFloor
 	}
-	// Older persisted entries stored only Deployment; keep their authority conservatively.
+	// A signed entry establishes its own run floor.
 	return entry.Deployment
 }
 

@@ -51,10 +51,8 @@ missed a signed rollout and inherited a lower floor. Reconciliation waits for
 both the winner and floor to persist. Signed entries still reject older runs,
 different repositories and same-run artifact changes; inheriting a floor never
 turns an operator entry into a signed release. Do not delete desired state to make
-an old workflow succeed. Older persisted entries without `deploymentFloor` retain
-their existing `deployment` as both authority and floor conservatively; reissue a
-reviewed operator apply after all founders are upgraded if such an old entry is
-blocked by unequal floors.
+an old workflow succeed. A signed entry establishes its own run floor when no
+separate inherited floor is present.
 
 On release failure, the existing bounded rollback restores the previous spec.
 Its compare-and-swap requires the failed release's generation still to be
