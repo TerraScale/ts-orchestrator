@@ -5,7 +5,6 @@ package alertdelivery
 import (
 	"bytes"
 	"context"
-	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -14,7 +13,9 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -31,18 +32,23 @@ type notification struct {
 type credentials struct{ account, token string }
 
 type relay struct {
-	client   *http.Client
-	endpoint string
-	read     func(context.Context) (credentials, error)
+	client       *http.Client
+	endpoint     string
+	pushEndpoint string
+	read         func(context.Context) (credentials, error)
 }
+
+const pushTopic = "terrascale-01M5M8JQWY20E218CXGNHNH7XY"
+const recipient = "mariogk@terrascale.tech"
 
 // Run serves only loopback; Alertmanager owns retry, grouping and deduplication.
 func Run(ctx context.Context, args []string) error {
 	if len(args) != 0 {
 		return errors.New("usage: ts-orch alert-delivery")
 	}
-	r := relay{client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, endpoint: "https://api.cloudflare.com/client/v4/accounts/", read: readCredentials}
+	r := relay{client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, endpoint: "https://api.cloudflare.com/client/v4/accounts/", pushEndpoint: "https://ntfy.sh/" + pushTopic, read: readCredentials}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /metrics", readinessMetrics(newReadinessClient()))
 	mux.HandleFunc("POST /alerts", r.deliver)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	listener, err := net.Listen("tcp", "127.0.0.1:9094")
@@ -64,8 +70,7 @@ func readCredentials(ctx context.Context) (credentials, error) {
 		"CLOUDFLARE_ACCOUNT_ID_FILE":  {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-account-id"},
 		"CLOUDFLARE_EMAIL_TOKEN_FILE": {Vault: vaultsecret.SharedVault, Name: "gru-1-cloudflare-email-token"},
 	}
-	// Preserve service authorization. Sharing these two existing refs with
-	// ts-alerts requires explicit security approval before activation.
+	// Only the two refs approved for alert delivery are shared with this service.
 	values, err := vaultsecret.ReadInstanceSecrets(ctx, "ts-alerts", refs)
 	if err != nil {
 		return credentials{}, errors.New("alert delivery Vault credentials unavailable")
@@ -96,44 +101,83 @@ func (r relay) deliver(w http.ResponseWriter, request *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), 50*time.Second)
 	defer cancel()
+	var emailErr, pushErr error
+	var pushID string
+	var deliveries sync.WaitGroup
+	deliveries.Go(func() { emailErr = r.email(ctx, notice.Status, lines) })
+	deliveries.Go(func() { pushID, pushErr = r.push(ctx, notice.Status) })
+	deliveries.Wait()
+	if emailErr != nil || pushErr != nil {
+		slog.WarnContext(ctx, "production alert channel rejected", "email_accepted", emailErr == nil, "push_accepted", pushErr == nil)
+		http.Error(w, "alert delivery incomplete", http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+	slog.InfoContext(ctx, "production alert email and push accepted", "status", notice.Status, "alerts", len(notice.Alerts), "push_message_id", pushID)
+}
+
+func (r relay) email(ctx context.Context, status string, lines []string) error {
 	secrets, err := r.read(ctx)
 	if err != nil {
-		http.Error(w, "alert delivery credentials unavailable", http.StatusServiceUnavailable)
-		return
+		return errors.New("alert delivery credentials unavailable")
 	}
 	payload, err := json.Marshal(map[string]any{
 		"from": map[string]string{"address": "no-reply@terrascale.tech", "name": "TerraScale production alerts"},
-		"to":   "mariogk@terrascale.tech", "subject": "TerraScale production alert: " + notice.Status,
+		"to":   recipient, "subject": "TerraScale production alert: " + status,
 		"text": strings.Join(lines, "\n"),
 	})
 	if err != nil {
-		http.Error(w, "alert delivery encoding failed", http.StatusInternalServerError)
-		return
+		return errors.New("alert delivery encoding failed")
 	}
 	outgoing, err := http.NewRequestWithContext(ctx, http.MethodPost, r.endpoint+secrets.account+"/email/sending/send", bytes.NewReader(payload))
 	if err != nil {
-		http.Error(w, "alert delivery request failed", http.StatusBadGateway)
-		return
+		return errors.New("alert delivery request failed")
 	}
 	outgoing.Header.Set("Authorization", "Bearer "+secrets.token)
 	outgoing.Header.Set("Content-Type", "application/json")
 	response, err := r.client.Do(outgoing)
 	if err != nil {
-		http.Error(w, "alert delivery transport failed", http.StatusBadGateway)
-		return
+		return errors.New("alert delivery transport failed")
 	}
 	defer response.Body.Close()
 	var result struct {
 		Success bool `json:"success"`
 		Result  struct {
-			PermanentBounces []jsontext.Value `json:"permanent_bounces"`
+			PermanentBounces []string `json:"permanent_bounces"`
+			Suppressed       []string `json:"suppressed_recipients"`
+			Delivered        []string `json:"delivered"`
+			Queued           []string `json:"queued"`
 		} `json:"result"`
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, 64<<10+1))
-	if response.StatusCode < 200 || response.StatusCode >= 300 || err != nil || len(data) > 64<<10 || json.Unmarshal(data, &result) != nil || !result.Success || len(result.Result.PermanentBounces) > 0 {
-		http.Error(w, "alert delivery rejected by provider", http.StatusBadGateway)
-		return
+	if response.StatusCode < 200 || response.StatusCode >= 300 || err != nil || len(data) > 64<<10 || json.Unmarshal(data, &result) != nil || !result.Success || len(result.Result.PermanentBounces) > 0 || len(result.Result.Suppressed) > 0 || (!slices.Contains(result.Result.Delivered, recipient) && !slices.Contains(result.Result.Queued, recipient)) {
+		return errors.New("alert delivery rejected by provider")
 	}
-	w.WriteHeader(http.StatusAccepted)
-	slog.InfoContext(ctx, "production alert email accepted", "status", notice.Status, "alerts", len(notice.Alerts))
+	return nil
+}
+
+func (r relay) push(ctx context.Context, status string) (string, error) {
+	// The approved free topic has no access control. Publish no operational
+	// details; email is the authenticated source of alert information.
+	push, err := http.NewRequestWithContext(ctx, http.MethodPost, r.pushEndpoint, strings.NewReader("TerraScale production alert: "+status+". Check your alert email."))
+	if err != nil {
+		return "", errors.New("push request failed")
+	}
+	push.Header.Set("Title", "TerraScale production alert")
+	push.Header.Set("Priority", "urgent")
+	pushResponse, err := r.client.Do(push)
+	if err != nil {
+		return "", errors.New("push transport failed")
+	}
+	defer pushResponse.Body.Close()
+	var published struct {
+		ID    string `json:"id"`
+		Event string `json:"event"`
+		Topic string `json:"topic"`
+	}
+	pushData, err := io.ReadAll(io.LimitReader(pushResponse.Body, 64<<10+1))
+	if pushResponse.StatusCode != http.StatusOK || err != nil || len(pushData) > 64<<10 || json.Unmarshal(pushData, &published) != nil || published.ID == "" || published.Event != "message" || published.Topic != pushTopic {
+		return "", errors.New("push rejected by provider")
+	}
+	return published.ID, nil
 }

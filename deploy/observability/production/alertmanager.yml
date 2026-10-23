@@ -2,7 +2,7 @@ route:
   receiver: local-relay
   group_by: [alertname, region, service]
   group_wait: 30s
-  group_interval: 5m
+  group_interval: 30s
   repeat_interval: 4h
 receivers:
   - name: local-relay

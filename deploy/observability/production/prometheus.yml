@@ -18,3 +18,10 @@ scrape_configs:
         labels:
           region: gru
           service: terrabase
+  - job_name: service-readiness
+    metrics_path: /metrics
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ['127.0.0.1:9094']
+        labels:
+          region: gru

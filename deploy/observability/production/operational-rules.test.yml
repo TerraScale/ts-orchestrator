@@ -17,6 +17,15 @@ tests:
       - series: 'up{job="terrabase",service="terrabase",region="gru"}'
         values: '0+0x28'
     promql_expr_test:
+      # The two lag alerts remain pending until their full two-minute hold expires.
+      - expr: 'count(ALERTS{alertstate="firing"})'
+        eval_time: 1m45s
+        exp_samples:
+          - value: 4
+      - expr: 'count(ALERTS{alertstate="firing"})'
+        eval_time: 2m
+        exp_samples:
+          - value: 6
       - expr: 'count(ALERTS{alertstate="firing"})'
         eval_time: 5m
         exp_samples:
@@ -25,3 +34,39 @@ tests:
         eval_time: 7m
         exp_samples:
           - value: 3
+  - interval: 15s
+    input_series:
+      - series: 'terrascale_service_readiness{service="terrabase",region="gru"}'
+        values: '0+0x4 1+0x4'
+      - series: 'terrascale_service_readiness{service="ts-auth",region="gru"}'
+        values: '0+0x4 1+0x4'
+      - series: 'terrascale_service_readiness{service="ts-dashboard",region="gru"}'
+        values: '0+0x4 1+0x4'
+    alert_rule_test:
+      - eval_time: 45s
+        alertname: ServiceReadinessFailed
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: ServiceReadinessFailed
+        exp_alerts:
+          - exp_labels:
+              service: terrabase
+              region: gru
+              severity: critical
+            exp_annotations:
+              summary: Public service readiness failed
+          - exp_labels:
+              service: ts-auth
+              region: gru
+              severity: critical
+            exp_annotations:
+              summary: Public service readiness failed
+          - exp_labels:
+              service: ts-dashboard
+              region: gru
+              severity: critical
+            exp_annotations:
+              summary: Public service readiness failed
+      - eval_time: 1m15s
+        alertname: ServiceReadinessFailed
+        exp_alerts: []

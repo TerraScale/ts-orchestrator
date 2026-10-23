@@ -21,6 +21,20 @@ mode=$1
 if [[ $mode == --local && $EUID != 0 ]]; then
   echo 'Remote installation requires sudo/root' >&2; exit 2
 fi
+# Global help dispatches before runtime startup; never probe the bare daemon command.
+if [[ $mode == --local ]]; then
+  if ! help_output=$(timeout --kill-after=1s 5s /usr/local/bin/ts-orch --help 2>&1) ||
+    ! grep -Eq '^  alert-delivery[[:space:]]' <<<"$help_output"; then
+    echo 'Install a ts-orch release supporting alert-delivery before installing monitoring' >&2
+    exit 2
+  fi
+  status=0
+  relay_help=$(timeout --kill-after=1s 5s /usr/local/bin/ts-orch alert-delivery --help 2>&1) || status=$?
+  if [[ $status != 1 || $relay_help != 'usage: ts-orch alert-delivery' ]]; then
+    echo 'Installed ts-orch alert-delivery usage probe failed; no monitoring changes made' >&2
+    exit 2
+  fi
+fi
 case $(uname -m) in
   x86_64) arch=amd64
     prom_sha=2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0
@@ -49,7 +63,7 @@ alert_dir="$staging/alertmanager-0.34.1.linux-$arch"
 if [[ $mode == --check ]]; then exit; fi
 
 # Config and release checks above must pass before any installed state changes.
-for account in ts-prometheus ts-alertmanager; do
+for account in ts-prometheus ts-alertmanager ts-alerts; do
   if ! id "$account" >/dev/null 2>&1; then
     useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$account"
   fi
@@ -70,15 +84,16 @@ put "$source_dir/../slo-rules.yml" /etc/ts-monitoring/slo-rules.yml 0644
 for config in prometheus.yml alertmanager.yml operational-rules.yml; do
   put "$source_dir/$config" "/etc/ts-monitoring/production/$config" 0644
 done
-for unit in ts-prometheus.service ts-alertmanager.service; do
+for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service; do
   put "$source_dir/$unit" "/etc/systemd/system/$unit" 0644
 done
 systemctl daemon-reload
-systemctl enable ts-prometheus.service ts-alertmanager.service
+systemctl enable ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service
 if [[ $changed == 1 ]]; then
-  systemctl restart ts-prometheus.service ts-alertmanager.service
+  systemctl restart ts-alert-delivery.service ts-alertmanager.service ts-prometheus.service
 else
-  systemctl start ts-prometheus.service ts-alertmanager.service
+  systemctl start ts-alert-delivery.service ts-alertmanager.service ts-prometheus.service
 fi
 curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9090/-/ready
 curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9093/-/ready
+curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9094/healthz

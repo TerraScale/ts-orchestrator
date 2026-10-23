@@ -3,7 +3,7 @@ groups:
     rules:
       - alert: TerraBaseBackupLag
         expr: terrabase_backup_lag_seconds{service="terrabase",region="gru"} > 600
-        for: 5m
+        for: 2m
         labels:
           severity: critical
         annotations:
@@ -23,7 +23,7 @@ groups:
           summary: TerraBase backup contains holes
       - alert: TerraBaseReplicationSendLag
         expr: terrabase_replication_send_lag_seconds{service="terrabase",region="gru"} > 30
-        for: 5m
+        for: 2m
         labels:
           severity: critical
         annotations:
@@ -40,3 +40,10 @@ groups:
           severity: critical
         annotations:
           summary: TerraBase backup restore drill failed
+      - alert: ServiceReadinessFailed
+        expr: terrascale_service_readiness{region="gru",service=~"terrabase|ts-auth|ts-dashboard"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Public service readiness failed
