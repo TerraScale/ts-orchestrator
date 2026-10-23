@@ -105,34 +105,21 @@ and scoped signing checks remain mandatory for each region.
 
 ## Live verification and timing
 
-`deploy-lag.yml` runs every five minutes. Each service records a
-`deployment/qualified` commit status after verification and before delivery.
-The guard reads main ancestry and those markers rather than treating a failed
-deployment as a failed build. Continuous green builds cannot reset the clock
-of the oldest pending build. The latest 50 main commits bound API work; absent
-markers or unreadable observations fail visibly.
-Commit statuses are paginated so reruns cannot hide a commit's first
-qualification. Collection has a seven-minute budget; alert delivery receives
-its own 90-second budget even when collection expires, within the job's
-15-minute limit.
-If the deployed revision is outside the checked ancestry, incomplete history
-also fails visibly instead of restarting the 30-minute clock.
+`deploy-lag.yml` runs every five minutes (`scripts/ci/deploylag`) and fails,
+opening or updating one assigned GitHub alert (`TS-768`, mentions `@mariogk`),
+when a main build was published but not released within 30 minutes:
 
-Native services must report the expected source revision, complete, and a
-heartbeat within two minutes. Atlas, Status and Dashboard are observed through
-Status's GRU/SJC vantage bindings at `/api/v1/deployments`; both Status
-vantage Workers also prove their own revision. The guard discovers membership
-through the same orch-published topology and requires proofs for every region;
-a newly admitted region without its vantage proof raises an alert. The guard opens or updates one
-assigned GitHub alert, mentions `@mariogk`, and fails its scheduled job when
-a qualified build is overdue after 30 minutes or telemetry is unreadable.
-It closes the alert only when the full matrix has valid fresh proofs and no
-overdue builds; missing or stale proofs keep the incident open even when all
-visible qualifications are younger than 30 minutes. Alert lookup paginates
-open issues so an existing incident is updated or closed instead of duplicated.
-Its read token and OCI credentials are
-the existing scoped deployment secrets; its Actions token can write the
-orchestrator alert. Alert delivery failure also fails the job.
+- ts-orchestrator: a main commit is released when its `deploy/release-push`
+  succeeded, or a newer one did; a skipped release-push with a green `test`
+  check had nothing to publish. A red main that skips release-push counts.
+- terrabase, ts-auth (terrascale `ci.yml` jobs `main (terrabase)`, `main (auth)`)
+  and ts-dashboard (`images-ghcr.yml` job `test`): the oldest image published
+  since the last successful `Release to every region` step starts the clock;
+  newer builds never reset it.
+- Services in the code map `held` (today terrabase, until the batch-2 wipe)
+  are logged, not alerted. Unreadable history is a finding.
+
+The alert closes on the first run with no findings.
 
 Read every serving region with `ts-orch release fleet-status --namespace NS`.
 Require the expected full source revision, run number, `complete`,

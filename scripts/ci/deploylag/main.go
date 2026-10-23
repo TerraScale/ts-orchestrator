@@ -1,4 +1,5 @@
-// The scheduled deployment guard compares qualified main builds with live fleet proofs.
+// The scheduled deployment guard fails when a main build was published but has
+// not been released to the regions within 30 minutes (TS-768, TS-764).
 package main
 
 import (
@@ -13,37 +14,26 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"sync"
 	"time"
-
-	"github.com/TerraScale/ts-orchestrator/internal/atlas"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 )
 
 const forge = "https://api.github.com/repos/TerraScale/"
-const qualifiedContext = "deployment/qualified"
 const alertTitle = "TS-768: Deployment lag exceeds 30 minutes"
 const lagLimit = 30 * time.Minute
-const collectionBudget = 7 * time.Minute
-const notificationBudget = 90 * time.Second
 
-var services = []string{"ts-orchestrator", "terrabase", "ts-auth", "ts-atlas", "ts-status", "ts-dashboard"}
+// app is a service ts-orch releases from the image job of a repository's main
+// push: the job's "Release to every region" step is its deployment.
+type app struct{ service, repo, workflow, job string }
 
-type commit struct {
-	SHA     string    `json:"sha"`
-	GreenAt time.Time `json:"-"`
+var apps = []app{
+	{"terrabase", "terrascale", "ci.yml", "main (terrabase)"},
+	{"ts-auth", "terrascale", "ci.yml", "main (auth)"},
+	{"ts-dashboard", "ts-dashboard", "images-ghcr.yml", "test"},
 }
 
-type observation struct {
-	Service    string    `json:"service"`
-	Region     string    `json:"region"`
-	Target     string    `json:"target"`
-	Version    string    `json:"version"`
-	Status     int       `json:"status"`
-	ObservedAt time.Time `json:"observedAt"`
+// held services are released by hand for now: reported, never a failure.
+var held = map[string]string{
+	"terrabase": "released by hand until the TerraBase batch-2 wipe (terrascale #408, #398)",
 }
 
 type api struct {
@@ -87,133 +77,136 @@ func (a api) request(ctx context.Context, method, url, token string, input, outp
 	return json.Unmarshal(wire, output)
 }
 
-// Main ancestry, rather than workflow outcome, survives a failed deployment.
-// Bound API work; an exhausted history fails visibly instead of assuming green.
-func (a api) history(ctx context.Context, service string) ([]commit, error) {
-	var commits []commit
-	if err := a.request(ctx, "GET", forge+service+"/commits?sha=main&per_page=50", a.readToken, nil, &commits); err != nil {
+// orch reports ts-orchestrator main commits older than lagLimit that no
+// deploy/release-push has delivered: walking from the newest commit, a
+// successful release-push delivers it and everything older; a skipped one
+// with a green test check had nothing to publish.
+func (a api) orch(ctx context.Context, now time.Time) ([]string, error) {
+	var commits []struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Committer struct {
+				Date time.Time `json:"date"`
+			} `json:"committer"`
+		} `json:"commit"`
+	}
+	if err := a.request(ctx, "GET", forge+"ts-orchestrator/commits?sha=main&per_page=30", a.readToken, nil, &commits); err != nil {
 		return nil, err
 	}
-	found := false
-	for i := range commits {
-		for page := 1; ; page++ {
-			var statuses []struct {
-				Context   string    `json:"context"`
-				State     string    `json:"state"`
-				CreatedAt time.Time `json:"created_at"`
+	var oldest string
+	for _, c := range commits {
+		conclusion := func(name string) (string, error) {
+			var runs struct {
+				CheckRuns []struct {
+					Status     string `json:"status"`
+					Conclusion string `json:"conclusion"`
+				} `json:"check_runs"`
 			}
-			url := fmt.Sprintf("%s%s/commits/%s/statuses?per_page=50&page=%d", forge, service, commits[i].SHA, page)
-			if err := a.request(ctx, "GET", url, a.readToken, nil, &statuses); err != nil {
-				return nil, err
+			err := a.request(ctx, "GET", forge+"ts-orchestrator/commits/"+c.SHA+"/check-runs?check_name="+name, a.readToken, nil, &runs)
+			if err != nil || len(runs.CheckRuns) == 0 {
+				return "", err
 			}
-			for _, status := range statuses {
-				if status.Context == qualifiedContext && status.State == "success" &&
-					!status.CreatedAt.IsZero() && (commits[i].GreenAt.IsZero() || status.CreatedAt.Before(commits[i].GreenAt)) {
-					commits[i].GreenAt = status.CreatedAt
-					found = true
-				}
-			}
-			if len(statuses) < 50 {
-				break
-			}
+			return cmp.Or(runs.CheckRuns[0].Conclusion, runs.CheckRuns[0].Status), nil
 		}
-	}
-	if !found {
-		return nil, errors.New("no qualified-main marker in the latest 50 commits; verify pipeline markers")
-	}
-	return commits, nil
-}
-
-// Do not reset the clock when another green build overtakes a pending build.
-func pending(history []commit, version string, now time.Time) (commit, time.Duration, error) {
-	var newest commit
-	var oldest time.Time
-	found := false
-	for _, entry := range history {
-		if entry.SHA == version {
-			found = true
+		release, err := conclusion("deploy/release-push")
+		if err != nil {
+			return nil, err
+		}
+		if release == "success" {
 			break
 		}
-		if entry.GreenAt.IsZero() {
-			continue
+		if release == "skipped" {
+			if test, err := conclusion("test"); err != nil {
+				return nil, err
+			} else if test == "success" {
+				continue
+			}
 		}
-		if entry.GreenAt.After(now.Add(30 * time.Second)) {
-			return commit{}, 0, errors.New("qualified-main timestamp is ahead of the clock")
-		}
-		if newest.SHA == "" {
-			newest = entry
-		}
-		if oldest.IsZero() || entry.GreenAt.Before(oldest) {
-			oldest = entry.GreenAt
+		if now.Sub(c.Commit.Committer.Date) >= lagLimit {
+			oldest = fmt.Sprintf("- ts-orchestrator: main `%s` (%s ago) is not released to the regions; release-push: %s",
+				c.SHA, now.Sub(c.Commit.Committer.Date).Round(time.Minute), cmp.Or(release, "missing"))
 		}
 	}
-	if !found {
-		return commit{}, 0, errors.New("incomplete qualified-main history: deployed revision is outside the checked ancestry")
+	if oldest == "" {
+		return nil, nil
 	}
-	if oldest.IsZero() {
-		return newest, 0, nil
-	}
-	return newest, now.Sub(oldest), nil
+	return []string{oldest}, nil
 }
 
-func native(ctx context.Context, service, region string) (observation, error) {
-	result := observation{Service: service, Region: region, Target: "fleet"}
-	factory, err := ociclient.OperatorConfig(catalog.OCIRegion(region))
-	if err != nil {
-		return result, errors.New("OCI guard credentials are unavailable")
+// release reports an app whose oldest main image published since its last
+// release has waited lagLimit or longer: a newer build never resets the clock.
+func (a api) release(ctx context.Context, x app, now time.Time) ([]string, error) {
+	var runs struct {
+		WorkflowRuns []struct {
+			ID      int64  `json:"id"`
+			HeadSHA string `json:"head_sha"`
+		} `json:"workflow_runs"`
 	}
-	client, err := factory.ObjectStorage()
-	if err != nil {
-		return result, errors.New("OCI object client is unavailable")
+	url := fmt.Sprintf("%s%s/actions/workflows/%s/runs?branch=main&event=push&per_page=20", forge, x.repo, x.workflow)
+	if err := a.request(ctx, "GET", url, a.readToken, nil, &runs); err != nil {
+		return nil, err
 	}
-	bucket, err := releasechannel.BucketName(region)
-	if err != nil {
-		return result, err
-	}
-	location := releasechannel.Location{Client: client, Namespace: os.Getenv("TS_OBJECT_NAMESPACE"), Bucket: bucket}
-	var revision, cell, schema string
-	var state releasechannel.State
-	var updated time.Time
-	var found bool
-	if service == "ts-orchestrator" {
-		var status releasechannel.Status
-		status, found, err = releasechannel.ReadStatus(ctx, location)
-		revision, cell, schema, state, updated = status.SourceRevision, status.Cell, status.Schema, status.State, status.UpdatedAt
-		if schema != releasechannel.StatusSchema {
-			found = false
+	var finding string
+	for _, run := range runs.WorkflowRuns {
+		var jobs struct {
+			Jobs []struct {
+				Name  string `json:"name"`
+				Steps []struct {
+					Name        string    `json:"name"`
+					Status      string    `json:"status"`
+					Conclusion  string    `json:"conclusion"`
+					CompletedAt time.Time `json:"completed_at"`
+				} `json:"steps"`
+			} `json:"jobs"`
 		}
-	} else {
-		var status releasechannel.ServiceStatus
-		status, found, err = releasechannel.ReadServiceStatus(ctx, location, service)
-		revision, cell, schema, state, updated = status.SourceRevision, status.Cell, status.Schema, status.State, status.UpdatedAt
-		if schema != releasechannel.ServiceStatusSchema || status.Role != service {
-			found = false
+		if err := a.request(ctx, "GET", fmt.Sprintf("%s%s/actions/runs/%d/jobs?per_page=50", forge, x.repo, run.ID), a.readToken, nil, &jobs); err != nil {
+			return nil, err
+		}
+		for _, job := range jobs.Jobs {
+			if job.Name != x.job {
+				continue
+			}
+			var published time.Time
+			released := "missing"
+			for _, step := range job.Steps {
+				// The last build-push step publishes; earlier ones only build.
+				if strings.HasPrefix(step.Name, "Run docker/build-push-action") && step.Conclusion == "success" {
+					published = step.CompletedAt
+				}
+				if step.Name == "Release to every region" {
+					released = cmp.Or(step.Conclusion, step.Status)
+				}
+			}
+			switch {
+			case published.IsZero():
+				// This run published no image for the service.
+			case released == "success":
+				return report(x, finding), nil
+			case now.Sub(published) >= lagLimit:
+				finding = fmt.Sprintf("- %s: image of %s main `%s` published %s ago, release: %s",
+					x.service, x.repo, run.HeadSHA, now.Sub(published).Round(time.Minute), released)
+			}
 		}
 	}
-	if err != nil {
-		return result, errors.New("regional fleet proof could not be read")
-	}
-	result.ObservedAt = updated
-	if found && cell == region && state == releasechannel.StateComplete {
-		result.Version, result.Status = revision, 200
-	}
-	return result, nil
+	return report(x, finding), nil
 }
 
-func proofError(proof observation, now time.Time) error {
-	if proof.Status != http.StatusOK || !release.ValidSourceRevision(proof.Version) {
-		return errors.New("live deployment proof is missing or invalid")
+// report turns a held service's finding into a log line.
+func report(x app, finding string) []string {
+	if finding == "" {
+		return nil
 	}
-	if age := now.Sub(proof.ObservedAt); age < -30*time.Second || age > releasechannel.MaxPinAge {
-		return errors.New("live deployment proof timestamp is stale or ahead of the clock")
+	if reason, ok := held[x.service]; ok {
+		fmt.Println("held:", finding[2:], "-", reason)
+		return nil
 	}
-	return nil
+	return []string{finding}
 }
 
 func (a api) alert(ctx context.Context, findings []string) error {
 	base := forge + "ts-orchestrator/issues"
 	slices.Sort(findings)
-	body := "@mariogk Automatic deployment guard: a qualified main build has not reached every region within 30 minutes, or its live proof is unavailable.\n\n"
+	body := "@mariogk Automatic deployment guard: a main build was published but not released to the regions within 30 minutes, or its release history is unreadable.\n\n"
 	body += strings.Join(findings, "\n") + "\n\nPart of TS-768. See docs/deploy-pipeline.md and the scheduled deploy-lag.yml run."
 	for page := 1; ; page++ {
 		var issues []struct {
@@ -250,98 +243,25 @@ func (a api) alert(ctx context.Context, findings []string) error {
 	}, nil)
 }
 
-func run(ctx context.Context, a api, now func() time.Time,
-	readNative func(context.Context, string, string) (observation, error), notify bool) error {
-	collectCtx, cancelCollection := context.WithTimeout(ctx, collectionBudget)
-	defer cancelCollection()
-	regions, discoveryErr := atlas.DiscoverServingCells(collectCtx, a.client)
-	histories := make(map[string][]commit)
-	var findings []string
-	if discoveryErr != nil {
-		findings = append(findings, "- Serving-region discovery unavailable: "+discoveryErr.Error())
-	}
-	var lock sync.Mutex
-	var workers sync.WaitGroup
-	for _, service := range services {
-		workers.Go(func() {
-			history, err := a.history(collectCtx, service)
-			lock.Lock()
-			defer lock.Unlock()
-			if err != nil {
-				findings = append(findings, "- "+service+": qualified-main history unavailable")
-				return
-			}
-			histories[service] = history
-		})
-	}
-	workers.Wait()
-	var observed []observation
-	for _, service := range services[:3] {
-		for _, region := range regions {
-			workers.Go(func() {
-				proof, err := readNative(collectCtx, service, region)
-				lock.Lock()
-				defer lock.Unlock()
-				if err != nil {
-					findings = append(findings, "- "+service+" "+region+": live fleet proof unavailable")
-					return
-				}
-				observed = append(observed, proof)
-			})
-		}
-	}
-	var edge []observation
-	err := a.request(collectCtx, "GET", "https://status.terrascale.tech/api/v1/deployments", "", nil, &edge)
-	workers.Wait()
-	cancelCollection()
+func run(ctx context.Context, a api, now func() time.Time, notify bool) error {
+	findings, err := a.orch(ctx, now())
 	if err != nil {
-		findings = append(findings, "- Edge deployment observations unavailable from ts-status")
+		findings = append(findings, "- ts-orchestrator: main release history unavailable")
 	}
-	// Require every discovered region, including its Status vantage build.
-	for _, service := range services[3:] {
-		for _, region := range regions {
-			targets := []string{"service"}
-			if service == "ts-status" {
-				targets = append(targets, "vantage")
-			}
-			for _, target := range targets {
-				proof := observation{Service: service, Region: region, Target: target}
-				for _, row := range edge {
-					if row.Service == service && row.Region == region && row.Target == target {
-						proof = row
-						break
-					}
-				}
-				observed = append(observed, proof)
-			}
-		}
-	}
-	for _, proof := range observed {
-		checkedAt := now()
-		if err := proofError(proof, checkedAt); err != nil {
-			findings = append(findings, "- "+proof.Service+" "+proof.Region+" "+proof.Target+": "+err.Error())
-			continue
-		}
-		history, ok := histories[proof.Service]
-		if !ok {
-			continue
-		}
-		target, lag, err := pending(history, proof.Version, checkedAt)
+	for _, x := range apps {
+		found, err := a.release(ctx, x, now())
 		if err != nil {
-			findings = append(findings, "- "+proof.Service+" "+proof.Region+": "+err.Error())
-			continue
+			found = []string{"- " + x.service + ": " + x.repo + " image job history unavailable"}
 		}
-		fmt.Printf("%s %s %s deployed=%s target=%s oldest-pending=%s\n",
-			proof.Service, proof.Region, proof.Target, proof.Version, target.SHA, lag.Round(time.Second))
-		if lag >= lagLimit {
-			findings = append(findings, fmt.Sprintf("- %s %s %s: target `%s`; deployed `%s`; qualified build overdue.",
-				proof.Service, proof.Region, proof.Target, target.SHA, proof.Version))
-		}
+		findings = append(findings, found...)
+	}
+	for _, finding := range findings {
+		fmt.Println(finding)
 	}
 	if notify {
 		// Collection failure still gets a bounded opportunity to deliver its alert.
-		alertCtx, cancelAlert := context.WithTimeout(context.WithoutCancel(ctx), notificationBudget)
-		defer cancelAlert()
+		alertCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
+		defer cancel()
 		if err := a.alert(alertCtx, findings); err != nil {
 			return fmt.Errorf("deployment alert could not be delivered: %w", err)
 		}
@@ -363,7 +283,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "deployment guard requires GitHub read and alert-write credentials")
 		os.Exit(1)
 	}
-	if err := run(ctx, a, time.Now, native, os.Getenv("TS_DEPLOY_GUARD_DRY_RUN") != "1"); err != nil {
+	if err := run(ctx, a, time.Now, os.Getenv("TS_DEPLOY_GUARD_DRY_RUN") != "1"); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
