@@ -197,10 +197,7 @@ func (a swarmApplier) rows(ctx context.Context, name string, do func(row swarmru
 }
 
 func (a swarmApplier) Apply(ctx context.Context, spec swarmruntime.ServiceSpec) (changed bool, err error) {
-	err = a.rows(ctx, spec.Name, func(row swarmruntime.ServiceSpecStatus, found bool, client api.ControlClient) error {
-		if found && row.Generation == spec.Generation {
-			return nil
-		}
+	err = a.rows(ctx, spec.Name, func(_ swarmruntime.ServiceSpecStatus, _ bool, client api.ControlClient) error {
 		changed = true
 		_, err := swarmruntime.ApplyServiceSpec(ctx, client, spec)
 		return err
