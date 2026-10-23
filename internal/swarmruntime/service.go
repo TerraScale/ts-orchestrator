@@ -752,6 +752,13 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 	if proto.Equal(&current.Spec, spec) {
 		return current, nil
 	}
+	// A label-only write (a new mesh generation) mid-update would restart the
+	// updater, which adopts the still-starting task and stops the old one at once;
+	// the mesh's next sync writes the label once the update completes.
+	if current.UpdateStatus != nil && current.UpdateStatus.State == api.UpdateStatus_UPDATING &&
+		sameWorkload(&current.Spec, spec) && proto.Equal(current.Spec.GetReplicated(), spec.GetReplicated()) && proto.Equal(current.Spec.GetGlobal(), spec.GetGlobal()) {
+		return current, nil
+	}
 	updated, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: current.ID, ServiceVersion: &current.Meta.Version, Spec: spec})
 	if err != nil {
 		return nil, err
