@@ -121,8 +121,17 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		if got, want := string(body), "host=app.edge.test proto=https path=/hello spoofed="; got != want {
 			t.Fatalf("body = %q, want %q", got, want)
 		}
-		if got := resp.Header.Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains" {
-			t.Fatalf("HSTS = %q", got)
+		for name, want := range map[string]string{
+			"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+			"X-Content-Type-Options":    "nosniff",
+			"X-Frame-Options":           "DENY",
+			"Content-Security-Policy":   "frame-ancestors 'none'",
+			"Referrer-Policy":           "strict-origin-when-cross-origin",
+			"Permissions-Policy":        "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+		} {
+			if got := resp.Header.Get(name); got != want {
+				t.Fatalf("%s = %q, want %q", name, got, want)
+			}
 		}
 		if _, err := os.Stat(filepath.Join(stateDir, "edge-certs", "app.edge.test")); err != nil {
 			t.Fatalf("certificate not cached: %v", err)
@@ -392,6 +401,16 @@ func startDNS(t *testing.T) string {
 type zeros struct{}
 
 func (zeros) Read(p []byte) (int, error) { clear(p); return len(p), nil }
+
+func TestSecureHeadersKeepBackendValues(t *testing.T) {
+	h := http.Header{}
+	h.Set("Content-Security-Policy", "default-src 'self'")
+	h.Set("Referrer-Policy", "same-origin")
+	secureHeaders(h)
+	if h.Get("X-Frame-Options") != "" || h.Get("Content-Security-Policy") != "default-src 'self'" || h.Get("Referrer-Policy") != "same-origin" || h.Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("headers = %v", h)
+	}
+}
 
 func TestEdgeRefusesPublicNetBirdSetup(t *testing.T) {
 	e := newEdge(t.TempDir(), nil)

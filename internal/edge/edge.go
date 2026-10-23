@@ -44,6 +44,8 @@ type Edge struct {
 	peers      http.RoundTripper // to other regions' edges
 	// peerAddr is region's edge; tests replace it.
 	peerAddr func(region string) string
+	// spoolDir holds request bodies too large to keep in memory for a replay.
+	spoolDir string
 }
 
 // New returns an edge that caches certificates under stateDir/edge-certs.
@@ -51,7 +53,10 @@ func New(stateDir string) *Edge { return newEdge(stateDir, nil) }
 
 // newEdge uses client as the ACME client; nil means Let's Encrypt.
 func newEdge(stateDir string, client *acme.Client) *Edge {
-	e := &Edge{peerAddr: func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") }}
+	e := &Edge{
+		peerAddr: func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
+		spoolDir: filepath.Join(stateDir, "edge-spool"),
+	}
 	e.peers = newPeerTransport(e)
 	e.routes.Store(&map[string]int{})
 	e.postgres.Store(&map[string]int{})
@@ -102,9 +107,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 			if err := e.replay(resp); err != nil {
 				return err
 			}
-			if resp.Header.Get("Strict-Transport-Security") == "" {
-				resp.Header.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-			}
+			secureHeaders(resp.Header)
 			return nil
 		},
 		Transport: e.local,
@@ -115,6 +118,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 			if fromPeer(r) && !wroteBackend(r) {
 				w.Header().Set(replayDownHeader, "1")
 			}
+			secureHeaders(w.Header())
 			w.WriteHeader(http.StatusBadGateway)
 		},
 		// gRPC and SSE streams must reach the client as each message arrives.
@@ -243,13 +247,35 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	if !isGRPC(r) {
 		r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
 		if !peer && r.Header.Get("Upgrade") == "" {
-			if err := bufferBody(r); err != nil {
+			release, err := bufferBody(r, e.spoolDir)
+			if err != nil {
 				http.Error(w, "bad request body", http.StatusBadRequest)
 				return
 			}
+			defer release()
 		}
 	}
 	e.proxy.ServeHTTP(w, r)
+}
+
+// secureHeaders adds the response header baseline every TerraScale surface
+// sends, keeping any value the backend chose.
+func secureHeaders(h http.Header) {
+	for name, value := range map[string]string{
+		"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+		"X-Content-Type-Options":    "nosniff",
+		"Referrer-Policy":           "strict-origin-when-cross-origin",
+		"Permissions-Policy":        "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+	} {
+		if h.Get(name) == "" {
+			h.Set(name, value)
+		}
+	}
+	// A backend with its own Content-Security-Policy decides framing there.
+	if h.Get("X-Frame-Options") == "" && h.Get("Content-Security-Policy") == "" {
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+	}
 }
 
 func (e *Edge) hostPolicy(_ context.Context, host string) error {
