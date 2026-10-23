@@ -1,7 +1,7 @@
 {
-  "app-canary": "ghcr.io/terrascale/app-canary@sha256:3a8b4b978471d00353f99ca7571b9c3a396bbf107170703c0a6943f7456b374f",
+  "app-canary": "ghcr.io/terrascale/app-canary@sha256:fbe5590c019de7ad766f95d7e196c2973d5eac22489a0d9c5827cd67293039ae",
   "terrabase": "ghcr.io/terrascale/terrabase@sha256:cab7b961090c0dd113c59b780b1af2d7f924adc62b73170758c140ecd52bf4ec",
   "ts-auth": "ghcr.io/terrascale/ts-auth@sha256:4f94a4b2a252518cd38c4ddb8158d32564ae739b50c903fa2fc88749e80af6f4",
-  "ts-dashboard": "ghcr.io/terrascale/ts-dashboard@sha256:8edac3b15e777c28032a2bc7ad338a0d278b628367400d21a93dd4b644f4ec8c",
+  "ts-dashboard": "ghcr.io/terrascale/ts-dashboard@sha256:26dec2bbd18af3d360a1f41d4f585a22517f2e9250b3af8274a7ddfd567562c1",
   "whoami": "docker.io/traefik/whoami@sha256:c2c89736959e8830c3db090e2f54500499ceb0460267f91dce494728d7327770"
 }
