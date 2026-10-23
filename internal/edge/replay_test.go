@@ -279,3 +279,52 @@ func TestHandoffFailsOverToNearestRegion(t *testing.T) {
 		t.Fatalf("gru backend hits %d, want 1 (after its release)", hits)
 	}
 }
+
+// The mesh replaces regions one at a time (TestMeshRollsRegionsOneAtATime): a
+// probe of gru's edge every 20 ms with a 2 s timeout, as FR1's curl -m 2, sees
+// only 200 while gru, then sjc, then fra hand their TerraBase off.
+func TestRegionByRegionHandoffServesEveryProbe(t *testing.T) {
+	regions := startRegions(t, func(name string, w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s ready", name)
+	})
+	client := &http.Client{Timeout: 2 * time.Second}
+	var probes, failures atomic.Int32
+	var failed atomic.Value
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			req, _ := http.NewRequest(http.MethodGet, regions["gru"].public.URL+"/readyz", nil)
+			req.Host = host
+			probes.Add(1)
+			resp, err := client.Do(req)
+			if err == nil {
+				resp.Body.Close()
+			}
+			if err != nil || resp.StatusCode != http.StatusOK {
+				failures.Add(1)
+				failed.Store(fmt.Sprint(resp, err))
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+	for _, name := range []string{"gru", "sjc", "fra"} {
+		port := uint16(regions[name].backend.Listener.Addr().(*net.TCPAddr).Port)
+		handoff.Hold(port)
+		time.Sleep(1500 * time.Millisecond)
+		handoff.Release(port)
+		time.Sleep(500 * time.Millisecond)
+	}
+	close(stop)
+	<-done
+	t.Logf("%d probes, %d failed", probes.Load(), failures.Load())
+	if probes.Load() < 150 || failures.Load() != 0 {
+		t.Fatalf("%d probes, %d failed (last: %v); want >= 150 and 0", probes.Load(), failures.Load(), failed.Load())
+	}
+}
