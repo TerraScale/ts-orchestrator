@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -411,8 +412,18 @@ func TestEventsStreamPrependsLiveEvents(t *testing.T) {
 
 type publishOnRecentEvents struct {
 	*observability.EventBus
-	armed   chan struct{}
-	publish func()
+	initialSnapshot atomic.Bool
+	armed           chan struct{}
+	publish         func()
+}
+
+func (source *publishOnRecentEvents) Snapshot(ctx context.Context, _ bool) (observability.MemberSnapshot, error) {
+	if !source.initialSnapshot.Swap(true) {
+		return memberSnapshot(), nil
+	}
+	// Keep background chrome from publishing through Recent before the stream's ticker.
+	<-ctx.Done()
+	return observability.MemberSnapshot{}, ctx.Err()
 }
 
 func (source *publishOnRecentEvents) Recent(limit int) []observability.Event {
@@ -431,7 +442,9 @@ func TestEventsStreamPrependsQueuedEventsOnReconcile(t *testing.T) {
 		source.Publish(observability.Event{Level: "INFO", Message: "filtered out"})
 		source.Publish(observability.Event{Level: "WARN", Message: "queued warning"})
 	})
-	server := newStreamServer(t, newTestDashboard(Options{Events: source}))
+	dashboard := newTestDashboard(Options{Events: source})
+	dashboard.SetSnapshots(source)
+	server := newStreamServer(t, dashboard)
 	reader, _ := openStream(t, server, "/events/stream?level=warn")
 	reader.next() // Initial rows.
 	reader.next() // Initial chrome.
