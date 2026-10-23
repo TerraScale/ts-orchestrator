@@ -760,24 +760,20 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 }
 
 // CompleteServiceSpec finishes metadata deferred by ApplyServiceSpec before exact
-// readiness. Pin the existing spec and identity so retries cannot replace or
-// resurrect an intervening operator change. Never hold the writer lock while waiting.
-func CompleteServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec) error {
+// readiness. The original Apply snapshot pins identity and full spec across retries;
+// never recapture it here or hold the writer lock while waiting.
+func CompleteServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec, original *api.Service) error {
+	if original == nil {
+		return errors.New("metadata completion requires the original apply snapshot")
+	}
 	want, err := s.SwarmSpec()
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, serviceRollout+2*ReadyTimeout(want.Annotations.Labels))
 	defer cancel()
-	previous, err := specService(ctx, client, s.Name)
-	if err != nil {
-		return err
-	}
-	if previous == nil {
-		return errors.New("requested service was removed before metadata completion")
-	}
 	for {
-		current, err := applyServiceSpec(ctx, client, s, previous)
+		current, err := applyServiceSpec(ctx, client, s, original)
 		if err != nil {
 			return err
 		}

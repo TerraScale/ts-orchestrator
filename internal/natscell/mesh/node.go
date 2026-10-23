@@ -41,6 +41,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 )
@@ -122,16 +123,16 @@ type stateReply struct {
 
 // Applier changes this host's services.
 type Applier interface {
-	// Apply makes spec run, stamped with spec.Generation; false when it already did.
-	Apply(ctx context.Context, spec swarmruntime.ServiceSpec) (bool, error)
+	// Apply returns the original service snapshot for this operation; false when unchanged.
+	Apply(ctx context.Context, spec swarmruntime.ServiceSpec) (bool, *api.Service, error)
 	// Remove deletes name; false when it was absent.
 	Remove(ctx context.Context, name string) (bool, error)
 	// PrePull fetches image before Apply, outside the mesh lock, so a
 	// replacement only creates and starts its container.
 	PrePull(ctx context.Context, spec swarmruntime.ServiceSpec) error
 	// Wait returns once every replica of spec runs it (and answers its ready
-	// path when the spec names one).
-	Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error)
+	// path when the spec names one), using the snapshot returned by Apply.
+	Wait(ctx context.Context, spec swarmruntime.ServiceSpec, original *api.Service) (swarmruntime.ServiceRollout, error)
 }
 
 type config struct {
@@ -380,7 +381,8 @@ func (n *Node) handleApply(m *nats.Msg) {
 	defer cancel()
 	reply := Reply{Region: n.cfg.region, Server: n.cfg.server, Regions: n.regions()}
 	var request ApplyRequest
-	result, err := "", protocol.DecodeTolerant(m.Data, &request, maxWire)
+	var applied applyResult
+	err := protocol.DecodeTolerant(m.Data, &request, maxWire)
 	var pulled time.Duration
 	if spec := request.Entry.Spec; err == nil && spec != nil && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
 		// The task's own Prepare still pulls, so a failed pre-pull only costs speed.
@@ -390,21 +392,16 @@ func (n *Node) handleApply(m *nats.Msg) {
 		pulled = time.Since(start)
 	}
 	if err == nil {
-		result, err = n.apply(ctx, request)
+		applied, err = n.apply(ctx, request)
 	}
-	if err == nil && (result == "applied" || result == "unchanged") {
+	if err == nil && (applied.result == "applied" || applied.result == "unchanged") {
 		submitted := time.Since(start)
 		var rollout swarmruntime.ServiceRollout
-		spec := *request.Entry.Spec
-		spec.Generation, spec.Region, spec.Node = request.Entry.Generation, n.cfg.region, n.cfg.server
+		spec := applied.spec
 		if request.ExpectedGeneration != 0 {
 			request.Entry.RollbackOf = request.ExpectedGeneration
 		}
-		spec.RollbackOf = request.Entry.RollbackOf
-		n.mu.Lock()
-		spec.Deployment, spec.DeploymentFloor = request.Entry.Deployment, n.desired[request.Name].Floor
-		n.mu.Unlock()
-		if rollout, err = n.cfg.applier.Wait(ctx, spec); err == nil {
+		if rollout, err = n.cfg.applier.Wait(ctx, spec, applied.service); err == nil {
 			reply.Service, reply.Image, reply.Tasks, reply.Revision = spec.Name, spec.Image, rollout.Tasks, rollout.Revision
 			if deployment := request.Entry.Deployment; deployment != nil && spec.Image == deployment.Image && rollout.Revision != deployment.Revision {
 				err = errors.New("running image revision does not match the signed release commit")
@@ -420,42 +417,48 @@ func (n *Node) handleApply(m *nats.Msg) {
 			}
 		}
 	}
-	reply.Result, reply.ElapsedMS = result, time.Since(start).Milliseconds()
+	reply.Result, reply.ElapsedMS = applied.result, time.Since(start).Milliseconds()
 	if err != nil {
 		reply.Error = err.Error()
 	}
 	n.respond(m, reply)
 }
 
-func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) {
+type applyResult struct {
+	result  string
+	spec    swarmruntime.ServiceSpec
+	service *api.Service
+}
+
+func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, error) {
 	if request.ExpectedGeneration != 0 {
 		if request.Entry.RollbackOf != 0 && request.Entry.RollbackOf != request.ExpectedGeneration {
-			return "", errors.New("rollback ancestry differs from expected generation")
+			return applyResult{}, errors.New("rollback ancestry differs from expected generation")
 		}
 		request.Entry.RollbackOf = request.ExpectedGeneration
 	}
 	if err := validEntry(request.Name, request.Entry); err != nil {
-		return "", err
+		return applyResult{}, err
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return applyResult{}, err
 	}
 	before, exists := n.desired[request.Name]
 	current := before.entry()
 	if request.Entry.RollbackOf != 0 && current.Generation != request.Entry.RollbackOf {
-		return "", errors.New("rollback superseded by another apply")
+		return applyResult{}, errors.New("rollback superseded by another apply")
 	}
 	if err := before.Floor.Accepts(request.Entry.Deployment); err != nil {
-		return "", err
+		return applyResult{}, err
 	}
 	merged, err := mergeState(before, stateFor(request.Entry))
 	if err != nil {
-		return "", err
+		return applyResult{}, err
 	}
 	if !reflect.DeepEqual(merged.entry(), request.Entry) {
-		return "", fmt.Errorf("superseded by generation %d", current.Generation)
+		return applyResult{}, fmt.Errorf("superseded by generation %d", current.Generation)
 	}
 	n.desired[request.Name] = merged
 	// Persist before reconciliation, including retries of a persisted generation.
@@ -465,42 +468,42 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) 
 		} else {
 			delete(n.desired, request.Name)
 		}
-		return "", err
+		return applyResult{}, err
 	}
 
 	return n.reconcile(ctx, request.Name, n.desired[request.Name])
 }
 
 // reconcile makes the local service match entry; the caller holds n.mu.
-func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (string, error) {
+func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (applyResult, error) {
 	entry := state.entry()
 	if entry.Spec == nil || len(entry.Spec.Regions) != 0 && !slices.Contains(entry.Spec.Regions, n.cfg.region) {
 		if _, err := n.cfg.applier.Remove(ctx, name); err != nil {
-			return "", err
+			return applyResult{}, err
 		}
 		if err := n.peers.untrack(name); err != nil {
-			return "", err
+			return applyResult{}, err
 		}
 		if entry.Spec == nil {
-			return "removed", nil
+			return applyResult{result: "removed"}, nil
 		}
-		return "skipped-not-targeted", nil
+		return applyResult{result: "skipped-not-targeted"}, nil
 	}
 	spec := *entry.Spec
 	spec.Generation, spec.Region, spec.Node = entry.Generation, n.cfg.region, n.cfg.server
 	spec.RollbackOf = entry.RollbackOf
 	spec.Deployment, spec.DeploymentFloor = entry.Deployment, state.Floor
 	if err := n.peers.track(name, spec.Regions); err != nil {
-		return "", err
+		return applyResult{}, err
 	}
-	changed, err := n.cfg.applier.Apply(ctx, spec)
+	changed, service, err := n.cfg.applier.Apply(ctx, spec)
 	if err != nil {
-		return "", err
+		return applyResult{}, err
 	}
 	if changed {
-		return "applied", nil
+		return applyResult{result: "applied", spec: spec, service: service}, nil
 	}
-	return "unchanged", nil
+	return applyResult{result: "unchanged", spec: spec, service: service}, nil
 }
 
 func (n *Node) respond(m *nats.Msg, value any) {

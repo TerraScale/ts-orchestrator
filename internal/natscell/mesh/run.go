@@ -211,13 +211,14 @@ func (a swarmApplier) rows(ctx context.Context, name string, do func(row swarmru
 	return do(swarmruntime.ServiceSpecStatus{}, false, client)
 }
 
-func (a swarmApplier) Apply(ctx context.Context, spec swarmruntime.ServiceSpec) (changed bool, err error) {
+func (a swarmApplier) Apply(ctx context.Context, spec swarmruntime.ServiceSpec) (changed bool, original *api.Service, err error) {
 	err = a.rows(ctx, spec.Name, func(_ swarmruntime.ServiceSpecStatus, _ bool, client api.ControlClient) error {
 		changed = true
-		_, err := swarmruntime.ApplyServiceSpec(ctx, client, spec)
+		var err error
+		original, err = swarmruntime.ApplyServiceSpec(ctx, client, spec)
 		return err
 	})
-	return changed, err
+	return changed, original, err
 }
 
 func (a swarmApplier) Remove(ctx context.Context, name string) (removed bool, err error) {
@@ -248,13 +249,13 @@ func (a swarmApplier) PrePull(ctx context.Context, spec swarmruntime.ServiceSpec
 	return executor.PrePull(ctx, spec.Image, swarm.Annotations.Labels)
 }
 
-func (a swarmApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error) {
+func (a swarmApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec, original *api.Service) (swarmruntime.ServiceRollout, error) {
 	client, close, err := a.control()
 	if err != nil {
 		return swarmruntime.ServiceRollout{}, err
 	}
 	defer close()
-	if err := swarmruntime.CompleteServiceSpec(ctx, client, spec); err != nil {
+	if err := swarmruntime.CompleteServiceSpec(ctx, client, spec, original); err != nil {
 		return swarmruntime.ServiceRollout{}, err
 	}
 	rollout, err := swarmruntime.WaitServiceSpecExact(ctx, client, spec)

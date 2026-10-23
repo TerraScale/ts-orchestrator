@@ -13,13 +13,14 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/moby/swarmkit/v2/api"
 )
 
 func TestDeploymentFloorSurvivesRollbackAndOperatorApply(t *testing.T) {
 	dir := t.TempDir()
 	spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
 	approved := &Deployment{Repository: "TerraScale/terrascale", RunID: "100", Revision: strings.Repeat("b", 40), Image: spec.Image}
-	node := &Node{cfg: config{dir: dir, region: "gru", applier: &fakeApplier{running: map[string]int64{}}},
+	node := &Node{cfg: config{dir: dir, region: "gru", server: "gru-1", applier: &fakeApplier{running: map[string]int64{}}},
 		desired: map[string]desiredState{}, peers: &peers{root: t.TempDir(), region: "gru", node: "gru-1", address: func() (string, error) { return "10.200.0.1", nil }}}
 	apply := func(generation int64, deployment *Deployment, expected int64) error {
 		_, err := node.apply(t.Context(), ApplyRequest{Name: spec.Name, ExpectedGeneration: expected,
@@ -176,7 +177,7 @@ type evidenceApplier struct {
 	waiting  func(swarmruntime.ServiceSpec)
 }
 
-func (a *evidenceApplier) Wait(_ context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error) {
+func (a *evidenceApplier) Wait(_ context.Context, spec swarmruntime.ServiceSpec, _ *api.Service) (swarmruntime.ServiceRollout, error) {
 	if a.waiting != nil {
 		a.waiting(spec)
 	}

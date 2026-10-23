@@ -25,22 +25,28 @@ func (deferredApplier) PrePull(context.Context, swarmruntime.ServiceSpec) error 
 
 type deferredControl struct {
 	api.ControlClient
-	mu       sync.Mutex
-	service  *api.Service
-	task     *api.Task
-	reads    int
-	writes   int
-	waiting  chan struct{}
-	conflict func()
+	mu               sync.Mutex
+	service          *api.Service
+	task             *api.Task
+	reads            int
+	writes           int
+	waiting          chan struct{}
+	conflict         func()
+	beforeCompletion func()
 }
 
 func (c *deferredControl) ListServices(_ context.Context, request *api.ListServicesRequest, _ ...grpc.CallOption) (*api.ListServicesResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Intervene before completion can read a new baseline after the original Apply.
+	if c.reads == 1 && c.beforeCompletion != nil {
+		c.beforeCompletion()
+		c.beforeCompletion = nil
+	}
 	if request.Filters != nil {
 		c.reads++
-		// Apply reads first, completion pins the second, and its first retry reads third.
-		if c.reads == 3 {
+		// Apply reads first; completion must compare its original snapshot on the second.
+		if c.reads == 2 {
 			close(c.waiting)
 		}
 	}
@@ -92,12 +98,13 @@ func (c *deferredControl) UpdateService(_ context.Context, request *api.UpdateSe
 }
 
 func TestMeshApplyCompletesDeferredMetadataBeforeExactReadiness(t *testing.T) {
-	for _, scenario := range []string{"completed", "newer operator", "same generation edit", "removed", "replaced", "CAS operator", "CAS equal generation edit", "CAS removal", "CAS updating", "rollback", "canceled"} {
+	for _, scenario := range []string{"completed", "newer operator", "same generation edit", "removed", "replaced", "CAS operator", "CAS equal generation edit", "CAS removal", "CAS updating", "rollback", "canceled",
+		"before same generation routing", "before newer operator", "before removed", "before replaced"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080,
-				Replicas: 1, Generation: 7, Region: "gru", Node: "gru-1"}
+				Replicas: 1, Generation: 7, Region: "gru", Node: "gru-1", Hostnames: []string{"original.example.com"}}
 			oldFloor := &Deployment{Repository: "TerraScale/terrascale", RunID: "99", Revision: strings.Repeat("b", 40), Image: spec.Image}
 			spec.Deployment, spec.DeploymentFloor = oldFloor, oldFloor
 			initial, err := spec.SwarmSpec()
@@ -128,6 +135,51 @@ func TestMeshApplyCompletesDeferredMetadataBeforeExactReadiness(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(node.Close)
+			operator := requested
+			operator.Generation, operator.Deployment = 9, nil
+			operatorSpec, err := operator.SwarmSpec()
+			if err != nil {
+				t.Fatal(err)
+			}
+			winner := requested
+			winner.Hostnames = []string{"winner.example.com"}
+			selected, err := mergeState(stateFor(Entry{Generation: requested.Generation, Spec: &requested, Deployment: &nextFloor}),
+				stateFor(Entry{Generation: requested.Generation, Spec: &winner, Deployment: &nextFloor}))
+			if err != nil || len(selected.entry().Spec.Hostnames) != 1 {
+				t.Fatalf("routing candidate did not win the equal-generation mesh tie: %v", err)
+			}
+			selectedSpec := *selected.entry().Spec
+			selectedSpec.DeploymentFloor = &nextFloor
+			winnerSpec, err := selectedSpec.SwarmSpec()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var protected *api.Service
+			intervene := func() {
+				switch scenario {
+				case "newer operator", "CAS operator", "before newer operator":
+					control.service.Spec = *operatorSpec
+				case "before same generation routing":
+					control.service.Spec = *winnerSpec
+				case "same generation edit", "CAS equal generation edit":
+					control.service.Spec.Annotations.Labels["operator-note"] = "keep"
+				case "removed", "CAS removal", "before removed":
+					control.service = nil
+				case "replaced", "before replaced":
+					control.service.ID = "replacement"
+				case "CAS updating":
+					control.service.UpdateStatus.State = api.UpdateStatus_UPDATING
+				case "rollback":
+					control.service.UpdateStatus.State = api.UpdateStatus_ROLLBACK_COMPLETED
+				}
+				protected = control.service.Copy()
+			}
+			if strings.HasPrefix(scenario, "before ") {
+				control.beforeCompletion = func() {
+					control.service.UpdateStatus.State = api.UpdateStatus_COMPLETED
+					intervene()
+				}
+			}
 			payload, err := protocol.EncodeJSON(ApplyRequest{Name: spec.Name, Entry: Entry{Generation: 8, Spec: &spec, Deployment: &nextFloor}})
 			if err != nil {
 				t.Fatal(err)
@@ -145,52 +197,30 @@ func TestMeshApplyCompletesDeferredMetadataBeforeExactReadiness(t *testing.T) {
 				}
 				done <- reply
 			}()
-			select {
-			case <-control.waiting:
-			case reply := <-done:
-				t.Fatalf("did not wait for the active update: %+v", reply)
-			case <-ctx.Done():
-				t.Fatal(ctx.Err())
-			}
-			operator := requested
-			operator.Generation, operator.Deployment = 9, nil
-			operatorSpec, err := operator.SwarmSpec()
-			if err != nil {
-				t.Fatal(err)
-			}
-			var protected *api.Service
-			control.mu.Lock()
-			if control.writes != 0 || !proto.Equal(&control.service.Spec, initial) {
-				t.Error("metadata changed while the updater was active")
-			}
-			control.service.UpdateStatus.State = api.UpdateStatus_COMPLETED
-			intervene := func() {
-				switch scenario {
-				case "newer operator", "CAS operator":
-					control.service.Spec = *operatorSpec
-				case "same generation edit", "CAS equal generation edit":
-					control.service.Spec.Annotations.Labels["operator-note"] = "keep"
-				case "removed", "CAS removal":
-					control.service = nil
-				case "replaced":
-					control.service.ID = "replacement"
-				case "CAS updating":
-					control.service.UpdateStatus.State = api.UpdateStatus_UPDATING
-				case "rollback":
-					control.service.UpdateStatus.State = api.UpdateStatus_ROLLBACK_COMPLETED
+			if !strings.HasPrefix(scenario, "before ") {
+				select {
+				case <-control.waiting:
+				case reply := <-done:
+					t.Fatalf("did not wait for the active update: %+v", reply)
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
 				}
-				protected = control.service.Copy()
+				control.mu.Lock()
+				if control.writes != 0 || !proto.Equal(&control.service.Spec, initial) {
+					t.Error("metadata changed while the updater was active")
+				}
+				control.service.UpdateStatus.State = api.UpdateStatus_COMPLETED
+				if strings.HasPrefix(scenario, "CAS ") {
+					control.conflict = intervene
+				} else {
+					intervene()
+				}
+				if scenario == "canceled" {
+					// Cancel the server's wait, rather than only the requesting client.
+					node.cancel()
+				}
+				control.mu.Unlock()
 			}
-			if strings.HasPrefix(scenario, "CAS ") {
-				control.conflict = intervene
-			} else {
-				intervene()
-			}
-			if scenario == "canceled" {
-				// Cancel the server's wait, rather than only the requesting client.
-				node.cancel()
-			}
-			control.mu.Unlock()
 			if scenario == "CAS updating" {
 				eventually(t, "CAS retry deferral", func() bool {
 					control.mu.Lock()

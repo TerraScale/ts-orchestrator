@@ -339,3 +339,9 @@ func TestServiceSpecRefusesInvalidDeploymentAuthority(t *testing.T) {
 		t.Fatal("operator removed the accepted runtime floor")
 	}
 }
+
+func TestCompleteServiceSpecRequiresApplySnapshot(t *testing.T) {
+	if err := CompleteServiceSpec(t.Context(), nil, ServiceSpec{}, nil); err == nil || !strings.Contains(err.Error(), "original apply snapshot") {
+		t.Fatalf("completion accepted a missing Apply snapshot: %v", err)
+	}
+}
