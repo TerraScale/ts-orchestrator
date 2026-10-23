@@ -60,6 +60,24 @@ func TestWaitServiceSpecPhases(t *testing.T) {
 		t.Fatalf("restored spec: %v", err)
 	}
 
+	// A concurrent re-apply of the same workload (new generation label, force-update) is followed, not a failure.
+	reapplied := service.Copy()
+	reapplied.SpecVersion = &api.Version{Index: 8}
+	reapplied.Spec.Annotations.Labels = map[string]string{LabelGeneration: "2"}
+	reapplied.Spec.Task.ForceUpdate = 1
+	reapplied.UpdateStatus = &api.UpdateStatus{State: api.UpdateStatus_UPDATING, Message: "update in progress"}
+	control = &rolloutControl{service: reapplied, states: []api.TaskState{api.TaskStateRunning}}
+	if _, err := WaitServiceSpec(t.Context(), control, service, nil); err != nil {
+		t.Fatalf("same-workload re-apply: %v", err)
+	}
+	// A different workload written meanwhile still supersedes the rollout.
+	superseded := reapplied.Copy()
+	superseded.Spec.Task.Restart = &api.RestartPolicy{Condition: api.RestartOnNone}
+	control = &rolloutControl{service: superseded, states: []api.TaskState{api.TaskStateRunning}}
+	if _, err := WaitServiceSpec(t.Context(), control, service, nil); err == nil || !strings.Contains(err.Error(), "did not complete") {
+		t.Fatalf("different workload reported as %v", err)
+	}
+
 	paused := service.Copy()
 	paused.UpdateStatus = &api.UpdateStatus{State: api.UpdateStatus_ROLLBACK_PAUSED, Message: "rollback paused"}
 	control = &rolloutControl{service: paused, states: []api.TaskState{api.TaskStateRunning}}

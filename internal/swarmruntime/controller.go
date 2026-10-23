@@ -543,11 +543,11 @@ func (c *controller) Wait(ctx context.Context) (operationErr error) {
 	case <-ctx.Done():
 		return ctx.Err()
 	case status := <-wait:
-		unserve()
 		code, exited, err := status.Result()
 		if err != nil {
-			return err
+			return err // a canceled wait, not an exit
 		}
+		unserve()
 		c.executor.mu.Lock()
 		c.executor.recordExitLocked(c.task, c.fingerprint, exited.Sub(started), time.Now())
 		c.executor.mu.Unlock()

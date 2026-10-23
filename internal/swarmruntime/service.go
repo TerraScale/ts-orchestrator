@@ -636,7 +636,6 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 	if service.Spec.GetReplicated() == nil {
 		return rollout, errors.New("service rollout requires a replicated service")
 	}
-	replicas := service.Spec.GetReplicated().Replicas
 	for ; ; time.Sleep(servicePoll) {
 		if err := ctx.Err(); err != nil {
 			return rollout, fmt.Errorf("service %s is not ready: %w", service.Spec.Annotations.Name, err)
@@ -654,6 +653,11 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 		}
 		if status != nil && status.State == api.UpdateStatus_ROLLBACK_COMPLETED && !restored {
 			return rollout, rollbackError(ctx, client, latest.Service, start)
+		}
+		if !proto.Equal(latest.Service.SpecVersion, service.SpecVersion) && sameWorkload(&latest.Service.Spec, &service.Spec) &&
+			(status == nil || status.State == api.UpdateStatus_UPDATING || status.State == api.UpdateStatus_COMPLETED) {
+			// A concurrent write of the same workload (a re-apply, replica or force-update change) supersedes nothing.
+			service = latest.Service
 		}
 		if !proto.Equal(latest.Service.SpecVersion, service.SpecVersion) ||
 			status != nil && status.State != api.UpdateStatus_UPDATING && status.State != api.UpdateStatus_COMPLETED && !restored {
@@ -673,7 +677,7 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 				running = append(running, task)
 			}
 		}
-		if uint64(len(running)) != replicas || len(listed.Tasks) != len(running) {
+		if replicated := service.Spec.GetReplicated(); replicated == nil || uint64(len(running)) != replicated.Replicas || len(listed.Tasks) != len(running) {
 			continue
 		}
 		if rollout.Running == 0 {
@@ -709,6 +713,14 @@ func rollbackError(ctx context.Context, client api.ControlClient, service *api.S
 	return err
 }
 
+// sameWorkload reports whether two revisions run the same task, whatever their
+// annotations, replicas or force-update counter.
+func sameWorkload(a, b *api.ServiceSpec) bool {
+	at, bt := a.Task.Copy(), b.Task.Copy()
+	at.ForceUpdate, bt.ForceUpdate = 0, 0
+	return proto.Equal(at, bt) && proto.Equal(a.Endpoint, b.Endpoint)
+}
+
 // ApplyServiceSpec creates the named service or replaces its spec in place.
 func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec) (*api.Service, error) {
 	spec, err := s.SwarmSpec()
@@ -738,6 +750,13 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 		return created.Service, nil
 	}
 	if proto.Equal(&current.Spec, spec) {
+		return current, nil
+	}
+	// A label-only write (a new mesh generation) mid-update would restart the
+	// updater, which adopts the still-starting task and stops the old one at once;
+	// the mesh's next sync writes the label once the update completes.
+	if current.UpdateStatus != nil && current.UpdateStatus.State == api.UpdateStatus_UPDATING &&
+		sameWorkload(&current.Spec, spec) && proto.Equal(current.Spec.GetReplicated(), spec.GetReplicated()) && proto.Equal(current.Spec.GetGlobal(), spec.GetGlobal()) {
 		return current, nil
 	}
 	updated, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: current.ID, ServiceVersion: &current.Meta.Version, Spec: spec})
