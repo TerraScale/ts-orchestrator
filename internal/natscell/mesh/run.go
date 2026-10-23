@@ -221,6 +221,25 @@ func (a swarmApplier) Apply(ctx context.Context, spec swarmruntime.ServiceSpec) 
 	return changed, original, err
 }
 
+func (a swarmApplier) Ready(ctx context.Context) (map[string]int64, error) {
+	client, done, err := a.control()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	rows, err := swarmruntime.ListServiceSpecs(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	ready := map[string]int64{}
+	for _, row := range rows {
+		if row.Replicas > 0 && row.Running == row.Replicas {
+			ready[row.Name] = row.Generation
+		}
+	}
+	return ready, nil
+}
+
 func (a swarmApplier) Remove(ctx context.Context, name string) (removed bool, err error) {
 	err = a.rows(ctx, name, func(_ swarmruntime.ServiceSpecStatus, found bool, client api.ControlClient) error {
 		if !found {

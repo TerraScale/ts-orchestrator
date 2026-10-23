@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -119,6 +120,8 @@ type Reply struct {
 type stateReply struct {
 	Region  string                  `json:"region"`
 	Desired map[string]desiredState `json:"desired"`
+	// Ready is the generation each local service runs with every replica ready.
+	Ready map[string]int64 `json:"ready,omitempty"`
 }
 
 // Applier changes this host's services.
@@ -133,6 +136,8 @@ type Applier interface {
 	// Wait returns once every replica of spec runs it (and answers its ready
 	// path when the spec names one), using the snapshot returned by Apply.
 	Wait(ctx context.Context, spec swarmruntime.ServiceSpec, original *api.Service) (swarmruntime.ServiceRollout, error)
+	// Ready returns the generation of each service whose up-to-date replicas all run.
+	Ready(ctx context.Context) (map[string]int64, error)
 }
 
 type config struct {
@@ -236,8 +241,12 @@ func start(cfg config) (_ *Node, err error) {
 			node.respond(m, Reply{Region: cfg.region, Server: cfg.server, Regions: node.regions(), Address: address})
 		},
 		StateSubject: func(m *nats.Msg) {
+			ready, err := cfg.applier.Ready(node.ctx)
+			if err != nil {
+				slog.Warn("mesh ready state unavailable", "error", err)
+			}
 			node.mu.Lock()
-			state := stateReply{Region: cfg.region, Desired: maps.Clone(node.desired)}
+			state := stateReply{Region: cfg.region, Desired: maps.Clone(node.desired), Ready: ready}
 			node.mu.Unlock()
 			node.respond(m, state)
 		},
@@ -333,14 +342,11 @@ func (n *Node) run(ctx context.Context) {
 // sync merges every replying peer's candidates and floor per name, then
 // reconciles every entry so a missed or failed apply is retried.
 func (n *Node) sync(ctx context.Context) {
+	states := n.states(ctx)
 	peers := map[string]map[string]desiredState{}
-	_ = collect(ctx, n.conn, StateSubject, nil, len(n.regions()), stateWait, func(data []byte) bool {
-		var reply stateReply
-		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
-			peers[reply.Region] = reply.Desired
-		}
-		return true
-	})
+	for region, reply := range states {
+		peers[region] = reply.Desired
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	before := maps.Clone(n.desired)
@@ -369,6 +375,9 @@ func (n *Node) sync(ctx context.Context) {
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(n.desired)) {
+		if entry := n.desired[name].entry(); entry.RollbackOf == 0 && n.turn(name, entry.Spec, entry.Generation, states) != nil {
+			continue // an earlier region still rolls this generation out
+		}
 		if _, err := n.reconcile(ctx, name, n.desired[name]); err != nil {
 			slog.WarnContext(ctx, "mesh reconcile failed", "service", name, "error", err)
 		}
@@ -390,6 +399,10 @@ func (n *Node) handleApply(m *nats.Msg) {
 			slog.WarnContext(ctx, "mesh pre-pull failed; the task pulls instead", "service", request.Name, "error", pullErr)
 		}
 		pulled = time.Since(start)
+	}
+	// A rollback restores the serving release in every region at once.
+	if err == nil && request.ExpectedGeneration == 0 && request.Entry.RollbackOf == 0 {
+		err = n.awaitTurn(ctx, request.Name, request.Entry.Spec, request.Entry.Generation)
 	}
 	if err == nil {
 		applied, err = n.apply(ctx, request)
@@ -422,6 +435,79 @@ func (n *Node) handleApply(m *nats.Msg) {
 		reply.Error = err.Error()
 	}
 	n.respond(m, reply)
+}
+
+// states is every replying region's state.
+func (n *Node) states(ctx context.Context) map[string]stateReply {
+	return n.statesOf(ctx, nil, stateWait)
+}
+
+// statesOf collects replies until every region in want answered (nil: all
+// known regions) or wait elapses.
+func (n *Node) statesOf(ctx context.Context, want []string, wait time.Duration) map[string]stateReply {
+	states := map[string]stateReply{}
+	count := len(n.regions())
+	if want != nil {
+		count = math.MaxInt
+	}
+	_ = collect(ctx, n.conn, StateSubject, nil, count, wait, func(data []byte) bool {
+		var reply stateReply
+		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
+			states[reply.Region] = reply
+		}
+		return want == nil || slices.ContainsFunc(want, func(region string) bool { _, ok := states[region]; return !ok })
+	})
+	return states
+}
+
+// earlier is the target regions of spec before this one, in catalog order:
+// a rollout replaces one region at a time, in that order, so the edge always
+// has a serving region to hand off to (TerraBase is replaced stop-first: one
+// writer per data dir).
+func (n *Node) earlier(spec *swarmruntime.ServiceSpec) []string {
+	if spec == nil || len(spec.Regions) != 0 && !slices.Contains(spec.Regions, n.cfg.region) {
+		return nil
+	}
+	var regions []string
+	for _, region := range Regions() {
+		if region == n.cfg.region {
+			return regions
+		}
+		if len(spec.Regions) == 0 || slices.Contains(spec.Regions, region) {
+			regions = append(regions, region)
+		}
+	}
+	return nil // a region outside the founded order waits for nobody
+}
+
+// turn allows this region to apply a generation of name once every earlier
+// region runs it ready. A region that does not answer has nothing to wait for.
+func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int64, states map[string]stateReply) error {
+	for _, region := range n.earlier(spec) {
+		if reply, answered := states[region]; answered && reply.Ready[name] < generation {
+			return fmt.Errorf("%s does not run %s generation %d ready yet", region, name, generation)
+		}
+	}
+	return nil
+}
+
+// awaitTurn waits until turn allows this region to apply.
+func (n *Node) awaitTurn(ctx context.Context, name string, spec *swarmruntime.ServiceSpec, generation int64) error {
+	earlier := n.earlier(spec)
+	if len(earlier) == 0 {
+		return nil
+	}
+	for {
+		err := n.turn(name, spec, generation, n.statesOf(ctx, earlier, time.Second))
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for an earlier region: %w", err)
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 type applyResult struct {

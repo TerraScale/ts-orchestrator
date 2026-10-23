@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net"
 	"os"
@@ -78,6 +79,9 @@ type fakeApplier struct {
 	running map[string]int64
 	// unready is an image that never gets ready.
 	unready string
+	// settle is how long an applied generation takes to get ready.
+	settle  time.Duration
+	applied map[string]time.Time
 }
 
 func (f *fakeApplier) Apply(_ context.Context, spec swarmruntime.ServiceSpec) (bool, *api.Service, error) {
@@ -92,7 +96,29 @@ func (f *fakeApplier) Apply(_ context.Context, spec swarmruntime.ServiceSpec) (b
 		return false, service, nil
 	}
 	f.running[spec.Name] = spec.Generation
+	if f.applied == nil {
+		f.applied = map[string]time.Time{}
+	}
+	f.applied[spec.Name] = time.Now()
 	return true, service, nil
+}
+
+func (f *fakeApplier) Ready(context.Context) (map[string]int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ready := map[string]int64{}
+	for name, generation := range f.running {
+		if time.Since(f.applied[name]) >= f.settle {
+			ready[name] = generation
+		}
+	}
+	return ready, nil
+}
+
+func (f *fakeApplier) appliedAt(name string) time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.applied[name]
 }
 
 func (f *fakeApplier) Remove(_ context.Context, name string) (bool, error) {
@@ -482,6 +508,62 @@ func TestMeshWorkerJoinsItsRegionCluster(t *testing.T) {
 	for _, region := range regions {
 		if appliers[region].generation("whoami") != 1 {
 			t.Fatalf("%s did not apply the worker's generation 1:\n%s", region, out.String())
+		}
+	}
+}
+
+// One apply replaces regions one at a time, in catalog order: each region
+// applies only once the previous one runs the generation ready, so the edge
+// always has a serving region to hand a stop-first TerraBase swap off to.
+func TestMeshRollsRegionsOneAtATime(t *testing.T) {
+	regions := Regions()
+	ca, err := DeriveCA(bytes.Repeat([]byte{43}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const settle = time.Second
+	ports := freePorts(t, 6)
+	appliers := map[string]*fakeApplier{}
+	nodes := map[string]*Node{}
+	for i, region := range regions {
+		gateways := map[string]string{}
+		for j, peer := range regions {
+			if peer != region {
+				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
+			}
+		}
+		appliers[region] = &fakeApplier{running: map[string]int64{}, settle: settle}
+		address := fmt.Sprintf("10.201.0.%d", i+1)
+		node, err := start(config{
+			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
+			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
+			gateways: gateways, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
+			peersDir: t.TempDir(), peersEvery: 300 * time.Millisecond, address: func() (string, error) { return address, nil },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes[region] = node
+		go node.run(t.Context())
+	}
+	t.Cleanup(func() {
+		for _, node := range nodes {
+			node.Close()
+		}
+	})
+	gru := nodes[regions[0]]
+	eventually(t, "every region to answer ping", func() bool { return Ping(t.Context(), gru.conn, time.Second, io.Discard) == nil })
+
+	spec := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764", Port: 8080, Replicas: 1}
+	var out bytes.Buffer
+	if err := printApply(&out)(send(t.Context(), gru.conn, ApplyRequest{Name: "terrabase", Entry: Entry{Generation: 7, Spec: &spec}}, 30*time.Second)); err != nil {
+		t.Fatalf("apply: %v\n%s", err, out.String())
+	}
+	t.Logf("apply:\n%s", out.String())
+	for i := 1; i < len(regions); i++ {
+		previous, next := appliers[regions[i-1]].appliedAt("terrabase"), appliers[regions[i]].appliedAt("terrabase")
+		if previous.IsZero() || next.Sub(previous) < settle {
+			t.Fatalf("%s applied %s after %s; want at least %s, once %s is ready", regions[i], next.Sub(previous), regions[i-1], settle, regions[i-1])
 		}
 	}
 }
