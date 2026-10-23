@@ -409,6 +409,44 @@ func TestEventsStreamPrependsLiveEvents(t *testing.T) {
 	}
 }
 
+type publishOnRecentEvents struct {
+	*observability.EventBus
+	armed   chan struct{}
+	publish func()
+}
+
+func (source *publishOnRecentEvents) Recent(limit int) []observability.Event {
+	select {
+	case <-source.armed:
+		source.publish()
+	default:
+	}
+	return source.EventBus.Recent(limit)
+}
+
+func TestEventsStreamPrependsQueuedEventsOnReconcile(t *testing.T) {
+	t.Parallel()
+	source := &publishOnRecentEvents{EventBus: observability.NewEventBus(16), armed: make(chan struct{})}
+	source.publish = sync.OnceFunc(func() {
+		source.Publish(observability.Event{Level: "INFO", Message: "filtered out"})
+		source.Publish(observability.Event{Level: "WARN", Message: "queued warning"})
+	})
+	server := newStreamServer(t, newTestDashboard(Options{Events: source}))
+	reader, _ := openStream(t, server, "/events/stream?level=warn")
+	reader.next() // Initial rows.
+	reader.next() // Initial chrome.
+	// Publish inside the next snapshot, after the ticker has won the select.
+	close(source.armed)
+	_, data := reader.next()
+	if !strings.Contains(data, "selector #events-rows") || !strings.Contains(data, "mode prepend") ||
+		!strings.Contains(data, "queued warning") || strings.Contains(data, "filtered out") {
+		t.Fatalf("queued event patch = %q", data)
+	}
+	if _, data = reader.next(); !strings.Contains(data, "selector #events-rows-empty") || !strings.Contains(data, "mode remove") {
+		t.Fatalf("empty placeholder removal = %q", data)
+	}
+}
+
 func TestStreamsAreCapped(t *testing.T) {
 	t.Parallel()
 	dashboard := newTestDashboard(Options{MaxStreams: 1, Interval: time.Hour})
