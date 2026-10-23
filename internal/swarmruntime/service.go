@@ -381,6 +381,8 @@ const (
 	LabelSecretRefs = "terrascale.secret-refs"
 	// LabelGeneration is the mesh desired-state generation the service runs.
 	LabelGeneration = "terrascale.generation"
+	// LabelRollbackOf preserves the failed rollout's causal ordering position.
+	LabelRollbackOf = "terrascale.rollback-of"
 	// LabelPostgres is ServiceSpec.Postgres.Hostname; its port is the second endpoint port.
 	LabelPostgres = "terrascale.postgres"
 )
@@ -433,6 +435,8 @@ type ServiceSpec struct {
 	Postgres *ServicePostgres `json:"postgres,omitempty"`
 	// Generation is the mesh desired-state generation, stamped as a label.
 	Generation int64 `json:"-"`
+	// RollbackOf is the failed generation when this spec restores an earlier artifact.
+	RollbackOf int64 `json:"-"`
 	// Region and Node are the mesh host's region and node name; when set,
 	// the task gets TS_REGION, TS_NODE and TS_PEERS_FILE.
 	Region string `json:"-"`
@@ -452,6 +456,9 @@ type ServiceMount struct {
 // SwarmSpec maps the declaration to an upstream service; the executor
 // re-validates the container on every task.
 func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
+	if s.RollbackOf < 0 || s.RollbackOf != 0 && s.RollbackOf >= s.Generation {
+		return nil, errors.New("invalid rollback ancestry")
+	}
 	if !intentName.MatchString(s.Name) {
 		return nil, errors.New("service name must match ^[a-z][a-z0-9-]{0,62}$")
 	}
@@ -547,6 +554,9 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	if s.Generation != 0 {
 		labels[LabelGeneration] = strconv.FormatInt(s.Generation, 10)
+	}
+	if s.RollbackOf != 0 {
+		labels[LabelRollbackOf] = strconv.FormatInt(s.RollbackOf, 10)
 	}
 	// shortcut: fixed, fully reserved budget sized so the three M1 services fit one A1 host (3.75 schedulable CPUs); size per service when a host is added or one is starved.
 	cpu, memory := int64(1_000_000_000), int64(4<<30)
@@ -760,8 +770,8 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 			}
 			return created.Service, nil
 		}
-		generation, err := strconv.ParseInt(current.Spec.Annotations.Labels[LabelGeneration], 10, 64)
-		if err != nil && current.Spec.Annotations.Labels[LabelGeneration] != "" || generation > s.Generation && s.Generation != 0 {
+		generation, rollbackOf, err := serviceGeneration(current.Spec.Annotations.Labels)
+		if err != nil || s.Generation != 0 && ServiceGenerationAfter(generation, rollbackOf, s.Generation, s.RollbackOf) {
 			return nil, errors.New("service generation cannot move backward")
 		}
 		if proto.Equal(&current.Spec, spec) {

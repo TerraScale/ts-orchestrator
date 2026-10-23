@@ -14,7 +14,8 @@
 // spec (nil once removed), persisted in <state>/mesh/desired.json. A node
 // merges every apply it receives and every peer map it pulls on start and
 // every 30 s, then reconciles its local services, so a region that was down
-// converges without operator action.
+// converges without operator action. Rollback retains its failed generation's
+// ordering position so it cannot supersede an intervening apply during sync.
 package mesh
 
 import (
@@ -78,6 +79,12 @@ type Entry struct {
 	Generation int64                     `json:"generation"`
 	Spec       *swarmruntime.ServiceSpec `json:"spec"`
 	Deployment *Deployment               `json:"deployment,omitempty"`
+	RollbackOf int64                     `json:"rollbackOf,omitzero"`
+}
+
+// supersedes orders rollback after its failed rollout, before any later apply.
+func (entry Entry) supersedes(current Entry) bool {
+	return swarmruntime.ServiceGenerationAfter(entry.Generation, entry.RollbackOf, current.Generation, current.RollbackOf)
 }
 
 // ApplyRequest is the ts.svc.apply payload.
@@ -321,7 +328,7 @@ func (n *Node) run(ctx context.Context) {
 	}
 }
 
-// sync merges every replying peer's map, newest generation per name, then
+// sync merges every replying peer's map, newest causal entry per name, then
 // reconciles every entry so a missed or failed apply is retried.
 func (n *Node) sync(ctx context.Context) {
 	peers := map[string]map[string]Entry{}
@@ -338,7 +345,7 @@ func (n *Node) sync(ctx context.Context) {
 	changed := false
 	for _, desired := range peers {
 		for name, entry := range desired {
-			if validEntry(name, entry) == nil && entry.Generation > n.desired[name].Generation && acceptsDeployment(n.desired[name].Deployment, entry.Deployment) == nil {
+			if validEntry(name, entry) == nil && entry.supersedes(n.desired[name]) && acceptsDeployment(n.desired[name].Deployment, entry.Deployment) == nil {
 				if entry.Deployment == nil {
 					entry.Deployment = n.desired[name].Deployment
 				}
@@ -384,6 +391,10 @@ func (n *Node) handleApply(m *nats.Msg) {
 		var rollout swarmruntime.ServiceRollout
 		spec := *request.Entry.Spec
 		spec.Generation, spec.Region, spec.Node = request.Entry.Generation, n.cfg.region, n.cfg.server
+		spec.RollbackOf = request.Entry.RollbackOf
+		if request.ExpectedGeneration != 0 {
+			spec.RollbackOf = request.ExpectedGeneration
+		}
 		if rollout, err = n.cfg.applier.Wait(ctx, spec); err == nil {
 			reply.Service, reply.Image, reply.Tasks, reply.Revision = spec.Name, spec.Image, rollout.Tasks, rollout.Revision
 			if deployment := request.Entry.Deployment; deployment != nil && spec.Image == deployment.Image && rollout.Revision != deployment.Revision {
@@ -408,6 +419,12 @@ func (n *Node) handleApply(m *nats.Msg) {
 }
 
 func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) {
+	if request.ExpectedGeneration != 0 {
+		if request.Entry.RollbackOf != 0 && request.Entry.RollbackOf != request.ExpectedGeneration {
+			return "", errors.New("rollback ancestry differs from expected generation")
+		}
+		request.Entry.RollbackOf = request.ExpectedGeneration
+	}
 	if err := validEntry(request.Name, request.Entry); err != nil {
 		return "", err
 	}
@@ -416,8 +433,8 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) 
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	current := n.desired[request.Name]
-	if request.ExpectedGeneration != 0 && current.Generation != request.ExpectedGeneration {
+	current, exists := n.desired[request.Name]
+	if request.Entry.RollbackOf != 0 && current.Generation != request.Entry.RollbackOf {
 		return "", errors.New("rollback superseded by another apply")
 	}
 	if err := acceptsDeployment(current.Deployment, request.Entry.Deployment); err != nil {
@@ -426,14 +443,19 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) 
 	if request.Entry.Deployment == nil {
 		request.Entry.Deployment = current.Deployment
 	}
-	if current.Generation > request.Entry.Generation {
+	if current.Generation != request.Entry.Generation && !request.Entry.supersedes(current) {
 		return "", fmt.Errorf("superseded by generation %d", current.Generation)
 	}
-	if current.Generation < request.Entry.Generation {
+	if request.Entry.supersedes(current) {
 		n.desired[request.Name] = request.Entry
 	}
-	// Retry persistence even for the same generation after an earlier disk error.
+	// Persist before reconciliation, including retries of a persisted generation.
 	if err := saveDesired(n.cfg.dir, n.desired); err != nil {
+		if exists {
+			n.desired[request.Name] = current
+		} else {
+			delete(n.desired, request.Name)
+		}
 		return "", err
 	}
 
@@ -456,6 +478,7 @@ func (n *Node) reconcile(ctx context.Context, name string, entry Entry) (string,
 	}
 	spec := *entry.Spec
 	spec.Generation, spec.Region, spec.Node = entry.Generation, n.cfg.region, n.cfg.server
+	spec.RollbackOf = entry.RollbackOf
 	if err := n.peers.track(name, spec.Regions); err != nil {
 		return "", err
 	}
@@ -482,6 +505,9 @@ func (n *Node) respond(m *nats.Msg, value any) {
 func validEntry(name string, entry Entry) error {
 	if !serviceName.MatchString(name) || entry.Generation <= 0 {
 		return errors.New("invalid service name or generation")
+	}
+	if entry.RollbackOf < 0 || entry.RollbackOf >= entry.Generation {
+		return errors.New("invalid rollback ancestry")
 	}
 	if err := validDeployment(entry.Deployment); err != nil {
 		return err

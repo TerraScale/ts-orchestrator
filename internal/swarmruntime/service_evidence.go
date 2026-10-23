@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"strconv"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
@@ -55,19 +54,19 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 	}
 	for _, task := range tasks.Tasks {
 		container, containerErr := containerOf(api.ServiceSpec{Task: task.Spec})
-		generation := int64(0)
-		if value := task.ServiceAnnotations.Labels[LabelGeneration]; value != "" {
-			generation, err = strconv.ParseInt(value, 10, 64)
-			if err != nil || generation < 0 {
-				return rollout, errors.New("running task has an invalid generation")
-			}
+		generation, rollbackOf, err := serviceGeneration(task.ServiceAnnotations.Labels)
+		if err != nil {
+			return rollout, err
 		}
 		taskLabels, serviceLabels := maps.Clone(task.ServiceAnnotations.Labels), maps.Clone(service.Spec.Annotations.Labels)
 		delete(taskLabels, LabelGeneration)
 		delete(serviceLabels, LabelGeneration)
+		delete(taskLabels, LabelRollbackOf)
+		delete(serviceLabels, LabelRollbackOf)
 		if task.ServiceID != service.ID || task.Status.State != api.TaskStateRunning || task.DesiredState != api.TaskStateRunning ||
 			containerErr != nil || container.Image != requested.Image || !proto.Equal(&task.Spec, &service.Spec.Task) ||
-			task.ServiceAnnotations.Name != service.Spec.Annotations.Name || !maps.Equal(taskLabels, serviceLabels) || generation > requested.Generation {
+			task.ServiceAnnotations.Name != service.Spec.Annotations.Name || !maps.Equal(taskLabels, serviceLabels) ||
+			ServiceGenerationAfter(generation, rollbackOf, requested.Generation, requested.RollbackOf) {
 			return rollout, errors.New("running task does not match the requested artifact and generation")
 		}
 		node, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})

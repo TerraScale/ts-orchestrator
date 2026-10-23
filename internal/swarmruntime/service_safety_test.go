@@ -98,6 +98,38 @@ func TestServiceSpecRetriesMetadataConflictAndRejectsStaleGeneration(t *testing.
 	}
 }
 
+func TestServiceSpecRollbackAncestryPreservesInterveningGeneration(t *testing.T) {
+	spec, control := safetyFixture(t)
+	rollback := spec
+	rollback.Generation, rollback.RollbackOf = 9, spec.Generation
+	if _, err := ApplyServiceSpec(t.Context(), control, rollback); err != nil {
+		t.Fatal(err)
+	}
+	// A metadata-only rollback keeps the original task and its actual generation.
+	if _, err := WaitServiceSpecExact(t.Context(), control, rollback); err != nil {
+		t.Fatalf("rollback rejected unchanged original task: %v", err)
+	}
+	control.task.ServiceAnnotations = *control.service.Spec.Annotations.Copy()
+	operator := spec
+	operator.Generation = 8
+	if _, err := ApplyServiceSpec(t.Context(), control, operator); err != nil {
+		t.Fatalf("rollback's higher timestamp fenced the intervening operator: %v", err)
+	}
+	if rollout, err := WaitServiceSpecExact(t.Context(), control, operator); err != nil || rollout.Tasks[0].Generation != 9 {
+		t.Fatalf("operator rejected unchanged rollback task's actual generation: %+v, %v", rollout, err)
+	}
+	writes := control.writes
+	if _, err := ApplyServiceSpec(t.Context(), control, rollback); err == nil || control.writes != writes {
+		t.Fatal("stale rollback overwrote intervening operator generation")
+	}
+	for _, value := range []string{"-1", "8", "9", "invalid"} {
+		control.service.Spec.Annotations.Labels[LabelRollbackOf] = value
+		if _, err := ApplyServiceSpec(t.Context(), control, operator); err == nil || control.writes != writes {
+			t.Fatalf("invalid persisted rollback ancestry %q accepted", value)
+		}
+	}
+}
+
 func TestServiceSpecExactEvidenceRejectsUnrelatedArtifact(t *testing.T) {
 	spec, control := safetyFixture(t)
 	rollout, err := WaitServiceSpecExact(t.Context(), control, spec)

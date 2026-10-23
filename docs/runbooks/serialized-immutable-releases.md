@@ -12,7 +12,8 @@ path. It does not prove an authenticated application operation.
    approved main commit. Publish `org.opencontainers.image.revision` in its image
    config; release verification rejects a missing or different revision.
 2. Deploy the runtime ordering protection to every mesh founder before relying
-   on it. Older runtimes do not enforce the new persisted deployment watermark.
+   on it. Older runtimes do not enforce the persisted deployment watermark or
+   rollback ancestry during peer sync.
    Keep the orchestrator rollout held until every signed app publisher is
    compatible. In particular, the dashboard publisher needs the revision label.
 3. Use the existing app/environment GitHub concurrency group with cancellation
@@ -50,6 +51,14 @@ Its compare-and-swap requires the failed release's generation still to be
 current on each node; it cannot overwrite an intervening release or operator
 apply. Rollback rows identify the actual restored image and its own OCI revision,
 not the failed release's revision. A failed release remains failed after rollback.
+The persisted rollback entry carries `rollbackOf`, the failed generation. Peer
+sync and release state reads order it after that rollout but before any later
+operator/release generation, even when the rollback's wall-clock generation is
+higher. Thus a partially accepted rollback cannot replace an intervening update
+or removal through anti-entropy; both nodes converge to that intervening entry.
+Nodes that missed the failed rollout can still import its rollback. A failed
+desired-state save restores the prior in-memory entry before it can be advertised
+or reconciled; retry the apply after fixing persistence.
 
 For fix-forward, publish a corrected commit in a newer workflow run. A rerun of
 the same accepted run may retry only its identical image/revision. For an

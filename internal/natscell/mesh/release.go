@@ -102,14 +102,14 @@ func desiredImages(ctx context.Context, conn *nats.Conn) (map[string]string, err
 	return images, nil
 }
 
-// desiredEntries is each service's newest entry among the regions that answer.
+// desiredEntries is each service's newest causal entry among replying regions.
 func desiredEntries(ctx context.Context, conn *nats.Conn) (map[string]Entry, error) {
 	newest := map[string]Entry{}
 	err := collect(ctx, conn, StateSubject, nil, len(Regions()), stateWait, func(data []byte) bool {
 		var reply stateReply
 		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
 			for name, entry := range reply.Desired {
-				if entry.Generation > newest[name].Generation {
+				if validEntry(name, entry) == nil && entry.supersedes(newest[name]) {
 					newest[name] = entry
 				}
 			}
