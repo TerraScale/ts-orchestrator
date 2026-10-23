@@ -1,10 +1,10 @@
 {
   "name": "terrabase",
-  "image": "ghcr.io/terrascale/terrabase@sha256:cab7b961090c0dd113c59b780b1af2d7f924adc62b73170758c140ecd52bf4ec",
+  "image": "ghcr.io/terrascale/terrabase@sha256:8d76c9457a0f9af883a6b6d8c178a0f356e8018f99546fd9d22702d3cbaaf6c2",
   "env": {
     "AWS_ENDPOINT_URL_S3": "https://fly.storage.tigris.dev",
     "AWS_REGION": "auto",
-    "BUCKET_NAME": "terrascale-gru-terrabase-backups",
+    "BUCKET_NAME": "terrascale-gru-terrabase-backups-b3",
     "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp",
     "TERRABASE_AUTH_AUDIENCE": "https://api.terrascale.tech",
     "TERRABASE_AUTH_ISSUER": "https://auth.terrascale.tech/terrascale",
