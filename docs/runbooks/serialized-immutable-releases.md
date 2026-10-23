@@ -15,7 +15,8 @@ path. It does not prove an authenticated application operation.
    protection. Older runtimes ignore and can discard the signed candidate and
    floor during peer sync or persistence; they do not enforce rollback ancestry.
    Keep the orchestrator rollout held until every signed app publisher is
-   compatible. In particular, the dashboard publisher needs the revision label.
+   compatible. The dashboard publisher prerequisite is proven below; retain the
+   all-founder upgrade and authenticated smoke gates.
 3. Use the existing app/environment GitHub concurrency group with cancellation
    disabled for production. Do not overlap manual releases of the same service.
 4. Record the expected digest, full source revision, workflow run ID, intended
@@ -24,9 +25,10 @@ path. It does not prove an authenticated application operation.
    command arguments; the client mints its existing OIDC identity in memory.
 5. Retain the JSON per-region runtime evidence. Stop on any failed/missing row,
    identity or digest mismatch, or revision mismatch. Authenticated per-target
-   smoke remains pending until the user installs the scoped E2E credential via
-   the approved user-run handoff. Do not substitute anonymous auth health or
-   expand grants. Anonymous auth health intentionally omits exact build identity.
+   smoke uses the authorized hosted email-code login. Project-credential
+   isolation E2E separately requires the approved user-run credential handoff.
+   Do not substitute anonymous auth health or expand grants. Anonymous auth
+   health intentionally omits exact build identity.
 
 ## Ordering and rollback
 
@@ -101,3 +103,21 @@ The public API health endpoint reported `region=gru`, `machine=gru-1-ctl-1` and
 revision `888ea413c06f6452cccceab57c735fa35b4d850d`. Public auth health reported only
 status and version. These are baseline observations, not proof that this change
 has shipped or that an authenticated smoke passed.
+
+## Dashboard publisher compatibility proof (2026-10-23)
+
+[Dashboard PR 135](https://github.com/TerraScale/ts-dashboard/pull/135) merged
+as `84c233d9f476af016864909a058a9ec3efea5d52`. Its successful
+[publisher run 39957772630](https://github.com/TerraScale/ts-dashboard/actions/runs/39957772630)
+retained both linux/amd64 and linux/arm64 children. Before releasing, the
+single-child image-config assertion returned `true` for linux/arm64 and
+`org.opencontainers.image.revision` equal to that exact commit.
+
+- Index: `sha256:bdb8fd0aaca0de5908cf27cbc1e063adc222aed547b51d394632ba6c51eeff26`.
+- ARM64 child: `sha256:f7eabd213d125b201bb76c4a19763c9ef6bc07b2b71f7dce114255022443034f`.
+- Existing release client reported gru `applied` on `gru-1-ctl-1`; sjc/fra were
+  `skipped-not-targeted`, consistent with this service's gru placement.
+
+This proves publisher compatibility and existing release readiness. The release
+used the prior runtime, so it does not prove the new runtime's exact task evidence,
+all-founder deployment ordering, authenticated behavior or project isolation.

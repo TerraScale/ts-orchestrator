@@ -45,10 +45,11 @@ alone does not establish effective policy scope or expiry; do not revoke either
 key based on this audit. No SMTP passwords, private keys or Vault values read.
 
 Tigris `whoami` reports OAuth admin@terrascale.tech but active organization
-**Admin Terrascale**, not TerraScale (`flyio_1xglmxrdqv0movy6`). No key inventory
-was run against that personal organization and no organization selection changed.
-The ticket's 2026-10-22 comment reports all Fly apps absent and six old Fly tokens
-revoked on 2026-10-16; this audit did not independently recheck Fly metadata.
+**Admin Terrascale**, not TerraScale. For Tigris object storage, the `fly storage` connection's expected organization is `flyio_1xglmxrdqv0movy6`.
+No key inventory was run against that personal organization and no organization
+selection changed. The ticket's 2026-10-22 comment reports all retired-host
+applications absent and six old deployment tokens revoked on 2026-10-16; this
+audit did not independently recheck the retired provider's metadata.
 
 ## Existing authorized/denied boundary evidence
 
