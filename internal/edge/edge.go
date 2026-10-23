@@ -71,6 +71,9 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	// gRPC streams may hold response headers back, so only HTTP/1.1 gets this.
 	http1.ResponseHeaderTimeout = 30 * time.Second
 	e.local = roundTripper(func(r *http.Request) (*http.Response, error) {
+		if resp, err := e.failover(r); resp != nil || err != nil {
+			return resp, err
+		}
 		if isGRPC(r) {
 			return h2c.RoundTrip(r)
 		}
