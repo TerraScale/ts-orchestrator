@@ -191,7 +191,15 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 		if cwd == "" {
 			cwd = "/"
 		}
-		opts := []oci.SpecOpts{oci.WithProcessArgs(args...), oci.WithEnv(config.Config.Env), oci.WithEnv(c.spec.Env), oci.WithProcessCwd(cwd),
+		env := c.spec.Env
+		if c.stateful == nil && usesTaskPort(env) {
+			port, err := c.pickTaskPort(ctx)
+			if err != nil {
+				return err
+			}
+			ports, env = strconv.Itoa(int(port)), withTaskPort(env, port)
+		}
+		opts := []oci.SpecOpts{oci.WithProcessArgs(args...), oci.WithEnv(config.Config.Env), oci.WithEnv(env), oci.WithProcessCwd(cwd),
 			oci.WithUIDGID(uint32(u), uint32(g)), oci.WithRootFSReadonly(), oci.WithNoNewPrivileges,
 			oci.WithCapabilities(nil), seccomp.WithDefaultProfile(), oci.WithPidsLimit(256),
 			oci.WithMemoryLimit(uint64(limits.MemoryBytes)), oci.WithMemorySwap(limits.MemoryBytes),
@@ -325,12 +333,23 @@ func (c *controller) awaitReady(ctx context.Context) error {
 	defer deadline.Stop()
 	tick := time.NewTicker(readyPoll)
 	defer tick.Stop()
+	port, portErr := hostPort(c.task)
+	probed := port
+	service, task, taskPort := c.taskPorts(ctx)
+	if taskPort {
+		probed = task
+	}
 	for {
-		probeErr := probeLocalPort(ctx, c.task)
+		probeErr := portErr
 		if probeErr == nil {
-			if port, err := hostPort(c.task); err == nil {
-				handoff.Release(port)
+			probeErr = probeLocalPort(ctx, c.task, probed)
+		}
+		if probeErr == nil {
+			if taskPort {
+				// Serve before SwarmKit sees RUNNING and stops the predecessor.
+				handoff.Serve(service, task)
 			}
+			handoff.Release(port)
 			return nil
 		}
 		select {
@@ -518,10 +537,13 @@ func (c *controller) Wait(ctx context.Context) (operationErr error) {
 	if err != nil {
 		return err
 	}
+	// A canceled Wait (any task update) keeps serving; exit and stopTask end it.
+	unserve := c.serve(ctx)
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case status := <-wait:
+		unserve()
 		code, exited, err := status.Result()
 		if err != nil {
 			return err
@@ -571,8 +593,11 @@ func (c *controller) stopTask(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// The edge holds new requests for the port until a replacement is ready.
-	if _, named := c.spec.Labels[LabelReadyPath]; named && c.stateful == nil {
+	if service, task, ok := c.taskPorts(ctx); ok {
+		// Its successor (or nobody, on removal) takes new connections; in-flight ones drain.
+		handoff.Unserve(service, task)
+	} else if _, named := c.spec.Labels[LabelReadyPath]; named && c.stateful == nil {
+		// The edge holds new requests for the port until a replacement is ready.
 		if port, err := hostPort(c.task); err == nil {
 			handoff.Hold(port)
 		}
