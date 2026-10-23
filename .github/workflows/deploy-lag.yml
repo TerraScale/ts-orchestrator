@@ -1,0 +1,58 @@
+name: Deployment lag guard
+
+# Check the live M1 release path after main delivery and once daily.
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+  workflow_run:
+    workflows: [TerraScale Orchestrator Go checks]
+    types: [completed]
+    branches: [main]
+
+# The newest run of a pull request or branch cancels its older runs (user
+# decision 2026-10-22); each merge-queue entry keeps its own run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
+
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  check:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' }}
+    environment: production
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      issues: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+    steps:
+      - name: Check out the protected main guard
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Install the pinned Go toolchain
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+
+
+      - name: Compare main publications with M1 release completion
+        shell: bash
+        env:
+          GH_READ_TOKEN: ${{ github.token }}
+          GH_WRITE_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          go run ./scripts/ci/deploylag

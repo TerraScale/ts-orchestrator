@@ -42,13 +42,13 @@ jobs:
   # scheduled/manual runs keep the same qualification path available.
   change:
     if: ${{ github.event_name == 'pull_request' }}
-    name: verify/change
+    name: ${{ github.event_name == 'pull_request' && 'test' || 'verify/change' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       TS_CI_SHARD: 1/1
       TS_RACE_MACHINE: '1'
-      TS_RACE_JOBS: '2'
+      GOMAXPROCS: '1'
       TS_RACE_PACKAGE_JOBS: '1'
       TS_RACE_IDLE_JOBS: '1'
     steps:
@@ -60,7 +60,12 @@ jobs:
           persist-credentials: false
       - name: Select checks for changed files
         id: changes
-        run: python3 scripts/ci/check-inputs.py "$CHANGE_BASE" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          cpus=$(getconf _NPROCESSORS_ONLN)
+          echo "TS_RACE_JOBS=$cpus" >> "$GITHUB_ENV"
+          echo "CPU budget: $cpus race workers, GOMAXPROCS=$GOMAXPROCS per worker"
+          python3 scripts/ci/check-inputs.py "$CHANGE_BASE" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/verify
         if: ${{ steps.changes.outputs.checks == 'true' }}
 
@@ -208,10 +213,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-  # The one required check: passes only when every job above passed.
+  # PR verification reports test directly; other events aggregate their jobs.
   test:
-    name: test
-    if: ${{ always() }}
+    name: ${{ github.event_name == 'pull_request' && 'test/summary' || 'test' }}
+    if: ${{ always() && github.event_name != 'pull_request' }}
     needs: [change, race, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -222,9 +227,7 @@ jobs:
           BUILD: ${{ needs.build.result }}
         run: |
           echo "change=$CHANGE race=$RACE build=$BUILD"
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            test "$CHANGE" = success
-          elif [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
             test "$RACE" = skipped
           else
             test "$RACE" = success

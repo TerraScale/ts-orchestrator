@@ -68,3 +68,32 @@ func TestReleasePushJob(t *testing.T) {
 	forbidText(t, push, "continue-on-error:")
 	forbidText(t, push, "secrets.")
 }
+
+func TestRequiredCheckIdentity(t *testing.T) {
+	ci := workflowText(t, ".github/workflows/ci.yml")
+	_, change, found := strings.Cut(ci, "\n  change:\n")
+	if !found {
+		t.Fatal("missing PR verification job")
+	}
+	change, _, _ = strings.Cut(change, "\n  race:\n")
+	requireText(t, change, "    if: ${{ github.event_name == 'pull_request' }}\n")
+	requireText(t, change, "    name: ${{ github.event_name == 'pull_request' && 'test' || 'verify/change' }}\n")
+	requireText(t, change, "      - uses: ./.github/actions/verify\n        if: ${{ steps.changes.outputs.checks == 'true' }}")
+	forbidText(t, change, "continue-on-error:")
+	requireText(t, change, "      GOMAXPROCS: '1'\n")
+	requireText(t, change, "cpus=$(getconf _NPROCESSORS_ONLN)")
+	requireText(t, change, `echo "TS_RACE_JOBS=$cpus" >> "$GITHUB_ENV"`)
+	forbidText(t, change, "TS_RACE_JOBS: '2'")
+	requireText(t, change, "      TS_RACE_IDLE_JOBS: '1'\n")
+	_, aggregate, found := strings.Cut(ci, "\n  test:\n")
+	if !found {
+		t.Fatal("missing non-PR aggregate job")
+	}
+	aggregate, _, _ = strings.Cut(aggregate, "\n  flaky-report:\n")
+	requireText(t, aggregate, "    name: ${{ github.event_name == 'pull_request' && 'test/summary' || 'test' }}\n")
+	requireText(t, aggregate, "    if: ${{ always() && github.event_name != 'pull_request' }}\n")
+	requireText(t, aggregate, "    needs: [change, race, build]\n")
+	requireText(t, aggregate, `test "$RACE" = success`)
+	requireText(t, aggregate, `test "$BUILD" = success || test "$BUILD" = skipped`)
+	forbidText(t, aggregate, "continue-on-error:")
+}
