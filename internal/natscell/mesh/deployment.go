@@ -14,7 +14,7 @@ type Deployment = swarmruntime.Deployment
 // desiredState retains both authorities: a losing operator must survive a
 // signed winner whose authority a later run can permanently invalidate.
 type desiredState struct {
-	Operator *Entry      `json:"operator,omitempty"`
+	Operator *Entry      `json:",embed"` // Preserve the deployed root generation/spec fields.
 	Signed   *Entry      `json:"signed,omitempty"`
 	Floor    *Deployment `json:"floor,omitempty"`
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -305,9 +306,90 @@ func TestStateMergeAlgebraAndSignedCandidateSelection(t *testing.T) {
 	}
 }
 
+func TestLoadDesiredPreservesRootOperatorRecords(t *testing.T) {
+	spec := &swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+	for _, tc := range []struct {
+		name string
+		wire string
+		spec *swarmruntime.ServiceSpec
+	}{
+		{"service", `{"web":{"generation":1,"spec":{"name":"web","image":"ghcr.io/terrascale/web@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","port":8080,"replicas":1}}}`, spec},
+		{"removal", `{"web":{"generation":1,"spec":null}}`, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := writePrivate(filepath.Join(dir, "desired.json"), []byte(tc.wire)); err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]desiredState{"web": {Operator: new(Entry{Generation: 1, Spec: tc.spec})}}
+			loaded, err := loadDesired(dir)
+			if err != nil || !reflect.DeepEqual(loaded, want) {
+				t.Fatalf("root operator record lost: %+v, %v", loaded, err)
+			}
+			if err := saveDesired(dir, loaded); err != nil {
+				t.Fatal(err)
+			}
+			reloaded, err := loadDesired(dir)
+			if err != nil || !reflect.DeepEqual(reloaded, want) {
+				t.Fatalf("root operator record changed on reload: %+v, %v", reloaded, err)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, "desired.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			root, err := protocol.EncodeJSON(map[string]Entry{"web": {Generation: 1, Spec: tc.spec}})
+			if err != nil || !bytes.Equal(data, root) {
+				t.Fatalf("root operator schema changed: %s, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestDesiredStateSchemaRoundTrip(t *testing.T) {
+	spec := &swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+	floor := &Deployment{Repository: "TerraScale/terrascale", RunID: "100", Revision: strings.Repeat("b", 40), Image: spec.Image}
+	signed := new(Entry{Generation: 12, Spec: spec, Deployment: floor, RollbackOf: 10})
+	for _, operator := range []*Entry{nil, new(Entry{Generation: 11, Spec: spec}), new(Entry{Generation: 11})} {
+		t.Run(fmt.Sprintf("operator=%t/removal=%t", operator != nil, operator != nil && operator.Spec == nil), func(t *testing.T) {
+			want := map[string]desiredState{"web": {Operator: operator, Signed: signed, Floor: floor}}
+			dir := t.TempDir()
+			if err := saveDesired(dir, want); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := loadDesired(dir)
+			if err != nil || !reflect.DeepEqual(loaded, want) {
+				t.Fatalf("candidate state changed on reload: %+v, %v", loaded, err)
+			}
+			wire, err := protocol.EncodeJSON(stateReply{Region: "gru", Desired: loaded})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var reply stateReply
+			if err := protocol.DecodeStrict(wire, &reply, maxWire); err != nil || !reflect.DeepEqual(reply.Desired, want) {
+				t.Fatalf("peer reply changed candidate state: %+v, %v", reply, err)
+			}
+			var fields struct {
+				Region  string `json:"region"`
+				Desired map[string]struct {
+					Generation int64                     `json:"generation"`
+					Spec       *swarmruntime.ServiceSpec `json:"spec"`
+					Signed     *Entry                    `json:"signed"`
+					Floor      *Deployment               `json:"floor"`
+				} `json:"desired"`
+			}
+			if err := protocol.DecodeStrict(wire, &fields, maxWire); err != nil {
+				t.Fatalf("peer reply changed the root operator/signed/floor schema: %s, %v", wire, err)
+			}
+			if operator != nil && (fields.Desired["web"].Generation != operator.Generation || !reflect.DeepEqual(fields.Desired["web"].Spec, operator.Spec)) {
+				t.Fatalf("peer reply lost root operator fields: %s", wire)
+			}
+		})
+	}
+}
+
 func TestLoadDesiredRejectsNullAndIncompleteCandidates(t *testing.T) {
 	dir := t.TempDir()
-	for _, wire := range []string{`null`, `{"web":null}`, `{"web":{"operator":null,"signed":null}}`, `{"web":{"generation":1,"spec":null}}`} {
+	for _, wire := range []string{`null`, `{"web":null}`, `{"web":{}}`, `{"web":{"operator":null,"signed":null}}`, `{"web":{"generation":0,"spec":null}}`, `{"web":{"generation":-1,"spec":null}}`} {
 		if err := writePrivate(filepath.Join(dir, "desired.json"), []byte(wire)); err != nil {
 			t.Fatal(err)
 		}

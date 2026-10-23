@@ -11,9 +11,9 @@ path. It does not prove an authenticated application operation.
 1. Build the immutable `ghcr.io/terrascale/<service>@sha256:<digest>` from the
    approved main commit. Publish `org.opencontainers.image.revision` in its image
    config; release verification rejects a missing or different revision.
-2. Deploy the runtime ordering protection to every mesh founder before relying
-   on it. Older runtimes do not enforce the persisted deployment watermark or
-   rollback ancestry during peer sync.
+2. Hold signed app rollouts until every mesh founder runs the runtime ordering
+   protection. Older runtimes ignore and can discard the signed candidate and
+   floor during peer sync or persistence; they do not enforce rollback ancestry.
    Keep the orchestrator rollout held until every signed app publisher is
    compatible. In particular, the dashboard publisher needs the revision label.
 3. Use the existing app/environment GitHub concurrency group with cancellation
@@ -39,20 +39,28 @@ generation after a metadata-only reapply; evidence reports its actual generation
 and accepts it only when the complete task spec and non-generation service
 metadata match. Verification adds no forced restart.
 
-Each mesh service persists its signed repository, workflow run ID, approved
-image and revision. Lower run IDs and different artifacts from the same run are
-rejected, even if they arrive with a newer wall-clock generation. Operator
-applies/removals and automatic rollback retain the watermark. `deployment` is
-the entry's signed release authority; operator entries leave it absent and inherit
-only `deploymentFloor`. Peer sync and release state reads merge the highest
-accepted floor independently of which entry wins, including from a losing
-rollback. A winning operator update/removal therefore converges even if its node
-missed a signed rollout and inherited a lower floor. Reconciliation waits for
-both the winner and floor to persist. Signed entries still reject older runs,
-different repositories and same-run artifact changes; inheriting a floor never
-turns an operator entry into a signed release. Do not delete desired state to make
-an old workflow succeed. A signed entry establishes its own run floor when no
-separate inherited floor is present.
+Each service in `mesh/desired.json` and a peer reply's `desired` map keeps the
+deployed root `generation` and `spec` fields for its operator candidate. A removal
+is a positive root generation with `spec: null`; an absent operator omits these
+fields. Alongside them, `signed` retains the signed candidate's `generation`,
+`spec`, `deployment` and optional `rollbackOf`; `floor` retains the highest
+accepted repository, workflow run ID, approved image and revision. The operator
+candidate can also carry `rollbackOf`, but never `deployment`. Existing root
+operator records load directly without changing their schema.
+
+Lower run IDs and different artifacts from the same run are rejected, even if
+they arrive with a newer wall-clock generation. Operator applies/removals and
+automatic rollback retain the floor. Peer sync and release state reads merge
+the operator candidate, signed candidate and floor independently, including a
+losing rollback's floor. A losing operator remains durable when a signed
+candidate wins, so a later run that invalidates that signed candidate cannot
+erase intervening operator intent. A winning operator update/removal therefore
+converges even if its node missed a signed rollout and inherited a lower floor.
+Reconciliation waits for both candidates and the floor to persist. Signed
+entries still reject older runs, different repositories and same-run artifact
+changes; inheriting a floor never turns an operator entry into a signed release.
+Every signed candidate must match its persisted floor. Do not delete desired
+state to make an old workflow succeed.
 
 On release failure, the existing bounded rollback restores the previous spec.
 Its compare-and-swap requires the failed release's generation still to be
