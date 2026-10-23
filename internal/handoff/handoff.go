@@ -1,11 +1,21 @@
-// Package handoff holds edge dials to a loopback port while its task is
-// replaced. The old task holds the port until it exits and the new one binds it
-// before its readyPath answers, so without the hold a client would get a
-// refused dial or a not-ready answer during every update.
+// Package handoff keeps a service port answering while its task is replaced.
+//
+// A task that listens on its own port (its spec names ${PORT}) is served on the
+// service port by a forwarder here: the newest ready task takes new
+// connections while its predecessor drains, so an update has no gap.
+//
+// Any other task binds the service port itself; the old task holds it until it
+// exits and the new one binds it before its readyPath answers, so edge dials
+// wait on a hold for that window.
 package handoff
 
 import (
 	"context"
+	"errors"
+	"io"
+	"net"
+	"slices"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -36,4 +46,114 @@ func Wait(ctx context.Context, port uint16, deadline time.Time) {
 	case <-timer.C:
 	case <-ctx.Done():
 	}
+}
+
+type forwarder struct {
+	targets []uint16 // ready task ports, newest last
+	stop    chan struct{}
+}
+
+var (
+	mu         sync.Mutex
+	forwarders = map[uint16]*forwarder{}
+)
+
+// bindRetry bounds how late the forwarder takes a service port its
+// predecessor (a task that bound it itself) frees.
+const bindRetry = 50 * time.Millisecond
+
+// Serve sends new connections on port to target, a ready task's own port,
+// until Unserve. The newest served target takes new connections.
+func Serve(port, target uint16) {
+	mu.Lock()
+	defer mu.Unlock()
+	f := forwarders[port]
+	if f == nil {
+		f = &forwarder{stop: make(chan struct{})}
+		forwarders[port] = f
+		go f.run(port)
+	}
+	if !slices.Contains(f.targets, target) {
+		f.targets = append(f.targets, target)
+	}
+}
+
+// Unserve stops new connections to target; in-flight ones finish. The last
+// target's Unserve frees port.
+func Unserve(port, target uint16) {
+	mu.Lock()
+	defer mu.Unlock()
+	f := forwarders[port]
+	if f == nil {
+		return
+	}
+	if f.targets = slices.DeleteFunc(f.targets, func(p uint16) bool { return p == target }); len(f.targets) == 0 {
+		close(f.stop)
+		delete(forwarders, port)
+	}
+}
+
+func (f *forwarder) target() (uint16, bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	if len(f.targets) == 0 {
+		return 0, false
+	}
+	return f.targets[len(f.targets)-1], true
+}
+
+func (f *forwarder) run(port uint16) {
+	// Loopback only: the edge is the public path, and every client here looks local to the task.
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port)))
+	var ln net.Listener
+	// The previous task may still hold the port (an update from a spec without ${PORT}).
+	for {
+		var err error
+		if ln, err = net.Listen("tcp", address); err == nil {
+			break
+		}
+		select {
+		case <-f.stop:
+			return
+		case <-time.After(bindRetry):
+		}
+	}
+	Release(port)
+	go func() {
+		<-f.stop
+		ln.Close()
+	}()
+	for {
+		conn, err := ln.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			return
+		}
+		if err != nil {
+			time.Sleep(bindRetry)
+			continue
+		}
+		go f.forward(conn)
+	}
+}
+
+func (f *forwarder) forward(conn net.Conn) {
+	defer conn.Close()
+	target, ok := f.target()
+	if !ok {
+		return
+	}
+	backend, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(target))))
+	if err != nil {
+		return
+	}
+	defer backend.Close()
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(backend, conn)
+		backend.(*net.TCPConn).CloseWrite()
+		close(done)
+	}()
+	_, _ = io.Copy(conn, backend)
+	conn.(*net.TCPConn).CloseWrite()
+	<-done
 }

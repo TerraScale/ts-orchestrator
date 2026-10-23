@@ -568,13 +568,23 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	if _, err := DiskBytes(task.Resources); err != nil {
 		return nil, err
 	}
-	return &api.ServiceSpec{
+	spec := &api.ServiceSpec{
 		Annotations: api.Annotations{Name: s.Name, Labels: labels},
 		Task:        task,
 		Mode:        &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: s.Replicas}},
 		Update:      &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(serviceUpdateMonitor), Order: api.UpdateConfig_STOP_FIRST},
 		Endpoint:    &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: ports},
-	}, nil
+	}
+	if usesTaskPort(env) {
+		// Each task listens on its own port and the executor serves s.Port, so the new task starts first.
+		if s.Postgres != nil || len(s.Mounts) != 0 || s.ReadyPath == "" {
+			return nil, fmt.Errorf("a spec using %s needs readyPath and no postgres or mounts", TaskPortEnv)
+		}
+		labels[LabelPort] = strconv.FormatUint(uint64(s.Port), 10)
+		spec.Endpoint.Ports = nil
+		spec.Update.Order = api.UpdateConfig_START_FIRST
+	}
+	return spec, nil
 }
 
 const (

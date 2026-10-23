@@ -392,7 +392,12 @@ retries a refused backend dial every 25 ms for up to 2 s, so clients see no
 error. Since then the executor also holds the port from the old task's SIGTERM
 until the new task answers its `readyPath`, and the edge waits on that hold (up
 to 20 s), so apps that take seconds to start and become ready (ts-auth: 3-6 s)
-never see a refused dial or a not-ready answer. Proof 2026-10-22 on sjc and fra (`w14-speed` with
+never see a refused dial or a not-ready answer. That hold still stalls each
+request for the whole gap (gru 2026-10-23: 4 of 176 probes with a 2 s timeout
+got no answer), so a spec can now remove the gap: an env value naming
+`${PORT}` (ts-auth: `TS_AUTH_LISTEN=http://127.0.0.1:${PORT}`) gives each task
+its own port, the update starts the new task first, and the executor serves the
+service port from the newest ready task while the old one drains. Proof 2026-10-22 on sjc and fra (`w14-speed` with
 `"regions": ["sjc","fra"]`, hostnames `w14-sjc`/`w14-fra.terrascale.tech`,
 probes every 50 ms from ts-sjc-1 through the public HTTPS edge):
 

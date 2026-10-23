@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -129,13 +130,21 @@ func edgeRoutes(services []*api.Service) (web, postgres map[string]int) {
 	})
 	web, postgres = map[string]int{}, map[string]int{}
 	for _, svc := range services {
-		if svc.Spec.Endpoint == nil || len(svc.Spec.Endpoint.Ports) == 0 {
+		labels := svc.Spec.Annotations.Labels
+		var ports []*api.PortConfig
+		if svc.Spec.Endpoint != nil {
+			ports = svc.Spec.Endpoint.Ports
+		}
+		port, _ := strconv.Atoi(labels[swarmruntime.LabelPort]) // a spec using ${PORT} publishes none
+		if len(ports) != 0 {
+			port = int(ports[0].PublishedPort)
+		}
+		if port == 0 {
 			continue
 		}
-		ports, labels := svc.Spec.Endpoint.Ports, svc.Spec.Annotations.Labels
 		for host := range strings.SplitSeq(labels[swarmruntime.LabelHostnames], ",") {
 			if _, owned := web[host]; host != "" && !owned {
-				web[host] = int(ports[0].PublishedPort)
+				web[host] = port
 			}
 		}
 		if _, owned := postgres[labels[swarmruntime.LabelPostgres]]; labels[swarmruntime.LabelPostgres] != "" && len(ports) == 2 && !owned {

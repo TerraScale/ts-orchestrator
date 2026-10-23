@@ -28,6 +28,8 @@ func TestEdgeRoutesMapsHostnamesToPublishedPort(t *testing.T) {
 	pg := service("", 8080)
 	pg.Spec.Annotations.Labels[swarmruntime.LabelPostgres] = "pg.example.com"
 	pg.Spec.Endpoint.Ports = append(pg.Spec.Endpoint.Ports, &api.PortConfig{PublishedPort: 6432})
+	taskPort := service("login.example.com", 0) // a ${PORT} spec publishes none
+	taskPort.Spec.Annotations.Labels[swarmruntime.LabelPort] = "8091"
 	got, gotPG := edgeRoutes([]*api.Service{
 		pg,
 		thief,
@@ -35,8 +37,9 @@ func TestEdgeRoutesMapsHostnamesToPublishedPort(t *testing.T) {
 		service("api.example.com,www.example.com", 8080),
 		service("", 9000),                // internal only
 		service("noport.example.com", 0), // no published port
+		taskPort,
 	})
-	want := map[string]int{"auth.example.com": 8090, "api.example.com": 8080, "www.example.com": 8080}
+	want := map[string]int{"login.example.com": 8091, "auth.example.com": 8090, "api.example.com": 8080, "www.example.com": 8080}
 	if !maps.Equal(got, want) || !maps.Equal(gotPG, map[string]int{"pg.example.com": 6432}) {
 		t.Fatalf("routes = %v %v, want %v", got, gotPG, want)
 	}

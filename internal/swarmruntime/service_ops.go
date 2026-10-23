@@ -146,6 +146,9 @@ func InspectService(service *api.Service) (ServiceInspection, error) {
 	for _, m := range container.Mounts {
 		spec.Mounts = append(spec.Mounts, ServiceMount{Source: m.Source, Target: m.Target})
 	}
+	if port, err := strconv.ParseUint(labels[LabelPort], 10, 16); err == nil {
+		spec.Port = uint32(port)
+	}
 	if service.Spec.Endpoint != nil && len(service.Spec.Endpoint.Ports) != 0 {
 		spec.Port = service.Spec.Endpoint.Ports[0].PublishedPort
 		if host := labels[LabelPostgres]; host != "" && len(service.Spec.Endpoint.Ports) == 2 {
