@@ -24,8 +24,9 @@
 # listed test runs once, and any failure fails CI. Vet runs separately over
 # the whole module in make verify/ci-verify.
 #
-# Packages that are not sharded run as one group per CI machine, packed by
-# their "<package> - <seconds>" estimates. TS_CI_SHARD=<index>/<count> runs
+# Packages that are not sharded use one group per CPU worker slot per CI
+# machine, packed by their "<package> - <seconds>" estimates.
+# TS_CI_SHARD=<index>/<count> runs
 # only this machine's part of the queue: every machine plans the same queue
 # and takes the shards that longest-first packing gives it, so a test always
 # lands on the same machine and its cached result stays valid.
@@ -377,7 +378,7 @@ if ((${#other_packages[@]})); then
 		[[ $package != "$module" ]] || local_package=.
 		printf '%s %s\n' "${package_cost[$local_package]:-$rest_cost}" "$package"
 	done > "$logs/rest"
-	pack '' "$logs/rest" packages cpu "$machines"
+	pack '' "$logs/rest" packages cpu "$((machines * jobs))"
 fi
 for package in "${sharded_packages[@]}"; do
 	base=${package##*/}

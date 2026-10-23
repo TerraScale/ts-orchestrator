@@ -13,7 +13,8 @@
 # detector: mark only tests whose code paths start no goroutine, and give
 # their cost without it. "norace solo" gives one such test its own shard.
 # The first matching line wins; a test no line matches costs one second.
-# Packages that are not sharded are packed into one group per CI machine
+# Packages that are not sharded are packed into one group per CPU worker slot
+# per CI machine
 # by their "<package> -" cost; "rest" is the cost of each one without a line.
 #
 # Refreshed from CI run 883 (main, 2026-10-03) and local timings at

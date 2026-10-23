@@ -471,6 +471,50 @@ func TestRaceScheduler(t *testing.T) {
 		}
 		requireText(t, r.Stderr, "TS_CI_SHARD must be <index>/<count>")
 	})
+	// Ordinary packages fill the CPU workers across machines instead of
+	// sharing one serial group per machine.
+	t.Run("package_groups", func(t *testing.T) {
+		t.Parallel()
+		f := newScheduler(t)
+		for i := range 4 {
+			identity := fmt.Sprintf("ordinary%d/TestOrdinary", i)
+			source := fmt.Sprintf(`package fixture
+import("fmt";"os";"testing")
+func TestOrdinary(t *testing.T){f,err:=os.OpenFile(os.Getenv("TEST_RECORD"),os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600);if err!=nil{t.Fatal(err)};defer f.Close();fmt.Fprintln(f,%q);if os.Getenv("FAIL_ORDINARY")==%q{t.Fatal("ordinary package failure")}}
+`, identity, identity)
+			script.Write(t, filepath.Join(f.root, "internal", fmt.Sprintf("ordinary%d", i), "fixture_test.go"), []byte(source), 0o644)
+			f.expected = append(f.expected, identity)
+		}
+		slices.Sort(f.expected)
+		groups := map[string]bool{}
+		for i := range 2 {
+			r := f.run(t, map[string]string{"TS_CI_SHARD": fmt.Sprintf("%d/2", i+1), "TS_RACE_PACKAGE_JOBS": "1"})
+			if r.Code != 0 {
+				t.Fatalf("machine %d exit %d: %s %s", i+1, r.Code, r.Stdout, r.Stderr)
+			}
+			for _, name := range lines(r.Stdout, "race start packages-") {
+				if groups[name] {
+					t.Fatalf("package group assigned twice: %s", name)
+				}
+				groups[name] = true
+			}
+			state := f.readState(t)
+			if state.Active != 0 || state.CPUMaximum > 2 || state.IdleMaximum > 1 {
+				t.Fatalf("worker bounds exceeded: %+v", state)
+			}
+		}
+		tests := strings.Fields(string(script.Read(t, f.record)))
+		slices.Sort(tests)
+		if len(groups) != 4 || !reflect.DeepEqual(tests, f.expected) {
+			t.Fatalf("four groups must cover every test once: groups=%v got=%v want=%v", groups, tests, f.expected)
+		}
+		r := f.run(t, map[string]string{"FAIL_ORDINARY": "ordinary2/TestOrdinary", "TS_RACE_PACKAGE_JOBS": "1"})
+		if r.Code == 0 {
+			t.Fatal("ordinary package failure passed")
+		}
+		requireText(t, r.Stdout, "ordinary package failure")
+	})
+
 	// A failure outside the changed packages re-runs once; inside, it is final.
 	for name, touch := range map[string]string{"untouched": "README", "touched": "internal/app/notes.txt"} {
 		t.Run("flaky_"+name, func(t *testing.T) {
