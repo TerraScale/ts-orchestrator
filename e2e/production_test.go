@@ -104,7 +104,7 @@ func productionFake(t *testing.T, override func(http.ResponseWriter, *http.Reque
 		if r.Header.Get("X-TerraBase-User-Id") != "" || (r.Method != http.MethodGet && r.URL.Path != "/terrascale/oauth/token") {
 			t.Error("production sent a management identity or mutating data request")
 		}
-		if strings.HasPrefix(r.URL.Path, "/v1/") && r.Header.Get("Authorization") != "Bearer "+e.APIKey {
+		if strings.HasPrefix(r.URL.Path, "/v1/") && r.Header.Get("Authorization") != "Bearer "+e.APIKey && (e.OIDCToken == "" || r.Header.Get("Authorization") != "Bearer "+e.OIDCToken) {
 			t.Error("positive and negative reads must both present the exchanged project token")
 		}
 		if override != nil && override(w, r, e) {
@@ -134,7 +134,7 @@ func productionFake(t *testing.T, override func(http.ResponseWriter, *http.Reque
 				fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":900,"scope":"documents:read"}`, fakeJWT(t, e, nil))
 			}
 		case "GET /v1/projects/" + testProject + "/databases/e2e/collections":
-			if r.Header.Get("Authorization") != "Bearer "+e.APIKey || r.URL.Query().Get("limit") != "1" {
+			if r.URL.Query().Get("limit") != "1" {
 				t.Error("SDK collections read must use the exchanged JWT and bounded limit")
 			}
 			fmt.Fprint(w, `{"items":[]}`)
@@ -156,7 +156,7 @@ func productionFake(t *testing.T, override func(http.ResponseWriter, *http.Reque
 }
 
 func TestProductionReadAndEveryDenialWithHTTPFakes(t *testing.T) {
-	e := productionFake(t, nil)
+	e := githubProductionFake(t, nil)
 	for _, s := range productionScenarios() {
 		if err := s.run(t.Context(), e); err != nil {
 			t.Fatalf("%s: %v", s.name, err)

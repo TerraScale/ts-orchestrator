@@ -24,6 +24,7 @@ type environment struct {
 	ProjectCredential                                                        projectCredential
 	UnrelatedProjectID                                                       string
 	ProductionReady                                                          bool
+	OIDCAssertion, OIDCToken                                                 string
 }
 type result struct {
 	Name       string   `json:"name"`
@@ -135,13 +136,13 @@ func envDefault(key, value string) string {
 }
 func redact(message string, e *environment) string {
 	if e != nil {
-		for _, secret := range []string{e.Credential, e.APIKey, e.ProjectCredential.Key} {
+		for _, secret := range []string{e.Credential, e.APIKey, e.ProjectCredential.Key, e.OIDCAssertion, e.OIDCToken} {
 			if secret != "" {
 				message = strings.ReplaceAll(message, secret, "[redacted]")
 			}
 		}
 	}
-	for _, name := range []string{"E2E_GITHUB_TOKEN", "TERRABASE_TOKEN", "E2E_MANAGEMENT_CREDENTIAL", "E2E_API_KEY", "E2E_PROJECT_CREDENTIAL"} {
+	for _, name := range []string{"E2E_GITHUB_TOKEN", "TERRABASE_TOKEN", "E2E_MANAGEMENT_CREDENTIAL", "E2E_API_KEY", "E2E_PROJECT_CREDENTIAL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL"} {
 		if s := os.Getenv(name); s != "" {
 			message = strings.ReplaceAll(message, s, "[redacted]")
 		}

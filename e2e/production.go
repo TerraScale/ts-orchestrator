@@ -90,6 +90,11 @@ func productionScenarios() []scenario {
 		{"terrabase.management-read-denied", []string{"terrabase"}, []string{"TS-749"}, func(ctx context.Context, e *environment) error {
 			return deniedRead(ctx, e, e.TerraBaseURL+"/v1/management/organizations", http.StatusNotFound, "unknown_database")
 		}},
+		{"auth.github-actions-project-exchange", []string{"ts-auth"}, nil, githubProjectToken},
+		{"terrabase.github-actions-project-read", []string{"terrabase", "ts-go"}, nil, githubProjectCollections},
+		{"terrabase.github-actions-cross-project-read-denied", []string{"terrabase", "ts-go"}, nil, githubUnrelatedCollections},
+		{"auth.github-actions-scope-elevation-denied", []string{"ts-auth"}, nil, githubScopeDenied},
+		{"auth.github-actions-replay-denied", []string{"ts-auth"}, nil, githubReplayDenied},
 	}
 }
 
@@ -146,12 +151,20 @@ func exchangeProjectKey(ctx context.Context, e *environment, form url.Values) (i
 func projectToken(ctx context.Context, e *environment) error {
 	// No project or scope narrowing: the server must attest the key's own restrictions.
 	status, body, err := exchangeProjectKey(ctx, e, url.Values{})
-	if err != nil || status != http.StatusOK || body.Error != "" || body.TokenType != "Bearer" || body.ExpiresIn < 1 || body.ExpiresIn > 900 ||
-		body.Scope != "documents:read" || body.RefreshToken != "" || body.IDToken != "" {
+	if err != nil || status != http.StatusOK {
 		return errors.New("native project key exchange failed or returned an unexpected token contract")
 	}
+	if err := validateProjectToken(e, body, e.ProjectCredential.APIKey.ID); err != nil {
+		return err
+	}
+	// TerraBase verifies the JWT signature on the following SDK read.
+	e.APIKey = body.AccessToken
+	return nil
+}
+
+func validateProjectToken(e *environment, body oauthResponse, subject string) error {
 	parts := strings.Split(body.AccessToken, ".")
-	if len(parts) != 3 {
+	if len(parts) != 3 || parts[2] == "" {
 		return errors.New("project exchange must return a JWT")
 	}
 	header, headerErr := base64.RawURLEncoding.DecodeString(parts[0])
@@ -176,17 +189,18 @@ func projectToken(ctx context.Context, e *environment) error {
 	}
 	audienceOK := claims.Audience == e.TerraBaseURL
 	if audiences, ok := claims.Audience.([]any); ok {
-		audienceOK = slices.Contains(audiences, any(e.TerraBaseURL))
+		audienceOK = len(audiences) == 1 && audiences[0] == e.TerraBaseURL
 	}
 	m := e.ProjectCredential.APIKey
 	now := time.Now().Unix()
 	if h.Algorithm != "ES256" || h.Type != "at+jwt" || claims.Issuer != e.AuthURL+"/terrascale" || !audienceOK ||
-		claims.Subject != m.ID || claims.OrganizationID != m.OrganizationID || claims.ProjectID != m.ProjectID || claims.Database != m.Database ||
-		claims.Scope != "documents:read" || claims.IssuedAt <= 0 || claims.IssuedAt > now+30 || claims.Expires <= now || claims.Expires <= claims.IssuedAt || claims.Expires-claims.IssuedAt > 900 {
+		claims.Subject == "" || subject != "" && claims.Subject != subject || claims.OrganizationID != m.OrganizationID || claims.ProjectID != m.ProjectID || claims.Database != m.Database ||
+		claims.Scope != "documents:read" || claims.IssuedAt <= 0 || claims.IssuedAt > now+30 || claims.Expires <= now || claims.Expires <= claims.IssuedAt || claims.Expires-claims.IssuedAt > 900 || claims.Expires > m.ExpiresAt.Unix() ||
+		body.ExpiresIn < 1 || body.ExpiresIn > 900 || int64(body.ExpiresIn) > m.ExpiresAt.Unix()-now+1 ||
+		claims.Expires > now+int64(body.ExpiresIn)+30 || claims.Expires < now+int64(body.ExpiresIn)-30 ||
+		body.Scope != "documents:read" || body.TokenType != "Bearer" || body.Error != "" || body.RefreshToken != "" || body.IDToken != "" {
 		return errors.New("project JWT exceeds the approved identity, audience, scope, database or 15-minute lifetime")
 	}
-	// These are assertions on the TLS response; TerraBase verifies the JWT signature on the following SDK read.
-	e.APIKey = body.AccessToken
 	return nil
 }
 
@@ -265,7 +279,9 @@ func deniedRead(ctx context.Context, e *environment, endpoint string, wantStatus
 
 // Never include response bodies or transport errors: either may echo a credential.
 func productionJSON(e *environment, req *http.Request, out any) (int, error) {
-	res, err := e.HTTP.Do(req)
+	hc := *e.HTTP
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	res, err := hc.Do(req)
 	if err != nil {
 		return 0, errors.New("production HTTP request failed")
 	}

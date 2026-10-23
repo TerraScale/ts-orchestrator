@@ -82,6 +82,9 @@ jobs:
   prod:
     environment: production
     name: production E2E (manual only)
+    permissions:
+      contents: read
+      id-token: write
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.target == 'prod' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
