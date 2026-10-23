@@ -168,6 +168,20 @@ func TestServiceSpecRollbackAncestryPreservesInterveningGeneration(t *testing.T)
 	}
 }
 
+func TestServiceSpecExactAcceptsTheSingleHostManager(t *testing.T) {
+	spec, control := safetyFixture(t)
+	local := singleHostControl{ControlClient: control, state: t.TempDir()}
+	control.machine = singleHostID
+	if _, err := WaitServiceSpecExact(t.Context(), local, spec); err != nil {
+		t.Fatal(err)
+	}
+	// A joined worker is not this server's manager.
+	control.machine = "gru-1-wrk-1"
+	if _, err := WaitServiceSpecExact(t.Context(), local, spec); err == nil {
+		t.Fatal("a task on a joined worker passed as the single-host manager")
+	}
+}
+
 func TestServiceSpecExactEvidenceRejectsUnrelatedArtifact(t *testing.T) {
 	spec, control := safetyFixture(t)
 	rollout, err := WaitServiceSpecExact(t.Context(), control, spec)

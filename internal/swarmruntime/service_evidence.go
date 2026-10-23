@@ -79,7 +79,7 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 		if err != nil {
 			return rollout, err
 		}
-		if node.Node == nil || node.Node.Description == nil || node.Node.Description.Hostname != requested.Node {
+		if node.Node == nil || node.Node.Description == nil || node.Node.Description.Hostname != expectedMachine(client, requested) {
 			return rollout, fmt.Errorf("task %s runs on an unexpected machine", task.ID)
 		}
 		if probe != nil {
@@ -98,4 +98,13 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 		return rollout, errors.New("requested service spec changed during readiness verification")
 	}
 	return rollout, nil
+}
+
+// expectedMachine is the SwarmKit hostname of requested.Node. A single-host cell's
+// own manager is always named singleHostID, whatever its mesh server name.
+func expectedMachine(client api.ControlClient, requested ServiceSpec) string {
+	if _, local := client.(singleHostControl); local {
+		return singleHostID
+	}
+	return requested.Node
 }
