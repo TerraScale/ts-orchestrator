@@ -61,13 +61,13 @@ func production() (*environment, error) {
 			return nil, fmt.Errorf("%s must match the approved project credential metadata", name)
 		}
 	}
-	unrelated := os.Getenv("E2E_UNRELATED_PROJECT_ID")
-	if tb.ValidateID(unrelated) != nil || unrelated == m.ProjectID {
-		return nil, errors.New("E2E_UNRELATED_PROJECT_ID must identify an owner-confirmed existing different same-organization project containing the exact E2E_DATABASE database")
+	unrelated := os.Getenv("E2E_UNRELATED_DATABASE")
+	if !databasePattern.MatchString(unrelated) || unrelated == m.Database {
+		return nil, errors.New("E2E_UNRELATED_DATABASE must name an owner-confirmed existing different database in the same approved project")
 	}
 	return &environment{
 		Target: "prod", TerraBaseURL: "https://api.terrascale.tech", AuthURL: "https://auth.terrascale.tech", Region: "gru",
-		ProjectCredential: credential, UnrelatedProjectID: unrelated,
+		ProjectCredential: credential, UnrelatedDatabase: unrelated,
 		HTTP: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}, nil
 }
@@ -78,12 +78,17 @@ func productionScenarios() []scenario {
 		{"auth.project-client-credentials", []string{"ts-auth"}, []string{"TS-749"}, projectToken},
 		{"terrabase.project-collections-read", []string{"terrabase", "ts-go"}, []string{"TS-749"}, projectCollections},
 		{"auth.cross-project-exchange-denied", []string{"ts-auth"}, []string{"TS-749"}, func(ctx context.Context, e *environment) error {
-			return deniedExchange(ctx, e, url.Values{"project": {e.UnrelatedProjectID}}, "invalid_target")
+			// A valid alternate id tests token targeting without provisioning another project.
+			project := "00000000000000000000000000"
+			if project == e.ProjectCredential.APIKey.ProjectID {
+				project = "00000000000000000000000001"
+			}
+			return deniedExchange(ctx, e, url.Values{"project": {project}}, "invalid_target")
 		}},
 		{"auth.scope-elevation-denied", []string{"ts-auth"}, []string{"TS-749"}, func(ctx context.Context, e *environment) error {
 			return deniedExchange(ctx, e, url.Values{"scope": {"documents:write"}}, "invalid_scope")
 		}},
-		{"terrabase.cross-project-read-denied", []string{"terrabase", "ts-go"}, []string{"TS-749"}, unrelatedCollections},
+		{"terrabase.cross-database-read-denied", []string{"terrabase", "ts-go"}, []string{"TS-749"}, unrelatedCollections},
 		{"auth.admin-read-denied", []string{"ts-auth"}, []string{"TS-749"}, func(ctx context.Context, e *environment) error {
 			return deniedRead(ctx, e, e.AuthURL+"/v1/terrascale/organizations", http.StatusUnauthorized, "unauthorized")
 		}},
@@ -92,7 +97,7 @@ func productionScenarios() []scenario {
 		}},
 		{"auth.github-actions-project-exchange", []string{"ts-auth"}, nil, githubProjectToken},
 		{"terrabase.github-actions-project-read", []string{"terrabase", "ts-go"}, nil, githubProjectCollections},
-		{"terrabase.github-actions-cross-project-read-denied", []string{"terrabase", "ts-go"}, nil, githubUnrelatedCollections},
+		{"terrabase.github-actions-cross-database-read-denied", []string{"terrabase", "ts-go"}, nil, githubUnrelatedCollections},
 		{"auth.github-actions-scope-elevation-denied", []string{"ts-auth"}, nil, githubScopeDenied},
 		{"auth.github-actions-replay-denied", []string{"ts-auth"}, nil, githubReplayDenied},
 	}
@@ -246,11 +251,11 @@ func unrelatedCollections(ctx context.Context, e *environment) error {
 	if err != nil {
 		return err
 	}
-	// The owner must confirm this exact database exists there; a missing database returns the same denial.
-	_, err = c.Database(e.UnrelatedProjectID, e.ProjectCredential.APIKey.Database).Collections(ctx, tb.ListOptions{Limit: 1})
+	// The owner must confirm this database exists in the approved project; absence returns the same denial.
+	_, err = c.Database(e.ProjectCredential.APIKey.ProjectID, e.UnrelatedDatabase).Collections(ctx, tb.ListOptions{Limit: 1})
 	denied, ok := errors.AsType[*tb.APIError](err)
 	if !ok || denied.Status != http.StatusNotFound || string(denied.Code) != "unknown_database" {
-		return errors.New("unrelated project collections must deny with HTTP 404 unknown_database")
+		return errors.New("unrelated database collections must deny with HTTP 404 unknown_database")
 	}
 	return nil
 }

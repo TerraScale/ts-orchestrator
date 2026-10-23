@@ -241,41 +241,76 @@ func TestGitHubTokenAndSDKReadCannotAcceptWrongProjectOrBroadClaims(t *testing.T
 	}
 }
 
-func TestGitHubSDKReadsUseOnlyOIDCTokenAndExactSameNameDatabase(t *testing.T) {
+func TestSDKReadsUseOwnTokensAndDistinctDatabasesInSameProject(t *testing.T) {
 	for _, unavailable := range []bool{false, true} {
-		reads := 0
+		reads := map[string]int{}
 		e := githubProductionFake(t, func(w http.ResponseWriter, r *http.Request, e *environment) bool {
 			if !strings.HasSuffix(r.URL.Path, "/collections") {
 				return false
 			}
-			reads++
-			if e.OIDCToken == "" || r.Header.Get("Authorization") != "Bearer "+e.OIDCToken || e.OIDCToken == e.APIKey {
-				t.Error("OIDC read must use its own exchanged token, never the native project token")
-			}
+			reads[r.URL.Path]++
 			if unavailable {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				fmt.Fprint(w, `{"error":{"code":"unavailable"}}`)
 				return true
 			}
 			switch r.URL.Path {
-			case "/v1/projects/" + testProject + "/databases/e2e/collections":
+			case "/v1/projects/" + testProject + "/databases/e2e_read/collections":
 				fmt.Fprint(w, `{"items":[]}`)
-			case "/v1/projects/" + testOther + "/databases/e2e/collections":
+			case "/v1/projects/" + testProject + "/databases/e2e_negative/collections":
 				w.WriteHeader(http.StatusNotFound)
 				fmt.Fprint(w, `{"error":{"code":"unknown_database"}}`)
 			default:
-				t.Error("OIDC read used an unexpected project/database")
+				t.Error("read used an unexpected project/database")
 			}
 			return true
 		})
 		prepareGitHubToken(t, e)
-		for _, run := range []func() error{func() error { return githubProjectCollections(t.Context(), e) }, func() error { return githubUnrelatedCollections(t.Context(), e) }} {
+		base := e.HTTP.Transport
+		wantToken := e.APIKey
+		e.HTTP.Transport = oidcTestTransport(func(r *http.Request) (*http.Response, error) {
+			if r.Header.Get("Authorization") != "Bearer "+wantToken || e.APIKey == e.OIDCToken {
+				t.Error("native and OIDC reads must each use their own exchanged token")
+			}
+			return base.RoundTrip(r)
+		})
+		for _, run := range []func() error{
+			func() error { return projectCollections(t.Context(), e) },
+			func() error { return unrelatedCollections(t.Context(), e) },
+			func() error { wantToken = e.OIDCToken; return githubProjectCollections(t.Context(), e) },
+			func() error { return githubUnrelatedCollections(t.Context(), e) },
+		} {
 			if err := run(); (err != nil) != unavailable {
-				t.Fatal("OIDC read must pass only its exact positive/denial response and fail on outage")
+				t.Fatal("read must pass only its exact positive/denial response and fail on outage")
 			}
 		}
-		if reads != 2 {
-			t.Fatal("both project/database targets must be read with OIDC")
+		if len(reads) != 2 || reads["/v1/projects/"+testProject+"/databases/e2e_read/collections"] != 2 ||
+			reads["/v1/projects/"+testProject+"/databases/e2e_negative/collections"] != 2 {
+			t.Fatal("native and OIDC must each read both distinct databases in the same project")
+		}
+	}
+}
+
+func TestNegativeDatabaseReadsRequireExactDenial(t *testing.T) {
+	for _, response := range []struct {
+		status int
+		body   string
+	}{
+		{http.StatusOK, `{"items":[]}`},
+		{http.StatusNotFound, `{"error":{"code":"not_found"}}`},
+		{http.StatusUnauthorized, `{"error":{"code":"unknown_database"}}`},
+	} {
+		e := githubProductionFake(t, func(w http.ResponseWriter, r *http.Request, _ *environment) bool {
+			if r.URL.Path != "/v1/projects/"+testProject+"/databases/e2e_negative/collections" {
+				return false
+			}
+			w.WriteHeader(response.status)
+			fmt.Fprint(w, response.body)
+			return true
+		})
+		prepareGitHubToken(t, e)
+		if unrelatedCollections(t.Context(), e) == nil || githubUnrelatedCollections(t.Context(), e) == nil {
+			t.Fatal("native and OIDC negative reads must require exactly HTTP 404 unknown_database")
 		}
 	}
 }

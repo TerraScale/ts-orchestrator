@@ -22,7 +22,7 @@ type environment struct {
 	Credential, UserID, OrganizationID, APIKey                               string
 	HTTP                                                                     *http.Client
 	ProjectCredential                                                        projectCredential
-	UnrelatedProjectID                                                       string
+	UnrelatedDatabase                                                        string
 	ProductionReady                                                          bool
 	OIDCAssertion, OIDCToken                                                 string
 }
@@ -80,8 +80,8 @@ func run(ctx context.Context, stdout, stderr io.Writer) int {
 		r.ProjectCredential = &e.ProjectCredential.APIKey
 		r.NegativeReadTarget = &negativeReadTarget{
 			OrganizationID: e.ProjectCredential.APIKey.OrganizationID,
-			ProjectID:      e.UnrelatedProjectID, Database: e.ProjectCredential.APIKey.Database,
-			Prerequisite: "Owner must confirm this exact database already exists in this same-organization project before environment preparation and handoff; existence is not verified by this runner.",
+			ProjectID:      e.ProjectCredential.APIKey.ProjectID, Database: e.UnrelatedDatabase,
+			Prerequisite: "Owner must confirm the distinct positive and negative databases already exist in the same approved project, with one document in the negative database and no key for it, before environment preparation and handoff; existence is not verified by this runner.",
 		}
 	}
 	if err != nil {

@@ -15,7 +15,7 @@ SECRET = "E2E_PROJECT_CREDENTIAL"
 ID = re.compile(r"[0-7][0-9A-HJKMNP-TV-Z]{25}")
 KEY = re.compile(r"[0-7][0-9A-HJKMNP-TV-Z]{25}_[0123456789abcdefghjkmnpqrstvwxyz]{52}")
 DATABASE = re.compile(r"[a-z][a-z0-9_-]{0,62}")
-VARIABLES = ("E2E_ORGANIZATION_ID", "E2E_PROJECT_ID", "E2E_DATABASE", "E2E_UNRELATED_PROJECT_ID")
+VARIABLES = ("E2E_ORGANIZATION_ID", "E2E_PROJECT_ID", "E2E_DATABASE", "E2E_UNRELATED_DATABASE")
 
 
 def no_duplicates(pairs):
@@ -66,8 +66,8 @@ def validate(raw, expected, now):
         if metadata[field] != expected.get(variable):
             raise ValueError("Credential metadata must match the approved production environment variables.")
     unrelated = expected.get(VARIABLES[3])
-    if not isinstance(unrelated, str) or not ID.fullmatch(unrelated) or unrelated == metadata["project_id"]:
-        raise ValueError("An owner-confirmed existing unrelated same-organization project with the exact same database is required.")
+    if not isinstance(unrelated, str) or not DATABASE.fullmatch(unrelated) or unrelated == metadata["database"]:
+        raise ValueError("An owner-confirmed existing different database in the same approved project is required.")
     return metadata
 
 
@@ -151,10 +151,11 @@ def preflight():
     if any(not expected.get(name) for name in VARIABLES):
         raise ValueError("The parent must prepare all four approved production environment variables first.")
     if (any(not isinstance(expected[name], str) or not ID.fullmatch(expected[name])
-            for name in (VARIABLES[0], VARIABLES[1], VARIABLES[3])) or
-            expected[VARIABLES[1]] == expected[VARIABLES[3]] or
-            not isinstance(expected[VARIABLES[2]], str) or not DATABASE.fullmatch(expected[VARIABLES[2]])):
-        raise ValueError("Approved organization, distinct projects and database must have native identifiers.")
+            for name in (VARIABLES[0], VARIABLES[1])) or
+            any(not isinstance(expected[name], str) or not DATABASE.fullmatch(expected[name])
+                for name in (VARIABLES[2], VARIABLES[3])) or
+            expected[VARIABLES[2]] == expected[VARIABLES[3]]):
+        raise ValueError("Approved organization/project must have native identifiers and both databases must have distinct canonical names.")
     return expected
 
 
@@ -163,9 +164,9 @@ def install():
     if not sys.stdin.isatty():
         raise ValueError("Run interactively in a private terminal; piped secret entry is refused.")
     print("Verified MarioGK / TerraScale/ts-orchestrator / production.")
-    target = expected[VARIABLES[3]] + "/" + expected[VARIABLES[2]]
-    print("Owner must confirm existing target: organization " + expected[VARIABLES[0]] + ", unrelated project/database " + target +
-          ". A missing database cannot prove isolation. Do not create production data for this check.")
+    target = expected[VARIABLES[1]] + "/" + expected[VARIABLES[3]]
+    print("Owner must confirm existing target: organization " + expected[VARIABLES[0]] + ", same approved project/negative database " + target +
+          ". Confirm it contains one document and has no key; the native key must restrict only the positive database " + expected[VARIABLES[2]] + ". A missing database cannot prove isolation.")
     if input("After owner confirmation of this exact existing target, type " + target + ": ") != target:
         raise ValueError("Exact existing negative project/database confirmation required; installation refused.")
     raw = read_hidden_json()
@@ -182,9 +183,9 @@ def self_test():
 
     now = dt.datetime(2026, 10, 23, tzinfo=dt.timezone.utc)
     ids = ["0000000000000000000000000" + str(i) for i in range(1, 5)]
-    expected = dict(zip(VARIABLES, [ids[1], ids[2], "e2e", ids[3]]))
+    expected = dict(zip(VARIABLES, [ids[1], ids[2], "e2e_read", "e2e_negative"]))
     body = {"api_key": {"id": ids[0], "organization_id": ids[1], "project_id": ids[2],
-                        "database": "e2e", "scopes": ["documents:read"], "expires_at": "2026-10-23T01:00:00Z"},
+                        "database": "e2e_read", "scopes": ["documents:read"], "expires_at": "2026-10-23T01:00:00Z"},
             "key": ids[0] + "_" + "a" * 52}
 
     class HandoffTests(unittest.TestCase):
@@ -205,8 +206,9 @@ def self_test():
                 with self.assertRaises(ValueError) as caught:
                     validate(raw, expected, now)
                 self.assertNotIn(body["key"], str(caught.exception))
-            with self.assertRaises(ValueError):
-                validate(json.dumps(body), {**expected, VARIABLES[3]: ids[2]}, now)
+            for database in (None, "", "E2E_negative", "e2e/negative", "e2e_negative\n", "a" * 64, "e2e_read"):
+                with self.subTest(database=database), self.assertRaises(ValueError):
+                    validate(json.dumps(body), {**expected, VARIABLES[3]: database}, now)
 
         def test_credential_only_goes_to_stdin(self):
             with mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
@@ -257,7 +259,7 @@ def self_test():
                        {"variables": [{"name": name, "value": value} for name, value in expected.items()]}, None]
             with mock.patch.object(module, "gh", side_effect=replies) as github, mock.patch.object(sys.stdin, "isatty", return_value=True), \
                  mock.patch.object(module, "read_hidden_json", return_value=json.dumps(fresh, indent=2)) as prompt, \
-                 mock.patch("builtins.input", return_value=ids[3] + "/e2e"), mock.patch("builtins.print"):
+                 mock.patch("builtins.input", return_value=ids[2] + "/e2e_negative"), mock.patch("builtins.print"):
                 install()
                 prompt.assert_called_once()
                 self.assertTrue(all(call.args[0][0] == "api" for call in github.call_args_list[:5]))
@@ -270,13 +272,29 @@ def self_test():
                        {"name": ENVIRONMENT, "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}},
                        {"total_count": 1, "branch_policies": [{"name": "main", "type": "branch"}]},
                        {"variables": [{"name": name, "value": value} for name, value in expected.items()]}]
-            for confirmation in ("", ids[3], ids[3] + "/other"):
+            for confirmation in ("", ids[2], ids[3] + "/e2e_negative", ids[2] + "/e2e_read"):
                 with mock.patch.object(module, "gh", side_effect=replies) as github, \
                      mock.patch.object(sys.stdin, "isatty", return_value=True), mock.patch("builtins.input", return_value=confirmation), \
                      mock.patch.object(module, "read_hidden_json") as prompt, mock.patch("builtins.print"):
                     with self.assertRaises(ValueError):
                         install()
                     prompt.assert_not_called()
+                    self.assertTrue(all(call.args[0][0] == "api" for call in github.call_args_list))
+
+        def test_invalid_negative_database_stops_before_secret_entry(self):
+            module = sys.modules[__name__]
+            for database in (None, "", "E2E_negative", "e2e/negative", "e2e_negative\n", "a" * 64, "e2e_read"):
+                variables = {**expected, VARIABLES[3]: database}
+                replies = [{"login": "MarioGK"}, {"full_name": REPO},
+                           {"name": ENVIRONMENT, "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}},
+                           {"total_count": 1, "branch_policies": [{"name": "main", "type": "branch"}]},
+                           {"variables": [{"name": name, "value": value} for name, value in variables.items()]}]
+                with self.subTest(database=database), mock.patch.object(module, "gh", side_effect=replies) as github, \
+                     mock.patch.object(module, "read_hidden_json") as prompt, mock.patch("builtins.input") as confirmation:
+                    with self.assertRaises(ValueError):
+                        install()
+                    prompt.assert_not_called()
+                    confirmation.assert_not_called()
                     self.assertTrue(all(call.args[0][0] == "api" for call in github.call_args_list))
 
         def test_hidden_json_requires_safe_terminal(self):

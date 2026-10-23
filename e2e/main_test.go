@@ -83,9 +83,14 @@ func TestProductionReportRecordsExactNegativeTargetAndExistencePrerequisite(t *t
 		t.Fatal(err)
 	}
 	negative := got.NegativeReadTarget
-	if negative == nil || negative.OrganizationID != testOrg || negative.ProjectID != testOther || negative.Database != "e2e" ||
+	if negative == nil || negative.OrganizationID != testOrg || negative.ProjectID != testProject || negative.Database != "e2e_negative" ||
 		!strings.Contains(negative.Prerequisite, "before environment preparation and handoff") || !strings.Contains(negative.Prerequisite, "not verified by this runner") {
-		t.Fatal("report must identify the exact negative project/database and its owner-confirmed existence prerequisite")
+		t.Fatal("report must identify the negative database in the same approved project and its owner-confirmed existence prerequisite")
+	}
+	if got.ProjectCredential == nil || got.ProjectCredential.ProjectID != negative.ProjectID || got.ProjectCredential.Database != "e2e_read" ||
+		got.ProjectCredential.Database == negative.Database || !strings.Contains(negative.Prerequisite, "same approved project") ||
+		!strings.Contains(negative.Prerequisite, "one document") || !strings.Contains(negative.Prerequisite, "no key") {
+		t.Fatal("report must retain distinct positive/negative databases in one project and the fixture prerequisite")
 	}
 	if strings.Contains(string(data)+stdout.String()+stderr.String(), credential.Key) {
 		t.Fatal("report exposed synthetic credential")

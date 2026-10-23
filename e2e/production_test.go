@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tb "terrascale.tech/sdk/v1"
 )
 
 const (
@@ -20,7 +22,7 @@ const (
 
 func testProjectCredential() projectCredential {
 	return projectCredential{APIKey: projectKeyMetadata{ID: testKeyID, OrganizationID: testOrg, ProjectID: testProject,
-		Database: "e2e", Scopes: []string{"documents:read"}, ExpiresAt: time.Now().UTC().Add(time.Hour)}, Key: testKeyID + "_" + strings.Repeat("a", 52)}
+		Database: "e2e_read", Scopes: []string{"documents:read"}, ExpiresAt: time.Now().UTC().Add(time.Hour)}, Key: testKeyID + "_" + strings.Repeat("a", 52)}
 }
 
 func setProjectConfig(t *testing.T, credential projectCredential) {
@@ -30,7 +32,7 @@ func setProjectConfig(t *testing.T, credential projectCredential) {
 		t.Fatal(err)
 	}
 	for name, value := range map[string]string{"E2E_PROJECT_CREDENTIAL": string(data), "E2E_ORGANIZATION_ID": testOrg,
-		"E2E_PROJECT_ID": testProject, "E2E_DATABASE": "e2e", "E2E_UNRELATED_PROJECT_ID": testOther} {
+		"E2E_PROJECT_ID": testProject, "E2E_DATABASE": "e2e_read", "E2E_UNRELATED_DATABASE": "e2e_negative"} {
 		t.Setenv(name, value)
 	}
 }
@@ -73,9 +75,11 @@ func TestProductionRequiresExactApprovedNativeProjectCredential(t *testing.T) {
 		}
 	}
 	setProjectConfig(t, testProjectCredential())
-	t.Setenv("E2E_UNRELATED_PROJECT_ID", testProject)
-	if _, err := production(); err == nil {
-		t.Fatal("accepted same project as negative control")
+	for _, database := range []string{"", "E2E_negative", "e2e/negative", "e2e_negative\n", strings.Repeat("a", 64), "e2e_read"} {
+		t.Setenv("E2E_UNRELATED_DATABASE", database)
+		if _, err := production(); err == nil {
+			t.Fatalf("accepted invalid or same negative database %q", database)
+		}
 	}
 }
 
@@ -97,7 +101,7 @@ func fakeJWT(t *testing.T, e *environment, mutate func(map[string]any)) string {
 
 func productionFake(t *testing.T, override func(http.ResponseWriter, *http.Request, *environment) bool) *environment {
 	t.Helper()
-	e := &environment{Target: "prod", Region: "gru", ProjectCredential: testProjectCredential(), UnrelatedProjectID: testOther}
+	e := &environment{Target: "prod", Region: "gru", ProjectCredential: testProjectCredential(), UnrelatedDatabase: "e2e_negative"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-TerraBase-Region", "gru")
@@ -121,7 +125,7 @@ func productionFake(t *testing.T, override func(http.ResponseWriter, *http.Reque
 				t.Error("native client credentials contract was not used")
 			}
 			switch {
-			case r.Form.Get("project") == testOther:
+			case r.Form.Get("project") != "" && r.Form.Get("project") != e.ProjectCredential.APIKey.ProjectID:
 				w.WriteHeader(http.StatusBadRequest)
 				fmt.Fprint(w, `{"error":"invalid_target"}`)
 			case r.Form.Get("scope") == "documents:write":
@@ -133,12 +137,12 @@ func productionFake(t *testing.T, override func(http.ResponseWriter, *http.Reque
 				}
 				fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":900,"scope":"documents:read"}`, fakeJWT(t, e, nil))
 			}
-		case "GET /v1/projects/" + testProject + "/databases/e2e/collections":
+		case "GET /v1/projects/" + testProject + "/databases/e2e_read/collections":
 			if r.URL.Query().Get("limit") != "1" {
 				t.Error("SDK collections read must use the exchanged JWT and bounded limit")
 			}
 			fmt.Fprint(w, `{"items":[]}`)
-		case "GET /v1/projects/" + testOther + "/databases/e2e/collections", "GET /v1/management/organizations":
+		case "GET /v1/projects/" + testProject + "/databases/e2e_negative/collections", "GET /v1/management/organizations":
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, `{"error":{"code":"unknown_database"}}`)
 		case "GET /v1/terrascale/organizations":
@@ -250,5 +254,28 @@ func TestProductionResponsesStayBoundedAndSecretFree(t *testing.T) {
 	e := &environment{ProjectCredential: testProjectCredential(), APIKey: "fake.jwt.signature"}
 	if got := redact(e.ProjectCredential.Key+" "+e.APIKey, e); got != "[redacted] [redacted]" {
 		t.Fatal("project key or JWT leaked")
+	}
+}
+
+func TestCrossProjectExchangeAlwaysRequestsDifferentNativeID(t *testing.T) {
+	for _, project := range []string{testProject, "00000000000000000000000000"} {
+		requests := 0
+		e := productionFake(t, func(w http.ResponseWriter, r *http.Request, e *environment) bool {
+			if r.URL.Path != "/terrascale/oauth/token" {
+				return false
+			}
+			requests++
+			if r.ParseForm() != nil || tb.ValidateID(r.Form.Get("project")) != nil || r.Form.Get("project") == e.ProjectCredential.APIKey.ProjectID {
+				t.Error("cross-project exchange must target a different native project id")
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":"invalid_target"}`)
+			return true
+		})
+		e.ProjectCredential.APIKey.ProjectID = project
+		e.ProductionReady, e.APIKey = true, "synthetic-token"
+		if err := productionScenarios()[3].run(t.Context(), e); err != nil || requests != 1 {
+			t.Fatal("cross-project targeting must be tested without a second provisioned project")
+		}
 	}
 }

@@ -2,8 +2,9 @@
 
 Status: implementation only; authenticated production acceptance remains pending.
 This supplements `e2e-project-handoff-20261023.md`. Its hidden, user-run native
-JSON credential installer remains required and unchanged. No credential, trust,
-environment, deployment or production data is created by the runner.
+JSON credential installer requires confirmation of the negative database in the
+same project. No credential, trust, environment, deployment or production data
+is created by the runner.
 
 ## Contract prepared by the owning thread
 
@@ -34,10 +35,16 @@ signature, exact trust claims, and single-use `jti`. The owning thread verifies
 the deployed trust and deadline separately; this implementation does not activate
 or configure them.
 
-The owner must separately confirm that `E2E_UNRELATED_PROJECT_ID` is an existing
-different project in the same organization with an existing database whose name
-is exactly `E2E_DATABASE`. A missing database also returns `404 unknown_database`
-and cannot establish isolation. Keep that confirmation with the run evidence.
+Use the same single approved `deployment-e2e` project for both reads:
+`E2E_DATABASE=e2e_read` is the positive database restriction, and
+`E2E_UNRELATED_DATABASE=e2e_negative` is the negative database. The lead provisions
+both fixtures; `e2e_negative` contains one document and has no key. No second
+project or extra key is required or allowed. The owner must confirm the exact
+`<E2E_PROJECT_ID>/e2e_negative` fixture before handoff and retain that confirmation
+with the evidence. Empty, malformed or equal database names are refused.
+A missing database also returns `404 unknown_database` and cannot establish
+isolation; the runner does not verify existence or provision data. Status canary,
+auth and dashboard fixtures are untouched.
 
 ## Execution and retained evidence
 
@@ -47,13 +54,15 @@ and cannot establish isolation. Keep that confirmation with the run evidence.
    workflow on `main` with target `prod`. Only its `prod` job has `contents: read`
    plus `id-token: write`; the local job cannot request an assertion.
 3. Require all five additional scenario results to pass: OIDC exchange and exact
-   project/database/audience/scope/lifetime assertions, ts-go own-project read,
-   ts-go different-project same-name database denial, scope elevation denial
-   (`400 invalid_scope`), and replay denial (`400 invalid_grant`). No green result
+   project/database/audience/scope/lifetime assertions, ts-go positive database
+   read, ts-go same-project negative database denial (`404 unknown_database`),
+   scope elevation denial (`400 invalid_scope`), and replay denial
+   (`400 invalid_grant`). No green result
    substitutes for a missing, inert, expired or undeployed trust.
 4. Retain the report, workflow run/head SHA, native non-secret metadata, exact
-   deployed artifact/trust identity, and owner-confirmed negative target. Browser
-   sign-in, dashboard sessions and other signed-in behavior remain unproven.
+   deployed artifact/trust identity, and both nonsecret database names with their
+   same-project fixture prerequisite. Browser sign-in, dashboard sessions and
+   other signed-in behavior remain unproven.
 
 The runner requests GitHub assertions directly through native HTTPS using
 `ACTIONS_ID_TOKEN_REQUEST_URL` and a bearer header from

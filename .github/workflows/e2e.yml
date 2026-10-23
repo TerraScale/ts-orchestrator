@@ -125,7 +125,7 @@ jobs:
           E2E_ORGANIZATION_ID: ${{ vars.E2E_ORGANIZATION_ID }}
           E2E_PROJECT_ID: ${{ vars.E2E_PROJECT_ID }}
           E2E_DATABASE: ${{ vars.E2E_DATABASE }}
-          E2E_UNRELATED_PROJECT_ID: ${{ vars.E2E_UNRELATED_PROJECT_ID }}
+          E2E_UNRELATED_DATABASE: ${{ vars.E2E_UNRELATED_DATABASE }}
         run: go run .
 
       - name: Retain the production JSON report even on failure
