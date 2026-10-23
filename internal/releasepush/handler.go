@@ -94,7 +94,7 @@ type Handler struct {
 	Client    *http.Client
 	// App swaps service's image in every region (rolling back on failure) and
 	// returns the per-region rows, also when it fails; nil refuses app releases.
-	App func(ctx context.Context, service, image string) (json.RawMessage, error)
+	App func(ctx context.Context, service, image string, claims Claims) (json.RawMessage, error)
 	// Mesh runs a multi-region workflow request (op "ping" or "apply") on the
 	// cross-region mesh and returns its rows, also when it fails; nil refuses them.
 	Mesh func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
@@ -333,13 +333,14 @@ func (h *Handler) app(ctx context.Context, data []byte) Reply {
 	if err := protocol.DecodeStrict(data, &release, 64<<10); err != nil {
 		return rejected(err)
 	}
-	if err := h.validateApp(ctx, release); err != nil {
+	claims, err := h.validateApp(ctx, release)
+	if err != nil {
 		return rejected(err)
 	}
 	if h.App == nil {
 		return rejected(errors.New("this host runs no mesh"))
 	}
-	result, err := h.App(ctx, release.Service, release.Image)
+	result, err := h.App(ctx, release.Service, release.Image, claims)
 	if err != nil {
 		return Reply{State: "failed", Error: err.Error(), Result: result}
 	}
@@ -348,19 +349,22 @@ func (h *Handler) app(ctx context.Context, data []byte) Reply {
 
 // validateApp admits only ghcr.io/terrascale/<service>@sha256:<digest> with a
 // token from a workflow appServices allows to release service.
-func (h *Handler) validateApp(ctx context.Context, release AppRelease) error {
+func (h *Handler) validateApp(ctx context.Context, release AppRelease) (Claims, error) {
 	match := appImage.FindStringSubmatch(release.Image)
 	if match == nil || match[1] != release.Service {
-		return errors.New("image must be ghcr.io/terrascale/<service>@sha256:<64 hex>")
+		return Claims{}, errors.New("image must be ghcr.io/terrascale/<service>@sha256:<64 hex>")
 	}
 	claims, err := h.Verifier.Verify(ctx, release.Token)
 	if err != nil {
-		return err
+		return Claims{}, err
 	}
 	if !slices.Contains(appServices[claims.JobWorkflowRef], release.Service) {
-		return errors.New("token workflow may not release " + release.Service)
+		return Claims{}, errors.New("token workflow may not release " + release.Service)
 	}
-	return nil
+	if !hex40.MatchString(claims.SHA) {
+		return Claims{}, errors.New("token sha must be 40 lowercase hex")
+	}
+	return claims, nil
 }
 
 // mesh admits ts-orchestrator's multi-region workflow tokens, and

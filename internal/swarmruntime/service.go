@@ -23,6 +23,7 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/api/genericresource"
 	"github.com/moby/swarmkit/v2/manager/orchestrator"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -604,7 +605,11 @@ const (
 )
 
 // ServiceRollout is the elapsed time from submission to each phase.
-type ServiceRollout struct{ Running, Ready time.Duration }
+type ServiceRollout struct {
+	Running, Ready time.Duration
+	Tasks          []ServiceTaskEvidence
+	Revision       string
+}
 
 // LabelReadyTimeout holds ServiceSpec.ReadyTimeoutSeconds when set.
 const LabelReadyTimeout = "terrascale.ready-timeout"
@@ -727,6 +732,11 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 	if err != nil {
 		return nil, err
 	}
+	unlock, err := lockServiceSpecs(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	all, err := client.ListServices(ctx, &api.ListServicesRequest{})
 	if err != nil {
 		return nil, err
@@ -738,32 +748,42 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 	if err := hostnameClaimedByOther(all.Services, s.Name, claimed); err != nil {
 		return nil, err
 	}
-	current, err := specService(ctx, client, s.Name)
-	if err != nil {
-		return nil, err
-	}
-	if current == nil {
-		created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: spec})
+	for range 5 {
+		current, err := specService(ctx, client, s.Name)
 		if err != nil {
 			return nil, err
 		}
-		return created.Service, nil
+		if current == nil {
+			created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: spec})
+			if err != nil {
+				return nil, err
+			}
+			return created.Service, nil
+		}
+		generation, err := strconv.ParseInt(current.Spec.Annotations.Labels[LabelGeneration], 10, 64)
+		if err != nil && current.Spec.Annotations.Labels[LabelGeneration] != "" || generation > s.Generation && s.Generation != 0 {
+			return nil, errors.New("service generation cannot move backward")
+		}
+		if proto.Equal(&current.Spec, spec) {
+			return current, nil
+		}
+		// A label-only write (a new mesh generation) mid-update would restart the
+		// updater, which adopts the still-starting task and stops the old one at once;
+		// the mesh's next sync writes the label once the update completes.
+		if current.UpdateStatus != nil && current.UpdateStatus.State == api.UpdateStatus_UPDATING &&
+			sameWorkload(&current.Spec, spec) && proto.Equal(current.Spec.GetReplicated(), spec.GetReplicated()) && proto.Equal(current.Spec.GetGlobal(), spec.GetGlobal()) {
+			return current, nil
+		}
+		updated, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: current.ID, ServiceVersion: &current.Meta.Version, Spec: spec})
+		if err == nil {
+			return updated.Service, nil
+		}
+		// SwarmKit can advance metadata while our spec lock is held.
+		if status.Convert(err).Message() != "update out of sequence" {
+			return nil, err
+		}
 	}
-	if proto.Equal(&current.Spec, spec) {
-		return current, nil
-	}
-	// A label-only write (a new mesh generation) mid-update would restart the
-	// updater, which adopts the still-starting task and stops the old one at once;
-	// the mesh's next sync writes the label once the update completes.
-	if current.UpdateStatus != nil && current.UpdateStatus.State == api.UpdateStatus_UPDATING &&
-		sameWorkload(&current.Spec, spec) && proto.Equal(current.Spec.GetReplicated(), spec.GetReplicated()) && proto.Equal(current.Spec.GetGlobal(), spec.GetGlobal()) {
-		return current, nil
-	}
-	updated, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: current.ID, ServiceVersion: &current.Meta.Version, Spec: spec})
-	if err != nil {
-		return nil, err
-	}
-	return updated.Service, nil
+	return nil, errors.New("service metadata kept changing during apply")
 }
 
 // hostnameClaimedByOther refuses a hostname another service already routes,
@@ -785,6 +805,11 @@ func hostnameClaimedByOther(services []*api.Service, name string, hostnames []st
 
 // RemoveServiceSpec deletes the named service; SwarmKit stops its tasks.
 func RemoveServiceSpec(ctx context.Context, client api.ControlClient, name string) error {
+	unlock, err := lockServiceSpecs(ctx, client)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	current, err := specService(ctx, client, name)
 	if err != nil {
 		return err

@@ -77,12 +77,14 @@ func Regions() []string {
 type Entry struct {
 	Generation int64                     `json:"generation"`
 	Spec       *swarmruntime.ServiceSpec `json:"spec"`
+	Deployment *Deployment               `json:"deployment,omitempty"`
 }
 
 // ApplyRequest is the ts.svc.apply payload.
 type ApplyRequest struct {
-	Name  string `json:"name"`
-	Entry Entry  `json:"entry"`
+	Name               string `json:"name"`
+	Entry              Entry  `json:"entry"`
+	ExpectedGeneration int64  `json:"expectedGeneration,omitempty"`
 }
 
 // Reply answers ts.svc.apply and ts.mesh.ping.
@@ -95,7 +97,11 @@ type Reply struct {
 	Error     string `json:"error,omitempty"`
 	ElapsedMS int64  `json:"elapsed_ms,omitempty"`
 	// Phases is this region's elapsed time to each rollout phase.
-	Phases string `json:"phases,omitempty"`
+	Phases   string                             `json:"phases,omitempty"`
+	Service  string                             `json:"service,omitempty"`
+	Image    string                             `json:"image,omitempty"`
+	Revision string                             `json:"revision,omitempty"`
+	Tasks    []swarmruntime.ServiceTaskEvidence `json:"tasks,omitempty"`
 	// Regions is every region the replying node reaches, so a caller also
 	// waits for regions that joined after its own node's seeds.
 	Regions []string `json:"regions,omitempty"`
@@ -328,10 +334,14 @@ func (n *Node) sync(ctx context.Context) {
 	})
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	before := maps.Clone(n.desired)
 	changed := false
 	for _, desired := range peers {
 		for name, entry := range desired {
-			if validEntry(name, entry) == nil && entry.Generation > n.desired[name].Generation {
+			if validEntry(name, entry) == nil && entry.Generation > n.desired[name].Generation && acceptsDeployment(n.desired[name].Deployment, entry.Deployment) == nil {
+				if entry.Deployment == nil {
+					entry.Deployment = n.desired[name].Deployment
+				}
 				n.desired[name] = entry
 				changed = true
 			}
@@ -340,6 +350,8 @@ func (n *Node) sync(ctx context.Context) {
 	if changed {
 		if err := saveDesired(n.cfg.dir, n.desired); err != nil {
 			slog.WarnContext(ctx, "mesh desired state save failed", "error", err)
+			n.desired = before
+			return
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(n.desired)) {
@@ -370,7 +382,18 @@ func (n *Node) handleApply(m *nats.Msg) {
 	if err == nil && (result == "applied" || result == "unchanged") {
 		submitted := time.Since(start)
 		var rollout swarmruntime.ServiceRollout
-		if rollout, err = n.cfg.applier.Wait(ctx, *request.Entry.Spec); err == nil {
+		spec := *request.Entry.Spec
+		spec.Generation, spec.Region, spec.Node = request.Entry.Generation, n.cfg.region, n.cfg.server
+		if rollout, err = n.cfg.applier.Wait(ctx, spec); err == nil {
+			reply.Service, reply.Image, reply.Tasks, reply.Revision = spec.Name, spec.Image, rollout.Tasks, rollout.Revision
+			if deployment := request.Entry.Deployment; deployment != nil && spec.Image == deployment.Image && rollout.Revision != deployment.Revision {
+				err = errors.New("running image revision does not match the signed release commit")
+			}
+			n.mu.Lock()
+			if n.desired[request.Name].Generation != request.Entry.Generation {
+				err = errors.New("release superseded during readiness")
+			}
+			n.mu.Unlock()
 			reply.Phases = fmt.Sprintf("pulled %dms, submitted %dms, running %dms", pulled.Milliseconds(), submitted.Milliseconds(), (submitted + rollout.Running).Milliseconds())
 			if rollout.Ready != 0 {
 				reply.Phases += fmt.Sprintf(", ready %dms", (submitted + rollout.Ready).Milliseconds())
@@ -390,16 +413,30 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (string, error) 
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	current := n.desired[request.Name]
+	if request.ExpectedGeneration != 0 && current.Generation != request.ExpectedGeneration {
+		return "", errors.New("rollback superseded by another apply")
+	}
+	if err := acceptsDeployment(current.Deployment, request.Entry.Deployment); err != nil {
+		return "", err
+	}
+	if request.Entry.Deployment == nil {
+		request.Entry.Deployment = current.Deployment
+	}
 	if current.Generation > request.Entry.Generation {
 		return "", fmt.Errorf("superseded by generation %d", current.Generation)
 	}
 	if current.Generation < request.Entry.Generation {
 		n.desired[request.Name] = request.Entry
-		if err := saveDesired(n.cfg.dir, n.desired); err != nil {
-			return "", err
-		}
 	}
+	// Retry persistence even for the same generation after an earlier disk error.
+	if err := saveDesired(n.cfg.dir, n.desired); err != nil {
+		return "", err
+	}
+
 	return n.reconcile(ctx, request.Name, n.desired[request.Name])
 }
 
@@ -445,6 +482,12 @@ func (n *Node) respond(m *nats.Msg, value any) {
 func validEntry(name string, entry Entry) error {
 	if !serviceName.MatchString(name) || entry.Generation <= 0 {
 		return errors.New("invalid service name or generation")
+	}
+	if err := validDeployment(entry.Deployment); err != nil {
+		return err
+	}
+	if entry.Deployment != nil && repository(entry.Deployment.Image) != "ghcr.io/terrascale/"+name {
+		return errors.New("deployment image does not belong to the service")
 	}
 	if entry.Spec == nil {
 		return nil
@@ -537,12 +580,24 @@ func clientToken(dir string) (string, error) {
 
 func writePrivate(path string, data []byte) error {
 	temp := path + ".tmp" + strconv.Itoa(os.Getpid())
-	if err := os.WriteFile(temp, data, 0o600); err != nil {
+	file, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(data)
+	err = errors.Join(err, file.Sync(), file.Close())
+	if err != nil {
+		_ = os.Remove(temp)
 		return err
 	}
 	if err := os.Rename(temp, path); err != nil {
 		_ = os.Remove(temp)
 		return err
 	}
-	return nil
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }

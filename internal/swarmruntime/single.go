@@ -192,5 +192,5 @@ func DialSingleHost(stateDir string) (api.ControlClient, *grpc.ClientConn, error
 	if err != nil {
 		return nil, nil, err
 	}
-	return api.NewControlClient(conn), conn, nil
+	return singleHostControl{ControlClient: api.NewControlClient(conn), state: stateDir}, conn, nil
 }

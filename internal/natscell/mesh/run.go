@@ -242,19 +242,10 @@ func (a swarmApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (
 		return swarmruntime.ServiceRollout{}, err
 	}
 	defer conn.Close()
-	listed, err := client.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{spec.Name}}})
+	rollout, err := swarmruntime.WaitServiceSpecExact(ctx, client, spec)
 	if err != nil {
-		return swarmruntime.ServiceRollout{}, err
+		return rollout, err
 	}
-	for _, service := range listed.Services {
-		if service.Spec.Annotations.Name == spec.Name {
-			// Only a spec that names its ready path promises to answer it.
-			var probe func(context.Context, *api.Task) error
-			if spec.ReadyPath != "" {
-				probe = swarmruntime.ProbeLocalTask
-			}
-			return swarmruntime.WaitServiceSpec(ctx, client, service, probe)
-		}
-	}
-	return swarmruntime.ServiceRollout{}, fmt.Errorf("service %q is not on this host", spec.Name)
+	rollout.Revision, err = swarmruntime.ImageRevision(ctx, swarmruntime.HostContainerdSocket, spec.Image)
+	return rollout, err
 }

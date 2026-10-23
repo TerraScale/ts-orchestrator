@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/nats-io/nats.go"
 )
 
@@ -24,14 +24,14 @@ const (
 
 // Release serves app image releases (releasepush.Handler.App) on this host's
 // mesh node: it swaps service's image in its desired spec for every region.
-func Release(state string) func(ctx context.Context, service, image string) (json.RawMessage, error) {
-	return func(ctx context.Context, service, image string) (json.RawMessage, error) {
+func Release(state string) func(ctx context.Context, service, image string, claims releasepush.Claims) (json.RawMessage, error) {
+	return func(ctx context.Context, service, image string, claims releasepush.Claims) (json.RawMessage, error) {
 		conn, err := Connect(state)
 		if err != nil {
 			return nil, err
 		}
 		defer conn.Close()
-		rows, failed := release(ctx, conn, service, image, releaseWait, rollbackWait)
+		rows, failed := releaseDeployment(ctx, conn, service, image, &Deployment{Repository: claims.Repository, RunID: claims.RunID, Revision: claims.SHA, Image: image}, releaseWait, rollbackWait)
 		if rows == nil {
 			return nil, failed
 		}
@@ -45,8 +45,19 @@ func Release(state string) func(ctx context.Context, service, image string) (jso
 // previous spec everywhere, unless a newer release replaced this one meanwhile;
 // the rollback's rows follow the release's.
 func release(ctx context.Context, conn *nats.Conn, service, image string, wait, rollbackWait time.Duration) ([]Reply, error) {
-	previous, err := desiredSpec(ctx, conn, service)
+	return releaseDeployment(ctx, conn, service, image, nil, wait, rollbackWait)
+}
+
+func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image string, deployment *Deployment, wait, rollbackWait time.Duration) ([]Reply, error) {
+	entries, err := desiredEntries(ctx, conn)
 	if err != nil {
+		return nil, err
+	}
+	previous := entries[service].Spec
+	if previous == nil {
+		return nil, fmt.Errorf("%s is not a mesh service", service)
+	}
+	if err := acceptsDeployment(entries[service].Deployment, deployment); err != nil {
 		return nil, err
 	}
 	if repository(previous.Image) != repository(image) {
@@ -54,30 +65,20 @@ func release(ctx context.Context, conn *nats.Conn, service, image string, wait, 
 	}
 	next := *previous
 	next.Image = image
-	rows, failed := applySpec(ctx, conn, next, wait)
+	generation := max(time.Now().UnixNano(), entries[service].Generation+1)
+	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment}}
+	rows, failed := send(ctx, conn, request, wait)
 	if failed == nil {
 		return rows, nil
 	}
-	if current, err := desiredSpec(ctx, conn, service); err != nil || current.Image != image {
+	if current, err := desiredEntries(ctx, conn); err != nil || current[service].Generation != generation {
 		return rows, errors.Join(failed, errors.New("not rolled back: a newer release replaced it"), err)
 	}
-	back, err := applySpec(ctx, conn, *previous, rollbackWait)
+	back, err := send(ctx, conn, ApplyRequest{Name: service, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: previous, Deployment: deployment}}, rollbackWait)
 	if err != nil {
 		return append(rows, back...), errors.Join(failed, fmt.Errorf("rollback to %s: %w", previous.Image, err))
 	}
 	return append(rows, back...), errors.Join(failed, errors.New("rolled back to "+previous.Image))
-}
-
-// desiredSpec is service's newest desired spec among the regions that answer.
-func desiredSpec(ctx context.Context, conn *nats.Conn, service string) (*swarmruntime.ServiceSpec, error) {
-	newest, err := desiredEntries(ctx, conn)
-	if err != nil {
-		return nil, err
-	}
-	if newest[service].Spec == nil {
-		return nil, fmt.Errorf("%s is not a mesh service; apply its deploy/m1/services spec once with `ts-orch service apply -f`", service)
-	}
-	return newest[service].Spec, nil
 }
 
 // repository is image without its digest.
