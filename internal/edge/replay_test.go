@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
@@ -242,4 +243,39 @@ func TestReadyzAnswersOnPlainHTTP(t *testing.T) {
 		t.Fatalf("other paths on :80 must redirect: %v %v", resp, err)
 	}
 	resp.Body.Close()
+}
+
+// While a region's TerraBase is handed off (its port held from the old task's
+// SIGTERM until the new one is ready), its edge serves clients from the nearest
+// region instead of holding them; a held peer answers down at once.
+func TestHandoffFailsOverToNearestRegion(t *testing.T) {
+	regions := startRegions(t, func(name string, w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s served %s src=%q", name, r.Method, r.Header.Get(replaySrcHeader))
+	})
+	port := func(name string) uint16 { return uint16(regions[name].backend.Listener.Addr().(*net.TCPAddr).Port) }
+	handoff.Hold(port("gru"))
+	defer handoff.Release(port("gru"))
+	start := time.Now()
+	if code, body := call(t, regions["gru"], http.MethodPost, "/v1/db/docs", "a"); code != 200 || body != `sjc served POST src="region=gru"` {
+		t.Fatalf("gru held -> %d %q", code, body)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("failover took %s", elapsed)
+	}
+	// sjc is being handed off too: it answers down and fra serves.
+	handoff.Hold(port("sjc"))
+	defer handoff.Release(port("sjc"))
+	if code, body := call(t, regions["gru"], http.MethodGet, "/readyz", ""); code != 200 || body != `fra served GET src="region=gru"` {
+		t.Fatalf("gru and sjc held -> %d %q", code, body)
+	}
+	// No region serves: the request waits out the local handoff.
+	handoff.Hold(port("fra"))
+	go func() { time.Sleep(300 * time.Millisecond); handoff.Release(port("gru")) }()
+	if code, body := call(t, regions["gru"], http.MethodGet, "/readyz", ""); code != 200 || body != `gru served GET src=""` {
+		t.Fatalf("all held -> %d %q", code, body)
+	}
+	handoff.Release(port("fra"))
+	if hits := regions["gru"].hits.Load(); hits != 1 {
+		t.Fatalf("gru backend hits %d, want 1 (after its release)", hits)
+	}
 }

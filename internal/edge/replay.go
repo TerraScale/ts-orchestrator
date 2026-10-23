@@ -6,16 +6,19 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptrace"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
@@ -170,6 +173,35 @@ func (e *Edge) replay(resp *http.Response) error {
 	}
 	swap(resp, next)
 	return nil
+}
+
+// failover sends a client request whose local backend is being replaced
+// (handoff.Held: a stop-first task such as TerraBase, which never runs two
+// writers on one data dir) to the nearest region serving the host. With no
+// region answering it returns nil and the request waits out the handoff here.
+func (e *Edge) failover(out *http.Request) (*http.Response, error) {
+	m := e.meshNode()
+	if m == nil || out.Header.Get("Upgrade") != "" {
+		return nil, nil
+	}
+	port, err := strconv.ParseUint(out.URL.Port(), 10, 16)
+	if err != nil || !handoff.Held(uint16(port)) {
+		return nil, nil
+	}
+	if _, peer := out.Context().Value(wroteKey{}).(*atomic.Bool); peer {
+		// Not run here: the source edge tries the next region.
+		return nil, fmt.Errorf("edge: port %d is being handed off", port)
+	}
+	if out.GetBody == nil || out.Header.Get(replaySrcHeader) != "" {
+		return nil, nil
+	}
+	for _, region := range nearest(m.RTT(), m.Region(), mesh.Regions()) {
+		// An error means a write may have run there: never send it again.
+		if next, err := e.send(out, region, m.Region()); err != nil || next != nil {
+			return next, err
+		}
+	}
+	return nil, nil
 }
 
 // send replays out to region's edge. A nil response with a nil error means

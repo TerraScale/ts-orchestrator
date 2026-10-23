@@ -33,6 +33,12 @@ func Release(port uint16) {
 	}
 }
 
+// Held reports whether port's task is being replaced.
+func Held(port uint16) bool {
+	_, ok := held.Load(port)
+	return ok
+}
+
 // Wait returns once port is not held, deadline passes or ctx ends.
 func Wait(ctx context.Context, port uint16, deadline time.Time) {
 	ch, ok := held.Load(port)
