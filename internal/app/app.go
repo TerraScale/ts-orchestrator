@@ -32,6 +32,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
@@ -75,7 +76,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			cancel() // a failed edge stops the node, so systemd restarts both
 			edgeDone <- err
 		}()
-		go syncEdgeRoutes(ctx, *state, public)
+		go syncEdgeRoutes(ctx, *state, public, plan.region)
 	}
 	// The mesh never stops local serving; it retries until it reaches Vault and peers.
 	meshDone := make(chan struct{})
@@ -97,14 +98,14 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	return errors.Join(err, <-edgeDone)
 }
 
-func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge) {
+func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region string) {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
 		// Dial errors are expected until the node opens its control socket.
 		if client, conn, err := swarmruntime.DialSingleHost(state); err == nil {
 			if list, err := client.ListServices(ctx, &api.ListServicesRequest{}); err == nil {
-				public.SetRoutes(edgeRoutes(list.Services))
+				public.SetRoutes(edgeRoutes(list.Services, region))
 			} else {
 				slog.WarnContext(ctx, "edge route sync failed", "error", err)
 			}
@@ -121,14 +122,19 @@ func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge) {
 // edgeRoutes maps every hostname a service declares to its published port,
 // and every postgres hostname to its postgres port. The oldest service keeps
 // a hostname another service also claims, so a later spec cannot take over
-// traffic (apply refuses that too).
-func edgeRoutes(services []*api.Service) (web, postgres map[string]int) {
+// traffic (apply refuses that too). On a host in region, every declared web
+// hostname H also routes <region>.H, so each region's edge serves its own
+// regional names with no per-region spec; a declared hostname wins over a
+// derived one, and H whose first label already names a catalog region
+// derives nothing.
+func edgeRoutes(services []*api.Service, region string) (web, postgres map[string]int) {
 	services = slices.Clone(services)
 	slices.SortStableFunc(services, func(a, b *api.Service) int {
 		at, bt := a.Meta.CreatedAt, b.Meta.CreatedAt
 		return cmp.Or(cmp.Compare(at.GetSeconds(), bt.GetSeconds()), cmp.Compare(at.GetNanos(), bt.GetNanos()), strings.Compare(a.ID, b.ID))
 	})
 	web, postgres = map[string]int{}, map[string]int{}
+	derived := map[string]int{}
 	for _, svc := range services {
 		labels := svc.Spec.Annotations.Labels
 		var ports []*api.PortConfig
@@ -143,12 +149,26 @@ func edgeRoutes(services []*api.Service) (web, postgres map[string]int) {
 			continue
 		}
 		for host := range strings.SplitSeq(labels[swarmruntime.LabelHostnames], ",") {
-			if _, owned := web[host]; host != "" && !owned {
+			if host == "" {
+				continue
+			}
+			if _, owned := web[host]; !owned {
 				web[host] = port
+			}
+			first, _, _ := strings.Cut(host, ".")
+			if _, regional := catalog.LookupName(strings.ToLower(first)); region != "" && !regional {
+				if _, owned := derived[region+"."+host]; !owned {
+					derived[region+"."+host] = port
+				}
 			}
 		}
 		if _, owned := postgres[labels[swarmruntime.LabelPostgres]]; labels[swarmruntime.LabelPostgres] != "" && len(ports) == 2 && !owned {
 			postgres[labels[swarmruntime.LabelPostgres]] = int(ports[1].PublishedPort)
+		}
+	}
+	for host, port := range derived {
+		if _, declared := web[host]; !declared {
+			web[host] = port
 		}
 	}
 	return web, postgres
