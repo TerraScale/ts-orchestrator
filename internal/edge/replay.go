@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,8 +39,12 @@ const (
 	replayDownHeader = "Ts-Replay-Down"
 	// replaySNI selects the mesh mTLS config on :443; it is never a public route.
 	replaySNI = "replay." + mesh.Domain
-	// A larger body streams through and is never replayed.
-	maxReplayBody = 1 << 20
+	// A body up to memReplayBody is kept in memory; a larger one up to
+	// maxReplayBody (TerraBase's 4 MiB import part with headroom) is spooled
+	// to an unlinked file under the state directory. A larger body streams
+	// through and is never replayed.
+	memReplayBody = 1 << 20
+	maxReplayBody = 8 << 20
 )
 
 // Mesh is what replay needs from this host's mesh node.
@@ -113,27 +118,71 @@ func wroteBackend(r *http.Request) bool {
 	return ok && wrote.Load()
 }
 
-// bufferBody keeps a body of up to maxReplayBody in memory so a replay can
-// send it again; GetBody marks the request replayable.
-func bufferBody(r *http.Request) error {
+// bufferBody keeps a body of up to maxReplayBody so a replay can send it
+// again; GetBody marks the request replayable. The returned func releases the
+// spool file once the request is done.
+func bufferBody(r *http.Request, spoolDir string) (func(), error) {
 	if r.Body == nil || r.Body == http.NoBody {
 		r.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
-		return nil
+		return func() {}, nil
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxReplayBody+1))
+	head, err := io.ReadAll(io.LimitReader(r.Body, memReplayBody+1))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if len(body) > maxReplayBody {
+	if len(head) <= memReplayBody {
+		r.Body = io.NopCloser(bytes.NewReader(head))
+		r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(head)), nil }
+		return func() {}, nil
+	}
+	file, err := spool(spoolDir)
+	if err != nil {
+		slog.WarnContext(r.Context(), "edge replay: body not spooled, streaming it", "error", err)
 		r.Body = struct {
 			io.Reader
 			io.Closer
-		}{io.MultiReader(bytes.NewReader(body), r.Body), r.Body}
-		return nil
+		}{io.MultiReader(bytes.NewReader(head), r.Body), r.Body}
+		return func() {}, nil
 	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
-	r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
-	return nil
+	release := func() { file.Close() }
+	n, err := file.Write(head)
+	if err == nil {
+		var rest int64
+		rest, err = io.Copy(file, io.LimitReader(r.Body, maxReplayBody+1-int64(n)))
+		n += int(rest)
+	}
+	if err != nil {
+		release()
+		return nil, err
+	}
+	spooled := func() io.Reader { return io.NewSectionReader(file, 0, int64(n)) }
+	if n > maxReplayBody {
+		r.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(spooled(), r.Body), r.Body}
+		return release, nil
+	}
+	r.Body = io.NopCloser(spooled())
+	r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(spooled()), nil }
+	return release, nil
+}
+
+// spool opens a file under dir that is already unlinked, so it is gone once
+// closed, even if ts-orch stops first.
+func spool(dir string) (*os.File, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	file, err := os.CreateTemp(dir, "body-*")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Remove(file.Name()); err != nil {
+		file.Close()
+		return nil, err
+	}
+	return file, nil
 }
 
 // replay answers a backend's replay request. It sends the request to the

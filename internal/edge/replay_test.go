@@ -3,6 +3,7 @@ package edge
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -156,6 +157,35 @@ func TestReplayGoesToNearestHolder(t *testing.T) {
 	regions["gru"].stop()
 	if code, body := call(t, regions["fra"], http.MethodGet, "/v1/db/docs", ""); code != http.StatusServiceUnavailable || body != "fallback in fra" {
 		t.Fatalf("all holders down: fra -> %d %q", code, body)
+	}
+}
+
+// TerraBase takes transactions up to 2 MiB and import parts up to 4 MiB; a
+// region that does not hold the database replays them from a spool file.
+func TestReplaySpoolsLargeBodies(t *testing.T) {
+	regions := startRegions(t, func(name string, w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if name != "sjc" && r.Header.Get(replaySrcHeader) == "" {
+			w.Header().Set(replayHeader, "region=sjc")
+			w.WriteHeader(http.StatusMisdirectedRequest)
+			return
+		}
+		fmt.Fprintf(w, "%s got %d %x", name, len(body), sha256.Sum256(body))
+	})
+	for _, size := range []int{2 << 20, 4<<20 + 100<<10, maxReplayBody} {
+		body := strings.Repeat("x", size)
+		code, got := call(t, regions["gru"], http.MethodPost, "/v1/db/import", body)
+		if want := fmt.Sprintf("sjc got %d %x", size, sha256.Sum256([]byte(body))); code != 200 || got != want {
+			t.Fatalf("%d B body: gru -> %d %q, want %q", size, code, got, want)
+		}
+	}
+	// Past maxReplayBody the body streams to the local backend, whole.
+	code, _ := call(t, regions["gru"], http.MethodPost, "/v1/db/import", strings.Repeat("x", maxReplayBody+1))
+	if code != http.StatusMisdirectedRequest {
+		t.Fatalf("oversize body: gru -> %d, want 421", code)
+	}
+	if left, _ := os.ReadDir(filepath.Join(regions["gru"].dir, "edge-spool")); len(left) != 0 {
+		t.Fatalf("spool files left: %v", left)
 	}
 }
 
