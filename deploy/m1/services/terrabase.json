@@ -1,6 +1,6 @@
 {
   "name": "terrabase",
-  "image": "ghcr.io/terrascale/terrabase@sha256:eb752917c4473d50dbd0cdf648480104b933c4594df978d99bd0315923103547",
+  "image": "ghcr.io/terrascale/terrabase@sha256:a61d5a55d826e95da859e89a81bd277d46a7fb64f31fe121cdc97987d0d93812",
   "env": {
     "AWS_ENDPOINT_URL_S3": "https://fly.storage.tigris.dev",
     "AWS_REGION": "auto",
