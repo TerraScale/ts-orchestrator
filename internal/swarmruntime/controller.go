@@ -335,7 +335,8 @@ func (c *controller) awaitReady(ctx context.Context) error {
 	defer tick.Stop()
 	port, portErr := hostPort(c.task)
 	probed := port
-	if _, task, ok := c.taskPorts(ctx); ok {
+	service, task, taskPort := c.taskPorts(ctx)
+	if taskPort {
 		probed = task
 	}
 	for {
@@ -344,6 +345,10 @@ func (c *controller) awaitReady(ctx context.Context) error {
 			probeErr = probeLocalPort(ctx, c.task, probed)
 		}
 		if probeErr == nil {
+			if taskPort {
+				// Serve before SwarmKit sees RUNNING and stops the predecessor.
+				handoff.Serve(service, task)
+			}
 			handoff.Release(port)
 			return nil
 		}

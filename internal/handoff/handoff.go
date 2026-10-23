@@ -138,13 +138,20 @@ func (f *forwarder) run(port uint16) {
 
 func (f *forwarder) forward(conn net.Conn) {
 	defer conn.Close()
-	target, ok := f.target()
-	if !ok {
-		return
-	}
-	backend, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(target))))
-	if err != nil {
-		return
+	var backend net.Conn
+	// A target that just left (its Unserve raced this accept) refuses; the next one takes the connection.
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(bindRetry) {
+		target, ok := f.target()
+		if !ok {
+			return
+		}
+		var err error
+		if backend, err = net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(target)))); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			return
+		}
 	}
 	defer backend.Close()
 	done := make(chan struct{})
