@@ -756,6 +756,43 @@ func sameWorkload(a, b *api.ServiceSpec) bool {
 
 // ApplyServiceSpec creates the named service or replaces its spec in place.
 func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec) (*api.Service, error) {
+	return applyServiceSpec(ctx, client, s, nil)
+}
+
+// CompleteServiceSpec finishes metadata deferred by ApplyServiceSpec before exact
+// readiness. Pin the existing spec and identity so retries cannot replace or
+// resurrect an intervening operator change. Never hold the writer lock while waiting.
+func CompleteServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec) error {
+	want, err := s.SwarmSpec()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, serviceRollout+2*ReadyTimeout(want.Annotations.Labels))
+	defer cancel()
+	previous, err := specService(ctx, client, s.Name)
+	if err != nil {
+		return err
+	}
+	if previous == nil {
+		return errors.New("requested service was removed before metadata completion")
+	}
+	for {
+		current, err := applyServiceSpec(ctx, client, s, previous)
+		if err != nil {
+			return err
+		}
+		if proto.Equal(&current.Spec, want) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(servicePoll):
+		}
+	}
+}
+
+func applyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSpec, previous *api.Service) (*api.Service, error) {
 	spec, err := s.SwarmSpec()
 	if err != nil {
 		return nil, err
@@ -781,6 +818,9 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 		if err != nil {
 			return nil, err
 		}
+		if previous != nil && (current == nil || current.ID != previous.ID) {
+			return nil, errors.New("requested service was removed or replaced before metadata completion")
+		}
 		if current == nil {
 			created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: spec})
 			if err != nil {
@@ -794,12 +834,19 @@ func ApplyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 		if proto.Equal(&current.Spec, spec) {
 			return current, nil
 		}
+		if previous != nil && (!proto.Equal(&current.Spec, &previous.Spec) || !sameWorkload(&current.Spec, spec) ||
+			!proto.Equal(current.Spec.GetReplicated(), spec.GetReplicated()) || !proto.Equal(current.Spec.GetGlobal(), spec.GetGlobal())) {
+			return nil, errors.New("requested service spec was superseded before metadata completion")
+		}
 		// A label-only write (a new mesh generation) mid-update would restart the
 		// updater, which adopts the still-starting task and stops the old one at once;
-		// the mesh's next sync writes the label once the update completes.
+		// CompleteServiceSpec or the mesh's next sync writes it after completion.
 		if current.UpdateStatus != nil && current.UpdateStatus.State == api.UpdateStatus_UPDATING &&
 			sameWorkload(&current.Spec, spec) && proto.Equal(current.Spec.GetReplicated(), spec.GetReplicated()) && proto.Equal(current.Spec.GetGlobal(), spec.GetGlobal()) {
 			return current, nil
+		}
+		if previous != nil && current.UpdateStatus != nil && current.UpdateStatus.State != api.UpdateStatus_COMPLETED {
+			return nil, errors.New("service update did not complete before metadata completion")
 		}
 		updated, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: current.ID, ServiceVersion: &current.Meta.Version, Spec: spec})
 		if err == nil {

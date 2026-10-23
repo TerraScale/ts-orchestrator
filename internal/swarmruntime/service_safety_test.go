@@ -103,6 +103,39 @@ func TestServiceSpecRetriesMetadataConflictAndRejectsStaleGeneration(t *testing.
 	}
 }
 
+func TestServiceSpecDefersMetadataWriteDuringUpdate(t *testing.T) {
+	for _, conflict := range []bool{false, true} {
+		t.Run(map[bool]string{false: "initial read", true: "CAS retry"}[conflict], func(t *testing.T) {
+			spec, control := safetyFixture(t)
+			spec.Generation++
+			updating := func(service *api.Service) {
+				service.UpdateStatus = &api.UpdateStatus{State: api.UpdateStatus_UPDATING}
+			}
+			writes := 0
+			if conflict {
+				control.conflict, control.onConflict = true, updating
+				writes = 1
+			} else {
+				updating(control.service)
+			}
+			service, err := ApplyServiceSpec(t.Context(), control, spec)
+			if err != nil || control.writes != writes || service.Spec.Annotations.Labels[LabelGeneration] != "7" {
+				t.Fatalf("metadata write restarted updater: service=%+v writes=%d err=%v", service, control.writes, err)
+			}
+			stale := spec
+			stale.Generation = 6
+			if _, err := ApplyServiceSpec(t.Context(), control, stale); err == nil || control.writes != writes {
+				t.Fatalf("deferred metadata bypassed admission: writes=%d err=%v", control.writes, err)
+			}
+			control.service.UpdateStatus = &api.UpdateStatus{State: api.UpdateStatus_COMPLETED}
+			service, err = ApplyServiceSpec(t.Context(), control, spec)
+			if err != nil || control.writes != writes+1 || service.Spec.Annotations.Labels[LabelGeneration] != "8" {
+				t.Fatalf("completed update did not accept deferred metadata: service=%+v writes=%d err=%v", service, control.writes, err)
+			}
+		})
+	}
+}
+
 func TestServiceSpecRollbackAncestryPreservesInterveningGeneration(t *testing.T) {
 	spec, control := safetyFixture(t)
 	rollback := spec

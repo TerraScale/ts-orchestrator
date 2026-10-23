@@ -176,14 +176,29 @@ func loadSecret(ctx context.Context) ([]byte, error) {
 }
 
 // swarmApplier drives the single-host SwarmKit node in state.
-type swarmApplier struct{ state string }
+type swarmApplier struct {
+	state    string
+	client   api.ControlClient
+	revision func(context.Context, string, string) (string, error)
+}
+
+func (a swarmApplier) control() (api.ControlClient, func(), error) {
+	if a.client != nil {
+		return a.client, func() {}, nil
+	}
+	client, conn, err := swarmruntime.DialSingleHost(a.state)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, func() { _ = conn.Close() }, nil
+}
 
 func (a swarmApplier) rows(ctx context.Context, name string, do func(row swarmruntime.ServiceSpecStatus, found bool, client api.ControlClient) error) error {
-	client, conn, err := swarmruntime.DialSingleHost(a.state)
+	client, close, err := a.control()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer close()
 	rows, err := swarmruntime.ListServiceSpecs(ctx, client)
 	if err != nil {
 		return err
@@ -234,15 +249,22 @@ func (a swarmApplier) PrePull(ctx context.Context, spec swarmruntime.ServiceSpec
 }
 
 func (a swarmApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec) (swarmruntime.ServiceRollout, error) {
-	client, conn, err := swarmruntime.DialSingleHost(a.state)
+	client, close, err := a.control()
 	if err != nil {
 		return swarmruntime.ServiceRollout{}, err
 	}
-	defer conn.Close()
+	defer close()
+	if err := swarmruntime.CompleteServiceSpec(ctx, client, spec); err != nil {
+		return swarmruntime.ServiceRollout{}, err
+	}
 	rollout, err := swarmruntime.WaitServiceSpecExact(ctx, client, spec)
 	if err != nil {
 		return rollout, err
 	}
-	rollout.Revision, err = swarmruntime.ImageRevision(ctx, swarmruntime.HostContainerdSocket, spec.Image)
+	revision := a.revision
+	if revision == nil {
+		revision = swarmruntime.ImageRevision
+	}
+	rollout.Revision, err = revision(ctx, swarmruntime.HostContainerdSocket, spec.Image)
 	return rollout, err
 }
