@@ -2,6 +2,48 @@ rule_files:
   - operational-rules.yml
 evaluation_interval: 15s
 tests:
+  - name: History erasure reaches day 20 and recovers
+    interval: 15s
+    input_series:
+      - series: 'terrabase_history_erasure_oldest_age_seconds{service="terrabase",region="gru"}'
+        values: '1727999 1728000+0x60 0+0x4'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: TerraBaseErasurePendingDay20
+        exp_alerts: []
+      - eval_time: 15m15s
+        alertname: TerraBaseErasurePendingDay20
+        exp_alerts:
+          - exp_labels:
+              service: terrabase
+              severity: warning
+            exp_annotations:
+              summary: A TerraBase deletion has been pending for 20 days
+              description: Inspect pending holders and erasure status; region removal requires explicit user authorization.
+      - eval_time: 15m30s
+        alertname: TerraBaseErasurePendingDay20
+        exp_alerts: []
+  - name: Database purge alone reaches day 20
+    interval: 15s
+    input_series:
+      - series: 'terrabase_purge_oldest_age_seconds{service="terrabase",region="gru"}'
+        values: '1728000+0x60'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: TerraBaseErasurePendingDay20
+        exp_alerts:
+          - exp_labels:
+              service: terrabase
+              severity: warning
+            exp_annotations:
+              summary: A TerraBase deletion has been pending for 20 days
+              description: Inspect pending holders and erasure status; region removal requires explicit user authorization.
+  - name: Missing deletion metrics do not imply completion
+    interval: 15s
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: TerraBaseErasurePendingDay20
+        exp_alerts: []
   - interval: 15s
     input_series:
       - series: 'terrabase_backup_abandoned_total{service="terrabase",region="gru"}'
