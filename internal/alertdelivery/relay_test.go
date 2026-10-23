@@ -3,6 +3,7 @@ package alertdelivery
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -107,5 +108,22 @@ func TestPushFailureRemainsRetryable(t *testing.T) {
 				t.Fatalf("push failure was acknowledged or leaked provider body: %d", response.Code)
 			}
 		})
+	}
+}
+
+func TestVaultFailureStillAttemptsPush(t *testing.T) {
+	var pushed atomic.Bool
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pushed.Store(true)
+		_, _ = io.WriteString(w, `{"id":"test-id","event":"message","topic":"`+pushTopic+`"}`)
+	}))
+	defer provider.Close()
+	r := relay{client: provider.Client(), pushEndpoint: provider.URL, read: func(context.Context) (credentials, error) {
+		return credentials{}, errors.New("private Vault error")
+	}}
+	response := httptest.NewRecorder()
+	r.deliver(response, httptest.NewRequest(http.MethodPost, "/alerts", strings.NewReader(`{"status":"firing","alerts":[{"status":"firing","labels":{"alertname":"Test"}}]}`)))
+	if !pushed.Load() || response.Code != http.StatusBadGateway || strings.Contains(response.Body.String(), "private") {
+		t.Fatalf("Vault failure skipped push, was acknowledged, or leaked an error: %d", response.Code)
 	}
 }
