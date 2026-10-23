@@ -24,6 +24,9 @@ environment, deployment or production data is created by the runner.
 Bind the trust to the existing `E2E_ORGANIZATION_ID`, `E2E_PROJECT_ID`, and
 canonical database **name** in `E2E_DATABASE`. Set its non-null UTC grant deadline
 to the same `expires_at` as the native credential, within 24 hours of preparation.
+Activate the binding after the user-only issuance helper prints the validated
+nonsecret key expiry. Use that literal-Z UTC whole-second deadline for the bind
+command; do not calculate a second independent expiry.
 The runner uses this existing validated metadata as the deadline; it does not
 read administrative trust settings. Auth must issue a JWT expiring within
 15 minutes and no later than that grant deadline. Auth must verify GitHub's

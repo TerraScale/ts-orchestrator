@@ -77,6 +77,7 @@ jobs:
           go vet ./...
           go build ./...
           python3 ../scripts/e2e/install-production-credential.py --self-test
+          python3 -B ../scripts/e2e/test_issue_production_credential.py
 
 
   prod:
