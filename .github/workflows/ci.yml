@@ -170,6 +170,9 @@ jobs:
     needs: [build]
     if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}
     name: deploy/release-push
+    concurrency:
+      group: production-ts-orch
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
