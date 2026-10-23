@@ -14,7 +14,10 @@ This is one command, with no manual login/code entry or native key response
 transfer. The existing mailbox password file is read only through stdin; the
 helper does not open that path itself. Shell redirection contains a path, never
 its value. Do not use shell tracing, terminal recording or debugging. Expect
-about 30–90 seconds after confirmation; mailbox checks stop after 60 seconds.
+up to about 4 minutes after confirmation; mailbox checks run every 10 seconds
+for at most 3 minutes. One run sends exactly one sign-in request. Do not retry
+within 5 minutes of that request, even if delivery times out; there is no
+automatic re-request.
 No key exists from this handoff until the user runs and confirms the helper.
 
 ## Checks before issuance
@@ -30,9 +33,12 @@ No key exists from this handoff until the user runs and confirms the helper.
    before password input or authentication.
 3. Hosted ts-auth sign-in sends one email code to `mariogk@terrascale.tech`.
    TLS IMAP uses `mailserver.purelymail.com:993`, readonly INBOX and header-only
-   `BODY.PEEK`. Only a fresh Date, exact parsed recipient and native English or
+   `BODY.PEEK`. The Date may be up to 2 minutes before the sign-in request
+   for clock skew, and at most 5 seconds ahead of the current time. Only that
+   Date window, exact parsed recipient and native English or
    Portuguese TerraScale/ts-auth sign-in-code subject match; multiple distinct
-   fresh codes refuse. No resend loop runs. The signed hosted session approves
+   fresh codes refuse. No resend loop runs. The code is redeemed with the same
+   cookie jar that requested it. The signed hosted session approves
    the public ts-cli device client `00000000000000000000000007`, scope
    `openid email`. The helper waits the advertised interval and polls once;
    refresh tokens refuse. Userinfo must return this exact verified email.

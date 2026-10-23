@@ -93,7 +93,7 @@ def fresh_code(header, started, now):
         subject = str(email.header.make_header(email.header.decode_header(message["Subject"])))
         match = SUBJECT.fullmatch(subject)
         sent = email.utils.parsedate_to_datetime(message["Date"])
-        if match and sent.tzinfo is not None and started - dt.timedelta(seconds=5) <= sent <= now + dt.timedelta(seconds=5):
+        if match and sent.tzinfo is not None and started - dt.timedelta(minutes=2) <= sent <= now + dt.timedelta(seconds=5):
             return match[1]
     except (ValueError, TypeError, UnicodeError, LookupError):
         pass
@@ -101,7 +101,7 @@ def fresh_code(header, started, now):
 
 
 def mailbox_code(password, started):
-    deadline = time.monotonic() + 60
+    deadline = time.monotonic() + 180
     box = None
     try:
         box = imaplib.IMAP4_SSL("mailserver.purelymail.com", 993, ssl_context=ssl.create_default_context(), timeout=10)
@@ -135,8 +135,8 @@ def mailbox_code(password, started):
                 return codes.pop()
             remaining = deadline - time.monotonic()
             if remaining > 0:
-                time.sleep(min(5, remaining))
-        raise ValueError("Fresh sign-in mail not delivered within 60 seconds.")
+                time.sleep(min(10, remaining))
+        raise ValueError("Fresh sign-in mail not delivered within 180 seconds.")
     finally:
         password = None
         if box is not None:

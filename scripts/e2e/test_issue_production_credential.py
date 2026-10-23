@@ -60,11 +60,14 @@ class TrustTests(unittest.TestCase):
         def header(subject="123456 is your TerraScale sign-in code", to=m.ADDRESS, sent=now):
             return ("Subject: " + subject + "\r\nTo: " + to + "\r\nDate: " + email.utils.format_datetime(sent) + "\r\n").encode()
         self.assertEqual(m.fresh_code(header(), now, now), "123456")
+        for offset in (-120, -119, 5):
+            with self.subTest(offset=offset):
+                self.assertEqual(m.fresh_code(header(sent=now + dt.timedelta(seconds=offset)), now, now), "123456")
         for subject, to, sent in [("123456 reset code", m.ADDRESS, now),
                                    ("[Test] 123456 is your TerraScale sign-in code", m.ADDRESS, now),
                                    ("123456 is your TerraScale sign-in code", "x" + m.ADDRESS, now),
                                    ("123456 is your TerraScale sign-in code", m.ADDRESS + ", other@example.com", now),
-                                   ("123456 is your TerraScale sign-in code", m.ADDRESS, now - dt.timedelta(seconds=6)),
+                                   ("123456 is your TerraScale sign-in code", m.ADDRESS, now - dt.timedelta(seconds=121)),
                                    ("123456 is your TerraScale sign-in code", m.ADDRESS, now + dt.timedelta(seconds=6))]:
             self.assertIsNone(m.fresh_code(header(subject, to, sent), now, now))
         self.assertIsNone(m.fresh_code(header() + b"Subject: duplicate\r\n", now, now))
@@ -75,16 +78,55 @@ class TrustTests(unittest.TestCase):
         box.select.return_value = ("OK", [])
         box.search.return_value = ("OK", [b""])
         clock = [0]
+        polls = []
+        box.search.side_effect = lambda *args: (polls.append(clock[0]) or ("OK", [b""]))
         with mock.patch.object(m.imaplib, "IMAP4_SSL", return_value=box) as connect, \
              mock.patch.object(m.time, "monotonic", side_effect=lambda: clock[0]), \
              mock.patch.object(m.time, "sleep", side_effect=lambda seconds: clock.__setitem__(0, clock[0] + seconds)):
             with self.assertRaises(ValueError):
                 m.mailbox_code("synthetic-password", dt.datetime.now(dt.timezone.utc))
-        self.assertEqual(clock[0], 60)
+        self.assertEqual(clock[0], 180)
         box.select.assert_called_once_with("INBOX", readonly=True)
         box.shutdown.assert_called_once()
         self.assertEqual(connect.call_args.args, ("mailserver.purelymail.com", 993))
-        self.assertLessEqual(box.search.call_count, 12)
+        self.assertEqual(box.search.call_count, 18)
+        self.assertEqual(polls, list(range(0, 180, 10)))
+
+    def test_delayed_skewed_mail_and_ambiguous_codes(self):
+        started = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+        def header(code):
+            return ("Subject: " + code + " is your TerraScale sign-in code\r\nTo: " + m.ADDRESS +
+                    "\r\nDate: " + email.utils.format_datetime(started - dt.timedelta(minutes=2)) + "\r\n").encode()
+        for codes in (("123456",), ("123456", "654321")):
+            with self.subTest(codes=codes):
+                clock = [0]
+                box = mock.Mock()
+                box.login.return_value = box.select.return_value = ("OK", [])
+                box.search.side_effect = lambda *args: ("OK", [b"1" if clock[0] >= 170 else b""])
+                box.fetch.return_value = ("OK", [(b"header", header(code)) for code in codes])
+                with mock.patch.object(m.imaplib, "IMAP4_SSL", return_value=box), \
+                     mock.patch.object(m.time, "monotonic", side_effect=lambda: clock[0]), \
+                     mock.patch.object(m.time, "sleep", side_effect=lambda seconds: clock.__setitem__(0, clock[0] + seconds)):
+                    if len(codes) > 1:
+                        with self.assertRaisesRegex(ValueError, "Ambiguous"):
+                            m.mailbox_code("synthetic-password", started)
+                    else:
+                        self.assertEqual(m.mailbox_code("synthetic-password", started), "123456")
+                self.assertEqual(clock[0], 170)
+                box.shutdown.assert_called_once()
+
+    def test_mailbox_timeout_does_not_resend_or_redeem(self):
+        session = m.Session()
+        try:
+            jar = session.jar
+            with mock.patch.object(session, "call") as call, \
+                 mock.patch.object(m, "mailbox_code", side_effect=ValueError("synthetic timeout")):
+                with self.assertRaises(ValueError):
+                    session.login("synthetic-password")
+                call.assert_called_once_with(m.AUTH + "/ui/terrascale/sign-in", "POST", {"email": m.ADDRESS}, form=True)
+                self.assertIs(session.jar, jar)
+        finally:
+            session.close()
 
     def test_device_approval_one_poll_and_identity_binding(self):
         for wrong_email, refresh in [(False, False), (True, False), (False, True)]:
@@ -109,6 +151,9 @@ class TrustTests(unittest.TestCase):
                     self.assertEqual(session.token, "synthetic-access")
                 sleep.assert_called_once_with(5)
                 self.assertEqual(sum(c.args[0] == m.ISSUER + "/oauth/token" for c in call.call_args_list), 1)
+                self.assertEqual(sum(c.args[0] == m.AUTH + "/ui/terrascale/sign-in" for c in call.call_args_list), 1)
+                self.assertEqual(call.call_args_list[1].args[:3],
+                                 (m.AUTH + "/ui/terrascale/sign-in/verify", "POST", {"email": m.ADDRESS, "code": "123456"}))
                 device = call.call_args_list[2]
                 self.assertEqual(device.args[2], {"client_id": m.CLIENT, "scope": "openid email"})
                 self.assertEqual(call.call_args_list[3].args[0], m.AUTH + "/ui/terrascale/device")
