@@ -36,6 +36,7 @@ func TestResolveNamesAbsentSecret(t *testing.T) {
 func TestValidateServiceRefs(t *testing.T) {
 	ref := func(name string) Ref { return Ref{testTarget.VaultID, name} }
 	allowed := map[string]map[string]Ref{
+
 		"ts-auth": {"TS_AUTH_MASTER_KEY_FILE": ref("gru-1-ts-auth-master-key"), "TERRABASE_PEER_SECRET_FILE": ref("gru-1-terrabase-peer-secret"),
 			"CLOUDFLARE_EMAIL_TOKEN_FILE": ref("gru-1-cloudflare-email-token")},
 		"ts-dashboard": {"STRIPE_SECRET_KEY_FILE": ref("gru-1-stripe-secret-key"), "TS_AUTH_DASHBOARD_CLIENT_SECRET_FILE": ref("gru-1-ts-auth-dashboard-client-secret"),
@@ -51,16 +52,17 @@ func TestValidateServiceRefs(t *testing.T) {
 		service string
 		refs    map[string]Ref
 	}{
-		"another service's secret": {"ts-dashboard", map[string]Ref{"KEY_FILE": ref("gru-1-ts-auth-master-key")}},
-		"infrastructure secret":    {"whoami", map[string]Ref{"KEY_FILE": ref("gru-1-netbird-admin-token")}},
-		"shared not to this one":   {"terrabase", map[string]Ref{"KEY_FILE": ref("gru-1-stripe-secret-key")}},
-		"infrastructure service":   {"netbird", map[string]Ref{"KEY_FILE": ref("gru-1-netbird-admin-token")}},
-		"prefix service":           {"ts", map[string]Ref{"KEY_FILE": ref("gru-1-ts-auth-master-key")}},
-		"plain env key":            {"ts-auth", map[string]Ref{"TS_AUTH_MASTER_KEY": ref("gru-1-ts-auth-master-key")}},
-		"path key":                 {"ts-auth", map[string]Ref{"../X_FILE": ref("gru-1-ts-auth-master-key")}},
-		"other Vault":              {"ts-auth", map[string]Ref{"KEY_FILE": ref("gru-1-ts-auth-master-key"), "B_FILE": {"ocid1.vault.oc1.sa-saopaulo-1.other", "gru-1-ts-auth-b"}}},
-		"other region's Vault":     {"ts-auth", map[string]Ref{"KEY_FILE": {"ocid1.vault.oc1.us-sanjose-1.vault", "gru-1-ts-auth-master-key"}}},
-		"other cell's secret":      {"ts-auth", map[string]Ref{"KEY_FILE": ref("sjc-1-ts-auth-master-key")}},
+		"alerts cannot read service secrets": {"ts-alerts", map[string]Ref{"KEY_FILE": ref("gru-1-ts-auth-master-key")}},
+		"another service's secret":           {"ts-dashboard", map[string]Ref{"KEY_FILE": ref("gru-1-ts-auth-master-key")}},
+		"infrastructure secret":              {"whoami", map[string]Ref{"KEY_FILE": ref("gru-1-netbird-admin-token")}},
+		"shared not to this one":             {"terrabase", map[string]Ref{"KEY_FILE": ref("gru-1-stripe-secret-key")}},
+		"infrastructure service":             {"netbird", map[string]Ref{"KEY_FILE": ref("gru-1-netbird-admin-token")}},
+		"prefix service":                     {"ts", map[string]Ref{"KEY_FILE": ref("gru-1-ts-auth-master-key")}},
+		"plain env key":                      {"ts-auth", map[string]Ref{"TS_AUTH_MASTER_KEY": ref("gru-1-ts-auth-master-key")}},
+		"path key":                           {"ts-auth", map[string]Ref{"../X_FILE": ref("gru-1-ts-auth-master-key")}},
+		"other Vault":                        {"ts-auth", map[string]Ref{"KEY_FILE": ref("gru-1-ts-auth-master-key"), "B_FILE": {"ocid1.vault.oc1.sa-saopaulo-1.other", "gru-1-ts-auth-b"}}},
+		"other region's Vault":               {"ts-auth", map[string]Ref{"KEY_FILE": {"ocid1.vault.oc1.us-sanjose-1.vault", "gru-1-ts-auth-master-key"}}},
+		"other cell's secret":                {"ts-auth", map[string]Ref{"KEY_FILE": ref("sjc-1-ts-auth-master-key")}},
 	}
 	for name, c := range refused {
 		if err := ValidateServiceRefs("gru", "", c.service, c.refs); err == nil {
@@ -89,5 +91,31 @@ func TestRefsVaultBindsTheNamedVault(t *testing.T) {
 		if _, _, err := refsVault("terrabase-e2e", bad); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+func TestAlertReferencesAreExact(t *testing.T) {
+	for _, test := range []struct {
+		name, cell, vault, secret string
+		allowed                   bool
+	}{
+		{"account", "gru", SharedVault, "gru-1-cloudflare-account-id", true},
+		{"token", "gru", SharedVault, "gru-1-cloudflare-email-token", true},
+		{"topic", "gru", SharedVault, "gru-1-ts-alerts-ntfy-topic", true},
+		{"topic other index", "gru", SharedVault, "gru-2-ts-alerts-ntfy-topic", false},
+		{"topic other cell", "gru", SharedVault, "sjc-1-ts-alerts-ntfy-topic", false},
+		{"topic other vault", "gru", "ocid1.vault.oc1.sa-saopaulo-1.other", "gru-1-ts-alerts-ntfy-topic", false},
+		{"topic other region", "sjc", "ocid1.vault.oc1.us-sanjose-1.other", "sjc-1-ts-alerts-ntfy-topic", false},
+		{"other index", "gru", SharedVault, "gru-2-cloudflare-email-token", false},
+		{"other vault", "gru", "ocid1.vault.oc1.sa-saopaulo-1.other", "gru-1-cloudflare-email-token", false},
+		{"other region", "sjc", "ocid1.vault.oc1.us-sanjose-1.other", "sjc-1-cloudflare-email-token", false},
+		{"own service purpose", "gru", SharedVault, "gru-1-ts-alerts-unapproved", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateServiceRefs(test.cell, "", "ts-alerts", map[string]Ref{"KEY_FILE": {test.vault, test.secret}})
+			if (err == nil) != test.allowed {
+				t.Fatalf("allowed=%v err=%v", test.allowed, err)
+			}
+		})
 	}
 }

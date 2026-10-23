@@ -161,6 +161,16 @@ func TestPrometheusRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	run("test", "rules", path)
+	operational, err := filepath.Abs("../../deploy/observability/production/operational-rules.test.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), tool, "test", "rules", filepath.Base(operational))
+	cmd.Dir = filepath.Dir(operational)
+	cmd.Env = append(os.Environ(), "GOMAXPROCS=2")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("production operational rules: %v\n%s", err, output)
+	}
 }
 
 func samples(metric, at string, value float64) string {

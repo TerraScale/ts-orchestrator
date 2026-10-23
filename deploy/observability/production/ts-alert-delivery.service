@@ -1,0 +1,17 @@
+[Unit]
+Description=TerraScale production alert delivery
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ts-alerts
+Group=ts-alerts
+ExecStart=/usr/local/bin/ts-orch alert-delivery
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

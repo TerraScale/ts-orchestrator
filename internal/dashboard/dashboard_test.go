@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -406,6 +407,56 @@ func TestEventsStreamPrependsLiveEvents(t *testing.T) {
 	bus.Publish(observability.Event{Level: "ERROR", Message: "second"})
 	if _, data = reader.next(); !strings.Contains(data, "second") {
 		t.Fatalf("second live event patch = %q", data)
+	}
+}
+
+type publishOnRecentEvents struct {
+	*observability.EventBus
+	initialSnapshot atomic.Bool
+	armed           chan struct{}
+	publish         func()
+}
+
+func (source *publishOnRecentEvents) Snapshot(ctx context.Context, _ bool) (observability.MemberSnapshot, error) {
+	if !source.initialSnapshot.Swap(true) {
+		return memberSnapshot(), nil
+	}
+	// Keep background chrome from publishing through Recent before the stream's ticker.
+	<-ctx.Done()
+	return observability.MemberSnapshot{}, ctx.Err()
+}
+
+func (source *publishOnRecentEvents) Recent(limit int) []observability.Event {
+	select {
+	case <-source.armed:
+		source.publish()
+	default:
+	}
+	return source.EventBus.Recent(limit)
+}
+
+func TestEventsStreamPrependsQueuedEventsOnReconcile(t *testing.T) {
+	t.Parallel()
+	source := &publishOnRecentEvents{EventBus: observability.NewEventBus(16), armed: make(chan struct{})}
+	source.publish = sync.OnceFunc(func() {
+		source.Publish(observability.Event{Level: "INFO", Message: "filtered out"})
+		source.Publish(observability.Event{Level: "WARN", Message: "queued warning"})
+	})
+	dashboard := newTestDashboard(Options{Events: source})
+	dashboard.SetSnapshots(source)
+	server := newStreamServer(t, dashboard)
+	reader, _ := openStream(t, server, "/events/stream?level=warn")
+	reader.next() // Initial rows.
+	reader.next() // Initial chrome.
+	// Publish inside the next snapshot, after the ticker has won the select.
+	close(source.armed)
+	_, data := reader.next()
+	if !strings.Contains(data, "selector #events-rows") || !strings.Contains(data, "mode prepend") ||
+		!strings.Contains(data, "queued warning") || strings.Contains(data, "filtered out") {
+		t.Fatalf("queued event patch = %q", data)
+	}
+	if _, data = reader.next(); !strings.Contains(data, "selector #events-rows-empty") || !strings.Contains(data, "mode remove") {
+		t.Fatalf("empty placeholder removal = %q", data)
 	}
 }
 

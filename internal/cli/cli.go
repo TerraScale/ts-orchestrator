@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/TerraScale/ts-orchestrator/internal/alertdelivery"
 	"github.com/TerraScale/ts-orchestrator/internal/app"
 	"github.com/TerraScale/ts-orchestrator/internal/atlas"
 	"github.com/TerraScale/ts-orchestrator/internal/attempt"
@@ -57,6 +58,7 @@ import (
 const usage = `Usage: ts-orch <command> [flags]
 
 Runtime:
+  alert-delivery         Deliver loopback Alertmanager notifications through Cloudflare Email Sending
   single-host            Run one SwarmKit manager+worker with containerd and the HTTPS edge
   managed-runtime-start  Run the admitted root Swarm runtime
   function-worker        Run one admitted function revision
@@ -140,6 +142,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		observability.ConfigureDefault(logger)
 	}
 	switch args[0] {
+	case "alert-delivery":
+		return alertdelivery.Run(ctx, args[1:])
 	case "managed-host-start":
 		return app.RunAutomaticBootstrap(ctx, args[1:])
 	case "managed-runtime-start":

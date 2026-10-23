@@ -1,0 +1,11 @@
+route:
+  receiver: local-relay
+  group_by: [alertname, region, service]
+  group_wait: 30s
+  group_interval: 30s
+  repeat_interval: 4h
+receivers:
+  - name: local-relay
+    webhook_configs:
+      - url: http://127.0.0.1:9094/alerts
+        send_resolved: true

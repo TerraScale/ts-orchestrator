@@ -1,0 +1,49 @@
+groups:
+  - name: terrabase-operations
+    rules:
+      - alert: TerraBaseBackupLag
+        expr: terrabase_backup_lag_seconds{service="terrabase",region="gru"} > 600
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: TerraBase backup lag exceeds ten minutes
+      # First observed failures also fire; historical failures expire after five minutes.
+      - alert: TerraBaseBackupAbandoned
+        expr: (increase(terrabase_backup_abandoned_total{service="terrabase",region="gru"}[5m]) > 0) or ((terrabase_backup_abandoned_total{service="terrabase",region="gru"} > 0) unless terrabase_backup_abandoned_total{service="terrabase",region="gru"} offset 5m)
+        labels:
+          severity: critical
+        annotations:
+          summary: TerraBase has abandoned a backup
+      - alert: TerraBaseBackupHoles
+        expr: (increase(terrabase_backup_holes_total{service="terrabase",region="gru"}[5m]) > 0) or ((terrabase_backup_holes_total{service="terrabase",region="gru"} > 0) unless terrabase_backup_holes_total{service="terrabase",region="gru"} offset 5m)
+        labels:
+          severity: critical
+        annotations:
+          summary: TerraBase backup contains holes
+      - alert: TerraBaseReplicationSendLag
+        expr: terrabase_replication_send_lag_seconds{service="terrabase",region="gru"} > 30
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: TerraBase replication send lag exceeds thirty seconds
+      - alert: TerraBaseMetricsDown
+        expr: up{job="terrabase",region="gru"} == 0
+        labels:
+          severity: critical
+        annotations:
+          summary: TerraBase metrics scrape failed
+      - alert: TerraBaseBackupDrillFailed
+        expr: (increase(terrabase_backup_drills_total{service="terrabase",region="gru",result="failed"}[5m]) > 0) or ((terrabase_backup_drills_total{service="terrabase",region="gru",result="failed"} > 0) unless terrabase_backup_drills_total{service="terrabase",region="gru",result="failed"} offset 5m)
+        labels:
+          severity: critical
+        annotations:
+          summary: TerraBase backup restore drill failed
+      - alert: ServiceReadinessFailed
+        expr: terrascale_service_readiness{region="gru",service=~"terrabase|ts-auth|ts-dashboard"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Public service readiness failed

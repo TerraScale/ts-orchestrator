@@ -222,9 +222,9 @@ func (refresher *chromeRefresher) patch(sse *datastar.ServerSentEventGenerator, 
 
 // streamEvents first replaces the listed rows, so a reconnecting browser has
 // no gap and no duplicate, then prepends each new matching event. Every
-// maxRows prepended rows it replaces the list again to bound the page. Every
-// tick it also reconciles the shown rows with the event ring, so a matching
-// event the bus dropped from a full subscription still appears. Like every
+// maxRows prepended rows it replaces the list again to bound the page. Once
+// queued events are drained, ticks reconcile the shown rows with the event
+// ring, so an event dropped from a full subscription still appears. Like every
 // other page stream it keeps the top bar current and raises insight toasts,
 // all written from this one loop; the top bar is rendered off the loop so
 // slow providers never stall the event subscription.
@@ -261,8 +261,7 @@ func (dashboard *Dashboard) streamEvents(ctx context.Context, sse *datastar.Serv
 		}
 		return out
 	}
-	reset := func() bool {
-		events := filter.apply(source.Recent(0), page.events)
+	reset := func(events []observability.Event) bool {
 		if len(events) > 0 {
 			seen = max(seen, events[0].Sequence)
 		}
@@ -270,7 +269,7 @@ func (dashboard *Dashboard) streamEvents(ctx context.Context, sse *datastar.Serv
 		shown = sequences(events)
 		return sse.PatchElementTempl(eventRows(events, "events-rows")) == nil
 	}
-	if !reset() {
+	if !reset(filter.apply(source.Recent(0), page.events)) {
 		return
 	}
 	first := chromeState.render(ctx)
@@ -283,6 +282,7 @@ func (dashboard *Dashboard) streamEvents(ctx context.Context, sse *datastar.Serv
 	prepended := 0
 	for {
 		var batch []observability.Event
+		var recent []observability.Event
 		select {
 		case <-ctx.Done():
 			return
@@ -292,15 +292,7 @@ func (dashboard *Dashboard) streamEvents(ctx context.Context, sse *datastar.Serv
 				rendering = true
 				go func() { rendered <- chromeState.render(ctx) }()
 			}
-			// A matching event the bus dropped (full subscription) is
-			// still in the ring: relist when the rows fell out of step.
-			if !slices.Equal(sequences(filter.apply(source.Recent(0), page.events)), shown) {
-				if !reset() {
-					return
-				}
-				prepended = 0
-			}
-			continue
+			recent = filter.apply(source.Recent(0), page.events)
 		case result := <-rendered:
 			rendering = false
 			if err = chromeState.patch(sse, result); err != nil {
@@ -335,6 +327,17 @@ func (dashboard *Dashboard) streamEvents(ctx context.Context, sse *datastar.Serv
 				break drain
 			}
 		}
+		// Drain queued live events before reconciling: a tick may win the
+		// select while events already in the ring still await their prepend.
+		if len(batch) == 0 {
+			if !slices.Equal(sequences(recent), shown) {
+				if !reset(recent) {
+					return
+				}
+				prepended = 0
+			}
+			continue
+		}
 		// Rows are newest first: prepend the batch newest first as one patch.
 		var fresh []observability.Event
 		for index := len(batch) - 1; index >= 0; index-- {
@@ -350,7 +353,7 @@ func (dashboard *Dashboard) streamEvents(ctx context.Context, sse *datastar.Serv
 		shown = shown[:min(len(shown), page.events)]
 		prepended += len(fresh)
 		if prepended > page.events {
-			if !reset() {
+			if !reset(filter.apply(source.Recent(0), page.events)) {
 				return
 			}
 			prepended = 0

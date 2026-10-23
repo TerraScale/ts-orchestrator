@@ -17,6 +17,7 @@ require (
 	github.com/distribution/reference v0.6.0
 	github.com/gofrs/flock v0.10.0
 	github.com/gogo/protobuf v1.3.2
+	github.com/mattn/go-isatty v0.0.20
 	github.com/moby/swarmkit/v2 v2.1.2
 	github.com/nats-io/jwt/v2 v2.8.2
 	github.com/nats-io/nats-server/v2 v2.15.0
@@ -97,7 +98,6 @@ require (
 	github.com/letsencrypt/challtestsrv v1.4.2 // indirect
 	github.com/letsencrypt/pebble/v2 v2.10.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/miekg/dns v1.1.62 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/moby/locker v1.0.1 // indirect

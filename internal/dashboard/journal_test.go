@@ -509,20 +509,28 @@ func TestPausedPagesDoNotStream(t *testing.T) {
 func TestEveryPageStreamCarriesChrome(t *testing.T) {
 	t.Parallel()
 	dashboard, _, _ := journalDashboard(Options{MaxStreams: len(pages) + 1})
-	server := newStreamServer(t, dashboard)
 	for _, page := range pages {
 		if page.slug == "events" {
 			continue
 		}
-		reader, _ := openStream(t, server, page.streamPath()+"?range=24h")
-		eventType, data := reader.next()
-		if eventType != "datastar-patch-elements" || !strings.Contains(data, `<div id="content">`) ||
-			!strings.Contains(data, `id="region-switcher"`) || !strings.Contains(data, `id="attention-badge"`) {
-			t.Fatalf("%s first patch lacks content or chrome: %q", page.streamPath(), data)
+		t.Run(page.slug, func(t *testing.T) {
+			server := newStreamServer(t, dashboard)
+			reader, _ := openStream(t, server, page.streamPath()+"?range=24h")
+			eventType, data := reader.next()
+			if eventType != "datastar-patch-elements" || !strings.Contains(data, `<div id="content">`) ||
+				!strings.Contains(data, `id="region-switcher"`) || !strings.Contains(data, `id="attention-badge"`) {
+				t.Fatalf("%s first patch lacks content or chrome: %q", page.streamPath(), data)
+			}
+		})
+		// Cleanup must finish before the next case can start rendering.
+		if active := len(dashboard.streams); active != 0 {
+			t.Fatalf("%s left %d live stream handlers", page.streamPath(), active)
 		}
 	}
+}
 
-	// Finite representations use isolated fixtures; the live streams above keep their original inputs.
+func TestJournalFiniteResponsesOverHTTP(t *testing.T) {
+	t.Parallel()
 	providerBoard, _, _ := journalDashboard(Options{})
 	missingBoard := newTestDashboard(Options{Snapshots: fixedSnapshots{snapshot: memberSnapshot()}})
 	failingBoard, _, failedDecisions := journalDashboard(Options{})
@@ -876,96 +884,98 @@ func TestEveryPageStreamCarriesChrome(t *testing.T) {
 		}
 	}
 	for _, test := range responses {
-		finiteServer := newStreamServer(t, test.board)
-		client := *finiteServer.Client()
-		client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, finiteServer.URL+test.path, nil)
-		if err != nil {
+		t.Run(test.root+test.path, func(t *testing.T) {
+			finiteServer := newStreamServer(t, test.board)
+			client := *finiteServer.Client()
+			client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			request, err := http.NewRequestWithContext(ctx, http.MethodGet, finiteServer.URL+test.path, nil)
+			if err != nil {
+				cancel()
+				finiteServer.Close()
+				t.Fatalf("%s GET %s request: %v", test.root, test.path, err)
+			}
+			if test.asset != "" {
+				request.Header.Set("Accept-Encoding", "br, gzip")
+			}
+			response, err := client.Do(request)
+			if err != nil {
+				if response != nil && response.Body != nil {
+					_ = response.Body.Close()
+				}
+				cancel()
+				finiteServer.Close()
+				t.Fatalf("%s GET %s: %v", test.root, test.path, err)
+			}
+			var body []byte
+			var readErr, decodeErr, gzipCloseErr, drainErr error
+			if test.asset != "" {
+				reader, err := gzip.NewReader(response.Body)
+				decodeErr = err
+				if err == nil {
+					body, readErr = io.ReadAll(reader)
+					gzipCloseErr = reader.Close()
+				}
+				_, drainErr = io.Copy(io.Discard, response.Body)
+			} else {
+				body, readErr = io.ReadAll(response.Body)
+			}
+			closeErr := response.Body.Close()
 			cancel()
 			finiteServer.Close()
-			t.Fatalf("%s GET %s request: %v", test.root, test.path, err)
-		}
-		if test.asset != "" {
-			request.Header.Set("Accept-Encoding", "br, gzip")
-		}
-		response, err := client.Do(request)
-		if err != nil {
-			if response != nil && response.Body != nil {
-				_ = response.Body.Close()
+			if readErr != nil || drainErr != nil || closeErr != nil || gzipCloseErr != nil {
+				t.Fatalf("%s GET %s read=%v drain=%v close=%v gzip-close=%v", test.root, test.path, readErr, drainErr, closeErr, gzipCloseErr)
 			}
-			cancel()
-			finiteServer.Close()
-			t.Fatalf("%s GET %s: %v", test.root, test.path, err)
-		}
-		var body []byte
-		var readErr, decodeErr, gzipCloseErr, drainErr error
-		if test.asset != "" {
-			reader, err := gzip.NewReader(response.Body)
-			decodeErr = err
-			if err == nil {
-				body, readErr = io.ReadAll(reader)
-				gzipCloseErr = reader.Close()
+			wantStatus := http.StatusOK
+			if test.location != "" {
+				wantStatus = http.StatusSeeOther
 			}
-			_, drainErr = io.Copy(io.Discard, response.Body)
-		} else {
-			body, readErr = io.ReadAll(response.Body)
-		}
-		closeErr := response.Body.Close()
-		cancel()
-		finiteServer.Close()
-		if readErr != nil || drainErr != nil || closeErr != nil || gzipCloseErr != nil {
-			t.Fatalf("%s GET %s read=%v drain=%v close=%v gzip-close=%v", test.root, test.path, readErr, drainErr, closeErr, gzipCloseErr)
-		}
-		wantStatus := http.StatusOK
-		if test.location != "" {
-			wantStatus = http.StatusSeeOther
-		}
-		if response.StatusCode != wantStatus {
-			t.Fatalf("%s GET %s = %d, want %d", test.root, test.path, response.StatusCode, wantStatus)
-		}
-		if test.location != "" && response.Header.Get("Location") != test.location {
-			t.Errorf("%s GET %s Location=%q, want %q", test.root, test.path, response.Header.Get("Location"), test.location)
-		}
-		text := string(body)
-		for _, want := range test.contains {
-			if !strings.Contains(text, want) {
-				t.Errorf("%s GET %s lacks %q", test.root, test.path, want)
+			if response.StatusCode != wantStatus {
+				t.Fatalf("%s GET %s = %d, want %d", test.root, test.path, response.StatusCode, wantStatus)
 			}
-		}
-		for _, unwanted := range test.absent {
-			if strings.Contains(text, unwanted) {
-				t.Errorf("%s GET %s contains %q", test.root, test.path, unwanted)
+			if test.location != "" && response.Header.Get("Location") != test.location {
+				t.Errorf("%s GET %s Location=%q, want %q", test.root, test.path, response.Header.Get("Location"), test.location)
 			}
-		}
-		if test.href != "" {
-			match := entityLink.FindStringSubmatch(text)
-			if len(match) != 2 || match[1] != test.href {
-				t.Errorf("%s GET %s provider link=%v, want %s", test.root, test.path, match, test.href)
-			}
-		}
-		if test.tooltip {
-			for number, line := range strings.Split(text, "\n") {
-				if strings.Contains(line, "tooltip(t, {") && strings.Contains(line, "formatter:") &&
-					strings.Contains(line, "<br>") && !strings.Contains(line, "escapeHTML(") {
-					t.Errorf("app.js:%d formats a tooltip without escaping: %s", number+1, strings.TrimSpace(line))
+			text := string(body)
+			for _, want := range test.contains {
+				if !strings.Contains(text, want) {
+					t.Errorf("%s GET %s lacks %q", test.root, test.path, want)
 				}
 			}
-		}
-		if test.asset != "" {
-			if response.Header.Get("Content-Encoding") != "gzip" ||
-				!strings.Contains(response.Header.Get("Cache-Control"), "immutable") {
-				t.Fatalf("%s = %d %v", test.asset, response.StatusCode, response.Header)
+			for _, unwanted := range test.absent {
+				if strings.Contains(text, unwanted) {
+					t.Errorf("%s GET %s contains %q", test.root, test.path, unwanted)
+				}
 			}
-			if decodeErr != nil {
-				t.Fatalf("%s gzip reader: %v", test.asset, decodeErr)
+			if test.href != "" {
+				match := entityLink.FindStringSubmatch(text)
+				if len(match) != 2 || match[1] != test.href {
+					t.Errorf("%s GET %s provider link=%v, want %s", test.root, test.path, match, test.href)
+				}
 			}
-			if !bytes.Equal(body, assets[test.asset].body) {
-				t.Fatalf("%s decompressed to different bytes", test.asset)
+			if test.tooltip {
+				for number, line := range strings.Split(text, "\n") {
+					if strings.Contains(line, "tooltip(t, {") && strings.Contains(line, "formatter:") &&
+						strings.Contains(line, "<br>") && !strings.Contains(line, "escapeHTML(") {
+						t.Errorf("app.js:%d formats a tooltip without escaping: %s", number+1, strings.TrimSpace(line))
+					}
+				}
 			}
-		}
+			if test.asset != "" {
+				if response.Header.Get("Content-Encoding") != "gzip" ||
+					!strings.Contains(response.Header.Get("Cache-Control"), "immutable") {
+					t.Fatalf("%s = %d %v", test.asset, response.StatusCode, response.Header)
+				}
+				if decodeErr != nil {
+					t.Fatalf("%s gzip reader: %v", test.asset, decodeErr)
+				}
+				if !bytes.Equal(body, assets[test.asset].body) {
+					t.Fatalf("%s decompressed to different bytes", test.asset)
+				}
+			}
+		})
 	}
 }
 

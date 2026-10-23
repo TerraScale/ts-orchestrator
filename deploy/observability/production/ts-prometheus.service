@@ -1,0 +1,18 @@
+[Unit]
+Description=TerraScale Prometheus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ts-prometheus
+Group=ts-prometheus
+ExecStart=/usr/local/lib/ts-monitoring/prometheus --config.file=/etc/ts-monitoring/production/prometheus.yml --storage.tsdb.path=/var/lib/ts-prometheus --storage.tsdb.retention.time=35d --web.listen-address=127.0.0.1:9090
+Restart=on-failure
+StateDirectory=ts-prometheus
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
