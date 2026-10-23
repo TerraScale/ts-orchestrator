@@ -73,3 +73,9 @@ Main `5b5f7ed27ff1f119805ece4e4b8a3701efbd491e` (#130) repaired deployment-lag c
 | TestOfflineDeploymentMaterialNeverBaked | 5/5 | 141.01, 61.46, 39.61, 37.58, 32.52 |
 
 The offline fixture deliberately sets its command subprocesses to `GOMAXPROCS=2` in existing code. This proves one Go CPU per test worker under the stated affinity, not one CPU for every descendant. Raw log: `/tmp/ts-orch-onecpu-five-20261023.log` on delta. Latest main #130 changes only the deployment-lag guard and its documentation/tests, not these test families.
+
+## Corrected worker candidate
+
+Candidate `03022a1ebb4bbc50b9f873a1c26096df3020c7a8`, [run 39893598465](https://github.com/TerraScale/ts-orchestrator/actions/runs/39893598465), passed both required checks and all other triggered checks, with no reviews or findings. Runner logs confirmed four CPUs, four race workers, and one Go CPU per worker. Required `test` ran 03:11:12–03:20:13 UTC: wall and runner runtime 9.02 minutes. Creation at 03:10:40 gives 0.53-minute queue wait. The eight-minute target remains unmet by 61 seconds.
+
+The 22-package group took 360 seconds after waiting 78 seconds behind deployment shards. Its estimate was 238 seconds (four explicit package estimates totaling 220 plus eighteen default one-second estimates), versus 290–295-second deployment estimates whose observed durations were 70–81 seconds. The previous successful candidate's same package group took 359 seconds. Update the short-tier default package estimate from one to eight seconds, accounting for observed compilation/setup overhead: the group estimate becomes 364 seconds and existing longest-first scheduling starts it immediately. Full-tier estimates, test membership, cache expressions, assertions and worker limits are unchanged. This is a scheduling correction; speed remains unclaimed until its real run.
