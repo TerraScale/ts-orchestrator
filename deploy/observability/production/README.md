@@ -16,9 +16,15 @@ Operational alerts use existing backup/replication metric names. Failed daily re
 
 Alertmanager sends firing and resolved webhooks to `http://127.0.0.1:9094/alerts`. The installer manages the relay alongside Prometheus and Alertmanager and checks its `/healthz`; this proves listener readiness only. No installation, activation or live delivery proof is claimed here. A controlled firing alert and its resolution still need verification against the deployed release, provider responses and the owner's actual inbox/phone receipt.
 
-The relay is the single binary's `ts-orch alert-delivery` command. It binds only `127.0.0.1:9094`, reads the two existing Cloudflare refs via OCI instance principal on each delivery, and emails mariogk@terrascale.tech. The user approved sharing exactly `gru-1-cloudflare-account-id` and `gru-1-cloudflare-email-token` with ts-alerts; no additional refs, credentials or IAM permissions are authorized by this runbook.
+The relay is the single binary's `ts-orch alert-delivery` command. It binds only `127.0.0.1:9094`, reads the two existing Cloudflare refs and its private topic via OCI instance principal on each delivery, and emails mariogk@terrascale.tech. The user approved sharing exactly `gru-1-cloudflare-account-id` and `gru-1-cloudflare-email-token` with ts-alerts. The only additional owned ref is `gru-1-ts-alerts-ntfy-topic`; no new IAM permissions are authorized by this runbook.
 
-The user also approved the free ntfy topic `terrascale-01M5M8JQWY20E218CXGNHNH7XY` at `https://ntfy.sh`. Subscribe to that exact topic in the ntfy client to receive generic push notifications. Push carries only a generic alert status, with details in email; annotations, tenant labels and credentials must never be sent. This public unauthenticated topic is spoofable: anyone knowing its name can publish or subscribe. Treat pushes as prompts to inspect trusted monitoring/email, never authenticated instructions.
+Push reads the private, randomly generated `gru-1-ts-alerts-ntfy-topic` in the same SharedVault using instance principal, independently of the two email reads. The topic was provisioned once using existing admin permissions; runtime never creates secrets or changes IAM. Topic knowledge grants publish and subscribe access: keep it private and treat pushes as prompts to inspect trusted monitoring/email. Push sends generic status only. Subscribe from delta after the updated release is installed:
+
+```sh
+ssh -t ts-gru-1 'sudo -u ts-alerts /usr/local/bin/ts-orch alert-delivery subscribe'
+```
+
+This command requires a TTY, displays the topic/link only on that terminal, waits for Enter after subscription, then sends one generic test through the loopback relay. Do not record or share its terminal output.
 
 Both channels are attempted independently, including when credentials or one provider fail. Alertmanager retries incomplete relay requests; partial acceptance can produce duplicates. HTTP 202 and accepted journal events mean provider acceptance, not actual email/phone receipt. Readiness and a successful provider response cannot establish notification latency or delivery to a human.
 

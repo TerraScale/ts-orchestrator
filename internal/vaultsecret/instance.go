@@ -66,10 +66,10 @@ func ValidateServiceRefs(cell, vaultID, service string, refs map[string]Ref) err
 		if !known || ref.Vault != vaultID || ref.region() != entry.OCIRegion {
 			return fmt.Errorf("Vault secret %s of %s must name cell %s's Vault", key, service, cell)
 		}
-		// Alert delivery has approval for only these two existing GRU references.
+		// Alert delivery reads only its exact topic and two approved shared GRU references.
 		if service == "ts-alerts" {
-			if cell != "gru" || ref.Vault != SharedVault || (ref.Name != "gru-1-cloudflare-account-id" && ref.Name != "gru-1-cloudflare-email-token") {
-				return errors.New("alert delivery may read only its two approved shared references")
+			if cell != "gru" || ref.Vault != SharedVault || (ref.Name != "gru-1-cloudflare-account-id" && ref.Name != "gru-1-cloudflare-email-token" && ref.Name != "gru-1-ts-alerts-ntfy-topic") {
+				return errors.New("alert delivery may read only its exact approved references")
 			}
 			continue
 		}

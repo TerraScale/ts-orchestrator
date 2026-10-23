@@ -1,5 +1,5 @@
 // Package alertdelivery delivers loopback Alertmanager notifications through
-// Cloudflare Email Sending. Credentials remain in Vault and process memory.
+// Cloudflare Email Sending and generic push. Credentials remain in Vault and process memory.
 package alertdelivery
 
 import (
@@ -36,17 +36,20 @@ type relay struct {
 	endpoint     string
 	pushEndpoint string
 	read         func(context.Context) (credentials, error)
+	readTopic    func(context.Context) (string, error)
 }
 
-const pushTopic = "terrascale-01M5M8JQWY20E218CXGNHNH7XY"
 const recipient = "mariogk@terrascale.tech"
 
 // Run serves only loopback; Alertmanager owns retry, grouping and deduplication.
 func Run(ctx context.Context, args []string) error {
-	if len(args) != 0 {
+	if len(args) != 0 && (len(args) != 1 || args[0] != "subscribe") {
 		return errors.New("usage: ts-orch alert-delivery")
 	}
-	r := relay{client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, endpoint: "https://api.cloudflare.com/client/v4/accounts/", pushEndpoint: "https://ntfy.sh/" + pushTopic, read: readCredentials}
+	r := relay{client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, endpoint: "https://api.cloudflare.com/client/v4/accounts/", pushEndpoint: "https://ntfy.sh/", read: readCredentials, readTopic: readPushTopic}
+	if len(args) == 1 {
+		return r.subscribe(ctx)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /metrics", readinessMetrics(newReadinessClient()))
 	mux.HandleFunc("POST /alerts", r.deliver)
@@ -102,10 +105,9 @@ func (r relay) deliver(w http.ResponseWriter, request *http.Request) {
 	ctx, cancel := context.WithTimeout(request.Context(), 50*time.Second)
 	defer cancel()
 	var emailErr, pushErr error
-	var pushID string
 	var deliveries sync.WaitGroup
 	deliveries.Go(func() { emailErr = r.email(ctx, notice.Status, lines) })
-	deliveries.Go(func() { pushID, pushErr = r.push(ctx, notice.Status) })
+	deliveries.Go(func() { pushErr = r.push(ctx, notice.Status) })
 	deliveries.Wait()
 	if emailErr != nil || pushErr != nil {
 		slog.WarnContext(ctx, "production alert channel rejected", "email_accepted", emailErr == nil, "push_accepted", pushErr == nil)
@@ -113,7 +115,7 @@ func (r relay) deliver(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
-	slog.InfoContext(ctx, "production alert email and push accepted", "status", notice.Status, "alerts", len(notice.Alerts), "push_message_id", pushID)
+	slog.InfoContext(ctx, "production alert email and push accepted", "status", notice.Status, "alerts", len(notice.Alerts))
 }
 
 func (r relay) email(ctx context.Context, status string, lines []string) error {
@@ -156,18 +158,21 @@ func (r relay) email(ctx context.Context, status string, lines []string) error {
 	return nil
 }
 
-func (r relay) push(ctx context.Context, status string) (string, error) {
-	// The approved free topic has no access control. Publish no operational
-	// details; email is the authenticated source of alert information.
-	push, err := http.NewRequestWithContext(ctx, http.MethodPost, r.pushEndpoint, strings.NewReader("TerraScale production alert: "+status+". Check your alert email."))
+func (r relay) push(ctx context.Context, status string) error {
+	topic, err := r.readTopic(ctx)
+	if err != nil || !validPushTopic(topic) {
+		return errors.New("push Vault topic unavailable or invalid")
+	}
+	// Topic knowledge grants publish and subscribe access. Send generic details only.
+	push, err := http.NewRequestWithContext(ctx, http.MethodPost, r.pushEndpoint+topic, strings.NewReader("TerraScale production alert: "+status+". Check your alert email."))
 	if err != nil {
-		return "", errors.New("push request failed")
+		return errors.New("push request failed")
 	}
 	push.Header.Set("Title", "TerraScale production alert")
 	push.Header.Set("Priority", "urgent")
 	pushResponse, err := r.client.Do(push)
 	if err != nil {
-		return "", errors.New("push transport failed")
+		return errors.New("push transport failed")
 	}
 	defer pushResponse.Body.Close()
 	var published struct {
@@ -176,8 +181,8 @@ func (r relay) push(ctx context.Context, status string) (string, error) {
 		Topic string `json:"topic"`
 	}
 	pushData, err := io.ReadAll(io.LimitReader(pushResponse.Body, 64<<10+1))
-	if pushResponse.StatusCode != http.StatusOK || err != nil || len(pushData) > 64<<10 || json.Unmarshal(pushData, &published) != nil || published.ID == "" || published.Event != "message" || published.Topic != pushTopic {
-		return "", errors.New("push rejected by provider")
+	if pushResponse.StatusCode != http.StatusOK || err != nil || len(pushData) > 64<<10 || json.Unmarshal(pushData, &published) != nil || published.ID == "" || published.Event != "message" || published.Topic != topic {
+		return errors.New("push rejected by provider")
 	}
-	return published.ID, nil
+	return nil
 }

@@ -101,6 +101,11 @@ func TestAlertReferencesAreExact(t *testing.T) {
 	}{
 		{"account", "gru", SharedVault, "gru-1-cloudflare-account-id", true},
 		{"token", "gru", SharedVault, "gru-1-cloudflare-email-token", true},
+		{"topic", "gru", SharedVault, "gru-1-ts-alerts-ntfy-topic", true},
+		{"topic other index", "gru", SharedVault, "gru-2-ts-alerts-ntfy-topic", false},
+		{"topic other cell", "gru", SharedVault, "sjc-1-ts-alerts-ntfy-topic", false},
+		{"topic other vault", "gru", "ocid1.vault.oc1.sa-saopaulo-1.other", "gru-1-ts-alerts-ntfy-topic", false},
+		{"topic other region", "sjc", "ocid1.vault.oc1.us-sanjose-1.other", "sjc-1-ts-alerts-ntfy-topic", false},
 		{"other index", "gru", SharedVault, "gru-2-cloudflare-email-token", false},
 		{"other vault", "gru", "ocid1.vault.oc1.sa-saopaulo-1.other", "gru-1-cloudflare-email-token", false},
 		{"other region", "sjc", "ocid1.vault.oc1.us-sanjose-1.other", "sjc-1-cloudflare-email-token", false},
