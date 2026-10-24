@@ -187,7 +187,15 @@ func TestServiceSpecExactEvidenceRejectsUnrelatedArtifact(t *testing.T) {
 		t.Fatalf("unchanged artifact's actual task generation: %+v, %v", same, err)
 	}
 
+	// A ready-timeout or route change keeps the task that runs the same template.
+	control.task.ServiceAnnotations.Labels[LabelReadyTimeout] = "60"
+	control.task.ServiceAnnotations.Labels[LabelHostnames] = "old.example.com"
+	if same, err := WaitServiceSpecExact(t.Context(), control, spec); err != nil || len(same.Tasks) != 1 {
+		t.Fatalf("label-only change rejected its unchanged task: %+v, %v", same, err)
+	}
+
 	for _, change := range []func(*safetyControl){
+		func(c *safetyControl) { c.task.ServiceAnnotations.Labels[LabelSecrets] = "TOKEN_FILE" },
 		func(c *safetyControl) { c.task.Spec.ForceUpdate++ },
 		func(c *safetyControl) { c.task.ServiceAnnotations.Labels[LabelGeneration] = "8" },
 		func(c *safetyControl) { c.machine = "another-host" },
