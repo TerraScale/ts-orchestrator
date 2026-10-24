@@ -39,6 +39,10 @@ const (
 	maxBinaryBytes = 512 << 20
 )
 
+// HandlerWait bounds one release request: three regions rolled in turn, each
+// up to a 180 s readiness timeout, then a rollback.
+const HandlerWait = 15 * time.Minute
+
 var (
 	hex40 = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -155,7 +159,8 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 		if _, err := conn.Subscribe(subject, func(m *nats.Msg) {
 			// Each request runs on its own goroutine so a download never blocks version polls.
 			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				// A region-by-region rollout takes each region's readiness timeout in turn.
+				ctx, cancel := context.WithTimeout(context.Background(), HandlerWait)
 				defer cancel()
 				reply := handle(ctx, m.Data)
 				data, _ := json.Marshal(reply)

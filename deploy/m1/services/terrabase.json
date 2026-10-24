@@ -37,6 +37,7 @@
   ],
   "port": 8080,
   "readyPath": "/readyz",
+  "readyTimeoutSeconds": 180,
   "hostnames": [
     "api.terrascale.tech",
     "gru.api.terrascale.tech"

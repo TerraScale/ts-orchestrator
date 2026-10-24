@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
@@ -641,4 +642,24 @@ func startMeshRegions(t *testing.T, settle time.Duration) ([]string, map[string]
 	})
 	eventually(t, "every region to answer ping", func() bool { return Ping(t.Context(), nodes[regions[0]].conn, time.Second, io.Discard) == nil })
 	return regions, nodes, appliers
+}
+
+// A rollout's windows follow the spec's readiness timeout: each region waits
+// for the earlier ones, then gets its own timeout.
+func TestRolloutWindowsFollowReadyTimeout(t *testing.T) {
+	regions := Regions()
+	spec := &swarmruntime.ServiceSpec{Name: "terrabase", ReadyPath: "/readyz", ReadyTimeoutSeconds: 180, Regions: []string{regions[1], regions[2], regions[0]}}
+	if got, want := rolloutWait(spec), 3*(210*time.Second); got != want {
+		t.Fatalf("rolloutWait = %s, want %s", got, want)
+	}
+	last := &Node{cfg: config{region: regions[0]}}
+	if got, want := last.applyWindow(spec), 3*(210*time.Second)-10*time.Second; got != want {
+		t.Fatalf("last region's window = %s, want %s", got, want)
+	}
+	if got := rolloutWait(&swarmruntime.ServiceSpec{Name: "whoami"}); got != max(applyWait, 3*90*time.Second) {
+		t.Fatalf("default rolloutWait = %s", got)
+	}
+	if rolloutWait(spec) > releasepush.HandlerWait-time.Minute {
+		t.Fatalf("rollout %s does not fit the release handler's %s", rolloutWait(spec), releasepush.HandlerWait)
+	}
 }
