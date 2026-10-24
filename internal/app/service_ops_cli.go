@@ -218,7 +218,13 @@ func streamEvents(ctx context.Context, stream api.Watch_WatchClient, output io.W
 func runServiceOps(ctx context.Context, args []string, output io.Writer, state string) error {
 	command, rest := args[0], args[1:]
 	follow := command == "logs" && slices.Contains(rest, "-f")
-	rest = slices.DeleteFunc(slices.Clone(rest), func(arg string) bool { return follow && arg == "-f" })
+	previous := command == "logs" && slices.Contains(rest, "--previous")
+	if follow && previous {
+		return errors.New("service logs --previous is a snapshot; use -f for the current task")
+	}
+	rest = slices.DeleteFunc(slices.Clone(rest), func(arg string) bool {
+		return follow && arg == "-f" || previous && arg == "--previous"
+	})
 	if len(rest) != 1 || strings.HasPrefix(rest[0], "-") {
 		_, err := io.WriteString(output, serviceCLIUsage)
 		return errors.Join(err, fmt.Errorf("service %s needs one service name", command))
@@ -259,9 +265,38 @@ func runServiceOps(ctx context.Context, args []string, output io.Writer, state s
 		if len(rows) == 0 {
 			return fmt.Errorf("service %q has no tasks yet; check `ts-orch service ps %s`", rest[0], rest[0])
 		}
-		// shortcut: shows the newest task only; follow replacement tasks when restarts during -f need it.
+		if previous {
+			return writePreviousTaskLogs(ctx, output, state, rows)
+		}
+		// shortcut: follow replacement tasks when restarts during -f need it.
 		return writeTaskLogs(ctx, output, state, rows[0], follow)
 	}
+}
+
+// SwarmKit retains exited task containers and their bounded logs until its
+// task-history reaper removes them. Read the most recently stopped local task
+// with output, including when newer rejected tasks never reached the logger.
+func writePreviousTaskLogs(ctx context.Context, output io.Writer, state string, rows []swarmruntime.TaskRow) error {
+	for _, row := range rows {
+		if !row.Terminal {
+			continue
+		}
+		for _, stream := range []string{"stdout", "stderr"} {
+			_, err := os.Stat(swarmruntime.RuntimeLogFile(state, row.ID, stream))
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(output, "== task %s node=%s slot=%d state=%s stopped=%s ==\n",
+				row.ID, row.Node, row.Slot, strings.ToLower(row.State), row.Since.UTC().Format(time.RFC3339)); err != nil {
+				return err
+			}
+			return writeTaskLogs(ctx, output, state, row, false)
+		}
+	}
+	return errors.New("no retained previous task logs on this host; check `ts-orch service ps` for task nodes and history")
 }
 
 func writeTaskRows(output io.Writer, rows []swarmruntime.TaskRow, now time.Time) error {
