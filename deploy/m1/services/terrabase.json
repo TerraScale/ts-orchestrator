@@ -48,9 +48,5 @@
   "replicas": 1,
   "milliCPU": 1000,
   "memoryMiB": 4096,
-  "regions": [
-    "gru",
-    "sjc",
-    "fra"
-  ]
+  "regions": ["sjc", "fra", "gru"]
 }

@@ -82,6 +82,7 @@ type fakeApplier struct {
 	// settle is how long an applied generation takes to get ready.
 	settle  time.Duration
 	applied map[string]time.Time
+	images  map[string]string
 }
 
 func (f *fakeApplier) Apply(_ context.Context, spec swarmruntime.ServiceSpec) (bool, *api.Service, error) {
@@ -100,7 +101,17 @@ func (f *fakeApplier) Apply(_ context.Context, spec swarmruntime.ServiceSpec) (b
 		f.applied = map[string]time.Time{}
 	}
 	f.applied[spec.Name] = time.Now()
+	if f.images == nil {
+		f.images = map[string]string{}
+	}
+	f.images[spec.Name] = spec.Image
 	return true, service, nil
+}
+
+func (f *fakeApplier) appliedImage(name string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.images[name]
 }
 
 func (f *fakeApplier) Ready(context.Context) (map[string]int64, error) {
@@ -290,7 +301,8 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	eventually(t, fra+" to leave the peers file", func() bool { return peersFile(regions[0]) == withoutFra })
 	spec.Args = []string{"/bin/true"}
 	out.Reset()
-	err = printApply(&out)(send(t.Context(), sjc.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 2, Spec: &spec}}, 2*time.Second))
+	// gru rolls last and first waits out fra's missing state reply.
+	err = printApply(&out)(send(t.Context(), sjc.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 2, Spec: &spec}}, 5*time.Second))
 	if err == nil || !strings.Contains(err.Error(), "failed in "+fra) || !strings.Contains(out.String(), "NO REPLY") {
 		t.Fatalf("apply with %s down: %v\n%s", fra, err, out.String())
 	}
@@ -516,12 +528,88 @@ func TestMeshWorkerJoinsItsRegionCluster(t *testing.T) {
 // applies only once the previous one runs the generation ready, so the edge
 // always has a serving region to hand a stop-first TerraBase swap off to.
 func TestMeshRollsRegionsOneAtATime(t *testing.T) {
+	const settle = time.Second
+	regions, nodes, appliers := startMeshRegions(t, settle)
+	gru := nodes[regions[0]]
+
+	spec := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764", Port: 8080, Replicas: 1}
+	var out bytes.Buffer
+	if err := printApply(&out)(send(t.Context(), gru.conn, ApplyRequest{Name: "terrabase", Entry: Entry{Generation: 7, Spec: &spec}}, 30*time.Second)); err != nil {
+		t.Fatalf("apply: %v\n%s", err, out.String())
+	}
+	t.Logf("apply:\n%s", out.String())
+	// A spec for every region rolls gru (ts-auth, dashboard) last.
+	assertOrder(t, appliers, "terrabase", rolloutOrder(&spec), settle)
+	if order := rolloutOrder(&spec); order[len(order)-1] != regions[0] {
+		t.Fatalf("default order %v does not end with %s", order, regions[0])
+	}
+
+	// A spec's own region list is its rollout order.
+	spec.Regions = []string{regions[2], regions[0], regions[1]}
+	out.Reset()
+	if err := printApply(&out)(send(t.Context(), gru.conn, ApplyRequest{Name: "terrabase", Entry: Entry{Generation: 8, Spec: &spec}}, 30*time.Second)); err != nil {
+		t.Fatalf("ordered apply: %v\n%s", err, out.String())
+	}
+	assertOrder(t, appliers, "terrabase", spec.Regions, settle)
+}
+
+func assertOrder(t *testing.T, appliers map[string]*fakeApplier, name string, order []string, settle time.Duration) {
+	t.Helper()
+	for i := 1; i < len(order); i++ {
+		previous, next := appliers[order[i-1]].appliedAt(name), appliers[order[i]].appliedAt(name)
+		if previous.IsZero() || next.Sub(previous) < settle {
+			t.Fatalf("%s applied %s after %s; want at least %s, once %s is ready (order %v)", order[i], next.Sub(previous), order[i-1], settle, order[i-1], order)
+		}
+	}
+}
+
+// When the first region of a rollout fails readiness, the later regions never
+// apply it and every region gets the previous spec back, well within the
+// apply window.
+func TestMeshFailedRegionStopsAndRollsBack(t *testing.T) {
+	regions, nodes, appliers := startMeshRegions(t, 0)
+	conn := nodes[regions[0]].conn
+	good := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+	if _, err := applySpec(t.Context(), conn, good, 30*time.Second); err != nil {
+		t.Fatalf("good apply: %v", err)
+	}
+	order := rolloutOrder(&good)
+	appliers[order[0]].unready = "docker.io/library/alpine@sha256:" + strings.Repeat("b", 64)
+	bad := good
+	bad.Image = appliers[order[0]].unready
+	start := time.Now()
+	rows, err := applySpec(t.Context(), conn, bad, 60*time.Second)
+	elapsed := time.Since(start)
+	if err == nil || !strings.Contains(err.Error(), "rolled back to "+good.Image) {
+		t.Fatalf("bad apply = %v\n%+v", err, rows)
+	}
+	if elapsed > 30*time.Second {
+		t.Fatalf("stop and rollback took %s", elapsed)
+	}
+	for _, region := range order[1:] {
+		if appliers[region].appliedImage("terrabase") == bad.Image {
+			t.Fatalf("%s applied the failed image after %s failed", region, order[0])
+		}
+	}
+	eventually(t, "every region to run the previous image", func() bool {
+		for _, region := range regions {
+			if appliers[region].appliedImage("terrabase") != good.Image {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+// startMeshRegions runs every founded region's mesh node with a fake applier
+// whose applied generation gets ready after settle.
+func startMeshRegions(t *testing.T, settle time.Duration) ([]string, map[string]*Node, map[string]*fakeApplier) {
+	t.Helper()
 	regions := Regions()
 	ca, err := DeriveCA(bytes.Repeat([]byte{43}, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
-	const settle = time.Second
 	ports := freePorts(t, 6)
 	appliers := map[string]*fakeApplier{}
 	nodes := map[string]*Node{}
@@ -551,19 +639,6 @@ func TestMeshRollsRegionsOneAtATime(t *testing.T) {
 			node.Close()
 		}
 	})
-	gru := nodes[regions[0]]
-	eventually(t, "every region to answer ping", func() bool { return Ping(t.Context(), gru.conn, time.Second, io.Discard) == nil })
-
-	spec := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764", Port: 8080, Replicas: 1}
-	var out bytes.Buffer
-	if err := printApply(&out)(send(t.Context(), gru.conn, ApplyRequest{Name: "terrabase", Entry: Entry{Generation: 7, Spec: &spec}}, 30*time.Second)); err != nil {
-		t.Fatalf("apply: %v\n%s", err, out.String())
-	}
-	t.Logf("apply:\n%s", out.String())
-	for i := 1; i < len(regions); i++ {
-		previous, next := appliers[regions[i-1]].appliedAt("terrabase"), appliers[regions[i]].appliedAt("terrabase")
-		if previous.IsZero() || next.Sub(previous) < settle {
-			t.Fatalf("%s applied %s after %s; want at least %s, once %s is ready", regions[i], next.Sub(previous), regions[i-1], settle, regions[i-1])
-		}
-	}
+	eventually(t, "every region to answer ping", func() bool { return Ping(t.Context(), nodes[regions[0]].conn, time.Second, io.Discard) == nil })
+	return regions, nodes, appliers
 }
