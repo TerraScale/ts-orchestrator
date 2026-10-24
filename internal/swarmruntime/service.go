@@ -424,7 +424,7 @@ type ServiceSpec struct {
 	// readyPath before the update rolls back; zero keeps DefaultReadyTimeout.
 	ReadyTimeoutSeconds uint32 `json:"readyTimeoutSeconds,omitempty"`
 	// MilliCPU and MemoryMiB size the fully reserved budget; zero keeps the
-	// 100m CPU / 256 MiB default of a test or probe service.
+	// 50m CPU / 64 MiB default of a test or probe service.
 	MilliCPU  uint32 `json:"milliCPU,omitempty"`
 	MemoryMiB uint32 `json:"memoryMiB,omitempty"`
 	// Regions lists the region tokens that run the service; empty means every
@@ -578,7 +578,7 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	// A spec that names no budget (a test or probe service) reserves little, so it
 	// never starves TerraBase on a 2-CPU host; every production spec sizes its own.
-	cpu, memory := int64(100_000_000), int64(256<<20)
+	cpu, memory := int64(50_000_000), int64(64<<20)
 	if s.MilliCPU != 0 {
 		cpu = int64(s.MilliCPU) * 1_000_000
 	}
@@ -624,9 +624,12 @@ const (
 	// A crashed task's port is free once it exits; a cached image restarts in
 	// well under a second, so a longer delay is pure downtime.
 	serviceRestartDelay = time.Second
-	// DefaultReadyTimeout fits a cold .NET start; a spec may ask for up to maxReadyTimeoutSeconds.
+	// DefaultReadyTimeout fits a cold .NET start; a spec may ask for up to
+	// maxReadyTimeoutSeconds: TerraBase importing a ~420 MB SYSTEM snapshot after a
+	// lost catalog anchor needs more than 10 minutes, and a task is replaced only
+	// once its window ends, so a short cap restarts the import forever.
 	DefaultReadyTimeout    = time.Minute
-	maxReadyTimeoutSeconds = 600
+	maxReadyTimeoutSeconds = 1800
 	// servicePoll bounds how late `service apply` notices each phase.
 	servicePoll = 100 * time.Millisecond
 	// serviceRollout bounds a cold pull plus start and readiness.

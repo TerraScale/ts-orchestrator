@@ -104,6 +104,12 @@ func TestServiceSpecReadyGate(t *testing.T) {
 	if c, _ := containerOf(*swarm); c.Labels[LabelReadyPath] != "/health" || ReadyTimeout(swarm.Annotations.Labels) != 7*time.Second {
 		t.Fatalf("gate labels %v %v", c.Labels, swarm.Annotations.Labels)
 	}
+	// A snapshot import may hold a task in its window for up to 30 minutes.
+	long := base
+	long.ReadyPath, long.ReadyTimeoutSeconds = "/health", 1800
+	if swarm, err := long.SwarmSpec(); err != nil || ReadyTimeout(swarm.Annotations.Labels) != 30*time.Minute {
+		t.Fatalf("1800 s window: %v", err)
+	}
 	for _, bad := range []ServiceSpec{{ReadyTimeoutSeconds: 5}, {ReadyPath: "/health", ReadyTimeoutSeconds: maxReadyTimeoutSeconds + 1}} {
 		spec := base
 		spec.ReadyPath, spec.ReadyTimeoutSeconds = bad.ReadyPath, bad.ReadyTimeoutSeconds

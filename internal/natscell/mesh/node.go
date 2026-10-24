@@ -122,6 +122,8 @@ type stateReply struct {
 	Desired map[string]desiredState `json:"desired"`
 	// Ready is the generation each local service runs with every replica ready.
 	Ready map[string]int64 `json:"ready,omitempty"`
+	// Failed is the generation of each service whose rollout here failed.
+	Failed map[string]int64 `json:"failed,omitempty"`
 }
 
 // Applier changes this host's services.
@@ -167,6 +169,7 @@ type Node struct {
 
 	mu      sync.Mutex
 	desired map[string]desiredState
+	failed  map[string]int64 // generation whose local rollout failed, per service
 	peers   *peers
 }
 
@@ -246,7 +249,7 @@ func start(cfg config) (_ *Node, err error) {
 				slog.Warn("mesh ready state unavailable", "error", err)
 			}
 			node.mu.Lock()
-			state := stateReply{Region: cfg.region, Desired: maps.Clone(node.desired), Ready: ready}
+			state := stateReply{Region: cfg.region, Desired: maps.Clone(node.desired), Ready: ready, Failed: maps.Clone(node.failed)}
 			node.mu.Unlock()
 			node.respond(m, state)
 		},
@@ -386,12 +389,12 @@ func (n *Node) sync(ctx context.Context) {
 
 func (n *Node) handleApply(m *nats.Msg) {
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(n.ctx, applyWait-10*time.Second)
+	var request ApplyRequest
+	err := protocol.DecodeTolerant(m.Data, &request, maxWire)
+	ctx, cancel := context.WithTimeout(n.ctx, n.applyWindow(request.Entry.Spec))
 	defer cancel()
 	reply := Reply{Region: n.cfg.region, Server: n.cfg.server, Regions: n.regions()}
-	var request ApplyRequest
 	var applied applyResult
-	err := protocol.DecodeTolerant(m.Data, &request, maxWire)
 	var pulled time.Duration
 	if spec := request.Entry.Spec; err == nil && spec != nil && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
 		// The task's own Prepare still pulls, so a failed pre-pull only costs speed.
@@ -434,6 +437,19 @@ func (n *Node) handleApply(m *nats.Msg) {
 	if err != nil {
 		reply.Error = err.Error()
 	}
+	if applied.result == "applied" || applied.result == "unchanged" {
+		// Later regions stop waiting for a generation that failed here.
+		n.mu.Lock()
+		if n.failed == nil {
+			n.failed = map[string]int64{}
+		}
+		if err != nil {
+			n.failed[request.Name] = request.Entry.Generation
+		} else {
+			delete(n.failed, request.Name)
+		}
+		n.mu.Unlock()
+	}
 	n.respond(m, reply)
 }
 
@@ -460,31 +476,74 @@ func (n *Node) statesOf(ctx context.Context, want []string, wait time.Duration) 
 	return states
 }
 
-// earlier is the target regions of spec before this one, in catalog order:
-// a rollout replaces one region at a time, in that order, so the edge always
-// has a serving region to hand off to (TerraBase is replaced stop-first: one
-// writer per data dir).
-func (n *Node) earlier(spec *swarmruntime.ServiceSpec) []string {
-	if spec == nil || len(spec.Regions) != 0 && !slices.Contains(spec.Regions, n.cfg.region) {
+// rolloutOrder is the order a rollout replaces regions in, one at a time, so
+// the edge always has a serving region to hand off to (TerraBase is replaced
+// stop-first: one writer per data dir). A spec's regions roll in the order it
+// lists them; a spec for every region rolls the founded regions with the first
+// (gru: ts-auth and the dashboard) last.
+func rolloutOrder(spec *swarmruntime.ServiceSpec) []string {
+	if len(spec.Regions) != 0 {
+		return spec.Regions
+	}
+	founded := Regions()
+	if len(founded) == 0 {
 		return nil
 	}
-	var regions []string
-	for _, region := range Regions() {
-		if region == n.cfg.region {
-			return regions
-		}
-		if len(spec.Regions) == 0 || slices.Contains(spec.Regions, region) {
-			regions = append(regions, region)
-		}
-	}
-	return nil // a region outside the founded order waits for nobody
+	return append(slices.Clone(founded[1:]), founded[0])
 }
+
+// earlier is the target regions of spec rolled before this one.
+func (n *Node) earlier(spec *swarmruntime.ServiceSpec) []string {
+	if spec == nil {
+		return nil
+	}
+	order := rolloutOrder(spec)
+	if i := slices.Index(order, n.cfg.region); i > 0 {
+		return slices.Clone(order[:i])
+	}
+	return nil // first, untargeted or outside the order: waits for nobody
+}
+
+// regionWindow is one region's share of a rollout: its readiness timeout
+// plus pull and submit.
+func regionWindow(spec *swarmruntime.ServiceSpec) time.Duration {
+	ready := swarmruntime.DefaultReadyTimeout
+	if spec != nil && spec.ReadyTimeoutSeconds != 0 {
+		ready = time.Duration(spec.ReadyTimeoutSeconds) * time.Second
+	}
+	return ready + 30*time.Second
+}
+
+// rolloutWait bounds a whole rollout of spec: every region in turn.
+func rolloutWait(spec *swarmruntime.ServiceSpec) time.Duration {
+	if spec == nil {
+		return applyWait
+	}
+	return max(applyWait, time.Duration(max(len(rolloutOrder(spec)), 1))*regionWindow(spec))
+}
+
+// applyWindow bounds this region's part: waiting for the earlier regions, then
+// its own rollout; it replies before the caller's rolloutWait ends.
+func (n *Node) applyWindow(spec *swarmruntime.ServiceSpec) time.Duration {
+	return max(applyWait, time.Duration(len(n.earlier(spec))+1)*regionWindow(spec)) - 10*time.Second
+}
+
+// errEarlierFailed stops a region from waiting for a generation an earlier
+// region failed to roll out.
+var errEarlierFailed = errors.New("an earlier region failed this rollout")
 
 // turn allows this region to apply a generation of name once every earlier
 // region runs it ready. A region that does not answer has nothing to wait for.
 func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int64, states map[string]stateReply) error {
 	for _, region := range n.earlier(spec) {
-		if reply, answered := states[region]; answered && reply.Ready[name] < generation {
+		reply, answered := states[region]
+		if !answered {
+			continue
+		}
+		if reply.Failed[name] >= generation {
+			return fmt.Errorf("%w: %s", errEarlierFailed, region)
+		}
+		if reply.Ready[name] < generation {
 			return fmt.Errorf("%s does not run %s generation %d ready yet", region, name, generation)
 		}
 	}
@@ -499,8 +558,8 @@ func (n *Node) awaitTurn(ctx context.Context, name string, spec *swarmruntime.Se
 	}
 	for {
 		err := n.turn(name, spec, generation, n.statesOf(ctx, earlier, time.Second))
-		if err == nil {
-			return nil
+		if err == nil || errors.Is(err, errEarlierFailed) {
+			return err
 		}
 		select {
 		case <-ctx.Done():
@@ -533,7 +592,9 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 	}
 	before, exists := n.desired[request.Name]
 	current := before.entry()
-	if request.Entry.RollbackOf != 0 && current.Generation != request.Entry.RollbackOf {
+	// An older generation here never took the failed rollout (an earlier region
+	// stopped it): it takes the rollback entry too.
+	if request.Entry.RollbackOf != 0 && current.Generation > request.Entry.RollbackOf {
 		return applyResult{}, errors.New("rollback superseded by another apply")
 	}
 	if err := before.Floor.Accepts(request.Entry.Deployment); err != nil {

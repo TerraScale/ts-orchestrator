@@ -37,6 +37,7 @@
   ],
   "port": 8080,
   "readyPath": "/readyz",
+  "readyTimeoutSeconds": 180,
   "hostnames": [
     "api.terrascale.tech",
     "gru.api.terrascale.tech"
@@ -48,9 +49,5 @@
   "replicas": 1,
   "milliCPU": 1000,
   "memoryMiB": 4096,
-  "regions": [
-    "gru",
-    "sjc",
-    "fra"
-  ]
+  "regions": ["sjc", "fra", "gru"]
 }

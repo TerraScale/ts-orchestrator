@@ -53,11 +53,31 @@ func Remove(ctx context.Context, conn *nats.Conn, name string, output io.Writer)
 	return printApply(output)(send(ctx, conn, ApplyRequest{Name: name, Entry: Entry{Generation: time.Now().UnixNano()}}, applyWait))
 }
 
+// applySpec rolls spec out region by region. When a targeted region fails,
+// the later ones never apply and every region gets the previous spec back,
+// unless a newer apply replaced this one meanwhile.
 func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSpec, wait time.Duration) ([]Reply, error) {
 	if err := validEntry(spec.Name, Entry{Generation: 1, Spec: &spec}); err != nil {
 		return nil, err
 	}
-	return send(ctx, conn, ApplyRequest{Name: spec.Name, Entry: Entry{Generation: time.Now().UnixNano(), Spec: &spec}}, wait)
+	entries, err := desiredStates(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+	before := entries[spec.Name].entry()
+	generation := max(time.Now().UnixNano(), before.Generation+1)
+	rows, failed := send(ctx, conn, ApplyRequest{Name: spec.Name, Entry: Entry{Generation: generation, Spec: &spec}}, max(wait, rolloutWait(&spec)))
+	if failed == nil || before.Spec == nil {
+		return rows, failed
+	}
+	if current, err := desiredStates(ctx, conn); err != nil || current[spec.Name].entry().Generation != generation {
+		return rows, errors.Join(failed, errors.New("not rolled back: a newer apply replaced it"), err)
+	}
+	back, err := send(ctx, conn, ApplyRequest{Name: spec.Name, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: before.Spec}}, max(rollbackWait, regionWindow(before.Spec)))
+	if err != nil {
+		return append(rows, back...), errors.Join(failed, fmt.Errorf("rollback to %s: %w", before.Spec.Image, err))
+	}
+	return append(rows, back...), errors.Join(failed, errors.New("rolled back to "+before.Spec.Image))
 }
 
 // gather publishes a request and returns the regions it expects (the seeds
