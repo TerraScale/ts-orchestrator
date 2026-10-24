@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -41,8 +42,13 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	t.Setenv("PEBBLE_WFE_NONCEREJECT", "0")
 	httpLn := listen(t)
 	tlsLn := listen(t)
-	pgLn := listen(t)
-	pgBackend, pgGot := echoBackend(t)
+	// A dual-stack listener, like the edge's ":5432": IPv4 clients arrive IPv4-mapped.
+	pgLn, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pgLn.Close() })
+	pgBackend, pgGot, pgHeaders := echoBackend(t)
 
 	logger := log.New(io.Discard, "", 0)
 	store := db.NewMemoryStore()
@@ -208,9 +214,9 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		}
 	})
 
-	pg := func(t *testing.T, packets ...[]byte) net.Conn {
+	dialPG := func(t *testing.T, host string, packets ...[]byte) net.Conn {
 		t.Helper()
-		conn, err := net.Dial("tcp", pgLn.Addr().String())
+		conn, err := net.Dial("tcp", net.JoinHostPort(host, strconv.Itoa(pgLn.Addr().(*net.TCPAddr).Port)))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -223,6 +229,16 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		}
 		return conn
 	}
+	pg := func(t *testing.T, packets ...[]byte) net.Conn { return dialPG(t, "127.0.0.1", packets...) }
+	// wantHeader is the PROXY v2 header naming conn's client and the edge address it dialed.
+	wantHeader := func(conn net.Conn) []byte {
+		src, dst := conn.LocalAddr().(*net.TCPAddr), conn.RemoteAddr().(*net.TCPAddr)
+		header := []byte("\r\n\r\n\x00\r\nQUIT\n\x21\x11\x00\x0c\x7f\x00\x00\x01\x7f\x00\x00\x01")
+		if src.IP.To4() == nil {
+			header = append([]byte("\r\n\r\n\x00\r\nQUIT\n\x21\x21\x00\x24"), append(net.IPv6loopback, net.IPv6loopback...)...)
+		}
+		return binary.BigEndian.AppendUint16(binary.BigEndian.AppendUint16(header, uint16(src.Port)), uint16(dst.Port))
+	}
 	roundTrip := func(t *testing.T, conn net.Conn) {
 		t.Helper()
 		if _, err := conn.Write([]byte("hello")); err != nil {
@@ -231,6 +247,9 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		reply := make([]byte, 5)
 		if _, err := io.ReadFull(conn, reply); err != nil || string(reply) != "hello" || string(<-pgGot) != "hello" {
 			t.Fatalf("echo = %q, %v", reply, err)
+		}
+		if got, want := <-pgHeaders, wantHeader(conn); !bytes.Equal(got, want) {
+			t.Fatalf("PROXY header = %x, want %x", got, want)
 		}
 	}
 	startup := func(code uint32) []byte { return binary.BigEndian.AppendUint32([]byte{0, 0, 0, 8}, code) }
@@ -260,6 +279,7 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	t.Run("postgres direct tls", func(t *testing.T) {
 		client := tls.Client(pg(t), &tls.Config{RootCAs: roots, ServerName: "pg.edge.test", NextProtos: []string{"postgresql"}})
 		roundTrip(t, client)
+		roundTrip(t, tls.Client(dialPG(t, "::1"), &tls.Config{RootCAs: roots, ServerName: "pg.edge.test", NextProtos: []string{"postgresql"}}))
 		// Direct TLS without the Postgres ALPN is closed before the backend.
 		client = tls.Client(pg(t), &tls.Config{RootCAs: roots, ServerName: "pg.edge.test"})
 		if _, err := client.Read(make([]byte, 1)); err == nil {
@@ -278,11 +298,14 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	t.Run("postgres cancel", func(t *testing.T) {
 		request := binary.BigEndian.AppendUint32(binary.BigEndian.AppendUint32([]byte{0, 0, 0, 16}, cancelRequest), 42)
 		request = binary.BigEndian.AppendUint32(request, 7)
-		pg(t, request)
+		conn := pg(t, request)
 		select {
 		case got := <-pgGot:
 			if !bytes.Equal(got, request) {
 				t.Fatalf("backend got %x, want %x", got, request)
+			}
+			if got, want := <-pgHeaders, wantHeader(conn); !bytes.Equal(got, want) {
+				t.Fatalf("PROXY header = %x, want %x", got, want)
 			}
 		case <-time.After(10 * time.Second):
 			t.Fatal("cancel request never reached the backend")
@@ -295,11 +318,12 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	}
 }
 
-// echoBackend stands in for a plaintext Postgres server: it reports each
-// connection's first read on got and echoes everything back.
-func echoBackend(t *testing.T) (port int, got chan []byte) {
+// echoBackend stands in for a plaintext Postgres server behind a PROXY v2
+// header: it reports each connection's header on headers and its first read
+// after the header on got, and echoes everything after the header back.
+func echoBackend(t *testing.T) (port int, got, headers chan []byte) {
 	ln := listen(t)
-	got = make(chan []byte, 8)
+	got, headers = make(chan []byte, 8), make(chan []byte, 8)
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -308,6 +332,15 @@ func echoBackend(t *testing.T) (port int, got chan []byte) {
 			}
 			go func() {
 				defer conn.Close()
+				header := make([]byte, 16)
+				if _, err := io.ReadFull(conn, header); err != nil {
+					return
+				}
+				header = append(header, make([]byte, binary.BigEndian.Uint16(header[14:]))...)
+				if _, err := io.ReadFull(conn, header[16:]); err != nil {
+					return
+				}
+				headers <- header
 				buf := make([]byte, 64)
 				n, err := conn.Read(buf)
 				if err != nil {
@@ -319,7 +352,16 @@ func echoBackend(t *testing.T) (port int, got chan []byte) {
 			}()
 		}
 	}()
-	return ln.Addr().(*net.TCPAddr).Port, got
+	return ln.Addr().(*net.TCPAddr).Port, got, headers
+}
+
+func TestProxyHeaderSendsMappedIPv4AsTCP4(t *testing.T) {
+	src := &net.TCPAddr{IP: net.ParseIP("::ffff:203.0.113.7"), Port: 50000}
+	dst := &net.TCPAddr{IP: net.ParseIP("::ffff:10.0.0.1"), Port: 5432}
+	want := []byte("\r\n\r\n\x00\r\nQUIT\n\x21\x11\x00\x0c\xcb\x00\x71\x07\x0a\x00\x00\x01\xc3\x50\x15\x38")
+	if got := proxyHeader(src, dst); !bytes.Equal(got, want) {
+		t.Fatalf("header = %x, want %x", got, want)
+	}
 }
 
 func appBackend() http.Handler {
