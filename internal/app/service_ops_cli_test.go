@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,6 +141,69 @@ func TestServiceLogsReadsBothStreamsAndFollowsTruncation(t *testing.T) {
 	}()
 	if err := writeTaskLogs(ctx, &out, state, row, true); err != nil || out.String() != "out\nerr\nx\n" {
 		t.Fatalf("follow %q, %v", out.String(), err)
+	}
+}
+
+func TestPreviousServiceLogs(t *testing.T) {
+	t.Parallel()
+	for _, stderrOnly := range []bool{false, true} {
+		t.Run(fmt.Sprint("stderrOnly=", stderrOnly), func(t *testing.T) {
+			t.Parallel()
+			state := t.TempDir()
+			client, service := opsFixture(t)
+			// Newer tasks can still be starting or rejected before the logger runs.
+			client.tasks = append(client.tasks, &api.Task{ID: "current", Slot: 1,
+				Status: api.TaskStatus{State: api.TaskStateRunning, Timestamp: client.tasks[1].Status.Timestamp}},
+				&api.Task{ID: "older", Slot: 1, Status: api.TaskStatus{State: api.TaskStateShutdown, Timestamp: service.Meta.CreatedAt}})
+			rows, err := swarmruntime.ServiceTasks(t.Context(), client, service)
+			if err != nil {
+				t.Fatal(err)
+			}
+			write := func(task, stream, data string) {
+				t.Helper()
+				path := swarmruntime.RuntimeLogFile(state, task, stream)
+				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write("current", "stdout", "current output must stay out of --previous")
+			var out bytes.Buffer
+			if err := writePreviousTaskLogs(t.Context(), &out, state, rows); err == nil || !strings.Contains(err.Error(), "no retained previous task logs") {
+				t.Fatalf("missing previous logs: %q, %v", out.String(), err)
+			}
+			want := "previous error\n"
+			write("old", "stderr", want)
+			write("older", "stdout", "older output must stay out of the newest previous task")
+			if !stderrOnly {
+				write("old", "stdout", "previous output\n")
+				want = "previous output\n" + want
+			}
+			want = "== task old node=single-host slot=1 state=failed stopped=2026-10-21T20:02:00Z ==\n" + want
+			if err := writePreviousTaskLogs(t.Context(), &out, state, rows); err != nil || out.String() != want {
+				t.Fatalf("previous logs: %q, %v; want %q", out.String(), err, want)
+			}
+			// Repeated reads leave the retained files intact.
+			out.Reset()
+			rows, err = swarmruntime.ServiceTasks(t.Context(), client, service)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := writePreviousTaskLogs(t.Context(), &out, state, rows); err != nil || out.String() != want {
+				t.Fatalf("reopened previous logs: %q, %v", out.String(), err)
+			}
+		})
+	}
+}
+
+func TestPreviousServiceLogsRejectsFollow(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"logs", "--previous", "-f", "whoami"}, {"logs", "whoami", "-f", "--previous"}} {
+		if err := runServiceOps(t.Context(), args, io.Discard, t.TempDir()); err == nil || !strings.Contains(err.Error(), "is a snapshot") {
+			t.Fatalf("combined previous/follow: %v", err)
+		}
 	}
 }
 

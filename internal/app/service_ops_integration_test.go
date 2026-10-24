@@ -93,6 +93,10 @@ func TestContainerdSingleHostOperatorCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
+	clusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
+	if err != nil || len(clusters.Clusters) != 1 || clusters.Clusters[0].Spec.Orchestration.TaskHistoryRetentionLimit != 5 {
+		t.Fatalf("expected upstream's bounded five-task history: %v, %v", clusters, err)
+	}
 	// Await the Watch API's readiness message before creating the service.
 	stream, err := startEventWatch(follow, api.NewWatchClient(conn))
 	if err != nil {
@@ -123,16 +127,22 @@ func TestContainerdSingleHostOperatorCommands(t *testing.T) {
 	if _, err := swarmruntime.ApplyServiceSpec(ctx, client, declared); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
+	var cleanupTasks []*api.Task
+	var managerStopped bool
 	t.Cleanup(func() {
 		cleanup, done := context.WithTimeout(context.Background(), 30*time.Second)
 		defer done()
-		tasks, err := client.ListTasks(cleanup, &api.ListTasksRequest{})
-		if err != nil {
-			return
+		if managerStopped {
+			_ = node.Stop(cleanup)
+		} else {
+			tasks, err := client.ListTasks(cleanup, &api.ListTasksRequest{})
+			if err == nil {
+				cleanupTasks = tasks.Tasks
+			}
+			_ = swarmruntime.RemoveServiceSpec(cleanup, client, "opsproof")
 		}
-		_ = swarmruntime.RemoveServiceSpec(cleanup, client, "opsproof")
 		// Remove containers before the node stops, or their shims outlive the test.
-		for _, task := range tasks.Tasks {
+		for _, task := range cleanupTasks {
 			if c, err := executor.Controller(task); err == nil {
 				_ = c.Remove(cleanup)
 			}
@@ -178,5 +188,63 @@ func TestContainerdSingleHostOperatorCommands(t *testing.T) {
 	if out, err := run("ps", "missing"); err == nil || !strings.Contains(err.Error(), "service ls") {
 		t.Fatalf("ps missing: %s%v", out, err)
 	}
+	if out, err := run("logs", "--previous", "opsproof"); err == nil || !strings.Contains(err.Error(), "no retained previous task logs") {
+		t.Fatalf("previous before replacement: %s%v", out, err)
+	}
+	declared.Args = []string{"/bin/sh", "-c", "echo replacement output; echo replacement error >&2; exec sleep 600"}
+	if _, err := swarmruntime.ApplyServiceSpec(ctx, client, declared); err != nil {
+		t.Fatal(err)
+	}
+	waitFor("replacement logs", func() bool {
+		out, err := run("logs", "opsproof")
+		return err == nil && out == "replacement output\nreplacement error\n"
+	})
+	previous := func() {
+		t.Helper()
+		waitFor("previous logs after replacement/restart", func() bool {
+			out, err := run("logs", "opsproof", "--previous")
+			return err == nil && strings.HasPrefix(out, "== task ") && strings.HasSuffix(out, "hello from opsproof\nwarn from opsproof\n")
+		})
+	}
+	previous()
+	retained, err := client.ListTasks(ctx, &api.ListTasksRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupTasks = retained.Tasks
+	// Reopen both the executor and manager from persisted state. The shim's
+	// logger and the retained predecessor must survive agent reconstruction.
+	managerStopped = true
+	if err := node.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := swarmruntime.NewExecutor(*containerdSocket, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousExecutor := executor
+	executor = reopened
+	if err := previousExecutor.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.BindContainerMaterial(swarmruntime.Admission{Role: "manager", Region: "local", HostID: "single-host", InstanceID: "single-host"}, noSecretMaterial{}); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := swarmruntime.StartSingleHost(ctx, state, executor, swarmruntime.SingleHostAddress, swarmruntime.SingleHostAddress, swarmruntime.FounderAdmission())
+	if err != nil {
+		t.Fatal(err)
+	}
+	node = restarted
+	reconnected, connection, err := swarmruntime.DialSingleHost(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Close(); err != nil {
+		_ = connection.Close()
+		t.Fatal(err)
+	}
+	client, conn = reconnected, connection
+	managerStopped = false
+	previous()
 	t.Logf("events:\n%s\nevents -f:\n%s", recent.String(), streamed.String())
 }

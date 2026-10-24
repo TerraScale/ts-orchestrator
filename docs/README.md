@@ -27,6 +27,7 @@ These pages describe the current greenfield Go implementation.
 | [Broker account rotation](broker-claim-rotation.md) | Operator `broker-claim-apply` procedure and receipts |
 | [Observability](observability.md) | Private metrics/health listener, structured logs, event bus and cell-wide snapshots |
 | [Production logs](logging.md) | TS-808 record v1, levels, trace IDs and the per-region log summary |
+| [Task log retention](task-log-retention.md) | Previous task stdout/stderr over NetBird SSH, bounded history and cleanup |
 | [Self-healing and automatic maintenance](self-healing.md) | TS-568 design and slices: credential expiry watch, `ts-orch doctor`, renewal, host repair, OS patching, drift and SLOs |
 | [Decision journal](decision-journal.md) | Recording decisions (call pattern for every slice), metric history, insights, summaries and the region view |
 | [Capacity](capacity.md) | TS-804 design: 3 to 12 nodes per region on load, the dashboard budget cap, and regions added or removed by one explicit call |

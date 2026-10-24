@@ -28,7 +28,7 @@ const serviceCLIUsage = `usage:
   ts-orch service ls
   ts-orch service rm <name>
   ts-orch service ps <name>
-  ts-orch service logs [-f] <name>
+  ts-orch service logs [-f | --previous] <name>
   ts-orch service inspect <name>
 `
 

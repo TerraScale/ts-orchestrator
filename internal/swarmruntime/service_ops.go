@@ -43,6 +43,7 @@ type TaskRow struct {
 	Slot                            uint64
 	Restarts                        int
 	Exit                            int32
+	Terminal                        bool
 }
 
 // ServiceTasks lists the service's tasks, newest first, with node hostnames.
@@ -70,7 +71,8 @@ func TaskRows(tasks []*api.Task, hosts map[string]string, now time.Time) []TaskR
 	rows := make([]TaskRow, 0, len(tasks))
 	for _, task := range tasks {
 		row := TaskRow{ID: task.ID, Node: hosts[task.NodeID], State: task.Status.State.String(), Slot: task.Slot,
-			Desired: task.DesiredState.String(), Error: task.Status.Err, Since: TaskTime(task), Exit: -1}
+			Desired: task.DesiredState.String(), Error: task.Status.Err, Since: TaskTime(task), Exit: -1,
+			Terminal: task.Status.State > api.TaskStateRunning}
 		if container := task.Status.GetContainer(); container != nil {
 			row.Exit = container.ExitCode
 		}
