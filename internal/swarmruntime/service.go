@@ -624,9 +624,12 @@ const (
 	// A crashed task's port is free once it exits; a cached image restarts in
 	// well under a second, so a longer delay is pure downtime.
 	serviceRestartDelay = time.Second
-	// DefaultReadyTimeout fits a cold .NET start; a spec may ask for up to maxReadyTimeoutSeconds.
+	// DefaultReadyTimeout fits a cold .NET start; a spec may ask for up to
+	// maxReadyTimeoutSeconds: TerraBase importing a ~420 MB SYSTEM snapshot after a
+	// lost catalog anchor needs more than 10 minutes, and a task is replaced only
+	// once its window ends, so a short cap restarts the import forever.
 	DefaultReadyTimeout    = time.Minute
-	maxReadyTimeoutSeconds = 600
+	maxReadyTimeoutSeconds = 1800
 	// servicePoll bounds how late `service apply` notices each phase.
 	servicePoll = 100 * time.Millisecond
 	// serviceRollout bounds a cold pull plus start and readiness.
