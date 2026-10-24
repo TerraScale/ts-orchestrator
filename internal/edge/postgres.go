@@ -109,7 +109,7 @@ func (e *Edge) postgresConn(raw net.Conn, config *tls.Config) {
 			body := make([]byte, 16)
 			copy(body, head[:])
 			if _, err := io.ReadFull(conn, body[8:]); err == nil {
-				e.forwardCancel(body)
+				e.forwardCancel(append(proxyHeader(raw.RemoteAddr(), raw.LocalAddr()), body...))
 			}
 			return
 		default:
@@ -147,6 +147,10 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool) {
 		return
 	}
 	defer backend.Close()
+	// The backend sees only loopback; the header names the client first.
+	if _, err := backend.Write(proxyHeader(conn.RemoteAddr(), conn.LocalAddr())); err != nil {
+		return
+	}
 	conn.SetDeadline(time.Time{})
 	done := make(chan struct{}, 2)
 	go func() { io.Copy(backend, client); done <- struct{}{} }()
@@ -155,8 +159,34 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool) {
 	// The deferred closes end the other copy.
 }
 
+// proxyHeader is a PROXY protocol v2 header (HAProxy spec, section 2.2) for a
+// TCP connection from src to dst, without TLVs: the signature, 0x21 (version 2,
+// PROXY), the family (0x11 TCP4 or 0x21 TCP6), the address block length and the
+// source address, destination address, source port and destination port.
+// IPv4-mapped IPv6 addresses travel as TCP4. A non-TCP pair gets a LOCAL header.
+func proxyHeader(src, dst net.Addr) []byte {
+	header := []byte("\r\n\r\n\x00\r\nQUIT\n")
+	s, sok := src.(*net.TCPAddr)
+	d, dok := dst.(*net.TCPAddr)
+	if !sok || !dok {
+		return append(header, 0x20, 0x00, 0, 0)
+	}
+	header = append(header, 0x21)
+	sIP, dIP := s.IP.To4(), d.IP.To4()
+	family := byte(0x11)
+	if sIP == nil || dIP == nil {
+		sIP, dIP, family = s.IP.To16(), d.IP.To16(), 0x21
+	}
+	header = append(header, family)
+	header = binary.BigEndian.AppendUint16(header, uint16(2*len(sIP)+4))
+	header = append(append(header, sIP...), dIP...)
+	header = binary.BigEndian.AppendUint16(header, uint16(s.Port))
+	return binary.BigEndian.AppendUint16(header, uint16(d.Port))
+}
+
 // forwardCancel sends a CancelRequest to every Postgres backend: the request
-// names no host, and a backend ignores a key it did not issue.
+// names no host, and a backend ignores a key it did not issue. The request
+// starts with the client's PROXY header.
 func (e *Edge) forwardCancel(request []byte) {
 	for _, port := range slices.Compact(slices.Sorted(maps.Values(*e.postgres.Load()))) {
 		backend, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 2*time.Second)
