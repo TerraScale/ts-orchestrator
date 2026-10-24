@@ -66,14 +66,14 @@ func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSp
 	}
 	before := entries[spec.Name].entry()
 	generation := max(time.Now().UnixNano(), before.Generation+1)
-	rows, failed := send(ctx, conn, ApplyRequest{Name: spec.Name, Entry: Entry{Generation: generation, Spec: &spec}}, wait)
+	rows, failed := send(ctx, conn, ApplyRequest{Name: spec.Name, Entry: Entry{Generation: generation, Spec: &spec}}, max(wait, rolloutWait(&spec)))
 	if failed == nil || before.Spec == nil {
 		return rows, failed
 	}
 	if current, err := desiredStates(ctx, conn); err != nil || current[spec.Name].entry().Generation != generation {
 		return rows, errors.Join(failed, errors.New("not rolled back: a newer apply replaced it"), err)
 	}
-	back, err := send(ctx, conn, ApplyRequest{Name: spec.Name, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: before.Spec}}, rollbackWait)
+	back, err := send(ctx, conn, ApplyRequest{Name: spec.Name, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: before.Spec}}, max(rollbackWait, regionWindow(before.Spec)))
 	if err != nil {
 		return append(rows, back...), errors.Join(failed, fmt.Errorf("rollback to %s: %w", before.Spec.Image, err))
 	}

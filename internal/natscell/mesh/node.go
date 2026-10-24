@@ -389,12 +389,12 @@ func (n *Node) sync(ctx context.Context) {
 
 func (n *Node) handleApply(m *nats.Msg) {
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(n.ctx, applyWait-10*time.Second)
+	var request ApplyRequest
+	err := protocol.DecodeTolerant(m.Data, &request, maxWire)
+	ctx, cancel := context.WithTimeout(n.ctx, n.applyWindow(request.Entry.Spec))
 	defer cancel()
 	reply := Reply{Region: n.cfg.region, Server: n.cfg.server, Regions: n.regions()}
-	var request ApplyRequest
 	var applied applyResult
-	err := protocol.DecodeTolerant(m.Data, &request, maxWire)
 	var pulled time.Duration
 	if spec := request.Entry.Spec; err == nil && spec != nil && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
 		// The task's own Prepare still pulls, so a failed pre-pull only costs speed.
@@ -502,6 +502,30 @@ func (n *Node) earlier(spec *swarmruntime.ServiceSpec) []string {
 		return slices.Clone(order[:i])
 	}
 	return nil // first, untargeted or outside the order: waits for nobody
+}
+
+// regionWindow is one region's share of a rollout: its readiness timeout
+// plus pull and submit.
+func regionWindow(spec *swarmruntime.ServiceSpec) time.Duration {
+	ready := swarmruntime.DefaultReadyTimeout
+	if spec != nil && spec.ReadyTimeoutSeconds != 0 {
+		ready = time.Duration(spec.ReadyTimeoutSeconds) * time.Second
+	}
+	return ready + 30*time.Second
+}
+
+// rolloutWait bounds a whole rollout of spec: every region in turn.
+func rolloutWait(spec *swarmruntime.ServiceSpec) time.Duration {
+	if spec == nil {
+		return applyWait
+	}
+	return max(applyWait, time.Duration(max(len(rolloutOrder(spec)), 1))*regionWindow(spec))
+}
+
+// applyWindow bounds this region's part: waiting for the earlier regions, then
+// its own rollout; it replies before the caller's rolloutWait ends.
+func (n *Node) applyWindow(spec *swarmruntime.ServiceSpec) time.Duration {
+	return max(applyWait, time.Duration(len(n.earlier(spec))+1)*regionWindow(spec)) - 10*time.Second
 }
 
 // errEarlierFailed stops a region from waiting for a generation an earlier

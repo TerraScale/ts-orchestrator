@@ -67,14 +67,14 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	next.Image = image
 	generation := max(time.Now().UnixNano(), entries[service].entry().Generation+1)
 	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment}}
-	rows, failed := send(ctx, conn, request, wait)
+	rows, failed := send(ctx, conn, request, max(wait, rolloutWait(&next)))
 	if failed == nil {
 		return rows, nil
 	}
 	if current, err := desiredStates(ctx, conn); err != nil || current[service].entry().Generation != generation {
 		return rows, errors.Join(failed, errors.New("not rolled back: a newer release replaced it"), err)
 	}
-	back, err := send(ctx, conn, ApplyRequest{Name: service, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: previous, Deployment: deployment}}, rollbackWait)
+	back, err := send(ctx, conn, ApplyRequest{Name: service, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: previous, Deployment: deployment}}, max(rollbackWait, regionWindow(previous)))
 	if err != nil {
 		return append(rows, back...), errors.Join(failed, fmt.Errorf("rollback to %s: %w", previous.Image, err))
 	}

@@ -60,7 +60,7 @@ func PushApp(ctx context.Context, args []string, output io.Writer) error {
 			unreachable = errors.Join(unreachable, fmt.Errorf("region %s: %w", region.Region, err))
 			continue
 		}
-		reply, err := request(ctx, conn, SubjectApp, payload, 2*time.Minute+10*time.Second)
+		reply, err := request(ctx, conn, SubjectApp, payload, HandlerWait+10*time.Second)
 		conn.Close()
 		result = AppResult{Via: region.Region, State: reply.State, Error: reply.Error, Regions: reply.Result, ServingMS: time.Since(start).Milliseconds()}
 		if err != nil {
