@@ -136,6 +136,10 @@ func InspectService(service *api.Service) (ServiceInspection, error) {
 	if replicated := service.Spec.GetReplicated(); replicated != nil {
 		spec.Replicas = replicated.Replicas
 	}
+	// The fully reserved budget, so inspect shows what the service holds on its host.
+	if r := service.Spec.Task.Resources; r != nil && r.Reservations != nil {
+		spec.MilliCPU, spec.MemoryMiB = uint32(r.Reservations.NanoCPUs/1_000_000), uint32(r.Reservations.MemoryBytes>>20)
+	}
 	for _, entry := range container.Env {
 		if spec.Env == nil {
 			spec.Env = map[string]string{}
