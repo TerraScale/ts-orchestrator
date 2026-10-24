@@ -21,8 +21,9 @@ func TestServiceSpecTaskPortStartsFirst(t *testing.T) {
 	if port, err := hostPort(task); err != nil || port != 8090 {
 		t.Fatalf("hostPort = %d, %v", port, err)
 	}
-	if inspected, err := InspectService(&api.Service{Spec: *spec}); err != nil || inspected.Spec.Port != 8090 {
-		t.Fatalf("inspect port = %d, %v", inspected.Spec.Port, err)
+	// A spec with no budget holds the small test-service default, and inspect shows it.
+	if inspected, err := InspectService(&api.Service{Spec: *spec}); err != nil || inspected.Spec.Port != 8090 || inspected.Spec.MilliCPU != 50 || inspected.Spec.MemoryMiB != 64 {
+		t.Fatalf("inspect port = %d, budget %dm/%dMiB, %v", inspected.Spec.Port, inspected.Spec.MilliCPU, inspected.Spec.MemoryMiB, err)
 	}
 	container, err := containerOf(*spec)
 	if err != nil {

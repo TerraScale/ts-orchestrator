@@ -424,7 +424,7 @@ type ServiceSpec struct {
 	// readyPath before the update rolls back; zero keeps DefaultReadyTimeout.
 	ReadyTimeoutSeconds uint32 `json:"readyTimeoutSeconds,omitempty"`
 	// MilliCPU and MemoryMiB size the fully reserved budget; zero keeps the
-	// 100m CPU / 256 MiB default of a test or probe service.
+	// 50m CPU / 64 MiB default of a test or probe service.
 	MilliCPU  uint32 `json:"milliCPU,omitempty"`
 	MemoryMiB uint32 `json:"memoryMiB,omitempty"`
 	// Regions lists the region tokens that run the service; empty means every
@@ -578,7 +578,7 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	// A spec that names no budget (a test or probe service) reserves little, so it
 	// never starves TerraBase on a 2-CPU host; every production spec sizes its own.
-	cpu, memory := int64(100_000_000), int64(256<<20)
+	cpu, memory := int64(50_000_000), int64(64<<20)
 	if s.MilliCPU != 0 {
 		cpu = int64(s.MilliCPU) * 1_000_000
 	}

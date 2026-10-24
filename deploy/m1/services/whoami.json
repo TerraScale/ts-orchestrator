@@ -6,6 +6,6 @@
   "readyPath": "/readyz",
   "hostnames": ["gru.mesh.terrascale.tech", "sjc.mesh.terrascale.tech", "fra.mesh.terrascale.tech"],
   "replicas": 1,
-  "milliCPU": 100,
-  "memoryMiB": 64
+  "milliCPU": 50,
+  "memoryMiB": 32
 }
