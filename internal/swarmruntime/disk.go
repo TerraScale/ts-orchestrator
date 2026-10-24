@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 
 	"github.com/TerraScale/ts-orchestrator/internal/storage/capacity"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -80,6 +81,39 @@ func (e *Executor) diskCapacity(ctx context.Context) (int64, error) {
 		available = min(available, headroom)
 	}
 	return available, ctx.Err()
+}
+
+// schedulableDisk is the disk a node offers the scheduler: its free headroom
+// plus the budgets its live and prepared containers already hold. The
+// scheduler subtracts those budgets again, and they are mostly unwritten, so
+// offering only the free headroom counted them twice: a 2-CPU host with
+// TerraBase and whoami (10 GiB budgets each) and ~21 GiB free had no room for
+// ts-auth. Prepare still refuses a container the free headroom cannot hold.
+// shortcut: bytes a container already wrote count in both, overstating the offer by that much; measure per-task usage if hosts run near full.
+func (e *Executor) schedulableDisk(ctx context.Context) (int64, error) {
+	free, err := e.diskCapacity(ctx)
+	if err != nil {
+		return 0, err
+	}
+	containers, err := e.client.Containers(runtimeContext(ctx))
+	if err != nil {
+		return 0, err
+	}
+	for _, container := range containers {
+		labels, err := container.Labels(runtimeContext(ctx))
+		if err != nil {
+			return 0, err
+		}
+		budget, err := strconv.ParseInt(labels[diskBytesLabel], 10, 64)
+		if err != nil || budget <= 0 {
+			continue
+		}
+		if holder, err := portHolderState(runtimeContext(ctx), container); err != nil || holder == holderExited {
+			continue
+		}
+		free += budget
+	}
+	return free, nil
 }
 
 func diskHeadroom(stat unix.Statfs_t) (int64, error) {

@@ -107,7 +107,7 @@ func (e *Executor) Describe(ctx context.Context) (*api.NodeDescription, error) {
 	resources := &api.Resources{NanoCPUs: max(int64(runtime.NumCPU())*1_000_000_000-250_000_000, 0), MemoryBytes: max(int64(info.Totalram)*int64(info.Unit)-(256<<20), 0)}
 	// Missing storage measurements hold new disk placements without failing
 	// node description or disturbing an already running healthy task.
-	if disk, err := e.diskCapacity(ctx); err == nil && disk > 0 {
+	if disk, err := e.schedulableDisk(ctx); err == nil && disk > 0 {
 		resources.Generic = append(resources.Generic, genericresource.NewDiscrete(DiskResource, disk))
 	}
 	e.mu.Lock()
