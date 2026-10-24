@@ -358,3 +358,30 @@ func TestRegionByRegionHandoffServesEveryProbe(t *testing.T) {
 		t.Fatalf("%d probes, %d failed (last: %v); want >= 150 and 0", probes.Load(), failures.Load(), failed.Load())
 	}
 }
+
+// A request to a regional host (fra.api...) that fra cannot serve replays to
+// sjc as sjc.api...: each edge routes only its own region's name (TS-925).
+func TestReplayRewritesRegionalHost(t *testing.T) {
+	regions := startRegions(t, terraBase)
+	for name, reg := range regions {
+		port := reg.backend.Listener.Addr().(*net.TCPAddr).Port
+		reg.edge.SetRoutes(map[string]int{host: port, name + "." + host: port}, nil)
+	}
+	req, _ := http.NewRequest(http.MethodPost, regions["fra"].public.URL+"/v1/db/tx", strings.NewReader(`{"tx":1}`))
+	req.Host = "fra." + host
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || !strings.HasPrefix(string(body), `sjc served POST /v1/db/tx src="region=fra"`) {
+		t.Fatalf("fra.%s -> %d %q", host, resp.StatusCode, body)
+	}
+	if got := regionalHost("sjc.api.terrascale.tech:443", "sjc", "gru"); got != "gru.api.terrascale.tech:443" {
+		t.Fatalf("regionalHost = %q", got)
+	}
+	if got := regionalHost("api.terrascale.tech", "sjc", "gru"); got != "api.terrascale.tech" {
+		t.Fatalf("regionalHost of a global host = %q", got)
+	}
+}

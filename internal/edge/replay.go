@@ -266,6 +266,7 @@ func (e *Edge) send(out *http.Request, region, source string) (*http.Response, e
 	req.Body = body
 	req.URL.Scheme = "https"
 	req.URL.Host = e.peerAddr(region)
+	req.Host = regionalHost(out.Host, source, region)
 	req.Header.Set(replaySrcHeader, "region="+source)
 	resp, err := e.peers.RoundTrip(req)
 	if err != nil {
@@ -280,6 +281,24 @@ func (e *Edge) send(out *http.Request, region, source string) (*http.Response, e
 		return nil, nil
 	}
 	return resp, nil
+}
+
+// regionalHost turns a host that names the source region (sjc.api.example)
+// into the target region's (fra.api.example): each edge derives a route only
+// for its own region's name, so the peer would otherwise answer down.
+func regionalHost(host, source, target string) string {
+	name, port, err := net.SplitHostPort(host)
+	if err != nil {
+		name, port = host, ""
+	}
+	first, rest, ok := strings.Cut(name, ".")
+	if !ok || !strings.EqualFold(first, source) {
+		return host
+	}
+	if port != "" {
+		return net.JoinHostPort(target+"."+rest, port)
+	}
+	return target + "." + rest
 }
 
 // parseReplay reads "region=a,b;instance=m;fallback=self".
