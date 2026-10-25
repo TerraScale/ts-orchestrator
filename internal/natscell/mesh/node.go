@@ -381,6 +381,13 @@ func (n *Node) sync(ctx context.Context) {
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(n.desired)) {
+		// The peers file follows desired state even while the rollout waits (a
+		// held canary or an earlier region's turn): a restart must re-render it.
+		if entry := n.desired[name].entry(); entry.Spec != nil && (len(entry.Spec.Regions) == 0 || slices.Contains(entry.Spec.Regions, n.cfg.region)) {
+			if err := n.peers.track(name, entry.Spec.Regions); err != nil {
+				slog.WarnContext(ctx, "mesh peers file track failed", "service", name, "error", err)
+			}
+		}
 		if entry := n.desired[name].entry(); n.held(entry) || entry.RollbackOf == 0 && n.turn(name, entry.Spec, entry.Generation, states) != nil {
 			continue // an earlier region still rolls this generation out
 		}
