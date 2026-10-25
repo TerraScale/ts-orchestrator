@@ -677,3 +677,37 @@ func TestMeshBridge(t *testing.T) {
 		t.Fatal("multi-region token published a release subject")
 	}
 }
+
+func TestCanaryAfterCIIdentityCannotReleaseOtherServices(t *testing.T) {
+	now := time.Now()
+	i := newIssuer(t)
+	h := &Handler{Verifier: i.verifier(now)}
+	image := func(service string) string {
+		return "ghcr.io/terrascale/" + service + "@sha256:" + strings.Repeat("a", 64)
+	}
+	claims := with(with(goodClaims(now), "workflow_ref", canaryWorkflow), "event_name", "workflow_run")
+	delete(claims, "job_workflow_ref")
+	token := i.sign(t, claims)
+	if _, err := h.validateApp(t.Context(), AppRelease{Service: "app-canary", Image: image("app-canary"), Token: token}); err != nil {
+		t.Fatalf("canary after CI rejected: %v", err)
+	}
+	if _, err := h.validateApp(t.Context(), AppRelease{Service: "ts-auth", Image: image("ts-auth"), Token: token}); err == nil {
+		t.Fatal("canary workflow released another service")
+	}
+	if _, err := h.Verifier.VerifyMesh(t.Context(), token); err == nil {
+		t.Fatal("canary workflow gained the general mesh bridge")
+	}
+	for _, workflow := range []string{orchWorkflow, owner + "/terrascale/.github/workflows/ci.yml@" + mainRef} {
+		claims := with(with(goodClaims(now), "job_workflow_ref", workflow), "event_name", "workflow_run")
+		if _, err := h.Verifier.Verify(t.Context(), i.sign(t, claims)); err == nil {
+			t.Fatalf("workflow_run privilege escaped to %s", workflow)
+		}
+	}
+	conflicting := with(with(goodClaims(now), "workflow_ref", canaryWorkflow), "event_name", "workflow_run")
+	if _, err := h.Verifier.Verify(t.Context(), i.sign(t, conflicting)); err == nil {
+		t.Fatal("caller workflow_ref replaced a different reusable job's authority")
+	}
+	if _, err := h.Verifier.Verify(t.Context(), i.sign(t, with(claims, "event_name", "pull_request"))); err == nil {
+		t.Fatal("pull request gained canary release authority")
+	}
+}

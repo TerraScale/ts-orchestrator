@@ -1,13 +1,15 @@
 name: App release canary
 
-# Proves app auto-deploy (W22) end to end on every main push: publishes
+# Proves app auto-deploy after each successful main release: publishes
 # ghcr.io/terrascale/app-canary (traefik/whoami relabelled with this commit,
 # so every push is a new digest) and releases its linux/arm64 digest to every
-# region with `ts-orch release app`. Hosts admit this workflow's OIDC token
+# targeted region with `ts-orch release app`. Hosts admit this workflow's OIDC token
 # for the app-canary service only (releasepush appServices). The job summary
 # shows published -> serving in every region.
 on:
-  push:
+  workflow_run:
+    workflows: [TerraScale Orchestrator Go checks]
+    types: [completed]
     branches: [main]
 
 # An admitted rollout must finish or roll back before another canary starts.
@@ -20,6 +22,8 @@ permissions:
 
 jobs:
   release:
+    # The receiver must be upgraded before the canary exercises the release API.
+    if: ${{ github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' }}
     name: app-canary/release
     runs-on: ubuntu-24.04
     timeout-minutes: 10

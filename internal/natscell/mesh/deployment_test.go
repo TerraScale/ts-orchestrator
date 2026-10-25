@@ -178,6 +178,12 @@ type evidenceApplier struct {
 }
 
 func (a *evidenceApplier) Wait(_ context.Context, spec swarmruntime.ServiceSpec, _ *api.Service) (swarmruntime.ServiceRollout, error) {
+	a.mu.Lock()
+	unready := spec.Image == a.unready
+	a.mu.Unlock()
+	if unready {
+		return swarmruntime.ServiceRollout{}, fmt.Errorf("test image not ready")
+	}
 	if a.waiting != nil {
 		a.waiting(spec)
 	}
