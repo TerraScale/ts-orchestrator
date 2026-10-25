@@ -18,94 +18,99 @@ groups:
         labels:
           service: ts-dashboard
           slo: availability
-      - record: slo:objective
-        expr: vector(0.999)
-        labels:
-          service: ts-atlas
-          slo: availability
-      - record: slo:objective
-        expr: vector(0.999)
-        labels:
-          service: ts-router
-          slo: availability
       - record: slo:error_budget:ratio
         expr: 1 - slo:objective
+      # Existing ASP.NET HTTP histogram counts, normalized per process before rate.
+      # Probe/internal routes and unclassified routes are excluded. Native dashboard
+      # counters already implement the contract and need no recording adapter.
+      - record: terrascale_slo_requests_total
+        expr: |
+          (sum by (service, instance, region) (http_server_request_duration_seconds_count{service=~"terrabase|ts-auth",http_route!="",http_route!~"/(metrics|readyz|healthz|health|internal|admin|terrabase[.]v1[.].*)(/.*)?|/v1/[^/]+/deletions(/.*)?|/v1/admin(/.*)?|/v1/catalog-gate(/.*)?",http_response_status_code=~"[1-4]..",http_response_status_code!~"408|499",error_type=""}))
+          or on (service, instance, region) (0 * sum by (service, instance, region) (http_server_request_duration_seconds_count{service=~"terrabase|ts-auth"}))
+        labels:
+          outcome: good
+      - record: terrascale_slo_requests_total
+        expr: |
+          (sum by (service, instance, region) (http_server_request_duration_seconds_count{service=~"terrabase|ts-auth",http_route!="",http_route!~"/(metrics|readyz|healthz|health|internal|admin|terrabase[.]v1[.].*)(/.*)?|/v1/[^/]+/deletions(/.*)?|/v1/admin(/.*)?|/v1/catalog-gate(/.*)?",http_response_status_code=~"5..|408|499"} or http_server_request_duration_seconds_count{service=~"terrabase|ts-auth",http_route!="",http_route!~"/(metrics|readyz|healthz|health|internal|admin|terrabase[.]v1[.].*)(/.*)?|/v1/[^/]+/deletions(/.*)?|/v1/admin(/.*)?|/v1/catalog-gate(/.*)?",error_type!=""}))
+          or on (service, instance, region) (0 * sum by (service, instance, region) (http_server_request_duration_seconds_count{service=~"terrabase|ts-auth"}))
+        labels:
+          outcome: bad
       - record: slo:requests:rate5m
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[5m]))
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[5m]))
         labels:
           slo: availability
       - record: slo:errors:ratio5m
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[5m])) / on (service) slo:requests:rate5m
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome="bad"}[5m])) / on (service) slo:requests:rate5m
         labels:
           slo: availability
       - record: slo:burn_rate:ratio5m
         expr: slo:errors:ratio5m / slo:error_budget:ratio
       - record: slo:requests:rate30m
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[30m]))
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[30m]))
         labels:
           slo: availability
       - record: slo:errors:ratio30m
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[30m])) / on (service) slo:requests:rate30m
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome="bad"}[30m])) / on (service) slo:requests:rate30m
         labels:
           slo: availability
       - record: slo:burn_rate:ratio30m
         expr: slo:errors:ratio30m / slo:error_budget:ratio
       - record: slo:requests:rate1h
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[1h]))
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[1h]))
         labels:
           slo: availability
       - record: slo:errors:ratio1h
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[1h])) / on (service) slo:requests:rate1h
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome="bad"}[1h])) / on (service) slo:requests:rate1h
         labels:
           slo: availability
       - record: slo:burn_rate:ratio1h
         expr: slo:errors:ratio1h / slo:error_budget:ratio
       - record: slo:requests:rate2h
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[2h]))
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[2h]))
         labels:
           slo: availability
       - record: slo:errors:ratio2h
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[2h])) / on (service) slo:requests:rate2h
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome="bad"}[2h])) / on (service) slo:requests:rate2h
         labels:
           slo: availability
       - record: slo:burn_rate:ratio2h
         expr: slo:errors:ratio2h / slo:error_budget:ratio
       - record: slo:requests:rate6h
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[6h]))
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[6h]))
         labels:
           slo: availability
       - record: slo:errors:ratio6h
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[6h])) / on (service) slo:requests:rate6h
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome="bad"}[6h])) / on (service) slo:requests:rate6h
         labels:
           slo: availability
       - record: slo:burn_rate:ratio6h
         expr: slo:errors:ratio6h / slo:error_budget:ratio
       - record: slo:requests:rate1d
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[1d]))
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[1d]))
         labels:
           slo: availability
       - record: slo:errors:ratio1d
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[1d])) / on (service) slo:requests:rate1d
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome="bad"}[1d])) / on (service) slo:requests:rate1d
         labels:
           slo: availability
       - record: slo:burn_rate:ratio1d
         expr: slo:errors:ratio1d / slo:error_budget:ratio
       - record: slo:requests:rate3d
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[3d]))
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[3d]))
         labels:
           slo: availability
       - record: slo:errors:ratio3d
-        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[3d])) / on (service) slo:requests:rate3d
+        expr: sum by (service) (rate(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome="bad"}[3d])) / on (service) slo:requests:rate3d
         labels:
           slo: availability
       - record: slo:burn_rate:ratio3d
         expr: slo:errors:ratio3d / slo:error_budget:ratio
       - record: slo:requests:increase30d
-        expr: sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[30d]))
+        expr: sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[30d]))
         labels:
           slo: availability
       - record: slo:errors:ratio30d
-        expr: sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome="bad"}[30d])) / sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard|ts-atlas|ts-router",outcome=~"good|bad"}[30d]))
+        expr: sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome="bad"}[30d])) / sum by (service) (increase(terrascale_slo_requests_total{service=~"terrabase|ts-auth|ts-dashboard",outcome=~"good|bad"}[30d]))
         labels:
           slo: availability
       - record: slo:budget_remaining:ratio30d

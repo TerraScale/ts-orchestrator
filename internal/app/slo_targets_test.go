@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 func TestSLOTargetFileRetiresTargetsAndIsPubliclyReadable(t *testing.T) {
+	previousMask := syscall.Umask(0077)
+	defer syscall.Umask(previousMask)
 	path := filepath.Join(t.TempDir(), "discovery", "targets.json")
 	targets := []swarmruntime.SLOTarget{{Targets: []string{"127.0.0.1:41001"}, Labels: map[string]string{"service": "ts-auth", "instance": "task-one", "region": "gru"}}}
 	if err := writeSLOTargets(path, targets); err != nil {
@@ -27,8 +30,19 @@ func TestSLOTargetFileRetiresTargetsAndIsPubliclyReadable(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0644 {
 		t.Fatalf("Prometheus cannot read discovery file: %v %v", info, err)
 	}
+	directory, err := os.Stat(filepath.Dir(path))
+	if err != nil || directory.Mode().Perm() != 0755 {
+		t.Fatalf("Prometheus cannot traverse discovery directory: %v %v", directory, err)
+	}
+	if err := os.Chmod(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := writeSLOTargets(path, []swarmruntime.SLOTarget{}); err != nil {
 		t.Fatal(err)
+	}
+	directory, err = os.Stat(filepath.Dir(path))
+	if err != nil || directory.Mode().Perm() != 0755 {
+		t.Fatalf("existing private discovery directory was not repaired: %v %v", directory, err)
 	}
 	data, err = os.ReadFile(path)
 	if err != nil || string(data) != "[]" {

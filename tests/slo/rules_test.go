@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-var services = []string{"terrabase", "ts-auth", "ts-dashboard", "ts-atlas", "ts-router"}
+var services = []string{"terrabase", "ts-auth", "ts-dashboard"}
 
 // Promtool evaluates the shipped PromQL, including counter resets and vector
 // matching. TS_SLO_PROMTOOL is mandatory in the SLO workflow; ordinary Go
@@ -157,13 +157,73 @@ func TestPrometheusRules(t *testing.T) {
 	// Only a service with no counter of any outcome is missing telemetry.
 	fixture.WriteString("  - name: partial missing service\n    interval: 1m\n    input_series:\n")
 	for _, service := range services {
-		if service == "ts-router" {
+		if service == "ts-auth" {
 			continue
 		}
 		fmt.Fprintf(&fixture, "      - series: 'terrascale_slo_requests_total{service=%q,outcome=\"good\"}'\n        values: '0+1000x15'\n", service)
 		fmt.Fprintf(&fixture, "      - series: 'terrascale_slo_requests_total{service=%q,outcome=\"bad\"}'\n        values: '0+0x15'\n", service)
 	}
-	fixture.WriteString("    alert_rule_test:\n      - eval_time: 15m\n        alertname: ServiceSLOTelemetryMissing\n        exp_alerts:\n" + missingAlert("ts-router"))
+	fixture.WriteString("    alert_rule_test:\n      - eval_time: 15m\n        alertname: ServiceSLOTelemetryMissing\n        exp_alerts:\n" + missingAlert("ts-auth"))
+	fixture.WriteString(`  - name: native HTTP normalization keeps process counters and excludes probes
+    interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{service="terrabase",instance="base-one",region="gru",http_route="/v1/projects/{project}/databases",http_response_status_code="200"}'
+        values: '0+98x15'
+      - series: 'http_server_request_duration_seconds_count{service="terrabase",instance="base-one",region="gru",http_route="/v1/projects/{project}/databases",http_response_status_code="404"}'
+        values: '0+1x15'
+      - series: 'http_server_request_duration_seconds_count{service="terrabase",instance="base-one",region="gru",http_route="/v1/projects/{project}/databases",http_response_status_code="503",error_type="503"}'
+        values: '0+1x15'
+      - series: 'http_server_request_duration_seconds_count{service="terrabase",instance="base-one",region="gru",http_route="/readyz",http_response_status_code="503"}'
+        values: '0+1000x15'
+      - series: 'http_server_request_duration_seconds_count{service="terrabase",instance="base-one",region="gru",http_route="/metrics",http_response_status_code="200"}'
+        values: '0+1000x15'
+      - series: 'http_server_request_duration_seconds_count{service="terrabase",instance="base-one",region="gru",http_route="/terrabase.v1.Replication/Push",http_response_status_code="500"}'
+        values: '0+1000x15'
+      - series: 'http_server_request_duration_seconds_count{service="terrabase",instance="base-one",region="gru",http_route="/v1/admin/node/pressure",http_response_status_code="200"}'
+        values: '0+1000x15'
+      - series: 'http_server_request_duration_seconds_count{service="terrabase",instance="base-one",region="gru",http_route="/v1/catalog-gate",http_response_status_code="503"}'
+        values: '0+1000x15'
+      - series: 'http_server_request_duration_seconds_count{service="ts-auth",instance="auth-one",region="gru",http_route="/v1/{slug}/deletions/{id}/acknowledge",http_response_status_code="503"}'
+        values: '0+1000x15'
+      - series: 'http_server_request_duration_seconds_count{service="ts-auth",instance="auth-one",region="gru",http_route="/{slug}/oauth/token",http_response_status_code="401"}'
+        values: '0+100x15'
+      - series: 'http_server_request_duration_seconds_count{service="ts-auth",instance="auth-two",region="gru",http_route="/readyz",http_response_status_code="200"}'
+        values: '0+1000x15'
+      - series: 'http_server_request_duration_seconds_count{service="ts-auth",instance="auth-two",region="gru",http_response_status_code="200"}'
+        values: '0+1000x15'
+      - series: 'terrascale_slo_requests_total{service="ts-dashboard",instance="dash-one",region="gru",outcome="good"}'
+        values: '0+100x15'
+      - series: 'terrascale_slo_requests_total{service="ts-dashboard",instance="dash-one",region="gru",outcome="bad"}'
+        values: '0+0x15'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ServiceSLOTelemetryMissing
+        exp_alerts: []
+    promql_expr_test:
+      - expr: terrascale_slo_requests_total{service="terrabase"}
+        eval_time: 15m
+        exp_samples:
+          - labels: 'terrascale_slo_requests_total{service="terrabase",instance="base-one",region="gru",outcome="good"}'
+            value: 1485
+          - labels: 'terrascale_slo_requests_total{service="terrabase",instance="base-one",region="gru",outcome="bad"}'
+            value: 15
+      - expr: terrascale_slo_requests_total{service="ts-auth"}
+        eval_time: 15m
+        exp_samples:
+          - labels: 'terrascale_slo_requests_total{service="ts-auth",instance="auth-one",region="gru",outcome="good"}'
+            value: 1500
+          - labels: 'terrascale_slo_requests_total{service="ts-auth",instance="auth-one",region="gru",outcome="bad"}'
+            value: 0
+          - labels: 'terrascale_slo_requests_total{service="ts-auth",instance="auth-two",region="gru",outcome="good"}'
+            value: 0
+          - labels: 'terrascale_slo_requests_total{service="ts-auth",instance="auth-two",region="gru",outcome="bad"}'
+            value: 0
+      - expr: round(slo:burn_rate:ratio5m{service="terrabase"})
+        eval_time: 15m
+        exp_samples:
+          - labels: '{service="terrabase",slo="availability"}'
+            value: 10
+`)
 	path := filepath.Join(t.TempDir(), "rules.yml")
 	if err := os.WriteFile(path, []byte(fixture.String()), 0600); err != nil {
 		t.Fatal(err)

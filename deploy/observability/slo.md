@@ -12,11 +12,9 @@ Coverage requires native counters and verified collection for each service.
 | `terrabase` | 99.9% | Rolling 30 days | Public database API requests |
 | `ts-auth` | 99.9% | Rolling 30 days | Public authentication/identity API requests |
 | `ts-dashboard` | 99.9% | Rolling 30 days | Dashboard pages, platform API and MCP requests |
-| `ts-atlas` | 99.9% | Rolling 30 days | Discovery and global proxy requests |
-| `ts-router` | 99.9% | Rolling 30 days | Admitted inference requests, including streams |
 
 These are initial engineering targets for the closed beta, not customer SLAs.
-The five `slo:objective` rules in [slo-rules.yml](slo-rules.yml) are the
+The three `slo:objective` rules in [slo-rules.yml](slo-rules.yml) are the
 machine-readable definitions. The policy counts availability only; latency
 targets require service-specific measurement and are outside this slice.
 
@@ -38,7 +36,7 @@ terrascale_slo_requests_total{service="terrabase",outcome="bad"} 1
 
 Every serving instance must initialize both counters to zero and increment
 exactly one for each completed eligible operation. Scrape labels must preserve
-instance identity until `rate`/`increase` is applied. Only the five service
+instance identity until `rate`/`increase` is applied. Only the three service
 labels above and outcomes `good` and `bad` are allowed; never label tenants,
 users, credentials, request IDs or raw paths. Transport and streaming failures
 must be observed at the boundary that sees the terminal result, rather than
@@ -60,12 +58,24 @@ configuration and fixtures, not a new application data store. Backend and
 Grafana provisioning/storage must follow the existing TerraScale ownership
 and persistence rules in the runtime activation slice.
 
-TerraBase uses its native Prometheus listener on port 9091. Auth and dashboard
-expose guarded loopback application-listener metrics; the orchestrator discovers
-each running task port for Prometheus file discovery. Native emitter releases
-must be installed before collection can satisfy this contract. Verify both
-outcomes and instance identity against the deployed releases; never relabel
-health checks or process readiness into request success.
+TerraBase uses its native Prometheus listener on port 9091. Auth already exports
+ASP.NET HTTP duration counts on a dedicated ephemeral metrics listener. The
+orchestrator discovers that listener from the running task's owned sockets;
+no fixed port or service change is required. Recording rules normalize these
+existing counts into the contract, preserving `service`, `instance` and `region`.
+HTTP 5xx, 408, 499 and explicit transport errors count bad; other completed
+1xx–4xx responses count good. Probes, known internal routes and unclassified
+routes are excluded, including auth metrics requests without a route. Both
+outcomes initialize to zero only when the real HTTP counter is present.
+
+This HTTP baseline cannot distinguish capacity from tenant-quota 429s, OAuth
+errors encoded in HTTP 200, or every late protocol failure. It measures the
+available HTTP signal; it does not claim complete protocol-level coverage.
+Dashboard has no existing exporter and supplies native terminal counters on a
+guarded loopback `/metrics` app listener. Its caller cancellations conservatively
+count bad when attribution cannot be proven. Atlas and router are not deployed
+and have no objectives or dashboard selection. Never relabel readiness as request
+success. Verify collection and outcomes against the installed releases.
 
 ## Burn-rate alerts
 
@@ -125,7 +135,7 @@ replicas can bias fractions; no-data is never evidence of health.
    Remove the rule-file entry and imported dashboard to revert the policy
    assets; service telemetry remains useful independently.
 
-`tests/slo` evaluates the shipped rules with Prometheus itself: all five
+`tests/slo` evaluates the shipped rules with Prometheus itself: all three
 services, sustained burn, recovery, isolated short-window spikes, independent
 counter resets, request weighting, zero traffic and missing outcomes. The SLO
 workflow runs these checks on every change to the assets or tests; regular Go

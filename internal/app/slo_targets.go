@@ -58,6 +58,11 @@ func writeSLOTargets(path string, targets []swarmruntime.SLOTarget) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
+	// The root runtime uses umask 0077; Prometheus must traverse this owned
+	// directory even on a restart after an older 0700 directory was created.
+	if err := os.Chmod(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".targets-")
 	if err != nil {
 		return err
