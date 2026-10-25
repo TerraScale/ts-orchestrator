@@ -22,10 +22,12 @@ import (
 )
 
 type notification struct {
-	Status string `json:"status"`
-	Alerts []struct {
-		Status string            `json:"status"`
-		Labels map[string]string `json:"labels"`
+	Status   string `json:"status"`
+	GroupKey string `json:"groupKey"`
+	Alerts   []struct {
+		Status      string            `json:"status"`
+		Fingerprint string            `json:"fingerprint"`
+		Labels      map[string]string `json:"labels"`
 	} `json:"alerts"`
 }
 
@@ -35,18 +37,19 @@ type relay struct {
 	client       *http.Client
 	endpoint     string
 	pushEndpoint string
+	ledgerPath   string
 	read         func(context.Context) (credentials, error)
 	readTopic    func(context.Context) (string, error)
 }
 
 const recipient = "mariogk@terrascale.tech"
 
-// Run serves only loopback; Alertmanager owns retry, grouping and deduplication.
+// Run serves only loopback; the relay independently bounds email quota usage.
 func Run(ctx context.Context, args []string) error {
 	if len(args) != 0 && (len(args) != 1 || args[0] != "subscribe") {
 		return errors.New("usage: ts-orch alert-delivery")
 	}
-	r := relay{client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, endpoint: "https://api.cloudflare.com/client/v4/accounts/", pushEndpoint: "https://ntfy.sh/", read: readCredentials, readTopic: readPushTopic}
+	r := relay{ledgerPath: "/var/lib/ts-alerts/email-ledger.json", client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, endpoint: "https://api.cloudflare.com/client/v4/accounts/", pushEndpoint: "https://ntfy.sh/", read: readCredentials, readTopic: readPushTopic}
 	if len(args) == 1 {
 		return r.subscribe(ctx)
 	}
@@ -106,16 +109,26 @@ func (r relay) deliver(w http.ResponseWriter, request *http.Request) {
 	defer cancel()
 	var emailErr, pushErr error
 	var deliveries sync.WaitGroup
-	deliveries.Go(func() { emailErr = r.email(ctx, notice.Status, lines) })
+	deliveries.Go(func() {
+		if reason := r.reserveEmail(ctx, notice.emailKey(), time.Now()); reason != "" {
+			slog.WarnContext(ctx, "production alert email suppressed", "reason", reason)
+			return
+		}
+		emailErr = r.email(ctx, notice.Status, lines)
+	})
 	deliveries.Go(func() { pushErr = r.push(ctx, notice.Status) })
 	deliveries.Wait()
-	if emailErr != nil || pushErr != nil {
+	if pushErr != nil {
+		// Push is independent: never retry an accepted email because push failed.
+		slog.WarnContext(ctx, "production alert push failed", "status", notice.Status)
+	}
+	if emailErr != nil {
 		slog.WarnContext(ctx, "production alert channel rejected", "email_accepted", emailErr == nil, "push_accepted", pushErr == nil)
 		http.Error(w, "alert delivery incomplete", http.StatusBadGateway)
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
-	slog.InfoContext(ctx, "production alert email and push accepted", "status", notice.Status, "alerts", len(notice.Alerts))
+	slog.InfoContext(ctx, "production alert notification handled", "status", notice.Status, "alerts", len(notice.Alerts))
 }
 
 func (r relay) email(ctx context.Context, status string, lines []string) error {
@@ -164,7 +177,7 @@ func (r relay) push(ctx context.Context, status string) error {
 		return errors.New("push Vault topic unavailable or invalid")
 	}
 	// Topic knowledge grants publish and subscribe access. Send generic details only.
-	push, err := http.NewRequestWithContext(ctx, http.MethodPost, r.pushEndpoint+topic, strings.NewReader("TerraScale production alert: "+status+". Check your alert email."))
+	push, err := http.NewRequestWithContext(ctx, http.MethodPost, r.pushEndpoint+topic, strings.NewReader("TerraScale production alert: "+status+". Check production monitoring."))
 	if err != nil {
 		return errors.New("push request failed")
 	}

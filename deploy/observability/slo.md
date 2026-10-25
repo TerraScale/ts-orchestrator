@@ -85,7 +85,7 @@ and `short_window`. Investigate the affected service's terminal failures and
 recent releases; an alert grants no automatic rollout or scaling authority.
 
 Zero traffic gives an undefined error fraction, not 100% availability and not
-a burn alert. `ServiceSLOTelemetryMissing` fires when either outcome has no
+a burn alert. `ServiceSLOTelemetryMissing` fires when no request counter of any outcome has
 samples in 5 minutes for a further 10 minutes, including a service that was
 never instrumented. This detects fleet-wide absence, not one missing replica.
 Scrape/ingress health and expected-instance inventory are separate prerequisites.

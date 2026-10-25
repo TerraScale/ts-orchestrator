@@ -148,9 +148,7 @@ groups:
           description: 'Burn exceeds 1x in both 3d and 6h; inspect service failures before changing capacity or releases.'
       - alert: ServiceSLOTelemetryMissing
         expr: |
-          (slo:objective unless on (service) sum by (service) (count_over_time(terrascale_slo_requests_total{outcome="good"}[5m])))
-          or
-          (slo:objective unless on (service) sum by (service) (count_over_time(terrascale_slo_requests_total{outcome="bad"}[5m])))
+          slo:objective unless on (service) sum by (service) (count_over_time(terrascale_slo_requests_total[5m]))
         for: 10m
         labels:
           severity: warning
