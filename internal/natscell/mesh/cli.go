@@ -44,7 +44,7 @@ const noReply = "no reply"
 // With holdAfter, the regions after it hold the previous generation (a canary)
 // until Resume.
 func Apply(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSpec, holdAfter string, output io.Writer) error {
-	return printApply(output)(applySpec(ctx, conn, spec, holdAfter, applyWait))
+	return printApply(output)(applySpec(ctx, conn, spec, holdAfter, false, applyWait))
 }
 
 // Resume re-applies name's held spec without its hold, so the rollout goes on
@@ -58,7 +58,7 @@ func Resume(ctx context.Context, conn *nats.Conn, name string, output io.Writer)
 	if current.Spec == nil || current.HoldAfter == "" {
 		return fmt.Errorf("%s has no held rollout", name)
 	}
-	return printApply(output)(applySpec(ctx, conn, *current.Spec, "", applyWait))
+	return printApply(output)(applySpec(ctx, conn, *current.Spec, "", true, applyWait))
 }
 
 // Remove deletes name in every ordered region.
@@ -70,9 +70,11 @@ func Remove(ctx context.Context, conn *nats.Conn, name string, output io.Writer)
 }
 
 // applySpec rolls spec out region by region. When a targeted region fails,
-// the later ones never apply and every region gets the previous spec back,
-// unless a newer apply replaced this one meanwhile.
-func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSpec, holdAfter string, wait time.Duration) ([]Reply, error) {
+// the later ones never apply and the previous entry comes back, hold included:
+// a region past a held canary keeps what it runs, never the held spec. A newer
+// apply that replaced this one meanwhile is left alone.
+// Only resume clears a hold: any other apply of a held service stays held.
+func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSpec, holdAfter string, resume bool, wait time.Duration) ([]Reply, error) {
 	if err := validEntry(spec.Name, Entry{Generation: 1, Spec: &spec, HoldAfter: holdAfter}); err != nil {
 		return nil, err
 	}
@@ -81,6 +83,9 @@ func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSp
 		return nil, err
 	}
 	before := entries[spec.Name].entry()
+	if holdAfter == "" && !resume && before.HoldAfter != "" && slices.Contains(rolloutOrder(&spec), before.HoldAfter) {
+		holdAfter = before.HoldAfter
+	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
 	rows, failed := send(ctx, conn, ApplyRequest{Name: spec.Name, Entry: Entry{Generation: generation, Spec: &spec, HoldAfter: holdAfter}}, max(wait, rolloutWait(&spec)))
 	if failed == nil || before.Spec == nil {
@@ -89,7 +94,7 @@ func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSp
 	if current, err := desiredStates(ctx, conn); err != nil || current[spec.Name].entry().Generation != generation {
 		return rows, errors.Join(failed, errors.New("not rolled back: a newer apply replaced it"), err)
 	}
-	back, err := send(ctx, conn, ApplyRequest{Name: spec.Name, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: before.Spec}}, max(rollbackWait, regionWindow(before.Spec)))
+	back, err := send(ctx, conn, ApplyRequest{Name: spec.Name, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: before.Spec, HoldAfter: before.HoldAfter}}, max(rollbackWait, regionWindow(before.Spec)))
 	if err != nil {
 		return append(rows, back...), errors.Join(failed, fmt.Errorf("rollback to %s: %w", before.Spec.Image, err))
 	}

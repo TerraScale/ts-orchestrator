@@ -571,7 +571,7 @@ func TestMeshFailedRegionStopsAndRollsBack(t *testing.T) {
 	regions, nodes, appliers := startMeshRegions(t, 0)
 	conn := nodes[regions[0]].conn
 	good := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
-	if _, err := applySpec(t.Context(), conn, good, "", 30*time.Second); err != nil {
+	if _, err := applySpec(t.Context(), conn, good, "", false, 30*time.Second); err != nil {
 		t.Fatalf("good apply: %v", err)
 	}
 	order := rolloutOrder(&good)
@@ -579,7 +579,7 @@ func TestMeshFailedRegionStopsAndRollsBack(t *testing.T) {
 	bad := good
 	bad.Image = appliers[order[0]].unready
 	start := time.Now()
-	rows, err := applySpec(t.Context(), conn, bad, "", 60*time.Second)
+	rows, err := applySpec(t.Context(), conn, bad, "", false, 60*time.Second)
 	elapsed := time.Since(start)
 	if err == nil || !strings.Contains(err.Error(), "rolled back to "+good.Image) {
 		t.Fatalf("bad apply = %v\n%+v", err, rows)
@@ -670,16 +670,16 @@ func TestMeshCanaryHoldsUntilResume(t *testing.T) {
 	regions, nodes, appliers := startMeshRegions(t, 0)
 	conn := nodes[regions[0]].conn
 	spec := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
-	if _, err := applySpec(t.Context(), conn, spec, "", 30*time.Second); err != nil {
+	if _, err := applySpec(t.Context(), conn, spec, "", false, 30*time.Second); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
 	order := rolloutOrder(&spec)
 	next := spec
 	next.Image = "docker.io/library/alpine@sha256:" + strings.Repeat("c", 64)
-	if _, err := applySpec(t.Context(), conn, next, "nowhere", 30*time.Second); err == nil {
+	if _, err := applySpec(t.Context(), conn, next, "nowhere", false, 30*time.Second); err == nil {
 		t.Fatal("a hold after a region outside the rollout was accepted")
 	}
-	rows, err := applySpec(t.Context(), conn, next, order[0], 30*time.Second)
+	rows, err := applySpec(t.Context(), conn, next, order[0], false, 30*time.Second)
 	if err != nil {
 		t.Fatalf("held apply: %v\n%+v", err, rows)
 	}
@@ -759,14 +759,14 @@ func TestMeshRestartKeepsPeersFile(t *testing.T) {
 	}
 	eventually(t, "every region to answer ping", func() bool { return Ping(t.Context(), nodes[home].conn, time.Second, io.Discard) == nil })
 	spec := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
-	if _, err := applySpec(t.Context(), nodes[home].conn, spec, "", 30*time.Second); err != nil {
+	if _, err := applySpec(t.Context(), nodes[home].conn, spec, "", false, 30*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, home+"'s peers file to list every region", func() bool { return lines() == len(regions) })
 	// A held canary: the home region waits, as gru did during batch 8b.
 	next := spec
 	next.Image = "docker.io/library/alpine@sha256:" + strings.Repeat("b", 64)
-	if _, err := applySpec(t.Context(), nodes[regions[1]].conn, next, rolloutOrder(&next)[0], 30*time.Second); err != nil {
+	if _, err := applySpec(t.Context(), nodes[regions[1]].conn, next, rolloutOrder(&next)[0], false, 30*time.Second); err != nil {
 		t.Fatal(err)
 	}
 
@@ -790,7 +790,7 @@ func TestMeshShutdownRoundKeepsPeersFile(t *testing.T) {
 	regions, nodes, _ := startMeshRegions(t, 0)
 	home := nodes[regions[0]]
 	spec := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
-	if _, err := applySpec(t.Context(), home.conn, spec, "", 30*time.Second); err != nil {
+	if _, err := applySpec(t.Context(), home.conn, spec, "", false, 30*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(home.cfg.peersDir, "terrabase", "peers")
@@ -835,5 +835,60 @@ func TestPeersKeepFileRegionsUntilMissedTwice(t *testing.T) {
 	}
 	if err := p.observe(map[string]peer{}); err != nil || lines() != 1 {
 		t.Fatalf("two missed rounds left %d regions, want only this one (%v)", lines(), err)
+	}
+}
+
+// 2026-10-25 20:27Z: B was held after the first region; an apply of C that the
+// first region never got ready rolled back to B and dropped the hold, so every
+// region ran B. A rollback restores the previous entry hold included, and any
+// apply but resume keeps a held service held.
+func TestMeshRollbackAndApplyKeepAHeldRollout(t *testing.T) {
+	regions, nodes, appliers := startMeshRegions(t, 0)
+	conn := nodes[regions[0]].conn
+	image := func(c string) string { return "docker.io/library/alpine@sha256:" + strings.Repeat(c, 64) }
+	a := swarmruntime.ServiceSpec{Name: "terrabase", Image: image("a"), Port: 8080, Replicas: 1}
+	if _, err := applySpec(t.Context(), conn, a, "", false, 30*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	order := rolloutOrder(&a)
+	b, c, d := a, a, a
+	b.Image, c.Image, d.Image = image("b"), image("c"), image("d")
+	if _, err := applySpec(t.Context(), conn, b, order[0], false, 30*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	later := func(want string, why string) {
+		t.Helper()
+		time.Sleep(time.Second) // sync ticks (300 ms) must not move the held regions either
+		for _, region := range order[1:] {
+			if got := appliers[region].appliedImage("terrabase"); got != want {
+				t.Fatalf("%s: %s runs %s, want %s", why, region, got, want)
+			}
+		}
+	}
+	later(a.Image, "held after "+order[0])
+
+	// C never gets ready in the canary region: the rollback brings held B back, not B everywhere.
+	appliers[order[0]].unready = c.Image
+	if _, err := applySpec(t.Context(), conn, c, "", false, 60*time.Second); err == nil || !strings.Contains(err.Error(), "rolled back to "+b.Image) {
+		t.Fatalf("unready C = %v", err)
+	}
+	if got := appliers[order[0]].appliedImage("terrabase"); got != b.Image {
+		t.Fatalf("%s runs %s after the rollback, want %s", order[0], got, b.Image)
+	}
+	later(a.Image, "after a rollback of a held rollout")
+
+	// A plain apply of a held service stays held; only resume advances it.
+	if _, err := applySpec(t.Context(), conn, d, "", false, 30*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	later(a.Image, "after a plain apply of a held service")
+	var out bytes.Buffer
+	if err := Resume(t.Context(), conn, "terrabase", &out); err != nil {
+		t.Fatalf("resume: %v\n%s", err, out.String())
+	}
+	for _, region := range order {
+		if got := appliers[region].appliedImage("terrabase"); got != d.Image {
+			t.Fatalf("%s runs %s after resume, want %s", region, got, d.Image)
+		}
 	}
 }
