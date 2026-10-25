@@ -58,10 +58,10 @@ func (e *Executor) SLOTargets(ctx context.Context, services []*api.Service, regi
 			containersRunning = append(containersRunning, sloContainer{metadata, task.Pid()})
 		}
 	}
-	return sloTargets(ctx, services, containersRunning, region), nil
+	return sloTargets(ctx, services, containersRunning, region)
 }
 
-func sloTargets(ctx context.Context, services []*api.Service, containers []sloContainer, region string) []SLOTarget {
+func sloTargets(ctx context.Context, services []*api.Service, containers []sloContainer, region string) ([]SLOTarget, error) {
 	names := map[string]string{}
 	for _, service := range services {
 		if service == nil || service.PendingDelete {
@@ -95,5 +95,9 @@ func sloTargets(ctx context.Context, services []*api.Service, containers []sloCo
 	slices.SortFunc(targets, func(a, b SLOTarget) int {
 		return slices.Compare(a.Targets, b.Targets)
 	})
-	return targets
+	// Never publish a partial inventory after the refresh budget expires.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return targets, nil
 }
