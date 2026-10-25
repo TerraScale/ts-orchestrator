@@ -147,13 +147,21 @@ func TestPrometheusRules(t *testing.T) {
 	for _, service := range services {
 		fixture.WriteString(missingAlert(service))
 	}
-	// A service that exposes only good counters must not appear healthy.
-	fixture.WriteString("  - name: bad counter absent\n    interval: 1m\n    input_series:\n")
+	// Any outcome proves telemetry: a healthy service may expose good counters
+	// alone, so an absent bad counter is not missing telemetry.
+	fixture.WriteString("  - name: good-only traffic is not missing telemetry\n    interval: 1m\n    input_series:\n")
 	for _, service := range services {
 		fmt.Fprintf(&fixture, "      - series: 'terrascale_slo_requests_total{service=%q,outcome=\"good\"}'\n        values: '0+1000x15'\n", service)
-		if service != "ts-router" {
-			fmt.Fprintf(&fixture, "      - series: 'terrascale_slo_requests_total{service=%q,outcome=\"bad\"}'\n        values: '0+0x15'\n", service)
+	}
+	fixture.WriteString("    alert_rule_test:\n      - eval_time: 15m\n        alertname: ServiceSLOTelemetryMissing\n        exp_alerts: []\n")
+	// Only a service with no counter of any outcome is missing telemetry.
+	fixture.WriteString("  - name: partial missing service\n    interval: 1m\n    input_series:\n")
+	for _, service := range services {
+		if service == "ts-router" {
+			continue
 		}
+		fmt.Fprintf(&fixture, "      - series: 'terrascale_slo_requests_total{service=%q,outcome=\"good\"}'\n        values: '0+1000x15'\n", service)
+		fmt.Fprintf(&fixture, "      - series: 'terrascale_slo_requests_total{service=%q,outcome=\"bad\"}'\n        values: '0+0x15'\n", service)
 	}
 	fixture.WriteString("    alert_rule_test:\n      - eval_time: 15m\n        alertname: ServiceSLOTelemetryMissing\n        exp_alerts:\n" + missingAlert("ts-router"))
 	path := filepath.Join(t.TempDir(), "rules.yml")

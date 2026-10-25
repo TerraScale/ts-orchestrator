@@ -80,6 +80,9 @@ func TestSubscriptionWaitsForEnterAndPostsOnlyToLoopback(t *testing.T) {
 			if confirm && (err != nil || posts != 1) || !confirm && (err == nil || posts != 0) {
 				t.Fatalf("confirmation=%v posts=%d err=%v", confirm, posts, err)
 			}
+			if confirm && (!strings.Contains(terminal.String(), "email may be suppressed") || strings.Contains(terminal.String(), "accepted by email and push")) {
+				t.Fatal("subscription confirmation overstates provider acceptance")
+			}
 			if !strings.Contains(terminal.String(), "https://ntfy.sh/"+fixtureTopic) {
 				t.Fatal("terminal did not receive subscription link")
 			}

@@ -6,6 +6,8 @@ Wants=network-online.target
 [Service]
 User=ts-alerts
 Group=ts-alerts
+StateDirectory=ts-alerts
+StateDirectoryMode=0700
 ExecStart=/usr/local/bin/ts-orch alert-delivery
 Restart=on-failure
 NoNewPrivileges=true

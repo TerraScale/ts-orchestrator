@@ -88,9 +88,9 @@ func confirmSubscription(ctx context.Context, terminal io.ReadWriteCloser, topic
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusAccepted {
-		return errors.New("subscription test not accepted by both providers; inspect relay health and retry")
+		return errors.New("subscription test relay request failed; inspect relay logs")
 	}
-	_, err = io.WriteString(terminal, "Test accepted by email and push providers. Check your ntfy client and email for receipt.\n")
+	_, err = io.WriteString(terminal, "Test handled by the relay; email may be suppressed by quota protection. Check monitoring, relay logs, your ntfy client and email for receipt.\n")
 	if err != nil {
 		return errors.New("subscription terminal unavailable")
 	}
