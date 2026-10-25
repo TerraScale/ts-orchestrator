@@ -2,6 +2,42 @@ rule_files:
   - operational-rules.yml
 evaluation_interval: 15s
 tests:
+  - interval: 1m
+    input_series:
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="provider_exhausted"}'
+        values: '1+0x7 0 1+0x2'
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="accepted"}'
+        values: '0+10x11'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: AuthEmailProviderExhausted
+        exp_alerts:
+          - exp_labels:
+              service: ts-auth
+              region: gru
+              severity: critical
+            exp_annotations:
+              summary: Authentication email provider capacity exhausted
+      - eval_time: 6m
+        alertname: AuthEmailProviderExhausted
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: AuthEmailProviderExhausted
+        exp_alerts:
+          - exp_labels:
+              service: ts-auth
+              region: gru
+              severity: critical
+            exp_annotations:
+              summary: Authentication email provider capacity exhausted
+  - interval: 1m
+    input_series:
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="accepted"}'
+        values: '0+10x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: AuthEmailProviderExhausted
+        exp_alerts: []
   - name: History erasure reaches day 20 and recovers
     interval: 15s
     input_series:

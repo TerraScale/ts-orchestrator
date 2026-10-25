@@ -55,3 +55,9 @@ groups:
           severity: critical
         annotations:
           summary: Public service readiness failed
+      - alert: AuthEmailProviderExhausted
+        expr: sum by (service, region) ((increase(ts_auth_emails_total{service="ts-auth",outcome="provider_exhausted"}[5m]) > 0) or ((ts_auth_emails_total{service="ts-auth",outcome="provider_exhausted"} > 0) unless ts_auth_emails_total{service="ts-auth",outcome="provider_exhausted"} offset 5m)) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Authentication email provider capacity exhausted

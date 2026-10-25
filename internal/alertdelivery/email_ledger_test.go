@@ -30,6 +30,7 @@ func TestConcurrentRetryStormAndGlobalCap(t *testing.T) {
 					pushes.Add(1)
 					return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader("private"))}, nil
 				})}}
+			r.client = admittingClient(r.client)
 			var requests sync.WaitGroup
 			for i := range 64 {
 				requests.Go(func() {
