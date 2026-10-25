@@ -201,6 +201,7 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 	})
 
 	containerdTaskPortUpdateServesThroughout(t, ctx, e, client)
+	containerdLabelOnlyChangeKeepsTask(t, ctx, e, client)
 	containerdCrashLoops(t, ctx, e, client)
 	containerdDataTaskStopsGracefully(t, ctx, e, client)
 }
