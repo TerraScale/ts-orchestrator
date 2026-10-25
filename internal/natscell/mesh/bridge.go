@@ -38,7 +38,7 @@ func bridge(ctx context.Context, conn *nats.Conn, op string, spec json.RawMessag
 			return nil, err
 		}
 		// Shorter than the release handler's 2 min, so a missing region still yields rows.
-		rows, failed = applySpec(ctx, conn, service, applyWait-5*time.Second)
+		rows, failed = applySpec(ctx, conn, service, "", applyWait-5*time.Second)
 	case "rm":
 		var service swarmruntime.ServiceSpec
 		if err := protocol.DecodeStrict(spec, &service, 64<<10); err != nil {

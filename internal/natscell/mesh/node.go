@@ -83,6 +83,9 @@ type Entry struct {
 	Spec       *swarmruntime.ServiceSpec `json:"spec"`
 	Deployment *Deployment               `json:"deployment,omitempty"`
 	RollbackOf int64                     `json:"rollbackOf,omitzero"`
+	// HoldAfter stops the rollout after this region (a canary): later regions
+	// keep the previous generation until `service resume` applies it without one.
+	HoldAfter string `json:"holdAfter,omitempty"`
 }
 
 // supersedes orders rollback after its failed rollout, before any later apply.
@@ -378,7 +381,7 @@ func (n *Node) sync(ctx context.Context) {
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(n.desired)) {
-		if entry := n.desired[name].entry(); entry.RollbackOf == 0 && n.turn(name, entry.Spec, entry.Generation, states) != nil {
+		if entry := n.desired[name].entry(); n.held(entry) || entry.RollbackOf == 0 && n.turn(name, entry.Spec, entry.Generation, states) != nil {
 			continue // an earlier region still rolls this generation out
 		}
 		if _, err := n.reconcile(ctx, name, n.desired[name]); err != nil {
@@ -402,6 +405,12 @@ func (n *Node) handleApply(m *nats.Msg) {
 			slog.WarnContext(ctx, "mesh pre-pull failed; the task pulls instead", "service", request.Name, "error", pullErr)
 		}
 		pulled = time.Since(start)
+	}
+	if err == nil && n.held(request.Entry) {
+		// A canary hold: this region keeps the previous generation and answers without applying.
+		reply.Result, reply.ElapsedMS = "held after "+request.Entry.HoldAfter, time.Since(start).Milliseconds()
+		n.respond(m, reply)
+		return
 	}
 	// A rollback restores the serving release in every region at once.
 	if err == nil && request.ExpectedGeneration == 0 && request.Entry.RollbackOf == 0 {
@@ -526,6 +535,11 @@ func rolloutWait(spec *swarmruntime.ServiceSpec) time.Duration {
 // its own rollout; it replies before the caller's rolloutWait ends.
 func (n *Node) applyWindow(spec *swarmruntime.ServiceSpec) time.Duration {
 	return max(applyWait, time.Duration(len(n.earlier(spec))+1)*regionWindow(spec)) - 10*time.Second
+}
+
+// held reports a region that comes after entry's canary hold.
+func (n *Node) held(entry Entry) bool {
+	return entry.HoldAfter != "" && slices.Contains(n.earlier(entry.Spec), entry.HoldAfter)
 }
 
 // errEarlierFailed stops a region from waiting for a generation an earlier
@@ -677,7 +691,13 @@ func validEntry(name string, entry Entry) error {
 		return errors.New("deployment image does not belong to the service")
 	}
 	if entry.Spec == nil {
+		if entry.HoldAfter != "" {
+			return errors.New("a removal cannot hold after a region")
+		}
 		return nil
+	}
+	if entry.HoldAfter != "" && !slices.Contains(rolloutOrder(entry.Spec), entry.HoldAfter) {
+		return fmt.Errorf("holdAfter %q is not a region of the rollout %v", entry.HoldAfter, rolloutOrder(entry.Spec))
 	}
 	if entry.Spec.Name != name {
 		return errors.New("spec name differs from the entry name")

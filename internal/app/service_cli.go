@@ -24,7 +24,8 @@ import (
 const singleHostState = "/var/lib/ts-orch"
 
 const serviceCLIUsage = `usage:
-  ts-orch service apply -f <spec.json>
+  ts-orch service apply -f <spec.json> [--hold-after <region>]
+  ts-orch service resume <name>
   ts-orch service ls
   ts-orch service rm <name>
   ts-orch service ps <name>
@@ -48,7 +49,17 @@ func runServiceCLI(ctx context.Context, args []string, output io.Writer, state s
 	outer := ctx
 	var run func(context.Context, api.ControlClient) error
 	switch {
-	case len(args) == 3 && args[0] == "apply" && args[1] == "-f":
+	case len(args) == 2 && args[0] == "resume":
+		done, err := meshRequest(state, func(conn *nats.Conn) error { return mesh.Resume(ctx, conn, args[1], output) })
+		if !done {
+			return errors.New("resume needs this host's mesh")
+		}
+		return err
+	case (len(args) == 3 || len(args) == 5 && args[3] == "--hold-after") && args[0] == "apply" && args[1] == "-f":
+		holdAfter := ""
+		if len(args) == 5 {
+			holdAfter = args[4]
+		}
 		data, err := os.ReadFile(args[2])
 		if err != nil {
 			return err
@@ -73,8 +84,11 @@ func runServiceCLI(ctx context.Context, args []string, output io.Writer, state s
 			_, err = fmt.Fprintf(output, "%s running in %dms, ready in %dms\n", spec.Name, rollout.Running.Milliseconds(), rollout.Ready.Milliseconds())
 			return err
 		}
-		if done, err := meshRequest(state, func(conn *nats.Conn) error { return mesh.Apply(ctx, conn, spec, output) }); done {
+		if done, err := meshRequest(state, func(conn *nats.Conn) error { return mesh.Apply(ctx, conn, spec, holdAfter, output) }); done {
 			return err
+		}
+		if holdAfter != "" {
+			return errors.New("--hold-after needs this host's mesh")
 		}
 	case len(args) == 1 && args[0] == "ls":
 		run = func(ctx context.Context, client api.ControlClient) error {
