@@ -284,7 +284,6 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	}
 	// Lines sort by node name; region i's node has address 10.200.0.<i+1>.
 	every := fmt.Sprintf("ts-%[3]s-1 %[3]s 10.200.0.3\nts-%[1]s-1 %[1]s 10.200.0.1\nts-%[2]s-1 %[2]s 10.200.0.2\n", regions[0], regions[1], fra)
-	withoutFra := fmt.Sprintf("ts-%[1]s-1 %[1]s 10.200.0.1\nts-%[2]s-1 %[2]s 10.200.0.2\n", regions[0], regions[1])
 	eventually(t, "every region's peers file to list every region", func() bool {
 		return peersFile(regions[0]) == every && peersFile(regions[1]) == every && peersFile(fra) == every
 	})
@@ -299,7 +298,15 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 
 	nodes[fra].Close()
 	delete(nodes, fra)
-	eventually(t, fra+" to leave the peers file", func() bool { return peersFile(regions[0]) == withoutFra })
+	// A missed ping is an outage, not an admitted drain: keep the complete file.
+	eventually(t, "incomplete generation to be refused", func() bool {
+		gru.peers.mu.Lock()
+		defer gru.peers.mu.Unlock()
+		return gru.peers.rejected["whoami"] == 1
+	})
+	if got := peersFile(regions[0]); got != every {
+		t.Fatalf("outage changed admitted membership: %q", got)
+	}
 	spec.Args = []string{"/bin/true"}
 	out.Reset()
 	// gru rolls last and first waits out fra's missing state reply.

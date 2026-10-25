@@ -40,7 +40,7 @@ func stateTestNodesWithAppliers(t *testing.T, factory func(string) Applier, regi
 		}
 		node, err := start(config{region: region, server: region + "-1", dir: t.TempDir(), host: "127.0.0.1",
 			gatewayPort: ports[2*i], localPort: ports[2*i+1], ca: ca, gateways: gateways,
-			applier: factory(region), peersDir: t.TempDir(),
+			applier: factory(region), peersDir: t.TempDir(), peersEvery: 20 * time.Millisecond,
 			address: func() (string, error) { return "10.200.0.1", nil }})
 		if err != nil {
 			t.Fatal(err)
@@ -57,6 +57,14 @@ func stateTestNodesWithAppliers(t *testing.T, factory func(string) Applier, regi
 			}
 			return true
 		})
+		for _, node := range nodes {
+			node.peers.mu.Lock()
+			complete := len(node.peers.admitted) == len(nodes)
+			node.peers.mu.Unlock()
+			if !complete {
+				return false
+			}
+		}
 		return len(seen) == len(nodes)
 	})
 	return nodes
