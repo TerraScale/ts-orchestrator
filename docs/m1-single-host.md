@@ -83,8 +83,11 @@ newest desired spec on the mesh, changes only its digest (same repository) and
 applies it to every region it targets: pre-pull, fast replacement, ready path.
 If a targeted region fails or is not ready within 70 s, it re-applies the
 previous spec everywhere (40 s) unless a newer release replaced it. A service
-must have been applied once with `ts-orch service apply -f`. From an image
-workflow:
+must have been applied once with `ts-orch service apply -f`, except `app-canary`:
+its authenticated workflow initializes the embedded, bounded canary spec on its
+first release or after removal. Failed creation rolls back to absence while
+retaining the signed-run floor. The canary runs after successful main CI has delivered the new
+receiver, using its narrowly scoped `workflow_run` identity. From an image workflow:
 
 ```sh
 ts-orch release app --service terrabase --image ghcr.io/terrascale/terrabase@sha256:<arm64 digest>

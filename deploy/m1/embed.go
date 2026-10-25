@@ -4,8 +4,8 @@ package m1
 
 import "embed"
 
-// Files holds host-runtime.sh and ts-orch.service, which deploy/m1/install.sh
-// also copies over ssh.
+// Files holds the host install files and the server-owned app canary spec.
+// deploy/m1/install.sh also copies the host files over ssh.
 //
-//go:embed host-runtime.sh ts-orch.service
+//go:embed host-runtime.sh ts-orch.service services/app-canary.json
 var Files embed.FS

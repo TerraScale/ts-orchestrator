@@ -17,6 +17,14 @@ import (
 
 func stateTestNodes(t *testing.T, regions ...string) []*Node {
 	t.Helper()
+	return stateTestNodesWithAppliers(t, nil, regions...)
+}
+
+func stateTestNodesWithAppliers(t *testing.T, factory func(string) Applier, regions ...string) []*Node {
+	t.Helper()
+	if factory == nil {
+		factory = func(string) Applier { return &fakeApplier{running: map[string]int64{}} }
+	}
 	ca, err := DeriveCA(bytes.Repeat([]byte{57}, 32))
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +40,7 @@ func stateTestNodes(t *testing.T, regions ...string) []*Node {
 		}
 		node, err := start(config{region: region, server: region + "-1", dir: t.TempDir(), host: "127.0.0.1",
 			gatewayPort: ports[2*i], localPort: ports[2*i+1], ca: ca, gateways: gateways,
-			applier: &fakeApplier{running: map[string]int64{}}, peersDir: t.TempDir(),
+			applier: factory(region), peersDir: t.TempDir(),
 			address: func() (string, error) { return "10.200.0.1", nil }})
 		if err != nil {
 			t.Fatal(err)

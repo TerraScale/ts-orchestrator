@@ -39,11 +39,13 @@ const (
 // orchWorkflow is the only workflow whose tokens may push ts-orch releases.
 const orchWorkflow = orchRepository + "/.github/workflows/ci.yml@" + mainRef
 
+const canaryWorkflow = orchRepository + "/.github/workflows/app-canary.yml@" + mainRef
+
 // appServices maps each app image workflow on main
 // (`<repository>/<workflow path>@refs/heads/main`) to the services its
 // tokens may release; a new app is one more line.
 var appServices = map[string][]string{
-	orchRepository + "/.github/workflows/app-canary.yml@" + mainRef:      {"app-canary"},
+	canaryWorkflow: {"app-canary"},
 	owner + "/terrascale/.github/workflows/ci.yml@" + mainRef:            {"terrabase", "ts-auth"},
 	owner + "/ts-dashboard/.github/workflows/images-ghcr.yml@" + mainRef: {"ts-dashboard"},
 }
@@ -68,6 +70,7 @@ type Claims struct {
 	SHA             string   `json:"sha"`
 	RunID           string   `json:"run_id"`
 	JobWorkflowRef  string   `json:"job_workflow_ref"`
+	WorkflowRef     string   `json:"workflow_ref"`
 	EventName       string   `json:"event_name"`
 }
 
@@ -108,13 +111,13 @@ func NewVerifier() *Verifier {
 }
 
 // Verify returns the claims of a valid token from a release workflow's push
-// to main, audience ts-orch.
+// to main (or the canary after successful main CI), audience ts-orch.
 func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 	claims, err := v.verify(ctx, token)
 	switch {
 	case err != nil:
 		return Claims{}, err
-	case claims.EventName != "push":
+	case claims.EventName != "push" && !(claims.EventName == "workflow_run" && claims.JobWorkflowRef == canaryWorkflow):
 		return Claims{}, errors.New("token is not from a push to " + mainRef)
 	case claims.JobWorkflowRef != orchWorkflow && appServices[claims.JobWorkflowRef] == nil ||
 		!strings.HasPrefix(claims.JobWorkflowRef, claims.Repository+"/.github/workflows/"):
@@ -167,6 +170,12 @@ func (v *Verifier) verify(ctx context.Context, token string) (Claims, error) {
 	var claims Claims
 	if err := decodeSegment(parts[1], &claims); err != nil {
 		return Claims{}, errors.New("token claims are invalid")
+	}
+	// Normal jobs identify their executing workflow with workflow_ref;
+	// reusable jobs additionally supply job_workflow_ref. Prefer the latter
+	// when present so the caller cannot replace the reusable job's authority.
+	if claims.JobWorkflowRef == "" {
+		claims.JobWorkflowRef = claims.WorkflowRef
 	}
 	now := v.Now()
 	switch {

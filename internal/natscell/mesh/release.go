@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats.go"
 )
 
@@ -53,17 +55,31 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	if err != nil {
 		return nil, err
 	}
-	previous := entries[service].entry().Spec
+	before := entries[service].entry()
+	previous := before.Spec
+	var next swarmruntime.ServiceSpec
 	if previous == nil {
-		return nil, fmt.Errorf("%s is not a mesh service", service)
+		// Only the authenticated canary workflow can create its fixed workload.
+		// A newer signed run also restores a removed canary, using its fixed spec.
+		if service != "app-canary" || deployment == nil {
+			return nil, fmt.Errorf("%s is not a mesh service", service)
+		}
+		data, err := m1.Files.ReadFile("services/app-canary.json")
+		if err != nil {
+			return nil, err
+		}
+		if err := protocol.DecodeStrict(data, &next, 64<<10); err != nil {
+			return nil, err
+		}
+	} else {
+		next = *previous
 	}
 	if err := entries[service].Floor.Accepts(deployment); err != nil {
 		return nil, err
 	}
-	if repository(previous.Image) != repository(image) {
-		return nil, fmt.Errorf("%s runs %s; a release may change only its digest", service, repository(previous.Image))
+	if repository(next.Image) != repository(image) {
+		return nil, fmt.Errorf("%s runs %s; a release may change only its digest", service, repository(next.Image))
 	}
-	next := *previous
 	next.Image = image
 	generation := max(time.Now().UnixNano(), entries[service].entry().Generation+1)
 	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment}}
@@ -75,10 +91,14 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 		return rows, errors.Join(failed, errors.New("not rolled back: a newer release replaced it"), err)
 	}
 	back, err := send(ctx, conn, ApplyRequest{Name: service, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: previous, Deployment: deployment}}, max(rollbackWait, regionWindow(previous)))
-	if err != nil {
-		return append(rows, back...), errors.Join(failed, fmt.Errorf("rollback to %s: %w", previous.Image, err))
+	target := "absence"
+	if previous != nil {
+		target = previous.Image
 	}
-	return append(rows, back...), errors.Join(failed, errors.New("rolled back to "+previous.Image))
+	if err != nil {
+		return append(rows, back...), errors.Join(failed, fmt.Errorf("rollback to %s: %w", target, err))
+	}
+	return append(rows, back...), errors.Join(failed, errors.New("rolled back to "+target))
 }
 
 // repository is image without its digest.
