@@ -15,12 +15,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 // peersEvery is how often a node pings every region for its peers files, so
-// a down region drops out within two rounds.
+// liveness is refreshed without authorizing membership removal.
 const peersEvery = 5 * time.Second
 
 type peer struct{ node, address string }
@@ -30,10 +31,14 @@ type peers struct {
 	root, region, node string
 	address            func() (string, error)
 
-	mu      sync.Mutex
-	up      map[string]peer     // region -> node that answered the last ping round
-	missed  map[string]int      // region -> consecutive rounds it did not answer
-	targets map[string][]string // service -> its regions; empty means every region
+	mu       sync.Mutex
+	up       map[string]peer     // region -> node that answered the last ping round
+	missed   map[string]int      // region -> consecutive rounds it did not answer
+	targets  map[string][]string // service -> its regions; empty means every region
+	admitted map[string]peer     // independent, durable identities; never seeded from a peers file
+	registry string
+	regions  []string
+	rejected map[string]int
 }
 
 // peersMissedRounds is how many ping rounds in a row a region must miss
@@ -61,7 +66,8 @@ func wt0Address() (string, error) {
 
 func validPeer(region string, at peer) bool {
 	ip := net.ParseIP(at.address)
-	return slices.Contains(Regions(), region) && swarmruntime.NodeName.MatchString(at.node) && ip != nil && ip.To4() != nil
+	_, known := catalog.LookupName(region)
+	return known && swarmruntime.NodeName.MatchString(at.node) && ip != nil && ip.To4() != nil
 }
 
 // track writes service's file, at least with this node's own line, before
@@ -80,7 +86,11 @@ func (p *peers) track(service string, regions []string) error {
 		p.targets = map[string][]string{}
 	}
 	p.up[p.region] = peer{p.node, address}
-	p.seed(service)
+	if p.admitted == nil {
+		p.seed(service)
+	} else {
+		p.up = maps.Clone(p.admitted)
+	}
 	p.targets[service] = slices.Clone(regions)
 	return p.write(service)
 }
@@ -110,6 +120,7 @@ func (p *peers) untrack(service string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.targets, service)
+	delete(p.rejected, service)
 	return os.RemoveAll(filepath.Join(p.root, service))
 }
 
@@ -162,6 +173,17 @@ func (p *peers) write(service string) error {
 	}
 	slices.Sort(lines)
 	data := []byte(strings.Join(lines, ""))
+	if p.admitted != nil {
+		expected, complete := p.expected(regions)
+		if p.rejected == nil {
+			p.rejected = map[string]int{}
+		}
+		p.rejected[service] = 0
+		if !complete || !bytes.Equal(data, expected) {
+			p.rejected[service] = 1
+			return errors.New("peers generation differs from admitted topology")
+		}
+	}
 	dir := filepath.Join(p.root, service)
 	file := filepath.Join(dir, "peers")
 	if current, err := os.ReadFile(file); err == nil && bytes.Equal(current, data) {
@@ -190,25 +212,47 @@ func (p *peers) write(service string) error {
 	return nil
 }
 
+func (n *Node) pingPeers(ctx context.Context, wait time.Duration) (map[string]peer, map[string]map[string]PeerAttestation) {
+	up := map[string]peer{}
+	reports := map[string]map[string]PeerAttestation{}
+	_ = collect(ctx, n.conn, PingSubject, nil, len(n.regions()), wait, func(data []byte) bool {
+		var reply Reply
+		if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
+			if at := (peer{reply.Server, reply.Address}); validPeer(reply.Region, at) {
+				up[reply.Region] = at
+				reports[reply.Region] = reply.Attestations
+			}
+		}
+		return true
+	})
+	return up, reports
+}
+
 // watchPeers pings every region each cfg.peersEvery and rewrites the files.
 func (n *Node) watchPeers(ctx context.Context) {
 	for {
-		up := map[string]peer{}
-		_ = collect(ctx, n.conn, PingSubject, nil, len(Regions()), n.cfg.peersEvery/2, func(data []byte) bool {
-			var reply Reply
-			if protocol.DecodeTolerant(data, &reply, maxWire) == nil {
-				if at := (peer{reply.Server, reply.Address}); validPeer(reply.Region, at) {
-					up[reply.Region] = at
-				}
-			}
-			return true
-		})
+		up, reports := n.pingPeers(ctx, min(n.cfg.peersEvery/2, peersEvery/2))
 		// A round cut short by shutdown saw only this node: never write it.
 		if ctx.Err() != nil || n.ctx.Err() != nil {
 			return
 		}
-		if err := n.peers.observe(up); err != nil {
-			slog.WarnContext(ctx, "mesh peers file write failed", "error", err)
+		if err := n.peers.admit(up, n.regions()); err != nil {
+			slog.WarnContext(ctx, "mesh peer admission failed", "error", err)
+		} else {
+			n.peerReportMu.Lock()
+			if n.peerReports == nil {
+				n.peerReports = map[string]map[string]PeerAttestation{}
+			}
+			for region, report := range reports {
+				if region != n.cfg.region {
+					n.peerReports[region] = report
+				}
+			}
+			n.peerReportMu.Unlock()
+			n.attestPeers(ctx)
+			if err := n.peers.observe(up); err != nil {
+				slog.WarnContext(ctx, "mesh peers file write failed", "error", err)
+			}
 		}
 		select {
 		case <-ctx.Done():

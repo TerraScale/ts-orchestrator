@@ -1,4 +1,22 @@
 groups:
+  - name: peer-topology
+    interval: 5s
+    rules:
+      - alert: RuntimePeerTopologyMismatch
+        expr: ts_orch_peer_topology_mismatch > 0 or ts_orch_peer_topology_runtime_mismatch > 0 or ts_orch_peer_topology_generation_rejected > 0 or ts_orch_peer_topology_age_seconds > 30
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: Runtime peers disagree with independently admitted service placement
+          description: Inspect the service topology manifest, native runtime verdict and admitted desired generation. A missed mesh ping does not authorize a drain. Do not repair production peer files by hand.
+      - alert: PeerTopologyAttestationDown
+        expr: up{job="peer-topology"} == 0
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: Peer topology attestation is unavailable
   - name: terrabase-operations
     rules:
       - alert: TerraBaseErasurePendingDay20

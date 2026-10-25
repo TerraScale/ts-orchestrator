@@ -37,6 +37,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -117,7 +118,8 @@ type Reply struct {
 	Tasks    []swarmruntime.ServiceTaskEvidence `json:"tasks,omitempty"`
 	// Regions is every region the replying node reaches, so a caller also
 	// waits for regions that joined after its own node's seeds.
-	Regions []string `json:"regions,omitempty"`
+	Regions      []string                   `json:"regions,omitempty"`
+	Attestations map[string]PeerAttestation `json:"attestations,omitempty"`
 }
 
 type stateReply struct {
@@ -170,17 +172,27 @@ type Node struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu      sync.Mutex
-	desired map[string]desiredState
-	failed  map[string]int64 // generation whose local rollout failed, per service
-	peers   *peers
+	mu              sync.Mutex
+	desired         map[string]desiredState
+	failed          map[string]int64 // generation whose local rollout failed, per service
+	peers           *peers
+	peerReports     map[string]map[string]PeerAttestation
+	peerReportMu    sync.Mutex
+	topologyDesired atomic.Pointer[map[string]Entry]
 }
 
 func start(cfg config) (_ *Node, err error) {
+	if cfg.peersEvery <= 0 {
+		cfg.peersEvery = peersEvery
+	}
 	if err := os.MkdirAll(cfg.dir, 0o700); err != nil {
 		return nil, err
 	}
 	desired, err := loadDesired(cfg.dir)
+	if err != nil {
+		return nil, err
+	}
+	peerFiles, err := newPeers(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -237,14 +249,15 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, ctx: ctx, cancel: cancel, desired: desired,
-		peers: &peers{root: cfg.peersDir, region: cfg.region, node: cfg.server, address: cfg.address}}
+		peers: peerFiles}
+	node.publishTopologyDesired()
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) {
 			var address string // a node without NetBird (or a worker) still answers; peers skip it
 			if cfg.address != nil {
 				address, _ = cfg.address()
 			}
-			node.respond(m, Reply{Region: cfg.region, Server: cfg.server, Regions: node.regions(), Address: address})
+			node.respond(m, Reply{Region: cfg.region, Server: cfg.server, Regions: node.regions(), Address: address, Attestations: node.localAttestations()})
 		},
 		StateSubject: func(m *nats.Msg) {
 			ready, err := cfg.applier.Ready(node.ctx)
@@ -274,6 +287,7 @@ func start(cfg config) (_ *Node, err error) {
 		cancel()
 		return nil, err
 	}
+	go node.watchPeers(ctx)
 	return node, nil
 }
 
@@ -328,7 +342,6 @@ func (n *Node) regions() []string {
 
 // run pulls peer state now and every cfg.every until ctx ends.
 func (n *Node) run(ctx context.Context) {
-	go n.watchPeers(ctx)
 	tick := time.NewTicker(n.cfg.every)
 	defer tick.Stop()
 	for {
@@ -380,6 +393,7 @@ func (n *Node) sync(ctx context.Context) {
 			return
 		}
 	}
+	n.publishTopologyDesired()
 	for _, name := range slices.Sorted(maps.Keys(n.desired)) {
 		// The peers file follows desired state even while the rollout waits (a
 		// held canary or an earlier region's turn): a restart must re-render it.
@@ -420,8 +434,14 @@ func (n *Node) handleApply(m *nats.Msg) {
 		return
 	}
 	// A rollback restores the serving release in every region at once.
+	if err == nil {
+		err = validEntry(request.Name, request.Entry)
+	}
 	if err == nil && request.ExpectedGeneration == 0 && request.Entry.RollbackOf == 0 {
 		err = n.awaitTurn(ctx, request.Name, request.Entry.Spec, request.Entry.Generation)
+	}
+	if err == nil {
+		err = n.awaitPeerAdmission(ctx, request.Entry.Spec)
 	}
 	if err == nil {
 		applied, err = n.apply(ctx, request)
@@ -638,6 +658,7 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 		}
 		return applyResult{}, err
 	}
+	n.publishTopologyDesired()
 
 	return n.reconcile(ctx, request.Name, n.desired[request.Name])
 }
