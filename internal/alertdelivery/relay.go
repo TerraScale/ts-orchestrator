@@ -136,6 +136,14 @@ func (r relay) email(ctx context.Context, status string, lines []string) error {
 	if err != nil {
 		return errors.New("alert delivery credentials unavailable")
 	}
+	sendBy, err := r.admit(ctx, secrets.token)
+	if err != nil {
+		// Suppression is handled, just like the local cap; push remains independent.
+		slog.WarnContext(ctx, "production alert email suppressed", "reason", "admission unavailable")
+		return nil
+	}
+	ctx, cancel := context.WithDeadline(ctx, sendBy)
+	defer cancel()
 	payload, err := json.Marshal(map[string]any{
 		"from": map[string]string{"address": "no-reply@terrascale.tech", "name": "TerraScale production alerts"},
 		"to":   recipient, "subject": "TerraScale production alert: " + status,
