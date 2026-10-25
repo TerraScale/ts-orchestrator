@@ -45,7 +45,8 @@ type Edge struct {
 	// peerAddr is region's edge; tests replace it.
 	peerAddr func(region string) string
 	// spoolDir holds request bodies too large to keep in memory for a replay.
-	spoolDir string
+	spoolDir           string
+	requestProofSecret atomic.Pointer[[]byte]
 }
 
 // New returns an edge that caches certificates under stateDir/edge-certs.
@@ -89,6 +90,11 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 			port, _ := e.port(pr.In.Host)
 			pr.SetURL(&url.URL{Scheme: "http", Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port))})
 			pr.Out.Host = pr.In.Host
+			// Rewrite restores this even if Connection named it as hop-by-hop.
+			pr.Out.Header.Set(requestIDHeader, pr.In.Header.Get(requestIDHeader))
+			if proof := e.requestProof(pr.In.Header.Get(requestIDHeader)); proof != "" {
+				pr.Out.Header.Set(requestProofHeader, proof)
+			}
 			if fromPeer(pr.In) {
 				// The source edge already set them from the client's connection.
 				for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
@@ -107,12 +113,20 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 			if err := e.replay(resp); err != nil {
 				return err
 			}
+			// The ingress response already carries the authoritative identity.
+			resp.Header.Del(requestIDHeader)
+			resp.Trailer.Del(requestIDHeader)
+			resp.Header.Del(requestProofHeader)
+			resp.Trailer.Del(requestProofHeader)
+			if resp.StatusCode != http.StatusSwitchingProtocols {
+				resp.Body = identityResponseBody{resp.Body, resp}
+			}
 			secureHeaders(resp.Header)
 			return nil
 		},
 		Transport: e.local,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			slog.WarnContext(r.Context(), "edge proxy error", "host", r.Host, "error", err)
+			slog.WarnContext(r.Context(), "edge proxy error", "host", r.Host, "request_id", r.Header.Get(requestIDHeader), "error", err)
 			// A backend that never received the whole request did not run it,
 			// so the source edge may try the next region.
 			if fromPeer(r) && !wroteBackend(r) {
@@ -161,6 +175,7 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener) erro
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
 	plain := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			e.identify(w, r)
 			// A Postgres hostname needs :80 only for its certificate's challenge.
 			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
 				http.NotFound(w, r)
@@ -216,6 +231,7 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener) erro
 const netbirdHost = "netbird.terrascale.tech"
 
 func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
+	e.identify(w, r)
 	peer := fromPeer(r)
 	if peer && isChallenge(r) {
 		e.serveChallenge(w, r)

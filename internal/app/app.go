@@ -101,10 +101,19 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region string) {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
+	var nextProofRefresh time.Time
 	for {
 		// Dial errors are expected until the node opens its control socket.
 		if client, conn, err := swarmruntime.DialSingleHost(state); err == nil {
 			if list, err := client.ListServices(ctx, &api.ListServicesRequest{}); err == nil {
+				if time.Now().After(nextProofRefresh) {
+					proofCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+					if err := refreshEdgeRequestProof(proofCtx, public, list.Services, vaultsecret.ReadInstanceSecrets); err != nil {
+						slog.WarnContext(ctx, "edge request proof credential unavailable")
+					}
+					cancel()
+					nextProofRefresh = time.Now().Add(time.Minute)
+				}
 				public.SetRoutes(edgeRoutes(list.Services, region))
 			} else {
 				slog.WarnContext(ctx, "edge route sync failed", "error", err)
