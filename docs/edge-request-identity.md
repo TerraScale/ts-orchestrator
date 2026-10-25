@@ -7,9 +7,10 @@ the existing authenticated mesh mTLS channel.
 
 DECISION: first-party callers may preserve an ID with exactly one
 `X-TerraScale-Request-Proof`: uppercase hexadecimal HMAC-SHA256 of
-`terrascale.request-id.v1\n` followed by the canonical ULID. The HMAC key is the
-exact UTF-8 characters of the existing `TERRABASE_PEER_SECRET`, without decoding
-its hex. Unproven, malformed or duplicate public identities are replaced.
+`terrascale.request-id.v1\n` followed by the canonical ULID (`\n` is one LF byte,
+0x0A). The HMAC key is the exact UTF-8 characters of `TERRABASE_PEER_SECRET`,
+preserving stored letter case without hex decoding. Unproven, malformed or
+duplicate public identities are replaced.
 The edge replaces incoming proofs with a locally signed proof for the backend;
 services must verify it even on loopback. Backend response proofs, including
 trailers, are removed before returning to the customer.
