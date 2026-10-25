@@ -46,7 +46,7 @@ func TestDashboardContract(t *testing.T) {
 		t.Fatal("dashboard must allow selecting a Prometheus datasource on import")
 	}
 	if len(dashboard.Templating.List) != 1 || dashboard.Templating.List[0].Name != "service" || !slices.Equal(strings.Split(dashboard.Templating.List[0].Query, ","), services) {
-		t.Fatal("service selector must cover all five SLO services")
+		t.Fatal("service selector must cover the three live SLO services")
 	}
 	rules, err := os.ReadFile("../../deploy/observability/slo-rules.yml")
 	if err != nil {

@@ -47,7 +47,7 @@
         "name": "service",
         "label": "Service",
         "type": "custom",
-        "query": "terrabase,ts-auth,ts-dashboard,ts-atlas,ts-router",
+        "query": "terrabase,ts-auth,ts-dashboard",
         "multi": false,
         "includeAll": false,
         "hide": 0,
@@ -71,16 +71,6 @@
             "selected": false,
             "text": "ts-dashboard",
             "value": "ts-dashboard"
-          },
-          {
-            "selected": false,
-            "text": "ts-atlas",
-            "value": "ts-atlas"
-          },
-          {
-            "selected": false,
-            "text": "ts-router",
-            "value": "ts-router"
           }
         ]
       }
@@ -99,7 +89,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**Policy assets only:** this slice does not install a monitoring runtime. Upstream normalized counters are unavailable until service instrumentation is deployed. Import this dashboard with the Prometheus datasource that evaluates slo-rules.yml.\n\nThe availability objective is **99.9% over a rolling 30 days**, aggregated by request volume across the service fleet. **The 30d SLO is provisional until 30d have been observed.** Missing telemetry and zero traffic are not evidence of health: undefined values display **No data**, never 100%. Remaining budget can be negative. Burn alerts require both paired windows: 1h/5m >14.4, 6h/30m >6, 1d/2h >3, 3d/6h >1. An empty alerts table alone does not establish health."
+        "content": "**Coverage:** TerraBase and auth use existing HTTP duration counts normalized by recording rules; dashboard exports native request outcomes. Deploy and verify all three targets before interpreting availability. Atlas and router are not deployed. HTTP normalization cannot expose every protocol failure hidden behind HTTP 200. Select the Prometheus datasource that evaluates slo-rules.yml.\n\nThe availability objective is **99.9% over a rolling 30 days**, aggregated by request volume across the service fleet. **The 30d SLO is provisional until 30d have been observed.** Missing telemetry and zero traffic are not evidence of health: undefined values display **No data**, never 100%. Remaining budget can be negative. Burn alerts require both paired windows: 1h/5m >14.4, 6h/30m >6, 1d/2h >3, 3d/6h >1. An empty alerts table alone does not establish health."
       }
     },
     {
