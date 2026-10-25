@@ -1,9 +1,9 @@
 # Service availability SLOs (TS-714)
 
-This first slice defines the closed-beta policy, executable Prometheus rules
-and importable Grafana dashboard. It does **not** install a monitoring backend
-or enable production SLO coverage. No Prometheus/Grafana deployment is managed
-by this repository today. Alert routing belongs to its separate ticket.
+These files define the closed-beta policy, executable Prometheus rules and
+importable Grafana dashboard. The existing gru monitoring backend and alert
+routing are described in [the production runbook](production/README.md).
+Coverage requires native counters and verified collection for each service.
 
 ## Policy
 
@@ -60,11 +60,12 @@ configuration and fixtures, not a new application data store. Backend and
 Grafana provisioning/storage must follow the existing TerraScale ownership
 and persistence rules in the runtime activation slice.
 
-Known integration gaps at this slice: ts-auth emits OpenTelemetry through OTLP
-and has no `/metrics` route. There is no verified normalized counter for any
-of the five services yet. Use current service mainline contracts when wiring
-the collector. Never relabel health checks or process readiness into request
-success.
+TerraBase uses its native Prometheus listener on port 9091. Auth and dashboard
+expose guarded loopback application-listener metrics; the orchestrator discovers
+each running task port for Prometheus file discovery. Native emitter releases
+must be installed before collection can satisfy this contract. Verify both
+outcomes and instance identity against the deployed releases; never relabel
+health checks or process readiness into request success.
 
 ## Burn-rate alerts
 

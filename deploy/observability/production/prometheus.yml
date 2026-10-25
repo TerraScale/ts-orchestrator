@@ -18,6 +18,11 @@ scrape_configs:
         labels:
           region: gru
           service: terrabase
+  - job_name: application-slo
+    metrics_path: /metrics
+    file_sd_configs:
+      - files: ['/run/ts-orch-observability/targets.json']
+        refresh_interval: 5s
   - job_name: service-readiness
     metrics_path: /metrics
     scrape_timeout: 10s
