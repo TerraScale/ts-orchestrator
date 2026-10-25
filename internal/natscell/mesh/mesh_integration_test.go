@@ -707,3 +707,133 @@ func TestMeshCanaryHoldsUntilResume(t *testing.T) {
 		t.Fatal("resumed a rollout that is not held")
 	}
 }
+
+// A ts-orch self-update stops one region's node and starts it again on the
+// same state. Its TerraBase peers file must list every region throughout: the
+// exit must not write a round only this node answered, and the new node must
+// keep and re-render the file even while the rollout is held (2026-10-25 gru).
+func TestMeshRestartKeepsPeersFile(t *testing.T) {
+	regions := Regions()
+	ca, err := DeriveCA(bytes.Repeat([]byte{44}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports := freePorts(t, 6)
+	configs := map[string]config{}
+	for i, region := range regions {
+		gateways := map[string]string{}
+		for j, peer := range regions {
+			if peer != region {
+				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
+			}
+		}
+		address := fmt.Sprintf("10.202.0.%d", i+1)
+		configs[region] = config{
+			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
+			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
+			gateways: gateways, ca: ca, applier: &fakeApplier{running: map[string]int64{}}, every: 300 * time.Millisecond,
+			peersDir: t.TempDir(), peersEvery: 300 * time.Millisecond, address: func() (string, error) { return address, nil },
+		}
+	}
+	nodes := map[string]*Node{}
+	launch := func(region string) {
+		node, err := start(configs[region])
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes[region] = node
+		go node.run(t.Context())
+	}
+	for _, region := range regions {
+		launch(region)
+	}
+	t.Cleanup(func() {
+		for _, node := range nodes {
+			node.Close()
+		}
+	})
+	home := regions[0]
+	lines := func() int {
+		data, _ := os.ReadFile(filepath.Join(configs[home].peersDir, "terrabase", "peers"))
+		return strings.Count(string(data), "\n")
+	}
+	eventually(t, "every region to answer ping", func() bool { return Ping(t.Context(), nodes[home].conn, time.Second, io.Discard) == nil })
+	spec := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+	if _, err := applySpec(t.Context(), nodes[home].conn, spec, "", 30*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, home+"'s peers file to list every region", func() bool { return lines() == len(regions) })
+	// A held canary: the home region waits, as gru did during batch 8b.
+	next := spec
+	next.Image = "docker.io/library/alpine@sha256:" + strings.Repeat("b", 64)
+	if _, err := applySpec(t.Context(), nodes[regions[1]].conn, next, rolloutOrder(&next)[0], 30*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	nodes[home].Close()
+	delete(nodes, home)
+	time.Sleep(time.Second) // the exiting node's last ping round would land here
+	if got := lines(); got != len(regions) {
+		t.Fatalf("after the exit the peers file lists %d regions, want %d", got, len(regions))
+	}
+	launch(home)
+	for deadline := time.Now().Add(4 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if got := lines(); got != len(regions) {
+			t.Fatalf("after the restart the peers file lists %d regions, want %d", got, len(regions))
+		}
+	}
+}
+
+// A ping round cut short by shutdown (ts-orch's context is cancelled while it
+// collects) sees only this node; it must not rewrite the peers files.
+func TestMeshShutdownRoundKeepsPeersFile(t *testing.T) {
+	regions, nodes, _ := startMeshRegions(t, 0)
+	home := nodes[regions[0]]
+	spec := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+	if _, err := applySpec(t.Context(), home.conn, spec, "", 30*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(home.cfg.peersDir, "terrabase", "peers")
+	lines := func() int { data, _ := os.ReadFile(file); return strings.Count(string(data), "\n") }
+	eventually(t, "the peers file to list every region", func() bool { return lines() == len(regions) })
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	home.watchPeers(cancelled)
+	if got := lines(); got != len(regions) {
+		t.Fatalf("a shutdown round left %d regions in the peers file, want %d", got, len(regions))
+	}
+}
+
+// After a restart the file's regions count as up: one round only this node
+// answered keeps them; a region leaves only after peersMissedRounds misses.
+func TestPeersKeepFileRegionsUntilMissedTwice(t *testing.T) {
+	regions := Regions()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "terrabase"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var previous string
+	for i, region := range regions {
+		previous += fmt.Sprintf("ts-%s-1 %s 10.203.0.%d\n", region, region, i+1)
+	}
+	if err := os.WriteFile(filepath.Join(root, "terrabase", "peers"), []byte(previous), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := &peers{root: root, region: regions[0], node: "ts-" + regions[0] + "-1", address: func() (string, error) { return "10.203.0.1", nil }}
+	if err := p.track("terrabase", nil); err != nil {
+		t.Fatal(err)
+	}
+	lines := func() int {
+		data, _ := os.ReadFile(filepath.Join(root, "terrabase", "peers"))
+		return strings.Count(string(data), "\n")
+	}
+	if got := lines(); got != len(regions) {
+		t.Fatalf("track after a restart wrote %d regions, want %d", got, len(regions))
+	}
+	if err := p.observe(map[string]peer{}); err != nil || lines() != len(regions) {
+		t.Fatalf("one round without the other regions left %d, %v", lines(), err)
+	}
+	if err := p.observe(map[string]peer{}); err != nil || lines() != 1 {
+		t.Fatalf("two missed rounds left %d regions, want only this one (%v)", lines(), err)
+	}
+}

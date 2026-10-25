@@ -32,8 +32,14 @@ type peers struct {
 
 	mu      sync.Mutex
 	up      map[string]peer     // region -> node that answered the last ping round
+	missed  map[string]int      // region -> consecutive rounds it did not answer
 	targets map[string][]string // service -> its regions; empty means every region
 }
+
+// peersMissedRounds is how many ping rounds in a row a region must miss
+// before its line leaves the files: the first round after a start runs before
+// the gateways connect, and a restart must not shrink a file to this region.
+const peersMissedRounds = 2
 
 // wt0Address is this host's NetBird IPv4.
 func wt0Address() (string, error) {
@@ -74,8 +80,30 @@ func (p *peers) track(service string, regions []string) error {
 		p.targets = map[string][]string{}
 	}
 	p.up[p.region] = peer{p.node, address}
+	p.seed(service)
 	p.targets[service] = slices.Clone(regions)
 	return p.write(service)
+}
+
+// seed takes the regions the service's file already lists (written by this
+// node's previous run) as up until the ping rounds say otherwise; the caller
+// holds p.mu.
+func (p *peers) seed(service string) {
+	data, err := os.ReadFile(filepath.Join(p.root, service, "peers"))
+	if err != nil {
+		return
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 3 {
+			continue
+		}
+		if at := (peer{fields[0], fields[2]}); validPeer(fields[1], at) {
+			if _, known := p.up[fields[1]]; !known {
+				p.up[fields[1]] = at
+			}
+		}
+	}
 }
 
 func (p *peers) untrack(service string) error {
@@ -85,16 +113,35 @@ func (p *peers) untrack(service string) error {
 	return os.RemoveAll(filepath.Join(p.root, service))
 }
 
-// observe replaces the up set (keeping the own line while its address is
-// known) and rewrites every tracked file whose content changed.
-func (p *peers) observe(up map[string]peer) error {
+// observe takes the regions that answered a ping round (keeping the own line
+// while its address is known); a region that did not keeps its line until it
+// missed peersMissedRounds rounds in a row. It rewrites every tracked file
+// whose content changed.
+func (p *peers) observe(answered map[string]peer) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	up := maps.Clone(answered)
 	if own, ok := p.up[p.region]; ok {
 		up[p.region] = own
 	}
 	if address, err := p.address(); err == nil {
 		up[p.region] = peer{p.node, address}
+	}
+	if p.missed == nil {
+		p.missed = map[string]int{}
+	}
+	for region := range answered {
+		delete(p.missed, region)
+	}
+	for region, at := range p.up {
+		if _, ok := up[region]; ok {
+			continue
+		}
+		if p.missed[region]++; p.missed[region] < peersMissedRounds {
+			up[region] = at
+		} else {
+			delete(p.missed, region)
+		}
 	}
 	p.up = up
 	var errs []error
@@ -156,6 +203,10 @@ func (n *Node) watchPeers(ctx context.Context) {
 			}
 			return true
 		})
+		// A round cut short by shutdown saw only this node: never write it.
+		if ctx.Err() != nil || n.ctx.Err() != nil {
+			return
+		}
 		if err := n.peers.observe(up); err != nil {
 			slog.WarnContext(ctx, "mesh peers file write failed", "error", err)
 		}
