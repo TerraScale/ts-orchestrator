@@ -148,3 +148,48 @@ func containerdTaskPortUpdateServesThroughout(t *testing.T, ctx context.Context,
 func servedThroughout(failures []string) bool {
 	return len(failures) <= 1 && !slices.ContainsFunc(failures, func(f string) bool { return strings.Contains(f, "connection refused") })
 }
+
+// Adding regions or a ready timeout to a spec changes only labels: SwarmKit
+// keeps the running task, and the exact readiness wait must accept it as the
+// new generation instead of failing the rollout (gru's ts-auth, 2026-10-24).
+func containerdLabelOnlyChangeKeepsTask(t *testing.T, ctx context.Context, e *Executor, client api.ControlClient) {
+	t.Run("label-only change keeps its task", func(t *testing.T) {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := uint32(listener.Addr().(*net.TCPAddr).Port)
+		if err := listener.Close(); err != nil {
+			t.Fatal(err)
+		}
+		spec := ServiceSpec{Name: "label-only", Image: integrationImage, Port: port, Replicas: 1, ReadyPath: "/readyz", Generation: 1,
+			Env:  map[string]string{"HANDLER": `read -r line; printf 'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok'`},
+			Args: []string{"/bin/sh", "-c", fmt.Sprintf(`trap 'kill $! 2>/dev/null; exit 0' TERM; nc -lk -p %d -e /bin/sh -c "$HANDLER" & wait`, port)}}
+		t.Cleanup(func() {
+			cleanup, stop := context.WithTimeout(context.Background(), time.Minute)
+			defer stop()
+			if err := RemoveServiceSpec(cleanup, client, spec.Name); err != nil {
+				t.Error(err)
+			}
+			waitRuntime(t, cleanup, func() (bool, error) {
+				containers, err := e.client.Containers(runtimeContext(cleanup), fmt.Sprintf(`labels."terrascale.ports"=="%d"`, port))
+				return len(containers) == 0, err
+			})
+		})
+		if _, err := ApplyServiceSpec(ctx, client, spec); err != nil {
+			t.Fatal(err)
+		}
+		first, err := WaitServiceSpecExact(ctx, client, spec)
+		if err != nil || len(first.Tasks) != 1 {
+			t.Fatalf("first rollout: %+v, %v", first, err)
+		}
+		spec.Generation, spec.ReadyTimeoutSeconds = 2, 300
+		if _, err := ApplyServiceSpec(ctx, client, spec); err != nil {
+			t.Fatal(err)
+		}
+		second, err := WaitServiceSpecExact(ctx, client, spec)
+		if err != nil || len(second.Tasks) != 1 || second.Tasks[0].TaskID != first.Tasks[0].TaskID {
+			t.Fatalf("label-only rollout: %+v, %v (first task %s)", second, err, first.Tasks[0].TaskID)
+		}
+	})
+}
