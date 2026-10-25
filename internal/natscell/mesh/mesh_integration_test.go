@@ -571,7 +571,7 @@ func TestMeshFailedRegionStopsAndRollsBack(t *testing.T) {
 	regions, nodes, appliers := startMeshRegions(t, 0)
 	conn := nodes[regions[0]].conn
 	good := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
-	if _, err := applySpec(t.Context(), conn, good, 30*time.Second); err != nil {
+	if _, err := applySpec(t.Context(), conn, good, "", 30*time.Second); err != nil {
 		t.Fatalf("good apply: %v", err)
 	}
 	order := rolloutOrder(&good)
@@ -579,7 +579,7 @@ func TestMeshFailedRegionStopsAndRollsBack(t *testing.T) {
 	bad := good
 	bad.Image = appliers[order[0]].unready
 	start := time.Now()
-	rows, err := applySpec(t.Context(), conn, bad, 60*time.Second)
+	rows, err := applySpec(t.Context(), conn, bad, "", 60*time.Second)
 	elapsed := time.Since(start)
 	if err == nil || !strings.Contains(err.Error(), "rolled back to "+good.Image) {
 		t.Fatalf("bad apply = %v\n%+v", err, rows)
@@ -661,5 +661,49 @@ func TestRolloutWindowsFollowReadyTimeout(t *testing.T) {
 	}
 	if rolloutWait(spec) > releasepush.HandlerWait-time.Minute {
 		t.Fatalf("rollout %s does not fit the release handler's %s", rolloutWait(spec), releasepush.HandlerWait)
+	}
+}
+
+// A canary hold: the rollout applies the first region only; the later ones
+// keep the previous generation, also through the sync loop, until Resume.
+func TestMeshCanaryHoldsUntilResume(t *testing.T) {
+	regions, nodes, appliers := startMeshRegions(t, 0)
+	conn := nodes[regions[0]].conn
+	spec := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+	if _, err := applySpec(t.Context(), conn, spec, "", 30*time.Second); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+	order := rolloutOrder(&spec)
+	next := spec
+	next.Image = "docker.io/library/alpine@sha256:" + strings.Repeat("c", 64)
+	if _, err := applySpec(t.Context(), conn, next, "nowhere", 30*time.Second); err == nil {
+		t.Fatal("a hold after a region outside the rollout was accepted")
+	}
+	rows, err := applySpec(t.Context(), conn, next, order[0], 30*time.Second)
+	if err != nil {
+		t.Fatalf("held apply: %v\n%+v", err, rows)
+	}
+	for _, row := range rows {
+		if row.Region != order[0] && row.Result != "held after "+order[0] {
+			t.Fatalf("%s answered %q, want held", row.Region, row.Result)
+		}
+	}
+	time.Sleep(time.Second) // a few sync ticks (300 ms) must not roll the held regions
+	for i, region := range order {
+		if got, want := appliers[region].appliedImage("terrabase"), map[bool]string{true: next.Image, false: spec.Image}[i == 0]; got != want {
+			t.Fatalf("%s runs %s while held after %s, want %s", region, got, order[0], want)
+		}
+	}
+	var out bytes.Buffer
+	if err := Resume(t.Context(), conn, "terrabase", &out); err != nil {
+		t.Fatalf("resume: %v\n%s", err, out.String())
+	}
+	for _, region := range order {
+		if got := appliers[region].appliedImage("terrabase"); got != next.Image {
+			t.Fatalf("%s runs %s after resume, want %s", region, got, next.Image)
+		}
+	}
+	if err := Resume(t.Context(), conn, "terrabase", &out); err == nil {
+		t.Fatal("resumed a rollout that is not held")
 	}
 }

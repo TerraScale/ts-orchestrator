@@ -41,8 +41,24 @@ const noReply = "no reply"
 
 // Apply sends spec to every ordered region as a new generation and prints
 // one line per region. It fails when a targeted region failed or did not reply.
-func Apply(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSpec, output io.Writer) error {
-	return printApply(output)(applySpec(ctx, conn, spec, applyWait))
+// With holdAfter, the regions after it hold the previous generation (a canary)
+// until Resume.
+func Apply(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSpec, holdAfter string, output io.Writer) error {
+	return printApply(output)(applySpec(ctx, conn, spec, holdAfter, applyWait))
+}
+
+// Resume re-applies name's held spec without its hold, so the rollout goes on
+// past the canary region.
+func Resume(ctx context.Context, conn *nats.Conn, name string, output io.Writer) error {
+	entries, err := desiredStates(ctx, conn)
+	if err != nil {
+		return err
+	}
+	current := entries[name].entry()
+	if current.Spec == nil || current.HoldAfter == "" {
+		return fmt.Errorf("%s has no held rollout", name)
+	}
+	return printApply(output)(applySpec(ctx, conn, *current.Spec, "", applyWait))
 }
 
 // Remove deletes name in every ordered region.
@@ -56,8 +72,8 @@ func Remove(ctx context.Context, conn *nats.Conn, name string, output io.Writer)
 // applySpec rolls spec out region by region. When a targeted region fails,
 // the later ones never apply and every region gets the previous spec back,
 // unless a newer apply replaced this one meanwhile.
-func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSpec, wait time.Duration) ([]Reply, error) {
-	if err := validEntry(spec.Name, Entry{Generation: 1, Spec: &spec}); err != nil {
+func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSpec, holdAfter string, wait time.Duration) ([]Reply, error) {
+	if err := validEntry(spec.Name, Entry{Generation: 1, Spec: &spec, HoldAfter: holdAfter}); err != nil {
 		return nil, err
 	}
 	entries, err := desiredStates(ctx, conn)
@@ -66,7 +82,7 @@ func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSp
 	}
 	before := entries[spec.Name].entry()
 	generation := max(time.Now().UnixNano(), before.Generation+1)
-	rows, failed := send(ctx, conn, ApplyRequest{Name: spec.Name, Entry: Entry{Generation: generation, Spec: &spec}}, max(wait, rolloutWait(&spec)))
+	rows, failed := send(ctx, conn, ApplyRequest{Name: spec.Name, Entry: Entry{Generation: generation, Spec: &spec, HoldAfter: holdAfter}}, max(wait, rolloutWait(&spec)))
 	if failed == nil || before.Spec == nil {
 		return rows, failed
 	}
