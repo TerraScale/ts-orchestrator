@@ -82,7 +82,8 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	}
 	next.Image = image
 	generation := max(time.Now().UnixNano(), entries[service].entry().Generation+1)
-	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment}}
+	// A release of a held service stays held: only `service resume` advances it.
+	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: entries[service].entry().HoldAfter}}
 	rows, failed := send(ctx, conn, request, max(wait, rolloutWait(&next)))
 	if failed == nil {
 		return rows, nil
@@ -90,7 +91,7 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	if current, err := desiredStates(ctx, conn); err != nil || current[service].entry().Generation != generation {
 		return rows, errors.Join(failed, errors.New("not rolled back: a newer release replaced it"), err)
 	}
-	back, err := send(ctx, conn, ApplyRequest{Name: service, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: previous, Deployment: deployment}}, max(rollbackWait, regionWindow(previous)))
+	back, err := send(ctx, conn, ApplyRequest{Name: service, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: previous, Deployment: deployment, HoldAfter: entries[service].entry().HoldAfter}}, max(rollbackWait, regionWindow(previous)))
 	target := "absence"
 	if previous != nil {
 		target = previous.Image
