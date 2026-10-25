@@ -137,7 +137,7 @@ func bufferBody(r *http.Request, spoolDir string) (func(), error) {
 	}
 	file, err := spool(spoolDir)
 	if err != nil {
-		slog.WarnContext(r.Context(), "edge replay: body not spooled, streaming it", "error", err)
+		slog.WarnContext(r.Context(), "edge replay: body not spooled, streaming it", "request_id", r.Header.Get(requestIDHeader), "error", err)
 		r.Body = struct {
 			io.Reader
 			io.Closer
@@ -204,7 +204,7 @@ func (e *Edge) replay(resp *http.Response) error {
 			swap(resp, next)
 			return nil
 		}
-		slog.WarnContext(out.Context(), "edge replay: region down", "host", out.Host, "region", region)
+		slog.WarnContext(out.Context(), "edge replay: region down", "host", out.Host, "region", region, "request_id", out.Header.Get(requestIDHeader))
 	}
 	if !fallback {
 		return nil
