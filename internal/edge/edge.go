@@ -36,6 +36,7 @@ type Edge struct {
 	certs    *autocert.Manager
 	routes   atomic.Pointer[map[string]int]
 	postgres atomic.Pointer[map[string]int]
+	pgKeys   postgresKeys
 	wire     atomic.Pointer[map[string]int]
 	proxy    *httputil.ReverseProxy
 	// challenges answers HTTP-01 for the tokens this edge holds.
