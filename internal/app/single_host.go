@@ -69,7 +69,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	}
 	// The edge's :80/:443/:5432/:7464 sit behind the same Ubuntu OCI image INPUT REJECT;
 	// service ports (8080, 6432, ...) stay rejected, reachable on loopback only.
-	for _, port := range []int{80, 443, edge.PostgresPort, edge.WirePort, hostmetrics.Port} {
+	for _, port := range []int{80, 443, edge.PostgresPort, hostmetrics.Port} {
 		if err := releasepush.OpenTCP(ctx, port); err != nil {
 			fmt.Fprintf(output, "edge firewall: %v\n", err)
 		}

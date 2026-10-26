@@ -80,6 +80,7 @@ func serve(ctx context.Context) error {
 				http.Error(w, "host storage telemetry unavailable", http.StatusServiceUnavailable)
 				return
 			}
+			observability.WriteEdgeListenerMetrics(&body)
 			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 			_, _ = w.Write(body.Bytes())
 		})}

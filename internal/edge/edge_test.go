@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,8 +58,17 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 			if err != nil {
 				return
 			}
-			wireAccepted <- struct{}{}
-			go func() { defer conn.Close(); io.Copy(conn, conn) }()
+			go func() {
+				defer conn.Close()
+				first := make([]byte, 64)
+				n, err := conn.Read(first)
+				if err != nil {
+					return
+				} // TCP readiness probes close without application data.
+				wireAccepted <- struct{}{}
+				conn.Write(first[:n])
+				io.Copy(conn, conn)
+			}()
 		}
 	}()
 
@@ -84,7 +94,10 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	e.SetRoutes(map[string]int{
 		"App.Edge.Test": app.Listener.Addr().(*net.TCPAddr).Port,
 	}, map[string]int{"PG.Edge.Test": pgBackend})
-	e.SetWireRoutes(map[string]int{"Wire.Edge.Test": wireBackend.Addr().(*net.TCPAddr).Port})
+	notReady := listen(t)
+	unavailablePort := notReady.Addr().(*net.TCPAddr).Port
+	notReady.Close()
+	e.SetWireRoutes(map[string]int{"Wire.Edge.Test": unavailablePort})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	served := make(chan error, 1)
@@ -92,6 +105,26 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	// collision with the pre-existing plaintext wire listener.
 	wireConflict := make(chan struct{}, 1)
 	wireBound := make(chan struct{})
+	pgConflict, pgBound := make(chan struct{}, 1), make(chan struct{})
+	firewallClosed := make(chan struct{}, 8)
+	var firewallOpen atomic.Bool
+	e.wireFirewall = func(_ context.Context, open bool) error {
+		if open {
+			select {
+			case <-wireBound:
+			default:
+				return fmt.Errorf("wire firewall opened before socket bind")
+			}
+		}
+		firewallOpen.Store(open)
+		if !open {
+			select {
+			case firewallClosed <- struct{}{}:
+			default:
+			}
+		}
+		return nil
+	}
 	e.listen = func(network, address string) (net.Listener, error) {
 		switch address {
 		case ":80":
@@ -99,7 +132,16 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		case ":443":
 			return tlsLn, nil
 		case ":5432":
-			return pgLn, nil
+			ln, err := net.Listen(network, pgLn.Addr().String())
+			if err != nil {
+				select {
+				case pgConflict <- struct{}{}:
+				default:
+				}
+			} else {
+				close(pgBound)
+			}
+			return ln, err
 		case ":7464":
 			ln, err := net.Listen(network, wireLn.Addr().String())
 			if err != nil {
@@ -295,7 +337,34 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	}
 	startup := func(code uint32) []byte { return binary.BigEndian.AppendUint32([]byte{0, 0, 0, 8}, code) }
 
+	t.Run("postgres collision preserves HTTPS and recovers", func(t *testing.T) {
+		select {
+		case <-pgConflict:
+		case <-time.After(10 * time.Second):
+			t.Fatal("Postgres conflict not exercised")
+		}
+		// All earlier HTTP/HTTPS/gRPC subtests ran with Postgres still occupied.
+		pgLn.Close()
+		select {
+		case <-pgBound:
+		case <-time.After(15 * time.Second):
+			t.Fatal("Postgres did not recover")
+		}
+	})
+
 	t.Run("wire collision preserves full edge and recovers", func(t *testing.T) {
+		if firewallOpen.Load() {
+			t.Fatal("wire firewall opened while backend unavailable")
+		}
+		if e.wireReady(ctx) {
+			t.Fatal("unavailable private backend reported ready")
+		}
+		select {
+		case <-wireConflict:
+			t.Fatal("public wire bind attempted before private backend was ready")
+		default:
+		}
+		e.SetWireRoutes(map[string]int{"Wire.Edge.Test": wireBackend.Addr().(*net.TCPAddr).Port})
 		select {
 		case <-wireConflict:
 		case <-time.After(10 * time.Second):
@@ -417,6 +486,24 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		case <-wireAccepted:
 			t.Fatal("rejected client reached backend")
 		default:
+		}
+	})
+
+	t.Run("wire backend loss withdraws public admission", func(t *testing.T) {
+		if !firewallOpen.Load() {
+			t.Fatal("wire admission never opened after readiness and bind")
+		}
+		for len(firewallClosed) > 0 {
+			<-firewallClosed
+		}
+		wireBackend.Close()
+		select {
+		case <-firewallClosed:
+		case <-time.After(15 * time.Second):
+			t.Fatal("wire admission not withdrawn after backend loss")
+		}
+		if firewallOpen.Load() {
+			t.Fatal("wire admission remains open after backend loss")
 		}
 	})
 

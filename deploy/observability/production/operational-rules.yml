@@ -79,3 +79,15 @@ groups:
           severity: critical
         annotations:
           summary: Authentication email provider capacity exhausted
+
+  - name: edge-listeners
+    rules:
+      - alert: EdgeListenerUnavailable
+        expr: ts_orch_edge_listener_ready{job="host-storage"} == 0
+        for: 1m
+        labels:
+          service: edge
+          severity: critical
+        annotations:
+          summary: A public edge listener is unavailable
+          description: Inspect listener bind errors and native wire readiness. Other edge protocols continue serving; no manual release prerequisite is required.

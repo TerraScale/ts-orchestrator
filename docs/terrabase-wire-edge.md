@@ -10,34 +10,31 @@ The TerraBase service declares `wire.port=7465`, matching its existing
 `TerraBaseOptions.WirePort` through `TERRABASE_WIRE_PORT=7465`. The public edge
 owns 7464. Private port 7465 stays blocked externally, like Postgres backend 6432.
 
-## First production installation (FR1 only)
+## Automatic releases and service rollout (FR1)
 
-The old TerraBase process owns 7464. Deploying the new edge before moving that
-process keeps wire unavailable until the migration completes; HTTP, HTTPS and Postgres
-continue serving while the wire listener retries every five seconds. Opening
-the NSG before migration would expose plaintext.
-Perform this migration in order on all three regions:
+No release has a manual prerequisite. Each public protocol starts and retries
+independently. A bind failure logs the affected protocol and leaves the others
+serving. Prometheus host scrapes include `ts_orch_edge_listener_ready` with four
+fixed protocol values; `EdgeListenerUnavailable` alerts after one minute.
 
-1. Preserve each region's current TerraBase image, secrets, resources and live
-   service declaration. With the old orchestrator, apply a declaration changing
-   only `env.TERRABASE_WIRE_PORT` to `7465`. Omit the new `wire` field, which the
-   old orchestrator does not understand. Use the normal gated service rollout.
-   Keep public NSG 7464 closed throughout this step.
-2. Verify the running release is healthy, the private wire listener moved to
-   7465 and no process owns 7464. Confirm public 7465 remains blocked. Existing
-   HTTP and Postgres paths must remain healthy.
-3. Roll the new merged orchestrator SHA through the release owner. Apply each
-   region's preserved live declaration with `wire: {"port":7465,
-   "hostname":"api.terrascale.tech"}` added. Do not replace a live declaration
-   with the repository's example image or secret references. Route sync adds
-   both the global hostname and `<region>.api.terrascale.tech` automatically.
-4. Verify local :7464 TLS with SNI `api.terrascale.tech`, then open the public
-   NSG TCP 7464 using the existing host-network reconciler. Its desired rules
-   include 7464; they exclude private 7465.
-5. From delta, verify certificate chain and hostname on each region's public IP
-   at 7464, using `api.terrascale.tech` as SNI. Recheck Postgres verify-full on
-   5432. Give the handshake evidence to COS for routing to RT6.
+Wire activates only after a TCP readiness probe confirms its configured private
+backend. Missing routes, unavailable private listeners and an occupied public
+7464 leave wire down while HTTP, HTTPS and Postgres continue. Readiness is
+rechecked every five seconds, and wire automatically recovers after either
+release order. Its exact host firewall ACCEPT rule is withdrawn while blocked
+and opened only after the edge owns the public TLS socket, keeping a legacy
+native plaintext listener private.
 
-No data format change, wipe, new credentials or paid service is needed. After
-this initial migration, the service declaration preserves the private listener
-port through ordinary releases.
+FR1 rolls the merged orchestrator release through the normal automatic path.
+Update each region's preserved live TerraBase declaration with
+`env.TERRABASE_WIRE_PORT=7465` and `wire: {"port":7465,
+"hostname":"api.terrascale.tech"}` through the normal gated service rollout.
+Preserve live images, secrets and resources; never apply the example's stale
+image or secret references. Either component can roll first safely.
+
+After local TLS works, FR1 reconciles public NSG TCP7464 and verifies certificate
+chain and hostname from delta on every regional public IP, with
+`api.terrascale.tech` as SNI. Keep private7465 blocked. Recheck Postgres
+verify-full on5432. COS routes the public handshake evidence to RT6.
+
+No data format change, wipe, new credentials or paid service is needed.

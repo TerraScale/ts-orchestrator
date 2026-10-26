@@ -2,9 +2,11 @@ package releasepush
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 )
 
 // EnsureFirewall puts a tcp/4222 ACCEPT above the Ubuntu OCI image's INPUT
@@ -27,4 +29,24 @@ func open(ctx context.Context, proto string, port int) error {
 		return fmt.Errorf("iptables %v: %w: %s", insert, err, output)
 	}
 	return nil
+}
+
+// CloseTCP removes only the exact ACCEPT rule owned by OpenTCP. This keeps
+// legacy plaintext wire private until the edge has claimed its public port.
+func CloseTCP(ctx context.Context, port int) error {
+	rule := []string{"INPUT", "-p", "tcp", "--dport", strconv.Itoa(port), "-j", "ACCEPT"}
+	for range 64 {
+		output, err := exec.CommandContext(ctx, "iptables", append([]string{"-w", "2", "-C"}, rule...)...).CombinedOutput()
+		if err != nil {
+			var exit *exec.ExitError
+			if errors.As(err, &exit) && exit.ExitCode() == 1 && strings.Contains(string(output), "Bad rule") {
+				return nil
+			}
+			return fmt.Errorf("check wire firewall rule: %w: %s", err, output)
+		}
+		if output, err := exec.CommandContext(ctx, "iptables", append([]string{"-w", "2", "-D"}, rule...)...).CombinedOutput(); err != nil {
+			return fmt.Errorf("remove wire firewall rule: %w: %s", err, output)
+		}
+	}
+	return fmt.Errorf("too many duplicate wire firewall rules")
 }
