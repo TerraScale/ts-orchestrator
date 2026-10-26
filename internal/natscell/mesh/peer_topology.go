@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"os"
@@ -294,7 +295,7 @@ func runtimePeerMismatch(ctx context.Context) int {
 }
 
 func (n *Node) servePeerMetrics(ctx context.Context) {
-	server := &http.Server{Addr: "127.0.0.1:9095", ReadHeaderTimeout: 2 * time.Second, WriteTimeout: 3 * time.Second,
+	server := &http.Server{Addr: "127.0.0.1:9097", ReadHeaderTimeout: 2 * time.Second, WriteTimeout: 3 * time.Second,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/metrics" {
 				http.NotFound(w, r)
@@ -304,5 +305,7 @@ func (n *Node) servePeerMetrics(ctx context.Context) {
 			n.writePeerMetrics(w)
 		})}
 	go func() { <-ctx.Done(); _ = server.Close() }()
-	_ = server.ListenAndServe()
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.ErrorContext(ctx, "peer topology metrics listener failed", "address", server.Addr, "error", err)
+	}
 }

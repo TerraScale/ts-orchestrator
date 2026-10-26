@@ -41,7 +41,8 @@ membership; unknown, mismatched or over-30-second-old evidence refuses client
 work and readiness while preserving peer repair traffic. Deploy ts-orch before
 the companion TerraBase release; neither deployment is performed by this document.
 
-The loopback `127.0.0.1:9095/metrics` exporter aggregates every targeted region's
+Ports 9095 (health) and 9096 (metrics) belong to NetBird.
+The loopback `127.0.0.1:9097/metrics` exporter aggregates every targeted region's
 authenticated mesh reports. `ts_orch_peer_topology_*` exposes mismatch, expected
 count, rejected generations, native runtime mismatch and observation age; missing
 reports fail closed. Reports are bound to the expected topology digest, and
