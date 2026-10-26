@@ -88,7 +88,34 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	served := make(chan error, 1)
-	go func() { served <- e.serve(ctx, httpLn, tlsLn, pgLn, wireLn) }()
+	// Exercise the production listener-opening path, including a real bind
+	// collision with the pre-existing plaintext wire listener.
+	wireConflict := make(chan struct{}, 1)
+	wireBound := make(chan struct{})
+	e.listen = func(network, address string) (net.Listener, error) {
+		switch address {
+		case ":80":
+			return httpLn, nil
+		case ":443":
+			return tlsLn, nil
+		case ":5432":
+			return pgLn, nil
+		case ":7464":
+			ln, err := net.Listen(network, wireLn.Addr().String())
+			if err != nil {
+				select {
+				case wireConflict <- struct{}{}:
+				default:
+				}
+			} else {
+				close(wireBound)
+			}
+			return ln, err
+		default:
+			return nil, fmt.Errorf("unexpected production listener %s", address)
+		}
+	}
+	go func() { served <- e.Run(ctx) }()
 
 	roots := x509.NewCertPool()
 	roots.AddCert(authority.GetRootCert(0).Cert)
@@ -267,6 +294,35 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		}
 	}
 	startup := func(code uint32) []byte { return binary.BigEndian.AppendUint32([]byte{0, 0, 0, 8}, code) }
+
+	t.Run("wire collision preserves full edge and recovers", func(t *testing.T) {
+		select {
+		case <-wireConflict:
+		case <-time.After(10 * time.Second):
+			t.Fatal("wire bind conflict was not exercised")
+		}
+		// A fresh HTTPS connection and Postgres session must work while :7464
+		// is still occupied. Earlier subtests also exercise HTTP and gRPC.
+		https, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", tlsLn.Addr().String(), &tls.Config{RootCAs: roots, ServerName: "app.edge.test"})
+		if err != nil {
+			t.Fatalf("HTTPS lost during wire conflict: %v", err)
+		}
+		https.Close()
+		conn := pg(t, startup(sslRequest))
+		reply := make([]byte, 1)
+		if _, err := io.ReadFull(conn, reply); err != nil || reply[0] != 'S' {
+			t.Fatalf("Postgres lost during wire conflict: %q %v", reply, err)
+		}
+		roundTrip(t, tls.Client(conn, &tls.Config{RootCAs: roots, ServerName: "pg.edge.test"}))
+		// Releasing the old listener is enough: wire must bind automatically,
+		// and the later TLS/frame tests use this recovered listener.
+		wireLn.Close()
+		select {
+		case <-wireBound:
+		case <-time.After(15 * time.Second):
+			t.Fatal("wire did not recover after migration")
+		}
+	})
 
 	t.Run("postgres plaintext refused", func(t *testing.T) {
 		conn := pg(t, append(binary.BigEndian.AppendUint32([]byte{0, 0, 0, 17}, 196608), "user\x00x\x00\x00"...))

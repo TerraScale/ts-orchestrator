@@ -13,7 +13,9 @@ owns 7464. Private port 7465 stays blocked externally, like Postgres backend 643
 ## First production installation (FR1 only)
 
 The old TerraBase process owns 7464. Deploying the new edge before moving that
-process would fail to bind; opening its NSG first would expose plaintext.
+process keeps wire unavailable until the migration completes; HTTP, HTTPS and Postgres
+continue serving while the wire listener retries every five seconds. Opening
+the NSG before migration would expose plaintext.
 Perform this migration in order on all three regions:
 
 1. Preserve each region's current TerraBase image, secrets, resources and live

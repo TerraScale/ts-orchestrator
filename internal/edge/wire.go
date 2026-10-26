@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -29,6 +30,33 @@ func (e *Edge) wireHost(host string) bool {
 	}
 	_, ok := (*e.wire.Load())[strings.ToLower(host)]
 	return ok
+}
+
+// runWire always retries independently of the established edge listeners.
+func (e *Edge) runWire(ctx context.Context) {
+	for ctx.Err() == nil {
+		ln, err := e.listen("tcp", ":"+strconv.Itoa(WirePort))
+		if err == nil {
+			served := make(chan error, 1)
+			go func() { served <- e.serveWire(ln) }()
+			select {
+			case <-ctx.Done():
+				ln.Close()
+				<-served
+				return
+			case err = <-served:
+				ln.Close()
+			}
+		}
+		slog.WarnContext(ctx, "edge wire listener unavailable; retrying without interrupting HTTPS", "error", err)
+		timer := time.NewTimer(5 * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
 }
 
 func (e *Edge) serveWire(ln net.Listener) error {

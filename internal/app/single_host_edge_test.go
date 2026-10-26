@@ -1,7 +1,9 @@
 package app
 
 import (
+	"encoding/json"
 	"maps"
+	"os"
 	"testing"
 
 	"github.com/gogo/protobuf/types"
@@ -101,6 +103,32 @@ func TestWireRoutesUseConfiguredPortAndOwnRegion(t *testing.T) {
 	for _, port := range []string{"", "bad", "80", "7464", "65536"} {
 		if got := wireRoutes([]*api.Service{service(1, port)}, "gru"); len(got) != 0 {
 			t.Fatalf("accepted port %q: %v", port, got)
+		}
+	}
+}
+
+// Validate the routes generated from the complete shipped service declaration,
+// rather than a synthetic labels-only fixture.
+func TestProductionTerraBaseEdgeRoutes(t *testing.T) {
+	data, err := os.ReadFile("../../deploy/m1/services/terrabase.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var declared swarmruntime.ServiceSpec
+	if err = json.Unmarshal(data, &declared); err != nil {
+		t.Fatal(err)
+	}
+	for _, region := range []string{"gru", "sjc", "fra"} {
+		declared.Region = region
+		spec, err := declared.SwarmSpec()
+		if err != nil {
+			t.Fatalf("%s service declaration: %v", region, err)
+		}
+		services := []*api.Service{{Spec: *spec}}
+		web, pg := edgeRoutes(services, region)
+		wire := wireRoutes(services, region)
+		if web["api.terrascale.tech"] != 8080 || web[region+".api.terrascale.tech"] != 8080 || pg["pg.terrascale.tech"] != 6432 || wire["api.terrascale.tech"] != 7465 || wire[region+".api.terrascale.tech"] != 7465 || declared.Env["TERRABASE_WIRE_PORT"] != "7465" {
+			t.Fatalf("%s generated routes: web=%v postgres=%v wire=%v", region, web, pg, wire)
 		}
 	}
 }

@@ -33,6 +33,7 @@ import (
 
 // Edge serves :80, :443, :5432 and :7464 for the hostnames in its route tables.
 type Edge struct {
+	listen    func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
 	certs     *autocert.Manager
 	routes    atomic.Pointer[map[string]int]
 	postgres  atomic.Pointer[map[string]int]
@@ -60,6 +61,7 @@ func New(stateDir string) *Edge { return newEdge(stateDir, nil) }
 func newEdge(stateDir string, client *acme.Client) *Edge {
 	e := &Edge{
 		pgRelays: make(chan struct{}, 32), pgControl: make(chan struct{}, 32),
+		listen: net.Listen,
 		peerAddr: func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
 		spoolDir: filepath.Join(stateDir, "edge-spool"),
 	}
@@ -164,8 +166,8 @@ func (e *Edge) SetRoutes(web, postgres map[string]int) {
 // Run serves :80, :443, :5432 and :7464 until ctx ends.
 func (e *Edge) Run(ctx context.Context) error {
 	var lns []net.Listener
-	for _, addr := range []string{":80", ":443", ":" + strconv.Itoa(PostgresPort), ":" + strconv.Itoa(WirePort)} {
-		ln, err := net.Listen("tcp", addr)
+	for _, addr := range []string{":80", ":443", ":" + strconv.Itoa(PostgresPort)} {
+		ln, err := e.listen("tcp", addr)
 		if err != nil {
 			for _, ln := range lns {
 				ln.Close()
@@ -174,7 +176,16 @@ func (e *Edge) Run(ctx context.Context) error {
 		}
 		lns = append(lns, ln)
 	}
-	return e.serve(ctx, lns[0], lns[1], lns[2], lns[3])
+	// A legacy TerraBase can still own :7464 during the private-port migration.
+	// That must not close the established HTTP, HTTPS and Postgres listeners.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	wireDone := make(chan struct{})
+	go func() { defer close(wireDone); e.runWire(ctx) }()
+	err := e.serve(ctx, lns[0], lns[1], lns[2])
+	cancel()
+	<-wireDone
+	return err
 }
 
 func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener, wireLns ...net.Listener) error {
