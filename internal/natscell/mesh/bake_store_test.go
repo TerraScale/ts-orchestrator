@@ -69,7 +69,11 @@ func TestBakePersistenceFailureAndInterruptedRestart(t *testing.T) {
 				if err != nil || !record.Bake.Finished.IsZero() || record.Bake.Reason != "" {
 					t.Fatal("shutdown became a terminal failure")
 				}
-				n.ctx = t.Context() // a restarted node has a fresh lifetime
+				desired, err := loadDesired(n.cfg.dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				n = &Node{cfg: n.cfg, ctx: t.Context(), desired: desired}
 				a.interrupt = nil
 			}
 			if scenario == "write failure restart" {

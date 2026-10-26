@@ -160,6 +160,7 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	if err := writeBake(key, record); err != nil {
 		return record, err
 	}
+	record.Bake = rollout.BakeVerdict{} // The bake starts only after readiness succeeds.
 	ready, err := n.cfg.applier.Wait(ctx, spec, original)
 	record.Rollout = bakeRuntime{int64(ready.Running), int64(ready.Ready), ready.Tasks, ready.Revision}
 	if err == nil && spec.Deployment != nil && spec.Image == spec.Deployment.Image && record.Rollout.Revision != spec.Deployment.Revision {
