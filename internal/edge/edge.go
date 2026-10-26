@@ -35,16 +35,16 @@ import (
 
 // Edge serves :80, :443, :5432 and :7464 for the hostnames in its route tables.
 type Edge struct {
-	wireFirewall func(context.Context, bool) error // Production owns the exact wire ACCEPT rule; tests replace it.
-	listen func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
-	certs *autocert.Manager
-	routes atomic.Pointer[map[string]int]
-	postgres atomic.Pointer[map[string]int]
-	pgKeys postgresKeys
-	pgRelays chan struct{}
-	pgControl chan struct{}
-	wire atomic.Pointer[map[string]int]
-	proxy *httputil.ReverseProxy
+	wireFirewall func(context.Context, bool) error                   // Production owns the exact wire ACCEPT rule; tests replace it.
+	listen       func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
+	certs        *autocert.Manager
+	routes       atomic.Pointer[map[string]int]
+	postgres     atomic.Pointer[map[string]int]
+	pgKeys       postgresKeys
+	pgRelays     chan struct{}
+	pgControl    chan struct{}
+	wire         atomic.Pointer[map[string]int]
+	proxy        *httputil.ReverseProxy
 	// challenges answers HTTP-01 for the tokens this edge holds.
 	challenges http.Handler
 	mesh       atomic.Pointer[Mesh]
@@ -65,10 +65,12 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	e := &Edge{
 		pgRelays: make(chan struct{}, 32), pgControl: make(chan struct{}, 32),
 		wireFirewall: func(ctx context.Context, open bool) error {
-			if open { return releasepush.OpenTCP(ctx, WirePort) }
+			if open {
+				return releasepush.OpenTCP(ctx, WirePort)
+			}
 			return releasepush.CloseTCP(ctx, WirePort)
 		},
-		listen: net.Listen,
+		listen:   net.Listen,
 		peerAddr: func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
 		spoolDir: filepath.Join(stateDir, "edge-spool"),
 	}

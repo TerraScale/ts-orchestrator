@@ -119,7 +119,7 @@ func TestProductionTerraBaseEdgeRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, region := range []string{"gru", "sjc", "fra"} {
-		declared.Region = region
+		declared.Region, declared.Node = region, "ts-"+region+"-test"
 		spec, err := declared.SwarmSpec()
 		if err != nil {
 			t.Fatalf("%s service declaration: %v", region, err)
