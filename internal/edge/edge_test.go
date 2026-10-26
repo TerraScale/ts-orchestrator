@@ -577,13 +577,23 @@ func echoBackend(t *testing.T) (port int, got, headers chan []byte) {
 					return
 				}
 				headers <- header
-				buf := make([]byte, 64)
-				n, err := conn.Read(buf)
-				if err != nil {
+				var first [8]byte
+				if _, err := io.ReadFull(conn, first[:]); err != nil {
 					return
 				}
-				got <- buf[:n]
-				conn.Write(buf[:n])
+				size := int(binary.BigEndian.Uint32(first[:4]))
+				if first[0] != 0 {
+					size = 1 + int(binary.BigEndian.Uint32(first[1:5]))
+				}
+				if size < 8 || size > 64 {
+					return
+				}
+				buf := append(first[:], make([]byte, size-8)...)
+				if _, err := io.ReadFull(conn, buf[8:]); err != nil {
+					return
+				}
+				got <- buf
+				conn.Write(buf)
 				io.Copy(conn, conn)
 			}()
 		}

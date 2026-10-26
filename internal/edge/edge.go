@@ -41,6 +41,8 @@ type Edge struct {
 	routes       atomic.Pointer[map[string]int]
 	postgres     atomic.Pointer[map[string]int]
 	pgKeys       postgresKeys
+	pgHandshakes chan struct{}
+	pgSessions   chan struct{}
 	pgRelays     chan struct{}
 	pgControl    chan struct{}
 	wire         atomic.Pointer[map[string]int]
@@ -70,7 +72,8 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 			}
 			return releasepush.CloseTCP(ctx, WirePort)
 		},
-		listen:   net.Listen,
+		listen:       net.Listen,
+		pgHandshakes: make(chan struct{}, maxPostgresHandshakes), pgSessions: make(chan struct{}, maxPostgresConns),
 		peerAddr: func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
 		spoolDir: filepath.Join(stateDir, "edge-spool"),
 	}

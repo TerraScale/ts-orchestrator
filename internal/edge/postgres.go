@@ -12,6 +12,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,9 +24,11 @@ const PostgresPort = 5432
 
 const (
 	postgresHandshake = 10 * time.Second
-	// maxPostgresConns protects the host; sessions are long-lived.
-	maxPostgresConns = 1024
-	postgresALPN     = "postgresql"
+	// Normal sessions and unclassified connections have separate fixed budgets.
+	// Established sessions leave room for cancellation handshakes.
+	maxPostgresHandshakes = 32
+	maxPostgresConns      = 1024
+	postgresALPN          = "postgresql"
 	// Startup-family request codes (Postgres protocol, "Message Formats").
 	cancelRequest = 80877102
 	sslRequest    = 80877103
@@ -42,7 +45,10 @@ func (e *Edge) servePostgres(ln net.Listener) error {
 		}
 		return getCert(hello)
 	}
-	slots := make(chan struct{}, maxPostgresConns)
+	return e.servePostgresTLS(ln, config)
+}
+
+func (e *Edge) servePostgresTLS(ln net.Listener, config *tls.Config) error {
 	for {
 		conn, err := ln.Accept()
 		if errors.Is(err, net.ErrClosed) {
@@ -55,11 +61,8 @@ func (e *Edge) servePostgres(ln net.Listener) error {
 			continue
 		}
 		select {
-		case slots <- struct{}{}:
-			go func() {
-				defer func() { <-slots }()
-				e.postgresConn(conn, config)
-			}()
+		case e.pgHandshakes <- struct{}{}:
+			go e.postgresConn(conn, config, sync.OnceFunc(func() { <-e.pgHandshakes }))
 		default:
 			conn.Close()
 		}
@@ -76,14 +79,15 @@ func (c bufConn) Read(p []byte) (int, error) { return c.r.Read(p) }
 
 // postgresConn negotiates TLS (accepted TCP connections already use keepalive)
 // and proxies the session; it closes the connection when either side ends.
-func (e *Edge) postgresConn(raw net.Conn, config *tls.Config) {
+func (e *Edge) postgresConn(raw net.Conn, config *tls.Config, releaseHandshake func()) {
+	defer releaseHandshake()
 	defer raw.Close()
 	raw.SetDeadline(time.Now().Add(postgresHandshake))
 	conn := bufConn{raw, bufio.NewReader(raw)}
 	if first, err := conn.r.Peek(1); err != nil {
 		return
 	} else if first[0] == 0x16 { // a TLS record: PG17 sslnegotiation=direct
-		e.proxyPostgres(conn, config, true)
+		e.proxyPostgres(conn, config, true, releaseHandshake)
 		return
 	}
 	for gssDeclined := false; ; gssDeclined = true {
@@ -95,7 +99,7 @@ func (e *Edge) postgresConn(raw net.Conn, config *tls.Config) {
 		switch {
 		case length == 8 && code == sslRequest:
 			if _, err := conn.Write([]byte{'S'}); err == nil {
-				e.proxyPostgres(conn, config, false)
+				e.proxyPostgres(conn, config, false, releaseHandshake)
 			}
 			return
 		case length == 8 && code == gssencRequest && !gssDeclined:
@@ -122,7 +126,7 @@ func (e *Edge) postgresConn(raw net.Conn, config *tls.Config) {
 	}
 }
 
-func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool) {
+func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool, releaseHandshake func()) {
 	client := tls.Server(conn, config)
 	if err := client.Handshake(); err != nil {
 		return
@@ -136,6 +140,43 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool) {
 	if !ok {
 		return
 	}
+	var head [8]byte
+	if _, err := io.ReadFull(client, head[:]); err != nil {
+		return
+	}
+	if binary.BigEndian.Uint32(head[:4]) == 16 && binary.BigEndian.Uint32(head[4:]) == cancelRequest {
+		request := make([]byte, 16)
+		copy(request, head[:])
+		if _, err := io.ReadFull(client, request[8:]); err == nil {
+			e.forwardCancel(append(proxyHeader(conn.RemoteAddr(), conn.LocalAddr()), request...))
+		}
+		return
+	}
+	select {
+	case e.pgSessions <- struct{}{}:
+		defer func() {
+			conn.Close() // Close the socket before making its session reservation reusable.
+			<-e.pgSessions
+		}()
+		releaseHandshake()
+	default:
+		length := binary.BigEndian.Uint32(head[:4])
+		if length < 8 || length > 64<<10 {
+			return
+		}
+		if _, err := client.Write(postgresError("53300", "too many database connections; retry shortly")); err != nil {
+			return
+		}
+		if err := client.CloseWrite(); err != nil {
+			return
+		}
+		// Keep the handshake permit and original read deadline through cleanup.
+		// Drain startup across TLS records before closing a socket with unread input.
+		if _, err := io.CopyN(io.Discard, client, int64(length)-8); err == nil {
+			io.Copy(io.Discard, io.LimitReader(client, (64<<10)-int64(length)))
+		}
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), postgresHandshake)
 	backend, err := dialHandoff(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	cancel()
@@ -147,6 +188,9 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool) {
 	defer backend.Close()
 	// The backend sees only loopback; the header names the client first.
 	if _, err := backend.Write(proxyHeader(conn.RemoteAddr(), conn.LocalAddr())); err != nil {
+		return
+	}
+	if _, err := backend.Write(head[:]); err != nil {
 		return
 	}
 	conn.SetDeadline(time.Time{})
