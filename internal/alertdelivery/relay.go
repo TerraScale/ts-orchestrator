@@ -57,6 +57,7 @@ func Run(ctx context.Context, args []string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /metrics", readinessMetrics(newReadinessClient()))
 	mux.HandleFunc("POST /alerts", r.deliver)
+	mux.HandleFunc("POST /alerts/digest", r.digest)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	listener, err := net.Listen("tcp", "127.0.0.1:9094")
 	if err != nil {
@@ -89,7 +90,15 @@ func readCredentials(ctx context.Context) (credentials, error) {
 	return credentials{account, token}, nil
 }
 
-func (r relay) deliver(w http.ResponseWriter, request *http.Request) {
+// deliver handles critical notifications: email once per group and status
+// window, push every time. Resolved groups only push; recovery needs no action.
+func (r relay) deliver(w http.ResponseWriter, request *http.Request) { r.handle(w, request, false) }
+
+// digest handles warnings: at most one email per digestInterval and never a
+// push, so slow burns and missing telemetry stay visible without paging.
+func (r relay) digest(w http.ResponseWriter, request *http.Request) { r.handle(w, request, true) }
+
+func (r relay) handle(w http.ResponseWriter, request *http.Request, digest bool) {
 	var notice notification
 	body, err := io.ReadAll(http.MaxBytesReader(w, request.Body, 64<<10))
 	if err != nil || json.Unmarshal(body, &notice) != nil || len(notice.Alerts) == 0 || len(notice.Alerts) > 64 || (notice.Status != "firing" && notice.Status != "resolved") {
@@ -113,14 +122,23 @@ func (r relay) deliver(w http.ResponseWriter, request *http.Request) {
 	defer cancel()
 	var emailErr, pushErr error
 	var deliveries sync.WaitGroup
+	key, window, subject := notice.emailKey(), emailRepeatInterval, "TerraScale production alert: "+notice.Status
+	if digest {
+		key, window, subject = digestKey, digestInterval, "TerraScale daily alert digest"
+	}
 	deliveries.Go(func() {
-		if reason := r.reserveEmail(ctx, notice.emailKey(), time.Now()); reason != "" {
+		if notice.Status == "resolved" {
+			return
+		}
+		if reason := r.reserveEmail(ctx, key, window, time.Now()); reason != "" {
 			slog.WarnContext(ctx, "production alert email suppressed", "reason", reason)
 			return
 		}
-		emailErr = r.email(ctx, notice.Status, lines)
+		emailErr = r.email(ctx, subject, lines)
 	})
-	deliveries.Go(func() { pushErr = r.push(ctx, notice.Status) })
+	if !digest {
+		deliveries.Go(func() { pushErr = r.push(ctx, notice.Status) })
+	}
 	deliveries.Wait()
 	if pushErr != nil {
 		// Push is independent: never retry an accepted email because push failed.
@@ -135,7 +153,7 @@ func (r relay) deliver(w http.ResponseWriter, request *http.Request) {
 	slog.InfoContext(ctx, "production alert notification handled", "status", notice.Status, "alerts", len(notice.Alerts))
 }
 
-func (r relay) email(ctx context.Context, status string, lines []string) error {
+func (r relay) email(ctx context.Context, subject string, lines []string) error {
 	secrets, err := r.read(ctx)
 	if err != nil {
 		return errors.New("alert delivery credentials unavailable")
@@ -150,7 +168,7 @@ func (r relay) email(ctx context.Context, status string, lines []string) error {
 	defer cancel()
 	payload, err := json.Marshal(map[string]any{
 		"from": map[string]string{"address": "no-reply@terrascale.tech", "name": "TerraScale production alerts"},
-		"to":   recipient, "subject": "TerraScale production alert: " + status,
+		"to":   recipient, "subject": subject,
 		"text": strings.Join(lines, "\n"),
 	})
 	if err != nil {

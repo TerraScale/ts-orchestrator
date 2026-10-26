@@ -66,7 +66,7 @@ func TestEmailLedgerSurvivesRestartAndHonorsRollingWindows(t *testing.T) {
 		// A fresh relay on every attempt also exercises independent processes'
 		// shared ledger, rather than relying on process-local deduplication.
 		r := relay{ledgerPath: path}
-		if got := r.reserveEmail(t.Context(), key, at); got != want {
+		if got := r.reserveEmail(t.Context(), key, emailRepeatInterval, at); got != want {
 			t.Fatalf("reserve %s at %v: %q, want %q", key, at.Sub(now), got, want)
 		}
 	}
@@ -78,6 +78,15 @@ func TestEmailLedgerSurvivesRestartAndHonorsRollingWindows(t *testing.T) {
 	reserve("overflow", now.Add(time.Hour), "")
 	reserve("0", now.Add(emailRepeatInterval-time.Nanosecond), "duplicate")
 	reserve("0", now.Add(emailRepeatInterval), "")
+	digest := func(at time.Time, want string) {
+		t.Helper()
+		if got := (relay{ledgerPath: path}).reserveEmail(t.Context(), digestKey, digestInterval, at); got != want {
+			t.Fatalf("digest at %v: %q, want %q", at.Sub(now), got, want)
+		}
+	}
+	digest(now.Add(2*time.Hour), "")
+	digest(now.Add(2*time.Hour+digestInterval-time.Nanosecond), "duplicate")
+	digest(now.Add(2*time.Hour+digestInterval), "")
 	if err := os.WriteFile(path, []byte("corrupt"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +134,7 @@ func TestDelayedSendCannotShortenQuotaOrRepeatWindows(t *testing.T) {
 	ctx, cancel := context.WithDeadline(t.Context(), sendBy)
 	defer cancel()
 	for i := range emailHourlyLimit {
-		if got := r.reserveEmail(ctx, fmt.Sprint(i), now); got != "" {
+		if got := r.reserveEmail(ctx, fmt.Sprint(i), emailRepeatInterval, now); got != "" {
 			t.Fatal(got)
 		}
 	}
@@ -138,7 +147,7 @@ func TestDelayedSendCannotShortenQuotaOrRepeatWindows(t *testing.T) {
 		{"0", "duplicate", now.Add(emailRepeatInterval)},
 		{"0", "", sendBy.Add(emailRepeatInterval)},
 	} {
-		if got := r.reserveEmail(t.Context(), test.key, test.at); got != test.want {
+		if got := r.reserveEmail(t.Context(), test.key, emailRepeatInterval, test.at); got != test.want {
 			t.Fatalf("delayed send boundary %s: got=%q want=%q", test.key, got, test.want)
 		}
 	}

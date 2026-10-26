@@ -116,7 +116,7 @@ tests:
       - series: 'up{job="terrabase",service="terrabase",region="gru"}'
         values: '0+0x28'
     promql_expr_test:
-      # The two lag alerts remain pending until their full two-minute hold expires.
+      # The backup lag alert pages after two minutes; replication lag holds five.
       - expr: 'count(ALERTS{alertstate="firing"})'
         eval_time: 1m45s
         exp_samples:
@@ -124,7 +124,11 @@ tests:
       - expr: 'count(ALERTS{alertstate="firing"})'
         eval_time: 2m
         exp_samples:
-          - value: 6
+          - value: 5
+      - expr: 'count(ALERTS{alertstate="firing"})'
+        eval_time: 4m45s
+        exp_samples:
+          - value: 5
       - expr: 'count(ALERTS{alertstate="firing"})'
         eval_time: 5m
         exp_samples:
@@ -136,16 +140,16 @@ tests:
   - interval: 15s
     input_series:
       - series: 'terrascale_service_readiness{service="terrabase",region="gru"}'
-        values: '0+0x4 1+0x4'
+        values: '0+0x20 1+0x60'
       - series: 'terrascale_service_readiness{service="ts-auth",region="gru"}'
-        values: '0+0x4 1+0x4'
+        values: '0+0x20 1+0x60'
       - series: 'terrascale_service_readiness{service="ts-dashboard",region="gru"}'
-        values: '0+0x4 1+0x4'
+        values: '0+0x20 1+0x60'
     alert_rule_test:
-      - eval_time: 45s
+      - eval_time: 4m45s
         alertname: ServiceReadinessFailed
         exp_alerts: []
-      - eval_time: 1m
+      - eval_time: 5m
         alertname: ServiceReadinessFailed
         exp_alerts:
           - exp_labels:
@@ -166,7 +170,39 @@ tests:
               severity: critical
             exp_annotations:
               summary: Public service readiness failed
-      - eval_time: 1m15s
+      # Recovered at 5m15s; firing holds ten minutes so a relapse is the same alert.
+      - eval_time: 15m
+        alertname: ServiceReadinessFailed
+        exp_alerts:
+          - exp_labels:
+              service: terrabase
+              region: gru
+              severity: critical
+            exp_annotations:
+              summary: Public service readiness failed
+          - exp_labels:
+              service: ts-auth
+              region: gru
+              severity: critical
+            exp_annotations:
+              summary: Public service readiness failed
+          - exp_labels:
+              service: ts-dashboard
+              region: gru
+              severity: critical
+            exp_annotations:
+              summary: Public service readiness failed
+      - eval_time: 15m30s
+        alertname: ServiceReadinessFailed
+        exp_alerts: []
+
+  - name: Readiness flaps shorter than five minutes never page
+    interval: 15s
+    input_series:
+      - series: 'terrascale_service_readiness{service="ts-auth",region="gru"}'
+        values: '0+0x15 1+0x0 0+0x15 1+0x0 0+0x15 1+0x10'
+    alert_rule_test:
+      - eval_time: 12m
         alertname: ServiceReadinessFailed
         exp_alerts: []
 

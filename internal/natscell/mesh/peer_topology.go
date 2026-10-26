@@ -1,6 +1,7 @@
 package mesh
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -281,13 +282,36 @@ func runtimePeerMismatch(ctx context.Context) int {
 	if response.StatusCode != http.StatusOK {
 		return 1
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, (2<<20)+1))
-	if err != nil || len(body) > 2<<20 {
+	return exportedPeerMismatch(response.Body)
+}
+
+// exportedPeerMismatch keeps only the topology gauge's lines: TerraBase's
+// exposition grows with its databases and once passed any whole-body cap,
+// which reported a mismatch for a member that had none.
+func exportedPeerMismatch(body io.Reader) int {
+	const name = "terrabase_peer_topology_mismatch"
+	var family bytes.Buffer
+	lines := bufio.NewScanner(body)
+	lines.Buffer(make([]byte, 0, 64<<10), 1<<20)
+	for lines.Scan() {
+		line := lines.Bytes()
+		sample := bytes.HasPrefix(line, []byte(name+"{")) || bytes.HasPrefix(line, []byte(name+" "))
+		comment := bytes.HasPrefix(line, []byte("# HELP "+name+" ")) || bytes.HasPrefix(line, []byte("# TYPE "+name+" "))
+		if !sample && !comment {
+			continue
+		}
+		if family.Len()+len(line) > 64<<10 {
+			return 1
+		}
+		family.Write(line)
+		family.WriteByte('\n')
+	}
+	if lines.Err() != nil {
 		return 1
 	}
 	parser := expfmt.NewTextParser(model.LegacyValidation)
-	families, err := parser.TextToMetricFamilies(bytes.NewReader(body))
-	metric := families["terrabase_peer_topology_mismatch"].GetMetric()
+	families, err := parser.TextToMetricFamilies(&family)
+	metric := families[name].GetMetric()
 	if err != nil || len(metric) != 1 || metric[0].GetGauge() == nil || metric[0].GetGauge().GetValue() != 0 {
 		return 1
 	}

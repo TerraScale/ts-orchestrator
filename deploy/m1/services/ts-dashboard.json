@@ -2,7 +2,7 @@
   "name": "ts-dashboard",
   "image": "ghcr.io/terrascale/ts-dashboard@sha256:923abba775a790bdacdb5806b99d4b42d6a25f1c158c1305a98ddc3f604007a9",
   "env": {
-    "ASPNETCORE_URLS": "http://127.0.0.1:8085",
+    "ASPNETCORE_URLS": "http://127.0.0.1:${PORT}",
     "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp",
     "TS_DASHBOARD_TERRABASE_URL": "http://127.0.0.1:8081"
   },
