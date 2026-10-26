@@ -2,9 +2,16 @@ route:
   receiver: local-relay
   group_by: [alertname, region, service]
   group_wait: 30s
-  group_interval: 30s
+  group_interval: 5m
   repeat_interval: 4h
   routes:
+    # Warnings never page: one digest of every open warning, at most daily.
+    - matchers: ['severity="warning"']
+      receiver: daily-digest
+      group_by: [severity]
+      group_wait: 1h
+      group_interval: 24h
+      repeat_interval: 24h
     - matchers: ['service="host-storage"']
       group_by: [service, severity]
     - matchers: ['alertname=~"RuntimePeerTopologyMismatch|PeerTopologyAttestationDown"']
@@ -16,6 +23,11 @@ receivers:
     webhook_configs:
       - url: http://127.0.0.1:9094/alerts
         send_resolved: true
+        max_alerts: 64
+  - name: daily-digest
+    webhook_configs:
+      - url: http://127.0.0.1:9094/alerts/digest
+        send_resolved: false
         max_alerts: 64
 
 inhibit_rules:

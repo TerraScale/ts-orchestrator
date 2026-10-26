@@ -113,7 +113,7 @@ func TestPushFailureDoesNotRetryEmail(t *testing.T) {
 			r := relay{ledgerPath: filepath.Join(t.TempDir(), "email-ledger.json"), client: admittingClient(provider.Client()), endpoint: provider.URL + "/", pushEndpoint: provider.URL + "/", readTopic: fixtureReadTopic, read: func(context.Context) (credentials, error) { return credentials{"account", "test-token"}, nil }}
 			for range 3 {
 				response := httptest.NewRecorder()
-				r.deliver(response, httptest.NewRequest(http.MethodPost, "/alerts", strings.NewReader(`{"status":"resolved","alerts":[{"status":"resolved","labels":{"alertname":"Test"}}]}`)))
+				r.deliver(response, httptest.NewRequest(http.MethodPost, "/alerts", strings.NewReader(`{"status":"firing","alerts":[{"status":"firing","labels":{"alertname":"Test"}}]}`)))
 				if response.Code != http.StatusAccepted || strings.Contains(response.Body.String(), "private") {
 					t.Errorf("accepted email must survive push failure: status=%d", response.Code)
 				}
@@ -206,5 +206,46 @@ func TestDeliveryNeverLogsTopicOrProviderErrors(t *testing.T) {
 		if response.Code != want || strings.Contains(response.Body.String()+logs.String(), fixtureTopic) || strings.Contains(logs.String(), "https://") {
 			t.Fatal("topic or transport URL escaped in output")
 		}
+	}
+}
+
+func TestResolvedOnlyPushesAndWarningsDigestDaily(t *testing.T) {
+	var emails, pushes atomic.Int32
+	var subject string
+	r := relay{ledgerPath: filepath.Join(t.TempDir(), "email-ledger.json"), endpoint: "https://email.invalid/", pushEndpoint: "https://push.invalid/", readTopic: fixtureReadTopic,
+		read: func(context.Context) (credentials, error) { return credentials{"account", "test-token"}, nil },
+		client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			if request.URL.Host == "email.invalid" {
+				emails.Add(1)
+				var payload struct {
+					Subject string `json:"subject"`
+				}
+				data, _ := io.ReadAll(request.Body)
+				_ = json.Unmarshal(data, &payload)
+				subject = payload.Subject
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"result":{"queued":["mariogk@terrascale.tech"]}}`))}, nil
+			}
+			pushes.Add(1)
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"id","event":"message","topic":"` + fixtureTopic + `"}`))}, nil
+		})}}
+	r.client = admittingClient(r.client)
+	send := func(handler http.HandlerFunc, body string) {
+		t.Helper()
+		response := httptest.NewRecorder()
+		handler(response, httptest.NewRequest(http.MethodPost, "/alerts", strings.NewReader(body)))
+		if response.Code != http.StatusAccepted {
+			t.Fatalf("status=%d", response.Code)
+		}
+	}
+	send(r.deliver, `{"groupKey":"critical","status":"resolved","alerts":[{"status":"resolved","labels":{"alertname":"Test","severity":"critical"}}]}`)
+	if emails.Load() != 0 || pushes.Load() != 1 {
+		t.Fatalf("resolved: emails=%d pushes=%d, want 0 and 1", emails.Load(), pushes.Load())
+	}
+	// Alertmanager may regroup warnings; every digest still shares one daily slot.
+	for _, group := range []string{"a", "b", "c"} {
+		send(r.digest, `{"groupKey":"`+group+`","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"ServiceSLOBurnSteady","severity":"warning"}}]}`)
+	}
+	if emails.Load() != 1 || pushes.Load() != 1 || subject != "TerraScale daily alert digest" {
+		t.Fatalf("digest: emails=%d pushes=%d subject=%q, want one email and no push", emails.Load(), pushes.Load(), subject)
 	}
 }

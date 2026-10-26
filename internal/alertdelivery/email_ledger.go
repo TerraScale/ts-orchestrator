@@ -18,11 +18,24 @@ import (
 // Match production/alertmanager.yml. These limits are shared by every group and
 // status in the single production relay, leaving sign-in emails the daily quota.
 const emailRepeatInterval = 4 * time.Hour
+const digestInterval = 24 * time.Hour
 const emailHourlyLimit = 12
+
+// Every warning shares one digest identity, whatever Alertmanager regrouped.
+const digestKey = "daily-digest"
 
 type emailReservation struct {
 	Key    string    `json:"key"`
 	SendBy time.Time `json:"send_by"`
+	// Until is absent in ledgers written before digests; those used the repeat window.
+	Until time.Time `json:"until,omitzero"`
+}
+
+func (v emailReservation) expiry() time.Time {
+	if v.Until.IsZero() {
+		return v.SendBy.Add(emailRepeatInterval)
+	}
+	return v.Until
 }
 
 func (n notification) emailKey() string {
@@ -49,7 +62,7 @@ func (n notification) emailKey() string {
 // Reserve before contacting Cloudflare: a lost response must not spend a second
 // quota slot. Persist attempts even on errors. File locking covers concurrent
 // requests and overlapping relay processes; restart never resets the budget.
-func (r relay) reserveEmail(ctx context.Context, key string, now time.Time) string {
+func (r relay) reserveEmail(ctx context.Context, key string, window time.Duration, now time.Time) string {
 	lock := flock.New(r.ledgerPath + ".lock")
 	locked, err := lock.TryLockContext(ctx, 10*time.Millisecond)
 	if err != nil || !locked {
@@ -61,7 +74,7 @@ func (r relay) reserveEmail(ctx context.Context, key string, now time.Time) stri
 	if err != nil && !errors.Is(err, os.ErrNotExist) || err == nil && json.Unmarshal(data, &reservations) != nil {
 		return "ledger unavailable"
 	}
-	reservations = slices.DeleteFunc(reservations, func(v emailReservation) bool { return !v.SendBy.Add(emailRepeatInterval).After(now) })
+	reservations = slices.DeleteFunc(reservations, func(v emailReservation) bool { return !v.expiry().After(now) })
 	count := 0
 	for _, entry := range reservations {
 		if entry.Key == key {
@@ -81,7 +94,7 @@ func (r relay) reserveEmail(ctx context.Context, key string, now time.Time) stri
 	if deadline, ok := ctx.Deadline(); ok && deadline.After(sendBy) {
 		sendBy = deadline
 	}
-	reservations = append(reservations, emailReservation{Key: key, SendBy: sendBy})
+	reservations = append(reservations, emailReservation{Key: key, SendBy: sendBy, Until: sendBy.Add(window)})
 	data, err = json.Marshal(reservations)
 	if err != nil {
 		return "ledger unavailable"
