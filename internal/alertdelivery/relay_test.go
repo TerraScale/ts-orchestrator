@@ -48,7 +48,7 @@ func TestDeliveryOnlyAcknowledgesProviderAcceptanceAndOmitsPrivateLabels(t *test
 					return
 				}
 				var payload map[string]any
-				if err := json.Unmarshal(data, &payload); err != nil || payload["to"] != "mariogk@terrascale.tech" || !strings.Contains(string(data), "TerraBaseBackupLag") || strings.Contains(string(data), "private value") {
+				if err := json.Unmarshal(data, &payload); err != nil || payload["to"] != "mariogk@terrascale.tech" || !strings.Contains(string(data), "TerraBaseBackupLag") || !strings.Contains(string(data), "7 additional alerts in this group") || strings.Contains(string(data), "private value") {
 					t.Errorf("unexpected delivery payload")
 				}
 				if r.Header.Get("Authorization") != "Bearer test-token" || r.URL.Path != "/account/email/sending/send" {
@@ -59,7 +59,7 @@ func TestDeliveryOnlyAcknowledgesProviderAcceptanceAndOmitsPrivateLabels(t *test
 			}))
 			defer provider.Close()
 			r := relay{ledgerPath: filepath.Join(t.TempDir(), "email-ledger.json"), client: admittingClient(provider.Client()), endpoint: provider.URL + "/", pushEndpoint: provider.URL + "/", readTopic: fixtureReadTopic, read: func(context.Context) (credentials, error) { return credentials{"account", "test-token"}, nil }}
-			request := httptest.NewRequest(http.MethodPost, "/alerts", strings.NewReader(`{"status":"firing","alerts":[{"status":"firing","labels":{"alertname":"TerraBaseBackupLag","service":"terrabase","tenant":"private value"},"annotations":{"secret":"private value"}}]}`))
+			request := httptest.NewRequest(http.MethodPost, "/alerts", strings.NewReader(`{"status":"firing","truncatedAlerts":7,"alerts":[{"status":"firing","labels":{"alertname":"TerraBaseBackupLag","service":"terrabase","tenant":"private value"},"annotations":{"secret":"private value"}}]}`))
 			response := httptest.NewRecorder()
 			r.deliver(response, request)
 			if !pushed.Load() {

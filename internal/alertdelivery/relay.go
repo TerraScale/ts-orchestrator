@@ -22,9 +22,10 @@ import (
 )
 
 type notification struct {
-	Status   string `json:"status"`
-	GroupKey string `json:"groupKey"`
-	Alerts   []struct {
+	TruncatedAlerts uint64 `json:"truncatedAlerts"`
+	Status          string `json:"status"`
+	GroupKey        string `json:"groupKey"`
+	Alerts          []struct {
 		Status      string            `json:"status"`
 		Fingerprint string            `json:"fingerprint"`
 		Labels      map[string]string `json:"labels"`
@@ -104,6 +105,9 @@ func (r relay) deliver(w http.ResponseWriter, request *http.Request) {
 		}
 		// Never forward tenant labels, annotations, raw paths or credentials.
 		lines = append(lines, fmt.Sprintf("%s: %s; service=%s; region=%s; severity=%s", alert.Status, name, alert.Labels["service"], alert.Labels["region"], alert.Labels["severity"]))
+	}
+	if notice.TruncatedAlerts > 0 {
+		lines = append(lines, fmt.Sprintf("%d additional alerts in this group; inspect Prometheus for every affected host", notice.TruncatedAlerts))
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), 50*time.Second)
 	defer cancel()

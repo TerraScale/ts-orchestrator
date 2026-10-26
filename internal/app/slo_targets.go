@@ -3,11 +3,16 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 )
@@ -20,6 +25,9 @@ func syncSLOTargets(ctx context.Context, state, region string, executor *swarmru
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
+		if err := refreshStorageTargets(ctx, "/run/ts-orch-observability/storage.json"); err != nil && ctx.Err() == nil {
+			slog.WarnContext(ctx, "Host storage target discovery failed", "error", err)
+		}
 		if err := refreshSLOTargets(ctx, state, region, executor); err != nil && ctx.Err() == nil {
 			slog.WarnContext(ctx, "SLO target discovery failed", "error", err)
 		}
@@ -81,4 +89,65 @@ func writeSLOTargets(path string, targets []swarmruntime.SLOTarget) error {
 		return closeErr
 	}
 	return os.Rename(file.Name(), path)
+}
+
+// NetBird membership includes every host, including workers in the same region.
+func refreshStorageTargets(ctx context.Context, path string) error {
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	data, err := exec.CommandContext(ctx, "/usr/local/bin/netbird", "status", "--json").Output()
+	if err != nil {
+		return err
+	}
+	targets, err := storageTargets(data)
+	if err != nil {
+		return err
+	}
+	return writeSLOTargets(path, targets)
+}
+
+func storageTargets(data []byte) ([]swarmruntime.SLOTarget, error) {
+	type peer struct {
+		FQDN string `json:"fqdn"`
+		IP   string `json:"netbirdIp"`
+	}
+	var status struct {
+		peer
+		Peers struct {
+			Details []peer `json:"details"`
+		} `json:"peers"`
+	}
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, err
+	}
+	if status.FQDN == "" || status.IP == "" {
+		return nil, errors.New("missing local NetBird identity")
+	}
+	// The local status uses address/prefix; peer details use bare addresses.
+	if ip, _, err := net.ParseCIDR(status.IP); err == nil {
+		status.IP = ip.String()
+	}
+	targets := []swarmruntime.SLOTarget{}
+	seen := map[string]bool{}
+	for _, at := range append(status.Peers.Details, status.peer) {
+		host, _, _ := strings.Cut(at.FQDN, ".")
+		region, _, _ := strings.Cut(strings.TrimPrefix(host, "ts-"), "-")
+		if _, known := catalog.LookupName(region); !known {
+			continue
+		}
+		ip := net.ParseIP(at.IP)
+		if !swarmruntime.NodeName.MatchString(host) || ip == nil || !ip.IsPrivate() || ip.To4() == nil {
+			return nil, errors.New("invalid NetBird storage host")
+		}
+		if seen[at.IP] {
+			continue
+		}
+		seen[at.IP] = true
+		targets = append(targets, swarmruntime.SLOTarget{Targets: []string{net.JoinHostPort(ip.String(), "9108")},
+			Labels: map[string]string{"host": host, "region": region, "service": "host-storage", "instance": host}})
+	}
+	if len(targets) == 0 || len(targets) > 128 {
+		return nil, errors.New("invalid storage inventory size")
+	}
+	return targets, nil
 }

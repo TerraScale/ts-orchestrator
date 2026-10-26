@@ -1,0 +1,111 @@
+rule_files: [host-storage-rules.yml]
+evaluation_interval: 15s
+tests:
+  - name: idle and zero timeouts remain healthy
+    interval: 1m
+    input_series:
+      - {series: 'up{job="host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'up{job="terrabase-host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'ts_host_io_psi_ratio{scope="some",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_queued{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_catalog_anchor_timeouts_total{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_running{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_admitted{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+    alert_rule_test:
+      - {eval_time: 10m, alertname: HostStorageWarning, exp_alerts: []}
+      - {eval_time: 10m, alertname: HostStorageCritical, exp_alerts: []}
+      - {eval_time: 10m, alertname: HostStorageTelemetryMissing, exp_alerts: []}
+  - name: low space and PSI coalesce per host then recover
+    interval: 1m
+    input_series:
+      - {series: 'up{job="host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'up{job="terrabase-host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'ts_host_io_psi_ratio{scope="some",host="h",region="fra"}', values: '0.95+0x3 0+0x9'}
+      - {series: 'terrabase_storage_queued{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_catalog_anchor_timeouts_total{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'ts_host_disk_available_bytes{host="h",region="fra",mount="data"}', values: '1073741824+0x3 10737418240+0x9'}
+      - {series: 'ts_host_disk_size_bytes{host="h",region="fra",mount="data"}', values: '21474836480+0x12'}
+      - {series: 'terrabase_storage_running{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_admitted{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+    alert_rule_test:
+      - {eval_time: 0m, alertname: HostStorageWarning, exp_alerts: []}
+      - {eval_time: 0m, alertname: HostStorageCritical, exp_alerts: []}
+      - eval_time: 2m
+        alertname: HostStorageWarning
+        exp_alerts:
+          - exp_labels: {host: h, region: fra, service: host-storage, severity: warning}
+            exp_annotations: {summary: 'Host storage pressure needs investigation'}
+      - eval_time: 2m
+        alertname: HostStorageCritical
+        exp_alerts:
+          - exp_labels: {host: h, region: fra, service: host-storage, severity: critical}
+            exp_annotations: {summary: 'Host storage is at risk of stalling shared services'}
+      - {eval_time: 5m, alertname: HostStorageCritical, exp_alerts: []}
+      - {eval_time: 5m, alertname: HostStorageWarning, exp_alerts: []}
+  - name: missing native zero counter is telemetry failure
+    interval: 1m
+    input_series:
+      - {series: 'up{job="host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'up{job="terrabase-host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'ts_host_io_psi_ratio{scope="some",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_queued{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_running{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_admitted{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: HostStorageTelemetryMissing
+        exp_alerts:
+          - exp_labels: {host: h, region: fra, service: host-storage, severity: warning}
+            exp_annotations: {summary: 'Host storage history collection is incomplete'}
+  - name: new timeout and reset detected then expire
+    interval: 1m
+    input_series:
+      - {series: 'up{job="host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'up{job="terrabase-host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'ts_host_io_psi_ratio{scope="some",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_queued{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_catalog_anchor_timeouts_total{job="terrabase-host-storage",host="h",region="fra"}', values: '0 1+0x5 0 1+0x5'}
+      - {series: 'terrabase_storage_running{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_admitted{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: HostStorageCritical
+        exp_alerts:
+          - exp_labels: {host: h, region: fra, service: host-storage, severity: critical}
+            exp_annotations: {summary: 'Host storage is at risk of stalling shared services'}
+      - eval_time: 9m
+        alertname: HostStorageCritical
+        exp_alerts:
+          - exp_labels: {host: h, region: fra, service: host-storage, severity: critical}
+            exp_annotations: {summary: 'Host storage is at risk of stalling shared services'}
+      - {eval_time: 12m, alertname: HostStorageCritical, exp_alerts: []}
+  - name: missing running gauge is telemetry failure
+    interval: 1m
+    input_series:
+      - {series: 'up{job="host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'up{job="terrabase-host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'ts_host_io_psi_ratio{scope="some",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_queued{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_catalog_anchor_timeouts_total{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_admitted{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: HostStorageTelemetryMissing
+        exp_alerts:
+          - exp_labels: {host: h, region: fra, service: host-storage, severity: warning}
+            exp_annotations: {summary: 'Host storage history collection is incomplete'}
+  - name: missing admitted gauge is telemetry failure
+    interval: 1m
+    input_series:
+      - {series: 'up{job="host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'up{job="terrabase-host-storage",host="h",region="fra"}', values: '1+0x12'}
+      - {series: 'ts_host_io_psi_ratio{scope="some",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_queued{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_catalog_anchor_timeouts_total{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+      - {series: 'terrabase_storage_running{job="terrabase-host-storage",host="h",region="fra"}', values: '0+0x12'}
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: HostStorageTelemetryMissing
+        exp_alerts:
+          - exp_labels: {host: h, region: fra, service: host-storage, severity: warning}
+            exp_annotations: {summary: 'Host storage history collection is incomplete'}

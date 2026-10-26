@@ -6,6 +6,7 @@ global:
 rule_files:
   - ../slo-rules.yml
   - operational-rules.yml
+  - host-storage-rules.yml
 alerting:
   alertmanagers:
     - static_configs:
@@ -34,3 +35,25 @@ scrape_configs:
       - targets: ['127.0.0.1:9094']
         labels:
           region: gru
+
+  - job_name: host-storage
+    sample_limit: 512
+    file_sd_configs:
+      - files: ['/run/ts-orch-observability/storage.json']
+        refresh_interval: 5s
+  - job_name: terrabase-host-storage
+    sample_limit: 32
+    file_sd_configs:
+      - files: ['/run/ts-orch-observability/storage.json']
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '(.*):9108'
+        target_label: __address__
+        replacement: '${1}:9091'
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'terrabase_(storage_(queued|running|admitted)|catalog_anchor_timeouts_total)'
+        action: keep
+      - regex: '__name__|host|region|service|instance|job'
+        action: labelkeep

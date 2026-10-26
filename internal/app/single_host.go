@@ -14,6 +14,7 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
@@ -56,6 +57,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	}()
 	healthCtx, stopHealth := context.WithCancel(ctx)
 	defer stopHealth()
+	go hostmetrics.Run(healthCtx)
 	// shortcut: a worker has no control socket and would answer for its region a second time; give workers their own health row when they serve.
 	if !plan.joiner() {
 		go regionhealth.Run(healthCtx, state)
@@ -67,7 +69,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	}
 	// The edge's :80/:443/:5432 sit behind the same Ubuntu OCI image INPUT REJECT;
 	// service ports (8080, 6432, ...) stay rejected, reachable on loopback only.
-	for _, port := range []int{80, 443, edge.PostgresPort} {
+	for _, port := range []int{80, 443, edge.PostgresPort, hostmetrics.Port} {
 		if err := releasepush.OpenTCP(ctx, port); err != nil {
 			fmt.Fprintf(output, "edge firewall: %v\n", err)
 		}
