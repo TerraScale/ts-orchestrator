@@ -661,14 +661,14 @@ func startMeshRegions(t *testing.T, settle time.Duration) ([]string, map[string]
 func TestRolloutWindowsFollowReadyTimeout(t *testing.T) {
 	regions := Regions()
 	spec := &swarmruntime.ServiceSpec{Name: "terrabase", ReadyPath: "/readyz", ReadyTimeoutSeconds: 180, Regions: []string{regions[1], regions[2], regions[0]}}
-	if got, want := rolloutWait(spec), 3*(210*time.Second+rollout.BakeWindow); got != want {
+	if got, want := rolloutWait(spec), 3*(210*time.Second+rollout.DependencyRecoveryWindow+rollout.BakeWindow); got != want {
 		t.Fatalf("rolloutWait = %s, want %s", got, want)
 	}
 	last := &Node{cfg: config{region: regions[0]}}
-	if got, want := last.applyWindow(spec), 3*(210*time.Second+rollout.BakeWindow)-10*time.Second; got != want {
+	if got, want := last.applyWindow(spec), 3*(210*time.Second+rollout.DependencyRecoveryWindow+rollout.BakeWindow)-10*time.Second; got != want {
 		t.Fatalf("last region's window = %s, want %s", got, want)
 	}
-	if got := rolloutWait(&swarmruntime.ServiceSpec{Name: "whoami"}); got != max(applyWait, 3*(90*time.Second+rollout.BakeWindow)) {
+	if got := rolloutWait(&swarmruntime.ServiceSpec{Name: "whoami"}); got != max(applyWait, 3*(90*time.Second+rollout.DependencyRecoveryWindow+rollout.BakeWindow)) {
 		t.Fatalf("default rolloutWait = %s", got)
 	}
 	if rolloutWait(spec) > releasepush.HandlerWait-time.Minute {

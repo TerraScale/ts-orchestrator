@@ -4,7 +4,15 @@ Install the orchestrator release in every target region before rolling a service
 Older orchestrators advertise readiness without evaluating a bake.
 
 Every mesh service rollout observes a fixed five-minute bake after exact task
-readiness, sampling every ten seconds. Samples verify the same running tasks
+readiness, sampling every ten seconds. During the first thirty seconds only,
+dependency probes may recover from the service swap. Every such failed sample
+resets the healthy clock: recovery must be followed by a full five-minute
+healthy bake before another region can advance. A persistent dependency failure
+at thirty seconds, or any dependency regression after that interval, holds the
+generation. Candidate, catalog-anchor, writer-wait and log-coverage failures
+always hold immediately, including during dependency recovery.
+
+Samples verify the same running tasks
 and their readiness, global ts-auth readiness, and dashboard readiness including
 its auth and TerraBase dependencies. This respects gru-only auth placement.
 TerraBase also checks newly appended task stdout/stderr for catalog-anchor
@@ -14,7 +22,10 @@ credentials and readiness response bodies never enter bake evidence.
 
 Each region retains `mesh/bake-<service>-<generation>.json` under its state
 directory: image digest, actual tasks and revision, elapsed readiness timings,
-bake start/end, sample count, checks and failure reason. The release response
+bake start/end, healthy-window start, sample count, checks and failure reason.
+Tolerated dependency failures retain their count and last checks in
+`recoverySamples` and `recoveryChecks`, even when the bake eventually passes.
+The release response
 includes these fields; the CLI prints bake timing, and the journal records
 `regional rollout bake verdict`. The JSON file is the retained evidence.
 
