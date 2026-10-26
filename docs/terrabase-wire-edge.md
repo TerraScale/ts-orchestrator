@@ -10,11 +10,23 @@ The TerraBase service declares `wire.port=7465`, matching its existing
 `TerraBaseOptions.WirePort` through `TERRABASE_WIRE_PORT=7465`. The public edge
 owns 7464. Private port 7465 stays blocked externally, like Postgres backend 6432.
 
+## Private loopback 127.0.0.1:8081
+
+TerraBase binds its internal listener (8081) only on the host's NetBird
+address. ts-auth and ts-dashboard use `http://127.0.0.1:8081`, which the edge
+serves as protocol `terrabase` and relays to `<wt0 IPv4>:8081`. During a
+stop-first TerraBase rollout a refused backend dial is retried for up to 60 s
+(observed rollouts take 21-30 s); nothing was sent yet, so the retry is safe.
+Past that the client connection is closed. If another process holds
+127.0.0.1:8081 (the retired `fr1-terrabase-loopback.socket` shortcut), the
+bind error names it, `EdgeListenerUnavailable` fires for `protocol="terrabase"`,
+and the edge binds within 5 s of the port being freed.
+
 ## Automatic releases and service rollout (FR1)
 
 No release has a manual prerequisite. Each public protocol starts and retries
 independently. A bind failure logs the affected protocol and leaves the others
-serving. Prometheus host scrapes include `ts_orch_edge_listener_ready` with four
+serving. Prometheus host scrapes include `ts_orch_edge_listener_ready` with five
 fixed protocol values; `EdgeListenerUnavailable` alerts after one minute.
 
 Wire activates only after a TCP readiness probe confirms its configured private

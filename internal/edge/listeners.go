@@ -11,7 +11,7 @@ import (
 )
 
 func (e *Edge) runListener(ctx context.Context, protocol string) {
-	address := map[string]string{"http": ":80", "https": ":443", "postgres": ":5432", "wire": ":7464"}[protocol]
+	address := map[string]string{"http": ":80", "https": ":443", "postgres": ":5432", "wire": ":7464", "terrabase": terrabaseLoopback}[protocol]
 	for ctx.Err() == nil {
 		observability.SetEdgeListenerReady(protocol, false)
 		var err error
@@ -24,6 +24,9 @@ func (e *Edge) runListener(ctx context.Context, protocol string) {
 		if err == nil {
 			var ln net.Listener
 			ln, err = e.listen("tcp", address)
+			if protocol == "terrabase" && err != nil {
+				err = terrabaseBindError(err)
+			}
 			if err == nil {
 				err = e.serveListener(ctx, protocol, ln)
 			}
@@ -31,7 +34,11 @@ func (e *Edge) runListener(ctx context.Context, protocol string) {
 		if ctx.Err() != nil {
 			return
 		}
-		slog.WarnContext(ctx, "edge listener unavailable; other protocols keep serving", "protocol", protocol, "error", err)
+		level := slog.LevelWarn
+		if protocol == "terrabase" {
+			level = slog.LevelError // ts-auth and ts-dashboard have no other path to TerraBase
+		}
+		slog.Log(ctx, level, "edge listener unavailable; other protocols keep serving", "protocol", protocol, "error", err)
 		timer := time.NewTimer(5 * time.Second)
 		select {
 		case <-ctx.Done():
@@ -79,6 +86,8 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 			served <- e.servePostgres(ln)
 		case "wire":
 			served <- e.serveWire(ln)
+		case "terrabase":
+			served <- serveTerraBase(ln, terrabaseInternal, terrabaseHandoffWait)
 		}
 	}()
 	tick := time.NewTicker(5 * time.Second)

@@ -6,8 +6,8 @@ import (
 )
 
 // Zero means no local edge, so workers do not report nonexistent listeners.
-var edgeListeners [4]atomic.Int32
-var edgeProtocols = [...]string{"http", "https", "postgres", "wire"}
+var edgeListeners [5]atomic.Int32
+var edgeProtocols = [...]string{"http", "https", "postgres", "wire", "terrabase"}
 
 func SetEdgeListenerReady(protocol string, ready bool) {
 	for i, name := range edgeProtocols {
@@ -21,7 +21,7 @@ func SetEdgeListenerReady(protocol string, ready bool) {
 	}
 }
 
-// WriteEdgeListenerMetrics adds four fixed protocol series to host scrapes.
+// WriteEdgeListenerMetrics adds five fixed protocol series to host scrapes.
 func WriteEdgeListenerMetrics(w io.Writer) {
 	for i, name := range edgeProtocols {
 		if state := edgeListeners[i].Load(); state != 0 {

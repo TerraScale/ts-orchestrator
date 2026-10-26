@@ -153,6 +153,8 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 				close(wireBound)
 			}
 			return ln, err
+		case terrabaseLoopback:
+			return net.Listen(network, "127.0.0.1:0")
 		default:
 			return nil, fmt.Errorf("unexpected production listener %s", address)
 		}

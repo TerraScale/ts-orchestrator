@@ -33,7 +33,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 )
 
-// Edge serves :80, :443, :5432 and :7464 for the hostnames in its route tables.
+// Edge serves :80, :443, :5432 and :7464 for the hostnames in its route tables,
+// and 127.0.0.1:8081 for TerraBase's private listener (terrabase_loopback.go).
 type Edge struct {
 	wireFirewall func(context.Context, bool) error                   // Production owns the exact wire ACCEPT rule; tests replace it.
 	listen       func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
@@ -175,10 +176,10 @@ func (e *Edge) SetRoutes(web, postgres map[string]int) {
 	e.postgres.Store(lower(postgres))
 }
 
-// Run serves :80, :443, :5432 and :7464 until ctx ends.
+// Run serves :80, :443, :5432, :7464 and 127.0.0.1:8081 until ctx ends.
 func (e *Edge) Run(ctx context.Context) error {
 	var running sync.WaitGroup
-	for _, protocol := range []string{"http", "https", "postgres", "wire"} {
+	for _, protocol := range []string{"http", "https", "postgres", "wire", "terrabase"} {
 		running.Go(func() { e.runListener(ctx, protocol) })
 	}
 	running.Wait()
@@ -350,11 +351,17 @@ type roundTripper func(*http.Request) (*http.Response, error)
 // executor holds the port from the old task's SIGTERM until the new task answers
 // its readyPath (stop grace, process start and first readiness check: ts-auth
 // needs 3-6 s); a refused dial sent nothing, so retrying is safe for any method.
+// It stays under the replay peers' 30 s ResponseHeaderTimeout, so a peer edge
+// answers down before its source gives up; a held TerraBase fails over instead.
 const handoffWait = 20 * time.Second
 
 func dialHandoff(ctx context.Context, network, address string) (net.Conn, error) {
+	return dialHandoffWithin(ctx, network, address, handoffWait)
+}
+
+func dialHandoffWithin(ctx context.Context, network, address string, wait time.Duration) (net.Conn, error) {
 	var dialer net.Dialer
-	deadline := time.Now().Add(handoffWait)
+	deadline := time.Now().Add(wait)
 	if _, p, err := net.SplitHostPort(address); err == nil {
 		if port, err := strconv.ParseUint(p, 10, 16); err == nil {
 			handoff.Wait(ctx, uint16(port), deadline)
