@@ -88,7 +88,7 @@ func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSp
 	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
 	rows, failed := send(ctx, conn, ApplyRequest{Name: spec.Name, Entry: Entry{Generation: generation, Spec: &spec, HoldAfter: holdAfter}}, max(wait, rolloutWait(&spec)))
-	if failed == nil || before.Spec == nil {
+	if failed == nil || before.Spec == nil || bakeHeld(rows, spec.Name) {
 		return rows, failed
 	}
 	if current, err := desiredStates(ctx, conn); err != nil || current[spec.Name].entry().Generation != generation {
@@ -174,7 +174,7 @@ func printApply(output io.Writer) func([]Reply, error) error {
 			case noReply:
 				fmt.Fprintf(table, "%s\tNO REPLY\t-\t-\n", row.Region)
 			default:
-				fmt.Fprintf(table, "%s\tERROR %s\t-\t-\n", row.Region, row.Error)
+				fmt.Fprintf(table, "%s\tERROR %s\t%dms\t%s\n", row.Region, row.Error, row.ElapsedMS, cmp.Or(row.Phases, "-"))
 			}
 		}
 		return errors.Join(table.Flush(), failed)

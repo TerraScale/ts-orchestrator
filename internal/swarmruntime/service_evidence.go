@@ -47,6 +47,29 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 	if err != nil {
 		return rollout, err
 	}
+	evidence, err := ProbeServiceSpecExact(ctx, client, requested)
+	evidence.Running, evidence.Ready = rollout.Running, rollout.Ready
+	return evidence, err
+}
+
+// ProbeServiceSpecExact verifies the requested spec and its exact running tasks
+// with one readiness request per task. A failed observation is never retried.
+func ProbeServiceSpecExact(ctx context.Context, client api.ControlClient, requested ServiceSpec) (ServiceRollout, error) {
+	var rollout ServiceRollout
+	want, err := requested.SwarmSpec()
+	if err != nil {
+		return rollout, err
+	}
+	service, err := specService(ctx, client, requested.Name)
+	if err != nil {
+		return rollout, err
+	}
+	if service == nil || !proto.Equal(&service.Spec, want) {
+		return rollout, errors.New("requested service spec was superseded before readiness")
+	}
+	if status := service.UpdateStatus; status != nil && status.State != api.UpdateStatus_UPDATING && status.State != api.UpdateStatus_COMPLETED && status.State != api.UpdateStatus_ROLLBACK_COMPLETED {
+		return rollout, errors.New("requested service update is not serving")
+	}
 	tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}, DesiredStates: []api.TaskState{api.TaskStateRunning}, UpToDate: true}})
 	if err != nil {
 		return rollout, err
@@ -92,13 +115,13 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 		if machine != requested.Node {
 			return rollout, fmt.Errorf("task %s runs on an unexpected machine", task.ID)
 		}
-		if probe != nil {
-			if err := probe(ctx, task); err != nil {
+		if requested.ReadyPath != "" {
+			if err := ProbeLocalTask(ctx, task); err != nil {
 				return rollout, err
 			}
 		}
 		rollout.Tasks = append(rollout.Tasks, ServiceTaskEvidence{ServiceID: service.ID, TaskID: task.ID, NodeID: task.NodeID,
-			Machine: machine, Image: container.Image, Generation: generation, Ready: probe != nil, Deployment: deployment, DeploymentFloor: floor})
+			Machine: machine, Image: container.Image, Generation: generation, Ready: requested.ReadyPath != "", Deployment: deployment, DeploymentFloor: floor})
 	}
 	latest, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
 	if err != nil {

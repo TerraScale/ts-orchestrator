@@ -605,6 +605,10 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		Update:      &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(serviceUpdateMonitor), Order: api.UpdateConfig_STOP_FIRST},
 		Endpoint:    &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: ports},
 	}
+	if s.Name == "terrabase" {
+		// The candidate may have written a newer storage format. Fix forward.
+		spec.Update.FailureAction = api.UpdateConfig_PAUSE
+	}
 	if usesTaskPort(env) {
 		// Each task listens on its own port and the executor serves s.Port, so the new task starts first.
 		if s.Postgres != nil || len(s.Mounts) != 0 || s.ReadyPath == "" {

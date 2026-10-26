@@ -104,7 +104,7 @@ func TestMeshApplyCompletesDeferredMetadataBeforeExactReadiness(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080,
-				Replicas: 1, Generation: 7, Region: "gru", Node: "gru-1", Hostnames: []string{"original.example.com"}}
+				Replicas: 1, Generation: 7, Region: "gru", Regions: []string{"gru"}, Node: "gru-1", Hostnames: []string{"original.example.com"}}
 			oldFloor := &Deployment{Repository: "TerraScale/terrascale", RunID: "99", Revision: strings.Repeat("b", 40), Image: spec.Image}
 			spec.Deployment, spec.DeploymentFloor = oldFloor, oldFloor
 			initial, err := spec.SwarmSpec()
