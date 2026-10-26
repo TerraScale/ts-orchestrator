@@ -50,3 +50,31 @@ func TestServiceSpecPostgresPublishesSecondPort(t *testing.T) {
 		}
 	}
 }
+
+func TestServiceSpecWirePublishesPrivatePortAndRoundTrips(t *testing.T) {
+	base := ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764",
+		Port: 8080, Replicas: 1, Env: map[string]string{"TERRABASE_WIRE_PORT": "7465"},
+		Postgres: &ServicePostgres{Port: 6432, Hostname: "pg.example.com"}, Wire: &ServicePostgres{Port: 7465, Hostname: "api.example.com"}}
+	spec, err := base.SwarmSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports := spec.Endpoint.Ports
+	if len(ports) != 3 || ports[2].PublishedPort != 7465 || ports[2].TargetPort != 7465 {
+		t.Fatalf("ports = %v", ports)
+	}
+	inspected, err := InspectService(&api.Service{Spec: *spec})
+	if err != nil || inspected.Spec.Wire == nil || *inspected.Spec.Wire != *base.Wire || inspected.Spec.Postgres == nil || *inspected.Spec.Postgres != *base.Postgres {
+		t.Fatalf("inspect = %+v, %v", inspected.Spec, err)
+	}
+	if err := hostnameClaimedByOther([]*api.Service{{Spec: *spec}}, "evil", []string{"api.example.com"}); err == nil {
+		t.Fatal("wire hostname takeover accepted")
+	}
+	for _, wire := range []ServicePostgres{{Port: 8080, Hostname: "api.example.com"}, {Port: 6432, Hostname: "api.example.com"}, {Port: 7464, Hostname: "api.example.com"}, {Port: 80, Hostname: "api.example.com"}, {Port: 7465, Hostname: "bad host"}, {Port: 7466, Hostname: "api.example.com"}} {
+		bad := base
+		bad.Wire = &wire
+		if _, err := bad.SwarmSpec(); err == nil {
+			t.Fatalf("accepted invalid wire %+v", wire)
+		}
+	}
+}

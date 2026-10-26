@@ -385,6 +385,9 @@ const (
 	LabelRollbackOf = "terrascale.rollback-of"
 	// LabelPostgres is ServiceSpec.Postgres.Hostname; its port is the second endpoint port.
 	LabelPostgres = "terrascale.postgres"
+	// LabelWire names the TLS wire hostname; LabelWirePort names its loopback backend.
+	LabelWire     = "terrascale.wire"
+	LabelWirePort = "terrascale.wire-port"
 )
 
 var (
@@ -433,6 +436,8 @@ type ServiceSpec struct {
 	// Postgres declares a plaintext Postgres listener on loopback that the edge
 	// serves over TLS on public :5432 for Hostname.
 	Postgres *ServicePostgres `json:"postgres,omitempty"`
+	// Wire declares the private TerraBase wire listener served over public TLS :7464.
+	Wire *ServicePostgres `json:"wire,omitempty"`
 	// Generation is the mesh desired-state generation, stamped as a label.
 	Generation int64 `json:"-"`
 	// RollbackOf is the failed generation when this spec restores an earlier artifact.
@@ -527,6 +532,16 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		}
 		ports = append(ports, &api.PortConfig{Protocol: api.ProtocolTCP, TargetPort: pg.Port, PublishedPort: pg.Port, PublishMode: api.PublishModeHost})
 	}
+	if wire := s.Wire; wire != nil {
+		if wire.Port < 1024 || wire.Port > 65535 || wire.Port == 7464 || wire.Port == s.Port || s.Postgres != nil && wire.Port == s.Postgres.Port || len(wire.Hostname) > 253 || !hostname.MatchString(wire.Hostname) {
+			return nil, errors.New("wire needs a private port in 1024..65535 distinct from public 7464 and other listeners, and a valid hostname")
+		}
+		if s.Env["TERRABASE_WIRE_PORT"] != strconv.Itoa(int(wire.Port)) {
+			return nil, errors.New("wire port must match TerraBaseOptions TERRABASE_WIRE_PORT")
+		}
+		ports = append(ports, &api.PortConfig{Protocol: api.ProtocolTCP, TargetPort: wire.Port, PublishedPort: wire.Port, PublishMode: api.PublishModeHost})
+	}
+
 	env, err := s.taskEnv()
 	if err != nil {
 		return nil, err
@@ -561,6 +576,10 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	if s.Postgres != nil {
 		labels[LabelPostgres] = s.Postgres.Hostname
+	}
+	if s.Wire != nil {
+		labels[LabelWire] = s.Wire.Hostname
+		labels[LabelWirePort] = strconv.Itoa(int(s.Wire.Port))
 	}
 	if len(s.Secrets) != 0 {
 		labels[LabelSecrets] = strings.Join(slices.Sorted(maps.Keys(s.Secrets)), ",")
@@ -611,8 +630,8 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	}
 	if usesTaskPort(env) {
 		// Each task listens on its own port and the executor serves s.Port, so the new task starts first.
-		if s.Postgres != nil || len(s.Mounts) != 0 || s.ReadyPath == "" {
-			return nil, fmt.Errorf("a spec using %s needs readyPath and no postgres or mounts", TaskPortEnv)
+		if s.Postgres != nil || s.Wire != nil || len(s.Mounts) != 0 || s.ReadyPath == "" {
+			return nil, fmt.Errorf("a spec using %s needs readyPath and no postgres, wire or mounts", TaskPortEnv)
 		}
 		labels[LabelPort] = strconv.FormatUint(uint64(s.Port), 10)
 		spec.Endpoint.Ports = nil
@@ -814,6 +833,9 @@ func applyServiceSpec(ctx context.Context, client api.ControlClient, s ServiceSp
 	if s.Postgres != nil {
 		claimed = append(slices.Clone(claimed), s.Postgres.Hostname)
 	}
+	if s.Wire != nil {
+		claimed = append(slices.Clone(claimed), s.Wire.Hostname)
+	}
 	if err := hostnameClaimedByOther(all.Services, s.Name, claimed); err != nil {
 		return nil, err
 	}
@@ -872,7 +894,7 @@ func hostnameClaimedByOther(services []*api.Service, name string, hostnames []st
 			continue
 		}
 		labels := svc.Spec.Annotations.Labels
-		for owned := range strings.SplitSeq(labels[LabelHostnames]+","+labels[LabelPostgres], ",") {
+		for owned := range strings.SplitSeq(labels[LabelHostnames]+","+labels[LabelPostgres]+","+labels[LabelWire], ",") {
 			if owned != "" && slices.Contains(hostnames, owned) {
 				return fmt.Errorf("hostname %q is already routed to service %q", owned, svc.Spec.Annotations.Name)
 			}

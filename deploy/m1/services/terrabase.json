@@ -9,7 +9,8 @@
     "TERRABASE_AUTH_AUDIENCE": "https://api.terrascale.tech",
     "TERRABASE_AUTH_ISSUER": "https://auth.terrascale.tech/terrascale",
     "TERRABASE_BACKUP_RETENTION_DAYS": "hobby=7,pro=7,enterprise=7",
-    "TERRABASE_POSTGRES_PORT": "6432"
+    "TERRABASE_POSTGRES_PORT": "6432",
+    "TERRABASE_WIRE_PORT": "7465"
   },
   "secrets": {
     "AWS_ACCESS_KEY_ID_FILE": {
@@ -49,5 +50,9 @@
   "replicas": 1,
   "milliCPU": 1000,
   "memoryMiB": 4096,
-  "regions": ["sjc", "fra", "gru"]
+  "regions": ["sjc", "fra", "gru"],
+  "wire": {
+    "port": 7465,
+    "hostname": "api.terrascale.tech"
+  }
 }

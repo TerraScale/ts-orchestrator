@@ -27,7 +27,12 @@ func TestEdgeRoutesMapsHostnamesToPublishedPort(t *testing.T) {
 	thief := service("auth.example.com", 9999) // newer claim on an owned hostname
 	pg := service("", 8080)
 	pg.Spec.Annotations.Labels[swarmruntime.LabelPostgres] = "pg.example.com"
-	pg.Spec.Endpoint.Ports = append(pg.Spec.Endpoint.Ports, &api.PortConfig{PublishedPort: 6432})
+	pg.Spec.Endpoint.Ports = append(pg.Spec.Endpoint.Ports, &api.PortConfig{PublishedPort: 6432}, &api.PortConfig{PublishedPort: 7465})
+	pg.Spec.Annotations.Labels[swarmruntime.LabelWire] = "wire.example.com"
+	pg.Spec.Annotations.Labels[swarmruntime.LabelWirePort] = "7465"
+	if got := wireRoutes([]*api.Service{pg}, ""); !maps.Equal(got, map[string]int{"wire.example.com": 7465}) {
+		t.Fatalf("wire routes=%v", got)
+	}
 	taskPort := service("login.example.com", 0) // a ${PORT} spec publishes none
 	taskPort.Spec.Annotations.Labels[swarmruntime.LabelPort] = "8091"
 	got, gotPG := edgeRoutes([]*api.Service{
@@ -76,5 +81,26 @@ func TestEdgeRoutesAddsOwnRegionHostnames(t *testing.T) {
 	}
 	if !maps.Equal(got, want) {
 		t.Fatalf("fra routes = %v, want %v", got, want)
+	}
+}
+
+func TestWireRoutesUseConfiguredPortAndOwnRegion(t *testing.T) {
+	service := func(created int64, port string) *api.Service {
+		return &api.Service{
+			Meta: api.Meta{CreatedAt: &types.Timestamp{Seconds: created}},
+			Spec: api.ServiceSpec{Annotations: api.Annotations{Labels: map[string]string{swarmruntime.LabelWire: "api.example.com", swarmruntime.LabelWirePort: port}}},
+		}
+	}
+	services := []*api.Service{service(2, "7999"), service(1, "7465")}
+	for _, region := range []string{"gru", "sjc", "fra"} {
+		want := map[string]int{"api.example.com": 7465, region + ".api.example.com": 7465}
+		if got := wireRoutes(services, region); !maps.Equal(got, want) {
+			t.Fatalf("%s routes=%v, want %v", region, got, want)
+		}
+	}
+	for _, port := range []string{"", "bad", "80", "7464", "65536"} {
+		if got := wireRoutes([]*api.Service{service(1, port)}, "gru"); len(got) != 0 {
+			t.Fatalf("accepted port %q: %v", port, got)
+		}
 	}
 }

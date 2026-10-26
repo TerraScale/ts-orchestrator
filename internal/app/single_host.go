@@ -67,9 +67,9 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		// Workloads keep serving; only release pushes are blocked until the next start.
 		fmt.Fprintf(output, "release listener firewall: %v\n", err)
 	}
-	// The edge's :80/:443/:5432 sit behind the same Ubuntu OCI image INPUT REJECT;
+	// The edge's :80/:443/:5432/:7464 sit behind the same Ubuntu OCI image INPUT REJECT;
 	// service ports (8080, 6432, ...) stay rejected, reachable on loopback only.
-	for _, port := range []int{80, 443, edge.PostgresPort, hostmetrics.Port} {
+	for _, port := range []int{80, 443, edge.PostgresPort, edge.WirePort, hostmetrics.Port} {
 		if err := releasepush.OpenTCP(ctx, port); err != nil {
 			fmt.Fprintf(output, "edge firewall: %v\n", err)
 		}

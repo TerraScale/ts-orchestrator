@@ -90,7 +90,7 @@ func ProbeServiceSpecExact(ctx context.Context, client api.ControlClient, reques
 		taskLabels, serviceLabels := maps.Clone(task.ServiceAnnotations.Labels), maps.Clone(service.Spec.Annotations.Labels)
 		// A label-only change (a new generation, ready timeout or route) keeps the
 		// running task: SwarmKit replaces a task only for a new task template.
-		for _, key := range []string{LabelGeneration, LabelRollbackOf, LabelDeployment, LabelDeploymentFloor, LabelReadyTimeout, LabelHostnames, LabelPostgres} {
+		for _, key := range []string{LabelGeneration, LabelRollbackOf, LabelDeployment, LabelDeploymentFloor, LabelReadyTimeout, LabelHostnames, LabelPostgres, LabelWire, LabelWirePort} {
 			delete(taskLabels, key)
 			delete(serviceLabels, key)
 		}
