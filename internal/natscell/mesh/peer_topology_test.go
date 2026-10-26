@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -96,5 +97,30 @@ func TestPeerMetricsFailClosedForMissingAndStaleReports(t *testing.T) {
 	n.writePeerMetrics(&out)
 	if !strings.Contains(out.String(), `ts_orch_peer_topology_mismatch{region="`+regions[1]+`",service="app"} 1`) || !strings.Contains(out.String(), "ts_orch_peer_topology_age_seconds") {
 		t.Fatalf("missing observation appears healthy: %s", &out)
+	}
+}
+
+func TestExportedPeerMismatchReadsOnlyTheTopologyGauge(t *testing.T) {
+	gauge := "# HELP terrabase_peer_topology_mismatch One when admitted topology differs.\n# TYPE terrabase_peer_topology_mismatch gauge\nterrabase_peer_topology_mismatch{otel_scope_name=\"TerraScale.TerraBase\"} %s\n"
+	// A production exposition passed 2 MiB with thousands of per-database series.
+	var bulk strings.Builder
+	for i := 0; bulk.Len() < 3<<20; i++ {
+		fmt.Fprintf(&bulk, "terrabase_replication_cdc_backlog{database=\"%026d\",peer_region=\"sjc\"} %d\n", i, i)
+	}
+	for _, test := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{"agrees beyond 2 MiB", bulk.String() + fmt.Sprintf(gauge, "0") + "terrabase_peer_topology_mismatch_total 3\n", 0},
+		{"mismatch", fmt.Sprintf(gauge, "1"), 1},
+		{"absent", bulk.String(), 1},
+		{"two samples", fmt.Sprintf(gauge, "0") + "terrabase_peer_topology_mismatch{otel_scope_name=\"other\"} 0\n", 1},
+		{"malformed", "terrabase_peer_topology_mismatch zero\n", 1},
+		{"overlong line", strings.Repeat("x", 2<<20) + "\n" + fmt.Sprintf(gauge, "0"), 1},
+	} {
+		if got := exportedPeerMismatch(strings.NewReader(test.body)); got != test.want {
+			t.Errorf("%s: mismatch %d, want %d", test.name, got, test.want)
+		}
 	}
 }
