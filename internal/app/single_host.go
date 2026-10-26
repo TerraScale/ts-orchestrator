@@ -14,6 +14,7 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/hostdashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
@@ -62,6 +63,10 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	if !plan.joiner() {
 		go regionhealth.Run(healthCtx, state)
 		go syncSLOTargets(healthCtx, state, plan.region, executor)
+		if plan.region != "" {
+			// The operator dashboard on the NetBird address; its token lives in gru-vault.
+			go hostdashboard.Run(healthCtx, state, plan.region)
+		}
 	}
 	if err := releasepush.EnsureFirewall(ctx); err != nil {
 		// Workloads keep serving; only release pushes are blocked until the next start.
@@ -69,7 +74,8 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	}
 	// The edge's :80/:443/:5432/:7464 sit behind the same Ubuntu OCI image INPUT REJECT;
 	// service ports (8080, 6432, ...) stay rejected, reachable on loopback only.
-	for _, port := range []int{80, 443, edge.PostgresPort, hostmetrics.Port} {
+	// Host metrics and the dashboard bind the NetBird address only.
+	for _, port := range []int{80, 443, edge.PostgresPort, hostmetrics.Port, hostdashboard.Port} {
 		if err := releasepush.OpenTCP(ctx, port); err != nil {
 			fmt.Fprintf(output, "edge firewall: %v\n", err)
 		}

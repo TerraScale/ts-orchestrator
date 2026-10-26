@@ -83,6 +83,9 @@ func Classify(in Input) (string, []string) {
 
 func gib(bytes uint64) string { return fmt.Sprintf("%.1f GiB", float64(bytes)/(1<<30)) }
 
+// Check reads and classifies this host now.
+func Check(ctx context.Context, state string) Report { return check(ctx, state) }
+
 // check reads and classifies this host now.
 func check(ctx context.Context, state string) Report {
 	status, reasons := Classify(read(ctx, state))
