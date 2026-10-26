@@ -144,7 +144,7 @@ func TestPostgresBackendKeyLifecycleThroughTLSListener(t *testing.T) {
 	go func() {
 		defer close(ended)
 		if conn, err := ingress.Accept(); err == nil {
-			e.postgresConn(conn, &tls.Config{Certificates: []tls.Certificate{*cert}, NextProtos: []string{postgresALPN}})
+			e.postgresConn(conn, &tls.Config{Certificates: []tls.Certificate{*cert}, NextProtos: []string{postgresALPN}}, func() {})
 		}
 	}()
 	client, err := tls.Dial("tcp", ingress.Addr().String(), &tls.Config{RootCAs: roots, ServerName: "pg.edge.test", NextProtos: []string{postgresALPN}})
@@ -153,11 +153,27 @@ func TestPostgresBackendKeyLifecycleThroughTLSListener(t *testing.T) {
 	}
 	t.Cleanup(func() { client.Close() })
 	client.SetDeadline(time.Now().Add(10 * time.Second))
+	if _, err := client.Write([]byte{0, 0, 0, 8, 0, 3, 0, 0}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := io.ReadFull(client, make([]byte, len(packet))); err != nil {
 		t.Fatal(err)
 	}
 	request := append(binary.BigEndian.AppendUint32([]byte{0, 0, 0, 16}, cancelRequest), key[:]...)
-	e.forwardCancel(append(proxyHeader(client.LocalAddr(), client.RemoteAddr()), request...))
+	go func() {
+		if conn, err := ingress.Accept(); err == nil {
+			e.postgresConn(conn, &tls.Config{Certificates: []tls.Certificate{*cert}, NextProtos: []string{postgresALPN}}, func() {})
+		}
+	}()
+	cancel, err := tls.Dial("tcp", ingress.Addr().String(), &tls.Config{RootCAs: roots, ServerName: "pg.edge.test", NextProtos: []string{postgresALPN}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel.Close()
+	cancel.SetDeadline(time.Now().Add(10 * time.Second))
+	if _, err := cancel.Write(request); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case got := <-received:
 		if !bytes.Equal(got, request) {
