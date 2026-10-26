@@ -48,10 +48,6 @@ func PushApp(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(AppRelease{Service: *service, Image: *image, Token: token})
-	if err != nil {
-		return err
-	}
 	start := time.Now()
 	result, unreachable := AppResult{}, error(nil)
 	for _, region := range regions {
@@ -60,8 +56,8 @@ func PushApp(ctx context.Context, args []string, output io.Writer) error {
 			unreachable = errors.Join(unreachable, fmt.Errorf("region %s: %w", region.Region, err))
 			continue
 		}
-		reply, err := request(ctx, conn, SubjectApp, payload, HandlerWait+10*time.Second)
-		conn.Close()
+		reply, err := awaitApp(ctx, AppRelease{Service: *service, Image: *image, Token: token}, conn, MintToken,
+			func(token string) (*nats.Conn, error) { return Dial(region, token, nats.Name("ts-orch release app")) }, 5*time.Second)
 		result = AppResult{Via: region.Region, State: reply.State, Error: reply.Error, Regions: reply.Result, ServingMS: time.Since(start).Milliseconds()}
 		if err != nil {
 			result.Error = err.Error()

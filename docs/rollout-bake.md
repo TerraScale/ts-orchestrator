@@ -31,6 +31,12 @@ The release response
 includes these fields; the CLI prints bake timing, and the journal records
 `regional rollout bake verdict`. The JSON file is the retained evidence.
 
+App CI releases receive acceptance promptly and poll the authenticated operation
+until its terminal verdict. The client refreshes its short-lived credential and
+reconnects after connection loss; polls retain the same signed rollout and bake
+generation. Acceptance alone never makes CI pass. A completed rollback remains
+failed across handler restart and requires a newer signed run to retry.
+
 An unfinished or failed bake cannot admit another region. A missing earlier
 region also holds advancement. Failed bakes survive restart and reconciliation;
 a clean orchestrator shutdown during an unfinished bake restarts its full window.

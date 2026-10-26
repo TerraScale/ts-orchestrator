@@ -106,8 +106,9 @@ type Handler struct {
 	// so systemd restarts the new binary.
 	Installed chan struct{}
 
-	mu      sync.Mutex
-	pending string // installed, waiting for the restart
+	mu            sync.Mutex
+	pending       string // installed, waiting for the restart
+	appOperations map[appOperationKey]*appOperation
 }
 
 // NewHandler serves this process's release for the binary it runs from.
@@ -345,11 +346,7 @@ func (h *Handler) app(ctx context.Context, data []byte) Reply {
 	if h.App == nil {
 		return rejected(errors.New("this host runs no mesh"))
 	}
-	result, err := h.App(ctx, release.Service, release.Image, claims)
-	if err != nil {
-		return Reply{State: "failed", Error: err.Error(), Result: result}
-	}
-	return Reply{State: "done", Result: result}
+	return h.appOperation(release, claims)
 }
 
 // validateApp admits only ghcr.io/terrascale/<service>@sha256:<digest> with a
