@@ -18,7 +18,7 @@ import (
 
 func TestDeploymentFloorSurvivesRollbackAndOperatorApply(t *testing.T) {
 	dir := t.TempDir()
-	spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+	spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1, Regions: []string{"gru"}}
 	approved := &Deployment{Repository: "TerraScale/terrascale", RunID: "100", Revision: strings.Repeat("b", 40), Image: spec.Image}
 	node := &Node{cfg: config{dir: dir, region: "gru", server: "gru-1", applier: &fakeApplier{running: map[string]int64{}}},
 		desired: map[string]desiredState{}, peers: &peers{root: t.TempDir(), region: "gru", node: "gru-1", address: func() (string, error) { return "10.200.0.1", nil }}}
@@ -203,7 +203,7 @@ func TestMeshApplyChecksRevisionAndSupersededReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(node.Close)
-	spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+	spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1, Regions: []string{"gru"}}
 	d := &Deployment{Repository: "TerraScale/terrascale", RunID: "100", Revision: applier.revision, Image: spec.Image}
 	apply := func(generation int64, deployment *Deployment) Reply {
 		t.Helper()

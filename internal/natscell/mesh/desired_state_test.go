@@ -74,7 +74,7 @@ func TestPartialRollbackSyncPreservesInterveningApply(t *testing.T) {
 	for _, scenario := range []string{"operator update", "operator removal", "rollback removal", "new signed run"} {
 		t.Run(scenario, func(t *testing.T) {
 			nodes := stateTestNodes(t, "gru", "sjc")
-			spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+			spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1, Regions: []string{"sjc", "gru"}}
 			approved := &Deployment{Repository: "TerraScale/terrascale", RunID: "100", Revision: strings.Repeat("b", 40), Image: spec.Image}
 			rollout := ApplyRequest{Name: spec.Name, Entry: Entry{Generation: 10, Spec: &spec, Deployment: approved}}
 			for _, node := range nodes {
@@ -115,6 +115,15 @@ func TestPartialRollbackSyncPreservesInterveningApply(t *testing.T) {
 			// B rejected the direct CAS; peer sync must not bypass that decision.
 			nodes[1].sync(t.Context())
 			nodes[0].sync(t.Context())
+			eventually(t, "operator generation to bake before convergence", func() bool {
+				nodes[1].sync(t.Context())
+				nodes[0].sync(t.Context())
+				want := int64(11)
+				if operator.Entry.Spec == nil {
+					want = 0
+				}
+				return nodes[0].cfg.applier.(*fakeApplier).generation(spec.Name) == want
+			})
 			for _, node := range nodes {
 				got, err := loadDesired(node.cfg.dir)
 				if err != nil {
@@ -147,7 +156,7 @@ func TestOperatorSyncConvergesAcrossUnequalDeploymentFloors(t *testing.T) {
 	for _, removal := range []bool{false, true} {
 		t.Run(fmt.Sprintf("removed=%t", removal), func(t *testing.T) {
 			nodes := stateTestNodes(t, "gru", "sjc")
-			spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+			spec := swarmruntime.ServiceSpec{Name: "web", Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1, Regions: []string{"sjc", "gru"}}
 			approved := &Deployment{Repository: "TerraScale/terrascale", RunID: "100", Revision: strings.Repeat("b", 40), Image: spec.Image}
 			older := *approved
 			older.RunID = "99"
@@ -207,6 +216,15 @@ func TestOperatorSyncConvergesAcrossUnequalDeploymentFloors(t *testing.T) {
 				}
 				node.sync(t.Context())
 			}
+			eventually(t, "operator generation to bake with merged floor", func() bool {
+				nodes[1].sync(t.Context())
+				nodes[0].sync(t.Context())
+				want := int64(11)
+				if removal {
+					want = 0
+				}
+				return nodes[0].cfg.applier.(*fakeApplier).generation(spec.Name) == want
+			})
 			for _, node := range nodes {
 				reloaded, err := loadDesired(node.cfg.dir)
 				if err != nil {

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
@@ -150,7 +151,11 @@ func (f *fakeApplier) Wait(ctx context.Context, spec swarmruntime.ServiceSpec, _
 	if spec.Image == f.unready {
 		return swarmruntime.ServiceRollout{}, errors.New("not ready")
 	}
-	return swarmruntime.ServiceRollout{}, nil
+	result := swarmruntime.ServiceRollout{}
+	if spec.Deployment != nil {
+		result.Revision = spec.Deployment.Revision
+	}
+	return result, nil
 }
 
 func (f *fakeApplier) Running(_ context.Context, name string) (bool, error) {
@@ -309,12 +314,12 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	}
 	spec.Args = []string{"/bin/true"}
 	out.Reset()
-	// gru rolls last and first waits out fra's missing state reply.
+	// gru rolls last and holds until fra has a successful bake verdict.
 	err = printApply(&out)(send(t.Context(), sjc.conn, ApplyRequest{Name: "whoami", Entry: Entry{Generation: 2, Spec: &spec}}, 5*time.Second))
-	if err == nil || !strings.Contains(err.Error(), "failed in "+fra) || !strings.Contains(out.String(), "NO REPLY") {
+	if err == nil || !strings.Contains(err.Error(), fra) || !strings.Contains(out.String(), "NO REPLY") {
 		t.Fatalf("apply with %s down: %v\n%s", fra, err, out.String())
 	}
-	if appliers[regions[0]].generation("whoami") != 2 || appliers[regions[1]].generation("whoami") != 2 || appliers[fra].generation("whoami") != 1 {
+	if appliers[regions[0]].generation("whoami") != 1 || appliers[regions[1]].generation("whoami") != 2 || appliers[fra].generation("whoami") != 1 {
 		t.Fatalf("generations after partial apply:\n%s", out.String())
 	}
 
@@ -577,7 +582,7 @@ func assertOrder(t *testing.T, appliers map[string]*fakeApplier, name string, or
 func TestMeshFailedRegionStopsAndRollsBack(t *testing.T) {
 	regions, nodes, appliers := startMeshRegions(t, 0)
 	conn := nodes[regions[0]].conn
-	good := swarmruntime.ServiceSpec{Name: "terrabase", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+	good := swarmruntime.ServiceSpec{Name: "whoami", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
 	if _, err := applySpec(t.Context(), conn, good, "", false, 30*time.Second); err != nil {
 		t.Fatalf("good apply: %v", err)
 	}
@@ -595,13 +600,13 @@ func TestMeshFailedRegionStopsAndRollsBack(t *testing.T) {
 		t.Fatalf("stop and rollback took %s", elapsed)
 	}
 	for _, region := range order[1:] {
-		if appliers[region].appliedImage("terrabase") == bad.Image {
+		if appliers[region].appliedImage("whoami") == bad.Image {
 			t.Fatalf("%s applied the failed image after %s failed", region, order[0])
 		}
 	}
 	eventually(t, "every region to run the previous image", func() bool {
 		for _, region := range regions {
-			if appliers[region].appliedImage("terrabase") != good.Image {
+			if appliers[region].appliedImage("whoami") != good.Image {
 				return false
 			}
 		}
@@ -656,14 +661,14 @@ func startMeshRegions(t *testing.T, settle time.Duration) ([]string, map[string]
 func TestRolloutWindowsFollowReadyTimeout(t *testing.T) {
 	regions := Regions()
 	spec := &swarmruntime.ServiceSpec{Name: "terrabase", ReadyPath: "/readyz", ReadyTimeoutSeconds: 180, Regions: []string{regions[1], regions[2], regions[0]}}
-	if got, want := rolloutWait(spec), 3*(210*time.Second); got != want {
+	if got, want := rolloutWait(spec), 3*(210*time.Second+rollout.BakeWindow); got != want {
 		t.Fatalf("rolloutWait = %s, want %s", got, want)
 	}
 	last := &Node{cfg: config{region: regions[0]}}
-	if got, want := last.applyWindow(spec), 3*(210*time.Second)-10*time.Second; got != want {
+	if got, want := last.applyWindow(spec), 3*(210*time.Second+rollout.BakeWindow)-10*time.Second; got != want {
 		t.Fatalf("last region's window = %s, want %s", got, want)
 	}
-	if got := rolloutWait(&swarmruntime.ServiceSpec{Name: "whoami"}); got != max(applyWait, 3*90*time.Second) {
+	if got := rolloutWait(&swarmruntime.ServiceSpec{Name: "whoami"}); got != max(applyWait, 3*(90*time.Second+rollout.BakeWindow)) {
 		t.Fatalf("default rolloutWait = %s", got)
 	}
 	if rolloutWait(spec) > releasepush.HandlerWait-time.Minute {
@@ -853,7 +858,7 @@ func TestMeshRollbackAndApplyKeepAHeldRollout(t *testing.T) {
 	regions, nodes, appliers := startMeshRegions(t, 0)
 	conn := nodes[regions[0]].conn
 	image := func(c string) string { return "docker.io/library/alpine@sha256:" + strings.Repeat(c, 64) }
-	a := swarmruntime.ServiceSpec{Name: "terrabase", Image: image("a"), Port: 8080, Replicas: 1}
+	a := swarmruntime.ServiceSpec{Name: "whoami", Image: image("a"), Port: 8080, Replicas: 1}
 	if _, err := applySpec(t.Context(), conn, a, "", false, 30*time.Second); err != nil {
 		t.Fatal(err)
 	}
@@ -867,7 +872,7 @@ func TestMeshRollbackAndApplyKeepAHeldRollout(t *testing.T) {
 		t.Helper()
 		time.Sleep(time.Second) // sync ticks (300 ms) must not move the held regions either
 		for _, region := range order[1:] {
-			if got := appliers[region].appliedImage("terrabase"); got != want {
+			if got := appliers[region].appliedImage("whoami"); got != want {
 				t.Fatalf("%s: %s runs %s, want %s", why, region, got, want)
 			}
 		}
@@ -879,7 +884,7 @@ func TestMeshRollbackAndApplyKeepAHeldRollout(t *testing.T) {
 	if _, err := applySpec(t.Context(), conn, c, "", false, 60*time.Second); err == nil || !strings.Contains(err.Error(), "rolled back to "+b.Image) {
 		t.Fatalf("unready C = %v", err)
 	}
-	if got := appliers[order[0]].appliedImage("terrabase"); got != b.Image {
+	if got := appliers[order[0]].appliedImage("whoami"); got != b.Image {
 		t.Fatalf("%s runs %s after the rollback, want %s", order[0], got, b.Image)
 	}
 	later(a.Image, "after a rollback of a held rollout")
@@ -890,11 +895,11 @@ func TestMeshRollbackAndApplyKeepAHeldRollout(t *testing.T) {
 	}
 	later(a.Image, "after a plain apply of a held service")
 	var out bytes.Buffer
-	if err := Resume(t.Context(), conn, "terrabase", &out); err != nil {
+	if err := Resume(t.Context(), conn, "whoami", &out); err != nil {
 		t.Fatalf("resume: %v\n%s", err, out.String())
 	}
 	for _, region := range order {
-		if got := appliers[region].appliedImage("terrabase"); got != d.Image {
+		if got := appliers[region].appliedImage("whoami"); got != d.Image {
 			t.Fatalf("%s runs %s after resume, want %s", region, got, d.Image)
 		}
 	}

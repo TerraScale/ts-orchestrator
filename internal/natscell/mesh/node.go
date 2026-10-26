@@ -42,6 +42,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats-server/v2/server"
@@ -116,6 +117,7 @@ type Reply struct {
 	Image    string                             `json:"image,omitempty"`
 	Revision string                             `json:"revision,omitempty"`
 	Tasks    []swarmruntime.ServiceTaskEvidence `json:"tasks,omitempty"`
+	Bake     *rollout.BakeVerdict               `json:"bake,omitempty"`
 	// Regions is every region the replying node reaches, so a caller also
 	// waits for regions that joined after its own node's seeds.
 	Regions      []string                   `json:"regions,omitempty"`
@@ -143,6 +145,7 @@ type Applier interface {
 	// Wait returns once every replica of spec runs it (and answers its ready
 	// path when the spec names one), using the snapshot returned by Apply.
 	Wait(ctx context.Context, spec swarmruntime.ServiceSpec, original *api.Service) (swarmruntime.ServiceRollout, error)
+	Bake(context.Context, swarmruntime.ServiceSpec, swarmruntime.ServiceRollout) (rollout.BakeVerdict, error)
 	// Ready returns the generation of each service whose up-to-date replicas all run.
 	Ready(ctx context.Context) (map[string]int64, error)
 }
@@ -175,6 +178,8 @@ type Node struct {
 	mu              sync.Mutex
 	desired         map[string]desiredState
 	failed          map[string]int64 // generation whose local rollout failed, per service
+	baking          map[string]chan struct{}
+	bakeUnsaved     map[string]bakeRecord
 	peers           *peers
 	peerReports     map[string]map[string]PeerAttestation
 	peerReportMu    sync.Mutex
@@ -266,6 +271,7 @@ func start(cfg config) (_ *Node, err error) {
 			}
 			node.mu.Lock()
 			state := stateReply{Region: cfg.region, Desired: maps.Clone(node.desired), Ready: ready, Failed: maps.Clone(node.failed)}
+			node.bakeState(&state)
 			node.mu.Unlock()
 			node.respond(m, state)
 		},
@@ -402,11 +408,22 @@ func (n *Node) sync(ctx context.Context) {
 				slog.WarnContext(ctx, "mesh peers file track failed", "service", name, "error", err)
 			}
 		}
+		if key := n.bakePath(name, n.desired[name].entry().Generation); n.bakeUnsaved[key].Generation != 0 {
+			if err := n.saveBake(key, n.bakeUnsaved[key]); err != nil {
+				slog.WarnContext(ctx, "mesh bake evidence persistence failed", "service", name, "error", err)
+			}
+			continue
+		}
 		if entry := n.desired[name].entry(); n.held(entry) || entry.RollbackOf == 0 && n.turn(name, entry.Spec, entry.Generation, states) != nil {
 			continue // an earlier region still rolls this generation out
 		}
-		if _, err := n.reconcile(ctx, name, n.desired[name]); err != nil {
+		if record, err := n.readBake(name, n.desired[name].entry().Generation); err == nil && record.Bake.Reason != "" {
+			continue // failed bakes remain held even after restart
+		}
+		if applied, err := n.reconcile(ctx, name, n.desired[name]); err != nil {
 			slog.WarnContext(ctx, "mesh reconcile failed", "service", name, "error", err)
+		} else if applied.result == "applied" || applied.result == "unchanged" {
+			go func() { _, _ = n.evaluate(n.ctx, applied) }()
 		}
 	}
 }
@@ -448,25 +465,14 @@ func (n *Node) handleApply(m *nats.Msg) {
 	}
 	if err == nil && (applied.result == "applied" || applied.result == "unchanged") {
 		submitted := time.Since(start)
-		var rollout swarmruntime.ServiceRollout
 		spec := applied.spec
-		if request.ExpectedGeneration != 0 {
-			request.Entry.RollbackOf = request.ExpectedGeneration
-		}
-		if rollout, err = n.cfg.applier.Wait(ctx, spec, applied.service); err == nil {
-			reply.Service, reply.Image, reply.Tasks, reply.Revision = spec.Name, spec.Image, rollout.Tasks, rollout.Revision
-			if deployment := request.Entry.Deployment; deployment != nil && spec.Image == deployment.Image && rollout.Revision != deployment.Revision {
-				err = errors.New("running image revision does not match the signed release commit")
-			}
-			n.mu.Lock()
-			if !reflect.DeepEqual(n.desired[request.Name].entry(), request.Entry) || !reflect.DeepEqual(n.desired[request.Name].Floor, spec.DeploymentFloor) {
-				err = errors.New("release superseded during readiness")
-			}
-			n.mu.Unlock()
-			reply.Phases = fmt.Sprintf("pulled %dms, submitted %dms, running %dms", pulled.Milliseconds(), submitted.Milliseconds(), (submitted + rollout.Running).Milliseconds())
-			if rollout.Ready != 0 {
-				reply.Phases += fmt.Sprintf(", ready %dms", (submitted + rollout.Ready).Milliseconds())
-			}
+		verdict, bakeErr := n.evaluate(ctx, applied)
+		err = bakeErr
+		reply.Service, reply.Image, reply.Tasks, reply.Revision = spec.Name, spec.Image, verdict.Rollout.Tasks, verdict.Rollout.Revision
+		reply.Bake = &verdict.Bake
+		reply.Phases = fmt.Sprintf("pulled %dms, submitted %dms, ready %dms", pulled.Milliseconds(), submitted.Milliseconds(), (submitted + time.Duration(verdict.Rollout.Ready)).Milliseconds())
+		if !verdict.Bake.Started.IsZero() {
+			reply.Phases += fmt.Sprintf(", bake %s (%d samples)", verdict.Bake.Finished.Sub(verdict.Bake.Started), verdict.Bake.Samples)
 		}
 	}
 	reply.Result, reply.ElapsedMS = applied.result, time.Since(start).Milliseconds()
@@ -547,7 +553,7 @@ func regionWindow(spec *swarmruntime.ServiceSpec) time.Duration {
 	if spec != nil && spec.ReadyTimeoutSeconds != 0 {
 		ready = time.Duration(spec.ReadyTimeoutSeconds) * time.Second
 	}
-	return ready + 30*time.Second
+	return ready + 30*time.Second + rollout.BakeWindow
 }
 
 // rolloutWait bounds a whole rollout of spec: every region in turn.
@@ -573,13 +579,13 @@ func (n *Node) held(entry Entry) bool {
 // region failed to roll out.
 var errEarlierFailed = errors.New("an earlier region failed this rollout")
 
-// turn allows this region to apply a generation of name once every earlier
-// region runs it ready. A region that does not answer has nothing to wait for.
+// turn allows this region to apply only after every earlier region reports
+// the generation ready with a successful bake. Missing verdicts fail closed.
 func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int64, states map[string]stateReply) error {
 	for _, region := range n.earlier(spec) {
 		reply, answered := states[region]
 		if !answered {
-			continue
+			return fmt.Errorf("%s has no bake verdict yet", region)
 		}
 		if reply.Failed[name] >= generation {
 			return fmt.Errorf("%w: %s", errEarlierFailed, region)
@@ -614,6 +620,7 @@ type applyResult struct {
 	result  string
 	spec    swarmruntime.ServiceSpec
 	service *api.Service
+	state   desiredState
 }
 
 func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, error) {
@@ -690,9 +697,9 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 		return applyResult{}, err
 	}
 	if changed {
-		return applyResult{result: "applied", spec: spec, service: service}, nil
+		return applyResult{result: "applied", spec: spec, service: service, state: state}, nil
 	}
-	return applyResult{result: "unchanged", spec: spec, service: service}, nil
+	return applyResult{result: "unchanged", spec: spec, service: service, state: state}, nil
 }
 
 func (n *Node) respond(m *nats.Msg, value any) {
