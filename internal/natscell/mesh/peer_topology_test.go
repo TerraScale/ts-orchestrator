@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,9 @@ func TestTopologyRejectsTruncationAndSurvivesRestartWithoutTrustingFile(t *testi
 	restarted, err := newPeers(cfg)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !slices.Contains(restarted.regions, regions[1]) {
+		t.Fatal("cancellation membership lost an unavailable admitted region on restart")
 	}
 	n := &Node{cfg: cfg, peers: restarted, desired: map[string]desiredState{"app": stateFor(Entry{Generation: 1,
 		Spec: &swarmruntime.ServiceSpec{Name: "app", Regions: regions}})}}

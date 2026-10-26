@@ -33,12 +33,14 @@ import (
 
 // Edge serves :80, :443, :5432 and :7464 for the hostnames in its route tables.
 type Edge struct {
-	certs    *autocert.Manager
-	routes   atomic.Pointer[map[string]int]
-	postgres atomic.Pointer[map[string]int]
-	pgKeys   postgresKeys
-	wire     atomic.Pointer[map[string]int]
-	proxy    *httputil.ReverseProxy
+	certs     *autocert.Manager
+	routes    atomic.Pointer[map[string]int]
+	postgres  atomic.Pointer[map[string]int]
+	pgKeys    postgresKeys
+	pgRelays  chan struct{}
+	pgControl chan struct{}
+	wire      atomic.Pointer[map[string]int]
+	proxy     *httputil.ReverseProxy
 	// challenges answers HTTP-01 for the tokens this edge holds.
 	challenges http.Handler
 	mesh       atomic.Pointer[Mesh]
@@ -57,6 +59,7 @@ func New(stateDir string) *Edge { return newEdge(stateDir, nil) }
 // newEdge uses client as the ACME client; nil means Let's Encrypt.
 func newEdge(stateDir string, client *acme.Client) *Edge {
 	e := &Edge{
+		pgRelays: make(chan struct{}, 32), pgControl: make(chan struct{}, 32),
 		peerAddr: func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
 		spoolDir: filepath.Join(stateDir, "edge-spool"),
 	}
@@ -242,6 +245,10 @@ const netbirdHost = "netbird.terrascale.tech"
 func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	e.identify(w, r)
 	peer := fromPeer(r)
+	if strings.HasPrefix(r.URL.Path, postgresCancelPath) {
+		e.servePostgresCancel(w, r)
+		return
+	}
 	if peer && isChallenge(r) {
 		e.serveChallenge(w, r)
 		return

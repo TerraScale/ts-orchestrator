@@ -441,6 +441,9 @@ func TestNewRegionJoinsByGossip(t *testing.T) {
 	if appliers["ams"].generation("whoami") != 1 || !strings.Contains(out.String(), "ams ") {
 		t.Fatalf("apply from fra did not reach ams:\n%s", out.String())
 	}
+	if !slices.Contains(nodes["fra"].AdmittedRegions(), "ams") {
+		t.Fatal("cancellation membership lost the region admitted through gossip")
+	}
 }
 
 // A second host of a region joins its founder's NATS cluster as a worker:

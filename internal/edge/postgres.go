@@ -202,17 +202,26 @@ func (e *Edge) forwardCancel(request []byte) {
 		return
 	}
 	key := [8]byte(request[len(request)-8:])
+	if e.meshNode() != nil {
+		e.relayPostgresCancel(request, key)
+		return
+	}
 	port, ok := e.pgKeys.port(key)
 	if !ok {
 		return
 	}
+	e.sendPostgresCancel(port, request)
+}
+
+func (e *Edge) sendPostgresCancel(port int, request []byte) bool {
 	backend, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 2*time.Second)
 	if err != nil {
-		return
+		return false
 	}
 	defer backend.Close()
 	backend.SetDeadline(time.Now().Add(2 * time.Second))
-	backend.Write(request)
+	n, err := backend.Write(request)
+	return err == nil && n == len(request)
 }
 
 // postgresError is a FATAL ErrorResponse with an SQLSTATE code.
