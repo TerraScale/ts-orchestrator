@@ -9,7 +9,7 @@ import (
 )
 
 func TestBakeWindowAndFailures(t *testing.T) {
-	for _, mode := range []string{"healthy", "regressed", "cancelled", "late"} {
+	for _, mode := range []string{"healthy", "regressed", "cancelled", "cancelled-probe", "late"} {
 		t.Run(mode, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx, cancel := context.WithCancel(t.Context())
@@ -20,6 +20,10 @@ func TestBakeWindowAndFailures(t *testing.T) {
 				calls := 0
 				v, err := RunBake(ctx, func(context.Context) (map[string]string, error) {
 					calls++
+					if mode == "cancelled-probe" {
+						cancel()
+						return nil, errors.New("probe request failed")
+					}
 					if mode == "late" {
 						time.Sleep(11 * time.Second)
 					}

@@ -48,7 +48,7 @@ func runBake(ctx context.Context, probe func(context.Context) (map[string]string
 		}
 		sample, cancel := context.WithTimeout(ctx, poll)
 		checks, failure := probe(sample)
-		if failure == nil {
+		if sample.Err() != nil {
 			failure = sample.Err()
 		}
 		cancel()

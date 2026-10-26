@@ -408,6 +408,12 @@ func (n *Node) sync(ctx context.Context) {
 				slog.WarnContext(ctx, "mesh peers file track failed", "service", name, "error", err)
 			}
 		}
+		if key := n.bakePath(name, n.desired[name].entry().Generation); n.bakeUnsaved[key].Generation != 0 {
+			if err := n.saveBake(key, n.bakeUnsaved[key]); err != nil {
+				slog.WarnContext(ctx, "mesh bake evidence persistence failed", "service", name, "error", err)
+			}
+			continue
+		}
 		if entry := n.desired[name].entry(); n.held(entry) || entry.RollbackOf == 0 && n.turn(name, entry.Spec, entry.Generation, states) != nil {
 			continue // an earlier region still rolls this generation out
 		}

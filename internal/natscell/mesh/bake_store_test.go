@@ -76,6 +76,12 @@ func TestBakePersistenceFailureAndInterruptedRestart(t *testing.T) {
 				n.bakeUnsaved = nil
 			}
 			n.failed = map[string]int64{spec.Name: 1}
+			if strings.Contains(scenario, "write failure") && scenario != "write failure restart" {
+				n.sync(n.ctx)
+				if len(n.bakeUnsaved) != 0 {
+					t.Fatal("sync did not retry terminal evidence persistence")
+				}
+			}
 			if _, err := n.evaluate(n.ctx, applied); (err == nil) != a.healthy {
 				t.Fatalf("unexpected retry result: %v", err)
 			}
