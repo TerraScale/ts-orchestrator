@@ -52,6 +52,7 @@ type Mesh interface {
 	Region() string
 	TLS() *tls.Config
 	RTT() map[string]time.Duration
+	AdmittedRegions() []string
 }
 
 // SetMesh enables replays; until then a replay answer reaches the client as is.

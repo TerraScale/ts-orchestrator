@@ -7,11 +7,13 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,6 +32,11 @@ type fakeMesh struct {
 func (m fakeMesh) Region() string                { return m.region }
 func (m fakeMesh) TLS() *tls.Config              { return m.tls }
 func (m fakeMesh) RTT() map[string]time.Duration { return m.rtt }
+func (m fakeMesh) AdmittedRegions() []string {
+	names := append([]string{m.region}, slices.Sorted(maps.Keys(m.rtt))...)
+	slices.Sort(names)
+	return names
+}
 
 // region is one region's edge and fake TerraBase.
 type region struct {
@@ -46,7 +53,7 @@ const host = "api.edge.test"
 
 // startRegions runs gru, sjc and fra with the mesh RTTs measured on
 // 2026-10-22. answer is each region's TerraBase.
-func startRegions(t *testing.T, answer func(name string, w http.ResponseWriter, r *http.Request)) map[string]*region {
+func startRegions(t *testing.T, answer func(name string, w http.ResponseWriter, r *http.Request), extra ...string) map[string]*region {
 	t.Helper()
 	ca, err := mesh.DeriveCA(bytes.Repeat([]byte{7}, 32))
 	if err != nil {
@@ -57,6 +64,14 @@ func startRegions(t *testing.T, answer func(name string, w http.ResponseWriter, 
 		"gru": {"sjc": ms(168), "fra": ms(188)},
 		"sjc": {"gru": ms(168), "fra": ms(138)},
 		"fra": {"gru": ms(188), "sjc": ms(138)},
+	}
+	for _, name := range extra {
+		rtt[name] = map[string]time.Duration{}
+		for peer := range rtt {
+			if peer != name {
+				rtt[name][peer], rtt[peer][name] = ms(200), ms(200)
+			}
+		}
 	}
 	regions := map[string]*region{}
 	// Every peer address is known before any edge serves.

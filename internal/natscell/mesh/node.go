@@ -304,6 +304,18 @@ func (n *Node) Region() string { return n.cfg.region }
 // this node's leaf and accepts only peers the mesh CA signed.
 func (n *Node) TLS() *tls.Config { return n.tls }
 
+// AdmittedRegions includes durable admitted peers through outages and restarts,
+// plus gateways discovered since the last admission round. Reachability never
+// removes an admitted region from a cancellation ownership lookup.
+func (n *Node) AdmittedRegions() []string {
+	n.peers.mu.Lock()
+	names := slices.Clone(n.peers.regions)
+	n.peers.mu.Unlock()
+	names = append(names, n.regions()...)
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
 // RTT is the measured round trip to every region with a live outbound gateway.
 func (n *Node) RTT() map[string]time.Duration {
 	rtt := map[string]time.Duration{}
