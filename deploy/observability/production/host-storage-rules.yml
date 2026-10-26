@@ -1,0 +1,54 @@
+groups:
+  - name: host-storage
+    rules:
+      - record: host:disk_latency_seconds:rate5m
+        expr: rate(ts_host_disk_operation_seconds_total[5m]) / clamp_min(rate(ts_host_disk_operations_total[5m]), 0.001)
+      - record: host:disk_throughput_bytes:rate5m
+        expr: rate(ts_host_disk_bytes_total[5m])
+      - record: host:disk_queue_depth:rate5m
+        expr: rate(ts_host_disk_weighted_seconds_total[5m])
+      - record: host:disk_available:ratio
+        expr: ts_host_disk_available_bytes / ts_host_disk_size_bytes
+      - alert: HostStorageWarning
+        expr: |
+          max by (host, region) (
+            (host:disk_available:ratio < 0.15) or (ts_host_disk_available_bytes < 5368709120)
+            or (ts_host_io_psi_ratio{scope="some"} > 0.5)
+            or (host:disk_latency_seconds:rate5m > 0.1) or (terrabase_storage_queued{job="terrabase-host-storage"} > 0)
+          )
+        for: 2m
+        labels:
+          service: host-storage
+          severity: warning
+        annotations:
+          summary: Host storage pressure needs investigation
+      - alert: HostStorageCritical
+        expr: |
+          max by (host, region) (
+            (host:disk_available:ratio < 0.08) or (ts_host_disk_available_bytes < 2147483648)
+            or (ts_host_io_psi_ratio{scope="some"} > 0.9)
+            or (host:disk_latency_seconds:rate5m > 0.5)
+          )
+          or max by (host, region) (increase(terrabase_catalog_anchor_timeouts_total{job="terrabase-host-storage"}[5m]) > 0)
+        for: 1m
+        labels:
+          service: host-storage
+          severity: critical
+        annotations:
+          summary: Host storage is at risk of stalling shared services
+      - alert: HostStorageTelemetryMissing
+        expr: |
+          max by (host, region) (
+            (up{job=~"host-storage|terrabase-host-storage"} == 0)
+            or (up{job="host-storage"} unless on (host, region) ts_host_io_psi_ratio{scope="some"})
+            or (up{job="terrabase-host-storage"} unless on (host, region) terrabase_storage_queued)
+            or (up{job="terrabase-host-storage"} unless on (host, region) terrabase_storage_running)
+            or (up{job="terrabase-host-storage"} unless on (host, region) terrabase_storage_admitted)
+            or (up{job="terrabase-host-storage"} unless on (host, region) terrabase_catalog_anchor_timeouts_total)
+          ) or absent(up{job="host-storage"})
+        for: 2m
+        labels:
+          service: host-storage
+          severity: warning
+        annotations:
+          summary: Host storage history collection is incomplete

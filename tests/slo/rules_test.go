@@ -32,6 +32,7 @@ func TestPrometheusRules(t *testing.T) {
 		}
 	}
 	run("check", "rules", rules)
+	run("test", "rules", "../../deploy/observability/production/host-storage-rules.test.yml")
 	var fixture strings.Builder
 	fmt.Fprintf(&fixture, "rule_files: [%q]\nevaluation_interval: 1m\nfuzzy_compare: true\ntests:\n", rules)
 	add := func(name, good, bad string, checks string) {

@@ -58,7 +58,7 @@ done
 prom_dir="$staging/prometheus-3.15.0.linux-$arch"
 alert_dir="$staging/alertmanager-0.34.1.linux-$arch"
 "$prom_dir/promtool" check config "$source_dir/prometheus.yml"
-(cd "$source_dir" && "$prom_dir/promtool" test rules operational-rules.test.yml)
+(cd "$source_dir" && "$prom_dir/promtool" test rules operational-rules.test.yml host-storage-rules.test.yml)
 "$alert_dir/amtool" check-config "$source_dir/alertmanager.yml"
 if [[ $mode == --check ]]; then exit; fi
 
@@ -81,7 +81,7 @@ put "$prom_dir/promtool" /usr/local/lib/ts-monitoring/promtool 0755
 put "$alert_dir/alertmanager" /usr/local/lib/ts-monitoring/alertmanager 0755
 put "$alert_dir/amtool" /usr/local/lib/ts-monitoring/amtool 0755
 put "$source_dir/../slo-rules.yml" /etc/ts-monitoring/slo-rules.yml 0644
-for config in prometheus.yml alertmanager.yml operational-rules.yml; do
+for config in prometheus.yml alertmanager.yml operational-rules.yml host-storage-rules.yml; do
   put "$source_dir/$config" "/etc/ts-monitoring/production/$config" 0644
 done
 for unit in ts-prometheus.service ts-alertmanager.service ts-alert-delivery.service; do
