@@ -46,8 +46,8 @@ type peers struct {
 // the gateways connect, and a restart must not shrink a file to this region.
 const peersMissedRounds = 2
 
-// wt0Address is this host's NetBird IPv4.
-func wt0Address() (string, error) {
+// NetBirdAddress is this host's NetBird IPv4 (wt0).
+func NetBirdAddress() (string, error) {
 	iface, err := net.InterfaceByName("wt0")
 	if err != nil {
 		return "", err

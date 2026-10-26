@@ -13,26 +13,47 @@ providers; it never changes control-plane state.
 
 ## NetBird access
 
-Use the existing NetBird connection on delta, beta or mariogk-dev and open a
-topology URL below. Enter the
-region's dashboard token on `/login`; the browser keeps a read-only session
-until sign-out or a dashboard token change, including across controller
-restarts. TCP 9463 is
-private: the NetBird operator policy and host firewall admit it through `wt0`,
-and it has no public listener or OCI ingress rule. The current listener still depends on a cell-spec
-`dashboard.token` reference; automatic listener/credential provisioning is pending
-TS-796. Never re-found a serving cell to change access ([listener contract](../observability.md#on-the-netbird-address-cell-spec)).
+Every region host (`ts-orch single-host`) serves the dashboard on its NetBird
+address (`wt0`) at TCP 9463, with nothing to turn on
+(`internal/hostdashboard`). The first host of a region that needs a token
+creates a random one in gru-vault as `<region>-1-orch-dashboard-token`
+(`gru-1-`, `sjc-1-`, `fra-1-orch-dashboard-token`) and re-reads it every five
+minutes, so a new secret version takes effect without a restart. The
+listener binds only the NetBird address; there is no public listener and no
+OCI ingress rule for 9463. `/members` and `/topology` list every region's
+host: this host's own snapshot and the others from their health reports over
+the cross-region mesh; a region that does not answer is listed as missing.
+Browser sessions live in the host's memory, so a release restart signs the
+browser out.
 
-LINKS: controller topology URLs (verified from mariogk-dev, 2026-10-07 23:03 UTC):
+Use the existing NetBird connection on delta, beta or mariogk-dev, open a URL
+below and enter that region's token on `/login`. Read the token yourself
+(never paste it into chat or files) with the OCI CLI profile that reads
+gru-vault:
 
-| Controller | By NetBird IP | By NetBird DNS |
-|---|---|---|
-| GRU 1 | http://10.200.87.215:9463/topology | http://ts-gru-1.nb.ts.internal:9463/topology |
-| GRU 2 | http://10.200.38.135:9463/topology | http://ts-gru-2.nb.ts.internal:9463/topology |
-| GRU 3 | http://10.200.168.164:9463/topology | http://ts-gru-3.nb.ts.internal:9463/topology |
-| SJC 1 | http://10.200.112.213:9463/topology | http://ts-sjc-1.nb.ts.internal:9463/topology |
-| SJC 2 | http://10.200.122.37:9463/topology | http://ts-sjc-2.nb.ts.internal:9463/topology |
-| SJC 3 | http://10.200.63.195:9463/topology | http://ts-sjc-3.nb.ts.internal:9463/topology |
+```sh
+oci secrets secret-bundle get-secret-bundle-by-name \
+  --vault-id ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq \
+  --secret-name gru-1-orch-dashboard-token \
+  --query 'data."secret-bundle-content".content' --raw-output | base64 -d
+```
+
+LINKS: region hosts (NetBird peers as of 2026-10-26):
+
+| Region | Host | NetBird peer | Dashboard |
+|---|---|---|---|
+| GRU | ts-gru-2 | `gru-1-ctl-1` | http://10.200.165.148:9463/topology |
+| SJC | ts-sjc-1 | `ts-sjc-1` | http://10.200.109.193:9463/topology |
+| FRA | ts-fra-1 | `ts-fra-1` | http://10.200.40.238:9463/topology |
+
+Use the IPs: delta, beta and mariogk-dev run the NetBird client with
+`DisableDNS: true` (homelab client config), so `*.nb.ts.internal` names do
+not resolve there. `netbird status -d` still lists each peer's current IP.
+
+The controller runtime keeps its cell-spec listener: a cell spec `dashboard`
+section names the token and every controller serves on its NetBird address
+([listener contract](../observability.md#on-the-netbird-address-cell-spec)).
+Never re-found a serving cell to change access.
 
 ### Automatic operator credential delivery
 

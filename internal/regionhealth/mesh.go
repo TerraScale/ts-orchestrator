@@ -84,6 +84,11 @@ func serve(conn *nats.Conn, region string, latest func() Report) error {
 	return conn.Flush()
 }
 
+// Ask collects every region's report over the mesh within statusWait.
+func Ask(ctx context.Context, conn *nats.Conn) (map[string]Report, error) {
+	return ask(ctx, conn, len(mesh.Regions()), statusWait)
+}
+
 // ask collects one report per region until want arrived or wait elapsed.
 func ask(ctx context.Context, conn *nats.Conn, want int, wait time.Duration) (map[string]Report, error) {
 	inbox := conn.NewRespInbox()
