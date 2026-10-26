@@ -370,12 +370,31 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		case <-time.After(10 * time.Second):
 			t.Fatal("wire bind conflict was not exercised")
 		}
-		// A fresh HTTPS connection and Postgres session must work while :7464
-		// is still occupied. Earlier subtests also exercise HTTP and gRPC.
+		// Fresh HTTP, HTTPS and Postgres requests must all work after the
+		// real :7464 bind failure, while the conflicting socket stays open.
+		plain, err := net.DialTimeout("tcp", httpLn.Addr().String(), 5*time.Second)
+		if err != nil {
+			t.Fatalf("HTTP lost during wire conflict: %v", err)
+		}
+		plain.SetDeadline(time.Now().Add(5 * time.Second))
+		fmt.Fprint(plain, "GET / HTTP/1.1\r\nHost: app.edge.test\r\nConnection: close\r\n\r\n")
+		redirected, err := http.ReadResponse(bufio.NewReader(plain), nil)
+		if err != nil || redirected.StatusCode != http.StatusFound {
+			t.Fatalf("HTTP during wire conflict: %v %v", redirected, err)
+		}
+		redirected.Body.Close()
+		plain.Close()
 		https, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", tlsLn.Addr().String(), &tls.Config{RootCAs: roots, ServerName: "app.edge.test"})
 		if err != nil {
 			t.Fatalf("HTTPS lost during wire conflict: %v", err)
 		}
+		https.SetDeadline(time.Now().Add(5 * time.Second))
+		fmt.Fprint(https, "GET /hello HTTP/1.1\r\nHost: app.edge.test\r\nConnection: close\r\n\r\n")
+		response, err := http.ReadResponse(bufio.NewReader(https), nil)
+		if err != nil || response.StatusCode != http.StatusOK {
+			t.Fatalf("HTTPS during wire conflict: %v %v", response, err)
+		}
+		response.Body.Close()
 		https.Close()
 		conn := pg(t, startup(sslRequest))
 		reply := make([]byte, 1)
