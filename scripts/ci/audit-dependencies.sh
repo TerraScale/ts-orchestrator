@@ -16,6 +16,7 @@ fi
 echo "d36c5d591f43f085b4561a3a9db05894d343a86376f20fab7d8c4ffff38b7a01  $scanner" | sha256sum --check
 chmod +x "$scanner"
 "$scanner" -mode=binary -scan=module -show=verbose "$scanner"
+python3 -B scripts/ci/audit-replacements.py
 
 case ${1:-source} in
 source)

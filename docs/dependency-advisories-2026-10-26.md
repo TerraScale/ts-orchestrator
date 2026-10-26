@@ -47,9 +47,17 @@ complete advisory records are retained in the PR/ticket evidence index.
 
 These are package-absence dispositions, not advisory suppressions or claims
 that every transitive module constraint has zero advisory matches. The stricter
-package gate rejects a future import of an affected package. A control module
-importing vulnerable x/net/html 0.48.0 failed with five package findings; a
-missing-import control also failed. Scanner diagnostics never count as clean.
+package gate rejects a future import of an affected package. Repeated controls
+in tracked Git fixtures imported vulnerable x/net/html 0.48.0 (five package
+findings, exit 3) and an invalid import (loading error, exit 1). These supersede
+the old final-control logs, which stopped at a Git error before scanning.
+Scanner diagnostics never count as clean. The replacement-baseline control used
+the actual published x/net 0.48.0 sources and upstream commit: binding passed,
+then the official OSV response contained findings and the baseline audit failed.
+Additional controls rejected version/path/identity/commit/source drift, missing
+source, malformed responses and transport errors; both valid empty response
+forms passed. Complete responses, exact commands and exit codes are retained in
+the PR/ticket evidence index.
 
 ## Replacement provenance
 
@@ -66,3 +74,15 @@ This change updates their dependency metadata, not those archived provenance
 snapshots. Required CI and exact merged binary evidence remain necessary before
 advancement. This qualification does not establish a production exploit or
 change the deployment ownership boundary.
+
+Govulncheck cannot match advisories against local replacement versions. Before
+either source or binary scans, `scripts/ci/audit-replacements.py` checks the exact
+root requirements, selected versions, replacement paths, declared module names,
+and recorded upstream versions/commits above. Reviewed SHA-256 digests bind every
+tracked replacement file, including dependency manifests; source drift or missing
+sources fails and requires renewed review. The helper then queries the official
+OSV API for all three published baselines, prints complete raw responses, and
+fails on any finding at any severity or any request/response error. No record is
+filtered. This baseline check does not establish that local patches are safe or
+equivalent to an upstream commit: actual patched sources and tests still receive
+their separate native package scans. Exact-head integration CI remains required.
