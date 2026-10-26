@@ -59,6 +59,41 @@ ssh ts-gru-1 sudo ts-orch service ls
 ssh ts-gru-1 sudo ts-orch service rm whoami
 ```
 
+## FR1: recover status canaries after every storage wipe
+
+A wipe removes the customer identity, project, database and API key used by
+status monitoring. After customer auth, dashboard and every discovered regional
+API are ready, FR1 must run this command on **mariogk-dev** before declaring the
+reset complete:
+
+```sh
+nice -n 19 python3 /home/mariogk/.local/libexec/ts-status-recover-canaries.py < /home/mariogk/.config/terrascale/mailbox-password
+```
+
+The helper is installed from the reviewed ts-status
+[`scripts/recover-canaries.py`](https://github.com/TerraScale/ts-status/blob/6c0ca20ab1e4ae3e7e3357123f1d98fb08689979/scripts/recover-canaries.py).
+To refresh that local executable from a reviewed ts-status checkout, use
+`install -m 700 scripts/recover-canaries.py /home/mariogk/.local/libexec/ts-status-recover-canaries.py`.
+The complete [recovery contract and evidence](https://github.com/TerraScale/ts-status/blob/6c0ca20ab1e4ae3e7e3357123f1d98fb08689979/docs/canary-recovery.md)
+belongs to ts-status; do not duplicate credentials or regional host lists here.
+
+The command reuses `mariogk+status-canary@terrascale.tech`, recreates it after
+a wipe, discovers regions, verifies region-pinned authenticated
+write/read/query/delete/read-after-delete, and updates only `DATA_API_CANARY`
+and `TERRABASE_PROBES` on Worker `ts-status` through protected stdin. It uses
+customer APIs, never an owner application login, QA credentials or production
+service configuration. Retain its private 0600 state at
+`~/.local/state/ts-status/canaries.json`; this is the persistent service identity.
+
+A nonzero exit keeps reset validation incomplete. Resolve the reported stage
+and rerun the same command; never request email codes in a loop, replace secrets
+by hand, clear D1 history or suppress real regional failures. Missing or invalid
+canary credentials mean monitoring is unmeasured, not proof of a Data API outage
+or recovery. After the helper succeeds, allow automatic incidents five healthy
+minutes to resolve, then require ten continuous minutes with every component
+and regional canary operational in the public status API. A genuine regional
+outage remains owned by FR1 and must recover before that proof can pass.
+
 ## Postgres (pg.terrascale.tech:5432)
 
 A spec's `"postgres": {"port": 6432, "hostname": "pg.terrascale.tech"}`
