@@ -9,7 +9,8 @@ GOFMT ?= gofmt
 endif
 CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
-BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
+# Keep the symbol table so govulncheck can inspect the actual release bytes.
+BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-w"
 # Test tier (CONTRIBUTING.md): pr runs the fast tier with -short; full also
 # runs the integration tier and checks the fixturetest build.
 TS_TEST_TIER ?= full
