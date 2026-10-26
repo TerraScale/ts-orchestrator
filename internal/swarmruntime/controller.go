@@ -331,7 +331,8 @@ func (c *controller) awaitReady(ctx context.Context) error {
 	}
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
-	tick := time.NewTicker(readyPoll)
+	poll := readyPoll
+	tick := time.NewTimer(poll)
 	defer tick.Stop()
 	port, portErr := hostPort(c.task)
 	probed := port
@@ -362,12 +363,19 @@ func (c *controller) awaitReady(ctx context.Context) error {
 			// Stop (gracefully: it may own data) before failing so the rollback's task can start.
 			return errors.Join(fmt.Errorf("not ready within %s: %w", timeout, probeErr), c.stopTask(ctx))
 		case <-tick.C:
+			poll = min(2*poll, readyPollCeiling)
+			tick.Reset(poll)
 		}
 	}
 }
 
-// readyPoll bounds how late a ready task leaves STARTING.
-const readyPoll = 100 * time.Millisecond
+// readyPoll bounds how late a quickly ready task leaves STARTING. A member
+// catching up answers 503 for many minutes, and every probe of /readyz costs
+// it a storage check, so waits grow to readyPollCeiling.
+const (
+	readyPoll        = 100 * time.Millisecond
+	readyPollCeiling = 2 * time.Second
+)
 
 func (c *controller) start(ctx context.Context) error {
 	if c.stateful != nil {
