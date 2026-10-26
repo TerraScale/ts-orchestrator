@@ -157,9 +157,16 @@ func InspectService(service *api.Service) (ServiceInspection, error) {
 	}
 	if service.Spec.Endpoint != nil && len(service.Spec.Endpoint.Ports) != 0 {
 		spec.Port = service.Spec.Endpoint.Ports[0].PublishedPort
-		if host := labels[LabelPostgres]; host != "" && len(service.Spec.Endpoint.Ports) == 2 {
+		if host := labels[LabelPostgres]; host != "" && len(service.Spec.Endpoint.Ports) >= 2 {
 			spec.Postgres = &ServicePostgres{Port: service.Spec.Endpoint.Ports[1].PublishedPort, Hostname: host}
 		}
+	}
+	if host := labels[LabelWire]; host != "" {
+		port, err := strconv.ParseUint(labels[LabelWirePort], 10, 16)
+		if err != nil {
+			return ServiceInspection{}, fmt.Errorf("invalid wire port: %w", err)
+		}
+		spec.Wire = &ServicePostgres{Port: uint32(port), Hostname: host}
 	}
 	created, _ := types.TimestampFromProto(service.Meta.CreatedAt)
 	updated, _ := types.TimestampFromProto(service.Meta.UpdatedAt)

@@ -49,6 +49,18 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	}
 	t.Cleanup(func() { pgLn.Close() })
 	pgBackend, pgGot, pgHeaders := echoBackend(t)
+	wireLn, wireBackend := listen(t), listen(t)
+	wireAccepted := make(chan struct{}, 8)
+	go func() {
+		for {
+			conn, err := wireBackend.Accept()
+			if err != nil {
+				return
+			}
+			wireAccepted <- struct{}{}
+			go func() { defer conn.Close(); io.Copy(conn, conn) }()
+		}
+	}()
 
 	logger := log.New(io.Discard, "", 0)
 	store := db.NewMemoryStore()
@@ -72,10 +84,11 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	e.SetRoutes(map[string]int{
 		"App.Edge.Test": app.Listener.Addr().(*net.TCPAddr).Port,
 	}, map[string]int{"PG.Edge.Test": pgBackend})
+	e.SetWireRoutes(map[string]int{"Wire.Edge.Test": wireBackend.Addr().(*net.TCPAddr).Port})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	served := make(chan error, 1)
-	go func() { served <- e.serve(ctx, httpLn, tlsLn, pgLn) }()
+	go func() { served <- e.serve(ctx, httpLn, tlsLn, pgLn, wireLn) }()
 
 	roots := x509.NewCertPool()
 	roots.AddCert(authority.GetRootCert(0).Cert)
@@ -292,6 +305,61 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		io.ReadFull(conn, make([]byte, 1))
 		if err := tls.Client(conn, &tls.Config{RootCAs: roots, ServerName: "app.edge.test"}).Handshake(); err == nil {
 			t.Fatal("handshake for a web-only hostname succeeded on :5432")
+		}
+	})
+
+	t.Run("wire verified TLS preserves binary frames", func(t *testing.T) {
+		client, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", wireLn.Addr().String(), &tls.Config{RootCAs: roots, ServerName: "wire.edge.test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer client.Close()
+		client.SetDeadline(time.Now().Add(10 * time.Second))
+		// No Postgres negotiation or PROXY header may precede these frames.
+		for _, frame := range [][]byte{{5, 0, 0, 0, 42, 0, 0, 0, 0}, {6, 0, 0, 0, 43, 0, 0, 0, 1, 255}} {
+			if _, err := client.Write(frame); err != nil {
+				t.Fatal(err)
+			}
+			reply := make([]byte, len(frame))
+			if _, err := io.ReadFull(client, reply); err != nil || !bytes.Equal(reply, frame) {
+				t.Fatalf("frame = %x, %v", reply, err)
+			}
+		}
+		<-wireAccepted
+	})
+	t.Run("wire rejects plaintext and foreign SNI before backend", func(t *testing.T) {
+		for _, host := range []string{"app.edge.test", "pg.edge.test", "unknown.edge.test", ""} {
+			conn, err := net.DialTimeout("tcp", wireLn.Addr().String(), 5*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			conn.SetDeadline(time.Now().Add(5 * time.Second))
+			config := &tls.Config{RootCAs: roots, ServerName: host}
+			// Only this negative case bypasses local verification so an empty-SNI
+			// ClientHello actually reaches the server's route check.
+			if host == "" {
+				config.InsecureSkipVerify = true
+			}
+			err = tls.Client(conn, config).Handshake()
+			conn.Close()
+			if err == nil || !strings.Contains(err.Error(), "remote error: tls:") {
+				t.Fatalf("wire SNI %q: wanted server rejection, got %v", host, err)
+			}
+		}
+		conn, err := net.DialTimeout("tcp", wireLn.Addr().String(), 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn.SetDeadline(time.Now().Add(5 * time.Second))
+		conn.Write([]byte{5, 0, 0, 0, 42, 0, 0, 0, 0})
+		if _, err := conn.Read(make([]byte, 64)); err == nil {
+			t.Fatal("wire accepted plaintext")
+		}
+		conn.Close()
+		select {
+		case <-wireAccepted:
+			t.Fatal("rejected client reached backend")
+		default:
 		}
 	})
 

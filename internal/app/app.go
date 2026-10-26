@@ -115,6 +115,7 @@ func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region
 					nextProofRefresh = time.Now().Add(time.Minute)
 				}
 				public.SetRoutes(edgeRoutes(list.Services, region))
+				public.SetWireRoutes(wireRoutes(list.Services, region))
 			} else {
 				slog.WarnContext(ctx, "edge route sync failed", "error", err)
 			}
@@ -171,7 +172,7 @@ func edgeRoutes(services []*api.Service, region string) (web, postgres map[strin
 				}
 			}
 		}
-		if _, owned := postgres[labels[swarmruntime.LabelPostgres]]; labels[swarmruntime.LabelPostgres] != "" && len(ports) == 2 && !owned {
+		if _, owned := postgres[labels[swarmruntime.LabelPostgres]]; labels[swarmruntime.LabelPostgres] != "" && len(ports) >= 2 && !owned {
 			postgres[labels[swarmruntime.LabelPostgres]] = int(ports[1].PublishedPort)
 		}
 	}
@@ -181,6 +182,24 @@ func edgeRoutes(services []*api.Service, region string) (web, postgres map[strin
 		}
 	}
 	return web, postgres
+}
+
+// wireRoutes follows the same oldest-owner and regional hostname policy as HTTPS.
+func wireRoutes(services []*api.Service, region string) map[string]int {
+	projected := make([]*api.Service, 0, len(services))
+	for _, svc := range services {
+		host := svc.Spec.Annotations.Labels[swarmruntime.LabelWire]
+		port, err := strconv.ParseUint(svc.Spec.Annotations.Labels[swarmruntime.LabelWirePort], 10, 16)
+		if host == "" || err != nil || port < 1024 || port == edge.WirePort {
+			continue
+		}
+		projected = append(projected, &api.Service{ID: svc.ID, Meta: svc.Meta, Spec: api.ServiceSpec{
+			Annotations: api.Annotations{Labels: map[string]string{swarmruntime.LabelHostnames: host}},
+			Endpoint:    &api.EndpointSpec{Ports: []*api.PortConfig{{PublishedPort: uint32(port)}}},
+		}})
+	}
+	routes, _ := edgeRoutes(projected, region)
+	return routes
 }
 
 func Run(ctx context.Context, args []string, output io.Writer) error {

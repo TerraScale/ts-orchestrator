@@ -4,7 +4,7 @@
 // reach the backend over HTTP/1.1; gRPC reaches it over cleartext HTTP/2.
 // A backend answer asking for a replay goes to the nearest region it names
 // (replay.go). Postgres clients reach a service's loopback Postgres port over
-// TLS on :5432 (postgres.go).
+// TLS on :5432 (postgres.go). TerraBase wire uses TLS on :7464 (wire.go).
 package edge
 
 import (
@@ -31,11 +31,12 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
-// Edge serves :80, :443 and :5432 for the hostnames in its route tables.
+// Edge serves :80, :443, :5432 and :7464 for the hostnames in its route tables.
 type Edge struct {
 	certs    *autocert.Manager
 	routes   atomic.Pointer[map[string]int]
 	postgres atomic.Pointer[map[string]int]
+	wire     atomic.Pointer[map[string]int]
 	proxy    *httputil.ReverseProxy
 	// challenges answers HTTP-01 for the tokens this edge holds.
 	challenges http.Handler
@@ -61,6 +62,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	e.peers = newPeerTransport(e)
 	e.routes.Store(&map[string]int{})
 	e.postgres.Store(&map[string]int{})
+	e.wire.Store(&map[string]int{})
 	e.certs = &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		Cache:      autocert.DirCache(filepath.Join(stateDir, "edge-certs")),
@@ -155,10 +157,10 @@ func (e *Edge) SetRoutes(web, postgres map[string]int) {
 	e.postgres.Store(lower(postgres))
 }
 
-// Run serves :80, :443 and :5432 until ctx ends.
+// Run serves :80, :443, :5432 and :7464 until ctx ends.
 func (e *Edge) Run(ctx context.Context) error {
 	var lns []net.Listener
-	for _, addr := range []string{":80", ":443", ":" + strconv.Itoa(PostgresPort)} {
+	for _, addr := range []string{":80", ":443", ":" + strconv.Itoa(PostgresPort), ":" + strconv.Itoa(WirePort)} {
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
 			for _, ln := range lns {
@@ -168,16 +170,16 @@ func (e *Edge) Run(ctx context.Context) error {
 		}
 		lns = append(lns, ln)
 	}
-	return e.serve(ctx, lns[0], lns[1], lns[2])
+	return e.serve(ctx, lns[0], lns[1], lns[2], lns[3])
 }
 
-func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener) error {
+func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener, wireLns ...net.Listener) error {
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
 	plain := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			e.identify(w, r)
 			// A Postgres hostname needs :80 only for its certificate's challenge.
-			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
+			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && (e.postgresHost(r.Host) || e.wireHost(r.Host))) {
 				http.NotFound(w, r)
 				return
 			}
@@ -210,10 +212,13 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener) erro
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 	}
-	errs := make(chan error, 3)
+	errs := make(chan error, 3+len(wireLns))
 	go func() { errs <- plain.Serve(httpLn) }()
 	go func() { errs <- public.ServeTLS(tlsLn, "", "") }()
 	go func() { errs <- e.servePostgres(pgLn) }()
+	for _, ln := range wireLns {
+		go func() { errs <- e.serveWire(ln) }()
+	}
 	var err error
 	select {
 	case <-ctx.Done():
@@ -222,6 +227,9 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener) erro
 	plain.Close()
 	public.Close()
 	pgLn.Close()
+	for _, ln := range wireLns {
+		ln.Close()
+	}
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		err = nil
 	}
@@ -295,7 +303,7 @@ func secureHeaders(h http.Header) {
 }
 
 func (e *Edge) hostPolicy(_ context.Context, host string) error {
-	if _, ok := e.port(host); !ok && !e.postgresHost(host) {
+	if _, ok := e.port(host); !ok && !e.postgresHost(host) && !e.wireHost(host) {
 		return fmt.Errorf("edge: no route for host %q", host)
 	}
 	return nil
