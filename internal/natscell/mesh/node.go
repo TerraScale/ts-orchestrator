@@ -547,13 +547,13 @@ func (n *Node) earlier(spec *swarmruntime.ServiceSpec) []string {
 }
 
 // regionWindow is one region's share of a rollout: its readiness timeout
-// plus pull and submit.
+// plus pull/submit, bounded dependency recovery and a full healthy bake.
 func regionWindow(spec *swarmruntime.ServiceSpec) time.Duration {
 	ready := swarmruntime.DefaultReadyTimeout
 	if spec != nil && spec.ReadyTimeoutSeconds != 0 {
 		ready = time.Duration(spec.ReadyTimeoutSeconds) * time.Second
 	}
-	return ready + 30*time.Second + rollout.BakeWindow
+	return ready + 30*time.Second + rollout.MaxBakeWindow
 }
 
 // rolloutWait bounds a whole rollout of spec: every region in turn.

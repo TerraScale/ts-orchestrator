@@ -51,12 +51,6 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 			return checks, errors.New("bake candidate changed or is not ready")
 		}
 		checks["candidate"] = "ok"
-		for _, service := range []string{"ts-auth", "ts-dashboard"} {
-			checks[service] = bakeDependency(ctx, client, service)
-			if checks[service] != "ok" {
-				return checks, errors.New("bake " + service + " readiness: " + checks[service])
-			}
-		}
 		for _, log := range logs {
 			if err := log.check(); err != nil {
 				checks["terrabase-logs"] = err.Error()
@@ -66,8 +60,19 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 		if len(logs) != 0 {
 			checks["terrabase-logs"] = "ok"
 		}
-		return checks, nil
+		return checks, bakeDependencies(ctx, client, checks)
 	})
+}
+
+func bakeDependencies(ctx context.Context, client *http.Client, checks map[string]string) error {
+	var failures error
+	for _, service := range []string{"ts-auth", "ts-dashboard"} {
+		checks[service] = bakeDependency(ctx, client, service)
+		if checks[service] != "ok" {
+			failures = errors.Join(failures, &rollout.DependencyFailure{Service: service, Status: checks[service]})
+		}
+	}
+	return failures
 }
 
 func bakeSameTasks(before, now []swarmruntime.ServiceTaskEvidence) bool {

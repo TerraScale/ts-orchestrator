@@ -471,16 +471,25 @@ func TestAppValidation(t *testing.T) {
 	if reply := h.app(context.Background(), data); reply.State != "rejected" {
 		t.Fatalf("app reply without a mesh = %+v", reply)
 	}
-	var got string
+	got := make(chan string, 1)
 	h.App = func(_ context.Context, service, image string, claims Claims) (json.RawMessage, error) {
 		if claims.SHA != testSHA || claims.RunID != "100" || claims.Repository != owner+"/terrascale" {
-			t.Fatal("app callback lost the verified workflow identity")
+			return nil, errors.New("app callback lost the verified workflow identity")
 		}
-		got = service + " " + image
+		got <- service + " " + image
 		return json.RawMessage(`[{"region":"gru"}]`), errors.New("rolled back")
 	}
-	if reply := h.app(context.Background(), data); reply.State != "failed" || string(reply.Result) != `[{"region":"gru"}]` || got != "terrabase "+image("terrabase") {
-		t.Fatalf("failed app reply = %+v, App got %q", reply, got)
+	reply := h.app(context.Background(), data)
+	deadline := time.Now().Add(time.Second)
+	for reply.State == "accepted" && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+		reply = h.app(context.Background(), data)
+	}
+	if reply.State != "failed" || string(reply.Result) != `[{"region":"gru"}]` {
+		t.Fatalf("failed app reply = %+v", reply)
+	}
+	if value := <-got; value != "terrabase "+image("terrabase") {
+		t.Fatalf("App got %q", value)
 	}
 }
 

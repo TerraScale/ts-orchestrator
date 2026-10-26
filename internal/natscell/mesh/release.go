@@ -57,6 +57,15 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	}
 	before := entries[service].entry()
 	previous := before.Spec
+	if err := entries[service].Floor.Accepts(deployment); err != nil {
+		return nil, err
+	}
+	// The retained signed floor survives rollback and operator changes. Once
+	// this run's image is no longer desired, losing the handler's cache must
+	// not turn its terminal failure into a fresh attempt with a new generation.
+	if deployment != nil && entries[service].Floor != nil && *entries[service].Floor == *deployment && (before.RollbackOf != 0 || previous == nil || previous.Image != image) {
+		return nil, fmt.Errorf("%s: signed deployment was rolled back or replaced; retry requires a newer signed run", service)
+	}
 	var next swarmruntime.ServiceSpec
 	if previous == nil {
 		// Only the authenticated canary workflow can create its fixed workload.
@@ -74,16 +83,19 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	} else {
 		next = *previous
 	}
-	if err := entries[service].Floor.Accepts(deployment); err != nil {
-		return nil, err
-	}
 	if repository(next.Image) != repository(image) {
 		return nil, fmt.Errorf("%s runs %s; a release may change only its digest", service, repository(next.Image))
 	}
 	next.Image = image
-	generation := max(time.Now().UnixNano(), entries[service].entry().Generation+1)
+	generation := max(time.Now().UnixNano(), before.Generation+1)
 	// A release of a held service stays held: only `service resume` advances it.
-	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: entries[service].entry().HoldAfter}}
+	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: before.HoldAfter}}
+	// A reconnect or process restart resumes the signed deployment's existing
+	// bake instead of publishing a fresh generation and restarting its window.
+	if deployment != nil && before.Deployment != nil && *before.Deployment == *deployment && previous != nil && previous.Image == image {
+		generation = before.Generation
+		request.Entry = before
+	}
 	rows, failed := send(ctx, conn, request, max(wait, rolloutWait(&next)))
 	if failed == nil || bakeHeld(rows, service) {
 		return rows, failed

@@ -40,8 +40,8 @@ const (
 )
 
 // HandlerWait bounds one release request: three regions rolled in turn, each
-// up to a 180 s readiness timeout and a five-minute bake, plus overhead.
-const HandlerWait = 30 * time.Minute
+// up to a 180 s readiness timeout and bounded bake recovery, plus overhead.
+const HandlerWait = 45 * time.Minute
 
 var (
 	hex40 = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -106,8 +106,9 @@ type Handler struct {
 	// so systemd restarts the new binary.
 	Installed chan struct{}
 
-	mu      sync.Mutex
-	pending string // installed, waiting for the restart
+	mu            sync.Mutex
+	pending       string // installed, waiting for the restart
+	appOperations map[appOperationKey]*appOperation
 }
 
 // NewHandler serves this process's release for the binary it runs from.
@@ -345,11 +346,7 @@ func (h *Handler) app(ctx context.Context, data []byte) Reply {
 	if h.App == nil {
 		return rejected(errors.New("this host runs no mesh"))
 	}
-	result, err := h.App(ctx, release.Service, release.Image, claims)
-	if err != nil {
-		return Reply{State: "failed", Error: err.Error(), Result: result}
-	}
-	return Reply{State: "done", Result: result}
+	return h.appOperation(release, claims)
 }
 
 // validateApp admits only ghcr.io/terrascale/<service>@sha256:<digest> with a

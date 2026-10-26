@@ -4,7 +4,17 @@ Install the orchestrator release in every target region before rolling a service
 Older orchestrators advertise readiness without evaluating a bake.
 
 Every mesh service rollout observes a fixed five-minute bake after exact task
-readiness, sampling every ten seconds. Samples verify the same running tasks
+readiness, sampling every ten seconds. Dependency probes may recover for up to
+thirty seconds from the first failed observation, including when another
+service rolls during this bake. Every such failed sample resets the healthy
+clock: recovery must be followed by a full five-minute
+healthy bake before another region can advance. A continuous dependency failure
+at thirty seconds holds the generation. Repeated interruptions cannot extend
+the bake beyond ten minutes thirty seconds. Candidate, catalog-anchor,
+writer-wait and log-coverage failures always hold immediately, including during
+dependency recovery.
+
+Samples verify the same running tasks
 and their readiness, global ts-auth readiness, and dashboard readiness including
 its auth and TerraBase dependencies. This respects gru-only auth placement.
 TerraBase also checks newly appended task stdout/stderr for catalog-anchor
@@ -14,9 +24,18 @@ credentials and readiness response bodies never enter bake evidence.
 
 Each region retains `mesh/bake-<service>-<generation>.json` under its state
 directory: image digest, actual tasks and revision, elapsed readiness timings,
-bake start/end, sample count, checks and failure reason. The release response
+bake start/end, healthy-window start, sample count, checks and failure reason.
+Tolerated dependency failures retain their count and last checks in
+`recoverySamples` and `recoveryChecks`, even when the bake eventually passes.
+The release response
 includes these fields; the CLI prints bake timing, and the journal records
 `regional rollout bake verdict`. The JSON file is the retained evidence.
+
+App CI releases receive acceptance promptly and poll the authenticated operation
+until its terminal verdict. The client refreshes its short-lived credential and
+reconnects after connection loss; polls retain the same signed rollout and bake
+generation. Acceptance alone never makes CI pass. A completed rollback remains
+failed across handler restart and requires a newer signed run to retry.
 
 An unfinished or failed bake cannot admit another region. A missing earlier
 region also holds advancement. Failed bakes survive restart and reconciliation;
