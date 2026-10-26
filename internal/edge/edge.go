@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -29,18 +30,21 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 )
 
 // Edge serves :80, :443, :5432 and :7464 for the hostnames in its route tables.
 type Edge struct {
-	certs     *autocert.Manager
-	routes    atomic.Pointer[map[string]int]
-	postgres  atomic.Pointer[map[string]int]
-	pgKeys    postgresKeys
-	pgRelays  chan struct{}
-	pgControl chan struct{}
-	wire      atomic.Pointer[map[string]int]
-	proxy     *httputil.ReverseProxy
+	wireFirewall func(context.Context, bool) error                   // Production owns the exact wire ACCEPT rule; tests replace it.
+	listen       func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
+	certs        *autocert.Manager
+	routes       atomic.Pointer[map[string]int]
+	postgres     atomic.Pointer[map[string]int]
+	pgKeys       postgresKeys
+	pgRelays     chan struct{}
+	pgControl    chan struct{}
+	wire         atomic.Pointer[map[string]int]
+	proxy        *httputil.ReverseProxy
 	// challenges answers HTTP-01 for the tokens this edge holds.
 	challenges http.Handler
 	mesh       atomic.Pointer[Mesh]
@@ -60,6 +64,13 @@ func New(stateDir string) *Edge { return newEdge(stateDir, nil) }
 func newEdge(stateDir string, client *acme.Client) *Edge {
 	e := &Edge{
 		pgRelays: make(chan struct{}, 32), pgControl: make(chan struct{}, 32),
+		wireFirewall: func(ctx context.Context, open bool) error {
+			if open {
+				return releasepush.OpenTCP(ctx, WirePort)
+			}
+			return releasepush.CloseTCP(ctx, WirePort)
+		},
+		listen:   net.Listen,
 		peerAddr: func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
 		spoolDir: filepath.Join(stateDir, "edge-spool"),
 	}
@@ -163,21 +174,16 @@ func (e *Edge) SetRoutes(web, postgres map[string]int) {
 
 // Run serves :80, :443, :5432 and :7464 until ctx ends.
 func (e *Edge) Run(ctx context.Context) error {
-	var lns []net.Listener
-	for _, addr := range []string{":80", ":443", ":" + strconv.Itoa(PostgresPort), ":" + strconv.Itoa(WirePort)} {
-		ln, err := net.Listen("tcp", addr)
-		if err != nil {
-			for _, ln := range lns {
-				ln.Close()
-			}
-			return fmt.Errorf("edge: listen %s: %w", addr, err)
-		}
-		lns = append(lns, ln)
+	var running sync.WaitGroup
+	for _, protocol := range []string{"http", "https", "postgres", "wire"} {
+		running.Go(func() { e.runListener(ctx, protocol) })
 	}
-	return e.serve(ctx, lns[0], lns[1], lns[2], lns[3])
+	running.Wait()
+	return nil
 }
 
-func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener, wireLns ...net.Listener) error {
+// httpServers is shared by production startup and the complete proxy fixtures.
+func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
 	plain := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -216,6 +222,11 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener, wire
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 	}
+	return plain, public
+}
+
+func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener, wireLns ...net.Listener) error {
+	plain, public := e.httpServers()
 	errs := make(chan error, 3+len(wireLns))
 	go func() { errs <- plain.Serve(httpLn) }()
 	go func() { errs <- public.ServeTLS(tlsLn, "", "") }()

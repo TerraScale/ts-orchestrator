@@ -31,6 +31,28 @@ func (e *Edge) wireHost(host string) bool {
 	return ok
 }
 
+// wireReady confirms the configured private listener exists before public bind.
+// Route discovery can arrive before or after the native service rollout.
+func (e *Edge) wireReady(ctx context.Context) bool {
+	routes := *e.wire.Load()
+	if len(routes) == 0 {
+		return false
+	}
+	checked := map[int]bool{}
+	for _, port := range routes {
+		if checked[port] {
+			continue
+		}
+		checked[port] = true
+		conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err != nil {
+			return false
+		}
+		conn.Close()
+	}
+	return true
+}
+
 func (e *Edge) serveWire(ln net.Listener) error {
 	config := e.certs.TLSConfig()
 	config.NextProtos = nil // The wire protocol uses direct TLS without HTTP ALPN.

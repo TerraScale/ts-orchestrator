@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,8 +58,17 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 			if err != nil {
 				return
 			}
-			wireAccepted <- struct{}{}
-			go func() { defer conn.Close(); io.Copy(conn, conn) }()
+			go func() {
+				defer conn.Close()
+				first := make([]byte, 64)
+				n, err := conn.Read(first)
+				if err != nil {
+					return
+				} // TCP readiness probes close without application data.
+				wireAccepted <- struct{}{}
+				conn.Write(first[:n])
+				io.Copy(conn, conn)
+			}()
 		}
 	}()
 
@@ -84,11 +94,70 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	e.SetRoutes(map[string]int{
 		"App.Edge.Test": app.Listener.Addr().(*net.TCPAddr).Port,
 	}, map[string]int{"PG.Edge.Test": pgBackend})
-	e.SetWireRoutes(map[string]int{"Wire.Edge.Test": wireBackend.Addr().(*net.TCPAddr).Port})
+	notReady := listen(t)
+	unavailablePort := notReady.Addr().(*net.TCPAddr).Port
+	notReady.Close()
+	e.SetWireRoutes(map[string]int{"Wire.Edge.Test": unavailablePort})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	served := make(chan error, 1)
-	go func() { served <- e.serve(ctx, httpLn, tlsLn, pgLn, wireLn) }()
+	// Exercise the production listener-opening path, including a real bind
+	// collision with the pre-existing plaintext wire listener.
+	wireConflict := make(chan struct{}, 1)
+	wireBound := make(chan struct{})
+	pgConflict, pgBound := make(chan struct{}, 1), make(chan struct{})
+	firewallClosed := make(chan struct{}, 8)
+	var firewallOpen atomic.Bool
+	e.wireFirewall = func(_ context.Context, open bool) error {
+		if open {
+			select {
+			case <-wireBound:
+			default:
+				return fmt.Errorf("wire firewall opened before socket bind")
+			}
+		}
+		firewallOpen.Store(open)
+		if !open {
+			select {
+			case firewallClosed <- struct{}{}:
+			default:
+			}
+		}
+		return nil
+	}
+	e.listen = func(network, address string) (net.Listener, error) {
+		switch address {
+		case ":80":
+			return httpLn, nil
+		case ":443":
+			return tlsLn, nil
+		case ":5432":
+			ln, err := net.Listen(network, pgLn.Addr().String())
+			if err != nil {
+				select {
+				case pgConflict <- struct{}{}:
+				default:
+				}
+			} else {
+				close(pgBound)
+			}
+			return ln, err
+		case ":7464":
+			ln, err := net.Listen(network, wireLn.Addr().String())
+			if err != nil {
+				select {
+				case wireConflict <- struct{}{}:
+				default:
+				}
+			} else {
+				close(wireBound)
+			}
+			return ln, err
+		default:
+			return nil, fmt.Errorf("unexpected production listener %s", address)
+		}
+	}
+	go func() { served <- e.Run(ctx) }()
 
 	roots := x509.NewCertPool()
 	roots.AddCert(authority.GetRootCert(0).Cert)
@@ -268,6 +337,81 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	}
 	startup := func(code uint32) []byte { return binary.BigEndian.AppendUint32([]byte{0, 0, 0, 8}, code) }
 
+	t.Run("postgres collision preserves HTTPS and recovers", func(t *testing.T) {
+		select {
+		case <-pgConflict:
+		case <-time.After(10 * time.Second):
+			t.Fatal("Postgres conflict not exercised")
+		}
+		// All earlier HTTP/HTTPS/gRPC subtests ran with Postgres still occupied.
+		pgLn.Close()
+		select {
+		case <-pgBound:
+		case <-time.After(15 * time.Second):
+			t.Fatal("Postgres did not recover")
+		}
+	})
+
+	t.Run("wire collision preserves full edge and recovers", func(t *testing.T) {
+		if firewallOpen.Load() {
+			t.Fatal("wire firewall opened while backend unavailable")
+		}
+		if e.wireReady(ctx) {
+			t.Fatal("unavailable private backend reported ready")
+		}
+		select {
+		case <-wireConflict:
+			t.Fatal("public wire bind attempted before private backend was ready")
+		default:
+		}
+		e.SetWireRoutes(map[string]int{"Wire.Edge.Test": wireBackend.Addr().(*net.TCPAddr).Port})
+		select {
+		case <-wireConflict:
+		case <-time.After(10 * time.Second):
+			t.Fatal("wire bind conflict was not exercised")
+		}
+		// Fresh HTTP, HTTPS and Postgres requests must all work after the
+		// real :7464 bind failure, while the conflicting socket stays open.
+		plain, err := net.DialTimeout("tcp", httpLn.Addr().String(), 5*time.Second)
+		if err != nil {
+			t.Fatalf("HTTP lost during wire conflict: %v", err)
+		}
+		plain.SetDeadline(time.Now().Add(5 * time.Second))
+		fmt.Fprint(plain, "GET / HTTP/1.1\r\nHost: app.edge.test\r\nConnection: close\r\n\r\n")
+		redirected, err := http.ReadResponse(bufio.NewReader(plain), nil)
+		if err != nil || redirected.StatusCode != http.StatusFound {
+			t.Fatalf("HTTP during wire conflict: %v %v", redirected, err)
+		}
+		redirected.Body.Close()
+		plain.Close()
+		https, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", tlsLn.Addr().String(), &tls.Config{RootCAs: roots, ServerName: "app.edge.test"})
+		if err != nil {
+			t.Fatalf("HTTPS lost during wire conflict: %v", err)
+		}
+		https.SetDeadline(time.Now().Add(5 * time.Second))
+		fmt.Fprint(https, "GET /hello HTTP/1.1\r\nHost: app.edge.test\r\nConnection: close\r\n\r\n")
+		response, err := http.ReadResponse(bufio.NewReader(https), nil)
+		if err != nil || response.StatusCode != http.StatusOK {
+			t.Fatalf("HTTPS during wire conflict: %v %v", response, err)
+		}
+		response.Body.Close()
+		https.Close()
+		conn := pg(t, startup(sslRequest))
+		reply := make([]byte, 1)
+		if _, err := io.ReadFull(conn, reply); err != nil || reply[0] != 'S' {
+			t.Fatalf("Postgres lost during wire conflict: %q %v", reply, err)
+		}
+		roundTrip(t, tls.Client(conn, &tls.Config{RootCAs: roots, ServerName: "pg.edge.test"}))
+		// Releasing the old listener is enough: wire must bind automatically,
+		// and the later TLS/frame tests use this recovered listener.
+		wireLn.Close()
+		select {
+		case <-wireBound:
+		case <-time.After(15 * time.Second):
+			t.Fatal("wire did not recover after migration")
+		}
+	})
+
 	t.Run("postgres plaintext refused", func(t *testing.T) {
 		conn := pg(t, append(binary.BigEndian.AppendUint32([]byte{0, 0, 0, 17}, 196608), "user\x00x\x00\x00"...))
 		reply, _ := io.ReadAll(conn)
@@ -361,6 +505,24 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		case <-wireAccepted:
 			t.Fatal("rejected client reached backend")
 		default:
+		}
+	})
+
+	t.Run("wire backend loss withdraws public admission", func(t *testing.T) {
+		if !firewallOpen.Load() {
+			t.Fatal("wire admission never opened after readiness and bind")
+		}
+		for len(firewallClosed) > 0 {
+			<-firewallClosed
+		}
+		wireBackend.Close()
+		select {
+		case <-firewallClosed:
+		case <-time.After(15 * time.Second):
+			t.Fatal("wire admission not withdrawn after backend loss")
+		}
+		if firewallOpen.Load() {
+			t.Fatal("wire admission remains open after backend loss")
 		}
 	})
 
