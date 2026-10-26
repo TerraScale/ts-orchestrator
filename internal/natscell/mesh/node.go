@@ -553,7 +553,7 @@ func regionWindow(spec *swarmruntime.ServiceSpec) time.Duration {
 	if spec != nil && spec.ReadyTimeoutSeconds != 0 {
 		ready = time.Duration(spec.ReadyTimeoutSeconds) * time.Second
 	}
-	return ready + 30*time.Second + rollout.DependencyRecoveryWindow + rollout.BakeWindow
+	return ready + 30*time.Second + rollout.MaxBakeWindow
 }
 
 // rolloutWait bounds a whole rollout of spec: every region in turn.

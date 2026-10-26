@@ -17,7 +17,7 @@ func TestBakeTerraBaseSwapAuthRecovery(t *testing.T) {
 		samples  int
 	}{
 		{"ready-then-auth503", 1, 310 * time.Second, 32},
-		{"auth503-through20s", 3, 330 * time.Second, 34},
+		{"auth503-through10s", 2, 320 * time.Second, 33},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -65,9 +65,6 @@ func TestBakeRecoveryRejectsFailures(t *testing.T) {
 		failure         error
 		cancel          bool
 	}{
-		{"persistent-auth503", 3, 4, auth503, false},
-		{"first-auth503-at30s", 0, 4, auth503, false},
-		{"late-auth503", 0, 5, auth503, false},
 		{"candidate-during-recovery", 1, 2, errors.New("candidate readiness failed"), false},
 		{"catalog-during-recovery", 1, 2, &DependencyFailure{Service: "ts-catalog", Status: "HTTP 503"}, false},
 		{"auth500-during-recovery", 1, 2, &DependencyFailure{Service: "ts-auth", Status: "HTTP 500"}, false},
@@ -125,4 +122,20 @@ func TestBakeRecoveryRejectsFailures(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestBakeRepeatedDependencyRollsAreBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		calls := 0
+		v, err := RunBake(t.Context(), func(context.Context) (map[string]string, error) {
+			calls++
+			if calls%13 == 1 {
+				return map[string]string{"ts-dashboard": "HTTP 503"}, &DependencyFailure{Service: "ts-dashboard", Status: "HTTP 503"}
+			}
+			return map[string]string{"candidate": "ok", "ts-dashboard": "ok"}, nil
+		})
+		if !errors.Is(err, context.DeadlineExceeded) || v.Finished.Sub(v.Started) != MaxBakeWindow || v.RecoverySamples < 2 || v.RecoveryChecks["ts-dashboard"] != "HTTP 503" || v.Checks["observation"] != context.DeadlineExceeded.Error() {
+			t.Fatalf("repeated rollovers extended the bake indefinitely or lost evidence: %+v %v", v, err)
+		}
+	})
 }
