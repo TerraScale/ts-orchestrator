@@ -14,7 +14,7 @@ scrape_configs:
   - job_name: peer-topology
     scrape_interval: 5s
     static_configs:
-      - targets: ['127.0.0.1:9095']
+      - targets: ['127.0.0.1:9097']
   - job_name: terrabase
     metrics_path: /metrics
     static_configs:
