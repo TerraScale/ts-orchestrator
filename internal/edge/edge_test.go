@@ -254,11 +254,12 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	}
 	roundTrip := func(t *testing.T, conn net.Conn) {
 		t.Helper()
-		if _, err := conn.Write([]byte("hello")); err != nil {
+		packet := append(binary.BigEndian.AppendUint32([]byte{'Q'}, 10), []byte("hello\x00")...)
+		if _, err := conn.Write(packet); err != nil {
 			t.Fatal(err)
 		}
-		reply := make([]byte, 5)
-		if _, err := io.ReadFull(conn, reply); err != nil || string(reply) != "hello" || string(<-pgGot) != "hello" {
+		reply := make([]byte, len(packet))
+		if _, err := io.ReadFull(conn, reply); err != nil || !bytes.Equal(reply, packet) || !bytes.Equal(<-pgGot, packet) {
 			t.Fatalf("echo = %q, %v", reply, err)
 		}
 		if got, want := <-pgHeaders, wantHeader(conn); !bytes.Equal(got, want) {
@@ -366,6 +367,11 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	t.Run("postgres cancel", func(t *testing.T) {
 		request := binary.BigEndian.AppendUint32(binary.BigEndian.AppendUint32([]byte{0, 0, 0, 16}, cancelRequest), 42)
 		request = binary.BigEndian.AppendUint32(request, 7)
+		release, err := e.pgKeys.add([8]byte(request[8:]), pgBackend)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
 		conn := pg(t, request)
 		select {
 		case got := <-pgGot:

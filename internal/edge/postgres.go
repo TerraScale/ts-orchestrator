@@ -9,9 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -105,7 +103,7 @@ func (e *Edge) postgresConn(raw net.Conn, config *tls.Config) {
 				return
 			}
 		case length == 16 && code == cancelRequest:
-			// Process ID and secret key; a cancel carries no credentials.
+			// The process ID and cancellation secret identify one live backend.
 			body := make([]byte, 16)
 			copy(body, head[:])
 			if _, err := io.ReadFull(conn, body[8:]); err == nil {
@@ -153,10 +151,23 @@ func (e *Edge) proxyPostgres(conn net.Conn, config *tls.Config, direct bool) {
 	}
 	conn.SetDeadline(time.Time{})
 	done := make(chan struct{}, 2)
+	var release func()
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
+	observer := &postgresStartup{key: func(key [8]byte) error {
+		var err error
+		release, err = e.pgKeys.add(key, port)
+		return err
+	}}
 	go func() { io.Copy(backend, client); done <- struct{}{} }()
-	go func() { io.Copy(client, backend); done <- struct{}{} }()
+	go func() { io.Copy(client, io.TeeReader(backend, observer)); done <- struct{}{} }()
 	<-done
-	// The deferred closes end the other copy.
+	backend.Close()
+	client.Close()
+	<-done // Both copies finish before removing their backend key.
 }
 
 // proxyHeader is a PROXY protocol v2 header (HAProxy spec, section 2.2) for a
@@ -184,19 +195,24 @@ func proxyHeader(src, dst net.Addr) []byte {
 	return binary.BigEndian.AppendUint16(header, uint16(d.Port))
 }
 
-// forwardCancel sends a CancelRequest to every Postgres backend: the request
-// names no host, and a backend ignores a key it did not issue. The request
-// starts with the client's PROXY header.
+// forwardCancel sends a CancelRequest only to the live owner of the complete
+// backend key. The request starts with the client's PROXY header.
 func (e *Edge) forwardCancel(request []byte) {
-	for _, port := range slices.Compact(slices.Sorted(maps.Values(*e.postgres.Load()))) {
-		backend, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 2*time.Second)
-		if err != nil {
-			continue
-		}
-		backend.SetDeadline(time.Now().Add(2 * time.Second))
-		backend.Write(request)
-		backend.Close()
+	if len(request) < 16 {
+		return
 	}
+	key := [8]byte(request[len(request)-8:])
+	port, ok := e.pgKeys.port(key)
+	if !ok {
+		return
+	}
+	backend, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 2*time.Second)
+	if err != nil {
+		return
+	}
+	defer backend.Close()
+	backend.SetDeadline(time.Now().Add(2 * time.Second))
+	backend.Write(request)
 }
 
 // postgresError is a FATAL ErrorResponse with an SQLSTATE code.
