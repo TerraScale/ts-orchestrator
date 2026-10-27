@@ -818,6 +818,14 @@ func (c *controller) Close() error {
 
 func (c *controller) ContainerStatus(ctx context.Context) (*api.ContainerStatus, error) {
 	t, err := c.runtimeTask(ctx)
+	if errdefs.IsNotFound(err) && c.stateful == nil {
+		// ReapExitedTasks deleted the exited process; keep the exit SwarmKit recorded.
+		status := &api.ContainerStatus{ContainerID: c.id}
+		if recorded := c.task.Status.GetContainer(); recorded != nil {
+			status.PID, status.ExitCode = recorded.PID, recorded.ExitCode
+		}
+		return status, nil
+	}
 	if err != nil {
 		return nil, err
 	}
