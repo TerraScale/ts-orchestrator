@@ -44,7 +44,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	region := f.String("region", env("E2E_REGION", "gru-1"), "expected cell/region")
 	cell := f.String("cell", env("TS_VERIFY_CELL", "gru"), "expected controller manifest cell (distinct from TerraBase region)")
 	tb := f.String("terrabase-url", env("E2E_TERRABASE_URL", "https://gru.api.terrascale.tech"), "TerraBase origin")
-	auth := f.String("auth-url", env("E2E_AUTH_URL", "https://gru.auth.terrascale.tech"), "ts-auth origin")
+	auth := f.String("auth-url", env("E2E_AUTH_URL", "https://auth.terrascale.tech"), "ts-auth origin")
 	dash := f.String("dashboard-url", env("E2E_DASHBOARD_URL", "https://dash.terrascale.tech"), "dashboard origin")
 	status := f.String("status-url", env("E2E_STATUS_URL", "https://status.terrascale.tech"), "status origin")
 	orch := f.String("orchestrator-url", os.Getenv("TS_VERIFY_ORCHESTRATOR_URL"), "controller observability origin (HTTPS or loopback tunnel)")

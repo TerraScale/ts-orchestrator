@@ -1,5 +1,18 @@
 # Full-cell disaster recovery (TS-641)
 
+**Where backups go today (M1, checked 2026-10-27).** TerraBase backs up
+continuously to the Tigris bucket named by `BUCKET_NAME` in
+[`deploy/m1/services/terrabase.json`](../deploy/m1/services/terrabase.json)
+(`terrascale-gru-terrabase-backups-b12`). It writes WAL segments within seconds
+and `_system` snapshots, and uses the bucket-scoped key from OCI Vault
+(`gru-1-terrabase-backup-*`). ts-auth's data lives in TerraBase, so these
+backups cover it too. Use `GET /v1/backup` on a TerraBase node to see
+each file's last shipped time and lag. The OCI Object Storage buckets in
+the table below (`gru-1-backup`, `gru-1-head`, `sjc-1-*` and their DR mirrors)
+belong to the legacy `ts-orch oci-region` cell model. They were never created
+for M1 and do not exist; `ts-orch disaster-recovery replicate` does not apply
+to M1. M1 also takes no OCI block-volume backups.
+
 Prepare cross-region recovery copies with the existing Go binary:
 
 ```sh

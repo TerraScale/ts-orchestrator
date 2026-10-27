@@ -10,7 +10,7 @@ The live run is explicitly opt-in (`--live` or `TS_VERIFY_LIVE=1`). It prints
 a timestamped Markdown result table and exits nonzero for any FAIL or UNKNOWN.
 PASS means the individual observation met its contract; UNKNOWN means the
 acceptance claim lacks evidence, not that the service passed. Default targets
-are production `gru-1`, `gru.api.terrascale.tech`, `gru.auth.terrascale.tech`,
+are production `gru-1`, `gru.api.terrascale.tech`, `auth.terrascale.tech`,
 `dash.terrascale.tech` and `status.terrascale.tech`. Every HTTP request has a
 10-second deadline, uses GET and refuses redirects. Responses are limited to
 1 MiB; reports omit bodies, cookies, tokens and user records.
