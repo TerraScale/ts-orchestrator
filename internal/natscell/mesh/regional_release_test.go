@@ -29,66 +29,63 @@ func regionalDeployment(spec swarmruntime.ServiceSpec) *Deployment {
 	return &Deployment{Repository: "TerraScale/terrascale", RunID: "100", Revision: strings.Repeat("b", 40), Image: repository(spec.Image) + "@sha256:" + strings.Repeat("c", 64)}
 }
 
-func TestSignedRegionalAppReleaseExpandsPersistedPlacement(t *testing.T) {
-	for _, name := range []string{"ts-auth", "ts-dashboard"} {
-		t.Run(name, func(t *testing.T) {
-			nodes, previous := regionalReleaseFixture(t, name, "")
-			deployment := regionalDeployment(previous)
-			rows, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second)
-			if err != nil || len(rows) != len(nodes) {
-				t.Fatalf("release: %+v, %v", rows, err)
-			}
-			for _, row := range rows {
-				if row.Image != deployment.Image || row.Revision != deployment.Revision || len(row.Tasks) != 1 || !row.Tasks[0].Ready {
-					t.Fatalf("missing per-region release evidence: %+v", row)
-				}
-			}
-			states, err := desiredStates(t.Context(), nodes[0].conn)
-			if err != nil {
-				t.Fatal(err)
-			}
-			before := states[name].entry()
-			expected := previous
-			expected.Image, expected.Regions, expected.MilliCPU = deployment.Image, nil, 200
-			if !reflect.DeepEqual(before.Spec, &expected) {
-				t.Fatalf("release changed fields outside image/placement/budget: %+v", before.Spec)
-			}
-			verdict, err := nodes[0].readBake(name, before.Generation)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// Fresh release caller after a binary/handler restart: no new generation or bake.
-			if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second); err != nil {
-				t.Fatal(err)
-			}
-			for _, node := range nodes {
-				node.mu.Lock()
-				entry := node.desired[name].entry()
-				node.mu.Unlock()
-				if entry.Generation != before.Generation || !reflect.DeepEqual(entry.Spec, &expected) {
-					t.Fatalf("%s retry changed generation/spec: %+v", node.cfg.region, entry)
-				}
-			}
-			again, err := nodes[0].readBake(name, before.Generation)
-			if err != nil || !again.Bake.Finished.Equal(verdict.Bake.Finished) {
-				t.Fatalf("retry replaced bake: %+v, %v", again, err)
-			}
-			// Every later signed release stays all-region even if an old operator spec
-			// has put placement back to gru between releases.
-			restored := previous
-			if _, err := send(t.Context(), nodes[0].conn, ApplyRequest{Name: name, Entry: Entry{Generation: before.Generation + 1, Spec: &restored}}, time.Second); err != nil {
-				t.Fatal(err)
-			}
-			newer := *deployment
-			newer.RunID = "101"
-			if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, newer.Image, &newer, time.Second, time.Second); err != nil {
-				t.Fatal(err)
-			}
-			states, err = desiredStates(t.Context(), nodes[0].conn)
-			if err != nil || !reflect.DeepEqual(states[name].entry().Spec, &expected) {
-				t.Fatalf("later release lost all-region placement: %+v, %v", states[name], err)
-			}
-		})
+func TestSignedDashboardReleaseExpandsPersistedPlacement(t *testing.T) {
+	const name = "ts-dashboard"
+	nodes, previous := regionalReleaseFixture(t, name, "")
+	deployment := regionalDeployment(previous)
+	rows, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second)
+	if err != nil || len(rows) != len(nodes) {
+		t.Fatalf("release: %+v, %v", rows, err)
+	}
+	for _, row := range rows {
+		if row.Image != deployment.Image || row.Revision != deployment.Revision || len(row.Tasks) != 1 || !row.Tasks[0].Ready {
+			t.Fatalf("missing per-region release evidence: %+v", row)
+		}
+	}
+	states, err := desiredStates(t.Context(), nodes[0].conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := states[name].entry()
+	expected := previous
+	expected.Image, expected.Regions, expected.MilliCPU = deployment.Image, nil, 200
+	if !reflect.DeepEqual(before.Spec, &expected) {
+		t.Fatalf("release changed fields outside image/placement/budget: %+v", before.Spec)
+	}
+	verdict, err := nodes[0].readBake(name, before.Generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fresh release caller after a binary/handler restart: no new generation or bake.
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range nodes {
+		node.mu.Lock()
+		entry := node.desired[name].entry()
+		node.mu.Unlock()
+		if entry.Generation != before.Generation || !reflect.DeepEqual(entry.Spec, &expected) {
+			t.Fatalf("%s retry changed generation/spec: %+v", node.cfg.region, entry)
+		}
+	}
+	again, err := nodes[0].readBake(name, before.Generation)
+	if err != nil || !again.Bake.Finished.Equal(verdict.Bake.Finished) {
+		t.Fatalf("retry replaced bake: %+v, %v", again, err)
+	}
+	// Every later signed release stays all-region even if an old operator spec
+	// has put placement back to gru between releases.
+	restored := previous
+	if _, err := send(t.Context(), nodes[0].conn, ApplyRequest{Name: name, Entry: Entry{Generation: before.Generation + 1, Spec: &restored}}, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	newer := *deployment
+	newer.RunID = "101"
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, newer.Image, &newer, time.Second, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	states, err = desiredStates(t.Context(), nodes[0].conn)
+	if err != nil || !reflect.DeepEqual(states[name].entry().Spec, &expected) {
+		t.Fatalf("later release lost all-region placement: %+v, %v", states[name], err)
 	}
 }
 
@@ -99,7 +96,7 @@ func TestRegionalReleasePreservesHeldUnsignedAndUnrelatedPlacement(t *testing.T)
 	}{
 		{name: "ts-auth", hold: "gru"}, {name: "ts-dashboard", hold: "gru"},
 		{name: "ts-auth", unsigned: true}, {name: "ts-dashboard", unsigned: true},
-		{name: "unrelated"}, {name: "app-canary"},
+		{name: "ts-auth"}, {name: "unrelated"}, {name: "app-canary"},
 	} {
 		t.Run(test.name+"/"+test.hold+"/"+map[bool]string{true: "unsigned", false: "signed"}[test.unsigned], func(t *testing.T) {
 			nodes, previous := regionalReleaseFixture(t, test.name, test.hold)
@@ -133,7 +130,7 @@ func TestRegionalReleasePreservesHeldUnsignedAndUnrelatedPlacement(t *testing.T)
 }
 
 func TestRegionalAppReleaseRollbackRestoresPlacementAndBudgets(t *testing.T) {
-	nodes, previous := regionalReleaseFixture(t, "ts-auth", "")
+	nodes, previous := regionalReleaseFixture(t, "ts-dashboard", "")
 	deployment := regionalDeployment(previous)
 	// sjc is first, fra fails, gru must retain/restore its original workload.
 	applier := nodes[2].cfg.applier.(*evidenceApplier)
@@ -165,7 +162,7 @@ func TestRegionalAppReleaseRollbackRestoresPlacementAndBudgets(t *testing.T) {
 }
 
 func TestIdenticalSignedRegionalReceiptRetainsOldPlacement(t *testing.T) {
-	nodes, previous := regionalReleaseFixture(t, "ts-auth", "")
+	nodes, previous := regionalReleaseFixture(t, "ts-dashboard", "")
 	deployment := regionalDeployment(previous)
 	deployment.Image = previous.Image
 	// A receipt accepted before this binary kept the old gru-only spec.

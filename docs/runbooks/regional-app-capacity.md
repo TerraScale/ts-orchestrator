@@ -1,9 +1,12 @@
-# Auth and dashboard on the existing regional hosts
+# Regional dashboard capacity with auth confined to gru
 
 New signed releases of an unheld app with an embedded all-region declaration
-adopt that declaration's placement and CPU/memory reservations. Auth and
-dashboard omit `regions`, so they follow all admitted regions, including future
-regions. Releases retain the persisted spec's credentials, environment, routes,
+adopt that declaration's placement and CPU/memory reservations. Dashboard omits
+`regions`, so it follows all admitted regions, including future regions. Auth keeps its explicit `regions: ["gru"]` and its signed releases
+preserve placement: current terrascale main rejects startup outside TS_REGION=gru
+(App.cs:177), and regional auth writes are not linearizable. Regional auth startup
+and write safety must be resolved before its placement can expand. Releases
+retain the persisted spec's credentials, environment, routes,
 ports, mounts and replica count. They do not apply the declaration's image.
 Held services retain their placement, budgets and hold. Identical signed
 receipt retries resume the original generation and bake, including a receipt
@@ -11,7 +14,8 @@ accepted before this placement change. Unsigned releases and unrelated services
 retain their placement. Rollback restores the entire previous spec and retains
 the signed release floor.
 
-Auth and dashboard each reserve **200m CPU and 2048 MiB memory**. Stateless
+Dashboard reserves **200m CPU and 2048 MiB memory**. Auth retains its existing
+**500m CPU and 2048 MiB memory**, exclusively in gru. Stateless
 TaskPort services have a CPU limit of **2 CPUs**, or their reservation if larger,
 and reserve **2 GiB disk**. Their update order remains start-first. Memory limits
 remain equal to reservations. The executor applies CPU limits as CFS quota with
@@ -24,13 +28,13 @@ For a sjc/fra node advertising 1750m CPU and approximately 11.4 GiB memory,
 using the supplied existing-host inventory and conservatively counting each
 probe at 50m/64 MiB:
 
-- Steady CPU: 1000 + 200 + 200 + 2×50 = **1500m**.
-- One app update overlap: 1500 + 200 = **1700m**, leaving **50m** allocatable
+- Steady CPU: 1000 + 200 + 2×50 = **1300m**.
+- One app update overlap: 1300 + 200 = **1500m**, leaving **250m** allocatable
   beyond the executor's separate 250m host CPU reserve.
-- Steady memory: 4096 + 2048 + 2048 + 2×64 = **8320 MiB**.
-- One app update overlap: 8320 + 2048 = **10368 MiB** (10.125 GiB), leaving
-  approximately **1.275 GiB** of the stated allocatable memory.
-- Two new app disk reservations plus one overlap: 2 + 2 + 2 = **6 GiB** of
+- Steady memory: 4096 + 2048 + 2×64 = **6272 MiB**.
+- One app update overlap: 6272 + 2048 = **8320 MiB** (8.125 GiB), leaving
+  approximately **3.275 GiB** of the stated allocatable memory.
+- Dashboard plus one overlap: 2 + 2 = **4 GiB** of
   additional scheduler budget against the reported approximately 12–13 GiB
   free. Existing held task budgets are added to the scheduler offer and then
   subtracted by SwarmKit; they are not charged against free space twice.

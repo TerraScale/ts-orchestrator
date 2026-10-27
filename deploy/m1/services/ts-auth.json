@@ -40,6 +40,9 @@
     "auth.terrascale.tech"
   ],
   "replicas": 1,
-  "milliCPU": 200,
-  "memoryMiB": 2048
+  "milliCPU": 500,
+  "memoryMiB": 2048,
+  "regions": [
+    "gru"
+  ]
 }
