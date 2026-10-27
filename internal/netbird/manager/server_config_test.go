@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
@@ -13,9 +14,9 @@ func TestServerConfigRolloutPreservesLiveServiceAndConverges(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("first config rollout: changed=%v err=%v", changed, err)
 	}
-	var before, after map[string]json.RawMessage
+	var before, after map[string]jsontext.Value
 	var original struct {
-		Spec map[string]json.RawMessage `json:"spec"`
+		Spec map[string]jsontext.Value `json:"spec"`
 	}
 	if err := json.Unmarshal(inspection, &original); err != nil {
 		t.Fatal(err)

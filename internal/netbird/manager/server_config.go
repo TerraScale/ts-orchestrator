@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -44,7 +45,7 @@ func reconcileServerConfig(ctx context.Context, config []byte) error {
 
 func serverConfigSpec(inspection, config []byte) ([]byte, bool, error) {
 	var service struct {
-		Spec map[string]json.RawMessage `json:"spec"`
+		Spec map[string]jsontext.Value `json:"spec"`
 	}
 	if err := json.Unmarshal(inspection, &service); err != nil {
 		return nil, false, errors.New("invalid NetBird server inspection")
@@ -68,7 +69,7 @@ func serverConfigSpec(inspection, config []byte) ([]byte, bool, error) {
 	service.Spec["env"], _ = json.Marshal(env)
 	// Inspect returns the local declaration without mesh placement. The M1
 	// manager and its durable store reside in GRU; do not replicate SQLite.
-	service.Spec["regions"] = json.RawMessage(`["gru"]`)
+	service.Spec["regions"] = jsontext.Value(`["gru"]`)
 	wire, err := json.Marshal(service.Spec)
 	return wire, true, err
 }
