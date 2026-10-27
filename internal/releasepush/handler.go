@@ -231,11 +231,11 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
-	// The marker precedes the swap, so the new binary's first start is on probation.
-	if err := writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now()}); err != nil {
-		return rejected(err)
-	}
-	if err := h.install(ctx, binary); err != nil {
+	// The marker precedes the swap, so the new binary's first start is on
+	// probation; its clock starts after the download.
+	if err := h.install(ctx, binary, func() error {
+		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now()})
+	}); err != nil {
 		return rejected(errors.Join(err, removeIfExists(h.TrialFile)))
 	}
 	h.rolledBack.Store(nil)
@@ -303,9 +303,10 @@ func (h *Handler) olderRun(runID string) (bool, error) {
 // link is os.Link; tests stand in an immutable binary.
 var link = os.Link
 
-// install downloads, verifies and atomically swaps the binary, keeping the
-// previous one as <binary>.prev. A failed swap leaves no <binary>.next.
-func (h *Handler) install(ctx context.Context, binary Binary) error {
+// install downloads and verifies the binary, runs beforeSwap, then atomically
+// swaps it in, keeping the previous one as <binary>.prev. A failed swap leaves
+// no <binary>.next.
+func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() error) error {
 	next := h.Binary + ".next"
 	data, err := h.download(ctx, binary.URL)
 	if err != nil {
@@ -319,6 +320,9 @@ func (h *Handler) install(ctx context.Context, binary Binary) error {
 	}
 	if err := writeSynced(next, data); err != nil {
 		return err
+	}
+	if err := beforeSwap(); err != nil {
+		return errors.Join(err, removeIfExists(next))
 	}
 	prev := h.Binary + ".prev"
 	err = removeIfExists(prev)
