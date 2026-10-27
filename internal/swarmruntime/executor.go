@@ -1,6 +1,7 @@
 package swarmruntime
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -284,12 +285,12 @@ func RunRuntimeLogger(argument string) {
 				return errors.Join(ErrDiskPending, err)
 			}
 		}
-		out, err := os.OpenFile(filepath.Join(dir, "stdout"), os.O_CREATE|os.O_WRONLY|os.O_APPEND|unix.O_NOFOLLOW, 0600)
+		out, err := os.OpenFile(filepath.Join(dir, "stdout"), os.O_CREATE|os.O_RDWR|os.O_APPEND|unix.O_NOFOLLOW, 0600)
 		if err != nil {
 			return err
 		}
 		defer out.Close()
-		stderr, err := os.OpenFile(filepath.Join(dir, "stderr"), os.O_CREATE|os.O_WRONLY|os.O_APPEND|unix.O_NOFOLLOW, 0600)
+		stderr, err := os.OpenFile(filepath.Join(dir, "stderr"), os.O_CREATE|os.O_RDWR|os.O_APPEND|unix.O_NOFOLLOW, 0600)
 		if err != nil {
 			return err
 		}
@@ -329,6 +330,10 @@ func RunRuntimeLogger(argument string) {
 	})
 }
 
+// copyBoundedLog appends src to file, which never exceeds logSegmentBytes. A
+// full file keeps its newest half from a line start instead of emptying: on
+// gru TerraBase fills 1 MiB in about 25 minutes, and truncating to zero left
+// operators no log right before an incident. file must be opened read-write.
 func copyBoundedLog(file *os.File, src io.Reader) error {
 	info, err := file.Stat()
 	if err != nil {
@@ -343,10 +348,9 @@ func copyBoundedLog(file *os.File, src io.Reader) error {
 		n, readErr := src.Read(buffer)
 		if n > 0 {
 			if size+int64(n) > logSegmentBytes {
-				if err := file.Truncate(0); err != nil {
+				if size, err = keepLogTail(file, size); err != nil {
 					return err
 				}
-				size = 0
 			}
 			if _, err := file.Write(buffer[:n]); err != nil {
 				return err
@@ -360,4 +364,24 @@ func copyBoundedLog(file *os.File, src io.Reader) error {
 			return readErr
 		}
 	}
+}
+
+// keepLogTail rewrites a full log as its newest logSegmentBytes/2 bytes,
+// starting after the first newline in them, and returns the new size.
+func keepLogTail(file *os.File, size int64) (int64, error) {
+	keep := min(size, logSegmentBytes/2)
+	tail := make([]byte, keep)
+	if _, err := file.ReadAt(tail, size-keep); err != nil {
+		return 0, err
+	}
+	if i := bytes.IndexByte(tail, '\n'); i >= 0 && size > keep {
+		tail = tail[i+1:]
+	}
+	if err := file.Truncate(0); err != nil {
+		return 0, err
+	}
+	if _, err := file.Write(tail); err != nil {
+		return 0, err
+	}
+	return int64(len(tail)), nil
 }
