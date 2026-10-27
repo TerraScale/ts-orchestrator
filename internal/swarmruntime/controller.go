@@ -31,6 +31,8 @@ import (
 	"github.com/opencontainers/image-spec/identity"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 type controller struct {
@@ -531,39 +533,83 @@ func exitError(code uint32) error {
 	return taskExitError(code)
 }
 
+// Wait follows the task's process until it exits. Restarting containerd (an
+// unattended package upgrade) breaks the wait stream while the shim keeps the
+// process running; failing the task then would orphan a live container that
+// still holds its host port, so a lost connection re-attaches instead.
 func (c *controller) Wait(ctx context.Context) (operationErr error) {
 	defer func() { c.finishTaskLoadOperation(api.TaskStateRunning, operationErr) }()
 	ctx = runtimeContext(ctx)
 	started := time.Now()
+	code, exited, err := followExit(ctx, func(following func()) (uint32, time.Time, error) { return c.waitExit(ctx, following) }, func() func() { return c.serve(ctx) })
+	if err != nil {
+		return err // a canceled wait, not an exit
+	}
+	c.executor.mu.Lock()
+	c.executor.recordExitLocked(c.task, c.fingerprint, exited.Sub(started), time.Now())
+	c.executor.mu.Unlock()
+	if code != 0 && c.oomKilled(ctx) {
+		return taskOOMError{code: code, limitMiB: c.task.Spec.Resources.Limits.MemoryBytes >> 20}
+	}
+	return exitError(code)
+}
+
+// followExit waits until the process exits, re-attaching while containerd is
+// unreachable. It serves the task port once the first wait is established and
+// stops serving only on exit: a canceled wait (any task update) keeps serving
+// until stopTask ends the process.
+func followExit(ctx context.Context, waitExit func(following func()) (uint32, time.Time, error), serve func() func()) (uint32, time.Time, error) {
+	unserve, served := func() {}, false
+	for {
+		code, exited, err := waitExit(func() {
+			if !served {
+				unserve, served = serve(), true
+			}
+		})
+		if err != nil && ctx.Err() == nil && runtimeUnavailable(err) {
+			select {
+			case <-ctx.Done():
+				return 0, time.Time{}, ctx.Err()
+			case <-time.After(runtimeReattachDelay):
+			}
+			continue
+		}
+		if err == nil {
+			unserve()
+		}
+		return code, exited, err
+	}
+}
+
+// runtimeReattachDelay paces re-attaching while containerd restarts.
+const runtimeReattachDelay = time.Second
+
+// waitExit waits for the runtime task's exit; following runs once the wait
+// is established.
+func (c *controller) waitExit(ctx context.Context, following func()) (uint32, time.Time, error) {
 	t, err := c.runtimeTask(ctx)
 	if err != nil {
-		return err
+		return 0, time.Time{}, err
 	}
 	waitCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	wait, err := t.Wait(waitCtx)
 	if err != nil {
-		return err
+		return 0, time.Time{}, err
 	}
-	// A canceled Wait (any task update) keeps serving; exit and stopTask end it.
-	unserve := c.serve(ctx)
+	following()
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return 0, time.Time{}, ctx.Err()
 	case status := <-wait:
-		code, exited, err := status.Result()
-		if err != nil {
-			return err // a canceled wait, not an exit
-		}
-		unserve()
-		c.executor.mu.Lock()
-		c.executor.recordExitLocked(c.task, c.fingerprint, exited.Sub(started), time.Now())
-		c.executor.mu.Unlock()
-		if code != 0 && c.oomKilled(ctx) {
-			return taskOOMError{code: code, limitMiB: c.task.Spec.Resources.Limits.MemoryBytes >> 20}
-		}
-		return exitError(code)
+		return status.Result()
 	}
+}
+
+// runtimeUnavailable reports a lost containerd connection rather than an
+// answer about the task.
+func runtimeUnavailable(err error) bool {
+	return errdefs.IsUnavailable(err) || grpcstatus.Code(err) == codes.Unavailable
 }
 
 func (c *controller) Shutdown(ctx context.Context) (operationErr error) {
