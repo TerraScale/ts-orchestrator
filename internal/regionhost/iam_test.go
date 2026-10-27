@@ -3,6 +3,8 @@ package regionhost
 import (
 	"strings"
 	"testing"
+
+	"github.com/TerraScale/ts-orchestrator/internal/hostdashboard"
 )
 
 func TestSameRuleIgnoresOrderOnly(t *testing.T) {
@@ -23,12 +25,21 @@ func TestSameRuleIgnoresOrderOnly(t *testing.T) {
 	}
 }
 
-func TestStatementsAddOneJoinSecretPerRegion(t *testing.T) {
+func TestStatementsAddJoinAndDashboardSecretsPerRegion(t *testing.T) {
 	s := statements([]string{"sjc", "gru"})
-	if len(s) != 8 || !strings.HasSuffix(s[6], "target.secret.name = 'ts-orch-join-gru'}") || !strings.HasSuffix(s[7], "'ts-orch-join-sjc'}") {
+	if len(s) != 10 || !strings.HasSuffix(s[6], "target.secret.name = 'ts-orch-join-gru'}") || !strings.HasSuffix(s[7], "'gru-1-orch-dashboard-token'}") ||
+		!strings.HasSuffix(s[8], "'ts-orch-join-sjc'}") || !strings.HasSuffix(s[9], "'sjc-1-orch-dashboard-token'}") {
 		t.Fatalf("statements %q", s)
 	}
 	if !strings.Contains(s[3], "target.secret.name = 'ts-orch-mesh-key'") || !strings.Contains(s[6], "manage secret-family in compartment id "+gruCompartment+" where all {target.vault.id = '"+gruVault+"'") {
 		t.Fatalf("statements %q", s)
+	}
+}
+
+func TestDashboardSecretIsTheHostDashboardToken(t *testing.T) {
+	for _, region := range []string{"gru", "sjc", "fra"} {
+		if got, want := dashboardSecret(region), hostdashboard.SecretName(region); got != want {
+			t.Errorf("%s: policy names %s, the dashboard creates %s", region, got, want)
+		}
 	}
 }

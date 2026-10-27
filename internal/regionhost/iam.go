@@ -47,7 +47,9 @@ func sameRule(live string, ids []string) bool {
 }
 
 // statements are the gru-vault statements (formerly oci-iam.sh) plus, per region, read
-// and write of its in-region join secret ts-orch-join-<region>.
+// and write of its in-region join secret ts-orch-join-<region> and of its
+// operator dashboard token <region>-1-orch-dashboard-token (hostdashboard.SecretName),
+// which the region's first host creates.
 func statements(regions []string) []string {
 	in := "in compartment id " + gruCompartment
 	vault := "target.vault.id = '" + gruVault + "'"
@@ -60,10 +62,15 @@ func statements(regions []string) []string {
 		"Allow dynamic-group " + dynamicGroup + " to use keys " + in + " where target.key.id = '" + gruVaultKey + "'",
 	}
 	for _, region := range slices.Sorted(slices.Values(regions)) {
-		s = append(s, "Allow dynamic-group "+dynamicGroup+" to manage secret-family "+in+" where all {"+vault+", target.secret.name = 'ts-orch-join-"+region+"'}")
+		for _, secret := range []string{"ts-orch-join-" + region, dashboardSecret(region)} {
+			s = append(s, "Allow dynamic-group "+dynamicGroup+" to manage secret-family "+in+" where all {"+vault+", target.secret.name = '"+secret+"'}")
+		}
 	}
 	return s
 }
+
+// dashboardSecret is hostdashboard.SecretName without its dependencies.
+func dashboardSecret(region string) string { return region + "-1-orch-dashboard-token" }
 
 // hostCompartments maps each region code to its CELL-control compartment, for
 // every cell compartment under TerraScale with a live instance.
