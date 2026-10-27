@@ -75,6 +75,9 @@ closes its client and controller `Close` releases bookkeeping without killing
 the process. The existing containerd integration test
 `TestContainerdLifecycleAgentRecovery` checks process PID reuse across agent restarts
 (CI runtime qualification; not exercised locally without its containerd fixture).
+`Node.Stop` cancels the agent before upstream Stop so it suspends without
+leaving the swarm or clearing assignments; its explicit contract preserves
+workloads across orchestrator restarts.
 This proves this change introduces no TerraBase task-template update or restart;
 it does not claim a production rollout was performed.
 
