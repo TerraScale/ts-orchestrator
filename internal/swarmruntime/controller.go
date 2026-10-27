@@ -543,7 +543,11 @@ func (c *controller) Wait(ctx context.Context) (operationErr error) {
 	started := time.Now()
 	code, exited, err := followExit(ctx, func(following func()) (uint32, time.Time, error) { return c.waitExit(ctx, following) }, func() func() { return c.serve(ctx) })
 	if err != nil {
-		return err // a canceled wait, not an exit
+		stop := c.stopTask
+		if c.stateful != nil {
+			stop = nil // stopping needs the pins only Shutdown carries
+		}
+		return failWithoutExit(ctx, err, stop)
 	}
 	c.executor.mu.Lock()
 	c.executor.recordExitLocked(c.task, c.fingerprint, exited.Sub(started), time.Now())
@@ -579,6 +583,21 @@ func followExit(ctx context.Context, waitExit func(following func()) (uint32, ti
 		}
 		return code, exited, err
 	}
+}
+
+// failWithoutExit returns a wait error that is not an exit. A canceled wait
+// (any task update) leaves the process to Shutdown. Any other error fails the
+// task, and SwarmKit never shuts a failed task down: its still-running
+// process would keep the host ports and block every replacement (gru
+// TerraBase, 2026-10-27), so stop it first.
+func failWithoutExit(ctx context.Context, err error, stop func(context.Context) error) error {
+	if ctx.Err() != nil || stop == nil {
+		return err
+	}
+	if stopErr := stop(context.WithoutCancel(ctx)); stopErr != nil {
+		return errors.Join(err, fmt.Errorf("stop the failed task's process: %w", stopErr))
+	}
+	return err
 }
 
 // runtimeReattachDelay paces re-attaching while containerd restarts.

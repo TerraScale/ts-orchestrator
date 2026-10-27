@@ -61,3 +61,36 @@ func TestFollowExitStopsReattachingWhenCanceled(t *testing.T) {
 		t.Fatalf("err %v, want the wait to end on cancel", err)
 	}
 }
+
+func TestFailWithoutExitStopsTheProcessOfAFailedTask(t *testing.T) {
+	gone := fmt.Errorf("load task: %w", errdefs.ErrNotFound)
+	stops := 0
+	err := failWithoutExit(context.Background(), gone, func(ctx context.Context) error {
+		stops++
+		if ctx.Err() != nil {
+			t.Fatal("stop must outlive the failed wait")
+		}
+		return nil
+	})
+	if !errors.Is(err, errdefs.ErrNotFound) || stops != 1 {
+		t.Fatalf("err %v stops %d, want the wait error after one stop", err, stops)
+	}
+
+	err = failWithoutExit(context.Background(), gone, func(context.Context) error { return errdefs.ErrFailedPrecondition })
+	if !errors.Is(err, errdefs.ErrNotFound) || !errors.Is(err, errdefs.ErrFailedPrecondition) {
+		t.Fatalf("err %v, want both the wait and the stop error", err)
+	}
+}
+
+func TestFailWithoutExitLeavesACanceledWaitToShutdown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stops := 0
+	err := failWithoutExit(ctx, context.Canceled, func(context.Context) error { stops++; return nil })
+	if !errors.Is(err, context.Canceled) || stops != 0 {
+		t.Fatalf("err %v stops %d, want the cancel and no stop", err, stops)
+	}
+	if err := failWithoutExit(context.Background(), errdefs.ErrNotFound, nil); !errors.Is(err, errdefs.ErrNotFound) {
+		t.Fatalf("err %v, want the error when no stop applies", err)
+	}
+}
