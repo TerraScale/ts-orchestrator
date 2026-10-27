@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -189,7 +190,7 @@ func TestOperatorSyncConvergesAcrossUnequalDeploymentFloors(t *testing.T) {
 			}
 			if !removal {
 				rows, err := releaseDeployment(t.Context(), nodes[0].conn, spec.Name, spec.Image, &older, time.Second, time.Second)
-				if rows != nil || err == nil || !strings.Contains(err.Error(), "stale") {
+				if rows != nil || !errors.Is(err, swarmruntime.ErrSupersededDeployment) {
 					t.Fatalf("release preflight bypassed the losing rollback's floor: %+v, %v", rows, err)
 				}
 			}
