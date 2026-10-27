@@ -71,6 +71,11 @@ target.secret.name = /gru-1-netbird-*/` and `use keys` on `gru-vault-master`.
   `/var/lib/ts-data/netbird/config.yaml` (0600, container user), claims the
   owner, syncs groups and policies (`manager.GRU()`), stores the setup keys,
   and enrolls ts-gru-1's own NetBird client. It repeats every 10 minutes.
+- A rendered config change rolls the existing server task in GRU with a
+  computed config digest, preserving its image, resource limits and data mount.
+  This activates the dashboard's static IdP clients without resetting the
+  SQLite store or re-enrolling peers. The companion detects an installed
+  ts-orch replacement and exits so systemd starts the new reconciler.
 - The install script installs the upstream `netbird` client package on
   ts-gru-1 and that unit; `ts-orch service apply -f
   deploy/m1/services/netbird-server.json` starts the server.
@@ -159,4 +164,12 @@ application's OIDC callbacks allow same-origin framing for silent login.
 ```sh
 ssh ts-gru-1 sudo netbird status --detail   # peers: delta, mariogk-dev, beta connected
 ssh delta ssh ubuntu@<ts-gru-1 NetBird IP> hostname
+curl -s -o /dev/null -w '%{http_code}\n' https://netbird.terrascale.tech/
+getent hosts ts-gru-1.nb.ts.internal ts-sjc-1.nb.ts.internal ts-fra-1.nb.ts.internal
 ```
+
+The account's managed DNS domain is `nb.ts.internal`. MagicDNS peer records do
+not require an upstream nameserver group. M1 keeps canonical OCI peer names
+(`ts-gru-1`, `ts-sjc-1`, `ts-fra-1`) and migrates admitted legacy GRU controller
+names in place; peer IDs, WireGuard keys and addresses are retained. Homelab
+clients must let NetBird manage DNS through systemd-resolved.
