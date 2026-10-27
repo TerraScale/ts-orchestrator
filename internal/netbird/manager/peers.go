@@ -293,6 +293,12 @@ func admittedPeerRecords(d Desired, peers []apiPeer, groups []apiGroup) ([]Recor
 		// A rename interrupted between its two writes leaves the temporary
 		// name; it is still that slot, and the next prune finishes the rename.
 		peer.Name = strings.TrimSuffix(peer.Name, "-renaming")
+		if otherRegion := nodeRegion(peer.Name); otherRegion != "" && otherRegion != region {
+			// M1 uses one server admission key across regions. NetBird's
+			// built-in peer DNS publishes these nodes under nb.ts.internal;
+			// only GRU nodes belong in the GRU-specific cell zone.
+			continue
+		}
 		if err := naming.Validate(peer.Name); err != nil || strings.HasSuffix(peer.Name, "-data") ||
 			(!naming.IsNode(peer.Name, region) && !strings.HasPrefix(peer.Name, d.Cell+"-")) {
 			return nil, fmt.Errorf("admitted NetBird peer %q has no canonical identity in %s", peer.Name, d.Cell)

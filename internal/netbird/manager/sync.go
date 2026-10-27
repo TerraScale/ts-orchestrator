@@ -145,6 +145,10 @@ func Sync(ctx context.Context, api *API, d Desired, apply bool, only ...string) 
 	if err := api.do(ctx, "GET", "/peers", nil, &peers); err != nil {
 		return Report{}, err
 	}
+	peers, err = p.planNodeNames(api, d, peers, groups)
+	if err != nil {
+		return Report{}, err
+	}
 	records, err := admittedPeerRecords(d, peers, groups)
 	if err != nil {
 		return Report{}, err

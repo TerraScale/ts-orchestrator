@@ -116,7 +116,7 @@ func TestDirectPeerDNSRefusesAmbiguousOrInvalidAdmissionBeforeWrites(t *testing.
 			ids := f.seedLegacy(t)
 			switch scenario {
 			case "name":
-				f.peer(ids.server1).Name = "ts-fra-1"
+				f.peer(ids.server1).Name = "ts-unknown-1"
 			case "address":
 				f.peer(ids.server1).IP = "203.0.113.20"
 			case "duplicate":
