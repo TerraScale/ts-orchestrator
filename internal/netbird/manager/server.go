@@ -38,6 +38,9 @@ const ServerConfigTemplate = `server:
     issuer: "https://netbird.terrascale.tech/oauth2"
     signKeyRefreshEnabled: true
     sessionCookieEncryptionKey: {{NETBIRD_SESSION_COOKIE_KEY}}
+    dashboardRedirectURIs:
+      - "https://netbird.terrascale.tech/nb-auth"
+      - "https://netbird.terrascale.tech/nb-silent-auth"
     cliRedirectURIs: ["http://localhost:53000/"]
   # Only the loopback edge may set X-Forwarded-For.
   reverseProxy:

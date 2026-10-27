@@ -69,6 +69,13 @@ func runServer(ctx context.Context, args []string, stdout io.Writer) error {
 		Management: management, Versions: management, Bundles: bundles}
 	logf := func(format string, args ...any) { fmt.Fprintf(stdout, "netbird server: "+format+"\n", args...) }
 	for {
+		// systemd restarts this companion onto the pushed binary too. The
+		// main ts-orch process can update while this long-lived loop sleeps.
+		if changed, err := serverBinaryChanged(); err != nil {
+			logf("check installed binary: %v", err)
+		} else if changed {
+			return errors.New("installed ts-orch changed; restarting NetBird reconciler")
+		}
 		err := serveOnce(ctx, vault, *dir)
 		if err != nil {
 			logf("%v", err)
@@ -134,6 +141,9 @@ func runServerSide(ctx context.Context, vault ServerVault, dir string) error {
 	}
 	defer clear(config)
 	if err := writePrivate(dir, "config.yaml", config); err != nil {
+		return err
+	}
+	if err := reconcileServerConfig(ctx, config); err != nil {
 		return err
 	}
 	return BootstrapServer(ctx, vault, ServerURL)
