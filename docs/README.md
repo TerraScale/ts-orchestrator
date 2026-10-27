@@ -23,6 +23,7 @@ These pages describe the current greenfield Go implementation.
 | [Manual regional bootstrap](region-bootstrap.md) | Legacy foundation/controller bootstrap inventory; automatic admission remains TS-796 |
 | [Local development](local-development.md) | Toolchain, build, test, and Firecracker qualification |
 | [Build and release](releases.md) | Exact-source CI checks and static Linux binaries |
+| [Deploy errors 2026-10-27](deploy-errors-20261027.md) | Every open deploy error, its evidence, root cause, fix and status |
 | [Continuous delivery](continuous-delivery.md) | Always-on delivery contract, signed image replacement and retained trust/quality safeguards |
 | [Broker account rotation](broker-claim-rotation.md) | Operator `broker-claim-apply` procedure and receipts |
 | [Observability](observability.md) | Private metrics/health listener, structured logs, event bus and cell-wide snapshots |

@@ -97,7 +97,7 @@ func Ensure(ctx context.Context, client VaultClient, target Target, name, descri
 			stored.ID, stored.Provisioning = id, provisioning
 			return stored, nil
 		}
-		return stored, fmt.Errorf("create Vault secret %s failed", name)
+		return stored, fmt.Errorf("create Vault secret %s failed%s", name, serviceStatus(err))
 	}
 	if response.Id == nil || !secretOCIDRE.MatchString(*response.Id) {
 		return stored, fmt.Errorf("create Vault secret %s: OCI returned no secret OCID", name)
@@ -116,7 +116,7 @@ func lookup(ctx context.Context, client VaultClient, target Target, name string)
 	for range 32 {
 		response, err := client.ListSecrets(ctx, request)
 		if err != nil {
-			return "", false, fmt.Errorf("list Vault secret %s failed", name)
+			return "", false, fmt.Errorf("list Vault secret %s failed%s", name, serviceStatus(err))
 		}
 		for _, item := range response.Items {
 			if item.SecretName == nil || *item.SecretName != name {
@@ -425,6 +425,17 @@ func retrySecretRead(err error) bool {
 	}
 	status := serviceErr.GetHTTPStatusCode()
 	return status == http.StatusNotFound || status == http.StatusConflict
+}
+
+// serviceStatus names the HTTP status and OCI error code of err, such as
+// ": OCI 404 NotAuthorizedOrNotFound" for a missing IAM grant, and never the
+// response message.
+func serviceStatus(err error) string {
+	var serviceErr common.ServiceError
+	if !errors.As(err, &serviceErr) {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf(": OCI %d %s", serviceErr.GetHTTPStatusCode(), serviceErr.GetCode()))
 }
 
 // Absent reports whether Vault answered that the secret does not exist.

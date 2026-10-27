@@ -368,3 +368,18 @@ func TestResolveReadsCurrentValuesWithoutLeaking(t *testing.T) {
 		t.Error("resolved while the OCI SDK logs bodies")
 	}
 }
+
+type deniedVault struct{ fakeVault }
+
+func (v *deniedVault) CreateSecret(context.Context, ocivault.CreateSecretRequest) (ocivault.CreateSecretResponse, error) {
+	return ocivault.CreateSecretResponse{}, testSecretServiceError{status: 404}
+}
+
+func TestEnsureNamesTheOCIStatusOfARefusedCreate(t *testing.T) {
+	vault := &deniedVault{*newVault()}
+	_, err := Ensure(t.Context(), vault, Target{CompartmentID: "c", VaultID: "v", KeyID: "k"}, "gru-1-orch-dashboard-token", "d",
+		func(context.Context) (string, error) { return "value", nil })
+	if err == nil || err.Error() != "create Vault secret gru-1-orch-dashboard-token failed: OCI 404" || strings.Contains(err.Error(), "value") {
+		t.Fatalf("error %v", err)
+	}
+}
