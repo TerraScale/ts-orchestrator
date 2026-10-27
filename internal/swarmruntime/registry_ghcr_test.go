@@ -2,10 +2,12 @@ package swarmruntime
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/opencontainers/go-digest"
@@ -96,5 +98,47 @@ func TestGHCRBlobRedirectReachesCDNWithoutCredentials(t *testing.T) {
 	defer reader.Close()
 	if data, err := io.ReadAll(reader); err != nil || string(data) != "data" || !cdn {
 		t.Fatalf("blob = %q, %v, reached CDN without credentials = %v", data, err, cdn)
+	}
+}
+
+// A layer that keeps arriving downloads however long it takes; one that
+// stops arriving is cancelled. The old 30 s whole-request timeout failed every
+// TerraBase layer slower than that (gru 2026-10-27).
+func TestRegistryTransportCancelsOnlyStalledBodies(t *testing.T) {
+	const stall = 250 * time.Millisecond
+	transport := func(chunks int, pause time.Duration) registryTransport {
+		return registryTransport{host: "ghcr.io", stall: stall, base: registryRoundTrip(func(request *http.Request) (*http.Response, error) {
+			reader, writer := io.Pipe()
+			go func() {
+				for range chunks {
+					select {
+					case <-request.Context().Done():
+						writer.CloseWithError(request.Context().Err())
+						return
+					case <-time.After(pause):
+					}
+					writer.Write([]byte("layer"))
+				}
+				writer.Close()
+			}()
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: reader, Request: request}, nil
+		})}
+	}
+	get := func(rt registryTransport) (string, error) {
+		request, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://ghcr.io/v2/blob", nil)
+		response, err := rt.RoundTrip(request)
+		if err != nil {
+			return "", err
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		return string(body), err
+	}
+	// 60 chunks 10 ms apart: longer than the stall window in total, never stalled.
+	if body, err := get(transport(60, 10*time.Millisecond)); err != nil || body != strings.Repeat("layer", 60) {
+		t.Fatalf("progressing download = %q, %v", body, err)
+	}
+	if _, err := get(transport(2, 8*stall)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("stalled download = %v, want canceled", err)
 	}
 }

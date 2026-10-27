@@ -474,11 +474,9 @@ func (n *Node) handleApply(m *nats.Msg) {
 	reply := Reply{Region: n.cfg.region, Server: n.cfg.server, Regions: n.regions()}
 	var applied applyResult
 	var pulled time.Duration
+	var pullErr error
 	if spec := request.Entry.Spec; err == nil && spec != nil && (len(spec.Regions) == 0 || slices.Contains(spec.Regions, n.cfg.region)) {
-		// The task's own Prepare still pulls, so a failed pre-pull only costs speed.
-		if pullErr := n.cfg.applier.PrePull(ctx, *spec); pullErr != nil {
-			slog.WarnContext(ctx, "mesh pre-pull failed; the task pulls instead", "service", request.Name, "error", pullErr)
-		}
+		pullErr = prePull(ctx, n.cfg.applier, *spec)
 		pulled = time.Since(start)
 	}
 	if err == nil && n.held(request.Entry) {
@@ -486,6 +484,12 @@ func (n *Node) handleApply(m *nats.Msg) {
 		reply.Result, reply.ElapsedMS = "held after "+request.Entry.HoldAfter, time.Since(start).Milliseconds()
 		n.respond(m, reply)
 		return
+	}
+	if err == nil && pullErr != nil {
+		// Updates stop the serving task first: without the image on the host
+		// the outage lasted the whole pull (gru TerraBase 2m50s, 2026-10-27).
+		slog.WarnContext(ctx, "mesh pre-pull failed; the serving task keeps running", "service", request.Name, "error", pullErr)
+		err = fmt.Errorf("pull %s before stopping the serving task: %w", request.Entry.Spec.Image, pullErr)
 	}
 	// A rollback restores the serving release in every region at once.
 	if err == nil {
@@ -921,4 +925,31 @@ func (n *Node) collectImages(ctx context.Context) {
 	if err != nil {
 		slog.WarnContext(ctx, "image collection deferred", "error", err)
 	}
+}
+
+// prePullAttempts and prePullBackoff ride out a registry blip before a
+// release fails rather than stopping a task whose image is not on the host.
+const (
+	prePullAttempts = 3
+	prePullBackoff  = 2 * time.Second
+)
+
+// prePull fetches and unpacks spec's image (containerd verifies every digest)
+// before the update stops the serving task.
+func prePull(ctx context.Context, applier Applier, spec swarmruntime.ServiceSpec) error {
+	var err error
+	for attempt := range prePullAttempts {
+		if attempt > 0 {
+			slog.WarnContext(ctx, "mesh pre-pull failed; retrying", "service", spec.Name, "attempt", attempt, "error", err)
+			select {
+			case <-ctx.Done():
+				return errors.Join(err, ctx.Err())
+			case <-time.After(prePullBackoff << (attempt - 1)):
+			}
+		}
+		if err = applier.PrePull(ctx, spec); err == nil {
+			return nil
+		}
+	}
+	return err
 }
