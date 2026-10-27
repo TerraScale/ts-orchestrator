@@ -73,7 +73,7 @@ func PushApp(ctx context.Context, args []string, output io.Writer) error {
 	if _, err := fmt.Fprintf(output, "%s\n", line); err != nil {
 		return err
 	}
-	if result.State != "done" && strings.Contains(result.Error, swarmruntime.ErrSupersededDeployment.Error()) {
+	if result.State != "done" && superseded(result) {
 		// A newer run of this repository released the service: nothing is left undeployed.
 		return nil
 	}
@@ -81,6 +81,39 @@ func PushApp(ctx context.Context, args []string, output io.Writer) error {
 		return fmt.Errorf("release %s %s: %s %s", *service, *image, result.State, result.Error)
 	}
 	return nil
+}
+
+// superseded reports a release that a newer signed run replaced: refused at
+// the floor, or every failed region either lost its bake to the newer release
+// or never started because such a region came first.
+func superseded(result AppResult) bool {
+	if strings.Contains(result.Error, swarmruntime.ErrSupersededDeployment.Error()) {
+		return true
+	}
+	var rows []struct {
+		Error string `json:"error"`
+		Bake  *struct {
+			Reason string `json:"reason"`
+		} `json:"bake"`
+	}
+	if json.Unmarshal(result.Regions, &rows) != nil {
+		return false
+	}
+	replaced := false
+	for _, row := range rows {
+		reason := row.Error
+		if row.Bake != nil && row.Bake.Reason != "" {
+			reason = row.Bake.Reason
+		}
+		switch {
+		case reason == "":
+		case strings.Contains(reason, swarmruntime.ErrSupersededDuringBake.Error()):
+			replaced = true
+		case !strings.HasPrefix(reason, "an earlier region failed this rollout"):
+			return false
+		}
+	}
+	return replaced
 }
 
 const digestsUsage = "usage: ts-orch release digests --out <file> [--regions deploy/m1/regions.json]"

@@ -176,7 +176,7 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if current := n.desired[spec.Name]; !reflect.DeepEqual(current.entry(), applied.state.entry()) || !reflect.DeepEqual(current.Floor, applied.state.Floor) {
-		err = errors.New("release superseded during bake")
+		err = swarmruntime.ErrSupersededDuringBake
 	}
 	if err != nil {
 		record.Bake.Reason = err.Error()

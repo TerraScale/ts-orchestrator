@@ -35,6 +35,10 @@ func (d *Deployment) Validate() error {
 // release has nothing left to do.
 var ErrSupersededDeployment = errors.New("deployment is superseded by a newer signed run")
 
+// ErrSupersededDuringBake is a region's bake whose desired entry a newer
+// release replaced before the verdict: the newer release owns the outcome.
+var ErrSupersededDuringBake = errors.New("release superseded during bake")
+
 // Accepts refuses older runs and changes to an already approved run.
 func (d *Deployment) Accepts(next *Deployment) error {
 	if err := next.Validate(); err != nil {
