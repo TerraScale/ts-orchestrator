@@ -62,7 +62,7 @@ func TestApplyCreatesThenChangesNothingThenUpdatesDrift(t *testing.T) {
 	regions := []Region{{Name: "gru", IP: "163.176.124.12", Latitude: -23.43, Longitude: -46.47}, {Name: "fra", IP: "130.162.238.198", Latitude: 50.11, Longitude: 8.68}}
 	fake := &fakeOCI{objects: map[string]map[string]map[string]any{}}
 	ctx := context.Background()
-	changes, nameservers, err := apply(ctx, fake.call, Build(regions, Hosts))
+	changes, nameservers, err := apply(ctx, fake.call, Build(regions, testHosts))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestApplyCreatesThenChangesNothingThenUpdatesDrift(t *testing.T) {
 		t.Fatalf("first run writes %v changes %d nameservers %v", fake.writes, len(changes), nameservers)
 	}
 	fake.writes = nil
-	changes, _, err = apply(ctx, fake.call, Build(regions, Hosts))
+	changes, _, err = apply(ctx, fake.call, Build(regions, testHosts))
 	if err != nil || len(fake.writes) != 0 {
 		t.Fatalf("second run writes %v err %v", fake.writes, err)
 	}
@@ -81,7 +81,7 @@ func TestApplyCreatesThenChangesNothingThenUpdatesDrift(t *testing.T) {
 		}
 	}
 	regions[1].IP = "130.162.238.199" // fra edge moved: monitors and policies follow
-	if _, _, err = apply(ctx, fake.call, Build(regions, Hosts)); err != nil {
+	if _, _, err = apply(ctx, fake.call, Build(regions, testHosts)); err != nil {
 		t.Fatal(err)
 	}
 	if got := fmt.Sprint(fake.writes); got != "[PUT httpMonitors PUT steeringPolicies PUT httpMonitors PUT steeringPolicies PUT httpMonitors PUT steeringPolicies]" {

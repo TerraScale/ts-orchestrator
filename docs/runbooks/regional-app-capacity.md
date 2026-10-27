@@ -87,8 +87,10 @@ it does not claim a production rollout was performed.
 
 ## GeoDNS scope
 
-`ts-orch edge geodns [--plan]` always builds plans from `geodns.Hosts`, which
-contains `api.terrascale.tech`, `auth.terrascale.tech` and `dash.terrascale.tech`.
-The CLI cannot scope an apply to auth/dashboard alone. The internal builder and
-apply function accept a host subset, but there is no corresponding CLI selector.
-This change leaves GeoDNS untouched and performs no DNS apply or deployment.
+`ts-orch edge geodns [--plan]` steers the hostnames of every embedded
+first-party declaration that names no regions (`geodns.Hosts`): today
+`dash.terrascale.tech`, `mcp.terrascale.tech` and `platform.terrascale.tech`.
+`auth.terrascale.tech` stays a gru record while ts-auth is confined to gru, and
+`api.terrascale.tech` keeps its TerraBase routing. Switch a hostname's
+Cloudflare record to its `<label>.edge.terrascale.tech` CNAME only after every
+region serves it.

@@ -29,7 +29,14 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		}
 		regions = append(regions, Region{Name: name, IP: ips[0].String(), Latitude: entry.Latitude, Longitude: entry.Longitude})
 	}
-	plans := Build(regions, Hosts)
+	hosts, err := Hosts()
+	if err != nil {
+		return fmt.Errorf("edge geodns: %w", err)
+	}
+	if len(hosts) == 0 {
+		return errors.New("edge geodns: no service declaration serves every region")
+	}
+	plans := Build(regions, hosts)
 	if len(args) == 1 {
 		return runApply(ctx, plans, output)
 	}
@@ -60,9 +67,9 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	for _, p := range plans {
 		fmt.Fprintf(&b, "  CNAME %s -> %s (DNS only, replaces the current record)\n", p.Host, p.Attachment.DomainName)
 	}
-	b.WriteString("\nPrerequisite before the switch: every region needs certificates for " + strings.Join(Hosts, ", ") +
-		". HTTP-01 challenges then land on any region, so the edge must forward unknown ACME HTTP-01 tokens to peer regions over the mesh (or use DNS-01).\n")
-	_, err := io.WriteString(output, b.String())
+	b.WriteString("\nPrerequisite before the switch: every region serves and holds certificates for " + strings.Join(hosts, ", ") +
+		" (the edge fetches HTTP-01 tokens it does not hold from peer regions).\n")
+	_, err = io.WriteString(output, b.String())
 	return err
 }
 
