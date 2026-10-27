@@ -130,8 +130,11 @@ func TestBakeTerraBaseSwapAuth503Recovery(t *testing.T) {
 
 func TestBakeLogsOnlyNewFaultsAndCoverage(t *testing.T) {
 	anchor := `{"msg":"This machine's catalog anchor could not be written; it is tried again","Error":"private-marker"}` + "\n"
-	writer := `{"msg":"Waited 5 s for a database's writer and took it: write queued behind holder"}` + "\n"
-	for _, scenario := range []string{"healthy", "anchor", "writer", "split", "truncated", "replaced", "missing", "oversized"} {
+	writer := `{"msg":"Waited 12 s for a database's writer and took it: write queued behind holder"}` + "\n"
+	// gru's serving release and every swap logged 5-6 s waits (2026-10-27): counted, not failed.
+	tolerated := `{"msg":"Waited {Waited} s for a database's writer {Outcome}: {Writer} ({WriterAt}) queued behind {Holder} ({HolderAt})","Waited":5.6}` + "\n"
+	severe := `{"msg":"Waited {Waited} s for a database's writer {Outcome}: {Writer} ({WriterAt}) queued behind {Holder} ({HolderAt})","Waited":10.4}` + "\n"
+	for _, scenario := range []string{"healthy", "tolerated", "anchor", "writer", "severe", "split", "truncated", "replaced", "missing", "oversized"} {
 		t.Run(scenario, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "stdout")
 			if err := os.WriteFile(path, []byte(anchor), 0600); err != nil {
@@ -158,8 +161,12 @@ func TestBakeLogsOnlyNewFaultsAndCoverage(t *testing.T) {
 				appendLog("{\"msg\":\"healthy\"}\n")
 			case "anchor":
 				appendLog(anchor)
+			case "tolerated":
+				appendLog(tolerated + tolerated)
 			case "writer":
 				appendLog(writer)
+			case "severe":
+				appendLog(severe)
 			case "split":
 				appendLog(writer[:15])
 				if err := log.check(); err != nil {
@@ -185,8 +192,12 @@ func TestBakeLogsOnlyNewFaultsAndCoverage(t *testing.T) {
 				appendLog(strings.Repeat("x", (1<<20)+1))
 			}
 			err := log.check()
-			if (err == nil) != (scenario == "healthy") || err != nil && strings.Contains(err.Error(), "private-marker") {
+			passes := scenario == "healthy" || scenario == "tolerated"
+			if (err == nil) != passes || err != nil && strings.Contains(err.Error(), "private-marker") {
 				t.Fatalf("%s: %v", scenario, err)
+			}
+			if scenario == "tolerated" && log.waits != 2 {
+				t.Fatalf("tolerated waits counted %d, want 2", log.waits)
 			}
 		})
 	}

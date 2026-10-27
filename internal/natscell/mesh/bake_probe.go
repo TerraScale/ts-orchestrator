@@ -64,6 +64,13 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 		}
 		if len(logs) != 0 {
 			checks["terrabase-logs"] = "ok"
+			waits := 0
+			for _, log := range logs {
+				waits += log.waits
+			}
+			if waits != 0 {
+				checks["terrabase-writer-waits"] = strconv.Itoa(waits) + " under " + strconv.FormatFloat(severeWriterWait, 'f', -1, 64) + " s"
+			}
 		}
 		if !judgesDependencies(spec.Name) {
 			return checks, nil
@@ -186,7 +193,16 @@ type bakeLog struct {
 	info   os.FileInfo
 	offset int64
 	sum    [32]byte
+	// waits counts tolerated writer waits (under severeWriterWait).
+	waits int
 }
+
+// severeWriterWait is the writer wait that fails a TerraBase bake. TerraBase
+// logs every wait from 5 s. On gru the serving release already waited
+// 5.1-5.7 s every 5-10 minutes, and each swap's catch-up added a burst of
+// 5.0-6.2 s waits (2026-10-27), so failing on any wait failed every gru roll
+// whatever the candidate did. Shorter waits are counted in the verdict.
+const severeWriterWait = 10.0
 
 // Keep only offsets and a checkpoint hash; never retain or report log contents.
 func (l *bakeLog) check() error {
@@ -215,7 +231,10 @@ func (l *bakeLog) check() error {
 		return errors.New("bake TerraBase logs unreadable")
 	}
 	for _, line := range bytes.Split(data, []byte{'\n'}) {
-		var record struct{ Msg string } // Production JSON uses "msg"; decoding is case insensitive.
+		var record struct {
+			Msg    string // Production JSON uses "msg"; decoding is case insensitive.
+			Waited *float64
+		}
 		message := string(line)
 		if json.Unmarshal(line, &record) == nil {
 			message = record.Msg
@@ -224,7 +243,10 @@ func (l *bakeLog) check() error {
 			return errors.New("bake TerraBase catalog anchor failure")
 		}
 		if strings.HasPrefix(message, "Waited ") && strings.Contains(message, " s for a database's writer ") {
-			return errors.New("bake TerraBase writer wait regression")
+			if waited, ok := writerWait(message, record.Waited); !ok || waited >= severeWriterWait {
+				return errors.New("bake TerraBase writer wait regression")
+			}
+			l.waits++
 		}
 	}
 	l.offset += int64(bytes.LastIndexByte(data, '\n') + 1)
@@ -234,4 +256,15 @@ func (l *bakeLog) check() error {
 		return errors.New("bake TerraBase logs unreadable")
 	}
 	return nil
+}
+
+// writerWait reads the seconds of a writer wait record: the structured
+// Waited field, or the number a rendered message starts with.
+func writerWait(message string, field *float64) (float64, bool) {
+	if field != nil {
+		return *field, true
+	}
+	value, _, _ := strings.Cut(strings.TrimPrefix(message, "Waited "), " ")
+	waited, err := strconv.ParseFloat(value, 64)
+	return waited, err == nil
 }
