@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"strings"
 	"time"
 
@@ -188,6 +189,10 @@ func declaredReleasePlacement(next *swarmruntime.ServiceSpec) error {
 	if len(declared.Regions) == 0 {
 		next.Regions = nil
 		next.MilliCPU, next.MemoryMiB = declared.MilliCPU, declared.MemoryMiB
+		// The declared env listens on the task's own ${PORT}, so the release
+		// starts the new task before stopping the old one. Secret references
+		// stay the runtime's.
+		next.Env = maps.Clone(declared.Env)
 	}
 	return nil
 }

@@ -49,8 +49,10 @@ func TestSignedDashboardReleaseExpandsPersistedPlacement(t *testing.T) {
 	before := states[name].entry()
 	expected := previous
 	expected.Image, expected.Regions, expected.MilliCPU = deployment.Image, nil, 200
+	// The declared env moves the dashboard onto its task's ${PORT} (start-first).
+	expected.Env = map[string]string{"ASPNETCORE_URLS": "http://127.0.0.1:${PORT}", "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp", "TS_DASHBOARD_TERRABASE_URL": "http://127.0.0.1:8081"}
 	if !reflect.DeepEqual(before.Spec, &expected) {
-		t.Fatalf("release changed fields outside image/placement/budget: %+v", before.Spec)
+		t.Fatalf("release changed fields outside image/placement/budget/env: %+v", before.Spec)
 	}
 	verdict, err := nodes[0].readBake(name, before.Generation)
 	if err != nil {
