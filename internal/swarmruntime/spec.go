@@ -141,8 +141,16 @@ func decodeContainer(task *api.Task) (*api.ContainerSpec, error) {
 
 // DiskBytes returns the exact, fully reserved discrete disk budget.
 func DiskBytes(resources *api.ResourceRequirements) (int64, error) {
-	if resources == nil || resources.Limits == nil || resources.Reservations == nil || !proto.Equal(resources.Limits, resources.Reservations) {
-		return 0, fmt.Errorf("disk requires equal resource limits and reservations")
+	if resources == nil || resources.Limits == nil || resources.Reservations == nil {
+		return 0, fmt.Errorf("disk requires resource limits and reservations")
+	}
+	// CPU may burst above its scheduler reservation; memory and every discrete
+	// resource remain fully reserved. Keep rejecting unsupported controls.
+	limits, reserved := resources.Limits, resources.Reservations
+	equalCPU := *reserved
+	equalCPU.NanoCPUs = limits.NanoCPUs
+	if reserved.NanoCPUs < 10_000_000 || reserved.NanoCPUs > limits.NanoCPUs || !proto.Equal(limits, &equalCPU) {
+		return 0, fmt.Errorf("disk requires fully reserved memory and generic resources, and CPU reservation within limit")
 	}
 	disk, _, err := containerGenericResources(resources.Limits.Generic)
 	if err != nil {

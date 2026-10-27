@@ -24,7 +24,8 @@ func TestContainerDiskBudget(t *testing.T) {
 		{"absent", func(r *api.ResourceRequirements) { r.Limits.Generic = nil; r.Reservations.Generic = nil }},
 		{"unreserved", func(r *api.ResourceRequirements) { r.Reservations.Generic = nil }},
 		{"different budget", func(r *api.ResourceRequirements) { r.Reservations.Generic[0].GetDiscreteResourceSpec().Value-- }},
-		{"partial CPU reservation", func(r *api.ResourceRequirements) { r.Reservations.NanoCPUs-- }},
+		{"zero CPU reservation", func(r *api.ResourceRequirements) { r.Reservations.NanoCPUs = 0 }},
+		{"CPU reservation exceeds limit", func(r *api.ResourceRequirements) { r.Reservations.NanoCPUs++ }},
 		{"partial memory reservation", func(r *api.ResourceRequirements) { r.Reservations.MemoryBytes-- }},
 		{"zero", func(r *api.ResourceRequirements) {
 			r.Limits.Generic[0].GetDiscreteResourceSpec().Value = 0
