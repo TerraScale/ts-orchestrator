@@ -7,16 +7,47 @@ package geodns
 
 import (
 	"cmp"
+	"encoding/json"
+	"fmt"
+	"io/fs"
 	"math"
 	"slices"
 	"strings"
+
+	"github.com/TerraScale/ts-orchestrator/deploy/m1"
 )
 
 // Zone is the subzone delegated from Cloudflare to OCI DNS.
 const Zone = "edge.terrascale.tech"
 
-// Hosts are the public hostnames every region serves.
-var Hosts = []string{"api.terrascale.tech", "auth.terrascale.tech", "dash.terrascale.tech"}
+// Hosts are the public hostnames every region serves: those of the embedded
+// first-party service declarations that name no regions. A service confined
+// to some regions (ts-auth in gru) keeps its own DNS record.
+func Hosts() ([]string, error) {
+	files, err := fs.Glob(m1.Files, "services/*.json")
+	if err != nil {
+		return nil, err
+	}
+	var hosts []string
+	for _, name := range files {
+		data, err := m1.Files.ReadFile(name)
+		if err != nil {
+			return nil, err
+		}
+		var declared struct {
+			Hostnames []string `json:"hostnames"`
+			Regions   []string `json:"regions"`
+		}
+		if err := json.Unmarshal(data, &declared); err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		if len(declared.Regions) == 0 {
+			hosts = append(hosts, declared.Hostnames...)
+		}
+	}
+	slices.Sort(hosts)
+	return slices.Compact(hosts), nil
+}
 
 // Region is one serving region edge.
 type Region struct {

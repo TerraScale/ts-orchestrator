@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"maps"
 	"strings"
 	"time"
 
@@ -25,7 +27,7 @@ const (
 )
 
 // Release serves app image releases (releasepush.Handler.App) on this host's
-// mesh node: it swaps service's image in its desired spec for every region.
+// mesh node: it updates the image and declared all-region app budgets.
 func Release(state string) func(ctx context.Context, service, image string, claims releasepush.Claims) (json.RawMessage, error) {
 	return func(ctx context.Context, service, image string, claims releasepush.Claims) (json.RawMessage, error) {
 		conn, err := Connect(state)
@@ -87,6 +89,14 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 		return nil, fmt.Errorf("%s runs %s; a release may change only its digest", service, repository(next.Image))
 	}
 	next.Image = image
+	// A new signed release adopts the all-region declaration's placement and
+	// budgets, without replacing runtime credentials, routes or other fields.
+	// Holds retain their placement/order and budgets until explicitly resumed.
+	if deployment != nil && before.HoldAfter == "" {
+		if err := declaredReleasePlacement(&next); err != nil {
+			return nil, err
+		}
+	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
 	// A release of a held service stays held: only `service resume` advances it.
 	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: before.HoldAfter}}
@@ -157,4 +167,32 @@ func desiredStates(ctx context.Context, conn *nats.Conn) (map[string]desiredStat
 		return true
 	})
 	return newest, errors.Join(err, conflict)
+}
+
+// declaredReleasePlacement uses the embedded first-party declaration as the
+// authority for all-region placement and packing, rather than a service list.
+func declaredReleasePlacement(next *swarmruntime.ServiceSpec) error {
+	data, err := m1.Files.ReadFile("services/" + next.Name + ".json")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var declared swarmruntime.ServiceSpec
+	if err := protocol.DecodeStrict(data, &declared, 64<<10); err != nil {
+		return err
+	}
+	if declared.Name != next.Name || repository(declared.Image) != repository(next.Image) {
+		return fmt.Errorf("%s: release declaration identity mismatch", next.Name)
+	}
+	if len(declared.Regions) == 0 {
+		next.Regions = nil
+		next.MilliCPU, next.MemoryMiB = declared.MilliCPU, declared.MemoryMiB
+		// The declared env listens on the task's own ${PORT}, so the release
+		// starts the new task before stopping the old one. Secret references
+		// stay the runtime's.
+		next.Env = maps.Clone(declared.Env)
+	}
+	return nil
 }

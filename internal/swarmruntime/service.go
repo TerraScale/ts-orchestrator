@@ -608,7 +608,19 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		return nil, errors.New("milliCPU must be 10-4000 and memoryMiB 16-24576")
 	}
 	limits := &api.Resources{NanoCPUs: cpu, MemoryBytes: memory, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 10<<30)}}
-	task := api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()},
+	reservations := limits.Copy()
+	if usesTaskPort(env) && len(s.Mounts) == 0 {
+		// Stateless start-first apps pack by reservation and may burst up to
+		// two cores (or their reservation when larger). Fixed-port/mounted
+		// services keep their existing rendering.
+		limits.NanoCPUs = max(cpu, 2_000_000_000)
+		// Read-only root + memory-charged /tmp: 2 GiB covers retained image and
+		// bounded logs; prepareDisk still refuses an image exceeding this budget.
+		limits.Generic = []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 2<<30)}
+		reservations = limits.Copy()
+		reservations.NanoCPUs = cpu
+	}
+	task := api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: limits, Reservations: reservations},
 		Restart: &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(serviceRestartDelay)}}
 	// Refuse at apply what the executor would refuse on every task.
 	if _, err := DecodeContainer(&api.Task{ID: "validation", ServiceID: "validation", Spec: task, ServiceAnnotations: api.Annotations{Labels: labels}}); err != nil {

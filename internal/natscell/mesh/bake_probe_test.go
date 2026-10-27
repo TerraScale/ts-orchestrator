@@ -191,3 +191,49 @@ func TestBakeRejectsReplacedAndAbsentTasks(t *testing.T) {
 		t.Fatal("task replacement or missing runtime identity passed")
 	}
 }
+
+// 2026-10-27 14:57Z: one unready sample of the dashboard candidate (its
+// readiness includes a flapping ts-auth) failed the d5b0e7b release at once.
+func TestBakeCandidateReadinessRecovers(t *testing.T) {
+	if candidateUnready("ts-dashboard", errors.New("running task does not match the requested artifact and generation")) != nil {
+		t.Fatal("a replaced candidate must stay fatal")
+	}
+	for _, mode := range []string{"brief-503", "persistent-503", "http-500"} {
+		t.Run(mode, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				samples := 0
+				v, err := rollout.RunBake(t.Context(), func(context.Context) (map[string]string, error) {
+					samples++
+					checks := map[string]string{}
+					var probe error
+					switch {
+					case mode == "http-500":
+						probe = &swarmruntime.TaskReadinessError{Status: "HTTP 500"}
+					case mode == "persistent-503" || samples == 1:
+						probe = &swarmruntime.TaskReadinessError{Status: "HTTP 503"}
+					}
+					if failure := candidateUnready("ts-dashboard", probe); failure != nil {
+						checks["candidate"] = failure.Status
+						return checks, failure
+					}
+					checks["candidate"] = "ok"
+					return checks, nil
+				})
+				switch mode {
+				case "brief-503":
+					if err != nil || v.RecoverySamples != 1 || v.RecoveryChecks["candidate"] != "HTTP 503" || v.Finished.Sub(v.HealthySince) != rollout.BakeWindow {
+						t.Fatalf("brief candidate 503 did not recover into a full bake: %+v %v", v, err)
+					}
+				case "persistent-503":
+					if err == nil || v.Finished.Sub(v.Started) != rollout.DependencyRecoveryWindow {
+						t.Fatalf("persistent candidate 503 did not fail after the recovery window: %+v %v", v, err)
+					}
+				case "http-500":
+					if err == nil || v.Samples != 1 {
+						t.Fatalf("candidate HTTP 500 must fail at once: %+v %v", v, err)
+					}
+				}
+			})
+		})
+	}
+}

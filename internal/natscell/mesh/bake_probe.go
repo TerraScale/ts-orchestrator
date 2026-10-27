@@ -46,6 +46,10 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 		}
 		defer close()
 		current, err := swarmruntime.ProbeServiceSpecExact(ctx, control, spec)
+		if failure := candidateUnready(spec.Name, err); failure != nil {
+			checks["candidate"] = failure.Status
+			return checks, failure
+		}
 		if err != nil || !bakeSameTasks(ready.Tasks, current.Tasks) {
 			checks["candidate"] = "changed-or-not-ready"
 			return checks, errors.New("bake candidate changed or is not ready")
@@ -62,6 +66,18 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 		}
 		return checks, bakeDependencies(ctx, client, checks)
 	})
+}
+
+// candidateUnready is a running candidate whose application readiness failed.
+// The dashboard's readiness includes ts-auth, so a briefly unready candidate
+// recovers within the same window as a dependency; anything else about the
+// candidate (replaced, superseded, absent) stays fatal.
+func candidateUnready(service string, err error) *rollout.DependencyFailure {
+	var notReady *swarmruntime.TaskReadinessError
+	if !errors.As(err, &notReady) {
+		return nil
+	}
+	return &rollout.DependencyFailure{Service: service, Status: notReady.Status}
 }
 
 func bakeDependencies(ctx context.Context, client *http.Client, checks map[string]string) error {
