@@ -19,19 +19,19 @@ BASELINES = (
         "github.com/moby/swarmkit/v2", "v2.1.2", "third_party/swarmkit",
         "12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb",
         "docs/evidence/core-runtime-contract.md",
-        "fdb4d9159d1f3ba92e4cf761b51abc669ba46ff39ef7336137c4a1bd1fdd2d1e",
+        "c871ea3987e708cadd286421dc90be32db60357a63b88e52cfa2dcf51a0cd1b1",
     ),
     (
         "github.com/nats-io/nats-server/v2", "v2.15.0", "third_party/nats-server",
         "eb763679aa3c24a40dcd3012aa046ad1996d851c",
         "third_party/nats-server/README.terrascale.md",
-        "b7f04ff4bd2d88bc8f268370a4336a4117f88ed7c1a283848896be4798308db7",
+        "0b6bb5e0fd6669ddda19c22fe8e209f5399b81fe227edc8b7145a0d7b8cd3027",
     ),
     (
         "github.com/oracle/oci-go-sdk/v65", "v65.126.0", "third_party/oci-go-sdk",
         "d48ee53a6d31d110dbe1316cf8762a191b916747",
         "docs/patches/oci-sdk-v65.126.0-context/provenance.json",
-        "339380e88e1ed538f2a40f3bdbd10561f96236703f10ed362024807ce593cc3a",
+        "99438f31705273358cd2be7940f800de731b3275c60e7ec608169bb08bca653b",
     ),
 )
 
