@@ -174,6 +174,8 @@ type Node struct {
 	conn   *nats.Conn
 	ctx    context.Context
 	cancel context.CancelFunc
+	// work is every goroutine that writes the node's directory; Close waits for it.
+	work sync.WaitGroup
 
 	mu              sync.Mutex
 	desired         map[string]desiredState
@@ -276,7 +278,7 @@ func start(cfg config) (_ *Node, err error) {
 			node.respond(m, state)
 		},
 		// An apply waits for its tasks to run, so it must not hold up the next message.
-		ApplySubject: func(m *nats.Msg) { go node.handleApply(m) },
+		ApplySubject: func(m *nats.Msg) { node.work.Go(func() { node.handleApply(m) }) },
 	}
 	if cfg.applier == nil {
 		handlers = nil // the region's founder answers; a worker only carries messages
@@ -293,7 +295,7 @@ func start(cfg config) (_ *Node, err error) {
 		cancel()
 		return nil, err
 	}
-	go node.watchPeers(ctx)
+	node.work.Go(func() { node.watchPeers(ctx) })
 	return node, nil
 }
 
@@ -345,6 +347,7 @@ func (n *Node) Close() {
 	n.conn.Close()
 	n.server.Shutdown()
 	n.server.WaitForShutdown()
+	n.work.Wait()
 }
 
 // regions is this region, its seeds and every region its gateways reach now.
@@ -435,7 +438,7 @@ func (n *Node) sync(ctx context.Context) {
 		if applied, err := n.reconcile(ctx, name, n.desired[name]); err != nil {
 			slog.WarnContext(ctx, "mesh reconcile failed", "service", name, "error", err)
 		} else if applied.result == "applied" || applied.result == "unchanged" {
-			go func() { _, _ = n.evaluate(n.ctx, applied) }()
+			n.work.Go(func() { _, _ = n.evaluate(n.ctx, applied) })
 		}
 	}
 }
