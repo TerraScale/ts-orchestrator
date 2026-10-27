@@ -30,6 +30,11 @@ func (d *Deployment) Validate() error {
 	return nil
 }
 
+// ErrSupersededDeployment is an older run than the accepted floor: a newer
+// run of the same repository already released this service, so the older
+// release has nothing left to do.
+var ErrSupersededDeployment = errors.New("deployment is superseded by a newer signed run")
+
 // Accepts refuses older runs and changes to an already approved run.
 func (d *Deployment) Accepts(next *Deployment) error {
 	if err := next.Validate(); err != nil {
@@ -43,8 +48,14 @@ func (d *Deployment) Accepts(next *Deployment) error {
 	}
 	floor, _ := strconv.ParseUint(d.RunID, 10, 64)
 	run, _ := strconv.ParseUint(next.RunID, 10, 64)
-	if next.Repository != d.Repository || run < floor || run == floor && *next != *d {
-		return errors.New("deployment is stale or changes an already approved run")
+	if next.Repository != d.Repository {
+		return errors.New("deployment belongs to another repository")
+	}
+	if run < floor {
+		return ErrSupersededDeployment
+	}
+	if run == floor && *next != *d {
+		return errors.New("deployment changes an already approved run; release from a newer signed run")
 	}
 	return nil
 }

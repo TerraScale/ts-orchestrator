@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats.go"
 )
 
@@ -70,6 +72,10 @@ func PushApp(ctx context.Context, args []string, output io.Writer) error {
 	line, _ := json.Marshal(result)
 	if _, err := fmt.Fprintf(output, "%s\n", line); err != nil {
 		return err
+	}
+	if result.State != "done" && strings.Contains(result.Error, swarmruntime.ErrSupersededDeployment.Error()) {
+		// A newer run of this repository released the service: nothing is left undeployed.
+		return nil
 	}
 	if result.State != "done" {
 		return fmt.Errorf("release %s %s: %s %s", *service, *image, result.State, result.Error)
