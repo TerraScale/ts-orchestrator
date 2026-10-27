@@ -317,8 +317,8 @@ func testHandler(t *testing.T, i *issuer, now time.Time, body []byte) (*Handler,
 		t.Fatal(err)
 	}
 	return &Handler{Verifier: i.verifier(now), Revision: strings.Repeat("f", 40), Binary: binary,
-		RunIDFile: filepath.Join(dir, "run-id"), Client: &http.Client{Transport: rewrite{assets.URL}},
-		Installed: make(chan struct{}, 1)}, binary
+		RunIDFile: filepath.Join(dir, "run-id"), TrialFile: filepath.Join(dir, "trial"), RollbackFile: filepath.Join(dir, "rolled-back"),
+		Client: &http.Client{Transport: rewrite{assets.URL}}, Installed: make(chan struct{}, 1)}, binary
 }
 
 func orchRequest(t *testing.T, token string, body []byte, mutate func(*OrchRelease)) []byte {

@@ -27,8 +27,9 @@ import (
 
 // runSingleHost runs this host's SwarmKit node (plan) with the containerd
 // executor and the release NATS listener (:4222) CI pushes releases to.
-// Outside OCI it needs no Vault, NetBird or admission.
-func runSingleHost(ctx context.Context, state string, output io.Writer, plan hostPlan) error {
+// Outside OCI it needs no Vault, NetBird or admission. Serving the release
+// subjects ends a pushed binary's probation.
+func runSingleHost(ctx context.Context, state string, output io.Writer, plan hostPlan, probation *releasepush.Probation) error {
 	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", state)
 	if err != nil {
 		return err
@@ -108,6 +109,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	if err := notifier.Ready("single-host node ready"); err != nil {
 		return err
 	}
+	probation.Served()
 	defer func() { _ = notifier.Stopping() }()
 	if _, err := fmt.Fprintf(output, "single-host %s %s ready; advertise %s\n", plan.admission.Role, node.ID(), plan.advertise); err != nil {
 		return err

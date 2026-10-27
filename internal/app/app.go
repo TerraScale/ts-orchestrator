@@ -33,6 +33,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
@@ -57,6 +58,12 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	}
 	if os.Geteuid() != 0 {
 		return errors.New("single-host requires root")
+	}
+	// First, before anything that can crash: a pushed binary that never
+	// serves restores the previous one, and this start exits to run it.
+	probation, err := releasepush.Probe(*state, output)
+	if err != nil {
+		return err
 	}
 	plan, err := planHost(ctx, *state, output)
 	if err != nil {
@@ -92,7 +99,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			close(meshDone)
 		}()
 	}
-	err = runSingleHost(ctx, *state, output, plan)
+	err = runSingleHost(ctx, *state, output, plan, probation)
 	cancel()
 	<-meshDone
 	return errors.Join(err, <-edgeDone)

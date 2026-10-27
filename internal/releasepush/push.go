@@ -207,10 +207,15 @@ func pushRegion(ctx context.Context, region Region, release OrchRelease) Result 
 	}
 	deadline := time.Now().Add(3 * time.Minute)
 	for {
-		if version, err := request(ctx, conn, SubjectVersion, nil, time.Second); err == nil && version.Version == release.SHA {
+		version, err := request(ctx, conn, SubjectVersion, nil, time.Second)
+		if err == nil && version.Version == release.SHA {
 			result.ServingMS = since()
 			result.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
 			return result
+		}
+		if err == nil && version.RolledBack == release.SHA {
+			result.State = "rolled_back"
+			return fail(fmt.Errorf("the region rolled back to %s: %s", version.Version, version.Error))
 		}
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			return fail(errors.New("timed out waiting for the region to serve " + release.SHA))
