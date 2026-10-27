@@ -30,6 +30,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	netbirddashboard "github.com/TerraScale/ts-orchestrator/internal/netbird/dashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 )
 
@@ -58,6 +59,7 @@ type Edge struct {
 	// spoolDir holds request bodies too large to keep in memory for a replay.
 	spoolDir           string
 	requestProofSecret atomic.Pointer[[]byte]
+	netbirdDashboard   *netbirddashboard.Handler
 }
 
 // New returns an edge that caches certificates under stateDir/edge-certs.
@@ -75,8 +77,9 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 		},
 		listen:       net.Listen,
 		pgHandshakes: make(chan struct{}, maxPostgresHandshakes), pgSessions: make(chan struct{}, maxPostgresConns),
-		peerAddr: func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
-		spoolDir: filepath.Join(stateDir, "edge-spool"),
+		peerAddr:         func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
+		spoolDir:         filepath.Join(stateDir, "edge-spool"),
+		netbirdDashboard: netbirddashboard.New(stateDir),
 	}
 	e.peers = newPeerTransport(e)
 	e.routes.Store(&map[string]int{})
@@ -179,6 +182,7 @@ func (e *Edge) SetRoutes(web, postgres map[string]int) {
 // Run serves :80, :443, :5432, :7464 and 127.0.0.1:8081 until ctx ends.
 func (e *Edge) Run(ctx context.Context) error {
 	var running sync.WaitGroup
+	running.Go(func() { e.reconcileNetBirdDashboard(ctx) })
 	for _, protocol := range []string{"http", "https", "postgres", "wire", "terrabase"} {
 		running.Go(func() { e.runListener(ctx, protocol) })
 	}
@@ -283,6 +287,11 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.EqualFold(host, netbirdHost) && path.Clean("/"+r.URL.Path) == "/api/setup" {
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if strings.EqualFold(host, netbirdHost) && !netbirdBackend(r) {
+		secureHeaders(w.Header())
+		e.netbirdDashboard.ServeHTTP(w, r)
 		return
 	}
 	if peer {

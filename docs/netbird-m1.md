@@ -41,7 +41,9 @@ One hostname, one backend `127.0.0.1:8095`. The backend multiplexes by request:
    stay open for hours).
 2. Websockets: `/relay`, `/ws-proxy/management`, `/ws-proxy/signal` need
    `Upgrade` pass-through with no idle timeout.
-3. Everything else (`/api/*`, `/oauth2/*`) is ordinary HTTP/1.1 or HTTP/2.
+3. `/api/*` and `/oauth2/*` are ordinary HTTP/1.1 or HTTP/2.
+4. Other paths are the NetBird dashboard, served directly by the Go edge.
+   `/nb-auth` and `/nb-silent-auth` serve the application entrypoint for OIDC.
 
 A `httputil.ReverseProxy` with an `http2.Transport{AllowHTTP: true}` dial to
 the backend (h2c) and `FlushInterval: -1` covers all three.
@@ -116,16 +118,41 @@ sudo netbird up --management-url https://netbird.terrascale.tech --setup-key-fil
 
 ## Login (M1)
 
-The owner `mariogk@terrascale.tech` is NetBird's built-in local account; its
-password is `gru-1-netbird-owner-password` in `gru-vault`. Log in through the
-embedded IdP at `https://netbird.terrascale.tech/oauth2`, for example with
-`netbird up --management-url https://netbird.terrascale.tech` on a PC
-(browser SSO instead of a setup key). M1 runs no NetBird dashboard UI: the
-upstream image rewrites its files at start and listens on 8080, which the
-single-host model (read-only rootfs, uid 65532, TerraBase on 8080) refuses.
-ts-auth OIDC replaces the local account after M1 by changing the `auth`
-block of `ServerConfigTemplate` (`internal/netbird/manager/server.go`), the
-only IdP setting.
+Open `https://netbird.terrascale.tech/` for the NetBird dashboard. The owner
+`mariogk@terrascale.tech` is NetBird's built-in local account; its password is
+`gru-1-netbird-owner-password` in `gru-vault`. The dashboard uses the embedded
+IdP at `https://netbird.terrascale.tech/oauth2`, client `netbird-dashboard`,
+and the registered `/nb-auth` and `/nb-silent-auth` callbacks. The same IdP
+supports browser SSO for `netbird up --management-url https://netbird.terrascale.tech`.
+
+### Managed dashboard
+
+The dashboard is always part of the ts-orch edge on the host serving NetBird.
+It uses the unmodified static export in `netbirdio/dashboard:v2.94.0`, with
+only upstream environment placeholders replaced by the fixed management and
+OIDC settings. Go serves the site directly, so there is no nginx task, writable
+container root or extra listener competing with TerraBase on port 8080.
+
+The architecture-independent static layer is checksum-pinned:
+
+- Image manifest: `sha256:44a250c04d91b46aa666de4b2b25602f0580b64dee0682fedfb9d012cb020ff7`.
+- Static layer: `sha256:39224d252d48fc481e9107bf1a22171c2ef0268f44def5cda41e9ecdd82bbde6`
+  (8,917,025 compressed bytes).
+- Source and license: <https://github.com/netbirdio/dashboard/tree/v2.94.0> (AGPL-3.0).
+
+At startup and every ten minutes ts-orch verifies the compressed layer cached
+under its state directory's `netbird-dashboard/`. A missing or damaged cache
+is downloaded from the public upstream registry, checked before parsing, and
+replaced atomically. Failed fetches retry every fifteen seconds. The verified
+site remains in memory throughout cache repairs or registry outages; the
+first request during initial provisioning answers 503 with `Retry-After`.
+A new ts-orch release containing a new pin upgrades the dashboard automatically.
+No service apply or deployment setting is needed. The layer parser bounds
+expansion and file sizes and rejects links and paths outside the static site.
+
+The API, embedded IdP, gRPC, relay and websocket paths continue through the
+existing reverse proxy; the public `/api/setup` remains forbidden. The
+application's OIDC callbacks allow same-origin framing for silent login.
 
 ## Proof
 
