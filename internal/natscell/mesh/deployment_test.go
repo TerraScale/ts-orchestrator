@@ -3,6 +3,7 @@ package mesh
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,6 +79,22 @@ func TestDeploymentFloorAcceptsOnlyNewerOrIdenticalRun(t *testing.T) {
 	next.RunID = "18446744073709551616"
 	if err := current.Accepts(&next); err == nil {
 		t.Fatal("overflowing run ID accepted")
+	}
+}
+
+func TestOlderRunIsSupersededOnlyWhileTheNewerRunServes(t *testing.T) {
+	floor := Deployment{Repository: "TerraScale/ts-dashboard", RunID: "10", Revision: strings.Repeat("a", 40), Image: "ghcr.io/terrascale/web@sha256:" + strings.Repeat("b", 64)}
+	older := floor
+	older.RunID, older.Image = "9", "ghcr.io/terrascale/web@sha256:"+strings.Repeat("c", 64)
+	serving := swarmruntime.ServiceSpec{Name: "web", Image: floor.Image, Port: 8080, Replicas: 1}
+	if err := (desiredState{Signed: &Entry{Generation: 2, Spec: &serving, Deployment: &floor}, Floor: &floor}).accepts(&older); !errors.Is(err, swarmruntime.ErrSupersededDeployment) {
+		t.Fatalf("older run beside a serving newer run: %v", err)
+	}
+	previous := serving
+	previous.Image = "ghcr.io/terrascale/web@sha256:" + strings.Repeat("d", 64)
+	err := (desiredState{Operator: &Entry{Generation: 3, Spec: &previous, RollbackOf: 2}, Floor: &floor}).accepts(&older)
+	if err == nil || errors.Is(err, swarmruntime.ErrSupersededDeployment) || !strings.Contains(err.Error(), "re-run it") {
+		t.Fatalf("older run beside a rolled-back newer run reported done: %v", err)
 	}
 }
 

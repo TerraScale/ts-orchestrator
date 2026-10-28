@@ -16,6 +16,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/moby/swarmkit/v2/api"
 )
 
 func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, ready swarmruntime.ServiceRollout) (rollout.BakeVerdict, error) {
@@ -63,11 +64,23 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 		}
 		if len(logs) != 0 {
 			checks["terrabase-logs"] = "ok"
+			waits := 0
+			for _, log := range logs {
+				waits += log.waits
+			}
+			if waits != 0 {
+				checks["terrabase-writer-waits"] = strconv.Itoa(waits) + " under " + strconv.FormatFloat(severeWriterWait, 'f', -1, 64) + " s"
+			}
 		}
 		if !judgesDependencies(spec.Name) {
 			return checks, nil
 		}
-		return checks, bakeDependencies(ctx, client, checks)
+		local, err := localDependencies(ctx, control, spec.Name)
+		if err != nil {
+			checks["dependencies"] = "control-unavailable"
+			return checks, errors.New("bake dependency placement unavailable")
+		}
+		return checks, bakeDependencies(ctx, client, checks, a.region, local)
 	})
 }
 
@@ -91,11 +104,31 @@ func judgesDependencies(service string) bool {
 	return slices.Contains([]string{"terrabase", "ts-auth", "ts-dashboard"}, service)
 }
 
-func bakeDependencies(ctx context.Context, client *http.Client, checks map[string]string) error {
+// localDependencies are the ts-auth and ts-dashboard services this region
+// runs, other than service: readiness served from another region cannot
+// judge this candidate (gru's restarts failed sjc and fra TerraBase bakes),
+// and the candidate's own readiness is its task readiness.
+func localDependencies(ctx context.Context, control api.ControlClient, service string) ([]string, error) {
+	dependencies := []string{"ts-auth", "ts-dashboard"}
+	listed, err := control.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: dependencies}})
+	if err != nil {
+		return nil, err
+	}
+	var local []string
+	for _, listed := range listed.Services {
+		if name := listed.Spec.Annotations.Name; name != service && slices.Contains(dependencies, name) {
+			local = append(local, name)
+		}
+	}
+	slices.Sort(local)
+	return slices.Compact(local), nil
+}
+
+func bakeDependencies(ctx context.Context, client *http.Client, checks map[string]string, region string, services []string) error {
 	var failures error
-	for _, service := range []string{"ts-auth", "ts-dashboard"} {
-		checks[service] = bakeDependency(ctx, client, service)
-		if checks[service] != "ok" {
+	for _, service := range services {
+		checks[service] = bakeDependency(ctx, client, region, service)
+		if checks[service] != "ok" && !strings.HasPrefix(checks[service], "served by ") {
 			failures = errors.Join(failures, &rollout.DependencyFailure{Service: service, Status: checks[service]})
 		}
 	}
@@ -118,7 +151,9 @@ func bakeSameTasks(before, now []swarmruntime.ServiceTaskEvidence) bool {
 	return len(a) != 0 && len(slices.Compact(slices.Clone(a))) == len(a) && slices.Equal(a, b)
 }
 
-func bakeDependency(ctx context.Context, client *http.Client, service string) string {
+// bakeDependency is "served by <region>" when another region answered: its
+// readiness cannot judge this region's candidate.
+func bakeDependency(ctx context.Context, client *http.Client, region, service string) string {
 	endpoint := "https://auth.terrascale.tech/readyz"
 	if service == "ts-dashboard" {
 		endpoint = "https://dash.terrascale.tech/readyz"
@@ -131,15 +166,20 @@ func bakeDependency(ctx context.Context, client *http.Client, service string) st
 		return "request-failed"
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return "HTTP " + strconv.Itoa(response.StatusCode)
-	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, (16<<10)+1))
 	var status struct {
 		Status       string
+		Region       string
 		Dependencies map[string]string
 	}
-	if err != nil || len(body) > 16<<10 || json.Unmarshal(body, &status) != nil {
+	parsed := err == nil && len(body) <= 16<<10 && json.Unmarshal(body, &status) == nil
+	if parsed && status.Region != "" && status.Region != region {
+		return "served by " + status.Region
+	}
+	if response.StatusCode != http.StatusOK {
+		return "HTTP " + strconv.Itoa(response.StatusCode)
+	}
+	if !parsed {
 		return "invalid-readiness-body"
 	}
 	if service == "ts-auth" && status.Status == "ready" || service == "ts-dashboard" && status.Status == "ok" && status.Dependencies["ts-auth"] == "ok" && status.Dependencies["terrabase"] == "ok" {
@@ -153,7 +193,16 @@ type bakeLog struct {
 	info   os.FileInfo
 	offset int64
 	sum    [32]byte
+	// waits counts tolerated writer waits (under severeWriterWait).
+	waits int
 }
+
+// severeWriterWait is the writer wait that fails a TerraBase bake. TerraBase
+// logs every wait from 5 s. On gru the serving release already waited
+// 5.1-5.7 s every 5-10 minutes, and each swap's catch-up added a burst of
+// 5.0-6.2 s waits (2026-10-27), so failing on any wait failed every gru roll
+// whatever the candidate did. Shorter waits are counted in the verdict.
+const severeWriterWait = 10.0
 
 // Keep only offsets and a checkpoint hash; never retain or report log contents.
 func (l *bakeLog) check() error {
@@ -182,7 +231,10 @@ func (l *bakeLog) check() error {
 		return errors.New("bake TerraBase logs unreadable")
 	}
 	for _, line := range bytes.Split(data, []byte{'\n'}) {
-		var record struct{ Msg string } // Production JSON uses "msg"; decoding is case insensitive.
+		var record struct {
+			Msg    string // Production JSON uses "msg"; decoding is case insensitive.
+			Waited *float64
+		}
 		message := string(line)
 		if json.Unmarshal(line, &record) == nil {
 			message = record.Msg
@@ -191,7 +243,10 @@ func (l *bakeLog) check() error {
 			return errors.New("bake TerraBase catalog anchor failure")
 		}
 		if strings.HasPrefix(message, "Waited ") && strings.Contains(message, " s for a database's writer ") {
-			return errors.New("bake TerraBase writer wait regression")
+			if waited, ok := writerWait(message, record.Waited); !ok || waited >= severeWriterWait {
+				return errors.New("bake TerraBase writer wait regression")
+			}
+			l.waits++
 		}
 	}
 	l.offset += int64(bytes.LastIndexByte(data, '\n') + 1)
@@ -201,4 +256,15 @@ func (l *bakeLog) check() error {
 		return errors.New("bake TerraBase logs unreadable")
 	}
 	return nil
+}
+
+// writerWait reads the seconds of a writer wait record: the structured
+// Waited field, or the number a rendered message starts with.
+func writerWait(message string, field *float64) (float64, bool) {
+	if field != nil {
+		return *field, true
+	}
+	value, _, _ := strings.Cut(strings.TrimPrefix(message, "Waited "), " ")
+	waited, err := strconv.ParseFloat(value, 64)
+	return waited, err == nil
 }

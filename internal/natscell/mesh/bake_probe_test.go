@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/moby/swarmkit/v2/api"
+	"google.golang.org/grpc"
 )
 
 type bakeRoundTrip func(*http.Request) (*http.Response, error)
@@ -31,6 +34,10 @@ func TestBakeDependencyBodies(t *testing.T) {
 		{"ts-dashboard", `{"status":"ok","dependencies":{"ts-auth":"ok","terrabase":"ok"}}`, "ok", 200},
 		{"ts-dashboard", `{"status":"ok","dependencies":{"terrabase":"ok"}}`, "dependency-unavailable-or-missing", 200},
 		{"ts-dashboard", `ok`, "invalid-readiness-body", 200},
+		{"ts-dashboard", `{"status":"ok","region":"gru","dependencies":{"ts-auth":"ok","terrabase":"ok"}}`, "ok", 200},
+		{"ts-dashboard", `{"status":"unavailable","region":"gru"}`, "HTTP 503", 503},
+		{"ts-dashboard", `{"status":"unavailable","region":"sjc"}`, "served by sjc", 503},
+		{"ts-dashboard", `{"status":"ok","region":"sjc","dependencies":{"ts-auth":"ok","terrabase":"ok"}}`, "served by sjc", 200},
 		{"ts-auth", strings.Repeat("s", (16<<10)+1), "invalid-readiness-body", 200},
 	} {
 		client := &http.Client{Transport: bakeRoundTrip(func(r *http.Request) (*http.Response, error) {
@@ -39,7 +46,7 @@ func TestBakeDependencyBodies(t *testing.T) {
 			}
 			return &http.Response{StatusCode: tc.code, Body: io.NopCloser(strings.NewReader(tc.body)), Header: http.Header{}}, nil
 		})}
-		if got := bakeDependency(t.Context(), client, tc.service); got != tc.want {
+		if got := bakeDependency(t.Context(), client, "gru", tc.service); got != tc.want {
 			t.Fatalf("%s: got %q, want %q", tc.service, got, tc.want)
 		}
 	}
@@ -82,7 +89,7 @@ func TestBakeTerraBaseSwapAuth503Recovery(t *testing.T) {
 				})}
 				v, err := rollout.RunBake(t.Context(), func(ctx context.Context) (map[string]string, error) {
 					checks := map[string]string{"candidate": "ok", "terrabase-logs": "ok"}
-					return checks, bakeDependencies(ctx, client, checks)
+					return checks, bakeDependencies(ctx, client, checks, "gru", []string{"ts-auth", "ts-dashboard"})
 				})
 				if auth != v.Samples || dashboard != v.Samples {
 					t.Fatalf("lost dependency checks/evidence: auth=%d dashboard=%d verdict=%+v", auth, dashboard, v)
@@ -123,8 +130,11 @@ func TestBakeTerraBaseSwapAuth503Recovery(t *testing.T) {
 
 func TestBakeLogsOnlyNewFaultsAndCoverage(t *testing.T) {
 	anchor := `{"msg":"This machine's catalog anchor could not be written; it is tried again","Error":"private-marker"}` + "\n"
-	writer := `{"msg":"Waited 5 s for a database's writer and took it: write queued behind holder"}` + "\n"
-	for _, scenario := range []string{"healthy", "anchor", "writer", "split", "truncated", "replaced", "missing", "oversized"} {
+	writer := `{"msg":"Waited 12 s for a database's writer and took it: write queued behind holder"}` + "\n"
+	// gru's serving release and every swap logged 5-6 s waits (2026-10-27): counted, not failed.
+	tolerated := `{"msg":"Waited {Waited} s for a database's writer {Outcome}: {Writer} ({WriterAt}) queued behind {Holder} ({HolderAt})","Waited":5.6}` + "\n"
+	severe := `{"msg":"Waited {Waited} s for a database's writer {Outcome}: {Writer} ({WriterAt}) queued behind {Holder} ({HolderAt})","Waited":10.4}` + "\n"
+	for _, scenario := range []string{"healthy", "tolerated", "anchor", "writer", "severe", "split", "truncated", "replaced", "missing", "oversized"} {
 		t.Run(scenario, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "stdout")
 			if err := os.WriteFile(path, []byte(anchor), 0600); err != nil {
@@ -151,8 +161,12 @@ func TestBakeLogsOnlyNewFaultsAndCoverage(t *testing.T) {
 				appendLog("{\"msg\":\"healthy\"}\n")
 			case "anchor":
 				appendLog(anchor)
+			case "tolerated":
+				appendLog(tolerated + tolerated)
 			case "writer":
 				appendLog(writer)
+			case "severe":
+				appendLog(severe)
 			case "split":
 				appendLog(writer[:15])
 				if err := log.check(); err != nil {
@@ -178,8 +192,12 @@ func TestBakeLogsOnlyNewFaultsAndCoverage(t *testing.T) {
 				appendLog(strings.Repeat("x", (1<<20)+1))
 			}
 			err := log.check()
-			if (err == nil) != (scenario == "healthy") || err != nil && strings.Contains(err.Error(), "private-marker") {
+			passes := scenario == "healthy" || scenario == "tolerated"
+			if (err == nil) != passes || err != nil && strings.Contains(err.Error(), "private-marker") {
 				t.Fatalf("%s: %v", scenario, err)
+			}
+			if scenario == "tolerated" && log.waits != 2 {
+				t.Fatalf("tolerated waits counted %d, want 2", log.waits)
 			}
 		})
 	}
@@ -243,6 +261,44 @@ func TestOnlyTheAuthChainBakesAgainstAuthAndDashboardReadiness(t *testing.T) {
 		"app-canary": false, "whoami": false, "netbird-server": false} {
 		if got := judgesDependencies(service); got != want {
 			t.Errorf("%s judges ts-auth/ts-dashboard readiness: %t, want %t", service, got, want)
+		}
+	}
+}
+
+type placementControl struct {
+	api.ControlClient
+	names []string
+}
+
+func (c placementControl) ListServices(_ context.Context, request *api.ListServicesRequest, _ ...grpc.CallOption) (*api.ListServicesResponse, error) {
+	var listed []*api.Service
+	for _, name := range c.names {
+		if slices.Contains(request.Filters.Names, name) {
+			listed = append(listed, &api.Service{Spec: api.ServiceSpec{Annotations: api.Annotations{Name: name}}})
+		}
+	}
+	return &api.ListServicesResponse{Services: listed}, nil
+}
+
+// 2026-10-28: gru restarts blipped auth readiness and failed sjc and fra
+// TerraBase bakes; sjc's dashboard candidate failed on gru's dashboard.
+func TestBakeJudgesOnlyDependenciesThisRegionRuns(t *testing.T) {
+	gru := placementControl{names: []string{"terrabase", "ts-auth", "ts-dashboard"}}
+	sjc := placementControl{names: []string{"terrabase", "ts-dashboard"}}
+	for _, tc := range []struct {
+		control placementControl
+		service string
+		want    []string
+	}{
+		{gru, "terrabase", []string{"ts-auth", "ts-dashboard"}},
+		{gru, "ts-auth", []string{"ts-dashboard"}},
+		{gru, "ts-dashboard", []string{"ts-auth"}},
+		{sjc, "terrabase", []string{"ts-dashboard"}},
+		{sjc, "ts-dashboard", nil},
+	} {
+		got, err := localDependencies(t.Context(), tc.control, tc.service)
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Errorf("%v %s judges %v, want %v (%v)", tc.control.names, tc.service, got, tc.want, err)
 		}
 	}
 }

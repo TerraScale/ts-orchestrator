@@ -116,7 +116,11 @@ func TestRegionalReleasePreservesHeldUnsignedAndUnrelatedPlacement(t *testing.T)
 				node.mu.Unlock()
 				expected := previous
 				expected.Image = image
-				if entry.HoldAfter != test.hold || !reflect.DeepEqual(entry.Spec, &expected) {
+				hold := test.hold
+				if !test.unsigned {
+					hold = "" // a signed release advances past the canary through bake gating
+				}
+				if entry.HoldAfter != hold || !reflect.DeepEqual(entry.Spec, &expected) {
 					t.Fatalf("%s changed held/unsigned/unrelated spec: %+v", node.cfg.region, entry)
 				}
 				applier := node.cfg.applier.(*evidenceApplier)
@@ -182,5 +186,36 @@ func TestIdenticalSignedRegionalReceiptRetainsOldPlacement(t *testing.T) {
 		if entry.Generation != generation || !reflect.DeepEqual(entry.Spec, &previous) {
 			t.Fatalf("%s replay expanded an old signed receipt: %+v", node.cfg.region, entry)
 		}
+	}
+}
+
+// 2026-10-28: terrabase's gru bake failed while auth was down; every retry
+// resumed that generation and replayed its failed verdict.
+func TestSignedReleaseRetryRebakesAFailedGeneration(t *testing.T) {
+	const name = "ts-dashboard"
+	nodes, previous := regionalReleaseFixture(t, name, "")
+	deployment := regionalDeployment(previous)
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	states, err := desiredStates(t.Context(), nodes[0].conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := states[name].entry()
+	record, err := nodes[0].readBake(name, before.Generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Bake.Reason = "bake ts-auth readiness: HTTP 503"
+	if err := nodes[0].saveBake(nodes[0].bakePath(name, before.Generation), record); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	states, err = desiredStates(t.Context(), nodes[0].conn)
+	if err != nil || states[name].entry().Generation <= before.Generation {
+		t.Fatalf("retry replayed failed generation %d: %+v, %v", before.Generation, states[name].entry(), err)
 	}
 }
