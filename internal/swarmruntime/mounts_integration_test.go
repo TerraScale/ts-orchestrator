@@ -63,6 +63,23 @@ func TestContainerdBindMountSurvivesTaskRestart(t *testing.T) {
 	run("reader", `set -eu; test "$(cat /data/value)" = persisted; printf again >> /data/value; touch /tmp/scratch`)
 	// Without the host resolv.conf the image's empty /etc falls back to [::1]:53 and fails.
 	run("resolver", `set -eu; test -s /etc/resolv.conf; grep -q localhost /etc/hosts; nslookup github.com`)
+	// The runtime must see its enforced limits, without the host's cgroup tree or write access.
+	run("cgroup", `set -eu
+test "$(cat /proc/self/cgroup)" = '0::/'
+test "$(cat /sys/fs/cgroup/cpu.max)" = '25000 100000'
+test "$(cat /sys/fs/cgroup/memory.max)" = '67108864'
+awk '$5 == "/sys/fs/cgroup" {
+    readonly = 0
+    count = split($6, options, ",")
+    for (i = 1; i <= count; i++) if (options[i] == "ro") readonly = 1
+    for (i = 7; i <= NF; i++) if ($i == "-" && $(i+1) == "cgroup2" && readonly) found = 1
+}
+END { exit !found }' /proc/self/mountinfo
+test ! -e /sys/fs/cgroup/system.slice
+if (printf '25000 100000' > /sys/fs/cgroup/cpu.max) 2>/dev/null; then
+    echo 'container could write its CPU limit' >&2
+    exit 1
+fi`)
 	data, err := os.ReadFile(filepath.Join(source, "value"))
 	if err != nil || string(data) != "persistedagain" {
 		t.Fatalf("host data = %q, %v", data, err)

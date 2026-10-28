@@ -213,6 +213,10 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 			oci.WithRlimit(&runtimespec.POSIXRlimit{Type: "RLIMIT_NOFILE", Hard: containerOpenFiles, Soft: containerOpenFiles}),
 			oci.WithMemoryLimit(uint64(limits.MemoryBytes)), oci.WithMemorySwap(limits.MemoryBytes),
 			containerCPU(c.task.Spec.Resources),
+			// Expose only this task's cgroup so runtimes discover their enforced limits.
+			oci.WithLinuxNamespace(runtimespec.LinuxNamespace{Type: runtimespec.CgroupNamespace}),
+			oci.WithMounts([]runtimespec.Mount{{Destination: "/sys/fs/cgroup", Type: "cgroup", Source: "cgroup",
+				Options: []string{"nosuid", "noexec", "nodev", "ro"}}}),
 			// Host netns, so the host's resolvers (including the 127.0.0.53 stub) are reachable as-is.
 			oci.WithHostNamespace(runtimespec.NetworkNamespace), oci.WithHostResolvconf, oci.WithHostHostsFile,
 			// The root is read-only; runtimes such as .NET single-file apps need a scratch
