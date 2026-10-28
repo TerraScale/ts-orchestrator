@@ -65,6 +65,19 @@ func Wait(ctx context.Context, port uint16, deadline time.Time) {
 	}
 }
 
+// spliced maps the client port of each forwarded connection (the edge's side)
+// to the task port it reaches, while the connection lives.
+var spliced sync.Map // uint16 -> uint16
+
+// Spliced returns the task port a forwarded connection from clientPort reaches.
+func Spliced(clientPort uint16) (uint16, bool) {
+	target, ok := spliced.Load(clientPort)
+	if !ok {
+		return 0, false
+	}
+	return target.(uint16), true
+}
+
 type forwarder struct {
 	targets []uint16 // ready task ports, newest last
 	stop    chan struct{}
@@ -156,10 +169,11 @@ func (f *forwarder) run(port uint16) {
 func (f *forwarder) forward(conn net.Conn) {
 	defer conn.Close()
 	var backend net.Conn
+	var target uint16
 	// A target that just left (its Unserve raced this accept) refuses; the next one takes the connection.
 	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(bindRetry) {
-		target, ok := f.target()
-		if !ok {
+		var ok bool
+		if target, ok = f.target(); !ok {
 			return
 		}
 		var err error
@@ -171,6 +185,10 @@ func (f *forwarder) forward(conn net.Conn) {
 		}
 	}
 	defer backend.Close()
+	if client, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		spliced.Store(uint16(client.Port), target)
+		defer spliced.Delete(uint16(client.Port))
+	}
 	done := make(chan struct{})
 	go func() {
 		_, _ = io.Copy(backend, conn)
