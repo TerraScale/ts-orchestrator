@@ -66,10 +66,10 @@ func containerdTaskPortUpdateServesThroughout(t *testing.T, ctx context.Context,
 		}
 		apply("v1", false)
 		// The node offers the scheduler its free disk plus the running task's
-		// 10 GiB budget, which the scheduler subtracts again.
+		// 2 GiB budget, which the scheduler subtracts again.
 		free, freeErr := e.diskCapacity(ctx)
 		offer, offerErr := e.schedulableDisk(ctx)
-		if freeErr != nil || offerErr != nil || offer < free+(10<<30)-(1<<30) {
+		if freeErr != nil || offerErr != nil || offer < free+(2<<30)-(1<<30) {
 			t.Fatalf("disk offer %d with %d free: %v %v", offer, free, freeErr, offerErr)
 		}
 
