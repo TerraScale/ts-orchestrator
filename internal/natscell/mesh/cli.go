@@ -101,13 +101,21 @@ func applySpec(ctx context.Context, conn *nats.Conn, spec swarmruntime.ServiceSp
 	return append(rows, back...), errors.Join(failed, errors.New("rolled back to "+before.Spec.Image))
 }
 
+// applyRepublish re-sends a pending apply. A region whose ts-orch restarted
+// (each main merge deploys it) lost the request: on 2026-10-28 16:22Z sjc and
+// fra restarted during ts-dashboard run 40724456820 and never answered. A
+// region already working on it answers the same request again (an apply is
+// idempotent and joins its bake); the first reply per region counts.
+const applyRepublish = 30 * time.Second
+
 // gather publishes a request and returns the regions it expects (the seeds
-// plus every region a reply names) and each one's reply, once all replied or
-// wait elapsed. rtt stamps each reply's ElapsedMS with its round trip.
-func gather(ctx context.Context, conn *nats.Conn, subject string, payload []byte, wait time.Duration, rtt bool) ([]string, map[string]Reply, error) {
+// plus every region a reply names) and each one's first reply, once all
+// replied or wait elapsed. rtt stamps each reply's ElapsedMS with its round
+// trip. A positive again re-publishes the request while regions are pending.
+func gather(ctx context.Context, conn *nats.Conn, subject string, payload []byte, wait, again time.Duration, rtt bool) ([]string, map[string]Reply, error) {
 	sent := time.Now()
 	regions, replies := Regions(), map[string]Reply{}
-	err := collect(ctx, conn, subject, payload, math.MaxInt, wait, func(data []byte) bool {
+	err := collectAgain(ctx, conn, subject, payload, math.MaxInt, wait, again, func(data []byte) bool {
 		var reply Reply
 		if protocol.DecodeTolerant(data, &reply, maxWire) != nil {
 			return true
@@ -115,7 +123,9 @@ func gather(ctx context.Context, conn *nats.Conn, subject string, payload []byte
 		if rtt {
 			reply.ElapsedMS = time.Since(sent).Milliseconds()
 		}
-		replies[reply.Region] = reply
+		if _, seen := replies[reply.Region]; !seen {
+			replies[reply.Region] = reply
+		}
 		pending := false
 		for _, region := range slices.Concat(regions, reply.Regions) {
 			if !slices.Contains(regions, region) {
@@ -136,7 +146,7 @@ func send(ctx context.Context, conn *nats.Conn, request ApplyRequest, wait time.
 	if err != nil {
 		return nil, err
 	}
-	regions, replies, err := gather(ctx, conn, ApplySubject, payload, wait, false)
+	regions, replies, err := gather(ctx, conn, ApplySubject, payload, wait, applyRepublish, false)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +212,7 @@ func Ping(ctx context.Context, conn *nats.Conn, wait time.Duration, output io.Wr
 
 // ping returns one row per known region, ElapsedMS being its round trip.
 func ping(ctx context.Context, conn *nats.Conn, wait time.Duration) ([]Reply, error) {
-	regions, answers, err := gather(ctx, conn, PingSubject, nil, wait, true)
+	regions, answers, err := gather(ctx, conn, PingSubject, nil, wait, 0, true)
 	if err != nil {
 		return nil, err
 	}

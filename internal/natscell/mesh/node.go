@@ -752,7 +752,8 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 	current := before.entry()
 	// An older generation here never took the failed rollout (an earlier region
 	// stopped it): it takes the rollback entry too.
-	if request.Entry.RollbackOf != 0 && current.Generation > request.Entry.RollbackOf {
+	// A re-published rollback finds its own entry already applied: it is the same request.
+	if request.Entry.RollbackOf != 0 && current.Generation > request.Entry.RollbackOf && !reflect.DeepEqual(current, request.Entry) {
 		return applyResult{}, errors.New("rollback superseded by another apply")
 	}
 	if err := before.accepts(request.Entry.Deployment); err != nil {
@@ -867,6 +868,12 @@ func validEntry(name string, entry Entry) error {
 // collect publishes a request and hands each reply to each until want
 // replies arrived, each returns false, or wait elapses.
 func collect(ctx context.Context, conn *nats.Conn, subject string, payload []byte, want int, wait time.Duration, each func([]byte) bool) error {
+	return collectAgain(ctx, conn, subject, payload, want, wait, 0, each)
+}
+
+// collectAgain is collect that re-publishes the request every again (when
+// positive) until it is done, for receivers that may have restarted.
+func collectAgain(ctx context.Context, conn *nats.Conn, subject string, payload []byte, want int, wait, again time.Duration, each func([]byte) bool) error {
 	inbox := conn.NewRespInbox()
 	replies := make(chan *nats.Msg, 64)
 	sub, err := conn.ChanSubscribe(inbox, replies)
@@ -879,13 +886,24 @@ func collect(ctx context.Context, conn *nats.Conn, subject string, payload []byt
 	}
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
-	for got := 0; got < want; got++ {
+	var republish <-chan time.Time
+	if again > 0 {
+		tick := time.NewTicker(again)
+		defer tick.Stop()
+		republish = tick.C
+	}
+	for got := 0; got < want; {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-timer.C:
 			return nil
+		case <-republish:
+			if err := conn.PublishRequest(subject, inbox, payload); err != nil {
+				return err
+			}
 		case m := <-replies:
+			got++
 			if !each(m.Data) {
 				return nil
 			}
