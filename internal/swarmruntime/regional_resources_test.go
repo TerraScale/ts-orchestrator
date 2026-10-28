@@ -113,7 +113,7 @@ func TestRegionalAppResourceBudgets(t *testing.T) {
 
 }
 
-func TestContainerCPUBurstUsesReservationWeight(t *testing.T) {
+func TestContainerCPUKeepsDefaultWeight(t *testing.T) {
 	for _, burst := range []bool{false, true} {
 		r := containerTestResources(200_000_000, 2048<<20)
 		if burst {
@@ -127,12 +127,10 @@ func TestContainerCPUBurstUsesReservationWeight(t *testing.T) {
 		if cpu.Quota == nil || *cpu.Quota != r.Limits.NanoCPUs/10_000 || cpu.Period == nil || *cpu.Period != 100_000 {
 			t.Fatalf("wrong CFS limit: %+v", cpu)
 		}
-		if burst {
-			if cpu.Shares == nil || *cpu.Shares != 204 {
-				t.Fatalf("reservation weight: %+v", cpu)
-			}
-		} else if cpu.Shares != nil {
-			t.Fatal("legacy equal budgets must retain their existing cgroup spec")
+		// A bursting app competes at TerraBase's weight; a reservation-sized
+		// weight starved its startup under load.
+		if cpu.Shares != nil {
+			t.Fatalf("burst=%v set a scheduler weight: %+v", burst, cpu)
 		}
 	}
 }
