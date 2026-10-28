@@ -5,14 +5,10 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-// NanoCPUs in Limits becomes the cgroup CFS quota, not its scheduler weight.
-// Split budgets also set proportional shares from Reservations so bursting
-// tasks compete by their packed CPU. Equal budgets keep the existing OCI spec.
+// NanoCPUs in Limits becomes the cgroup CFS quota. Every task keeps the
+// default scheduler weight: TerraBase and other equal-budget tasks run at it,
+// so a lower weight for a bursting app starved its startup on 2-CPU hosts
+// (the sjc dashboard took 65 s to become ready on 2026-10-28 instead of 13 s).
 func containerCPU(resources *api.ResourceRequirements) oci.SpecOpts {
-	quota := oci.WithCPUCFS(resources.Limits.NanoCPUs/10_000, 100_000)
-	if reserved := resources.Reservations; reserved != nil && reserved.NanoCPUs < resources.Limits.NanoCPUs {
-		shares := uint64(max(int64(2), reserved.NanoCPUs*1024/1_000_000_000))
-		return oci.Compose(quota, oci.WithCPUShares(shares))
-	}
-	return quota
+	return oci.WithCPUCFS(resources.Limits.NanoCPUs/10_000, 100_000)
 }

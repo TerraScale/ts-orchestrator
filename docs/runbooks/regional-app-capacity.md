@@ -19,8 +19,9 @@ Dashboard reserves **200m CPU and 2048 MiB memory**. Auth retains its existing
 TaskPort services have a CPU limit of **2 CPUs**, or their reservation if larger,
 and reserve **2 GiB disk**. Their update order remains start-first. Memory limits
 remain equal to reservations. The executor applies CPU limits as CFS quota with
-a 100 ms period; when CPU budgets differ it sets proportional shares from the
-reservation (200m becomes 204 shares). Packing uses reservations, so unused CPU
+a 100 ms period and leaves every task at the default scheduler weight, the one
+TerraBase runs at (a reservation-sized weight starved the dashboard's startup on
+2-CPU hosts under load). Packing uses reservations, so unused CPU
 can serve bursts without imposing a 200m execution cap. This does not change
 TerraBase's current 1-CPU limit.
 
@@ -72,8 +73,8 @@ The executor's equal-budget OCI CPU options also remain unchanged.
 captured from main `784000657` before the renderer change, including task,
 endpoint and update policy. It also replays the persisted generation and region
 through the actual `ApplyServiceSpec` path for gru, sjc and fra and asserts zero
-service writes. The OCI test verifies equal-budget tasks receive their original
-CFS options without adding shares. The existing executor reconnect path loads
+service writes. The OCI test verifies every task receives only its CFS quota and
+period, never a scheduler weight. The existing executor reconnect path loads
 `ts-<taskID>` and validates its unchanged task fingerprint; `Executor.Close`
 closes its client and controller `Close` releases bookkeeping without killing
 the process. The existing containerd integration test
