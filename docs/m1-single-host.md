@@ -175,3 +175,8 @@ It exits non-zero if any region failed; one region's failure never stops the oth
 ## Operator commands
 
 `service ps|logs|inspect` and `events`: see [m1-runbook.md](m1-runbook.md#operator-commands).
+
+Image GC runs every ten minutes and after successful bakes, retaining desired,
+rollback, floor and container images; shared pull/prepare locks and containerd
+leases protect in-flight work. Stateless services reserve 2 GiB of disk (their
+retained image and bounded logs); only services with mounts keep 10 GiB.

@@ -1,6 +1,7 @@
 package swarmruntime
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
@@ -140,6 +141,24 @@ func TestFunctionWorkerSlotWithDiskAdvertisement(t *testing.T) {
 	for _, invalid := range []*api.GenericResource{nil, genericresource.NewString(DiskResource, "64MiB"), genericresource.NewDiscrete(DiskResource, 1), genericresource.NewDiscrete(FunctionWorkerSlot, 1), genericresource.NewDiscrete("unknown", 1)} {
 		if hasFunctionWorkerSlot(append(resources[:len(resources):len(resources)], invalid)) {
 			t.Fatal("invalid resource advertisement accepted")
+		}
+	}
+}
+
+func TestServiceDiskFollowsVolumes(t *testing.T) {
+	for _, name := range []string{"whoami", "app-canary", "terrabase"} {
+		spec := ServiceSpec{Name: name, Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}
+		want := int64(2 << 30)
+		if name == "terrabase" {
+			spec.Mounts = []ServiceMount{{Source: "/var/lib/ts-data/terrabase", Target: "/data"}}
+			want = 10 << 30
+		}
+		swarm, err := spec.SwarmSpec()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if disk, err := DiskBytes(swarm.Task.Resources); err != nil || disk != want {
+			t.Fatalf("%s: disk=%d want=%d err=%v", name, disk, want, err)
 		}
 	}
 }

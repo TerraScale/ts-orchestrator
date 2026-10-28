@@ -380,9 +380,16 @@ func (n *Node) regions() []string {
 func (n *Node) run(ctx context.Context) {
 	tick := time.NewTicker(n.cfg.every)
 	defer tick.Stop()
+	var collected time.Time
 	for {
 		if n.cfg.applier != nil {
 			n.sync(ctx)
+			if time.Since(collected) >= 10*time.Minute {
+				n.mu.Lock()
+				n.collectImages(ctx)
+				n.mu.Unlock()
+				collected = time.Now()
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -880,4 +887,35 @@ func writePrivate(path string, data []byte) error {
 	}
 	defer dir.Close()
 	return dir.Sync()
+}
+
+// Called with n.mu held so a new desired image cannot race collection.
+func (n *Node) collectImages(ctx context.Context) {
+	a, ok := n.cfg.applier.(swarmApplier)
+	if !ok {
+		return
+	}
+	// Digest matching conservatively retains both candidates and every floor.
+	retained, err := protocol.EncodeJSON(n.desired)
+	if err != nil {
+		slog.WarnContext(ctx, "image retention unavailable", "error", err)
+		return
+	}
+	client, close, err := a.control()
+	if err == nil {
+		defer close()
+		var services *api.ListServicesResponse
+		services, err = client.ListServices(ctx, &api.ListServicesRequest{})
+		if err == nil {
+			var executor *swarmruntime.Executor
+			executor, err = swarmruntime.NewExecutor(swarmruntime.HostContainerdSocket, a.state)
+			if err == nil {
+				defer executor.Close()
+				err = executor.CollectImages(ctx, services.Services, string(retained))
+			}
+		}
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "image collection deferred", "error", err)
+	}
 }

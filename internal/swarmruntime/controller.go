@@ -111,8 +111,12 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 	if resolved == nil {
 		return errors.New("registry admission returned no resolver")
 	}
-	// Pull and unpack outside executor.mu so tasks prepare in parallel; the
-	// image record keeps the content, and the locked section re-verifies it.
+	guard, err := c.executor.imageGuard(ctx)
+	if err != nil {
+		return err
+	}
+	defer guard.Close()
+	// Keep the image record through pull, metadata creation and snapshot pinning.
 	if _, err := c.container(ctx); errdefs.IsNotFound(err) {
 		if err := c.diskAvailable(ctx); err != nil {
 			return err

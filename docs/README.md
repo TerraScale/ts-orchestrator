@@ -54,4 +54,5 @@ These pages describe the current greenfield Go implementation.
 | [Generic workloads](generic-workloads.md) | The generic workload spec on apps and machines, artifact kinds, native and OCI runtime drivers, and TerraBase and ts-auth as templates |
 | [Node operations](node-operations.md) | TS-632: `ts-orch node drain\|undrain\|reboot\|resize`, fence holders, the quorum guard and deploys that drain first; never the oci CLI |
 | [Zero-downtime TerraBase rollouts](terrabase-zero-downtime-rollouts.md) | TS-571: L7 backend-set reconciler with drain and health guard, seats as backends, one seat at a time through a restart permit |
+| [Deploy timings 2026-10-28](benchmarks/deploy-timings-20261028.md) | Pull, ready and bake per region for real releases before and after the 30 s bake |
 | [Deployment convergence benchmark](benchmarks/deployment-convergence-20260925.md) | In-memory deploy-to-apply latency measurement |

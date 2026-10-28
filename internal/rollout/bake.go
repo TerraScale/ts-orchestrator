@@ -11,6 +11,11 @@ const BakeWindow = 30 * time.Second
 const DependencyRecoveryWindow = 30 * time.Second
 const MaxBakeWindow = 2*BakeWindow + DependencyRecoveryWindow
 
+// sampleBudget bounds one observation: an HTTPS readiness probe (3 s) plus
+// control reads. It is not the poll interval: with 2 s polling, a slow probe
+// timed out the sample and failed ts-dashboard's fra bakes (8894ff6, 9bf95a0).
+const sampleBudget = 5 * time.Second
+
 // DependencyFailure distinguishes swap-induced dependency recovery from a
 // candidate or storage regression, which must always hold immediately.
 type DependencyFailure struct{ Service, Status string }
@@ -99,7 +104,7 @@ func runBake(ctx context.Context, probe func(context.Context) (map[string]string
 		if !failureSince.IsZero() && time.Since(failureSince) >= DependencyRecoveryWindow {
 			return v, lastFailure
 		}
-		deadline := time.Now().Add(poll)
+		deadline := time.Now().Add(max(poll, sampleBudget))
 		if !failureSince.IsZero() && failureSince.Add(DependencyRecoveryWindow).Before(deadline) {
 			deadline = failureSince.Add(DependencyRecoveryWindow)
 		}

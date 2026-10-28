@@ -185,6 +185,9 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 		record.Bake.Finished = time.Now().UTC()
 	}
 	saveErr := n.saveBake(key, record)
+	if err == nil && saveErr == nil {
+		n.collectImages(ctx)
+	}
 	slog.InfoContext(ctx, "regional rollout bake verdict", "region", n.cfg.region, "service", spec.Name, "generation", spec.Generation, "image", spec.Image, "bake", record.Bake, "save_error", saveErr)
 	return record, errors.Join(err, saveErr)
 }

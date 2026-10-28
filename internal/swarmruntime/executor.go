@@ -232,7 +232,16 @@ func (e *Executor) pullImage(ctx context.Context, ref string, resolver remotes.R
 	lock, _ := e.pulls.LoadOrStore(ref, new(sync.Mutex))
 	lock.(*sync.Mutex).Lock()
 	defer lock.(*sync.Mutex).Unlock()
-	ctx = runtimeContext(ctx)
+	guard, err := e.imageGuard(ctx)
+	if err != nil {
+		return err
+	}
+	defer guard.Close()
+	ctx, release, err := e.client.WithLease(runtimeContext(ctx))
+	if err != nil {
+		return err
+	}
+	defer release(context.WithoutCancel(ctx))
 	image, err := e.client.GetImage(ctx, ref)
 	if errdefs.IsNotFound(err) {
 		_, err = e.client.Pull(ctx, ref, containerd.WithResolver(resolver), containerd.WithPullUnpack, containerd.WithPullSnapshotter(imageSnapshotter))
