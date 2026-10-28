@@ -39,6 +39,17 @@ func Held(port uint16) bool {
 	return ok
 }
 
+// HeldPorts lists every port whose task is being replaced.
+func HeldPorts() []uint16 {
+	var ports []uint16
+	held.Range(func(port, _ any) bool {
+		ports = append(ports, port.(uint16))
+		return true
+	})
+	slices.Sort(ports)
+	return ports
+}
+
 // Wait returns once port is not held, deadline passes or ctx ends.
 func Wait(ctx context.Context, port uint16, deadline time.Time) {
 	ch, ok := held.Load(port)
