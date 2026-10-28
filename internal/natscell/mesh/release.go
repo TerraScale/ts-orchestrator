@@ -161,7 +161,7 @@ func failedAnywhere(ctx context.Context, conn *nats.Conn, name string, generatio
 	failed := false
 	_ = collect(ctx, conn, StateSubject, nil, len(Regions()), stateWait, func(data []byte) bool {
 		var reply stateReply
-		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && reply.Failed[name] >= generation {
+		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && (reply.Failed[name] >= generation || reply.Excused[name] >= generation) {
 			failed = true
 		}
 		return true

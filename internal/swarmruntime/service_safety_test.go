@@ -369,8 +369,8 @@ func TestDeploymentAttemptFencesRuntime(t *testing.T) {
 		next := *d
 		next.RunAttempt, next.Image = 2, "ghcr.io/terrascale/web@sha256:"+strings.Repeat("c", 64)
 		spec.Generation, spec.RollbackOf, spec.Image, spec.Deployment, spec.DeploymentFloor = 12, 0, next.Image, &next, &next
-		err := admitServiceSpec(control.service.Spec.Annotations.Labels, spec)
-		if (err == nil) != (rollback != 0) {
+		// A re-run's rebuilt image retries the run, serving or rolled back.
+		if err := admitServiceSpec(control.service.Spec.Annotations.Labels, spec); err != nil {
 			t.Fatalf("rollback=%d: %v", rollback, err)
 		}
 		if next.Accepts(d) == nil {

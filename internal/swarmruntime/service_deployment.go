@@ -40,7 +40,11 @@ var ErrSupersededDeployment = errors.New("deployment is superseded by a newer si
 // release replaced before the verdict: the newer release owns the outcome.
 var ErrSupersededDuringBake = errors.New("release superseded during bake")
 
-// Accepts orders signed runs and attempts; an attempt cannot change its approval.
+// Accepts orders signed runs and attempts; an attempt cannot change its
+// approval. A higher attempt of the same run and commit may carry a rebuilt
+// image (builds are not reproducible): a failed release is retried by
+// re-running its signed workflow, which ts-dashboard runs 40724456820 and
+// 40729528775 (2026-10-28) could not do.
 func (d *Deployment) Accepts(next *Deployment) error {
 	if err := next.Validate(); err != nil {
 		return err
@@ -60,17 +64,6 @@ func (d *Deployment) Accepts(next *Deployment) error {
 		return ErrSupersededDeployment
 	}
 	if run == floor && (next.RunAttempt < d.RunAttempt || next.Revision != d.Revision || next.RunAttempt == d.RunAttempt && *next != *d) {
-		return errors.New("deployment changes an already approved run; release from a newer signed run")
-	}
-	return nil
-}
-
-// AcceptsReplacement also protects a run's serving or baking digest.
-func (d *Deployment) AcceptsReplacement(next *Deployment, serving bool) error {
-	if err := d.Accepts(next); err != nil {
-		return err
-	}
-	if serving && d != nil && next != nil && d.RunID == next.RunID && d.Image != next.Image {
 		return errors.New("deployment changes an already approved run; release from a newer signed run")
 	}
 	return nil
@@ -121,7 +114,7 @@ func admitServiceSpec(labels map[string]string, next ServiceSpec) error {
 	if floor != nil && next.DeploymentFloor == nil {
 		return errors.New("service deployment floor cannot be removed")
 	}
-	if err := floor.AcceptsReplacement(next.DeploymentFloor, deployment != nil && rollbackOf == 0); err != nil {
+	if err := floor.Accepts(next.DeploymentFloor); err != nil {
 		return err
 	}
 	if deployment != nil && next.DeploymentFloor != nil && *deployment != *next.DeploymentFloor {

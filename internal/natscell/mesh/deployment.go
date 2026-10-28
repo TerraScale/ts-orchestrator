@@ -23,7 +23,7 @@ type desiredState struct {
 func (state desiredState) accepts(next *Deployment) error {
 	entry := state.entry()
 	serving := state.Floor != nil && entry.Spec != nil && entry.RollbackOf == 0 && entry.Spec.Image == state.Floor.Image
-	err := state.Floor.AcceptsReplacement(next, serving)
+	err := state.Floor.Accepts(next)
 	if errors.Is(err, swarmruntime.ErrSupersededDeployment) && !serving {
 		// ts-dashboard 2026-10-28: run 40651907119 failed and rolled back, so
 		// reporting an older run "superseded" left nothing newer serving.

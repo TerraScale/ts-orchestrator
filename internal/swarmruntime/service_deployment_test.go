@@ -39,29 +39,28 @@ func TestDeploymentAcceptsSupersededAndRefusesChangedRuns(t *testing.T) {
 	}
 }
 
-func TestDeploymentAttemptOrderingAndDigestFence(t *testing.T) {
+func TestDeploymentAttemptOrdering(t *testing.T) {
 	floor := Deployment{Repository: "TerraScale/terrascale", RunID: "200", RunAttempt: 2, Revision: strings.Repeat("b", 40), Image: "ghcr.io/terrascale/ts-auth@sha256:" + strings.Repeat("b", 64)}
-	for _, serving := range []bool{false, true} {
-		for _, tc := range []struct {
-			name    string
-			change  func(*Deployment)
-			refused bool
-		}{
-			{"identical", func(*Deployment) {}, false},
-			{"lower attempt", func(d *Deployment) { d.RunAttempt-- }, true},
-			{"legacy attempt", func(d *Deployment) { d.RunAttempt = 0 }, true},
-			{"same attempt rebuilt", func(d *Deployment) { d.Image = strings.ReplaceAll(d.Image, "b", "c") }, true},
-			{"higher attempt", func(d *Deployment) { d.RunAttempt++ }, false},
-			{"higher attempt rebuilt", func(d *Deployment) { d.RunAttempt++; d.Image = strings.ReplaceAll(d.Image, "b", "c") }, serving},
-			{"higher attempt changed commit", func(d *Deployment) { d.RunAttempt++; d.Revision = strings.Repeat("c", 40) }, true},
-			{"newer run first attempt", func(d *Deployment) { d.RunID, d.RunAttempt = "201", 1 }, false},
-		} {
-			next := floor
-			tc.change(&next)
-			err := floor.AcceptsReplacement(&next, serving)
-			if (err != nil) != tc.refused || err != nil && err.Error() != "deployment changes an already approved run; release from a newer signed run" {
-				t.Errorf("%s serving=%v: %v, refused=%v", tc.name, serving, err, tc.refused)
-			}
+	for _, tc := range []struct {
+		name    string
+		change  func(*Deployment)
+		refused bool
+	}{
+		{"identical", func(*Deployment) {}, false},
+		{"lower attempt", func(d *Deployment) { d.RunAttempt-- }, true},
+		{"legacy attempt", func(d *Deployment) { d.RunAttempt = 0 }, true},
+		{"same attempt rebuilt", func(d *Deployment) { d.Image = strings.ReplaceAll(d.Image, "b", "c") }, true},
+		{"higher attempt", func(d *Deployment) { d.RunAttempt++ }, false},
+		// A re-run rebuilds its image; it retries the run's failed release.
+		{"higher attempt rebuilt", func(d *Deployment) { d.RunAttempt++; d.Image = strings.ReplaceAll(d.Image, "b", "c") }, false},
+		{"higher attempt changed commit", func(d *Deployment) { d.RunAttempt++; d.Revision = strings.Repeat("c", 40) }, true},
+		{"newer run first attempt", func(d *Deployment) { d.RunID, d.RunAttempt = "201", 1 }, false},
+	} {
+		next := floor
+		tc.change(&next)
+		err := floor.Accepts(&next)
+		if (err != nil) != tc.refused || err != nil && err.Error() != "deployment changes an already approved run; release from a newer signed run" {
+			t.Errorf("%s: %v, refused=%v", tc.name, err, tc.refused)
 		}
 	}
 }

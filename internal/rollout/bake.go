@@ -9,7 +9,14 @@ import (
 
 const BakeWindow = 30 * time.Second
 const DependencyRecoveryWindow = 30 * time.Second
-const MaxBakeWindow = 2*BakeWindow + DependencyRecoveryWindow
+
+// DependencyRecoveryBudget is how long a bake may keep waiting for a healthy
+// window while a dependency flaps. With 90 s in all, sjc's ts-dashboard bake
+// for run 40729528775 (2026-10-28 16:53Z) failed: TerraBase was slow, the
+// candidate's readiness failed and recovered 26 times, and the release never
+// reached gru or fra.
+const DependencyRecoveryBudget = 2 * time.Minute
+const MaxBakeWindow = BakeWindow + DependencyRecoveryBudget
 
 // sampleBudget bounds one observation: an HTTPS readiness probe (3 s) plus
 // control reads. It is not the poll interval: with 2 s polling, a slow probe
@@ -54,6 +61,9 @@ type BakeVerdict struct {
 	HealthySince    time.Time         `json:"healthySince"`
 	RecoverySamples int               `json:"recoverySamples,omitempty"`
 	RecoveryChecks  map[string]string `json:"recoveryChecks,omitempty"`
+	// DependencyOnly marks a failure that only dependency recovery caused: no
+	// candidate or storage regression was seen, so later regions still roll.
+	DependencyOnly bool `json:"dependencyOnly,omitempty"`
 }
 
 // RunBake allows bounded dependency recovery, then requires a full
@@ -86,6 +96,7 @@ func runBake(ctx context.Context, probe func(context.Context) (map[string]string
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				v.Checks["observation"] = v.Reason
 			}
+			v.DependencyOnly = recoveringDependency(err) || errors.Is(err, context.DeadlineExceeded) && lastFailure != nil
 		}
 	}()
 	if probe == nil || window <= 0 || poll <= 0 {
@@ -93,7 +104,7 @@ func runBake(ctx context.Context, probe func(context.Context) (map[string]string
 	}
 	// A late dependency rollout can restart the healthy window. Repeated
 	// interruptions must not extend a regional rollout indefinitely.
-	ctx, stop := context.WithTimeout(ctx, 2*window+DependencyRecoveryWindow)
+	ctx, stop := context.WithTimeout(ctx, window+DependencyRecoveryBudget)
 	defer stop()
 	tick := time.NewTicker(poll)
 	defer tick.Stop()
