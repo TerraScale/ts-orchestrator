@@ -108,6 +108,9 @@ func TestBakeRecoveryRejectsFailures(t *testing.T) {
 				if v.RecoverySamples != tc.initialFailures {
 					t.Fatalf("tolerated %d samples; want %d", v.RecoverySamples, tc.initialFailures)
 				}
+				if v.DependencyOnly {
+					t.Fatalf("a fatal failure excused later regions: %+v", v)
+				}
 				if tc.initialFailures > 0 && !maps.Equal(v.RecoveryChecks, lastRecovery) {
 					t.Fatalf("lost tolerated evidence: %+v", v)
 				}
@@ -134,8 +137,26 @@ func TestBakeRepeatedDependencyRollsAreBounded(t *testing.T) {
 			}
 			return map[string]string{"candidate": "ok", "ts-dashboard": "ok"}, nil
 		})
-		if !errors.Is(err, context.DeadlineExceeded) || v.Finished.Sub(v.Started) != MaxBakeWindow || v.RecoverySamples < 2 || v.RecoveryChecks["ts-dashboard"] != "HTTP 503" || v.Checks["observation"] != context.DeadlineExceeded.Error() {
+		if !errors.Is(err, context.DeadlineExceeded) || v.Finished.Sub(v.Started) != MaxBakeWindow || v.RecoverySamples < 2 || v.RecoveryChecks["ts-dashboard"] != "HTTP 503" || v.Checks["observation"] != context.DeadlineExceeded.Error() || !v.DependencyOnly {
 			t.Fatalf("repeated rollovers extended the bake indefinitely or lost evidence: %+v %v", v, err)
+		}
+	})
+}
+
+// sjc 2026-10-28 16:53Z: a slow TerraBase failed and recovered the candidate's
+// readiness for 90 s. A dependency that settles within the budget passes.
+func TestBakeFlappingDependencyThatSettlesPasses(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		started, calls := time.Now(), 0
+		v, err := RunBake(t.Context(), func(context.Context) (map[string]string, error) {
+			calls++
+			if time.Since(started) < 100*time.Second && calls%5 == 1 {
+				return map[string]string{"candidate": "request-failed"}, &DependencyFailure{Service: "ts-dashboard", Status: "request-failed"}
+			}
+			return map[string]string{"candidate": "ok"}, nil
+		})
+		if err != nil || v.RecoverySamples < 10 || v.Finished.Sub(v.HealthySince) < BakeWindow || v.DependencyOnly {
+			t.Fatalf("flapping dependency that settled failed the bake: %+v %v", v, err)
 		}
 	})
 }

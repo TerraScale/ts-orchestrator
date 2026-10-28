@@ -42,7 +42,7 @@ const (
 
 // HandlerWait bounds one release request: three regions rolled in turn, each
 // up to a 180 s readiness timeout and bounded bake recovery, plus overhead.
-const HandlerWait = 21 * time.Minute
+const HandlerWait = 25 * time.Minute
 
 var (
 	hex40 = regexp.MustCompile(`^[0-9a-f]{40}$`)

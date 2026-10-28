@@ -93,7 +93,14 @@ func (n *Node) bakeState(state *stateReply) {
 			delete(state.Ready, name)
 		}
 		if err == nil && record.Bake.Reason != "" && n.baking[n.bakePath(name, entry.Generation)] == nil {
-			state.Failed[name] = entry.Generation
+			if record.Bake.DependencyOnly {
+				if state.Excused == nil {
+					state.Excused = map[string]int64{}
+				}
+				state.Excused[name] = entry.Generation
+			} else {
+				state.Failed[name] = entry.Generation
+			}
 		}
 		if !unsaved && err == nil && identityErr == nil && record.Identity == identity && !record.Bake.Finished.IsZero() && record.Bake.Reason == "" {
 			delete(state.Failed, name)

@@ -131,6 +131,9 @@ type stateReply struct {
 	Ready map[string]int64 `json:"ready,omitempty"`
 	// Failed is the generation of each service whose rollout here failed.
 	Failed map[string]int64 `json:"failed,omitempty"`
+	// Excused is the generation of each service whose bake here failed only
+	// because a dependency kept recovering: later regions still roll it.
+	Excused map[string]int64 `json:"excused,omitempty"`
 }
 
 // Applier changes this host's services.
@@ -548,7 +551,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 		if n.failed == nil {
 			n.failed = map[string]int64{}
 		}
-		if err != nil {
+		if err != nil && (reply.Bake == nil || !reply.Bake.DependencyOnly) {
 			n.failed[request.Name] = request.Entry.Generation
 		} else {
 			delete(n.failed, request.Name)
@@ -652,6 +655,11 @@ func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int6
 		}
 		if reply.Failed[name] >= generation {
 			return fmt.Errorf("%w: %s", errEarlierFailed, region)
+		}
+		if reply.Excused[name] >= generation {
+			// Its bake failed only on a recovering dependency (sjc 2026-10-28
+			// 16:53Z): the candidate did not regress, so this region still rolls.
+			continue
 		}
 		if reply.Ready[name] < generation {
 			return fmt.Errorf("%s does not run %s generation %d ready yet", region, name, generation)

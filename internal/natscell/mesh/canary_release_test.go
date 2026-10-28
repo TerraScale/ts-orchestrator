@@ -194,10 +194,15 @@ func TestAppCanaryFailedUpdateCannotRetrySignedRun(t *testing.T) {
 			if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", failed.Image, &failed, time.Second, time.Second); err != nil {
 				t.Fatalf("rerun after rollback rejected: %v", err)
 			}
+			// A later attempt of the same run retries it with its rebuilt image.
 			failed.RunAttempt = 3
 			failed.Image = image
+			if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, &failed, time.Second, time.Second); err != nil {
+				t.Fatalf("a later attempt of the serving run was refused: %v", err)
+			}
+			failed.RunAttempt = 2
 			if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, &failed, time.Second, time.Second); err == nil {
-				t.Fatal("serving run changed digest")
+				t.Fatal("an older attempt replaced a newer one")
 			}
 		})
 	}
