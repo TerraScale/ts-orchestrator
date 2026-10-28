@@ -384,8 +384,17 @@ func TestStaggeredSyncRetainsSoleOperatorCandidateThroughReload(t *testing.T) {
 			if err != nil || !reflect.DeepEqual(selected[spec.Name].entry(), operator) {
 				t.Fatalf("partial peer states lost operator intent: %+v, %v", selected, err)
 			}
+			want := operator.Generation
+			if removal {
+				want = 0
+			}
 			for _, node := range nodes {
-				node.sync(t.Context())
+				// A later region's turn waits for the earlier region's bake
+				// verdict, which evaluate saves in the background.
+				eventually(t, node.cfg.region+" to run the operator generation", func() bool {
+					node.sync(t.Context())
+					return node.cfg.applier.(*fakeApplier).generation(spec.Name) == want
+				})
 				reloaded, err := loadDesired(node.cfg.dir)
 				if err != nil {
 					t.Fatal(err)
@@ -393,13 +402,6 @@ func TestStaggeredSyncRetainsSoleOperatorCandidateThroughReload(t *testing.T) {
 				state := reloaded[spec.Name]
 				if !reflect.DeepEqual(state.entry(), operator) || state.Floor == nil || *state.Floor != approved || state.Signed == nil || state.Signed.Generation != 12 {
 					t.Fatalf("%s lost a component after staggered sync: %+v", node.cfg.region, state)
-				}
-				want := operator.Generation
-				if removal {
-					want = 0
-				}
-				if got := node.cfg.applier.(*fakeApplier).generation(spec.Name); got != want {
-					t.Fatalf("%s runs %d, want %d", node.cfg.region, got, want)
 				}
 			}
 		})
