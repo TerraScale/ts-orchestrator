@@ -21,6 +21,18 @@
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-terrabase-backup-secret-key"
     },
+    "TERRABASE_FILES_S3_ACCESS_KEY_ID_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-files-access-key-id"
+    },
+    "TERRABASE_FILES_S3_ENDPOINT_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-files-endpoint"
+    },
+    "TERRABASE_FILES_S3_SECRET_ACCESS_KEY_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-terrabase-files-secret-key"
+    },
     "TERRABASE_MASTER_KEY_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-terrabase-master-key"
