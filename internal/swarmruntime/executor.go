@@ -366,22 +366,39 @@ func copyBoundedLog(file *os.File, src io.Reader) error {
 	}
 }
 
-// keepLogTail rewrites a full log as its newest logSegmentBytes/2 bytes,
-// starting after the first newline in them, and returns the new size.
+// logHeadBytes of a task's first output survive compaction: its startup.
+// gru TerraBase's 95 s start on 2026-10-28 could not be explained because
+// its startup lines were gone within an hour.
+const logHeadBytes = 128 << 10
+
+// logGap separates the kept head from the newest lines.
+var logGap = []byte("--- ts-orch: earlier output dropped to keep this log under 1 MiB ---\n")
+
+// keepLogTail rewrites a full log as its first logHeadBytes and its newest
+// lines, each cut at a line boundary, and returns the new size.
 func keepLogTail(file *os.File, size int64) (int64, error) {
-	keep := min(size, logSegmentBytes/2)
+	head := make([]byte, min(size, logHeadBytes))
+	if _, err := file.ReadAt(head, 0); err != nil {
+		return 0, err
+	}
+	head = head[:bytes.LastIndexByte(head, '\n')+1]
+	if i := bytes.Index(head, logGap); i >= 0 {
+		head = head[:i] // already compacted: the head ends at the gap
+	}
+	keep := min(size-int64(len(head)), logSegmentBytes/2-int64(len(head)+len(logGap)))
 	tail := make([]byte, keep)
 	if _, err := file.ReadAt(tail, size-keep); err != nil {
 		return 0, err
 	}
-	if i := bytes.IndexByte(tail, '\n'); i >= 0 && size > keep {
+	if i := bytes.IndexByte(tail, '\n'); i >= 0 {
 		tail = tail[i+1:]
 	}
 	if err := file.Truncate(0); err != nil {
 		return 0, err
 	}
-	if _, err := file.Write(tail); err != nil {
+	kept := slices.Concat(head, logGap, tail)
+	if _, err := file.Write(kept); err != nil {
 		return 0, err
 	}
-	return int64(len(tail)), nil
+	return int64(len(kept)), nil
 }

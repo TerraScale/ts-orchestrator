@@ -125,7 +125,7 @@ func TestBoundedDiskLogSurvivesReopen(t *testing.T) {
 	}
 }
 
-// A full log keeps its newest lines, whole, rather than restarting empty.
+// A full log keeps its startup and its newest lines, whole, rather than restarting empty.
 func TestBoundedDiskLogKeepsNewestLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout")
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0600)
@@ -146,7 +146,16 @@ func TestBoundedDiskLogKeepsNewestLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(data) < logSegmentBytes/2-len(want) || len(data) > logSegmentBytes || !bytes.HasPrefix(data, []byte("line ")) || !strings.HasSuffix(string(data), want) {
+	if len(data) < logSegmentBytes/2-len(want) || len(data) > logSegmentBytes || !bytes.HasPrefix(data, []byte("line 0000000 ")) || !strings.HasSuffix(string(data), want) {
 		t.Fatalf("kept %d bytes starting %q", len(data), data[:min(len(data), 20)])
+	}
+	// The startup head survives every compaction once, followed by one gap.
+	if bytes.Count(data, logGap) != 1 || !bytes.Contains(data[:logHeadBytes], []byte("line 0001000 ")) {
+		t.Fatalf("head or gap lost: %d gaps", bytes.Count(data, logGap))
+	}
+	for line := range bytes.Lines(data) {
+		if !bytes.HasPrefix(line, []byte("line ")) && !bytes.Equal(line, logGap) {
+			t.Fatalf("partial line %q", line[:min(len(line), 30)])
+		}
 	}
 }
