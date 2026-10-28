@@ -113,14 +113,16 @@ func NewVerifier() *Verifier {
 }
 
 // Verify returns the claims of a valid token from a release workflow's push
-// to main (or the canary after successful main CI), audience ts-orch.
+// to main or dispatch on main (or the canary after successful main CI),
+// audience ts-orch. A dispatch re-releases main as a newer signed run.
 func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 	claims, err := v.verify(ctx, token)
 	switch {
 	case err != nil:
 		return Claims{}, err
-	case claims.EventName != "push" && !(claims.EventName == "workflow_run" && claims.JobWorkflowRef == canaryWorkflow):
-		return Claims{}, errors.New("token is not from a push to " + mainRef)
+	case claims.EventName != "push" && claims.EventName != "workflow_dispatch" &&
+		!(claims.EventName == "workflow_run" && claims.JobWorkflowRef == canaryWorkflow):
+		return Claims{}, errors.New("token is not from a push to or dispatch on " + mainRef)
 	case claims.JobWorkflowRef != orchWorkflow && appServices[claims.JobWorkflowRef] == nil ||
 		!strings.HasPrefix(claims.JobWorkflowRef, claims.Repository+"/.github/workflows/"):
 		return Claims{}, errors.New("token is not from a release workflow")
