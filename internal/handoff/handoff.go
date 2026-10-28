@@ -28,6 +28,7 @@ func Hold(port uint16) { held.LoadOrStore(port, make(chan struct{})) }
 
 // Release ends the hold on port, once its new task answers its readyPath.
 func Release(port uint16) {
+	awaited.Delete(port)
 	if ch, ok := held.LoadAndDelete(port); ok {
 		close(ch.(chan struct{}))
 	}
@@ -39,14 +40,23 @@ func Held(port uint16) bool {
 	return ok
 }
 
-// HeldPorts lists every port whose task is being replaced.
-func HeldPorts() []uint16 {
-	var ports []uint16
-	held.Range(func(port, _ any) bool {
-		ports = append(ports, port.(uint16))
+var awaited sync.Map // port (uint16) -> time.Time the hold began
+
+// Await marks port's hold as one other services' tasks wait for: a data
+// owner such as TerraBase, which the apps on its host cannot start without.
+func Await(port uint16) { awaited.LoadOrStore(port, time.Now()) }
+
+// AwaitedPorts lists every awaited port still held, with when its hold began.
+func AwaitedPorts() map[uint16]time.Time {
+	ports := map[uint16]time.Time{}
+	awaited.Range(func(port, since any) bool {
+		if Held(port.(uint16)) {
+			ports[port.(uint16)] = since.(time.Time)
+		} else {
+			awaited.Delete(port)
+		}
 		return true
 	})
-	slices.Sort(ports)
 	return ports
 }
 

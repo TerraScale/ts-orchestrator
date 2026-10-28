@@ -22,7 +22,13 @@ func TestStartWaitsForAnotherServicesReplacement(t *testing.T) {
 	if err := app.awaitReplacements(now); err != nil {
 		t.Fatalf("no replacement running: %v", err)
 	}
+	handoff.Hold(dashboard + 1) // an app's stop-first hold: nobody waits for it
+	t.Cleanup(func() { handoff.Release(dashboard + 1) })
+	if err := app.awaitReplacements(now); err != nil {
+		t.Fatalf("waited for an app's replacement: %v", err)
+	}
 	handoff.Hold(terrabase)
+	handoff.Await(terrabase)
 	t.Cleanup(func() { handoff.Release(terrabase) })
 	if err := app.awaitReplacements(now); !exec.IsTemporary(err) {
 		t.Fatalf("started during TerraBase's replacement: %v", err)
@@ -31,11 +37,11 @@ func TestStartWaitsForAnotherServicesReplacement(t *testing.T) {
 	if err := task(terrabase).awaitReplacements(now); err != nil {
 		t.Fatalf("TerraBase's replacement waited for itself: %v", err)
 	}
-	if err := app.awaitReplacements(now.Add(replacementWaitMax)); err != nil {
-		t.Fatalf("a hold that is never released blocked the start: %v", err)
+	if err := task(dashboard + 2).awaitReplacements(now.Add(replacementWaitMax + time.Second)); err != nil {
+		t.Fatalf("a hold that is never released blocked a later start: %v", err)
 	}
 	handoff.Release(terrabase)
-	if err := app.awaitReplacements(now.Add(replacementWaitMax + time.Second)); err != nil || !app.replacementWait.IsZero() {
-		t.Fatalf("released: %v, wait since %v", err, app.replacementWait)
+	if err := app.awaitReplacements(now); err != nil || len(handoff.AwaitedPorts()) != 0 {
+		t.Fatalf("released: %v, still awaited %v", err, handoff.AwaitedPorts())
 	}
 }

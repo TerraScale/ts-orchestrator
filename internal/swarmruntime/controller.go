@@ -43,8 +43,7 @@ type controller struct {
 	fingerprint         string
 	credentialExpiresAt time.Time
 	stateful            *statefulController
-	loadTerminal        bool      // guarded by executor.mu
-	replacementWait     time.Time // first Start that found another task's port held
+	loadTerminal        bool // guarded by executor.mu
 }
 
 var _ exec.Controller = (*controller)(nil)
@@ -487,43 +486,37 @@ func (c *controller) start(ctx context.Context) error {
 	}
 }
 
-// replacementWaitMax bounds how long a task waits for another service's
-// stop-first replacement on this host, so a hold that is never released
-// cannot stop every start.
+// replacementWaitMax bounds how long tasks wait for a data owner's
+// replacement, from when its hold began, so a hold that is never released
+// (a failed update) cannot keep delaying every start.
 const replacementWaitMax = 3 * time.Minute
 
-// awaitReplacements delays starting this task while another service on the
-// host (TerraBase) is being replaced stop-first. Apps fail their start while
+// awaitReplacements delays starting this task while a data owner on the host
+// (TerraBase) is being replaced stop-first. Apps fail their start while
 // TerraBase is down: on sjc 2026-10-28 15:20-15:23Z a ts-dashboard release
 // and then its rollback exited with TerraBaseUnavailableException during
-// TerraBase's restart, and the dashboard stayed down for 30 minutes. The
-// agent retries a temporary error each second; the readiness window starts
-// only once the task starts.
+// TerraBase's restart, and the dashboard stayed down until 15:54Z. The agent
+// retries a temporary error each second; the readiness window starts only
+// once the task starts.
 func (c *controller) awaitReplacements(now time.Time) error {
 	if c.stateful != nil {
 		return nil
 	}
 	own := c.ownPorts()
 	var waiting []uint16
-	for _, port := range handoff.HeldPorts() {
+	for port, since := range handoff.AwaitedPorts() {
 		if slices.Contains(own, port) {
-			// A stop-first replacement itself: its service is down, so it never waits
-			// (two replacements waiting on each other would stall both).
-			waiting = nil
-			break
+			// The data owner's own replacement never waits.
+			return nil
 		}
-		waiting = append(waiting, port)
+		if now.Sub(since) < replacementWaitMax {
+			waiting = append(waiting, port)
+		}
 	}
 	if len(waiting) == 0 {
-		c.replacementWait = time.Time{}
 		return nil
 	}
-	if c.replacementWait.IsZero() {
-		c.replacementWait = now
-	}
-	if now.Sub(c.replacementWait) >= replacementWaitMax {
-		return nil
-	}
+	slices.Sort(waiting)
 	return exec.MakeTemporary(fmt.Errorf("waiting for the task on port %v to finish its replacement", waiting))
 }
 
@@ -742,6 +735,9 @@ func (c *controller) stopTask(ctx context.Context) error {
 		// The edge holds new requests for the port until a replacement is ready.
 		if port, err := hostPort(c.task); err == nil {
 			handoff.Hold(port)
+			if len(c.spec.Mounts) != 0 {
+				handoff.Await(port)
+			}
 		}
 	}
 	if err := t.Kill(ctx, syscall.SIGTERM, containerd.WithKillAll); err != nil && !errdefs.IsNotFound(err) {
