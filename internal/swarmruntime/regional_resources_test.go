@@ -120,7 +120,7 @@ func TestContainerCPUKeepsDefaultWeight(t *testing.T) {
 			r.Limits.NanoCPUs = 2_000_000_000
 		}
 		spec := runtimespec.Spec{Linux: &runtimespec.Linux{}}
-		if err := containerCPU(r)(t.Context(), nil, nil, &spec); err != nil {
+		if err := containerCPU(r, false)(t.Context(), nil, nil, &spec); err != nil {
 			t.Fatal(err)
 		}
 		cpu := spec.Linux.Resources.CPU
@@ -131,6 +131,23 @@ func TestContainerCPUKeepsDefaultWeight(t *testing.T) {
 		// weight starved its startup under load.
 		if cpu.Shares != nil {
 			t.Fatalf("burst=%v set a scheduler weight: %+v", burst, cpu)
+		}
+	}
+}
+
+// TerraBase (a data owner) bursts to 3/4 of the host instead of its 1-CPU
+// reservation: 3 CPUs on gru's 4 cores, 1.5 on sjc's and fra's 2.
+func TestDataOwnerBurstsToThreeQuartersOfTheHost(t *testing.T) {
+	defer func(before func() int) { hostCPUs = before }(hostCPUs)
+	for cores, want := range map[int]int64{4: 300_000, 2: 150_000, 1: 100_000} {
+		hostCPUs = func() int { return cores }
+		r := containerTestResources(1_000_000_000, 4096<<20)
+		spec := runtimespec.Spec{Linux: &runtimespec.Linux{}}
+		if err := containerCPU(r, true)(t.Context(), nil, nil, &spec); err != nil {
+			t.Fatal(err)
+		}
+		if cpu := spec.Linux.Resources.CPU; cpu.Quota == nil || *cpu.Quota != want || *cpu.Period != 100_000 || cpu.Shares != nil {
+			t.Fatalf("%d cores: %+v, want quota %d", cores, cpu, want)
 		}
 	}
 }
