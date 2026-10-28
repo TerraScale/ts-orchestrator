@@ -212,7 +212,7 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 			// database file, reached it on gru (2026-10-28) and failed its storage closed.
 			oci.WithRlimit(&runtimespec.POSIXRlimit{Type: "RLIMIT_NOFILE", Hard: containerOpenFiles, Soft: containerOpenFiles}),
 			oci.WithMemoryLimit(uint64(limits.MemoryBytes)), oci.WithMemorySwap(limits.MemoryBytes),
-			containerCPU(c.task.Spec.Resources),
+			containerCPU(c.task.Spec.Resources, len(c.spec.Mounts) != 0),
 			// Host netns, so the host's resolvers (including the 127.0.0.53 stub) are reachable as-is.
 			oci.WithHostNamespace(runtimespec.NetworkNamespace), oci.WithHostResolvconf, oci.WithHostHostsFile,
 			// The root is read-only; runtimes such as .NET single-file apps need a scratch
