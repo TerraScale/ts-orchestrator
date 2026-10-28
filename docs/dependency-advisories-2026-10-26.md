@@ -86,3 +86,13 @@ fails on any finding at any severity or any request/response error. No record is
 filtered. This baseline check does not establish that local patches are safe or
 equivalent to an upstream commit: actual patched sources and tests still receive
 their separate native package scans. Exact-head integration CI remains required.
+
+## 2026-10-27: x/net 0.62.0
+
+GO-2026-6866 and GO-2026-6860 (x/net/html, fixed in 0.62.0) failed the root graph
+at x/net 0.61.0 and standalone SwarmKit at 0.60.0. The root module and all three
+replacement manifests now select x/net 0.62.0. SwarmKit also moves to x/text 0.43.0
+and x/tools 0.51.0, which the root already selected. Only `go.mod` and `go.sum`
+changed in the replacements, and their reviewed digests in
+`scripts/ci/audit-replacements.py` were recomputed. `bash scripts/ci/audit-dependencies.sh source`
+reports no vulnerabilities in all six scans.

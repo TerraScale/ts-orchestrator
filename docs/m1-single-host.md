@@ -71,8 +71,8 @@ own in-process connection uses an in-memory token. Everything else is refused.
 
 | Subject | Request | Reply |
 |---|---|---|
-| `ts.release.version` | none | `{"version": "<vcs.revision>"}` |
-| `ts.release.ts-orch` | `{"sha", "binaries": {"<goarch>": {"url", "sha256"}}, "token"}` | `{"state": "current" \| "installed" \| "stale" \| "rejected"}` |
+| `ts.release.version` | none | `{"version": "<vcs.revision>", "rolled_back": "<sha>", "error": "<why>"}` |
+| `ts.release.ts-orch` | `{"sha", "binaries": {"<goarch>": {"url", "sha256"}}, "token"}` | `{"state": "current" \| "installed" \| "stale" \| "rolled_back" \| "rejected"}` |
 | `ts.release.app` | `{"service", "image": "ghcr.io/terrascale/<service>@sha256:...", "token"}` | `{"state": "done" \| "failed" \| "rejected", "result": [<mesh rows>]}` |
 
 An app release needs a token from a workflow `appServices` allows to release
@@ -114,7 +114,16 @@ running: the executor's `Close` only disconnects from containerd, whose shims
 own the tasks, `Node.Stop` cancels before leaving so workloads survive, and
 `KillMode=mixed` only kills what is left in ts-orch's own cgroup (the shims live
 under `containerd.service`). A release from an older GitHub run (`run_id`) than
-the installed one is `stale`.
+the installed one is `stale`. An immutable binary (`chattr +i`) is `rejected`
+with the `chattr -i` command to run; the swap leaves no `.next` behind.
+
+A pushed binary is on probation until it serves the release subjects: install
+writes `nats/release-trial` in the state directory, each start counts itself
+there first, and serving removes it. A third start, or no serving 2 min after
+install, renames `.prev` back over the binary, records `nats/release-rolled-back`
+and exits, so systemd starts the previous binary. That binary reports
+`rolled_back` on `ts.release.version` and push fails with state `rolled_back`
+instead of timing out; a retry of the same run is refused, a newer run installs.
 
 ### Regions and pins
 

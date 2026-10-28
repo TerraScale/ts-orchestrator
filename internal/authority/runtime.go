@@ -777,7 +777,14 @@ func Observe(ctx context.Context, js jetstream.JetStream, scope string) (Snapsho
 		return Snapshot{}, err
 	}
 	subject := fmt.Sprintf("%s.%s.lease", controlSubjectRoot, scope)
+	// The stream is read after the lease, so a concurrent append cannot make
+	// the lease newer than the verified stream; only a recreated stream retries.
 	for range 8 {
+		entry, err := stream.GetLastMsgForSubject(ctx, subject)
+		missing := errors.Is(err, jetstream.ErrMsgNotFound)
+		if err != nil && !missing {
+			return Snapshot{}, err
+		}
 		info, err := stream.Info(ctx)
 		if err != nil {
 			return Snapshot{}, err
@@ -785,12 +792,8 @@ func Observe(ctx context.Context, js jetstream.JetStream, scope string) (Snapsho
 		if err := verifyControlStreamConfig(info.Config, info.Config.Replicas); err != nil {
 			return Snapshot{}, err
 		}
-		entry, err := stream.GetLastMsgForSubject(ctx, subject)
-		if errors.Is(err, jetstream.ErrMsgNotFound) {
+		if missing {
 			return Snapshot{Scope: scope, Ready: true, ObservedAt: time.Now(), Reason: "no-lease"}, nil
-		}
-		if err != nil {
-			return Snapshot{}, err
 		}
 		if entry.Sequence > info.State.LastSeq {
 			continue

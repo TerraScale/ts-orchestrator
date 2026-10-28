@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -79,9 +80,11 @@ type MeshRequest struct {
 
 // Reply answers every release request.
 type Reply struct {
-	State   string `json:"state,omitempty"` // current, installed, stale, rejected; done, failed for mesh
+	State   string `json:"state,omitempty"` // current, installed, stale, rolled_back, rejected; done, failed for mesh
 	Version string `json:"version,omitempty"`
 	Error   string `json:"error,omitempty"`
+	// RolledBack is the release this host restored <binary>.prev over; Error says why.
+	RolledBack string `json:"rolled_back,omitempty"`
 	// Result is the mesh's per-region rows.
 	Result json.RawMessage `json:"result,omitempty"`
 }
@@ -95,7 +98,10 @@ type Handler struct {
 	Binary string
 	// RunIDFile records the installed release's GitHub run_id; an older run is refused.
 	RunIDFile string
-	Client    *http.Client
+	// TrialFile is the probation marker install writes (Probe); RollbackFile
+	// records the last release that never served.
+	TrialFile, RollbackFile string
+	Client                  *http.Client
 	// App swaps service's image in every region (rolling back on failure) and
 	// returns the per-region rows, also when it fails; nil refuses app releases.
 	App func(ctx context.Context, service, image string, claims Claims) (json.RawMessage, error)
@@ -108,21 +114,30 @@ type Handler struct {
 
 	mu            sync.Mutex
 	pending       string // installed, waiting for the restart
+	rolledBack    atomic.Pointer[Rollback]
 	appOperations map[appOperationKey]*appOperation
 }
 
 // NewHandler serves this process's release for the binary it runs from.
 func NewHandler(state string) (*Handler, error) {
-	executable, err := os.Executable()
+	binary, err := executable()
 	if err != nil {
 		return nil, err
 	}
-	if executable, err = filepath.EvalSymlinks(executable); err != nil {
-		return nil, err
+	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary,
+		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
+		Client: &http.Client{Timeout: 60 * time.Second}, Installed: make(chan struct{}, 1)}
+	h.rolledBack.Store(readRollback(h.RollbackFile))
+	return h, nil
+}
+
+// executable is the real path of the running binary, which a release replaces.
+func executable() (string, error) {
+	path, err := os.Executable()
+	if err != nil {
+		return "", err
 	}
-	return &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: executable,
-		RunIDFile: filepath.Join(state, "nats", "release-run-id"),
-		Client:    &http.Client{Timeout: 60 * time.Second}, Installed: make(chan struct{}, 1)}, nil
+	return filepath.EvalSymlinks(path)
 }
 
 // Revision is the running binary's full vcs.revision ("-dirty" when modified).
@@ -149,7 +164,7 @@ func Revision() string {
 // Serve subscribes the release subjects until the connection closes.
 func (h *Handler) Serve(conn *nats.Conn) error {
 	for subject, handle := range map[string]func(context.Context, []byte) Reply{
-		SubjectVersion: func(context.Context, []byte) Reply { return Reply{Version: h.Revision} },
+		SubjectVersion: func(context.Context, []byte) Reply { return h.version() },
 		SubjectOrch:    h.orch,
 		SubjectApp:     h.app,
 		SubjectPing:    func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "ping", data) },
@@ -183,6 +198,13 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 
 func rejected(err error) Reply { return Reply{State: "rejected", Error: err.Error()} }
 
+func (h *Handler) version() Reply {
+	if rollback := h.rolledBack.Load(); rollback != nil {
+		return Reply{Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason}
+	}
+	return Reply{Version: h.Revision}
+}
+
 func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	var release OrchRelease
 	if err := protocol.DecodeStrict(data, &release, 64<<10); err != nil {
@@ -200,12 +222,24 @@ func (h *Handler) orch(ctx context.Context, data []byte) Reply {
 	if release.SHA == h.pending {
 		return Reply{State: "installed", Version: release.SHA}
 	}
+	// A retry of the run that never served is refused; a newer run may try again.
+	if rollback := h.rolledBack.Load(); rollback != nil && rollback.SHA == release.SHA && rollback.RunID == claims.RunID {
+		return Reply{State: "rolled_back", Version: h.Revision, RolledBack: rollback.SHA, Error: rollback.Reason}
+	}
 	if stale, err := h.olderRun(claims.RunID); err != nil {
 		return rejected(err)
 	} else if stale {
 		return Reply{State: "stale", Error: "a newer run is installed"}
 	}
-	if err := h.install(ctx, binary); err != nil {
+	// The marker precedes the swap, so the new binary's first start is on
+	// probation; its clock starts after the download.
+	if err := h.install(ctx, binary, func() error {
+		return writeJSON(h.TrialFile, trial{SHA: release.SHA, RunID: claims.RunID, Installed: time.Now()})
+	}); err != nil {
+		return rejected(errors.Join(err, removeIfExists(h.TrialFile)))
+	}
+	h.rolledBack.Store(nil)
+	if err := removeIfExists(h.RollbackFile); err != nil {
 		return rejected(err)
 	}
 	if err := os.WriteFile(h.RunIDFile, []byte(claims.RunID), 0o600); err != nil {
@@ -266,9 +300,13 @@ func (h *Handler) olderRun(runID string) (bool, error) {
 	return next < installed, nil
 }
 
-// install downloads, verifies and atomically swaps the binary, keeping the
-// previous one as <binary>.prev.
-func (h *Handler) install(ctx context.Context, binary Binary) error {
+// link is os.Link; tests stand in an immutable binary.
+var link = os.Link
+
+// install downloads and verifies the binary, runs beforeSwap, then atomically
+// swaps it in, keeping the previous one as <binary>.prev. A failed swap leaves
+// no <binary>.next.
+func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() error) error {
 	next := h.Binary + ".next"
 	data, err := h.download(ctx, binary.URL)
 	if err != nil {
@@ -283,15 +321,22 @@ func (h *Handler) install(ctx context.Context, binary Binary) error {
 	if err := writeSynced(next, data); err != nil {
 		return err
 	}
+	if err := beforeSwap(); err != nil {
+		return errors.Join(err, removeIfExists(next))
+	}
 	prev := h.Binary + ".prev"
-	if err := os.Remove(prev); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	err = removeIfExists(prev)
+	if err == nil {
+		err = link(h.Binary, prev)
 	}
-	if err := os.Link(h.Binary, prev); err != nil {
-		return err
+	if err == nil {
+		err = os.Rename(next, h.Binary)
 	}
-	if err := os.Rename(next, h.Binary); err != nil {
-		return err
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			err = fmt.Errorf("%w (an immutable binary refuses replacement: run `chattr -i %s %s` on the host)", err, h.Binary, prev)
+		}
+		return errors.Join(err, removeIfExists(next))
 	}
 	dir, err := os.Open(filepath.Dir(h.Binary))
 	if err != nil {
