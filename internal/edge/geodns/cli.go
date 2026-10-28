@@ -37,6 +37,10 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		return errors.New("edge geodns: no service declaration serves every region")
 	}
 	plans := Build(regions, hosts)
+	names := make([]string, len(hosts))
+	for i, h := range hosts {
+		names[i] = h.Name
+	}
 	if len(args) == 1 {
 		return runApply(ctx, plans, output)
 	}
@@ -59,7 +63,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	b.WriteString("\nOCI DNS (would create, nothing created):\n")
 	fmt.Fprintf(&b, "  zone %s (PRIMARY)\n", Zone)
 	for _, p := range plans {
-		fmt.Fprintf(&b, "  monitor %s HTTP GET :80/readyz Host=%s every 30s on %d targets\n", p.Monitor.DisplayName, p.Host, len(p.Monitor.Targets))
+		fmt.Fprintf(&b, "  monitor %s HTTP GET :80%s Host=%s every 30s on %d targets\n", p.Monitor.DisplayName, p.Monitor.Path, p.Monitor.Headers["Host"], len(p.Monitor.Targets))
 		fmt.Fprintf(&b, "  policy %s ROUTE_BY_GEO FILTER>HEALTH>PRIORITY>LIMIT 1, attached at %s\n", p.Policy.DisplayName, p.Attachment.DomainName)
 	}
 	b.WriteString("\nCloudflare terrascale.tech (would change, nothing changed):\n")
@@ -67,7 +71,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	for _, p := range plans {
 		fmt.Fprintf(&b, "  CNAME %s -> %s (DNS only, replaces the current record)\n", p.Host, p.Attachment.DomainName)
 	}
-	b.WriteString("\nPrerequisite before the switch: every region serves and holds certificates for " + strings.Join(hosts, ", ") +
+	b.WriteString("\nPrerequisite before the switch: every region serves and holds certificates for " + strings.Join(names, ", ") +
 		" (the edge fetches HTTP-01 tokens it does not hold from peer regions).\n")
 	_, err = io.WriteString(output, b.String())
 	return err

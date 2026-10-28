@@ -49,7 +49,7 @@ func apply(ctx context.Context, call caller, plans []HostPlan) ([]Change, []stri
 	var changes []Change
 	zoneQuery := url.Values{"compartmentId": {compartmentID}, "name": {Zone}, "lifecycleState": {"ACTIVE"}}
 	zone, action, err := ensure(ctx, call, dnsAPI+"/zones", zoneQuery,
-		map[string]any{"name": Zone, "zoneType": "PRIMARY", "compartmentId": compartmentID})
+		map[string]any{"name": Zone, "zoneType": "PRIMARY", "compartmentId": compartmentID, "freeformTags": CostTags})
 	if err != nil {
 		return nil, nil, fmt.Errorf("zone %s: %w", Zone, err)
 	}

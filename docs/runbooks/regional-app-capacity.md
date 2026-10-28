@@ -92,6 +92,8 @@ it does not claim a production rollout was performed.
 first-party declaration that names no regions (`geodns.Hosts`): today
 `dash.terrascale.tech`, `mcp.terrascale.tech` and `platform.terrascale.tech`.
 `auth.terrascale.tech` stays a gru record while ts-auth is confined to gru, and
-`api.terrascale.tech` keeps its TerraBase routing. Switch a hostname's
-Cloudflare record to its `<label>.edge.terrascale.tech` CNAME only after every
-region serves it.
+`api.terrascale.tech` keeps its TerraBase routing. Each hostname's monitor
+probes `:80/healthz` with its service's first hostname (dash): liveness, because
+the dashboard's `/readyz` includes gru's ts-auth and would drop every region at
+once, and mcp's own paths answer 401. Switch a hostname's Cloudflare record to
+its `<label>.edge.terrascale.tech` CNAME only after every region serves it.
