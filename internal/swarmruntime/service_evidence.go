@@ -47,7 +47,10 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 	if err != nil {
 		return rollout, err
 	}
-	evidence, err := ProbeServiceSpecExact(ctx, client, requested)
+	// WaitServiceSpec just saw these tasks ready, and the bake samples readiness
+	// next with dependency recovery. A second, single 2 s request failed
+	// ts-dashboard cb0174f in sjc when /readyz answered 200 in 2009 ms (E18).
+	evidence, err := serviceSpecExact(ctx, client, requested, false)
 	evidence.Running, evidence.Ready, evidence.StopFirst = rollout.Running, rollout.Ready, rollout.StopFirst
 	return evidence, err
 }
@@ -55,6 +58,12 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 // ProbeServiceSpecExact verifies the requested spec and its exact running tasks
 // with one readiness request per task. A failed observation is never retried.
 func ProbeServiceSpecExact(ctx context.Context, client api.ControlClient, requested ServiceSpec) (ServiceRollout, error) {
+	return serviceSpecExact(ctx, client, requested, true)
+}
+
+// serviceSpecExact verifies the requested spec and its exact running tasks,
+// sending one readiness request per task when probe is set.
+func serviceSpecExact(ctx context.Context, client api.ControlClient, requested ServiceSpec, probe bool) (ServiceRollout, error) {
 	var rollout ServiceRollout
 	want, err := requested.SwarmSpec()
 	if err != nil {
@@ -115,7 +124,7 @@ func ProbeServiceSpecExact(ctx context.Context, client api.ControlClient, reques
 		if machine != requested.Node {
 			return rollout, fmt.Errorf("task %s runs on an unexpected machine", task.ID)
 		}
-		if requested.ReadyPath != "" {
+		if probe && requested.ReadyPath != "" {
 			if err := ProbeLocalTask(ctx, task); err != nil {
 				return rollout, err
 			}

@@ -457,6 +457,9 @@ func (n *Node) sync(ctx context.Context) {
 		if record, err := n.readBake(name, n.desired[name].entry().Generation); err == nil && record.Bake.Reason != "" {
 			continue // failed bakes remain held even after restart
 		}
+		if n.dependentRolling(name) {
+			continue // TerraBase waits for this region's ts-auth or ts-dashboard rollout
+		}
 		if applied, err := n.reconcile(ctx, name, n.desired[name]); err != nil {
 			slog.WarnContext(ctx, "mesh reconcile failed", "service", name, "error", err)
 		} else if applied.result == "applied" || applied.result == "unchanged" {
@@ -497,8 +500,14 @@ func (n *Node) handleApply(m *nats.Msg) {
 	if err == nil {
 		err = n.awaitPeerAdmission(ctx, request.Entry.Spec)
 	}
-	if err == nil {
-		applied, err = n.apply(ctx, request)
+	for err == nil {
+		if err = n.awaitDependents(ctx, request.Name); err == nil {
+			applied, err = n.apply(ctx, request)
+		}
+		if !errors.Is(err, errDependentRolling) {
+			break
+		}
+		err = nil // a dependent started between the wait and the apply
 	}
 	if err == nil && (applied.result == "applied" || applied.result == "unchanged") {
 		submitted := time.Since(start)
@@ -637,6 +646,46 @@ func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int6
 	return nil
 }
 
+// errDependentRolling refuses a TerraBase apply while a dependent rolls out here.
+var errDependentRolling = errors.New("a local ts-auth or ts-dashboard rollout is in progress")
+
+// dependentRolling reports a TerraBase change that would restart TerraBase
+// under a ts-auth or ts-dashboard rollout (readiness wait and bake) in this
+// region: their readiness needs the local TerraBase, so the restart failed
+// ts-dashboard's sjc rollback bake (E18). The caller holds n.mu.
+func (n *Node) dependentRolling(name string) bool {
+	if name != "terrabase" {
+		return false
+	}
+	for key := range n.baking {
+		for _, dependent := range []string{"ts-auth", "ts-dashboard"} {
+			if strings.HasPrefix(filepath.Base(key), "bake-"+dependent+"-") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// awaitDependents waits until no dependent of name rolls out in this region.
+// TerraBase's rollout window (its 30 min readiness timeout) absorbs the wait;
+// an app's window would not, so apps never wait for TerraBase.
+func (n *Node) awaitDependents(ctx context.Context, name string) error {
+	for {
+		n.mu.Lock()
+		rolling := n.dependentRolling(name)
+		n.mu.Unlock()
+		if !rolling {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for a local ts-auth or ts-dashboard rollout: %w", ctx.Err())
+		case <-time.After(time.Second):
+		}
+	}
+}
+
 // awaitTurn waits until turn allows this region to apply.
 func (n *Node) awaitTurn(ctx context.Context, name string, spec *swarmruntime.ServiceSpec, generation int64) error {
 	earlier := n.earlier(spec)
@@ -677,6 +726,9 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 	defer n.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return applyResult{}, err
+	}
+	if n.dependentRolling(request.Name) {
+		return applyResult{}, errDependentRolling
 	}
 	before, exists := n.desired[request.Name]
 	current := before.entry()
