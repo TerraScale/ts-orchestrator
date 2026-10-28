@@ -109,7 +109,10 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: hold}}
 	// A reconnect or process restart resumes the signed deployment's existing
 	// bake instead of publishing a fresh generation and restarting its window.
-	if deployment != nil && before.Deployment != nil && *before.Deployment == *deployment && previous != nil && previous.Image == image {
+	// A failed bake is not resumed: a retry bakes a fresh generation, rather
+	// than replaying a verdict a since-recovered dependency caused.
+	if deployment != nil && before.Deployment != nil && *before.Deployment == *deployment && previous != nil && previous.Image == image &&
+		!failedAnywhere(ctx, conn, service, before.Generation) {
 		generation = before.Generation
 		request.Entry = before
 	}
@@ -151,6 +154,19 @@ func desiredImages(ctx context.Context, conn *nats.Conn) (map[string]string, err
 		}
 	}
 	return images, nil
+}
+
+// failedAnywhere reports a region whose rollout of name's generation failed.
+func failedAnywhere(ctx context.Context, conn *nats.Conn, name string, generation int64) bool {
+	failed := false
+	_ = collect(ctx, conn, StateSubject, nil, len(Regions()), stateWait, func(data []byte) bool {
+		var reply stateReply
+		if protocol.DecodeTolerant(data, &reply, maxWire) == nil && reply.Failed[name] >= generation {
+			failed = true
+		}
+		return true
+	})
+	return failed
 }
 
 // desiredStates merges both candidates and the floor from every replying region.

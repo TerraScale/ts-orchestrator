@@ -188,3 +188,34 @@ func TestIdenticalSignedRegionalReceiptRetainsOldPlacement(t *testing.T) {
 		}
 	}
 }
+
+// 2026-10-28: terrabase's gru bake failed while auth was down; every retry
+// resumed that generation and replayed its failed verdict.
+func TestSignedReleaseRetryRebakesAFailedGeneration(t *testing.T) {
+	const name = "ts-dashboard"
+	nodes, previous := regionalReleaseFixture(t, name, "")
+	deployment := regionalDeployment(previous)
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	states, err := desiredStates(t.Context(), nodes[0].conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := states[name].entry()
+	record, err := nodes[0].readBake(name, before.Generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Bake.Reason = "bake ts-auth readiness: HTTP 503"
+	if err := nodes[0].saveBake(nodes[0].bakePath(name, before.Generation), record); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	states, err = desiredStates(t.Context(), nodes[0].conn)
+	if err != nil || states[name].entry().Generation <= before.Generation {
+		t.Fatalf("retry replayed failed generation %d: %+v, %v", before.Generation, states[name].entry(), err)
+	}
+}
