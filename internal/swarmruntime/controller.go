@@ -463,6 +463,9 @@ func (c *controller) start(ctx context.Context) error {
 		if !c.credentialExpiresAt.IsZero() && !c.credentialExpiresAt.After(time.Now()) {
 			return ErrContainerMaterialPending
 		}
+		if err := c.awaitReplacements(time.Now()); err != nil {
+			return err
+		}
 		// The predecessor of a replacement may still be exiting; never start a second port owner.
 		_, unlock, err := c.reservePorts(ctx, true)
 		if err != nil {
@@ -481,6 +484,55 @@ func (c *controller) start(ctx context.Context) error {
 	default:
 		return fmt.Errorf("unexpected runtime state %s", status.Status)
 	}
+}
+
+// replacementWaitMax bounds how long tasks wait for a data owner's
+// replacement, from when its hold began, so a hold that is never released
+// (a failed update) cannot keep delaying every start.
+const replacementWaitMax = 3 * time.Minute
+
+// awaitReplacements delays starting this task while a data owner on the host
+// (TerraBase) is being replaced stop-first. Apps fail their start while
+// TerraBase is down: on sjc 2026-10-28 15:20-15:23Z a ts-dashboard release
+// and then its rollback exited with TerraBaseUnavailableException during
+// TerraBase's restart, and the dashboard stayed down until 15:54Z. The agent
+// retries a temporary error each second; the readiness window starts only
+// once the task starts.
+func (c *controller) awaitReplacements(now time.Time) error {
+	if c.stateful != nil {
+		return nil
+	}
+	own := c.ownPorts()
+	var waiting []uint16
+	for port, since := range handoff.AwaitedPorts() {
+		if slices.Contains(own, port) {
+			// The data owner's own replacement never waits.
+			return nil
+		}
+		if now.Sub(since) < replacementWaitMax {
+			waiting = append(waiting, port)
+		}
+	}
+	if len(waiting) == 0 {
+		return nil
+	}
+	slices.Sort(waiting)
+	return exec.MakeTemporary(fmt.Errorf("waiting for the task on port %v to finish its replacement", waiting))
+}
+
+// ownPorts are the host ports this task serves: its published ports and the
+// service port of a task-port spec.
+func (c *controller) ownPorts() []uint16 {
+	var ports []uint16
+	if port, err := hostPort(c.task); err == nil {
+		ports = append(ports, port)
+	}
+	if c.task.Endpoint != nil && c.task.Endpoint.Spec != nil {
+		for _, port := range c.task.Endpoint.Spec.Ports {
+			ports = append(ports, uint16(port.PublishedPort))
+		}
+	}
+	return ports
 }
 
 // dataMounts ensures each bind source is a directory owned by the non-root container user.
@@ -683,6 +735,9 @@ func (c *controller) stopTask(ctx context.Context) error {
 		// The edge holds new requests for the port until a replacement is ready.
 		if port, err := hostPort(c.task); err == nil {
 			handoff.Hold(port)
+			if len(c.spec.Mounts) != 0 {
+				handoff.Await(port)
+			}
 		}
 	}
 	if err := t.Kill(ctx, syscall.SIGTERM, containerd.WithKillAll); err != nil && !errdefs.IsNotFound(err) {

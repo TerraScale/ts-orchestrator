@@ -28,6 +28,7 @@ func Hold(port uint16) { held.LoadOrStore(port, make(chan struct{})) }
 
 // Release ends the hold on port, once its new task answers its readyPath.
 func Release(port uint16) {
+	awaited.Delete(port)
 	if ch, ok := held.LoadAndDelete(port); ok {
 		close(ch.(chan struct{}))
 	}
@@ -37,6 +38,26 @@ func Release(port uint16) {
 func Held(port uint16) bool {
 	_, ok := held.Load(port)
 	return ok
+}
+
+var awaited sync.Map // port (uint16) -> time.Time the hold began
+
+// Await marks port's hold as one other services' tasks wait for: a data
+// owner such as TerraBase, which the apps on its host cannot start without.
+func Await(port uint16) { awaited.LoadOrStore(port, time.Now()) }
+
+// AwaitedPorts lists every awaited port still held, with when its hold began.
+func AwaitedPorts() map[uint16]time.Time {
+	ports := map[uint16]time.Time{}
+	awaited.Range(func(port, since any) bool {
+		if Held(port.(uint16)) {
+			ports[port.(uint16)] = since.(time.Time)
+		} else {
+			awaited.Delete(port)
+		}
+		return true
+	})
+	return ports
 }
 
 // Wait returns once port is not held, deadline passes or ctx ends.
@@ -52,6 +73,19 @@ func Wait(ctx context.Context, port uint16, deadline time.Time) {
 	case <-timer.C:
 	case <-ctx.Done():
 	}
+}
+
+// spliced maps the client port of each forwarded connection (the edge's side)
+// to the task port it reaches, while the connection lives.
+var spliced sync.Map // uint16 -> uint16
+
+// Spliced returns the task port a forwarded connection from clientPort reaches.
+func Spliced(clientPort uint16) (uint16, bool) {
+	target, ok := spliced.Load(clientPort)
+	if !ok {
+		return 0, false
+	}
+	return target.(uint16), true
 }
 
 type forwarder struct {
@@ -145,10 +179,11 @@ func (f *forwarder) run(port uint16) {
 func (f *forwarder) forward(conn net.Conn) {
 	defer conn.Close()
 	var backend net.Conn
+	var target uint16
 	// A target that just left (its Unserve raced this accept) refuses; the next one takes the connection.
 	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(bindRetry) {
-		target, ok := f.target()
-		if !ok {
+		var ok bool
+		if target, ok = f.target(); !ok {
 			return
 		}
 		var err error
@@ -160,6 +195,10 @@ func (f *forwarder) forward(conn net.Conn) {
 		}
 	}
 	defer backend.Close()
+	if client, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		spliced.Store(uint16(client.Port), target)
+		defer spliced.Delete(uint16(client.Port))
+	}
 	done := make(chan struct{})
 	go func() {
 		_, _ = io.Copy(backend, conn)

@@ -3,6 +3,7 @@ package swarmruntime
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -109,7 +110,7 @@ func TestDiskWitnessRetainsExactOwnershipAcrossReopen(t *testing.T) {
 func TestBoundedDiskLogSurvivesReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout")
 	for range 3 {
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0600)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -120,6 +121,41 @@ func TestBoundedDiskLogSurvivesReopen(t *testing.T) {
 		info, err := os.Stat(path)
 		if err != nil || info.Size() <= 0 || info.Size() > logSegmentBytes {
 			t.Fatalf("reopened logger exceeded its existing bound: %v, %v", info, err)
+		}
+	}
+}
+
+// A full log keeps its startup and its newest lines, whole, rather than restarting empty.
+func TestBoundedDiskLogKeepsNewestLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stdout")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines bytes.Buffer
+	for i := 0; lines.Len() <= 3*logSegmentBytes; i++ {
+		fmt.Fprintf(&lines, "line %07d %s\n", i, bytes.Repeat([]byte("x"), 90))
+	}
+	last := bytes.LastIndexByte(lines.Bytes()[:lines.Len()-1], '\n')
+	want := string(lines.Bytes()[last+1:])
+	err = copyBoundedLog(file, bytes.NewReader(lines.Bytes()))
+	if err := errors.Join(err, file.Close()); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) < logSegmentBytes/2-len(want) || len(data) > logSegmentBytes || !bytes.HasPrefix(data, []byte("line 0000000 ")) || !strings.HasSuffix(string(data), want) {
+		t.Fatalf("kept %d bytes starting %q", len(data), data[:min(len(data), 20)])
+	}
+	// The startup head survives every compaction once, followed by one gap.
+	if bytes.Count(data, logGap) != 1 || !bytes.Contains(data[:logHeadBytes], []byte("line 0001000 ")) {
+		t.Fatalf("head or gap lost: %d gaps", bytes.Count(data, logGap))
+	}
+	for line := range bytes.Lines(data) {
+		if !bytes.HasPrefix(line, []byte("line ")) && !bytes.Equal(line, logGap) {
+			t.Fatalf("partial line %q", line[:min(len(line), 30)])
 		}
 	}
 }

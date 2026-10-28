@@ -1,6 +1,7 @@
 package swarmruntime
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -284,12 +285,12 @@ func RunRuntimeLogger(argument string) {
 				return errors.Join(ErrDiskPending, err)
 			}
 		}
-		out, err := os.OpenFile(filepath.Join(dir, "stdout"), os.O_CREATE|os.O_WRONLY|os.O_APPEND|unix.O_NOFOLLOW, 0600)
+		out, err := os.OpenFile(filepath.Join(dir, "stdout"), os.O_CREATE|os.O_RDWR|os.O_APPEND|unix.O_NOFOLLOW, 0600)
 		if err != nil {
 			return err
 		}
 		defer out.Close()
-		stderr, err := os.OpenFile(filepath.Join(dir, "stderr"), os.O_CREATE|os.O_WRONLY|os.O_APPEND|unix.O_NOFOLLOW, 0600)
+		stderr, err := os.OpenFile(filepath.Join(dir, "stderr"), os.O_CREATE|os.O_RDWR|os.O_APPEND|unix.O_NOFOLLOW, 0600)
 		if err != nil {
 			return err
 		}
@@ -329,6 +330,10 @@ func RunRuntimeLogger(argument string) {
 	})
 }
 
+// copyBoundedLog appends src to file, which never exceeds logSegmentBytes. A
+// full file keeps its newest half from a line start instead of emptying: on
+// gru TerraBase fills 1 MiB in about 25 minutes, and truncating to zero left
+// operators no log right before an incident. file must be opened read-write.
 func copyBoundedLog(file *os.File, src io.Reader) error {
 	info, err := file.Stat()
 	if err != nil {
@@ -343,10 +348,9 @@ func copyBoundedLog(file *os.File, src io.Reader) error {
 		n, readErr := src.Read(buffer)
 		if n > 0 {
 			if size+int64(n) > logSegmentBytes {
-				if err := file.Truncate(0); err != nil {
+				if size, err = keepLogTail(file, size); err != nil {
 					return err
 				}
-				size = 0
 			}
 			if _, err := file.Write(buffer[:n]); err != nil {
 				return err
@@ -360,4 +364,41 @@ func copyBoundedLog(file *os.File, src io.Reader) error {
 			return readErr
 		}
 	}
+}
+
+// logHeadBytes of a task's first output survive compaction: its startup.
+// gru TerraBase's 95 s start on 2026-10-28 could not be explained because
+// its startup lines were gone within an hour.
+const logHeadBytes = 128 << 10
+
+// logGap separates the kept head from the newest lines.
+var logGap = []byte("--- ts-orch: earlier output dropped to keep this log under 1 MiB ---\n")
+
+// keepLogTail rewrites a full log as its first logHeadBytes and its newest
+// lines, each cut at a line boundary, and returns the new size.
+func keepLogTail(file *os.File, size int64) (int64, error) {
+	head := make([]byte, min(size, logHeadBytes))
+	if _, err := file.ReadAt(head, 0); err != nil {
+		return 0, err
+	}
+	head = head[:bytes.LastIndexByte(head, '\n')+1]
+	if i := bytes.Index(head, logGap); i >= 0 {
+		head = head[:i] // already compacted: the head ends at the gap
+	}
+	keep := min(size-int64(len(head)), logSegmentBytes/2-int64(len(head)+len(logGap)))
+	tail := make([]byte, keep)
+	if _, err := file.ReadAt(tail, size-keep); err != nil {
+		return 0, err
+	}
+	if i := bytes.IndexByte(tail, '\n'); i >= 0 {
+		tail = tail[i+1:]
+	}
+	if err := file.Truncate(0); err != nil {
+		return 0, err
+	}
+	kept := slices.Concat(head, logGap, tail)
+	if _, err := file.Write(kept); err != nil {
+		return 0, err
+	}
+	return int64(len(kept)), nil
 }

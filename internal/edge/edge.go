@@ -101,6 +101,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	// gRPC streams may hold response headers back, so only HTTP/1.1 gets this.
 	http1.ResponseHeaderTimeout = 30 * time.Second
 	e.local = roundTripper(func(r *http.Request) (*http.Response, error) {
+		r = traceBackend(r)
 		if resp, err := e.failover(r); resp != nil || err != nil {
 			return resp, err
 		}
@@ -150,7 +151,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 		},
 		Transport: e.local,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			slog.WarnContext(r.Context(), "edge proxy error", "host", r.Host, "request_id", r.Header.Get(requestIDHeader), "error", err)
+			slog.WarnContext(r.Context(), "edge proxy error", append([]any{"host", r.Host, "request_id", r.Header.Get(requestIDHeader), "error", err}, proxyErrorContext(r)...)...)
 			// A backend that never received the whole request did not run it,
 			// so the source edge may try the next region.
 			if fromPeer(r) && !wroteBackend(r) {
@@ -208,7 +209,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 			// GeoDNS health checks probe region IPs, where SNI cannot pick a
 			// certificate; readiness carries no secrets, so :80 answers it.
 			if r.URL.Path == "/readyz" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
-				e.proxy.ServeHTTP(w, r)
+				e.proxy.ServeHTTP(w, withBackendTrace(r))
 				return
 			}
 			e.challenges.ServeHTTP(w, r)
@@ -311,7 +312,7 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 			defer release()
 		}
 	}
-	e.proxy.ServeHTTP(w, r)
+	e.proxy.ServeHTTP(w, withBackendTrace(r))
 }
 
 // secureHeaders adds the response header baseline every TerraScale surface
