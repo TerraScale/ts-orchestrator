@@ -30,16 +30,28 @@ func TestTerraBaseWaitsForLocalDependentRollout(t *testing.T) {
 	}
 	short, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	if err := node.awaitDependents(short, "terrabase"); !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errDependentRolling) {
+	if _, err := node.awaitDependents(short, "terrabase"); !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errDependentRolling) {
 		t.Fatalf("wait did not end with its context: %v", err)
 	}
 	node.mu.Lock()
 	delete(node.baking, node.bakePath("ts-dashboard", 7))
 	node.mu.Unlock()
 	close(done)
-	if err := node.awaitDependents(t.Context(), "terrabase"); err != nil {
+	if _, err := node.awaitDependents(t.Context(), "terrabase"); err != nil {
 		t.Fatal(err)
 	}
+	// A submitted dashboard update fences TerraBase before its bake registers.
+	dashboard := swarmruntime.ServiceSpec{Name: "ts-dashboard", Image: "ghcr.io/terrascale/ts-dashboard@sha256:" + strings.Repeat("b", 64), Port: 8081, Replicas: 1, Regions: []string{"sjc"}}
+	node.mu.Lock()
+	_, err := node.reconcile(t.Context(), dashboard.Name, stateFor(Entry{Generation: 8, Spec: &dashboard}))
+	starting := node.dependentRolling("terrabase")
+	node.mu.Unlock()
+	if err != nil || !starting {
+		t.Fatalf("submitted dashboard update did not fence TerraBase: %v", err)
+	}
+	node.mu.Lock()
+	delete(node.starting, dashboard.Name) // what evaluate does under the same hold that registers its bake
+	node.mu.Unlock()
 	if applied, err := node.apply(t.Context(), request); err != nil || applied.result != "applied" {
 		t.Fatalf("TerraBase did not apply after the dashboard rollout: %+v %v", applied, err)
 	}

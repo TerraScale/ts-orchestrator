@@ -111,6 +111,8 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	}
 	key := n.bakePath(spec.Name, spec.Generation)
 	n.mu.Lock()
+	// This hold either registers the bake in baking or finds it settled.
+	delete(n.starting, spec.Name)
 	current := n.desired[spec.Name]
 	if !reflect.DeepEqual(current.entry(), applied.state.entry()) || !reflect.DeepEqual(current.Floor, applied.state.Floor) {
 		n.mu.Unlock()
