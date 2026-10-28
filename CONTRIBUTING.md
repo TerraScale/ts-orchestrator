@@ -11,8 +11,8 @@ GitHub equivalent.
 Open one ready-for-review PR per repository per thread; never open a draft.
 CI on GitHub-hosted runners is the gate. Local tests are optional before
 pushing. Rebase on current `origin/main`, push, and require green checks on
-that exact latest head. Fix and answer every reviewer finding. ts-reviewer
-is not deployed and no review approval or named reviewer request is required.
+that exact latest head. Fix and answer every reviewer finding. No review approval or
+named reviewer request is required.
 Do not add AI attribution to commits, PR titles or descriptions.
 
 Use the T3 PR watcher while waiting for checks or reviews; do not poll `gh`.

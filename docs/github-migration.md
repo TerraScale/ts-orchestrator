@@ -58,7 +58,7 @@ cleanup neither creates nor copies secrets, changes IAM, provisions capacity,
 nor deploys a fleet.
 The current `ci.yml` release-push job uses GitHub OIDC to authenticate to
 regional release listeners. Workflow identity and permissions gate that path;
-no PR review approval is required and ts-reviewer is not deployed. Older
+no PR review approval is required. Older
 Vault-signing/image adapters have separate qualification requirements and are
 not active deployment workflows. See [delivery pipeline](delivery-pipeline.md)
 and [contributing](../CONTRIBUTING.md#github-workflow).
