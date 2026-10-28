@@ -3,6 +3,7 @@ package mesh
 import (
 	"bytes"
 	"errors"
+	"fmt"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -22,7 +23,13 @@ type desiredState struct {
 func (state desiredState) accepts(next *Deployment) error {
 	entry := state.entry()
 	serving := state.Floor != nil && entry.Spec != nil && entry.RollbackOf == 0 && entry.Spec.Image == state.Floor.Image
-	return state.Floor.AcceptsReplacement(next, serving)
+	err := state.Floor.AcceptsReplacement(next, serving)
+	if errors.Is(err, swarmruntime.ErrSupersededDeployment) && !serving {
+		// ts-dashboard 2026-10-28: run 40651907119 failed and rolled back, so
+		// reporting an older run "superseded" left nothing newer serving.
+		return fmt.Errorf("newer signed run %s was rolled back and nothing newer serves; re-run it", state.Floor.RunID)
+	}
+	return err
 }
 
 func stateFor(entry Entry) desiredState {
