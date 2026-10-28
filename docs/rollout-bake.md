@@ -3,14 +3,14 @@
 Install the orchestrator release in every target region before rolling a service.
 Older orchestrators advertise readiness without evaluating a bake.
 
-Every mesh service rollout observes a fixed five-minute bake after exact task
-readiness, sampling every ten seconds. Dependency probes may recover for up to
+Every mesh service rollout observes a fixed thirty-second bake after exact task
+readiness, sampling every two seconds. Dependency probes may recover for up to
 thirty seconds from the first failed observation, including when another
 service rolls during this bake. Every such failed sample resets the healthy
-clock: recovery must be followed by a full five-minute
+clock: recovery must be followed by a full thirty-second
 healthy bake before another region can advance. A continuous dependency failure
 at thirty seconds holds the generation. Repeated interruptions cannot extend
-the bake beyond ten minutes thirty seconds. Candidate, catalog-anchor,
+the bake beyond ninety seconds. Candidate, catalog-anchor,
 writer-wait and log-coverage failures always hold immediately, including during
 dependency recovery.
 
@@ -35,7 +35,19 @@ App CI releases receive acceptance promptly and poll the authenticated operation
 until its terminal verdict. The client refreshes its short-lived credential and
 reconnects after connection loss; polls retain the same signed rollout and bake
 generation. Acceptance alone never makes CI pass. A completed rollback remains
-failed across handler restart and requires a newer signed run to retry.
+failed across handler restart. A higher signed `run_attempt` of the same run
+may retry after rollback, including with a rebuilt digest; a serving or baking
+run cannot change its digest. Older runs and attempts cannot replace newer state.
+The CLI exits successfully for an older signed run refused at admission or a
+release whose failed regions were all superseded during bake or waiting behind
+such a region. The newer release retains its own verdict. Unfinished bakes print
+`bake unfinished` instead of a duration.
+
+The regional observation budget is readiness + 30 seconds + the 90-second
+maximum bake. Three 180-second readiness budgets plus one parallel rollback
+fit within the 21-minute handler deadline; CI jobs allow 25 minutes. A healthy
+region with a 10-second startup and short pull now finishes in under 60 seconds;
+dependency recovery and readiness failures may take longer.
 
 An unfinished or failed bake cannot admit another region. A missing earlier
 region also holds advancement. Failed bakes survive restart and reconciliation;

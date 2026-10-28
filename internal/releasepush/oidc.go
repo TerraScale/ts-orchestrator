@@ -16,6 +16,7 @@ import (
 	"math/big"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -69,6 +70,7 @@ type Claims struct {
 	Ref             string   `json:"ref"`
 	SHA             string   `json:"sha"`
 	RunID           string   `json:"run_id"`
+	RunAttempt      string   `json:"run_attempt"`
 	JobWorkflowRef  string   `json:"job_workflow_ref"`
 	WorkflowRef     string   `json:"workflow_ref"`
 	EventName       string   `json:"event_name"`
@@ -193,6 +195,11 @@ func (v *Verifier) verify(ctx context.Context, token string) (Claims, error) {
 		return Claims{}, errors.New("token is not from " + mainRef)
 	case !runID.MatchString(claims.RunID):
 		return Claims{}, errors.New("token run_id is not a number")
+	}
+	if claims.RunAttempt != "" {
+		if attempt, err := strconv.ParseUint(claims.RunAttempt, 10, 64); err != nil || attempt == 0 {
+			return Claims{}, errors.New("token run_attempt is not a positive number")
+		}
 	}
 	return claims, nil
 }

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const BakeWindow = 5 * time.Minute
+const BakeWindow = 30 * time.Second
 const DependencyRecoveryWindow = 30 * time.Second
 const MaxBakeWindow = 2*BakeWindow + DependencyRecoveryWindow
 
@@ -54,7 +54,7 @@ type BakeVerdict struct {
 // RunBake allows bounded dependency recovery, then requires a full
 // healthy window. Candidate and storage failures never receive this allowance.
 func RunBake(ctx context.Context, probe func(context.Context) (map[string]string, error)) (BakeVerdict, error) {
-	return runBake(ctx, probe, BakeWindow, 10*time.Second)
+	return runBake(ctx, probe, BakeWindow, 2*time.Second)
 }
 
 func runBake(ctx context.Context, probe func(context.Context) (map[string]string, error), window, poll time.Duration) (v BakeVerdict, err error) {

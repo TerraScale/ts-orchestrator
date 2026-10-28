@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,11 +19,9 @@ import (
 )
 
 const (
-	// releaseWait is how long every targeted region has to run the new image
-	// and answer its ready path before the release rolls back.
+	// releaseWait is the minimum wait; rolloutWait adds regional bake budgets.
 	releaseWait = 70 * time.Second
-	// releaseWait, rollbackWait and two state reads (3 s each) fit in the
-	// release handler's 2 min; the previous image is already on every host.
+	// Rollback runs in parallel; the previous image is already on every host.
 	rollbackWait = 40 * time.Second
 )
 
@@ -35,7 +34,8 @@ func Release(state string) func(ctx context.Context, service, image string, clai
 			return nil, err
 		}
 		defer conn.Close()
-		rows, failed := releaseDeployment(ctx, conn, service, image, &Deployment{Repository: claims.Repository, RunID: claims.RunID, Revision: claims.SHA, Image: image}, releaseWait, rollbackWait)
+		attempt, _ := strconv.ParseUint(claims.RunAttempt, 10, 64)
+		rows, failed := releaseDeployment(ctx, conn, service, image, &Deployment{Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA, Image: image}, releaseWait, rollbackWait)
 		if rows == nil {
 			return nil, failed
 		}
@@ -59,7 +59,7 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	}
 	before := entries[service].entry()
 	previous := before.Spec
-	if err := entries[service].Floor.Accepts(deployment); err != nil {
+	if err := entries[service].accepts(deployment); err != nil {
 		return nil, err
 	}
 	// The retained signed floor survives rollback and operator changes. Once

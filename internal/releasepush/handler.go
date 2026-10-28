@@ -42,7 +42,7 @@ const (
 
 // HandlerWait bounds one release request: three regions rolled in turn, each
 // up to a 180 s readiness timeout and bounded bake recovery, plus overhead.
-const HandlerWait = 45 * time.Minute
+const HandlerWait = 21 * time.Minute
 
 var (
 	hex40 = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -432,7 +432,7 @@ func (h *Handler) mesh(ctx context.Context, op string, data []byte) Reply {
 		return rejected(errors.New("this host runs no mesh bridge"))
 	}
 	if op == "apply" {
-		key := appOperationKey{claims.Repository, claims.RunID, claims.SHA, claims.JobWorkflowRef, "mesh-apply", fmt.Sprintf("%x", sha256.Sum256(request.Spec))}
+		key := appOperationKey{claims.Repository, claims.RunID, claims.RunAttempt, claims.SHA, claims.JobWorkflowRef, "mesh-apply", fmt.Sprintf("%x", sha256.Sum256(request.Spec))}
 		return h.operation(key, func(ctx context.Context) (json.RawMessage, error) { return h.Mesh(ctx, op, request.Spec) })
 	}
 	result, err := h.Mesh(ctx, op, request.Spec)

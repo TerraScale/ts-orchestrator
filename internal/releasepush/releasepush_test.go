@@ -77,7 +77,7 @@ func (i *issuer) verifier(now time.Time) *Verifier {
 
 func goodClaims(now time.Time) map[string]any {
 	return map[string]any{"iss": githubIssuer, "aud": Audience, "exp": now.Add(5 * time.Minute).Unix(), "nbf": now.Add(-time.Minute).Unix(),
-		"repository": orchRepository, "repository_owner": owner, "ref": mainRef, "sha": testSHA, "run_id": "100",
+		"repository": orchRepository, "repository_owner": owner, "ref": mainRef, "sha": testSHA, "run_id": "100", "run_attempt": "1",
 		"event_name": "push", "job_workflow_ref": orchRepository + "/.github/workflows/ci.yml@" + mainRef}
 }
 
@@ -132,6 +132,8 @@ func TestVerify(t *testing.T) {
 		"other workflow":              {i.sign(t, with(goodClaims(now), "job_workflow_ref", orchRepository+"/.github/workflows/image.yml@"+mainRef)), false},
 		"workflow on branch":          {i.sign(t, with(goodClaims(now), "job_workflow_ref", orchRepository+"/.github/workflows/ci.yml@refs/heads/x")), false},
 		"other repo, listed workflow": {i.sign(t, with(goodClaims(now), "repository", owner+"/terrabase")), false},
+		"run_attempt zero":            {i.sign(t, with(goodClaims(now), "run_attempt", "0")), false},
+		"run_attempt overflow":        {i.sign(t, with(goodClaims(now), "run_attempt", "18446744073709551616")), false},
 		"run_id not a number":         {i.sign(t, with(goodClaims(now), "run_id", "1.2")), false},
 	}
 	for name, c := range cases {

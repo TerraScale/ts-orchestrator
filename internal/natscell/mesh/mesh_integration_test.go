@@ -686,7 +686,7 @@ func TestRolloutWindowsFollowReadyTimeout(t *testing.T) {
 	if got := rolloutWait(&swarmruntime.ServiceSpec{Name: "whoami"}); got != max(applyWait, 3*(90*time.Second+rollout.MaxBakeWindow)) {
 		t.Fatalf("default rolloutWait = %s", got)
 	}
-	if rolloutWait(spec) > releasepush.HandlerWait-time.Minute {
+	if rolloutWait(spec)+regionWindow(spec)+2*stateWait >= releasepush.HandlerWait {
 		t.Fatalf("rollout %s does not fit the release handler's %s", rolloutWait(spec), releasepush.HandlerWait)
 	}
 }

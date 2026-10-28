@@ -143,13 +143,15 @@ func TestAppOperationIdentityAndRetention(t *testing.T) {
 		}
 	}
 	h.mu.Unlock()
-	for _, field := range []string{"repository", "run", "sha", "workflow", "service", "image"} {
+	for _, field := range []string{"repository", "run", "attempt", "sha", "workflow", "service", "image"} {
 		r, c := release, claims
 		switch field {
 		case "repository":
 			c.Repository += "new"
 		case "run":
 			c.RunID += "1"
+		case "attempt":
+			c.RunAttempt = "2"
 		case "sha":
 			c.SHA = strings.Repeat("a", 40)
 		case "workflow":
@@ -164,10 +166,10 @@ func TestAppOperationIdentityAndRetention(t *testing.T) {
 		}
 	}
 	deadline := time.Now().Add(3 * time.Second)
-	for calls.Load() != 7 && time.Now().Before(deadline) {
+	for calls.Load() != 8 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if calls.Load() != 7 {
+	if calls.Load() != 8 {
 		t.Fatalf("distinct identities applied %d times", calls.Load())
 	}
 }

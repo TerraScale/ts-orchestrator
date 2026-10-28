@@ -502,7 +502,7 @@ func (n *Node) handleApply(m *nats.Msg) {
 		reply.Bake = &verdict.Bake
 		reply.Phases = fmt.Sprintf("pulled %dms, submitted %dms, ready %dms", pulled.Milliseconds(), submitted.Milliseconds(), (submitted + time.Duration(verdict.Rollout.Ready)).Milliseconds())
 		if !verdict.Bake.Started.IsZero() {
-			reply.Phases += fmt.Sprintf(", bake %s (%d samples)", verdict.Bake.Finished.Sub(verdict.Bake.Started), verdict.Bake.Samples)
+			reply.Phases += bakePhase(verdict.Bake)
 		}
 	}
 	reply.Result, reply.ElapsedMS = applied.result, time.Since(start).Milliseconds()
@@ -675,7 +675,7 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 	if request.Entry.RollbackOf != 0 && current.Generation > request.Entry.RollbackOf {
 		return applyResult{}, errors.New("rollback superseded by another apply")
 	}
-	if err := before.Floor.Accepts(request.Entry.Deployment); err != nil {
+	if err := before.accepts(request.Entry.Deployment); err != nil {
 		return applyResult{}, err
 	}
 	merged, err := mergeState(before, stateFor(request.Entry))

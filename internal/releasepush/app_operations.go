@@ -10,7 +10,7 @@ import (
 // Refreshed credentials identify the same operation without extending their
 // lifetime: app validates every request before consulting this cache.
 type appOperationKey struct {
-	repository, runID, sha, workflow, service, image string
+	repository, runID, attempt, sha, workflow, service, image string
 }
 
 type appOperation struct {
@@ -19,7 +19,7 @@ type appOperation struct {
 }
 
 func (h *Handler) appOperation(release AppRelease, claims Claims) Reply {
-	key := appOperationKey{claims.Repository, claims.RunID, claims.SHA, claims.JobWorkflowRef, release.Service, release.Image}
+	key := appOperationKey{claims.Repository, claims.RunID, claims.RunAttempt, claims.SHA, claims.JobWorkflowRef, release.Service, release.Image}
 	return h.operation(key, func(ctx context.Context) (json.RawMessage, error) {
 		return h.App(ctx, release.Service, release.Image, claims)
 	})

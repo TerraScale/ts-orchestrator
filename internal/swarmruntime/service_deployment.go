@@ -12,6 +12,7 @@ import (
 type Deployment struct {
 	Repository string `json:"repository"`
 	RunID      string `json:"runId"`
+	RunAttempt uint64 `json:"runAttempt,omitzero"`
 	Revision   string `json:"revision"`
 	Image      string `json:"image"`
 }
@@ -39,7 +40,7 @@ var ErrSupersededDeployment = errors.New("deployment is superseded by a newer si
 // release replaced before the verdict: the newer release owns the outcome.
 var ErrSupersededDuringBake = errors.New("release superseded during bake")
 
-// Accepts refuses older runs and changes to an already approved run.
+// Accepts orders signed runs and attempts; an attempt cannot change its approval.
 func (d *Deployment) Accepts(next *Deployment) error {
 	if err := next.Validate(); err != nil {
 		return err
@@ -58,7 +59,18 @@ func (d *Deployment) Accepts(next *Deployment) error {
 	if run < floor {
 		return ErrSupersededDeployment
 	}
-	if run == floor && *next != *d {
+	if run == floor && (next.RunAttempt < d.RunAttempt || next.Revision != d.Revision || next.RunAttempt == d.RunAttempt && *next != *d) {
+		return errors.New("deployment changes an already approved run; release from a newer signed run")
+	}
+	return nil
+}
+
+// AcceptsReplacement also protects a run's serving or baking digest.
+func (d *Deployment) AcceptsReplacement(next *Deployment, serving bool) error {
+	if err := d.Accepts(next); err != nil {
+		return err
+	}
+	if serving && d != nil && next != nil && d.RunID == next.RunID && d.Image != next.Image {
 		return errors.New("deployment changes an already approved run; release from a newer signed run")
 	}
 	return nil
@@ -109,7 +121,7 @@ func admitServiceSpec(labels map[string]string, next ServiceSpec) error {
 	if floor != nil && next.DeploymentFloor == nil {
 		return errors.New("service deployment floor cannot be removed")
 	}
-	if err := floor.Accepts(next.DeploymentFloor); err != nil {
+	if err := floor.AcceptsReplacement(next.DeploymentFloor, deployment != nil && rollbackOf == 0); err != nil {
 		return err
 	}
 	if deployment != nil && next.DeploymentFloor != nil && *deployment != *next.DeploymentFloor {

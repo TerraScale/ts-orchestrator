@@ -19,6 +19,12 @@ type desiredState struct {
 	Floor    *Deployment `json:"floor,omitempty"`
 }
 
+func (state desiredState) accepts(next *Deployment) error {
+	entry := state.entry()
+	serving := state.Floor != nil && entry.Spec != nil && entry.RollbackOf == 0 && entry.Spec.Image == state.Floor.Image
+	return state.Floor.AcceptsReplacement(next, serving)
+}
+
 func stateFor(entry Entry) desiredState {
 	if entry.Deployment != nil {
 		return desiredState{Signed: &entry, Floor: entry.Deployment}

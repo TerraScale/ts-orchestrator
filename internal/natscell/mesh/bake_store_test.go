@@ -117,3 +117,24 @@ func TestBakePersistenceFailureAndInterruptedRestart(t *testing.T) {
 		})
 	}
 }
+
+func TestBakePhaseUnfinished(t *testing.T) {
+	v := rollout.BakeVerdict{Started: time.Now(), Samples: 2}
+	if got := bakePhase(v); got != ", bake unfinished (2 samples)" {
+		t.Fatal(got)
+	}
+	v.Finished = v.Started.Add(30 * time.Second)
+	if got := bakePhase(v); got != ", bake 30s (2 samples)" {
+		t.Fatal(got)
+	}
+}
+
+func TestSupersededBeforeBakeUsesReleaseVerdict(t *testing.T) {
+	n := &Node{desired: map[string]desiredState{"web": stateFor(Entry{Generation: 2})}}
+	_, err := n.evaluate(t.Context(), applyResult{
+		spec: swarmruntime.ServiceSpec{Name: "web", Generation: 1}, state: stateFor(Entry{Generation: 1}),
+	})
+	if !errors.Is(err, swarmruntime.ErrSupersededDuringBake) {
+		t.Fatalf("superseded before bake: %v", err)
+	}
+}
