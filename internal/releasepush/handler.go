@@ -431,6 +431,10 @@ func (h *Handler) mesh(ctx context.Context, op string, data []byte) Reply {
 	if h.Mesh == nil {
 		return rejected(errors.New("this host runs no mesh bridge"))
 	}
+	if op == "apply" {
+		key := appOperationKey{claims.Repository, claims.RunID, claims.SHA, claims.JobWorkflowRef, "mesh-apply", fmt.Sprintf("%x", sha256.Sum256(request.Spec))}
+		return h.operation(key, func(ctx context.Context) (json.RawMessage, error) { return h.Mesh(ctx, op, request.Spec) })
+	}
 	result, err := h.Mesh(ctx, op, request.Spec)
 	if err != nil {
 		return Reply{State: "failed", Error: err.Error(), Result: result}

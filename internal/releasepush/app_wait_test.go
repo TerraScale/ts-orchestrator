@@ -12,6 +12,12 @@ import (
 )
 
 func TestAppWaitRenewsShortCredentialAndResumesDroppedConnection(t *testing.T) {
+	for _, subject := range []string{SubjectApp, SubjectApply} {
+		t.Run(subject, func(t *testing.T) { testOperationWait(t, subject) })
+	}
+}
+
+func testOperationWait(t *testing.T, subject string) {
 	i := newIssuer(t)
 	v := i.verifier(time.Now())
 	v.Now = time.Now
@@ -33,6 +39,9 @@ func TestAppWaitRenewsShortCredentialAndResumesDroppedConnection(t *testing.T) {
 			return nil, ctx.Err()
 		}
 	}}
+	h.Mesh = func(ctx context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
+		return h.App(ctx, "", "", Claims{})
+	}
 	if err := h.Serve(local); err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +50,9 @@ func TestAppWaitRenewsShortCredentialAndResumesDroppedConnection(t *testing.T) {
 		claims := goodClaims(time.Now())
 		claims["repository"] = owner + "/ts-dashboard"
 		claims["job_workflow_ref"] = owner + "/ts-dashboard/.github/workflows/images-ghcr.yml@" + mainRef
+		if subject == SubjectApply {
+			claims = meshClaims(time.Now())
+		}
 		// Auth admits until exp+clockSkew, keeping the real expiry test short.
 		claims["exp"] = time.Now().Add(-clockSkew + 2*time.Second).Unix()
 		return i.sign(t, claims), nil
@@ -60,7 +72,12 @@ func TestAppWaitRenewsShortCredentialAndResumesDroppedConnection(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	reply, err := awaitApp(ctx, AppRelease{Service: "ts-dashboard", Image: "ghcr.io/terrascale/ts-dashboard@sha256:" + strings.Repeat("a", 64), Token: token}, conn, mint, dial, 100*time.Millisecond)
+	reply, err := awaitOperation(ctx, token, conn, mint, dial, 100*time.Millisecond, subject, func(token string) ([]byte, error) {
+		if subject == SubjectApply {
+			return json.Marshal(MeshRequest{Token: token, Spec: json.RawMessage(`{"name":"whoami"}`)})
+		}
+		return json.Marshal(AppRelease{Service: "ts-dashboard", Image: "ghcr.io/terrascale/ts-dashboard@sha256:" + strings.Repeat("a", 64), Token: token})
+	})
 	if err != nil || reply.State != "done" || !strings.Contains(string(reply.Result), "passed") {
 		t.Fatalf("release lost across credential expiry/disconnect: %+v %v", reply, err)
 	}

@@ -2,6 +2,7 @@ package releasepush
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -19,6 +20,12 @@ type appOperation struct {
 
 func (h *Handler) appOperation(release AppRelease, claims Claims) Reply {
 	key := appOperationKey{claims.Repository, claims.RunID, claims.SHA, claims.JobWorkflowRef, release.Service, release.Image}
+	return h.operation(key, func(ctx context.Context) (json.RawMessage, error) {
+		return h.App(ctx, release.Service, release.Image, claims)
+	})
+}
+
+func (h *Handler) operation(key appOperationKey, run func(context.Context) (json.RawMessage, error)) Reply {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for key, operation := range h.appOperations {
@@ -45,7 +52,7 @@ func (h *Handler) appOperation(release AppRelease, claims Claims) Reply {
 		// The rollout outlives each short poll and its OIDC connection.
 		ctx, cancel := context.WithTimeout(context.Background(), HandlerWait)
 		defer cancel()
-		result, err := h.App(ctx, release.Service, release.Image, claims)
+		result, err := run(ctx)
 		reply := Reply{State: "done", Result: append([]byte(nil), result...)}
 		if err != nil {
 			reply.State, reply.Error = "failed", err.Error()

@@ -664,6 +664,10 @@ func TestMeshBridge(t *testing.T) {
 	for subject, spec := range map[string]string{SubjectPing: "", SubjectApply: `{"name":"x"}`} {
 		data, _ := json.Marshal(MeshRequest{Token: token, Spec: json.RawMessage(spec)})
 		reply, err := request(context.Background(), ci, subject, data, 2*time.Second)
+		for err == nil && reply.State == "accepted" {
+			time.Sleep(time.Millisecond)
+			reply, err = request(context.Background(), ci, subject, data, 2*time.Second)
+		}
 		if err != nil || reply.State != "done" || !strings.Contains(string(reply.Result), strings.TrimPrefix(subject, "ts.release.mesh.")) {
 			t.Fatalf("%s = %+v, %v", subject, reply, err)
 		}

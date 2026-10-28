@@ -327,6 +327,18 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	eventually(t, fra+" to converge by anti-entropy", func() bool { return appliers[fra].generation("whoami") == 2 })
 	eventually(t, fra+" to rejoin the peers file", func() bool { return peersFile(regions[0]) == every })
 
+	// A fresh release handler can replay a check after restart without minting
+	// a new generation or discarding the durable bake evidence.
+	wire, _ := json.Marshal(spec)
+	if _, err := bridge(t.Context(), nodes[fra].conn, "apply", wire); err != nil {
+		t.Fatal(err)
+	}
+	for _, region := range regions {
+		if got := appliers[region].generation("whoami"); got != 2 {
+			t.Fatalf("replayed check restarted %s at generation %d", region, got)
+		}
+	}
+
 	// An app release changes only the digest; an unready one rolls back everywhere.
 	image := func(region string) string {
 		node := nodes[region]
