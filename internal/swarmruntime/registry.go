@@ -1,8 +1,10 @@
 package swarmruntime
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -136,7 +138,10 @@ func privateRegistryResolver(image, host string, credentials func(string) (strin
 	if transport == nil {
 		transport = &http.Transport{DisableKeepAlives: true, TLSHandshakeTimeout: 10 * time.Second}
 	}
-	client := &http.Client{Transport: registryTransport{host: host, blobHosts: blobHosts, base: transport}, Timeout: 30 * time.Second,
+	// No whole-request Timeout: it also bounded the body, so a TerraBase layer
+	// that took over 30 s to download failed every pull (gru 2026-10-27).
+	// registryTransport cancels a request only once it stalls.
+	client := &http.Client{Transport: registryTransport{host: host, blobHosts: blobHosts, base: transport},
 		CheckRedirect: func(request *http.Request, via []*http.Request) error {
 			if len(via) > 3 || !slices.Contains(blobHosts, request.URL.Host) {
 				return http.ErrUseLastResponse
@@ -158,6 +163,7 @@ type registryTransport struct {
 	host      string
 	blobHosts []string
 	base      http.RoundTripper
+	stall     time.Duration // registryStall when zero; tests shorten it
 }
 
 func (t registryTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -168,7 +174,43 @@ func (t registryTransport) RoundTrip(request *http.Request) (*http.Response, err
 	if blob && request.Header.Get("Authorization") != "" {
 		return nil, errors.New("registry credentials must not reach the blob host")
 	}
-	return t.base.RoundTrip(request)
+	limit := cmp.Or(t.stall, registryStall)
+	ctx, cancel := context.WithCancel(request.Context())
+	stall := time.AfterFunc(limit, cancel)
+	response, err := t.base.RoundTrip(request.WithContext(ctx))
+	if err != nil {
+		stall.Stop()
+		cancel()
+		return nil, err
+	}
+	response.Body = &stallBody{ReadCloser: response.Body, stall: stall, limit: limit, cancel: cancel}
+	return response, nil
+}
+
+// registryStall cancels a registry request that receives no response or no
+// body bytes for this long.
+const registryStall = 30 * time.Second
+
+// stallBody restarts the stall timer on every read that makes progress.
+type stallBody struct {
+	io.ReadCloser
+	stall  *time.Timer
+	limit  time.Duration
+	cancel context.CancelFunc
+}
+
+func (b *stallBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.stall.Reset(b.limit)
+	}
+	return n, err
+}
+
+func (b *stallBody) Close() error {
+	b.stall.Stop()
+	b.cancel()
+	return b.ReadCloser.Close()
 }
 
 type boundRegistryResolver struct {
