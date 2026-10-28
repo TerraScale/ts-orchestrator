@@ -65,6 +65,7 @@ func Check(ctx context.Context, args []string, output io.Writer) error {
 		}
 	}()
 	var entry string
+	var entryRegion releasepush.Region
 	servers := map[string]string{}
 	for _, region := range regions {
 		conn, err := releasepush.Dial(region, token, nats.Name("ts-orch release mesh-check"))
@@ -75,7 +76,7 @@ func Check(ctx context.Context, args []string, output io.Writer) error {
 		}
 		conns[region.Region] = conn
 		if entry == "" {
-			entry = region.Region
+			entry, entryRegion = region.Region, region
 		}
 		rows, err := call(ctx, conn, releasepush.SubjectPing, releasepush.MeshRequest{Token: token}, 30*time.Second)
 		for _, row := range rows {
@@ -109,7 +110,9 @@ func Check(ctx context.Context, args []string, output io.Writer) error {
 		failed = errors.Join(failed, fmt.Errorf("remove before apply: %w", err))
 	}
 	fmt.Fprintf(output, "\n### Apply %s from %s (WHOAMI_NAME=%s)\n\n| Region | Result | Ms until running |\n|---|---|---|\n", spec.Name, entry, marker)
-	rows, err := call(ctx, conns[entry], releasepush.SubjectApply, releasepush.MeshRequest{Token: token, Spec: encoded}, releasepush.HandlerWait+10*time.Second)
+	reply, err := releasepush.AwaitMesh(ctx, entryRegion, releasepush.SubjectApply, releasepush.MeshRequest{Token: token, Spec: encoded})
+	rows, decodeErr := replyRows(reply)
+	err = errors.Join(err, decodeErr)
 	if err != nil {
 		failed = errors.Join(failed, fmt.Errorf("apply: %w", err))
 	}
@@ -165,6 +168,10 @@ func call(ctx context.Context, conn *nats.Conn, subject string, request releasep
 	if err := json.Unmarshal(message.Data, &reply); err != nil {
 		return nil, err
 	}
+	return replyRows(reply)
+}
+
+func replyRows(reply releasepush.Reply) ([]Reply, error) {
 	var rows []Reply
 	if len(reply.Result) != 0 {
 		if err := json.Unmarshal(reply.Result, &rows); err != nil {

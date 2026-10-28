@@ -1,6 +1,7 @@
 package mesh
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -37,8 +38,19 @@ func bridge(ctx context.Context, conn *nats.Conn, op string, spec json.RawMessag
 		if err := protocol.DecodeStrict(spec, &service, 64<<10); err != nil {
 			return nil, err
 		}
-		// Shorter than the release handler's 2 min, so a missing region still yields rows.
-		rows, failed = applySpec(ctx, conn, service, "", false, applyWait-5*time.Second)
+		// The durable desired entry and bake verdict resume a poll after restart.
+		entries, err := desiredStates(ctx, conn)
+		if err != nil {
+			return nil, err
+		}
+		entry := entries[service.Name].entry()
+		want, _ := json.Marshal(service)
+		have, _ := json.Marshal(entry.Spec)
+		if entry.RollbackOf == 0 && bytes.Equal(want, have) {
+			rows, failed = send(ctx, conn, ApplyRequest{Name: service.Name, Entry: entry}, max(applyWait, rolloutWait(&service)))
+		} else {
+			rows, failed = applySpec(ctx, conn, service, "", false, applyWait-5*time.Second)
+		}
 	case "rm":
 		var service swarmruntime.ServiceSpec
 		if err := protocol.DecodeStrict(spec, &service, 64<<10); err != nil {
