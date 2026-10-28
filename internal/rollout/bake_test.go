@@ -33,7 +33,7 @@ func TestBakeWindowAndFailures(t *testing.T) {
 					return map[string]string{"candidate": "ok"}, nil
 				})
 				if mode == "healthy" {
-					if err != nil || v.Samples != 31 || v.Finished.Sub(v.Started) != BakeWindow {
+					if err != nil || v.Samples != 16 || v.Finished.Sub(v.Started) != 30*time.Second || MaxBakeWindow != 90*time.Second {
 						t.Fatalf("healthy bake: %+v %v", v, err)
 					}
 				} else if err == nil || v.Reason == "" || v.Samples != calls {

@@ -113,7 +113,7 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	current := n.desired[spec.Name]
 	if !reflect.DeepEqual(current.entry(), applied.state.entry()) || !reflect.DeepEqual(current.Floor, applied.state.Floor) {
 		n.mu.Unlock()
-		return bakeRecord{}, errors.New("release superseded before bake")
+		return bakeRecord{}, swarmruntime.ErrSupersededDuringBake
 	}
 	if done := n.baking[key]; done != nil {
 		n.mu.Unlock()
@@ -199,4 +199,11 @@ func bakeHeld(rows []Reply, service string) bool {
 		}
 	}
 	return false
+}
+
+func bakePhase(v rollout.BakeVerdict) string {
+	if v.Finished.IsZero() {
+		return fmt.Sprintf(", bake unfinished (%d samples)", v.Samples)
+	}
+	return fmt.Sprintf(", bake %s (%d samples)", v.Finished.Sub(v.Started), v.Samples)
 }

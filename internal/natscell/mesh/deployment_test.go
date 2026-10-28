@@ -173,8 +173,9 @@ func TestStateMergeRejectsEquivocationAndInvalidComponents(t *testing.T) {
 
 type evidenceApplier struct {
 	fakeApplier
-	revision string
-	waiting  func(swarmruntime.ServiceSpec)
+	revision    string
+	waiting     func(swarmruntime.ServiceSpec)
+	waitFailure error
 }
 
 func (a *evidenceApplier) Wait(_ context.Context, spec swarmruntime.ServiceSpec, _ *api.Service) (swarmruntime.ServiceRollout, error) {
@@ -187,7 +188,7 @@ func (a *evidenceApplier) Wait(_ context.Context, spec swarmruntime.ServiceSpec,
 	if a.waiting != nil {
 		a.waiting(spec)
 	}
-	return swarmruntime.ServiceRollout{Revision: a.revision, Tasks: []swarmruntime.ServiceTaskEvidence{{Machine: spec.Node, Image: spec.Image, Generation: spec.Generation, Ready: true}}}, nil
+	return swarmruntime.ServiceRollout{Revision: a.revision, Tasks: []swarmruntime.ServiceTaskEvidence{{Machine: spec.Node, Image: spec.Image, Generation: spec.Generation, Ready: true}}}, a.waitFailure
 }
 
 func TestMeshApplyChecksRevisionAndSupersededReadiness(t *testing.T) {
@@ -259,13 +260,17 @@ func TestMeshApplyChecksRevisionAndSupersededReadiness(t *testing.T) {
 		node.mu.Lock()
 		defer node.mu.Unlock()
 		floor := *d
-		floor.RunID = "101"
+		floor.RunID = node.desired[s.Name].Floor.RunID + "1"
 		current := node.desired[s.Name]
 		current.Floor, current.Signed = &floor, nil
 		node.desired[s.Name] = current
 	}
 	if reply := apply(15, nil); !strings.Contains(reply.Error, "superseded") {
 		t.Fatalf("floor changed during readiness without being detected: %+v", reply)
+	}
+	applier.waitFailure = fmt.Errorf("requested service spec was superseded before metadata completion")
+	if reply := apply(16, nil); reply.Error != swarmruntime.ErrSupersededDuringBake.Error() {
+		t.Fatalf("metadata completion overlap lost #194's error: %+v", reply)
 	}
 }
 

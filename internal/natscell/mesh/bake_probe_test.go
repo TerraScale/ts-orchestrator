@@ -67,11 +67,11 @@ func TestBakeTerraBaseSwapAuth503Recovery(t *testing.T) {
 						if mode == "invalid-dashboard" {
 							body = "invalid"
 						}
-						// Batch 11: gru's dashboard rolls 170 seconds into
+						// Batch 11: gru's dashboard rolls 10 seconds into
 						// fra's otherwise healthy TerraBase bake.
-						if crossService && dashboard >= 18 && (dashboard == 18 || mode != "dashboard-roll") {
-							if dashboard == 18 || mode != "variable-latency-dashboard-roll" {
-								time.Sleep(3 * time.Second)
+						if crossService && dashboard >= 6 && (dashboard == 6 || mode != "dashboard-roll") {
+							if dashboard == 6 || mode != "variable-latency-dashboard-roll" {
+								time.Sleep(time.Second)
 							}
 							return nil, errors.New("connection interrupted by dashboard rollout")
 						}
@@ -98,10 +98,10 @@ func TestBakeTerraBaseSwapAuth503Recovery(t *testing.T) {
 						t.Fatalf("lost cross-service rollover evidence: %+v", v)
 					}
 					if mode != "dashboard-roll" {
-						if err == nil || v.Samples != 21 || v.Finished.Sub(v.Started) != 203*time.Second {
+						if err == nil || v.Samples != 21 || v.Finished.Sub(v.Started) != 41*time.Second {
 							t.Fatalf("persistent mid-bake failure did not hold after 30 seconds: %+v %v", v, err)
 						}
-					} else if err != nil || v.Samples != 49 || v.RecoverySamples != 1 || v.Finished.Sub(v.Started) != 480*time.Second || v.Finished.Sub(v.HealthySince) != rollout.BakeWindow {
+					} else if err != nil || v.Samples != 22 || v.RecoverySamples != 1 || v.Finished.Sub(v.Started) != 42*time.Second || v.Finished.Sub(v.HealthySince) != rollout.BakeWindow {
 						t.Fatalf("dashboard roll interrupted fra bake instead of restarting healthy window: %+v %v", v, err)
 					}
 					return
@@ -110,10 +110,10 @@ func TestBakeTerraBaseSwapAuth503Recovery(t *testing.T) {
 					t.Fatalf("lost tolerated auth failure: %+v", v)
 				}
 				if mode == "persistent" {
-					if err == nil || v.Reason != "bake ts-auth readiness: HTTP 503" || v.Samples != 3 || v.Finished.Sub(v.Started) != rollout.DependencyRecoveryWindow {
+					if err == nil || v.Reason != "bake ts-auth readiness: HTTP 503" || v.Samples != 15 || v.Finished.Sub(v.Started) != rollout.DependencyRecoveryWindow {
 						t.Fatalf("persistent auth failure did not hold: %+v %v", v, err)
 					}
-				} else if err != nil || v.Samples != 32 || v.RecoverySamples != 1 || v.Finished.Sub(v.Started) != rollout.BakeWindow+10*time.Second || v.Finished.Sub(v.HealthySince) != rollout.BakeWindow || v.Checks["ts-auth"] != "ok" {
+				} else if err != nil || v.Samples != 17 || v.RecoverySamples != 1 || v.Finished.Sub(v.Started) != rollout.BakeWindow+2*time.Second || v.Finished.Sub(v.HealthySince) != rollout.BakeWindow || v.Checks["ts-auth"] != "ok" {
 					t.Fatalf("normal swap did not recover into a full healthy bake: %+v %v", v, err)
 				}
 			})

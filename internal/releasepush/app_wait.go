@@ -39,8 +39,8 @@ func awaitOperation(ctx context.Context, token string, conn *nats.Conn, mint fun
 		}
 		return Reply{}, err
 	}
-	identity := func(c Claims) [7]string {
-		return [7]string{c.Repository, c.RepositoryOwner, c.RunID, c.SHA, c.Ref, c.JobWorkflowRef, c.WorkflowRef}
+	identity := func(c Claims) [8]string {
+		return [8]string{c.Repository, c.RepositoryOwner, c.RunID, c.RunAttempt, c.SHA, c.Ref, c.JobWorkflowRef, c.WorkflowRef}
 	}
 	var lastErr error
 	for {

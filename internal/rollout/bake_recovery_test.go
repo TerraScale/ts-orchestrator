@@ -16,8 +16,8 @@ func TestBakeTerraBaseSwapAuthRecovery(t *testing.T) {
 		elapsed  time.Duration
 		samples  int
 	}{
-		{"ready-then-auth503", 1, 310 * time.Second, 32},
-		{"auth503-through10s", 2, 320 * time.Second, 33},
+		{"ready-then-auth503", 1, 32 * time.Second, 17},
+		{"auth503-through2s", 2, 34 * time.Second, 18},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -44,8 +44,8 @@ func TestBakeTerraBaseSwapAuthRecovery(t *testing.T) {
 				if v.Samples != tc.samples || calls != tc.samples || time.Since(started) != tc.elapsed || v.Finished.Sub(v.Started) != tc.elapsed {
 					t.Fatalf("bake completed without a full healthy window: %+v; calls=%d elapsed=%s", v, calls, time.Since(started))
 				}
-				wantHealthy := started.Add(time.Duration(tc.failures) * 10 * time.Second)
-				if !v.HealthySince.Equal(wantHealthy) || v.Finished.Sub(v.HealthySince) != 5*time.Minute {
+				wantHealthy := started.Add(time.Duration(tc.failures) * 2 * time.Second)
+				if !v.HealthySince.Equal(wantHealthy) || v.Finished.Sub(v.HealthySince) != 30*time.Second {
 					t.Fatalf("healthy clock: %+v; want start %s", v, wantHealthy)
 				}
 				if v.RecoverySamples != tc.failures || !maps.Equal(v.RecoveryChecks, lastRecovery) || !maps.Equal(v.Checks, checks) {
@@ -101,7 +101,7 @@ func TestBakeRecoveryRejectsFailures(t *testing.T) {
 				if !errors.Is(err, wantErr) || v.Reason == "" || v.Reason != err.Error() {
 					t.Fatalf("fatal error/reason: %+v, %v; want %v", v, err, wantErr)
 				}
-				wantElapsed := time.Duration(tc.fatalAt-1) * 10 * time.Second
+				wantElapsed := time.Duration(tc.fatalAt-1) * 2 * time.Second
 				if calls != tc.fatalAt || v.Samples != tc.fatalAt || time.Since(started) != wantElapsed || v.Finished.Sub(v.Started) != wantElapsed {
 					t.Fatalf("failure did not stop immediately: %+v; calls=%d elapsed=%s", v, calls, time.Since(started))
 				}

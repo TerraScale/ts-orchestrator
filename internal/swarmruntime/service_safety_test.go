@@ -359,3 +359,28 @@ func TestCompleteServiceSpecRequiresApplySnapshot(t *testing.T) {
 		t.Fatalf("completion accepted a missing Apply snapshot: %v", err)
 	}
 }
+
+func TestDeploymentAttemptFencesRuntime(t *testing.T) {
+	for _, rollback := range []int64{0, 10} {
+		spec, control := safetyFixture(t)
+		d := &Deployment{Repository: "TerraScale/terrascale", RunID: "100", RunAttempt: 1, Revision: strings.Repeat("b", 40), Image: spec.Image}
+		spec.Generation, spec.RollbackOf, spec.Deployment, spec.DeploymentFloor = 11, rollback, d, d
+		control.service.Spec = swarmForTest(t, spec)
+		next := *d
+		next.RunAttempt, next.Image = 2, "ghcr.io/terrascale/web@sha256:"+strings.Repeat("c", 64)
+		spec.Generation, spec.RollbackOf, spec.Image, spec.Deployment, spec.DeploymentFloor = 12, 0, next.Image, &next, &next
+		err := admitServiceSpec(control.service.Spec.Annotations.Labels, spec)
+		if (err == nil) != (rollback != 0) {
+			t.Fatalf("rollback=%d: %v", rollback, err)
+		}
+		if next.Accepts(d) == nil {
+			t.Fatal("older attempt admitted")
+		}
+		changed := next
+		changed.Revision = strings.Repeat("e", 40)
+		changed.RunAttempt++
+		if next.Accepts(&changed) == nil {
+			t.Fatal("rerun changed commit")
+		}
+	}
+}

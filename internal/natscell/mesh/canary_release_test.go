@@ -189,6 +189,16 @@ func TestAppCanaryFailedUpdateCannotRetrySignedRun(t *testing.T) {
 					t.Fatalf("%s retry changed rolled-back image or authority: %+v", node.cfg.region, state)
 				}
 			}
+			failed.RunAttempt = 2
+			failed.Image = "ghcr.io/terrascale/app-canary@sha256:" + strings.Repeat("d", 64)
+			if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", failed.Image, &failed, time.Second, time.Second); err != nil {
+				t.Fatalf("rerun after rollback rejected: %v", err)
+			}
+			failed.RunAttempt = 3
+			failed.Image = image
+			if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, &failed, time.Second, time.Second); err == nil {
+				t.Fatal("serving run changed digest")
+			}
 		})
 	}
 }
