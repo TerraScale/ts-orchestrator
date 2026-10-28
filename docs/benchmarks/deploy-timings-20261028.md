@@ -36,6 +36,9 @@ The canary job took 10-15 min and the Multi-region mesh check 4-15 min
 | ts-dashboard 1cb6b50 | 40654678572 | sjc | 167.0 s | 167.0 s | 2.6 s | 136.5 s (CPU, see below) | 30.4 s |
 | | | fra | 208.3 s | 40.1 s | 2.6 s | 9.5 s after submit | 30.4 s |
 | | | gru | 243.6 s | 34.7 s | 2.4 s | 4.5 s after submit | 30.1 s |
+| ts-dashboard bb17bac | 40674215363 | sjc | 43.6 s | 43.6 s | 2.5 s | 10.6 s after submit | 30.2 s |
+| | | fra | 87.6 s | 43.2 s | 2.7 s | 12.9 s after submit | 30.2 s |
+| | | gru | 124.0 s | 34.8 s | 2.3 s | 4.8 s after submit | 30.0 s |
 | ts-dashboard 37ae5d3, rollback leg | 40651907119 attempt 2 | gru / sjc / fra | 30.6 / 31.0 / 31.0 s | same | 0.0 s | 0.2-0.4 s | 30.3-30.6 s |
 | ts-auth 9d6cfc0 | terrascale 40661010360 | gru | 78.3 s | 78.3 s | 6.3 s | 9.5 s after submit | 66.0 s (dependency recovery) |
 
@@ -63,6 +66,10 @@ check 1 min 51 s (aa14b59) and 1 min 49 s (7add471).
     pending, E16 in [deploy errors](../deploy-errors-20261027.md).
   - ts-auth 9d6cfc0 (78 s): its bake spent 36 s in dependency recovery while
     the dashboard's readiness followed ts-auth's own restart.
+- bb17bac's gru `submitted 89.2 s` is the wait for sjc and fra: a region's
+  times count from the start of the release. Its own time was 34.8 s. The
+  releases before it (8894ff6, 9bf95a0) failed in fra on E17 (a bake sample
+  bounded by the 2 s poll), fixed in this PR.
 - **10 s warm app deploy: met** by readiness, which comes 0.2-9.5 s after
   submit when the image is already on the host. The 30 s bake comes on top,
   so the release a person sees takes about 35-40 s per region.
@@ -75,7 +82,7 @@ The goal is 3 consecutive releases per service.
 | --- | --- | --- |
 | App release canary | 2 | The third arrives with the next main build. |
 | Orchestrator self-update | 3 consecutive | 7.5-20.2 s per region. |
-| ts-dashboard | 1 clean, plus 1 rollback leg | Releases only on a push to its main; a `workflow_dispatch` skips the release step. |
+| ts-dashboard | 2 clean (1cb6b50, bb17bac), plus 1 rollback leg | Releases only on a push to its main; a `workflow_dispatch` skips the release step. |
 | ts-auth | 1 | Releases only when terrascale changes ts-auth. |
 
 Both app services get more samples from their next pushes; this file grows with them.

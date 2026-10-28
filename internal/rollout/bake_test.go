@@ -46,3 +46,21 @@ func TestBakeWindowAndFailures(t *testing.T) {
 		})
 	}
 }
+
+// ts-dashboard 8894ff6 and 9bf95a0: fra's dependency probes took over 2 s, and
+// a sample bounded by the 2 s poll failed the bake with a bare deadline.
+func TestBakeSampleSlowerThanPollStillCounts(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		v, err := RunBake(t.Context(), func(ctx context.Context) (map[string]string, error) {
+			select {
+			case <-time.After(3 * time.Second):
+				return map[string]string{"candidate": "ok"}, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		})
+		if err != nil || v.Samples < 2 || v.Finished.Sub(v.HealthySince) < BakeWindow {
+			t.Fatalf("slow healthy samples failed the bake: %+v %v", v, err)
+		}
+	})
+}

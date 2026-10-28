@@ -4,7 +4,8 @@ Install the orchestrator release in every target region before rolling a service
 Older orchestrators advertise readiness without evaluating a bake.
 
 Every mesh service rollout observes a fixed thirty-second bake after exact task
-readiness, sampling every two seconds. Dependency probes may recover for up to
+readiness, sampling every two seconds. Each sample may take up to five seconds
+(an HTTPS readiness probe plus control reads), independent of the interval. Dependency probes may recover for up to
 thirty seconds from the first failed observation, including when another
 service rolls during this bake. Every such failed sample resets the healthy
 clock: recovery must be followed by a full thirty-second
