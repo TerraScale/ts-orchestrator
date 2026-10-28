@@ -38,11 +38,13 @@ func TestProbeServiceSpecExactDoesNotRetryReadiness(t *testing.T) {
 		t.Fatalf("later independent healthy sample: %+v calls=%d err=%v", ready, calls.Load(), err)
 	}
 	calls.Store(0)
-	if ready, err := WaitServiceSpecExact(t.Context(), control, spec); err != nil || calls.Load() != 3 || ready.Ready == 0 || ready.Running == 0 {
-		t.Fatalf("wait lost retry behavior or phase timings: %+v calls=%d err=%v", ready, calls.Load(), err)
+	// The wait retries past the 503, then reports the task it saw ready
+	// without a second readiness request (E18).
+	if ready, err := WaitServiceSpecExact(t.Context(), control, spec); err != nil || calls.Load() != 2 || ready.Ready == 0 || ready.Running == 0 || len(ready.Tasks) != 1 || !ready.Tasks[0].Ready {
+		t.Fatalf("wait lost retry behavior, phase timings or re-probed readiness: %+v calls=%d err=%v", ready, calls.Load(), err)
 	}
 	control.task.Spec.ForceUpdate++
-	if _, err := ProbeServiceSpecExact(t.Context(), control, spec); err == nil || calls.Load() != 3 {
+	if _, err := ProbeServiceSpecExact(t.Context(), control, spec); err == nil || calls.Load() != 2 {
 		t.Fatalf("changed task reached readiness: calls=%d err=%v", calls.Load(), err)
 	}
 }

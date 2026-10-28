@@ -180,10 +180,13 @@ type Node struct {
 	closing bool
 	work    sync.WaitGroup
 
-	mu              sync.Mutex
-	desired         map[string]desiredState
-	failed          map[string]int64 // generation whose local rollout failed, per service
-	baking          map[string]chan struct{}
+	mu      sync.Mutex
+	desired map[string]desiredState
+	failed  map[string]int64 // generation whose local rollout failed, per service
+	baking  map[string]chan struct{}
+	// starting is a ts-auth or ts-dashboard update reconcile submitted whose
+	// evaluate has not yet registered its bake in baking.
+	starting        map[string]bool
 	bakeUnsaved     map[string]bakeRecord
 	peers           *peers
 	peerReports     map[string]map[string]PeerAttestation
@@ -457,6 +460,9 @@ func (n *Node) sync(ctx context.Context) {
 		if record, err := n.readBake(name, n.desired[name].entry().Generation); err == nil && record.Bake.Reason != "" {
 			continue // failed bakes remain held even after restart
 		}
+		if n.dependentRolling(name) {
+			continue // TerraBase waits for this region's ts-auth or ts-dashboard rollout
+		}
 		if applied, err := n.reconcile(ctx, name, n.desired[name]); err != nil {
 			slog.WarnContext(ctx, "mesh reconcile failed", "service", name, "error", err)
 		} else if applied.result == "applied" || applied.result == "unchanged" {
@@ -501,8 +507,21 @@ func (n *Node) handleApply(m *nats.Msg) {
 	if err == nil {
 		err = n.awaitPeerAdmission(ctx, request.Entry.Spec)
 	}
-	if err == nil {
-		applied, err = n.apply(ctx, request)
+	for err == nil {
+		var waited time.Duration
+		if waited, err = n.awaitDependents(ctx, request.Name); err == nil && waited > 0 {
+			// The wait is not TerraBase's own rollout time: extend its window.
+			deadline, _ := ctx.Deadline()
+			ctx, cancel = context.WithDeadline(n.ctx, deadline.Add(waited))
+			defer cancel()
+		}
+		if err == nil {
+			applied, err = n.apply(ctx, request)
+		}
+		if !errors.Is(err, errDependentRolling) {
+			break
+		}
+		err = nil // a dependent started between the wait and the apply
 	}
 	if err == nil && (applied.result == "applied" || applied.result == "unchanged") {
 		submitted := time.Since(start)
@@ -641,6 +660,50 @@ func (n *Node) turn(name string, spec *swarmruntime.ServiceSpec, generation int6
 	return nil
 }
 
+// errDependentRolling refuses a TerraBase apply while a dependent rolls out here.
+var errDependentRolling = errors.New("a local ts-auth or ts-dashboard rollout is in progress")
+
+// dependentRolling reports a TerraBase change that would restart TerraBase
+// under a ts-auth or ts-dashboard rollout (readiness wait and bake) in this
+// region: their readiness needs the local TerraBase, so the restart failed
+// ts-dashboard's sjc rollback bake (E18). The caller holds n.mu.
+func (n *Node) dependentRolling(name string) bool {
+	if name != "terrabase" {
+		return false
+	}
+	for _, dependent := range []string{"ts-auth", "ts-dashboard"} {
+		if n.starting[dependent] {
+			return true
+		}
+		for key := range n.baking {
+			if strings.HasPrefix(filepath.Base(key), "bake-"+dependent+"-") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// awaitDependents waits until no dependent of name rolls out in this region
+// and returns how long it waited; the caller extends TerraBase's window by it.
+// An app's window would not absorb a TerraBase rollout, so apps never wait.
+func (n *Node) awaitDependents(ctx context.Context, name string) (time.Duration, error) {
+	start := time.Now()
+	for {
+		n.mu.Lock()
+		rolling := n.dependentRolling(name)
+		n.mu.Unlock()
+		if !rolling {
+			return time.Since(start), nil
+		}
+		select {
+		case <-ctx.Done():
+			return time.Since(start), fmt.Errorf("waiting for a local ts-auth or ts-dashboard rollout: %w", ctx.Err())
+		case <-time.After(time.Second):
+		}
+	}
+}
+
 // awaitTurn waits until turn allows this region to apply.
 func (n *Node) awaitTurn(ctx context.Context, name string, spec *swarmruntime.ServiceSpec, generation int64) error {
 	earlier := n.earlier(spec)
@@ -681,6 +744,9 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 	defer n.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return applyResult{}, err
+	}
+	if n.dependentRolling(request.Name) {
+		return applyResult{}, errDependentRolling
 	}
 	before, exists := n.desired[request.Name]
 	current := before.entry()
@@ -739,6 +805,13 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 	changed, service, err := n.cfg.applier.Apply(ctx, spec)
 	if err != nil {
 		return applyResult{}, err
+	}
+	if changed && (name == "ts-auth" || name == "ts-dashboard") {
+		// Fence TerraBase from now until evaluate registers this bake.
+		if n.starting == nil {
+			n.starting = map[string]bool{}
+		}
+		n.starting[name] = true
 	}
 	if changed {
 		return applyResult{result: "applied", spec: spec, service: service, state: state}, nil
