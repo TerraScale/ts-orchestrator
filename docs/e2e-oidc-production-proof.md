@@ -23,7 +23,9 @@ is created by the runner.
 | Access-token audience / scope | `https://api.terrascale.tech` / only `documents:read` |
 
 Bind the trust to the existing `E2E_ORGANIZATION_ID`, `E2E_PROJECT_ID`, and
-canonical database **name** in `E2E_DATABASE`. Set its non-null UTC grant deadline
+the database **ULID** that `E2E_DATABASE` names (terrascale#778: ts-auth binds
+and TerraBase honors a database restriction only by id). Copy it from the
+validated native credential's `database`. Set its non-null UTC grant deadline
 to the same `expires_at` as the native credential, within 24 hours of preparation.
 Activate the binding after the user-only issuance helper prints the validated
 nonsecret key expiry. Use that literal-Z UTC whole-second deadline for the bind

@@ -81,7 +81,10 @@ origins are fixed, redirects and proxy environment settings are disabled, and
 hosted auth cookies never accompany TerraBase requests. Only the hosted cookie
 jar persists in the explicitly authorized private cache; it is never printed
 or committed. Password, email/device codes and bearer/key values stay in memory
-and are never written to disk. The key is restricted to `e2e_read`; acceptance
+and are never written to disk. The helper looks up `e2e_read`'s ULID and narrows the key by
+that id: since terrascale#778, a key narrowed by a database name mints no token.
+The credential's `database` is therefore the ULID, while `E2E_DATABASE` keeps the
+name, and TerraBase checks that the name resolves to the key's id. The key is restricted to `e2e_read`; acceptance
 must prove that reading the existing document in `e2e_negative` fails with that
 same key. The helper does not create a second project or a negative-database key.
 Core dumps are disabled. On exit, references/cookies are cleared; Python does

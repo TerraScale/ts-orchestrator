@@ -38,7 +38,7 @@ def parse_json(raw):
         raise ValueError("Invalid JSON; installation refused.") from None
 
 
-def validate(raw, expected, now):
+def validate(raw, expected, now, database_id=None):
     if not raw or len(raw.encode("utf-8")) > 65536:
         raise ValueError("Native create-response JSON must fit within 64 KiB.")
     body = parse_json(raw)
@@ -51,8 +51,11 @@ def validate(raw, expected, now):
     key = body.get("key")
     if not isinstance(key, str) or not KEY.fullmatch(key) or not key.startswith(metadata["id"] + "_"):
         raise ValueError("Native key string must match its metadata id.")
-    if not isinstance(metadata.get("database"), str) or not DATABASE.fullmatch(metadata["database"]):
-        raise ValueError("One explicit database restriction is required.")
+    # TerraBase only honors a database restriction by id (terrascale#778).
+    if not isinstance(metadata.get("database"), str) or not ID.fullmatch(metadata["database"]):
+        raise ValueError("One explicit database id restriction is required.")
+    if database_id is not None and metadata["database"] != database_id:
+        raise ValueError("Credential must be narrowed to the verified id of the approved database.")
     if metadata.get("scopes") != ["documents:read"]:
         raise ValueError("Only the exact documents:read scope is allowed.")
     try:
@@ -62,11 +65,11 @@ def validate(raw, expected, now):
         valid_expiry = False
     if not valid_expiry:
         raise ValueError("An explicit future expiry within 24 hours is required.")
-    for field, variable in (("organization_id", VARIABLES[0]), ("project_id", VARIABLES[1]), ("database", VARIABLES[2])):
+    for field, variable in (("organization_id", VARIABLES[0]), ("project_id", VARIABLES[1])):
         if metadata[field] != expected.get(variable):
             raise ValueError("Credential metadata must match the approved production environment variables.")
     unrelated = expected.get(VARIABLES[3])
-    if not isinstance(unrelated, str) or not DATABASE.fullmatch(unrelated) or unrelated == metadata["database"]:
+    if not isinstance(unrelated, str) or not DATABASE.fullmatch(unrelated) or unrelated == expected.get(VARIABLES[2]):
         raise ValueError("An owner-confirmed existing different database in the same approved project is required.")
     return metadata
 
@@ -182,21 +185,25 @@ def self_test():
     from unittest import mock
 
     now = dt.datetime(2026, 10, 23, tzinfo=dt.timezone.utc)
-    ids = ["0000000000000000000000000" + str(i) for i in range(1, 5)]
+    ids = ["0000000000000000000000000" + str(i) for i in range(1, 6)]
     expected = dict(zip(VARIABLES, [ids[1], ids[2], "e2e_read", "e2e_negative"]))
     body = {"api_key": {"id": ids[0], "organization_id": ids[1], "project_id": ids[2],
-                        "database": "e2e_read", "scopes": ["documents:read"], "expires_at": "2026-10-23T01:00:00Z"},
+                        "database": ids[4], "scopes": ["documents:read"], "expires_at": "2026-10-23T01:00:00Z"},
             "key": ids[0] + "_" + "a" * 52}
 
     class HandoffTests(unittest.TestCase):
         def test_valid_native_response(self):
             self.assertEqual(validate(json.dumps(body), expected, now), body["api_key"])
+            self.assertEqual(validate(json.dumps(body), expected, now, ids[4]), body["api_key"])
+            with self.assertRaises(ValueError):
+                validate(json.dumps(body), expected, now, ids[3])
 
         def test_refuses_broad_or_mismatched_credentials(self):
             for field, value in [("project_id", None), ("database", None), ("scopes", ["documents:read", "documents:write"]),
                                  ("scopes", ["documents:read", "documents:read"]), ("expires_at", None),
                                  ("expires_at", "2026-10-23T00:00:00Z"), ("expires_at", "2026-10-24T00:00:01Z"),
-                                 ("organization_id", ids[3]), ("project_id", ids[3]), ("database", "other")]:
+                                 ("organization_id", ids[3]), ("project_id", ids[3]), ("database", "other"),
+                                 ("database", "e2e_read")]:
                 changed = copy.deepcopy(body)
                 changed["api_key"][field] = value
                 with self.subTest(field=field, value=value), self.assertRaises(ValueError):

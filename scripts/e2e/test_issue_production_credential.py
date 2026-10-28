@@ -24,14 +24,15 @@ spec = importlib.util.spec_from_file_location("issuance", Path(__file__).with_na
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 I = m.installer
-IDS = ["0000000000000000000000000" + str(i) for i in range(1, 5)]
+IDS = ["0000000000000000000000000" + str(i) for i in range(1, 7)]
+DB, NEGATIVE_DB = IDS[4], IDS[5]
 EXPECTED = dict(zip(I.VARIABLES, [IDS[0], IDS[1], "e2e_read", "e2e_negative"]))
 KEY_URL = m.AUTH + "/v1/terrascale/organizations/" + IDS[0] + "/projects/" + IDS[1] + "/api-keys"
 
 
 def native():
     return {"api_key": {"id": IDS[3], "name": m.KEY_NAME, "organization_id": IDS[0], "project_id": IDS[1],
-                        "database": "e2e_read", "scopes": ["documents:read"],
+                        "database": DB, "scopes": ["documents:read"],
                         "expires_at": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=23)).isoformat()},
             "key": IDS[3] + "_" + "a" * 52}
 
@@ -191,13 +192,13 @@ class TrustTests(SyntheticTests):
         def replies():
             return [{"id": IDS[0], "role": "owner"},
                     {"id": IDS[1], "organization_id": IDS[0]}, {"token_type": "Bearer", "access_token": "target-token"},
-                    {"projectId": IDS[1], "name": "e2e_read"},
-                    {"projectId": IDS[1], "name": "e2e_negative"}, {"items": [], "next": None}]
+                    {"id": DB, "projectId": IDS[1], "name": "e2e_read"},
+                    {"id": NEGATIVE_DB, "projectId": IDS[1], "name": "e2e_negative"}, {"items": [], "next": None}]
         session = m.Session()
         session.token = "synthetic-signin"
         try:
             with mock.patch.object(session, "call", side_effect=replies()) as call:
-                self.assertEqual(session.verify_targets(EXPECTED), KEY_URL)
+                self.assertEqual(session.verify_targets(EXPECTED), (KEY_URL, DB))
                 exchanges = [c for c in call.call_args_list if c.args[0] == m.ISSUER + "/oauth/token"]
                 self.assertEqual(len(exchanges), 1)
                 self.assertEqual([c.args[2]["project"] for c in exchanges], [IDS[1]])
@@ -209,7 +210,9 @@ class TrustTests(SyntheticTests):
                                      for c in call.call_args_list), 1)
             for index, bad in [(0, {"id": IDS[0], "role": "member"}),
                                (1, {"id": IDS[1], "organization_id": IDS[3]}),
-                               (4, {"error": "unknown_database"}), (4, {"projectId": IDS[1], "name": "other"}),
+                               (4, {"error": "unknown_database"}), (4, {"id": NEGATIVE_DB, "projectId": IDS[1], "name": "other"}),
+                               (3, {"projectId": IDS[1], "name": "e2e_read"}), (3, {"id": "e2e_read", "projectId": IDS[1], "name": "e2e_read"}),
+                               (4, {"id": DB, "projectId": IDS[1], "name": "e2e_negative"}),
                                (5, {"items": [{}], "next": None}), (5, {"items": [], "next": "more"}), (5, {})]:
                 data = replies()
                 data[index] = bad
@@ -224,9 +227,9 @@ class TrustTests(SyntheticTests):
             start = dt.datetime.now(dt.timezone.utc)
             with mock.patch.object(session, "call", side_effect=RuntimeError("synthetic-private-response")) as call:
                 with self.assertRaises(RuntimeError):
-                    session.issue(KEY_URL, EXPECTED)
+                    session.issue(KEY_URL, DB)
                 with self.assertRaises(ValueError):
-                    session.issue(KEY_URL, EXPECTED)
+                    session.issue(KEY_URL, DB)
                 call.assert_called_once()
                 args, kwargs = call.call_args
                 self.assertEqual(args[:2], (KEY_URL, "POST"))
@@ -234,7 +237,7 @@ class TrustTests(SyntheticTests):
                 self.assertEqual(set(request), {"name", "database", "scopes", "expires_at"})
                 self.assertEqual(request["scopes"], ["documents:read"])
                 self.assertEqual(request["name"], "deployment-e2e-read")
-                self.assertEqual(request["database"], "e2e_read")
+                self.assertEqual(request["database"], DB)
                 expiry = dt.datetime.fromisoformat(request["expires_at"].replace("Z", "+00:00"))
                 self.assertTrue(start + dt.timedelta(hours=22, minutes=59) < expiry < start + dt.timedelta(hours=24))
                 self.assertEqual(kwargs["status"], 201)
@@ -551,7 +554,7 @@ class RunTests(SyntheticTests):
             if failure == "validation":
                 body["api_key"]["scopes"] = ["documents:write"]
             session = mock.Mock()
-            session.verify_targets.return_value = KEY_URL
+            session.verify_targets.return_value = (KEY_URL, DB)
             session.issue.return_value = body
             for stage, member in [("login", "login"), ("targets", "verify_targets"), ("issue", "issue")]:
                 if failure == stage:

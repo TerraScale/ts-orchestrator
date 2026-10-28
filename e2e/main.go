@@ -22,7 +22,7 @@ type environment struct {
 	Credential, UserID, OrganizationID, APIKey                               string
 	HTTP                                                                     *http.Client
 	ProjectCredential                                                        projectCredential
-	UnrelatedDatabase                                                        string
+	Database, UnrelatedDatabase                                              string
 	ProductionReady                                                          bool
 	OIDCAssertion, OIDCToken                                                 string
 }

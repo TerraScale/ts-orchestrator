@@ -87,7 +87,7 @@ func TestProductionReportRecordsExactNegativeTargetAndExistencePrerequisite(t *t
 		!strings.Contains(negative.Prerequisite, "before environment preparation and handoff") || !strings.Contains(negative.Prerequisite, "not verified by this runner") {
 		t.Fatal("report must identify the negative database in the same approved project and its owner-confirmed existence prerequisite")
 	}
-	if got.ProjectCredential == nil || got.ProjectCredential.ProjectID != negative.ProjectID || got.ProjectCredential.Database != "e2e_read" ||
+	if got.ProjectCredential == nil || got.ProjectCredential.ProjectID != negative.ProjectID || got.ProjectCredential.Database != testDB ||
 		got.ProjectCredential.Database == negative.Database || !strings.Contains(negative.Prerequisite, "same approved project") ||
 		!strings.Contains(negative.Prerequisite, "one document") || !strings.Contains(negative.Prerequisite, "no key") {
 		t.Fatal("report must retain distinct positive/negative databases in one project and the fixture prerequisite")

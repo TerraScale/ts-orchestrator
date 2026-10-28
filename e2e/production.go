@@ -52,22 +52,28 @@ func production() (*environment, error) {
 	}
 	m := credential.APIKey
 	if !nativeKeyPattern.MatchString(credential.Key) || !strings.HasPrefix(credential.Key, m.ID+"_") || tb.ValidateID(m.ID) != nil ||
-		tb.ValidateID(m.OrganizationID) != nil || tb.ValidateID(m.ProjectID) != nil || !databasePattern.MatchString(m.Database) ||
+		tb.ValidateID(m.OrganizationID) != nil || tb.ValidateID(m.ProjectID) != nil || tb.ValidateID(m.Database) != nil ||
 		!slices.Equal(m.Scopes, []string{"documents:read"}) || !m.ExpiresAt.After(time.Now()) || m.ExpiresAt.After(time.Now().Add(24*time.Hour)) {
-		return nil, errors.New("project credential must have native ids/key, one database, only documents:read and expiry within 24 hours")
+		return nil, errors.New("project credential must have native ids/key, one database id, only documents:read and expiry within 24 hours")
 	}
-	for name, want := range map[string]string{"E2E_ORGANIZATION_ID": m.OrganizationID, "E2E_PROJECT_ID": m.ProjectID, "E2E_DATABASE": m.Database} {
+	for name, want := range map[string]string{"E2E_ORGANIZATION_ID": m.OrganizationID, "E2E_PROJECT_ID": m.ProjectID} {
 		if os.Getenv(name) != want {
 			return nil, fmt.Errorf("%s must match the approved project credential metadata", name)
 		}
 	}
+	// The key is narrowed by database id; reads address it by name, so TerraBase
+	// proves the name resolves to that id.
+	database := os.Getenv("E2E_DATABASE")
+	if !databasePattern.MatchString(database) {
+		return nil, errors.New("E2E_DATABASE must name the credential's database")
+	}
 	unrelated := os.Getenv("E2E_UNRELATED_DATABASE")
-	if !databasePattern.MatchString(unrelated) || unrelated == m.Database {
+	if !databasePattern.MatchString(unrelated) || unrelated == database {
 		return nil, errors.New("E2E_UNRELATED_DATABASE must name an owner-confirmed existing different database in the same approved project")
 	}
 	return &environment{
 		Target: "prod", TerraBaseURL: "https://api.terrascale.tech", AuthURL: "https://auth.terrascale.tech", Region: "gru",
-		ProjectCredential: credential, UnrelatedDatabase: unrelated,
+		ProjectCredential: credential, Database: database, UnrelatedDatabase: unrelated,
 		HTTP: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}, nil
 }
@@ -228,7 +234,7 @@ func projectCollections(ctx context.Context, e *environment) error {
 		return err
 	}
 	m := e.ProjectCredential.APIKey
-	page, err := c.Database(m.ProjectID, m.Database).Collections(ctx, tb.ListOptions{Limit: 1})
+	page, err := c.Database(m.ProjectID, e.Database).Collections(ctx, tb.ListOptions{Limit: 1})
 	if err != nil || page == nil || page.Items == nil {
 		return errors.New("SDK read of the approved project's collections failed")
 	}

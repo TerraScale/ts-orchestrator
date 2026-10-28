@@ -398,23 +398,28 @@ class Session:
             "project": project, "scope": "databases:read"}, form=True)
         if tokens.get("token_type") != "Bearer" or "refresh_token" in tokens or not isinstance(tokens.get("access_token"), str) or not tokens["access_token"]:
             raise ValueError("Read-only metadata exchange rejected.")
+        ids = []
         for selected in (database, negative):
             metadata = self.call(API + "/v1/projects/" + project + "/databases/" + selected, token=tokens["access_token"])
-            if metadata.get("projectId") != project or metadata.get("name") != selected:
+            if (metadata.get("projectId") != project or metadata.get("name") != selected or
+                    not isinstance(metadata.get("id"), str) or not installer.ID.fullmatch(metadata["id"])):
                 raise ValueError("Both exact databases must already exist.")
+            ids.append(metadata["id"])
+        if ids[0] == ids[1]:
+            raise ValueError("Two distinct databases in one approved project required.")
         tokens.clear()
         keys_url = root + "/projects/" + project + "/api-keys"
         prior = self.call(keys_url, token=self.token)
         if prior.get("items") != [] or prior.get("next", "missing") is not None:
             raise ValueError("Project must have zero existing keys; operator inspection required.")
-        return keys_url
+        return keys_url, ids[0]
 
-    def issue(self, keys_url, expected):
+    def issue(self, keys_url, database_id):
         if self.issuance_attempted:
             raise ValueError("A second issuance is forbidden.")
         self.issuance_attempted = True
         expiry = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=23)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        return self.call(keys_url, "POST", {"name": KEY_NAME, "database": expected["E2E_DATABASE"],
+        return self.call(keys_url, "POST", {"name": KEY_NAME, "database": database_id,
             "scopes": ["documents:read"], "expires_at": expiry}, token=self.token, status=201)
 
 
@@ -438,15 +443,15 @@ def run():
         session.login(password)
         password = None
         stage = "read-only target verification"
-        keys_url = session.verify_targets(expected)
+        keys_url, database_id = session.verify_targets(expected)
         # Recheck GitHub immediately before the irreversible one-time issuance.
         if installer.preflight() != expected:
             raise ValueError("GitHub target variables changed; refused.")
         stage = "single key issuance (outcome may be ambiguous; never retry)"
-        issued = session.issue(keys_url, expected)
+        issued = session.issue(keys_url, database_id)
         raw = json.dumps(issued)
         stage = "native response validation (key may exist; never retry)"
-        metadata = installer.validate(raw, expected, dt.datetime.now(dt.timezone.utc))
+        metadata = installer.validate(raw, expected, dt.datetime.now(dt.timezone.utc), database_id)
         if metadata.get("name") != KEY_NAME:
             raise ValueError("Native key name mismatch.")
         # Print only validated, allowlisted cleanup fields before any installation failure.
