@@ -108,7 +108,7 @@ func (e *Executor) schedulableDisk(ctx context.Context) (int64, error) {
 		if err != nil || budget <= 0 {
 			continue
 		}
-		if holder, err := portHolderState(runtimeContext(ctx), container); err != nil || holder == holderExited {
+		if holder, err := portHolderState(runtimeContext(ctx), container, labels); err != nil || holder == holderExited {
 			continue
 		}
 		free += budget

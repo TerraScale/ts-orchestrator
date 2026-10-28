@@ -161,7 +161,11 @@ func TestContainerdServiceUpdateOnLivePort(t *testing.T) {
 	}
 	live := 0
 	for _, container := range containers {
-		if holder, err := portHolderState(runtimeContext(ctx), container); err != nil {
+		labels, err := container.Labels(runtimeContext(ctx))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if holder, err := portHolderState(runtimeContext(ctx), container, labels); err != nil {
 			t.Fatal(err)
 		} else if holder != holderExited {
 			live++

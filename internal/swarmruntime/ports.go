@@ -78,7 +78,7 @@ func (c *controller) checkPortHolders(ctx context.Context, requested []string, s
 		if !slices.ContainsFunc(strings.Split(claimed, ","), func(port string) bool { return slices.Contains(requested, port) }) {
 			continue
 		}
-		holder, err := portHolderState(ctx, container)
+		holder, err := portHolderState(ctx, container, labels)
 		if err != nil {
 			return err
 		}
@@ -107,9 +107,12 @@ const (
 	holderExited
 )
 
-func portHolderState(ctx context.Context, container containerd.Container) (portHolder, error) {
+func portHolderState(ctx context.Context, container containerd.Container, labels map[string]string) (portHolder, error) {
 	task, err := container.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
+		if labels[exitedLabel] != "" {
+			return holderExited, nil // ReapExitedTasks deleted its exited task
+		}
 		return holderPrepared, nil
 	}
 	if err != nil {

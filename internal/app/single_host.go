@@ -59,6 +59,7 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	healthCtx, stopHealth := context.WithCancel(ctx)
 	defer stopHealth()
 	go hostmetrics.Run(healthCtx)
+	go executor.ReapExitedTasks(healthCtx)
 	// shortcut: a worker has no control socket and would answer for its region a second time; give workers their own health row when they serve.
 	if !plan.joiner() {
 		go regionhealth.Run(healthCtx, state)
