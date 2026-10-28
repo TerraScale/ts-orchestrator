@@ -64,6 +64,9 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 		if len(logs) != 0 {
 			checks["terrabase-logs"] = "ok"
 		}
+		if !judgesDependencies(spec.Name) {
+			return checks, nil
+		}
 		return checks, bakeDependencies(ctx, client, checks)
 	})
 }
@@ -78,6 +81,14 @@ func candidateUnready(service string, err error) *rollout.DependencyFailure {
 		return nil
 	}
 	return &rollout.DependencyFailure{Service: service, Status: notReady.Status}
+}
+
+// judgesDependencies is true for what ts-auth and ts-dashboard readiness
+// depends on. Only these bakes judge that readiness: no other service can
+// change it, and a concurrent ts-auth, dashboard or TerraBase rollout in gru
+// must not fail whoami or app-canary in sjc and fra.
+func judgesDependencies(service string) bool {
+	return slices.Contains([]string{"terrabase", "ts-auth", "ts-dashboard"}, service)
 }
 
 func bakeDependencies(ctx context.Context, client *http.Client, checks map[string]string) error {

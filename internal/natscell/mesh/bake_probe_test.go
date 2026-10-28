@@ -237,3 +237,12 @@ func TestBakeCandidateReadinessRecovers(t *testing.T) {
 		})
 	}
 }
+
+func TestOnlyTheAuthChainBakesAgainstAuthAndDashboardReadiness(t *testing.T) {
+	for service, want := range map[string]bool{"terrabase": true, "ts-auth": true, "ts-dashboard": true,
+		"app-canary": false, "whoami": false, "netbird-server": false} {
+		if got := judgesDependencies(service); got != want {
+			t.Errorf("%s judges ts-auth/ts-dashboard readiness: %t, want %t", service, got, want)
+		}
+	}
+}
