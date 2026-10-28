@@ -17,6 +17,10 @@ import (
 	"github.com/TerraScale/ts-orchestrator/deploy/m1"
 )
 
+// CostTags mark every billed GeoDNS object (zone, health monitors, steering
+// policies) so OCI cost analysis can group them.
+var CostTags = map[string]string{"ts-cost": "edge-geodns"}
+
 // HealthPath is the liveness path every region's edge answers on :80.
 const HealthPath = "/healthz"
 
@@ -121,13 +125,14 @@ type Rule struct {
 
 // Policy is dns.CreateSteeringPolicyDetails.
 type Policy struct {
-	CompartmentID        string   `json:"compartmentId"`
-	DisplayName          string   `json:"displayName"`
-	Template             string   `json:"template"`
-	TTL                  int      `json:"ttl"`
-	HealthCheckMonitorID string   `json:"healthCheckMonitorId"`
-	Answers              []Answer `json:"answers"`
-	Rules                []Rule   `json:"rules"`
+	CompartmentID        string            `json:"compartmentId"`
+	DisplayName          string            `json:"displayName"`
+	Template             string            `json:"template"`
+	TTL                  int               `json:"ttl"`
+	HealthCheckMonitorID string            `json:"healthCheckMonitorId"`
+	Answers              []Answer          `json:"answers"`
+	Rules                []Rule            `json:"rules"`
+	FreeformTags         map[string]string `json:"freeformTags"`
 }
 
 // Monitor is healthchecks.CreateHttpMonitorDetails.
@@ -142,6 +147,7 @@ type Monitor struct {
 	Headers           map[string]string `json:"headers"`
 	IntervalInSeconds int               `json:"intervalInSeconds"`
 	TimeoutInSeconds  int               `json:"timeoutInSeconds"`
+	FreeformTags      map[string]string `json:"freeformTags"`
 }
 
 // Attachment is dns.CreateSteeringPolicyAttachmentDetails.
@@ -200,11 +206,13 @@ func Build(regions []Region, hosts []Host) []HostPlan {
 				Protocol: "HTTP", Port: 80, Method: "GET", Path: HealthPath,
 				Headers:           map[string]string{"Host": h.Probe},
 				IntervalInSeconds: 30, TimeoutInSeconds: 10,
+				FreeformTags: CostTags,
 			},
 			Policy: Policy{
 				CompartmentID: compartment, DisplayName: name, Template: "ROUTE_BY_GEO", TTL: 30,
 				HealthCheckMonitorID: "<monitor " + name + " OCID>",
 				Answers:              answers,
+				FreeformTags:         CostTags,
 				Rules: []Rule{
 					{RuleType: "FILTER", Description: "drop disabled answers", DefaultAnswerData: []AnswerData{{AnswerCondition: "answer.isDisabled != true", ShouldKeep: &keep}}},
 					{RuleType: "HEALTH", Description: "drop regions failing " + HealthPath},

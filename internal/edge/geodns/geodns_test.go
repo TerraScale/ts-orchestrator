@@ -49,6 +49,9 @@ func TestBuildSteersToNearestHealthyRegion(t *testing.T) {
 	if p.Attachment.DomainName != "dash.edge.terrascale.tech" {
 		t.Fatalf("attachment = %s", p.Attachment.DomainName)
 	}
+	if p.Monitor.FreeformTags["ts-cost"] != "edge-geodns" || p.Policy.FreeformTags["ts-cost"] != "edge-geodns" {
+		t.Fatalf("billed objects lack the cost tag: %+v %+v", p.Monitor.FreeformTags, p.Policy.FreeformTags)
+	}
 	// mcp answers 401 on its own paths: its monitor probes the dashboard's liveness.
 	if m := plans[1].Monitor; plans[1].Host != "mcp.terrascale.tech" || m.Headers["Host"] != "dash.terrascale.tech" || m.Path != "/healthz" {
 		t.Fatalf("mcp monitor = %+v", m)
