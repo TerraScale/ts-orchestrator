@@ -17,18 +17,26 @@ import (
 	"github.com/TerraScale/ts-orchestrator/deploy/m1"
 )
 
+// HealthPath is the liveness path every region's edge answers on :80.
+const HealthPath = "/healthz"
+
 // Zone is the subzone delegated from Cloudflare to OCI DNS.
 const Zone = "edge.terrascale.tech"
+
+// Host is a public hostname every region serves and the hostname its health
+// monitor probes: the first hostname of the same service, whose liveness
+// stands for all of them (mcp's own paths answer 401 without a key).
+type Host struct{ Name, Probe string }
 
 // Hosts are the public hostnames every region serves: those of the embedded
 // first-party service declarations that name no regions. A service confined
 // to some regions (ts-auth in gru) keeps its own DNS record.
-func Hosts() ([]string, error) {
+func Hosts() ([]Host, error) {
 	files, err := fs.Glob(m1.Files, "services/*.json")
 	if err != nil {
 		return nil, err
 	}
-	var hosts []string
+	var hosts []Host
 	for _, name := range files {
 		data, err := m1.Files.ReadFile(name)
 		if err != nil {
@@ -42,11 +50,13 @@ func Hosts() ([]string, error) {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
 		if len(declared.Regions) == 0 {
-			hosts = append(hosts, declared.Hostnames...)
+			for _, host := range declared.Hostnames {
+				hosts = append(hosts, Host{Name: host, Probe: declared.Hostnames[0]})
+			}
 		}
 	}
-	slices.Sort(hosts)
-	return slices.Compact(hosts), nil
+	slices.SortFunc(hosts, func(a, b Host) int { return cmp.Compare(a.Name, b.Name) })
+	return slices.CompactFunc(hosts, func(a, b Host) bool { return a.Name == b.Name }), nil
 }
 
 // Region is one serving region edge.
@@ -157,7 +167,7 @@ const compartment = "<ts-orch compartment OCID>"
 
 // Build plans one steering policy per host over every region; regions keep
 // their order, which is also the order of the no-geo-match fallback.
-func Build(regions []Region, hosts []string) []HostPlan {
+func Build(regions []Region, hosts []Host) []HostPlan {
 	label := func(host string) string { return strings.SplitN(host, ".", 2)[0] }
 	answers := make([]Answer, 0, len(regions))
 	targets := make([]string, 0, len(regions))
@@ -177,15 +187,18 @@ func Build(regions []Region, hosts []string) []HostPlan {
 		nearest[a.Name] = ranked[0].Name
 	}
 	plans := make([]HostPlan, 0, len(hosts))
-	for _, host := range hosts {
+	for _, h := range hosts {
+		host := h.Name
 		name := "ts-edge-" + label(host)
 		plans = append(plans, HostPlan{
 			Host: host,
 			Monitor: Monitor{
 				CompartmentID: compartment, DisplayName: name, Targets: targets,
-				// :80 answers /readyz unredirected: a probe of a bare IP has no SNI for HTTPS.
-				Protocol: "HTTP", Port: 80, Method: "GET", Path: "/readyz",
-				Headers:           map[string]string{"Host": host},
+				// :80 answers /healthz unredirected: a probe of a bare IP has no SNI for
+				// HTTPS. Liveness, not /readyz: the dashboard's readiness includes
+				// gru's ts-auth, which would take every region out of DNS at once.
+				Protocol: "HTTP", Port: 80, Method: "GET", Path: HealthPath,
+				Headers:           map[string]string{"Host": h.Probe},
 				IntervalInSeconds: 30, TimeoutInSeconds: 10,
 			},
 			Policy: Policy{
@@ -194,7 +207,7 @@ func Build(regions []Region, hosts []string) []HostPlan {
 				Answers:              answers,
 				Rules: []Rule{
 					{RuleType: "FILTER", Description: "drop disabled answers", DefaultAnswerData: []AnswerData{{AnswerCondition: "answer.isDisabled != true", ShouldKeep: &keep}}},
-					{RuleType: "HEALTH", Description: "drop regions failing /readyz"},
+					{RuleType: "HEALTH", Description: "drop regions failing " + HealthPath},
 					{RuleType: "PRIORITY", Description: "nearest region first, then next nearest", Cases: cases, DefaultAnswerData: priorities(regions)},
 					{RuleType: "LIMIT", Description: "answer with one region", DefaultCount: &one},
 				},

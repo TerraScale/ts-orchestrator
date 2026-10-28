@@ -6,7 +6,7 @@ import (
 )
 
 // testHosts are the declared all-region hostnames.
-var testHosts = func() []string {
+var testHosts = func() []Host {
 	hosts, err := Hosts()
 	if err != nil {
 		panic(err)
@@ -17,7 +17,7 @@ var testHosts = func() []string {
 // Only the dashboard serves every region: ts-auth stays in gru and api's
 // TerraBase routing is not steered here.
 func TestHostsAreTheAllRegionDeclarations(t *testing.T) {
-	if got := fmt.Sprint(testHosts); got != "[dash.terrascale.tech mcp.terrascale.tech platform.terrascale.tech]" {
+	if got := fmt.Sprint(testHosts); got != "[{dash.terrascale.tech dash.terrascale.tech} {mcp.terrascale.tech dash.terrascale.tech} {platform.terrascale.tech dash.terrascale.tech}]" {
 		t.Fatalf("hosts = %s", got)
 	}
 }
@@ -43,11 +43,15 @@ func TestBuildSteersToNearestHealthyRegion(t *testing.T) {
 	if got := fmt.Sprint(types); got != "[FILTER HEALTH PRIORITY LIMIT]" {
 		t.Fatalf("rules = %s", got)
 	}
-	if p.Monitor.Headers["Host"] != "dash.terrascale.tech" || p.Monitor.Path != "/readyz" || p.Monitor.Protocol != "HTTP" || p.Monitor.Port != 80 {
+	if p.Monitor.Headers["Host"] != "dash.terrascale.tech" || p.Monitor.Path != "/healthz" || p.Monitor.Protocol != "HTTP" || p.Monitor.Port != 80 {
 		t.Fatalf("monitor = %+v", p.Monitor)
 	}
 	if p.Attachment.DomainName != "dash.edge.terrascale.tech" {
 		t.Fatalf("attachment = %s", p.Attachment.DomainName)
+	}
+	// mcp answers 401 on its own paths: its monitor probes the dashboard's liveness.
+	if m := plans[1].Monitor; plans[1].Host != "mcp.terrascale.tech" || m.Headers["Host"] != "dash.terrascale.tech" || m.Path != "/healthz" {
+		t.Fatalf("mcp monitor = %+v", m)
 	}
 	want := map[string]string{"South America": "gru", "North America": "sjc", "Europe": "fra", "Africa": "fra", "India": "fra", "Asia": "sjc", "Oceania": "sjc"}
 	for area, region := range want {

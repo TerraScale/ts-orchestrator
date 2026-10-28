@@ -271,20 +271,24 @@ func TestChallengeComesFromThePeerHoldingIt(t *testing.T) {
 
 func TestReadyzAnswersOnPlainHTTP(t *testing.T) {
 	regions := startRegions(t, func(_ string, w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ready "+r.URL.Path) })
-	req, _ := http.NewRequest(http.MethodGet, "http://"+regions["sjc"].plain+"/readyz", nil)
+	// GeoDNS monitors probe /healthz; ts-orch-style checks probe /readyz.
+	for _, path := range []string{"/readyz", "/healthz"} {
+		req, _ := http.NewRequest(http.MethodGet, "http://"+regions["sjc"].plain+path, nil)
+		req.Host = host
+		resp, err := http.DefaultTransport.RoundTrip(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 || string(body) != "ready "+path {
+			t.Fatalf("%s on :80 = %d %q", path, resp.StatusCode, body)
+		}
+	}
+	req, _ := http.NewRequest(http.MethodGet, "http://"+regions["sjc"].plain+"/v1/db", nil)
 	req.Host = host
 	resp, err := http.DefaultTransport.RoundTrip(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 200 || string(body) != "ready /readyz" {
-		t.Fatalf("readyz on :80 = %d %q", resp.StatusCode, body)
-	}
-	req, _ = http.NewRequest(http.MethodGet, "http://"+regions["sjc"].plain+"/v1/db", nil)
-	req.Host = host
-	if resp, err = http.DefaultTransport.RoundTrip(req); err != nil || resp.StatusCode != http.StatusFound {
+	if err != nil || resp.StatusCode != http.StatusFound {
 		t.Fatalf("other paths on :80 must redirect: %v %v", resp, err)
 	}
 	resp.Body.Close()

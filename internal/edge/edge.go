@@ -207,8 +207,8 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 				return
 			}
 			// GeoDNS health checks probe region IPs, where SNI cannot pick a
-			// certificate; readiness carries no secrets, so :80 answers it.
-			if r.URL.Path == "/readyz" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			// certificate; liveness and readiness carry no secrets, so :80 answers them.
+			if (r.URL.Path == "/readyz" || r.URL.Path == "/healthz") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 				e.proxy.ServeHTTP(w, withBackendTrace(r))
 				return
 			}
