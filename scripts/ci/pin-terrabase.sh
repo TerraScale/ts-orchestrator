@@ -46,7 +46,7 @@ if git diff --quiet -- deploy/image/image-inputs.json; then
 	exit 0
 fi
 title="Pin TerraBase ${terrabase_sha:0:12} (Fast run $run_number) in image inputs"
-git -c user.name=terrascale-bot -c user.email=terrascale-bot@users.noreply.github.com \
+git -c user.name=github-actions -c 'user.email=41898282+github-actions[bot]@users.noreply.github.com' \
 	commit --quiet -m "$title
 
 Data-only pin bump from TerraBase release $tag." -- deploy/image/image-inputs.json

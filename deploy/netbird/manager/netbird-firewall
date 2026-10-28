@@ -2,7 +2,7 @@
 # Open NetBird traffic through the host's persistent iptables ruleset, whose
 # INPUT and FORWARD chains end in REJECT and whose netavark rules only accept
 # established flows into containers. Each rule is scoped to NetBird and owned
-# by a netbird firewall unit; Forgejo's /etc/iptables/rules.v4 is never edited.
+# by a netbird firewall unit; the host's /etc/iptables/rules.v4 is never edited.
 #   manager       forwarded (DNAT) STUN into the netbird bridge subnet
 #   routing-peer  WireGuard to the routing peer's wt0 listener
 set -euo pipefail

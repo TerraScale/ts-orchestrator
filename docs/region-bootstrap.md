@@ -21,8 +21,10 @@ The operator-requested testing reset removed the GRU controllers, workload
 hosts, disks, images, buckets and every object version, networking, public
 load balancer, bastion, IAM grants and workload storage identity. GRU NetBird
 peers, setup keys, group, policies, network and DNS zone are also removed.
-Forgejo, its storage and network, shared Email Delivery, and the NetBird
-manager/routing peer remain available. The checked-in example now has no
+The 2026-10-04 reset preserved the operations host, its storage and network,
+shared Email Delivery, and the NetBird manager/routing peer. Forgejo was
+subsequently retired on 2026-10-11; it is not a bootstrap prerequisite.
+The checked-in example now has no
 operator gateway, enrollment secret/policy binding or cell LPG ID; recreate
 those only from a newly reviewed live inventory.
 
@@ -37,7 +39,7 @@ to print the diff, and add `--apply` only with the owner's approval: it deletes
 the listed resources in dependency order, never touches one already deleting,
 and deletes the control compartment only once everything else is gone.
 Current cleanup state is in the
-[HomeLab ts-ops runbook](https://git.terrascale.tech/mariogk/HomeLab/src/branch/main/fleet/hosts/ts-ops.md#netbird-operator-gateway).
+[HomeLab ts-ops runbook](https://github.com/MarioGK/Homelab/blob/main/fleet/hosts/ts-ops.md#netbird-operator-gateway).
 COS relayed the user's 2026-10-04 decision: keep these purge dates, do not
 run OCI `--apply` now, and wait for COS to request it after 2026-10-11.
 The approved stale Cloudflare `gru.api.terrascale.tech` A record was deleted
@@ -65,7 +67,7 @@ The new compartment names allow foundation preparation while old purges
 continue. Every resource ID remains unset until a confirmed create and
 authenticated readback. NetBird requires an LPG in the shared ts-ops VCN
 and additive route/NSG changes; these are explicitly proposed for separate
-approval. Forgejo, the manager, shared storage and Email Delivery remain.
+approval. Preserve the manager, shared storage and Email Delivery.
 
 Use TS-467's C# release path after controllers are healthy. The bootstrap
 attempt now provides its inputs: controller material carries the member CA
@@ -273,8 +275,9 @@ The next region runs them all with one command, `ts-orch region create`
   to each node's private address.
 - **Cost.** Always Free covers A1 compute and block storage only in the home
   region. The native estimate bills another region's hosts in full and keeps
-  Forgejo's share within the home allowance. The plan's Forgejo dimensions
-  are an upper bound: TS-645 resizes it.
+  the retained operations host's share within the home allowance. Use its
+  dimensions from a fresh inventory; a retired service's allocation is not
+  evidence of current usage.
 - **Attempt.** `ts-orch oci-region attempt` takes the cell and OCI region from
   the plan: identity, material, anchor, manifests, founder records, image
   import region and receipts, spec delegation and fleet config. Its
@@ -393,7 +396,7 @@ store of `gru-controller-a`: such a cell must be rebuilt.
 ## Operator gateway peering
 
 Operators reach the private cell through a NetBird routing peer on the ts-ops
-host (Forgejo and NetBird; private IP `10.250.10.155` in `ts-ops-vcn`
+host (NetBird; private IP `10.250.10.155` in `ts-ops-vcn`
 `10.250.0.0/16`). The NetBird manager, routing peer and configuration are
 documented in [`deploy/netbird/README.md`](../deploy/netbird/README.md). This runbook
 owns the OCI peering and automatic server enrollment inputs: one local peering
@@ -682,7 +685,7 @@ ts-ops resource manifest and primary VNIC.
 4. Add the routes. `route-table update` replaces the whole rule list, so derive
    each list from the saved table, review the diff, and guard the write with
    the saved ETag. The ts-ops table must keep its default route to the
-   internet gateway; losing it takes Forgejo and NetBird offline.
+   internet gateway; losing it takes NetBird's public endpoint offline.
 
    ```sh
    route_rules() {
@@ -708,7 +711,7 @@ ts-ops resource manifest and primary VNIC.
    ```
 
    Each diff must add exactly one rule. Right after the ts-ops update, confirm
-   `curl -fsS https://git.terrascale.tech/api/v1/version` and Git SSH still
+   `curl -fsS https://netbird.terrascale.tech/` and NetBird connectivity still
    work. If either fails, restore `ops-rt-restore.json` before anything
    else.
 5. Record `CELL_LPG` as `resource_ids.local_peering_gateway` and `OPS_LPG`

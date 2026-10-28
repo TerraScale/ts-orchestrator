@@ -1,19 +1,21 @@
 # Continuous delivery to running cells
 
-GitHub migration status (2026-10-16): `TerraScale/terrabase`,
-`TerraScale/ts-auth` and `TerraScale/ts-libs` are not available through the
-current GitHub account (API returns 404). Fresh qualified service inputs and
-full E2E runs remain blocked until those repositories, pinned commits and
-release assets are available on GitHub. Commands below describe the target
-GitHub flow; they do not establish a successful deployment. Historical
-Forgejo evidence and signed records remain historical and must not be relabeled.
+The standalone `TerraScale/terrabase`, `TerraScale/ts-auth` and
+`TerraScale/ts-libs` repositories have no GitHub copies (API checked
+2026-10-28). Current service source lives in the public
+[TerraScale monorepo](https://github.com/TerraScale/terrascale). The legacy
+standalone producer/image/E2E commands below still require their original
+qualified inputs; monorepo outputs cannot silently replace signed source and
+artifact contracts. They do not describe the current M1 app release path; see
+[delivery pipeline](delivery-pipeline.md). Historical Forgejo evidence and
+signed records keep their original identities.
 
-Every green main push dispatches automatic binary delivery to every serving
-region. Controllers follow their region's release channel and health-gated
-rollouts include participating managed hosts. Serving membership and admitted
-scope come from ts-orch; regional failures do not interrupt another region's
-rollout. See [the deployment pipeline](deploy-pipeline.md) for qualification,
-Vault signing, required scope activation, completion proofs and the lag alert.
+The current main-only `ci.yml` release-push job sends changed binary artifacts
+to the regions in `deploy/m1/regions.json`, authenticated with GitHub OIDC.
+See [the delivery pipeline](delivery-pipeline.md) for the active GitHub
+workflow. The legacy cell-channel procedures below describe a separate
+signed-release adapter; [its inventory](deploy-pipeline.md) covers Vault
+signing, completion proofs and the lag alert.
 The image supplies [binary-only self-update](#binary-only-self-update).
 Root-scoped signing, quorum, readiness and rollback gates remain mandatory.
 

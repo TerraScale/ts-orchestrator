@@ -269,7 +269,7 @@ and document IDs. Benchmark run/result/usage documents use their TerraBase
 key as identity, without a duplicate payload `id`. Local SDK persistence
 tests verify this contract; live database lifecycle still needs qualification
 with the shared JWT client contract. The Rust client's
-[Slice 3 draft](https://git.terrascale.tech/TerraScale/ts-benchmark/pulls/12)
+historical Slice 3 proposal (ts-benchmark #12; no GitHub copy)
 records corresponding ULID, database-delete and indexed-query blockers.
 Slice 1's shared workloads/images are not published in the observed checkout.
 SDK persistence and client database cleanup are therefore not live-qualified;

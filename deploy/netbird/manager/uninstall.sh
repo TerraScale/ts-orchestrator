@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Remove the NetBird operator gateway from ts-ops, returning the host
-# to its Forgejo-only baseline. Caddy's netbird.terrascale.tech block is removed
+# Remove the NetBird operator gateway from ts-ops. Caddy's
+# netbird.terrascale.tech block is removed
 # separately in the reviewed Caddyfile. Keeps the store unless --purge-data.
 # Always forgets the routing peer's identity (/var/lib/netbird): delete the
 # ts-ops peer in the manager too; a reinstall enrolls it with a new setup key.

@@ -120,7 +120,7 @@ replicas can bias fractions; no-data is never evidence of health.
 2. Verify service-owned instrumentation and all serving targets before loading
    rules. Confirm both zero-initialized outcomes, exclusions, replica identity,
    resets, streaming errors and loss of a target. Record the actual backend,
-   storage decision and scrape inventory. Do not touch Forgejo/ts-ops/homelab
+   storage decision and scrape inventory. Do not touch ts-ops/homelab
    hosts or re-found serving cells for this work.
 3. Load `slo-rules.yml` using the existing Prometheus backend's `rule_files`,
    retaining at least 30 days. Verify its rules API reports no evaluation errors

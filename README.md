@@ -62,15 +62,19 @@ implementation and its gaps are described in [the architecture notes](docs/archi
 
 ## Build and verify
 
+CI is the merge gate; local checks are optional before push. Follow the
+[GitHub contribution workflow](CONTRIBUTING.md#github-workflow) for PRs,
+reviews and the merge queue.
+
 This repository pins Go 1.27.1 in `.mise.toml`:
 
 ```bash
 mise trust .mise.toml  # first checkout only
 mise install
 umask 022
-mise exec -- make verify
-mise exec -- make build
-mise exec -- make release-linux
+nice -n 19 mise exec -- make verify
+nice -n 19 mise exec -- make build
+nice -n 19 mise exec -- make release-linux
 ```
 
 All first-party tests use Go's standard `testing` package. `make test` runs
