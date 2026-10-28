@@ -11,7 +11,7 @@ Observed 2026-10-08 using configured OCI operator authentication, `oci vault sec
 
 Regions: `gru` = `sa-saopaulo-1`; `sjc` = `us-sanjose-1`. New names use `<region>-<service>-<purpose>`. Existing `<region>-1-*` and signed bootstrap names remain pinned until an in-place migration verifies the new consumer; never rename signed references or re-found a serving cell.
 
-Homelab ts-router/ts-reviewer and personal operator authentication are out of scope. Do not rotate an already-leaked value before go-public. CI may retain credentials needed by CI itself.
+Homelab ts-router and personal operator authentication are out of scope. Do not rotate an already-leaked value before go-public. CI may retain credentials needed by CI itself.
 
 ## Runtime and missing-secret inventory
 

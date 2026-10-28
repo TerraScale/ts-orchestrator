@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// These pin the fixes for the ts-reviewer findings on PR #121.
+// These pin the fixes for the review findings on PR #121.
 
 type failingArchive struct{}
 
@@ -129,7 +129,7 @@ func containsID(decisions []Decision, id string) bool {
 	return false
 }
 
-// These pin the fixes for the ts-reviewer findings on PRs #127, #129 and #130.
+// These pin the fixes for the review findings on PRs #127, #129 and #130.
 
 // An idempotent replay of a decision whose durable copy never landed queues
 // it again; one that is known durable is not republished.

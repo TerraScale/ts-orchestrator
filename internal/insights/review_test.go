@@ -11,7 +11,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
-// These pin the fixes for the ts-reviewer findings on PR #121.
+// These pin the fixes for the review findings on PR #121.
 
 func TestDiskUsageWarningDoesNotHideAFasterFill(t *testing.T) {
 	now := time.Now().UTC()
@@ -154,7 +154,7 @@ func TestEngineReportsDroppedChanges(t *testing.T) {
 	}
 }
 
-// These pin the fixes for the ts-reviewer findings on PRs #127 and #130.
+// These pin the fixes for the review findings on PRs #127 and #130.
 
 // A rule that observed health resets its timer even while another rule is
 // blind, so a later failure waits a fresh interval.

@@ -23,7 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
 
-// The tests in this file pin the fixes for the ts-reviewer findings on the
+// The tests in this file pin the fixes for the review findings on the
 // dashboard (PR #125).
 
 type failingRollouts struct{}
@@ -567,7 +567,7 @@ func TestDashboardScriptGuards(t *testing.T) {
 	}
 }
 
-// These pin the fixes for the ts-reviewer findings on PRs #127 and #130.
+// These pin the fixes for the review findings on PRs #127 and #130.
 
 func releasePage(t *testing.T, decisions ...decisionlog.Decision) string {
 	t.Helper()

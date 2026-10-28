@@ -4,7 +4,7 @@ TerraScale production secrets belong in the Vault of their serving region:
 `gru` (`sa-saopaulo-1`) or `sjc` (`us-sanjose-1`). The
 [TS-745 inventory](secrets-inventory.md) distinguishes verified Vault records
 from consumers and plaintext copies that still need migration. Production
-OpenBao reads are retired; homelab ts-router/ts-reviewer stay on OpenBao.
+OpenBao reads are retired; homelab ts-router stays on OpenBao.
 
 | Vault | Value |
 | --- | --- |
