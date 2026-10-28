@@ -30,6 +30,7 @@ type bakeRuntime struct {
 	Running, Ready int64 // elapsed nanoseconds; protocol JSON has no implicit duration encoding
 	Tasks          []swarmruntime.ServiceTaskEvidence
 	Revision       string
+	StopFirst      bool `json:",omitzero"` // the start-first candidate did not fit beside the old task
 }
 
 func (n *Node) bakePath(name string, generation int64) string {
@@ -162,7 +163,7 @@ func (n *Node) evaluate(ctx context.Context, applied applyResult) (bakeRecord, e
 	}
 	record.Bake = rollout.BakeVerdict{} // The bake starts only after readiness succeeds.
 	ready, err := n.cfg.applier.Wait(ctx, spec, original)
-	record.Rollout = bakeRuntime{int64(ready.Running), int64(ready.Ready), ready.Tasks, ready.Revision}
+	record.Rollout = bakeRuntime{int64(ready.Running), int64(ready.Ready), ready.Tasks, ready.Revision, ready.StopFirst}
 	if err == nil && spec.Deployment != nil && spec.Image == spec.Deployment.Image && record.Rollout.Revision != spec.Deployment.Revision {
 		err = errors.New("running image revision does not match the signed release commit")
 	}
