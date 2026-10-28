@@ -97,7 +97,7 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 			gateways[peer] = fmt.Sprintf("nats://%s.%s:%d", peer, Domain, GatewayPort)
 		}
 	}
-	var applier Applier = swarmApplier{state: state}
+	var applier Applier = swarmApplier{state: state, region: region}
 	if cluster.Worker {
 		applier = nil
 	}
@@ -179,6 +179,7 @@ func loadSecret(ctx context.Context) ([]byte, error) {
 // swarmApplier drives the single-host SwarmKit node in state.
 type swarmApplier struct {
 	state    string
+	region   string
 	client   api.ControlClient
 	revision func(context.Context, string, string) (string, error)
 }

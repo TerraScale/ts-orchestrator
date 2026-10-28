@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/moby/swarmkit/v2/api"
+	"google.golang.org/grpc"
 )
 
 type bakeRoundTrip func(*http.Request) (*http.Response, error)
@@ -31,6 +34,10 @@ func TestBakeDependencyBodies(t *testing.T) {
 		{"ts-dashboard", `{"status":"ok","dependencies":{"ts-auth":"ok","terrabase":"ok"}}`, "ok", 200},
 		{"ts-dashboard", `{"status":"ok","dependencies":{"terrabase":"ok"}}`, "dependency-unavailable-or-missing", 200},
 		{"ts-dashboard", `ok`, "invalid-readiness-body", 200},
+		{"ts-dashboard", `{"status":"ok","region":"gru","dependencies":{"ts-auth":"ok","terrabase":"ok"}}`, "ok", 200},
+		{"ts-dashboard", `{"status":"unavailable","region":"gru"}`, "HTTP 503", 503},
+		{"ts-dashboard", `{"status":"unavailable","region":"sjc"}`, "served by sjc", 503},
+		{"ts-dashboard", `{"status":"ok","region":"sjc","dependencies":{"ts-auth":"ok","terrabase":"ok"}}`, "served by sjc", 200},
 		{"ts-auth", strings.Repeat("s", (16<<10)+1), "invalid-readiness-body", 200},
 	} {
 		client := &http.Client{Transport: bakeRoundTrip(func(r *http.Request) (*http.Response, error) {
@@ -39,7 +46,7 @@ func TestBakeDependencyBodies(t *testing.T) {
 			}
 			return &http.Response{StatusCode: tc.code, Body: io.NopCloser(strings.NewReader(tc.body)), Header: http.Header{}}, nil
 		})}
-		if got := bakeDependency(t.Context(), client, tc.service); got != tc.want {
+		if got := bakeDependency(t.Context(), client, "gru", tc.service); got != tc.want {
 			t.Fatalf("%s: got %q, want %q", tc.service, got, tc.want)
 		}
 	}
@@ -82,7 +89,7 @@ func TestBakeTerraBaseSwapAuth503Recovery(t *testing.T) {
 				})}
 				v, err := rollout.RunBake(t.Context(), func(ctx context.Context) (map[string]string, error) {
 					checks := map[string]string{"candidate": "ok", "terrabase-logs": "ok"}
-					return checks, bakeDependencies(ctx, client, checks)
+					return checks, bakeDependencies(ctx, client, checks, "gru", []string{"ts-auth", "ts-dashboard"})
 				})
 				if auth != v.Samples || dashboard != v.Samples {
 					t.Fatalf("lost dependency checks/evidence: auth=%d dashboard=%d verdict=%+v", auth, dashboard, v)
@@ -243,6 +250,44 @@ func TestOnlyTheAuthChainBakesAgainstAuthAndDashboardReadiness(t *testing.T) {
 		"app-canary": false, "whoami": false, "netbird-server": false} {
 		if got := judgesDependencies(service); got != want {
 			t.Errorf("%s judges ts-auth/ts-dashboard readiness: %t, want %t", service, got, want)
+		}
+	}
+}
+
+type placementControl struct {
+	api.ControlClient
+	names []string
+}
+
+func (c placementControl) ListServices(_ context.Context, request *api.ListServicesRequest, _ ...grpc.CallOption) (*api.ListServicesResponse, error) {
+	var listed []*api.Service
+	for _, name := range c.names {
+		if slices.Contains(request.Filters.Names, name) {
+			listed = append(listed, &api.Service{Spec: api.ServiceSpec{Annotations: api.Annotations{Name: name}}})
+		}
+	}
+	return &api.ListServicesResponse{Services: listed}, nil
+}
+
+// 2026-10-28: gru restarts blipped auth readiness and failed sjc and fra
+// TerraBase bakes; sjc's dashboard candidate failed on gru's dashboard.
+func TestBakeJudgesOnlyDependenciesThisRegionRuns(t *testing.T) {
+	gru := placementControl{names: []string{"terrabase", "ts-auth", "ts-dashboard"}}
+	sjc := placementControl{names: []string{"terrabase", "ts-dashboard"}}
+	for _, tc := range []struct {
+		control placementControl
+		service string
+		want    []string
+	}{
+		{gru, "terrabase", []string{"ts-auth", "ts-dashboard"}},
+		{gru, "ts-auth", []string{"ts-dashboard"}},
+		{gru, "ts-dashboard", []string{"ts-auth"}},
+		{sjc, "terrabase", []string{"ts-dashboard"}},
+		{sjc, "ts-dashboard", nil},
+	} {
+		got, err := localDependencies(t.Context(), tc.control, tc.service)
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Errorf("%v %s judges %v, want %v (%v)", tc.control.names, tc.service, got, tc.want, err)
 		}
 	}
 }
