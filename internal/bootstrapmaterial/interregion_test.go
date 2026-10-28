@@ -221,7 +221,7 @@ func TestInterRegionConfigNeedsAPortExactlyWithChildren(t *testing.T) {
 			t.Errorf("%s: interregion material issued", name)
 		}
 	}
-	// ts-reviewer 13256: never inside (or around) the controller material.
+	// Review finding 13256: never inside (or around) the controller material.
 	for _, inside := range []string{filepath.Join(material, "interregion"), material, filepath.Dir(material)} {
 		if _, err := GenerateInterRegion(material, inside, cfg, InterRegionInputs{}, now); err == nil {
 			t.Errorf("interregion material issued at %s", inside)

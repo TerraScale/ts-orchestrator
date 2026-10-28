@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// These pin the fixes for the ts-reviewer findings on PR #121.
+// These pin the fixes for the review findings on PR #121.
 
 func TestRollupRatesUseSampleTimes(t *testing.T) {
 	t.Parallel()

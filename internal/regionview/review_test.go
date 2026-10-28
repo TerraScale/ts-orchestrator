@@ -10,7 +10,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
-// These pin the fixes for the ts-reviewer findings on PR #121.
+// These pin the fixes for the review findings on PR #121.
 
 type failingCluster struct{}
 
@@ -85,7 +85,7 @@ func TestDatabasesCountDistinctIDsNotPartitions(t *testing.T) {
 	}
 }
 
-// These pin the fixes for the ts-reviewer findings on PRs #127 and #129.
+// These pin the fixes for the review findings on PRs #127 and #129.
 
 // A torn-down (terminal) partition keeps its roster but is not live work.
 func TestTerminalPartitionsAreNotActiveWork(t *testing.T) {
