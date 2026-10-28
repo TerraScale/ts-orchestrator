@@ -204,6 +204,9 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 		opts := []oci.SpecOpts{oci.WithProcessArgs(args...), oci.WithEnv(config.Config.Env), oci.WithEnv(env), oci.WithProcessCwd(cwd),
 			oci.WithUIDGID(uint32(u), uint32(g)), oci.WithRootFSReadonly(), oci.WithNoNewPrivileges,
 			oci.WithCapabilities(nil), seccomp.WithDefaultProfile(), oci.WithPidsLimit(256),
+			// containerd's default of 1024 open files: TerraBase holds ~330 for its single-file binary plus several per
+			// database file, reached it on gru (2026-10-28) and failed its storage closed.
+			oci.WithRlimit(&runtimespec.POSIXRlimit{Type: "RLIMIT_NOFILE", Hard: containerOpenFiles, Soft: containerOpenFiles}),
 			oci.WithMemoryLimit(uint64(limits.MemoryBytes)), oci.WithMemorySwap(limits.MemoryBytes),
 			containerCPU(c.task.Spec.Resources),
 			// Host netns, so the host's resolvers (including the 127.0.0.53 stub) are reachable as-is.
@@ -378,6 +381,9 @@ const (
 	readyPoll        = 100 * time.Millisecond
 	readyPollCeiling = 2 * time.Second
 )
+
+// containerOpenFiles is every task's open-file limit (soft and hard).
+const containerOpenFiles = 65536
 
 func (c *controller) start(ctx context.Context) error {
 	if c.stateful != nil {
