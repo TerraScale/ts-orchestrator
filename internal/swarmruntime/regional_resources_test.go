@@ -90,7 +90,8 @@ func TestRegionalAppResourceBudgets(t *testing.T) {
 				limit, disk := int64(2_000_000_000), int64(2<<30)
 				order := api.UpdateConfig_START_FIRST
 				if !startFirst {
-					limit, disk, order = cpu, 10<<30, api.UpdateConfig_STOP_FIRST
+					// Without volumes the disk budget stays 2 GiB either way.
+					limit, order = cpu, api.UpdateConfig_STOP_FIRST
 				}
 				if r.Reservations.NanoCPUs != cpu || r.Limits.NanoCPUs != limit || r.Reservations.MemoryBytes != 2048<<20 || r.Limits.MemoryBytes != r.Reservations.MemoryBytes || spec.Update.Order != order {
 					t.Fatalf("unexpected resource/order contract: %v, %v", r, spec.Update.Order)
