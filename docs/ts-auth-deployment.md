@@ -1,5 +1,16 @@
 # ts-auth deployment on gru-1
 
+**Production today (M1, 2026-10-27).** ts-auth runs only in gru
+([`deploy/m1/services/ts-auth.json`](../deploy/m1/services/ts-auth.json),
+`regions: ["gru"]`) and is served at exactly one hostname,
+`https://auth.terrascale.tech`, by the ts-orch edge (DNS-only A record).
+Its issuer is `https://auth.terrascale.tech/terrascale`. The dashboard is served
+only at `https://dash.terrascale.tech`. There are no regional
+`<cell>.auth.terrascale.tech` or `<cell>.dash.terrascale.tech` hostnames, and
+none have DNS records. The `sjc.auth` and `fra.auth` records were deleted on
+2026-10-27 because nothing served them. Regional hostnames below belong to the
+legacy `ts-orch oci-region` cell model.
+
 GitHub migration status (2026-10-16): `TerraScale/terrabase`,
 `TerraScale/ts-auth` and `TerraScale/ts-libs` are not available through the
 current GitHub account (API returns 404). Fresh qualified service inputs and
@@ -172,8 +183,8 @@ Roll back the same way without the two settings.
 
 ### OpenID Connect
 
-ts-auth (ts-auth#36) serves one issuer, `https://gru.auth.terrascale.tech/terrascale`,
-with discovery at `https://gru.auth.terrascale.tech/terrascale/.well-known/openid-configuration`.
+ts-auth (ts-auth#36) serves one issuer, `https://auth.terrascale.tech/terrascale`,
+with discovery at `https://auth.terrascale.tech/terrascale/.well-known/openid-configuration`.
 At startup it registers the dashboard confidential client
 `01M4EQ2FRJ8S8B29E8TQVWNW4J` from
 `TS_AUTH_DASHBOARD_CLIENT_SECRET` and the two profile URIs above.

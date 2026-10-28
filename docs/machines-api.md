@@ -60,7 +60,7 @@ A controller serves the API when its config has `controller.machines_api`:
   "listen_address": "10.251.0.11:8444",
   "tls_cert_file": "/etc/ts-orch/machines-api.crt",
   "tls_key_file": "/etc/ts-orch/machines-api.key",
-  "issuer": "https://gru.auth.terrascale.tech/terrascale",
+  "issuer": "https://auth.terrascale.tech/terrascale",
   "audience": "https://gru.orch.terrascale.tech",
   "jwks_urls": [
     "http://127.0.0.1:8080/terrascale/.well-known/jwks.json",
@@ -92,9 +92,9 @@ tenancy policy, with the same fields as above minus the listener:
 
 ```json
 "machines_api": {
-  "issuer": "https://gru.auth.terrascale.tech/terrascale",
+  "issuer": "https://auth.terrascale.tech/terrascale",
   "audience": "https://sjc.orch.terrascale.tech",
-  "jwks_urls": ["https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"],
+  "jwks_urls": ["https://auth.terrascale.tech/terrascale/.well-known/jwks.json"],
   "clients": ["01M4EQ2FRJ8S8B29E8TQVWNW4J"],
   "platform_organization_id": "<platform organization ULID>",
   "members": {"<platform organization ULID>": ["<user ULID>"]}
