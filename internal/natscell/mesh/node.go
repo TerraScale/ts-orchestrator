@@ -508,6 +508,9 @@ func (n *Node) handleApply(m *nats.Msg) {
 		reply.Service, reply.Image, reply.Tasks, reply.Revision = spec.Name, spec.Image, verdict.Rollout.Tasks, verdict.Rollout.Revision
 		reply.Bake = &verdict.Bake
 		reply.Phases = fmt.Sprintf("pulled %dms, submitted %dms, ready %dms", pulled.Milliseconds(), submitted.Milliseconds(), (submitted + time.Duration(verdict.Rollout.Ready)).Milliseconds())
+		if verdict.Rollout.StopFirst {
+			reply.Phases += ", stop-first: candidate did not fit"
+		}
 		if !verdict.Bake.Started.IsZero() {
 			reply.Phases += bakePhase(verdict.Bake)
 		}

@@ -48,7 +48,7 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 		return rollout, err
 	}
 	evidence, err := ProbeServiceSpecExact(ctx, client, requested)
-	evidence.Running, evidence.Ready = rollout.Running, rollout.Ready
+	evidence.Running, evidence.Ready, evidence.StopFirst = rollout.Running, rollout.Ready, rollout.StopFirst
 	return evidence, err
 }
 

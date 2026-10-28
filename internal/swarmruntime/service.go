@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"math"
 	"regexp"
@@ -680,6 +681,9 @@ type ServiceRollout struct {
 	Running, Ready time.Duration
 	Tasks          []ServiceTaskEvidence
 	Revision       string
+	// StopFirst is set when the start-first candidate could not be placed and
+	// the update stopped the old task first.
+	StopFirst bool
 }
 
 // LabelReadyTimeout holds ServiceSpec.ReadyTimeoutSeconds when set.
@@ -704,6 +708,7 @@ func (e *RollbackError) Error() string {
 
 // WaitServiceSpec waits until every replica of the service's current spec is
 // RUNNING and passes probe (when given). A rollback or a paused update is an error.
+// A start-first candidate the node has no room for falls back to stop-first.
 func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api.Service, probe func(context.Context, *api.Task) error) (ServiceRollout, error) {
 	ctx, cancel := context.WithTimeout(ctx, serviceRollout+2*ReadyTimeout(service.Spec.Annotations.Labels))
 	defer cancel()
@@ -712,6 +717,7 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 	if service.Spec.GetReplicated() == nil {
 		return rollout, errors.New("service rollout requires a replicated service")
 	}
+	requested, fellBack := service.Spec.Update, time.Time{}
 	for ; ; time.Sleep(servicePoll) {
 		if err := ctx.Err(); err != nil {
 			return rollout, fmt.Errorf("service %s is not ready: %w", service.Spec.Annotations.Name, err)
@@ -747,6 +753,19 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 		if err != nil {
 			return rollout, err
 		}
+		if task := unplacedCandidate(service, listed.Tasks, time.Now()); task != nil {
+			slog.WarnContext(ctx, "start-first candidate cannot be placed; updating stop-first", "service", service.Spec.Annotations.Name, "task", task.ID, "reason", task.Status.Err)
+			if service, err = writeUpdatePolicy(ctx, client, service, stopFirst(service.Spec.Update)); err != nil {
+				return rollout, err
+			}
+			rollout.StopFirst, fellBack = true, time.Now()
+			continue
+		}
+		if rollout.StopFirst {
+			if err := candidateFailed(ctx, client, service, fellBack); err != nil {
+				return rollout, err
+			}
+		}
 		running := make([]*api.Task, 0, len(listed.Tasks))
 		for _, task := range listed.Tasks {
 			if task.Status.State == api.TaskStateRunning {
@@ -765,7 +784,11 @@ func WaitServiceSpec(ctx context.Context, client api.ControlClient, service *api
 		}
 		if ready {
 			rollout.Ready = time.Since(start)
-			return rollout, nil
+			if rollout.StopFirst {
+				// Leave the spec exactly as requested; the task template is unchanged.
+				_, err = writeUpdatePolicy(ctx, client, service, requested)
+			}
+			return rollout, err
 		}
 	}
 }
