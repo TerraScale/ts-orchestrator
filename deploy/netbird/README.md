@@ -1,6 +1,6 @@
 > **Legacy ts-ops runbook.** This describes the previous shared host installation,
-> including unrelated Forgejo resources retained for safety. Forgejo is no longer
-> a source, release, CI, or NetBird prerequisite. Do not use this layout for new
+> on ts-ops. Source, releases and CI use GitHub; NetBird has no source-hosting
+> service dependency. Do not use this layout for new
 > provisioning: [REFACTOR.md](../../REFACTOR.md) specifies the dedicated GRU A1
 > manager and orchestrator-owned bootstrap, Vault credentials, backup and restore.
 > Those lifecycle changes remain implementation work; this migration has not
@@ -27,9 +27,16 @@ See
 Self-hosted NetBird at `https://netbird.terrascale.tech` gives enrolled
 operator devices private access to ts-ops. The intended GRU topology below
 adds access to the cell (private subnet
-`10.251.0.0/25`) and to Forgejo on ts-ops. The manager (combined server and
-dashboard) and the routing peer run on ts-ops, next to Forgejo. Every GRU
+`10.251.0.0/25`). The legacy manager (combined server and
+dashboard) and the routing peer run on ts-ops. Every GRU
 controller and managed host is also a NetBird peer, reached with NetBird SSH.
+
+Forgejo was retired on 2026-10-11. The manager bundle owns only NetBird
+Caddy routes, firewall rules and SQLite backups; it contains no Git hosting
+routes, Git SSH allowance or repository backup job. The compiled desired state
+contains no Forgejo access policy. Historical readbacks, peer names and reset
+records below retain the names captured at the time. Updating this source
+does not install, uninstall or redeploy the live manager.
 
 ```mermaid
 flowchart LR
@@ -65,7 +72,7 @@ OpenTofu manages infrastructure only, and HomeLab no longer owns NetBird.
 | Manager host bundle: Quadlets, systemd units, installers, backup, firewall, Caddy block | [`manager/`](manager), staged at `/opt/ts-ops/netbird` |
 | Server client install and automatic enrollment | [Server enrollment](#server-enrollment), `deploy/systemd`, image inputs |
 | OCI side: LPG pair, routes, cell NSG rules | [Operator gateway peering](../../docs/region-bootstrap.md#operator-gateway-peering) |
-| ts-ops host (Forgejo, Caddy, ports, backups) | ts-ops host runbook |
+| ts-ops host (Caddy, ports, host backups) | ts-ops host runbook |
 
 Do not edit groups, policies, networks or settings in the dashboard. A
 dashboard edit is drift: the next reconciliation reverts it.
@@ -244,9 +251,9 @@ netbird ssh -L 9464:127.0.0.1:9464 root@gru-1-db-1.nb.ts.internal
 curl -fsS http://127.0.0.1:9464/readyz
 ```
 
-Forgejo (`git.terrascale.tech`) and the dashboard keep their public names,
-because Caddy routes by Host; over NetBird, pin the name to ts-ops' NetBird IP
-(`curl --resolve git.terrascale.tech:443:10.200.106.253 ...`).
+The NetBird dashboard keeps its public name because Caddy routes by Host;
+over NetBird, pin `netbird.terrascale.tech` to ts-ops' NetBird IP. Repository
+access goes directly to `github.com` with `git` over SSH or `gh`.
 
 ### Stable peer names
 
@@ -330,7 +337,7 @@ device's resolver.
 resolvectl query alpha.tail057f.ts.net ts-ops.nb.ts.internal ctl-1.gru.ts.internal
 ip route get 10.200.106.253
 ssh -p 2022 mariogk@ts-ops.nb.ts.internal hostname
-curl --resolve git.terrascale.tech:443:10.200.106.253 https://git.terrascale.tech/api/v1/version
+curl --fail --resolve netbird.terrascale.tech:443:10.200.106.253 https://netbird.terrascale.tech/
 ```
 
 Managed headless automation peers must enroll with scoped credentials created
@@ -452,7 +459,7 @@ inventory` with the replacement. If publication or delivery fails, revoke the
 unused replacement and preserve the working old token. The least-privilege
 owner must verify that no consumers remain before retiring `ts-infra-ci` and
 its old `NETBIRD_PAT` reference; credential cleanup must preserve unrelated
-Forgejo services and access.
+host services and access.
 
 **Current gap (TS-796):** automatic PAT creation/rotation and complete Vault
 publication/delivery are not yet implemented. Legacy manual procedures are not
@@ -489,9 +496,9 @@ key; this is inventory, not permission to re-found a serving cell. See
 | Routing peer | `netbird` 0.79.0 apt package, held | `wt0` `10.200.106.253`, UDP `51820`, routes `10.251.0.0/25` with masquerade |
 | Store backup | `netbird-backup.timer` 03:30 | SQLite online backup to `/var/srv/appdata/netbird/backups`, keeps 7 |
 
-The bundle is additive to the Forgejo stack and never restarts Forgejo,
-Postgres or Caddy; `uninstall.sh` returns the host to its Forgejo-only
-baseline. Helper scripts install to `/usr/local/libexec/homelab/netbird`, the
+The bundle changes only NetBird resources and never restarts Caddy or
+unrelated host services. `uninstall.sh` removes the NetBird bundle.
+Helper scripts install to `/usr/local/libexec/homelab/netbird`, the
 path the live units use. Every NetBird unit runs at `CPUWeight=50`; memory is
 capped at 384M (server), 128M (dashboard) and 192M (client).
 
@@ -501,7 +508,7 @@ the installers refuse any other directory or host.
 ### Install
 
 Prerequisites: `netbird.terrascale.tech` A record → `163.176.73.79`
-(DNS-only), UDP 3478 open in the Forgejo NSG, the released `ts-orch` at
+(DNS-only), UDP 3478 open in the operations-host NSG, the released `ts-orch` at
 `/usr/local/bin/ts-orch`, and ts-ops's read grant on its three Vault secrets
 ([host access](../../docs/secrets.md#host-access)).
 

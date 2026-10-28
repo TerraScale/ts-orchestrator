@@ -1,12 +1,14 @@
 # TerraBase deployment into a running cell
 
-GitHub migration status (2026-10-16): `TerraScale/terrabase`,
-`TerraScale/ts-auth` and `TerraScale/ts-libs` are not available through the
-current GitHub account (API returns 404). Fresh qualified service inputs and
-full E2E runs remain blocked until those repositories, pinned commits and
-release assets are available on GitHub. Commands below describe the target
-GitHub flow; they do not establish a successful deployment. Historical
-Forgejo evidence and signed records remain historical and must not be relabeled.
+The standalone `TerraScale/terrabase`, `TerraScale/ts-auth` and
+`TerraScale/ts-libs` repositories have no GitHub copies (API checked
+2026-10-28). Current service source lives in the public
+[TerraScale monorepo](https://github.com/TerraScale/terrascale). The legacy
+standalone producer/image/E2E commands below still require their original
+qualified inputs; monorepo outputs cannot silently replace signed source and
+artifact contracts. They do not describe the current M1 app release path; see
+[delivery pipeline](delivery-pipeline.md). Historical Forgejo evidence and
+signed records keep their original identities.
 
 The [zero-configuration contract](zero-configuration.md) is required production policy.
 Configuration fields, manual bootstrap paths and dated observations below are
@@ -143,7 +145,7 @@ profile differs. For cell `gru-1` with two members:
 ```
 
 `TERRABASE_REGION` is required outside Development starting with
-the historical [TerraBase #18](https://git.terrascale.tech/TerraScale/terrabase/pulls/18).
+the historical TerraBase #18 (retired standalone repository; no GitHub copy).
 Without it the binary exits before opening storage. Use `gru-1` in both the
 signed controller profile and the operator's `--profile` file; the host
 preserves this environment setting when adding the member's local paths.

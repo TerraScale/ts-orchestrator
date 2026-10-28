@@ -1,5 +1,26 @@
 # Contributing
 
+## GitHub workflow
+
+Use `git` over SSH to `github.com` and `gh` for pull requests, repository
+issues, Actions and releases. TerraScale work tickets belong in Ku
+(`ku.mariogk.com`). All current source repositories are public under
+`github.com/TerraScale`; retired standalone repositories have no automatic
+GitHub equivalent.
+
+Open one ready-for-review PR per repository per thread; never open a draft.
+CI on GitHub-hosted runners is the gate. Local tests are optional before
+pushing. Rebase on current `origin/main`, push, and require green checks on
+that exact latest head. Fix and answer every reviewer finding. ts-reviewer
+is not deployed and no review approval or named reviewer request is required.
+Do not add AI attribution to commits, PR titles or descriptions.
+
+Use the T3 PR watcher while waiting for checks or reviews; do not poll `gh`.
+This repository currently requires GitHub's merge queue: after the PR head
+is green, `gh pr merge --auto --squash` queues it for verification against
+current main. In repositories without a queue, merge directly when the
+rebased head is green.
+
 ## Use the unified Go CLI
 
 `ts-orch` is the preferred interface for operational tooling. Implement new
@@ -57,14 +78,15 @@ checks when moving operations into the CLI.
 
 ## Verify changes
 
-The repository pins its Go toolchain through `.mise.toml`:
+For optional local verification, the repository pins its Go toolchain through
+`.mise.toml`:
 
 ```sh
 mise trust .mise.toml
 mise install
 umask 022
-mise exec -- make verify
-mise exec -- make build
+nice -n 19 mise exec -- make verify
+nice -n 19 mise exec -- make build
 dist/ts-orch --help
 ```
 
@@ -75,9 +97,10 @@ VM qualification remains an explicit environment-dependent command.
 
 The qualification tests expect ordinary `022` file creation permissions and
 check explicitly restricted files separately. Published binaries require a
-clean committed source tree; after committing, run
-`mise exec -- make release-check` to verify static Linux amd64 and arm64
-artifacts and their embedded source revision.
+clean committed source tree. To verify publication locally after committing,
+use `nice -n 19 mise exec -- make release-check`; it checks static Linux amd64
+and arm64 artifacts and their embedded source revision. CI runs this check
+for changed executable inputs before publication.
 
 ## Test tiers
 
@@ -88,11 +111,12 @@ a tier is chosen with `-short` and `TS_TEST_TIER`, never with build tags, and
 | Tier | Runs | Command | Contains |
 |---|---|---|---|
 | T0, fast | every pull request (`TS_TEST_TIER=change`: only the packages the change reaches) and merge queue entry | `TS_TEST_TIER=pr make ci-verify` (race tests with `-short`); `make test-fast` locally | Unit tests and the single-process safety invariants: fencing, lease reserves, authority epochs, CAS, signed configuration, idempotent journaled OCI operations, and one case of every image-builder rejection family. |
-| T1, integration | every push to `develop` and `main` | `make ci-verify` (`TS_TEST_TIER=full`, the default) | T0, plus tests that call `tier.Integration(t)`, plus `make fixturetest-check` (`go vet` and the fixturegen tests with `-tags fixturetest`). |
-| T2, qualification | `image.yml`, before the image is built, where the runner supplies fixtures | `scripts/ci/qualify-image.sh` with `TS_TEST_TIER=qualification` | Tests that call `tier.Qualification(t, envs...)`: real TerraBase members, cross-language packets and rendered enrollment bundles. Firecracker VMs qualify through `ts-orch qualification firecracker ...`. |
+| T1, integration | merge queue, `develop` pushes, scheduled and manual runs | `make ci-verify` (`TS_TEST_TIER=full`, the default) | T0, plus tests that call `tier.Integration(t)`, plus `make fixturetest-check` (`go vet` and the fixturegen tests with `-tags fixturetest`). |
+| T2, qualification | explicit image qualification with supplied fixtures | `scripts/ci/qualify-image.sh` with `TS_TEST_TIER=qualification` | Tests that call `tier.Qualification(t, envs...)`: real TerraBase members, cross-language packets and rendered enrollment bundles. Firecracker VMs qualify through `ts-orch qualification firecracker ...`. |
 
-`image.yml` builds only revisions whose full `ci.yml` run on `main` passed,
-so T1 gates every image even though pull requests run only T0.
+The merge queue runs full coverage before main; main pushes publish changed
+executable inputs without repeating that suite. The former `image.yml` is
+not an active workflow. See [the delivery pipeline](docs/delivery-pipeline.md).
 
 Choose the tier when you add a test:
 
@@ -113,8 +137,8 @@ Choose the tier when you add a test:
   `TS_ORCH_RUN_DEPLOYMENT_CONVERGENCE_MEASUREMENT`, as plain opt-ins; they
   are not pass/fail gates.
 
-`image.yml` always runs all eight qualification suites listed in
-`scripts/ci/qualify-image.sh`. The runner must supply each suite's fixture
+`scripts/ci/qualify-image.sh` runs all eight qualification suites it lists.
+The qualification environment must supply each suite's fixture
 inputs. Missing prerequisites, skipped suites and empty test selections fail
 qualification; there is no repository opt-in variable. Test-only measurement
 commands remain explicit invocations and do not switch production features.

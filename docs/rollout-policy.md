@@ -114,8 +114,8 @@ transport/recovery boundaries in those paths.
 ## In-place deployment prerequisites and evidence
 
 Before this CLI reaches service CI, land the caller/argument-contract updates
-in [TerraBase #139](https://git.terrascale.tech/TerraScale/terrabase/pulls/139)
-and [ts-auth #68](https://git.terrascale.tech/TerraScale/ts-auth/pulls/68).
+recorded in TerraBase #139 and ts-auth #68 (retired standalone repositories;
+no GitHub copies of those PRs).
 They remove `--region-timeout` and pass the deployment guard; auth's full
 660-test check passed. TerraBase's compile failures also occur on unchanged
 main and are documented in #139. Older pinned helpers accept the omission;

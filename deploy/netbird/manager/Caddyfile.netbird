@@ -1,6 +1,6 @@
 # Site block for netbird.terrascale.tech in the ts-ops edge Caddyfile
 # (/etc/caddy/Caddyfile, image localhost/caddy-l4). The rest of that file
-# (global layer4 SSH mux, Forgejo) is owned by the ts-ops host runbook.
+# is owned by the ts-ops host runbook; this bundle defines only NetBird routes.
 # gRPC needs cleartext HTTP/2 to the loopback publish; relay and signal use
 # WebSockets. Validate before reload; see deploy/netbird/README.md in ts-orchestrator.
 netbird.terrascale.tech {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the NetBird manager on ts-ops: combined server + dashboard
 # Quadlets, the nightly store backup, and ntfy failure hooks. The routing peer
-# is separate (install-routing-peer.sh). Touches nothing Forgejo-owned;
+# is separate (install-routing-peer.sh). Changes only NetBird-owned resources;
 # uninstall.sh reverses it.
 set -euo pipefail
 
@@ -23,7 +23,7 @@ Run as root from /opt/ts-ops/netbird on ts-ops with ts-orch on PATH. Renders
 /run/terrascale-netbird/config.yaml from OCI Vault with the instance principal, installs
 the NetBird server and dashboard Quadlets (loopback publishes plus UDP 3478), the
 store backup timer, and OnFailure ntfy hooks, then starts the server and
-dashboard. Never restarts Forgejo, Postgres, or Caddy. Create the owner with
+dashboard. Never restarts Caddy or unrelated host services. Create the owner with
 setup-owner.sh before Caddy publishes netbird.terrascale.tech.
 USAGE
 }

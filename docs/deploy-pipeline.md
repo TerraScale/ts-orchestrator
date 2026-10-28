@@ -1,5 +1,10 @@
 # ts-orchestrator deployment pipeline
 
+This is the legacy signed cell-channel pipeline inventory. The former
+`deploy.yml` and `image.yml` are not active GitHub workflows. For current
+GitHub-hosted CI, the merge queue, retained binaries and the OIDC-authenticated
+`ci.yml` release-push job, use [delivery pipeline](delivery-pipeline.md).
+
 Deployment provenance is retained in the repository and signed release artifacts;
 no external issue tracker is required. See [release boundaries](releases.md).
 

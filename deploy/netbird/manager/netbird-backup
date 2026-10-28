@@ -2,7 +2,7 @@
 """Snapshot every NetBird server SQLite store with the online backup API.
 
 Writes /var/srv/appdata/netbird/backups/<UTC stamp>/ atomically and keeps the
-newest seven snapshots. Forgejo's restic pipeline does not include this data.
+newest seven snapshots. Only NetBird stores are included.
 """
 
 import datetime

@@ -29,7 +29,7 @@ ExecStartPre=/usr/local/bin/ts-orch vault render --vault-id ocid1.vault.oc1.sa-s
 Restart=always
 RestartSec=5s
 TimeoutStartSec=120
-# Forgejo keeps the default CPU weight and wins under contention.
+# Keep the manager's CPU share bounded on the shared operations host.
 CPUWeight=50
 MemoryHigh=256M
 MemoryMax=384M
