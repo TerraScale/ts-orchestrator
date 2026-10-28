@@ -18,11 +18,12 @@ const (
 	testOrg     = "00000000000000000000000002"
 	testProject = "00000000000000000000000003"
 	testOther   = "00000000000000000000000004"
+	testDB      = "00000000000000000000000005"
 )
 
 func testProjectCredential() projectCredential {
 	return projectCredential{APIKey: projectKeyMetadata{ID: testKeyID, OrganizationID: testOrg, ProjectID: testProject,
-		Database: "e2e_read", Scopes: []string{"documents:read"}, ExpiresAt: time.Now().UTC().Add(time.Hour)}, Key: testKeyID + "_" + strings.Repeat("a", 52)}
+		Database: testDB, Scopes: []string{"documents:read"}, ExpiresAt: time.Now().UTC().Add(time.Hour)}, Key: testKeyID + "_" + strings.Repeat("a", 52)}
 }
 
 func setProjectConfig(t *testing.T, credential projectCredential) {
@@ -57,6 +58,8 @@ func TestProductionRequiresExactApprovedNativeProjectCredential(t *testing.T) {
 		func(c *projectCredential) { c.APIKey.OrganizationID = testOther },
 		func(c *projectCredential) { c.APIKey.ProjectID = testOther },
 		func(c *projectCredential) { c.APIKey.Database = "other" },
+		// A key narrowed by database name (before terrascale#778) mints no token.
+		func(c *projectCredential) { c.APIKey.Database = "e2e_read" },
 		func(c *projectCredential) { c.Key = "tb_" + strings.Repeat("a", 43) },
 		func(c *projectCredential) { c.APIKey.ID = testOther },
 	} {
@@ -81,6 +84,13 @@ func TestProductionRequiresExactApprovedNativeProjectCredential(t *testing.T) {
 			t.Fatalf("accepted invalid or same negative database %q", database)
 		}
 	}
+	setProjectConfig(t, testProjectCredential())
+	for _, database := range []string{"", testDB, "e2e/read", "e2e_negative"} {
+		t.Setenv("E2E_DATABASE", database)
+		if _, err := production(); err == nil {
+			t.Fatalf("accepted invalid or negative positive database name %q", database)
+		}
+	}
 }
 
 func fakeJWT(t *testing.T, e *environment, mutate func(map[string]any)) string {
@@ -101,7 +111,7 @@ func fakeJWT(t *testing.T, e *environment, mutate func(map[string]any)) string {
 
 func productionFake(t *testing.T, override func(http.ResponseWriter, *http.Request, *environment) bool) *environment {
 	t.Helper()
-	e := &environment{Target: "prod", Region: "gru", ProjectCredential: testProjectCredential(), UnrelatedDatabase: "e2e_negative"}
+	e := &environment{Target: "prod", Region: "gru", ProjectCredential: testProjectCredential(), Database: "e2e_read", UnrelatedDatabase: "e2e_negative"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-TerraBase-Region", "gru")
