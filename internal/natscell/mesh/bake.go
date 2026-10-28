@@ -9,6 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -219,4 +222,65 @@ func bakePhase(v rollout.BakeVerdict) string {
 		return fmt.Sprintf(", bake unfinished (%d samples)", v.Samples)
 	}
 	return fmt.Sprintf(", bake %s (%d samples)", v.Finished.Sub(v.Started), v.Samples)
+}
+
+// keptBakes is how many of a service's newest bake records stay beside the
+// ones desired state still names: gru had kept 1044 (2026-10-28).
+const keptBakes = 5
+
+// pruneBakes deletes old bake records; the caller holds n.mu. Records of a
+// desired generation (either candidate) or of a running bake always stay.
+func (n *Node) pruneBakes() {
+	entries, err := os.ReadDir(n.cfg.dir)
+	if err != nil {
+		return
+	}
+	generations := map[string][]int64{}
+	for _, entry := range entries {
+		name, generation, ok := parseBakeFile(entry.Name())
+		if ok {
+			generations[name] = append(generations[name], generation)
+		}
+	}
+	for name, list := range generations {
+		slices.Sort(list)
+		keep := map[int64]bool{}
+		for _, generation := range list[max(len(list)-keptBakes, 0):] {
+			keep[generation] = true
+		}
+		for _, entry := range []*Entry{n.desired[name].Operator, n.desired[name].Signed} {
+			if entry != nil {
+				keep[entry.Generation] = true
+			}
+		}
+		for _, generation := range list {
+			path := n.bakePath(name, generation)
+			_, unsaved := n.bakeUnsaved[path]
+			if keep[generation] || n.baking[path] != nil || unsaved {
+				continue
+			}
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				slog.Warn("bake record not pruned", "service", name, "generation", generation, "error", err)
+			}
+		}
+	}
+}
+
+// parseBakeFile reads "bake-<service>-<generation>.json"; service names may
+// contain dashes.
+func parseBakeFile(file string) (string, int64, bool) {
+	rest, ok := strings.CutPrefix(file, "bake-")
+	if !ok {
+		return "", 0, false
+	}
+	rest, ok = strings.CutSuffix(rest, ".json")
+	i := strings.LastIndexByte(rest, '-')
+	if !ok || i <= 0 {
+		return "", 0, false
+	}
+	generation, err := strconv.ParseInt(rest[i+1:], 10, 64)
+	if err != nil || generation <= 0 {
+		return "", 0, false
+	}
+	return rest[:i], generation, true
 }

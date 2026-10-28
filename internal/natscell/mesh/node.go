@@ -393,6 +393,7 @@ func (n *Node) run(ctx context.Context) {
 			if time.Since(collected) >= 10*time.Minute {
 				n.mu.Lock()
 				n.collectImages(ctx)
+				n.pruneBakes()
 				n.mu.Unlock()
 				collected = time.Now()
 			}
