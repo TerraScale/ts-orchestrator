@@ -116,7 +116,11 @@ func TestRegionalReleasePreservesHeldUnsignedAndUnrelatedPlacement(t *testing.T)
 				node.mu.Unlock()
 				expected := previous
 				expected.Image = image
-				if entry.HoldAfter != test.hold || !reflect.DeepEqual(entry.Spec, &expected) {
+				hold := test.hold
+				if !test.unsigned {
+					hold = "" // a signed release advances past the canary through bake gating
+				}
+				if entry.HoldAfter != hold || !reflect.DeepEqual(entry.Spec, &expected) {
 					t.Fatalf("%s changed held/unsigned/unrelated spec: %+v", node.cfg.region, entry)
 				}
 				applier := node.cfg.applier.(*evidenceApplier)

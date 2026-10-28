@@ -98,8 +98,15 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 		}
 	}
 	generation := max(time.Now().UnixNano(), before.Generation+1)
-	// A release of a held service stays held: only `service resume` advances it.
-	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: before.HoldAfter}}
+	// A signed release does not inherit a canary hold: every region already
+	// waits for the earlier regions' successful bakes, and a hold left behind
+	// kept TerraBase's fix out of sjc and fra. Its placement stays as held.
+	// An unsigned apply of a held service stays held until `service resume`.
+	hold := before.HoldAfter
+	if deployment != nil {
+		hold = ""
+	}
+	request := ApplyRequest{Name: service, Entry: Entry{Generation: generation, Spec: &next, Deployment: deployment, HoldAfter: hold}}
 	// A reconnect or process restart resumes the signed deployment's existing
 	// bake instead of publishing a fresh generation and restarting its window.
 	if deployment != nil && before.Deployment != nil && *before.Deployment == *deployment && previous != nil && previous.Image == image {
