@@ -135,19 +135,17 @@ func TestContainerCPUKeepsDefaultWeight(t *testing.T) {
 	}
 }
 
-// TerraBase (a data owner) bursts to 3/4 of the host instead of its 1-CPU
-// reservation: 3 CPUs on gru's 4 cores, 1.5 on sjc's and fra's 2.
-func TestDataOwnerBurstsToThreeQuartersOfTheHost(t *testing.T) {
-	defer func(before func() int) { hostCPUs = before }(hostCPUs)
-	for cores, want := range map[int]int64{4: 300_000, 2: 150_000, 1: 100_000} {
-		hostCPUs = func() int { return cores }
-		r := containerTestResources(1_000_000_000, 4096<<20)
+// TerraBase (a data owner) gets a flat 2-CPU limit on every host
+// (Q-TB-CPU-LIMIT), above its 1000m reservation.
+func TestDataOwnerHasATwoCPULimit(t *testing.T) {
+	for reservation, want := range map[int64]int64{1_000_000_000: 200_000, 3_000_000_000: 300_000} {
+		r := containerTestResources(reservation, 4096<<20)
 		spec := runtimespec.Spec{Linux: &runtimespec.Linux{}}
 		if err := containerCPU(r, true)(t.Context(), nil, nil, &spec); err != nil {
 			t.Fatal(err)
 		}
 		if cpu := spec.Linux.Resources.CPU; cpu.Quota == nil || *cpu.Quota != want || *cpu.Period != 100_000 || cpu.Shares != nil {
-			t.Fatalf("%d cores: %+v, want quota %d", cores, cpu, want)
+			t.Fatalf("reservation %d: %+v, want quota %d", reservation, cpu, want)
 		}
 	}
 }

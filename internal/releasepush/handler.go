@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -126,7 +127,7 @@ func NewHandler(state string) (*Handler, error) {
 	}
 	h := &Handler{Verifier: NewVerifier(), Revision: Revision(), Binary: binary,
 		RunIDFile: filepath.Join(state, "nats", "release-run-id"), TrialFile: trialFile(state), RollbackFile: rollbackFile(state),
-		Client: &http.Client{Timeout: 60 * time.Second}, Installed: make(chan struct{}, 1)}
+		Client: &http.Client{}, Installed: make(chan struct{}, 1)}
 	h.rolledBack.Store(readRollback(h.RollbackFile))
 	return h, nil
 }
@@ -179,6 +180,11 @@ func (h *Handler) Serve(conn *nats.Conn) error {
 				ctx, cancel := context.WithTimeout(context.Background(), HandlerWait)
 				defer cancel()
 				reply := handle(ctx, m.Data)
+				if reply.Error != "" {
+					// The pusher may have stopped waiting (fra 2026-10-28 20:13Z):
+					// the host keeps the reason.
+					slog.Warn("release request failed", "subject", subject, "state", reply.State, "error", reply.Error)
+				}
 				data, _ := json.Marshal(reply)
 				_ = m.Respond(data)
 				if reply.State == "installed" {
@@ -346,7 +352,16 @@ func (h *Handler) install(ctx context.Context, binary Binary, beforeSwap func() 
 	return dir.Sync()
 }
 
+// downloadStall cancels a binary download that receives nothing for this
+// long. A whole-download timeout (60 s) failed fra's 110 MB download on
+// 2026-10-28 20:11Z while its CPU was saturated; a slow one now finishes.
+var downloadStall = 30 * time.Second
+
 func (h *Handler) download(ctx context.Context, url string) ([]byte, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stall := time.AfterFunc(downloadStall, cancel)
+	defer stall.Stop()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -359,11 +374,25 @@ func (h *Handler) download(ctx context.Context, url string) ([]byte, error) {
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download %s: %s", url, response.Status)
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxBinaryBytes+1))
+	data, err := io.ReadAll(io.LimitReader(progress{response.Body, func() { stall.Reset(downloadStall) }}, maxBinaryBytes+1))
 	if err == nil && len(data) > maxBinaryBytes {
 		err = errors.New("binary too large")
 	}
 	return data, err
+}
+
+// progress calls advanced after every read that returns data.
+type progress struct {
+	io.Reader
+	advanced func()
+}
+
+func (p progress) Read(b []byte) (int, error) {
+	n, err := p.Reader.Read(b)
+	if n > 0 {
+		p.advanced()
+	}
+	return n, err
 }
 
 func writeSynced(path string, data []byte) error {
