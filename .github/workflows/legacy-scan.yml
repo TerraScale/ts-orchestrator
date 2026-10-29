@@ -1,0 +1,39 @@
+name: Legacy scan
+
+"on":
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-scan:
+    name: Legacy scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out target
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          path: target
+      - name: Check out legacy scanner
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: TerraScale/terrascale
+          ref: 7a53ac89686cd6bbe2025aaeaa9d370c0efc331e
+          persist-credentials: false
+          path: legacy-scanner
+      - name: Scan for legacy hits
+        run: python3 legacy-scanner/scripts/legacy-scan/scan.py --repo ts-orchestrator --root target --output legacy-hits.md
+      - name: Upload legacy hits
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: legacy-hits
+          path: legacy-hits.md
