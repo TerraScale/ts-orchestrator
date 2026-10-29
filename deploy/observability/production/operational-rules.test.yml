@@ -235,11 +235,11 @@ tests:
   - name: Shape cleanup parks, overdues and saturates
     interval: 15s
     input_series:
-      - series: 'terrabase_shape_cleanup_parked{service="terrabase",region="sjc"}'
+      - series: 'terrabase_shape_cleanup_parked{job="terrabase-host-storage",service="terrabase",host="sjc-1",region="sjc"}'
         values: '0 1 0'
-      - series: 'terrabase_shape_cleanup_oldest_age_seconds{service="terrabase",region="fra"}'
+      - series: 'terrabase_shape_cleanup_oldest_age_seconds{job="terrabase-host-storage",service="terrabase",host="fra-1",region="fra"}'
         values: '3600 3601 0'
-      - series: 'terrabase_shape_cleanup_saturated{service="terrabase",region="gru"}'
+      - series: 'terrabase_shape_cleanup_saturated{job="terrabase-host-storage",service="terrabase",host="gru-1",region="gru"}'
         values: '1+0x24 0'
     alert_rule_test:
       - eval_time: 0s
@@ -249,6 +249,8 @@ tests:
         alertname: TerraBaseShapeCleanupParked
         exp_alerts:
           - exp_labels:
+              host: sjc-1
+              region: sjc
               service: terrabase
               severity: critical
             exp_annotations:
@@ -264,6 +266,8 @@ tests:
         alertname: TerraBaseShapeCleanupOverdue
         exp_alerts:
           - exp_labels:
+              host: fra-1
+              region: fra
               service: terrabase
               severity: warning
             exp_annotations:
@@ -276,6 +280,8 @@ tests:
         alertname: TerraBaseShapeCleanupSaturated
         exp_alerts:
           - exp_labels:
+              host: gru-1
+              region: gru
               service: terrabase
               severity: warning
             exp_annotations:

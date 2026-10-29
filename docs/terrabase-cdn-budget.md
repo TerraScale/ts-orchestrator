@@ -13,6 +13,8 @@ the application keeps pending cleanup visible when its budget is unavailable.
 The current application spaces grants by 12.5 seconds times the discovered
 serving-region count to account for independent cell buckets.
 
+Fleet scraping retains the three bounded cleanup gauges from every admitted
+host and labels them as TerraBase metrics while preserving host and region.
 Production alert rules report parked cleanup immediately, oldest due work
 over one hour, and inventory saturation lasting five minutes. Promtool tests
 cover firing and clearing. Credential/policy repair belongs in OCI Vault;

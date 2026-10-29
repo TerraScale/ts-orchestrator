@@ -27,6 +27,7 @@ import (
 // real broker, reaches its lease bucket and nothing else: no other bucket,
 // no stream create, no controller subject.
 func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	year := now.AddDate(1, 0, 0)
 	root, rootPEM, _ := generationtest.Certificate(t, generationtest.CA("cell CA", now, year), nil)
