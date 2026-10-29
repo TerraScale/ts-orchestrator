@@ -78,19 +78,21 @@ def changed():
                 continue
             if ancestry.returncode != 0:
                 raise ValueError("retained source ancestry is unreadable")
+            diff = subprocess.run(["git", "diff", "--quiet", base, source, "--", *paths])
+            if diff.returncode == 1:
+                # Building current source needs no retained bytes. Only a skip
+                # requires downloading and admitting the complete baseline.
+                print(f"executable inputs changed since retained qualification {tag}")
+                return 0
+            if diff.returncode != 0:
+                raise ValueError("executable input comparison failed")
             try:
                 admit(tag, Path(temporary) / tag)
             except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
                 print(f"retained baseline {tag} refused: {error}", file=sys.stderr)
                 continue
-            diff = subprocess.run(["git", "diff", "--quiet", base, source, "--", *paths])
-            if diff.returncode == 0:
-                print(f"executable inputs unchanged since retained qualification {tag}")
-                return 3
-            if diff.returncode != 1:
-                raise ValueError("executable input comparison failed")
-            print(f"executable inputs changed since retained qualification {tag}")
-            return 0
+            print(f"executable inputs unchanged since retained qualification {tag}")
+            return 3
     print("no complete retained qualified main ancestor; building current source")
     return 0
 

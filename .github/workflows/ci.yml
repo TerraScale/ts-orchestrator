@@ -1,25 +1,17 @@
 name: TerraScale Orchestrator Go checks
 
-# PRs check affected packages; the merge queue qualifies the tree before main.
-# Main only builds and delivers changed executable inputs.
+# Main qualifies Fast and publishes that build; Slow runs independently.
 on:
   push:
     branches: [develop, main]
   pull_request:
     branches: [develop, main]
-  # The merge queue tests each group on the latest main before it merges.
-  merge_group:
   workflow_dispatch:
-  # Weekly full verification also refreshes the main-only race caches.
-  schedule:
-    - cron: '17 3 * * 1'
 
-# The newest run of a pull request cancels its older runs (user decision
-# 2026-10-22). A main run always finishes, so it qualifies, releases and saves
-# its caches; a newer main revision waiting behind it replaces any older one
-# still waiting. Each merge-queue entry keeps its own run.
+# Builds may overlap an admitted release. A newer revision replaces obsolete
+# build work; release-push below always lets the active rollout finish.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -29,17 +21,16 @@ env:
   GH_TOKEN: ${{ github.token }}
   SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   # The revision this change starts from; empty for scheduled and manual runs.
-  CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+  CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
   # Bound nested parallelism: make, Go packages and race shards otherwise
   # each try to use every CPU of the runner.
   GOFLAGS: -p=4
   GOMAXPROCS: '2'
-  # All full-tier coverage moves before merge; main never repeats that suite.
+  # Pull requests retain their existing affected-package checks.
   TS_TEST_TIER: ${{ github.event_name == 'pull_request' && 'change' || 'full' }}
 
 jobs:
-  # PRs use one runner. The merge queue runs full coverage before main;
-  # scheduled/manual runs keep the same qualification path available.
+  # Pull requests use one runner; main has one Fast/build runner.
   change:
     if: ${{ github.event_name == 'pull_request' }}
     name: ${{ github.event_name == 'pull_request' && 'test' || 'verify/change' }}
@@ -75,58 +66,16 @@ jobs:
       - name: Audit selected and locally replaced package graphs
         run: bash scripts/ci/audit-dependencies.sh source
 
-  race:
-    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'push' || github.ref != 'refs/heads/main') }}
-    name: verify/race ${{ matrix.shard }}/${{ strategy.job-total }}
-    runs-on: ubuntu-24.04
-    # Queue runs on 2026-10-23/24 hit 30 min with the race step at ~27 min, cancelling every queued PR.
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    env:
-      TS_CI_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
-      TS_RACE_MACHINE: ${{ matrix.shard }}
-      TS_RACE_JOBS: '2'
-      TS_RACE_PACKAGE_JOBS: '1'
-      TS_RACE_IDLE_JOBS: '1'
-    steps:
-      - name: Check out the exact source revision
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ env.SOURCE_SHA }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Select checks for changed files
-        id: changes
-        run: python3 scripts/ci/check-inputs.py "$CHANGE_BASE" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
-      - uses: ./.github/actions/verify
-        if: ${{ steps.changes.outputs.checks == 'true' }}
-      - uses: ./.github/actions/go
-        if: ${{ matrix.shard == 1 && steps.changes.outputs.checks != 'true' }}
-        with:
-          cache: race-1
-      - name: Audit selected and locally replaced package graphs
-        if: ${{ matrix.shard == 1 }}
-        run: bash scripts/ci/audit-dependencies.sh source
-      # Weekly/manual main verification refreshes test caches; queue/PR runs only restore.
-      - if: ${{ github.ref == 'refs/heads/main' && steps.changes.outputs.checks == 'true' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-race-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-${{ github.sha }}-${{ github.run_id }}
-
-  # Only retained main releases publish; the merge queue already checked the tree.
+  # Fast and publication share the compiled Go cache and exact source revision.
   build:
-    needs: [race]
-    if: ${{ always() && github.event_name != 'pull_request' && github.event_name != 'merge_group' && (needs.race.result == 'success' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.race.result == 'skipped')) }}
+    concurrency:
+      group: fast-build-${{ github.ref }}
+      cancel-in-progress: true
+    if: ${{ github.event_name != 'pull_request' }}
     permissions:
       contents: write
       actions: read
-    # Main was qualified before merge; scheduled/develop builds await full checks.
+    # A release cannot publish until its own Fast tests pass.
     name: verify/go + artifact/linux-amd64-arm64
     outputs:
       publication: ${{ steps.inputs.outputs.publication }}
@@ -142,6 +91,28 @@ jobs:
       - uses: ./.github/actions/go
         with:
           cache: release
+      - name: Scan legacy terms within CI
+        run: |
+          scanner="$RUNNER_TEMP/legacy-scanner"
+          mkdir -p "$scanner"
+          for file in scan.py terms.json allow-list.json owners.json; do
+            curl --fail --silent --show-error --location --retry 2 \
+              "https://raw.githubusercontent.com/TerraScale/terrascale/a2e200187ffe32084a10f2a81c9e3e1f59b49a29/scripts/legacy-scan/$file" \
+              --output "$scanner/$file" &
+          done
+          wait
+          base="$CHANGE_BASE"
+          if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ]; then
+            base=$(git rev-parse "$SOURCE_SHA^")
+          fi
+          # A temporary index makes the existing scanner see changed files only.
+          export GIT_INDEX_FILE="$RUNNER_TEMP/legacy-changed-index"
+          git read-tree --empty
+          git diff --name-only --diff-filter=ACMR -z "$base" "$SOURCE_SHA" | git update-index --add -z --stdin
+          python3 "$scanner/scan.py" --repo ts-orchestrator --root . --output "$RUNNER_TEMP/legacy-hits.md"
+      - name: Qualify this revision with Fast tests
+        timeout-minutes: 5
+        run: make test-fast GO=go
       - name: Audit release package graphs
         run: bash scripts/ci/audit-dependencies.sh source
       - name: Compare executable inputs with retained qualification
@@ -235,42 +206,18 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-  # PR verification reports test directly; other events aggregate their jobs.
   test:
-    name: ${{ github.event_name == 'pull_request' && 'test/summary' || 'test' }}
-    if: ${{ always() && github.event_name != 'pull_request' }}
-    needs: [change, race, build]
+    if: ${{ always() }}
+    needs: [change, build]
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 1
     steps:
       - env:
           CHANGE: ${{ needs.change.result }}
-          RACE: ${{ needs.race.result }}
           BUILD: ${{ needs.build.result }}
         run: |
-          echo "change=$CHANGE race=$RACE build=$BUILD"
-          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
-            test "$RACE" = skipped
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            test "$CHANGE" = success
           else
-            test "$RACE" = success
+            test "$BUILD" = success
           fi
-          test "$BUILD" = success || test "$BUILD" = skipped
-
-  # Weekly list of the tests that passed only on retry.
-  flaky-report:
-    if: ${{ github.event_name == 'schedule' }}
-    permissions:
-      actions: read
-      contents: read
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - run: bash scripts/ci/flaky-report.sh "$RUNNER_TEMP/flaky-list.txt"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: flaky-list
-          path: ${{ runner.temp }}/flaky-list.txt
-          retention-days: 90

@@ -1,0 +1,155 @@
+name: Slow
+
+on:
+  schedule:
+    - cron: '33 */3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-slow-main
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  CHANGE_BASE: ''
+  GOFLAGS: -p=4
+  GOMAXPROCS: '2'
+  TS_TEST_TIER: full
+
+jobs:
+  changed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      run: ${{ steps.decision.outputs.run }}
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+      - id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: previous
+        with:
+          path: ${{ runner.temp }}/slow-completed
+          key: slow-main-v1-${{ steps.source.outputs.sha }}
+          lookup-only: true
+      - id: decision
+        env:
+          HIT: ${{ steps.previous.outputs.cache-hit }}
+        run: |
+          if [ "$HIT" = true ]; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+            echo 'Main is unchanged since the last completed Slow suite.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  race:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    name: Slow/race ${{ matrix.shard }}/${{ strategy.job-total }}
+    runs-on: ubuntu-24.04
+    # Queue runs on 2026-10-23/24 hit 30 min with the race step at ~27 min, cancelling every queued PR.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      SOURCE_SHA: ${{ needs.changed.outputs.sha }}
+      TS_CI_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+      TS_RACE_MACHINE: ${{ matrix.shard }}
+      TS_RACE_JOBS: '2'
+      TS_RACE_PACKAGE_JOBS: '1'
+      TS_RACE_IDLE_JOBS: '1'
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.changed.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select checks for changed files
+        id: changes
+        run: python3 scripts/ci/check-inputs.py "$CHANGE_BASE" "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/verify
+        if: ${{ steps.changes.outputs.checks == 'true' }}
+      - uses: ./.github/actions/go
+        if: ${{ matrix.shard == 1 && steps.changes.outputs.checks != 'true' }}
+        with:
+          cache: race-1
+      - name: Audit selected and locally replaced package graphs
+        if: ${{ matrix.shard == 1 }}
+        run: bash scripts/ci/audit-dependencies.sh source
+      # Weekly/manual main verification refreshes test caches; queue/PR runs only restore.
+      - if: ${{ github.ref == 'refs/heads/main' && steps.changes.outputs.checks == 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-race-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-${{ github.sha }}-${{ github.run_id }}
+
+  result:
+    needs: [changed, race]
+    if: ${{ always() && needs.changed.outputs.run == 'true' && needs.race.result != 'cancelled' && needs.race.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create or update the Slow failure issue
+        if: needs.race.result == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.changed.outputs.sha }}
+        run: |
+          title='Scheduled Slow suite failed'
+          body="$RUNNER_TEMP/slow-failure.md"
+          # shellcheck disable=SC2016 # Markdown backticks are literal.
+          printf 'Slow failed on main revision `%s`.\n\nRun: %s/%s/actions/runs/%s\n' \
+            "$SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > "$body"
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" \
+            --json number,title --jq '.[] | select(.title == "Scheduled Slow suite failed") | .number' | head -1)
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --repo "$GITHUB_REPOSITORY" --body-file "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body"
+          fi
+      - name: Record completion, including reported failures
+        run: mkdir -p "$RUNNER_TEMP/slow-completed" && touch "$RUNNER_TEMP/slow-completed/done"
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/slow-completed
+          key: slow-main-v1-${{ needs.changed.outputs.sha }}
+      - name: Preserve the suite result
+        env:
+          RESULT: ${{ needs.race.result }}
+        run: test "$RESULT" = success
+
+  # Preserve the existing retry report alongside completed Slow runs.
+  flaky-report:
+    needs: [changed, result]
+    if: ${{ always() && github.event_name == 'schedule' && needs.changed.outputs.run == 'true' }}
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: bash scripts/ci/flaky-report.sh "$RUNNER_TEMP/flaky-list.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flaky-list
+          path: ${{ runner.temp }}/flaky-list.txt
+          retention-days: 90
