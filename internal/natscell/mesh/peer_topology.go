@@ -84,7 +84,7 @@ func (n *Node) awaitPeerAdmission(ctx context.Context, spec *swarmruntime.Servic
 
 func newPeers(cfg config) (*peers, error) {
 	p := &peers{root: cfg.peersDir, region: cfg.region, node: cfg.server, address: cfg.address,
-		registry: filepath.Join(cfg.dir, "admitted-peers.json"), admitted: map[string]peer{}, regions: append([]string{cfg.region}, slices.Sorted(maps.Keys(cfg.gateways))...)}
+		registry: filepath.Join(cfg.dir, "admitted-peers.json"), admitted: map[string]peer{}, regions: append([]string{cfg.region}, slices.Sorted(maps.Keys(cfg.seeds))...)}
 	data, err := os.ReadFile(p.registry)
 	if errors.Is(err, os.ErrNotExist) {
 		return p, nil

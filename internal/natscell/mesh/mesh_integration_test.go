@@ -208,18 +208,18 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	configs := map[string]config{}
 	appliers := map[string]*fakeApplier{}
 	for i, region := range regions {
-		gateways := map[string]string{}
+		seeds := map[string]string{}
 		for j, peer := range regions {
 			if peer != region {
-				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
+				seeds[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
 			}
 		}
 		appliers[region] = &fakeApplier{running: map[string]int64{}}
 		address := fmt.Sprintf("10.200.0.%d", i+1)
 		configs[region] = config{
-			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
-			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
-			gateways: gateways, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
+			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
+			clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), clusterPort: ports[2*i], localPort: ports[2*i+1],
+			seeds: seeds, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
 			peersDir: t.TempDir(), peersEvery: 300 * time.Millisecond, address: func() (string, error) { return address, nil },
 		}
 	}
@@ -258,8 +258,6 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 		}
 	}
 
-	// The edge orders replay targets by these round trips; gateways measure
-	// them about a second after connecting, then every 15 s.
 	eventually(t, "gru to measure RTT to sjc and fra", func() bool {
 		rtt := gru.RTT()
 		return rtt[sjc.Region()] > 0 && rtt[fra] > 0
@@ -396,8 +394,6 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	}
 }
 
-// A region outside the seeds joins by dialing one seed: gateway gossip
-// introduces it to the rest, and pings and applies from every region reach it.
 func TestNewRegionJoinsByGossip(t *testing.T) {
 	ca, err := DeriveCA(bytes.Repeat([]byte{43}, 32))
 	if err != nil {
@@ -413,18 +409,18 @@ func TestNewRegionJoinsByGossip(t *testing.T) {
 		}
 	})
 	for i, region := range regions {
-		gateways := map[string]string{}
+		seeds := map[string]string{}
 		for j, peer := range Regions() {
 			// ams knows only gru; the seeds know only each other.
 			if peer != region && (region != "ams" || j == 0) {
-				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
+				seeds[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
 			}
 		}
 		appliers[region] = &fakeApplier{running: map[string]int64{}}
 		node, err := start(config{
-			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
-			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
-			gateways: gateways, ca: ca, applier: appliers[region], every: time.Hour,
+			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
+			clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), clusterPort: ports[2*i], localPort: ports[2*i+1],
+			seeds: seeds, ca: ca, applier: appliers[region], every: time.Hour,
 			peersDir: t.TempDir(), peersEvery: time.Hour, address: func() (string, error) { return fmt.Sprintf("10.200.1.%d", i+1), nil },
 		})
 		if err != nil {
@@ -466,33 +462,30 @@ func TestMeshWorkerJoinsItsRegionCluster(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ports := freePorts(t, 2*len(regions)+4)
-	founderRoute, workerPorts := ports[2*len(regions)], ports[2*len(regions)+1:]
+	ports := freePorts(t, 2*len(regions)+2)
+	workerPorts := ports[2*len(regions):]
 	configs := map[string]config{}
 	appliers := map[string]*fakeApplier{}
 	for i, region := range regions {
-		gateways := map[string]string{}
+		seeds := map[string]string{}
 		for j, peer := range regions {
 			if peer != region {
-				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
+				seeds[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
 			}
 		}
 		appliers[region] = &fakeApplier{running: map[string]int64{}}
 		configs[region] = config{
-			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
-			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
-			gateways: gateways, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
+			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
+			clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), clusterPort: ports[2*i], localPort: ports[2*i+1],
+			seeds: seeds, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
 			peersDir: t.TempDir(), peersEvery: 300 * time.Millisecond, address: func() (string, error) { return fmt.Sprintf("10.200.2.%d", i+1), nil },
 		}
 	}
 	home := regions[0]
-	founder := configs[home]
-	founder.clusterHost, founder.clusterPort = "127.0.0.1", founderRoute
-	configs[home] = founder
-	worker := founder
-	worker.server, worker.dir, worker.applier = "ts-"+home+"-2", t.TempDir(), nil
-	worker.gatewayPort, worker.localPort, worker.clusterPort = workerPorts[0], workerPorts[1], workerPorts[2]
-	worker.routes = []string{fmt.Sprintf("nats://127.0.0.1:%d", founderRoute)}
+	worker := configs[home]
+	worker.server, worker.dir, worker.applier, worker.seeds = "ts-"+home+"-2", t.TempDir(), nil, nil
+	worker.clusterAdvertise, worker.clusterPort, worker.localPort = fmt.Sprintf("127.0.0.1:%d", workerPorts[0]), workerPorts[0], workerPorts[1]
+	worker.routes = []string{fmt.Sprintf("nats://127.0.0.1:%d", ports[0])}
 	var nodes []*Node
 	t.Cleanup(func() {
 		for _, node := range nodes {
@@ -642,18 +635,18 @@ func startMeshRegions(t *testing.T, settle time.Duration) ([]string, map[string]
 	appliers := map[string]*fakeApplier{}
 	nodes := map[string]*Node{}
 	for i, region := range regions {
-		gateways := map[string]string{}
+		seeds := map[string]string{}
 		for j, peer := range regions {
 			if peer != region {
-				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
+				seeds[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
 			}
 		}
 		appliers[region] = &fakeApplier{running: map[string]int64{}, settle: settle}
 		address := fmt.Sprintf("10.201.0.%d", i+1)
 		node, err := start(config{
-			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
-			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
-			gateways: gateways, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
+			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
+			clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), clusterPort: ports[2*i], localPort: ports[2*i+1],
+			seeds: seeds, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
 			peersDir: t.TempDir(), peersEvery: 300 * time.Millisecond, address: func() (string, error) { return address, nil },
 		})
 		if err != nil {
@@ -748,17 +741,17 @@ func TestMeshRestartKeepsPeersFile(t *testing.T) {
 	ports := freePorts(t, 6)
 	configs := map[string]config{}
 	for i, region := range regions {
-		gateways := map[string]string{}
+		seeds := map[string]string{}
 		for j, peer := range regions {
 			if peer != region {
-				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
+				seeds[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
 			}
 		}
 		address := fmt.Sprintf("10.202.0.%d", i+1)
 		configs[region] = config{
-			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), host: "127.0.0.1",
-			advertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), gatewayPort: ports[2*i], localPort: ports[2*i+1],
-			gateways: gateways, ca: ca, applier: &fakeApplier{running: map[string]int64{}}, every: 300 * time.Millisecond,
+			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
+			clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), clusterPort: ports[2*i], localPort: ports[2*i+1],
+			seeds: seeds, ca: ca, applier: &fakeApplier{running: map[string]int64{}}, every: 300 * time.Millisecond,
 			peersDir: t.TempDir(), peersEvery: 300 * time.Millisecond, address: func() (string, error) { return address, nil },
 		}
 	}

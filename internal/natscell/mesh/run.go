@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,10 +71,8 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 			return nil, err
 		}
 	}
-	if cluster.Address != "" {
-		if err := releasepush.OpenTCP(ctx, ClusterPort); err != nil {
-			slog.WarnContext(ctx, "mesh cluster firewall", "error", err)
-		}
+	if err := releasepush.OpenTCP(ctx, ClusterPort); err != nil {
+		slog.WarnContext(ctx, "mesh cluster firewall", "error", err)
 	}
 	secret, err := loadSecret(ctx)
 	if err != nil {
@@ -87,27 +87,26 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 	if err != nil {
 		return nil, err
 	}
-	if err := releasepush.OpenTCP(ctx, GatewayPort); err != nil {
-		// Peers cannot dial in until the next start; local serving and outbound gateways continue.
-		slog.WarnContext(ctx, "mesh gateway firewall", "error", err)
-	}
-	gateways := map[string]string{}
+	seeds := map[string]string{}
 	for _, peer := range Regions() {
 		if peer != region {
-			gateways[peer] = fmt.Sprintf("nats://%s.%s:%d", peer, Domain, GatewayPort)
+			seeds[peer] = fmt.Sprintf("nats://ts-%s-1.%s:%d", peer, netBirdDomain, ClusterPort)
 		}
+	}
+	var advertise string
+	if address, err := NetBirdAddress(); err == nil {
+		advertise = net.JoinHostPort(address, strconv.Itoa(ClusterPort))
+	} else {
+		slog.WarnContext(ctx, "mesh cluster advertises no NetBird address", "error", err)
 	}
 	var applier Applier = swarmApplier{state: state, region: region}
 	if cluster.Worker {
 		applier = nil
 	}
 	return start(config{
-		region: region, server: name, dir: filepath.Join(state, "mesh"), host: "0.0.0.0",
-		// A worker advertises the region name too: other regions dial the
-		// founder, and a worker's replies reach them over the cluster route.
-		advertise:   fmt.Sprintf("%s.%s:%d", region, Domain, GatewayPort),
-		gatewayPort: GatewayPort, localPort: LocalPort, clusterHost: cluster.Address, clusterPort: ClusterPort, routes: routes,
-		gateways: gateways, ca: ca, applier: applier, every: antiEntropyEvery,
+		region: region, server: name, dir: filepath.Join(state, "mesh"),
+		clusterHost: "0.0.0.0", clusterAdvertise: advertise, clusterPort: ClusterPort, localPort: LocalPort,
+		seeds: seeds, routes: routes, ca: ca, applier: applier, every: antiEntropyEvery,
 		peersDir: swarmruntime.PeersDirectory, peersEvery: peersEvery, address: NetBirdAddress,
 	})
 }

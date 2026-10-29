@@ -104,12 +104,12 @@ func TestMeshFailedPostReadinessBakeHoldsRollout(t *testing.T) {
 				t.Helper()
 				nodes[first].Close()
 				cfg.applier = applier
-				var err error
-				nodes[first], err = start(cfg)
+				node, err := start(cfg)
 				if err != nil {
 					t.Fatal(err)
 				}
-				go nodes[first].run(t.Context())
+				nodes[first] = node
+				go node.run(t.Context())
 				eventually(t, "restarted region to rejoin", func() bool { return Ping(t.Context(), home.conn, time.Second, io.Discard) == nil })
 			}
 			restart(fault)

@@ -215,8 +215,8 @@ func TestMeshApplyChecksRevisionAndSupersededReadiness(t *testing.T) {
 	}
 	ports := freePorts(t, 2)
 	applier := &evidenceApplier{fakeApplier: fakeApplier{running: map[string]int64{}}, revision: strings.Repeat("b", 40)}
-	node, err := start(config{region: "gru", server: "gru-1", dir: t.TempDir(), host: "127.0.0.1",
-		localPort: ports[0], gatewayPort: ports[1], ca: ca, applier: applier, peersDir: t.TempDir(), address: func() (string, error) { return "10.200.0.1", nil }})
+	node, err := start(config{region: "gru", server: "gru-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
+		localPort: ports[0], clusterPort: ports[1], ca: ca, applier: applier, peersDir: t.TempDir(), address: func() (string, error) { return "10.200.0.1", nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
