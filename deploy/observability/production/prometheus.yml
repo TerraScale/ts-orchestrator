@@ -42,7 +42,7 @@ scrape_configs:
       - files: ['/run/ts-orch-observability/storage.json']
         refresh_interval: 5s
   - job_name: terrabase-host-storage
-    sample_limit: 32
+    sample_limit: 48
     file_sd_configs:
       - files: ['/run/ts-orch-observability/storage.json']
         refresh_interval: 5s
@@ -53,7 +53,11 @@ scrape_configs:
         replacement: '${1}:9091'
     metric_relabel_configs:
       - source_labels: [__name__]
-        regex: 'terrabase_(storage_(queued|running|admitted)|catalog_anchor_timeouts_total)'
+        regex: 'terrabase_(storage_(queued|running|admitted)|catalog_anchor_timeouts_total|shape_cleanup_(parked|oldest_age_seconds|saturated))'
         action: keep
+      - source_labels: [__name__]
+        regex: 'terrabase_shape_cleanup_(parked|oldest_age_seconds|saturated)'
+        target_label: service
+        replacement: terrabase
       - regex: '__name__|host|region|service|instance|job'
         action: labelkeep

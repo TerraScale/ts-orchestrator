@@ -31,6 +31,7 @@ func TestPrometheusRules(t *testing.T) {
 			t.Fatalf("promtool %v: %v\n%s", args, err, output)
 		}
 	}
+	t.Run("fleet cleanup scrape", func(t *testing.T) { testCleanupFleetScrape(t, tool) })
 	run("check", "rules", rules)
 	run("test", "rules", "../../deploy/observability/production/host-storage-rules.test.yml")
 	var fixture strings.Builder

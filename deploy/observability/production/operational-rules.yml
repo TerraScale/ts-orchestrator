@@ -76,6 +76,31 @@ groups:
           severity: critical
         annotations:
           summary: Public service readiness failed
+      - alert: TerraBaseShapeCleanupParked
+        expr: max by (host, region) (terrabase_shape_cleanup_parked{service="terrabase"}) > 0
+        labels:
+          service: terrabase
+          severity: critical
+        annotations:
+          summary: TerraBase shape cleanup is parked by a credential or policy refusal
+          description: Repair the shape R2 or CDN purge identity in OCI Vault and roll TerraBase; parked inventory resumes at the next start and is never dropped.
+      - alert: TerraBaseShapeCleanupOverdue
+        expr: max by (host, region) (terrabase_shape_cleanup_oldest_age_seconds{service="terrabase"}) > 3600
+        labels:
+          service: terrabase
+          severity: warning
+        annotations:
+          summary: TerraBase shape cleanup has been due for more than an hour
+          description: Inspect terrabase_shape_cleanup_attempts_total by stage and outcome, the shared purge budget bucket and Cloudflare purge limits.
+      - alert: TerraBaseShapeCleanupSaturated
+        expr: max by (host, region) (terrabase_shape_cleanup_saturated{service="terrabase"}) > 0
+        for: 5m
+        labels:
+          service: terrabase
+          severity: warning
+        annotations:
+          summary: TerraBase shape cleanup inventory refuses new mirror publication
+          description: Origin shape reads keep serving; drain pending cleanup before raising any bound.
       - alert: AuthEmailProviderExhausted
         expr: sum by (service, region) ((increase(ts_auth_emails_total{service="ts-auth",outcome="provider_exhausted"}[5m]) > 0) or ((ts_auth_emails_total{service="ts-auth",outcome="provider_exhausted"} > 0) unless ts_auth_emails_total{service="ts-auth",outcome="provider_exhausted"} offset 5m)) > 0
         labels:
