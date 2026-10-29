@@ -107,7 +107,9 @@ not the global account) all differ. There is no bridge. Reasons:
 | `TERRABASE` | 1 GiB memory, 36 GiB file (replicas counted), 64 streams, 4096 consumers | `ts-orch`: the node itself, with an in-memory password made fresh at each start | the TerraBase fabric (D25) |
 | `$SYS` | system | none | JetStream cluster traffic |
 
-- Passwords are stored bcrypt-hashed in the server.
+- Passwords are random 256-bit values, stored bcrypt-hashed at the minimum
+  cost: their entropy, not the work factor, protects them, and a connect stays
+  fast on a busy host.
 - The `TERRABASE` account has its own route connection (pinned account).
   Fabric traffic therefore never delays service applies.
 

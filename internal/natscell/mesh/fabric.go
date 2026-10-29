@@ -34,7 +34,7 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret s
 		return nil, fmt.Errorf("mesh accounts: %w", err)
 	}
 	for _, user := range []struct{ name, secret, account string }{{orchUser, orchSecret, orchAccount}, {fabricUser, fabricSecret, FabricAccount}} {
-		hash, err := bcrypt.GenerateFromPassword([]byte(user.secret), bcrypt.DefaultCost)
+		hash, err := bcrypt.GenerateFromPassword([]byte(user.secret), bcrypt.MinCost)
 		if err != nil {
 			return nil, err
 		}
