@@ -19,7 +19,9 @@ with this one, this file wins.
   servers link with routes on tcp/6222, so there are no gateways any more.
   Port 7222 is no longer used.
 - Routes use mutual TLS with the mesh CA (`ts-orch-mesh-key` in gru-vault),
-  over the private NetBird network.
+  over the private NetBird network. The NetBird policy
+  `<group>-to-<group>-mesh-routes` admits tcp/6222 between the servers of the
+  regional servers group (`internal/netbird/manager`).
   - Each server dials `ts-<region>-1.nb.ts.internal:6222` for every founded
     region as a seed.
   - Each server advertises its NetBird IPv4. Route gossip adds every other
