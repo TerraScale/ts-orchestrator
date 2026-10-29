@@ -60,6 +60,7 @@ var Grants = map[string]Grant{
 	// their cell and publish their rollup on their cell's obs.terrabase.
 	"terrabase": {EnvPrefix: "TERRABASE_NATS_", Buckets: []Bucket{
 		{Name: "terrabase_backup_leases", TTL: 15 * time.Second, History: 1, Memory: true},
+		{Name: "terrabase_cdn_budget", History: 1},
 	}, Queries: []string{"terrabase-wan", "terrabase-stats"}, Observations: []string{"terrabase"}},
 }
 

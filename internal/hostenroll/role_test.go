@@ -109,7 +109,7 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 	admin := user(t, jwt.NewUserClaims(adminID), cell, adminSeed, make(chan error, 8))
 	adminJS, _ := jetstream.New(admin)
 	ctx := t.Context()
-	for _, bucket := range []string{"terrabase_backup_leases", "other_bucket", "TS_HOST_STATE"} {
+	for _, bucket := range []string{"terrabase_backup_leases", "terrabase_cdn_budget", "other_bucket", "TS_HOST_STATE"} {
 		if _, err := adminJS.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucket, Storage: jetstream.MemoryStorage}); err != nil {
 			t.Fatal(err)
 		}
@@ -130,7 +130,8 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 	}
 	claim, err := jwt.DecodeUserClaims(rawJWT)
 	if err != nil || claim.Issuer != signerID || claim.IssuerAccount != cellID || claim.Subject != memberID ||
-		!claim.HasEmptyPermissions() || !claim.Tags.Contains("kv:terrabase_backup_leases") || claim.Expires != expires.Unix() ||
+		!claim.HasEmptyPermissions() || !claim.Tags.Contains("kv:terrabase_backup_leases") || !claim.Tags.Contains("kv:terrabase_cdn_budget") ||
+		claim.Expires != expires.Unix() ||
 		!claim.Tags.Contains("query:terrabase-wan") || !claim.Tags.Contains("query:terrabase-stats") || !claim.Tags.Contains("obs:terrabase") ||
 		!claim.Tags.Contains("cell:gru") {
 		t.Fatalf("role JWT: %+v %v", claim, err)
@@ -172,6 +173,20 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 	}
 	if err := leases.Delete(ctx, "auth.db", jetstream.LastRevision(revision)); err != nil {
 		t.Fatal(err)
+	}
+	budget, err := js.KeyValue(ctx, "terrabase_cdn_budget")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot, err := budget.Create(ctx, "purge.account", []byte{0, 0, 0, 0, 0, 0, 0, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := budget.Update(ctx, "purge.account", []byte{0, 0, 0, 0, 0, 0, 0, 2}, slot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := budget.Update(ctx, "purge.account", []byte{0, 0, 0, 0, 0, 0, 0, 3}, slot); err == nil {
+		t.Fatal("a stale purge budget revision was accepted")
 	}
 	short, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()

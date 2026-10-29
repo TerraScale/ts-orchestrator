@@ -232,3 +232,55 @@ tests:
       - eval_time: 90s
         alertname: EdgeListenerUnavailable
         exp_alerts: []
+  - name: Shape cleanup parks, overdues and saturates
+    interval: 15s
+    input_series:
+      - series: 'terrabase_shape_cleanup_parked{service="terrabase",region="sjc"}'
+        values: '0 1 0'
+      - series: 'terrabase_shape_cleanup_oldest_age_seconds{service="terrabase",region="fra"}'
+        values: '3600 3601 0'
+      - series: 'terrabase_shape_cleanup_saturated{service="terrabase",region="gru"}'
+        values: '1+0x24 0'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: TerraBaseShapeCleanupParked
+        exp_alerts: []
+      - eval_time: 15s
+        alertname: TerraBaseShapeCleanupParked
+        exp_alerts:
+          - exp_labels:
+              service: terrabase
+              severity: critical
+            exp_annotations:
+              summary: TerraBase shape cleanup is parked by a credential or policy refusal
+              description: Repair the shape R2 or CDN purge identity in OCI Vault and roll TerraBase; parked inventory resumes at the next start and is never dropped.
+      - eval_time: 30s
+        alertname: TerraBaseShapeCleanupParked
+        exp_alerts: []
+      - eval_time: 0s
+        alertname: TerraBaseShapeCleanupOverdue
+        exp_alerts: []
+      - eval_time: 15s
+        alertname: TerraBaseShapeCleanupOverdue
+        exp_alerts:
+          - exp_labels:
+              service: terrabase
+              severity: warning
+            exp_annotations:
+              summary: TerraBase shape cleanup has been due for more than an hour
+              description: Inspect terrabase_shape_cleanup_attempts_total by stage and outcome, the shared purge budget bucket and Cloudflare purge limits.
+      - eval_time: 4m
+        alertname: TerraBaseShapeCleanupSaturated
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: TerraBaseShapeCleanupSaturated
+        exp_alerts:
+          - exp_labels:
+              service: terrabase
+              severity: warning
+            exp_annotations:
+              summary: TerraBase shape cleanup inventory refuses new mirror publication
+              description: Origin shape reads keep serving; drain pending cleanup before raising any bound.
+      - eval_time: 6m15s
+        alertname: TerraBaseShapeCleanupSaturated
+        exp_alerts: []
