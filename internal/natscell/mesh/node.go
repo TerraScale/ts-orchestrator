@@ -151,11 +151,11 @@ type config struct {
 	seeds                  map[string]string
 	routes                 []string
 	ca                     *CA
-	applier                   Applier // nil on a worker, which serves no region requests
-	every                     time.Duration
-	peersDir                  string // host root of every service's peers file
-	peersEvery                time.Duration
-	address                   func() (string, error) // this node's NetBird IPv4
+	applier                Applier // nil on a worker, which serves no region requests
+	every                  time.Duration
+	peersDir               string // host root of every service's peers file
+	peersEvery             time.Duration
+	address                func() (string, error) // this node's NetBird IPv4
 }
 
 // Node is one region's running mesh server.
