@@ -32,9 +32,10 @@ func TestTerraBaseRenderUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Captured from main 784000657 before changing the renderer, then with
-	// BUCKET_NAME set to the -b12 bucket the live service already uses. Hash the
-	// full service (including task/update/endpoint), not only its resource fields.
-	const before = "90cbcc1924fbf53160ec76a5531d0f10293b030294882853a01f800074fb350a"
+	// BUCKET_NAME set to the -b12 bucket the live service already uses, then with
+	// the TERRABASE_FILES_S3_* Vault references. Hash the full service (including
+	// task/update/endpoint), not only its resource fields.
+	const before = "910b0d790abf2f347f3af3ea5ffe38d7c93fd5630a5193a90e0ef942578e37b3"
 	if got := fmt.Sprintf("%x", sha256.Sum256(encoded)); got != before {
 		t.Fatalf("TerraBase render changed: %s; binary reconciliation must not replace its task", got)
 	}
