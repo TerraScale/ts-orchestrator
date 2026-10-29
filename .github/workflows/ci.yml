@@ -110,7 +110,21 @@ jobs:
           git read-tree --empty
           git diff --name-only --diff-filter=ACMR -z "$base" "$SOURCE_SHA" | git update-index --add -z --stdin
           python3 "$scanner/scan.py" --repo ts-orchestrator --root . --output "$RUNNER_TEMP/legacy-hits.md"
+      - name: Verify exact-commit dev-host Fast evidence
+        id: fast-proof
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          # Public commit metadata requires no additional token permission.
+          if statuses=$(curl --fail --silent --show-error --max-time 15 --retry 2 \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/statuses?per_page=100") &&
+             jq -e '[.[] | select(.context | startswith("ts-ship/"))] | group_by(.context) | map(max_by(.id)) | length > 0 and all(.[]; .state == "success" and ((.creator.login // "" | ascii_downcase) == "mariogk"))' <<< "$statuses" > /dev/null; then
+            echo 'verified=true' >> "$GITHUB_OUTPUT"
+            echo "Affected Fast passed on a dev host for $GITHUB_SHA; verified ts-ship statuses by MarioGK." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'verified=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Qualify this revision with Fast tests
+        if: steps.fast-proof.outputs.verified != 'true'
         timeout-minutes: 5
         run: make test-fast GO=go
       - name: Audit release package graphs
