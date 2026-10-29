@@ -242,8 +242,6 @@ func meshRoute(address string) string {
 	return "nats://" + net.JoinHostPort(address, strconv.Itoa(mesh.ClusterPort))
 }
 
-// meshCluster places this host's mesh server in the mesh NATS cluster;
-// a worker also routes to the founder that published the region's join material.
 func meshCluster(plan hostPlan) mesh.Cluster {
 	cluster := mesh.Cluster{Worker: plan.joiner()}
 	if cluster.Worker {

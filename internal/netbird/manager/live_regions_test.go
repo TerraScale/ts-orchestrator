@@ -30,7 +30,7 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	if err := Run(t.Context(), []string{"sync", "--apply", "--management-url", f.server.URL}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.policies) != len(GRU().Policies)+10 {
+	if len(f.policies) != len(GRU().Policies)+9 {
 		t.Fatalf("SJC access policies: %d", len(f.policies))
 	}
 	// A new empty region is seen on the next controller cycle, before its
@@ -42,7 +42,7 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	if err := loop.cycle(t.Context(), map[string]bool{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.policies) != len(GRU().Policies)+20 {
+	if len(f.policies) != len(GRU().Policies)+18 {
 		t.Fatalf("new region access policies: %d", len(f.policies))
 	}
 	for group, groupID := range map[string]string{"sjc-servers": sjc, "fra-servers": fra} {
@@ -57,7 +57,6 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 			{group + "-to-gru-servers-fabric", "tcp", []string{"7422"}, []string{groupID}, []string{ids.servers}},
 			{"operators-to-" + group + "-dashboard", "tcp", []string{"9463"}, []string{ids.operators, f.groupByName("ops-automation").ID}, []string{groupID}},
 			{group + "-to-" + group + "-ping", "icmp", nil, []string{groupID}, []string{groupID}},
-			{group + "-to-" + group + "-mesh-routes", "tcp", []string{"6222"}, []string{groupID}, []string{groupID}},
 			{group + "-to-" + group + "-service-health", "tcp", []string{"4222", "8080", "9465"}, []string{groupID}, []string{groupID}},
 			{group + "-to-" + group + "-terrabase-peers", "tcp", []string{"8081", "18081"}, []string{groupID}, []string{groupID}},
 		} {
@@ -72,6 +71,20 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 				t.Fatalf("policy %s broadened or changed: %+v", expected.name, rule)
 			}
 		}
+	}
+	mesh := slices.IndexFunc(f.policies, func(policy apiPolicy) bool { return policy.Name == "servers-mesh-routes" })
+	if mesh < 0 || len(f.policies[mesh].Rules) != 1 {
+		t.Fatal("missing one-rule policy servers-mesh-routes")
+	}
+	want := []string{fra, ids.servers, sjc}
+	slices.Sort(want)
+	rule := f.policies[mesh].Rules[0]
+	sources, destinations := minimumIDs(rule.Sources), minimumIDs(rule.Destinations)
+	slices.Sort(sources)
+	slices.Sort(destinations)
+	if !rule.Enabled || rule.Action != "accept" || rule.Protocol != "tcp" || !slices.Equal(rule.Ports, []string{"6222"}) ||
+		!slices.Equal(sources, want) || !slices.Equal(destinations, want) {
+		t.Fatalf("servers-mesh-routes does not admit 6222 between every regional servers group: %+v", rule)
 	}
 	if f.peer(offline) == nil || len(f.group(sjc).Peers) != 1 || f.group(sjc).Peers[0].ID != offline ||
 		len(f.group(sjc).Resources) != 1 || len(f.group(fra).Peers) != 0 {

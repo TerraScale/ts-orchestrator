@@ -21,7 +21,6 @@ const (
 	netBirdDomain = "nb.ts.internal"
 )
 
-// Cluster places this host's mesh server in the mesh NATS cluster.
 type Cluster struct {
 	// Routes returns the route URLs to dial (the founder's, for a worker).
 	Routes func(ctx context.Context, region string) ([]string, error)

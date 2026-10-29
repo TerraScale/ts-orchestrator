@@ -4,12 +4,14 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"net/url"
 	"slices"
 	"strings"
 
+	"github.com/nats-io/nats-server/v2/logger"
 	"github.com/nats-io/nats-server/v2/server"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -97,6 +99,33 @@ func (n *Node) closeConns() {
 	n.conn.Close()
 	if n.fabric != nil {
 		n.fabric.Close()
+	}
+}
+
+type containedLog struct {
+	server.Logger
+	fatal chan string
+}
+
+func newContainedLog() containedLog {
+	return containedLog{Logger: logger.NewStdLogger(false, false, false, false, true), fatal: make(chan string, 1)}
+}
+
+func (l containedLog) Fatalf(format string, v ...any) {
+	message := fmt.Sprintf(format, v...)
+	l.Errorf("%s", message)
+	select {
+	case l.fatal <- message:
+	default:
+	}
+}
+
+func (l containedLog) failure() error {
+	select {
+	case message := <-l.fatal:
+		return errors.New("mesh NATS server: " + message)
+	default:
+		return errors.New("mesh NATS server did not start listening")
 	}
 }
 

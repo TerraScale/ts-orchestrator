@@ -258,8 +258,6 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 		}
 	}
 
-	// The edge orders replay targets by these round trips; routes measure
-	// them about a second after connecting, then every 15 s.
 	eventually(t, "gru to measure RTT to sjc and fra", func() bool {
 		rtt := gru.RTT()
 		return rtt[sjc.Region()] > 0 && rtt[fra] > 0
@@ -396,8 +394,6 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 	}
 }
 
-// A region outside the seeds joins by dialing one seed: route gossip
-// introduces it to the rest, and pings and applies from every region reach it.
 func TestNewRegionJoinsByGossip(t *testing.T) {
 	ca, err := DeriveCA(bytes.Repeat([]byte{43}, 32))
 	if err != nil {

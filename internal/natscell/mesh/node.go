@@ -1,8 +1,3 @@
-// Package mesh joins every ordered region's hosts into one NATS cluster and
-// keeps the global service desired state on it.
-//
-// docs/mesh-jetstream.md describes the cluster, its JetStream and accounts.
-//
 // Desired state retains operator and signed candidates per service (nil specs
 // are removals), persisted in <state>/mesh/desired.json. A node
 // merges every apply it receives and every peer map it pulls on start and
@@ -219,7 +214,8 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
-	embedded.ConfigureLogger()
+	log := newContainedLog()
+	embedded.SetLoggerV2(log, false, false, false)
 	go embedded.Start()
 	defer func() {
 		if err != nil {
@@ -228,7 +224,7 @@ func start(cfg config) (_ *Node, err error) {
 		}
 	}()
 	if !embedded.ReadyForConnections(10 * time.Second) {
-		return nil, errors.New("mesh NATS server did not start listening")
+		return nil, log.failure()
 	}
 	conn, err := dialLocal(cfg.localPort, orchUser, secret)
 	if err != nil {
@@ -293,9 +289,6 @@ func (n *Node) Region() string { return n.cfg.region }
 // this node's leaf and accepts only peers the mesh CA signed.
 func (n *Node) TLS() *tls.Config { return n.tls }
 
-// AdmittedRegions includes durable admitted peers through outages and restarts,
-// plus routed regions discovered since the last admission round. Reachability never
-// removes an admitted region from a cancellation ownership lookup.
 func (n *Node) AdmittedRegions() []string {
 	n.peers.mu.Lock()
 	names := slices.Clone(n.peers.regions)

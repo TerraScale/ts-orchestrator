@@ -123,7 +123,7 @@ func GRU() Desired {
 			{Name: "operators-to-gru-servers-openssh",
 				Description: "Operators and operator automation → GRU servers: OpenSSH 22 on their NetBird addresses",
 				Protocol:    "tcp", Ports: []string{"22"}, Sources: []string{"operators", "ops-automation"}, Destinations: []string{"gru-servers"}},
-		}, serverAccessPolicies([]string{"gru-servers"})),
+		}, serverAccessPolicies([]string{"gru-servers"}), []PolicySpec{meshRoutesPolicy([]string{"gru-servers"})}),
 
 		NetworkRange:      networkplan.Mesh,
 		PeerDNSDomain:     "nb.ts.internal",
@@ -162,7 +162,22 @@ func (d Desired) withServerGroups(names []string) (Desired, error) {
 		d.Groups = append(d.Groups, GroupSpec{Name: name})
 		d.Policies = slices.Concat(d.Policies, regionPolicies([]string{name}), serverAccessPolicies([]string{name}))
 	}
+	var groups []string
+	for _, group := range d.Groups {
+		if regionServerGroup(group.Name) {
+			groups = append(groups, group.Name)
+		}
+	}
+	slices.Sort(groups)
+	d.Policies = slices.DeleteFunc(d.Policies, func(policy PolicySpec) bool { return policy.Name == meshRoutesPolicy(nil).Name })
+	d.Policies = append(d.Policies, meshRoutesPolicy(groups))
 	return d, nil
+}
+
+func meshRoutesPolicy(groups []string) PolicySpec {
+	return PolicySpec{Name: "servers-mesh-routes",
+		Description: "Regional servers → regional servers in every region: mesh NATS routes 6222 (mutual TLS, JetStream raft)",
+		Protocol:    "tcp", Ports: []string{"6222"}, Sources: groups, Destinations: groups}
 }
 
 // serverAccessPolicies grant dashboard access, DNS visibility and the
@@ -177,9 +192,6 @@ func serverAccessPolicies(groups []string) []PolicySpec {
 			PolicySpec{Name: group + "-to-" + group + "-ping",
 				Description: cell + " servers → same-region servers: ICMP diagnostics and peer DNS visibility",
 				Protocol:    "icmp", Sources: []string{group}, Destinations: []string{group}},
-			PolicySpec{Name: group + "-to-" + group + "-mesh-routes",
-				Description: cell + " servers → same-group servers: mesh NATS routes 6222 (mutual TLS, JetStream raft)",
-				Protocol:    "tcp", Ports: []string{"6222"}, Sources: []string{group}, Destinations: []string{group}},
 			PolicySpec{Name: group + "-to-" + group + "-service-health",
 				Description: cell + " servers → same-region servers: NATS client 4222, ts-auth readiness 8080, TerraBase readiness 9465",
 				Protocol:    "tcp", Ports: []string{"4222", "8080", "9465"}, Sources: []string{group}, Destinations: []string{group}},

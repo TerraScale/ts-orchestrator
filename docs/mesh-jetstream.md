@@ -19,9 +19,9 @@ with this one, this file wins.
   servers link with routes on tcp/6222, so there are no gateways any more.
   Port 7222 is no longer used.
 - Routes use mutual TLS with the mesh CA (`ts-orch-mesh-key` in gru-vault),
-  over the private NetBird network. The NetBird policy
-  `<group>-to-<group>-mesh-routes` admits tcp/6222 between the servers of the
-  regional servers group (`internal/netbird/manager`).
+  over the private NetBird network. The NetBird policy `servers-mesh-routes`
+  admits tcp/6222 between every regional servers group, in both directions,
+  and gains each new group the manager discovers (`internal/netbird/manager`).
   - Each server dials `ts-<region>-1.nb.ts.internal:6222` for every founded
     region as a seed.
   - Each server advertises its NetBird IPv4. Route gossip adds every other
@@ -41,6 +41,9 @@ with this one, this file wins.
   Workers carry messages but store nothing.
 - It runs only when the node is in the cluster. A server with no routes runs
   no JetStream.
+- A fatal error inside the embedded server, such as a JetStream store it
+  cannot create, fails the mesh start and the mesh retries every 30 s. It never
+  exits ts-orch, so the release listener on 4222 keeps serving.
 - The store is `<state>/mesh/jetstream`. Each server has 1 GiB of memory and
   16 GiB of file storage.
 - Each server has the tag `region:<region>`, and `unique_tag` is `region:`.
@@ -75,9 +78,26 @@ takes about one RTT (138–184 ms). The integration test
 - the cluster forms;
 - compare-and-set works from every region, and a stale revision is refused;
 - per-key TTL expires the key;
-- after one region is killed, the other 2 elect a new leader and commit
-  (in 5.6 s locally);
-- the killed region catches up when it restarts.
+- the region that leads the bucket is cut off at the network before it shuts
+  down, so it cannot hand over leadership. The other 2 elect a new leader and
+  commit 7.2 s later (locally), inside the 4–9 s election window;
+- the restarted region's replica reports current with zero lag and stores the
+  stream up to its last sequence.
+
+## Rollout from gateways
+
+A server on this release and a server on the previous one cannot talk: the
+cluster name, the transport (routes, not gateways) and the account (`ORCH`,
+not the global account) all differ. There is no bridge. Reasons:
+
+- The release push installs the binary in every region at the same time
+  (`internal/releasepush`), so the mixed window lasts about one download and
+  install.
+- ts-orch's own updates use the release listener on 4222, not the mesh, so
+  they keep working in the window and after it.
+- Service applies retry each region every 30 s while they wait, so an apply
+  in the window completes when the last region restarts.
+- D24 allows production to break during the pivot.
 
 ## Accounts
 
