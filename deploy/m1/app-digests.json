@@ -1,5 +1,5 @@
 {
-  "app-canary": "ghcr.io/terrascale/app-canary@sha256:baad190e58c6b93bad905d5aeefa3c0e888c2dda2623b1cff62a44278351a35e",
+  "app-canary": "ghcr.io/terrascale/app-canary@sha256:5d7485043ec74eb8061b87793297c4d445e8d4e480130e660822904a5bdb18fe",
   "netbird-server": "docker.io/netbirdio/netbird-server:0.81.3@sha256:9b2f606efefa8ea176e2afbb35c79622ca318e2e605ff1a0f6cb7e158ac08336",
   "terrabase": "ghcr.io/terrascale/terrabase@sha256:c486f0e7cf9b902477579ab19f7cc522f42d475c460b0bab4533a7b32d65c033",
   "ts-auth": "ghcr.io/terrascale/ts-auth@sha256:013ca2a880063d7974410533b646890da825ddda60ba70f9fe27cd67621d80e3",
