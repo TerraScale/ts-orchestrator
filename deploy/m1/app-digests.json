@@ -3,6 +3,6 @@
   "netbird-server": "docker.io/netbirdio/netbird-server:0.81.3@sha256:9b2f606efefa8ea176e2afbb35c79622ca318e2e605ff1a0f6cb7e158ac08336",
   "terrabase": "ghcr.io/terrascale/terrabase@sha256:704b1b15bb48c9d33c572afbc39c6904e2ca162b0e20215efa4885a9e0b1d352",
   "ts-auth": "ghcr.io/terrascale/ts-auth@sha256:96691713917adf3f7bb512561b6840720ca96b9f3e3b476f6f37a1c628734c9d",
-  "ts-dashboard": "ghcr.io/terrascale/ts-dashboard@sha256:42b514e46e195df651e5631112e4feee86496351ff545d99b4c9f15f487fa503",
+  "ts-dashboard": "ghcr.io/terrascale/ts-dashboard@sha256:7530eb658f24abe5291025cc5c369772e234938dec4855f84eab7c3216e9ebda",
   "whoami": "docker.io/traefik/whoami@sha256:c2c89736959e8830c3db090e2f54500499ceb0460267f91dce494728d7327770"
 }
