@@ -72,6 +72,20 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 			}
 		}
 	}
+	mesh := slices.IndexFunc(f.policies, func(policy apiPolicy) bool { return policy.Name == "servers-mesh-routes" })
+	if mesh < 0 || len(f.policies[mesh].Rules) != 1 {
+		t.Fatal("missing one-rule policy servers-mesh-routes")
+	}
+	want := []string{fra, ids.servers, sjc}
+	slices.Sort(want)
+	rule := f.policies[mesh].Rules[0]
+	sources, destinations := minimumIDs(rule.Sources), minimumIDs(rule.Destinations)
+	slices.Sort(sources)
+	slices.Sort(destinations)
+	if !rule.Enabled || rule.Action != "accept" || rule.Protocol != "tcp" || !slices.Equal(rule.Ports, []string{"6222"}) ||
+		!slices.Equal(sources, want) || !slices.Equal(destinations, want) {
+		t.Fatalf("servers-mesh-routes does not admit 6222 between every regional servers group: %+v", rule)
+	}
 	if f.peer(offline) == nil || len(f.group(sjc).Peers) != 1 || f.group(sjc).Peers[0].ID != offline ||
 		len(f.group(sjc).Resources) != 1 || len(f.group(fra).Peers) != 0 {
 		t.Fatal("regional group IDs, members/resources or remote offline peer changed")

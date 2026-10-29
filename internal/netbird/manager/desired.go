@@ -123,7 +123,7 @@ func GRU() Desired {
 			{Name: "operators-to-gru-servers-openssh",
 				Description: "Operators and operator automation → GRU servers: OpenSSH 22 on their NetBird addresses",
 				Protocol:    "tcp", Ports: []string{"22"}, Sources: []string{"operators", "ops-automation"}, Destinations: []string{"gru-servers"}},
-		}, serverAccessPolicies([]string{"gru-servers"})),
+		}, serverAccessPolicies([]string{"gru-servers"}), []PolicySpec{meshRoutesPolicy([]string{"gru-servers"})}),
 
 		NetworkRange:      networkplan.Mesh,
 		PeerDNSDomain:     "nb.ts.internal",
@@ -162,7 +162,22 @@ func (d Desired) withServerGroups(names []string) (Desired, error) {
 		d.Groups = append(d.Groups, GroupSpec{Name: name})
 		d.Policies = slices.Concat(d.Policies, regionPolicies([]string{name}), serverAccessPolicies([]string{name}))
 	}
+	var groups []string
+	for _, group := range d.Groups {
+		if regionServerGroup(group.Name) {
+			groups = append(groups, group.Name)
+		}
+	}
+	slices.Sort(groups)
+	d.Policies = slices.DeleteFunc(d.Policies, func(policy PolicySpec) bool { return policy.Name == meshRoutesPolicy(nil).Name })
+	d.Policies = append(d.Policies, meshRoutesPolicy(groups))
 	return d, nil
+}
+
+func meshRoutesPolicy(groups []string) PolicySpec {
+	return PolicySpec{Name: "servers-mesh-routes",
+		Description: "Regional servers → regional servers in every region: mesh NATS routes 6222 (mutual TLS, JetStream raft)",
+		Protocol:    "tcp", Ports: []string{"6222"}, Sources: groups, Destinations: groups}
 }
 
 // serverAccessPolicies grant dashboard access, DNS visibility and the
