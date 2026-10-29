@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: TerraScale/terrascale
-          ref: 7a53ac89686cd6bbe2025aaeaa9d370c0efc331e
+          ref: a2e200187ffe32084a10f2a81c9e3e1f59b49a29
           persist-credentials: false
           path: legacy-scanner
       - name: Scan for legacy hits
