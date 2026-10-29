@@ -32,8 +32,8 @@ func TestAppOperationRefreshAndConcurrentPolls(t *testing.T) {
 	now := time.Now()
 	i := newIssuer(t)
 	claims := goodClaims(now)
-	claims["repository"] = owner + "/ts-dashboard"
-	claims["job_workflow_ref"] = owner + "/ts-dashboard/.github/workflows/images-ghcr.yml@" + mainRef
+	claims["repository"] = owner + "/terrascale"
+	claims["job_workflow_ref"] = owner + "/terrascale/.github/workflows/images-ghcr.yml@" + mainRef
 	// A token about to expire and its refresh differ only in lifetime claims.
 	claims["exp"] = now.Add(-clockSkew + time.Second).Unix()
 	old := i.sign(t, claims)

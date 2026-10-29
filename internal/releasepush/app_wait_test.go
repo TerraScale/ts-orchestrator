@@ -65,8 +65,8 @@ func testOperationWait(t *testing.T, subject string) {
 	mint := func(context.Context) (string, error) {
 		mints.Add(1)
 		claims := goodClaims(time.Now())
-		claims["repository"] = owner + "/ts-dashboard"
-		claims["job_workflow_ref"] = owner + "/ts-dashboard/.github/workflows/images-ghcr.yml@" + mainRef
+		claims["repository"] = owner + "/terrascale"
+		claims["job_workflow_ref"] = owner + "/terrascale/.github/workflows/images-ghcr.yml@" + mainRef
 		if subject == SubjectApply {
 			claims = meshClaims(time.Now())
 		}

@@ -461,10 +461,19 @@ func TestAppValidation(t *testing.T) {
 			t.Fatalf("%s: accepted", name)
 		}
 	}
-	// The retired images-ghcr.yml identity no longer releases.
-	retired := i.sign(t, with(with(goodClaims(now), "repository", owner+"/terrascale"), "job_workflow_ref", owner+"/terrascale/.github/workflows/images-ghcr.yml@"+mainRef))
-	if _, err := h.validateApp(context.Background(), AppRelease{Service: "terrabase", Image: image("terrabase"), Token: retired}); err == nil {
-		t.Fatal("retired workflow released terrabase")
+	// Moving the dashboard workflow preserves its exact service boundary.
+	dashboard := i.sign(t, with(with(goodClaims(now), "repository", owner+"/terrascale"), "job_workflow_ref", owner+"/terrascale/.github/workflows/images-ghcr.yml@"+mainRef))
+	if _, err := h.validateApp(context.Background(), AppRelease{Service: "ts-dashboard", Image: image("ts-dashboard"), Token: dashboard}); err != nil {
+		t.Fatalf("monorepo dashboard workflow rejected: %v", err)
+	}
+	for _, service := range []string{"terrabase", "ts-auth", "app-canary"} {
+		if _, err := h.validateApp(context.Background(), AppRelease{Service: service, Image: image(service), Token: dashboard}); err == nil {
+			t.Fatalf("dashboard workflow released %s", service)
+		}
+	}
+	retired := i.sign(t, with(with(goodClaims(now), "repository", owner+"/ts-dashboard"), "job_workflow_ref", owner+"/ts-dashboard/.github/workflows/images-ghcr.yml@"+mainRef))
+	if _, err := h.validateApp(context.Background(), AppRelease{Service: "ts-dashboard", Image: image("ts-dashboard"), Token: retired}); err == nil {
+		t.Fatal("retired standalone workflow released dashboard")
 	}
 	// An app workflow's token cannot push a ts-orch release even for this repository.
 	canary := i.sign(t, with(goodClaims(now), "job_workflow_ref", orchRepository+"/.github/workflows/app-canary.yml@"+mainRef))

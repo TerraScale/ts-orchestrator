@@ -47,8 +47,8 @@ const canaryWorkflow = orchRepository + "/.github/workflows/app-canary.yml@" + m
 // tokens may release; a new app is one more line.
 var appServices = map[string][]string{
 	canaryWorkflow: {"app-canary"},
-	owner + "/terrascale/.github/workflows/ci.yml@" + mainRef:            {"terrabase", "ts-auth"},
-	owner + "/ts-dashboard/.github/workflows/images-ghcr.yml@" + mainRef: {"ts-dashboard"},
+	owner + "/terrascale/.github/workflows/ci.yml@" + mainRef:          {"terrabase", "ts-auth"},
+	owner + "/terrascale/.github/workflows/images-ghcr.yml@" + mainRef: {"ts-dashboard"},
 }
 
 // meshWorkflow is the only workflow whose tokens may use the mesh bridge
