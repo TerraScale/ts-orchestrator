@@ -27,7 +27,7 @@ func Connect(state string) (*nats.Conn, error) {
 		if err != nil {
 			return nil, fmt.Errorf("mesh is not running on this host: %w", err)
 		}
-		conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", LocalPort), nats.Token(strings.TrimSpace(string(token))))
+		conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", LocalPort), nats.UserInfo(orchUser, strings.TrimSpace(string(token))))
 		// ts-orch may be restarting (a release install): wait for its listener.
 		if err == nil || time.Now().After(deadline) {
 			return conn, err

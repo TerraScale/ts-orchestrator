@@ -1,14 +1,7 @@
-// Package mesh joins every ordered region's single host into one NATS
-// supercluster and keeps the global service desired state on it.
+// Package mesh joins every ordered region's hosts into one NATS cluster and
+// keeps the global service desired state on it.
 //
-// Each region is its own one-server NATS cluster named by its region token;
-// full-mesh gateways on 7222 link the regions, so any two keep talking while
-// a third is down. A node dials the founded regions as seeds; gateway gossip
-// announces any other region that dials one of them, so a new region joins
-// without a release. Gateways accept only peers holding a leaf of the mesh
-// CA, which every node derives from one shared OCI Vault secret. The only client
-// listener is loopback: the root CLI and the node itself connect with a
-// token the node writes at start. (:4222 is the release listener, internal/releasepush.)
+// docs/mesh-jetstream.md describes the cluster, its JetStream and accounts.
 //
 // Desired state retains operator and signed candidates per service (nil specs
 // are removals), persisted in <state>/mesh/desired.json. A node
@@ -28,7 +21,6 @@ import (
 	"log/slog"
 	"maps"
 	"math"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -54,8 +46,6 @@ const (
 	StateSubject = protocol.MeshStateSubject
 	PingSubject  = protocol.MeshPingSubject
 
-	// GatewayPort links regions; every node dials <region>.Domain on it.
-	GatewayPort = 7222
 	// LocalPort is the loopback client listener of the root CLI.
 	LocalPort = 4223
 	Domain    = "mesh.terrascale.tech"
@@ -154,14 +144,13 @@ type Applier interface {
 }
 
 type config struct {
-	region, server, dir, host string
-	advertise                 string // host:port peers dial for this region's gateway
-	gatewayPort, localPort    int
-	gateways                  map[string]string // region -> gateway URL
-	clusterHost               string            // "" runs no in-region cluster listener
-	clusterPort               int
-	routes                    []string // in-region route URLs to dial
-	ca                        *CA
+	region, server, dir    string
+	clusterHost            string
+	clusterAdvertise       string
+	clusterPort, localPort int
+	seeds                  map[string]string
+	routes                 []string
+	ca                     *CA
 	applier                   Applier // nil on a worker, which serves no region requests
 	every                     time.Duration
 	peersDir                  string // host root of every service's peers file
@@ -175,6 +164,7 @@ type Node struct {
 	tls    *tls.Config
 	server *server.Server
 	conn   *nats.Conn
+	fabric *nats.Conn
 	ctx    context.Context
 	cancel context.CancelFunc
 	// work is every goroutine that writes the node's directory; Close waits
@@ -217,32 +207,13 @@ func start(cfg config) (_ *Node, err error) {
 		return nil, err
 	}
 	tlsConfig := cfg.ca.TLS(cfg.region + "." + Domain)
-	options := &server.Options{
-		ServerName: cfg.server, Host: "127.0.0.1", Port: cfg.localPort, Authorization: secret,
-		NoSigs: true, MaxPayload: maxWire,
-		Gateway: server.GatewayOpts{
-			Name: cfg.region, Host: cfg.host, Port: cfg.gatewayPort, Advertise: cfg.advertise,
-			TLSConfig: tlsConfig, TLSTimeout: 5,
-		},
+	fabricSecret, err := randomHex()
+	if err != nil {
+		return nil, err
 	}
-	for _, region := range slices.Sorted(maps.Keys(cfg.gateways)) {
-		address, err := url.Parse(cfg.gateways[region])
-		if err != nil {
-			return nil, err
-		}
-		options.Gateway.Gateways = append(options.Gateway.Gateways,
-			&server.RemoteGatewayOpts{Name: region, URLs: []*url.URL{address}, TLSConfig: tlsConfig, TLSTimeout: 5})
-	}
-	if cfg.clusterHost != "" {
-		// The region's servers form one NATS cluster with the same mesh mTLS.
-		options.Cluster = server.ClusterOpts{Name: cfg.region, Host: cfg.clusterHost, Port: cfg.clusterPort, TLSConfig: tlsConfig, TLSTimeout: 5}
-		for _, route := range cfg.routes {
-			address, err := url.Parse(route)
-			if err != nil {
-				return nil, err
-			}
-			options.Routes = append(options.Routes, address)
-		}
+	options, err := serverOptions(cfg, tlsConfig, secret, fabricSecret)
+	if err != nil {
+		return nil, err
 	}
 	embedded, err := server.NewServer(options)
 	if err != nil {
@@ -259,12 +230,19 @@ func start(cfg config) (_ *Node, err error) {
 	if !embedded.ReadyForConnections(10 * time.Second) {
 		return nil, errors.New("mesh NATS server did not start listening")
 	}
-	conn, err := dialLocal(cfg.localPort, secret)
+	conn, err := dialLocal(cfg.localPort, orchUser, secret)
 	if err != nil {
 		return nil, err
 	}
+	var fabric *nats.Conn
+	if options.JetStream {
+		if fabric, err = dialLocal(cfg.localPort, fabricUser, fabricSecret); err != nil {
+			conn.Close()
+			return nil, err
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, ctx: ctx, cancel: cancel, desired: desired,
+	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, fabric: fabric, ctx: ctx, cancel: cancel, desired: desired,
 		peers: peerFiles}
 	node.publishTopologyDesired()
 	handlers := map[string]nats.MsgHandler{
@@ -294,13 +272,13 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	for subject, handler := range handlers {
 		if _, err := conn.Subscribe(subject, handler); err != nil {
-			conn.Close()
+			node.closeConns()
 			cancel()
 			return nil, err
 		}
 	}
 	if err := conn.Flush(); err != nil {
-		conn.Close()
+		node.closeConns()
 		cancel()
 		return nil, err
 	}
@@ -316,7 +294,7 @@ func (n *Node) Region() string { return n.cfg.region }
 func (n *Node) TLS() *tls.Config { return n.tls }
 
 // AdmittedRegions includes durable admitted peers through outages and restarts,
-// plus gateways discovered since the last admission round. Reachability never
+// plus routed regions discovered since the last admission round. Reachability never
 // removes an admitted region from a cancellation ownership lookup.
 func (n *Node) AdmittedRegions() []string {
 	n.peers.mu.Lock()
@@ -327,26 +305,22 @@ func (n *Node) AdmittedRegions() []string {
 	return slices.Compact(names)
 }
 
-// RTT is the measured round trip to every region with a live outbound gateway.
 func (n *Node) RTT() map[string]time.Duration {
 	rtt := map[string]time.Duration{}
-	gateways, err := n.server.Gatewayz(nil)
-	if err != nil {
-		return rtt
-	}
-	for region, gateway := range gateways.OutboundGateways {
-		if gateway.Connection == nil {
+	for _, route := range n.routes() {
+		region := serverRegion(route.RemoteName)
+		if region == "" || region == n.cfg.region {
 			continue
 		}
-		if d, err := time.ParseDuration(gateway.Connection.RTT); err == nil && d > 0 {
+		if d, err := time.ParseDuration(route.RTT); err == nil && d > 0 && (rtt[region] == 0 || d < rtt[region]) {
 			rtt[region] = d
 		}
 	}
 	return rtt
 }
 
-func dialLocal(port int, token string) (*nats.Conn, error) {
-	return nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", port), nats.Token(token),
+func dialLocal(port int, user, password string) (*nats.Conn, error) {
+	return nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", port), nats.UserInfo(user, password),
 		nats.MaxReconnects(-1), nats.ReconnectWait(time.Second))
 }
 
@@ -365,18 +339,18 @@ func (n *Node) Close() {
 	n.closing = true
 	n.workMu.Unlock()
 	n.cancel()
-	n.conn.Close()
+	n.closeConns()
 	n.server.Shutdown()
 	n.server.WaitForShutdown()
 	n.work.Wait()
 }
 
-// regions is this region, its seeds and every region its gateways reach now.
 func (n *Node) regions() []string {
-	names := append([]string{n.cfg.region}, slices.Collect(maps.Keys(n.cfg.gateways))...)
-	if gateways, err := n.server.Gatewayz(nil); err == nil {
-		names = slices.AppendSeq(names, maps.Keys(gateways.OutboundGateways))
-		names = slices.AppendSeq(names, maps.Keys(gateways.InboundGateways))
+	names := append([]string{n.cfg.region}, slices.Collect(maps.Keys(n.cfg.seeds))...)
+	for _, route := range n.routes() {
+		if region := serverRegion(route.RemoteName); region != "" {
+			names = append(names, region)
+		}
 	}
 	slices.Sort(names)
 	return slices.Compact(names)
@@ -412,6 +386,9 @@ func (n *Node) run(ctx context.Context) {
 // reconciles every entry so a missed or failed apply is retried.
 func (n *Node) sync(ctx context.Context) {
 	states := n.states(ctx)
+	if n.ctx.Err() != nil {
+		return
+	}
 	peers := map[string]map[string]desiredState{}
 	for region, reply := range states {
 		peers[region] = reply.Desired
@@ -445,6 +422,9 @@ func (n *Node) sync(ctx context.Context) {
 	}
 	n.publishTopologyDesired()
 	for _, name := range slices.Sorted(maps.Keys(n.desired)) {
+		if n.ctx.Err() != nil {
+			return
+		}
 		// The peers file follows desired state even while the rollout waits (a
 		// held canary or an earlier region's turn): a restart must re-render it.
 		if entry := n.desired[name].entry(); entry.Spec != nil && (len(entry.Spec.Regions) == 0 || slices.Contains(entry.Spec.Regions, n.cfg.region)) {

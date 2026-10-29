@@ -33,14 +33,14 @@ func stateTestNodesWithAppliers(t *testing.T, factory func(string) Applier, regi
 	ports := freePorts(t, 2*len(regions))
 	var nodes []*Node
 	for i, region := range regions {
-		gateways := map[string]string{}
+		seeds := map[string]string{}
 		for j, peer := range regions {
 			if i != j {
-				gateways[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
+				seeds[peer] = fmt.Sprintf("nats://127.0.0.1:%d", ports[2*j])
 			}
 		}
-		node, err := start(config{region: region, server: region + "-1", dir: t.TempDir(), host: "127.0.0.1",
-			gatewayPort: ports[2*i], localPort: ports[2*i+1], ca: ca, gateways: gateways,
+		node, err := start(config{region: region, server: region + "-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
+			clusterPort: ports[2*i], localPort: ports[2*i+1], ca: ca, seeds: seeds,
 			applier: factory(region), peersDir: t.TempDir(), peersEvery: 20 * time.Millisecond,
 			address: func() (string, error) { return "10.200.0.1", nil }})
 		if err != nil {
