@@ -237,7 +237,7 @@
 ./internal/region TestOriginalStartupActorCannotBypassRunningBinarySDK 103
 ./internal/region TestOriginalStartupLedgerSDKExactExternalSeedAndRestart 137 # interrupted lower bound
 ./internal/region TestOriginalStartupLedgerSDKPreservesOrdinarySchema1 112
-./internal/region TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges 46 # interrupted lower bound
+./internal/region TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges 271 # focused CPU profile: 270.60s on dev
 ./internal/region TestOriginalStartupTrustSDKCancellationHoldsAtIAMBoundary 69 # interrupted lower bound
 ./internal/region TestSchema3FullGrantRefusalsReachRoutingConsumers 2
 ./internal/region TestSchema3GenericReachabilitySignedSDK 2
@@ -271,6 +271,7 @@
 ./internal/swarmruntime TestWorkerBootstrapIntegration 3
 ./internal/terrabase TestCollectWANLoopbackBoundsAndNoRedirect 3
 ./scripts TestDashboardNetbirdCheck 67
+./scripts/ci/racetest TestRaceScheduler 25 # interrupted lower bound; avoid a late scheduler tail
 ./scripts/ci/racetest TestRaceSchedulerReapsShardsWaitNNoLongerReports 10
 ./tests/deploy TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex 75
 ./tests/deploy TestOfflineDeploymentMaterialNeverBaked 75
