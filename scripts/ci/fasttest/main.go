@@ -263,7 +263,9 @@ func discover(ctx context.Context, goCommand []string) (map[string][]string, err
 	if len(packages) == 0 {
 		return nil, errors.New("empty package graph")
 	}
-	cmd = command(ctx, goCommand, "test", "-short", "-json", "-list", ".", "./...")
+	// Listing uses the same package concurrency as execution; GOMAXPROCS
+	// bounds each process without reducing the pool to two packages.
+	cmd = command(ctx, goCommand, "test", "-short", "-json", fmt.Sprintf("-p=%d", jobs), "-list", ".", "./...")
 	cmd.Stderr = os.Stderr
 	output, err := cmd.StdoutPipe()
 	if err != nil {

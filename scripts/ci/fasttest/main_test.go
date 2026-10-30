@@ -69,6 +69,10 @@ func fakeGo(args []string) {
 	}
 	emit := func(e event) { _ = json.NewEncoder(os.Stdout).Encode(e) }
 	if slices.Contains(args, "-list") {
+		listing, _ := json.Marshal(invocation{Args: args, CPU: os.Getenv("GOMAXPROCS")})
+		if err := os.WriteFile(filepath.Join(os.Getenv("FAST_CONTRACT_STATE"), "listing.json"), listing, 0600); err != nil {
+			panic(err)
+		}
 		if mode == "invalid-json" {
 			fmt.Println("invalid JSON")
 			return
@@ -193,6 +197,17 @@ func TestFullShortTierCoverageAndConcurrency(t *testing.T) {
 	calls, receipts, err := fixtureRun(t, "")
 	if err != nil {
 		t.Fatal(err)
+	}
+	listing, err := os.ReadFile(filepath.Join(os.Getenv("FAST_CONTRACT_STATE"), "listing.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var discovered invocation
+	if err := json.Unmarshal(listing, &discovered); err != nil {
+		t.Fatal(err)
+	}
+	if discovered.CPU != "2" || !slices.Contains(discovered.Args, fmt.Sprintf("-p=%d", jobs)) {
+		t.Fatalf("discovery escaped the process budget: %+v", discovered)
 	}
 	seen := make(map[string]int)
 	var boundaries []struct {
