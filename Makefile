@@ -16,7 +16,7 @@ BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-w"
 TS_TEST_TIER ?= full
 export TS_TEST_TIER
 
-.PHONY: verify ci-check ci-lint ci-verify retired-host-check format-check generate generate-check test test-fast vet fixturetest-check race-test nats-identity-check terrabase-walkthrough-process terrabase-release-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-check ci-lint ci-verify retired-host-check format-check generate generate-check test test-fast test-fast-build vet fixturetest-check race-test nats-identity-check terrabase-walkthrough-process terrabase-release-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
 
 verify: format-check generate-check vet race-test nats-identity-check netbird-backup-check
 
@@ -58,9 +58,14 @@ generate-check:
 test:
 	$(GO) test ./...
 
-# The fast tier without the race detector, for local iteration.
-test-fast:
-	$(GO) test -short ./...
+# Keep the whole package graph visible to ts-ship's prebuild planner. Its
+# cached warm-up runs outside the Fast execution clock.
+test-fast-build:
+	$(GO) test -short -run '^$$' ./...
+
+# The same short tier, with slow packages split across bounded processes.
+test-fast: test-fast-build
+	$(GO) run ./scripts/ci/fasttest -- $(GO)
 
 vet:
 	$(GO) vet ./...
