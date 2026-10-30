@@ -290,6 +290,48 @@ func TestInvalidListingRunsNothing(t *testing.T) {
 	}
 }
 
+func TestRetainedBinaryRunsShortTierWithOriginalWorkingDirectory(t *testing.T) {
+	directory := t.TempDir()
+	working := t.TempDir()
+	wrapper, err := retainWrapper(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(wrapper, exe, "-test.list", "^TestCompiledShardHelper$")
+	cmd.Dir = working
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("retain: %v: %s", err, output)
+	}
+	line, _, _ := strings.Cut(string(output), "\n")
+	marker, ok := strings.CutPrefix(line, binaryMarker)
+	path, dir, found := strings.Cut(marker, "\t")
+	if !ok || !found || dir != working || filepath.Dir(path) != directory {
+		t.Fatalf("invalid retained executable: %q", output)
+	}
+	t.Setenv("FAST_COMPILED_DIRECTORY", working)
+	r := executeBinary(t.Context(), []string{"go"}, shard{Package: "fixture/compiled", Tests: []string{"TestCompiledShardHelper"}}, directory, testBinary{path, dir})
+	if len(r.Problems) != 0 || len(r.Cases) != 2 {
+		t.Fatalf("retained short-tier receipt: %+v", r)
+	}
+}
+
+func TestCompiledShardHelper(t *testing.T) {
+	want := os.Getenv("FAST_COMPILED_DIRECTORY")
+	if want == "" {
+		return
+	}
+	dir, err := os.Getwd()
+	if err != nil || dir != want || !testing.Short() || os.Getenv("GOMAXPROCS") != "2" {
+		t.Fatalf("compiled shard context: dir=%q err=%v short=%v CPU=%q", dir, err, testing.Short(), os.Getenv("GOMAXPROCS"))
+	}
+	t.Run("receipt", func(t *testing.T) {})
+}
+
 func TestInternalAndExternalTestsWithSharedName(t *testing.T) {
 	calls, receipts, err := fixtureRun(t, "shared-name")
 	if err != nil {

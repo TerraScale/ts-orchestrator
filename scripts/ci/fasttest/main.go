@@ -249,7 +249,25 @@ func validatePlan(packages map[string][]string, queue []shard) error {
 	return nil
 }
 
-func discover(ctx context.Context, goCommand []string) (map[string][]string, error) {
+type testBinary struct{ Path, Dir string }
+
+const binaryMarker = "_TS_FAST_BINARY\t"
+
+func retainWrapper(directory string) (string, error) {
+	// Go still builds and vets every package before listing it. Retain the exact
+	// executable from that invocation so shards need not reload/vet the graph.
+	wrapper := filepath.Join(directory, "retain-test")
+	if err := os.WriteFile(wrapper, []byte("#!/bin/sh\nset -eu\nbinary=$(mktemp "+shellQuote(filepath.Join(directory, "test.XXXXXX"))+")\nrm -f \"$binary\"\nln \"$1\" \"$binary\" 2>/dev/null || cp \"$1\" \"$binary\"\nprintf '_TS_FAST_BINARY\\t%s\\t%s\\n' \"$binary\" \"$PWD\"\nexec \"$@\"\n"), 0700); err != nil {
+		return "", err
+	}
+	return wrapper, nil
+}
+
+func discover(ctx context.Context, goCommand []string, directory string, binaries map[string]testBinary) (map[string][]string, error) {
+	wrapper, err := retainWrapper(directory)
+	if err != nil {
+		return nil, err
+	}
 	cmd := command(ctx, goCommand, "list", "./...")
 	cmd.Stderr = os.Stderr
 	data, err := cmd.Output()
@@ -268,7 +286,7 @@ func discover(ctx context.Context, goCommand []string) (map[string][]string, err
 	}
 	// Listing uses the same package concurrency as execution; GOMAXPROCS
 	// bounds each process without reducing the pool to two packages.
-	cmd = command(ctx, goCommand, "test", "-short", "-json", fmt.Sprintf("-p=%d", jobs), "-list", ".", "./...")
+	cmd = command(ctx, goCommand, "test", "-short", "-json", "-count=1", fmt.Sprintf("-p=%d", jobs), "-exec", wrapper, "-list", ".", "./...")
 	cmd.Stderr = os.Stderr
 	output, err := cmd.StdoutPipe()
 	if err != nil {
@@ -307,6 +325,15 @@ func discover(ctx context.Context, goCommand []string) (map[string][]string, err
 			continue
 		}
 		name := strings.TrimSpace(e.Output)
+		if marker, ok := strings.CutPrefix(name, binaryMarker); ok {
+			path, dir, found := strings.Cut(marker, "\t")
+			if !found || !filepath.IsAbs(path) || !filepath.IsAbs(dir) || filepath.Dir(path) != directory || binaries[e.Package].Path != "" {
+				invalid = fmt.Errorf("invalid retained binary for %s", e.Package)
+			} else {
+				binaries[e.Package] = testBinary{path, dir}
+			}
+			continue
+		}
 		if strings.HasPrefix(name, "Benchmark") {
 			continue
 		}
@@ -333,7 +360,13 @@ func discover(ctx context.Context, goCommand []string) (map[string][]string, err
 	return packages, nil
 }
 
+func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
+
 func execute(ctx context.Context, goCommand []string, s shard, directory string) result {
+	return executeBinary(ctx, goCommand, s, directory, testBinary{})
+}
+
+func executeBinary(ctx context.Context, goCommand []string, s shard, directory string, binary testBinary) result {
 	started := time.Now()
 	r := result{Shard: s, Log: filepath.Join(directory, fmt.Sprintf("%04d.jsonl", s.ID))}
 	log, err := os.Create(r.Log)
@@ -351,6 +384,11 @@ func execute(ctx context.Context, goCommand []string, s shard, directory string)
 		expression = "^(" + strings.Join(names, "|") + ")$"
 	}
 	cmd := command(ctx, goCommand, "test", "-short", "-json", "-count=1", "-p=1", "-parallel=2", "-cpu=2", "-run", expression, s.Package)
+	if binary.Path != "" {
+		cmd = command(ctx, goCommand, "tool", "test2json", "-p", s.Package, "-t", binary.Path,
+			"-test.paniconexit0", "-test.v=test2json", "-test.short", "-test.count=1", "-test.parallel=2", "-test.cpu=2", "-test.run", expression)
+		cmd.Dir = binary.Dir
+	}
 	cmd.Stderr = log
 	output, err := cmd.StdoutPipe()
 	if err != nil {
@@ -431,7 +469,14 @@ func execute(ctx context.Context, goCommand []string, s shard, directory string)
 }
 
 func run(ctx context.Context, goCommand []string, hints []estimate, directory string, out io.Writer) error {
-	packages, err := discover(ctx, goCommand)
+	binaries := make(map[string]testBinary)
+	defer func() {
+		for _, binary := range binaries {
+			_ = os.Remove(binary.Path)
+		}
+		_ = os.Remove(filepath.Join(directory, "retain-test"))
+	}()
+	packages, err := discover(ctx, goCommand, directory, binaries)
 	if err != nil {
 		return err
 	}
@@ -450,7 +495,7 @@ func run(ctx context.Context, goCommand []string, hints []estimate, directory st
 	for range min(jobs, len(queue)) {
 		workers.Go(func() {
 			for s := range work {
-				results <- execute(ctx, goCommand, s, directory)
+				results <- executeBinary(ctx, goCommand, s, directory, binaries[s.Package])
 			}
 		})
 	}
