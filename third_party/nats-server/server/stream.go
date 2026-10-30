@@ -8856,12 +8856,9 @@ func (mset *stream) stop(deleteFlag, advisory bool) error {
 		}
 		// Release any resources.
 		js.releaseStreamResources(&mset.cfg)
-		// Do cleanup in separate go routine similar to how fs will use purge here..
-		go func() {
-			// no op if not empty
-			os.Remove(filepath.Join(accDir, streamsDir))
-			os.Remove(accDir)
-		}()
+		// Keep the account's parent directories for its lifetime. An asynchronous
+		// empty-directory cleanup can race MkdirAll for a replacement stream,
+		// removing a parent between its existence check and child creation.
 	} else if store != nil {
 		// Ignore errors.
 		store.Stop()
