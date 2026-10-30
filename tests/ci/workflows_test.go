@@ -104,8 +104,9 @@ func TestRequiredCheckIdentity(t *testing.T) {
 	aggregate, _, _ = strings.Cut(aggregate, "\n  flaky-report:\n")
 	requireText(t, aggregate, "    if: ${{ always() }}\n")
 	requireText(t, aggregate, "    needs: [change, build]\n")
-	requireText(t, aggregate, `test "$CHANGE" = success`)
-	requireText(t, aggregate, `test "$BUILD" = success`)
+	// The pinned shared job fails closed on the selected PR or main result.
+	requireText(t, aggregate, "    uses: TerraScale/.github/.github/workflows/result.yml@3a54c0184eacdc45466c1123bca67a99db62e91c\n")
+	requireText(t, aggregate, "      result: ${{ github.event_name == 'pull_request' && needs.change.result || needs.build.result }}\n")
 	forbidText(t, aggregate, "needs.race")
 	forbidText(t, aggregate, "continue-on-error:")
 }
