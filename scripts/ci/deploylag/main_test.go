@@ -202,3 +202,47 @@ func TestAlertFindsAndRecoversAnIncidentBeyondTheFirstPage(t *testing.T) {
 		})
 	}
 }
+
+func TestHistoryReadsRetryTransientFailuresWithoutHidingPermanentErrors(t *testing.T) {
+	for _, status := range []int{502, 503, 429, 403} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			calls := 0
+			a := api{client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				code := status
+				if calls > 1 {
+					code = 200
+				}
+				return &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(`{"workflow_runs":[]}`))}, nil
+			})}}
+			_, err := a.release(t.Context(), apps[1], time.Now())
+			if status == 403 {
+				if err == nil || calls != 1 {
+					t.Fatalf("permanent failure: calls=%d err=%v", calls, err)
+				}
+			} else if err != nil || calls != 2 {
+				t.Fatalf("transient read: calls=%d err=%v", calls, err)
+			}
+		})
+	}
+}
+
+func TestHistoryReadRetriesAreBoundedAndWritesAreNotRepeated(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			calls := 0
+			a := api{client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader("private response"))}, nil
+			})}}
+			err := a.request(t.Context(), method, forge+"ts-orchestrator/issues", "secret", nil, nil)
+			want := 1
+			if method == http.MethodGet {
+				want = 3
+			}
+			if err == nil || calls != want || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("calls=%d want=%d err=%v", calls, want, err)
+			}
+		})
+	}
+}

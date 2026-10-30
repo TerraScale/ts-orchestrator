@@ -41,7 +41,28 @@ type api struct {
 	readToken, writeToken string
 }
 
+// Reads are idempotent: a transient GitHub failure must not turn readable
+// deployment history into a missing-proof alert. Writes are never retried.
 func (a api) request(ctx context.Context, method, url, token string, input, output any) error {
+	for attempt := 0; ; attempt++ {
+		err := a.requestOnce(ctx, method, url, token, input, output)
+		var transient *transientReadError
+		if method != http.MethodGet || !errors.As(err, &transient) || attempt == 2 {
+			return err
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * 250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+type transientReadError struct{ error }
+
+func (a api) requestOnce(ctx context.Context, method, url, token string, input, output any) error {
 	var body io.Reader
 	if input != nil {
 		wire, err := json.Marshal(input)
@@ -61,18 +82,22 @@ func (a api) request(ctx context.Context, method, url, token string, input, outp
 	req.Header.Set("Cache-Control", "no-cache")
 	response, err := a.client.Do(req)
 	if err != nil {
-		return errors.New("deployment guard HTTP request did not complete")
+		return &transientReadError{errors.New("deployment guard HTTP request did not complete")}
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("deployment guard HTTP status %d", response.StatusCode)
+		err := fmt.Errorf("deployment guard HTTP status %d", response.StatusCode)
+		if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500 {
+			return &transientReadError{err}
+		}
+		return err
 	}
 	if output == nil {
 		return nil
 	}
 	wire, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
-		return err
+		return &transientReadError{errors.New("deployment guard response could not be read")}
 	}
 	return json.Unmarshal(wire, output)
 }
@@ -246,12 +271,12 @@ func (a api) alert(ctx context.Context, findings []string) error {
 func run(ctx context.Context, a api, now func() time.Time, notify bool) error {
 	findings, err := a.orch(ctx, now())
 	if err != nil {
-		findings = append(findings, "- ts-orchestrator: main release history unavailable")
+		findings = append(findings, "- ts-orchestrator: main release history unavailable: "+err.Error())
 	}
 	for _, x := range apps {
 		found, err := a.release(ctx, x, now())
 		if err != nil {
-			found = []string{"- " + x.service + ": " + x.repo + " image job history unavailable"}
+			found = []string{"- " + x.service + ": " + x.repo + " image job history unavailable: " + err.Error()}
 		}
 		findings = append(findings, found...)
 	}

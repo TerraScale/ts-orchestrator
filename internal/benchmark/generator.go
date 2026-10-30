@@ -379,8 +379,17 @@ func container(ctx context.Context, job Job, client, name string, workload []byt
 	// Secrets cross an inherited pipe, never argv, logs, a disk file or stdin.
 	env := fmt.Sprintf("TS_BENCH_CLIENT_ID=%s\nTS_BENCH_CLIENT_SECRET=%s\nTS_BENCH_RUN_ID=%s\n", secrets["TS_BENCH_CLIENT_ID"], secrets["TS_BENCH_CLIENT_SECRET"], entityid.New())
 	go func() { _, _ = io.WriteString(writer, env); _ = writer.Close() }()
-	command := exec.CommandContext(ctx, "podman", "run", "--rm", "--pull=never", "--name", name, "--label", "ts-bench-job="+job.ID, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=256", "--cpus=1", "--memory=1g", "--tmpfs", "/tmp:rw,size=256m", "--stop-signal=SIGINT", "--stop-timeout=30", fmt.Sprintf("--timeout=%d", int(clientLifetime/time.Second)), "--env-file=/proc/self/fd/3", "-i", job.Images[client], "run", "--workload", "/dev/stdin", "--region", job.Region, "--out", "/dev/stdout")
-	command.ExtraFiles = []*os.File{reader}
+	// Finish establishing ownership before cancellation can stop execution. Killing
+	// podman run during creation can leave a container without a readable label.
+	createCtx, stopCreate := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
+	defer stopCreate()
+	create := exec.CommandContext(createCtx, "podman", "create", "--pull=never", "--name", name, "--label", "ts-bench-job="+job.ID, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=256", "--cpus=1", "--memory=1g", "--tmpfs", "/tmp:rw,size=256m", "--stop-signal=SIGINT", "--stop-timeout=30", fmt.Sprintf("--timeout=%d", int(clientLifetime/time.Second)), "--env-file=/proc/self/fd/3", "-i", job.Images[client], "run", "--workload", "/dev/stdin", "--region", job.Region, "--out", "/dev/stdout")
+	create.ExtraFiles = []*os.File{reader}
+	create.Stderr = io.Discard
+	if err := create.Run(); err != nil {
+		return errors.New("client container could not be created")
+	}
+	command := exec.CommandContext(ctx, "podman", "start", "--attach", "--interactive", name)
 	command.Stdin = bytes.NewReader(workload)
 	command.Stderr = io.Discard
 	stdout, err := command.StdoutPipe()

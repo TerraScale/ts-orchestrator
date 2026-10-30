@@ -297,36 +297,41 @@ func TestJSONLPreservesRequiredZeroFields(t *testing.T) {
 }
 
 func TestContainersCleanUpAfterMalformedOutputWithoutExposingSecrets(t *testing.T) {
-	dir := t.TempDir()
-	state := t.TempDir()
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := "#!/bin/sh\nexec '" + strings.ReplaceAll(exe, "'", "'\\''") + "' -test.run=^TestPodmanHelper$ -- \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "podman"), []byte(script), 0755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("TS_761_PODMAN_STATE", state)
-	if err := os.WriteFile(filepath.Join(state, "foreign"), []byte("foreign"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	job := Job{ID: entityid.New(), Region: "gru", Workload: workload(t), Clients: []string{"go", "rust"}, Images: map[string]string{"go": "image-go", "rust": "image-rust"}}
-	var output bytes.Buffer
-	err = runContainers(t.Context(), job, map[string]string{"TS_BENCH_CLIENT_ID": "test-client", "TS_BENCH_CLIENT_SECRET": "private-test-value"}, &output)
-	if err == nil {
-		t.Fatal("malformed output was accepted")
-	}
-	entries, err := os.ReadDir(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].Name() != "foreign" {
-		t.Fatalf("containers were leaked or foreign container removed: %v", entries)
-	}
-	if strings.Contains(output.String(), "private-test-value") {
-		t.Fatal("credential leaked")
+	for _, mode := range []string{"", "creation-race"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("TS_761_PODMAN_MODE", mode)
+			dir := t.TempDir()
+			state := t.TempDir()
+			exe, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			script := "#!/bin/sh\nexec '" + strings.ReplaceAll(exe, "'", "'\\''") + "' -test.run=^TestPodmanHelper$ -- \"$@\"\n"
+			if err := os.WriteFile(filepath.Join(dir, "podman"), []byte(script), 0755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("TS_761_PODMAN_STATE", state)
+			if err := os.WriteFile(filepath.Join(state, "foreign"), []byte("foreign"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			job := Job{ID: entityid.New(), Region: "gru", Workload: workload(t), Clients: []string{"go", "rust"}, Images: map[string]string{"go": "image-go", "rust": "image-rust"}}
+			var output bytes.Buffer
+			err = runContainers(t.Context(), job, map[string]string{"TS_BENCH_CLIENT_ID": "test-client", "TS_BENCH_CLIENT_SECRET": "private-test-value"}, &output)
+			if err == nil {
+				t.Fatal("malformed output was accepted")
+			}
+			entries, err := os.ReadDir(state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 1 || entries[0].Name() != "foreign" {
+				t.Fatalf("containers were leaked or foreign container removed: %v", entries)
+			}
+			if strings.Contains(output.String(), "private-test-value") {
+				t.Fatal("credential leaked")
+			}
+		})
 	}
 }
 
@@ -347,7 +352,7 @@ func TestPodmanHelper(t *testing.T) {
 	}
 	name := args[len(args)-1]
 	switch args[0] {
-	case "run":
+	case "create":
 		label := ""
 		for i, arg := range args {
 			if arg == "--name" {
@@ -366,8 +371,30 @@ func TestPodmanHelper(t *testing.T) {
 		if err != nil || !bytes.Contains(env, []byte("TS_BENCH_CLIENT_SECRET=private-test-value")) {
 			os.Exit(2)
 		}
+		if os.Getenv("TS_761_PODMAN_MODE") == "creation-race" && strings.HasSuffix(name, "-rust") {
+			// Cancellation during this window used to leave an unreadable owner.
+			if err := os.WriteFile(filepath.Join(state, name), nil, 0600); err != nil {
+				os.Exit(2)
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
 		if err := os.WriteFile(filepath.Join(state, name), []byte(label), 0600); err != nil {
 			os.Exit(2)
+		}
+		os.Exit(0)
+	case "start":
+		if os.Getenv("TS_761_PODMAN_MODE") == "creation-race" && strings.HasSuffix(name, "-go") {
+			peer := strings.TrimSuffix(name, "-go") + "-rust"
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				if _, err := os.Stat(filepath.Join(state, peer)); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					os.Exit(2)
+				}
+				time.Sleep(time.Millisecond)
+			}
 		}
 		switch os.Getenv("TS_761_PODMAN_MODE") {
 		case "warmup":
