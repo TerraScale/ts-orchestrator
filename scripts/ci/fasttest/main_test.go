@@ -35,6 +35,10 @@ func fixturePackages() map[string][]string {
 			packages[fixtureModule+suffix] = append(packages[fixtureModule+suffix], fmt.Sprintf("TestCase%02d", i))
 		}
 	}
+	if os.Getenv("FAST_CONTRACT_MODE") == "shared-name" {
+		pkg := fixtureModule + "/internal/app"
+		packages[pkg] = append(packages[pkg], "TestCase00")
+	}
 	return packages
 }
 
@@ -72,9 +76,6 @@ func fakeGo(args []string) {
 				emit(event{Action: "output", Package: pkg, Output: name + "\n"})
 			}
 			emit(event{Action: "output", Package: pkg, Output: "BenchmarkNotACase\n"})
-			if mode == "duplicate-list" && len(packages[pkg]) > 0 {
-				emit(event{Action: "output", Package: pkg, Output: packages[pkg][0] + "\n"})
-			}
 			if mode != "incomplete-list" {
 				emit(event{Action: "pass", Package: pkg})
 			}
@@ -255,13 +256,43 @@ func TestFullShortTierCoverageAndConcurrency(t *testing.T) {
 }
 
 func TestInvalidListingRunsNothing(t *testing.T) {
-	for _, mode := range []string{"invalid-json", "duplicate-list", "incomplete-list", "list-failure"} {
+	for _, mode := range []string{"invalid-json", "incomplete-list", "list-failure"} {
 		t.Run(mode, func(t *testing.T) {
 			calls, _, err := fixtureRun(t, mode)
 			if err == nil || len(calls) != 0 {
 				t.Fatalf("error=%v calls=%d, want rejected discovery before execution", err, len(calls))
 			}
 		})
+	}
+}
+
+func TestInternalAndExternalTestsWithSharedName(t *testing.T) {
+	calls, receipts, err := fixtureRun(t, "shared-name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := fixtureModule + "/internal/app/TestCase00"
+	runs, terminals := 0, 0
+	for _, call := range calls {
+		for _, name := range call.Cases {
+			if name == key {
+				runs++
+			}
+		}
+	}
+	for _, receipt := range receipts {
+		for _, e := range receipt.Cases {
+			if e.Package+"/"+e.Test == key {
+				terminals++
+			}
+		}
+	}
+	if runs != 2 || terminals != 2 {
+		t.Fatalf("shared name runs=%d terminals=%d, want both occurrences", runs, terminals)
+	}
+	packages := map[string][]string{"fixture/package": {"TestShared", "TestShared"}}
+	if err := validatePlan(packages, []shard{{Package: "fixture/package", Tests: []string{"TestShared"}}, {Package: "fixture/package", Tests: []string{"TestShared"}}}); err == nil {
+		t.Fatal("shared name split across shards")
 	}
 }
 

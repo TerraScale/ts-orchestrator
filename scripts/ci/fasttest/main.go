@@ -129,12 +129,21 @@ func plan(packages map[string][]string, hints []estimate) []shard {
 		for i := range bins {
 			bins[i].Package = pkg
 		}
+		// Internal and external test packages may export the same top-level
+		// name. Go lists and executes both; keep their multiplicity and place
+		// every occurrence in one shard because -run selects them together.
+		assigned := make(map[string]int)
 		for _, test := range ordered {
 			least := 0
-			for i := range bins {
-				if bins[i].Cost < bins[least].Cost {
-					least = i
+			if previous, ok := assigned[test]; ok {
+				least = previous
+			} else {
+				for i := range bins {
+					if bins[i].Cost < bins[least].Cost {
+						least = i
+					}
 				}
+				assigned[test] = least
 			}
 			bins[least].Tests = append(bins[least].Tests, test)
 			bins[least].Cost += weights[test]
@@ -203,10 +212,26 @@ func validatePlan(packages map[string][]string, queue []shard) error {
 		if seen[pkg] == nil {
 			return fmt.Errorf("plan omitted package %s", pkg)
 		}
+		want := make(map[string]int)
 		for _, name := range tests {
-			if seen[pkg][name] != 1 {
-				return fmt.Errorf("plan case %s/%s occurs %d times, want 1", pkg, name, seen[pkg][name])
+			want[name]++
+		}
+		for name, count := range want {
+			if seen[pkg][name] != count {
+				return fmt.Errorf("plan case %s/%s occurs %d times, want %d", pkg, name, seen[pkg][name], count)
 			}
+		}
+	}
+	// A repeated name cannot span shards: either shard would run every
+	// occurrence and violate the actual execution receipt.
+	owners := make(map[string]int)
+	for i, s := range queue {
+		for _, name := range s.Tests {
+			key := s.Package + "/" + name
+			if owner, ok := owners[key]; ok && owner != i {
+				return fmt.Errorf("plan splits repeated case %s across shards", key)
+			}
+			owners[key] = i
 		}
 	}
 	return nil
@@ -241,7 +266,6 @@ func discover(ctx context.Context, goCommand []string) (map[string][]string, err
 	stopRead := context.AfterFunc(ctx, func() { _ = output.Close() })
 	defer stopRead()
 	terminal := make(map[string]int)
-	seen := make(map[string]bool)
 	var invalid error
 	decoder := json.NewDecoder(output)
 	for {
@@ -279,12 +303,6 @@ func discover(ctx context.Context, goCommand []string) (map[string][]string, err
 			invalid = fmt.Errorf("invalid listed case %q", name)
 			continue
 		}
-		key := e.Package + "/" + name
-		if seen[key] {
-			invalid = fmt.Errorf("duplicate listed case %s", key)
-			continue
-		}
-		seen[key] = true
 		packages[e.Package] = append(packages[e.Package], name)
 	}
 	if err := wait(ctx, cmd); err != nil {
@@ -332,9 +350,9 @@ func execute(ctx context.Context, goCommand []string, s shard, directory string)
 	stopRead := context.AfterFunc(ctx, func() { _ = output.Close() })
 	defer stopRead()
 	runs, ends := make(map[string]int), make(map[string]int)
-	expected := make(map[string]bool)
+	expected := make(map[string]int)
 	for _, name := range s.Tests {
-		expected[name] = true
+		expected[name]++
 	}
 	packageEnd := 0
 	// Copy raw JSON while decoding so failures, seed cases and subtests retain
@@ -373,7 +391,7 @@ func execute(ctx context.Context, goCommand []string, s shard, directory string)
 		if strings.Contains(e.Test, "/") {
 			continue
 		}
-		if !expected[e.Test] {
+		if expected[e.Test] == 0 {
 			r.Problems = append(r.Problems, "unexpected case: "+e.Test)
 		}
 		if e.Action == "run" {
@@ -389,9 +407,9 @@ func execute(ctx context.Context, goCommand []string, s shard, directory string)
 	if packageEnd != 1 {
 		r.Problems = append(r.Problems, fmt.Sprintf("package terminal count %d, want 1", packageEnd))
 	}
-	for _, name := range s.Tests {
-		if runs[name] != 1 || ends[name] != 1 {
-			r.Problems = append(r.Problems, fmt.Sprintf("%s run=%d terminal=%d, want exactly one each", name, runs[name], ends[name]))
+	for name, count := range expected {
+		if runs[name] != count || ends[name] != count {
+			r.Problems = append(r.Problems, fmt.Sprintf("%s run=%d terminal=%d, want %d each", name, runs[name], ends[name], count))
 		}
 	}
 	r.Elapsed = time.Since(started).Seconds()
