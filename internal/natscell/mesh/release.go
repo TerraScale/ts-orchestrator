@@ -93,7 +93,7 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	// budgets, without replacing runtime credentials, routes or other fields.
 	// Holds retain their placement/order and budgets until explicitly resumed.
 	if deployment != nil && before.HoldAfter == "" {
-		if err := declaredReleasePlacement(&next); err != nil {
+		if err := declaredReleasePlacement(&next, deployment); err != nil {
 			return nil, err
 		}
 	}
@@ -203,7 +203,7 @@ func desiredStates(ctx context.Context, conn *nats.Conn) (map[string]desiredStat
 
 // declaredReleasePlacement uses the embedded first-party declaration as the
 // authority for all-region placement and packing, rather than a service list.
-func declaredReleasePlacement(next *swarmruntime.ServiceSpec) error {
+func declaredReleasePlacement(next *swarmruntime.ServiceSpec, deployment *Deployment) error {
 	data, err := m1.Files.ReadFile("services/" + next.Name + ".json")
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -215,7 +215,7 @@ func declaredReleasePlacement(next *swarmruntime.ServiceSpec) error {
 	if err := protocol.DecodeStrict(data, &declared, 64<<10); err != nil {
 		return err
 	}
-	if declared.Name != next.Name || repository(declared.Image) != repository(next.Image) {
+	if declared.Name != next.Name || repository(declared.Image) != repository(next.Image) && !dashboardPackageCutover(next.Name, declared.Image, next.Image, deployment) {
 		return fmt.Errorf("%s: release declaration identity mismatch", next.Name)
 	}
 	if len(declared.Regions) == 0 {
