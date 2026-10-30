@@ -230,15 +230,15 @@
 ./internal/region TestOriginalFoundationMaterialIAMSignedContract 7
 ./internal/region TestOriginalFoundationPublicDeliverySDK 2
 ./internal/region TestOriginalMaterialPublicationNamesMatchActualProducer 2
-./internal/region TestOriginalMaterialPublicationUsesProtectedV2Policy 108
+./internal/region TestOriginalMaterialPublicationUsesProtectedV2Policy 171 # observed full-Fast scheduling cost; interrupted values are lower bounds
 ./internal/region TestOriginalProviderCheckpointSDK 3
-./internal/region TestOriginalSourceActorOwnPrincipalSDKStopsAtRunningBinary 68
-./internal/region TestOriginalSourceActorRequiresCompleteSignedOriginalRecord 65
-./internal/region TestOriginalStartupActorCannotBypassRunningBinarySDK 103
+./internal/region TestOriginalSourceActorOwnPrincipalSDKStopsAtRunningBinary 130 # observed full-Fast scheduling cost; interrupted values are lower bounds
+./internal/region TestOriginalSourceActorRequiresCompleteSignedOriginalRecord 98 # observed full-Fast scheduling cost; interrupted values are lower bounds
+./internal/region TestOriginalStartupActorCannotBypassRunningBinarySDK 156 # observed full-Fast scheduling cost; interrupted values are lower bounds
 ./internal/region TestOriginalStartupLedgerSDKExactExternalSeedAndRestart 137 # interrupted lower bound
-./internal/region TestOriginalStartupLedgerSDKPreservesOrdinarySchema1 112
-./internal/region TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges 271 # focused CPU profile: 270.60s on dev
-./internal/region TestOriginalStartupTrustSDKCancellationHoldsAtIAMBoundary 69 # interrupted lower bound
+./internal/region TestOriginalStartupLedgerSDKPreservesOrdinarySchema1 217 # observed full-Fast scheduling cost; interrupted values are lower bounds
+./internal/region TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges 271 # observed full-Fast scheduling cost; interrupted values are lower bounds
+./internal/region TestOriginalStartupTrustSDKCancellationHoldsAtIAMBoundary 189 # observed full-Fast scheduling cost; interrupted values are lower bounds
 ./internal/region TestSchema3FullGrantRefusalsReachRoutingConsumers 2
 ./internal/region TestSchema3GenericReachabilitySignedSDK 2
 ./internal/release/cli TestProductionEvidenceReleaseTransport 2
@@ -271,8 +271,8 @@
 ./internal/swarmruntime TestWorkerBootstrapIntegration 3
 ./internal/terrabase TestCollectWANLoopbackBoundsAndNoRedirect 3
 ./scripts TestDashboardNetbirdCheck 67
-./scripts/ci/racetest TestRaceScheduler 25 # interrupted lower bound; avoid a late scheduler tail
-./scripts/ci/racetest TestRaceSchedulerReapsShardsWaitNNoLongerReports 10
+./scripts/ci/racetest TestRaceScheduler 90 # observed full-Fast scheduling cost; interrupted values are lower bounds
+./scripts/ci/racetest TestRaceSchedulerReapsShardsWaitNNoLongerReports 20 # observed full-Fast scheduling cost; interrupted values are lower bounds
 ./tests/deploy TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex 75
 ./tests/deploy TestOfflineDeploymentMaterialNeverBaked 75
 ./tests/deploy TestOfflineInstallsSelfUpdateEnabled 75
@@ -307,4 +307,4 @@
 ./tests/imagequalification/principal TestSDKUnknownDeleteRecoveryRetainsOtherResources 8
 ./tests/integration TestRegionalAuthorityFailoverAndQuorum 17
 ./tests/runtime_priority TestD15PublisherReadback 2
-./internal/region TestOriginalStartupLedgerSDKRejectsSchemaAndBirthChanges 115 # interrupted lower bound; start before cheap cases
+./internal/region TestOriginalStartupLedgerSDKRejectsSchemaAndBirthChanges 162 # observed full-Fast scheduling cost; interrupted values are lower bounds
