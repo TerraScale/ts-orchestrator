@@ -85,7 +85,7 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 	} else {
 		next = *previous
 	}
-	if repository(next.Image) != repository(image) {
+	if repository(next.Image) != repository(image) && !dashboardPackageCutover(service, next.Image, image, deployment) {
 		return nil, fmt.Errorf("%s runs %s; a release may change only its digest", service, repository(next.Image))
 	}
 	next.Image = image
@@ -132,6 +132,15 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 		return append(rows, back...), errors.Join(failed, fmt.Errorf("rollback to %s: %w", target, err))
 	}
 	return append(rows, back...), errors.Join(failed, errors.New("rolled back to "+target))
+}
+
+// dashboardPackageCutover admits only the signed monorepo dashboard move.
+// Unsigned operations and every other package change retain the digest-only boundary.
+func dashboardPackageCutover(service, current, next string, deployment *Deployment) bool {
+	return service == "ts-dashboard" && deployment != nil &&
+		deployment.Repository == "TerraScale/terrascale" && deployment.Image == next &&
+		repository(current) == "ghcr.io/terrascale/ts-dashboard" &&
+		repository(next) == "ghcr.io/terrascale/terrascale-dashboard"
 }
 
 // repository is image without its digest.

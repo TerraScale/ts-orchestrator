@@ -477,7 +477,7 @@ func TestAppValidation(t *testing.T) {
 		}
 	}
 	retired := i.sign(t, with(with(goodClaims(now), "repository", owner+"/ts-dashboard"), "job_workflow_ref", owner+"/ts-dashboard/.github/workflows/images-ghcr.yml@"+mainRef))
-	if _, err := h.validateApp(context.Background(), AppRelease{Service: "ts-dashboard", Image: image("ts-dashboard"), Token: retired}); err == nil {
+	if _, err := h.validateApp(context.Background(), AppRelease{Service: "ts-dashboard", Image: image("terrascale-dashboard"), Token: retired}); err == nil {
 		t.Fatal("retired standalone workflow released dashboard")
 	}
 	// An app workflow's token cannot push a ts-orch release even for this repository.

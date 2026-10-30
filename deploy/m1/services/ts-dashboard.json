@@ -1,6 +1,6 @@
 {
   "name": "ts-dashboard",
-  "image": "ghcr.io/terrascale/ts-dashboard@sha256:923abba775a790bdacdb5806b99d4b42d6a25f1c158c1305a98ddc3f604007a9",
+  "image": "ghcr.io/terrascale/terrascale-dashboard@sha256:55b3f96fe46dbe1e21324a1175dcc5bfad201bfdd1b09802354ec0c3c4ab647f",
   "env": {
     "ASPNETCORE_URLS": "http://127.0.0.1:${PORT}",
     "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "/tmp",
