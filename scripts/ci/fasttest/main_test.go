@@ -336,6 +336,9 @@ func TestCompiledShardHelper(t *testing.T) {
 	if err != nil || dir != want || !testing.Short() || os.Getenv("GOMAXPROCS") != "2" || os.Getenv("PATH") != os.Getenv("FAST_COMPILED_SEARCH_PATH") {
 		t.Fatalf("compiled shard context: dir=%q err=%v short=%v CPU=%q", dir, err, testing.Short(), os.Getenv("GOMAXPROCS"))
 	}
+	if _, ok := t.Deadline(); !ok {
+		t.Fatal("compiled shard lost Go test's default timeout")
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)

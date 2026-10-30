@@ -398,7 +398,7 @@ func executeBinary(ctx context.Context, goCommand []string, s shard, directory s
 		// executable. Launch it ourselves so tests and helpers retain Go test's
 		// signal disposition, and convert only the resulting output stream.
 		source = command(ctx, []string{binary.Path},
-			"-test.paniconexit0", "-test.v=test2json", "-test.short", "-test.count=1", "-test.parallel=2", "-test.cpu=2", "-test.run", expression)
+			"-test.paniconexit0", "-test.v=test2json", "-test.timeout=10m", "-test.short", "-test.count=1", "-test.parallel=2", "-test.cpu=2", "-test.run", expression)
 		source.Dir = binary.Dir
 		source.Env = append(source.Env, "PATH="+binary.SearchPath)
 		source.Stdout, source.Stderr = writer, writer
