@@ -25,7 +25,7 @@ BASELINES = (
         "github.com/nats-io/nats-server/v2", "v2.15.0", "third_party/nats-server",
         "eb763679aa3c24a40dcd3012aa046ad1996d851c",
         "third_party/nats-server/README.terrascale.md",
-        "0b6bb5e0fd6669ddda19c22fe8e209f5399b81fe227edc8b7145a0d7b8cd3027",
+        "6f02cf8767edaf4ca247a34bfd8ae2ccb2dae5143a5f7725c340913507f5c9df",
     ),
     (
         "github.com/oracle/oci-go-sdk/v65", "v65.126.0", "third_party/oci-go-sdk",

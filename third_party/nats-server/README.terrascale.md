@@ -43,10 +43,16 @@ The public bridge pins its cell account on every CONNECT. These constrained
 connections always use native authentication.
 Root's internal system handles retain the original InProcessConn API.
 
+`server/stream.go` retains the account and streams parent directories when a
+stream is deleted. Asynchronous empty-parent removal could race immediate
+stream recreation's `MkdirAll`. Stream data deletion and account cleanup are
+unchanged. The existing root-resource delete/recreate authority regression
+passed 100 executions across five concurrent groups after this fix.
+
 Compare this directory with the upstream `v2.15.0` Go module archive before
 upgrading. Apart from this README and the TerraScale regression test,
 `server/server.go`, `server/accounts.go`, `server/leafnode.go`,
-`server/route.go`, `server/events.go`, `server/client.go` and `server/auth.go`
+`server/route.go`, `server/events.go`, `server/client.go`, `server/auth.go` and `server/stream.go`
 are the changed upstream files. An upgrade must pass the route-start, absent-client-listener, bounded
 shutdown, R3 formation, and real JWT bridge caller regressions before replacing
 this pinned copy, including initial and repeated CONNECT identity restrictions.
