@@ -57,7 +57,7 @@ func (d *Deployment) Accepts(next *Deployment) error {
 	}
 	floor, _ := strconv.ParseUint(d.RunID, 10, 64)
 	run, _ := strconv.ParseUint(next.RunID, 10, 64)
-	if next.Repository != d.Repository {
+	if next.Repository != d.Repository && (!handsOff(d, next) || run <= floor) {
 		return errors.New("deployment belongs to another repository")
 	}
 	if run < floor {
@@ -67,6 +67,16 @@ func (d *Deployment) Accepts(next *Deployment) error {
 		return errors.New("deployment changes an already approved run; release from a newer signed run")
 	}
 	return nil
+}
+
+// handsOff moves ts-dashboard's signed authority one way to the monorepo,
+// whose images-ghcr.yml now holds its release trust (ed05cb344). Only a
+// strictly newer run of the same image hands off; the old repository never
+// regains it, and every other repository change stays refused.
+func handsOff(floor, next *Deployment) bool {
+	const image = "ghcr.io/terrascale/ts-dashboard@"
+	return floor.Repository == "TerraScale/ts-dashboard" && next.Repository == "TerraScale/terrascale" &&
+		strings.HasPrefix(floor.Image, image) && strings.HasPrefix(next.Image, image)
 }
 
 const (
