@@ -28,7 +28,7 @@ type app struct{ service, repo, workflow, job string }
 var apps = []app{
 	{"terrabase", "terrascale", "ci.yml", "main (terrabase)"},
 	{"ts-auth", "terrascale", "ci.yml", "main (auth)"},
-	{"ts-dashboard", "ts-dashboard", "images-ghcr.yml", "test"},
+	{"ts-dashboard", "terrascale", "images-ghcr.yml", "Publish and release"},
 }
 
 // held services are released by hand for now: reported, never a failure.
@@ -167,7 +167,13 @@ func (a api) release(ctx context.Context, x app, now time.Time) ([]string, error
 			HeadSHA string `json:"head_sha"`
 		} `json:"workflow_runs"`
 	}
-	url := fmt.Sprintf("%s%s/actions/workflows/%s/runs?branch=main&event=push&per_page=20", forge, x.repo, x.workflow)
+	// Dashboard releases also originate from qualified manual and CI-completion
+	// runs. Their successful publication step proves an image exists to release.
+	query := "?branch=main&event=push&per_page=20"
+	if x.service == "ts-dashboard" {
+		query = "?branch=main&per_page=20"
+	}
+	url := fmt.Sprintf("%s%s/actions/workflows/%s/runs%s", forge, x.repo, x.workflow, query)
 	if err := a.request(ctx, "GET", url, a.readToken, nil, &runs); err != nil {
 		return nil, err
 	}

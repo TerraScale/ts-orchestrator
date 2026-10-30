@@ -118,7 +118,8 @@ when a main build was published but not released within 30 minutes:
   succeeded, or a newer one did; a skipped release-push with a green `test`
   check had nothing to publish. A red main that skips release-push counts.
 - terrabase, ts-auth (terrascale `ci.yml` jobs `main (terrabase)`, `main (auth)`)
-  and ts-dashboard (`images-ghcr.yml` job `test`): the oldest image published
+  and ts-dashboard (terrascale `images-ghcr.yml` job `Publish and release`,
+  including qualified `workflow_dispatch` and `workflow_run` releases): the oldest image published
   since the last successful `Release to every region` step starts the clock;
   newer builds never reset it.
 - Services in the code map `held` (today terrabase, until the batch-2 wipe)

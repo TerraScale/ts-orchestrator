@@ -86,10 +86,14 @@ func TestReleaseReportsAnUnreleasedImageAfterTheLimitUnlessHeld(t *testing.T) {
 		if release != "" {
 			steps += `,{"name":"Release to every region","status":"completed","conclusion":"` + release + `"}`
 		}
+		query := "?branch=main&event=push&per_page=20"
+		if service == "ts-dashboard" {
+			query = "?branch=main&per_page=20"
+		}
 		return map[string]string{
-			x.repo + "/actions/workflows/" + x.workflow + "/runs?branch=main&event=push&per_page=20": `{"workflow_runs":[{"id":2,"head_sha":"new"},{"id":1,"head_sha":"old"}]}`,
-			x.repo + "/actions/runs/2/jobs?per_page=50":                                              `{"jobs":[{"name":"` + job + `","steps":[` + steps + `]}]}`,
-			x.repo + "/actions/runs/1/jobs?per_page=50":                                              `{"jobs":[{"name":"` + x.job + `","steps":[{"name":"Run docker/build-push-action@x","conclusion":"success","completed_at":"` + now.Add(-3*time.Hour).Format(time.RFC3339) + `"},{"name":"Release to every region","conclusion":"` + oldRelease + `"}]}]}`,
+			x.repo + "/actions/workflows/" + x.workflow + "/runs" + query: `{"workflow_runs":[{"id":2,"head_sha":"new"},{"id":1,"head_sha":"old"}]}`,
+			x.repo + "/actions/runs/2/jobs?per_page=50":                   `{"jobs":[{"name":"` + job + `","steps":[` + steps + `]}]}`,
+			x.repo + "/actions/runs/1/jobs?per_page=50":                   `{"jobs":[{"name":"` + x.job + `","steps":[{"name":"Run docker/build-push-action@x","conclusion":"success","completed_at":"` + now.Add(-3*time.Hour).Format(time.RFC3339) + `"},{"name":"Release to every region","conclusion":"` + oldRelease + `"}]}]}`,
 		}
 	}
 	for name, c := range map[string]struct {
@@ -102,7 +106,7 @@ func TestReleaseReportsAnUnreleasedImageAfterTheLimitUnlessHeld(t *testing.T) {
 		"young":                   {"ts-auth", "main (auth)", "success", "failure", time.Minute, false, "success"},
 		"young on an old backlog": {"ts-auth", "main (auth)", "success", "failure", time.Minute, true, "failure"},
 		"overdue":                 {"ts-auth", "main (auth)", "success", "failure", time.Hour, true, "success"},
-		"no release step":         {"ts-dashboard", "test", "success", "", time.Hour, true, "success"},
+		"no release step":         {"ts-dashboard", "Publish and release", "success", "", time.Hour, true, "success"},
 		"held":                    {"terrabase", "main (terrabase)", "success", "", time.Hour, false, "success"},
 		"newest built no image":   {"ts-auth", "main (auth)", "skipped", "", time.Hour, false, "success"},
 		"newest skipped the area": {"ts-auth", "main (terrabase)", "success", "", time.Hour, false, "success"},
@@ -242,6 +246,35 @@ func TestHistoryReadRetriesAreBoundedAndWritesAreNotRepeated(t *testing.T) {
 			}
 			if err == nil || calls != want || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "secret") {
 				t.Fatalf("calls=%d want=%d err=%v", calls, want, err)
+			}
+		})
+	}
+}
+
+func TestDashboardGuardTracksMonorepoDispatchAndWorkflowRunPublications(t *testing.T) {
+	var dashboard app
+	for _, candidate := range apps {
+		if candidate.service == "ts-dashboard" {
+			dashboard = candidate
+		}
+	}
+	if dashboard.repo != "terrascale" || dashboard.workflow != "images-ghcr.yml" || dashboard.job != "Publish and release" {
+		t.Fatalf("dashboard source does not match the production workflow: %+v", dashboard)
+	}
+	for _, event := range []string{"workflow_dispatch", "workflow_run"} {
+		t.Run(event, func(t *testing.T) {
+			now := time.Now().UTC()
+			routes := map[string]string{
+				"terrascale/actions/workflows/images-ghcr.yml/runs?branch=main&per_page=20": fmt.Sprintf(`{"workflow_runs":[{"id":41057814691,"event":%q,"head_sha":"qualified-main"}]}`, event),
+				"terrascale/actions/runs/41057814691/jobs?per_page=50":                      fmt.Sprintf(`{"jobs":[{"name":"Publish and release","steps":[{"name":"Run docker/build-push-action@v6","conclusion":"success","completed_at":%q},{"name":"Release to every region","conclusion":"failure"}]}]}`, now.Add(-time.Hour).Format(time.RFC3339)),
+			}
+			findings, err := serve(t, routes).release(t.Context(), dashboard, now)
+			if err != nil || len(findings) != 1 || !strings.Contains(findings[0], "qualified-main") {
+				t.Fatalf("%s publication disappeared: %v %v", event, findings, err)
+			}
+			routes["terrascale/actions/runs/41057814691/jobs?per_page=50"] = strings.ReplaceAll(routes["terrascale/actions/runs/41057814691/jobs?per_page=50"], `"conclusion":"failure"`, `"conclusion":"success"`)
+			if findings, err := serve(t, routes).release(t.Context(), dashboard, now); err != nil || len(findings) != 0 {
+				t.Fatalf("completed %s release remained overdue: %v %v", event, findings, err)
 			}
 		})
 	}
