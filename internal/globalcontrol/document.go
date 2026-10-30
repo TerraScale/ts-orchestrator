@@ -99,6 +99,8 @@ func (r *Reader) Follow(ctx context.Context, kind Kind, cell string, recheck tim
 	ticker := time.NewTicker(recheck)
 	defer ticker.Stop()
 	var failure string
+	var offeredSequence uint64
+	force := true
 	for {
 		var watchErr error
 		if watch == nil {
@@ -107,7 +109,13 @@ func (r *Reader) Follow(ctx context.Context, kind Kind, cell string, recheck tim
 		document, err := r.Document(ctx, kind, cell)
 		switch {
 		case err == nil:
-			apply(ctx, document)
+			// The watch's initial delivery can arrive after the initial read
+			// (or a later read already covering it). Only actual changes or an
+			// explicit periodic recheck should repeat an offer.
+			if force || document.Sequence != offeredSequence {
+				apply(ctx, document)
+				offeredSequence = document.Sequence
+			}
 		case errors.Is(err, ErrNotFound):
 			err = nil
 		}
@@ -123,7 +131,9 @@ func (r *Reader) Follow(ctx context.Context, kind Kind, cell string, recheck tim
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-changed:
+			force = false
 		case <-ticker.C:
+			force = true
 		}
 	}
 }
