@@ -49,10 +49,22 @@ func TestReleasePushJob(t *testing.T) {
 		t.Fatal("id-token: write must be granted to the release-push job only, with contents: read")
 	}
 	requireText(t, build, "    outputs:\n      publication: ${{ steps.inputs.outputs.publication }}\n")
-	// The merge queue qualifies main before the release is built and pushed.
+	// Main qualifies its own Fast area before publishing; scheduled Slow
+	// cannot hold a release on the push path.
 	requireText(t, push, "    needs: [build]\n")
 	_, buildJob, _ := strings.Cut(build, "\n  build:\n")
-	requireText(t, buildJob, "    needs: [race]\n")
+	forbidText(t, buildJob, "    needs: [race]\n")
+	requireText(t, buildJob, "Verify exact-commit dev-host Fast evidence")
+	requireText(t, buildJob, "if: steps.fast-proof.outputs.verified != 'true'")
+	qualify := strings.Index(buildJob, "Qualify this revision with Fast tests")
+	publication := strings.Index(buildJob, "Build and verify this revision's static release binaries")
+	if qualify < 0 || publication <= qualify {
+		t.Fatal("Fast qualification must precede release publication")
+	}
+	forbidText(t, ci, "\n  race:\n")
+	slow := workflowText(t, ".github/workflows/slow.yml")
+	requireText(t, slow, "\n  schedule:\n")
+	forbidText(t, slow, "\n  push:\n")
 	forbidText(t, buildJob, "dispatch-image.sh")
 	requireText(t, push, "    if: ${{ always() && needs.build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.publication == 'required' }}\n")
 	if steps := matches(push, `(?m)^      - name: (.+)$`); !reflect.DeepEqual(steps, []string{
@@ -75,7 +87,7 @@ func TestRequiredCheckIdentity(t *testing.T) {
 	if !found {
 		t.Fatal("missing PR verification job")
 	}
-	change, _, _ = strings.Cut(change, "\n  race:\n")
+	change, _, _ = strings.Cut(change, "\n  build:\n")
 	requireText(t, change, "    if: ${{ github.event_name == 'pull_request' }}\n")
 	requireText(t, change, "    name: ${{ github.event_name == 'pull_request' && 'test' || 'verify/change' }}\n")
 	requireText(t, change, "      - uses: ./.github/actions/verify\n        if: ${{ steps.changes.outputs.checks == 'true' }}")
@@ -90,10 +102,10 @@ func TestRequiredCheckIdentity(t *testing.T) {
 		t.Fatal("missing non-PR aggregate job")
 	}
 	aggregate, _, _ = strings.Cut(aggregate, "\n  flaky-report:\n")
-	requireText(t, aggregate, "    name: ${{ github.event_name == 'pull_request' && 'test/summary' || 'test' }}\n")
-	requireText(t, aggregate, "    if: ${{ always() && github.event_name != 'pull_request' }}\n")
-	requireText(t, aggregate, "    needs: [change, race, build]\n")
-	requireText(t, aggregate, `test "$RACE" = success`)
-	requireText(t, aggregate, `test "$BUILD" = success || test "$BUILD" = skipped`)
+	requireText(t, aggregate, "    if: ${{ always() }}\n")
+	requireText(t, aggregate, "    needs: [change, build]\n")
+	requireText(t, aggregate, `test "$CHANGE" = success`)
+	requireText(t, aggregate, `test "$BUILD" = success`)
+	forbidText(t, aggregate, "needs.race")
 	forbidText(t, aggregate, "continue-on-error:")
 }
