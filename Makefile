@@ -58,8 +58,9 @@ generate-check:
 test:
 	$(GO) test ./...
 
-# Keep the whole package graph visible to ts-ship's prebuild planner. Its
-# cached warm-up runs outside the Fast execution clock.
+# Keep this compile-only command and the runner as the exact two commands
+# of test-fast. ts-ship executes them in separate build/test clocks, without
+# repeating the compile prerequisite inside the Fast execution clock.
 test-fast-build:
 	$(GO) test -short -run '^$$' ./...
 
