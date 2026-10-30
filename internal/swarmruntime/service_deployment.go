@@ -91,12 +91,18 @@ func dashboardImage(image string) bool {
 		strings.HasPrefix(image, "ghcr.io/terrascale/terrascale-dashboard@")
 }
 
+// DeploymentImageBelongsToService binds retained and current signed images to a service.
+// Dashboard retains its old package only for persisted floors and rollback state.
+func DeploymentImageBelongsToService(name, image string) bool {
+	return strings.HasPrefix(image, "ghcr.io/terrascale/"+name+"@") || name == "ts-dashboard" && dashboardImage(image)
+}
+
 func validateServiceDeployment(name string, deployment, floor *Deployment) error {
 	for _, d := range []*Deployment{deployment, floor} {
 		if err := d.Validate(); err != nil {
 			return err
 		}
-		if d != nil && !(strings.HasPrefix(d.Image, "ghcr.io/terrascale/"+name+"@") || name == "ts-dashboard" && dashboardImage(d.Image)) {
+		if d != nil && !DeploymentImageBelongsToService(name, d.Image) {
 			return errors.New("deployment image does not belong to the service")
 		}
 	}
