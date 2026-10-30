@@ -23,6 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/jwt/v2"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -466,6 +467,7 @@ func (f *originalStartupLedgerFixture) signRecord(t *testing.T, intent bootstrap
 }
 
 func TestOriginalStartupLedgerSDKExactExternalSeedAndRestart(t *testing.T) {
+	tier.Integration(t)
 	f := newOriginalStartupLedgerFixture(t)
 	intent := f.intent(t)
 	scope := bootstrap.BootstrapScope{DeploymentID: intent.DeploymentID, Cell: intent.Cell, Slot: intent.Slot}

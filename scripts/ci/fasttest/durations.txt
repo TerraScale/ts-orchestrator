@@ -237,7 +237,6 @@
 ./internal/region TestOriginalStartupActorCannotBypassRunningBinarySDK 103
 ./internal/region TestOriginalStartupLedgerSDKExactExternalSeedAndRestart 137 # interrupted lower bound
 ./internal/region TestOriginalStartupLedgerSDKPreservesOrdinarySchema1 112
-./internal/region TestOriginalStartupLedgerSDKRejectsSchemaAndBirthChanges 21 # interrupted lower bound
 ./internal/region TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges 46 # interrupted lower bound
 ./internal/region TestOriginalStartupTrustSDKCancellationHoldsAtIAMBoundary 69 # interrupted lower bound
 ./internal/region TestSchema3FullGrantRefusalsReachRoutingConsumers 2
@@ -307,3 +306,4 @@
 ./tests/imagequalification/principal TestSDKUnknownDeleteRecoveryRetainsOtherResources 8
 ./tests/integration TestRegionalAuthorityFailoverAndQuorum 17
 ./tests/runtime_priority TestD15PublisherReadback 2
+./internal/region TestOriginalStartupLedgerSDKRejectsSchemaAndBirthChanges 115 # interrupted lower bound; start before cheap cases
