@@ -371,6 +371,9 @@ func cleanupContainer(ctx context.Context, jobID, name string) (resultErr error)
 }
 
 func container(ctx context.Context, job Job, client, name string, workload []byte, secrets map[string]string, emit func([]byte) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		return err
@@ -382,11 +385,12 @@ func container(ctx context.Context, job Job, client, name string, workload []byt
 	// Finish establishing ownership before cancellation can stop execution. Killing
 	// podman run during creation can leave a container without a readable label.
 	createCtx, stopCreate := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
-	defer stopCreate()
 	create := exec.CommandContext(createCtx, "podman", "create", "--pull=never", "--name", name, "--label", "ts-bench-job="+job.ID, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=256", "--cpus=1", "--memory=1g", "--tmpfs", "/tmp:rw,size=256m", "--stop-signal=SIGINT", "--stop-timeout=30", fmt.Sprintf("--timeout=%d", int(clientLifetime/time.Second)), "--env-file=/proc/self/fd/3", "-i", job.Images[client], "run", "--workload", "/dev/stdin", "--region", job.Region, "--out", "/dev/stdout")
 	create.ExtraFiles = []*os.File{reader}
 	create.Stderr = io.Discard
-	if err := create.Run(); err != nil {
+	createErr := create.Run()
+	stopCreate()
+	if createErr != nil {
 		return errors.New("client container could not be created")
 	}
 	command := exec.CommandContext(ctx, "podman", "start", "--attach", "--interactive", name)
