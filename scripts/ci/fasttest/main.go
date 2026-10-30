@@ -180,6 +180,9 @@ func plan(packages map[string][]string, hints []estimate) []shard {
 
 func command(ctx context.Context, goCommand []string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, goCommand[0], append(slices.Clone(goCommand[1:]), args...)...)
+	// -cpu bounds the test binary, but not the Go tool or re-executed helpers.
+	// Carry the same budget through the whole shard process tree.
+	cmd.Env = append(os.Environ(), "GOMAXPROCS=2")
 	// Cancellation stops the Go tool and its test binary/helper descendants.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }

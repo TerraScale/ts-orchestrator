@@ -23,6 +23,8 @@ type invocation struct {
 	Args       []string
 	Start, End time.Time
 	Cases      []string
+	CPU        string
+	HelperCPU  string
 }
 
 func fixturePackages() map[string][]string {
@@ -46,6 +48,7 @@ func fixturePackages() map[string][]string {
 // arbitrary helper command, as app/deploy TestMain binaries must continue to do.
 func TestMain(m *testing.M) {
 	if len(os.Args) == 2 && os.Args[1] == "--runtime-helper" {
+		fmt.Print(os.Getenv("GOMAXPROCS"))
 		os.Exit(0)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--fake-go" {
@@ -85,7 +88,7 @@ func fakeGo(args []string) {
 		}
 		return
 	}
-	call := invocation{Args: args, Start: time.Now()}
+	call := invocation{Args: args, Start: time.Now(), CPU: os.Getenv("GOMAXPROCS")}
 	pkg := args[len(args)-1]
 	pattern := args[slices.Index(args, "-run")+1]
 	filter := regexp.MustCompile(pattern)
@@ -106,9 +109,11 @@ func fakeGo(args []string) {
 		}
 		status := "pass"
 		if name == "TestUnknown" {
-			if err := exec.Command(os.Args[0], "--runtime-helper").Run(); err != nil {
+			output, err := exec.Command(os.Args[0], "--runtime-helper").Output()
+			if err != nil {
 				os.Exit(2)
 			}
+			call.HelperCPU = string(output)
 			if mode == "test-failure" || mode == "masked-failure" {
 				status, failure = "fail", true
 			}
@@ -184,6 +189,7 @@ func fixtureRun(t *testing.T, mode string) ([]invocation, []result, error) {
 }
 
 func TestFullShortTierCoverageAndConcurrency(t *testing.T) {
+	t.Setenv("GOMAXPROCS", "17")
 	calls, receipts, err := fixtureRun(t, "")
 	if err != nil {
 		t.Fatal(err)
@@ -194,6 +200,9 @@ func TestFullShortTierCoverageAndConcurrency(t *testing.T) {
 		delta int
 	}
 	for _, call := range calls {
+		if call.CPU != "2" || slices.Contains(call.Cases, fixtureModule+"/unknown/TestUnknown") && call.HelperCPU != "2" {
+			t.Fatalf("shard/helper escaped CPU budget: %+v", call)
+		}
 		for _, name := range call.Cases {
 			seen[name]++
 		}
