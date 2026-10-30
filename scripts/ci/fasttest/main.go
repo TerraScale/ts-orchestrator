@@ -22,7 +22,7 @@ import (
 	"time"
 )
 
-const jobs = 12
+const jobs = 24
 const packageShards = 6
 
 type event struct {
@@ -124,6 +124,12 @@ func plan(packages map[string][]string, hints []estimate) []shard {
 		count := 1
 		if split {
 			count = min(packageShards, max(1, len(tests)))
+			// Region's SDK cases dominate the measured serial tail. Give the
+			// expensive cases independent slots instead of combining several
+			// of them behind one long-running case.
+			if strings.HasSuffix(pkg, "/internal/region") {
+				count = min(jobs, max(1, len(tests)))
+			}
 		}
 		bins := make([]shard, count)
 		for i := range bins {
@@ -516,7 +522,7 @@ func main() {
 	if len(goCommand) == 0 {
 		goCommand = []string{"go"}
 	}
-	data, err := os.ReadFile("scripts/ci/racetest/race-durations.txt")
+	data, err := os.ReadFile("scripts/ci/fasttest/durations.txt")
 	if err == nil {
 		var directory string
 		directory, err = os.MkdirTemp("", "fast-test.")
