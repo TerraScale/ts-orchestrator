@@ -223,15 +223,6 @@ jobs:
   test:
     if: ${{ always() }}
     needs: [change, build]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 1
-    steps:
-      - env:
-          CHANGE: ${{ needs.change.result }}
-          BUILD: ${{ needs.build.result }}
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            test "$CHANGE" = success
-          else
-            test "$BUILD" = success
-          fi
+    uses: TerraScale/.github/.github/workflows/result.yml@3a54c0184eacdc45466c1123bca67a99db62e91c
+    with:
+      result: ${{ github.event_name == 'pull_request' && needs.change.result || needs.build.result }}
