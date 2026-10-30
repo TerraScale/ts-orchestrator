@@ -245,7 +245,13 @@ func TestQueuePendingAndReceiptsSurviveOwningBrokerLoss(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			after, err := retained.Get(t.Context(), "completed")
+			// Reads fail with no responders until the survivors elect a leader for
+			// the receipt bucket, so wait until the receipt is served again.
+			var after jetstream.KeyValueEntry
+			waitTransport(t, func() bool {
+				after, err = retained.Get(t.Context(), "completed")
+				return err == nil
+			})
 			digest := sha256.Sum256(payload)
 			if err != nil || after.Revision() != before.Revision() || !bytes.Equal(after.Value(), digest[:]) {
 				t.Fatalf("receipt did not survive owning broker loss: %v", err)
