@@ -25,7 +25,7 @@
 - Runtime secrets: OCI Vault in gru via instance principal. CI secrets: GitHub Actions. Dev secrets: `ts-dev-secret get <name> | <consumer>` or `ts-dev-secret env <name> -- <cmd>`.
 - Never expose secret values in chat, arguments, history, logs, git or commits. Use stdin or a 0600 file. Credential installs are one-command handoffs the user runs.
 - Ask first before new paid capacity, security permissions or credentials.
-- ts-auth and ts-dashboard store data in TerraBase through ts-dotnet; keep the SDK current with TerraBase's API.
+- ts-auth uses sdk/dotnet to reach TerraBase. The dashboard reaches TerraBase over MagicOnion through the shared contracts library. The SDKs track TerraBase's public API.
 - Outside the monorepo, never download or run TerraBase binaries in tests, CI or helpers; use HTTP fakes or contract fixtures. Live ts-status API monitoring is allowed. Never publish TerraBase binaries.
 - Use GitHub and `gh`; no polling loops. Never revive ts-reviewer or ts-cos.
 
