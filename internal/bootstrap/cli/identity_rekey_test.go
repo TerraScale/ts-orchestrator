@@ -446,16 +446,10 @@ func identityRekeyTestBroker(t *testing.T) (*natscell.Runtime, jetstream.Stream,
 	}
 	path := func(name string) string { return filepath.Join(directory, name) }
 	tlsFiles := natscell.TLSFiles{CAFile: path("ca.pem"), CertFile: path("controller-a-tls-cert.pem"), KeyFile: path("controller-a-tls-key.pem")}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
-	}
+	// Port -1 has the broker bind a free port itself. A port picked here and
+	// closed again could be taken by another socket before the broker binds it.
 	cfg := natscell.Config{Cell: "gru", Instance: "controller-a", Replicas: 1, ClientRole: "controller", CredentialsFile: path("controller-a.creds"), TLS: tlsFiles,
-		Embedded: &natscell.Embedded{StoreDir: t.TempDir(), Host: "127.0.0.1", Port: port, TLS: tlsFiles, RouteTLS: tlsFiles,
+		Embedded: &natscell.Embedded{StoreDir: t.TempDir(), Host: "127.0.0.1", Port: -1, TLS: tlsFiles, RouteTLS: tlsFiles,
 			OperatorJWTFile: path("operator.jwt"), SystemJWTFile: path("system.jwt"), CellJWTFile: path("cell.jwt"),
 			SystemCredentialsFile: path("system.creds"), TicketPublicKeyFile: path("ticket.pub"), BrokerIDs: []string{"controller-a"}}}
 	runtime, err := natscell.Start(t.Context(), cfg)
