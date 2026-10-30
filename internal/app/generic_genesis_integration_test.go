@@ -32,6 +32,9 @@ import (
 // SwarmKit control store are real. Executor and recipient probe are simulated;
 // this does not qualify native execution, foundation transport or UNIT retirement.
 func TestGenericGenesisOwnerAndPersistentFloorIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("generic genesis integration runs in the Slow suite")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 180*time.Second)
 	defer cancel()
 	signer := newFunctionPublicationSigner(t)

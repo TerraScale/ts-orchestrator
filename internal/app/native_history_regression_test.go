@@ -248,6 +248,9 @@ func TestNativeDeadlineExemptsCertifiedHealingAndIndependentRecovery(t *testing.
 }
 
 func TestNativeNearLimitSignedProfilesTenSuccessesAndRecovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("near-limit native profile regression runs in the Slow suite")
+	}
 	f := newRetainedConsumerFixture(t)
 	profile := nativeRegressionProfile()
 	for i := range 8 {

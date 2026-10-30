@@ -207,6 +207,9 @@ func waitFor(t *testing.T, limit time.Duration, what string, try func() error) t
 }
 
 func TestMeshJetStreamQuorumSpansRegions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("multi-region JetStream integration runs in the Slow suite")
+	}
 	ctx := t.Context()
 	regions, started := startJetStreamRegions(t)
 	home := started[regions[0]].node
