@@ -140,8 +140,16 @@ func TestLoginExchangesTokenForSessionCookie(t *testing.T) {
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatal("invalid bearer bypassed by browser cookie")
 	}
+	// Flip the first random character: that always changes the digest. A
+	// fixed suffix can equal the token's own last characters and leave the
+	// cookie unchanged.
+	random := strings.LastIndexByte(cookie.Value, '.') + 1
+	flipped := "A"
+	if cookie.Value[random] == 'A' {
+		flipped = "B"
+	}
 	tampered := httptest.NewRequest(http.MethodGet, "/", nil)
-	tampered.AddCookie(&http.Cookie{Name: SessionCookieName, Value: cookie.Value[:len(cookie.Value)-2] + "AA"})
+	tampered.AddCookie(&http.Cookie{Name: SessionCookieName, Value: cookie.Value[:random] + flipped + cookie.Value[random+1:]})
 	recorder = httptest.NewRecorder()
 	server.ServeHTTP(recorder, tampered)
 	if recorder.Code != http.StatusUnauthorized {
