@@ -352,7 +352,7 @@ func TestPodmanHelper(t *testing.T) {
 	}
 	name := args[len(args)-1]
 	switch args[0] {
-	case "create":
+	case "create", "run":
 		label := ""
 		for i, arg := range args {
 			if arg == "--name" {
@@ -381,7 +381,10 @@ func TestPodmanHelper(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(state, name), []byte(label), 0600); err != nil {
 			os.Exit(2)
 		}
-		os.Exit(0)
+		if args[0] == "create" {
+			os.Exit(0)
+		}
+		fallthrough
 	case "start":
 		if os.Getenv("TS_761_PODMAN_MODE") == "creation-race" && strings.HasSuffix(name, "-go") {
 			peer := strings.TrimSuffix(name, "-go") + "-rust"
