@@ -64,3 +64,32 @@ func TestDeploymentAttemptOrdering(t *testing.T) {
 		}
 	}
 }
+
+func TestDashboardPackageHandoff(t *testing.T) {
+	old := &Deployment{Repository: "TerraScale/ts-dashboard", RunID: "200", Revision: strings.Repeat("a", 40), Image: "ghcr.io/terrascale/ts-dashboard@sha256:" + strings.Repeat("a", 64)}
+	next := &Deployment{Repository: "TerraScale/terrascale", RunID: "201", Revision: strings.Repeat("b", 40), Image: "ghcr.io/terrascale/terrascale-dashboard@sha256:" + strings.Repeat("b", 64)}
+	if err := old.Accepts(next); err != nil {
+		t.Fatalf("new package handoff: %v", err)
+	}
+	for _, d := range []*Deployment{old, next} {
+		if err := validateServiceDeployment("ts-dashboard", d, d); err != nil {
+			t.Fatal(err)
+		}
+		if err := validateServiceDeployment("ts-auth", d, d); err == nil {
+			t.Fatal("dashboard image accepted for auth")
+		}
+	}
+	if err := next.Accepts(old); err == nil {
+		t.Fatal("old repository regained authority")
+	}
+	older := *next
+	older.RunID = "199"
+	if err := old.Accepts(&older); err == nil {
+		t.Fatal("older run crossed repository floor")
+	}
+	unrelated := *next
+	unrelated.Image = "ghcr.io/terrascale/ts-auth@sha256:" + strings.Repeat("b", 64)
+	if err := old.Accepts(&unrelated); err == nil {
+		t.Fatal("another service crossed repository floor")
+	}
+}

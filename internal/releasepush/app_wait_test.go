@@ -93,7 +93,7 @@ func testOperationWait(t *testing.T, subject string) {
 		if subject == SubjectApply {
 			return json.Marshal(MeshRequest{Token: token, Spec: json.RawMessage(`{"name":"whoami"}`)})
 		}
-		return json.Marshal(AppRelease{Service: "ts-dashboard", Image: "ghcr.io/terrascale/ts-dashboard@sha256:" + strings.Repeat("a", 64), Token: token})
+		return json.Marshal(AppRelease{Service: "ts-dashboard", Image: "ghcr.io/terrascale/terrascale-dashboard@sha256:" + strings.Repeat("a", 64), Token: token})
 	})
 	if err != nil || reply.State != "done" || !strings.Contains(string(reply.Result), "passed") {
 		t.Fatalf("release lost across credential expiry/disconnect: %+v %v", reply, err)

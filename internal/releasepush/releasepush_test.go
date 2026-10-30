@@ -463,8 +463,13 @@ func TestAppValidation(t *testing.T) {
 	}
 	// Moving the dashboard workflow preserves its exact service boundary.
 	dashboard := i.sign(t, with(with(goodClaims(now), "repository", owner+"/terrascale"), "job_workflow_ref", owner+"/terrascale/.github/workflows/images-ghcr.yml@"+mainRef))
-	if _, err := h.validateApp(context.Background(), AppRelease{Service: "ts-dashboard", Image: image("ts-dashboard"), Token: dashboard}); err != nil {
+	if _, err := h.validateApp(context.Background(), AppRelease{Service: "ts-dashboard", Image: image("terrascale-dashboard"), Token: dashboard}); err != nil {
 		t.Fatalf("monorepo dashboard workflow rejected: %v", err)
+	}
+	for _, packageName := range []string{"ts-dashboard", "ts-auth", "terrascale-dashboard-extra"} {
+		if _, err := h.validateApp(t.Context(), AppRelease{Service: "ts-dashboard", Image: image(packageName), Token: dashboard}); err == nil {
+			t.Fatalf("dashboard accepted unrelated or retired package %s", packageName)
+		}
 	}
 	for _, service := range []string{"terrabase", "ts-auth", "app-canary"} {
 		if _, err := h.validateApp(context.Background(), AppRelease{Service: service, Image: image(service), Token: dashboard}); err == nil {

@@ -423,12 +423,16 @@ func (h *Handler) app(ctx context.Context, data []byte) Reply {
 	return h.appOperation(release, claims)
 }
 
-// validateApp admits only ghcr.io/terrascale/<service>@sha256:<digest> with a
-// token from a workflow appServices allows to release service.
+// validateApp binds each service to its GHCR package and requires a token
+// from a workflow appServices allows to release that service.
 func (h *Handler) validateApp(ctx context.Context, release AppRelease) (Claims, error) {
 	match := appImage.FindStringSubmatch(release.Image)
-	if match == nil || match[1] != release.Service {
-		return Claims{}, errors.New("image must be ghcr.io/terrascale/<service>@sha256:<64 hex>")
+	packageName := release.Service
+	if release.Service == "ts-dashboard" {
+		packageName = "terrascale-dashboard"
+	}
+	if match == nil || match[1] != packageName {
+		return Claims{}, errors.New("image must use the service GHCR package pinned by sha256 digest")
 	}
 	claims, err := h.Verifier.Verify(ctx, release.Token)
 	if err != nil {

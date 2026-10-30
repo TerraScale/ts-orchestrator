@@ -40,7 +40,7 @@ func TestAppOperationRefreshAndConcurrentPolls(t *testing.T) {
 	claims["exp"] = now.Add(5 * time.Minute).Unix()
 	fresh := i.sign(t, claims)
 	request := func(token string) []byte {
-		data, err := json.Marshal(AppRelease{Service: "ts-dashboard", Image: "ghcr.io/terrascale/ts-dashboard@sha256:" + strings.Repeat("a", 64), Token: token})
+		data, err := json.Marshal(AppRelease{Service: "ts-dashboard", Image: "ghcr.io/terrascale/terrascale-dashboard@sha256:" + strings.Repeat("a", 64), Token: token})
 		if err != nil {
 			t.Fatal(err)
 		}
