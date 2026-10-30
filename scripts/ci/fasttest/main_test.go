@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,7 +10,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -285,5 +288,48 @@ func TestFailuresAndActualCoverageAreFinal(t *testing.T) {
 				t.Fatalf("stopped remaining cases: calls=%d receipts=%d want=%d", len(calls), len(receipts), want)
 			}
 		})
+	}
+}
+
+func TestPlanRejectsMissingAndDuplicateCoverage(t *testing.T) {
+	packages := map[string][]string{"fixture/package": {"TestOne", "FuzzSeed"}, "fixture/empty": nil}
+	valid := []shard{{Package: "fixture/package", Tests: []string{"TestOne", "FuzzSeed"}}, {Package: "fixture/empty"}}
+	if err := validatePlan(packages, valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range [][]shard{
+		valid[:1],
+		{{Package: "fixture/package", Tests: []string{"TestOne"}}, {Package: "fixture/empty"}},
+		append(slices.Clone(valid), shard{Package: "fixture/package", Tests: []string{"TestOne"}}),
+		append(slices.Clone(valid), shard{Package: "fixture/unknown"}),
+		{{Package: "fixture/package", Tests: []string{"TestOne", "TestUnlisted"}}, {Package: "fixture/empty"}},
+	} {
+		if err := validatePlan(packages, invalid); err == nil {
+			t.Fatalf("invalid coverage accepted: %+v", invalid)
+		}
+	}
+}
+
+func TestCancellationReapsAnUnresponsiveShard(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("FAST_CONTRACT_STATE", directory)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	r := execute(ctx, []string{"sh", "-c", `trap '' TERM; printf '%s' "$$" > "$FAST_CONTRACT_STATE/held"; exec sleep 30`},
+		shard{Package: "fixture/package", Tests: []string{"TestHeld"}}, directory)
+	if ctx.Err() == nil || len(r.Problems) == 0 || time.Since(started) > 3*time.Second {
+		t.Fatalf("cancellation: context=%v problems=%v elapsed=%v", ctx.Err(), r.Problems, time.Since(started))
+	}
+	data, err := os.ReadFile(filepath.Join(directory, "held"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Kill(pid, 0); err != syscall.ESRCH {
+		t.Fatalf("cancelled shard %d still exists: %v", pid, err)
 	}
 }

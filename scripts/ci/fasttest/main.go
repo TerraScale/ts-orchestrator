@@ -172,6 +172,46 @@ func command(ctx context.Context, goCommand []string, args ...string) *exec.Cmd 
 	return cmd
 }
 
+func wait(ctx context.Context, cmd *exec.Cmd) error {
+	// The reader is closed on cancellation before this call. Kill the still
+	// owned process group before reaping its leader, including helpers which
+	// ignored the first termination signal.
+	if ctx.Err() != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	return cmd.Wait()
+}
+
+func validatePlan(packages map[string][]string, queue []shard) error {
+	seen := make(map[string]map[string]int)
+	for _, s := range queue {
+		tests, known := packages[s.Package]
+		if !known {
+			return fmt.Errorf("plan contains unknown package %s", s.Package)
+		}
+		if seen[s.Package] == nil {
+			seen[s.Package] = make(map[string]int)
+		}
+		for _, name := range s.Tests {
+			if !slices.Contains(tests, name) {
+				return fmt.Errorf("plan contains unlisted case %s/%s", s.Package, name)
+			}
+			seen[s.Package][name]++
+		}
+	}
+	for pkg, tests := range packages {
+		if seen[pkg] == nil {
+			return fmt.Errorf("plan omitted package %s", pkg)
+		}
+		for _, name := range tests {
+			if seen[pkg][name] != 1 {
+				return fmt.Errorf("plan case %s/%s occurs %d times, want 1", pkg, name, seen[pkg][name])
+			}
+		}
+	}
+	return nil
+}
+
 func discover(ctx context.Context, goCommand []string) (map[string][]string, error) {
 	cmd := command(ctx, goCommand, "list", "./...")
 	cmd.Stderr = os.Stderr
@@ -198,6 +238,8 @@ func discover(ctx context.Context, goCommand []string) (map[string][]string, err
 	if err = cmd.Start(); err != nil {
 		return nil, err
 	}
+	stopRead := context.AfterFunc(ctx, func() { _ = output.Close() })
+	defer stopRead()
 	terminal := make(map[string]int)
 	seen := make(map[string]bool)
 	var invalid error
@@ -245,7 +287,7 @@ func discover(ctx context.Context, goCommand []string) (map[string][]string, err
 		seen[key] = true
 		packages[e.Package] = append(packages[e.Package], name)
 	}
-	if err := cmd.Wait(); err != nil {
+	if err := wait(ctx, cmd); err != nil {
 		return nil, fmt.Errorf("test listing: %w", err)
 	}
 	if invalid != nil {
@@ -287,6 +329,8 @@ func execute(ctx context.Context, goCommand []string, s shard, directory string)
 		r.Problems = append(r.Problems, err.Error())
 		return r
 	}
+	stopRead := context.AfterFunc(ctx, func() { _ = output.Close() })
+	defer stopRead()
 	runs, ends := make(map[string]int), make(map[string]int)
 	expected := make(map[string]bool)
 	for _, name := range s.Tests {
@@ -339,7 +383,7 @@ func execute(ctx context.Context, goCommand []string, s shard, directory string)
 			ends[e.Test]++
 		}
 	}
-	if err := cmd.Wait(); err != nil {
+	if err := wait(ctx, cmd); err != nil {
 		r.Problems = append(r.Problems, err.Error())
 	}
 	if packageEnd != 1 {
@@ -360,7 +404,14 @@ func run(ctx context.Context, goCommand []string, hints []estimate, directory st
 		return err
 	}
 	queue := plan(packages, hints)
-	fmt.Fprintf(out, "fast plan packages=%d shards=%d jobs=%d receipts=%s\n", len(packages), len(queue), jobs, filepath.Join(directory, "receipts.json"))
+	if err := validatePlan(packages, queue); err != nil {
+		return err
+	}
+	cases := 0
+	for _, names := range packages {
+		cases += len(names)
+	}
+	fmt.Fprintf(out, "fast plan packages=%d cases=%d shards=%d jobs=%d receipts=%s\n", len(packages), cases, len(queue), jobs, filepath.Join(directory, "receipts.json"))
 	work := make(chan shard)
 	results := make(chan result, len(queue))
 	var workers sync.WaitGroup
@@ -436,6 +487,10 @@ func run(ctx context.Context, goCommand []string, hints []estimate, directory st
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Leave time to terminate all shard groups and write failed receipts
+	// before ts-ship's independent 299-second execution deadline.
+	ctx, cancel := context.WithTimeout(ctx, 270*time.Second)
+	defer cancel()
 	goCommand := os.Args[1:]
 	if len(goCommand) > 0 && goCommand[0] == "--" {
 		goCommand = goCommand[1:]
