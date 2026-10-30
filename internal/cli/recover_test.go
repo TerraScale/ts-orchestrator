@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -196,19 +198,52 @@ func TestRecoverQuorumRenderRetirement(t *testing.T) {
 	}
 }
 
-// closedPort is a loopback port that refuses connections.
+// reservedPorts holds the socket behind each closedPort, keyed by port. A
+// reserved socket is bound but never listening: the kernel keeps the port out
+// of every other bind and ephemeral allocation, and connections to it are
+// refused.
+var reservedPorts = struct {
+	sync.Mutex
+	fds map[string]int
+}{fds: map[string]int{}}
+
+// closedPort is a loopback port that refuses connections. It stays reserved
+// until the test ends or listenOn takes it over, so no other socket can
+// claim it in between.
 func closedPort(t *testing.T) string {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
-	return strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+	syscall.CloseOnExec(fd)
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}); err != nil {
+		syscall.Close(fd)
+		t.Fatal(err)
+	}
+	addr, err := syscall.Getsockname(fd)
+	if err != nil {
+		syscall.Close(fd)
+		t.Fatal(err)
+	}
+	port := strconv.Itoa(addr.(*syscall.SockaddrInet4).Port)
+	reservedPorts.Lock()
+	reservedPorts.fds[port] = fd
+	reservedPorts.Unlock()
+	t.Cleanup(func() {
+		reservedPorts.Lock()
+		defer reservedPorts.Unlock()
+		if reserved, ok := reservedPorts.fds[port]; ok {
+			delete(reservedPorts.fds, port)
+			syscall.Close(reserved)
+		}
+	})
+	return port
 }
 
 // listenOn starts a listener on the config's client port, standing in for a
-// running survivor broker.
+// running survivor broker. It begins listening on the socket closedPort
+// reserved, so the port is never unbound in between.
 func listenOn(t *testing.T, config string) net.Listener {
 	t.Helper()
 	data, err := os.ReadFile(config)
@@ -225,7 +260,21 @@ func listenOn(t *testing.T, config string) net.Listener {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.NATS.Embedded.Port)))
+	port := strconv.Itoa(cfg.NATS.Embedded.Port)
+	reservedPorts.Lock()
+	fd, ok := reservedPorts.fds[port]
+	delete(reservedPorts.fds, port)
+	reservedPorts.Unlock()
+	if !ok {
+		t.Fatalf("client port %s was not reserved by closedPort", port)
+	}
+	if err := syscall.Listen(fd, syscall.SOMAXCONN); err != nil {
+		syscall.Close(fd)
+		t.Fatal(err)
+	}
+	file := os.NewFile(uintptr(fd), "survivor-broker")
+	listener, err := net.FileListener(file)
+	file.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
