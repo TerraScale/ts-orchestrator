@@ -123,7 +123,10 @@ func plan(packages map[string][]string, hints []estimate) []shard {
 		})
 		count := 1
 		if split {
-			count = min(packageShards, max(1, len(tests)))
+			// Keep short packages together: each extra Go invocation repeats
+			// package loading, vet and TestMain setup. Split roughly thirty
+			// seconds of estimated work per process, up to the existing limit.
+			count = min(packageShards, max(1, (int(cost)+29)/30), max(1, len(tests)))
 			// Region's SDK cases dominate the measured serial tail. Give the
 			// expensive cases independent slots instead of combining several
 			// of them behind one long-running case.
