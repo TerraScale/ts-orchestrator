@@ -249,7 +249,7 @@ func validatePlan(packages map[string][]string, queue []shard) error {
 	return nil
 }
 
-type testBinary struct{ Path, Dir string }
+type testBinary struct{ Path, Dir, SearchPath string }
 
 const binaryMarker = "_TS_FAST_BINARY\t"
 
@@ -257,7 +257,7 @@ func retainWrapper(directory string) (string, error) {
 	// Go still builds and vets every package before listing it. Retain the exact
 	// executable from that invocation so shards need not reload/vet the graph.
 	wrapper := filepath.Join(directory, "retain-test")
-	if err := os.WriteFile(wrapper, []byte("#!/bin/sh\nset -eu\nbinary=$(mktemp "+shellQuote(filepath.Join(directory, "test.XXXXXX"))+")\nrm -f \"$binary\"\nln \"$1\" \"$binary\" 2>/dev/null || cp \"$1\" \"$binary\"\nprintf '_TS_FAST_BINARY\\t%s\\t%s\\n' \"$binary\" \"$PWD\"\nexec \"$@\"\n"), 0700); err != nil {
+	if err := os.WriteFile(wrapper, []byte("#!/bin/sh\nset -eu\nbinary=$(mktemp "+shellQuote(filepath.Join(directory, "test.XXXXXX"))+")\nrm -f \"$binary\"\nln \"$1\" \"$binary\" 2>/dev/null || cp \"$1\" \"$binary\"\nprintf '_TS_FAST_BINARY\\t%s\\t%s\\t%s\\n' \"$binary\" \"$PWD\" \"$PATH\"\nexec \"$@\"\n"), 0700); err != nil {
 		return "", err
 	}
 	return wrapper, nil
@@ -326,11 +326,11 @@ func discover(ctx context.Context, goCommand []string, directory string, binarie
 		}
 		name := strings.TrimSpace(e.Output)
 		if marker, ok := strings.CutPrefix(name, binaryMarker); ok {
-			path, dir, found := strings.Cut(marker, "\t")
-			if !found || !filepath.IsAbs(path) || !filepath.IsAbs(dir) || filepath.Dir(path) != directory || binaries[e.Package].Path != "" {
+			fields := strings.SplitN(marker, "\t", 3)
+			if len(fields) != 3 || !filepath.IsAbs(fields[0]) || !filepath.IsAbs(fields[1]) || filepath.Dir(fields[0]) != directory || binaries[e.Package].Path != "" {
 				invalid = fmt.Errorf("invalid retained binary for %s", e.Package)
 			} else {
-				binaries[e.Package] = testBinary{path, dir}
+				binaries[e.Package] = testBinary{fields[0], fields[1], fields[2]}
 			}
 			continue
 		}
@@ -384,10 +384,26 @@ func executeBinary(ctx context.Context, goCommand []string, s shard, directory s
 		expression = "^(" + strings.Join(names, "|") + ")$"
 	}
 	cmd := command(ctx, goCommand, "test", "-short", "-json", "-count=1", "-p=1", "-parallel=2", "-cpu=2", "-run", expression, s.Package)
+	var source *exec.Cmd
+	var input, writer *os.File
 	if binary.Path != "" {
-		cmd = command(ctx, goCommand, "tool", "test2json", "-p", s.Package, "-t", binary.Path,
+		input, writer, err = os.Pipe()
+		if err != nil {
+			r.Problems = append(r.Problems, err.Error())
+			return r
+		}
+		defer input.Close()
+		defer writer.Close()
+		// test2json's child-launch mode ignores SIGINT before spawning the
+		// executable. Launch it ourselves so tests and helpers retain Go test's
+		// signal disposition, and convert only the resulting output stream.
+		source = command(ctx, []string{binary.Path},
 			"-test.paniconexit0", "-test.v=test2json", "-test.short", "-test.count=1", "-test.parallel=2", "-test.cpu=2", "-test.run", expression)
-		cmd.Dir = binary.Dir
+		source.Dir = binary.Dir
+		source.Env = append(source.Env, "PATH="+binary.SearchPath)
+		source.Stdout, source.Stderr = writer, writer
+		cmd = command(ctx, goCommand, "tool", "test2json", "-p", s.Package, "-t")
+		cmd.Stdin = input
 	}
 	cmd.Stderr = log
 	output, err := cmd.StdoutPipe()
@@ -398,6 +414,17 @@ func executeBinary(ctx context.Context, goCommand []string, s shard, directory s
 	if err := cmd.Start(); err != nil {
 		r.Problems = append(r.Problems, err.Error())
 		return r
+	}
+	if source != nil {
+		err := source.Start()
+		_ = input.Close()
+		_ = writer.Close()
+		if err != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = cmd.Wait()
+			r.Problems = append(r.Problems, err.Error())
+			return r
+		}
 	}
 	stopRead := context.AfterFunc(ctx, func() { _ = output.Close() })
 	defer stopRead()
@@ -451,6 +478,11 @@ func executeBinary(ctx context.Context, goCommand []string, s shard, directory s
 		}
 		if e.Action == "pass" || e.Action == "skip" || e.Action == "fail" {
 			ends[e.Test]++
+		}
+	}
+	if source != nil {
+		if err := wait(ctx, source); err != nil {
+			r.Problems = append(r.Problems, err.Error())
 		}
 	}
 	if err := wait(ctx, cmd); err != nil {

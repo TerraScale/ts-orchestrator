@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -47,6 +48,11 @@ func fixturePackages() map[string][]string {
 // The fake tool is this test executable. Its TestMain also supports an
 // arbitrary helper command, as app/deploy TestMain binaries must continue to do.
 func TestMain(m *testing.M) {
+	if len(os.Args) == 2 && os.Args[1] == "--signal-child" {
+		fmt.Println("ready")
+		time.Sleep(time.Hour)
+		os.Exit(0)
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--runtime-helper" {
 		fmt.Print(os.Getenv("GOMAXPROCS"))
 		os.Exit(0)
@@ -309,12 +315,13 @@ func TestRetainedBinaryRunsShortTierWithOriginalWorkingDirectory(t *testing.T) {
 	}
 	line, _, _ := strings.Cut(string(output), "\n")
 	marker, ok := strings.CutPrefix(line, binaryMarker)
-	path, dir, found := strings.Cut(marker, "\t")
-	if !ok || !found || dir != working || filepath.Dir(path) != directory {
+	fields := strings.SplitN(marker, "\t", 3)
+	if !ok || len(fields) != 3 || fields[1] != working || filepath.Dir(fields[0]) != directory {
 		t.Fatalf("invalid retained executable: %q", output)
 	}
 	t.Setenv("FAST_COMPILED_DIRECTORY", working)
-	r := executeBinary(t.Context(), []string{"go"}, shard{Package: "fixture/compiled", Tests: []string{"TestCompiledShardHelper"}}, directory, testBinary{path, dir})
+	t.Setenv("FAST_COMPILED_SEARCH_PATH", fields[2])
+	r := executeBinary(t.Context(), []string{"go"}, shard{Package: "fixture/compiled", Tests: []string{"TestCompiledShardHelper"}}, directory, testBinary{fields[0], fields[1], fields[2]})
 	if len(r.Problems) != 0 || len(r.Cases) != 2 {
 		t.Fatalf("retained short-tier receipt: %+v", r)
 	}
@@ -326,8 +333,34 @@ func TestCompiledShardHelper(t *testing.T) {
 		return
 	}
 	dir, err := os.Getwd()
-	if err != nil || dir != want || !testing.Short() || os.Getenv("GOMAXPROCS") != "2" {
+	if err != nil || dir != want || !testing.Short() || os.Getenv("GOMAXPROCS") != "2" || os.Getenv("PATH") != os.Getenv("FAST_COMPILED_SEARCH_PATH") {
 		t.Fatalf("compiled shard context: dir=%q err=%v short=%v CPU=%q", dir, err, testing.Short(), os.Getenv("GOMAXPROCS"))
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	child := exec.CommandContext(ctx, exe, "--signal-child")
+	output, err := child.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer child.Process.Kill()
+	if line, err := bufio.NewReader(output).ReadString('\n'); err != nil || line != "ready\n" {
+		t.Fatalf("signal helper: %q %v", line, err)
+	}
+	if err := child.Process.Signal(syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	_ = child.Wait()
+	status, ok := child.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !status.Signaled() || status.Signal() != syscall.SIGINT {
+		t.Fatalf("compiled helper inherited ignored SIGINT: %v", child.ProcessState)
 	}
 	t.Run("receipt", func(t *testing.T) {})
 }
