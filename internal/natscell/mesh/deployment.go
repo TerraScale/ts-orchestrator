@@ -108,7 +108,7 @@ func validState(name string, state desiredState) error {
 	if err := state.Floor.Validate(); err != nil {
 		return err
 	}
-	if state.Floor != nil && repository(state.Floor.Image) != "ghcr.io/terrascale/"+name {
+	if state.Floor != nil && !swarmruntime.DeploymentImageBelongsToService(name, state.Floor.Image) {
 		return errors.New("deployment floor image does not belong to the service")
 	}
 	for _, entry := range []*Entry{state.Operator, state.Signed} {

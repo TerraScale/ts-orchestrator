@@ -822,7 +822,7 @@ func validEntry(name string, entry Entry) error {
 	if err := entry.Deployment.Validate(); err != nil {
 		return err
 	}
-	if entry.Deployment != nil && repository(entry.Deployment.Image) != "ghcr.io/terrascale/"+name {
+	if entry.Deployment != nil && !swarmruntime.DeploymentImageBelongsToService(name, entry.Deployment.Image) {
 		return errors.New("deployment image does not belong to the service")
 	}
 	if entry.Spec == nil {

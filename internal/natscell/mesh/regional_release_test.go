@@ -15,8 +15,12 @@ func regionalReleaseFixture(t *testing.T, name, hold string) ([]*Node, swarmrunt
 	nodes := stateTestNodesWithAppliers(t, func(string) Applier {
 		return &evidenceApplier{fakeApplier: fakeApplier{running: map[string]int64{}}, revision: strings.Repeat("b", 40)}
 	}, "gru", "sjc", "fra")
-	// Model the persisted live spec, rather than applying the new declaration.
-	spec := swarmruntime.ServiceSpec{Name: name, Image: "ghcr.io/terrascale/" + name + "@sha256:" + strings.Repeat("a", 64),
+	packageName := name
+	if name == "ts-dashboard" {
+		packageName = "terrascale-dashboard"
+	}
+	// Model the persisted placement, rather than applying the new declaration.
+	spec := swarmruntime.ServiceSpec{Name: name, Image: "ghcr.io/terrascale/" + packageName + "@sha256:" + strings.Repeat("a", 64),
 		Port: 8090, ReadyPath: "/readyz", Replicas: 1, Regions: []string{"gru"}, MilliCPU: 500, MemoryMiB: 2048,
 		Env: map[string]string{"LISTEN": "http://127.0.0.1:${PORT}"}, Hostnames: []string{"custom.example.com"}}
 	if _, err := send(t.Context(), nodes[0].conn, ApplyRequest{Name: name, Entry: Entry{Generation: 10, Spec: &spec, HoldAfter: hold}}, time.Second); err != nil {
@@ -217,5 +221,38 @@ func TestSignedReleaseRetryRebakesAFailedGeneration(t *testing.T) {
 	states, err = desiredStates(t.Context(), nodes[0].conn)
 	if err != nil || states[name].entry().Generation <= before.Generation {
 		t.Fatalf("retry replayed failed generation %d: %+v, %v", before.Generation, states[name].entry(), err)
+	}
+}
+
+func TestSignedDashboardPackageCutover(t *testing.T) {
+	nodes, previous := regionalReleaseFixture(t, "ts-dashboard", "")
+	previous.Image = "ghcr.io/terrascale/ts-dashboard@sha256:" + strings.Repeat("a", 64)
+	if _, err := send(t.Context(), nodes[0].conn, ApplyRequest{Name: previous.Name, Entry: Entry{Generation: 20, Spec: &previous}}, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	deployment := regionalDeployment(previous)
+	deployment.Image = "ghcr.io/terrascale/terrascale-dashboard@sha256:" + strings.Repeat("c", 64)
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, previous.Name, deployment.Image, nil, time.Second, time.Second); err == nil {
+		t.Fatal("unsigned package move accepted")
+	}
+	unrelated := *deployment
+	unrelated.Repository = "TerraScale/unrelated"
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, previous.Name, unrelated.Image, &unrelated, time.Second, time.Second); err == nil {
+		t.Fatal("unrelated repository moved package")
+	}
+	rows, err := releaseDeployment(t.Context(), nodes[0].conn, previous.Name, deployment.Image, deployment, time.Second, time.Second)
+	if err != nil || len(rows) != len(nodes) {
+		t.Fatalf("signed package move: %+v, %v", rows, err)
+	}
+	for _, row := range rows {
+		if row.Image != deployment.Image || row.Revision != deployment.Revision {
+			t.Fatalf("wrong regional artifact: %+v", row)
+		}
+	}
+	reverse := *deployment
+	reverse.RunID = "101"
+	reverse.Image = previous.Image
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, previous.Name, reverse.Image, &reverse, time.Second, time.Second); err == nil {
+		t.Fatal("retired package restored by a release")
 	}
 }
