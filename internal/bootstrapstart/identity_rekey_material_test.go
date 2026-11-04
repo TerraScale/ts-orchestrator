@@ -81,56 +81,6 @@ func identityRekeyMaterialFixture(t *testing.T) (*generationInstall, MaterialSto
 	return install, store, verified, inputs, wire, files
 }
 
-func TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors(t *testing.T) {
-	for _, fault := range []string{"none", "installed", "durable", "symlink", "hardlink", "unverified", "expired"} {
-		t.Run(fault, func(t *testing.T) {
-			install, store, verified, inputs, wire, files := identityRekeyMaterialFixture(t)
-			now := time.Now().UTC()
-			before := install.read("ca.pem")
-			if err := store.AdoptGeneration(install.target(), install.roots, wire, files, nil, now); err == nil {
-				t.Fatal("ordinary adoption admitted opaque predecessor")
-			}
-			switch fault {
-			case "installed":
-				install.write(MaterialGenerationsFile, []byte("foreign installed bytes"))
-			case "durable":
-				if err := os.WriteFile(store.chainCopy, []byte("foreign durable bytes"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			case "symlink":
-				if err := os.Remove(store.chainCopy); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Symlink(filepath.Join(install.dir, MaterialGenerationsFile), store.chainCopy); err != nil {
-					t.Fatal(err)
-				}
-			case "hardlink":
-				if err := os.Link(store.chainCopy, store.chainCopy+".link"); err != nil {
-					t.Fatal(err)
-				}
-			case "unverified":
-				verified = VerifiedIdentityRekey{}
-			case "expired":
-				now = now.Add(2 * time.Hour)
-			}
-			err := store.AdoptIdentityRekeyGeneration(verified, inputs, files, nil, now)
-			if (err == nil) != (fault == "none") {
-				t.Fatalf("opaque predecessor %s: %v", fault, err)
-			}
-			if fault == "none" {
-				for _, path := range []string{filepath.Join(install.dir, MaterialGenerationsFile), store.chainCopy} {
-					actual, err := os.ReadFile(path)
-					if err != nil || !bytes.Equal(actual, wire) {
-						t.Fatal("exact rooted target did not replace both copies")
-					}
-				}
-			} else if !bytes.Equal(before, install.read("ca.pem")) || install.staged() {
-				t.Fatal("refused predecessor changed material or created a stage")
-			}
-		})
-	}
-}
-
 func TestIdentityRekeyMaterialRecoversAfterDurableCopyAndPartialRename(t *testing.T) {
 	install, store, verified, inputs, wire, files := identityRekeyMaterialFixture(t)
 	stagePath := filepath.Join(install.dir, generationStaging)

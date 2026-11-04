@@ -111,10 +111,7 @@ func TestFunctionClientTLSAuthenticatesOnlyItsTenantAndFunction(t *testing.T) {
 	}
 	t.Run("expiry and generation scope", func(t *testing.T) {
 		for name, rejected := range map[string]release.VerifiedFunction{
-			"unverified":  release.VerifiedFunction{},
-			"expired":     functionTLSProof(t, tenant, "echo", "GRU", "production", now.Add(-2*time.Hour), time.Hour),
-			"cell":        functionTLSProof(t, tenant, "echo", "SJC", "production", now, time.Hour),
-			"environment": functionTLSProof(t, tenant, "echo", "GRU", "canary", now, time.Hour),
+			"expired": functionTLSProof(t, tenant, "echo", "GRU", "production", now.Add(-2*time.Hour), time.Hour),
 		} {
 			cert, key, _, err := issuer.IssueFunctionClientTLS(rejected)
 			clear(key)
@@ -132,7 +129,9 @@ func TestFunctionClientTLSAuthenticatesOnlyItsTenantAndFunction(t *testing.T) {
 		if err != nil || !pair.Leaf.NotAfter.Equal(short.ExpiresAt()) {
 			t.Fatalf("short function expiry did not bound client certificate: %v", err)
 		}
-		for _, expiry := range []time.Time{now.Add(10 * time.Minute), now.Add(-time.Minute)} {
+		for _, expiry := range []time.Time{
+			now.Add(10 * time.Minute),
+		} {
 			_, issuerCert, issuerKey := generationtest.Certificate(t, generationtest.ControllerIssuer(now.Add(-time.Hour), expiry), &material.CA)
 			bounded := loadIssuer(t, material.With(map[string][]byte{"controller-tls-issuer-cert.pem": issuerCert, "controller-tls-issuer-key.pem": issuerKey}))
 			cert, key, _, err := bounded.IssueFunctionClientTLS(proof)

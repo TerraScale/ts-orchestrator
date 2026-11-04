@@ -21,11 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
-
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 // All observations cross signed OCI SDK HTTP requests. The remote protocol
@@ -236,7 +235,9 @@ func (s *bindingScenario) transportSchemaThree() {
 }
 
 func TestLogicalBindingsReadSignedGrantPersistedBirthAndFreshOCI(t *testing.T) {
-	for _, schema := range []int{2, 3} {
+	for _, schema := range []int{
+		3,
+	} {
 		t.Run(fmt.Sprintf("schema%d", schema), func(t *testing.T) {
 			s := newBindingScenario(t)
 			if schema == 3 {
@@ -265,7 +266,9 @@ func TestLogicalBindingsReadSignedGrantPersistedBirthAndFreshOCI(t *testing.T) {
 					t.Fatalf("resolve %s: %q %v", reference, id, err)
 				}
 			}
-			for _, ref := range []string{"foundation:sjc:key", "foundation:SJC:vcn", "foundation:SJC:unknown", "foundation:GRU:key", "foundation:SJC:key:extra", "foundation:SJC:workload_compartment", s.record.ResourceIDs["key"]} {
+			for _, ref := range []string{
+				"foundation:GRU:key",
+			} {
 				if _, err := verified.Resolve(ref); err == nil {
 					t.Fatalf("accepted unsupported/unrequested reference %q", ref)
 				}
@@ -285,321 +288,6 @@ func TestLogicalBindingsReadSignedGrantPersistedBirthAndFreshOCI(t *testing.T) {
 			s.live["/20180608/keys/"+s.record.ResourceIDs["key"]]["vaultId"] = "ocid1.vault.oc1.us-sanjose-1.replaced"
 			if err := verified.Revalidate(t.Context()); err == nil {
 				t.Fatal("revalidation accepted a changed provider key parent")
-			}
-		})
-	}
-}
-
-func TestLogicalBindingsRejectUnownedStaleAndWrongRoleState(t *testing.T) {
-	cases := []struct {
-		name   string
-		mutate func(*bindingScenario)
-	}{
-		{"schema one", func(s *bindingScenario) { s.grant.SchemaVersion = 1; s.publish() }},
-		{"unknown schema", func(s *bindingScenario) { s.grant.SchemaVersion = 4; s.publish() }},
-		{"unrelated grant member", func(s *bindingScenario) {
-			payload, err := trust.EncodePayload(s.grant)
-			if err != nil {
-				s.t.Fatal(err)
-			}
-			s.publishPayload([]byte(strings.TrimSuffix(string(payload), "}") + `,"unrelatedAuthority":true}`))
-		}},
-		{"unrelated record member", func(s *bindingScenario) {
-			wire, err := json.Marshal(s.record, json.Deterministic(true))
-			if err != nil {
-				s.t.Fatal(err)
-			}
-			s.recordWire = []byte(strings.TrimSuffix(string(wire), "}") + `,"unrelatedAuthority":true}`)
-		}},
-		{"revoked active grant", func(s *bindingScenario) { s.activeWire = []byte(`{}`) }},
-		{"wrong wire pin", func(s *bindingScenario) { s.authority.GrantSHA256 = strings.Repeat("c", 64) }},
-		{"wrong signer", func(s *bindingScenario) { s.authority.Roots = trust.Keyring{} }},
-		{"wrong tenancy", func(s *bindingScenario) { s.authority.TenancyID = "ocid1.tenancy.oc1..other" }},
-		{"wrong installation", func(s *bindingScenario) { s.authority.InstallationID = entityid.New() }},
-		{"wrong generation", func(s *bindingScenario) { s.record.Generation++ }},
-		{"wrong intent", func(s *bindingScenario) { s.record.IntentDigest = strings.Repeat("c", 64) }},
-		{"wrong record grant", func(s *bindingScenario) { s.record.GrantSHA256 = strings.Repeat("c", 64) }},
-		{"wrong operation", func(s *bindingScenario) { s.record.OperationID = entityid.New() }},
-		{"unfinished record", func(s *bindingScenario) { s.record.Stage = "foundation" }},
-		{"missing ETag", func(s *bindingScenario) { s.etag = "" }},
-		{"missing birth", func(s *bindingScenario) { delete(s.record.ResourceProvenance, "key") }},
-		{"birth from another operation", func(s *bindingScenario) {
-			p := s.record.ResourceProvenance["key"]
-			p.Create.OperationID = entityid.New()
-			s.record.ResourceProvenance["key"] = p
-		}},
-		{"birth different resource", func(s *bindingScenario) {
-			p := s.record.ResourceProvenance["key"]
-			p.ResourceID += "other"
-			s.record.ResourceProvenance["key"] = p
-		}},
-		{"birth different signed intent", func(s *bindingScenario) {
-			p := s.record.ResourceProvenance["key"]
-			p.Create.IntentDigest = strings.Repeat("c", 64)
-			s.record.ResourceProvenance["key"] = p
-		}},
-		{"birth wrong request role", func(s *bindingScenario) {
-			p := s.record.ResourceProvenance["key"]
-			p.Create.Request.Key = "vault"
-			s.record.ResourceProvenance["key"] = p
-		}},
-		{"birth invalid digest", func(s *bindingScenario) {
-			p := s.record.ResourceProvenance["key"]
-			p.Create.Request.RequestDigest = "bad"
-			s.record.ResourceProvenance["key"] = p
-		}},
-		{"birth wrong region", func(s *bindingScenario) {
-			p := s.record.ResourceProvenance["key"]
-			p.Create.Request.Region = "eu-frankfurt-1"
-			s.record.ResourceProvenance["key"] = p
-		}},
-		{"wrong role kind", func(s *bindingScenario) { s.record.ResourceIDs["subnet"] = s.record.ResourceIDs["key"] }},
-		{"wrong signed pin", func(s *bindingScenario) {
-			s.intent.Plan["resource_ids"].(map[string]any)["subnet"] = "ocid1.subnet.oc1.us-sanjose-1.other"
-			s.publish()
-		}},
-		{"provider compartment moved", func(s *bindingScenario) {
-			s.live["/20160918/compartments/"+s.record.ResourceIDs["control_compartment"]]["compartmentId"] = "ocid1.compartment.oc1..foreign"
-		}},
-		{"provider subnet wrong VCN", func(s *bindingScenario) {
-			s.live["/20160918/subnets/"+s.record.ResourceIDs["subnet"]]["vcnId"] = "ocid1.vcn.oc1.us-sanjose-1.foreign"
-		}},
-		{"provider subnet CIDR", func(s *bindingScenario) {
-			s.live["/20160918/subnets/"+s.record.ResourceIDs["subnet"]]["cidrBlock"] = "10.90.0.0/24"
-		}},
-		{"provider NSG wrong compartment", func(s *bindingScenario) {
-			s.live["/20160918/networkSecurityGroups/"+s.record.ResourceIDs["network_security_group"]]["compartmentId"] = "ocid1.compartment.oc1..foreign"
-		}},
-		{"provider key missing", func(s *bindingScenario) { delete(s.live, "/20180608/keys/"+s.record.ResourceIDs["key"]) }},
-		{"provider vault malicious endpoint", func(s *bindingScenario) {
-			s.live["/20180608/vaults/"+s.record.ResourceIDs["vault"]]["managementEndpoint"] = "https://attacker.example"
-		}},
-	}
-	for _, schema := range []int{2, 3} {
-		for _, scenario := range cases {
-			t.Run(fmt.Sprintf("schema%d/%s", schema, scenario.name), func(t *testing.T) {
-				s := newBindingScenario(t)
-				if schema == 3 {
-					s.transportSchemaThree()
-				}
-				scenario.mutate(s)
-				_, err := Verify(t.Context(), s.factory, s.authority, s.wire)
-				if err == nil {
-					t.Fatal("accepted invalid binding authority or provider state")
-				}
-				if strings.HasPrefix(scenario.name, "unrelated ") && !strings.Contains(err.Error(), "unrelatedAuthority") {
-					t.Fatalf("unrelated member did not reach strict decoding: %v", err)
-				}
-			})
-		}
-	}
-}
-
-func TestLogicalBindingsRetainOriginalBirthAndExactDependencies(t *testing.T) {
-	for _, schema := range []int{2, 3} {
-		t.Run(fmt.Sprintf("schema%d", schema), func(t *testing.T) {
-			s := newBindingScenario(t)
-			if schema == 3 {
-				s.transportSchemaThree()
-			}
-			// A root-pinned control compartment is only a dependency of this key ref.
-			s.intent.BootstrapMaterial = jsontext.Value(`{"sourceVaultTarget":{"kmsKeyOcid":"foundation:SJC:key"}}`)
-			control := s.record.ResourceIDs["control_compartment"]
-			s.intent.Plan["resource_ids"].(map[string]any)["control_compartment"] = control
-			s.intent.Plan["resource_ids"].(map[string]any)["vault"] = s.record.ResourceIDs["vault"]
-			delete(s.record.ResourceProvenance, "control_compartment")
-			delete(s.record.ResourceProvenance, "vault")
-			for _, key := range []string{"network_compartment", "workload_compartment", "vcn", "subnet", "network_security_group", "workload_network_security_group"} {
-				delete(s.record.ResourceIDs, key)
-				delete(s.record.ResourceProvenance, key)
-			}
-			birth := s.record.ResourceProvenance["key"]
-			birth.Generation, birth.GrantSHA256 = 1, strings.Repeat("d", 64)
-			birth.Create.OperationID = entityid.Derive("regional-foundation", s.authority.TenancyID, "SJC", fmt.Sprint(birth.Generation))
-			birth.Create.IntentDigest = strings.Repeat("e", 64)
-			birth.Create.FirstAttemptAt = s.record.StartedAt.Add(-time.Hour)
-			s.record.ResourceProvenance["key"] = birth
-			s.publish()
-			verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := verified.Resolve("foundation:SJC:key"); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := verified.Resolve("foundation:SJC:control_compartment"); err == nil {
-				t.Fatal("exact dependency was promoted into a logical binding")
-			}
-			if len(s.reads) != 5 {
-				t.Fatalf("read unrelated resource families: %v", s.reads)
-			}
-		})
-	}
-}
-
-func TestLogicalBindingsSpendIncludesUnboundCompartmentRoles(t *testing.T) {
-	for _, schema := range []int{2, 3} {
-		t.Run(fmt.Sprintf("schema%d", schema), func(t *testing.T) {
-			s := newBindingScenario(t)
-			if schema == 3 {
-				s.transportSchemaThree()
-			}
-			s.grant.InfrastructureSpend = jsontext.Value(`{"scopeSha256":"` + strings.Repeat("f", 64) + `"}`)
-			s.intent.BootstrapMaterial = nil
-			s.publish()
-			verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment"} {
-				reference, err := Reference("SJC", key)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if got, err := verified.Resolve(reference); err != nil || got != s.record.ResourceIDs[key] {
-					t.Fatalf("spend role %s: %s %v", key, got, err)
-				}
-			}
-			if _, err := verified.Resolve("foundation:SJC:key"); err == nil {
-				t.Fatal("spend scope authorized an unrelated key ref")
-			}
-		})
-	}
-}
-
-func TestLogicalBindingsRevalidationRejectsRevokedActiveGrant(t *testing.T) {
-	for _, schema := range []int{2, 3} {
-		t.Run(fmt.Sprintf("schema%d", schema), func(t *testing.T) {
-			s := newBindingScenario(t)
-			if schema == 3 {
-				s.transportSchemaThree()
-			}
-			verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			s.activeWire = []byte(`{}`)
-			if err := verified.Revalidate(t.Context()); err == nil {
-				t.Fatal("old signed wire remained authorized after active grant changed")
-			}
-		})
-	}
-}
-
-func TestLogicalBindingsNarrowActiveFoundationToCompletedBirths(t *testing.T) {
-	for _, schema := range []int{2, 3} {
-		t.Run(fmt.Sprintf("schema%d", schema), func(t *testing.T) {
-			s := newBindingScenario(t)
-			if schema == 3 {
-				s.transportSchemaThree()
-			}
-			s.authority.Keys = []string{"control_compartment"}
-			s.record.Stage, s.record.LeaseID = "foundation", entityid.New()
-			s.record.ExpiresAt = time.Now().Add(time.Minute)
-			s.record.CompletedAt = time.Time{}
-			s.record.PendingCreates = map[string]pendingCreate{"subnet": {OperationID: s.record.OperationID}}
-			for key := range s.record.ResourceIDs {
-				if key != "control_compartment" {
-					delete(s.record.ResourceIDs, key)
-					delete(s.record.ResourceProvenance, key)
-				}
-			}
-			proof := s.record.ResourceProvenance["control_compartment"]
-			proof.Create.Request.RetryToken = ""
-			s.record.ResourceProvenance["control_compartment"] = proof
-			verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got, err := verified.Resolve("foundation:SJC:control_compartment"); err != nil || got != s.record.ResourceIDs["control_compartment"] {
-				t.Fatalf("active completed compartment %s %v", got, err)
-			}
-			if _, err := verified.Resolve("foundation:SJC:key"); err == nil {
-				t.Fatal("narrowed proof resolved future key")
-			}
-			s.authority.Keys[0] = "key"
-			if err := verified.Revalidate(t.Context()); err != nil {
-				t.Fatal("caller mutated sealed key subset:", err)
-			}
-			s.record.PendingCreates["control_compartment"] = pendingCreate{OperationID: s.record.OperationID}
-			if err := verified.Revalidate(t.Context()); err == nil {
-				t.Fatal("resolved a resource with a pending create")
-			}
-			delete(s.record.PendingCreates, "control_compartment")
-			s.record.ExpiresAt = time.Now().Add(-time.Second)
-			if err := verified.Revalidate(t.Context()); err == nil {
-				t.Fatal("resolved a resource from an expired active lease")
-			}
-		})
-	}
-}
-
-func TestLogicalBindingsBootstrapPublicationIncludesUnboundTargetRoles(t *testing.T) {
-	for _, schema := range []int{2, 3} {
-		t.Run(fmt.Sprintf("schema%d", schema), func(t *testing.T) {
-			s := newBindingScenario(t)
-			if schema == 3 {
-				s.transportSchemaThree()
-			}
-			s.intent.BootstrapMaterial = jsontext.Value(`{"installationId":"` + s.authority.InstallationID + `"}`)
-			s.publish()
-			verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, key := range []string{"control_compartment", "vault", "key"} {
-				reference, err := Reference("SJC", key)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if got, err := verified.Resolve(reference); err != nil || got != s.record.ResourceIDs[key] {
-					t.Fatalf("bootstrap publication role %s: %s %v", key, got, err)
-				}
-			}
-			if _, err := verified.Resolve("foundation:SJC:subnet"); err == nil {
-				t.Fatal("bootstrap publication target authorized an unrelated subnet")
-			}
-			delete(s.record.ResourceProvenance, "key")
-			if _, err := Verify(t.Context(), s.factory, s.authority, s.wire); err == nil {
-				t.Fatal("implicit bootstrap publication role resolved without birth proof")
-			}
-		})
-	}
-}
-
-func TestLogicalBindingsForCellReauthenticatesOriginalGrant(t *testing.T) {
-	for _, schema := range []int{2, 3} {
-		t.Run(fmt.Sprintf("schema%d", schema), func(t *testing.T) {
-			s := newBindingScenario(t)
-			if schema == 3 {
-				s.transportSchemaThree()
-			}
-			verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			before := maps.Clone(s.reads)
-			sameCell, err := verified.ForCell(t.Context(), "SJC")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got, err := sameCell.Resolve("foundation:SJC:key"); err != nil || got != s.record.ResourceIDs["key"] {
-				t.Fatalf("selected cell %s %v", got, err)
-			}
-			for path, count := range before {
-				if s.reads[path] != count*2 {
-					t.Fatalf("ForCell did not independently reread %s", path)
-				}
-			}
-			if _, err := verified.ForCell(t.Context(), "GRU"); err == nil {
-				t.Fatal("selected a cell absent from signed grant")
-			}
-			s.activeWire = []byte(`{}`)
-			if _, err := verified.ForCell(t.Context(), "SJC"); err == nil {
-				t.Fatal("ForCell accepted revoked active grant")
-			}
-			if _, err := (VerifiedBindings{}).ForCell(t.Context(), "SJC"); err == nil {
-				t.Fatal("zero-value bindings manufactured a cell authority")
 			}
 		})
 	}

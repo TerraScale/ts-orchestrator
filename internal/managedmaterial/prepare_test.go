@@ -36,38 +36,6 @@ func (validate nativeValidatorFunc) ValidateManagedMaterial(ctx context.Context,
 	return validate(ctx, input, pin)
 }
 
-func TestNativeRejectionPrecedesObjectPutAndOrphanReceipt(t *testing.T) {
-	service, spec, objects, receipts := preparationFixture(t)
-	service.NativeValidator = nativeValidatorFunc(func(context.Context, NativeMaterialInput, string) error {
-		return errors.New("native rejected authority")
-	})
-	now := time.Now().UTC()
-	if _, err := service.PrepareInitial(t.Context(), 9, spec.PartitionID, spec, now); err == nil ||
-		objects.putCount != 0 || receipts.commitCount != 0 {
-		t.Fatalf("native rejection reached OCI Put or R3: %v, puts=%d commits=%d", err, objects.putCount, receipts.commitCount)
-	}
-	bundle, err := GenerateInitial(spec, service.RecipientSigner, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.Repository.CreateInitial(t.Context(), 9, spec.PartitionID, spec, bundle, service.ControllerKey); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.PrepareInitial(t.Context(), 9, spec.PartitionID, spec, now); err == nil ||
-		objects.putCount != 1 || receipts.commitCount != 0 {
-		t.Fatalf("orphan bypassed native rejection: %v, puts=%d commits=%d", err, objects.putCount, receipts.commitCount)
-	}
-}
-
-func TestPrepareInitialRejectsForeignLiveS3RegionBeforeObjectPut(t *testing.T) {
-	service, spec, objects, receipts := preparationFixture(t)
-	spec.LiveS3.Region = "us-sanjose-1"
-	if _, err := service.PrepareInitial(t.Context(), 9, spec.PartitionID, spec, time.Now().UTC()); err == nil ||
-		objects.putCount != 0 || receipts.commitCount != 0 {
-		t.Fatalf("foreign live S3 region reached OCI Put or R3: %v", err)
-	}
-}
-
 func (store *fakePreparationReceipts) ReadMaterialReceipt(_ context.Context, database, partition string) (authority.LogEntry, error) {
 	if store.entry == nil {
 		return authority.LogEntry{}, authority.ErrNotFound

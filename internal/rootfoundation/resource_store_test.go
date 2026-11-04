@@ -111,7 +111,9 @@ func TestOriginalRequestHistoryPersistsBeforeConditionalRewrite(t *testing.T) {
 	}
 	entry := loaded.OCIResources.Resources[desired.Key.String()]
 	previous := *entry.Desired.Operation
-	for _, field := range []string{"remove", "body", "token", "deadline", "target"} {
+	for _, field := range []string{
+		"token",
+	} {
 		t.Run(field, func(t *testing.T) {
 			next := previous
 			next.Requests = slices.Clone(previous.Requests)

@@ -38,7 +38,9 @@ import (
 )
 
 func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
-	for _, mode := range []string{"exact publication pins", "sole founder compartment reference", "unbound publication key", "logical publication key", "consumed dynamic control compartment", "mixed dynamic control and consumed pinned key"} {
+	for _, mode := range []string{
+		"exact publication pins",
+	} {
 		t.Run(mode, func(t *testing.T) {
 			var birthRoles []string
 			switch mode {

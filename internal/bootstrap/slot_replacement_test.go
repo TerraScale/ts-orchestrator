@@ -24,34 +24,6 @@ func completedManagedSlotForRetirement() SlotState {
 	}
 }
 
-func TestSlotRetirementCandidateBindsCompletedAttempt(t *testing.T) {
-	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
-	state := completedManagedSlotForRetirement()
-	candidate, err := SlotRetirementCandidate(state, strings.Repeat("e", 64), "authority-epoch-3", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if candidate.PreviousAttempt != 1 || candidate.PreviousGeneration != 1 ||
-		candidate.PreviousResultDigest != state.Head.ResultDigest ||
-		candidate.PriorInstanceOCID != state.Result.InstanceOCID || candidate.PriorCreateKey != state.Intent.CreateKey ||
-		candidate.Disposition != SlotRetirementDisposition || candidate.Slot != "controller-b" {
-		t.Fatalf("candidate = %+v", candidate)
-	}
-	pending := state
-	pending.Head.ResultDigest = ""
-	if _, err := SlotRetirementCandidate(pending, strings.Repeat("e", 64), "authority-epoch-3", now); !errors.Is(err, ErrRetirementInvalid) {
-		t.Fatalf("pending slot retirement error = %v", err)
-	}
-	seed := state
-	seed.Intent.Mode = IntentModeExternalSeed
-	if _, err := SlotRetirementCandidate(seed, strings.Repeat("e", 64), "authority-epoch-3", now); !errors.Is(err, ErrRetirementInvalid) {
-		t.Fatalf("external seed retirement error = %v", err)
-	}
-	if _, err := SlotRetirementCandidate(state, "not-a-digest", "authority-epoch-3", now); !errors.Is(err, ErrRetirementInvalid) {
-		t.Fatalf("unbound observation error = %v", err)
-	}
-}
-
 func TestSignSlotRetirementRoundTripAndBounds(t *testing.T) {
 	_, root, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

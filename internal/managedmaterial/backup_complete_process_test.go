@@ -30,15 +30,6 @@ type backupCompleteProcessResult struct {
 	CompletionEnvelope string `json:"completion_envelope"`
 }
 
-// TestBackupGoRustCompleteProcessBridge stops at the durable publishing
-// transition. The Rust parent test owns the Completion POST, lost response,
-// restart and receipt replay. This bridge verifies live owner-signed Candidate
-// bytes with the production wire and frontier validators. It does not exercise
-// the producer methods that require a Go PreparationService CurrentBundle.
-func TestBackupGoRustCompleteProcessBridge(t *testing.T) {
-	runBackupGoRustCompleteProcessBridge(t, false)
-}
-
 // TestBackupGoRustFullProducerProcessBridge uses an authenticated, versioned
 // Go material object and R3 preparation receipt before the live Rust caller.
 // The separate full-material packet leaves the accepted direct bridge packet

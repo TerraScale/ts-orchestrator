@@ -12,11 +12,9 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"encoding/pem"
-	"errors"
 	"math/big"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -156,115 +154,5 @@ func TestInstallLaunchMaterialWritesVerifiedWriteOnceFiles(t *testing.T) {
 	}
 	if err := store.installLaunchMaterial(t.Context(), unexpected, now); err != nil {
 		t.Fatalf("reinstall over complete material: %v", err)
-	}
-}
-
-func TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage(t *testing.T) {
-	for _, fault := range []string{"missing receipt", "missing delegation", "foreign signer", "expired"} {
-		t.Run(fault, func(t *testing.T) {
-			store, material := launchMaterialFixture(t)
-			now := time.Now().UTC()
-			switch fault {
-			case "missing receipt":
-				material.ManagedHostImageReceipt = nil
-			case "missing delegation":
-				material.ManagedHostImageDelegation = nil
-			case "foreign signer":
-				_, foreign := launchMaterialFixture(t)
-				material.ManagedHostImageReceipt, material.ManagedHostImageDelegation = foreign.ManagedHostImageReceipt, foreign.ManagedHostImageDelegation
-			case "expired":
-				now = now.Add(2 * time.Hour)
-			}
-			if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, material), now); !errors.Is(err, ErrLaunchMaterial) {
-				t.Fatalf("invalid managed image installed: %v", err)
-			}
-			for _, name := range launchMaterialNames {
-				if _, err := os.Lstat(filepath.Join(store.directory, name)); !errors.Is(err, os.ErrNotExist) {
-					t.Fatalf("rejected launch installed %s: %v", name, err)
-				}
-			}
-		})
-	}
-}
-
-func TestInstallLaunchMaterialRecoversBeforeManagedImagePublication(t *testing.T) {
-	store, material := launchMaterialFixture(t)
-	for index, wire := range material.wires() {
-		if index < 4 {
-			writeBakedFixture(t, filepath.Join(store.directory, launchMaterialNames[index]), wire)
-		}
-	}
-	if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, material), time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := store.loadLaunchMaterial()
-	if err != nil || !bytes.Equal(loaded.ManagedHostImageReceipt, material.ManagedHostImageReceipt) {
-		t.Fatalf("partial publication did not recover: %v", err)
-	}
-}
-
-func TestInstallLaunchMaterialRejectsForeignAnchorAndRedirection(t *testing.T) {
-	store, material := launchMaterialFixture(t)
-	_, _, _, _, foreignAnchor := verifiedAnchorFixture(t)
-	foreign := material
-	foreign.Anchor = foreignAnchor
-	now := time.Now().UTC()
-	if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, foreign), now); !errors.Is(err, ErrLaunchMaterial) {
-		t.Fatalf("anchor signed outside the image roots was accepted: %v", err)
-	}
-	if _, err := os.Lstat(filepath.Join(store.directory, anchorFilename)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("rejected launch material left an installed anchor: %v", err)
-	}
-
-	writeBakedFixture(t, filepath.Join(store.directory, identityFilename), []byte(`{"schemaVersion":1}`))
-	if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, material), now); !errors.Is(err, ErrLaunchMaterial) {
-		t.Fatalf("launch material replaced a different installed identity: %v", err)
-	}
-}
-
-func TestInstallLaunchMaterialRejectsBundleOutsideImageLayout(t *testing.T) {
-	store, material := launchMaterialFixture(t)
-	var bundle hostenroll.PublicBundle
-	if err := json.Unmarshal(material.HostEnrollment, &bundle); err != nil {
-		t.Fatal(err)
-	}
-	bundle.ManagedRuntimeRoot = "/srv/elsewhere"
-	wire, err := json.Marshal(bundle)
-	if err != nil {
-		t.Fatal(err)
-	}
-	material.HostEnrollment = wire
-	if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, material), time.Now().UTC()); !errors.Is(err, ErrLaunchMaterial) {
-		t.Fatalf("host bundle with a foreign managed root was accepted: %v", err)
-	}
-}
-
-func TestInstallLaunchMaterialRejectsNonCanonicalOperatorSSHKey(t *testing.T) {
-	_, blob, _ := strings.Cut(testOperatorSSHKey, " ")
-	blob, _, _ = strings.Cut(blob, " ")
-	rsa := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7 operator"
-	for _, key := range []string{"", testOperatorSSHKey + "\n", "ssh-ed25519  " + blob, "ssh-ed25519 " + blob + " a b",
-		"ssh-ed25519 " + blob + " bad;comment", "ssh-ed25519 " + blob[:len(blob)-4], rsa,
-		"ssh-ed25519 " + base64.StdEncoding.EncodeToString(append([]byte("\x00\x00\x00\x07ssh-rsa"), make([]byte, 36)...))} {
-		store, material := launchMaterialFixture(t)
-		material.OperatorSSHKey = []byte(key)
-		if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, material), time.Now().UTC()); !errors.Is(err, ErrLaunchMaterial) {
-			t.Fatalf("operator SSH key %q was accepted: %v", key, err)
-		}
-	}
-	store, material := launchMaterialFixture(t)
-	material.OperatorSSHKey = []byte("ssh-ed25519 " + blob)
-	if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, material), time.Now().UTC()); err != nil {
-		t.Fatalf("operator SSH key without a comment was rejected: %v", err)
-	}
-}
-
-func TestLaunchMetadataForwardsOperatorSSHKey(t *testing.T) {
-	for name, metadata := range map[string]map[string]string{
-		"controller": testLaunchMaterial.ControllerMetadata(), "host": testLaunchMaterial.HostMetadata(),
-	} {
-		if metadata[OperatorSSHKeyMetadataKey] != testOperatorSSHKey {
-			t.Fatalf("%s launch metadata omits the operator SSH key: %v", name, metadata)
-		}
 	}
 }

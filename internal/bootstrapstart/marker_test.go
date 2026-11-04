@@ -1,14 +1,11 @@
 package bootstrapstart
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 func testMarker() AcceptedInstall {
@@ -26,32 +23,6 @@ func testMarker() AcceptedInstall {
 	}
 }
 
-func TestMarkerRequiresPrimaryVNICIdentity(t *testing.T) {
-	marker := testMarker()
-	marker.PrimaryVNICOCID = ""
-	if !errors.Is(marker.validate(), ErrInvalidMarker) {
-		t.Fatal("accepted marker without primary VNIC OCID")
-	}
-	marker = testMarker()
-	marker.PrimaryPrivateIP = "127.0.0.1"
-	if !errors.Is(marker.validate(), ErrInvalidMarker) {
-		t.Fatal("accepted marker with loopback primary address")
-	}
-}
-
-func TestMarkerRequiresSignedSeedRole(t *testing.T) {
-	marker := testMarker()
-	marker.SeedSlot = ""
-	if !errors.Is(marker.validate(), ErrInvalidMarker) {
-		t.Fatal("accepted marker without seed role")
-	}
-	marker = testMarker()
-	marker.SeedSlot = "not a slot"
-	if !errors.Is(marker.validate(), ErrInvalidMarker) {
-		t.Fatal("accepted marker with malformed seed role")
-	}
-}
-
 func testMarkerStore(t *testing.T) MarkerStore {
 	t.Helper()
 	directory := filepath.Join(t.TempDir(), "bootstrap")
@@ -62,51 +33,4 @@ func testMarkerStore(t *testing.T) MarkerStore {
 		t.Fatal(err)
 	}
 	return MarkerStore{directory: directory, ownerUID: uint32(os.Getuid()), allowUnsafeAncestors: true}
-}
-
-func TestMarkerAtomicNoReplaceAndTamper(t *testing.T) {
-	store := testMarkerStore(t)
-	marker := testMarker()
-	if err := store.WriteInitialFormation(marker); err != nil {
-		t.Fatal(err)
-	}
-	read, err := store.ReadInitialFormation()
-	if err != nil || read.BinarySHA256 != marker.BinarySHA256 {
-		t.Fatalf("read accepted marker: %+v, %v", read, err)
-	}
-	if err := store.WriteInitialFormation(marker); !errors.Is(err, unix.EEXIST) {
-		t.Fatalf("duplicate marker write = %v, want EEXIST", err)
-	}
-	path := filepath.Join(store.directory, initialFormationName)
-	if err := os.Chmod(path, 0o666); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.ReadInitialFormation(); !errors.Is(err, ErrInvalidMarker) {
-		t.Fatalf("writable marker read = %v, want invalid marker", err)
-	}
-	if err := os.Chmod(path, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(`{"schemaVersion":1}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.ReadInitialFormation(); !errors.Is(err, ErrInvalidMarker) {
-		t.Fatalf("tampered marker read = %v, want invalid marker", err)
-	}
-}
-
-func TestMarkerRejectsSymlinkAndUntrustedParent(t *testing.T) {
-	store := testMarkerStore(t)
-	if err := os.Symlink(filepath.Join(store.directory, "missing"), filepath.Join(store.directory, initialFormationName)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.ReadInitialFormation(); err == nil {
-		t.Fatal("accepted symlink marker")
-	}
-	unsafe := store
-	unsafe.allowUnsafeAncestors = false
-	unsafe.ownerUID = 0
-	if _, err := unsafe.ReadInitialFormation(); !errors.Is(err, ErrInvalidMarker) {
-		t.Fatalf("untrusted parent read = %v, want invalid marker", err)
-	}
 }

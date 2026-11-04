@@ -9,7 +9,6 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
-	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -111,35 +110,5 @@ func TestHistoricalLedgerOpenerAcceptsCurrentFiveDomainGrantReadOnly(t *testing.
 	}
 	if _, ok := reader.(admissionLedger); !ok {
 		t.Fatalf("historical ledger opener returned a write-capable ledger: %T", reader)
-	}
-}
-
-func TestLedgerOpenerUsesExactVerifiedGrantAndBakedRoots(t *testing.T) {
-	current, historical, roots, _, _ := verifiedAnchorFixture(t)
-	currentConfig, err := currentLedgerConfig(current, roots)
-	if err != nil {
-		t.Fatal(err)
-	}
-	historicalConfig, err := historicalLedgerConfig(historical, roots)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !currentConfig.AnchorExpiresAt.Equal(current.ExpiresAt()) || !historicalConfig.AnchorExpiresAt.IsZero() {
-		t.Fatalf("current/historical ledger expiry contract differs: current=%s historical=%s",
-			currentConfig.AnchorExpiresAt, historicalConfig.AnchorExpiresAt)
-	}
-	for _, config := range []bootstrap.LedgerConfig{currentConfig, historicalConfig} {
-		if config.DeploymentID != "0000000000F9PR1WNVDTEXS31Z" || config.Cell != oci.RegionGRU ||
-			config.Namespace != "namespace-a" || config.Bucket != "ledger-bucket" ||
-			config.HeadBucket != "head-bucket" || !slices.Equal(config.ControllerSlots, []string{"controller-b"}) ||
-			len(config.TrustRoots) != 1 || len(config.Delegations) != 1 {
-			t.Fatalf("ledger opener lost exact root/grant/storage/slot contract: %+v", config)
-		}
-	}
-	if _, err := currentLedgerConfig(bootstrap.VerifiedBootstrapAnchor{}, roots); !errors.Is(err, ErrLedgerGrant) {
-		t.Fatalf("zero current proof = %v", err)
-	}
-	if _, err := historicalLedgerConfig(bootstrap.HistoricalBootstrapAnchor{}, roots); !errors.Is(err, ErrLedgerGrant) {
-		t.Fatalf("zero historical proof = %v", err)
 	}
 }

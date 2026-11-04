@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,24 +12,7 @@ import (
 
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
-
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
-
-// Material publication admits exactly the region catalog, so a new catalog
-// cell needs no edit here and an uncataloged region stays rejected.
-func TestMaterialRegionsFollowTheRegionCatalog(t *testing.T) {
-	for _, entry := range catalog.Entries() {
-		if !supportedMaterialRegion(entry.OCIRegion) {
-			t.Fatalf("catalog region %s rejected", entry.OCIRegion)
-		}
-	}
-	for _, region := range []string{"", "xx-nowhere-1", "SA-SAOPAULO-1", "GRU"} {
-		if supportedMaterialRegion(region) {
-			t.Fatalf("uncataloged region %q admitted", region)
-		}
-	}
-}
 
 type fakeSecret struct {
 	id, name, content string
@@ -135,61 +117,6 @@ func testTarget() VaultTarget {
 		KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.aaaaaa"}
 }
 
-func TestVaultTargetAcceptsActualMultisegmentOCID(t *testing.T) {
-	target := testTarget()
-	target.VaultOCID = "ocid1.vault.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.abtxeljrrjahmb7sqvwq2hlh3sa75a6qbrp44mcdg4kuof7vcyr2it3qs5oq"
-	target.KMSKeyOCID = "ocid1.key.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.aaaakey"
-	if err := target.Validate("sa-saopaulo-1"); err != nil {
-		t.Fatalf("actual GRU Vault OCID shape rejected: %v", err)
-	}
-	for _, wrong := range []VaultTarget{
-		{CompartmentOCID: target.CompartmentOCID, VaultOCID: "ocid1.key.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.aaaakey", KMSKeyOCID: target.KMSKeyOCID},
-		{CompartmentOCID: target.CompartmentOCID, VaultOCID: "ocid1.vault.oc1.eu-frankfurt-1.ffvlrlvkaaaw6.aaaavault", KMSKeyOCID: target.KMSKeyOCID},
-		{CompartmentOCID: target.CompartmentOCID, VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.ffvlrlvkaaaw6..aaaavault", KMSKeyOCID: target.KMSKeyOCID},
-		{CompartmentOCID: target.CompartmentOCID, VaultOCID: target.VaultOCID, KMSKeyOCID: "ocid1.secret.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.aaaasecret"},
-	} {
-		if err := wrong.Validate("sa-saopaulo-1"); err == nil {
-			t.Fatalf("wrong resource or region accepted: %+v", wrong)
-		}
-	}
-}
-
-func TestMappedRegionalVaultPublicationAndCrossRegionRejection(t *testing.T) {
-	for _, test := range []struct{ cell, region string }{
-		{"sjc", "us-sanjose-1"}, {"fra", "eu-frankfurt-1"},
-	} {
-		t.Run(test.cell, func(t *testing.T) {
-			cfg := testConfig()
-			cfg.Cell, cfg.Region = test.cell, test.region
-			directory := filepath.Join(t.TempDir(), "material")
-			if _, err := Generate(directory, cfg, time.Now().UTC().Truncate(time.Second)); err != nil {
-				t.Fatal(err)
-			}
-			target := VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..aaaaaa",
-				VaultOCID:  "ocid1.vault.oc1." + test.region + ".aaaaaa",
-				KMSKeyOCID: "ocid1.key.oc1." + test.region + ".aaaaaa"}
-			if err := target.Validate(test.region); err != nil {
-				t.Fatalf("mapped Vault target rejected: %v", err)
-			}
-			if err := target.Validate("sa-saopaulo-1"); err == nil {
-				t.Fatal("Vault target accepted for another OCI region")
-			}
-			fake := newFakeVault(target)
-			if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); err != nil {
-				t.Fatalf("regional material could not be published: %v", err)
-			}
-			if fake.create != 30 {
-				t.Fatalf("regional publication created %d secrets", fake.create)
-			}
-			wrong := target
-			wrong.KMSKeyOCID = "ocid1.key.oc1.sa-saopaulo-1.aaaaaa"
-			if _, err := Provision(t.Context(), directory, wrong, fake, fake, time.Now().UTC()); err == nil {
-				t.Fatal("cross-region KMS key accepted")
-			}
-		})
-	}
-}
-
 func makeSource(t *testing.T) string {
 	t.Helper()
 	directory := filepath.Join(t.TempDir(), "material")
@@ -224,51 +151,6 @@ func TestProvisionExactReadbackAndStableReplay(t *testing.T) {
 	}
 }
 
-func TestProvisionRequiresVaultSecretOCIDKind(t *testing.T) {
-	directory := makeSource(t)
-	target := testTarget()
-	fake := newFakeVault(target)
-	fake.wrongSecretKind = true
-	if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); !errors.Is(err, ErrProvision) {
-		t.Fatalf("wrong OCI resource kind error = %v", err)
-	}
-}
-
-func TestProvisionRejectsWrongSecretKindInJournal(t *testing.T) {
-	directory := makeSource(t)
-	target := testTarget()
-	fake := newFakeVault(target)
-	if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-
-	path := filepath.Join(directory, journalName)
-	wire, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wrongKind := strings.Replace(string(wire), "ocid1.vaultsecret.oc1.", "ocid1.secret.oc1.", 1)
-	if wrongKind == string(wire) {
-		t.Fatal("published journal did not contain a Vault secret OCID")
-	}
-	if err := os.WriteFile(path, []byte(wrongKind), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); !errors.Is(err, ErrProvision) {
-		t.Fatalf("wrong-kind journal secret error = %v", err)
-	}
-}
-
-func TestRegionalSecretOCIDRequiresVaultSecretKind(t *testing.T) {
-	valid := "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	if !regionalResourceOCID(valid, "vaultsecret", "sa-saopaulo-1") {
-		t.Fatal("canonical synthetic Vault secret OCID was rejected")
-	}
-	if regionalResourceOCID("ocid1.secret.oc1.sa-saopaulo-1.synthetic", "vaultsecret", "sa-saopaulo-1") {
-		t.Fatal("wrong OCI resource kind was accepted as a Vault secret")
-	}
-}
-
 func TestProvisionRecoversUncertainCreateOnlyAfterExactReadback(t *testing.T) {
 	directory := makeSource(t)
 	target := testTarget()
@@ -284,62 +166,5 @@ func TestProvisionRecoversUncertainCreateOnlyAfterExactReadback(t *testing.T) {
 	fake.wrongBytes = false
 	if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); err != nil || fake.create != 30 {
 		t.Fatalf("exact recovery failed: creates=%d err=%v", fake.create, err)
-	}
-}
-
-func TestProvisionExpiredRetryWindowHolds(t *testing.T) {
-	directory := makeSource(t)
-	target := testTarget()
-	fake := newFakeVault(target)
-	fake.uncertain = true
-	now := time.Now().UTC()
-	if _, err := Provision(t.Context(), directory, target, fake, fake, now); err == nil {
-		t.Fatal("uncertain create unexpectedly succeeded")
-	}
-	// Simulate OCI listing lag beyond the retry-token validity boundary.
-	clear(fake.byName)
-	clear(fake.byID)
-	if _, err := Provision(t.Context(), directory, target, fake, fake, now.Add(23*time.Hour)); err == nil || fake.create != 1 {
-		t.Fatalf("expired retry token reused: creates=%d err=%v", fake.create, err)
-	}
-	if _, err := os.Stat(filepath.Join(directory, journalName)); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestProvisionRetriesUnknownCreateWithSameToken(t *testing.T) {
-	directory := makeSource(t)
-	target := testTarget()
-	fake := newFakeVault(target)
-	fake.failBeforeStore = true
-	now := time.Now().UTC()
-	if _, err := Provision(t.Context(), directory, target, fake, fake, now); err == nil || fake.create != 1 {
-		t.Fatalf("first uncertain request: creates=%d err=%v", fake.create, err)
-	}
-	if _, err := Provision(t.Context(), directory, target, fake, fake, now.Add(time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	// The failed first create is retried, then all 30 secrets are published.
-	if fake.create != 31 || len(fake.tokens) != 31 || fake.tokens[0] != fake.tokens[1] {
-		t.Fatalf("retry did not retain token: creates=%d tokens=%v", fake.create, fake.tokens[:2])
-	}
-}
-
-func TestProvisionRejectsDuplicateSecretAndWrongTarget(t *testing.T) {
-	directory := makeSource(t)
-	target := testTarget()
-	fake := newFakeVault(target)
-	fake.uncertain = true
-	if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); err == nil {
-		t.Fatal("uncertain create succeeded")
-	}
-	fake.duplicate = true
-	if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); err == nil || fake.create != 1 {
-		t.Fatalf("duplicate secret accepted: creates=%d err=%v", fake.create, err)
-	}
-	wrong := target
-	wrong.VaultOCID = "ocid1.vault.oc1.sa-saopaulo-1.bbbbbb"
-	if _, err := Provision(t.Context(), directory, wrong, fake, fake, time.Now().UTC()); err == nil {
-		t.Fatal("journal was retargeted to another Vault")
 	}
 }

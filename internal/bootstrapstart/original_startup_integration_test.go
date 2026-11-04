@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/identityrekey"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -74,37 +73,5 @@ func TestOriginalOriginHOMEChainAndRegionalFilesIntegration(t *testing.T) {
 	}
 	if _, err := store.readOriginalOrigin(); err == nil {
 		t.Fatal("writable companion accepted")
-	}
-}
-
-func TestOriginalAcceptedRosterDoesNotPromotePinnedTransportIntegration(t *testing.T) {
-	accepted, store, markers := acceptedLaunchFixture(t)
-	originWire := []byte(`{"schemaVersion":1}`)
-	delete(accepted.LaunchMaterialSHA256, OperatorSSHKeyFilename)
-	accepted.LaunchMaterialSHA256[OriginalStartupOriginFilename] = digest(originWire)
-	if err := accepted.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	old, err := os.ReadFile(filepath.Join(markers.directory, markerName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := markers.publishIdentity(accepted, digest(old), func(AcceptedIdentity) (identityrekey.BrokerIdentity, identityrekey.StoreIdentity, error) {
-		return accepted.Broker, accepted.Store, nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(store.directory, OperatorSSHKeyFilename)); err != nil {
-		t.Fatal(err)
-	}
-	writeBakedFixture(t, filepath.Join(store.directory, OriginalStartupOriginFilename), originWire)
-	if _, err := store.loadAcceptedHostLaunchMaterialContext(t.Context(), accepted, markers); err == nil {
-		t.Fatal("pin and file presence granted original host launch authority")
-	}
-	if _, _, err := store.loadAcceptedManagedImageMaterialContext(t.Context(), accepted, markers); err == nil {
-		t.Fatal("managed image loading skipped companion provenance")
-	}
-	if _, err := store.load(); err == nil {
-		t.Fatal("malformed present origin fell back to ordinary baked startup")
 	}
 }

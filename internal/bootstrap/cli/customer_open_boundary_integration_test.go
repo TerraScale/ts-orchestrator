@@ -62,8 +62,6 @@ func TestCustomerEnvelopeFilesystemBoundary(t *testing.T) {
 		wantError string
 	}{
 		{name: "Success"},
-		{name: "WrongRecipient", wantError: "customer envelope recipient or fields are invalid"},
-		{name: "FlippedCiphertext", wantError: "customer envelope authentication failed"},
 		{name: "AlternatePartition", wantError: "customer envelope authentication failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

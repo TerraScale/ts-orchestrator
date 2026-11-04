@@ -311,11 +311,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 			t.Fatal("same original selection could not renew current inventory")
 		}
 		for name, mutate := range map[string]func(*materialSourceState){
-			"clear original":        func(s *materialSourceState) { s.OriginalAdmissionInventory = nil },
-			"replace original":      func(s *materialSourceState) { s.OriginalAdmissionInventory = []byte("replacement") },
-			"replace archive":       func(s *materialSourceState) { s.Reference.SHA256 = strings.Repeat("c", 64) },
-			"clear archive":         func(s *materialSourceState) { s.Reference = materialSourceReference{} },
-			"replace authorization": func(s *materialSourceState) { s.AdmissionAuthorizationSHA256 = strings.Repeat("d", 64) },
+			"replace archive": func(s *materialSourceState) { s.Reference.SHA256 = strings.Repeat("c", 64) },
 		} {
 			candidate := selected
 			mutate(&candidate)

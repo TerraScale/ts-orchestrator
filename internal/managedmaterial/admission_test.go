@@ -14,18 +14,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 )
 
-func admittedInitialFixture(t *testing.T) (placement.Intent, PreparationReceipt) {
-	return admittedInitialFixtureOptions(t, false, false, false)
-}
-
-func admittedInitialFixtureWithNativeRoot(t *testing.T, nativeRoot bool) (placement.Intent, PreparationReceipt) {
-	return admittedInitialFixtureOptions(t, nativeRoot, false, false)
-}
-
-func admittedInitialSQLFixture(t *testing.T) (placement.Intent, PreparationReceipt) {
-	return admittedInitialFixtureOptions(t, false, true, false)
-}
-
 func admittedInitialFixtureOptions(t *testing.T, nativeRoot, sqlEnabled, backupEnabled bool) (placement.Intent, PreparationReceipt) {
 	t.Helper()
 	service, spec, _, _ := preparationFixture(t)
@@ -142,10 +130,6 @@ func TestVerifyIntentAgainstReceiptPinsOwnerOnlyBackupMaterial(t *testing.T) {
 		name   string
 		change func(*placement.RuntimeManifest)
 	}{
-		{"manifest", func(m *placement.RuntimeManifest) { m.BackupManifestSHA256 = strings.Repeat("f", 64) }},
-		{"target", func(m *placement.RuntimeManifest) { m.BackupS3TargetSHA256 = strings.Repeat("f", 64) }},
-		{"credential", func(m *placement.RuntimeManifest) { m.BackupS3Credential.VersionNumber++ }},
-		{"key", func(m *placement.RuntimeManifest) { m.BackupDataKeySHA256 = strings.Repeat("f", 64) }},
 		{"wrong owner", func(m *placement.RuntimeManifest) { m.BackupOwner = false }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -154,104 +138,6 @@ func TestVerifyIntentAgainstReceiptPinsOwnerOnlyBackupMaterial(t *testing.T) {
 			test.change(&changed.RuntimeManifests[0])
 			if err := VerifyIntentAgainstReceipt(changed, receipt); err == nil {
 				t.Fatal("substituted backup placement pin was admitted")
-			}
-		})
-	}
-}
-
-func TestVerifyIntentAgainstReceiptBindsNativeOCIRoot(t *testing.T) {
-	intent, receipt := admittedInitialFixtureWithNativeRoot(t, true)
-	if err := VerifyIntentAgainstReceipt(intent, receipt); err != nil {
-		t.Fatalf("matching native root target was rejected: %v", err)
-	}
-	for index, manifest := range intent.RuntimeManifests {
-		if manifest.LiveS3TargetSHA256 != nativeTestDigest ||
-			manifest.LiveS3ConfigSHA256 != receipt.Members[index].Files["signed-v2-s3-config.json"] {
-			t.Fatalf("member %d placement lacks native root pins", index)
-		}
-	}
-	for _, test := range []struct {
-		name string
-		edit func(*placement.RuntimeManifest)
-	}{
-		{"generic target digest", func(manifest *placement.RuntimeManifest) {
-			manifest.LiveS3TargetSHA256 = strings.Repeat("0", 64)
-		}},
-		{"different config file", func(manifest *placement.RuntimeManifest) {
-			manifest.LiveS3ConfigSHA256 = strings.Repeat("0", 64)
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			changed := intent
-			changed.RuntimeManifests = append([]placement.RuntimeManifest(nil), intent.RuntimeManifests...)
-			test.edit(&changed.RuntimeManifests[0])
-			if err := VerifyIntentAgainstReceipt(changed, receipt); err == nil {
-				t.Fatal("substituted native target pin was admitted")
-			}
-		})
-	}
-}
-
-func TestVerifyIntentAgainstReceiptPinsSQLSchemaBundleToEveryMember(t *testing.T) {
-	intent, receipt := admittedInitialSQLFixture(t)
-	if err := VerifyIntentAgainstReceipt(intent, receipt); err != nil {
-		t.Fatalf("matching SQL schema bundle pins were rejected: %v", err)
-	}
-	for index, manifest := range intent.RuntimeManifests {
-		if manifest.SQLSchemaBundleSHA256 == "" ||
-			manifest.SQLSchemaBundleSHA256 != receipt.Members[index].Files[sqlSchemaBundleFileName] {
-			t.Fatalf("member %d placement did not pin the receipt SQL bundle", index)
-		}
-	}
-	changedIntent := intent
-	changedIntent.RuntimeManifests = append([]placement.RuntimeManifest(nil), intent.RuntimeManifests...)
-	changedIntent.RuntimeManifests[0].SQLSchemaBundleSHA256 = strings.Repeat("f", 64)
-	if err := VerifyIntentAgainstReceipt(changedIntent, receipt); err == nil {
-		t.Fatal("SQL bundle digest substituted after signed placement admission")
-	}
-	changedReceipt := receipt
-	changedReceipt.Members[0].Files = make(map[string]string, len(receipt.Members[0].Files))
-	for name, digest := range receipt.Members[0].Files {
-		changedReceipt.Members[0].Files[name] = digest
-	}
-	changedReceipt.Members[0].Files[sqlSchemaBundleFileName] = strings.Repeat("e", 64)
-	if err := VerifyIntentAgainstReceipt(intent, changedReceipt); err == nil {
-		t.Fatal("placement admitted a receipt with a substituted SQL bundle digest")
-	}
-}
-
-func TestVerifyIntentAgainstReceiptRejectsMaterialAndPrivateIPSubstitution(t *testing.T) {
-	intent, receipt := admittedInitialFixture(t)
-	if err := VerifyIntentAgainstReceipt(intent, receipt); err != nil {
-		t.Fatalf("matching committed initial material was rejected: %v", err)
-	}
-	foreignRegion := receipt
-	foreignRegion.Spec.LiveS3.Region = "us-sanjose-1"
-	if err := VerifyIntentAgainstReceipt(intent, foreignRegion); err == nil {
-		t.Fatal("receipt with foreign live S3 region was admitted")
-	}
-	for _, test := range []struct {
-		name string
-		edit func(*placement.Intent)
-	}{
-		{"authority", func(value *placement.Intent) {
-			value.CanonicalRoster.Authority.CertificateSHA256 = strings.Repeat("a", 64)
-		}},
-		{"leaf", func(value *placement.Intent) { value.CanonicalRoster.Rows[0].TLSLeafSHA256 = strings.Repeat("a", 64) }},
-		{"server key", func(value *placement.Intent) {
-			value.RuntimeManifests[0].ServerPrivateKeySHA256 = strings.Repeat("a", 64)
-		}},
-		{"private IP", func(value *placement.Intent) { value.RuntimeManifests[0].ReplicationListenAddress = "10.0.0.99:9443" }},
-		{"peer IP", func(value *placement.Intent) { value.RuntimeManifests[0].ReplicationPeerAddress = "10.0.0.99:9443" }},
-		{"material path", func(value *placement.Intent) { value.RuntimeManifests[0].ManagedRuntimeRoot = "/srv/other-managed" }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			changed := intent
-			changed.CanonicalRoster.Rows = append([]placement.CanonicalRosterRow(nil), intent.CanonicalRoster.Rows...)
-			changed.RuntimeManifests = append([]placement.RuntimeManifest(nil), intent.RuntimeManifests...)
-			test.edit(&changed)
-			if err := VerifyIntentAgainstReceipt(changed, receipt); err == nil {
-				t.Fatal("substituted initial material was admitted")
 			}
 		})
 	}

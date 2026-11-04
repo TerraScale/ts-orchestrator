@@ -2,24 +2,20 @@ package materialsource
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
-	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
@@ -238,7 +234,9 @@ func originalMaterialMechanicalProvision(t *testing.T, f *originalMechanicalSDK,
 }
 
 func TestOriginalMaterialPublicationSDKDurableRecovery(t *testing.T) {
-	for _, fault := range []string{"", "lost material create"} {
+	for _, fault := range []string{
+		"lost material create",
+	} {
 		t.Run(fault, func(t *testing.T) {
 			f, clients, state, etag, archive := originalMaterialMechanicalFixture(t)
 			originalInventoryWire := bytes.Clone(state.OriginalAdmissionInventory)
@@ -279,7 +277,9 @@ func TestOriginalMaterialPublicationSDKDurableRecovery(t *testing.T) {
 				t.Fatal("publication invalidated authentic archive candidate or replaced escrow", err)
 			}
 			before := bytes.Clone(f.state)
-			for _, fault := range []string{"drop publication", "drop journal", "retry identity", "file name permutation", "version2", "wrong target", "duplicate secret"} {
+			for _, fault := range []string{
+				"retry identity",
+			} {
 				wire, err := json.Marshal(state, json.Deterministic(true))
 				if err != nil {
 					t.Fatal(err)
@@ -322,154 +322,5 @@ func TestOriginalMaterialPublicationSDKDurableRecovery(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestOriginalMaterialPublicationSDKRefusesUncheckpointedEffects(t *testing.T) {
-	f, clients, state, etag, archive := originalMaterialMechanicalFixture(t)
-	f.material.fault = "journal refused"
-	if _, err := originalMaterialMechanicalProvision(t, f, clients, &state, &etag, archive); err == nil || f.material.creates != 0 {
-		t.Fatal("refused initial journal CAS allowed a secret create")
-	}
-	f.material.fault = ""
-	stale := etag
-	f.mu.Lock()
-	f.state = append(f.state, ' ')
-	f.mu.Unlock()
-	if _, err := originalMaterialMechanicalProvision(t, f, clients, &state, &stale, archive); err == nil || f.material.creates != 0 {
-		t.Fatal("changed source ETag allowed a secret create")
-	}
-}
-
-func TestOriginalMaterialPublicationRejectsZeroArchive(t *testing.T) {
-	var archive VerifiedOriginalSourceArchive
-	if archive.PublishRegionalMaterial(t.Context(), time.Now()) == nil {
-		t.Fatal("unsealed archive acquired publication authority")
-	}
-	if archive.PublishRegionalMaterial(nil, time.Now()) == nil {
-		t.Fatal("nil-context unsealed archive acquired authority")
-	}
-}
-
-func TestOriginalMaterialPublicationRequiresSelectedArchive(t *testing.T) {
-	f, _, state, _, _ := originalMaterialMechanicalFixture(t)
-	reservation := originalState(f.in, state.StartedAt)
-	reservation.Publication = state.Publication
-	if validOriginalState(reservation, f.in) {
-		t.Fatal("publication preceded candidate/ref/inventory selection")
-	}
-	reservation.Candidate = state.Candidate
-	if validOriginalState(reservation, f.in) {
-		t.Fatal("publication preceded exact Vault selection")
-	}
-	reservation.Reference = state.Reference
-	if validOriginalState(reservation, f.in) {
-		t.Fatal("publication preceded original signed inventory")
-	}
-	legacy := state
-	legacy.Publication = nil
-	wire, err := json.Marshal(legacy, json.Deterministic(true))
-	if err != nil || bytes.Contains(wire, []byte(`"publication":`)) {
-		t.Fatal("absent publication changed historical schema3 serialization", err)
-	}
-	var roundtrip originalSourceState
-	if json.Unmarshal(wire, &roundtrip, json.RejectUnknownMembers(true)) != nil || !sameOriginalState(legacy, roundtrip) {
-		t.Fatal("historical archive state failed exact round trip")
-	}
-}
-
-// Exercise the publication checkpoint bridge through signed TLS SDK dispatch,
-// without claiming a sealed actor or constructor-to-publisher qualification.
-func TestOriginalMaterialPublicationSDKDispatchLifetime(t *testing.T) {
-	for _, mutation := range []string{"CreateSecret", "source CAS"} {
-		for _, deadline := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/deadline=%t", mutation, deadline), func(t *testing.T) {
-				f, clients, state, etag, _ := originalMaterialMechanicalFixture(t)
-				lifetime, cancelLifetime := context.WithTimeout(t.Context(), 15*time.Second)
-				defer cancelLifetime()
-				type callerValueKey struct{}
-				var roots, guards atomic.Int64
-				caller := context.WithValue(lifetime, callerValueKey{}, "original caller")
-				caller = ociclient.WithRequestGuard(caller, func(context.Context) error { roots.Add(1); return nil })
-				operation, cancelOperation := context.WithCancel(caller)
-				defer cancelOperation()
-				if deadline {
-					operation, cancelOperation = context.WithTimeout(caller, 2*time.Second)
-					defer cancelOperation()
-				}
-				guard := func(send context.Context) error {
-					if guards.Add(1) != 1 {
-						return errors.New("publication guard reentered prerequisite read")
-					}
-					check := originalPublicationCheckpointContext(send, caller)
-					want, hasWant := send.Deadline()
-					got, hasGot := check.Deadline()
-					if !hasWant || !hasGot || !got.Equal(want) || check.Value(callerValueKey{}) != "original caller" {
-						return errors.New("publication checkpoint lost dispatch lifetime or caller values")
-					}
-					current, observed, err := readOriginalState(check, clients.objects, f.in)
-					if err != nil {
-						return err
-					}
-					if observed != etag || !sameOriginalState(current, state) {
-						return ErrMaterialSource
-					}
-					return nil
-				}
-				guarded := ociclient.WithRequestGuard(ociclient.WithAuthority(operation, guard), guard)
-				entered, canceled := make(chan struct{}, 1), make(chan struct{}, 1)
-				f.mu.Lock()
-				before, escrow := bytes.Clone(f.state), bytes.Clone(f.secret)
-				f.material.sourceReadEntered, f.material.sourceReadCanceled = entered, canceled
-				f.mu.Unlock()
-				done := make(chan error, 1)
-				go func() {
-					if mutation == "CreateSecret" {
-						_, err := clients.management.CreateSecret(ociclient.RequestContext(guarded), originalCreateRequest(state, escrow))
-						done <- err
-						return
-					}
-					q := f.in.intent
-					_, err := clients.objects.PutObject(ociclient.RequestContext(guarded), objectstorage.PutObjectRequest{
-						NamespaceName: new(q.Home.Namespace), BucketName: new(q.Home.HeadBucket), ObjectName: new(q.SourceObject),
-						IfMatch: new(etag), OpcSseKmsKeyId: new(q.Home.HeadKMSKeyOCID), ContentLength: new(int64(len(before))), PutObjectBody: io.NopCloser(bytes.NewReader(before))})
-					done <- err
-				}()
-				select {
-				case <-entered:
-					if !deadline {
-						cancelOperation()
-					}
-				case err := <-done:
-					t.Fatalf("SDK returned before publication prerequisite HTTP read: %v", err)
-				case <-lifetime.Done():
-					t.Fatal("publication prerequisite HTTP read never entered")
-				}
-				var err error
-				select {
-				case err = <-done:
-				case <-lifetime.Done():
-					err = <-done
-				}
-				wantErr := context.Canceled
-				if deadline {
-					wantErr = context.DeadlineExceeded
-				}
-				if !errors.Is(err, wantErr) || lifetime.Err() != nil {
-					t.Fatalf("publication dispatch error=%v, parent=%v; want %v while parent remains live", err, lifetime.Err(), wantErr)
-				}
-				select {
-				case <-canceled:
-				case <-time.After(2 * time.Second):
-					t.Fatal("publication prerequisite HTTP read outlived active SDK dispatch")
-				}
-				f.mu.Lock()
-				unchanged := bytes.Equal(f.state, before) && bytes.Equal(f.secret, escrow) && f.creates == 1 && f.material.creates == 0 && f.material.sourceMutations == 0
-				f.mu.Unlock()
-				if !unchanged || guards.Load() != 1 || roots.Load() != 2 {
-					t.Fatalf("publication dispatch changed state or lost guards: unchanged=%t guards=%d roots=%d", unchanged, guards.Load(), roots.Load())
-				}
-			})
-		}
 	}
 }

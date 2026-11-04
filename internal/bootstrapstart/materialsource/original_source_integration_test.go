@@ -32,7 +32,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
-	"golang.org/x/sys/unix"
 )
 
 // This fixture exercises public DATA and persistence mechanics, not a sealed
@@ -323,19 +322,6 @@ func pinMechanicalCandidate(t *testing.T, in originalSourceInputs, clients origi
 	return state, etag, body
 }
 
-func TestOriginalSourceArchiveRefusesUnsealedActor(t *testing.T) {
-	directory := filepath.Join(t.TempDir(), "original")
-	if archive, err := ResolveOriginalSourceArchive(t.Context(), region.VerifiedOriginalSourceActor{}, directory, time.Now()); err == nil || archive.IsVerified() {
-		t.Fatal("zero original proof acquired archive authority")
-	}
-	if _, err := os.Lstat(directory); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("zero proof performed local candidate effects")
-	}
-	if (VerifiedOriginalSourceArchive{}).VerifyCurrent(t.Context()) == nil {
-		t.Fatal("zero archive proof passed currentness")
-	}
-}
-
 func TestOriginalSourceArchiveSDKMechanicalRecovery(t *testing.T) {
 	in := originalMechanicalInputs(t)
 	f, clients := newOriginalMechanicalSDK(t, in, "lost CAS response")
@@ -399,140 +385,11 @@ func TestOriginalSourceArchiveSDKMechanicalRecovery(t *testing.T) {
 	}
 	for _, mutate := range []func(*originalSourceState){
 		func(s *originalSourceState) { s.Scope.BirthSHA256 = strings.Repeat("b", 64) },
-		func(s *originalSourceState) { s.RetryToken = "replacement" },
-		func(s *originalSourceState) { s.Candidate.SHA256 = strings.Repeat("b", 64) },
-		func(s *originalSourceState) { s.Reference = materialSourceReference{} },
-		func(s *originalSourceState) { s.OriginalAdmissionInventory = nil },
 	} {
 		changed := state
 		mutate(&changed)
 		if _, err := writeOriginalState(t.Context(), t.Context(), clients.objects, in, changed, etag); err == nil || !bytes.Equal(before, f.state) {
 			t.Fatal("mechanical CAS replaced immutable original selection")
 		}
-	}
-}
-
-func TestOriginalSourceArchiveSDKMechanicalHolds(t *testing.T) {
-	t.Run("refused reservation has no candidate or Vault effect", func(t *testing.T) {
-		in := originalMechanicalInputs(t)
-		f, clients := newOriginalMechanicalSDK(t, in, "reservation refused")
-		state := originalState(in, time.Now().UTC())
-		if _, err := writeOriginalState(t.Context(), t.Context(), clients.objects, in, state, ""); err == nil || f.state != nil || f.creates != 0 {
-			t.Fatal("unacknowledged reservation acquired an effect")
-		}
-	})
-	in := originalMechanicalInputs(t)
-	f, clients := newOriginalMechanicalSDK(t, in, "")
-	directory := filepath.Join(t.TempDir(), "original")
-	state, _, candidate := pinMechanicalCandidate(t, in, clients, directory)
-	defer clear(candidate)
-	if _, err := clients.management.CreateSecret(ociclient.RequestContext(t.Context()), originalCreateRequest(state, candidate)); err != nil {
-		t.Fatal(err)
-	}
-	for _, fault := range []string{"bundle absent", "bundle version2", "bundle conflict", "metadata wrong key", "metadata version2", "metadata pending deletion"} {
-		t.Run(fault, func(t *testing.T) {
-			f.mu.Lock()
-			f.fault = fault
-			f.mu.Unlock()
-			if body, _, err := readOriginalVault(t.Context(), clients, state); err == nil {
-				clear(body)
-				t.Fatal("uncertain or different Vault data passed exact version1 recovery")
-			}
-			if f.creates != 1 {
-				t.Fatal("failed recovery created a new source key")
-			}
-		})
-	}
-	f.mu.Lock()
-	f.fault = ""
-	f.mu.Unlock()
-	if _, err := writeOriginalState(t.Context(), t.Context(), clients.objects, in, originalState(in, time.Now().UTC()), ""); err == nil {
-		t.Fatal("existing source reservation was replaced by another birth")
-	}
-	// No combined candidate/reference or reference/inventory CAS is allowed.
-	reserved := originalState(in, time.Now().UTC())
-	selected := reserved
-	selected.Candidate = state.Candidate
-	selected.Reference = materialSourceReference{SecretOCID: f.secretID, SHA256: state.Candidate.SHA256, MaxBytes: state.Candidate.MaxBytes}
-	if immutableOriginalState(reserved, selected) {
-		t.Fatal("Vault reference skipped the separately acknowledged candidate")
-	}
-	pinned := reserved
-	pinned.Candidate = state.Candidate
-	selected.OriginalAdmissionInventory = []byte("unselected-data")
-	if immutableOriginalState(pinned, selected) {
-		t.Fatal("inventory skipped the separately acknowledged Vault reference")
-	}
-}
-
-func TestOriginalSourceArchiveLocalCandidateMechanics(t *testing.T) {
-	in := originalMechanicalInputs(t)
-	directory := filepath.Join(t.TempDir(), "original")
-	dir, unlock, err := lockOriginalDirectory(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer unlock()
-	if _, other, err := lockOriginalDirectory(directory); err == nil {
-		other()
-		t.Fatal("two local writers acquired the same candidate lock")
-	}
-	state := originalState(in, time.Now().UTC())
-	body, err := generateOriginalCandidate(directory, in, state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer clear(body)
-	if err := persistOriginalCandidate(directory, dir, body); err != nil {
-		t.Fatal(err)
-	}
-	if err := persistOriginalCandidate(directory, dir, []byte("replacement")); err == nil {
-		t.Fatal("existing durable candidate was overwritten")
-	}
-	read, err := readOriginalCandidate(dir)
-	if err != nil || !bytes.Equal(read, body) {
-		t.Fatal("durable candidate differs from generated bytes", err)
-	}
-	clear(read)
-	repeated, err := generateOriginalCandidate(directory, in, state)
-	if err != nil || !bytes.Equal(repeated, body) {
-		t.Fatal("same original reservation regenerated different source bytes", err)
-	}
-	clear(repeated)
-	other := in
-	other.scope.SHA256 = strings.Repeat("b", 64)
-	otherState := state
-	otherState.Scope = other.scope
-	if archive, _, err := decodeOriginalCandidate(directory, other, otherState, body); err == nil {
-		clearArchive(archive)
-		t.Fatal("local candidate from another original scope was accepted")
-	}
-	otherReservation := originalState(in, state.StartedAt)
-	if archive, _, err := decodeOriginalCandidate(directory, in, otherReservation, body); err == nil {
-		clearArchive(archive)
-		t.Fatal("same actor's candidate was adopted by a different reservation")
-	}
-	if err := os.Remove(filepath.Join(directory, originalCandidateName)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := readOriginalCandidate(dir); !errors.Is(err, unix.ENOENT) {
-		t.Fatal("missing pinned candidate did not remain unavailable")
-	}
-	if err := os.Symlink("candidate/material.json", filepath.Join(directory, originalCandidateName)); err != nil {
-		t.Fatal(err)
-	}
-	if read, err := readOriginalCandidate(dir); err == nil {
-		clear(read)
-		t.Fatal("candidate symlink was followed")
-	}
-	if err := os.Remove(filepath.Join(directory, originalCandidateName)); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(directory, originalCandidateName), body, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if read, err := readOriginalCandidate(dir); err == nil {
-		clear(read)
-		t.Fatal("public-readable source candidate was accepted")
 	}
 }

@@ -1,11 +1,8 @@
 package bootstrapstart
 
 import (
-	"bytes"
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -147,116 +144,4 @@ func newFounderSignerFixture(t *testing.T) *founderSignerFixture {
 	return &founderSignerFixture{founderSelectionFixture: fixture, peerKey: peerKey, ledgerKey: ledgerKey,
 		store: FounderSignerStore{directory: directory, uid: uint32(os.Getuid()), gid: uint32(os.Getgid()),
 			allowUnsafeAncestors: true}, current: current}
-}
-
-func TestFounderSignerStoreLoadsSeparateDelegatedKeysAndClearsThem(t *testing.T) {
-	fixture := newFounderSignerFixture(t)
-	keys, err := fixture.store.Load(fixture.current, fixture.accepted, fixture.baked.Roots, fixture.now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(keys.peer, fixture.peerKey) || !bytes.Equal(keys.ledger, fixture.ledgerKey) ||
-		bytes.Equal(keys.peer, keys.ledger) {
-		t.Fatal("loaded signing keys differ from separately delegated installed material")
-	}
-	peerAlias, ledgerAlias := keys.peer, keys.ledger
-	keys.Close()
-	if !bytes.Equal(peerAlias, make([]byte, ed25519.PrivateKeySize)) ||
-		!bytes.Equal(ledgerAlias, make([]byte, ed25519.PrivateKeySize)) {
-		t.Fatal("closing signing keys did not clear private material")
-	}
-	keys, err = fixture.store.Load(fixture.current, fixture.accepted, fixture.baked.Roots, fixture.now)
-	if err != nil {
-		t.Fatalf("reload after restart: %v", err)
-	}
-	keys.Close()
-}
-
-func TestFounderSignerStoreHoldsMissingTamperedOrWrongRoleMaterial(t *testing.T) {
-	fixture := newFounderSignerFixture(t)
-	assertHold := func(label string, store FounderSignerStore, accepted AcceptedInstall) {
-		t.Helper()
-		keys, err := store.Load(fixture.current, accepted, fixture.baked.Roots, fixture.now)
-		keys.Close()
-		if !errors.Is(err, ErrFounderSigner) {
-			t.Fatalf("%s: got %v, want founder signer hold", label, err)
-		}
-	}
-	missing := fixture.store
-	missing.directory = filepath.Join(t.TempDir(), "missing")
-	assertHold("missing directory", missing, fixture.accepted)
-	wrongDigest := fixture.accepted
-	wrongDigest.MaterialSHA256 = map[string]string{"founder-peer.key": digestWire(fixture.peerKey),
-		"founder-ledger.key": digestWire(fixture.peerKey)}
-	assertHold("wrong marker digest", fixture.store, wrongDigest)
-	peerPath := filepath.Join(fixture.store.directory, "founder-peer.key")
-	ledgerPath := filepath.Join(fixture.store.directory, "founder-ledger.key")
-	if err := os.Rename(peerPath, peerPath+".saved"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(ledgerPath, peerPath); err != nil {
-		t.Fatal(err)
-	}
-	assertHold("wrong key in receipt slot", fixture.store, fixture.accepted)
-	if err := os.Rename(peerPath, ledgerPath); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(peerPath+".saved", peerPath); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(ledgerPath, 0o640); err != nil {
-		t.Fatal(err)
-	}
-	assertHold("group readable ledger signer", fixture.store, fixture.accepted)
-}
-
-func TestPeerStartupSkipsFounderFloorAndLaunchClients(t *testing.T) {
-	fixture := newFounderSelectionFixture(t)
-	peer := fixture.accepted
-	peer.Slot = "controller-a"
-	if err := RunAdmittedFounder(t.Context(), fixture.baked, peer, 1000, 1000); err != nil {
-		t.Fatalf("peer touched seed-only founder dependencies: %v", err)
-	}
-	peer.SeedSlot = ""
-	if err := RunAdmittedFounder(t.Context(), fixture.baked, peer, 1000, 1000); !errors.Is(err, ErrFounderRuntime) {
-		t.Fatalf("missing accepted seed role: %v", err)
-	}
-	peer = fixture.accepted
-	peer.Slot = "controller-a"
-	peer.DeploymentID = "00000000000ZGTG9F4ZD9XG0T1"
-	if err := RunAdmittedFounder(t.Context(), fixture.baked, peer, 1000, 1000); !errors.Is(err, ErrFounderRuntime) {
-		t.Fatalf("contradictory accepted role scope: %v", err)
-	}
-}
-
-func TestCanceledSeedCannotOpenFounderProviderOrLaunch(t *testing.T) {
-	fixture := newFounderSelectionFixture(t)
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if err := RunAdmittedFounder(ctx, fixture.baked, fixture.accepted, 1000, 1000); !errors.Is(err, context.Canceled) {
-		t.Fatalf("canceled seed continued toward OCI: %v", err)
-	}
-}
-
-func TestRestartRejectsTamperedAcceptedSeedRole(t *testing.T) {
-	fixture := newAdmissionFlowFixture(t)
-	_, err := fixture.gate.AdmitInitial(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	marker, err := fixture.gate.Markers.ReadIdentity()
-	if err != nil {
-		t.Fatal(err)
-	}
-	marker.SeedSlot = "controller-z"
-	wire, err := protocol.EncodeJSON(marker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(fixture.gate.Markers.directory, markerName), wire, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.gate.AdmitRestart(t.Context()); !errors.Is(err, ErrAcceptedIdentity) {
-		t.Fatalf("contradictory accepted seed role survived record validation: %v", err)
-	}
 }

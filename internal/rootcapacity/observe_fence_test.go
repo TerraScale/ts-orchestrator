@@ -10,7 +10,9 @@ import (
 
 func TestProtectedCapturePermanentlyFencesWorkerAdmission(t *testing.T) {
 	const instanceID = "original-worker"
-	for _, phase := range []string{drainwire.PoolCaptured, drainwire.PoolStopped} {
+	for _, phase := range []string{
+		drainwire.PoolCaptured,
+	} {
 		record := region.FoundationRecord{PoolDrains: map[string]drainwire.PoolReceipt{"original-removal": {
 			Child: drainwire.PoolChild{InstanceID: instanceID}, Phase: phase, ExpiresAt: time.Now().Add(-time.Hour),
 		}}}

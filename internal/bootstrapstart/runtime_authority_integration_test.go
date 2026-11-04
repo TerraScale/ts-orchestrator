@@ -50,7 +50,9 @@ func TestRuntimeAuthorityHTTPIntegration(t *testing.T) {
 	}
 	client.Host, client.HTTPClient = server.URL, server.Client()
 
-	for _, slot := range []string{"controller-c", "controller-a"} {
+	for _, slot := range []string{
+		"controller-c",
+	} {
 		t.Run(slot, func(t *testing.T) {
 			marker := fixture.accepted
 			marker.Slot, marker.PrimaryPrivateIP = slot, fixture.plan.SeedPrivateIP

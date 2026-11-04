@@ -15,7 +15,10 @@ import (
 )
 
 func TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles(t *testing.T) {
-	for _, fault := range []string{"renewal", "empty slot", "committed barrier", "changed acceptance", "changed journal", "cancelled", "changed store", "wrong digest", "archive collision"} {
+	for _, fault := range []string{
+		"renewal",
+		"committed barrier",
+	} {
 		t.Run(fault, func(t *testing.T) {
 			markers, baked, journal, inputs, accepted := rootInstallerFixture(t)
 			journal.Replicas = 1

@@ -12,15 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
+	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/roleidentity"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
-
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
-	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
-	"github.com/TerraScale/ts-orchestrator/internal/roleidentity"
 )
 
 // A TerraBase member's own user, issued by the controller and checked by a

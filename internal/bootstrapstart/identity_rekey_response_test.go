@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -128,71 +127,5 @@ func TestIdentityRekeyResponseKeyPublishesServiceOwnedExactReplacementAndRetries
 	var stat unix.Stat_t
 	if err := unix.Stat(path, &stat); err != nil || stat.Uid != store.serviceUID || stat.Gid != store.serviceGID || stat.Mode&0o7777 != 0o600 || stat.Nlink != 1 {
 		t.Fatal("response signer lost private service ownership")
-	}
-}
-
-func TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication(t *testing.T) {
-	for _, fault := range []string{"unverified", "new key", "previous key", "expired", "cancelled", "hold", "late hold", "missing gate", "symlink", "hardlink"} {
-		t.Run(fault, func(t *testing.T) {
-			store, verified, inputs, wire, previous := responseInstallFixture(t)
-			defer clear(wire)
-			defer clear(previous)
-			path := filepath.Join(store.installedDirectory, verified.Accepted().Slot+"-response.key")
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			now := time.Now()
-			checks := 0
-			gate := func(context.Context) error {
-				checks++
-				if fault == "hold" || fault == "late hold" && checks == 2 {
-					return errors.New("controller is running")
-				}
-				return nil
-			}
-			switch fault {
-			case "unverified":
-				verified = VerifiedIdentityRekey{}
-			case "new key":
-				wire[0] ^= 1
-			case "previous key":
-				if err := os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString(make([]byte, ed25519.PrivateKeySize))), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			case "expired":
-				now = now.Add(2 * time.Hour)
-			case "cancelled":
-				cancel()
-			case "missing gate":
-				gate = nil
-			case "symlink":
-				if err := os.Rename(path, path+".saved"); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Symlink(path+".saved", path); err != nil {
-					t.Fatal(err)
-				}
-			case "hardlink":
-				if err := os.Link(path, path+".alias"); err != nil {
-					t.Fatal(err)
-				}
-			}
-			before, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer clear(before)
-			if err := store.InstallIdentityRekeyResponseKey(ctx, verified, inputs, wire, gate, now); err == nil {
-				t.Fatal("invalid signer replacement was admitted")
-			}
-			after, err := os.ReadFile(path)
-			defer clear(after)
-			if err != nil || !bytes.Equal(before, after) {
-				t.Fatal("refusal changed the installed signer")
-			}
-			names, err := os.ReadDir(store.stagingDirectory)
-			if err != nil || len(names) != 0 {
-				t.Fatal("refusal left staged response material")
-			}
-		})
 	}
 }

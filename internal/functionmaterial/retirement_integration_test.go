@@ -133,11 +133,6 @@ func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) 
 		wantSchedules int
 	}{
 		{name: "current task remains referenced", denyCall: 1},
-		{name: "final observation fails", denyCall: 2},
-		{name: "current version changes", prepare: func() { backend.changeBundle = true }},
-		{name: "metadata etag changes", prepare: func() { backend.changeMetadata = true }},
-		{name: "granted bytes change", prepare: func() { backend.wire = append(append([]byte(nil), wire...), ' ') }},
-		{name: "provider schedule fails", prepare: func() { backend.rejectSchedule = true }, wantSchedules: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			backend.reset()

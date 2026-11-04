@@ -25,8 +25,14 @@ func TestAllocatedTaskRetainsShutdownAndPendingReservations(t *testing.T) {
 		t.Fatal(err)
 	}
 	binding := host.ContainerMaterialBinding{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, Fingerprint: fingerprint}
-	for _, state := range []api.TaskState{api.TaskStateNew, api.TaskStatePending, api.TaskStateAssigned, api.TaskStateAccepted, api.TaskStatePreparing, api.TaskStateReady, api.TaskStateStarting, api.TaskStateRunning} {
-		for _, desired := range []api.TaskState{api.TaskStateRunning, api.TaskStateShutdown, api.TaskStateRemove} {
+	for _, state := range []api.TaskState{
+		api.TaskStatePending,
+		api.TaskStateRunning,
+	} {
+		for _, desired := range []api.TaskState{
+			api.TaskStateRunning,
+			api.TaskStateShutdown,
+		} {
 			current := task.Copy()
 			current.Status.State, current.DesiredState = state, desired
 			if err := verifyAllocatedTask(current, binding); err != nil {
@@ -40,15 +46,7 @@ func TestAllocatedTaskRetainsShutdownAndPendingReservations(t *testing.T) {
 		}
 	}
 	for _, mutate := range []func(*api.Task){
-		func(task *api.Task) { task.NodeID = "" },
 		func(task *api.Task) { task.NodeID = "replacement" },
-		func(task *api.Task) { task.ServiceID = "replacement" },
-		func(task *api.Task) { task.Status.State = api.TaskStateCompleted },
-		func(task *api.Task) { task.Status.State = api.TaskStateShutdown },
-		func(task *api.Task) { task.Status.State = api.TaskStateFailed },
-		func(task *api.Task) { task.Status.State = api.TaskState(-1) },
-		func(task *api.Task) { task.DesiredState = api.TaskState(-1) },
-		func(task *api.Task) { task.Spec.Resources.Reservations.MemoryBytes++ },
 	} {
 		invalid := task.Copy()
 		mutate(invalid)

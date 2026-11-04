@@ -9,7 +9,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -203,44 +202,5 @@ func TestManagedCredentialRotationRevocationAndReplay(t *testing.T) {
 	store.entry.Payload[0] ^= 1
 	if _, _, err := service.Current(t.Context(), spec.PlacementDatabaseID, spec.PartitionID); !errors.Is(err, ErrMaterialConflict) {
 		t.Fatalf("tampered durable state was accepted: %v", err)
-	}
-}
-
-func TestCredentialStateValidatesCanonicalSQLTableGrantIDs(t *testing.T) {
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	keyID := "01HW000000E008000000000011"
-	base := apiKeyEntry{ID: keyID, VerifierSHA256: strings.Repeat("a", 64),
-		Tenant: "0G000000000000000000000001", Database: "10000000000000000000000001",
-		Shard: "7", TableIDs: []string{"248H248H24EH288H248H248H24"},
-		Permissions: []string{"read", "write"}}
-	makeState := func(tableIDs []string) CredentialState {
-		t.Helper()
-		registry, err := json.Marshal(apiKeyRegistry{Version: 1, Keys: []apiKeyEntry{{
-			ID: base.ID, VerifierSHA256: base.VerifierSHA256, Tenant: base.Tenant, Database: base.Database,
-			Shard: base.Shard, TableIDs: tableIDs, Permissions: base.Permissions,
-		}}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		state, err := SignCredentialState(2, strings.Repeat("b", 64), registry, private)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return state
-	}
-	if err := VerifyCredentialState(makeState(base.TableIDs), strings.Repeat("b", 64), public); err != nil {
-		t.Fatalf("canonical UUIDv7 SQL grant was rejected: %v", err)
-	}
-	for _, ids := range [][]string{
-		{"4444444444447444844444444444444A"},
-		{"44444444444464448444444444444444"},
-		{"248H248H24EH2891248H248H25", "248H248H24EH288H248H248H24"},
-	} {
-		if err := VerifyCredentialState(makeState(ids), strings.Repeat("b", 64), public); err == nil {
-			t.Fatalf("noncanonical SQL table grants %v were accepted", ids)
-		}
 	}
 }

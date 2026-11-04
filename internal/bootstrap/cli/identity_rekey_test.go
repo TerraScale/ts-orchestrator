@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -21,7 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/app"
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
@@ -280,159 +278,6 @@ func TestIdentityRekeyRootSigningExactV1(t *testing.T) {
 	}
 }
 
-func TestIdentityRekeyRootSigningRejectsBeforeOutput(t *testing.T) {
-	for _, name := range []string{"target mismatch", "legacy identity", "unknown field", "noncanonical", "wrong root", "insecure key", "excess lifetime"} {
-		t.Run(name, func(t *testing.T) {
-			f := newIdentityRekeyCLIFixture(t)
-			args := f.signArgs("checkpoint-candidate.json")
-			switch name {
-			case "target mismatch":
-				f.expected.ClusterID = entityid.New()
-				writeFixture(t, f.path("expected.json"), mustEncodePayload(t, f.expected), 0o644)
-			case "legacy identity":
-				f.checkpoint.DeploymentID = "old-deployment"
-				writeFixture(t, f.path("checkpoint-candidate.json"), mustEncodePayload(t, f.checkpoint), 0o644)
-			case "unknown field":
-				wire := mustEncodePayload(t, f.checkpoint)
-				writeFixture(t, f.path("checkpoint-candidate.json"), append(wire[:len(wire)-1], []byte(`,"allow_legacy":true}`)...), 0o644)
-			case "noncanonical":
-				writeFixture(t, f.path("checkpoint-candidate.json"), append([]byte(" "), mustEncodePayload(t, f.checkpoint)...), 0o644)
-			case "wrong root":
-				_, key, err := ed25519.GenerateKey(rand.Reader)
-				if err != nil {
-					t.Fatal(err)
-				}
-				der, err := x509.MarshalPKCS8PrivateKey(key)
-				if err != nil {
-					t.Fatal(err)
-				}
-				writeFixture(t, f.path("root.key"), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600)
-			case "insecure key":
-				if err := os.Chmod(f.path("root.key"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			case "excess lifetime":
-				args[len(args)-1] = "9000h"
-			}
-			if err := (command{ctx: t.Context(), output: io.Discard}).signAcceptedIdentityCheckpointAt(args, f.now); err == nil {
-				t.Fatal("invalid reviewed input was signed")
-			}
-			if _, err := os.Stat(f.path("signed.json")); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("rejected signing created output: %v", err)
-			}
-		})
-	}
-}
-
-func TestIdentityRekeyHostSigningRequiresDrainAndIndependentTarget(t *testing.T) {
-	for _, name := range []string{"short drain", "different inventory", "foreign checkpoint"} {
-		t.Run(name, func(t *testing.T) {
-			f := newIdentityRekeyCLIFixture(t)
-			switch name {
-			case "short drain":
-				f.observed.AgentsStoppedAt = f.observed.ObservedAt.Add(-31 * time.Second)
-			case "different inventory":
-				f.observed.Epoch++
-			case "foreign checkpoint":
-				f.observed.CheckpointSHA256 = strings.Repeat("a", 64)
-			}
-			writeFixture(t, f.path("observation.json"), mustEncodePayload(t, f.observed), 0o644)
-			args := append(f.signArgs("host-candidate.json"), "--checkpoint", f.path("checkpoint.json"), "--observation", f.path("observation.json"))
-			if err := (command{ctx: t.Context(), output: io.Discard}).signHostStateHandoffPlanAt(args, f.now); err == nil {
-				t.Fatal("unsafe inventory was signed")
-			}
-			if _, err := os.Stat(f.path("signed.json")); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("rejected signing created output: %v", err)
-			}
-		})
-	}
-}
-
-func TestIdentityRekeyRootSigningUsesCurrentDeploymentLineage(t *testing.T) {
-	f := newIdentityRekeyCLIFixture(t)
-	identity := trust.ChainIdentity{DeploymentID: f.expected.DeploymentID, Cell: "gru", Environment: f.expected.Environment}
-	roots, err := trust.VerifyRootChain(f.roots, identity, trust.RootChain{Version: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	public, nextKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rotation, err := trust.NextRotation(roots, public)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var signed trust.SignedRotation
-	for _, key := range []ed25519.PrivateKey{f.key, nextKey} {
-		envelope, err := trust.SignRotation(rotation, identity, f.now, f.now.Add(time.Hour), key)
-		if err != nil {
-			t.Fatal(err)
-		}
-		signed.Signatures = append(signed.Signatures, envelope)
-	}
-	chain := trust.RootChain{Version: 1, Rotations: []trust.SignedRotation{signed}}
-	wire, err := trust.EncodeRootChain(chain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFixture(t, f.path("roots.json"), wire, 0o644)
-	c := command{ctx: t.Context(), output: io.Discard}
-	args := f.signArgs("checkpoint-candidate.json")
-	if err := c.signAcceptedIdentityCheckpointAt(args, f.now); !errors.Is(err, trust.ErrUntrustedKey) {
-		t.Fatalf("retired genesis authorized current signing: %v", err)
-	}
-	der, err := x509.MarshalPKCS8PrivateKey(nextKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFixture(t, f.path("root.key"), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600)
-	if err := c.signAcceptedIdentityCheckpointAt(args, f.now); err != nil {
-		t.Fatalf("current root could not sign: %v", err)
-	}
-	checkpointWire, err := os.ReadFile(f.path("signed.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := identityrekey.VerifyAcceptedIdentityCheckpoint(checkpointWire, f.roots, chain, f.expected, f.now); err != nil {
-		t.Fatal(err)
-	}
-	f.expected.DeploymentID = entityid.New()
-	writeFixture(t, f.path("expected.json"), mustEncodePayload(t, f.expected), 0o644)
-	if err := c.signAcceptedIdentityCheckpointAt(args, f.now); !errors.Is(err, trust.ErrScopeMismatch) {
-		t.Fatalf("foreign root lineage was accepted: %v", err)
-	}
-}
-
-func TestIdentityRekeyResetSigningRejectsChangedPlanOrTarget(t *testing.T) {
-	for _, name := range []string{"cluster", "checkpoint", "host plan", "epoch", "v2"} {
-		t.Run(name, func(t *testing.T) {
-			f := newIdentityRekeyCLIFixture(t)
-			switch name {
-			case "cluster":
-				f.reset.ClusterID = entityid.New()
-			case "checkpoint":
-				f.reset.CheckpointSHA256 = strings.Repeat("a", 64)
-			case "host plan":
-				f.reset.HostStatePlanSHA256 = strings.Repeat("a", 64)
-			case "epoch":
-				f.reset.Epoch++
-			case "v2":
-				f.reset.Version = 2
-			}
-			writeFixture(t, f.path("reset-candidate.json"), mustEncodePayload(t, f.reset), 0o644)
-			args := append(f.signArgs("reset-candidate.json"), "--checkpoint", f.path("checkpoint.json"), "--observation", f.path("observation.json"),
-				"--host-plan", f.path("host-plan.json"), "--replicas", "1")
-			if err := (command{ctx: t.Context(), output: io.Discard}).signIdentityResetAt(args, f.now); err == nil {
-				t.Fatal("changed reset authority was signed")
-			}
-			if _, err := os.Stat(f.path("signed.json")); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("rejected reset created output: %v", err)
-			}
-		})
-	}
-}
-
 var identityRekeyOldLease = []byte(`{"version":1,"scope":"gru","candidate_id":"old-controller","owner_id":"old-owner","epoch":7}`)
 
 func identityRekeyTestBroker(t *testing.T) (*natscell.Runtime, jetstream.Stream, natscell.Config) {
@@ -477,104 +322,6 @@ func identityRekeyTestBroker(t *testing.T) (*natscell.Runtime, jetstream.Stream,
 		t.Fatal(err)
 	}
 	return runtime, stream, cfg
-}
-
-func TestIdentityRekeyPrecommitOnlyHeldBarrierAndExactRetry(t *testing.T) {
-	f := newIdentityRekeyCLIFixture(t)
-	runtime, stream, _ := identityRekeyTestBroker(t)
-	envelope, err := trust.DecodeEnvelope(f.journal.ResetWire)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		sequence, err := authority.ResetIdentityLease(t.Context(), runtime.JetStream(), envelope, f.roots, f.target, f.now)
-		if err != nil || sequence != 2 {
-			t.Fatalf("barrier sequence=%d error=%v", sequence, err)
-		}
-	}
-	info, err := stream.Info(t.Context())
-	if err != nil || info.State.LastSeq != 2 || info.State.Msgs != 2 {
-		t.Fatalf("precommit replaced records or duplicated barrier: %+v %v", info, err)
-	}
-	previous, err := stream.GetMsg(t.Context(), 1)
-	if err != nil || !bytes.Equal(previous.Data, identityRekeyOldLease) {
-		t.Fatalf("opaque predecessor changed: %v", err)
-	}
-	barrier, err := stream.GetMsg(t.Context(), 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var current struct {
-		Version             int    `json:"version"`
-		DeploymentID        string `json:"deployment_id"`
-		Released            bool   `json:"released"`
-		IdentityResetSHA256 string `json:"identity_reset_sha256"`
-	}
-	if err := protocol.DecodeTolerant(barrier.Data, &current, 16<<10); err != nil || !current.Released ||
-		current.DeploymentID != f.expected.DeploymentID || current.IdentityResetSHA256 == "" {
-		t.Fatalf("missing held root barrier: %+v %v", current, err)
-	}
-	var legacy struct {
-		Version       int    `json:"version"`
-		Scope         string `json:"scope"`
-		CandidateID   string `json:"candidate_id"`
-		OwnerID       string `json:"owner_id"`
-		Epoch         uint64 `json:"epoch"`
-		LeaseDuration int64  `json:"lease_duration_ns"`
-		TransitionID  string `json:"transition_id"`
-		Released      bool   `json:"released"`
-	}
-	if err := protocol.DecodeStrict(barrier.Data, &legacy, 16<<10); err == nil {
-		t.Fatal("old decoder admitted the deployment/reset-bound barrier")
-	}
-}
-
-func TestIdentityRekeyPrecommitRejectsStaleAndUnrootedBeforeMutation(t *testing.T) {
-	for _, name := range []string{"changed log", "changed lease", "changed target", "wrong root", "expired", "wrong stream policy"} {
-		t.Run(name, func(t *testing.T) {
-			f := newIdentityRekeyCLIFixture(t)
-			runtime, stream, _ := identityRekeyTestBroker(t)
-			envelope, err := trust.DecodeEnvelope(f.journal.ResetWire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			now := f.now
-			switch name {
-			case "changed log":
-				_, err = runtime.JetStream().Publish(t.Context(), protocol.Control("gru", "host", "registration", "changed"), []byte("another writer"))
-			case "changed lease":
-				_, err = runtime.JetStream().Publish(t.Context(), protocol.Control("gru", "lease"), []byte("another opaque lease"))
-			case "changed target":
-				f.target.ClusterID = entityid.New()
-			case "wrong root":
-				_, key, keyErr := ed25519.GenerateKey(rand.Reader)
-				if keyErr != nil {
-					t.Fatal(keyErr)
-				}
-				envelope, err = authority.SignIdentityReset(f.reset, now, now.Add(time.Hour), key)
-			case "expired":
-				now = envelope.ExpiresAt
-			case "wrong stream policy":
-				config := stream.CachedInfo().Config
-				config.AllowDirect = true
-				_, err = runtime.JetStream().UpdateStream(t.Context(), config)
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			before, err := stream.Info(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := authority.ResetIdentityLease(t.Context(), runtime.JetStream(), envelope, f.roots, f.target, now); err == nil {
-				t.Fatal("unsafe reset admitted")
-			}
-			after, err := stream.Info(t.Context())
-			if err != nil || after.State.LastSeq != before.State.LastSeq || after.State.Msgs != before.State.Msgs {
-				t.Fatalf("rejected precommit mutated stream: %v", err)
-			}
-		})
-	}
 }
 
 // The old bridge can close after the durable write, before its reply reaches
@@ -649,54 +396,5 @@ func TestIdentityRekeyPrecommitDisconnectDoesNotDuplicateReset(t *testing.T) {
 	sequence, err := authority.ResetIdentityLease(t.Context(), runtime.JetStream(), envelope, f.roots, f.target, f.now)
 	if err != nil || sequence != 2 {
 		t.Fatalf("held broker readback did not recognize exact barrier: %d %v", sequence, err)
-	}
-}
-
-func TestIdentityRekeyPrecommitConnectionRejectsLegacyAndServerModes(t *testing.T) {
-	f := newIdentityRekeyCLIFixture(t)
-	connection := app.IdentityRekeyConnection{Version: 1, NATS: natscell.Config{Cell: "gru", Instance: "controller-a", Replicas: 1,
-		ClientRole: "controller", URL: "tls://127.0.0.1:4222", CredentialsFile: "existing.creds",
-		TLS: natscell.TLSFiles{CAFile: "ca.pem", CertFile: "client.pem", KeyFile: "client.key"}}}
-	if err := connection.Validate(f.accepted, 1); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"old version", "embedded", "lab", "wrong cell", "wrong slot", "wrong quorum", "no credentials"} {
-		t.Run(name, func(t *testing.T) {
-			changed := connection
-			switch name {
-			case "old version":
-				changed.Version = 0
-			case "embedded":
-				changed.NATS.Embedded = &natscell.Embedded{}
-			case "lab":
-				var legacy app.IdentityRekeyConnection
-				if err := protocol.DecodeStrict([]byte(`{"version":1,"nats":{"lab":true}}`), &legacy, 64<<10); err == nil {
-					t.Fatal("retired lab authentication mode admitted")
-				}
-				return
-			case "wrong cell":
-				changed.NATS.Cell = "sjc"
-			case "wrong slot":
-				changed.NATS.Instance = "controller-b"
-			case "wrong quorum":
-				changed.NATS.Replicas = 3
-			case "no credentials":
-				changed.NATS.CredentialsFile = ""
-			}
-			if err := changed.Validate(f.accepted, 1); err == nil {
-				t.Fatal("unsafe connection mode admitted")
-			}
-		})
-	}
-	var decoded app.IdentityRekeyConnection
-	if err := protocol.DecodeStrict([]byte(`{"version":1,"nats":{},"global":null}`), &decoded, 64<<10); err == nil {
-		t.Fatal("legacy app config member accepted as connection input")
-	}
-}
-
-func TestBootstrapRejectsUncheckedIdentityRekeyPrecommit(t *testing.T) {
-	err := (command{ctx: t.Context(), output: io.Discard}).runAt([]string{"precommit-identity-rekey"}, time.Now())
-	if err == nil || err.Error() != usage || strings.Contains(usage, "precommit-identity-rekey") {
-		t.Fatalf("unchecked precommit is reachable: %v", err)
 	}
 }

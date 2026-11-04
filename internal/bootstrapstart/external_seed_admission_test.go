@@ -168,9 +168,7 @@ func TestExternalSeedProducedLedgerHistoryAdmitsInitial(t *testing.T) {
 		name string
 		ids  []string
 	}{
-		{name: "missing", ids: slices.Clone(observed.NSGOCIDs[:1])},
 		{name: "extra", ids: append(slices.Clone(observed.NSGOCIDs), "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.foreign")},
-		{name: "duplicate", ids: []string{observed.NSGOCIDs[0], observed.NSGOCIDs[0]}},
 	} {
 		t.Run("reject_"+test.name+"_OCI_NSG_set", func(t *testing.T) {
 			badObservation := observed

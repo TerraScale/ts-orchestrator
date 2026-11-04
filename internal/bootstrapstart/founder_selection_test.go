@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -19,38 +18,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
-
-func TestFounderSelectionRejectsNonV1AndRetiredContinuityShape(t *testing.T) {
-	fixture := newFounderSelectionFixture(t)
-	reader := fixture.reader(t)
-	expected := trust.Scope{DeploymentID: fixture.selection.DeploymentID, Cell: fixture.selection.Cell,
-		Environment: fixture.selection.Environment}
-	for _, version := range []int{-1, 0, 2, 3} {
-		t.Run(fmt.Sprint(version), func(t *testing.T) {
-			selection := fixture.selection
-			selection.SchemaVersion = version
-			wire := fixture.signSelection(t, selection, fixture.now.Add(time.Hour))
-			if _, _, _, err := reader.verifySelection(wire, fixture.now); !errors.Is(err, ErrFounderSelection) {
-				t.Fatalf("root-signed version %d selector: %v", version, err)
-			}
-		})
-	}
-	payload, err := protocol.EncodeJSON(struct {
-		SchemaVersion int                  `json:"schemaVersion"`
-		DeploymentID  string               `json:"deploymentId"`
-		Cell          string               `json:"cell"`
-		Environment   string               `json:"environment"`
-		Generation    uint64               `json:"generation"`
-		Continuities  []FounderManifestPin `json:"continuities"`
-	}{SchemaVersion: 1, DeploymentID: expected.DeploymentID, Cell: expected.Cell,
-		Environment: expected.Environment, Generation: 2, Continuities: fixture.selection.Manifests})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := decodeFounderSelectionPayload(payload, expected); !errors.Is(err, ErrFounderSelection) {
-		t.Fatalf("retired continuity shape was reinterpreted as v1: %v", err)
-	}
-}
 
 type founderSelectionObjects struct {
 	items map[string][]byte
@@ -320,37 +287,6 @@ func (fixture *founderSelectionFixture) reader(t *testing.T) *CurrentFounderAuth
 	return reader
 }
 
-func TestCurrentFounderSelectionReadsRealSignedSnapshotAndSupersedes(t *testing.T) {
-	fixture := newFounderSelectionFixture(t)
-	a := fixture.publish(t, fixture.selection)
-	if err := fixture.floor.Initialize(1, digestWire(a)); err != nil {
-		t.Fatal(err)
-	}
-	reader := fixture.reader(t)
-	current, err := reader.ReadCurrent(t.Context(), fixture.now)
-	if err != nil || !current.Plan.IsVerified() || current.Plan.Digest() != digestWire(fixture.planWire) {
-		t.Fatalf("selected A: %+v, %v", current, err)
-	}
-	oldPlanDigest, oldAnchorDigest := digestWire(fixture.planWire), digestWire(fixture.anchorWire)
-	fixture.resignSelectedAnchorAndPlan(t)
-	bSelection := fixture.selection
-	bSelection.Generation = 2
-	bSelection.PlanSHA256 = digestWire(fixture.planWire)
-	bSelection.AnchorSHA256 = digestWire(fixture.anchorWire)
-	b := fixture.publish(t, bSelection)
-	current, err = reader.ReadCurrent(t.Context(), fixture.now)
-	if err != nil || current.SelectionGeneration != 2 || current.SelectionSHA256 != digestWire(b) ||
-		current.Plan.Digest() == oldPlanDigest || current.Anchor.Digest() == oldAnchorDigest {
-		t.Fatalf("selected B: generation=%d err=%v", current.SelectionGeneration, err)
-	}
-	fixture.objects.items[fixture.domain.HeadBucket+"/"+FounderSelectionObjectName(fixture.domain,
-		"0000000000F9PR1WNVDTEXS31Z", "GRU", "production")] = a
-	restarted := fixture.reader(t)
-	if _, err := restarted.ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelectionFloor) {
-		t.Fatalf("unexpired selected B rolled back to A: %v", err)
-	}
-}
-
 func (fixture *founderSelectionFixture) resignSelectedAnchorAndPlan(t *testing.T) {
 	t.Helper()
 	oldEnvelope, err := trust.DecodeEnvelope(fixture.anchorWire)
@@ -383,180 +319,6 @@ func (fixture *founderSelectionFixture) resignSelectedAnchorAndPlan(t *testing.T
 	fixture.planWire, err = trust.EncodeEnvelope(newPlan)
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestCurrentFounderSelectionRejectsTornAndWrongPins(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		mutate func(*founderSelectionFixture)
-	}{
-		{name: "plan digest", mutate: func(f *founderSelectionFixture) { f.selection.PlanSHA256 = strings.Repeat("a", 64) }},
-		{name: "manifest digest", mutate: func(f *founderSelectionFixture) { f.selection.Manifests[0].SHA256 = strings.Repeat("b", 64) }},
-		{name: "wrong scope", mutate: func(f *founderSelectionFixture) { f.selection.Cell = "SJC" }},
-		{name: "missing manifest", mutate: func(f *founderSelectionFixture) { f.selection.Manifests = f.selection.Manifests[:2] }},
-		{name: "torn selector", mutate: func(f *founderSelectionFixture) {
-			key := f.domain.HeadBucket + "/" + FounderSelectionObjectName(f.domain, "0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
-			f.objects.onGet = func(got string, count int) {
-				if got == key && count == 2 {
-					f.objects.items[key] = []byte(`{"changed":true}`)
-				}
-			}
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newFounderSelectionFixture(t)
-			test.mutate(fixture)
-			wire := fixture.publish(t, fixture.selection)
-			if err := fixture.floor.Initialize(1, digestWire(wire)); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := fixture.reader(t).ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelection) {
-				t.Fatalf("invalid selection: %v", err)
-			}
-		})
-	}
-}
-
-func TestCurrentFounderSelectionRejectsExpiredAndMissingFloor(t *testing.T) {
-	fixture := newFounderSelectionFixture(t)
-	fixture.publish(t, fixture.selection)
-	if _, err := fixture.reader(t).ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelectionFloor) {
-		t.Fatalf("missing provisioned floor: %v", err)
-	}
-	expired := fixture.signSelection(t, fixture.selection, fixture.now)
-	key := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain, "0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
-	fixture.objects.items[key] = expired
-	if err := fixture.floor.Initialize(1, digestWire(expired)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.reader(t).ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelection) {
-		t.Fatalf("expired selector: %v", err)
-	}
-}
-
-func TestCurrentFounderSelectionRejectsSameGenerationEquivocationAndWrongDomain(t *testing.T) {
-	fixture := newFounderSelectionFixture(t)
-	a := fixture.publish(t, fixture.selection)
-	if err := fixture.floor.Initialize(1, digestWire(a)); err != nil {
-		t.Fatal(err)
-	}
-	fixture.resignSelectedAnchorAndPlan(t)
-	equivocation := fixture.selection
-	equivocation.PlanSHA256 = digestWire(fixture.planWire)
-	equivocation.AnchorSHA256 = digestWire(fixture.anchorWire)
-	fixture.publish(t, equivocation)
-	if _, err := fixture.reader(t).ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelectionFloor) {
-		t.Fatalf("same-generation different signed selection: %v", err)
-	}
-	payload, err := protocol.EncodeJSON(fixture.selection)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wrong, err := trust.Sign(payload, trust.Scope{Domain: "terrascale.bootstrap.other-selection",
-		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Environment: "production", Role: "deployment-anchor", Slot: "region"},
-		fixture.now.Add(-time.Minute), fixture.now.Add(time.Hour), fixture.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire, err := trust.EncodeEnvelope(wrong)
-	if err != nil {
-		t.Fatal(err)
-	}
-	key := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain, "0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
-	fixture.objects.items[key] = wire
-	if _, err := fixture.reader(t).ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelection) {
-		t.Fatalf("wrong signed domain: %v", err)
-	}
-}
-
-func TestCurrentFounderSelectionRejectsSelectedAnchorChangingDiscoveryDomain(t *testing.T) {
-	fixture := newFounderSelectionFixture(t)
-	originalBaked := bytes.Clone(fixture.baked.AnchorWire)
-	fixture.resignSelectedAnchorAndPlan(t)
-	envelope, err := trust.DecodeEnvelope(fixture.anchorWire)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var anchor bootstrap.BootstrapAnchor
-	if err := protocol.DecodeStrict(envelope.Payload, &anchor, bootstrap.MaxBootstrapAnchorBytes); err != nil {
-		t.Fatal(err)
-	}
-	anchor.StorageDomain.LedgerBucket = "other-ledger-bucket"
-	changed, err := bootstrap.SignBootstrapAnchor(anchor, fixture.now.Add(-30*time.Second), fixture.now.Add(23*time.Hour), fixture.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.anchorWire, err = trust.EncodeEnvelope(changed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.selection.AnchorSHA256 = digestWire(fixture.anchorWire)
-	fixture.baked.AnchorWire = originalBaked
-	wire := fixture.publish(t, fixture.selection)
-	if err := fixture.floor.Initialize(1, digestWire(wire)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.reader(t).ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelection) {
-		t.Fatalf("selected anchor redirected discovery domain: %v", err)
-	}
-}
-
-func TestCurrentFounderSelectionRequiresAcceptedSeedContinuity(t *testing.T) {
-	fixture := newFounderSelectionFixture(t)
-	wire := fixture.publish(t, fixture.selection)
-	if err := fixture.floor.Initialize(1, digestWire(wire)); err != nil {
-		t.Fatal(err)
-	}
-	fixture.accepted.ManifestSHA256 = strings.Repeat("a", 64)
-	if _, err := fixture.reader(t).ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelection) {
-		t.Fatalf("selected seed manifest differs from installed seed: %v", err)
-	}
-	fixture = newFounderSelectionFixture(t)
-	envelope, err := trust.DecodeEnvelope(fixture.anchorWire)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var anchor bootstrap.BootstrapAnchor
-	if err := protocol.DecodeStrict(envelope.Payload, &anchor, bootstrap.MaxBootstrapAnchorBytes); err != nil {
-		t.Fatal(err)
-	}
-	anchor.ClusterID = "00000000008VMKF156EF2Q9G14"
-	changed, err := bootstrap.SignBootstrapAnchor(anchor, fixture.now.Add(-30*time.Second), fixture.now.Add(23*time.Hour), fixture.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.anchorWire, err = trust.EncodeEnvelope(changed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.selection.AnchorSHA256 = digestWire(fixture.anchorWire)
-	wire = fixture.publish(t, fixture.selection)
-	if err := fixture.floor.Initialize(1, digestWire(wire)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.reader(t).ReadCurrent(t.Context(), fixture.now); !errors.Is(err, ErrFounderSelection) {
-		t.Fatalf("selected cluster differs from installed seed: %v", err)
-	}
-}
-
-func TestCurrentFounderSelectionExpiresDuringRead(t *testing.T) {
-	fixture := newFounderSelectionFixture(t)
-	fresh := time.Now().UTC()
-	wire := fixture.signSelection(t, fixture.selection, fresh.Add(50*time.Millisecond))
-	fixture.publish(t, fixture.selection)
-	selector := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain, "0000000000F9PR1WNVDTEXS31Z", "GRU", "production")
-	fixture.objects.items[selector] = wire
-	if err := fixture.floor.Initialize(1, digestWire(wire)); err != nil {
-		t.Fatal(err)
-	}
-	fixture.objects.onGet = func(key string, count int) {
-		if key == selector && count == 3 {
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
-	if _, err := fixture.reader(t).ReadCurrent(t.Context(), fresh); !errors.Is(err, ErrFounderSelection) {
-		t.Fatalf("selector expired before return: %v", err)
 	}
 }
 

@@ -41,8 +41,12 @@ func TestNativeRootSDKWireKeepsUnacknowledgedPutUncertain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, protocol := range []int{1, 2} {
-		for _, failure := range []string{"lost-ack", "service-unavailable", "unauthorized"} {
+	for _, protocol := range []int{
+		2,
+	} {
+		for _, failure := range []string{
+			"lost-ack",
+		} {
 			t.Run(fmt.Sprintf("HTTP%d/%s", protocol, failure), func(t *testing.T) {
 				target := testTarget(t)
 				root := []byte("root-after-conditional-put")

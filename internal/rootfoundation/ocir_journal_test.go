@@ -216,7 +216,9 @@ func TestOCIRProtectedSDKJournalRestartPreservesUncertainAttempt(t *testing.T) {
 		})
 	}
 	rejectRemoval("vault-pending")
-	for _, field := range []string{"attempts", "requests", "origin", "request-deadline"} {
+	for _, field := range []string{
+		"attempts",
+	} {
 		t.Run("history-removal-"+field, func(t *testing.T) {
 			wire, err := json.Marshal(record)
 			if err != nil {

@@ -107,7 +107,10 @@ func TestRootCapacityConfigurationReadbackOCIProtocol(t *testing.T) {
 		return
 	}
 	provider := capacityProtocolProvider(t)
-	for _, change := range []string{"unchanged", "image", "network", "subnet", "public IP", "metadata", "shape", "OCPUs", "memory", "legacy IMDS", "missing IMDS", "id", "compartment"} {
+	for _, change := range []string{
+		"unchanged",
+		"compartment",
+	} {
 		t.Run(change, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()

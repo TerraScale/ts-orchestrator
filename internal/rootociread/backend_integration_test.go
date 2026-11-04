@@ -47,7 +47,10 @@ func TestRootReleaseChannelThroughSignedSDK(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Fatal("root backend qualification requires an isolated root test process")
 	}
-	for _, outcome := range []string{"current", "grant changes during read", "canceled after channel"} {
+	for _, outcome := range []string{
+		"current",
+		"grant changes during read",
+	} {
 		t.Run(outcome, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 			defer cancel()

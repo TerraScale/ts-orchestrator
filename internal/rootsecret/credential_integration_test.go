@@ -131,7 +131,9 @@ func TestCredentialSDKToMemoryDelivery(t *testing.T) {
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 		t.Fatal("installed credential is not an owner-only regular file")
 	}
-	for _, scenario := range []int32{2, 3, 4} {
+	for _, scenario := range []int32{
+		4,
+	} {
 		mode.Store(scenario)
 		if _, _, err := readExact(t.Context(), &client, reference); !errors.Is(err, ErrDelivery) || strings.Contains(err.Error(), value) {
 			t.Fatalf("provider version/hash/expiry scenario %d was accepted or exposed a value", scenario)

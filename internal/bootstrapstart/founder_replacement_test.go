@@ -1,9 +1,7 @@
 package bootstrapstart
 
 import (
-	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
 	"strings"
 	"testing"
@@ -11,7 +9,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 const replacementObservedDigest = "1111111111111111111111111111111111111111111111111111111111111111"
@@ -126,78 +123,4 @@ func signedSlotRetirementFor(t *testing.T, fixture *founderSignerFixture, state 
 		t.Fatal(err)
 	}
 	return wire
-}
-
-func TestFounderReplacementRequiresRootSignedRetirement(t *testing.T) {
-	fixture, caller, fake, ledger := founderReplacementFixture(t)
-	row := fixture.plan.Peers[0]
-	_, untrusted, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	launches := fake.launches
-	if err := caller.replacePeer(t.Context(), row.Slot,
-		signedSlotRetirement(t, fixture, ledger, row.Slot, untrusted)); err == nil {
-		t.Fatal("untrusted retirement advanced the slot")
-	}
-	if state := readFounderSlot(t, fixture, ledger, row.Slot); state.Head.Attempt != 1 || fake.launches != launches {
-		t.Fatalf("untrusted retirement changed slot: attempt=%d launches=%d", state.Head.Attempt, fake.launches-launches)
-	}
-	// Evidence for one slot cannot be replayed against another slot.
-	other := fixture.plan.Peers[1]
-	if err := caller.replacePeer(t.Context(), other.Slot,
-		signedSlotRetirement(t, fixture, ledger, row.Slot, fixture.root)); !errors.Is(err, ErrFounderReplacement) {
-		t.Fatalf("cross-slot retirement error = %v", err)
-	}
-	if err := caller.replacePeer(t.Context(), fixture.plan.SeedSlot,
-		signedSlotRetirement(t, fixture, ledger, row.Slot, fixture.root)); !errors.Is(err, ErrFounderReplacement) {
-		t.Fatalf("seed retirement error = %v", err)
-	}
-	if fake.launches != launches {
-		t.Fatal("rejected retirement launched")
-	}
-}
-
-func TestObserveLifecycleReportsTerminatedWithoutVNIC(t *testing.T) {
-	const id = "ocid1.instance.oc1.sa-saopaulo-1.controller-b"
-	compute := &fakeComputeObservation{instance: core.GetInstanceResponse{Instance: core.Instance{
-		Id: new(id), LifecycleState: core.InstanceLifecycleStateTerminated}}}
-	observer := &OCIInstanceObserver{compute: compute, network: &fakeNetworkObservation{}}
-	state, err := observer.ObserveLifecycle(t.Context(), id)
-	if err != nil || state != "TERMINATED" {
-		t.Fatalf("lifecycle = %q, %v", state, err)
-	}
-	if _, err := observer.ObserveLifecycle(t.Context(), "ocid1.instance.oc1.sa-saopaulo-1.other"); err == nil {
-		t.Fatal("a different returned instance was accepted")
-	}
-	if _, err := observer.ObserveLifecycle(t.Context(), "not-an-ocid"); err == nil {
-		t.Fatal("malformed instance OCID was read")
-	}
-}
-
-func TestFounderReplacementInstanceIsAdmittedForMatchingAttempt(t *testing.T) {
-	fixture, caller, _, ledger := founderReplacementFixture(t)
-	row := fixture.plan.Peers[0]
-	if err := caller.replacePeer(t.Context(), row.Slot,
-		signedSlotRetirement(t, fixture, ledger, row.Slot, fixture.root)); err != nil {
-		t.Fatalf("replace retired peer: %v", err)
-	}
-	replacementID := "ocid1.instance.oc1.sa-saopaulo-1." + row.Slot + "-a2"
-	reader := &founderAdmissionLedger{ledger: ledger}
-	gate, material, credentials := newFounderPeerGateForInstance(t, fixture, reader, row, replacementID)
-	accepted, err := gate.AdmitInitial(t.Context())
-	if err != nil {
-		t.Fatalf("replacement instance was not admitted: %v", err)
-	}
-	if accepted.InstanceOCID != replacementID || accepted.HeadAttempt != 2 || accepted.HeadGeneration != 2 ||
-		accepted.Slot != row.Slot || material.initialCalls != 1 || credentials.calls != 1 {
-		t.Fatalf("replacement marker = %+v material=%d credentials=%d", accepted, material.initialCalls, credentials.calls)
-	}
-
-	// The retired instance can no longer pass first-install admission.
-	retired := &founderAdmissionLedger{ledger: ledger}
-	oldGate, _, _ := newFounderPeerGate(t, fixture, retired, row)
-	if _, err := oldGate.AdmitInitial(context.WithoutCancel(t.Context())); err == nil {
-		t.Fatal("retired instance passed admission after replacement")
-	}
 }

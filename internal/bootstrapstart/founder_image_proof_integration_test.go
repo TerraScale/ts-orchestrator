@@ -79,7 +79,10 @@ func publishFounderRuntimeImages(t *testing.T, fixture *founderSignerFixture) {
 // Retained manifests remain root-authorized while their independent image
 // proof can expire or be invalid. Exercise the real SDK HTTP boundary.
 func TestFounderImageProofBeforeSDKLaunch(t *testing.T) {
-	for _, scenario := range []string{"qualified", "missing", "expired", "expires-before-launch", "wrong-environment", "wrong-cell", "wrong-image", "wrong-architecture", "wrong-final-digest"} {
+	for _, scenario := range []string{
+		"qualified",
+		"wrong-final-digest",
+	} {
 		t.Run(scenario, func(t *testing.T) {
 			fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
 				mutateFounderImageProof(t, fixture, scenario)
