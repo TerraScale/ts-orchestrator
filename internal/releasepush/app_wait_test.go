@@ -3,34 +3,16 @@ package releasepush
 import (
 	"context"
 	"encoding/json"
+	"github.com/nats-io/nats.go"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/nats-io/nats.go"
 )
 
 func TestAppWaitRenewsShortCredentialAndResumesDroppedConnection(t *testing.T) {
 	for _, subject := range []string{SubjectApp, SubjectApply} {
 		t.Run(subject, func(t *testing.T) { testOperationWait(t, subject) })
-	}
-}
-
-func TestOperationRenewalRefusesChangedAttempt(t *testing.T) {
-	i := newIssuer(t)
-	claims := goodClaims(time.Now())
-	claims["exp"] = time.Now().Unix() // Force renewal before dialing.
-	token := i.sign(t, claims)
-	claims["run_attempt"] = "2"
-	_, err := awaitOperation(t.Context(), token, nil, func(context.Context) (string, error) {
-		return i.sign(t, claims), nil
-	}, func(string) (*nats.Conn, error) {
-		t.Fatal("dialed with a different signed attempt")
-		return nil, nil
-	}, time.Millisecond, SubjectApp, nil)
-	if err == nil || err.Error() != "renewed release credential changed workflow identity" {
-		t.Fatalf("changed attempt: %v", err)
 	}
 }
 

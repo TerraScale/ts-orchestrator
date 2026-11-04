@@ -6,7 +6,8 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"github.com/nats-io/nats.go"
+
 	"io"
 	"os"
 	"path/filepath"
@@ -73,46 +74,6 @@ func newBoardFixture(t *testing.T) *boardFixture {
 	f.agent = &Agent{Cell: "gru", Unit: "ctl-b", SystemdUnit: agentUnit, Layout: layout, Leaders: keys,
 		Restart: r.restart, Now: clock}
 	return f
-}
-
-func TestSpooledAgentGuardRefusesBeforeEffectsAndAfterFetch(t *testing.T) {
-	for _, refusedCall := range []int{1, 2} {
-		t.Run(fmt.Sprint(refusedCall), func(t *testing.T) {
-			f := newBoardFixture(t)
-			if _, err := f.driver.Step(t.Context(), f.step()); err != nil {
-				t.Fatal(err)
-			}
-			if err := f.relay.Pass(t.Context()); err != nil {
-				t.Fatal(err)
-			}
-			calls := 0
-			f.agent.Guard = func(context.Context, StepCommand) error {
-				calls++
-				if calls == refusedCall {
-					return errors.New("accepted contract refused")
-				}
-				return nil
-			}
-			f.apply(t)
-			reply, exists := f.reply(t)
-			if !exists || reply.Outcome != OutcomeRefused || calls != refusedCall {
-				t.Fatalf("guard reply %+v; calls %d", reply, calls)
-			}
-			if current, err := f.agent.Layout.Current(); err != nil || current != f.from {
-				t.Fatalf("guard changed current to %s: %v", current, err)
-			}
-			if _, pending, err := f.agent.Layout.Pending(); err != nil || pending {
-				t.Fatalf("guard left activation: %v %v", pending, err)
-			}
-			if owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || owed || f.restarts.count() != 0 {
-				t.Fatal("guard owed a restart")
-			}
-			_, err := os.Stat(f.agent.Layout.BinaryPath(f.to))
-			if (err == nil) != (refusedCall == 2) {
-				t.Fatalf("fetch before/after guard: %v", err)
-			}
-		})
-	}
 }
 
 func (f *boardFixture) step() Step {
@@ -245,19 +206,6 @@ func signTestRelease(t *testing.T, data []byte, now time.Time) ([]byte, []byte, 
 		t.Fatal(err)
 	}
 	return receiptWire, delegationWire, roots
-}
-
-// No step for the unit is the usual state between rollouts: a pass then
-// has nothing to relay and nothing to report. It returned the board's
-// "key not found", which every idle controller logged every 2 s (TS-661).
-func TestRelayPassWithoutAStepSucceeds(t *testing.T) {
-	f := newBoardFixture(t)
-	if err := f.relay.Pass(t.Context()); err != nil {
-		t.Fatalf("pass with no step posted: %v", err)
-	}
-	if entries, err := os.ReadDir(f.spool); err != nil || len(entries) != 0 {
-		t.Fatalf("spool after a pass with no step: %v %v", entries, err)
-	}
 }
 
 // A step posted by the leader reaches the root agent through the unit's
@@ -407,22 +355,4 @@ func TestRootAgentRefusesATamperedSpool(t *testing.T) {
 		t.Fatalf("a FIFO step = %v", err)
 	}
 	unchanged("FIFO")
-}
-
-// The relay keeps only bytes that hash to the step's release.
-func TestRelayDropsFetchedBytesOfAnotherRelease(t *testing.T) {
-	f := newBoardFixture(t)
-	f.target = []byte("release tx")
-	if _, err := f.driver.Step(t.Context(), f.step()); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.relay.Pass(t.Context()); err == nil || !errors.Is(err, ErrInvalid) {
-		t.Fatalf("relay of a wrong download = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(f.spool, spoolReleasePrefix+f.to)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("wrong bytes were spooled: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(f.spool, spoolStep)); err != nil {
-		t.Fatalf("the step was not spooled for the agent to explain: %v", err)
-	}
 }

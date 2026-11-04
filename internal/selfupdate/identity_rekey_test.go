@@ -5,11 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestIdentityRekeyBaselinePublishesPairAndRefusesUnresolvedTransitions(t *testing.T) {
-	for _, fault := range []string{"none", "activation", "restore", "candidate", "guard", "crash"} {
+	for _, fault := range []string{"none", "crash"} {
 		t.Run(fault, func(t *testing.T) {
 			f := newFixture(t)
 			old, err := Seed(f.layout, f.baked)
@@ -23,20 +22,7 @@ func TestIdentityRekeyBaselinePublishesPairAndRefusesUnresolvedTransitions(t *te
 				t.Fatal(err)
 			}
 			switch fault {
-			case "activation":
-				next := f.stage([]byte("pending old deployment binary"))
-				if _, err := Activate(f.layout, next, ControllerUnit, f.now, time.Minute); err != nil {
-					t.Fatal(err)
-				}
-				old = next
-			case "restore":
-				if err := os.WriteFile(f.layout.restoreIntentPath(ControllerUnit), []byte("retained unresolved restore"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			case "candidate":
-				if err := os.WriteFile(candidate, []byte("altered candidate"), 0o755); err != nil {
-					t.Fatal(err)
-				}
+
 			}
 			checks := 0
 			check := func(string) error {

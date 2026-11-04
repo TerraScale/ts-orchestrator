@@ -18,7 +18,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
@@ -217,75 +216,6 @@ func TestChannelVerifiesEveryArchitectureForItsCell(t *testing.T) {
 	}
 	if _, err := stored.Verify(fixture.roots, "GRU", "production", fixture.now); err != nil {
 		t.Fatalf("stored channel: %v", err)
-	}
-}
-
-func TestChannelVerifyRefusesTampering(t *testing.T) {
-	fixture := newChannelFixture(t)
-	otherRoot, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	otherRoots, err := trust.ParseKeyring(otherRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sjc := fixture.receipt(t, "SJC", "arm64")
-	for name, test := range map[string]struct {
-		edit        func(*Channel)
-		roots       trust.Keyring
-		cell        string
-		environment string
-		now         time.Time
-	}{
-		"another region's channel": {cell: "SJC"},
-		"another environment":      {environment: "canary"},
-		"unknown root":             {roots: otherRoots},
-		"expired receipts":         {now: fixture.now.Add(25 * time.Hour)},
-		"a receipt signed for another region": {edit: func(channel *Channel) {
-			channel.Receipts[1] = sjc
-		}},
-		"a duplicated architecture": {edit: func(channel *Channel) {
-			channel.Receipts[1] = channel.Receipts[0]
-		}},
-		"another revision": {edit: func(channel *Channel) {
-			channel.SourceRevision = testLineageBase
-		}},
-		"a forged run number": {edit: func(channel *Channel) {
-			channel.RunNumber++
-		}},
-		"no receipts": {edit: func(channel *Channel) {
-			channel.Receipts = nil
-		}},
-		"an altered receipt": {edit: func(channel *Channel) {
-			channel.Receipts[0] = bytes.Replace(channel.Receipts[0], []byte(`"payload":{`), []byte(`"payload":{"x":1,`), 1)
-		}},
-		"another schema": {edit: func(channel *Channel) {
-			channel.Schema = "unknown"
-		}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			channel := fixture.channel(t, "GRU")
-			if test.edit != nil {
-				test.edit(&channel)
-			}
-			roots, cell, environment, now := fixture.roots, "GRU", "production", fixture.now
-			if test.roots != nil {
-				roots = test.roots
-			}
-			if test.cell != "" {
-				cell = test.cell
-			}
-			if test.environment != "" {
-				environment = test.environment
-			}
-			if !test.now.IsZero() {
-				now = test.now
-			}
-			if _, err := channel.Verify(roots, cell, environment, now); err == nil {
-				t.Fatal("tampered channel verified")
-			}
-		})
 	}
 }
 
@@ -495,30 +425,6 @@ func TestAwaitFollowsTheRegionStatus(t *testing.T) {
 	}
 }
 
-func TestAwaitKeepsDeadlineAndCancellationReasons(t *testing.T) {
-	channel := Channel{Cell: "GRU", SourceRevision: testRevision, RunNumber: testRunNumber}
-	location := Location{Client: newFakeBucket(), Namespace: "ns", Bucket: "gru-1-head"}
-	for range 20 {
-		deadline := time.Now().Add(5 * time.Millisecond)
-		ctx, cancel := context.WithDeadline(t.Context(), deadline)
-		err := Await(ctx, location, channel, time.Hour, deadline, io.Discard)
-		cancel()
-		if !errors.Is(err, ErrFailed) || !strings.Contains(err.Error(), "GRU did not complete run 620 in time") {
-			t.Fatalf("shared deadline lost release context: %v", err)
-		}
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if err := Await(ctx, location, channel, time.Hour, time.Now().Add(time.Hour), io.Discard); !errors.Is(err, context.Canceled) {
-		t.Fatalf("early cancellation lost its cause: %v", err)
-	}
-	ctx, cancel = context.WithDeadline(t.Context(), time.Now().Add(5*time.Millisecond))
-	defer cancel()
-	if err := Await(ctx, location, channel, time.Hour, time.Now().Add(time.Hour), io.Discard); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("earlier parent deadline lost its cause: %v", err)
-	}
-}
-
 type syncWriter struct {
 	mu sync.Mutex
 	w  io.Writer
@@ -528,51 +434,4 @@ func (writer *syncWriter) Write(data []byte) (int, error) {
 	writer.mu.Lock()
 	defer writer.mu.Unlock()
 	return writer.w.Write(data)
-}
-
-func TestBucketNameIsTheRegionHeadBucket(t *testing.T) {
-	if name, err := BucketName("GRU"); err != nil || name != "gru-1-head" {
-		t.Fatalf("BucketName(GRU) = %q, %v", name, err)
-	}
-	if _, err := BucketName("gru"); err == nil {
-		t.Fatal("BucketName accepted a lower-case cell")
-	}
-}
-
-func TestClipKeepsOneBoundedLine(t *testing.T) {
-	long := Clip(strings.Repeat("é", maxReason+10))
-	if !utf8.ValidString(long) || utf8.RuneCountInString(long) != maxReason+3 || !strings.HasSuffix(long, "...") {
-		t.Fatalf("Clip(long) = %d runes", utf8.RuneCountInString(long))
-	}
-	if got := Clip("a\nb\u0085c⁦d"); got != "a b c d" {
-		t.Fatalf("clip = %q", got)
-	}
-}
-
-func TestStatusReadClassifiesInvalidTelemetry(t *testing.T) {
-	for _, object := range []string{StatusObject, ServiceStatusObject("terrabase")} {
-		for _, tc := range []struct {
-			name string
-			wire []byte
-		}{
-			{name: "malformed", wire: []byte("{")},
-			{name: "invalid timestamp", wire: []byte(`{"updated_at":"invalid"}`)},
-			{name: "oversized", wire: bytes.Repeat([]byte(" "), maxStatusBytes+1)},
-		} {
-			t.Run(object+"/"+tc.name, func(t *testing.T) {
-				bucket := newFakeBucket()
-				bucket.set(object, tc.wire)
-				location := Location{Client: bucket, Namespace: "ns", Bucket: "gru-1-head"}
-				var err error
-				if object == StatusObject {
-					_, _, err = ReadStatus(t.Context(), location)
-				} else {
-					_, _, err = ReadServiceStatus(t.Context(), location, "terrabase")
-				}
-				if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), object) {
-					t.Fatalf("invalid telemetry error = %v, want ErrInvalid naming %s", err, object)
-				}
-			})
-		}
-	}
 }

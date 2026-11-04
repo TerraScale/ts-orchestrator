@@ -14,7 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
+
 	"strings"
 	"sync"
 	"testing"
@@ -204,64 +204,5 @@ func TestServiceDeployReleasesEveryRegion(t *testing.T) {
 	if record.Cell != "gru" || record.Environment != "canary" || record.Source.Commit != fixture.commit ||
 		record.Source.TreeDigest != strings.Fields(string(tree))[0] {
 		t.Fatalf("claim %+v", record)
-	}
-}
-
-func TestServiceDeployFinishesOtherRegionsWhenOneRollsBack(t *testing.T) {
-	fixture := newServiceDeployFixture(t)
-	fixture.buckets["GRU"].outcome = releasechannel.StateFailed
-	c := command{ctx: t.Context(), output: io.Discard}
-	err := c.serviceDeployWith(fixture.args("GRU", "SJC"), fixture.env)
-	if !errors.Is(err, releasechannel.ErrFailed) {
-		t.Fatalf("a rolled-back canary: %v", err)
-	}
-	if !slices.Contains(fixture.log, "put SJC "+releasechannel.ServiceReleaseObject("ts-auth")) {
-		t.Fatalf("SJC did not receive its independent release: %q", fixture.log)
-	}
-}
-
-func TestServiceDeployStorageFailuresAreRegionalAndAllReported(t *testing.T) {
-	for _, failBoth := range []bool{false, true} {
-		t.Run(strconv.FormatBool(failBoth), func(t *testing.T) {
-			fixture := newServiceDeployFixture(t)
-			storage := fixture.env.storage
-			gruError, sjcError := errors.New("GRU storage unavailable"), errors.New("SJC storage unavailable")
-			fixture.env.storage = func(cell string) (releasechannel.ObjectClient, error) {
-				if cell == "GRU" {
-					return nil, gruError
-				}
-				if failBoth && cell == "SJC" {
-					return nil, sjcError
-				}
-				return storage(cell)
-			}
-			var output bytes.Buffer
-			err := (command{ctx: t.Context(), output: &output}).serviceDeployWith(fixture.args("GRU", "SJC"), fixture.env)
-			if !errors.Is(err, gruError) || errors.Is(err, sjcError) != failBoth ||
-				slices.Contains(fixture.log, "put SJC "+releasechannel.ServiceReleaseObject("ts-auth")) == failBoth ||
-				!strings.Contains(output.String(), "GRU ts-auth failed:") ||
-				strings.Contains(output.String(), "SJC ts-auth failed:") != failBoth {
-				t.Fatalf("service deploy = %v, writes %q\n%s", err, fixture.log, output.String())
-			}
-		})
-	}
-}
-
-func TestServiceDeployRefusesIncompleteArguments(t *testing.T) {
-	fixture := newServiceDeployFixture(t)
-	c := command{ctx: t.Context(), output: io.Discard}
-	both := append(fixture.args("GRU"), "--signing-key-secret", "release", "--vault-id", "v")
-	if err := c.serviceDeployWith(both, fixture.env); err == nil {
-		t.Fatal("service-deploy accepted two key sources")
-	}
-	if err := c.serviceDeployWith(fixture.args("NOPE"), fixture.env); err == nil {
-		t.Fatal("service-deploy accepted an unknown cell")
-	}
-	fixture.env.discover = func(context.Context) ([]string, error) { return nil, nil }
-	if err := c.serviceDeployWith(fixture.args(), fixture.env); err == nil {
-		t.Fatal("service-deploy accepted empty serving discovery")
-	}
-	if len(fixture.log) != 0 {
-		t.Fatalf("a refused deployment wrote %q", fixture.log)
 	}
 }

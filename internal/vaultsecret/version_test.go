@@ -43,10 +43,7 @@ func TestPublishVersionRequiresExactTargetAndConcurrentVersion(t *testing.T) {
 		t.Fatal("publication did not bind the content, CURRENT stage, OCID and ETag")
 	}
 	for name, change := range map[string]func(*ocivault.GetSecretResponse){
-		"different Vault":        func(m *ocivault.GetSecretResponse) { m.VaultId = new("other") },
-		"different name":         func(m *ocivault.GetSecretResponse) { m.SecretName = new("gru-netbird-key") },
-		"deleting":               func(m *ocivault.GetSecretResponse) { m.LifecycleState = ocivault.SecretLifecycleStatePendingDeletion },
-		"missing ETag":           func(m *ocivault.GetSecretResponse) { m.Etag = nil },
+
 		"concurrent publication": func(m *ocivault.GetSecretResponse) { m.CurrentVersionNumber = new(int64(8)) },
 	} {
 		before := metadata

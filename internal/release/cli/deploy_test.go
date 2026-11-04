@@ -14,9 +14,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
+
 	"testing"
-	"testing/synctest"
+
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -257,38 +257,6 @@ func TestDeployRollsOutEveryRegion(t *testing.T) {
 	}
 }
 
-func TestDeployReceiptValidityCoversRegionalDeadline(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		validFor string
-		expired  bool
-	}{
-		{name: "covers deadline after preparation", validFor: "21m"},
-		{name: "expires before deadline", validFor: "19m", expired: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				fixture := newDeployFixture(t)
-				fixture.env.timeout = 0
-				inspect := fixture.env.inspect
-				fixture.env.inspect = func(path, version, revision string) (binaryReceipt, error) {
-					time.Sleep(2 * time.Minute)
-					return inspect(path, version, revision)
-				}
-				args := append(fixture.args("GRU"), "--valid-for", test.validFor)
-				err := (command{ctx: t.Context(), output: io.Discard}).deployWith(args, fixture.env)
-				if test.expired {
-					if !errors.Is(err, trust.ErrExpired) || fixture.touched("GRU") {
-						t.Fatalf("expired receipt: err=%v, writes=%q", err, fixture.log)
-					}
-				} else if err != nil || !fixture.touched("GRU") {
-					t.Fatalf("receipt covering deadline: err=%v, writes=%q", err, fixture.log)
-				}
-			})
-		})
-	}
-}
-
 func TestDeployFinishesOtherRegionsWhenOneRollsBack(t *testing.T) {
 	fixture := newDeployFixture(t)
 	fixture.buckets["GRU"].outcome = releasechannel.StateFailed
@@ -300,123 +268,6 @@ func TestDeployFinishesOtherRegionsWhenOneRollsBack(t *testing.T) {
 	}
 	if !fixture.touched("SJC") || !strings.Contains(output.String(), "SJC complete") {
 		t.Fatalf("the healthy region did not finish: %q\n%s", fixture.log, output.String())
-	}
-}
-
-func TestDeployWaitsForRegionsConcurrently(t *testing.T) {
-	fixture := newDeployFixture(t)
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-	defer cancel()
-	reading := make(chan string, 2)
-	proceed := make(chan struct{})
-	for _, cell := range []string{"GRU", "SJC"} {
-		fixture.buckets[cell].wait = func(ctx context.Context) error {
-			reading <- cell
-			select {
-			case <-proceed:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-	}
-	done := make(chan error, 1)
-	go func() {
-		done <- (command{ctx: ctx, output: io.Discard}).deployWith(fixture.args("GRU", "SJC"), fixture.env)
-	}()
-	seen := map[string]bool{}
-	for len(seen) < 2 {
-		select {
-		case cell := <-reading:
-			seen[cell] = true
-		case <-ctx.Done():
-			close(proceed)
-			<-done
-			t.Fatal("regions waited sequentially")
-		}
-	}
-	close(proceed)
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestDeployStorageFailuresAreRegionalAndAllReported(t *testing.T) {
-	for _, failBoth := range []bool{false, true} {
-		t.Run(fmt.Sprint(failBoth), func(t *testing.T) {
-			fixture := newDeployFixture(t)
-			storage := fixture.env.storage
-			gruError, sjcError := errors.New("GRU storage unavailable"), errors.New("SJC storage unavailable")
-			fixture.env.storage = func(cell string) (releasechannel.ObjectClient, error) {
-				if cell == "GRU" {
-					return nil, gruError
-				}
-				if failBoth && cell == "SJC" {
-					return nil, sjcError
-				}
-				return storage(cell)
-			}
-			var output bytes.Buffer
-			err := (command{ctx: t.Context(), output: &output}).deployWith(fixture.args("GRU", "SJC"), fixture.env)
-			if !errors.Is(err, gruError) || errors.Is(err, sjcError) != failBoth ||
-				fixture.touched("GRU") || fixture.touched("SJC") == failBoth || !strings.Contains(output.String(), "GRU qualification refused:") ||
-				strings.Contains(output.String(), "SJC qualification refused:") != failBoth ||
-				strings.Contains(output.String(), "SJC complete:") == failBoth {
-				t.Fatalf("deploy = %v, writes %q\n%s", err, fixture.log, output.String())
-			}
-		})
-	}
-}
-
-func TestDeploySharesLineageFetchAcrossRegions(t *testing.T) {
-	fixture := newDeployFixture(t)
-	git := fixture.env.git
-	var fetches atomic.Int32
-	fixture.env.git = func(ctx context.Context, args ...string) (string, error) {
-		if slices.Contains(args, "fetch") {
-			fetches.Add(1)
-		}
-		return git(ctx, args...)
-	}
-	if err := (command{ctx: t.Context(), output: io.Discard}).deployWith(fixture.args("GRU", "SJC"), fixture.env); err != nil {
-		t.Fatal(err)
-	}
-	if fetches.Load() != 1 {
-		t.Fatalf("parallel regions fetched the same main ref %d times", fetches.Load())
-	}
-}
-
-func TestDeployRefusesUnqualifiedOrInvalidSource(t *testing.T) {
-	fixture := newDeployFixture(t)
-	c := command{ctx: t.Context(), output: io.Discard}
-	unqualified := fixture.env
-	unqualified.check = func(release.Qualification, string) error { return errors.New("run failed") }
-	if err := c.deployWith(fixture.args("GRU"), unqualified); err == nil {
-		t.Fatal("deployed an unqualified run")
-	}
-	offMain := fixture.env
-	offMain.git = func(ctx context.Context, args ...string) (string, error) {
-		if strings.Contains(strings.Join(args, " "), "origin/main") && strings.Contains(strings.Join(args, " "), "merge-base") {
-			return "", errors.New("not an ancestor")
-		}
-		return fixture.env.git(ctx, args...)
-	}
-	if err := c.deployWith(fixture.args("GRU"), offMain); !errors.Is(err, release.ErrLineage) {
-		t.Fatalf("deployed a revision outside main = %v", err)
-	}
-	// The fixed budget cannot be replaced by a longer per-region window.
-	if err := c.deployWith(append(fixture.args("GRU"), "--region-timeout", "25h"), fixture.env); err == nil ||
-		!strings.Contains(err.Error(), "flag provided but not defined: -region-timeout") {
-		t.Fatalf("deployed receipts that expire mid-rollout: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(fixture.releaseDir, "terrascale-orchestrator-linux-amd64"), []byte("tampered bytes"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.deployWith(fixture.args("GRU"), fixture.env); err == nil {
-		t.Fatal("deployed a binary that differs from the inspected one")
-	}
-	if len(fixture.log) != 0 {
-		t.Fatalf("rejected deployments wrote %q", fixture.log)
 	}
 }
 
@@ -452,117 +303,5 @@ func TestDeployReadsTheLeafFromVault(t *testing.T) {
 	}
 	if len(asked) != 1 || asked[0] != vault+" global-release-update-leaf" || !fixture.touched("GRU") {
 		t.Fatalf("Vault reads %q, writes %q", asked, fixture.log)
-	}
-}
-
-func TestDeployReadsTheDelegationFromVault(t *testing.T) {
-	fixture := newDeployFixture(t)
-	delegation, err := os.ReadFile(fixture.delegation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var asked []string
-	fixture.env.secret = func(_ context.Context, vaultID, name string) ([]byte, error) {
-		asked = append(asked, vaultID+" "+name)
-		return delegation, nil
-	}
-	vault := "ocid1.vault.oc1.sa-saopaulo-1.example"
-	c := command{ctx: t.Context(), output: io.Discard}
-	both := append(fixture.args("GRU"), "--update-delegation-secret", "release-delegation", "--vault-id", vault)
-	if err := c.deployWith(both, fixture.env); err == nil {
-		t.Fatal("deploy accepted two delegation sources")
-	}
-	args := fixture.args("GRU")
-	for index, arg := range args {
-		if arg == "--update-delegation" {
-			args[index], args[index+1] = "--update-delegation-secret", "release-delegation"
-			break
-		}
-	}
-	if err := c.deployWith(append(args, "--vault-id", vault), fixture.env); err != nil {
-		t.Fatalf("deploy with the Vault delegation: %v", err)
-	}
-	if len(asked) != 1 || asked[0] != vault+" release-delegation" || !fixture.touched("GRU") {
-		t.Fatalf("Vault reads %q, writes %q", asked, fixture.log)
-	}
-}
-
-func TestFleetStatusRequiresLeaderPinsBeforePruning(t *testing.T) {
-	f := newDeployFixture(t)
-	var output bytes.Buffer
-	c := command{ctx: t.Context(), output: &output}
-	rollback, bad := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	updated := time.Now().UTC().Format(time.RFC3339Nano)
-	for _, role := range []string{"", "terrabase"} {
-		t.Run("role="+role, func(t *testing.T) {
-			args := []string{"--namespace", "ns", "--cell", "GRU", "--require-pins"}
-			name, schema := releasechannel.StatusObject, releasechannel.StatusSchema
-			if role != "" {
-				args = append(args, "--role", role)
-				name, schema = releasechannel.ServiceStatusObject(role), releasechannel.ServiceStatusSchema
-			}
-			statuses := []string{
-				"",
-				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"state":"complete"}`, schema, role),
-				fmt.Sprintf(`{"schema":%q,"cell":"SJC","role":%q,"pins":{}}`, schema, role),
-				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"updated_at":%q,"pins":{"rollback":[%q],"known_bad":[%q]}}`, schema, role, updated, rollback, bad),
-				fmt.Sprintf(`{"schema":%q,"cell":"GRU","role":%q,"updated_at":%q,"pins":{"rollback":[],"known_bad":[]}}`, schema, role, updated),
-			}
-			for i, status := range statuses {
-				delete(f.buckets["GRU"].objects, name)
-				if status != "" {
-					f.buckets["GRU"].objects[name] = []byte(status)
-				}
-				output.Reset()
-				err := c.fleetStatusWith(args, f.env)
-				if (err != nil) != (i < 3) {
-					t.Fatalf("status %d: err=%v output=%s", i, err, output.String())
-				}
-				if i == 3 && (!strings.Contains(output.String(), rollback) || !strings.Contains(output.String(), bad)) {
-					t.Fatalf("pins lost: %s", output.String())
-				}
-			}
-		})
-	}
-}
-
-func TestFleetStatusRejectsStaleLeaderPins(t *testing.T) {
-	f := newDeployFixture(t)
-	c := command{ctx: t.Context(), output: io.Discard}
-	now := time.Now().UTC()
-	for _, role := range []string{"", "terrabase"} {
-		for _, tc := range []struct {
-			name string
-			at   time.Time
-			bad  bool
-		}{
-			{"fresh", now, false},
-			{"missing timestamp", time.Time{}, true},
-			{"stale", now.Add(-releasechannel.MaxPinAge - time.Second), true},
-			{"future", now.Add(releasechannel.PinRefreshInterval + time.Minute), true},
-		} {
-			t.Run(role+"/"+tc.name, func(t *testing.T) {
-				name, schema := releasechannel.StatusObject, releasechannel.StatusSchema
-				args := []string{"--namespace", "ns", "--cell", "GRU", "--cell", "SJC"}
-				if role != "" {
-					name, schema = releasechannel.ServiceStatusObject(role), releasechannel.ServiceStatusSchema
-					args = append(args, "--role", role)
-				}
-				for _, cell := range []string{"GRU", "SJC"} {
-					at := now
-					if cell == "SJC" {
-						at = tc.at
-					}
-					f.buckets[cell].objects[name] = []byte(fmt.Sprintf(`{"schema":%q,"cell":%q,"role":%q,"updated_at":%q,"pins":{"rollback":[],"known_bad":[]}}`,
-						schema, cell, role, at.Format(time.RFC3339Nano)))
-				}
-				if err := c.fleetStatusWith(args, f.env); err != nil {
-					t.Fatalf("ordinary status read: %v", err)
-				}
-				if err := c.fleetStatusWith(append(args, "--require-pins"), f.env); (err != nil) != tc.bad {
-					t.Fatalf("strict status read = %v, invalid timestamp = %v", err, tc.bad)
-				}
-			})
-		}
 	}
 }

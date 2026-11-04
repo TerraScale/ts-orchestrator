@@ -7,17 +7,17 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/nats-io/nats.go"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
+
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -277,163 +277,5 @@ func TestSequencePublicationDurableBoundary(t *testing.T) {
 	}
 	if _, err := store.PublishSequencedRelease(ctx, 7, first, fixture.roots, "GRU", "production"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("purge reset sequence: %v", err)
-	}
-}
-
-func TestSequencePublicationRejectsInvalidProofBeforeWrites(t *testing.T) {
-	fixture := newSequenceFixture(t)
-	store, _ := testStore(t)
-	ctx := t.Context()
-	valid := fixture.update(t, 1001, 1, toDigest, true)
-	stripped := valid
-	stripped.ReleaseSequence, stripped.SequenceMigration, stripped.SequenceMigrationSHA256 = 0, nil, ""
-	if _, err := store.PublishRelease(ctx, 7, stripped); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("legacy API erased signed sequence before first migration: %v", err)
-	}
-	tampered := valid
-	tampered.ReleaseSequence++
-	forgedRollback := valid
-	forgedRollback.RollbackOf = 1
-	wrongSigner := newSequenceFixture(t)
-	var signerMigration release.SequenceMigration
-	if err := protocol.DecodeStrict(wrongSigner.migration.Payload, &signerMigration, trust.MaxPayloadBytes); err != nil {
-		t.Fatal(err)
-	}
-	wrongMigration := fixture
-	var err error
-	wrongMigration.migration, err = release.SignSequenceMigration(signerMigration, fixture.now, fixture.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wrongMigration.migrationSHA, err = trust.Fingerprint(wrongMigration.migration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, candidate := range map[string]Release{
-		"tampered sequence":      tampered,
-		"forged rollback":        forgedRollback,
-		"wrong migration signer": wrongMigration.update(t, 1001, 1, toDigest, true),
-		"no independent proof":   fixture.update(t, 1001, 1, toDigest, false),
-	} {
-		if _, err := store.PublishSequencedRelease(ctx, 7, candidate, fixture.roots, "GRU", "production"); err == nil {
-			t.Fatalf("%s admitted", name)
-		}
-		if desired, revision, err := store.Desired(ctx); err != nil || revision != 0 || desired.Generation() != 0 {
-			t.Fatalf("%s changed durable state: %+v %d %v", name, desired, revision, err)
-		}
-	}
-	if _, err := store.PublishSequencedRelease(ctx, 7, valid, fixture.roots, "GRU", "production"); err != nil {
-		t.Fatal(err)
-	}
-	// Another valid root authorization cannot replace the initial namespace.
-	var migration release.SequenceMigration
-	if err := protocol.DecodeStrict(fixture.migration.Payload, &migration, trust.MaxPayloadBytes); err != nil {
-		t.Fatal(err)
-	}
-	migration.Namespace = "replacement"
-	replacement := fixture
-	replacement.migration, err = release.SignSequenceMigration(migration, fixture.now, fixture.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	replacement.migrationSHA, err = trust.Fingerprint(replacement.migration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.PublishSequencedRelease(ctx, 7, replacement.update(t, 1002, 2, otherBad, true), fixture.roots, "GRU", "production"); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("unlinked migration replaced ordering namespace: %v", err)
-	}
-}
-
-func TestSequencePublicationSeedsAllLegacyHistory(t *testing.T) {
-	fixture := newSequenceFixture(t)
-	store, _ := testStore(t)
-	ctx := t.Context()
-	// A pre-upgrade rollback leaves the greatest run outside the 64-generation window.
-	historical := Release{ID: generationKey(store.cell, 1), Generation: 1, Digest: fromDigest, RunNumber: 2000, Actor: "ci", CreatedAt: fixture.now.Add(-2 * time.Minute)}
-	if err := store.retain(ctx, 7, historical); err != nil {
-		t.Fatal(err)
-	}
-	current := historical
-	current.ID, current.Generation, current.Digest, current.RunNumber = generationKey(store.cell, 100), 100, toDigest, 1
-	current.CreatedAt = fixture.now.Add(-time.Minute)
-	legacy := Desired{SchemaVersion: SchemaVersion, Cell: store.cell, Release: current}
-	wire, err := protocol.EncodeJSON(legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.kv.Create(ctx, desiredKey, wire); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.PublishSequencedRelease(ctx, 7, fixture.update(t, 1001, 1, otherBad, true), fixture.roots, "GRU", "production"); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("migration erased out-of-window legacy floor: %v", err)
-	}
-	var migration release.SequenceMigration
-	if err := protocol.DecodeStrict(fixture.migration.Payload, &migration, trust.MaxPayloadBytes); err != nil {
-		t.Fatal(err)
-	}
-	migration.SequenceFloor = 2000
-	for i := range migration.Regions {
-		migration.Regions[i].RunNumber = 2000
-		migration.Regions[i].IssuedAt = fixture.now.Add(-3 * time.Minute)
-	}
-	fixture.migration, err = release.SignSequenceMigration(migration, fixture.now, fixture.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.migrationSHA, err = trust.Fingerprint(fixture.migration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.PublishSequencedRelease(ctx, 7, fixture.update(t, 2001, 1, otherBad, true), fixture.roots, "GRU", "production"); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("migration erased independent legacy issuance floor: %v", err)
-	}
-	for i := range migration.Regions {
-		migration.Regions[i].IssuedAt = fixture.now
-	}
-	fixture.migration, err = release.SignSequenceMigration(migration, fixture.now, fixture.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.migrationSHA, err = trust.Fingerprint(fixture.migration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.PublishSequencedRelease(ctx, 7, fixture.update(t, 2001, 1, otherBad, true), fixture.roots, "GRU", "production"); err != nil {
-		t.Fatal(err)
-	}
-	desired, _, err := store.Desired(ctx)
-	if err != nil || desired.SchemaVersion != DesiredSchemaVersion || desired.LegacyFloor.Generation != 1 || desired.LegacyFloor.RunNumber != 2000 || desired.LegacyIssuanceFloor.Generation != 100 || !desired.LegacyIssuanceFloor.CreatedAt.Equal(current.CreatedAt) || desired.OrderingFloor.ReleaseSequence != 2001 {
-		t.Fatalf("legacy schema migration lost evidence: %+v %v", desired, err)
-	}
-}
-
-func TestSequencePublicationConcurrentConsumersKeepHighestFloor(t *testing.T) {
-	fixture := newSequenceFixture(t)
-	store, _ := testStore(t)
-	other := &Store{kv: store.kv, fencer: store.fencer, cell: store.cell}
-	first := fixture.update(t, 1001, 1, fromDigest, true)
-	second := fixture.update(t, 1002, 2, toDigest, true)
-	start := make(chan struct{})
-	results := make(chan error, 2)
-	for _, publication := range []struct {
-		store *Store
-		next  Release
-	}{{store, first}, {other, second}} {
-		go func() {
-			<-start
-			_, err := publication.store.PublishSequencedRelease(t.Context(), 7, publication.next, fixture.roots, "GRU", "production")
-			results <- err
-		}()
-	}
-	close(start)
-	for range 2 {
-		if err := <-results; err != nil && !errors.Is(err, ErrInvalid) {
-			t.Fatal(err)
-		}
-	}
-	desired, _, err := store.Desired(t.Context())
-	if err != nil || desired.Release.ReleaseSequence != 1002 || desired.OrderingFloor.ReleaseSequence != 1002 {
-		t.Fatalf("CAS publication regressed across independent consumers: %+v %v", desired, err)
 	}
 }

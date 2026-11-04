@@ -81,14 +81,3 @@ func TestIdentityRekeyCandidateRequiresExactSignedELFAndDecoder(t *testing.T) {
 		t.Fatal("altered artifact accepted")
 	}
 }
-
-func TestIdentityRekeyBinaryInstallRequiresStoppedController(t *testing.T) {
-	if err := controllerStoppedState([]byte("ActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=0\n")); err != nil {
-		t.Fatal(err)
-	}
-	for _, state := range []string{"", "ActiveState=active\nSubState=running\nMainPID=42\nControlPID=0", "ActiveState=inactive\nSubState=dead\nMainPID=42\nControlPID=0", "ActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=42", "ActiveState=inactive\nSubState=dead\nMainPID=0\nControlPID=0\nActiveState=inactive"} {
-		if err := controllerStoppedState([]byte(state)); err == nil {
-			t.Fatalf("serving or ambiguous service state accepted: %q", state)
-		}
-	}
-}

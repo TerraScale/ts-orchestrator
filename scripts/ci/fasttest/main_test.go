@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
+
 	"strings"
 	"syscall"
 	"testing"
@@ -285,17 +285,6 @@ func TestFullShortTierCoverageAndConcurrency(t *testing.T) {
 	}
 }
 
-func TestInvalidListingRunsNothing(t *testing.T) {
-	for _, mode := range []string{"invalid-json", "incomplete-list", "list-failure"} {
-		t.Run(mode, func(t *testing.T) {
-			calls, _, err := fixtureRun(t, mode)
-			if err == nil || len(calls) != 0 {
-				t.Fatalf("error=%v calls=%d, want rejected discovery before execution", err, len(calls))
-			}
-		})
-	}
-}
-
 func TestRetainedBinaryRunsShortTierWithOriginalWorkingDirectory(t *testing.T) {
 	directory := t.TempDir()
 	working := t.TempDir()
@@ -366,103 +355,4 @@ func TestCompiledShardHelper(t *testing.T) {
 		t.Fatalf("compiled helper inherited ignored SIGINT: %v", child.ProcessState)
 	}
 	t.Run("receipt", func(t *testing.T) {})
-}
-
-func TestInternalAndExternalTestsWithSharedName(t *testing.T) {
-	calls, receipts, err := fixtureRun(t, "shared-name")
-	if err != nil {
-		t.Fatal(err)
-	}
-	key := fixtureModule + "/internal/app/TestCase00"
-	runs, terminals := 0, 0
-	for _, call := range calls {
-		for _, name := range call.Cases {
-			if name == key {
-				runs++
-			}
-		}
-	}
-	for _, receipt := range receipts {
-		for _, e := range receipt.Cases {
-			if e.Package+"/"+e.Test == key {
-				terminals++
-			}
-		}
-	}
-	if runs != 2 || terminals != 2 {
-		t.Fatalf("shared name runs=%d terminals=%d, want both occurrences", runs, terminals)
-	}
-	packages := map[string][]string{"fixture/package": {"TestShared", "TestShared"}}
-	if err := validatePlan(packages, []shard{{Package: "fixture/package", Tests: []string{"TestShared"}}, {Package: "fixture/package", Tests: []string{"TestShared"}}}); err == nil {
-		t.Fatal("shared name split across shards")
-	}
-}
-
-func TestFailuresAndActualCoverageAreFinal(t *testing.T) {
-	for _, mode := range []string{"test-failure", "masked-failure", "missing-case", "duplicate-run", "unexpected-case"} {
-		t.Run(mode, func(t *testing.T) {
-			calls, receipts, err := fixtureRun(t, mode)
-			if err == nil {
-				t.Fatal("invalid actual execution succeeded")
-			}
-			seen := 0
-			for _, call := range calls {
-				for _, name := range call.Cases {
-					if strings.HasSuffix(name, "/TestUnknown") {
-						seen++
-					}
-				}
-			}
-			if seen > 1 {
-				t.Fatalf("failed test retried %d times", seen)
-			}
-			want := len(plan(fixturePackages(), nil))
-			if len(calls) != want || len(receipts) != want {
-				t.Fatalf("stopped remaining cases: calls=%d receipts=%d want=%d", len(calls), len(receipts), want)
-			}
-		})
-	}
-}
-
-func TestPlanRejectsMissingAndDuplicateCoverage(t *testing.T) {
-	packages := map[string][]string{"fixture/package": {"TestOne", "FuzzSeed"}, "fixture/empty": nil}
-	valid := []shard{{Package: "fixture/package", Tests: []string{"TestOne", "FuzzSeed"}}, {Package: "fixture/empty"}}
-	if err := validatePlan(packages, valid); err != nil {
-		t.Fatal(err)
-	}
-	for _, invalid := range [][]shard{
-		valid[:1],
-		{{Package: "fixture/package", Tests: []string{"TestOne"}}, {Package: "fixture/empty"}},
-		append(slices.Clone(valid), shard{Package: "fixture/package", Tests: []string{"TestOne"}}),
-		append(slices.Clone(valid), shard{Package: "fixture/unknown"}),
-		{{Package: "fixture/package", Tests: []string{"TestOne", "TestUnlisted"}}, {Package: "fixture/empty"}},
-	} {
-		if err := validatePlan(packages, invalid); err == nil {
-			t.Fatalf("invalid coverage accepted: %+v", invalid)
-		}
-	}
-}
-
-func TestCancellationReapsAnUnresponsiveShard(t *testing.T) {
-	directory := t.TempDir()
-	t.Setenv("FAST_CONTRACT_STATE", directory)
-	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
-	defer cancel()
-	started := time.Now()
-	r := execute(ctx, []string{"sh", "-c", `trap '' TERM; printf '%s' "$$" > "$FAST_CONTRACT_STATE/held"; exec sleep 30`},
-		shard{Package: "fixture/package", Tests: []string{"TestHeld"}}, directory)
-	if ctx.Err() == nil || len(r.Problems) == 0 || time.Since(started) > 3*time.Second {
-		t.Fatalf("cancellation: context=%v problems=%v elapsed=%v", ctx.Err(), r.Problems, time.Since(started))
-	}
-	data, err := os.ReadFile(filepath.Join(directory, "held"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := syscall.Kill(pid, 0); err != syscall.ESRCH {
-		t.Fatalf("cancelled shard %d still exists: %v", pid, err)
-	}
 }

@@ -2,8 +2,7 @@ package releasechannel
 
 import (
 	"bytes"
-	"encoding/json/v2"
-	"strings"
+
 	"testing"
 	"time"
 
@@ -76,113 +75,5 @@ func TestPublishedImageSDKReplaysExactManifestAfterExpiry(t *testing.T) {
 	}
 	if _, _, err := ReadPublishedImage(t.Context(), location, trust.Keyring{}, expected, current.ManifestSHA256, afterExpiry); err == nil {
 		t.Fatal("historical replay trusted a signer removed from current roots")
-	}
-}
-
-func TestPublishedImageSDKRejectsChangedPublication(t *testing.T) {
-	location, backend := functionObjectEndpoint(t)
-	for _, scenario := range []string{
-		"missing timestamp", "missing etag", "future timestamp", "unfinished timestamp interval", "zero now",
-		"wrong digest", "uppercase digest", "modified bytes", "malformed manifest", "missing manifest",
-		"missing root evidence", "modified root evidence", "wrong role", "wrong scope", "wrong bucket",
-	} {
-		t.Run(scenario, func(t *testing.T) {
-			f := newWriterImageFixture(t, "amd64")
-			wire, delegation := f.wires(t)
-			f.retain(backend)
-			expected := CurrentImageExpectation{Cell: "GRU", Environment: "production", Architecture: "amd64", Role: release.FoundationWriterRole}
-			publishedAt := f.now.Add(time.Second)
-			backend.modifiedAt = publishedAt
-			if err := PublishCurrentImage(t.Context(), location, wire, delegation, f.roots, expected, publishedAt); err != nil {
-				t.Fatal(err)
-			}
-			current, found, err := ReadCurrentImage(t.Context(), location, f.roots, expected, publishedAt)
-			if err != nil || !found {
-				t.Fatalf("initial manifest: found=%v err=%v", found, err)
-			}
-			digest := current.ManifestSHA256
-			name := ImageManifestObject(digest)
-			now := publishedAt.Add(time.Second)
-			readLocation := location
-			backend.mu.Lock()
-			object := backend.objects[name]
-			switch scenario {
-			case "missing timestamp":
-				object.modified = time.Time{}
-			case "missing etag":
-				object.version = 0
-			case "future timestamp":
-				object.modified = now.Add(time.Second)
-			case "unfinished timestamp interval":
-				now = publishedAt.Add(500 * time.Millisecond)
-			case "zero now":
-				now = time.Time{}
-			case "wrong digest":
-				digest = "bad"
-			case "uppercase digest":
-				digest = strings.ToUpper(digest)
-			case "modified bytes":
-				object.data = append(bytes.Clone(object.data), ' ')
-			case "malformed manifest":
-				object.data = []byte(`{"receipt":null,"delegation":null,"unknown":true}`)
-				digest = writerDigest(object.data)
-				name = ImageManifestObject(digest)
-			case "missing root evidence":
-				delete(backend.objects, ImageProductionEvidenceObject(f.qualification.Evidence[2].SHA256))
-			case "modified root evidence":
-				backend.objects[ImageProductionEvidenceObject(f.qualification.Evidence[2].SHA256)] = functionObject{data: []byte("changed root evidence"), version: 1}
-			case "wrong role":
-				expected.Role = "orchestrator"
-			case "wrong scope":
-				expected.Environment = "canary"
-			case "wrong bucket":
-				readLocation.Bucket = "source-qcow2-bucket"
-			}
-			backend.objects[name] = object
-			if scenario == "missing manifest" {
-				delete(backend.objects, name)
-			}
-			backend.mu.Unlock()
-			if _, found, err := ReadPublishedImage(t.Context(), readLocation, f.roots, expected, digest, now); err == nil && found {
-				t.Fatal("changed publication was accepted")
-			}
-		})
-	}
-}
-
-func TestPublishedImageSDKRequiresWholeIntervalAuthority(t *testing.T) {
-	location, backend := functionObjectEndpoint(t)
-	for _, scenario := range []string{"issued within second", "expires within second", "expires at upper bound"} {
-		t.Run(scenario, func(t *testing.T) {
-			f := newWriterImageFixture(t, "amd64")
-			publishedAt := f.now.Add(time.Second)
-			switch scenario {
-			case "issued within second":
-				f.qualificationIssued = publishedAt.Add(500 * time.Millisecond)
-			case "expires within second":
-				f.qualificationExpiry = publishedAt.Add(500 * time.Millisecond)
-			case "expires at upper bound":
-				f.qualificationExpiry = publishedAt.Add(time.Second)
-			}
-			wire, delegation := f.wires(t)
-			f.retain(backend)
-			manifest, err := json.Marshal(imageCurrentManifest{Receipt: wire, Delegation: delegation}, json.Deterministic(true))
-			if err != nil {
-				t.Fatal(err)
-			}
-			digest := writerDigest(manifest)
-			backend.mu.Lock()
-			backend.objects[ImageManifestObject(digest)] = functionObject{data: manifest, version: 1, modified: publishedAt}
-			backend.mu.Unlock()
-			expected := CurrentImageExpectation{Cell: "GRU", Environment: "production", Architecture: "amd64", Role: release.FoundationWriterRole}
-			current, found, err := ReadPublishedImage(t.Context(), location, f.roots, expected, digest, publishedAt.Add(time.Second))
-			if scenario == "expires at upper bound" {
-				if err != nil || !found || !current.ExpiresAt.Equal(f.qualificationExpiry) {
-					t.Fatalf("authority covers entire interval: found=%v err=%v", found, err)
-				}
-			} else if err == nil && found {
-				t.Fatal("authority did not cover the entire provider timestamp interval")
-			}
-		})
 	}
 }

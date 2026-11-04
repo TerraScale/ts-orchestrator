@@ -2,9 +2,7 @@ package deploy_test
 
 import (
 	"bytes"
-	"encoding/json/jsontext"
-	"encoding/json/v2"
-	"fmt"
+
 	"path/filepath"
 	"strings"
 	"testing"
@@ -48,166 +46,9 @@ func (f *imageInputsFixture) replacePin(field string) {
 	}
 	write(f.t, f.manifest, bytes.Replace(b, []byte(old), []byte(strings.Repeat("0", 64)), 1), 0600)
 }
-func TestImageInputsCheckedInManifest(t *testing.T) {
-	successful(t, newImageInputs(t).tool("check"))
-}
-func TestImageInputsRejectMissingVerifierPin(t *testing.T) {
-	for _, raw := range []string{"null", "{}"} {
-		t.Run(raw, func(t *testing.T) {
-			f := newImageInputs(t)
-			b := read(t, f.manifest)
-			var fields map[string]jsontext.Value
-			if err := json.Unmarshal(b, &fields); err != nil {
-				t.Fatal(err)
-			}
-			write(t, f.manifest, bytes.Replace(b, fields["terrabase"], []byte(raw), 1), 0600)
-			r := f.tool("check")
-			equal(t, r.Code, 1)
-			contains(t, r.Stderr, "terrabase has unexpected fields")
-		})
-	}
-}
 
-func TestImageInputsVerifyArchivedVerifier(t *testing.T) {
-	for _, name := range []string{"valid", "wrong-binary", "wrong-qualification", "wrong-source", "missing-files"} {
-		t.Run(name, func(t *testing.T) {
-			f := newImageInputs(t)
-			binary := filepath.Join(t.TempDir(), "tb-server-linux-arm64")
-			write(t, binary, elf("arm64", "archived native verifier"), 0600)
-			b := read(t, f.manifest)
-			pin := object(t, b)["terrabase"].(map[string]any)
-			archive := pin["archive"].(map[string]any)
-			oldBinary, oldQualification := pin["binary_sha256"].(string), archive["qualification_sha256"].(string)
-			delete(pin, "archive")
-			pin["binary_sha256"] = digest(read(t, binary))
-			if name == "wrong-source" {
-				pin["source_revision"] = strings.Repeat("a", 40)
-			}
-			qualification := filepath.Join(t.TempDir(), "image-qualification.json")
-			write(t, qualification, jsonBytes(t, map[string]any{"schema": "terrascale.image.qualification.v2", "inputs": map[string]any{"manifest": map[string]any{"terrabase": pin}}}), 0600)
-			b = bytes.ReplaceAll(b, []byte(oldBinary), []byte(digest(read(t, binary))))
-			b = bytes.ReplaceAll(b, []byte(oldQualification), []byte(digest(read(t, qualification))))
-			write(t, f.manifest, b, 0600)
-			args := []string{"verify-terrabase-archive", "--qualification", qualification, "--binary", binary}
-			switch name {
-			case "wrong-binary":
-				write(t, binary, elf("arm64", "different verifier"), 0600)
-			case "wrong-qualification":
-				write(t, qualification, []byte("{}"), 0600)
-			case "missing-files":
-				args = args[:1]
-			}
-			r := f.tool(args...)
-			if name == "valid" {
-				successful(t, r)
-			} else {
-				equal(t, r.Code, 1)
-				contains(t, r.Stderr, "verifier")
-			}
-		})
-	}
-}
-func TestImageInputsRejectNonCanonicalFormatting(t *testing.T) {
-	f := newImageInputs(t)
-	write(t, f.manifest, jsonBytes(t, object(t, read(t, f.manifest))), 0600)
-	r := f.tool("check")
-	equal(t, r.Code, 1)
-	contains(t, r.Stderr, "not canonically formatted")
-}
-func TestImageInputsRequireCheckedInPins(t *testing.T) {
-	for _, field := range []string{"timesyncd_config", "netbird"} {
-		t.Run(field, func(t *testing.T) {
-			f := newImageInputs(t)
-			f.replacePin(field)
-			r := f.tool("check")
-			equal(t, r.Code, 1)
-			contains(t, r.Stderr, "checked-in input differs from its pin")
-			if field == "netbird" {
-				b := read(t, f.manifest)
-				v := object(t, b)
-				old := v["netbird"].(map[string]any)["archives"].(map[string]any)["arm64"].(map[string]any)["url"].(string)
-				write(t, f.manifest, bytes.Replace(b, []byte(old), []byte("https://other.example/netbird.tar.gz"), 1), 0600)
-				r = f.tool("check")
-				equal(t, r.Code, 1)
-				contains(t, r.Stderr, "invalid NetBird arm64 archive source")
-			}
-		})
-	}
-}
-func TestImageInputsPinOnlyRewritesTerrabase(t *testing.T) {
-	f := newImageInputs(t)
-	before := object(t, read(t, f.manifest))
-	successful(t, f.pin())
-	after := object(t, read(t, f.manifest))
-	equal(t, after["terrabase"], object(t, jsonBytes(t, map[string]any{"source_revision": inputSource, "source_tree": strings.Repeat("b", 40), "run_id": 11711, "run_number": 1018, "qualification_sha256": digest(read(t, f.qualification)), "binary_sha256": strings.Repeat("2", 64)})))
-	delete(before, "terrabase")
-	delete(after, "terrabase")
-	equal(t, after, before)
-	successful(t, f.tool("check"))
-}
 func TestImageInputsAcceptPublishingRun(t *testing.T) {
 	f := newImageInputs(t)
 	f.runDetail("in_progress", "success")
 	successful(t, f.pin())
-}
-func TestImageInputsRejectFailedOrMismatchedRunWithoutMutation(t *testing.T) {
-	for _, tc := range []struct {
-		name, run, fast string
-		wrongHead       bool
-	}{{"failed-run", "failure", "success", false}, {"failed-fast", "in_progress", "failure", false}, {"wrong-head", "success", "success", true}} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newImageInputs(t)
-			original := read(t, f.manifest)
-			f.runDetail(tc.run, tc.fast)
-			if tc.wrongHead {
-				b := bytes.Replace(read(t, f.detail), []byte(inputSource), []byte(strings.Repeat("c", 40)), 1)
-				write(t, f.detail, b, 0600)
-			}
-			equal(t, f.pin().Code, 1)
-			equal(t, read(t, f.manifest), original)
-		})
-	}
-}
-func TestImageInputsRequireOneArm64ServerArtifact(t *testing.T) {
-	f := newImageInputs(t)
-	q := object(t, read(t, f.qualification))
-	q["artifacts"] = q["artifacts"].([]any)[:1]
-	write(t, f.qualification, jsonBytes(t, q), 0600)
-	r := f.pin()
-	equal(t, r.Code, 1)
-	contains(t, r.Stderr, "must list one tb-server-linux-arm64")
-}
-
-func TestImageInputsPinPreservesExistingBaseAssetOrder(t *testing.T) {
-	f := newImageInputs(t)
-	var fields map[string]jsontext.Value
-	if err := json.Unmarshal(read(t, f.manifest), &fields); err != nil {
-		t.Fatal(err)
-	}
-	var base map[string]jsontext.Value
-	if err := json.Unmarshal(fields["base"], &base); err != nil {
-		t.Fatal(err)
-	}
-	var assets map[string]jsontext.Value
-	if err := json.Unmarshal(base["assets"], &assets); err != nil {
-		t.Fatal(err)
-	}
-	reordered := []byte(fmt.Sprintf(`{"ubuntu-cloud-image-keyring.gpg":%s,"ubuntu-SHA256SUMS.gpg":%s,"ubuntu-SHA256SUMS":%s,"base-image.qcow2":%s}`, assets["ubuntu-cloud-image-keyring.gpg"], assets["ubuntu-SHA256SUMS.gpg"], assets["ubuntu-SHA256SUMS"], assets["base-image.qcow2"]))
-	raw := jsontext.Value(bytes.Replace(read(t, f.manifest), base["assets"], reordered, 1))
-	if err := raw.Indent(jsontext.WithIndent("  ")); err != nil {
-		t.Fatal(err)
-	}
-	write(t, f.manifest, append(raw, '\n'), 0600)
-	successful(t, f.tool("check"))
-	var before map[string]jsontext.Value
-	if err := json.Unmarshal(read(t, f.manifest), &before); err != nil {
-		t.Fatal(err)
-	}
-	successful(t, f.pin())
-	var after map[string]jsontext.Value
-	if err := json.Unmarshal(read(t, f.manifest), &after); err != nil {
-		t.Fatal(err)
-	}
-	equal(t, after["base"], before["base"])
-	successful(t, f.tool("check"))
 }

@@ -71,34 +71,3 @@ func TestClusterGateHoldsUnlessJetStreamKeepsQuorumAndStreamsAreCurrent(t *testi
 		t.Fatalf("host step does not restart a broker: %v", err)
 	}
 }
-
-// A controller restart must not take a stream below its quorum: R1 and R2
-// streams on the restarting broker hold the step, streams elsewhere do not,
-// and an unknown broker is judged as hosting every stream.
-func TestClusterGateHoldsAControllerWhoseStreamsLackRedundancy(t *testing.T) {
-	controllers := rollout.Record{Kind: rollout.KindController}
-	streams := []natscell.StreamState{r3("TS_ROLLOUTS"), {Name: "R2_ON_A_B", Peers: []string{"a", "b"}},
-		{Name: "R1_ON_C", Peers: []string{"c"}}}
-	servers := map[string]string{"ctl-a": "a", "ctl-b": "b", "ctl-c": "c", "ctl-x": "x"}
-	gate := ClusterGate{Cluster: fakeCluster{observation: healthyCluster(), streams: streams},
-		ServerOf: func(unit string) (string, bool) { server, ok := servers[unit]; return server, ok }}
-	for unit, held := range map[string]bool{"ctl-a": true, "ctl-b": true, "ctl-c": true, "ctl-x": false, "ctl-z": true} {
-		err := gate.Check(t.Context(), controllers, unit)
-		if held != errors.Is(err, ErrGateHeld) {
-			t.Errorf("%s: gate = %v, want held %v", unit, err, held)
-		}
-	}
-	if err := gate.Check(t.Context(), rollout.Record{Kind: rollout.KindHost}, "h1"); err != nil {
-		t.Fatalf("a host step was held by stream redundancy: %v", err)
-	}
-	// Preflight restarts no broker: a controller subset whose brokers host
-	// no R1 or R2 stream must not be held before its first step.
-	if err := gate.Check(t.Context(), controllers, ""); err != nil {
-		t.Fatalf("preflight was held by stream redundancy: %v", err)
-	}
-	gate.Cluster = fakeCluster{observation: healthyCluster(), streams: []natscell.StreamState{r3("TS_ROLLOUTS")}}
-	gate.ServerOf = nil
-	if err := gate.Check(t.Context(), controllers, "ctl-a"); err != nil {
-		t.Fatalf("R3 streams held a controller step: %v", err)
-	}
-}

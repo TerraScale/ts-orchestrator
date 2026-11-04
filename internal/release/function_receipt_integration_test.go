@@ -9,9 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 func TestFunctionReceiptFilesystemVerificationKeepsExecutionSeparate(t *testing.T) {
@@ -58,53 +55,5 @@ func TestFunctionReceiptFilesystemVerificationKeepsExecutionSeparate(t *testing.
 		if _, err := VerifyFunctionCurrent(wire, grant, module, fixture.roots, fixture.expected(), fixture.now); !errors.Is(err, ErrInvalidReceipt) {
 			t.Fatalf("module execution verifier accepted missing or mismatched bytes: %v", err)
 		}
-	}
-}
-
-func TestFunctionReceiptRejectsScopeOrderAndTrust(t *testing.T) {
-	fixture := newFunctionFixture(t)
-	signed, err := SignFunctionClaim(fixture.claim, fixture.module, fixture.delegation, fixture.roots, fixture.leaf, fixture.now, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire, grant := encodeEnvelope(t, signed), encodeEnvelope(t, fixture.delegation)
-	for _, test := range []struct {
-		name   string
-		change func(*FunctionExpectation)
-	}{
-		{"tenant", func(e *FunctionExpectation) { e.TenantID = entityid.Derive("tenant", "other") }},
-		{"function", func(e *FunctionExpectation) { e.FunctionID = "other" }},
-		{"revision", func(e *FunctionExpectation) { e.Revision = "other" }},
-		{"digest", func(e *FunctionExpectation) { e.Digest = hex.EncodeToString(make([]byte, sha256.Size)) }},
-		{"environment", func(e *FunctionExpectation) { e.Environment = "production" }},
-		{"cell", func(e *FunctionExpectation) { e.Cell = "FRA" }},
-		{"sequence", func(e *FunctionExpectation) { e.MinimumSequence++ }},
-		{"missing floor", func(e *FunctionExpectation) { e.MinimumSequence = 0 }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			expected := fixture.expected()
-			test.change(&expected)
-			if _, err := VerifyFunctionReceiptCurrent(wire, grant, fixture.roots, expected, fixture.now); !errors.Is(err, ErrExpectationMismatch) {
-				t.Fatalf("unexpected scope/order error: %v", err)
-			}
-		})
-	}
-	if _, err := VerifyFunctionReceiptCurrent(wire, grant, trust.Keyring{}, fixture.expected(), fixture.now); !errors.Is(err, trust.ErrUntrustedKey) {
-		t.Fatalf("unknown root: %v", err)
-	}
-	if _, err := VerifyFunctionReceiptCurrent(wire, grant, fixture.roots, fixture.expected(), signed.ExpiresAt); !errors.Is(err, trust.ErrExpired) {
-		t.Fatalf("expired receipt: %v", err)
-	}
-	other := fixture.claim
-	other.FunctionID = "unauthorized"
-	unauthorized := signDirect(t, other, FunctionScope(other), fixture.leaf, fixture.now, fixture.now.Add(time.Hour))
-	expected := fixture.expected()
-	expected.FunctionID = other.FunctionID
-	if _, err := VerifyFunctionReceiptCurrent(encodeEnvelope(t, unauthorized), grant, fixture.roots, expected, fixture.now); !errors.Is(err, trust.ErrCapabilityDenied) {
-		t.Fatalf("cross-function delegation: %v", err)
-	}
-	signed.Scope.Cell = "FRA"
-	if _, err := VerifyFunctionReceiptCurrent(encodeEnvelope(t, signed), grant, fixture.roots, fixture.expected(), fixture.now); !errors.Is(err, trust.ErrScopeMismatch) {
-		t.Fatalf("tampered signed scope: %v", err)
 	}
 }

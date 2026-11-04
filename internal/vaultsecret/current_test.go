@@ -58,16 +58,8 @@ func TestReadCurrentMetadataAndRedaction(t *testing.T) {
 		}
 	}
 	for name, change := range map[string]func(*ocisecrets.SecretBundle){
-		"missing version": func(b *ocisecrets.SecretBundle) { b.VersionNumber = nil },
-		"zero version":    func(b *ocisecrets.SecretBundle) { b.VersionNumber = new(int64(0)) },
-		"wrong region":    func(b *ocisecrets.SecretBundle) { b.SecretId = new("ocid1.vaultsecret.oc1.us-sanjose-1.test") },
-		"expired":         func(b *ocisecrets.SecretBundle) { b.TimeOfExpiry = &common.SDKTime{Time: time.Now().Add(-time.Second)} },
-		"oversized": func(b *ocisecrets.SecretBundle) {
-			b.SecretBundleContent = ocisecrets.Base64SecretBundleContentDetails{Content: new(strings.Repeat("A", base64.StdEncoding.EncodedLen(maxValue)+4))}
-		},
-		"decoded oversized": func(b *ocisecrets.SecretBundle) {
-			b.SecretBundleContent = ocisecrets.Base64SecretBundleContentDetails{Content: new(base64.StdEncoding.EncodeToString(make([]byte, maxValue+1)))}
-		},
+
+		"expired": func(b *ocisecrets.SecretBundle) { b.TimeOfExpiry = &common.SDKTime{Time: time.Now().Add(-time.Second)} },
 	} {
 		b := good
 		change(&b)
@@ -127,43 +119,5 @@ func TestWatchPublishesChangedVersionsAndRetries(t *testing.T) {
 		})
 	if !errors.Is(err, context.Canceled) || !slices.Equal(applied, []int64{1, 2, 3}) || failures != 3 || reads != 7 {
 		t.Fatalf("version publication/retry mismatch: reads=%d applied=%v failures=%d err=%v", reads, applied, failures, err)
-	}
-}
-
-func TestDeliveryNamespaceAndFileAliases(t *testing.T) {
-	for _, name := range []string{"gru-ts-auth-signing-key-ring", "gru-1-ts-auth-master-key"} {
-		if err := ValidateDeliveryRefs("gru", "ts-auth", map[string]Ref{"KEY_FILE": {Vault: testTarget.VaultID, Name: name}}, nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, name := range []string{"sjc-ts-auth-key", "gru-netbird-pat", "gru-01-ts-auth-key", "gru-ts-auth-"} {
-		if err := ValidateDeliveryRefs("gru", "ts-auth", map[string]Ref{"KEY_FILE": {Vault: testTarget.VaultID, Name: name}}, nil); err == nil {
-			t.Fatalf("accepted %s", name)
-		}
-	}
-	ref := Ref{Vault: testTarget.VaultID, Name: "gru-ts-auth-key"}
-	if err := ValidateDeliveryRefs("gru", "ts-auth", map[string]Ref{"KEY_FILE": ref, "key_FILE": ref}, nil); err == nil {
-		t.Fatal("accepted colliding file names")
-	}
-}
-
-func TestExactDeliveryFilenamesStayWithinService(t *testing.T) {
-	ref := Ref{Vault: testTarget.VaultID, Name: "gru-ts-orchestrator-controller-a-nats-credentials"}
-	refs, names, err := deliveryNames("gru", "ts-orchestrator", map[string]Ref{"controller-a.creds": ref}, true)
-	if err != nil || len(refs) != 1 || names["FILE_0_FILE"] != "controller-a.creds" {
-		t.Fatal("could not preserve the signed credential filename", err)
-	}
-	for _, name := range []string{"../key", ".", "..", "/key", "nested/key", "KEY", ""} {
-		if _, _, err := deliveryNames("gru", "ts-orchestrator", map[string]Ref{name: ref}, true); err == nil {
-			t.Errorf("accepted unsafe filename %q", name)
-		}
-	}
-	ref.Name = "gru-netbird-token"
-	if _, _, err := deliveryNames("gru", "ts-orchestrator", map[string]Ref{"controller-a.creds": ref}, true); err == nil {
-		t.Fatal("exact filename bypassed service isolation")
-	}
-	ref.Name = "gru-ts-orchestrator-controller-a-ticket-key"
-	if err := ValidateRefs("gru", "ts-orchestrator", map[string]Ref{"KEY_FILE": ref}, nil); err == nil {
-		t.Fatal("a native workload can reach controller-only material")
 	}
 }

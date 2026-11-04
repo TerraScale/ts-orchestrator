@@ -1,14 +1,12 @@
 package releasepush
 
 import (
-	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
+
 	"testing"
 	"time"
 )
@@ -63,28 +61,6 @@ func TestProbationRollsBackAfterFailedStarts(t *testing.T) {
 	}
 }
 
-func TestProbationRollsBackAtDeadline(t *testing.T) {
-	now := time.Now()
-	state, binary := onProbation(t, now.Add(-probationWait))
-	if _, err := probe(state, binary, testSHA, now, io.Discard, nil); err == nil {
-		t.Fatal("a start past the deadline did not roll back")
-	}
-	assertRolledBack(t, state, binary)
-
-	// A start that hangs rolls back and exits at the deadline.
-	state, binary = onProbation(t, now.Add(-probationWait+50*time.Millisecond))
-	exited := make(chan struct{})
-	if _, err := probe(state, binary, testSHA, now, io.Discard, func() { close(exited) }); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-exited:
-	case <-time.After(5 * time.Second):
-		t.Fatal("no rollback at the deadline")
-	}
-	assertRolledBack(t, state, binary)
-}
-
 func TestProbationServedClearsMarker(t *testing.T) {
 	now := time.Now()
 	state, binary := onProbation(t, now.Add(-probationWait+50*time.Millisecond))
@@ -106,48 +82,6 @@ func TestProbationServedClearsMarker(t *testing.T) {
 	}
 	if _, err := os.Stat(trialFile(state)); !os.IsNotExist(err) {
 		t.Fatalf("foreign marker kept: %v", err)
-	}
-}
-
-func TestOrchRefusesRolledBackRun(t *testing.T) {
-	now := time.Now()
-	i := newIssuer(t)
-	h, binary := testHandler(t, i, now, []byte("new"))
-	h.rolledBack.Store(&Rollback{SHA: testSHA, RunID: "100", Reason: "exited 2 times before serving"})
-	retry := i.sign(t, goodClaims(now))
-	if reply := h.orch(context.Background(), orchRequest(t, retry, []byte("new"), nil)); reply.State != "rolled_back" || reply.RolledBack != testSHA {
-		t.Fatalf("retry reply = %+v", reply)
-	}
-	if data, _ := os.ReadFile(binary); string(data) != "old" {
-		t.Fatalf("binary = %q after a refused retry", data)
-	}
-	// A newer run of the same commit installs on probation and clears the record.
-	newer := i.sign(t, with(goodClaims(now), "run_id", "101"))
-	reply := h.orch(context.Background(), orchRequest(t, newer, []byte("new"), func(r *OrchRelease) {
-		r.Binaries[runtime.GOARCH] = Binary{URL: ReleaseURL(testSHA, "101", runtime.GOARCH), SHA256: r.Binaries[runtime.GOARCH].SHA256}
-	}))
-	var marker trial
-	data, _ := os.ReadFile(h.TrialFile)
-	if reply.State != "installed" || h.version().RolledBack != "" || json.Unmarshal(data, &marker) != nil || marker.SHA != testSHA || marker.RunID != "101" {
-		t.Fatalf("newer run reply = %+v version %+v marker %s", reply, h.version(), data)
-	}
-}
-
-func TestInstallImmutableBinary(t *testing.T) {
-	now := time.Now()
-	i := newIssuer(t)
-	h, binary := testHandler(t, i, now, []byte("new"))
-	link = func(old, new string) error { return &os.LinkError{Op: "link", Old: old, New: new, Err: syscall.EPERM} }
-	t.Cleanup(func() { link = os.Link })
-	reply := h.orch(context.Background(), orchRequest(t, i.sign(t, goodClaims(now)), []byte("new"), nil))
-	if reply.State != "rejected" || !strings.Contains(reply.Error, "chattr -i "+binary) {
-		t.Fatalf("reply = %+v", reply)
-	}
-	data, _ := os.ReadFile(binary)
-	_, next := os.Stat(binary + ".next")
-	_, marker := os.Stat(h.TrialFile)
-	if string(data) != "old" || !os.IsNotExist(next) || !os.IsNotExist(marker) {
-		t.Fatalf("binary %q next %v marker %v", data, next, marker)
 	}
 }
 

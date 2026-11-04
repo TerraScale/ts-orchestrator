@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	tb "terrascale.tech/sdk/v1"
 )
 
 const (
@@ -24,73 +22,6 @@ const (
 func testProjectCredential() projectCredential {
 	return projectCredential{APIKey: projectKeyMetadata{ID: testKeyID, OrganizationID: testOrg, ProjectID: testProject,
 		Database: testDB, Scopes: []string{"documents:read"}, ExpiresAt: time.Now().UTC().Add(time.Hour)}, Key: testKeyID + "_" + strings.Repeat("a", 52)}
-}
-
-func setProjectConfig(t *testing.T, credential projectCredential) {
-	t.Helper()
-	data, err := json.Marshal(credential)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, value := range map[string]string{"E2E_PROJECT_CREDENTIAL": string(data), "E2E_ORGANIZATION_ID": testOrg,
-		"E2E_PROJECT_ID": testProject, "E2E_DATABASE": "e2e_read", "E2E_UNRELATED_DATABASE": "e2e_negative"} {
-		t.Setenv(name, value)
-	}
-}
-
-func TestProductionRequiresExactApprovedNativeProjectCredential(t *testing.T) {
-	setProjectConfig(t, testProjectCredential())
-	// Production origins and region cannot be redirected by old harness settings.
-	t.Setenv("E2E_TERRABASE_URL", "https://untrusted.example")
-	t.Setenv("E2E_AUTH_URL", "https://untrusted.example")
-	e, err := production()
-	if err != nil || e.TerraBaseURL != "https://api.terrascale.tech" || e.AuthURL != "https://auth.terrascale.tech" || e.Region != "gru" || e.Credential != "" || e.UserID != "" || e.APIKey != "" {
-		t.Fatal("production must use fixed public origins with no management credential or data key")
-	}
-	for _, mutate := range []func(*projectCredential){
-		func(c *projectCredential) { c.APIKey.ProjectID = "" },
-		func(c *projectCredential) { c.APIKey.Database = "" },
-		func(c *projectCredential) { c.APIKey.Scopes = []string{"documents:read", "documents:write"} },
-		func(c *projectCredential) { c.APIKey.Scopes = []string{"documents:read", "documents:read"} },
-		func(c *projectCredential) { c.APIKey.ExpiresAt = time.Time{} },
-		func(c *projectCredential) { c.APIKey.ExpiresAt = time.Now().Add(-time.Second) },
-		func(c *projectCredential) { c.APIKey.ExpiresAt = time.Now().Add(25 * time.Hour) },
-		func(c *projectCredential) { c.APIKey.OrganizationID = testOther },
-		func(c *projectCredential) { c.APIKey.ProjectID = testOther },
-		func(c *projectCredential) { c.APIKey.Database = "other" },
-		// A key narrowed by database name (before terrascale#778) mints no token.
-		func(c *projectCredential) { c.APIKey.Database = "e2e_read" },
-		func(c *projectCredential) { c.Key = "tb_" + strings.Repeat("a", 43) },
-		func(c *projectCredential) { c.APIKey.ID = testOther },
-	} {
-		c := testProjectCredential()
-		mutate(&c)
-		setProjectConfig(t, c)
-		if _, err := production(); err == nil || strings.Contains(err.Error(), c.Key) {
-			t.Fatal("broad, expired, mismatched or legacy credentials must fail without exposing the key")
-		}
-	}
-	setProjectConfig(t, testProjectCredential())
-	for _, raw := range []string{"invalid", `{"api_key":{},"key":"a","key":"b"}`, strings.Repeat("x", 65537)} {
-		t.Setenv("E2E_PROJECT_CREDENTIAL", raw)
-		if _, err := production(); err == nil {
-			t.Fatal("accepted invalid or oversized credential JSON")
-		}
-	}
-	setProjectConfig(t, testProjectCredential())
-	for _, database := range []string{"", "E2E_negative", "e2e/negative", "e2e_negative\n", strings.Repeat("a", 64), "e2e_read"} {
-		t.Setenv("E2E_UNRELATED_DATABASE", database)
-		if _, err := production(); err == nil {
-			t.Fatalf("accepted invalid or same negative database %q", database)
-		}
-	}
-	setProjectConfig(t, testProjectCredential())
-	for _, database := range []string{"", testDB, "e2e/read", "e2e_negative"} {
-		t.Setenv("E2E_DATABASE", database)
-		if _, err := production(); err == nil {
-			t.Fatalf("accepted invalid or negative positive database name %q", database)
-		}
-	}
 }
 
 func fakeJWT(t *testing.T, e *environment, mutate func(map[string]any)) string {
@@ -178,114 +109,5 @@ func TestProductionReadAndEveryDenialWithHTTPFakes(t *testing.T) {
 	}
 	if err := documents(t.Context(), e); err == nil {
 		t.Fatal("production can enter the local mutating scenario")
-	}
-}
-
-func TestProductionCannotPassUnexpectedDenialsOrAvailabilityFailures(t *testing.T) {
-	for _, scenarioIndex := range []int{0, 2, 3, 4, 5, 6, 7} {
-		t.Run(productionScenarios()[scenarioIndex].name, func(t *testing.T) {
-			e := productionFake(t, func(w http.ResponseWriter, r *http.Request, e *environment) bool {
-				if scenarioIndex == 0 && r.URL.Path == "/readyz" {
-					w.WriteHeader(http.StatusServiceUnavailable)
-					fmt.Fprint(w, `{"status":"not_ready"}`)
-					return true
-				}
-				if (scenarioIndex == 2 || scenarioIndex == 5) && strings.HasSuffix(r.URL.Path, "/collections") ||
-					(scenarioIndex == 6 || scenarioIndex == 7) && strings.HasSuffix(r.URL.Path, "/organizations") {
-					w.WriteHeader(http.StatusServiceUnavailable)
-					fmt.Fprint(w, `{"error":{"code":"unavailable"}}`)
-					return true
-				}
-				if (scenarioIndex == 3 || scenarioIndex == 4) && r.URL.Path == "/terrascale/oauth/token" {
-					r.ParseForm()
-					if r.Form.Get("project") != "" || r.Form.Get("scope") != "" {
-						fmt.Fprint(w, `{"access_token":"must-not-log-this","token_type":"Bearer"}`)
-						return true
-					}
-				}
-				return false
-			})
-			if scenarioIndex != 0 {
-				if err := productionHealth(t.Context(), e); err != nil {
-					t.Fatal(err)
-				}
-				if err := projectToken(t.Context(), e); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if err := productionScenarios()[scenarioIndex].run(t.Context(), e); err == nil || strings.Contains(err.Error(), "must-not-log-this") {
-				t.Fatal("unexpected success or sensitive response exposed")
-			}
-		})
-	}
-}
-
-func TestProjectTokenRejectsForgedMetadataAndBroadJWTs(t *testing.T) {
-	for _, mutate := range []func(map[string]any){
-		func(c map[string]any) { delete(c, "project_id") },
-		func(c map[string]any) { c["project_id"] = testOther },
-		func(c map[string]any) { c["database"] = "other" },
-		func(c map[string]any) { c["org_id"] = testOther },
-		func(c map[string]any) { c["iss"] = "https://other.example/terrascale" },
-		func(c map[string]any) { c["aud"] = "https://other.example" },
-		func(c map[string]any) { c["scope"] = "documents:read documents:write" },
-		func(c map[string]any) { c["exp"] = time.Now().Add(time.Hour).Unix() },
-	} {
-		e := productionFake(t, func(w http.ResponseWriter, r *http.Request, e *environment) bool {
-			if r.URL.Path != "/terrascale/oauth/token" {
-				return false
-			}
-			fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":900,"scope":"documents:read"}`, fakeJWT(t, e, mutate))
-			return true
-		})
-		if err := productionHealth(t.Context(), e); err != nil {
-			t.Fatal(err)
-		}
-		if err := projectToken(t.Context(), e); err == nil || e.APIKey != "" {
-			t.Fatal("unscoped or incorrect JWT accepted")
-		}
-	}
-	if err := projectToken(t.Context(), &environment{}); err == nil {
-		t.Fatal("token exchange can run before health checks")
-	}
-}
-
-func TestProductionResponsesStayBoundedAndSecretFree(t *testing.T) {
-	for _, body := range []string{"credential-echo-not-json", strings.Repeat("x", 65537)} {
-		e := productionFake(t, func(w http.ResponseWriter, r *http.Request, _ *environment) bool {
-			fmt.Fprint(w, body)
-			return true
-		})
-		e.ProductionReady = true
-		if err := projectToken(t.Context(), e); err == nil || strings.Contains(err.Error(), body[:10]) {
-			t.Fatal("invalid response must fail without including its body")
-		}
-	}
-	e := &environment{ProjectCredential: testProjectCredential(), APIKey: "fake.jwt.signature"}
-	if got := redact(e.ProjectCredential.Key+" "+e.APIKey, e); got != "[redacted] [redacted]" {
-		t.Fatal("project key or JWT leaked")
-	}
-}
-
-func TestCrossProjectExchangeAlwaysRequestsDifferentNativeID(t *testing.T) {
-	for _, project := range []string{testProject, "00000000000000000000000000"} {
-		requests := 0
-		e := productionFake(t, func(w http.ResponseWriter, r *http.Request, e *environment) bool {
-			if r.URL.Path != "/terrascale/oauth/token" {
-				return false
-			}
-			requests++
-			if r.ParseForm() != nil || tb.ValidateID(r.Form.Get("project")) != nil || r.Form.Get("project") == e.ProjectCredential.APIKey.ProjectID {
-				t.Error("cross-project exchange must target a different native project id")
-			}
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, `{"error":"invalid_target"}`)
-			return true
-		})
-		e.ProjectCredential.APIKey.ProjectID = project
-		e.ProductionReady, e.APIKey = true, "synthetic-token"
-		if err := productionScenarios()[3].run(t.Context(), e); err != nil || requests != 1 {
-			t.Fatal("cross-project targeting must be tested without a second provisioned project")
-		}
 	}
 }

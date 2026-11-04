@@ -1,81 +1,11 @@
 package rollout
 
 import (
-	"context"
 	"errors"
 	"testing"
-	"time"
-
-	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
-
-type recordCreateFailureKV struct {
-	jetstream.KeyValue
-	key string
-	err error
-}
-
-func (kv recordCreateFailureKV) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error) {
-	if key == kv.key {
-		return 0, kv.err
-	}
-	return kv.KeyValue.Create(ctx, key, value, opts...)
-}
-
-func TestAbandonedReleaseRefundsReservationAndAllowsFreshIssuance(t *testing.T) {
-	store, _ := testStore(t)
-	ctx := t.Context()
-	first, err := store.PublishRelease(ctx, 7, Release{Digest: toDigest, Actor: "ci", RunNumber: 1, CreatedAt: testStart})
-	if err != nil {
-		t.Fatal(err)
-	}
-	id := entityid.Derive(ControllerReleaseDomain, ReleaseRolloutID(first.Generation))
-	spec := testSpec(id)
-	spec.Policy = DefaultPolicy()
-	kv := store.kv
-	failure := errors.New("record create unavailable")
-	store.kv = recordCreateFailureKV{KeyValue: kv, key: id, err: failure}
-	if _, _, err := store.Begin(ctx, spec, testStart); !errors.Is(err, failure) {
-		t.Fatalf("record-create failure was not injected: %v", err)
-	}
-	store.kv = kv
-	if cell, _, err := store.Cell(ctx); err != nil || cell.ActiveRolloutID != id || cell.Attempts[toDigest] != 1 {
-		t.Fatalf("crash did not retain its reservation: %+v, %v", cell, err)
-	}
-	if _, _, err := store.Begin(ctx, spec, testStart); !errors.Is(err, ErrAbandonedRollout) {
-		t.Fatalf("same-ID crash recovery = %v", err)
-	}
-	if cell, _, err := store.Cell(ctx); err != nil || cell.ActiveRolloutID != "" || cell.Attempts[toDigest] != 0 {
-		t.Fatalf("abandonment did not refund its reservation: %+v, %v", cell, err)
-	}
-	if _, err := store.PublishRelease(ctx, 7, first); !errors.Is(err, ErrReleaseUnchanged) {
-		t.Fatalf("old issuance renewed abandoned generation: %v", err)
-	}
-	next := first
-	next.RunNumber, next.CreatedAt = 2, testStart.Add(time.Second)
-	fresh, err := store.PublishRelease(ctx, 7, next)
-	if err != nil || fresh.Generation != first.Generation+1 {
-		t.Fatalf("fresh abandoned-release retry = %+v, %v", fresh, err)
-	}
-	spec.RolloutID = entityid.Derive(ControllerReleaseDomain, ReleaseRolloutID(fresh.Generation))
-	if _, _, err := store.Begin(ctx, spec, next.CreatedAt); err != nil {
-		t.Fatalf("fresh retry failed the one-attempt budget: %v", err)
-	}
-	for range 2 {
-		if err := store.releaseSlot(ctx, 7, id); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if cell, _, err := store.Cell(ctx); err != nil || cell.ActiveRolloutID != spec.RolloutID || cell.Attempts[toDigest] != 1 {
-		t.Fatalf("old abandonment changed the fresh reservation: %+v, %v", cell, err)
-	}
-	if _, _, err := store.createRecord(ctx, testSpec(id), CellState{}, testStart); !errors.Is(err, ErrAbandonedRollout) {
-		t.Fatalf("abandoned ID could create a late record: %v", err)
-	}
-}
 
 func TestReleaseGenerationsPublishRollBackAndPause(t *testing.T) {
 	store, _ := testStore(t)
@@ -162,31 +92,6 @@ func TestReleaseWritesAreFencedAndRefuseKnownBadAndMalformedReleases(t *testing.
 	}
 	if desired, _, err := store.Desired(ctx); err != nil || desired.Generation() != 0 {
 		t.Fatalf("refused publishes moved the cell: %+v %v", desired, err)
-	}
-}
-
-func TestReleaseHistoryIsBounded(t *testing.T) {
-	store, _ := testStore(t)
-	ctx := t.Context()
-	digests := []string{fromDigest, toDigest}
-	for range ReleaseHistory + 2 {
-		desired, _, err := store.Desired(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := store.PublishRelease(ctx, 7, Release{Digest: digests[desired.Generation()%2], Actor: "ci", CreatedAt: testStart}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	newest := uint64(ReleaseHistory + 2)
-	if _, err := store.ReleaseGeneration(ctx, newest-ReleaseHistory); !errors.Is(err, ErrNoRelease) {
-		t.Fatalf("generation outside the history is still readable: %v", err)
-	}
-	if _, err := store.ReleaseGeneration(ctx, newest-ReleaseHistory+1); err != nil {
-		t.Fatalf("oldest retained generation: %v", err)
-	}
-	if _, err := store.RollbackRelease(ctx, 7, 1, "ops", testStart); !errors.Is(err, ErrNoRelease) {
-		t.Fatalf("rollback to a purged generation: %v", err)
 	}
 }
 

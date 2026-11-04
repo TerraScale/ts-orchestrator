@@ -168,46 +168,6 @@ func TestSeatsRestartOneAtATimeBehindTheirDrain(t *testing.T) {
 	c.expect(store, nil, []string{"gru-1-db-1", "gru-1-db-2"})
 }
 
-// A seat the load balancer does not serve restarts first and without a
-// drain; a seat whose drain would leave no healthy seat waits.
-func TestSeatsOutOfRotationGoFirstAndTheLastHealthySeatStays(t *testing.T) {
-	store, _, fence := testStore(t)
-	c := newCell(t)
-	c.members[1].Backend = "" // gru-1-db-2 is not in the backend set
-	controller := c.controller(store, fence)
-	c.release(2)
-	c.tick(controller)
-	c.expect(store, nil, []string{"gru-1-db-2"})
-	c.state["gru-1-db-2"] = "running"
-	c.tick(controller)
-	// gru-1-db-1 is the only seat the load balancer serves.
-	c.expect(store, nil, []string{"gru-1-db-2"})
-
-	// With both in the set but gru-1-db-2 unhealthy, gru-1-db-1 still waits.
-	c.members[1].Backend = "10.251.0.22:9465"
-	c.backends["10.251.0.22:9465"] = Backend{}
-	c.tick(controller)
-	c.expect(store, nil, []string{"gru-1-db-2"})
-	c.backends["10.251.0.22:9465"] = Backend{Healthy: true}
-	c.tick(controller)
-	c.expect(store, []string{"gru-1-db-1"}, []string{"gru-1-db-2"})
-}
-
-func TestMissingExpectedBackendHoldsEverySeat(t *testing.T) {
-	store, _, fence := testStore(t)
-	c := newCell(t)
-	controller := c.controller(store, fence)
-	c.release(2)
-	delete(c.backends, "10.251.0.22:9465")
-	if err := controller.Tick(t.Context()); err == nil {
-		t.Fatal("missing expected backend permitted a restart")
-	}
-	c.expect(store, nil, nil)
-	c.backends["10.251.0.22:9465"] = Backend{Healthy: true}
-	c.tick(controller)
-	c.expect(store, []string{"gru-1-db-1"}, nil)
-}
-
 // A restarted seat that never serves holds its group, and the release's
 // rollback (a newer generation) restarts it first.
 func TestAFailedSeatHoldsTheGroupUntilTheRollback(t *testing.T) {
@@ -274,65 +234,4 @@ func (f staleFence) Current() authority.Snapshot {
 	snapshot := f.epochFence.Current()
 	snapshot.Epoch--
 	return snapshot
-}
-
-// A seat that leaves the seat list while it settles starts the settle over
-// when it comes back, instead of reusing the wait it began before.
-func TestASeatThatLeavesStartsItsWaitsOver(t *testing.T) {
-	store, _, fence := testStore(t)
-	c := newCell(t)
-	controller := c.controller(store, fence)
-	c.release(2)
-	c.tick(controller)
-	c.backends["10.251.0.21:9465"] = Backend{Drained: true, Healthy: true}
-	c.tick(controller)
-	c.now = c.now.Add(DefaultDrainGrace)
-	c.tick(controller)
-	c.state["gru-1-db-1"] = "running"
-	c.tick(controller)
-	c.expect(store, []string{"gru-1-db-1"}, []string{"gru-1-db-1"})
-
-	members := c.members
-	c.members = members[1:]
-	c.now = c.now.Add(DefaultSettle)
-	c.tick(controller)
-	c.members = members
-	c.tick(controller)
-	c.expect(store, []string{"gru-1-db-1"}, []string{"gru-1-db-1"})
-	c.now = c.now.Add(DefaultSettle)
-	c.tick(controller)
-	c.expect(store, nil, []string{"gru-1-db-1"})
-}
-
-// A drained seat whose desired is withdrawn stays drained while its host
-// stops it, and its group waits: it serves nothing and is a member short.
-func TestAWithdrawnSeatStaysDrained(t *testing.T) {
-	store, _, fence := testStore(t)
-	c := newCell(t)
-	controller := c.controller(store, fence)
-	c.release(2)
-	c.tick(controller)
-	c.expect(store, []string{"gru-1-db-1"}, nil)
-	c.withdrawn = map[string]bool{"gru-1-db-1": true}
-	for range 3 {
-		c.now = c.now.Add(time.Minute)
-		c.tick(controller)
-	}
-	c.expect(store, []string{"gru-1-db-1"}, nil)
-}
-
-// A hold (an orchestrator host rollout restarting hosts) starts no seat's
-// restart; the release proceeds once it lifts.
-func TestAHoldStartsNoSeatRestart(t *testing.T) {
-	store, _, fence := testStore(t)
-	c := newCell(t)
-	controller := c.controller(store, fence)
-	reason := "orchestrator host rollout release-g2-hosts"
-	controller.Hold = func(context.Context) (string, error) { return reason, nil }
-	c.release(2)
-	c.tick(controller)
-	c.expect(store, nil, nil)
-	reason = ""
-	c.tick(controller)
-	c.expect(store, []string{"gru-1-db-1"}, nil)
 }

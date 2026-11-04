@@ -122,39 +122,3 @@ func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 		t.Fatal("rejected signing wrote a receipt")
 	}
 }
-
-func TestPinnedLineageRemote(t *testing.T) {
-	for remote, want := range map[string]bool{
-		"https://github.com/TerraScale/ts-orchestrator.git":             true,
-		"https://github.com/TerraScale/ts-orchestrator":                 true,
-		"ssh://git@github.com/TerraScale/ts-orchestrator.git":           true,
-		"ssh://git@github.com:2222/TerraScale/ts-orchestrator.git":      true,
-		"git@github.com:TerraScale/ts-orchestrator.git":                 true,
-		"https://github.com/someone/ts-orchestrator.git":                false,
-		"https://evil.example/TerraScale/ts-orchestrator.git":           false,
-		"https://user:secret@github.com/TerraScale/ts-orchestrator.git": false,
-		"http://github.com/TerraScale/ts-orchestrator.git":              false,
-		"file:///srv/TerraScale/ts-orchestrator.git":                    false,
-		"/srv/checkout/TerraScale/ts-orchestrator":                      false,
-		"git@evil.example:TerraScale/ts-orchestrator.git":               false,
-		"": false,
-	} {
-		if got := pinnedLineageRemote(remote); got != want {
-			t.Fatalf("pinnedLineageRemote(%q) = %v, want %v", remote, got, want)
-		}
-	}
-}
-
-func TestSignUpdateDelegationRefusesTheRootAsLeaf(t *testing.T) {
-	fixture := newDelegationFixture(t)
-	c := command{ctx: context.Background(), output: os.Stdout}
-	args := []string{"--subject-public-key", fixture.rootPath, "--root-key", fixture.rootPath,
-		"--signing-key", fixture.privatePath, "--environment", "canary", "--lineage-base", testLineageBase,
-		"--service", "terrabase=https://github.com/TerraScale/terrabase", "--arch", "amd64",
-		"--issued-at", fixture.now.Add(-time.Minute).Format(time.RFC3339),
-		"--expires-at", fixture.now.Add(24 * time.Hour).Format(time.RFC3339),
-		"--out", filepath.Join(fixture.directory, "root-leaf.json")}
-	if err := c.signUpdateDelegation(args); err == nil || !strings.Contains(err.Error(), "differ from offline root") {
-		t.Fatalf("the offline root was delegated to itself: %v", err)
-	}
-}

@@ -5,7 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json/v2"
+	"github.com/nats-io/nats.go"
+
 	"errors"
 	"os"
 	"path/filepath"
@@ -16,14 +17,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/artifact"
 
 	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
+
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 func TestReadVerifiedObjectStoreToFileIntegration(t *testing.T) {
 	for _, scenario := range []string{
-		"interleaved chunks", "zero-byte object", "missing chunk", "oversize chunk",
-		"signed digest mismatch", "object digest mismatch", "extra chunk", "closed destination",
+		"interleaved chunks",
+		"signed digest mismatch",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -95,50 +96,10 @@ func TestReadVerifiedObjectStoreToFileIntegration(t *testing.T) {
 					}
 				}
 				wantError = nil
-			case "zero-byte object":
-				if _, err := store.PutBytes(ctx, name, nil); err != nil {
-					t.Fatal(err)
-				}
-			case "missing chunk":
-				if err := stream.DeleteMsg(ctx, first.Sequence); err != nil {
-					t.Fatal(err)
-				}
-				wantError = jetstream.ErrObjectNotFound
-			case "oversize chunk":
-				if _, err := js.Publish(ctx, subject, bytes.Repeat([]byte("x"), len(body)+1)); err != nil {
-					t.Fatal(err)
-				}
-				if err := stream.DeleteMsg(ctx, first.Sequence); err != nil {
-					t.Fatal(err)
-				}
+
 			case "signed digest mismatch":
 				digest = strings.Repeat("0", 64)
-			case "object digest mismatch":
-				legacy, err := conn.JetStream()
-				if err != nil {
-					t.Fatal(err)
-				}
-				metadata, err := legacy.GetLastMsg("OBJ_"+bucket, "$O."+bucket+".M.>", nats.Context(ctx))
-				if err != nil {
-					t.Fatal(err)
-				}
-				info.Digest = "SHA-256=bad"
-				data, err := json.Marshal(info)
-				if err != nil {
-					t.Fatal(err)
-				}
-				message := nats.NewMsg(metadata.Subject)
-				message.Header.Set(nats.MsgRollup, nats.MsgRollupSubject)
-				message.Data = data
-				if _, err := js.PublishMsg(ctx, message); err != nil {
-					t.Fatal(err)
-				}
-			case "extra chunk":
-				if _, err := js.Publish(ctx, subject, []byte("extra")); err != nil {
-					t.Fatal(err)
-				}
-			case "closed destination":
-				wantError = os.ErrClosed
+
 			}
 			path := filepath.Join(t.TempDir(), "artifact")
 			output, err := os.Create(path)

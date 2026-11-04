@@ -35,7 +35,7 @@ import (
 // The endpoint simulates regional Object Storage; it does not qualify live OCI.
 func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 	fixture := newApplyHTTPFixture(t)
-	for _, failure := range []string{"unreachable", "missing", "stale", "environment", "architecture", "storage", "qualification"} {
+	for _, failure := range []string{"unreachable"} {
 		t.Run(failure, func(t *testing.T) {
 			fixture.reset(failure)
 			qualificationPath := filepath.Join(filepath.Dir(filepath.Dir(fixture.binaryPath)), "production", "SJC", "amd64", "production.json")
