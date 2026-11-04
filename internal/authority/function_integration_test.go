@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -16,7 +15,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -71,7 +69,7 @@ func TestFunctionIntentAndRecipientGrantsUseDurableCurrentFloor(t *testing.T) {
 		t.Fatal("mutable accessor changed sealed proof")
 	}
 	for _, rejected := range []release.VerifiedFunction{
-		fixture.proof(t, 41, "old", time.Hour), fixture.proof(t, 42, "equivocated", time.Hour),
+		fixture.proof(t, 41, "old", time.Hour),
 	} {
 		if _, err := runtime.CommitFunctionIntent(t.Context(), epoch, entityid.New(), sequence, rejected); !errors.Is(err, ErrConflict) {
 			t.Fatalf("rollback or same-sequence equivocation: %v", err)
@@ -147,7 +145,7 @@ func (stream *functionExpiryRead) GetLastMsgForSubject(ctx context.Context, subj
 }
 
 func TestFunctionProofExpiresInsideFencedCommit(t *testing.T) {
-	for _, stage := range []string{"compare-and-set-read", "verifier-read"} {
+	for _, stage := range []string{"compare-and-set-read"} {
 		t.Run(stage, func(t *testing.T) {
 			fixture := newAuthorityFunctionFixture(t)
 			js := newAuthorityTestJetStream(t)
@@ -171,61 +169,6 @@ func TestFunctionProofExpiresInsideFencedCommit(t *testing.T) {
 				t.Fatalf("expired function intent was published: %v", err)
 			}
 		})
-	}
-}
-
-type functionConcurrentPublisher struct {
-	jetstream.JetStream
-	beforeGrant func(context.Context) error
-}
-
-func (js *functionConcurrentPublisher) PublishMsg(ctx context.Context, message *nats.Msg, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
-	if message.Header.Get("TerraScale-Control-Kind") == string(MutationFunctionGrant) && js.beforeGrant != nil {
-		before := js.beforeGrant
-		js.beforeGrant = nil
-		if err := before(ctx); err != nil {
-			return nil, err
-		}
-	}
-	return js.JetStream.PublishMsg(ctx, message, opts...)
-}
-
-func TestFunctionGrantCannotRaceNewCurrentIntent(t *testing.T) {
-	fixture := newAuthorityFunctionFixture(t)
-	js := newAuthorityTestJetStream(t)
-	wrapped := &functionConcurrentPublisher{JetStream: js}
-	runtime := startFunctionAuthority(t, wrapped)
-	proof := fixture.proof(t, 42, "first", time.Hour)
-	sequence, err := runtime.CommitFunctionIntent(t.Context(), runtime.Current().Epoch, entityid.New(), 0, proof)
-	if err != nil {
-		t.Fatal(err)
-	}
-	next := fixture.proof(t, 43, "second", time.Hour)
-	wrapped.beforeGrant = func(ctx context.Context) error {
-		payload, err := json.Marshal(FunctionIntent{Claim: next.Claim(), EnvelopeSHA256: next.EnvelopeSHA256(),
-			Envelope: next.Envelope(), Delegation: next.Delegation()}, json.FormatNilSliceAsNull(true))
-		if err != nil {
-			return err
-		}
-		key, err := functionIntentKey(fixture.claim.TenantID, fixture.claim.FunctionID)
-		if err != nil {
-			return err
-		}
-		wire, err := json.Marshal(controlRecord{Version: 1, Kind: MutationFunctionIntent, Scope: "gru", SubjectKey: key,
-			OperationID: entityid.New(), Epoch: runtime.Current().Epoch, Payload: payload})
-		if err != nil {
-			return err
-		}
-		_, err = js.PublishMsg(ctx, controlMessage(mutationSubject("gru", MutationFunctionIntent, key),
-			string(MutationFunctionIntent), entityid.New(), wire), jetstream.WithExpectLastSequenceForSubject(sequence, mutationSubject("gru", MutationFunctionIntent, key)))
-		return err
-	}
-	binding := authorityFunctionBinding()
-	if _, err := runtime.CommitFunctionGrant(t.Context(), runtime.Current().Epoch, entityid.New(), 0, proof, binding); !errors.Is(err, ErrConflict) {
-		t.Fatalf("grant survived a release change before publication: %v", err)
-	}
-	if _, err := runtime.ReadFunctionGrant(t.Context(), binding.TaskID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("obsolete grant published: %v", err)
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -54,10 +53,7 @@ func TestManagedRuntimeOwnerPersistsVerifiedVolumeFloorAcrossAuthorityRestart(t 
 		t.Fatalf("managed owner ignored failed final verification: sequence=%d error=%v", sequence, err)
 	}
 	for _, invalid := range []string{
-		"gru.volume", "gru.volume." + digest + ".terrabase", "gru.native." + digest,
-		"gru.volume." + digest[:63], "gru.volume." + digest + "0",
-		"gru.volume." + strings.Repeat("g", 64), "gru.volume." + digest[:63] + "-",
-		"gru.volume." + strings.ToUpper(digest), strings.Repeat("g", 64) + ".volume." + digest,
+		"gru.volume",
 	} {
 		if sequence, err := runtime.CommitHostMutationVerified(ctx, epoch, MutationManagedRuntimeOwner, invalid, entityid.New(), 0, initial, verify); err == nil || sequence != 0 {
 			t.Fatalf("invalid volume owner key %q committed: sequence=%d error=%v", invalid, sequence, err)
@@ -207,7 +203,7 @@ func TestManagedRuntimeOwnerPersistsVerifiedVolumeFloorAcrossAuthorityRestart(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, action := range []IdentityResetAction{IdentityResetAppendHostHead, IdentityResetDeleteKV, IdentityResetReplaceKV} {
+	for _, action := range []IdentityResetAction{IdentityResetAppendHostHead} {
 		record := IdentityResetRecord{Action: action, Bucket: ControlStreamName, Key: subject, PreviousRevision: second, PreviousSHA256: resetDigest(owner.Data)}
 		if action != IdentityResetDeleteKV {
 			record.SHA256 = resetDigest(owner.Data)

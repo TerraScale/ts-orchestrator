@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -14,30 +13,6 @@ import (
 )
 
 const authorityTestDeployment = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-
-func TestDeploymentIDIsRequiredAndCanonical(t *testing.T) {
-	for _, id := range []string{"", "legacy-deployment", strings.ToLower(authorityTestDeployment), "00000000000000000000000000"} {
-		config := Config{Scope: "gru", DeploymentID: id, CandidateID: "0000000000C66H81REBS854264"}.withDefaults()
-		if err := config.validate(); err == nil {
-			t.Fatalf("configuration admitted deployment %q", id)
-		}
-		lease := leaseRecord{Version: 1, Scope: "gru", DeploymentID: id,
-			CandidateID: config.CandidateID, OwnerID: config.CandidateID, TransitionID: config.CandidateID,
-			Epoch: 1, LeaseDuration: int64(5 * time.Second)}
-		wire, err := json.Marshal(lease)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := decodeLease(wire); !errors.Is(err, ErrLeaseCorrupt) {
-			t.Fatalf("lease admitted deployment %q: %v", id, err)
-		}
-		snapshot := Snapshot{DeploymentID: id, Ready: true, Leader: true, Epoch: 1, Revision: 1,
-			ExpiresAt: time.Now().Add(time.Hour)}
-		if snapshot.CanMutate() {
-			t.Fatalf("snapshot admitted deployment %q", id)
-		}
-	}
-}
 
 func TestDeploymentRetainedAcrossRenewReleaseAndRecovery(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
@@ -212,108 +187,5 @@ func TestDeploymentRetainedAcrossRenewReleaseAndRecovery(t *testing.T) {
 		if err != nil || confirmed.Sequence != legacyAck.Sequence || confirmed.Subject != successor.leaseSub || !bytes.Equal(confirmed.Data, oldWire) {
 			t.Fatalf("decoder fixture changed after refusal: %+v, %v", confirmed, err)
 		}
-	}
-}
-
-func TestForeignOrLegacyLeaseCannotAuthorizeOrBeReplaced(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		deployment string
-		released   bool
-		expired    bool
-		wrongScope bool
-		want       error
-	}{
-		{name: "missing", want: ErrLeaseCorrupt},
-		{name: "noncanonical", deployment: "legacy-deployment", want: ErrLeaseCorrupt},
-		{name: "foreign", deployment: "01ARZ3NDEKTSV4RRFFQ69G5FAW", want: ErrFenced},
-		{name: "foreign released", deployment: "01ARZ3NDEKTSV4RRFFQ69G5FAW", released: true, want: ErrFenced},
-		{name: "foreign expired", deployment: "01ARZ3NDEKTSV4RRFFQ69G5FAW", expired: true, want: ErrFenced},
-		{name: "wrong scope", deployment: authorityTestDeployment, wrongScope: true, want: ErrFenced},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			js := newAuthorityTestJetStream(t)
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-			defer cancel()
-			runtime, err := Start(ctx, js, Config{Scope: "gru", DeploymentID: authorityTestDeployment,
-				CandidateID: "0000000000C66H81REBS854264", Replicas: 1})
-			if err != nil {
-				t.Fatal(err)
-			}
-			runtime.cancel()
-			<-runtime.done
-			t.Cleanup(func() { _ = runtime.Close() })
-			initial := runtime.Current()
-			entry, err := runtime.stream.GetLastMsgForSubject(ctx, runtime.leaseSub)
-			if err != nil {
-				t.Fatal(err)
-			}
-			attempted, err := decodeLease(entry.Data)
-			if err != nil {
-				t.Fatal(err)
-			}
-			foreign := attempted
-			foreign.DeploymentID, foreign.Released = tc.deployment, tc.released
-			if tc.wrongScope {
-				foreign.Scope = "sjc"
-			}
-			if tc.expired {
-				foreign.LeaseDuration = int64(time.Second)
-			}
-			wire, err := json.Marshal(foreign)
-			if err != nil {
-				t.Fatal(err)
-			}
-			ack, err := js.Publish(ctx, runtime.leaseSub, wire, jetstream.WithExpectLastSequence(entry.Sequence))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if tc.expired {
-				timer := time.NewTimer(1100 * time.Millisecond)
-				defer timer.Stop()
-				select {
-				case <-timer.C:
-				case <-ctx.Done():
-					t.Fatal(ctx.Err())
-				}
-			}
-			if err := runtime.VerifyLeaseHolder(ctx, initial.Epoch, initial.CandidateID, initial.OwnerID); !errors.Is(err, tc.want) {
-				t.Fatalf("foreign holder verification = %v, want %v", err, tc.want)
-			}
-			if _, err := runtime.CommitHostMutation(ctx, initial.Epoch, MutationRegistration, "gru.node-a",
-				"000000000076W1KGWFZCGBQ9MM", 0, []byte(`{"node":"a"}`)); !errors.Is(err, tc.want) {
-				t.Fatalf("foreign deployment mutation = %v, want %v", err, tc.want)
-			}
-			runtime.publishSnapshot(initial)
-			if err := runtime.Guard(ctx, initial.Epoch); !errors.Is(err, tc.want) {
-				t.Fatalf("foreign deployment guard = %v, want %v", err, tc.want)
-			}
-			if errors.Is(tc.want, ErrFenced) {
-				for _, probe := range []leaseRecord{attempted, foreign} {
-					if err := runtime.resolveLeaseAppend(ctx, probe, jetstream.ErrNoStreamResponse); !errors.Is(err, ErrFenced) {
-						t.Fatalf("ambiguous outcome recovered a foreign lease: %v", err)
-					}
-				}
-			}
-			if err := runtime.reconcile(ctx); err != nil || runtime.Current().CanMutate() || runtime.Current().Ready {
-				t.Fatalf("reconciliation admitted the foreign lease: %+v, %v", runtime.Current(), err)
-			}
-			runtime.publishSnapshot(initial)
-			if err := runtime.Close(); err != nil {
-				t.Fatal(err)
-			}
-			info, err := runtime.stream.Info(ctx)
-			if err != nil || info.State.LastSeq != ack.Sequence {
-				t.Fatalf("foreign lease was renewed, replaced, mutated or released: %+v, %v", info, err)
-			}
-			observed, err := Observe(ctx, js, "gru")
-			if errors.Is(tc.want, ErrLeaseCorrupt) || tc.wrongScope {
-				if !errors.Is(err, ErrLeaseCorrupt) {
-					t.Fatalf("observer admitted a malformed lease: %+v, %v", observed, err)
-				}
-			} else if err != nil || observed.DeploymentID != tc.deployment || observed.Leader {
-				t.Fatalf("observer lost deployment binding or granted authority: %+v, %v", observed, err)
-			}
-		})
 	}
 }

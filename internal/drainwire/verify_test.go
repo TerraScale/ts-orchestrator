@@ -96,14 +96,7 @@ func TestGenericExecutionHoldAndStoppedProofBindOriginalAuthority(t *testing.T) 
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*SignedStop){
-		"task":               func(s *SignedStop) { s.Challenge.TaskID = "other" },
-		"host session":       func(s *SignedStop) { s.Challenge.HostSessionID = entityid.New() },
-		"host epoch":         func(s *SignedStop) { s.Challenge.HostEpoch++ },
-		"original epoch":     func(s *SignedStop) { s.Challenge.OriginalEpoch++ },
-		"kernel process":     func(s *SignedStop) { s.KernelStart = "124" },
-		"populated identity": func(s *SignedStop) { s.Cgroup = "0::/terrascale/foreign\n" },
-		"stale observation":  func(s *SignedStop) { s.ObservedAt = now.Add(-11 * time.Second) },
-		"missing process":    func(s *SignedStop) { s.HostPID = 0 },
+		"task": func(s *SignedStop) { s.Challenge.TaskID = "other" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			changed := proof

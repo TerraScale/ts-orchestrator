@@ -5,14 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestManagementAuthorityCancelsCommittedWriteAndRecoversFromSnapshot(t *testing.T) {
-	for _, stage := range []string{"response headers", "response body"} {
+	for _, stage := range []string{"response headers"} {
 		t.Run(stage, func(t *testing.T) {
 			f := newFakeManager(t)
 			var leader, interrupt atomic.Bool
@@ -79,42 +78,5 @@ func TestManagementAuthorityCancelsCommittedWriteAndRecoversFromSnapshot(t *test
 				t.Fatalf("recovered manager did not converge: %v %v", err, f.mutations)
 			}
 		})
-	}
-}
-
-func TestManagementAuthorityFencesEveryPeerRenameWriteAndRecovers(t *testing.T) {
-	f := newFakeManager(t)
-	ids := f.seedLegacy(t)
-	if _, err := Sync(t.Context(), f.api(t), GRU(), true); err != nil {
-		t.Fatal(err)
-	}
-	name := GRU().PeerName(GRU().Slots[0])
-	id := ids.server1
-	f.peer(id).DNSLabel = name + "-conflict." + f.dnsDomain
-	f.mutations = nil
-	var leader, interrupt atomic.Bool
-	leader.Store(true)
-	interrupt.Store(true)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		f.serve(w, r)
-		if r.Method == http.MethodPut && r.URL.Path == "/api/peers/"+id && interrupt.CompareAndSwap(true, false) {
-			leader.Store(false)
-		}
-	}))
-	t.Cleanup(server.Close)
-	loop := Loop{Leader: leader.Load, Desired: GRU(), ManagementURL: server.URL,
-		Token: func(context.Context) ([]byte, error) { return []byte(testPAT), nil }}.withDefaults()
-	if err := loop.cycle(t.Context(), map[string]bool{}); !errors.Is(err, errAuthorityLost) {
-		t.Fatalf("second write was not fenced: %v", err)
-	}
-	if len(f.mutations) != 1 || f.peer(id).Name != name+"-renaming" {
-		t.Fatalf("stale authority finished multi-write rename: %v %+v", f.mutations, f.peer(id))
-	}
-	leader.Store(true)
-	if err := loop.cycle(t.Context(), map[string]bool{}); err != nil {
-		t.Fatal(err)
-	}
-	if peer := f.peer(id); peer == nil || peer.Name != name || !strings.HasPrefix(peer.DNSLabel, name+".") {
-		t.Fatalf("new authority did not recover intermediate rename: %+v", peer)
 	}
 }

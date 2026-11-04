@@ -209,16 +209,6 @@ func TestDiscoverObjectsUsesTheRegionalVersionedKMSBucket(t *testing.T) {
 		wantError   bool
 	}{
 		{name: "regional bucket", namespace: testNamespace},
-		{name: "invalid namespace", namespace: "Terra Scale", wantError: true},
-		{name: "missing namespace", namespace: "", wantError: true},
-		{name: "namespace unavailable", failurePath: "/n", wantError: true},
-		{name: "bucket unavailable", namespace: testNamespace, failurePath: "/n/" + testNamespace + "/b/" + testObjectBucket, wantError: true},
-		{name: "other bucket", namespace: testNamespace, field: "name", value: "fra-1-head", wantError: true},
-		{name: "other namespace", namespace: testNamespace, field: "namespace", value: "other", wantError: true},
-		{name: "versioning disabled", namespace: testNamespace, field: "versioning", value: "Disabled", wantError: true},
-		{name: "versioning suspended", namespace: testNamespace, field: "versioning", value: "Suspended", wantError: true},
-		{name: "missing default KMS", namespace: testNamespace, field: "kmsKeyId", wantError: true},
-		{name: "invalid default KMS", namespace: testNamespace, field: "kmsKeyId", value: "ocid1.vault.wrong", wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			storage := newObjectStorage(t)

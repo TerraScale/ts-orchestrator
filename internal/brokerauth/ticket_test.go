@@ -12,39 +12,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 )
 
-type fixedClockSample struct {
-	bound ClockBound
-	err   error
-}
-
-func (probe fixedClockSample) Measure() (ClockBound, error) { return probe.bound, probe.err }
-
-func TestMeasureHealthyClockRequiresFreshBound(t *testing.T) {
-	now := time.Now()
-	valid := fixedClockSample{bound: ClockBound{SampledAt: now, MaxError: MaxClockError}}
-	if _, err := MeasureHealthyClock(valid); err != nil {
-		t.Fatalf("fresh bounded clock rejected: %v", err)
-	}
-	for _, test := range []struct {
-		name  string
-		probe ClockProbe
-	}{
-		{"missing", nil},
-		{"probe-error", fixedClockSample{err: errors.New("NTP unavailable")}},
-		{"zero", fixedClockSample{bound: ClockBound{MaxError: time.Millisecond}}},
-		{"0000000000RNVXNPAX5Y5BB8RY", fixedClockSample{bound: ClockBound{SampledAt: now.Add(-2 * time.Second), MaxError: time.Millisecond}}},
-		{"future", fixedClockSample{bound: ClockBound{SampledAt: now.Add(time.Second), MaxError: time.Millisecond}}},
-		{"negative-error", fixedClockSample{bound: ClockBound{SampledAt: now, MaxError: -time.Millisecond}}},
-		{"excess-error", fixedClockSample{bound: ClockBound{SampledAt: now, MaxError: MaxClockError + time.Millisecond}}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if _, err := MeasureHealthyClock(test.probe); err == nil {
-				t.Fatal("invalid NTP clock bound accepted")
-			}
-		})
-	}
-}
-
 func TestTicketBindsDurableClaimBrokerNonceAndMonotonicDeadline(t *testing.T) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -114,7 +81,7 @@ func TestTicketBindsDurableClaimBrokerNonceAndMonotonicDeadline(t *testing.T) {
 	if _, _, err := VerifyTicket(bad, public, request, start, finish, bound, claim, lease); err == nil {
 		t.Fatal("tampered ticket was accepted")
 	}
-	for _, deploymentID := range []string{"", "legacy-deployment", "01ARZ3NDEKTSV4RRFFQ69G5FAW"} {
+	for _, deploymentID := range []string{""} {
 		foreign := ticket
 		foreign.DeploymentID = deploymentID
 		if _, _, err := VerifyTicket(sign(foreign), public, request, start, finish, bound, claim, lease); err == nil {

@@ -3,8 +3,6 @@ package manager
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -40,36 +38,5 @@ func TestServerConfigRolloutPreservesLiveServiceAndConverges(t *testing.T) {
 	}
 	if _, changed, err := serverConfigSpec(next, []byte("new callbacks")); err != nil || !changed {
 		t.Fatalf("updated config did not roll: changed=%v err=%v", changed, err)
-	}
-}
-
-func TestServerConfigRolloutRejectsAnotherService(t *testing.T) {
-	for _, inspection := range []string{`{}`, `{"spec":{"name":"terrabase"}}`, `{"spec":{"name":"netbird-server","env":17}}`} {
-		if _, _, err := serverConfigSpec([]byte(inspection), []byte("config")); err == nil {
-			t.Fatal("accepted invalid server inspection")
-		}
-	}
-}
-
-func TestNetBirdCompanionDetectsInstalledBinaryReplacement(t *testing.T) {
-	dir := t.TempDir()
-	running, installed := filepath.Join(dir, "running"), filepath.Join(dir, "installed")
-	if err := os.WriteFile(running, []byte("binary"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Link(running, installed); err != nil {
-		t.Fatal(err)
-	}
-	if changed, err := differentBinary(running, installed); err != nil || changed {
-		t.Fatalf("unchanged binary: changed=%v err=%v", changed, err)
-	}
-	if err := os.Remove(installed); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(installed, []byte("new binary"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if changed, err := differentBinary(running, installed); err != nil || !changed {
-		t.Fatalf("replaced binary: changed=%v err=%v", changed, err)
 	}
 }

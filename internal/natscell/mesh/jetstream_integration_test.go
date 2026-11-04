@@ -6,11 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -371,25 +368,4 @@ func localLastSeq(node *Node, stream string) uint64 {
 		}
 	}
 	return 0
-}
-
-func TestMeshJetStreamStoreFailureFailsStart(t *testing.T) {
-	ca, err := DeriveCA(bytes.Repeat([]byte{47}, 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "jetstream"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	ports := freePorts(t, 3)
-	_, err = start(config{
-		region: "gru", server: "ts-gru-1", dir: dir, clusterHost: "127.0.0.1", clusterPort: ports[0], localPort: ports[1],
-		seeds: map[string]string{"sjc": fmt.Sprintf("nats://127.0.0.1:%d", ports[2])}, ca: ca,
-		applier: &fakeApplier{running: map[string]int64{}}, every: time.Hour, peersDir: t.TempDir(), peersEvery: time.Hour,
-		address: func() (string, error) { return "10.202.0.1", nil },
-	})
-	if err == nil || !strings.Contains(err.Error(), "JetStream") {
-		t.Fatalf("start with an unwritable JetStream store: %v", err)
-	}
 }

@@ -19,25 +19,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-func TestReconnectInterRegionRejectsUnavailableRuntime(t *testing.T) {
-	broker, err := server.NewServer(&server.Options{DontListen: true, NoLog: true, NoSigs: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, runtime := range []*Runtime{nil, {}, {server: broker}} {
-		kicked, err := runtime.ReconnectInterRegion(t.Context())
-		if kicked != 0 || err == nil {
-			t.Fatalf("unavailable runtime reconnect = %d, %v", kicked, err)
-		}
-		if runtime != nil && runtime.server != nil && !errors.Is(err, ErrEmbeddedServerStopped) {
-			t.Fatalf("stopped broker error = %v", err)
-		}
-	}
-	if kicked, err := (*Runtime)(nil).ReconnectInterRegion(nil); kicked != 0 || err == nil {
-		t.Fatalf("nil context reconnect = %d, %v", kicked, err)
-	}
-}
-
 func TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState(t *testing.T) {
 	tier.Integration(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)

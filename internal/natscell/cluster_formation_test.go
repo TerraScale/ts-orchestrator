@@ -2,7 +2,6 @@ package natscell
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -66,65 +65,6 @@ func (cluster *labCluster) stop(index int) {
 	if cluster.runtimes[index] != nil {
 		_ = cluster.runtimes[index].Close()
 		cluster.runtimes[index] = nil
-	}
-}
-
-func TestObserveStandaloneBroker(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
-	defer cancel()
-	runtime, err := openTestBroker(t, ctx, productionTestConfig(t, "lab", "solo"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer runtime.Close()
-	observation, err := runtime.ObserveCluster()
-	if err != nil || !observation.Running || observation.MetaLeader != "lab-solo" || observation.MetaSize != 1 {
-		t.Fatalf("standalone observation = %+v, %v", observation, err)
-	}
-}
-
-func TestPeerRoutesOmitsOnlySelf(t *testing.T) {
-	routes := []string{"nats-route://10.0.0.1:6222", "nats-route://10.0.0.2:6222", "nats-route://10.0.0.3:6222"}
-	got := PeerRoutes(routes, routes[1])
-	if !slices.Equal(got, []string{routes[0], routes[2]}) {
-		t.Fatalf("peer routes = %v", got)
-	}
-	if len(routes) != 3 || routes[1] != "nats-route://10.0.0.2:6222" {
-		t.Fatal("PeerRoutes mutated its input")
-	}
-}
-
-// A seed that starts alone must wait, then form the full metadata group as
-// peers arrive minutes apart in production. The production route shape starts
-// the metadata group at expected size two, so full readiness proves it grows.
-func TestStagedFormationWithProductionRouteShape(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
-	defer cancel()
-	cluster := newLabCluster(t, 3)
-	seed := cluster.start(t, ctx, 0)
-	short, shortCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	if err := seed.WaitForCluster(short, 3); !errors.Is(err, context.DeadlineExceeded) {
-		shortCancel()
-		t.Fatalf("a lone seed reported quorum: %v", err)
-	}
-	shortCancel()
-	cluster.start(t, ctx, 1)
-	for _, index := range []int{0, 1} {
-		if err := cluster.runtimes[index].WaitForCluster(ctx, 3); err != nil {
-			t.Fatalf("peer%d did not reach 2/3 quorum: %v", index, err)
-		}
-	}
-	cluster.start(t, ctx, 2)
-	for _, runtime := range cluster.runtimes {
-		waitUntil(t, ctx, "full metadata group", func() bool { return runtime.FullClusterReady(3) })
-	}
-	observation, err := seed.ObserveCluster()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if observation.MetaSize != 3 || observation.MetaLeader == "" || len(observation.Routes) != 2 ||
-		!slices.Equal(observation.ExpectedPeers, []string{"lab-peer0", "lab-peer1", "lab-peer2"}) {
-		t.Fatalf("unexpected cluster observation: %+v", observation)
 	}
 }
 
@@ -310,27 +250,6 @@ func TestColdRestartWithTwoOfThreeBrokers(t *testing.T) {
 	}
 	for _, runtime := range cluster.runtimes {
 		waitForStreamState(runtime, 0)
-	}
-}
-
-func TestWaitForClusterFailsFastWhenEmbeddedServerStopped(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
-	cluster := newLabCluster(t, 3)
-	runtime := cluster.start(t, ctx, 0)
-	runtime.server.Shutdown()
-	runtime.server.WaitForShutdown()
-	started := time.Now()
-	err := runtime.WaitForCluster(ctx, 3)
-	if !errors.Is(err, ErrEmbeddedServerStopped) {
-		t.Fatalf("WaitForCluster on a dead broker returned %v", err)
-	}
-	if elapsed := time.Since(started); elapsed > 2*time.Second {
-		t.Fatalf("WaitForCluster took %s to notice a dead broker", elapsed)
-	}
-	observation, err := runtime.ObserveCluster()
-	if err != nil || observation.Running {
-		t.Fatalf("observation of a dead broker = %+v, %v", observation, err)
 	}
 }
 

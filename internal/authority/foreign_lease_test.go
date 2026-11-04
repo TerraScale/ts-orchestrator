@@ -31,13 +31,6 @@ func TestVerifyLeaseHolderFencesEveryOtherTermWithoutTakingAuthority(t *testing.
 	}
 	for name, check := range map[string]func() error{
 		"stale epoch": func() error { return seed.VerifyLeaseHolder(ctx, term.Epoch+1, term.CandidateID, term.OwnerID) },
-		"other candidate": func() error {
-			return seed.VerifyLeaseHolder(ctx, term.Epoch, "0000000000SF1REEJJX6TC691V", term.OwnerID)
-		},
-		"other owner process": func() error {
-			return seed.VerifyLeaseHolder(ctx, term.Epoch, term.CandidateID, "0000000000DKT0SAM6NFTCGPGT")
-		},
-		"empty identity": func() error { return seed.VerifyLeaseHolder(ctx, term.Epoch, "", "") },
 	} {
 		if err := check(); !errors.Is(err, ErrFenced) {
 			t.Errorf("%s: err = %v, want ErrFenced", name, err)

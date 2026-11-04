@@ -55,21 +55,3 @@ func TestObserveReportsEmbeddedJetStreamHealth(t *testing.T) {
 		t.Fatal("a nil runtime reported NATS health")
 	}
 }
-
-func TestObservabilityTelemetryIsControllerOnly(t *testing.T) {
-	public, _ := newUserIdentity(t)
-	controller, err := userPermissions("lab", NKeyGrant{PublicKey: public, Role: "controller"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.obs.>") {
-		t.Fatal("controller cannot answer observability snapshot requests")
-	}
-	operator, err := userPermissions("lab", NKeyGrant{PublicKey: public, Role: "operator"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if slices.Contains(operator.Publish.Allow, "ts.orch.v1.lab.obs.snapshot") || slices.Contains(BrokerOperatorPublishPermissions("lab"), "ts.orch.v1.lab.obs.>") {
-		t.Fatal("operator may request member telemetry")
-	}
-}

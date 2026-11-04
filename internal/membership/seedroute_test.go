@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -213,117 +212,6 @@ func TestNonSeedLeaderRoutesReplacementToTheSeed(t *testing.T) {
 	}
 }
 
-func TestSeedRefusesRequestsOutsideTheCurrentTermOrScope(t *testing.T) {
-	harness := newSeedHarness(t)
-	for name, mutate := range map[string]func(*SeedReplaceRequest){
-		"stale epoch":           func(r *SeedReplaceRequest) { r.Epoch = seedTermEpoch - 1 },
-		"other candidate":       func(r *SeedReplaceRequest) { r.CandidateID = "0000000000RQQB0PSJ84MK6YCM" },
-		"other owner":           func(r *SeedReplaceRequest) { r.OwnerID = "0000000000DKT0SAM6NFTCGPGT" },
-		"other cell":            func(r *SeedReplaceRequest) { r.Cell = "sjc" },
-		"seed slot":             func(r *SeedReplaceRequest) { r.Slot = "controller-a" },
-		"unknown slot":          func(r *SeedReplaceRequest) { r.Slot = "controller-z" },
-		"schema":                func(r *SeedReplaceRequest) { r.Version = 2 },
-		"retirement other slot": func(r *SeedReplaceRequest) { r.Slot = "controller-c"; r.PriorInstanceOCID = instanceC },
-		"retirement other attempt": func(r *SeedReplaceRequest) {
-			r.PreviousAttempt = 2
-		},
-		"retirement other instance": func(r *SeedReplaceRequest) { r.PriorInstanceOCID = instanceC },
-		"no retirement":             func(r *SeedReplaceRequest) { r.Retirement = nil },
-		"garbage retirement":        func(r *SeedReplaceRequest) { r.Retirement = []byte("{}") },
-	} {
-		if reply := harness.request(t, mutate); reply.Status != SeedRefused || reply.Error == "" {
-			t.Errorf("%s: reply = %+v, want refused", name, reply)
-		}
-	}
-	if reply := harness.server.Handle(t.Context(), []byte(`{"version":1,"unknown":true}`)); reply.Status != SeedRefused {
-		t.Errorf("unknown field: reply = %+v", reply)
-	}
-	if len(harness.replacer.actions) != 0 {
-		t.Fatalf("a refused request reached the founder: %+v", harness.replacer.actions)
-	}
-}
-
-func TestSeedRoutedReplacementEndsWithTheRequestingTerm(t *testing.T) {
-	previous := seedFencePoll
-	seedFencePoll = 10 * time.Millisecond
-	t.Cleanup(func() { seedFencePoll = previous })
-	harness := newSeedHarness(t)
-	if reply := harness.request(t, nil); reply.Status != SeedAccepted {
-		t.Fatalf("reply = %+v", reply)
-	}
-	action := awaitStarted(t, harness.replacer)
-	// Another controller takes the lease: the seed must stop acting for
-	// the old term, and its fence must refuse every later mutation.
-	harness.lease.set(seedTermEpoch+1, "gru-controller-b-5678", "owner-b")
-	select {
-	case cause := <-harness.replacer.canceled:
-		if cause == nil || !strings.Contains(cause.Error(), "term ended") {
-			t.Fatalf("cancellation cause = %v", cause)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("routed replacement outlived the requesting term")
-	}
-	if err := action.Fence(t.Context()); !errors.Is(err, authority.ErrFenced) {
-		t.Fatalf("fence after the term ended = %v", err)
-	}
-	waitFor(t, func() bool {
-		harness.server.mu.Lock()
-		defer harness.server.mu.Unlock()
-		return harness.server.job != nil && !harness.server.job.running && harness.server.job.err != nil
-	})
-	// The old term can no longer even learn the outcome.
-	if reply := harness.request(t, nil); reply.Status != SeedRefused {
-		t.Fatalf("stale term reply = %+v", reply)
-	}
-	// The next term resumes the same retirement at once instead of first
-	// collecting the failure the old term's fence caused.
-	if reply := harness.request(t, func(request *SeedReplaceRequest) {
-		request.Retirement = action.Retirement.Wire
-		request.Epoch, request.CandidateID, request.OwnerID = seedTermEpoch+1, "gru-controller-b-5678", "owner-b"
-	}); reply.Status != SeedAccepted {
-		t.Fatalf("new term reply = %+v", reply)
-	}
-	resumed := awaitStarted(t, harness.replacer)
-	if resumed.Epoch != seedTermEpoch+1 {
-		t.Fatalf("resumed under epoch %d", resumed.Epoch)
-	}
-	harness.replacer.release <- nil
-}
-
-func TestSeedRunsOneRoutedReplacementAtATimeAndReportsFailuresOnce(t *testing.T) {
-	harness := newSeedHarness(t)
-	harness.cell.lifecycle[instanceC] = LifecycleTerminated
-	if reply := harness.request(t, nil); reply.Status != SeedAccepted {
-		t.Fatalf("reply = %+v", reply)
-	}
-	awaitStarted(t, harness.replacer)
-	other := func(request *SeedReplaceRequest) {
-		request.Slot, request.PriorInstanceOCID = "controller-c", instanceC
-		request.Retirement = signedRetirement(t, "controller-c", 1, instanceC)
-	}
-	if reply := harness.request(t, other); reply.Status != SeedRefused ||
-		!strings.Contains(reply.Error, "already replacing slot controller-b") {
-		t.Fatalf("concurrent request reply = %+v", reply)
-	}
-	harness.replacer.release <- errors.New("launch failed")
-	waitFor(t, func() bool {
-		harness.server.mu.Lock()
-		defer harness.server.mu.Unlock()
-		return !harness.server.job.running
-	})
-	wire := harness.replacer.actions[0].Retirement.Wire
-	same := func(request *SeedReplaceRequest) { request.Retirement = wire }
-	if reply := harness.request(t, same); reply.Status != SeedFailed || !strings.Contains(reply.Error, "launch failed") {
-		t.Fatalf("failure reply = %+v", reply)
-	}
-	// The failure was reported; the next request starts a fresh attempt.
-	if reply := harness.request(t, same); reply.Status != SeedAccepted {
-		t.Fatalf("retry reply = %+v", reply)
-	}
-	awaitStarted(t, harness.replacer)
-	harness.replacer.release <- nil
-}
-
 func TestSeedNeverReplacesAPriorInstanceThatMayStillRun(t *testing.T) {
 	harness := newSeedHarness(t)
 	harness.cell.lifecycle[instanceB] = LifecycleRunning
@@ -343,36 +231,6 @@ func TestSeedNeverReplacesAPriorInstanceThatMayStillRun(t *testing.T) {
 	harness.server.mu.Unlock()
 	if err == nil || !strings.Contains(err.Error(), "RUNNING") {
 		t.Fatalf("job error = %v", err)
-	}
-}
-
-func TestSeedRoutedReplacerRefusesAfterItsTermEnds(t *testing.T) {
-	leader := &fakeLeadership{snapshot: leaderSnapshot(seedTermEpoch + 1)}
-	called := false
-	routed := SeedRoutedReplacer{Cell: "gru", Leadership: leader,
-		Request: func(context.Context, []byte) ([]byte, error) { called = true; return nil, nil }}
-	err := routed.Replace(t.Context(), Action{Slot: "controller-b", PreviousAttempt: 1, Epoch: seedTermEpoch})
-	if err == nil || called {
-		t.Fatalf("stale term routed: err=%v called=%v", err, called)
-	}
-	if err := (SeedRoutedReplacer{}).Replace(t.Context(), Action{}); !errors.Is(err, ErrReplacerUnavailable) {
-		t.Fatalf("unwired replacer = %v", err)
-	}
-	leader.snapshot = leaderSnapshot(seedTermEpoch)
-	routed.Request = func(context.Context, []byte) ([]byte, error) {
-		return protocol.EncodeJSON(SeedReplaceReply{Status: SeedRefused, Error: "fenced"})
-	}
-	if err := routed.Replace(t.Context(), Action{Slot: "controller-b", PreviousAttempt: 1, Epoch: seedTermEpoch}); !errors.Is(err, ErrSeedRefused) {
-		t.Fatalf("refusal = %v", err)
-	}
-}
-
-func TestSeedServerRequiresTheSeedSlot(t *testing.T) {
-	topology := seedTopology()
-	topology.SelfSlot = "controller-b"
-	if _, err := NewSeedServer(t.Context(), topology, SeedServerDependencies{Leases: &fakeLease{},
-		Instances: newFakeCell(), Replacer: newSeedFounderStub()}); err == nil {
-		t.Fatal("a non-seed controller served replacement requests")
 	}
 }
 

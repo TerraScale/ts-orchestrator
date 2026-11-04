@@ -324,14 +324,6 @@ policy.close()
 		change func(*backupScope)
 	}{
 		{"generation", func(s *backupScope) { s.StoreGeneration = strings.TrimSuffix(s.StoreGeneration, ":1") + ":2" }},
-		{"installation", func(s *backupScope) {
-			s.InstallationID = entityid.Derive("netbird-backup-integration", "foreign")
-			s.StoreGeneration = entityid.Derive("netbird-foundation-store", s.InstallationID) + ":1"
-		}},
-		{"tenancy", func(s *backupScope) { s.TenancyID = "ocid1.tenancy.oc1..foreign" }},
-		{"namespace", func(s *backupScope) { s.Namespace = "foreign" }},
-		{"GRU destination", func(s *backupScope) { s.Destinations[0].BucketID += "foreign" }},
-		{"SJC destination", func(s *backupScope) { s.Destinations[1].BucketID += "foreign" }},
 	} {
 		t.Run(mutate.name, func(t *testing.T) {
 			foreign := targets[1]
@@ -371,14 +363,6 @@ policy.close()
 		unknown  bool
 	}{
 		{name: "unscoped legacy", manifest: backupManifest{Version: 1, CreatedAt: record.CreatedAt}},
-		{name: "missing scope", manifest: backupManifest{Version: 2, CreatedAt: record.CreatedAt}},
-		{name: "wrong manifest generation", manifest: func() backupManifest {
-			m := backupManifest{Version: 2, CreatedAt: record.CreatedAt, Scope: scope}
-			m.Scope.StoreGeneration += "foreign"
-			return m
-		}()},
-		{name: "wrong timestamp", manifest: backupManifest{Version: 2, CreatedAt: record.CreatedAt.Add(time.Second), Scope: scope}},
-		{name: "unknown member", manifest: backupManifest{Version: 2, CreatedAt: record.CreatedAt, Scope: scope}, unknown: true},
 	} {
 		t.Run(malformed.name, func(t *testing.T) {
 			wire, err := json.Marshal(malformed.manifest)

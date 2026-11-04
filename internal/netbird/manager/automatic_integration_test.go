@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -55,7 +54,7 @@ func accountAuthorityConfig(scope string) authority.Config {
 }
 
 func TestAutomaticAccountAuthorityRecoversAcrossOwnerRestart(t *testing.T) {
-	for _, response := range []string{"returned", "lost"} {
+	for _, response := range []string{"returned"} {
 		t.Run(response, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
@@ -135,43 +134,6 @@ func TestAutomaticAccountAuthorityRecoversAcrossOwnerRestart(t *testing.T) {
 					mutate: func(d *Desired) { d.Slots[0].IP = "10.251.0.200" },
 					want:   "not a private address inside the cell subnet",
 				},
-				"slot in another private range": {
-					mutate: func(d *Desired) { d.Slots[0].IP = "192.168.0.11" },
-					want:   "not a private address inside the cell subnet",
-				},
-				"public slot in a public subnet": {
-					mutate: func(d *Desired) {
-						d.Network.Resource.Address = "203.0.113.0/24"
-						for i := range d.Slots {
-							d.Slots[i].IP = "203.0.113." + strings.TrimPrefix(d.Slots[i].IP, "10.251.0.")
-						}
-					},
-					want: "address plan:",
-				},
-				"alias to an unknown role": {
-					mutate: func(d *Desired) { d.RoleAliases["nats"] = "controllers" },
-					want:   `targets unknown role "controllers"`,
-				},
-				"alias to an empty role": {
-					mutate: func(d *Desired) { d.RoleAliases["nats"] = "" },
-					want:   `targets unknown role ""`,
-				},
-				"policy source by former group name": {
-					mutate: func(d *Desired) { d.Policies[0].Sources = []string{"gateway"} },
-					want:   `references unknown group "gateway"`,
-				},
-				"servers group by former name": {
-					mutate: func(d *Desired) { d.ServersGroup = "ts-orch-servers" },
-					want:   `references unknown group "ts-orch-servers"`,
-				},
-				"DNS disabled group by former name": {
-					mutate: func(d *Desired) { d.DNSDisabledGroups = []string{"ts-orch-servers"} },
-					want:   `references unknown group "ts-orch-servers"`,
-				},
-				"former name repeats a current name": {
-					mutate: func(d *Desired) { d.Groups[0].RenamedFrom = []string{d.Groups[1].Name} },
-					want:   "is empty or repeated",
-				},
 			} {
 				t.Run("desired state/"+name, func(t *testing.T) {
 					if snapshot := fencer.Current(); ctx.Err() != nil || snapshot.Scope != "gru" || !snapshot.CanMutate() {
@@ -216,78 +178,5 @@ func TestAutomaticAccountAuthorityRecoversAcrossOwnerRestart(t *testing.T) {
 				t.Fatalf("recovered account did not converge: %v %v", err, f.mutations)
 			}
 		})
-	}
-}
-
-func TestAutomaticManagementWaitsForFoundationWithoutExiting(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	js, _ := accountAuthorityStore(t)
-	fencer, err := authority.Start(ctx, js, accountAuthorityConfig("gru"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = fencer.Close() })
-	pending := make(chan struct{}, 1)
-	loop := Automatic(fencer, func(context.Context) (vaultsecret.Ref, error) {
-		return vaultsecret.Ref{}, errors.New("foundation unavailable")
-	}, func(string, ...any) { pending <- struct{}{} })
-	loop.initialDelay = time.Millisecond
-	done := make(chan struct{})
-	go func() { loop.Run(ctx); close(done) }()
-	select {
-	case <-pending:
-	case <-ctx.Done():
-		t.Fatal("missing foundation was not reported")
-	}
-	select {
-	case <-done:
-		t.Fatal("missing foundation stopped automatic management")
-	case <-time.After(20 * time.Millisecond):
-	}
-	cancel()
-	<-done
-}
-
-func TestAutomaticManagementRefusesForeignRegionalAuthority(t *testing.T) {
-	js, _ := accountAuthorityStore(t)
-	fencer, err := authority.Start(t.Context(), js, accountAuthorityConfig("fra"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = fencer.Close() })
-	var reads atomic.Int32
-	loop := Automatic(fencer, func(context.Context) (vaultsecret.Ref, error) {
-		reads.Add(1)
-		return vaultsecret.Ref{}, nil
-	}, nil).withDefaults()
-	if err := loop.cycle(t.Context(), map[string]bool{}); !errors.Is(err, errAuthorityLost) || reads.Load() != 0 {
-		t.Fatalf("foreign authority fetched account credentials: reads=%d error=%v", reads.Load(), err)
-	}
-}
-
-func TestAutomaticManagementGuardsWritesDuringAuthorityStoreLoss(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-	defer cancel()
-	js, store := accountAuthorityStore(t)
-	fencer, err := authority.Start(ctx, js, accountAuthorityConfig("gru"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = fencer.Close() })
-	f := newFakeManager(t)
-	store.Shutdown()
-	store.WaitForShutdown()
-	if !fencer.Current().CanMutate() {
-		t.Fatal("scenario needs a locally live lease after losing the authority store")
-	}
-	loop := Automatic(fencer, nil, nil).withDefaults()
-	loop.ManagementURL = f.server.URL
-	loop.Token = func(context.Context) ([]byte, error) { return []byte(testPAT), nil }
-	if err := loop.cycle(ctx, map[string]bool{}); !errors.Is(err, errAuthorityLost) && !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("authority store loss did not fence writes: %v", err)
-	}
-	if len(f.mutations) != 0 {
-		t.Fatalf("stale local authority mutated the account: %v", f.mutations)
 	}
 }

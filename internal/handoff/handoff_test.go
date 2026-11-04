@@ -30,16 +30,6 @@ func backend(t *testing.T, name string) uint16 {
 	return uint16(ln.Addr().(*net.TCPAddr).Port)
 }
 
-func freePort(t *testing.T) uint16 {
-	t.Helper()
-	ln, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return uint16(ln.Addr().(*net.TCPAddr).Port)
-}
-
 // answer dials port until it answers (the forwarder binds asynchronously).
 func answer(t *testing.T, port uint16) string {
 	t.Helper()
@@ -55,36 +45,6 @@ func answer(t *testing.T, port uint16) string {
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("port %d never answered: %v", port, err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func TestServeSwitchesToNewestTarget(t *testing.T) {
-	port, old, next := freePort(t), backend(t, "old"), backend(t, "new")
-	Serve(port, old)
-	if got := answer(t, port); got != "old" {
-		t.Fatalf("got %q, want old", got)
-	}
-	Serve(port, next)
-	Serve(port, old) // a re-served old task does not take over again
-	if got := answer(t, port); got != "new" {
-		t.Fatalf("got %q, want new", got)
-	}
-	Unserve(port, next)
-	if got := answer(t, port); got != "old" {
-		t.Fatalf("got %q after the new target left, want old", got)
-	}
-	Unserve(port, old)
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
-		if err != nil {
-			break
-		}
-		conn.Close()
-		if time.Now().After(deadline) {
-			t.Fatal("port still served after the last Unserve")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

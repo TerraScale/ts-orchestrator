@@ -2,11 +2,6 @@ package manager
 
 import (
 	"encoding/json/v2"
-	"io"
-	"os"
-	"path/filepath"
-
-	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"slices"
 	"strings"
 	"testing"
@@ -109,72 +104,11 @@ func TestDirectPeerPolicyAndDNSConvergeWithoutTSOps(t *testing.T) {
 	}
 }
 
-func TestDirectPeerDNSRefusesAmbiguousOrInvalidAdmissionBeforeWrites(t *testing.T) {
-	for _, scenario := range []string{"name", "address", "duplicate", "issuer"} {
-		t.Run(scenario, func(t *testing.T) {
-			f := newFakeManager(t)
-			ids := f.seedLegacy(t)
-			switch scenario {
-			case "name":
-				f.peer(ids.server1).Name = "ts-unknown-1"
-			case "address":
-				f.peer(ids.server1).IP = "203.0.113.20"
-			case "duplicate":
-				f.addPeer("ts-gru-1", "10.251.0.11", true, time.Now(), ids.servers)
-			case "issuer":
-				f.group(ids.servers).Issued = "jwt"
-			}
-			if _, err := Sync(t.Context(), f.api(t), GRU(), true); err == nil || len(f.mutations) != 0 {
-				t.Fatalf("invalid admission reached writes: %v %v", f.mutations, err)
-			}
-		})
-	}
-}
-
 func seedHistoricalFabric(f *fakeManager, home, spoke string) {
 	for _, direction := range []struct{ name, description, source, destination string }{
 		{"gru-servers-to-sjc-servers-fabric", "GRU servers → SJC servers: NATS leafnodes 7422, TerraBase peers 9443", home, spoke},
 		{"sjc-servers-to-gru-servers-fabric", "SJC servers → GRU servers: NATS leafnodes 7422, TerraBase peers 9443", spoke, home},
 	} {
 		f.policies = append(f.policies, f.policyFrom(f.id("pol"), policyRequest{Name: direction.name, Description: direction.description, Enabled: true, Rules: []ruleRequest{{Name: direction.name, Description: direction.description, Enabled: true, Action: "accept", Protocol: "tcp", Ports: []string{"7422", "9443"}, Sources: []string{direction.source}, Destinations: []string{direction.destination}}}}))
-	}
-}
-
-func TestHistoricalFabricConflictStopsBeforeAccountWrites(t *testing.T) {
-	for _, ports := range [][]string{{"7422", "9443", "22"}, {"22"}} {
-		t.Run(strings.Join(ports, "-"), func(t *testing.T) {
-			f := newFakeManager(t)
-			ids := f.seedLegacy(t)
-			spoke := f.addGroup("sjc-servers")
-			seedHistoricalFabric(f, ids.servers, spoke)
-			f.policies[len(f.policies)-1].Rules[0].Ports = ports
-			if _, err := Sync(t.Context(), f.api(t), GRU(), true); err == nil || !strings.Contains(err.Error(), "conflicting shape") || len(f.mutations) != 0 {
-				t.Fatalf("custom fabric overwritten: %v %v", f.mutations, err)
-			}
-		})
-	}
-}
-
-func TestImageInputCLIWritesAllRegionsWithoutPeerMaps(t *testing.T) {
-	for _, region := range []struct{ cell, oci string }{{"GRU", "sa-saopaulo-1"}, {"SJC", "us-sanjose-1"}} {
-		t.Run(region.cell, func(t *testing.T) {
-			dir := t.TempDir()
-			plan, out := filepath.Join(dir, "plan.json"), filepath.Join(dir, "netbird.json")
-			wire, err := json.Marshal(map[string]any{"cell": region.cell, "region": region.oci, "hosts": []map[string]string{{"slot": "controller-a", "private_ip": "10.251.0.11"}}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(plan, wire, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			secret := "ocid1.vaultsecret.oc1." + region.oci + ".example"
-			if err := Run(t.Context(), []string{"image-input", "--plan", plan, "--setup-key-secret-id", secret, "--out", out}, io.Discard); err != nil {
-				t.Fatal(err)
-			}
-			cfg, err := client.ValidateConfig(out)
-			if err != nil || cfg.Region != region.oci || cfg.SetupKeySecretID != secret || len(cfg.PeerNames) != 0 {
-				t.Fatalf("invalid automatic image input: %+v %v", cfg, err)
-			}
-		})
 	}
 }

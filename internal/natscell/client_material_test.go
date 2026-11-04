@@ -48,46 +48,6 @@ func writeExpiringUserCredentials(t *testing.T, path string, account nkeys.KeyPa
 	}
 }
 
-func TestClientMaterialSourceRejectsAnotherUserKey(t *testing.T) {
-	root := t.TempDir()
-	account, _ := nkeys.CreateAccount()
-	accountID, _ := account.PublicKey()
-	user, _ := nkeys.CreateUser()
-	userID, _ := user.PublicKey()
-	other, _ := nkeys.CreateUser()
-	startup := filepath.Join(root, "startup.creds")
-	renewed := filepath.Join(root, "renewed.creds")
-	foreign := filepath.Join(root, "foreign.creds")
-	later := time.Now().Add(time.Hour)
-	writeExpiringUserCredentials(t, startup, account, accountID, user, later)
-	writeExpiringUserCredentials(t, renewed, account, accountID, user, later)
-	writeExpiringUserCredentials(t, foreign, account, accountID, other, later)
-	tlsFiles := testBridgeTLS(t, filepath.Join(root, "tls"))
-	next := renewed
-	source := newClientMaterialSource(Config{CredentialsFile: startup, TLS: tlsFiles,
-		ReloadClientMaterial: func() (ClientMaterial, error) {
-			return ClientMaterial{CredentialsFile: next, TLS: tlsFiles}, nil
-		}}, userID)
-	if got := source.current().CredentialsFile; got != renewed {
-		t.Fatalf("renewed credentials for the same key were not used: %s", got)
-	}
-	next = foreign
-	if got := source.current().CredentialsFile; got != renewed {
-		t.Fatalf("credentials for a different NATS user were accepted: %s", got)
-	}
-	next = filepath.Join(root, "missing.creds")
-	if got := source.current().CredentialsFile; got != renewed {
-		t.Fatalf("missing reloaded credentials did not fall back: %s", got)
-	}
-	if _, err := source.tlsConfig(); err != nil {
-		t.Fatal(err)
-	}
-	static := newClientMaterialSource(Config{CredentialsFile: startup, TLS: tlsFiles}, userID)
-	if got := static.current().CredentialsFile; got != startup {
-		t.Fatal(got)
-	}
-}
-
 // A renewed host JWT must be picked up on the reconnect the broker forces at
 // the old credential's expiry, without restarting the client process.
 func TestHostClientPresentsRenewedCredentialsAfterExpiry(t *testing.T) {

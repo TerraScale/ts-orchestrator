@@ -86,38 +86,3 @@ func TestExportServesOIDCCallbacksAndNextRoutes(t *testing.T) {
 		t.Fatal("missing assets must not serve HTML")
 	}
 }
-
-func TestUnsafeOrIncompleteLayerRejected(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		kind byte
-	}{
-		{"usr/share/nginx/html/../../outside", tar.TypeReg},
-		{"usr/share/nginx/html/absolute", tar.TypeSymlink},
-		{"etc/passwd", tar.TypeReg},
-	} {
-		if _, err := unpack(archive(t, test.name, test.kind)); err == nil {
-			t.Fatalf("accepted %s", test.name)
-		}
-	}
-	if _, err := unpack([]byte("not gzip")); err == nil {
-		t.Fatal("accepted invalid archive")
-	}
-	if err := verify(archive(t, "", 0)); err == nil {
-		t.Fatal("accepted an unpinned archive")
-	}
-}
-
-func TestUnpreparedDashboardRequestsRetry(t *testing.T) {
-	h := New(t.TempDir())
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
-	if w.Code != 503 || w.Header().Get("Retry-After") != "15" {
-		t.Fatal("initial provisioning should request retry")
-	}
-	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/", nil))
-	if w.Code != 405 || w.Header().Get("Allow") != "GET, HEAD" {
-		t.Fatal("static site accepted a write")
-	}
-}

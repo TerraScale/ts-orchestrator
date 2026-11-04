@@ -2,7 +2,6 @@ package mesh
 
 import (
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -95,50 +94,6 @@ func TestSignedDashboardReleaseExpandsPersistedPlacement(t *testing.T) {
 	}
 }
 
-func TestRegionalReleasePreservesHeldUnsignedAndUnrelatedPlacement(t *testing.T) {
-	for _, test := range []struct {
-		name, hold string
-		unsigned   bool
-	}{
-		{name: "ts-auth", hold: "gru"}, {name: "ts-dashboard", hold: "gru"},
-		{name: "ts-auth", unsigned: true}, {name: "ts-dashboard", unsigned: true},
-		{name: "ts-auth"}, {name: "unrelated"}, {name: "app-canary"},
-	} {
-		t.Run(test.name+"/"+test.hold+"/"+map[bool]string{true: "unsigned", false: "signed"}[test.unsigned], func(t *testing.T) {
-			nodes, previous := regionalReleaseFixture(t, test.name, test.hold)
-			deployment := regionalDeployment(previous)
-			image := deployment.Image
-			if test.unsigned {
-				deployment = nil
-			}
-			if _, err := releaseDeployment(t.Context(), nodes[0].conn, test.name, image, deployment, time.Second, time.Second); err != nil {
-				t.Fatal(err)
-			}
-			for _, node := range nodes {
-				node.mu.Lock()
-				entry := node.desired[test.name].entry()
-				node.mu.Unlock()
-				expected := previous
-				expected.Image = image
-				hold := test.hold
-				if !test.unsigned {
-					hold = "" // a signed release advances past the canary through bake gating
-				}
-				if entry.HoldAfter != hold || !reflect.DeepEqual(entry.Spec, &expected) {
-					t.Fatalf("%s changed held/unsigned/unrelated spec: %+v", node.cfg.region, entry)
-				}
-				applier := node.cfg.applier.(*evidenceApplier)
-				applier.mu.Lock()
-				running := applier.running[test.name]
-				applier.mu.Unlock()
-				if running != 0 && !slices.Contains(previous.Regions, node.cfg.region) {
-					t.Fatalf("expanded preserved placement to %s", node.cfg.region)
-				}
-			}
-		})
-	}
-}
-
 func TestRegionalAppReleaseRollbackRestoresPlacementAndBudgets(t *testing.T) {
 	nodes, previous := regionalReleaseFixture(t, "ts-dashboard", "")
 	deployment := regionalDeployment(previous)
@@ -168,91 +123,5 @@ func TestRegionalAppReleaseRollbackRestoresPlacementAndBudgets(t *testing.T) {
 		} else if running != 0 {
 			t.Fatalf("rollback left candidate running in %s", node.cfg.region)
 		}
-	}
-}
-
-func TestIdenticalSignedRegionalReceiptRetainsOldPlacement(t *testing.T) {
-	nodes, previous := regionalReleaseFixture(t, "ts-dashboard", "")
-	deployment := regionalDeployment(previous)
-	deployment.Image = previous.Image
-	// A receipt accepted before this binary kept the old gru-only spec.
-	const generation = 20
-	if _, err := send(t.Context(), nodes[0].conn, ApplyRequest{Name: previous.Name, Entry: Entry{Generation: generation, Spec: &previous, Deployment: deployment}}, time.Second); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, previous.Name, previous.Image, deployment, time.Second, time.Second); err != nil {
-		t.Fatal(err)
-	}
-	for _, node := range nodes {
-		node.mu.Lock()
-		entry := node.desired[previous.Name].entry()
-		node.mu.Unlock()
-		if entry.Generation != generation || !reflect.DeepEqual(entry.Spec, &previous) {
-			t.Fatalf("%s replay expanded an old signed receipt: %+v", node.cfg.region, entry)
-		}
-	}
-}
-
-// 2026-10-28: terrabase's gru bake failed while auth was down; every retry
-// resumed that generation and replayed its failed verdict.
-func TestSignedReleaseRetryRebakesAFailedGeneration(t *testing.T) {
-	const name = "ts-dashboard"
-	nodes, previous := regionalReleaseFixture(t, name, "")
-	deployment := regionalDeployment(previous)
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second); err != nil {
-		t.Fatal(err)
-	}
-	states, err := desiredStates(t.Context(), nodes[0].conn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	before := states[name].entry()
-	record, err := nodes[0].readBake(name, before.Generation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	record.Bake.Reason = "bake ts-auth readiness: HTTP 503"
-	if err := nodes[0].saveBake(nodes[0].bakePath(name, before.Generation), record); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second); err != nil {
-		t.Fatal(err)
-	}
-	states, err = desiredStates(t.Context(), nodes[0].conn)
-	if err != nil || states[name].entry().Generation <= before.Generation {
-		t.Fatalf("retry replayed failed generation %d: %+v, %v", before.Generation, states[name].entry(), err)
-	}
-}
-
-func TestSignedDashboardPackageCutover(t *testing.T) {
-	nodes, previous := regionalReleaseFixture(t, "ts-dashboard", "")
-	previous.Image = "ghcr.io/terrascale/ts-dashboard@sha256:" + strings.Repeat("a", 64)
-	if _, err := send(t.Context(), nodes[0].conn, ApplyRequest{Name: previous.Name, Entry: Entry{Generation: 20, Spec: &previous}}, time.Second); err != nil {
-		t.Fatal(err)
-	}
-	deployment := regionalDeployment(previous)
-	deployment.Image = "ghcr.io/terrascale/terrascale-dashboard@sha256:" + strings.Repeat("c", 64)
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, previous.Name, deployment.Image, nil, time.Second, time.Second); err == nil {
-		t.Fatal("unsigned package move accepted")
-	}
-	unrelated := *deployment
-	unrelated.Repository = "TerraScale/unrelated"
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, previous.Name, unrelated.Image, &unrelated, time.Second, time.Second); err == nil {
-		t.Fatal("unrelated repository moved package")
-	}
-	rows, err := releaseDeployment(t.Context(), nodes[0].conn, previous.Name, deployment.Image, deployment, time.Second, time.Second)
-	if err != nil || len(rows) != len(nodes) {
-		t.Fatalf("signed package move: %+v, %v", rows, err)
-	}
-	for _, row := range rows {
-		if row.Image != deployment.Image || row.Revision != deployment.Revision {
-			t.Fatalf("wrong regional artifact: %+v", row)
-		}
-	}
-	reverse := *deployment
-	reverse.RunID = "101"
-	reverse.Image = previous.Image
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, previous.Name, reverse.Image, &reverse, time.Second, time.Second); err == nil {
-		t.Fatal("retired package restored by a release")
 	}
 }

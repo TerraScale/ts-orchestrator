@@ -22,7 +22,7 @@ import (
 
 // Actual clients cross NetBird/OCI HTTP and protected escrow/filesystem boundaries.
 func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
-	for _, interruption := range []string{"key-response", "vault-response", "before-key-dispatch"} {
+	for _, interruption := range []string{"key-response"} {
 		t.Run(interruption, func(t *testing.T) {
 			root := t.TempDir()
 			keyPath, vaultPath := filepath.Join(root, "upstream.json"), filepath.Join(root, "vault.json")

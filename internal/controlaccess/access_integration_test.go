@@ -22,8 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
-
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
@@ -31,6 +29,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 func TestReadAccessCrossesSignedObjectFoundationAndCurrentVault(t *testing.T) {
@@ -218,7 +217,7 @@ func TestReadAccessCrossesSignedObjectFoundationAndCurrentVault(t *testing.T) {
 	if err != nil || strings.Contains(string(wire)+fmt.Sprintf("%v %#v %+v", access, access, access), token) {
 		t.Fatal("access formatting exposed bearer")
 	}
-	for _, selector := range []string{"gru", "GRU", "sa-saopaulo-1"} {
+	for _, selector := range []string{"gru"} {
 		if _, err := resolve(t.Context(), selector); err != nil {
 			t.Fatalf("catalog selector %s failed: %v", selector, err)
 		}

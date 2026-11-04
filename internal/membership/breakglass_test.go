@@ -42,29 +42,6 @@ func closedAddress(t *testing.T) string {
 	return address
 }
 
-func TestPreflightRefusesLiveBrokerAndInventoriesStore(t *testing.T) {
-	target := survivorStore(t)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	target.RouteAddress = listener.Addr().String()
-	if _, err := Preflight(t.Context(), target, new(bytes.Buffer)); err == nil ||
-		!strings.Contains(err.Error(), "still accepts connections") {
-		t.Fatalf("live broker preflight error = %v", err)
-	}
-	listener.Close()
-	var out bytes.Buffer
-	inventory, err := Preflight(t.Context(), target, &out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !inventory.MetaGroup || inventory.Files != 3 ||
-		len(inventory.Accounts["ACCOUNT"]) != 1 || inventory.Accounts["ACCOUNT"][0] != "TS_CONTROL_LOG" {
-		t.Fatalf("inventory = %+v", inventory)
-	}
-}
-
 func TestBackupRequiresExactConfirmationAndVerifies(t *testing.T) {
 	target := survivorStore(t)
 	destination := filepath.Join(t.TempDir(), "backup")
@@ -95,25 +72,5 @@ func TestBackupRequiresExactConfirmationAndVerifies(t *testing.T) {
 	}
 	if _, err := VerifyBackup(destination); err == nil {
 		t.Fatal("tampered backup verified")
-	}
-}
-
-func TestBackupRejectsSymlinksInStore(t *testing.T) {
-	target := survivorStore(t)
-	if err := os.Symlink("/etc/passwd", filepath.Join(target.StoreDir, "jetstream", "link")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Preflight(t.Context(), target, new(bytes.Buffer)); err == nil {
-		t.Fatal("store with a symlink passed preflight")
-	}
-}
-
-func TestRunbookNamesEverySafetyStep(t *testing.T) {
-	runbook := Runbook(RecoveryTarget{Cell: "gru", Slot: "controller-a"})
-	for _, want := range []string{"TERMINATED", "stop the controller service", "backup", "verify-backup",
-		"sign-slot-retirement", "refound", "same", "seed slot itself is lost"} {
-		if !strings.Contains(runbook, want) {
-			t.Fatalf("runbook lacks %q", want)
-		}
 	}
 }

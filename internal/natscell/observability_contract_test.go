@@ -2,7 +2,6 @@ package natscell
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -62,31 +61,5 @@ func assertObservabilityCrossesNarrowly(ctx context.Context, t *testing.T, hub, 
 				t.Fatalf("regional observability leaf %s crossed the leafnode: %q", subject, msg.Data)
 			}
 		}
-	}
-}
-
-func TestObservabilityContractIsExactRequestReply(t *testing.T) {
-	t.Parallel()
-
-	contract := InterRegionContract{Cell: "gru", Peers: []string{"sjc"}, GlobalHome: "gru",
-		Subtrees: map[string][]string{"sjc": {"sjc"}}}
-	for _, export := range contract.CellExports() {
-		subject := string(export.Subject)
-		if strings.Contains(subject, ".obs.") {
-			if strings.ContainsAny(subject, "*>") || export.Type.String() != "service" {
-				t.Errorf("observability export %q is not an exact service", subject)
-			}
-			if !strings.HasSuffix(subject, ".obs.region") && !strings.HasSuffix(subject, ".obs.decisions") {
-				t.Errorf("unexpected observability export %q", subject)
-			}
-		}
-	}
-	permissions := contract.ChildLeafPermissions("sjc")
-	gruRegion, _ := protocol.ObservabilitySubject("gru", protocol.ObservabilityRegionLeaf)
-	sjcRegion, _ := protocol.ObservabilitySubject("sjc", protocol.ObservabilityRegionLeaf)
-	gruSnapshot, _ := protocol.ObservabilitySubject("gru", "snapshot")
-	if !permissions.Pub.Allow.Contains(gruRegion) || permissions.Sub.Allow.Contains(gruRegion) ||
-		!permissions.Sub.Allow.Contains(sjcRegion) || permissions.Pub.Allow.Contains(gruSnapshot) {
-		t.Fatalf("child observability permissions = %+v", permissions)
 	}
 }

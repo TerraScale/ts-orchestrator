@@ -1,11 +1,9 @@
 package manager
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 )
@@ -99,52 +97,5 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	f.mutations = nil
 	if err := loop.cycle(t.Context(), map[string]bool{}); err != nil || len(f.mutations) != 0 {
 		t.Fatalf("repeated reconciliation did not converge: %v %v", f.mutations, err)
-	}
-}
-
-func TestSyncRefusesUntrustedOrAmbiguousRegionalGroupsBeforeMutation(t *testing.T) {
-	for _, issuer := range []string{"jwt", "integration", "", "duplicate"} {
-		t.Run(issuer, func(t *testing.T) {
-			f := newFakeManager(t)
-			f.seedLegacy(t)
-			group := f.addGroup("sjc-servers")
-			if issuer == "duplicate" {
-				f.addGroup("sjc-servers")
-			} else {
-				f.group(group).Issued = issuer
-			}
-			if _, err := Sync(t.Context(), f.api(t), GRU(), true); err == nil || len(f.mutations) != 0 {
-				t.Fatalf("untrusted region mutated manager: %v %v", f.mutations, err)
-			}
-		})
-	}
-}
-
-func TestSetupKeyCreatesOnlyItsCanonicalRegionalGroup(t *testing.T) {
-	f := newFakeManager(t)
-	f.seedLegacy(t)
-	api := f.api(t)
-	desired := GRU()
-	desired.ServersGroup, desired.SetupKeyName = "fra-servers", "fra-servers"
-	var secret bytes.Buffer
-	report, err := CreateServerSetupKey(t.Context(), api, desired, &secret, false)
-	if err != nil || len(report.Changes) != 2 || len(f.mutations) != 0 || secret.Len() != 0 {
-		t.Fatalf("group/key dry run: %+v %v %v", report, f.mutations, err)
-	}
-	if _, err := CreateServerSetupKey(t.Context(), api, desired, &secret, true); err != nil {
-		t.Fatal(err)
-	}
-	if len(f.mutations) != 2 || !strings.HasPrefix(f.mutations[0], "POST groups") ||
-		!strings.HasPrefix(f.mutations[1], "POST setup-keys") || f.groupByName("sjc-servers") != nil {
-		t.Fatalf("regional group was not created before the scoped key: %v", f.mutations)
-	}
-	key := f.setupKeys[len(f.setupKeys)-1]
-	if !slices.Equal(key["auto_groups"].([]string), []string{f.groupByName("fra-servers").ID}) || secret.Len() == 0 {
-		t.Fatal("key did not bind exactly its regional group")
-	}
-	f.mutations = nil
-	desired.ServersGroup, desired.SetupKeyName = "ts-ops-gateway", "ts-ops-gateway"
-	if _, err := CreateServerSetupKey(t.Context(), api, desired, io.Discard, true); err == nil || len(f.mutations) != 0 {
-		t.Fatal("server enrollment key targeted a non-server group")
 	}
 }

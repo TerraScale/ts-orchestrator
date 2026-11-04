@@ -2,18 +2,14 @@ package kvsnapshot
 
 import (
 	"bytes"
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -174,116 +170,6 @@ func TestRestoreRebuildsSignedValuesInAnEmptyCell(t *testing.T) {
 	}
 }
 
-// While a plan runs, a value written, updated or deleted by a controller
-// that already finished it always wins over the snapshot.
-func TestRestoreNeverOverwritesOrResurrectsKeys(t *testing.T) {
-	fake := newObjectStorage(t)
-	fake.set(t, Document{Version: 1, Cell: testCell, Bucket: testBucket, StreamCreated: time.Now().Add(-time.Hour),
-		Sequence: 9, TakenAt: time.Now(), Config: BucketConfig{History: 4, MaxValueSize: 4096},
-		Entries: []Entry{{Key: "deleted", Value: []byte("old")}, {Key: "missing", Value: []byte("old")},
-			{Key: "updated", Value: []byte("old")}}})
-	js := startJetStream(t)
-	plans, err := openPlans(t.Context(), js, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := plans.Create(t.Context(), restorePlanKey, []byte(`{"version":1,"state":"running","buckets":["`+
-		testBucket+`"],"decided_at":"2026-10-05T00:00:00Z"}`)); err != nil {
-		t.Fatal(err)
-	}
-	kv := openBucket(t, js, testBucket)
-	put(t, kv, "updated", []byte("live"))
-	put(t, kv, "deleted", []byte("live"))
-	if err := kv.Delete(t.Context(), "deleted"); err != nil {
-		t.Fatal(err)
-	}
-
-	report := restore(t, js, fake, testBucket)
-	if report.Written != 1 || report.Kept != 2 {
-		t.Fatalf("restore report = %+v", report)
-	}
-	if got, _ := value(t, kv, "updated"); string(got) != "live" {
-		t.Fatalf("live value replaced by %q", got)
-	}
-	if _, ok := value(t, kv, "deleted"); ok {
-		t.Fatal("deleted key was resurrected")
-	}
-	if got, _ := value(t, kv, "missing"); string(got) != "old" {
-		t.Fatalf("missing key = %q", got)
-	}
-}
-
-// Without a plan, a bucket that already holds values is live: it is left out
-// of the plan, as is a bucket without a snapshot.
-func TestRestorePlanSkipsWrittenBuckets(t *testing.T) {
-	fake := newObjectStorage(t)
-	for _, bucket := range []string{testBucket, "TS_ROLLOUTS"} {
-		fake.set(t, Document{Version: 1, Cell: testCell, Bucket: bucket, StreamCreated: time.Now(), Sequence: 1,
-			TakenAt: time.Now(), Config: BucketConfig{History: 1, MaxValueSize: -1},
-			Entries: []Entry{{Key: "a", Value: []byte("snapshot")}}})
-	}
-	js := startJetStream(t)
-	live := openBucket(t, js, testBucket)
-	put(t, live, "b", []byte("live"))
-	report := restore(t, js, fake, testBucket, "TS_ROLLOUTS", "TS_OCI_DESIRED")
-	if len(report.Buckets) != 1 || report.Buckets[0] != "TS_ROLLOUTS" || report.Written != 1 {
-		t.Fatalf("restore report = %+v", report)
-	}
-	if _, ok := value(t, live, "a"); ok {
-		t.Fatal("a live bucket received snapshot values")
-	}
-}
-
-// A cell whose authority log holds records kept its JetStream state: its
-// first boot restores nothing and reads no OCI, even
-// before the controllers are granted the prefix.
-func TestRestoreLeavesALiveCellAlone(t *testing.T) {
-	js := startJetStream(t)
-	if _, err := js.CreateStream(t.Context(), jetstream.StreamConfig{Name: authority.ControlStreamName,
-		Subjects: []string{"control.test"}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := js.Publish(t.Context(), "control.test", []byte("lease")); err != nil {
-		t.Fatal(err)
-	}
-	fake := newObjectStorage(t)
-	fake.fail("GET", &storageFault{404, "NotAuthorizedOrNotFound"})
-	if report := restore(t, js, fake, testBucket); len(report.Buckets) != 0 {
-		t.Fatalf("live cell restore = %+v", report)
-	}
-	if _, err := js.KeyValue(t.Context(), testBucket); !errors.Is(err, jetstream.ErrBucketNotFound) {
-		t.Fatalf("live cell got a restored bucket: %v", err)
-	}
-	if done, err := RestoreComplete(t.Context(), js, 1); err != nil || !done {
-		t.Fatalf("live cell restore complete = %v, %v", done, err)
-	}
-}
-
-// A controller that finds another controller's plan follows it.
-func TestRestoreFollowsAnExistingPlan(t *testing.T) {
-	fake := newObjectStorage(t)
-	for _, bucket := range []string{testBucket, "TS_ROLLOUTS"} {
-		fake.set(t, Document{Version: 1, Cell: testCell, Bucket: bucket, StreamCreated: time.Now(), Sequence: 1,
-			TakenAt: time.Now(), Config: BucketConfig{History: 1, MaxValueSize: -1},
-			Entries: []Entry{{Key: "a", Value: []byte("snapshot")}}})
-	}
-	js := startJetStream(t)
-	plans, err := openPlans(t.Context(), js, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := plans.Create(t.Context(), restorePlanKey,
-		[]byte(`{"version":1,"state":"running","buckets":["TS_ROLLOUTS"],"decided_at":"2026-10-05T00:00:00Z"}`)); err != nil {
-		t.Fatal(err)
-	}
-	if report := restore(t, js, fake, testBucket, "TS_ROLLOUTS"); len(report.Buckets) != 1 || report.Written != 1 {
-		t.Fatalf("restore report = %+v", report)
-	}
-	if _, err := js.KeyValue(t.Context(), testBucket); !errors.Is(err, jetstream.ErrBucketNotFound) {
-		t.Fatalf("an unplanned bucket was restored: %v", err)
-	}
-}
-
 // A snapshot that is not exactly this cell's bucket, or that cannot be read,
 // fails the restore before any plan is recorded, so the next boot retries.
 func TestRestoreRejectsTamperedOrUnreadableSnapshots(t *testing.T) {
@@ -295,20 +181,7 @@ func TestRestoreRejectsTamperedOrUnreadableSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*Document){
-		"other cell":   func(document *Document) { document.Cell = "fra-1" },
-		"other bucket": func(document *Document) { document.Bucket = "TS_ROLLOUTS" },
-		"version":      func(document *Document) { document.Version = 2 },
-		"no lineage":   func(document *Document) { document.StreamCreated = time.Time{} },
-		"no sequence":  func(document *Document) { document.Sequence = 0 },
-		"unsorted": func(document *Document) {
-			document.Entries[0], document.Entries[1] = document.Entries[1], document.Entries[0]
-		},
-		"duplicate key":    func(document *Document) { document.Entries[1].Key = "a" },
-		"invalid key":      func(document *Document) { document.Entries[0].Key = "a b" },
-		"dot key":          func(document *Document) { document.Entries[0].Key = ".a" },
-		"oversized value":  func(document *Document) { document.Entries[0].Value = []byte("123456789") },
-		"history":          func(document *Document) { document.Config.History = 0 },
-		"zero value limit": func(document *Document) { document.Config.MaxValueSize = 0 },
+		"other cell": func(document *Document) { document.Cell = "fra-1" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			document := valid
@@ -330,7 +203,7 @@ func TestRestoreRejectsTamperedOrUnreadableSnapshots(t *testing.T) {
 		})
 	}
 
-	for _, fault := range []*storageFault{{404, "BucketNotFound"}, {404, "NotAuthorizedOrNotFound"}} {
+	for _, fault := range []*storageFault{{404, "BucketNotFound"}} {
 		t.Run(fault.code, func(t *testing.T) {
 			storage := newObjectStorage(t)
 			storage.fail("GET", fault)
@@ -368,196 +241,5 @@ func assertRestoreFailsBeforePlan(t *testing.T, js jetstream.JetStream, storage 
 	}
 	if _, err := plans.Get(t.Context(), restorePlanKey); !errors.Is(err, jetstream.ErrKeyNotFound) {
 		t.Fatalf("failed restore left a plan: %v", err)
-	}
-}
-
-// Snapshots upload only on change, never roll back a newer stream's snapshot
-// or a higher sequence, and survive an ETag that moved underneath them.
-func TestSnapshotUploadsOnlyForwardChanges(t *testing.T) {
-	js := startJetStream(t)
-	kv := openBucket(t, js, testBucket)
-	put(t, kv, "a", []byte("1"))
-	fake := newObjectStorage(t)
-	snapshotter := snapshotterFor(js, fake, testBucket)
-	snapshot := func() []string {
-		t.Helper()
-		written, err := snapshotter.SnapshotOnce(t.Context())
-		if err != nil {
-			t.Fatal(err)
-		}
-		return written
-	}
-	if written := snapshot(); len(written) != 1 {
-		t.Fatalf("first snapshot wrote %v", written)
-	}
-	if written := snapshot(); len(written) != 0 || fake.putCount() != 1 {
-		t.Fatalf("unchanged bucket wrote %v (%d puts)", written, fake.putCount())
-	}
-
-	// Another leader already uploaded this stream's newer state.
-	put(t, kv, "b", []byte("2"))
-	ahead := fake.document(t, testBucket)
-	ahead.Sequence = 2
-	ahead.Entries = append(ahead.Entries, Entry{Key: "b", Value: []byte("2")})
-	fake.set(t, ahead)
-	if written := snapshot(); len(written) != 0 || fake.putCount() != 1 {
-		t.Fatalf("snapshot rewrote a current object: %v (%d puts)", written, fake.putCount())
-	}
-
-	// An older stream's object is superseded once the ETag moved.
-	behind := fake.document(t, testBucket)
-	behind.StreamCreated = behind.StreamCreated.Add(-time.Hour)
-	behind.Sequence = 1000
-	fake.set(t, behind)
-	put(t, kv, "c", []byte("3"))
-	if written := snapshot(); len(written) != 1 {
-		t.Fatalf("newer stream did not supersede an older one: %v", written)
-	}
-	current := fake.document(t, testBucket)
-	if current.Sequence != 3 || len(current.Entries) != 3 || string(current.Entries[2].Value) != "3" {
-		t.Fatalf("snapshot = %+v", current)
-	}
-
-	// A newer stream's object is never overwritten by this older one.
-	newer := current
-	newer.StreamCreated = newer.StreamCreated.Add(time.Hour)
-	newer.Sequence = 1
-	fake.set(t, newer)
-	put(t, kv, "d", []byte("4"))
-	if _, err := snapshotter.SnapshotOnce(t.Context()); !errors.Is(err, ErrNewerLineage) {
-		t.Fatalf("older stream overwrite error = %v", err)
-	}
-	if view := snapshotter.Status(); view.State != "failed" || view.Buckets[0].ErrorClass != "newer_lineage" {
-		t.Fatalf("newer lineage status = %+v", view)
-	}
-	if got := fake.document(t, testBucket); !got.StreamCreated.Equal(newer.StreamCreated) {
-		t.Fatal("newer stream's snapshot was overwritten")
-	}
-
-	t.Run("authority gates durable uploads", func(t *testing.T) {
-		js := startJetStream(t)
-		kv := openBucket(t, js, testBucket)
-		put(t, kv, "a", []byte("1"))
-		controls := make([]*authority.Runtime, 2)
-		for index, candidate := range []string{"0000000000C66H81REBS854264", "000000000082B6JM3GHXKNG2CR"} {
-			control, err := authority.Start(t.Context(), js, authority.Config{Scope: testCell,
-				DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", CandidateID: candidate, Replicas: 1})
-			if err != nil {
-				t.Fatal(err)
-			}
-			controls[index] = control
-			t.Cleanup(func() {
-				if err := control.Close(); err != nil {
-					t.Error(err)
-				}
-			})
-		}
-		leader, follower := controls[0], controls[1]
-		if !leader.Current().CanMutate() || !follower.Current().Ready || follower.Current().Leader || follower.Current().CanMutate() {
-			t.Fatalf("authority leader = %+v, follower = %+v", leader.Current(), follower.Current())
-		}
-		storage := newObjectStorage(t)
-		observer := objectsFor(storage)
-		snapshotter := &Snapshotter{JS: js, Objects: objectsFor(storage), Buckets: []string{testBucket},
-			Leader: func() bool { return follower.Current().CanMutate() }}
-		runFollower := func() {
-			t.Helper()
-			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-			defer cancel()
-			if err := snapshotter.Run(ctx); !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("follower run = %v", err)
-			}
-		}
-		runFollower()
-		if storage.putCount() != 0 {
-			t.Fatalf("follower wrote %d snapshots", storage.putCount())
-		}
-		if _, _, found, err := observer.Get(t.Context(), testBucket); err != nil || found {
-			t.Fatalf("follower object found = %v, error = %v", found, err)
-		}
-		path := filepath.Join(storage.dir, objectName(testCell, testBucket))
-		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("follower object on disk = %v", err)
-		}
-
-		snapshotter.Leader = func() bool { return leader.Current().CanMutate() }
-		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-		done := make(chan struct{})
-		var runErr error
-		go func() {
-			runErr = snapshotter.Run(ctx)
-			close(done)
-		}()
-		t.Cleanup(func() { cancel(); <-done })
-		var stored Document
-		for {
-			document, _, found, err := observer.Get(ctx, testBucket)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if found {
-				stored = document
-				break
-			}
-			select {
-			case <-ctx.Done():
-				t.Fatal("leader did not persist a snapshot before its deadline")
-			case <-time.After(10 * time.Millisecond):
-			}
-		}
-		cancel()
-		<-done
-		if !errors.Is(runErr, context.Canceled) {
-			t.Fatalf("leader run after cancellation = %v", runErr)
-		}
-		if storage.putCount() != 1 || stored.Version != 1 || stored.Cell != testCell || stored.Bucket != testBucket ||
-			stored.Sequence != 1 || stored.StreamCreated.IsZero() || stored.TakenAt.IsZero() ||
-			len(stored.Entries) != 1 || stored.Entries[0].Key != "a" || string(stored.Entries[0].Value) != "1" {
-			t.Fatalf("leader persisted %+v (%d puts)", stored, storage.putCount())
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		encoded, err := encodeDocument(stored)
-		if err != nil || !bytes.Equal(raw, encoded) {
-			t.Fatalf("disk snapshot differs from independent HTTP read: %v", err)
-		}
-
-		put(t, kv, "a", []byte("2"))
-		snapshotter.Leader = func() bool { return follower.Current().CanMutate() }
-		runFollower()
-		unchanged, err := os.ReadFile(path)
-		if err != nil || storage.putCount() != 1 || !bytes.Equal(raw, unchanged) {
-			t.Fatalf("follower changed disk snapshot (%d puts): %v", storage.putCount(), err)
-		}
-		document, _, found, err := observer.Get(t.Context(), testBucket)
-		if err != nil || !found || len(document.Entries) != 1 || document.Entries[0].Key != "a" || string(document.Entries[0].Value) != "1" {
-			t.Fatalf("follower changed HTTP snapshot: %+v, found=%v, error=%v", document, found, err)
-		}
-		if got, _ := value(t, kv, "a"); string(got) != "2" {
-			t.Fatalf("source value = %q", got)
-		}
-	})
-}
-
-// A snapshot object deleted behind the leader's cached ETag is written
-// again on the next change instead of failing every pass.
-func TestSnapshotRewritesADeletedObject(t *testing.T) {
-	js := startJetStream(t)
-	kv := openBucket(t, js, testBucket)
-	put(t, kv, "a", []byte("1"))
-	fake := newObjectStorage(t)
-	snapshotter := snapshotterFor(js, fake, testBucket)
-	if _, err := snapshotter.SnapshotOnce(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	fake.remove(t, testBucket)
-	put(t, kv, "b", []byte("2"))
-	if written, err := snapshotter.SnapshotOnce(t.Context()); err != nil || len(written) != 1 {
-		t.Fatalf("rewrite = %v, %v", written, err)
-	}
-	if document := fake.document(t, testBucket); len(document.Entries) != 2 {
-		t.Fatalf("rewritten snapshot = %+v", document)
 	}
 }

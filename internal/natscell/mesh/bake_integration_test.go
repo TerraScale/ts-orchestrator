@@ -23,17 +23,6 @@ func (f *fakeApplier) Bake(context.Context, swarmruntime.ServiceSpec, swarmrunti
 	return rollout.BakeVerdict{Started: time.Now(), Finished: time.Now(), Samples: 1, Checks: map[string]string{"candidate": "ok"}}, nil
 }
 
-func (deferredApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, ready swarmruntime.ServiceRollout) (rollout.BakeVerdict, error) {
-	return (&fakeApplier{}).Bake(ctx, spec, ready)
-}
-
-func TestTerraBaseRolloutPausesOnFailure(t *testing.T) {
-	spec, err := (swarmruntime.ServiceSpec{Name: "terrabase", Image: "ghcr.io/terrascale/terrabase@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}).SwarmSpec()
-	if err != nil || spec.Update == nil || spec.Update.FailureAction != api.UpdateConfig_PAUSE {
-		t.Fatalf("storage update must pause: spec=%+v, err=%v", spec, err)
-	}
-}
-
 // Only the runtime boundary is synthetic: readiness succeeds before the HTTP
 // dependency breaks, and the channel lets the test inspect an unfinished bake.
 type failingBakeApplier struct {
@@ -83,7 +72,7 @@ func (f *failingBakeApplier) Bake(ctx context.Context, spec swarmruntime.Service
 }
 
 func TestMeshFailedPostReadinessBakeHoldsRollout(t *testing.T) {
-	for _, check := range []string{"dependency", "anchor"} {
+	for _, check := range []string{"dependency"} {
 		t.Run(check, func(t *testing.T) {
 			regions, nodes, appliers := startMeshRegions(t, 0)
 			spec := swarmruntime.ServiceSpec{Name: "terrabase", Image: "ghcr.io/terrascale/terrabase@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}

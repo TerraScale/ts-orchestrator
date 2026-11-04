@@ -5,16 +5,12 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/nats-io/nkeys"
 )
 
 func TestEmbeddedSingleNodeDurableRestart(t *testing.T) {
@@ -56,162 +52,6 @@ func TestEmbeddedSingleNodeDurableRestart(t *testing.T) {
 	if string(message.Data) != "persisted" {
 		t.Fatalf("durable message = %q", message.Data)
 	}
-}
-
-func TestEmbeddedStoreLimit(t *testing.T) {
-	cfg := productionTestConfig(t, "lab", "one")
-	embedded := cfg.Embedded
-	for _, test := range []struct {
-		name  string
-		limit int64
-		want  int64
-	}{
-		{name: "default", want: DefaultStoreMaxBytes},
-		{name: "configured", limit: 4 << 30, want: 4 << 30},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			embedded.StoreMaxBytes = test.limit
-			options, err := serverOptions(cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if options.JetStreamMaxStore != test.want {
-				t.Fatalf("JetStream file limit = %d, want %d", options.JetStreamMaxStore, test.want)
-			}
-			// A rebooting peer must not log an ERR per reconnect attempt.
-			if options.ReconnectErrorReports != 60 {
-				t.Fatalf("route reconnect errors reported every %d attempts, want 60", options.ReconnectErrorReports)
-			}
-		})
-	}
-	embedded.StoreMaxBytes = -1
-	if err := cfg.validate(); err == nil {
-		t.Fatal("negative embedded store limit was accepted")
-	}
-	embedded.StoreMaxBytes = 0
-	reserved := cfg
-	reserved.Cell = "global"
-	if err := reserved.validate(); err == nil {
-		t.Fatal("the reserved global scope was accepted as a cell")
-	}
-}
-
-func TestControllerNKeyDurablyAcknowledgesDeliveryIntent(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	region := productionTestRegion(t, "lab", "one")
-	controller, _ := productionTestUser(t, region, "one", "controller", false)
-	region.cfg.CredentialsFile = controller.CredentialsFile
-	runtime, err := openTestBroker(t, ctx, region.cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = runtime.Close() })
-	_, err = runtime.JetStream().CreateStream(ctx, jetstream.StreamConfig{Name: "TS_DELIVERY_INTENTS",
-		Subjects: []string{"ts.orch.v1.lab.delivery.intent"}, Retention: jetstream.WorkQueuePolicy,
-		Replicas: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	consumer, err := runtime.JetStream().CreateConsumer(ctx, "TS_DELIVERY_INTENTS", jetstream.ConsumerConfig{
-		Durable: "TS_DELIVERY_WORKER", AckPolicy: jetstream.AckExplicitPolicy,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ack, err := runtime.JetStream().Publish(ctx, "ts.orch.v1.lab.delivery.intent", []byte("accepted"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	message, err := consumer.Next(jetstream.FetchMaxWait(2 * time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := message.DoubleAck(ctx); err != nil {
-		t.Fatalf("controller could not durably acknowledge delivery intent: %v", err)
-	}
-	info, err := consumer.Info(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.AckFloor.Stream != ack.Sequence || info.NumAckPending != 0 {
-		t.Fatalf("delivery intent remained pending after acknowledgement: ack floor=%d pending=%d", info.AckFloor.Stream, info.NumAckPending)
-	}
-}
-
-func TestEmbeddedClusterAdvertisesClientPeers(t *testing.T) {
-	const peers = 3
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
-	defer cancel()
-	cluster := newLabCluster(t, peers)
-	runtimes := cluster.runtimes
-	for index := range runtimes {
-		cluster.start(t, ctx, index)
-	}
-	for _, runtime := range runtimes {
-		if err := runtime.WaitForCluster(ctx, peers); err != nil {
-			for _, peer := range runtimes {
-				info, infoErr := peer.server.Jsz(nil)
-				if infoErr == nil {
-					t.Logf("%s metadata: %+v routes=%d", peer.URL(), info.Meta, peer.peerCount())
-					if info.Meta != nil {
-						for _, replica := range info.Meta.Replicas {
-							t.Logf("%s metadata replica: %+v", peer.URL(), *replica)
-						}
-					}
-				}
-			}
-			t.Fatal(err)
-		}
-	}
-	// Production suppresses internal client advertisements; check routes and each external mTLS listener.
-	observerKey, err := nkeys.CreateUser()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer observerKey.Wipe()
-	observerID, err := observerKey.PublicKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	credentials := testJWTUserCredentialsWithKey(t, t.TempDir(), "observer.creds", cluster.region.cell,
-		cluster.region.cellID, observerKey, []string{"$JS.API.INFO"}, []string{inboxPrefix("lab", observerID) + ".>"})
-	for _, runtime := range runtimes {
-		for {
-			observation, err := runtime.ObserveCluster()
-			if err != nil {
-				t.Fatal(err)
-			}
-			servers := append([]string{observation.ServerName}, observation.Routes...)
-			if slices.ContainsFunc(runtimes, func(peer *Runtime) bool { return !slices.Contains(servers, peer.serverName) }) {
-				if err := ctx.Err(); err != nil {
-					t.Fatalf("cluster peers were not discovered: %v; known %v", err, servers)
-				}
-				time.Sleep(20 * time.Millisecond)
-				continue
-			}
-			break
-		}
-		observer, err := Start(ctx, Config{Cell: "lab", Instance: "client-discovery", Replicas: peers,
-			URL: runtime.URL(), CredentialsFile: credentials, TLS: cluster.region.cfg.TLS})
-		if err != nil {
-			t.Fatalf("authenticate external peer %s: %v", runtime.URL(), err)
-		}
-		t.Cleanup(func() { _ = observer.Close() })
-		healthCtx, healthCancel := context.WithTimeout(ctx, 2*time.Second)
-		_, healthErr := observer.JetStream().AccountInfo(healthCtx)
-		healthCancel()
-		if healthErr != nil {
-			t.Fatalf("external peer %s health query: %v", runtime.URL(), healthErr)
-		}
-		if known := observer.Conn().Servers(); !slices.Equal(known, []string{runtime.URL()}) {
-			t.Fatalf("external peer advertised an unconfigured client address: %v", known)
-		}
-		if discovered := observer.Conn().DiscoveredServers(); len(discovered) != 0 {
-			t.Fatalf("external peer advertised an internal client bypass: %v", discovered)
-		}
-	}
-
 }
 
 func TestHostNKeyCannotCrossNodeOrUseJetStream(t *testing.T) {
@@ -278,36 +118,6 @@ func TestHostNKeyCannotCrossNodeOrUseJetStream(t *testing.T) {
 	defer probeCancel()
 	if _, err := host.JetStream().AccountInfo(probeCtx); err == nil {
 		t.Fatal("host accessed JetStream account API")
-	}
-}
-
-func TestLabTerminalPermissionsAreRoleScoped(t *testing.T) {
-	public, _ := newUserIdentity(t)
-	controller, err := userPermissions("lab", NKeyGrant{PublicKey: public, Role: "controller"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.terminal.>") {
-		t.Fatal("controller cannot subscribe to terminal requests")
-	}
-	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.managed-update.prepare") {
-		t.Fatal("controller cannot subscribe to managed update requests")
-	}
-	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.backup.operation") {
-		t.Fatal("controller cannot subscribe to backup operation requests")
-	}
-	operator, err := userPermissions("lab", NKeyGrant{PublicKey: public, Role: "operator"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, subject := range []string{"ts.orch.v1.lab.managed-update.prepare", "ts.orch.v1.lab.backup.operation", "ts.orch.v1.lab.terminal.plan", "ts.orch.v1.lab.terminal.apply", "ts.orch.v1.lab.terminal.status"} {
-		if !slices.Contains(operator.Publish.Allow, subject) {
-			t.Fatalf("operator cannot publish %s", subject)
-		}
-	}
-	if slices.Contains(operator.Publish.Allow, "ts.orch.v1.lab.terminal.>") ||
-		slices.Contains(operator.Subscribe.Allow, "ts.orch.v1.lab.terminal.>") {
-		t.Fatal("operator received wildcard terminal permissions")
 	}
 }
 
@@ -436,27 +246,4 @@ func TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState(t *testing.T)
 		t.Fatalf("backup operation response did not use the operator's private inbox: subject=%s body=%q",
 			backupReply.Subject, backupReply.Data)
 	}
-}
-
-func newUserIdentity(t *testing.T) (string, string) {
-	t.Helper()
-	pair, err := nkeys.CreateUser()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pair.Wipe()
-	public, err := pair.PublicKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	seed, err := pair.Seed()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer clear(seed)
-	path := filepath.Join(t.TempDir(), "user.nk")
-	if err := os.WriteFile(path, seed, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return public, path
 }

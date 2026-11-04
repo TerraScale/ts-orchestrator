@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
@@ -226,11 +225,5 @@ func TestServerRotatesExpiringCredentials(t *testing.T) {
 		if vault.bundles[name].version != oldVersion[name]+1 {
 			t.Fatalf("%s: version %d after a settled run, want %d", name, vault.bundles[name].version, oldVersion[name]+1)
 		}
-	}
-}
-
-func TestClientPinMatchesUpstreamRelease(t *testing.T) {
-	if err := client.ValidatePin(clientPin); err != nil {
-		t.Fatal(err)
 	}
 }

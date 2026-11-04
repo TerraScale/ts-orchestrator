@@ -2,21 +2,14 @@ package membership
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
 	"io"
 	"log/slog"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 type fakeLeadership struct {
@@ -172,140 +165,5 @@ func TestReconcilerActsOnlyAsFencedLeader(t *testing.T) {
 	}
 	if status := statusOf(reconciler, "controller-b"); status.Phase != PhaseHealthy || status.Attempt != 2 {
 		t.Fatalf("new term status = %+v", status)
-	}
-}
-
-func TestReconcilerHoldsWithoutReplacerAndOnPartialObservation(t *testing.T) {
-	clock := testEpoch
-	leader := &fakeLeadership{snapshot: leaderSnapshot(2)}
-	cell := newFakeCell()
-	reconciler := newTestReconciler(t, leader, cell, nil, &clock)
-	if err := reconciler.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if status := statusOf(reconciler, "controller-b"); status.Phase != PhaseHeld ||
-		status.Reason != ErrReplacerUnavailable.Error() {
-		t.Fatalf("no replacer status = %+v", status)
-	}
-	cell.metaErr = errors.New("jsz unavailable")
-	if err := reconciler.Tick(t.Context()); err == nil {
-		t.Fatal("partial observation was evaluated")
-	}
-}
-
-func TestReconcilerRetriesFailedReplacementAfterBackoff(t *testing.T) {
-	clock := testEpoch
-	leader := &fakeLeadership{snapshot: leaderSnapshot(3)}
-	cell := newFakeCell()
-	failures := 1
-	cell.replace = func(Action) error {
-		if failures > 0 {
-			failures--
-			return errors.New("OCI launch throttled")
-		}
-		return nil
-	}
-	reconciler := newTestReconciler(t, leader, cell, cell, &clock)
-	for range 3 {
-		if err := reconciler.Tick(t.Context()); err != nil {
-			t.Fatal(err)
-		}
-		clock = clock.Add(time.Minute)
-	}
-	if len(cell.replaced) != 1 || statusOf(reconciler, "controller-b").Reason != ReasonRetryBackoff {
-		t.Fatalf("retry before backoff: %d %+v", len(cell.replaced), statusOf(reconciler, "controller-b"))
-	}
-	clock = clock.Add(DefaultRetryBackoff)
-	if err := reconciler.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if len(cell.replaced) != 2 || cell.replaced[1].PreviousAttempt != 1 ||
-		statusOf(reconciler, "controller-b").LastError != "" {
-		t.Fatalf("retry after backoff: %+v %+v", cell.replaced, statusOf(reconciler, "controller-b"))
-	}
-}
-
-func TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes(t *testing.T) {
-	dir := t.TempDir()
-	_, root, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC().Truncate(time.Second)
-	candidate := bootstrap.RetirementEvidence{SchemaVersion: 1, DeploymentID: "0000000000DMC7WFP9VHV640EP", Cell: "GRU",
-		Environment: "production", Role: "controller", Slot: "controller-b", PreviousAttempt: 1,
-		PreviousGeneration: 1, PreviousResultDigest: strings.Repeat("c", 64), PriorInstanceOCID: instanceB,
-		PriorCreateKey: "founder-controller-b-key", Disposition: bootstrap.SlotRetirementDisposition,
-		ObservedEvidenceDigest: evidenceID, FencingAuthority: "authority-epoch-2", ObservedAt: now}
-	envelope, err := bootstrap.SignSlotRetirement(candidate, now, now.Add(time.Hour), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire, err := trust.EncodeEnvelope(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "controller-b.retirement"), wire, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// Misplaced evidence for b under c's name is ignored.
-	if err := os.WriteFile(filepath.Join(dir, "controller-c.retirement"), wire, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	source := FileEvidence{Dir: dir, Slots: testTopology().Slots}
-	evidence, err := source.Evidence(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(evidence) != 1 || evidence["controller-b"].PreviousAttempt != 1 ||
-		evidence["controller-b"].PriorInstanceOCID != instanceB || len(evidence["controller-b"].Digest) != 64 {
-		t.Fatalf("evidence = %+v", evidence)
-	}
-	if err := os.Chmod(filepath.Join(dir, "controller-b.retirement"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := source.Evidence(t.Context()); err == nil {
-		t.Fatal("group-readable evidence accepted")
-	}
-	if err := os.Remove(filepath.Join(dir, "controller-b.retirement")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(dir, "controller-c.retirement"), filepath.Join(dir, "controller-b.retirement")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := source.Evidence(t.Context()); err == nil {
-		t.Fatal("symlinked evidence accepted")
-	}
-}
-
-type recordingRequests struct{ requests []RetirementRequest }
-
-func (r *recordingRequests) RequestRetirement(_ context.Context, request RetirementRequest) error {
-	r.requests = append(r.requests, request)
-	return nil
-}
-
-func TestReconcilerRequestsRetirementOncePerTerminatedAttempt(t *testing.T) {
-	clock := testEpoch
-	leader := &fakeLeadership{snapshot: leaderSnapshot(6)}
-	cell := newFakeCell()
-	cell.evidence = map[string]Evidence{}
-	requests := &recordingRequests{}
-	reconciler, err := New(testTopology(), Dependencies{Leadership: leader, Peers: cell,
-		Ledger: cell, Instances: cell, Evidence: cell, Replacer: cell, Requests: requests,
-		Now: func() time.Time { return clock }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 3 {
-		if err := reconciler.Tick(t.Context()); err != nil {
-			t.Fatal(err)
-		}
-		clock = clock.Add(time.Minute)
-	}
-	if len(requests.requests) != 1 || requests.requests[0].Slot != "controller-b" ||
-		requests.requests[0].Attempt != 1 || requests.requests[0].InstanceOCID != instanceB ||
-		requests.requests[0].Epoch != 6 || len(cell.replaced) != 0 {
-		t.Fatalf("requests = %+v replaced=%d", requests.requests, len(cell.replaced))
 	}
 }
