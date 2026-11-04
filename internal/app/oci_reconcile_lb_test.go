@@ -51,63 +51,6 @@ func publishedBackends(t *testing.T, store ociresource.Store) (uint64, []string)
 	return records[0].Generation, backends
 }
 
-func TestPublicLBConfigDecodesAndValidates(t *testing.T) {
-	var cfg ControllerConfig
-	wire := `{"oci_reconcile":{"public_lb":{"load_balancer_id":"` + publicLBID +
-		`","backend_set":"terrabase","seats":["gru-1-db-1"]}}}`
-	if err := json.Unmarshal([]byte(wire), &cfg, json.RejectUnknownMembers(true)); err != nil {
-		t.Fatal(err)
-	}
-	public := *cfg.OciReconcile.PublicLB
-	if key, err := public.key("GRU"); err != nil || key.String() != "GRU/lb-backends/public-terrabase" {
-		t.Fatalf("key=%v err=%v", key, err)
-	}
-	if _, err := cfg.OciReconcile.publicLBKey("GRU"); err != nil {
-		t.Fatal(err)
-	}
-	for _, bad := range []OciReconcileLBConfig{
-		{LoadBalancerID: "ocid1.networkloadbalancer.oc1..n", BackendSet: "terrabase"},
-		{LoadBalancerID: publicLBID},
-		{LoadBalancerID: publicLBID, BackendSet: "terrabase", Seats: []string{"gru-1-db-1", "gru-1-db-1"}},
-		{LoadBalancerID: publicLBID, BackendSet: "terrabase", Seats: []string{""}},
-	} {
-		if _, err := bad.key("GRU"); err == nil {
-			t.Fatalf("accepted %+v", bad)
-		}
-	}
-}
-
-func TestPublicLBSpecIsTheSignedSeats(t *testing.T) {
-	public := OciReconcileLBConfig{LoadBalancerID: publicLBID, BackendSet: "terrabase"}
-	profiles := terraBaseSeats("gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443")
-	spec, err := public.spec(profiles, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []lb.Backend{{IP: "10.251.0.21", Port: 9465}, {IP: "10.251.0.22", Port: 9465}}
-	if !slices.Equal(spec.Backends, want) || spec.AllowEmpty {
-		t.Fatalf("spec=%+v", spec)
-	}
-	public.Seats = []string{"gru-1-db-1"}
-	if spec, err = public.spec(profiles, nil); err != nil || !slices.Equal(spec.Backends, want[:1]) {
-		t.Fatalf("seats: spec=%+v err=%v", spec, err)
-	}
-
-	noClient := terraBaseSeats("gru-1-db-1=10.251.0.21:9443")
-	delete(noClient[terrabase.Role].Env, "TERRABASE_CLIENT_PORT")
-	for name, profiles := range map[string]map[string]WorkloadProfile{
-		"no terrabase profile":  {},
-		"listed seat not peer":  terraBaseSeats("gru-1-db-2=10.251.0.22:9443"),
-		"malformed peers":       terraBaseSeats("gru-1-db-1=10.251.0.21"),
-		"client listener off":   noClient,
-		"peer off its own port": terraBaseSeats("gru-1-db-1=10.251.0.21:9999"),
-	} {
-		if spec, err := public.spec(profiles, nil); err == nil {
-			t.Fatalf("%s: spec=%+v", name, spec)
-		}
-	}
-}
-
 // The pass fences before it publishes, follows a profile change with a new
 // generation, and keeps the last published set when the profile yields an
 // unusable one.

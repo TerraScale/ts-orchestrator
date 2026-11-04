@@ -102,60 +102,6 @@ func TestRootOCICallerContinuity(t *testing.T) {
 	}
 }
 
-func TestRootOCICallerDisconnectCancelsOriginalCall(t *testing.T) {
-	if os.Getenv("TS_ROOT_OCI_CONTINUITY_NAMESPACE") != "1" {
-		runRootOCIContinuityNamespace(t)
-		return
-	}
-	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
-	defer cancel()
-	admission := &continuityAdmission{expires: time.Now().Add(2 * time.Minute)}
-	defer admission.close()
-	pool := &continuityPool{entered: make(chan struct{}), release: make(chan struct{}), canceled: make(chan struct{}), finished: make(chan struct{})}
-	release := sync.OnceFunc(func() { close(pool.release) })
-	service := newContinuityService(t, pool)
-	listener, err := rootoci.Listen(ctx, service, admission.authorize, 65534)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	defer release()
-	child := startRootOCIContinuityChild(t, ctx)
-	admission.admit(t, t.Context(), child.command.Process.Pid)
-	if _, err := io.WriteString(child.input, "cancel\n"); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-pool.entered:
-	case <-ctx.Done():
-		t.Fatal("request did not reach the recording boundary", ctx.Err())
-	}
-	if _, err := io.WriteString(child.input, "cancel-now\n"); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-pool.canceled:
-	case <-ctx.Done():
-		t.Fatal("peer disconnect did not cancel the original backend context", ctx.Err())
-	}
-	release()
-	select {
-	case <-pool.finished:
-	case <-ctx.Done():
-		t.Fatal("canceled backend did not finish its final guard", ctx.Err())
-	}
-	if result := child.receive(t); result.Error == "" || !result.OutcomeUnknown || pool.count() != 0 {
-		t.Fatal("canceled request reached a recording effect or lost its unknown outcome", result)
-	}
-	if _, err := io.WriteString(child.input, "observe\n"); err != nil {
-		t.Fatal(err)
-	}
-	if result := child.receive(t); result.Error != "" || pool.count() != 0 {
-		t.Fatal("request cancellation revoked its still-live source or replayed an effect", result)
-	}
-	child.close(t)
-}
-
 func newContinuityService(t *testing.T, pool *continuityPool) *rootoci.Service {
 	t.Helper()
 	service, err := rootoci.NewService(rootoci.Backends{

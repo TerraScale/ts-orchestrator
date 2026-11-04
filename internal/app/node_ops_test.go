@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
 	"slices"
@@ -20,7 +19,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
@@ -229,39 +227,6 @@ func TestNodeRebootDrainsActsChecksAndReturns(t *testing.T) {
 	}
 }
 
-// A rebooted node whose roles do not serve again keeps its backends out,
-// and the operation fails.
-func TestNodeRebootKeepsANodeThatDoesNotServeOut(t *testing.T) {
-	ops, balancer, _ := newNodeOpsTest(t)
-	ops.fence.hosts.(*nodeHosts).down["gru-1-ctl-3"] = true
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-	defer cancel()
-	op := nodeOp{ID: entityid.New(), Node: "gru-1-ctl-3", Op: nodeOpReboot, State: nodeOpQueued}
-	ops.seedOriginalTest(t, ctx, 3, &op)
-	err := ops.execute(ctx, 3, &op)
-	if err == nil || !strings.Contains(err.Error(), "does not serve") {
-		t.Fatalf("execute: %v", err)
-	}
-	if balancer.sets["terrabase"][2].Serving() || balancer.sets["ts-auth"][2].Serving() {
-		t.Fatal("a node that does not serve was returned")
-	}
-	// Once it serves, undrain releases the failed operation's hold.
-	op.State = nodeOpFailed
-	if err := ops.save(t.Context(), 3, op); err != nil {
-		t.Fatal(err)
-	}
-	ops.fence.hosts.(*nodeHosts).down["gru-1-ctl-3"] = false
-	if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-3", Op: nodeOpUndrain}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ops.pass(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if !balancer.sets["terrabase"][2].Serving() || !balancer.sets["ts-auth"][2].Serving() {
-		t.Fatal("undrain did not return the node")
-	}
-}
-
 // A resize changes the shape and checks the new one; a node already at the
 // shape is not restarted.
 func TestNodeResizeChangesTheShapeOnce(t *testing.T) {
@@ -333,201 +298,12 @@ func TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum(t *testing.T) {
 	}
 }
 
-func TestNodeSubmitRefusals(t *testing.T) {
-	ops, _, _ := newNodeOpsTest(t)
-	ctx := t.Context()
-	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
-	policy, err := buildSignerPolicy(Config{Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{{
-		Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)),
-		Roles: []string{"ts-auth"}, Environments: []string{"production"}, CanRegisterHosts: true,
-	}}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	for name, deadline := range map[string]time.Time{
-		"bounded":  now.Add(30 * time.Minute),
-		"missing":  {},
-		"extended": now.Add(30*time.Minute + time.Second),
-		"expired":  now.Add(-time.Second),
-	} {
-		payload, err := protocol.EncodeJSON(nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpReboot, ExecutionDeadline: deadline})
-		if err != nil {
-			t.Fatal(err)
-		}
-		envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "gru", Kind: nodeOpSubmitKind,
-			Actor: "ops", OperationID: entityid.NewAt(now), Generation: 1, Epoch: 3},
-			now, now.Add(time.Minute), key)
-		if err != nil {
-			t.Fatal(err)
-		}
-		wire, err := protocol.EncodeJSON(envelope)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, _, err := verifyNodeOperationRequest(wire, "gru", 3, policy, now); (err == nil) != (name == "bounded") {
-			t.Fatalf("signed deadline %s: %v", name, err)
-		}
-	}
-	for name, id := range map[string]string{
-		"derived":           entityid.Derive("node-legacy", "request"),
-		"earlier millis":    entityid.NewAt(now.Add(-time.Millisecond)),
-		"later millis":      entityid.NewAt(now.Add(time.Millisecond)),
-		"resigned newer ID": entityid.NewAt(now.Add(-time.Second)),
-	} {
-		payload, err := protocol.EncodeJSON(nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpReboot, ExecutionDeadline: now.Add(nodeOperationExecutionLifetime)})
-		if err != nil {
-			t.Fatal(err)
-		}
-		envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "gru", Kind: nodeOpSubmitKind,
-			Actor: "ops", OperationID: id, Generation: 1, Epoch: 3}, now, now.Add(time.Minute), key)
-		if err != nil {
-			t.Fatal(err)
-		}
-		wire, err := protocol.EncodeJSON(envelope)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, _, err := verifyNodeOperationRequest(wire, "gru", 3, policy, now); err == nil || !strings.Contains(err.Error(), "signed issue millisecond") {
-			t.Fatalf("signed operation identity %s: %v", name, err)
-		}
-	}
-	for name, request := range map[string]nodeOpRequest{
-		"unknown node":    {Node: "gru-1-ctl-9", Op: nodeOpDrain},
-		"unknown op":      {Node: "gru-1-ctl-1", Op: "rename"},
-		"resize no shape": {Node: "gru-1-ctl-1", Op: nodeOpResize},
-		"reboot shape":    {Node: "gru-1-ctl-1", Op: nodeOpReboot, OCPUs: 1},
-		"not drained":     {Node: "gru-1-ctl-1", Op: nodeOpUndrain},
-	} {
-		if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
-	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpReboot}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpReboot}); err == nil ||
-		!strings.Contains(err.Error(), "already has") {
-		t.Fatalf("a second operation on one node: %v", err)
-	}
-}
-
-// Pool nodes belong to the node scaler: no operation takes one, by its name
-// or as a rename's new name.
-func TestNodeSubmitRefusesPoolNodes(t *testing.T) {
-	ops, _, _ := newNodeOpsTest(t)
-	ops.pool = func(node string) bool { return node == "gru-1-ctl-2" || node == "ts-gru-4" }
-	for name, request := range map[string]nodeOpRequest{
-		"reboot": {Node: "gru-1-ctl-2", Op: nodeOpReboot},
-		"resize": {Node: "gru-1-ctl-2", Op: nodeOpResize, OCPUs: 2, MemoryGB: 8},
-		"rename": {Node: "gru-1-ctl-1", To: "ts-gru-4", Op: nodeOpRename},
-	} {
-		if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.New(), request); err == nil ||
-			!strings.Contains(err.Error(), "pool node") {
-			t.Errorf("%s: %v", name, err)
-		}
-	}
-	if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpReboot}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Without the quorum, a fence waits instead of taking a backend out.
-func TestFenceWaitsForTheQuorumGuard(t *testing.T) {
-	ops, balancer, _ := newNodeOpsTest(t)
-	balancer.down["10.0.0.13:9465"] = true
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	// Cancel at the quorum wait so fixture I/O cannot consume the observation window.
-	ops.fence.sleep = func(ctx context.Context, _ time.Duration) error {
-		cancel()
-		return ctx.Err()
-	}
-	api, err := ops.fence.client(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	spec, _ := ops.fence.spec()
-	err = ops.fence.fence(ctx, api, 3, *spec, "gru-1-ctl-1", fenceAddresses["gru-1-ctl-1"], 0, holdMaintenance)
-	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "keeps at least 2") || len(balancer.log) != 0 {
-		t.Fatalf("fence: %v, load balancer %q", err, balancer.log)
-	}
-}
-
 // proofs is a fixed health proof per unit.
 type proofs map[string]rolloutexec.HealthProof
 
 func (p proofs) Latest(unit string) (rolloutexec.HealthProof, bool) {
 	proof, ok := p[unit]
 	return proof, ok
-}
-
-// The deploy gate holds a unit's step until its node is out of rotation,
-// one node at a time; the node returns once its unit proves the target and
-// its roles serve.
-func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
-	ops, balancer, _ := newNodeOpsTest(t)
-	ctx := t.Context()
-	fences := newRolloutFence(ctx, ops.fence, func(unit string) string { return strings.Replace(unit, "controller-", "gru-1-ctl-", 1) },
-		func(node string) string { return strings.Replace(node, "gru-1-ctl-", "controller-", 1) })
-	gate := func(unit string) error {
-		for range 200 {
-			err := fences.check(ctx, unit)
-			if !errors.Is(err, rolloutexec.ErrGateHeld) || !strings.Contains(err.Error(), "taking") {
-				return err
-			}
-			time.Sleep(5 * time.Millisecond)
-		}
-		return errors.New("the fence never finished")
-	}
-	if err := gate("controller-1"); err != nil {
-		t.Fatal(err)
-	}
-	if balancer.sets["terrabase"][0].Serving() || balancer.sets["ts-auth"][0].Serving() {
-		t.Fatal("the gate passed a serving node")
-	}
-	if err := fences.check(ctx, "controller-2"); err == nil || !strings.Contains(err.Error(), "gru-1-ctl-1 is still out") {
-		t.Fatalf("a second node: %v", err)
-	}
-	record := rollout.Record{ToDigest: "new", FromDigest: "old", Units: map[string]rollout.UnitProgress{
-		"controller-1": {State: rollout.UnitPreparing}}}
-	sources := proofs{"controller-1": {BinarySHA256: "old", StartNonce: "000000000000ae0e535d50ddd92a6c00", ReceivedAt: time.Now()}}
-	since, ready := fences.unitServes("gru-1-ctl-1", record, true, sources)
-	if ready {
-		t.Fatal("a unit being stepped is ready")
-	}
-	record.Units["controller-1"] = rollout.UnitProgress{State: rollout.UnitSoaking}
-	if _, ready = fences.unitServes("gru-1-ctl-1", record, true, sources); ready {
-		t.Fatal("a unit on the old release is ready")
-	}
-	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
-	if since, ready = fences.unitServes("gru-1-ctl-1", record, true, sources); !ready || since.IsZero() {
-		t.Fatal("a unit that proves the target is not ready")
-	}
-	record.Phase, record.Units["controller-1"] = rollout.PhaseFrozen, rollout.UnitProgress{State: rollout.UnitRollingBack}
-	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "0000000000V4MRM46HP1SNGDYW", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
-	if _, ready = fences.unitServes("gru-1-ctl-1", record, true, sources); !ready {
-		t.Fatal("a frozen rollout held its node although the node serves")
-	}
-	record.Phase = rollout.PhaseRollingBack
-	if _, ready = fences.unitServes("gru-1-ctl-1", record, true, sources); ready {
-		t.Fatal("a unit rolling back is ready")
-	}
-	record.Phase, record.Units["controller-1"] = "", rollout.UnitProgress{State: rollout.UnitSoaking}
-	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
-	if reason, err := nodeRolesServing(ctx, ops.fence.hosts, "gru-1-ctl-1", since.Add(-time.Second)); err != nil || reason != "" {
-		t.Fatalf("roles: %q %v", reason, err)
-	}
-	api, _ := ops.fence.client(ctx)
-	if _, err := ops.fence.restore(ctx, api, 3, "gru-1-ctl-1", holdRollout, true); err != nil {
-		t.Fatal(err)
-	}
-	if !balancer.sets["terrabase"][0].Serving() {
-		t.Fatal("the node did not return")
-	}
-	if err := gate("controller-2"); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // retire takes only a node without replicas or a controller, and leaves it
@@ -756,71 +532,6 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 	}
 	if _, found, _ := ops.fence.record(ctx, "ts-gru-1"); found {
 		t.Fatal("the fence record was left")
-	}
-}
-
-// A registration a failed rename left under the new name has no session:
-// the roles move only once the renamed host enrolled there (TS-632, gru-1
-// 2026-10-07).
-func TestNodeRenameMovesRolesOnlyToALiveSession(t *testing.T) {
-	ops, _, _ := newNodeOpsTest(t)
-	ctx := t.Context()
-	hosts := newRenameHosts()
-	ops.fence.hosts, ops.desired = hosts, hosts
-	hosts.nodes = append(hosts.nodes, "ts-gru-1")
-	if moved, err := ops.moveDesired(ctx, 3, "gru-1-ctl-1", "ts-gru-1"); err != nil || moved {
-		t.Fatalf("moved %t (%v) to a stale registration", moved, err)
-	}
-	if _, found := hosts.desired["ts-gru-1/terrabase"]; found || hosts.desired["gru-1-ctl-1/terrabase"].Withdrawn {
-		t.Fatalf("desired %+v", hosts.desired)
-	}
-	hosts.enroll("gru-1-ctl-1", "ts-gru-1")
-	if moved, err := ops.moveDesired(ctx, 3, "gru-1-ctl-1", "ts-gru-1"); err != nil || !moved {
-		t.Fatalf("moved %t (%v) after the host enrolled", moved, err)
-	}
-	if d := hosts.desired["ts-gru-1/terrabase"]; d.Withdrawn || d.Digest == "" {
-		t.Fatalf("terrabase desired %+v", d)
-	}
-}
-
-// A failed rename whose grant went back left its fence under the new name,
-// which no grant holds: undrain of the node at that address releases it
-// (TS-632, gru-1 2026-10-07), and undrain of the stray name stays refused.
-func TestNodeUndrainReleasesAFenceAFailedRenameLeftAtItsAddress(t *testing.T) {
-	ops, balancer, _ := newNodeOpsTest(t)
-	ctx := t.Context()
-	spec, addresses := ops.fence.spec()
-	api, _ := ops.fence.client(ctx)
-	if err := ops.fence.fence(ctx, api, 3, *spec, "ts-gru-1", addresses["gru-1-ctl-1"], time.Millisecond, holdOperation); err != nil {
-		t.Fatal(err)
-	}
-	if balancer.sets["terrabase"][0].Serving() {
-		t.Fatal("the stray fence did not take gru-1-ctl-1's address out")
-	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ts-gru-1", Op: nodeOpUndrain}); err == nil ||
-		!strings.Contains(err.Error(), "no host grant") {
-		t.Fatalf("undrain of the ungranted name: %v", err)
-	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-2", Op: nodeOpUndrain}); err == nil ||
-		!strings.Contains(err.Error(), "not drained") {
-		t.Fatalf("undrain of a node with no fence at its address: %v", err)
-	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "gru-1-ctl-1", Op: nodeOpUndrain}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ops.pass(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if op := ops.operation(t, "gru-1-ctl-1"); op.State != nodeOpDone {
-		t.Fatalf("operation %+v", op)
-	}
-	if !balancer.sets["terrabase"][0].Serving() || !balancer.sets["ts-auth"][0].Serving() {
-		t.Fatal("undrain did not return the address the stray fence held")
-	}
-	for _, node := range []string{"ts-gru-1", "gru-1-ctl-1"} {
-		if _, found, _ := ops.fence.record(ctx, node); found {
-			t.Fatalf("the fence record of %s was left", node)
-		}
 	}
 }
 

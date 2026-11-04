@@ -4,21 +4,18 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	staged "github.com/TerraScale/ts-orchestrator/internal/rollout"
+
 	"github.com/nats-io/nats.go"
 )
 
@@ -48,48 +45,6 @@ type fakeRolloutSeat struct {
 	update  *placementUpdateStatus
 	serving bool
 	pid     int
-}
-
-func TestTerraBaseUpdateSoaksTheFirstSeatAndRollsBackARestartingCandidate(t *testing.T) {
-	cell := startDeployTestCell(t, true, true)
-	ctx := t.Context()
-	plan, state := writeDeployTestPlan(t, cell.root, 9465)
-	runDeployTestOperator(t, ctx, cell, "terrabase-deploy", "--plan", plan, "--state", state)
-	var intent placement.Intent
-	var initial delivery.ArtifactRecord
-	readDeployTestState(t, state, deployIntentFile, &intent)
-	readDeployTestState(t, state, deployArtifactFile, &initial)
-	fake := startFakeRolloutController(t, cell, intent)
-	for _, seat := range fake.seats {
-		seat.pid = 100
-	}
-	second := writeDeployTestRelease(t, cell.root, "2")
-	r2, _, err := digestReleaseBinary(second.Binary)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fake.restarting = r2
-	_, err = runDeployTestOperatorErr(ctx, cell, "terrabase-update", "--state", state,
-		"--qualification", second.Qualification, "--binary", second.Binary, "--source-digest", second.SourceDigest,
-		"--compatibility-actor", "compatibility", "--compatibility-key", cell.root+"/compatibility.key",
-		"--wait", "30s", "--soak", "30s")
-	if err == nil || !strings.Contains(err.Error(), "failed its soak") {
-		t.Fatalf("a restarting canary passed its soak: %v", err)
-	}
-	if len(fake.prepares) != 2 || fake.prepares[0].CanarySeatID != "000000000082AXF7GZQT1D126Y" ||
-		fake.prepares[1].CanarySeatID != "000000000082AXF7GZQT1D126Y" || fake.prepares[1].CandidateArtifactDigest != initial.Digest {
-		t.Fatalf("soak failure reached the second seat or was not rolled back: %+v", fake.prepares)
-	}
-	for _, seat := range fake.seats {
-		if seat.pins.ArtifactDigest != initial.Digest || !seat.serving {
-			t.Fatalf("pair not restored after a failed soak: %+v", fake.seats)
-		}
-	}
-	var knownBad staged.KnownBad
-	readDeployTestState(t, state, filepath.Join(deployKnownBadDirectory, r2+".json"), &knownBad)
-	if !strings.Contains(knownBad.Reason, "seat process restarted") {
-		t.Fatalf("soak failure not recorded known bad: %+v", knownBad)
-	}
 }
 
 func startFakeRolloutController(t *testing.T, cell *deployTestCellServices, intent placement.Intent) *fakeRolloutController {

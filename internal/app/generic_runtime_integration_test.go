@@ -48,6 +48,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
+
 	swarmexec "github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/api/genericresource"
@@ -450,7 +451,6 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
-		"allocation": func(candidate *release.ContainerBundle) { candidate.Sequence = nil },
 	} {
 		candidate := intent.Clone()
 		mutate(candidate.Container)

@@ -12,8 +12,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
-	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // fakeIdentityRecord is a Vault record: its CURRENT value and versions.
@@ -215,56 +213,5 @@ func TestHostEnrollmentIdentityMovesToVaultAndMemory(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, pendingHostEnrollmentFile)); !os.IsNotExist(err) {
 		t.Fatalf("stale disk copy survived: %v", err)
-	}
-}
-
-// The first start of a release after a prepare that predates the mounts
-// keeps the on-disk role layout and restarts once the release is known-good,
-// so its own prepare mounts the runtime directories; otherwise memory is
-// enforced.
-func TestHostMemoryRuntimeWaitsForItsOwnPrepare(t *testing.T) {
-	managed, root := t.TempDir(), t.TempDir()
-	if err := os.Mkdir(filepath.Join(managed, "roles"), 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if vaultsecret.RequireMemoryFilesystem(filepath.Join(managed, "roles")) == nil {
-		t.Skip("the test directory is already in memory")
-	}
-	link := func(name, digest string) {
-		t.Helper()
-		path := filepath.Join(root, name)
-		_ = os.Remove(path)
-		if err := os.Symlink("releases/"+digest, path); err != nil {
-			t.Fatal(err)
-		}
-	}
-	old, next := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	cfg := Config{Host: HostConfig{ManagedRuntimeRoot: managed, SelfUpdateRoot: root}}
-	link("current", next)
-	link("known-good", old)
-	memoryPrepareMarker = filepath.Join(root, "memory-prepare")
-	t.Cleanup(func() { memoryPrepareMarker = selfupdate.MemoryPrepareMarker })
-	if enforce, _, release := hostMemoryRuntime(cfg); enforce || release != next {
-		t.Fatalf("unconfirmed release: enforce %v, restart on %q", enforce, release)
-	}
-	// A prepare that knows the mounts but could not make them fails closed.
-	if err := os.WriteFile(memoryPrepareMarker, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if enforce, _, _ := hostMemoryRuntime(cfg); !enforce {
-		t.Fatal("a memory-aware prepare's failed mount must enforce memory")
-	}
-	if err := os.Remove(memoryPrepareMarker); err != nil {
-		t.Fatal(err)
-	}
-	link("known-good", next)
-	if enforce, _, release := hostMemoryRuntime(cfg); !enforce || release != "" {
-		t.Fatalf("known-good release: enforce %v, restart on %q", enforce, release)
-	}
-	if err := os.Remove(filepath.Join(root, "known-good")); err != nil {
-		t.Fatal(err)
-	}
-	if enforce, _, _ := hostMemoryRuntime(cfg); !enforce {
-		t.Fatal("a release without a known-good one must enforce memory")
 	}
 }

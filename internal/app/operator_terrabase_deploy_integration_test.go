@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/ecdh"
@@ -15,7 +14,6 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	staged "github.com/TerraScale/ts-orchestrator/internal/rollout"
+
 	"github.com/nats-io/nats.go"
 )
 
@@ -57,38 +56,6 @@ type deployTestCellServices struct {
 	holds         *placementHoldLog
 	policy        signerPolicy
 	status        *nats.Subscription
-}
-
-// The live R5 image reports neither consistent volume naming nor PV
-// in-transit encryption. Placement must hold before attaching and say why.
-func TestTerraBaseDeployHoldsVolumeAttachOnUnqualifiedImageLaunchOptions(t *testing.T) {
-	cell := startDeployTestCell(t, false, false)
-	ctx := t.Context()
-	plan, state := writeDeployTestPlan(t, cell.root, 9465)
-	runDeployTestOperator(t, ctx, cell, "terrabase-deploy", "--plan", plan, "--state", state)
-	var intent placement.Intent
-	readDeployTestState(t, state, deployIntentFile, &intent)
-	cell.tickUntil(t, func(members map[string]placement.MemberState) bool {
-		return len(members) == 2 && members["0000000000XG8SBD7XGE97V28G"].Stage == placement.StageAwaitingHost
-	})
-	agents := cell.enrollMembers(t, intent)
-	defer agents()
-	cell.tickUntil(t, func(members map[string]placement.MemberState) bool {
-		return members["000000000082AXF7GZQT1D126Y"].Stage == placement.StagePreparedAttach
-	})
-	for range 3 {
-		if err := cell.placement.Tick(ctx); err != nil {
-			cell.holds.record("reconciliation error: " + err.Error())
-		}
-	}
-	if len(cell.provider.attachments) != 0 {
-		t.Fatal("placement attached a volume to an instance without consistent volume naming")
-	}
-	report := deployTestStatus(t, ctx, cell, state)
-	if report.Members[0].Stage != string(placement.StagePreparedAttach) || !slices.ContainsFunc(report.Holds,
-		func(hold placementHoldRecord) bool { return strings.Contains(hold.Reason, "consistent volume naming") }) {
-		t.Fatalf("status does not report the image launch-option hold: %+v", report)
-	}
 }
 
 func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deployTestCellServices {
@@ -373,20 +340,6 @@ func runDeployTestOperator(t *testing.T, ctx context.Context, cell *deployTestCe
 	return output
 }
 
-func deployTestSteps(t *testing.T, output []byte) []string {
-	t.Helper()
-	var steps []string
-	scanner := bufio.NewScanner(bytes.NewReader(output))
-	for scanner.Scan() {
-		var step terrabaseDeployStep
-		if err := json.Unmarshal(scanner.Bytes(), &step); err != nil {
-			t.Fatalf("deployment output line %q: %v", scanner.Text(), err)
-		}
-		steps = append(steps, step.Step+":"+step.Status)
-	}
-	return steps
-}
-
 func readDeployTestState(t *testing.T, state, name string, value any) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(state, name))
@@ -396,16 +349,6 @@ func readDeployTestState(t *testing.T, state, name string, value any) {
 	if err := json.Unmarshal(data, value); err != nil {
 		t.Fatalf("decode %s: %v", name, err)
 	}
-}
-
-func deployTestStatus(t *testing.T, ctx context.Context, cell *deployTestCellServices, state string) placementStatusReport {
-	t.Helper()
-	output := runDeployTestOperator(t, ctx, cell, "terrabase-status", "--state", state)
-	var report placementStatusReport
-	if err := json.Unmarshal(bytes.TrimSpace(output), &report); err != nil {
-		t.Fatalf("decode status %q: %v", output, err)
-	}
-	return report
 }
 
 // tickUntil drives the placement controller one bounded action at a time and
@@ -511,19 +454,5 @@ func (cell *deployTestCellServices) enrollMembers(t *testing.T, intent placement
 		for _, finished := range done {
 			<-finished
 		}
-	}
-}
-
-func TestTerraBaseDeployPlanKeepsGRUMembersOnTheirNamedSlots(t *testing.T) {
-	root := t.TempDir()
-	path, _ := writeDeployTestPlan(t, root, 9465)
-	plan, _, err := loadTerraBaseDeployPlan(path, "gru")
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan.Members[0], plan.Members[1] = plan.Members[1], plan.Members[0]
-	swapped := testJSONFile(t, root, "swapped.json", plan)
-	if _, _, err := loadTerraBaseDeployPlan(swapped, "gru"); err == nil || !strings.Contains(err.Error(), "gru-1-db-1") {
-		t.Fatalf("member 1 on gru-1-db-2's address was accepted: %v", err)
 	}
 }

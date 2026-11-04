@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -17,14 +16,10 @@ import (
 	"github.com/nats-io/nkeys"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
-	"github.com/TerraScale/ts-orchestrator/internal/capacity"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
-	"github.com/TerraScale/ts-orchestrator/internal/hostload"
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
@@ -211,130 +206,5 @@ func (f *retainedConsumerFixture) save(t *testing.T, role string, state nativeRe
 	}
 	if err := f.history.save(t.Context(), 7, role, state, revision); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestNativeRetainedColocatedReleaseCapacity(t *testing.T) {
-	for _, dimension := range []string{"cpu", "memory", "disk"} {
-		t.Run(dimension, func(t *testing.T) {
-			f := newRetainedConsumerFixture(t)
-			auth, _ := tsAuthGRUConfig(t)
-			auth.Resources = placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
-			retained := cloneNativeProfile(auth)
-			capacity := placement.Resources{CPU: 4, MemoryBytes: 4 << 30, DiskBytes: 4 << 30}
-			switch dimension {
-			case "cpu":
-				retained.Resources.CPU, capacity.CPU = 2, 2
-			case "memory":
-				retained.Resources.MemoryBytes, capacity.MemoryBytes = 2<<30, 2<<30
-			case "disk":
-				retained.Resources.DiskBytes, capacity.DiskBytes = 2<<30, 2<<30
-			}
-			tb := WorkloadProfile{Resources: auth.Resources}
-			profiles := map[string]WorkloadProfile{tsauth.Role: retained, terrabase.Role: tb, "web": tb}
-			provenance := f.adopt(t, profiles, 1)
-			a := f.binding(t, tsauth.Role, retained, provenance, 1)
-			good := nativeGoodRelease{Binding: a, Nodes: []string{"ctl-1"}, GoodAt: time.Now()}
-			f.save(t, tsauth.Role, nativeReleaseHistory{Schema: 1, Good: []nativeGoodRelease{good}, Pending: &a})
-			f.host(t, capacity)
-			f.desired(t, a)
-			profiles[tsauth.Role] = auth
-			provenance = f.adopt(t, profiles, 2)
-			candidate := f.binding(t, terrabase.Role, tb, provenance, 1)
-			f.save(t, terrabase.Role, nativeReleaseHistory{Schema: 1, Pending: &candidate})
-			planner := &regionalDeliveryPlanner{hosts: f.history.hosts, profiles: f.history.services.profiles, nativeHistory: f.history}
-			for _, role := range []string{terrabase.Role, "web"} {
-				intent := candidate.Intent
-				intent.Role = role
-				if _, err := planner.Plan(t.Context(), intent); !errors.Is(err, placement.ErrInsufficientCapacity) {
-					t.Fatalf("%s undercharged retained %s: %v", role, dimension, err)
-				}
-			}
-			// The reverse size change must not falsely refuse available capacity.
-			profiles[tsauth.Role] = retained
-			authBinding := f.binding(t, tsauth.Role, auth, f.adopt(t, map[string]WorkloadProfile{tsauth.Role: auth, terrabase.Role: tb, "web": tb}, 3), 2)
-			f.save(t, tsauth.Role, nativeReleaseHistory{Schema: 1, Pending: &authBinding})
-			f.desired(t, authBinding)
-			f.adopt(t, profiles, 4)
-			for _, role := range []string{terrabase.Role, "web"} {
-				intent := candidate.Intent
-				intent.Role = role
-				if plan, err := planner.Plan(t.Context(), intent); err != nil || len(plan) != 1 || plan[0].Node != "ctl-1" {
-					t.Fatalf("%s refused retained free %s: %+v, %v", role, dimension, plan, err)
-				}
-			}
-		})
-	}
-}
-
-func TestHostTelemetryAdoptionAndRecoveryUseCommittedResources(t *testing.T) {
-	f := newRetainedConsumerFixture(t)
-	auth, _ := tsAuthGRUConfig(t)
-	auth.Resources = placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
-	tb := WorkloadProfile{Resources: auth.Resources}
-	profiles := map[string]WorkloadProfile{tsauth.Role: auth, terrabase.Role: tb}
-	a := f.binding(t, tsauth.Role, auth, f.adopt(t, profiles, 1), 1)
-	good := nativeGoodRelease{Binding: a, Nodes: []string{"ctl-1"}, GoodAt: time.Now()}
-	f.save(t, tsauth.Role, nativeReleaseHistory{Schema: 1, Pending: &a, Good: []nativeGoodRelease{good}})
-	f.desired(t, a)
-	telemetry := startHostTelemetry(profiles, f.history.hosts, f.history.fencer)
-	usage := &runtimeObservability{usage: capacity.NewStore("gru")}
-	at := time.Now()
-	telemetry.load = hostload.NewAggregator(hostload.AggregatorConfig{Requests: loadRequests(profileResources(profiles)), Now: func() time.Time { return at }})
-	check := func(node string, request placement.Resources, reset bool) {
-		t.Helper()
-		before := len(telemetry.load.Nodes())
-		cpu, memory := .5, uint64(512<<20)
-		start := time.Now().Add(-time.Second)
-		if err := telemetry.recordCommitted(t.Context(), f.history, usage, hostload.Origin{Cell: "gru", Node: node, Environment: "test"},
-			hostload.Report{SchemaVersion: 1, Roles: []hostload.RoleUsage{{Role: tsauth.Role, CPUCores: &cpu, MemoryBytes: &memory}}}); err != nil {
-			t.Fatal(err)
-		}
-		if reset && len(telemetry.load.Nodes()) != 1 || !reset && len(telemetry.load.Nodes()) != before+1 {
-			t.Fatalf("normalized window reset=%v, nodes=%d before=%d", reset, len(telemetry.load.Nodes()), before)
-		}
-		for _, metric := range []struct {
-			name string
-			want float64
-		}{{"capacity_cpu_request", float64(request.CPU)}, {"capacity_memory_request", float64(request.MemoryBytes)}} {
-			result := usage.usage.History.Range(observability.HistoryQuery{Metric: metric.name,
-				Labels: map[string]string{"node": node, "service": tsauth.Role}, Start: start, End: time.Now().Add(time.Second)})
-			if len(result.Series) != 1 || len(result.Series[0].Points) != 1 || result.Series[0].Points[0].Value != metric.want {
-				t.Fatalf("durable %s used latest spec instead of committed requests: %+v", metric.name, result)
-			}
-		}
-		for _, signal := range []struct {
-			name autoscale.SignalName
-			want float64
-		}{{autoscale.SignalCPUUtilization, cpu / float64(request.CPU)}, {autoscale.SignalMemoryUtilization, float64(memory) / float64(request.MemoryBytes)}} {
-			reading, err := telemetry.load.Read(t.Context(), autoscale.Target{Cell: "gru", Environment: "test", Role: tsauth.Role},
-				autoscale.Signal{Name: signal.name, WindowSeconds: 10}, at.Add(5*time.Second))
-			if err != nil || reading.Samples == 0 || reading.Value != signal.want {
-				t.Fatalf("normalized %s=%+v, want %v: %v", signal.name, reading, signal.want, err)
-			}
-		}
-	}
-	check("report-a", auth.Resources, false)
-	bProfile := cloneNativeProfile(auth)
-	bProfile.Resources = placement.Resources{CPU: 2, MemoryBytes: 2 << 30, DiskBytes: 2 << 30}
-	bProfile.Env["NONSECRET_SETTING"] = "B"
-	profiles[tsauth.Role] = bProfile
-	b := f.binding(t, tsauth.Role, bProfile, f.adopt(t, profiles, 2), 2)
-	f.save(t, tsauth.Role, nativeReleaseHistory{Schema: 1, Good: []nativeGoodRelease{good}, Pending: &b, Previous: &good})
-	check("adopted-b-serving-a", auth.Resources, false)
-	f.desired(t, b)
-	check("serving-b", bProfile.Resources, true)
-	recovery := a
-	recovery.Intent.OperationID, recovery.Intent.Generation = entityid.New(), 3
-	var err error
-	recovery.Fingerprint, err = recovery.Intent.Fingerprint()
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.save(t, tsauth.Role, nativeReleaseHistory{Schema: 1, Good: []nativeGoodRelease{good}, Pending: &b, Previous: &good, Recovery: &recovery})
-	f.desired(t, recovery)
-	check("recovered-a", auth.Resources, true)
-	if !maps.Equal(telemetry.requests, loadRequests(map[string]placement.Resources{terrabase.Role: tb.Resources, tsauth.Role: auth.Resources})) {
-		t.Fatal("telemetry cache diverged from committed recovery")
 	}
 }

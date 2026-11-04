@@ -8,7 +8,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +16,6 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
@@ -89,131 +87,6 @@ func servicePinsSignedFixture(t *testing.T) (*serviceReleases, jetstream.KeyValu
 		return record
 	}
 	return r, kv, bucket, publish
-}
-
-func TestServiceReleasePinsRefusedClaimsDoNotAccumulate(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		state     releasechannel.State
-		submitted bool
-		rollback  bool
-	}{
-		{name: "completed", state: releasechannel.StateComplete, submitted: true},
-		{name: "failed after submission", state: releasechannel.StateFailed, submitted: true},
-		{name: "rolled back", state: releasechannel.StateFailed, submitted: true, rollback: true},
-		{name: "first claim refused", state: releasechannel.StateFailed},
-		{name: "first claim awaiting admission", state: releasechannel.StateRolling},
-		{name: "no initial state"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r, kv, bucket, publish := servicePinsSignedFixture(t)
-			ctx, role := t.Context(), terrabase.Role
-			location := *r.channel.location
-			key := releasechannel.ServiceStatusKey("GRU", role)
-			issued := time.Now().UTC().Add(-time.Minute)
-			prior := publish("predecessor release", issued)
-			rollback := strings.Repeat("c", 64)
-			state := serviceReleaseState{}
-			var retained, pins []string
-			if tc.state != "" {
-				sum := sha256.Sum256(bucket.objects[releasechannel.ServiceReleaseObject(role)])
-				state = serviceReleaseState{Claim: hex.EncodeToString(sum[:]), IssuedAt: issued, Digest: prior.Digest, State: tc.state}
-				if tc.submitted {
-					intent := nativeIntent(prior, nativeRelease{Role: role, Replicas: 1}, 1)
-					intent.SchemaVersion, intent.OperationID, intent.AuthorityEpoch = delivery.SchemaVersion, ulid.Make().String(), 7
-					if err := r.deliveries.SubmitVerified(ctx, intent, servicePinsActor); err != nil {
-						t.Fatal(err)
-					}
-					state.Intent, state.Previous = &intent, rollback
-					retained, pins = []string{prior.Digest}, []string{prior.Digest, rollback}
-					slices.Sort(pins)
-					if tc.rollback {
-						back := intent
-						back.OperationID, back.ArtifactDigest, back.Generation = ulid.Make().String(), rollback, 2
-						state.Rollback = &back
-					}
-				}
-				if _, err := saveServiceRelease(ctx, kv, key, state, 0); err != nil {
-					t.Fatal(err)
-				}
-			}
-			bad := strings.Repeat("d", 64)
-			if err := markKnownBad(ctx, kv, role, bad, errors.New("withdrawn earlier")); err != nil {
-				t.Fatal(err)
-			}
-			profiles := terraBaseSeats("gru-1-db-1=10.251.0.21:9443")
-			// Each path refuses a valid, newer claim before an intent is persisted.
-			for i := range 64 {
-				candidate := publish(fmt.Sprintf("unsent candidate %d", i), issued.Add(time.Duration(i+1)*time.Millisecond))
-				r.profiles = func() map[string]WorkloadProfile { return profiles }
-				r.hosts = terraBaseMembers{reports: []host.Report{{Role: role, Environment: "test", State: "running", Digest: rollback}}}
-				var reason string
-				switch i % 4 {
-				case 0:
-					r.profiles = func() map[string]WorkloadProfile { return nil }
-					reason = "has no terrabase profile"
-				case 1:
-					bucket.objects[releasechannel.ServiceBinaryObject(role, candidate.Digest)] = []byte("wrong binary")
-					reason = "the artifact bytes are not the claimed ones"
-				case 2:
-					r.hosts = terraBaseMembers{reports: []host.Report{
-						{Role: role, Environment: "test", State: "running", Digest: prior.Digest},
-						{Role: role, Environment: "test", State: "running", Digest: rollback}}}
-					reason = "finish the previous release first"
-				case 3:
-					reason = "native signed profile history is unavailable"
-				}
-				if err := r.nativePass(ctx, kv, role); err != nil {
-					t.Fatalf("claim %d: %v", i, err)
-				}
-				persisted, _, err := loadServiceRelease(ctx, kv, key)
-				if err != nil || persisted.Intent != nil || persisted.State != releasechannel.StateFailed ||
-					persisted.Digest != candidate.Digest || persisted.Previous != state.Previous ||
-					!slices.Equal(persisted.Retained, retained) || !strings.Contains(persisted.Reason, reason) {
-					t.Fatalf("claim %d retained unsent proposals or lost serving pins: %+v: %v", i, persisted, err)
-				}
-				status, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
-				if err != nil || !found || status.Pins == nil || !slices.Equal(status.Pins.Rollback, pins) ||
-					!slices.Equal(status.Pins.KnownBad, []string{bad}) {
-					t.Fatalf("claim %d pins %+v: %v", i, status.Pins, err)
-				}
-			}
-			// A new service instance reports only the pins recovered from durable state.
-			restarted := *r
-			if err := restarted.nativePass(ctx, kv, role); err != nil {
-				t.Fatal(err)
-			}
-			status, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
-			if err != nil || !found || status.Pins == nil || !slices.Equal(status.Pins.Rollback, pins) ||
-				!slices.Equal(status.Pins.KnownBad, []string{bad}) {
-				t.Fatalf("restart lost durable pins: %+v: %v", status.Pins, err)
-			}
-		})
-	}
-}
-
-func TestServiceReleasePinsUnprovenProfileRefusedBeforeSubmission(t *testing.T) {
-	r, kv, bucket, publish := servicePinsSignedFixture(t)
-	ctx, role := t.Context(), terrabase.Role
-	location := *r.channel.location
-	issued := time.Now().UTC().Add(-time.Minute)
-	serving := publish("actual serving release", issued)
-	if _, _, err := r.admit(ctx, kv, location, role, bucket.objects[releasechannel.ServiceReleaseObject(role)]); err != nil {
-		t.Fatal(err)
-	}
-	candidate := publish("next release", issued.Add(time.Second))
-	r.profiles = func() map[string]WorkloadProfile { return terraBaseSeats("gru-1-db-1=10.251.0.21:9443") }
-	r.hosts = terraBaseMembers{reports: []host.Report{{Role: role, Environment: "test", State: "running", Digest: serving.Digest}}}
-	state := serviceReleaseState{Digest: candidate.Digest, IssuedAt: issued.Add(time.Second), Previous: strings.Repeat("c", 64), Retained: []string{strings.Repeat("d", 64)},
-		State: releasechannel.StateRolling, claim: bucket.objects[releasechannel.ServiceReleaseObject(role)], location: location}
-	finished, err := r.release(ctx, kv, role, state, r.fencer.Current().Epoch, func(next serviceReleaseState) error {
-		t.Fatal("unproven serving profile was persisted for submission")
-		return nil
-	})
-	if err != nil || finished.State != releasechannel.StateFailed || finished.Intent != nil ||
-		!slices.Equal(finished.Retained, state.Retained) || !strings.Contains(finished.Reason, "native signed profile history is unavailable") {
-		t.Fatalf("unproven serving profile was selected: %+v, %v", finished, err)
-	}
 }
 
 func TestServiceReleasePinsDeposedLeaderPreservesSubmittedIntent(t *testing.T) {

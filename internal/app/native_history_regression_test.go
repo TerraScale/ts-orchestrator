@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -12,12 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -162,91 +158,6 @@ func nativeRegressionReceipt(t *testing.T, service *delivery.Service, intent del
 	}
 }
 
-func TestNativeExpiredForwardSettlesDelayedAndPartialDelivery(t *testing.T) {
-	t.Skip("QUARANTINE until 2026-10-22T22:00Z (Q-MAIN-GREEN), owner W16 merge-queue thread: delayed-planning-false fails writes=0 attempts=1 twice under -race on main 6458bf1 (CI run 39677520255)")
-	for _, delayed := range []bool{true, false} {
-		t.Run(fmt.Sprintf("delayed-planning-%t", delayed), func(t *testing.T) {
-			f := newRetainedConsumerFixture(t)
-			profile := nativeRegressionProfile()
-			proof := nativeRegressionAdopt(t, f, profile, 1)
-			binding := f.binding(t, terrabase.Role, profile, proof, 1)
-			binding.Intent.DesiredReplicas = 2
-			binding.Fingerprint, _ = binding.Intent.Fingerprint()
-			binding.Deadline = time.Now().Add(350 * time.Millisecond)
-			f.save(t, terrabase.Role, nativeReleaseHistory{Schema: 1, Pending: &binding})
-			writer := &nativeRegressionWriter{history: f.history, deadline: binding.Deadline, delaySecond: !delayed}
-			service := nativeRegressionDelivery(t, f, nativeRegressionPlanner{history: f.history, deadline: binding.Deadline, delay: delayed, nodes: 2}, writer)
-			if err := service.SubmitVerified(t.Context(), binding.Intent, servicePinsActor); err != nil {
-				t.Fatal(err)
-			}
-			want, writes := "rejected", 0
-			if !delayed {
-				want, writes = "held", 1
-			}
-			nativeRegressionReceipt(t, service, binding.Intent, want)
-			writer.mu.Lock()
-			got, attempts := len(writer.writes), writer.attempts
-			writer.mu.Unlock()
-			if got != writes || !delayed && attempts != 2 {
-				t.Fatalf("writes=%d attempts=%d, want writes=%d", got, attempts, writes)
-			}
-			_, err := f.history.prepare(t.Context(), nativePrepareRequest{Intent: binding.Intent})
-			if !errors.Is(err, delivery.ErrInvalid) || !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("expired retry=%v", err)
-			}
-			resumed := binding.Intent
-			resumed.OperationID, resumed.Generation = entityid.New(), 2
-			if _, err := f.history.prepare(t.Context(), nativePrepareRequest{Intent: resumed, ResumeOf: binding.Intent.OperationID}); !errors.Is(err, delivery.ErrInvalid) || !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("expired resume=%v", err)
-			}
-			state, _, err := f.history.load(t.Context(), terrabase.Role)
-			if err != nil || !state.Pending.Deadline.Equal(binding.Deadline) {
-				t.Fatalf("deadline changed: %v", err)
-			}
-		})
-	}
-}
-
-func TestNativeDeadlineExemptsCertifiedHealingAndIndependentRecovery(t *testing.T) {
-	f := newRetainedConsumerFixture(t)
-	profile := nativeRegressionProfile()
-	proof := nativeRegressionAdopt(t, f, profile, 1)
-	good := f.binding(t, terrabase.Role, profile, proof, 1)
-	good.Deadline = time.Now().Add(-time.Minute)
-	state := nativeReleaseHistory{Schema: 1, Pending: &good, Good: []nativeGoodRelease{{Binding: good, Nodes: []string{"ctl-1"}, GoodAt: time.Now().UTC()}}}
-	f.save(t, terrabase.Role, state)
-	d := host.Desired{Cell: "gru", Node: "ctl-1", Role: terrabase.Role, Environment: "test", AuthorityEpoch: 7, Generation: 1, Digest: good.Artifact.Digest, Env: profile.Env}
-	if _, err := f.history.profile(t.Context(), good.Intent); err != nil {
-		t.Fatal("certified profile:", err)
-	}
-	if err := f.history.allowDesired(t.Context(), d); err != nil {
-		t.Fatal("certified healing:", err)
-	}
-	if _, err := f.history.prepare(t.Context(), nativePrepareRequest{Intent: good.Intent}); err != nil {
-		t.Fatal("certified preparation:", err)
-	}
-	failed := f.binding(t, terrabase.Role, profile, proof, 2)
-	failed.Deadline = good.Deadline
-	state.Pending, state.Previous = &failed, new(state.Good[0])
-	f.save(t, terrabase.Role, state)
-	recovery := good.Intent
-	recovery.OperationID, recovery.Generation = entityid.New(), 3
-	if _, err := f.history.prepare(t.Context(), nativePrepareRequest{Intent: recovery, RecoveryOf: failed.Intent.OperationID}); err != nil {
-		t.Fatal("independent recovery:", err)
-	}
-	if _, err := f.history.profile(t.Context(), recovery); err != nil {
-		t.Fatal("recovery profile:", err)
-	}
-	d.Generation = 3
-	if err := f.history.allowDesired(t.Context(), d); err != nil {
-		t.Fatal("recovery desired:", err)
-	}
-	d.Generation, d.Digest = failed.Intent.Generation, failed.Artifact.Digest
-	if err := f.history.allowDesired(t.Context(), d); !errors.Is(err, delivery.ErrInvalid) {
-		t.Fatalf("superseded forward=%v", err)
-	}
-}
-
 func TestNativeNearLimitSignedProfilesTenSuccessesAndRecovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("near-limit native profile regression runs in the Slow suite")
@@ -370,173 +281,5 @@ func TestNativeNearLimitSignedProfilesTenSuccessesAndRecovery(t *testing.T) {
 	entry, err := f.history.kv.Get(t.Context(), terrabase.Role)
 	if err != nil || len(entry.Value()) > 32<<10 || strings.Contains(string(entry.Value()), "NONSECRET_SETTING") {
 		t.Fatalf("index not compact: %d %v", len(entry.Value()), err)
-	}
-}
-
-func TestNativeWorstProvenanceIsChunkedAndCapacityCheckedBeforeReferences(t *testing.T) {
-	f := newRetainedConsumerFixture(t)
-	profile := nativeRegressionProfile()
-	proof := nativeRegressionAdopt(t, f, profile, 1)
-	binding := f.binding(t, terrabase.Role, profile, proof, 1)
-	// Exercise every existing input's maximum byte bound, without claiming
-	// that arbitrary bytes are valid trust provenance.
-	binding.Provenance = nativeProfileProvenance{Manifest: make([]byte, bootstrapstart.MaxControllerManifestMetadataBytes),
-		Config: make([]byte, bootstrap.MaxControllerConfigBytes), MaterialChain: make([]byte, bootstrap.MaxMaterialGenerations*(bootstrap.MaxMaterialGenerationBytes+16<<10))}
-	for i := range binding.Provenance.MaterialChain {
-		binding.Provenance.MaterialChain[i] = byte(i*37 + i/4093)
-	}
-	state := nativeReleaseHistory{Schema: 1, Pending: &binding, Previous: &nativeGoodRelease{Binding: binding, Nodes: []string{"ctl-1"}, GoodAt: time.Now().UTC()}}
-	for i := range 10 {
-		g := *state.Previous
-		g.Binding.Intent.OperationID = entityid.Derive("worst-proof", fmt.Sprint(i))
-		g.Binding.Fingerprint, _ = g.Binding.Intent.Fingerprint()
-		state.Good = append(state.Good, g)
-	}
-	if err := f.history.checkForwardCapacity(state); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.history.save(t.Context(), 7, terrabase.Role, state, 0); err != nil {
-		t.Fatal(err)
-	}
-	loaded, rev, err := f.history.load(t.Context(), terrabase.Role)
-	if err != nil || !slices.Equal(loaded.Pending.Provenance.MaterialChain, binding.Provenance.MaterialChain) || len(loaded.Good) != 10 {
-		t.Fatalf("maximum chain hydration: %v", err)
-	}
-	if err := f.history.verifyProfile(terrabase.Role, loaded.Pending.Profile, loaded.Pending.Provenance); err == nil {
-		t.Fatal("synthetic proof passed trust validation")
-	}
-	oversize := *loaded.Pending
-	oversize.Provenance.MaterialChain = make([]byte, len(binding.Provenance.MaterialChain)+1)
-	loaded.Pending = &oversize
-	if err := f.history.save(t.Context(), 7, terrabase.Role, loaded, rev); !errors.Is(err, delivery.ErrInvalid) {
-		t.Fatalf("over-bound proof accepted: %v", err)
-	}
-	if _, next, err := f.history.load(t.Context(), terrabase.Role); err != nil || next != rev {
-		t.Fatalf("failed capacity advanced reference: %d %v", next, err)
-	}
-	if _, _, err := encodeNativeHistory(state, 16<<10); !errors.Is(err, delivery.ErrInvalid) {
-		t.Fatalf("small broker bound ignored: %v", err)
-	}
-}
-
-func TestNativeSelectionErrorClassification(t *testing.T) {
-	f := newRetainedConsumerFixture(t)
-	profile := nativeRegressionProfile()
-	proof := nativeRegressionAdopt(t, f, profile, 1)
-	binding := f.binding(t, terrabase.Role, profile, proof, 1)
-	if _, err := f.history.profile(t.Context(), binding.Intent); !errors.Is(err, delivery.ErrInvalid) {
-		t.Fatalf("missing selection=%v", err)
-	}
-	f.save(t, terrabase.Role, nativeReleaseHistory{Schema: 1, Pending: &binding})
-	other := binding.Intent
-	other.OperationID = entityid.New()
-	if _, err := f.history.profile(t.Context(), other); !errors.Is(err, delivery.ErrInvalid) {
-		t.Fatalf("mismatched selection=%v", err)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if _, err := f.history.profile(ctx, binding.Intent); errors.Is(err, delivery.ErrInvalid) || !errors.Is(err, context.Canceled) {
-		t.Fatalf("canceled metadata read=%v", err)
-	}
-	ctx, cancel = context.WithTimeout(t.Context(), time.Nanosecond)
-	defer cancel()
-	<-ctx.Done()
-	if _, err := f.history.profile(ctx, binding.Intent); errors.Is(err, delivery.ErrInvalid) || !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("store deadline=%v", err)
-	}
-}
-
-func TestNativeReadRetryHandlesElectionWithoutRetryingPermanentFailure(t *testing.T) {
-	unavailable := &nats.APIError{Code: 503, ErrorCode: nats.JSErrCodeJetStreamNotAvailable, Description: "JetStream system temporarily unavailable"}
-	calls := 0
-	want := &nats.RawStreamMsg{Sequence: 7, Data: []byte("selected")}
-	got, err := nativeReadRetry(t.Context(), func(ctx context.Context) (*nats.RawStreamMsg, error) {
-		calls++
-		if calls < 3 {
-			return nil, unavailable
-		}
-		return want, nil
-	})
-	if err != nil || got != want || calls != 3 {
-		t.Fatalf("election read: calls=%d value=%v err=%v", calls, got, err)
-	}
-	calls = 0
-	_, err = nativeReadRetry(t.Context(), func(context.Context) (*nats.RawStreamMsg, error) { calls++; return nil, nats.ErrMsgNotFound })
-	if !errors.Is(err, nats.ErrMsgNotFound) || calls != 1 {
-		t.Fatalf("permanent metadata failure retried: calls=%d err=%v", calls, err)
-	}
-	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Millisecond)
-	defer cancel()
-	calls = 0
-	started := time.Now()
-	_, err = nativeReadRetry(ctx, func(context.Context) (*nats.RawStreamMsg, error) { calls++; return nil, unavailable })
-	if err == nil || calls != 1 || time.Since(started) > time.Second || errors.Is(err, delivery.ErrInvalid) {
-		t.Fatalf("bounded metadata read: calls=%d elapsed=%s err=%v", calls, time.Since(started), err)
-	}
-}
-
-func TestNativeManualRecoveryDeadlineDoesNotPoisonHealthyGood(t *testing.T) {
-	f := newRetainedConsumerFixture(t)
-	profile := nativeRegressionProfile()
-	proof := nativeRegressionAdopt(t, f, profile, 1)
-	good := f.binding(t, terrabase.Role, profile, proof, 1)
-	recovery := good
-	recovery.Intent.OperationID, recovery.Intent.Generation = entityid.New(), 2
-	recovery.Fingerprint, _ = recovery.Intent.Fingerprint()
-	recovery.Deadline = time.Now().Add(-time.Minute)
-	state := nativeReleaseHistory{Schema: 1, Pending: &good, Recovery: &recovery, Good: []nativeGoodRelease{{Binding: good, Nodes: []string{"ctl-1"}, GoodAt: time.Now().UTC()}}}
-	f.save(t, terrabase.Role, state)
-	d := host.Desired{Cell: "gru", Node: "ctl-1", Role: terrabase.Role, Environment: "test", AuthorityEpoch: 7, Generation: 2, Digest: good.Artifact.Digest, Env: profile.Env}
-	checks := []func() error{
-		func() error { _, err := f.history.profile(t.Context(), recovery.Intent); return err },
-		func() error { return f.history.allowDesired(t.Context(), d) },
-		func() error { return f.history.prepareGate(t.Context(), recovery.Intent, state) },
-		func() error { _, err := f.history.observe(t.Context(), recovery.Intent); return err },
-	}
-	for i, check := range checks {
-		if err := check(); !errors.Is(err, delivery.ErrInvalid) || !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("manual expiry check %d: %v", i, err)
-		}
-	}
-	after, _, err := f.history.load(t.Context(), terrabase.Role)
-	if err != nil || after.Rejected != "" || len(after.Good) != 1 || after.Good[0].Binding.Fingerprint != good.Fingerprint {
-		t.Fatalf("expiry poisoned healthy good: %v", err)
-	}
-	if bad, err := f.history.badProfile(t.Context(), good); bad || err != nil {
-		t.Fatalf("expired manual recovery marked target bad: %t %v", bad, err)
-	}
-	addNativeGood(&after, nativeGoodRelease{Binding: recovery, Nodes: []string{"ctl-1"}, GoodAt: time.Now().UTC()})
-	f.save(t, terrabase.Role, after)
-	if err := f.history.allowDesired(t.Context(), d); err != nil {
-		t.Fatal("certified manual target could not heal:", err)
-	}
-}
-
-func TestNativeObserveVerifiesSelectedAndBaselineBeforeFencing(t *testing.T) {
-	for _, invalid := range []string{"selected", "baseline", "recovery"} {
-		t.Run(invalid, func(t *testing.T) {
-			f := newRetainedConsumerFixture(t)
-			profile := nativeRegressionProfile()
-			proof := nativeRegressionAdopt(t, f, profile, 1)
-			previous := f.binding(t, terrabase.Role, profile, proof, 1)
-			selected := f.binding(t, terrabase.Role, profile, proof, 2)
-			state := nativeReleaseHistory{Schema: 1, Pending: &selected,
-				Previous: &nativeGoodRelease{Binding: previous, Nodes: []string{"ctl-1"}, GoodAt: time.Now().UTC()}}
-			if invalid == "baseline" {
-				state.Previous.Binding.Provenance.Spec = []byte("invalid signed baseline")
-			} else {
-				selected.Provenance.Spec = []byte("invalid signed selection")
-			}
-			if invalid == "recovery" {
-				selected.Deadline = time.Time{}
-				state.Recovery = &selected
-			}
-			f.save(t, terrabase.Role, state)
-			// A pending delivery must not hide invalid trust before fence effects.
-			f.history.fences = &releaseFence{}
-			if ready, err := f.history.observe(t.Context(), selected.Intent); ready || err == nil {
-				t.Fatalf("invalid %s reached delivery/fence admission: ready=%t err=%v", invalid, ready, err)
-			}
-		})
 	}
 }

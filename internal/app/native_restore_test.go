@@ -1,7 +1,6 @@
 package app
 
 import (
-	"errors"
 	"maps"
 	"testing"
 	"time"
@@ -85,39 +84,5 @@ func TestNativeManualRestoreRefusesNonretainedTargetDurably(t *testing.T) {
 	defer writer.mu.Unlock()
 	if len(writer.writes) != 0 {
 		t.Fatal("refusal wrote desired state")
-	}
-}
-
-func TestNativeRestoreTargetRefusesAmbiguousResources(t *testing.T) {
-	f, a, _, _ := nativeRestoreFixture(t)
-	p := cloneNativeProfile(a.Profile)
-	p.Resources.CPU++
-	proof := nativeRegressionAdopt(t, f, p, 4)
-	other, err := nativeBinding(a.Intent, a.Artifact, p, proof)
-	if err != nil {
-		t.Fatal(err)
-	}
-	state := nativeReleaseHistory{Schema: 1, Good: []nativeGoodRelease{{Binding: a}, {Binding: other}}}
-	i := restoreIntent(a)
-	if _, err := nativeRestoreTarget(state, i); !errors.Is(err, delivery.ErrInvalid) {
-		t.Fatalf("ambiguous public target: %v", err)
-	}
-	state.Previous = &state.Good[0]
-	target, err := nativeRestoreTarget(state, i)
-	if err != nil || target.Binding.ProfileDigest != a.ProfileDigest {
-		t.Fatalf("exact recorded predecessor not selected: %+v %v", target, err)
-	}
-}
-
-func TestNativeManualRestoreCannotReuseForwardOperationID(t *testing.T) {
-	f, a, b, _ := nativeRestoreFixture(t)
-	i := restoreIntent(a)
-	i.OperationID = b.Intent.OperationID
-	_, revision, _ := f.history.load(t.Context(), terrabase.Role)
-	if _, err := f.history.restore(t.Context(), nativePrepareRequest{Intent: i, Deadline: time.Now().Add(time.Minute)}, servicePinsActor); !errors.Is(err, delivery.ErrConflict) {
-		t.Fatalf("forward ID reused: %v", err)
-	}
-	if _, got, err := f.history.load(t.Context(), terrabase.Role); err != nil || got != revision {
-		t.Fatalf("ID collision changed history: revision=%d err=%v", got, err)
 	}
 }

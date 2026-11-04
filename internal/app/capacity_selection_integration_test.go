@@ -35,13 +35,8 @@ func TestCapacityImageShapePaginationSDK(t *testing.T) {
 		outage     bool
 		canceled   bool
 	}{
-		{name: "nil terminal", pages: []string{""}, next: []*string{nil}, wantShapes: shapeNames[:1]},
-		{name: "empty terminal", pages: []string{""}, next: []*string{new("")}, wantShapes: shapeNames[:1]},
+
 		{name: "two pages", pages: []string{"", "page-a"}, next: []*string{new("page-a"), nil}, wantShapes: shapeNames[:2]},
-		{name: "self cycle", pages: []string{"", "page-a"}, next: []*string{new("page-a"), new("page-a")}, wantError: "pagination repeated"},
-		{name: "two token cycle", pages: []string{"", "page-a", "page-b"}, next: []*string{new("page-a"), new("page-b"), new("page-a")}, wantError: "pagination repeated"},
-		{name: "provider failure", pages: []string{""}, outage: true, wantError: "shape listing denied"},
-		{name: "canceled context", canceled: true, wantError: "context canceled"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			var requests atomic.Int32

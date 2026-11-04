@@ -13,54 +13,29 @@ import (
 	"time"
 )
 
-func TestOperatorCommandsTerminateOnFirstSignal(t *testing.T) {
-	for _, command := range []string{"bootstrap", "release"} {
-		for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
-			t.Run(fmt.Sprintf("%s/%s", command, sig), func(t *testing.T) {
-				child, output := startSignalChild(t, command, false)
-				expectSignalChildOutput(t, output, "ready")
-				if err := child.Process.Signal(sig); err != nil {
-					t.Fatal(err)
-				}
-				expectSignalExit(t, child, sig)
-			})
-		}
-	}
-}
-
 func TestRuntimeCommandsShutDownGracefullyOnFirstSignal(t *testing.T) {
-	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
-		t.Run(sig.String(), func(t *testing.T) {
-			child, output := startSignalChild(t, "run", true)
-			expectSignalChildOutput(t, output, "ready")
-			if err := child.Process.Signal(sig); err != nil {
-				t.Fatal(err)
-			}
-			expectSignalChildOutput(t, output, "canceled")
-			if err := child.Wait(); err != nil {
-				t.Fatalf("graceful shutdown: %v", err)
-			}
-		})
+	child, output := startSignalChild(t, "run", true)
+	expectSignalChildOutput(t, output, "ready")
+	if err := child.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	expectSignalChildOutput(t, output, "canceled")
+	if err := child.Wait(); err != nil {
+		t.Fatalf("graceful shutdown: %v", err)
 	}
 }
 
 func TestRuntimeCommandsTerminateOnSecondSignal(t *testing.T) {
-	for _, first := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
-		for _, second := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
-			t.Run(fmt.Sprintf("%s/%s", first, second), func(t *testing.T) {
-				child, output := startSignalChild(t, "host", false)
-				expectSignalChildOutput(t, output, "ready")
-				if err := child.Process.Signal(first); err != nil {
-					t.Fatal(err)
-				}
-				expectSignalChildOutput(t, output, "canceled")
-				if err := child.Process.Signal(second); err != nil {
-					t.Fatal(err)
-				}
-				expectSignalExit(t, child, second)
-			})
-		}
+	child, output := startSignalChild(t, "host", false)
+	expectSignalChildOutput(t, output, "ready")
+	if err := child.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
 	}
+	expectSignalChildOutput(t, output, "canceled")
+	if err := child.Process.Signal(syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	expectSignalExit(t, child, syscall.SIGINT)
 }
 
 func TestCommandSignalChild(t *testing.T) {

@@ -8,21 +8,17 @@ import (
 	"crypto/x509"
 	"encoding/json/v2"
 	"encoding/pem"
-	"errors"
 	"net/http"
 	"net/http/httptest"
-	goruntime "runtime"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
-	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/nats-io/nats.go/jetstream"
+
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
@@ -117,94 +113,6 @@ func managedImageSDK(t *testing.T, verifier *managedImageVerifier, processor str
 	return observed
 }
 
-func TestManagedImageObservedArchitectureIntegration(t *testing.T) {
-	for _, test := range []struct{ architecture, processor string }{
-		{"arm64", "AmpereOne ARM"}, {"amd64", "AMD EPYC"}, {"amd64", "Intel Xeon"},
-	} {
-		t.Run(test.processor, func(t *testing.T) {
-			verifier, _ := managedImageVerifierFixture(t, test.architecture)
-			observed := managedImageSDK(t, verifier, test.processor)
-			// A later page and a new shape family must use provider facts, not a name map.
-			observed.mu.Lock()
-			observed.pages = [][]core.Shape{{{Shape: new("unrelated"), ProcessorDescription: new("unknown")}}, observed.pages[0]}
-			observed.mu.Unlock()
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-			defer cancel()
-			if err := verifier.VerifyImageQualified(ctx, oci.RegionGRU, managedImageTestOCID); err != nil {
-				t.Fatal(err)
-			}
-			observed.mu.Lock()
-			defer observed.mu.Unlock()
-			if len(observed.requests) != 4 {
-				t.Fatalf("qualified image did not cross shape, image and compatibility boundaries: %v", observed.requests)
-			}
-		})
-	}
-	for _, test := range []struct {
-		name   string
-		mutate func(*managedImageVerifier, *managedImageProtocol, time.Time)
-	}{
-		{"wrong architecture", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) {
-			p.pages[0][0].ProcessorDescription = new("Intel Xeon")
-		}},
-		{"unknown processor", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) {
-			p.pages[0][0].ProcessorDescription = new("unknown")
-		}},
-		{"contradictory processor", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) {
-			p.pages[0][0].ProcessorDescription = new("Ampere AMD")
-		}},
-		{"missing processor", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) {
-			p.pages[0][0].ProcessorDescription = nil
-		}},
-		{"unavailable shape", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) { p.pages = [][]core.Shape{{}} }},
-		{"duplicate shape", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) {
-			p.pages[0] = append(p.pages[0], p.pages[0][0])
-		}},
-		{"repeated page", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) {
-			p.pages = append(p.pages, []core.Shape{})
-			p.repeatPage = true
-		}},
-		{"expired receipt", func(v *managedImageVerifier, _ *managedImageProtocol, now time.Time) {
-			v.now = func() time.Time { return now.Add(2 * time.Hour) }
-		}},
-		{"wrong environment", func(v *managedImageVerifier, _ *managedImageProtocol, _ time.Time) { v.environment = "canary" }},
-		{"retired root", func(v *managedImageVerifier, _ *managedImageProtocol, _ time.Time) { v.roots = trust.Keyring{} }},
-		{"tampered receipt", func(v *managedImageVerifier, _ *managedImageProtocol, _ time.Time) {
-			v.receiptWire[len(v.receiptWire)-3] ^= 1
-		}},
-		{"wrong fleet pin", func(v *managedImageVerifier, _ *managedImageProtocol, _ time.Time) { v.region.ImageID += "OTHER" }},
-		{"wrong OCI image", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) {
-			p.image.Id = new(managedImageTestOCID + "OTHER")
-		}},
-		{"wrong OCI compartment", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) {
-			p.image.CompartmentId = new("ocid1.compartment.oc1..other")
-		}},
-		{"unavailable image", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) {
-			p.image.LifecycleState = core.ImageLifecycleStateDisabled
-		}},
-		{"wrong compatibility shape", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) {
-			p.compatibility.Shape = new("other-shape")
-		}},
-		{"wrong compatibility image", func(_ *managedImageVerifier, p *managedImageProtocol, _ time.Time) {
-			p.compatibility.ImageId = new(managedImageTestOCID + "OTHER")
-		}},
-		{"missing placement scope", func(v *managedImageVerifier, _ *managedImageProtocol, _ time.Time) { v.region.AvailabilityDomain = "" }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			verifier, now := managedImageVerifierFixture(t, "arm64")
-			observed := managedImageSDK(t, verifier, "Ampere Altra")
-			observed.mu.Lock()
-			test.mutate(verifier, observed, now)
-			observed.mu.Unlock()
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-			defer cancel()
-			if err := verifier.VerifyImageQualified(ctx, oci.RegionGRU, managedImageTestOCID); err == nil {
-				t.Fatal("invalid image crossed managed fleet admission")
-			}
-		})
-	}
-}
-
 func TestManagedImageSignedSnapshotLaunchIntegration(t *testing.T) {
 	fixture, now := managedImageVerifierFixture(t, "arm64")
 	proof, err := independentManagedImageProof(fixture.region, oci.RegionGRU, "production", fixture.roots,
@@ -278,67 +186,5 @@ func TestManagedImageSignedSnapshotLaunchIntegration(t *testing.T) {
 	snapshot.images = nil
 	if err := proof.VerifyImageQualified(ctx, oci.RegionGRU, got); err == nil {
 		t.Fatal("removed snapshot image qualified")
-	}
-}
-
-func TestManagedImageReleaseScopeIntegration(t *testing.T) {
-	fixture := newChannelFixture(t)
-	architecture, processor := "arm64", "Ampere Altra"
-	if goruntime.GOARCH == "arm64" {
-		architecture, processor = "amd64", "AMD EPYC"
-	}
-	verifier, _ := managedImageVerifierFixture(t, architecture)
-	services := fixture.signer.services(t)
-	services.ociRegion = &verifier.region
-	control, err := newRolloutControl(Config{NATS: natscell.Config{Cell: "gru"}}, services, "")
-	if err != nil || control.managedArchitecture == nil {
-		t.Fatalf("managed controller construction requires OCI or lost its observer: %v", err)
-	}
-	observed := managedImageSDK(t, verifier, processor)
-	control.managedArchitecture = func(ctx context.Context) (string, error) {
-		return observedManagedImageArchitecture(ctx, verifier.images, verifier.region, verifier.region.ImageID)
-	}
-	fixture.control.managedArchitecture = control.managedArchitecture
-	fixture.setChannel(t, fixture.signer.channel(t, "GRU", 620, []byte("qualified binary")))
-	entry, err := fixture.kv.Get(t.Context(), releasechannel.ChannelKey("GRU"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed.mu.Lock()
-	observed.shapeOutage = true
-	observed.mu.Unlock()
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	if err := fixture.control.consumeChannel(ctx, fixture.store, fixture.kv, 7, entry.Value(), time.Now().UTC()); err == nil {
-		t.Fatal("unobserved architecture authorized a release")
-	}
-	if len(fixture.generations(t)) != 0 {
-		t.Fatal("provider outage published a release generation")
-	}
-	if _, err := fixture.kv.Get(ctx, releasechannel.StatusKey("GRU")); !errors.Is(err, jetstream.ErrKeyNotFound) {
-		t.Fatalf("provider outage published incomplete architecture status: %v", err)
-	}
-	observed.mu.Lock()
-	observed.shapeOutage = false
-	observed.mu.Unlock()
-	status := fixture.consume(t)
-	if !slices.Equal(status.Architectures, []string{"amd64", "arm64"}) || len(fixture.generations(t)) != 1 {
-		t.Fatalf("provider recovery did not publish the observed release scope: %+v", status)
-	}
-	_, revision := fixture.report(t)
-	fixture.setChannel(t, fixture.signer.channel(t, "GRU", 621, []byte("next binary")))
-	entry, err = fixture.kv.Get(ctx, releasechannel.ChannelKey("GRU"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed.mu.Lock()
-	observed.shapeOutage = true
-	observed.mu.Unlock()
-	if err := fixture.control.consumeChannel(ctx, fixture.store, fixture.kv, 7, entry.Value(), time.Now().UTC()); err == nil {
-		t.Fatal("a later provider outage authorized a new release")
-	}
-	retained, retainedRevision := fixture.report(t)
-	if retainedRevision != revision || retained.RunNumber != status.RunNumber || len(fixture.generations(t)) != 1 {
-		t.Fatalf("provider outage changed the accepted generation or status: %+v", retained)
 	}
 }

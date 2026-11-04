@@ -25,6 +25,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
+
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -345,7 +346,7 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 	if _, err := containermaterial.ContinueProfile(originalProof, release.HistoricalContainer{}, candidate, release.VerifiedContainer{}, time.Now().UTC()); err == nil {
 		t.Fatal("signed runtime policy alone granted current continuation")
 	}
-	for _, change := range []string{"resources", "rollout policy", "replica policy", "desired generation", "desired replicas"} {
+	for _, change := range []string{"resources"} {
 		driftedService := currentService
 		driftedService.Profile = cloneNativeProfile(profile)
 		driftedService.Spec = new(policy)

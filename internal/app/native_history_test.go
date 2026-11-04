@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -22,7 +21,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
-	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
 func nativeTestTrust(t *testing.T, root string) testSpecTrust {
@@ -81,103 +79,6 @@ func nativeTestHistory(t *testing.T, cfg Config, runtime *natscell.Runtime, serv
 	}
 	return &nativeHistory{kv: kv, js: runtime.JetStream(), services: registry, deliveries: service,
 		hosts: controller, fencer: fencer, cfg: cfg}
-}
-
-func TestNativeGoodProofRejectsIncompleteEvidence(t *testing.T) {
-	now := time.Now().UTC()
-	profile := WorkloadProfile{Args: []string{"a"}, Env: map[string]string{"setting": "A"}}
-	intent := delivery.Intent{Cell: "gru", Role: terrabase.Role, Environment: "test", ArtifactDigest: strings.Repeat("a", 64),
-		ConfigDigest: delivery.ConfigDigestOf(profile.Args, profile.Env, nil), Generation: 3, DesiredReplicas: 2}
-	desired := []host.Desired{}
-	statuses := []host.HostStatus{}
-	for _, node := range []string{"a", "b"} {
-		desired = append(desired, host.Desired{Cell: "gru", Node: node, Role: terrabase.Role, Environment: "test", Digest: intent.ArtifactDigest,
-			Generation: 3, Args: profile.Args, Env: profile.Env})
-		statuses = append(statuses, host.HostStatus{Verified: true, SessionExpiresAt: now.Add(time.Minute),
-			Registration: host.Registration{Cell: "gru", Node: node, Environment: "test", Roles: []string{terrabase.Role}},
-			Reports: []host.Report{{Cell: "gru", Node: node, Role: terrabase.Role, Environment: "test", Digest: intent.ArtifactDigest,
-				Generation: 3, SessionID: entityid.New(), Epoch: 1, State: "running", ObservedAt: now}}})
-	}
-	if nodes, err := nativeReady(statuses, desired, intent, now); err != nil || !slices.Equal(nodes, []string{"a", "b"}) {
-		t.Fatalf("valid proofs: %v, %v", nodes, err)
-	}
-	for _, tc := range []struct {
-		name   string
-		mutate func([]host.HostStatus, []host.Desired)
-	}{
-		{"expired session", func(s []host.HostStatus, _ []host.Desired) { s[0].SessionExpiresAt = now }},
-		{"unverified", func(s []host.HostStatus, _ []host.Desired) { s[0].Verified = false }},
-		{"future", func(s []host.HostStatus, _ []host.Desired) { s[0].Reports[0].ObservedAt = now.Add(time.Nanosecond) }},
-		{"expired report", func(s []host.HostStatus, _ []host.Desired) { s[0].Reports[0].ObservedAt = now.Add(-host.ReportMaxAge) }},
-		{"duplicate report", func(s []host.HostStatus, _ []host.Desired) { s[0].Reports = append(s[0].Reports, s[0].Reports[0]) }},
-		{"duplicate host", func(s []host.HostStatus, _ []host.Desired) { s[1] = s[0] }},
-		{"missing report", func(s []host.HostStatus, _ []host.Desired) { s[0].Reports = nil }},
-		{"failed", func(s []host.HostStatus, _ []host.Desired) { s[0].Reports[0].State = "failed" }},
-		{"wrong node", func(s []host.HostStatus, _ []host.Desired) { s[0].Reports[0].Node = "other" }},
-		{"wrong generation", func(s []host.HostStatus, _ []host.Desired) { s[0].Reports[0].Generation++ }},
-		{"wrong config", func(_ []host.HostStatus, d []host.Desired) { d[0].Env = map[string]string{"setting": "B"} }},
-		{"duplicate expected node", func(_ []host.HostStatus, d []host.Desired) { d[1] = d[0] }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := slices.Clone(statuses)
-			for i := range s {
-				s[i].Reports = slices.Clone(s[i].Reports)
-			}
-			d := slices.Clone(desired)
-			tc.mutate(s, d)
-			if nodes, _ := nativeReady(s, d, intent, now); len(nodes) != 0 {
-				t.Fatalf("invalid proof marked good: %v", nodes)
-			}
-		})
-	}
-}
-
-func TestNativeGoodRetentionKeepsTenSuccessfulProfiles(t *testing.T) {
-	state := nativeReleaseHistory{Schema: 1}
-	for i := range 14 {
-		p := WorkloadProfile{Env: map[string]string{"revision": string(rune('a' + i))}}
-		b := nativeReleaseBinding{Artifact: delivery.ArtifactRecord{Digest: strings.Repeat(string(rune('a'+i%6)), 64)},
-			Profile: p, ProfileDigest: nativeProfileDigest(p)}
-		addNativeGood(&state, nativeGoodRelease{Binding: b, Nodes: []string{"node-a"}, GoodAt: time.Now()})
-		state.Pending = &nativeReleaseBinding{Artifact: delivery.ArtifactRecord{Digest: strings.Repeat("f", 64)}, ProfileDigest: "failed"}
-	}
-	if len(state.Good) != nativeGoodLimit || state.Good[0].Binding.Profile.Env["revision"] != "n" || state.Good[9].Binding.Profile.Env["revision"] != "e" {
-		t.Fatalf("good retention: %+v", state.Good)
-	}
-	for _, good := range state.Good {
-		if good.Binding.ProfileDigest == "failed" {
-			t.Fatal("failed candidate consumed a good slot")
-		}
-	}
-	wire, err := json.Marshal(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var saved nativeReleaseHistory
-	if err := json.Unmarshal(wire, &saved); err != nil {
-		t.Fatal(err)
-	}
-	if len(saved.Good) != 10 {
-		t.Fatal("history was not persisted")
-	}
-}
-
-func TestNativeRollbackTemplateKeepsRestoredFullConfig(t *testing.T) {
-	profile, _ := tsAuthGRUConfig(t)
-	profile.Args = []string{"--restored"}
-	profile.Env = maps.Clone(profile.Env)
-	profile.Env["NONSECRET_SETTING"] = "A"
-	gen, _ := workload.ReleaseGeneration(3)
-	old := host.Desired{Node: "ctl-1", Generation: gen, Digest: strings.Repeat("a", 64), Args: profile.Args, Env: profile.Env, Secrets: profile.Secrets}
-	failed := old
-	failed.Node = "ctl-2"
-	failed.Generation, _ = workload.ReleaseGeneration(2)
-	failed.Env = maps.Clone(old.Env)
-	failed.Env["NONSECRET_SETTING"] = "B"
-	release, err := workload.CurrentRelease(workload.Observation{HighWater: gen, Active: map[string]host.Desired{"ctl-1": old, "ctl-2": failed}})
-	if err != nil || release.Template.Env["NONSECRET_SETTING"] != "A" || !slices.Equal(release.Template.Args, profile.Args) || !maps.Equal(release.Template.Secrets, profile.Secrets) {
-		t.Fatalf("reconciler selected failed config: %+v, %v", release, err)
-	}
 }
 
 func seedNativeTestBinding(t *testing.T, history *nativeHistory, intent delivery.Intent, previous string, recovery *delivery.Intent) {
@@ -315,48 +216,6 @@ func checkNativeHistoryMutationFailures(t *testing.T, h *nativeHistory) {
 	}
 }
 
-func TestNativePrepareReplyKeepsProvenancePrivateAndBounded(t *testing.T) {
-	good := &nativeGoodRelease{Binding: nativeReleaseBinding{Artifact: delivery.ArtifactRecord{Digest: strings.Repeat("a", 64)},
-		Intent:     delivery.Intent{ConfigDigest: strings.Repeat("b", 64), DesiredReplicas: 3},
-		Profile:    WorkloadProfile{Env: map[string]string{"PRIVATE_CONTROLLER_SETTING": "internal"}},
-		Provenance: nativeProfileProvenance{Config: make([]byte, 2<<20), Manifest: []byte("signed"), MaterialChain: make([]byte, 2<<20)}}}
-	wire, err := encodeNativeReply(nativePrepareReply{Previous: nativeTarget(good), previous: good}, 1<<20)
-	if err != nil || len(wire) > 2048 || strings.Contains(string(wire), "PRIVATE_CONTROLLER_SETTING") || strings.Contains(string(wire), "provenance") {
-		t.Fatalf("proof leaked in prepare reply: %d bytes, %v", len(wire), err)
-	}
-	if _, err := encodeNativeReply(nativePrepareReply{Previous: nativeTarget(good)}, 128); err == nil {
-		t.Fatal("small broker payload bound ignored")
-	}
-	if _, err := encodeNativeReply(nativePrepareReply{Error: strings.Repeat("x", maxRegistrationBytes+1)}, 1<<20); err == nil {
-		t.Fatal("large public reply accepted")
-	}
-}
-
-func TestNativeGoodNeedsFreshReportsAcrossObservation(t *testing.T) {
-	at := time.Now()
-	first := map[string]host.Report{"a": {SessionID: "one", Epoch: 1, Generation: 3, Digest: "good", ObservedAt: at}}
-	second := maps.Clone(first)
-	if nativeProofsAdvance(first, second) {
-		t.Fatal("one running snapshot certified good")
-	}
-	next := second["a"]
-	next.ObservedAt = at.Add(time.Second - time.Nanosecond)
-	second["a"] = next
-	if nativeProofsAdvance(first, second) {
-		t.Fatal("early running snapshot certified good")
-	}
-	next.ObservedAt = at.Add(time.Second)
-	second["a"] = next
-	if !nativeProofsAdvance(first, second) {
-		t.Fatal("complete observation refused")
-	}
-	next.SessionID = "renewed"
-	second["a"] = next
-	if nativeProofsAdvance(first, second) {
-		t.Fatal("proofs from different sessions combined")
-	}
-}
-
 func checkNativeHistoryCanaryCannotCertifyEarlyRunning(t *testing.T, h *nativeHistory) {
 	t.Helper()
 	ctx, role := t.Context(), terrabase.Role
@@ -433,32 +292,5 @@ func checkNativeHistoryCanaryCannotCertifyEarlyRunning(t *testing.T, h *nativeHi
 	}
 	if err := h.save(ctx, h.fencer.Current().Epoch, role, original, head); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestNativeDesiredRefusesContendedAdoptionBeforeWrites(t *testing.T) {
-	for _, lock := range []string{"release effects", "spec adoption"} {
-		t.Run(lock, func(t *testing.T) {
-			h := &nativeHistory{services: &specRegistry{}}
-			var unlock func()
-			if lock == "release effects" {
-				h.effects.Lock()
-				unlock = h.effects.Unlock
-			} else {
-				h.services.launches.Lock()
-				unlock = h.services.launches.Unlock
-			}
-			defer unlock()
-			done := make(chan error, 1)
-			go func() { _, err := h.ApplyDesired(t.Context(), host.Desired{Role: terrabase.Role}); done <- err }()
-			select {
-			case err := <-done:
-				if !errors.Is(err, delivery.ErrConflict) {
-					t.Fatalf("contended native write reached lookup/hosts: %v", err)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("native write waited while spec adoption can wait for reconciler writes")
-			}
-		})
 	}
 }

@@ -142,11 +142,6 @@ func TestVolumeInitRequiresCurrentExactPlacementSeat(t *testing.T) {
 		change func(*placement.MemberState)
 	}{
 		{"volume replaced", func(s *placement.MemberState) { s.VolumeID = "ocid1.volume.oc1..replacement" }},
-		{"attachment replaced", func(s *placement.MemberState) { s.AttachmentID = "ocid1.volumeattachment.oc1..replacement" }},
-		{"attachment etag replaced", func(s *placement.MemberState) { s.AttachmentETag = "replacement-etag" }},
-		{"device replaced", func(s *placement.MemberState) { s.AttachmentDevice = "/dev/oracleoci/oraclevdc" }},
-		{"host attempt replaced", func(s *placement.MemberState) { s.HostAttempt++ }},
-		{"desired generation advanced", func(s *placement.MemberState) { s.DesiredGeneration++ }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			changed := state

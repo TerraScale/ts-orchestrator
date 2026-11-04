@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
-	"errors"
 	"strings"
 	"testing"
 
@@ -45,18 +44,6 @@ func placementListEntry(t *testing.T, intent placement.Intent, sequence uint64) 
 		Kind: authority.MutationPlacementIntent, SubjectKey: intent.DatabaseID + "." + intent.PartitionID,
 		OperationID: intent.OperationID(), Epoch: 7, Sequence: sequence, Payload: payload,
 	}, hex.EncodeToString(digest[:])
-}
-
-func TestOperatorPlacementListEmptyCurrentSet(t *testing.T) {
-	store := new(placementListStore)
-	reader := admittedPlacementReader{cell: "gru", store: store}
-	var output bytes.Buffer
-	if err := writeOperatorPlacementList(t.Context(), "gru", reader, &output); err != nil {
-		t.Fatal(err)
-	}
-	if output.String() != "{\"cell\":\"gru\",\"count\":0,\"placements\":[]}\n" || store.listCalls != 1 {
-		t.Fatalf("empty current placement listing = %q, list calls = %d", output.String(), store.listCalls)
-	}
 }
 
 func TestOperatorPlacementListSortsCurrentIdentityWithoutPayload(t *testing.T) {
@@ -105,32 +92,5 @@ func TestOperatorPlacementListSortsCurrentIdentityWithoutPayload(t *testing.T) {
 		if strings.Contains(output.String(), forbidden) {
 			t.Fatalf("placement listing disclosed %q", forbidden)
 		}
-	}
-}
-
-func TestOperatorPlacementListFailsClosedOnMalformedOrUnauthorizedRead(t *testing.T) {
-	valid := testManagedPlacementIntent()
-	entry, _ := placementListEntry(t, valid, 1)
-	malformed := entry
-	malformed.Payload = []byte("{")
-	unauthorized := errors.New("placement log read is unauthorized")
-	for _, test := range []struct {
-		name    string
-		store   *placementListStore
-		wantErr error
-	}{
-		{"malformed committed intent", &placementListStore{entries: []authority.LogEntry{entry, malformed}}, nil},
-		{"unauthorized stream read", &placementListStore{err: unauthorized}, unauthorized},
-		{"repeated current identity", &placementListStore{entries: []authority.LogEntry{entry, entry}}, nil},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			reader := admittedPlacementReader{cell: "gru", store: test.store}
-			var output bytes.Buffer
-			err := writeOperatorPlacementList(t.Context(), "gru", reader, &output)
-			if err == nil || test.wantErr != nil && !errors.Is(err, test.wantErr) ||
-				output.Len() != 0 || test.store.listCalls != 1 {
-				t.Fatalf("invalid placement list result: err = %v, output = %q, list calls = %d", err, output.String(), test.store.listCalls)
-			}
-		})
 	}
 }

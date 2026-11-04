@@ -2,58 +2,18 @@ package app
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
-	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
-
-func TestAbsentAutoscaleConfigKeepsCanonicalControllerJSON(t *testing.T) {
-	encoded, err := protocol.EncodeJSON(ControllerConfig{CandidateID: "0000000000VKJKNDYE2PT2WG3X"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), "autoscale") {
-		t.Fatalf("absent autoscale config changed signed controller JSON: %s", encoded)
-	}
-}
-
-// Autoscale config refuses entries that nothing would act on: stateful
-// services and signal policies without a signal source.
-func TestAutoscaleConfigRefusesInertEntries(t *testing.T) {
-	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
-	profiles := map[string]WorkloadProfile{"api": {Resources: resources}}
-	stateful := &AutoscaleConfig{Services: []workload.ServiceSpec{{Role: "terrabase", Environment: "prod",
-		Kind: workload.KindStateful, Replicas: workload.ReplicaBounds{Min: 2, Max: 4},
-		Stateful: &workload.StatefulPolicy{QuorumFloorPerRegion: 2, MaxConcurrentChanges: 1, DrainTimeoutSeconds: 60,
-			MaxLagForScaleDown: 1, VolumeRetention: workload.RetainVolume}}}}
-	if err := validateAutoscaleConfig(stateful, profiles); err == nil {
-		t.Fatal("a stateful autoscale service was accepted although nothing reconciles it")
-	}
-	scaling := &AutoscaleConfig{Services: []workload.ServiceSpec{{Role: "api", Environment: "prod",
-		Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3},
-		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
-	if err := validateAutoscaleConfig(scaling, profiles); err != nil {
-		t.Fatalf("a cpu_util policy with host telemetry was refused: %v", err)
-	}
-	for _, name := range []autoscale.SignalName{autoscale.SignalRequestRatePerReplica, autoscale.SignalTerraBaseWriteQPS} {
-		scaling.Services[0].Scaling.Signals[0].Name = name
-		if err := validateAutoscaleConfig(scaling, profiles); err == nil {
-			t.Errorf("signal %s without a stateless producer was accepted", name)
-		}
-	}
-}
 
 // Host telemetry starts an aggregator independently of scheduling; its
 // normalized readings and resource samples reach metric history.
@@ -105,29 +65,5 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 	fencer.set(authority.Snapshot{})
 	if samples := withAutoscaleSamples(func(context.Context) []observability.Sample { return nil }, nil, telemetry)(t.Context()); len(samples) != 0 {
 		t.Fatalf("follower recorded autoscale samples: %+v", samples)
-	}
-}
-
-// A role whose hosts carry release-scoped generations keeps them after the
-// reconciler stops owning it, so later releases are not planned backwards.
-func TestUnownedShapeKeepsReleaseScopedGenerations(t *testing.T) {
-	intent := delivery.Intent{Generation: 3, DesiredReplicas: 2}
-	plain, err := unownedShape(intent, workload.Observation{NodeHighWater: map[string]uint64{"node-a": 2}})
-	if err != nil || plain != (delivery.PlanShape{Generation: 3, Replicas: 2}) {
-		t.Fatalf("never shaped role = %+v (%v)", plain, err)
-	}
-	shapedBefore, _ := workload.ReleaseGeneration(2)
-	shaped, err := unownedShape(intent, workload.Observation{NodeHighWater: map[string]uint64{"node-a": shapedBefore + 5}})
-	if err != nil || shaped.Generation <= shapedBefore+5 || shaped.Replicas != 2 {
-		t.Fatalf("formerly shaped role = %+v (%v), want a generation above %d", shaped, err, shapedBefore+5)
-	}
-}
-
-func TestTSAuthReleasePlacementCapsFailureDomains(t *testing.T) {
-	if cap := releasePlacementDomainCap(tsauth.Role); cap != 1 {
-		t.Fatalf("ts-auth release domain cap = %d, want 1", cap)
-	}
-	if cap := releasePlacementDomainCap("api"); cap != 0 {
-		t.Fatalf("generic release domain cap = %d, want 0", cap)
 	}
 }

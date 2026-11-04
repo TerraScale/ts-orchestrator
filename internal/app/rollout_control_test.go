@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +16,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
-	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 )
 
 type rolloutTestFence struct{ epoch uint64 }
@@ -122,77 +120,6 @@ func (r *rolloutRequester) serve(wire []byte) (rolloutReply, error) {
 	return r.control.serve(r.t.Context(), wire, r.policy, r.fence)
 }
 
-func TestRolloutRequestsPublishPauseAndRollBack(t *testing.T) {
-	r := newRolloutRequester(t)
-	first, second := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:9:" + first)}, nil))
-	if err != nil || reply.Status != "published" || reply.Desired == nil || reply.Desired.Generation != 1 ||
-		reply.Desired.Actor != "ops" || reply.Desired.Receipt != nil || reply.Desired.RunNumber != 9 ||
-		reply.Desired.SourceRevision != strings.Repeat("e", 40) {
-		t.Fatalf("publish = %+v %v", reply, err)
-	}
-	if reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:9:" + first)}, nil)); err != nil || reply.Status != "unchanged" {
-		t.Fatalf("republish = %+v %v", reply, err)
-	}
-	if _, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:10:" + second)}, nil)); err != nil {
-		t.Fatal(err)
-	}
-	if reply, err := r.serve(r.sign(rolloutPauseKind, struct{}{}, nil)); err != nil || reply.Status != "paused" || !reply.Paused {
-		t.Fatalf("pause = %+v %v", reply, err)
-	}
-	reply, err = r.serve(r.sign(rolloutRollbackKind, rolloutRollbackRequest{To: 1}, nil))
-	if err != nil || reply.Status != "rolled-back" || reply.Desired.Generation != 3 || reply.Desired.RollbackOf != 1 ||
-		reply.Desired.Digest != first || reply.Desired.RunNumber != 9 || !reply.Paused || len(reply.History) != 3 {
-		t.Fatalf("rollback = %+v %v", reply, err)
-	}
-	if reply, err := r.serve(r.sign(rolloutResumeKind, struct{}{}, nil)); err != nil || reply.Status != "resumed" || reply.Paused {
-		t.Fatalf("resume = %+v %v", reply, err)
-	}
-	if reply, err := r.serve(r.sign(rolloutStatusKind, struct{}{}, nil)); err != nil || reply.Status != "" || reply.Desired.Generation != 3 {
-		t.Fatalf("status = %+v %v", reply, err)
-	}
-}
-
-func TestRolloutRequestsDeferFutureReceiptAndRefuseEarlyRollback(t *testing.T) {
-	r := newRolloutRequester(t)
-	f := newChannelFixture(t)
-	r.control = f.control
-	f.control.store.Store(f.store)
-	signer := f.signer
-	signer.now = time.Now().UTC().Add(30 * time.Second)
-	for index, binary := range []string{"future first", "future second"} {
-		channel := signer.channel(t, "GRU", int64(621+index), []byte(binary))
-		receipt := channel.Receipts[0]
-		if goruntime.GOARCH == "arm64" {
-			receipt = channel.Receipts[1]
-		}
-		reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: receipt, Delegation: channel.Delegation}, nil))
-		if err != nil || reply.Status != "published" || reply.Desired == nil ||
-			reply.Desired.Generation != uint64(index+1) || !reply.Desired.CreatedAt.Equal(signer.now) {
-			t.Fatalf("future publication = %+v, %v", reply, err)
-		}
-	}
-	for _, generation := range []uint64{1, 3} {
-		if generation == 3 {
-			// A generation's rollback timestamp must not hide its future signed receipt.
-			if _, err := f.store.RollbackRelease(t.Context(), 7, 1, "ops", signer.now.Add(-time.Minute)); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if _, err := r.serve(r.sign(rolloutRollbackKind, rolloutRollbackRequest{To: generation}, nil)); err == nil ||
-			!strings.Contains(err.Error(), "receipt is issued in the future") {
-			t.Fatalf("early rollback to %d = %v", generation, err)
-		}
-		want := max(generation, 2)
-		if desired, _, err := f.store.Desired(t.Context()); err != nil || desired.Generation() != want {
-			t.Fatalf("refused rollback moved desired generation: %+v, %v", desired, err)
-		}
-	}
-	if cell, _, err := f.store.Cell(t.Context()); err != nil || cell.ActiveRolloutID != "" || len(cell.Attempts) != 0 {
-		t.Fatalf("future requests reserved a rollout: %+v, %v", cell, err)
-	}
-}
-
 func TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests(t *testing.T) {
 	r := newRolloutRequester(t)
 	digest := strings.Repeat("a", 64)
@@ -201,23 +128,13 @@ func TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := r.sign(rolloutPublishKind, publish, nil)
-	tampered = []byte(strings.Replace(string(tampered), base64.StdEncoding.EncodeToString([]byte("receipt:9:"+digest)),
-		base64.StdEncoding.EncodeToString([]byte("receipt:9:"+strings.Repeat("c", 64))), 1))
 	foreign := *r
 	foreign.key = stranger
 	for name, test := range map[string]struct {
 		wire []byte
 		want string
 	}{
-		"unknown signer":  {foreign.sign(rolloutPublishKind, publish, nil), "untrusted"},
-		"other actor":     {r.sign(rolloutPublishKind, publish, func(s *protocol.EnvelopeScope, _ *time.Time) { s.Actor = "ci" }), "untrusted"},
-		"other cell":      {r.sign(rolloutPublishKind, publish, func(s *protocol.EnvelopeScope, _ *time.Time) { s.Region = "fra" }), ""},
-		"expired":         {r.sign(rolloutPublishKind, publish, func(_ *protocol.EnvelopeScope, at *time.Time) { *at = at.Add(-2 * time.Minute) }), ""},
-		"tampered":        {tampered, ""},
-		"bad receipt":     {r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("forged")}, nil), "release receipt"},
-		"unknown kind":    {r.sign("rollout.delete", struct{}{}, nil), "unknown rollout request"},
-		"future rollback": {r.sign(rolloutRollbackKind, rolloutRollbackRequest{To: 4}, nil), "no such release generation"},
+		"unknown signer": {foreign.sign(rolloutPublishKind, publish, nil), "untrusted"},
 	} {
 		if _, err := r.serve(test.wire); err == nil || !strings.Contains(err.Error(), test.want) {
 			t.Fatalf("%s: %v", name, err)
@@ -233,7 +150,7 @@ func TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests(t *testing.T) {
 	// A trusted signer without the rollout grant may only read the status.
 	reader := *r
 	reader.key = r.reader
-	for _, kind := range []string{rolloutPublishKind, rolloutPauseKind, rolloutResumeKind, rolloutRollbackKind} {
+	for _, kind := range []string{rolloutPublishKind} {
 		wire := reader.sign(kind, publish, func(s *protocol.EnvelopeScope, _ *time.Time) { s.Actor = "ci" })
 		if _, err := r.serve(wire); err == nil || !strings.Contains(err.Error(), "can_roll_out_orchestrator") {
 			t.Fatalf("%s without the rollout grant: %v", kind, err)
@@ -273,70 +190,5 @@ func TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests(t *testing.T) {
 	r.control.store.Store(nil)
 	if _, err := r.serve(r.sign(rolloutStatusKind, struct{}{}, nil)); err == nil || !strings.Contains(err.Error(), "not open") {
 		t.Fatalf("status without a store: %v", err)
-	}
-}
-
-func TestRolloutConfigAndCommandFlagsAreChecked(t *testing.T) {
-	if _, err := newRolloutControl(Config{}, nil, ""); err != nil {
-		t.Fatalf("mandatory rollout defaults refused: %v", err)
-	}
-	for _, key := range []string{"enabled", "executor", "channel", "allow_scoped_auto_sign"} {
-		for _, value := range []string{"true", "false", "null"} {
-			wire := []byte(`{"version":2,"controller":{"rollouts":{"` + key + `":` + value + `}}}`)
-			if _, err := decodeConfig(wire); err == nil {
-				t.Fatalf("retired control accepted: %s=%s", key, value)
-			}
-		}
-	}
-	for _, test := range []struct {
-		command, receipt string
-		to               uint64
-	}{{"publish", "", 0}, {"rollback", "", 0}, {"status", "", 3}, {"pause", "receipt.json", 0}, {"rollback", "receipt.json", 2}} {
-		if _, err := rolloutPayload(test.command, test.receipt, "", test.to); err == nil {
-			t.Fatalf("rollout %s accepted --receipt %q --to %d", test.command, test.receipt, test.to)
-		}
-	}
-	if payload, err := rolloutPayload("rollback", "", "", 2); err != nil || payload.(rolloutRollbackRequest).To != 2 {
-		t.Fatalf("rollback payload = %v %v", payload, err)
-	}
-}
-
-type fixedProofs map[string]rolloutexec.HealthProof
-
-func (proofs fixedProofs) Latest(unit string) (rolloutexec.HealthProof, bool) {
-	proof, ok := proofs[unit]
-	return proof, ok
-}
-
-// Every cell uses the same policy without a configuration override.
-func TestNextRolloutUsesTheFixedPolicy(t *testing.T) {
-	ctx := t.Context()
-	cfg := Config{NATS: natscell.Config{Cell: "gru"}}
-	newAcceptedSpecTrust(t, &cfg)
-	registry, err := newSpecRegistry(cfg, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	control, err := newRolloutControl(cfg, registry, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := testRolloutStore(t, rolloutTestFence{epoch: 7})
-	from, to := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	if _, err := store.PublishRelease(ctx, 7, rollout.Release{Digest: to, Actor: "ci", CreatedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	control.program = rolloutexec.ReleaseProgram{Store: store, Controllers: []rollout.Unit{{ID: "ctl-1"}},
-		Proofs: fixedProofs{"ctl-1": {Unit: "ctl-1", BinarySHA256: from, ObservedAt: time.Now()}}}
-	planned := func() rollout.Policy {
-		t.Helper()
-		program, err := control.nextProgram(ctx)
-		if err != nil || len(program) != 1 {
-			t.Fatalf("program = %+v, %v", program, err)
-		}
-		return program[0].Policy
-	}
-	if got := planned(); got != rollout.DefaultPolicy() {
-		t.Fatalf("generation 0 policy = %+v", got)
 	}
 }

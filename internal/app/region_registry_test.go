@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionlink"
+
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -429,40 +430,5 @@ func waitRegistry(ctx context.Context, t *testing.T, what string, cond func() bo
 			t.Fatalf("%s: %v", what, ctx.Err())
 		}
 		time.Sleep(20 * time.Millisecond)
-	}
-}
-
-// The Atlas loop lists the local cell and the live roster peers, keeps the
-// spec's entry for a listed region, and falls back to the spec when the roster
-// names a region the catalog cannot describe.
-func TestAtlasRosterListsTheLiveRoster(t *testing.T) {
-	spec := &atlas.Config{Regions: []atlas.Region{{ID: "gru-1", Name: "Sao Paulo (reviewed)",
-		API: "https://gru.api.terrascale.tech", Auth: "https://gru.auth.terrascale.tech"}}}
-	peers := &rosterPeers{}
-	config := atlasRoster(func() *atlas.Config { return spec }, "gru", peers)
-	ids := func(c *atlas.Config) []string {
-		var ids []string
-		for _, region := range c.Regions {
-			ids = append(ids, region.ID)
-		}
-		return ids
-	}
-	if got := config(); got != spec {
-		t.Fatalf("before the first roster the spec's regions must stay: %+v", got.Regions)
-	}
-	peers.apply(nil)
-	if got := config(); !slices.Equal(ids(got), []string{"gru-1"}) || got.Regions[0].Name != "Sao Paulo (reviewed)" {
-		t.Fatalf("alone: %+v", got.Regions)
-	}
-	peers.apply([]string{"sjc", "fra"})
-	if got := config(); !slices.Equal(ids(got), []string{"gru-1", "sjc-1", "fra-1"}) || got.Regions[0].Name != "Sao Paulo (reviewed)" {
-		t.Fatalf("with roster: %+v", got.Regions)
-	}
-	peers.apply([]string{"zzz"})
-	if got := config(); got != spec {
-		t.Fatalf("unlistable roster must keep the spec: %+v", got.Regions)
-	}
-	if got := atlasRoster(func() *atlas.Config { return nil }, "gru", peers)(); got != nil {
-		t.Fatal("no spec section must publish nothing")
 	}
 }

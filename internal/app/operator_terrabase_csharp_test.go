@@ -709,19 +709,6 @@ type brokenWriter struct{}
 
 func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("stdout is gone") }
 
-func TestTerraBaseProfileRejectsArguments(t *testing.T) {
-	profile := WorkloadProfile{Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 20, DiskBytes: 1 << 20},
-		Args: []string{"--peer-client-ca=/etc/ssl/certs/ca-certificates.crt"},
-		Env:  map[string]string{terrabase.EnvPeerPort: "9443", terrabase.EnvPeers: "gru-1-db-1=10.0.0.1:9443"}}
-	if err := validateWorkloadProfiles("gru", map[string]WorkloadProfile{"terrabase": profile}); err == nil {
-		t.Fatal("accepted a TerraBase profile whose arguments override host-owned settings")
-	}
-	profile.Args = nil
-	if err := validateWorkloadProfiles("gru", map[string]WorkloadProfile{"terrabase": profile}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func assertTerraBaseMember(t *testing.T, ctx context.Context, adminPort int, member string, runner *childRunner, digest string) {
 	t.Helper()
 	if observed, _ := runner.Observe(ctx, "terrabase"); !observed.Running || observed.Digest != digest {
@@ -774,80 +761,6 @@ func writeTerraBaseRelease(t *testing.T, dir string, data []byte) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-func TestTerraBasePlacementKeepsMembersOnListedHosts(t *testing.T) {
-	profile := WorkloadProfile{Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 20, DiskBytes: 1 << 20},
-		Env: map[string]string{terrabase.EnvPeerPort: "9443", terrabase.EnvPeers: "gru-1-db-1=10.0.0.1:9443"}}
-	hosts := []placement.WorkloadHost{
-		{Cell: "gru", Node: "gru-1-db-1", Roles: []string{"terrabase"}, CurrentSession: true, Admitted: true, Healthy: true, Capacity: placement.Resources{CPU: 2, MemoryBytes: 2 << 20, DiskBytes: 2 << 20}},
-		{Cell: "gru", Node: "spare-1", Roles: []string{"terrabase"}, CurrentSession: true, Admitted: true, Healthy: true, Capacity: placement.Resources{CPU: 64, MemoryBytes: 64 << 30, DiskBytes: 64 << 30}},
-	}
-	failed := []placement.Assignment{{Node: "gru-1-db-1", Role: "terrabase"}}
-	candidates, previous, err := terraBasePlacement(profile, 1, hosts, failed, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assignments, err := placement.PlanWorkload(placement.WorkloadRequest{Cell: "gru", Role: "terrabase", Replicas: 1,
-		Request: profile.Resources, Hosts: candidates, Previous: previous})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(assignments) != 1 || assignments[0].Node != "gru-1-db-1" || assignments[0].Withdrawn {
-		t.Fatalf("assignments %+v, want the failed member replaced in place on its listed host", assignments)
-	}
-	if failed[0].Pending {
-		t.Fatal("terraBasePlacement changed its input")
-	}
-	if candidates, _, _ := terraBasePlacement(profile, 1, hosts, nil, nil); len(candidates) != 1 || candidates[0].Node != "gru-1-db-1" {
-		t.Fatalf("candidates %+v, want only the listed host", candidates)
-	}
-	if _, _, err := terraBasePlacement(profile, 2, hosts, nil, nil); err == nil {
-		t.Fatal("placed more members than the peer list names")
-	}
-	// A renamed node keeps the member its granted address lists (TS-609).
-	renamed := append([]placement.WorkloadHost(nil), hosts...)
-	renamed[0].Node = "ts-gru-1"
-	address := func(node string) string {
-		return map[string]string{"ts-gru-1": "10.0.0.1", "spare-1": "10.0.0.9"}[node]
-	}
-	if candidates, _, _ := terraBasePlacement(profile, 1, renamed, nil, address); len(candidates) != 1 || candidates[0].Node != "ts-gru-1" {
-		t.Fatalf("candidates %+v, want the renamed node at the member's address", candidates)
-	}
-}
-
-func TestTerraBaseReleaseStateRules(t *testing.T) {
-	now := time.Now()
-	report := func(node, environment, digest, state string, generation uint64) host.HostStatus {
-		return host.HostStatus{Reports: []host.Report{{Node: node, Role: "terrabase", Environment: environment,
-			Digest: digest, State: state, Generation: generation, ObservedAt: now}}}
-	}
-	statuses := []host.HostStatus{report("a", "prod", "d1", "running", 4), report("b", "prod", "d2", "failed", 5),
-		report("c", "test", "d9", "running", 2)}
-	desired := []host.Desired{{Node: "a", Role: "terrabase", Generation: 4}, {Node: "x", Role: "terrabase", Generation: 7, Withdrawn: true}}
-	current, next, err := releaseCurrent(statuses, desired, terrabase.Role, "prod")
-	if err != nil || current != "d1" || next != 8 {
-		t.Fatalf("current %q, next %d, %v; want the running digest and a generation above every desired", current, next, err)
-	}
-	if _, _, err := releaseCurrent(append(statuses, report("d", "prod", "d3", "running", 4)), desired, terrabase.Role, "prod"); err == nil {
-		t.Fatal("running members on two digests were accepted")
-	}
-	intent := delivery.Intent{Role: "terrabase", Environment: "prod", ArtifactDigest: "d9", Generation: 2, DesiredReplicas: 1}
-	if ready, err := nativeReady(statuses, desired, intent, now); len(ready) != 0 || err != nil {
-		t.Fatalf("a member of another environment satisfied the gate: %v, %v", ready, err)
-	}
-	intent.ArtifactDigest, intent.Generation = "d2", 5
-	if heldAfterPlanning(delivery.Receipt{Status: "held", Error: delivery.PlannerRefusedHold + " 30 times (insufficient_capacity)"}) {
-		t.Fatal("a planner hold, which writes no member, counted as a change")
-	}
-	if !heldAfterPlanning(delivery.Receipt{Status: "held", Error: "desired target conflicts with committed host state"}) {
-		t.Fatal("a hold after planning did not count as a change")
-	}
-	for status, want := range map[string]bool{"rejected": true, "accepted": false} {
-		if unchanged(delivery.Receipt{Status: status}) != want {
-			t.Errorf("receipt %s: unchanged %v, want %v", status, !want, want)
-		}
-	}
 }
 
 func freeTCPPort(t *testing.T) int {

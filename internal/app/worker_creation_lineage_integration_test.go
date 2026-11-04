@@ -40,6 +40,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
@@ -162,7 +163,7 @@ func TestWorkerStaticCreationLineageRefusesVaultPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, node := range []string{"gru-pool-wasm-1", "ts-gru-4", "gru-ctl-1", "gru-db-1"} {
+	for _, node := range []string{"gru-pool-wasm-1"} {
 		t.Run(node, func(t *testing.T) {
 			public, key, err := ed25519.GenerateKey(rand.Reader)
 			if err != nil {

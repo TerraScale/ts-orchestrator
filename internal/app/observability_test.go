@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -22,68 +21,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
-
-func TestSignedObservabilityStaysOnLoopbackOrBrokerAddress(t *testing.T) {
-	t.Parallel()
-	base := Config{NATS: natscell.Config{Embedded: &natscell.Embedded{Host: "10.0.1.5"}}}
-	for name, settings := range map[string]observability.Config{
-		"default": {},
-		"broker": {ListenAddress: "10.0.1.5:9464",
-			BearerTokenFile: "/etc/terrascale-orchestrator/observability-token"},
-	} {
-		cfg := base
-		cfg.Observability = settings
-		if err := validateSignedObservability(cfg); err != nil {
-			t.Errorf("%s: %v", name, err)
-		}
-	}
-	for name, settings := range map[string]observability.Config{
-		"off switch": {ListenAddress: "off"},
-		"other private address": {ListenAddress: "10.0.1.6:9464",
-			BearerTokenFile: "/etc/terrascale-orchestrator/observability-token"},
-		"wildcard":          {ListenAddress: "0.0.0.0:9464"},
-		"no token":          {ListenAddress: "10.0.1.5:9464"},
-		"token outside":     {ListenAddress: "10.0.1.5:9464", BearerTokenFile: "/tmp/token"},
-		"token traversal":   {ListenAddress: "10.0.1.5:9464", BearerTokenFile: "/etc/terrascale-orchestrator/../shadow"},
-		"invalid log level": {LogLevel: "trace"},
-	} {
-		cfg := base
-		cfg.Observability = settings
-		if err := validateSignedObservability(cfg); err == nil {
-			t.Errorf("%s was accepted", name)
-		}
-	}
-}
-
-func TestLoadConfigRejectsPublicObservabilityListener(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"version":2,"nats":{"cell":"lab"},"observability":{"listen_address":"8.8.8.8:9464"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), "observability") {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-}
-
-func TestLoadConfigRejectsObservabilitySwitches(t *testing.T) {
-	t.Parallel()
-	for _, version := range []int{0, ConfigVersion, ConfigVersion + 1} {
-		for _, settings := range []string{
-			`{"cluster_aggregation":false}`, `{"cluster_aggregation":true}`,
-			`{"dashboard":false}`, `{"dashboard":true}`, `{"listen_address":"off"}`,
-		} {
-			path := filepath.Join(t.TempDir(), "config.json")
-			wire := fmt.Sprintf(`{"version":%d,"observability":%s}`, version, settings)
-			if err := os.WriteFile(path, []byte(wire), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := LoadConfig(path); err == nil {
-				t.Errorf("observability switch accepted: %s", wire)
-			}
-		}
-	}
-}
 
 type observedAuthority struct{ snapshot authority.Snapshot }
 

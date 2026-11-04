@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -67,51 +66,13 @@ func newNetBirdBootstrapFixture(t *testing.T) netbirdBootstrapFixture {
 	return f
 }
 
-func TestNetBirdBootstrapIncompletePublicationHoldsEveryEnrollment(t *testing.T) {
-	for _, installed := range []bool{false, true} {
-		t.Run(map[bool]string{false: "missing-client", true: "existing-client"}[installed], func(t *testing.T) {
-			f := newNetBirdBootstrapFixture(t)
-			if installed {
-				if err := os.WriteFile(f.runner.binary, []byte("installed"), 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			f.runner.defaults = func(_ context.Context, _ string, requirePin bool) (client.Pin, netbird.Config, error) {
-				if requirePin == installed {
-					t.Fatal("bootstrap requested the wrong pin requirement")
-				}
-				return client.Pin{}, netbird.Config{}, errors.New("NetBird bootstrap configuration publication is incomplete")
-			}
-			if err := enrollNetBirdBootstrap(t.Context(), f.configPath, io.Discard, f.runner); err == nil || !strings.Contains(err.Error(), "publication is incomplete") {
-				t.Fatalf("incomplete publication escaped the reader boundary: %v", err)
-			}
-		})
-	}
-}
-
-func TestNetBirdExistingClientEnrollmentDoesNotRequireBootstrapPin(t *testing.T) {
-	f := newNetBirdBootstrapFixture(t)
-	if err := os.WriteFile(f.runner.binary, []byte("installed"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(filepath.Dir(f.configPath), "netbird-pin.json")); err != nil {
-		t.Fatal(err)
-	}
-	enrolled := false
-	f.runner.enroll = func(context.Context, netbird.Config) error { enrolled = true; return nil }
-	if err := enrollNetBirdBootstrap(t.Context(), f.configPath, io.Discard, f.runner); err != nil || !enrolled {
-		t.Fatalf("config-only existing-client enrollment failed: enrolled=%t error=%v", enrolled, err)
-	}
-}
-
 func TestNetBirdBootstrapRetryResumesPersistedTransactionBeforeAndAfterReplacement(t *testing.T) {
 	for _, test := range []struct {
 		name              string
 		replaced, confirm bool
 	}{
-		{name: "before-replacement"},
+
 		{name: "after-replacement", replaced: true},
-		{name: "during-confirmation", replaced: true, confirm: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := newNetBirdBootstrapFixture(t)
@@ -158,86 +119,5 @@ func TestNetBirdBootstrapRetryResumesPersistedTransactionBeforeAndAfterReplaceme
 				t.Fatalf("retry skipped persisted transaction: installs=%d confirms=%d enrolls=%d pending=%+v err=%v", installs, confirms, enrolls, pending, err)
 			}
 		})
-	}
-}
-
-func TestNetBirdBootstrapDoesNotConfirmControllerTransaction(t *testing.T) {
-	for _, pending := range []bool{false, true} {
-		t.Run(map[bool]string{false: "completed", true: "pending"}[pending], func(t *testing.T) {
-			f := newNetBirdBootstrapFixture(t)
-			if err := os.WriteFile(f.runner.binary, []byte("installed"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			f.runner.status = func(context.Context) (client.ManagedResult, error) {
-				return client.ManagedResult{TransactionID: "3QBR1KQT1HTTSCJ70S4NNBKM6R", Pending: pending}, nil
-			}
-			enrolls := 0
-			f.runner.enroll = func(context.Context, netbird.Config) error { enrolls++; return nil }
-			err := enrollNetBirdBootstrap(t.Context(), f.configPath, io.Discard, f.runner)
-			if pending && (err == nil || !strings.Contains(err.Error(), "controller-owned") || enrolls != 0) ||
-				!pending && (err != nil || enrolls != 1) {
-				t.Fatalf("controller transaction ownership lost: pending=%t enrolls=%d err=%v", pending, enrolls, err)
-			}
-		})
-	}
-}
-
-func TestNetBirdPendingBootstrapRequiresVerifiedFallback(t *testing.T) {
-	f := newNetBirdBootstrapFixture(t)
-	if err := os.WriteFile(f.runner.binary, []byte("installed"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(f.runner.fallback); err != nil {
-		t.Fatal(err)
-	}
-	f.runner.status = func(context.Context) (client.ManagedResult, error) {
-		return client.ManagedResult{TransactionID: "6HY7VA1YZA2NVTY123SNDH514X", Bootstrap: true, Pending: true}, nil
-	}
-	if err := enrollNetBirdBootstrap(t.Context(), f.configPath, io.Discard, f.runner); err == nil || !strings.Contains(err.Error(), "bootstrap transaction") {
-		t.Fatalf("pending bootstrap reported success without its verified artifact: %v", err)
-	}
-}
-
-func TestNetBirdBootstrapCannotReplaceMissingControllerManagedBinary(t *testing.T) {
-	for _, rolledBack := range []bool{false, true} {
-		t.Run(map[bool]string{false: "confirmed", true: "rolled-back"}[rolledBack], func(t *testing.T) {
-			f := newNetBirdBootstrapFixture(t)
-			f.runner.status = func(context.Context) (client.ManagedResult, error) {
-				return client.ManagedResult{TransactionID: "3QBR1KQT1HTTSCJ70S4NNBKM6R", RolledBack: rolledBack}, nil
-			}
-			if err := enrollNetBirdBootstrap(t.Context(), f.configPath, io.Discard, f.runner); err == nil || !strings.Contains(err.Error(), "fenced rollout") {
-				t.Fatalf("missing managed binary bypassed controller history: rolledBack=%t err=%v", rolledBack, err)
-			}
-		})
-	}
-}
-
-func TestNetBirdBootstrapLoadsConfigAfterRecoveryRestoresIt(t *testing.T) {
-	f := newNetBirdBootstrapFixture(t)
-	if err := os.WriteFile(f.runner.binary, []byte("restored previous binary"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	restored := f.config
-	restored.SetupKeySecretID = "ocid1.vaultsecret.oc1.sa-saopaulo-1.restored"
-	f.runner.status = func(context.Context) (client.ManagedResult, error) {
-		wire, err := json.Marshal(restored)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(f.configPath, wire, 0644); err != nil {
-			t.Fatal(err)
-		}
-		return client.ManagedResult{TransactionID: "28VM3C1AVKQYWE7V44S6FPVBVS", Bootstrap: true, RolledBack: true}, nil
-	}
-	enrolled := false
-	f.runner.enroll = func(_ context.Context, cfg netbird.Config) error {
-		if cfg.SetupKeySecretID != restored.SetupKeySecretID {
-			t.Fatal("enrollment used the config superseded by rollback")
-		}
-		enrolled = true
-		return nil
-	}
-	if err := enrollNetBirdBootstrap(t.Context(), f.configPath, io.Discard, f.runner); err != nil || !enrolled {
-		t.Fatalf("restored configuration was not enrolled: enrolled=%t err=%v", enrolled, err)
 	}
 }

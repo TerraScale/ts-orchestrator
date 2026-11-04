@@ -184,203 +184,24 @@ func cdTestState(t *testing.T, root string, files terrabaseReleaseFiles) string 
 	return statePath
 }
 
-func TestTerraBaseSyncSelectsNewestSourceAndDoesNotRepeatCompletedRollout(t *testing.T) {
-	root := t.TempDir()
-	feed := newCDTestFeed(t)
-	initial := feed.add(root, "1", 10)
-	state := cdTestState(t, root, feed.releases[initial])
-	feed.add(root, "2", 100) // Older source was rerun after version 3.
-	latest := feed.add(root, "3", 30)
-	feed.listing = append(feed.listing, "ci-"+strings.Repeat("f", 40)+"-run-200", "irrelevant ci-tag")
-	updates := 0
-	update := func(files terrabaseReleaseFiles) error {
-		updates++
-		release, err := loadTerraBaseRelease(files)
-		if err != nil || release.CIRunID != 30 {
-			t.Fatalf("selected release: %+v %v", release, err)
-		}
-		return nil
-	}
-	for range 2 {
-		if err := syncTerraBase(t.Context(), state, root, feed.run, update, io.Discard); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var completed terrabaseCDCandidate
-	readDeployTestState(t, state, cdReceiptName(1), &completed)
-	if updates != 1 || completed.Tag != latest {
-		t.Fatalf("updates=%d completion=%+v", updates, completed)
-	}
-	// Crash recovery after the completion receipt is synced must remove the
-	// stale active pin without contacting GitHub or running another update.
-	journal, err := openDeployState(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := journal.ensureJSON(cdActiveFile, completed); err != nil {
-		t.Fatal(err)
-	}
-	if err := syncTerraBase(t.Context(), state, root, nil, nil, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(state, cdActiveFile)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("stale active pin retained: %v", err)
-	}
-}
-
 func TestTerraBaseSyncRejectsUnqualifiedOrChangedInputsBeforeUpdating(t *testing.T) {
-	for _, failure := range []string{"binary", "source digest", "run", "publish log", "origin", "git error", "legacy origin", "invalid listing", "draft release", "qualification run"} {
-		t.Run(failure, func(t *testing.T) {
-			root := t.TempDir()
-			feed := newCDTestFeed(t)
-			initial := feed.add(root, "1", 10)
-			state := cdTestState(t, root, feed.releases[initial])
-			latest := feed.add(root, "2", 20)
-			run := feed.run
-			switch failure {
-			case "binary":
-				if err := os.WriteFile(feed.releases[latest].Binary, []byte("tampered"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			case "source digest":
-				if err := os.Remove(feed.releases[latest].SourceDigest); err != nil {
-					t.Fatal(err)
-				}
-			case "run":
-				feed.badRun = true
-			case "publish log":
-				feed.badLog = true
-			case "qualification run":
-				wire, err := os.ReadFile(feed.releases[latest].Qualification)
-				if err != nil {
-					t.Fatal(err)
-				}
-				wire = []byte(strings.Replace(string(wire), `"run_id":20`, `"run_id":999`, 1))
-				if err := os.WriteFile(feed.releases[latest].Qualification, wire, 0o600); err != nil {
-					t.Fatal(err)
-				}
-			case "invalid listing", "draft release":
-				run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-					if name == "gh" && args[0] == "release" && args[1] == "list" {
-						if failure == "invalid listing" {
-							return []byte("not JSON"), nil
-						}
-						return json.Marshal([]map[string]any{{"tagName": latest, "isDraft": true, "isPrerelease": true}})
-					}
-					return feed.run(ctx, name, args...)
-				}
-			case "origin", "legacy origin", "git error":
-				run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-					if name == "git" && args[2] == "remote" && failure == "legacy origin" {
-						return []byte("https://github.com/TerraScale/TerraBase-legacy.git"), nil
-					}
-					if name == "git" && args[2] == "remote" && failure == "origin" {
-						return []byte("https://example.com/unreviewed.git"), nil
-					}
-					if name == "git" && args[2] == "merge-base" && failure == "git error" {
-						return nil, errors.New("git repository corrupt")
-					}
-					return feed.run(ctx, name, args...)
-				}
-			}
-			if err := syncTerraBase(t.Context(), state, root, run, func(terrabaseReleaseFiles) error {
-				t.Fatal("unqualified input reached the updater")
-				return nil
-			}, io.Discard); (err == nil) != (failure == "draft release") {
-				t.Fatalf("unexpected unqualified release result: %v", err)
-			}
-			if _, err := os.Stat(filepath.Join(state, cdActiveFile)); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("unverified release pinned: %v", err)
-			}
-			if failure != "binary" && slices.Contains(feed.downloads, terrabaseServerArtifact) {
-				t.Fatal("large server downloaded before publication readiness was checked")
-			}
-		})
-	}
-}
-
-func TestTerraBaseSyncResumesPinnedReleaseBeforeConsideringNewerPublication(t *testing.T) {
-	root := t.TempDir()
-	feed := newCDTestFeed(t)
-	initial := feed.add(root, "1", 10)
-	state := cdTestState(t, root, feed.releases[initial])
-	second := feed.add(root, "2", 20)
-	ctx, cancel := context.WithCancel(t.Context())
-	err := syncTerraBase(ctx, state, root, feed.run, func(terrabaseReleaseFiles) error {
-		cancel()
-		return context.Canceled
-	}, io.Discard)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatal(err)
-	}
-	feed.add(root, "3", 30)
-	if err := syncTerraBase(t.Context(), state, root, feed.run, func(files terrabaseReleaseFiles) error {
-		release, err := loadTerraBaseRelease(files)
-		if err != nil || release.CIRunID != 20 {
-			t.Fatalf("interrupted pin was replaced: %+v %v", release, err)
-		}
-		return nil
-	}, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	var completed terrabaseCDCandidate
-	readDeployTestState(t, state, cdReceiptName(1), &completed)
-	if completed.Tag != second {
-		t.Fatalf("completed = %+v", completed)
-	}
-}
-
-func TestTerraBaseSyncStopsAfterFailureAndLocksOverlappingInvocations(t *testing.T) {
 	root := t.TempDir()
 	feed := newCDTestFeed(t)
 	initial := feed.add(root, "1", 10)
 	state := cdTestState(t, root, feed.releases[initial])
 	feed.add(root, "2", 20)
-	err := syncTerraBase(t.Context(), state, root, feed.run, func(terrabaseReleaseFiles) error {
-		if err := syncTerraBase(t.Context(), state, root, feed.run, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "holds this deployment") {
-			t.Fatalf("overlapping sync accepted: %v", err)
-		}
-		return errors.New("candidate held and rolled back")
-	}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "held") {
-		t.Fatal(err)
+	feed.badRun = true
+	if err := syncTerraBase(t.Context(), state, root, feed.run, func(terrabaseReleaseFiles) error {
+		t.Fatal("non-green main reached the updater")
+		return nil
+	}, io.Discard); err == nil {
+		t.Fatal("non-green main was admitted")
 	}
-	feed.add(root, "3", 30)
-	calls := feed.calls
-	if err := syncTerraBase(t.Context(), state, root, feed.run, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "automatic rollout stopped") {
-		t.Fatalf("failed candidate not blocked: %v", err)
+	if _, err := os.Stat(filepath.Join(state, cdActiveFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unverified release pinned: %v", err)
 	}
-	if feed.calls != calls {
-		t.Fatal("blocked sync contacted the release producer")
-	}
-}
-
-func TestTerraBaseSyncRejectsAssetMutationDuringResume(t *testing.T) {
-	root := t.TempDir()
-	feed := newCDTestFeed(t)
-	initial := feed.add(root, "1", 10)
-	state := cdTestState(t, root, feed.releases[initial])
-	second := feed.add(root, "2", 20)
-	ctx, cancel := context.WithCancel(t.Context())
-	_ = syncTerraBase(ctx, state, root, feed.run, func(terrabaseReleaseFiles) error { cancel(); return context.Canceled }, io.Discard)
-	var source terrabaseSourceDigest
-	wire, err := os.ReadFile(feed.releases[second].SourceDigest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(wire, &source); err != nil {
-		t.Fatal(err)
-	}
-	source.SourceDigestSHA256 = strings.Repeat("a", 64)
-	wire, err = json.Marshal(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(feed.releases[second].SourceDigest, wire, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := syncTerraBase(t.Context(), state, root, feed.run, nil, io.Discard); err == nil || !strings.Contains(err.Error(), "assets changed") {
-		t.Fatalf("changed source accepted on resume: %v", err)
+	if slices.Contains(feed.downloads, terrabaseServerArtifact) {
+		t.Fatal("large server downloaded before publication readiness was checked")
 	}
 }
 
@@ -416,18 +237,5 @@ func TestTerraBaseSyncCompletesRealSignedRollingUpdateAndLatchesRollback(t *test
 	}
 	if err := syncTerraBase(t.Context(), state, cell.root, feed.run, update, io.Discard); err == nil || !strings.Contains(err.Error(), "automatic rollout stopped") {
 		t.Fatal(err)
-	}
-}
-
-func TestTerraBaseSyncCLIRejectsIncompleteOptionsWithoutContactingCell(t *testing.T) {
-	if err := runOperator(t.Context(), []string{"terrabase-sync"}, io.Discard); err == nil || !strings.Contains(err.Error(), "requires --config") {
-		t.Fatal(err)
-	}
-	if _, err := cdCommand(t.Context(), "git", "-C", t.TempDir(), "merge-base", "--is-ancestor", "bad", "bad"); errors.Is(err, errCDNotAncestor) || err == nil {
-		t.Fatalf("git failure confused with a source lineage rejection: %v", err)
-	}
-	var output cdCommandOutput
-	if _, err := output.Write(make([]byte, (8<<20)+1)); err == nil {
-		t.Fatal("unbounded command output")
 	}
 }

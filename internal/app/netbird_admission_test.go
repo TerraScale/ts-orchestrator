@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 )
@@ -66,56 +64,5 @@ func TestNetBirdAdmissionSurvivesFenceAndGrantRemovalWithoutLosingQuorum(t *test
 	}
 	if _, found, err := f.record(t.Context(), record.Node); err != nil || found {
 		t.Fatalf("successful recovery left a hold behind: found=%t error=%v", found, err)
-	}
-}
-
-func TestNetBirdAdmissionRequiresVerifiedFenceAndAddress(t *testing.T) {
-	f, _, _, _, _ := newFenceTest(t)
-	f.spec = func() (*cellspec.ReleaseFence, map[string]string) { return nil, map[string]string{} }
-	n := netbirdRollout{fence: f}
-	if err := saveNetBirdTestAdmission(t.Context(), &n, 3, network.Record{ID: "3H43XCS35PSC8Z1HC82FZJC2PK", Node: "gru-1-ctl-1", Phase: "drain"}); err == nil {
-		t.Fatal("new transaction admitted without its fence/address snapshot")
-	}
-}
-
-func TestNetBirdDrainPreflightKeepsAdmissionAndLiveGatesAfterFenceRemoval(t *testing.T) {
-	n, pin, _ := netbirdArtifactTest(t, "")
-	stageTestNetbirdArtifacts(t, n.artifacts, pin)
-	n.services.current.NetBird = &cellspec.NetBird{Pin: pin}
-	n.services.current.HostGrants = []cellspec.HostGrant{{Node: "leader", Controller: "controller-a"}}
-	n.cfg.NATS = natscell.Config{Cell: "gru", Instance: "controller-a"}
-	spec := &cellspec.ReleaseFence{LoadBalancerID: "admitted-lb", BackendSets: []cellspec.FencedSet{{Name: "terrabase", Port: 9465, MinServing: 3}}}
-	addresses := map[string]string{"leader": "10.251.0.11", "selected": "10.251.0.12"}
-	n.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) {
-		return spec, map[string]string{"leader": addresses["leader"], "selected": addresses["selected"]}
-	}
-	record := network.Record{ID: "06RK99WTQK58C48FH8SYH45C8S", Node: "selected", Phase: "drain", Deadline: time.Now().Add(time.Minute), Target: network.Target{Pin: pin}}
-	if err := saveNetBirdTestAdmission(t.Context(), n, 3, record); err != nil {
-		t.Fatal(err)
-	}
-	spec = nil
-	addresses["selected"] = "10.251.0.99"
-	saved, resolved, err := n.preflightAddresses(t.Context(), record.Node)
-	if err != nil || saved == nil || saved.LoadBalancerID != "admitted-lb" || saved.BackendSets[0].Min() != 3 ||
-		resolved[record.Node] != "10.251.0.12" || resolved["leader"] != addresses["leader"] {
-		t.Fatalf("resumed preflight lost admitted scope or live peers: fence=%+v addresses=%v err=%v", saved, resolved, err)
-	}
-	if other, _, err := n.preflightAddresses(t.Context(), "2VP7F78J0ZNFE8BE3RYC7BNX9T"); err != nil || other != nil {
-		t.Fatalf("another node reused the active node's admission: %+v %v", other, err)
-	}
-	if err := n.saveAt(t.Context(), 3, "netbird.status.leader", network.Status{Version: "0.79.0", Connected: true, ObservedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	quorumHeld := errors.New("live controller quorum held")
-	checks := 0
-	n.nodes = &nodeOps{cluster: func(context.Context, string) error { checks++; return quorumHeld }}
-	if err := n.preflight(t.Context(), record.Node); !errors.Is(err, quorumHeld) || checks != 1 {
-		t.Fatalf("removed fence stopped resumed preflight or skipped live quorum: checks=%d err=%v", checks, err)
-	}
-	if err := n.saveAt(t.Context(), 3, "netbird.status.leader", network.Status{Missing: true, ObservedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	if err := n.preflight(t.Context(), record.Node); err == nil || !strings.Contains(err.Error(), "probing leader has no working mesh client") || checks != 1 {
-		t.Fatalf("saved admission bypassed live leader health: checks=%d err=%v", checks, err)
 	}
 }

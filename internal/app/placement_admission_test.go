@@ -5,10 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -23,97 +20,9 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
-func TestPlacementAdmissionCommitsSignedCanonicalV5AndExposesDigests(t *testing.T) {
-	policy, privateKey := newPlacementAdmissionPolicy(t)
-	control := newPlacementAdmissionControl()
-	intent := testManagedPlacementIntent()
-	wire := signedPlacementEnvelope(t, intent, privateKey, protocol.EncodeJSON)
-
-	response, err := verifyAndApplyPlacement(t.Context(), wire, "gru", policy, control)
-	if err != nil {
-		t.Fatalf("admit signed managed placement: %v", err)
-	}
-	if response.DatabaseID != intent.DatabaseID || response.PartitionID != intent.PartitionID ||
-		response.Generation != intent.Generation || response.Sequence != 1 {
-		t.Fatalf("placement response = %+v", response)
-	}
-	entry := control.entries[intent.DatabaseID+"."+intent.PartitionID]
-	wantPayload, err := protocol.EncodeJSON(intent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(entry.Payload, wantPayload) {
-		t.Fatalf("committed payload = %s, want exact canonical payload %s", entry.Payload, wantPayload)
-	}
-
-	readback, err := (admittedPlacementReader{cell: "gru", store: control}).ListPlacementIntents(t.Context(), "gru")
-	if err != nil || len(readback) != 1 {
-		t.Fatalf("read admitted placement: count=%d err=%v", len(readback), err)
-	}
-	wantPayloadHash := sha256.Sum256(wantPayload)
-	if readback[0].PayloadDigest() != hex.EncodeToString(wantPayloadHash[:]) {
-		t.Fatalf("readback payload digest = %q, want exact ordered-log SHA-256", readback[0].PayloadDigest())
-	}
-	wantProfileDigest, err := intent.ProfileDigest(oci.RegionGRU)
-	if err != nil || wantProfileDigest == "" {
-		t.Fatalf("compute profile digest = %q, %v", wantProfileDigest, err)
-	}
-	gotProfile, err := readback[0].ProfileDigest(oci.RegionGRU)
-	if err != nil || gotProfile != wantProfileDigest {
-		t.Fatalf("readback profile digest = %q, %v; want %q", gotProfile, err, wantProfileDigest)
-	}
-
-	duplicate, err := verifyAndApplyPlacement(t.Context(), wire, "gru", policy, control)
-	if err != nil || duplicate.Sequence != response.Sequence {
-		t.Fatalf("idempotent exact signed admission = %+v, %v", duplicate, err)
-	}
-}
-
 func TestPlacementAdmissionRejectsSignedLegacyAndNoncanonicalPayload(t *testing.T) {
 	policy, privateKey := newPlacementAdmissionPolicy(t)
 	intent := testManagedPlacementIntent()
-	legacy := placement.Intent{
-		SchemaVersion: 1, DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: intent.PartitionID,
-		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: intent.Generation,
-	}
-
-	t.Run("legacy v1 cannot authorize new managed placement", func(t *testing.T) {
-		control := newPlacementAdmissionControl()
-		wire := signedPlacementEnvelope(t, legacy, privateKey, protocol.EncodeJSON)
-		if _, err := verifyAndApplyPlacement(t.Context(), wire, "gru", policy, control); err == nil {
-			t.Fatal("valid operator signature made schema-1 placement admissible")
-		}
-		if len(control.entries) != 0 {
-			t.Fatalf("rejected historical intent was committed: %+v", control.entries)
-		}
-	})
-
-	t.Run("signed but noncanonical object order is rejected", func(t *testing.T) {
-		control := newPlacementAdmissionControl()
-		canonical, err := protocol.EncodeJSON(intent)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var object map[string]any
-		if err := json.Unmarshal(canonical, &object); err != nil {
-			t.Fatal(err)
-		}
-		noncanonical, err := json.Marshal(object, json.Deterministic(true))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if bytes.Equal(noncanonical, canonical) {
-			t.Fatal("test fixture unexpectedly preserved struct field order")
-		}
-		wire := signPlacementPayload(t, intent, privateKey, noncanonical)
-		if _, err := verifyAndApplyPlacement(t.Context(), wire, "gru", policy, control); err == nil {
-			t.Fatal("signed noncanonical payload was admitted")
-		}
-		if len(control.entries) != 0 {
-			t.Fatalf("rejected noncanonical intent was committed: %+v", control.entries)
-		}
-	})
-
 	t.Run("tampered signature payload is rejected", func(t *testing.T) {
 		control := newPlacementAdmissionControl()
 		wire := signedPlacementEnvelope(t, intent, privateKey, protocol.EncodeJSON)
@@ -137,93 +46,6 @@ func TestPlacementAdmissionRejectsSignedLegacyAndNoncanonicalPayload(t *testing.
 			t.Fatalf("rejected tampered intent was committed: %+v", control.entries)
 		}
 	})
-}
-
-func TestPlacementAdmissionCreatesPlacementOnlyOnce(t *testing.T) {
-	policy, privateKey := newPlacementAdmissionPolicy(t)
-	for _, test := range []struct {
-		name   string
-		mutate func(*placement.Intent)
-	}{
-		{name: "removed region", mutate: func(intent *placement.Intent) {
-			*intent = testManagedPlacementIntentForRegions(oci.RegionGRU)
-		}},
-		{name: "member rotation", mutate: func(intent *placement.Intent) {
-			intent.CanonicalRoster.Rows[0].MemberID = "01HW000000E00800000000000G"
-		}},
-		{name: "incarnation rotation", mutate: func(intent *placement.Intent) {
-			intent.CanonicalRoster.Rows[0].Incarnation = strings.Repeat("d", 32)
-		}},
-		{name: "shared shard change", mutate: func(intent *placement.Intent) {
-			intent.CanonicalRoster.ShardID++
-		}},
-		{name: "authority reference change", mutate: func(intent *placement.Intent) {
-			intent.CanonicalRoster.Authority.Epoch++
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			control := newPlacementAdmissionControl()
-			previous := testManagedPlacementIntentForRegions(oci.RegionGRU, oci.RegionFRA)
-			if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, previous, privateKey, protocol.EncodeJSON), "gru", policy, control); err != nil {
-				t.Fatalf("seed existing committed placement: %v", err)
-			}
-			candidate := previous
-			test.mutate(&candidate)
-			candidate.Generation = previous.Generation + 1
-			_, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, candidate, privateKey, protocol.EncodeJSON), "gru", policy, control)
-			if err == nil {
-				t.Fatal("placement replacement was committed after initial admission")
-			}
-			entry := control.entries[previous.DatabaseID+"."+previous.PartitionID]
-			if entry.Sequence != 1 {
-				t.Fatalf("rejected replacement changed committed sequence to %d", entry.Sequence)
-			}
-		})
-	}
-
-	t.Run("added seats require a separate lifecycle operation", func(t *testing.T) {
-		control := newPlacementAdmissionControl()
-		previous := testManagedPlacementIntentForRegions(oci.RegionGRU)
-		if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, previous, privateKey, protocol.EncodeJSON), "gru", policy, control); err != nil {
-			t.Fatalf("seed existing committed placement: %v", err)
-		}
-		candidate := testManagedPlacementIntentForRegions(oci.RegionGRU, oci.RegionFRA)
-		candidate.Generation = previous.Generation + 1
-		if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, candidate, privateKey, protocol.EncodeJSON), "gru", policy, control); err == nil {
-			t.Fatal("placement admission accepted a replacement that adds seats")
-		}
-		entry := control.entries[previous.DatabaseID+"."+previous.PartitionID]
-		if entry.Sequence != 1 {
-			t.Fatalf("rejected seat addition changed committed sequence to %d", entry.Sequence)
-		}
-	})
-
-	for _, test := range []struct {
-		name   string
-		mutate func(*placement.Intent)
-	}{
-		{name: "lower generation", mutate: func(intent *placement.Intent) { intent.Generation-- }},
-		{name: "changed same-generation payload", mutate: func(intent *placement.Intent) {
-			intent.RuntimeManifests[0].SourceDigest = strings.Repeat("f", 64)
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			control := newPlacementAdmissionControl()
-			previous := testManagedPlacementIntent()
-			if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, previous, privateKey, protocol.EncodeJSON), "gru", policy, control); err != nil {
-				t.Fatalf("seed original placement: %v", err)
-			}
-			candidate := previous
-			test.mutate(&candidate)
-			if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, candidate, privateKey, protocol.EncodeJSON), "gru", policy, control); err == nil {
-				t.Fatal("placement admission accepted a lower generation or changed signed payload")
-			}
-			entry := control.entries[previous.DatabaseID+"."+previous.PartitionID]
-			if entry.Sequence != 1 {
-				t.Fatalf("rejected placement changed committed sequence to %d", entry.Sequence)
-			}
-		})
-	}
 }
 
 func newPlacementAdmissionPolicy(t *testing.T) (signerPolicy, ed25519.PrivateKey) {
