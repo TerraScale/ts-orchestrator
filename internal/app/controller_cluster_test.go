@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-func reserveControllerPort(t *testing.T) int {
-	t.Helper()
-	return reserveControllerPorts(t, 1)[0]
-}
-
 func reserveControllerPorts(t *testing.T, count int) []int {
 	t.Helper()
 	listeners := make([]net.Listener, 0, count)
