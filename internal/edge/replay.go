@@ -234,6 +234,18 @@ func (e *Edge) failover(out *http.Request) (*http.Response, error) {
 	if m == nil || out.Header.Get("Upgrade") != "" {
 		return nil, nil
 	}
+	// An explicit region must first reach that region's backend. Rewriting its
+	// host during a rollout bypasses TerraBase's regional-host check; a pin on
+	// the global host instead gets rejected by the failover region. Let the
+	// local dial wait for the handoff. Database-directed replay is unchanged.
+	_, pinned := out.Header[http.CanonicalHeaderKey("X-TerraScale-Region-Pin")]
+	host := out.Host
+	if name, _, err := net.SplitHostPort(host); err == nil {
+		host = name
+	}
+	if pinned || strings.HasPrefix(strings.ToLower(host), m.Region()+".") {
+		return nil, nil
+	}
 	port, err := strconv.ParseUint(out.URL.Port(), 10, 16)
 	if err != nil || !handoff.Held(uint16(port)) {
 		return nil, nil

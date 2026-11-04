@@ -138,6 +138,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 			if err := e.replay(resp); err != nil {
 				return err
 			}
+			locateDatabaseHome(resp)
 			// The ingress response already carries the authoritative identity.
 			resp.Header.Del(requestIDHeader)
 			resp.Trailer.Del(requestIDHeader)
@@ -278,6 +279,9 @@ func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(replayDownHeader, "1")
 		}
 		http.NotFound(w, r)
+		return
+	}
+	if e.serveRegions(w, r) {
 		return
 	}
 	// NetBird's unauthenticated owner claim is only for ts-orch on loopback

@@ -8,6 +8,7 @@ These pages describe the current greenfield Go implementation.
 
 | Document | Purpose |
 | --- | --- |
+| [Regional API hosts](regional-api-hosts.md) | Regional rollout routing and automatic public origin discovery |
 | [Entity IDs](entity-ids.md) | Canonical ULIDs, operational keys, and the TS-754 clean-reset contract |
 | [Architecture and boundaries](architecture.md) | Regional NATS, authority, host delivery, OCI scope, and current limits |
 | [Unified CLI](cli.md) | Prefer Go `ts-orch` commands for operational tooling; bootstrap/release migration and remaining scripts |
