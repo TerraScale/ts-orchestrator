@@ -106,7 +106,9 @@ nice -n 19 go run .
 Optional static overrides: `E2E_TERRABASE_URL` (default
 `https://gru.api.terrascale.tech`), `E2E_AUTH_URL` (default
 `https://auth.terrascale.tech`), `E2E_STATUS_URL` (default
-`https://status.terrascale.tech`), and `E2E_REGION` (default `gru-1`). These
+`https://status.terrascale.tech`), and `E2E_REGION` (production reports `gru`,
+`sjc` or `fra`, matching the edge hostnames; the legacy `gru-1` default only
+matches the local stack's `local-1`-style names). These
 are harness settings passed to the resolver. Production endpoints require HTTPS
 origins and redirects are refused. No secret values are written intentionally
 into the report. Production key issuance is explicitly `PENDING(TS-481)` until
