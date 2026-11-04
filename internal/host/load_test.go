@@ -11,6 +11,9 @@ import (
 )
 
 func TestAgentPublishesLoadWithoutTelemetrySettings(t *testing.T) {
+	if testing.Short() {
+		t.Skip("agent load publication runs in the Slow suite")
+	}
 	controller, conn, _, _, responseKey := testController(t)
 	hostKey := registerTestHost(t, controller)
 	reported := make(chan hostload.Origin, 1)
