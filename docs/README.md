@@ -18,6 +18,7 @@ These pages describe the current greenfield Go implementation.
 | [Region-agnostic multi-region](region-agnostic.md) | TS-803 design: one trust root and release identity, role/pattern NATS permissions, automatic region discovery, registry deploy targets |
 | [Multi-region foundation](multi-region.md) | Automatic interregion operating contract; current fabric, lifecycle and planner gaps |
 | [NetBird control-plane path](network/netbird-control-plane.md) | TS-676 live root cause, private preferred policy prerequisites and read-only path audit |
+| [Clock discipline and TerraBase admission](clock-admission.md) | Chrony setup and bounded, replicated clock-skew reports |
 | [NATS fabric](nats-fabric.md) | Orchestrator-to-orchestrator transport: subject, stream and KV naming, which pattern to use, global documents |
 | [New region](new-region.md) | `ts-orch region create` brings a non-home region up in one command; `region verify` checks it serves |
 | [Manual regional bootstrap](region-bootstrap.md) | Legacy foundation/controller bootstrap inventory; automatic admission remains TS-796 |
