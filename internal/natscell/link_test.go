@@ -47,7 +47,7 @@ func newLinkRegion(t *testing.T, root, cell, signer string) *testRegion {
 	cfg := Config{
 		Cell: cell, Instance: "broker-a", Replicas: 1, TLS: tlsFiles,
 		Embedded: &Embedded{
-			Host: "127.0.0.1", Port: freeClientPort(t), StoreDir: filepath.Join(root, "store"),
+			Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(root, "store"),
 			TLS: tlsFiles, RouteTLS: tlsFiles,
 			OperatorJWTFile: write("operator.jwt", operator),
 			SystemJWTFile:   write("system.jwt", jwt.NewAccountClaims(keys.systemID)),
