@@ -124,7 +124,8 @@ takes about one RTT (138–184 ms). The integration test
 - per-key TTL expires the key;
 - the region that leads the bucket is cut off at the network before it shuts
   down, so it cannot hand over leadership. The other 2 elect a new leader and
-  commit 7.2 s later (locally), inside the 4–9 s election window;
+  commit 7.2–30 s later (local runs: 7.2 s on 2026-10-29, 30.1 s on beta
+  2026-11-04, the NATS client retrying the CAS every 200 ms);
 - the restarted region's replica reports current with zero lag and stores the
   stream up to its last sequence.
 
