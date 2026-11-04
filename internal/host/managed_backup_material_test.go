@@ -79,7 +79,12 @@ func readBackupGoldenFixture(t *testing.T) backupGoldenFixture {
 
 func writeBackupTestFile(t *testing.T, dir, name string, data []byte) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), data, 0440); err != nil {
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Pin the contract's group-readable mode even under a restrictive worker umask.
+	if err := os.Chmod(path, 0440); err != nil {
 		t.Fatal(err)
 	}
 }
