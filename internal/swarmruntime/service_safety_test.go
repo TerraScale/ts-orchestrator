@@ -111,4 +111,14 @@ func TestMeshServiceStaysOnTheManager(t *testing.T) {
 	if swarm.Task.Placement == nil || !slices.Contains(swarm.Task.Placement.Constraints, "node.role==manager") {
 		t.Fatalf("mesh service placement = %+v, want node.role==manager", swarm.Task.Placement)
 	}
+	// A per-node data owner spreads one task per node, each naming its own host.
+	spec.Replicas, spec.Mounts = 2, []ServiceMount{{Source: "/var/lib/ts-data/terrabase", Target: "/data"}}
+	swarm = swarmForTest(t, spec)
+	if p := swarm.Task.Placement; p == nil || p.MaxReplicas != 1 || len(p.Constraints) != 0 {
+		t.Fatalf("per-node placement = %+v, want one task per node", p)
+	}
+	env, err := withLocalNode([]string{"TS_REGION=gru", "TS_NODE=ts-gru-1"}, func() (string, error) { return "ts-gru-2", nil })
+	if err != nil || !slices.Equal(env, []string{"TS_REGION=gru", "TS_NODE=ts-gru-2"}) {
+		t.Fatalf("worker task env = %v, %v", env, err)
+	}
 }

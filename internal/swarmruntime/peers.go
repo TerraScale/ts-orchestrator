@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 )
@@ -49,6 +50,23 @@ func (s ServiceSpec) taskEnv() ([]string, error) {
 		out = append(out, key+"="+env[key])
 	}
 	return out, nil
+}
+
+// withLocalNode names the host that runs the task as its TS_NODE: the mesh
+// renders the spec on the region's founder, but a task a worker runs is that
+// worker's node (R10: a second TerraBase per region).
+func withLocalNode(env []string, hostname func() (string, error)) ([]string, error) {
+	i := slices.IndexFunc(env, func(e string) bool { return strings.HasPrefix(e, "TS_NODE=") })
+	if i < 0 {
+		return env, nil
+	}
+	node, err := hostname()
+	if err != nil || !NodeName.MatchString(node) {
+		return nil, fmt.Errorf("this host's name %q is not a node name: %v", node, err)
+	}
+	env = slices.Clone(env)
+	env[i] = "TS_NODE=" + node
+	return env, nil
 }
 
 // peersMount binds the service's peers directory into a task that reads

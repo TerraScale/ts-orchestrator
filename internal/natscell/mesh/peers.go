@@ -39,6 +39,10 @@ type peers struct {
 	registry string
 	regions  []string
 	rejected map[string]int
+
+	worker  bool              // this node is a worker: its region's line is the founder's, its own is a worker line
+	workers map[string][]peer // region -> its founder's fully joined workers, sorted by node
+	perNode map[string]bool   // service -> runs on every joined node (PerNode), so its file lists the workers
 }
 
 // peersMissedRounds is how many ping rounds in a row a region must miss
@@ -72,7 +76,7 @@ func validPeer(region string, at peer) bool {
 
 // track writes service's file, at least with this node's own line, before
 // the service is applied.
-func (p *peers) track(service string, regions []string) error {
+func (p *peers) track(service string, regions []string, perNode bool) error {
 	address, err := p.address()
 	if err != nil {
 		return fmt.Errorf("own NetBird address for the peers file: %w", err)
@@ -85,7 +89,13 @@ func (p *peers) track(service string, regions []string) error {
 	if p.targets == nil {
 		p.targets = map[string][]string{}
 	}
-	p.up[p.region] = peer{p.node, address}
+	if p.perNode == nil {
+		p.perNode = map[string]bool{}
+	}
+	p.perNode[service] = perNode
+	if !p.worker {
+		p.up[p.region] = peer{p.node, address}
+	}
 	if p.admitted == nil {
 		p.seed(service)
 	} else {
@@ -121,6 +131,7 @@ func (p *peers) untrack(service string) error {
 	defer p.mu.Unlock()
 	delete(p.targets, service)
 	delete(p.rejected, service)
+	delete(p.perNode, service)
 	return os.RemoveAll(filepath.Join(p.root, service))
 }
 
@@ -128,15 +139,18 @@ func (p *peers) untrack(service string) error {
 // while its address is known); a region that did not keeps its line until it
 // missed peersMissedRounds rounds in a row. It rewrites every tracked file
 // whose content changed.
-func (p *peers) observe(answered map[string]peer) error {
+func (p *peers) observe(answered map[string]peer, workers map[string][]peer) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.workers = workers
 	up := maps.Clone(answered)
-	if own, ok := p.up[p.region]; ok {
-		up[p.region] = own
-	}
-	if address, err := p.address(); err == nil {
-		up[p.region] = peer{p.node, address}
+	if !p.worker {
+		if own, ok := p.up[p.region]; ok {
+			up[p.region] = own
+		}
+		if address, err := p.address(); err == nil {
+			up[p.region] = peer{p.node, address}
+		}
 	}
 	if p.missed == nil {
 		p.missed = map[string]int{}
@@ -165,16 +179,15 @@ func (p *peers) observe(answered map[string]peer) error {
 // write replaces the file by rename in its own directory, only when it changes; the caller holds p.mu.
 func (p *peers) write(service string) error {
 	regions := p.targets[service]
-	var lines []string
+	founders := map[string]peer{}
 	for region, at := range p.up {
 		if len(regions) == 0 || slices.Contains(regions, region) {
-			lines = append(lines, at.node+" "+region+" "+at.address+"\n")
+			founders[region] = at
 		}
 	}
-	slices.Sort(lines)
-	data := []byte(strings.Join(lines, ""))
+	data := p.render(service, founders)
 	if p.admitted != nil {
-		expected, complete := p.expected(regions)
+		expected, complete := p.expectedFor(service, regions)
 		if p.rejected == nil {
 			p.rejected = map[string]int{}
 		}
@@ -212,8 +225,38 @@ func (p *peers) write(service string) error {
 	return nil
 }
 
-func (n *Node) pingPeers(ctx context.Context, wait time.Duration) (map[string]peer, map[string]map[string]PeerAttestation) {
+// render is a peers file: the founders' lines sorted, and for a per-node
+// service each region's fully joined workers right after its founder, since
+// TerraBase reaches a region at its first line. The caller holds p.mu.
+func (p *peers) render(service string, founders map[string]peer) []byte {
+	type block struct {
+		line  string
+		lines []string
+	}
+	var blocks []block
+	for region, at := range founders {
+		b := block{line: at.node + " " + region + " " + at.address + "\n"}
+		if p.perNode[service] {
+			for _, worker := range p.workers[region] {
+				b.lines = append(b.lines, worker.node+" "+region+" "+worker.address+"\n")
+			}
+		}
+		blocks = append(blocks, b)
+	}
+	slices.SortFunc(blocks, func(a, b block) int { return strings.Compare(a.line, b.line) })
+	var out strings.Builder
+	for _, b := range blocks {
+		out.WriteString(b.line)
+		for _, line := range b.lines {
+			out.WriteString(line)
+		}
+	}
+	return []byte(out.String())
+}
+
+func (n *Node) pingPeers(ctx context.Context, wait time.Duration) (map[string]peer, map[string][]peer, map[string]map[string]PeerAttestation) {
 	up := map[string]peer{}
+	workers := map[string][]peer{}
 	reports := map[string]map[string]PeerAttestation{}
 	_ = collect(ctx, n.conn, PingSubject, nil, len(n.regions()), wait, func(data []byte) bool {
 		var reply Reply
@@ -221,17 +264,22 @@ func (n *Node) pingPeers(ctx context.Context, wait time.Duration) (map[string]pe
 			if at := (peer{reply.Server, reply.Address}); validPeer(reply.Region, at) {
 				up[reply.Region] = at
 				reports[reply.Region] = reply.Attestations
+				for _, worker := range reply.Workers {
+					if w := (peer{worker.Node, worker.Address}); validPeer(reply.Region, w) && w.node != at.node {
+						workers[reply.Region] = append(workers[reply.Region], w)
+					}
+				}
 			}
 		}
 		return true
 	})
-	return up, reports
+	return up, workers, reports
 }
 
 // watchPeers pings every region each cfg.peersEvery and rewrites the files.
 func (n *Node) watchPeers(ctx context.Context) {
 	for {
-		up, reports := n.pingPeers(ctx, min(n.cfg.peersEvery/2, peersEvery/2))
+		up, workers, reports := n.pingPeers(ctx, min(n.cfg.peersEvery/2, peersEvery/2))
 		// A round cut short by shutdown saw only this node: never write it.
 		if ctx.Err() != nil || n.ctx.Err() != nil {
 			return
@@ -250,7 +298,7 @@ func (n *Node) watchPeers(ctx context.Context) {
 			}
 			n.peerReportMu.Unlock()
 			n.attestPeers(ctx)
-			if err := n.peers.observe(up); err != nil {
+			if err := n.peers.observe(up, workers); err != nil {
 				slog.WarnContext(ctx, "mesh peers file write failed", "error", err)
 			}
 		}

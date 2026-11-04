@@ -107,6 +107,8 @@ type Reply struct {
 	// waits for regions that joined after its own node's seeds.
 	Regions      []string                   `json:"regions,omitempty"`
 	Attestations map[string]PeerAttestation `json:"attestations,omitempty"`
+	// Workers is the replying founder's fully joined workers (ping only).
+	Workers []WorkerPeer `json:"workers,omitempty"`
 }
 
 type stateReply struct {
@@ -181,6 +183,10 @@ type Node struct {
 	peerReports     map[string]map[string]PeerAttestation
 	peerReportMu    sync.Mutex
 	topologyDesired atomic.Pointer[map[string]Entry]
+
+	workerMu  sync.Mutex
+	announced map[string]announcement // founder: worker node -> its last announcement
+	joined    []WorkerPeer            // founder: the fully joined workers, refreshed each peersEvery
 }
 
 func start(cfg config) (_ *Node, err error) {
@@ -254,7 +260,8 @@ func start(cfg config) (_ *Node, err error) {
 			if cfg.address != nil {
 				address, _ = cfg.address()
 			}
-			node.respond(m, Reply{Region: cfg.region, Server: cfg.server, Regions: node.regions(), Address: address, Attestations: node.localAttestations()})
+			node.respond(m, Reply{Region: cfg.region, Server: cfg.server, Regions: node.regions(), Address: address, Attestations: node.localAttestations(),
+				Workers: node.joinedWorkers()})
 		},
 		StateSubject: func(m *nats.Msg) {
 			ready, err := cfg.applier.Ready(node.ctx)
@@ -270,6 +277,7 @@ func start(cfg config) (_ *Node, err error) {
 		// An apply waits for its tasks to run, so it must not hold up the next message.
 		ApplySubject: func(m *nats.Msg) { node.goWork(func() { node.handleApply(m) }) },
 	}
+	handlers[protocol.MeshWorkerPrefix+cfg.region] = node.recordWorker
 	if cfg.applier == nil {
 		handlers = nil // the region's founder answers; a worker only carries messages
 	}
@@ -286,6 +294,11 @@ func start(cfg config) (_ *Node, err error) {
 		return nil, err
 	}
 	node.goWork(func() { node.watchPeers(ctx) })
+	if cfg.applier == nil {
+		node.goWork(func() { node.announce(ctx) })
+	} else {
+		node.goWork(func() { node.refreshJoined(ctx) })
+	}
 	return node, nil
 }
 
@@ -371,6 +384,8 @@ func (n *Node) run(ctx context.Context) {
 				n.mu.Unlock()
 				collected = time.Now()
 			}
+		} else {
+			n.trackWorkerServices(ctx)
 		}
 		select {
 		case <-ctx.Done():
@@ -428,7 +443,7 @@ func (n *Node) sync(ctx context.Context) {
 		// The peers file follows desired state even while the rollout waits (a
 		// held canary or an earlier region's turn): a restart must re-render it.
 		if entry := n.desired[name].entry(); entry.Spec != nil && (len(entry.Spec.Regions) == 0 || slices.Contains(entry.Spec.Regions, n.cfg.region)) {
-			if err := n.peers.track(name, entry.Spec.Regions); err != nil {
+			if err := n.peers.track(name, entry.Spec.Regions, PerNode(entry.Spec)); err != nil {
 				slog.WarnContext(ctx, "mesh peers file track failed", "service", name, "error", err)
 			}
 		}
@@ -789,7 +804,14 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 	spec.Generation, spec.Region, spec.Node = entry.Generation, n.cfg.region, n.cfg.server
 	spec.RollbackOf = entry.RollbackOf
 	spec.Deployment, spec.DeploymentFloor = entry.Deployment, state.Floor
-	if err := n.peers.track(name, spec.Regions); err != nil {
+	perNode := PerNode(&spec)
+	if perNode {
+		// One task per fully joined node: a worker counts only once it announces
+		// itself over the mesh and SwarmKit has it READY and ACTIVE, so a drained
+		// or half-joined worker is never a release target.
+		spec.Replicas = min(spec.Replicas, uint64(1+len(n.joinedWorkers())))
+	}
+	if err := n.peers.track(name, spec.Regions, perNode); err != nil {
 		return applyResult{}, err
 	}
 	changed, service, err := n.cfg.applier.Apply(ctx, spec)

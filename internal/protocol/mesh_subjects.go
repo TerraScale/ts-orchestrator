@@ -12,6 +12,9 @@ const (
 	// MeshWorkerReleasePrefix + region carries a founder's accepted ts-orch
 	// release request to its region's workers, which CI never reaches.
 	MeshWorkerReleasePrefix = "ts.mesh.release."
+	// MeshWorkerPrefix + region carries each worker's announcement (its node
+	// name and NetBird address) to its region's founder.
+	MeshWorkerPrefix = "ts.mesh.worker."
 	// MeshHealthSubject answers with the region's host and SwarmKit health
 	// (internal/regionhealth).
 	MeshHealthSubject = "ts.mesh.health"

@@ -1,6 +1,7 @@
 package mesh
 
 import (
+	"maps"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -64,6 +65,22 @@ type fakeApplier struct {
 	settle  time.Duration
 	applied map[string]time.Time
 	images  map[string]string
+	// replicas is the replica count of each service's last apply; workers the
+	// READY and ACTIVE SwarmKit workers ReadyWorkers reports.
+	replicas map[string]uint64
+	workers  map[string]bool
+}
+
+func (f *fakeApplier) ReadyWorkers(context.Context) (map[string]bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return maps.Clone(f.workers), nil
+}
+
+func (f *fakeApplier) appliedReplicas(name string) uint64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.replicas[name]
 }
 
 func (f *fakeApplier) Apply(_ context.Context, spec swarmruntime.ServiceSpec) (bool, *api.Service, error) {
@@ -74,6 +91,10 @@ func (f *fakeApplier) Apply(_ context.Context, spec swarmruntime.ServiceSpec) (b
 		return false, nil, err
 	}
 	service := &api.Service{ID: spec.Name, Spec: *swarm}
+	if f.replicas == nil {
+		f.replicas = map[string]uint64{}
+	}
+	f.replicas[spec.Name] = spec.Replicas
 	if f.running[spec.Name] == spec.Generation {
 		return false, service, nil
 	}

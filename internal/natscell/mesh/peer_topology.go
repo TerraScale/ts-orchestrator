@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -61,7 +60,7 @@ func (n *Node) awaitPeerAdmission(ctx context.Context, spec *swarmruntime.Servic
 		return nil
 	}
 	for {
-		up, _ := n.pingPeers(ctx, time.Second)
+		up, _, _ := n.pingPeers(ctx, time.Second)
 		if ctx.Err() != nil {
 			return errors.New("admitted peer topology is incomplete")
 		}
@@ -83,7 +82,7 @@ func (n *Node) awaitPeerAdmission(ctx context.Context, spec *swarmruntime.Servic
 }
 
 func newPeers(cfg config) (*peers, error) {
-	p := &peers{root: cfg.peersDir, region: cfg.region, node: cfg.server, address: cfg.address,
+	p := &peers{root: cfg.peersDir, region: cfg.region, node: cfg.server, address: cfg.address, worker: cfg.applier == nil,
 		registry: filepath.Join(cfg.dir, "admitted-peers.json"), admitted: map[string]peer{}, regions: append([]string{cfg.region}, slices.Sorted(maps.Keys(cfg.seeds))...)}
 	data, err := os.ReadFile(p.registry)
 	if errors.Is(err, os.ErrNotExist) {
@@ -148,19 +147,24 @@ func topologyPeers(admitted map[string]peer) []topologyPeer {
 // expected uses placement and the separate admission registry, never p.up or seed.
 // The caller holds p.mu.
 func (p *peers) expected(regions []string) ([]byte, bool) {
+	return p.expectedFor("", regions)
+}
+
+// expectedFor is expected for service, whose per-node file also lists each
+// region's joined workers after its founder. The caller holds p.mu.
+func (p *peers) expectedFor(service string, regions []string) ([]byte, bool) {
 	if len(regions) == 0 {
 		regions = p.regions
 	}
-	var lines []string
+	founders := map[string]peer{}
 	for _, region := range regions {
 		at, ok := p.admitted[region]
 		if !ok {
 			return nil, false
 		}
-		lines = append(lines, at.node+" "+region+" "+at.address+"\n")
+		founders[region] = at
 	}
-	slices.Sort(lines)
-	return []byte(strings.Join(lines, "")), len(lines) > 0
+	return p.render(service, founders), len(founders) > 0
 }
 
 func (n *Node) attestPeers(ctx context.Context) {
@@ -182,7 +186,7 @@ func (n *Node) attestPeers(ctx context.Context) {
 				topology.Peers = append(topology.Peers, at)
 			}
 		}
-		expected, complete := n.peers.expected(regions)
+		expected, complete := n.peers.expectedFor(name, regions)
 		current, err := os.ReadFile(filepath.Join(n.peers.root, name, "peers"))
 		report := PeerAttestation{Expected: len(regions), CheckedAt: topology.ObservedAt, Rejected: n.peers.rejected[name], Topology: fmt.Sprintf("%x", sha256.Sum256(expected))}
 		if name == "terrabase" {
@@ -243,7 +247,7 @@ func (n *Node) writePeerMetrics(w io.Writer) {
 		if len(regions) == 0 {
 			regions = n.peers.regions
 		}
-		expected, complete := n.peers.expected(regions)
+		expected, complete := n.peers.expectedFor(service, regions)
 		digest := fmt.Sprintf("%x", sha256.Sum256(expected))
 		for _, region := range regions {
 			report, ok := n.peerReports[region][service]

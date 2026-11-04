@@ -77,13 +77,56 @@ second host exists: a new host whose hostname equals the join material's
   request on the mesh subject `ts.mesh.release.<region>`; the worker verifies
   the GitHub OIDC token itself and installs it. A worker that was down misses
   that relay and catches up on the next push.
-- Every mesh service runs on the founder only (`node.role==manager`): the mesh
-  gives a task the founder's `TS_NODE` and peers file, which a worker does not
-  have. On 2026-11-04 SwarmKit put TerraBase on `ts-sjc-2`, the task was
-  rejected ("peers file is not written yet") and two TerraBase releases paused.
-  The workers were drained, then the constraint shipped. TerraBase keeps one
-  data owner per region until R10 gives the worker its own node identity and
-  places the in-region follower on it.
+- A mesh service runs on the founder only (`node.role==manager`), because the
+  founder's edge serves it on loopback. On 2026-11-04 SwarmKit put TerraBase
+  on `ts-sjc-2` before this rule; the task was rejected ("peers file is not
+  written yet") and two TerraBase releases paused. The exception is a
+  per-node service (below).
+- The workers are drained (`ts-orch member drain <host>`): joined, but they
+  run no task until R10 switches them on.
+
+### Per-node services (R10's second TerraBase)
+
+A mesh service with a data mount and `replicas` > 1 is per node: one task on
+each fully joined node of its region, each with its own host's data
+directory. Today that is nothing. TerraBase stays at `"replicas": 1` until R10
+ships its follower mode. A plain second TerraBase would pull every replica
+placed in its region, so it would hold customer data.
+
+- **Fully joined.** A worker announces its node name and NetBird IPv4 on
+  `ts.mesh.worker.<region>` every 5 s. Its founder counts it while the
+  announcement is under 15 s old and SwarmKit has it READY and ACTIVE. A
+  drained, paused, silent or half-joined worker is no node.
+- **Release targets.** The founder applies a per-node service with
+  `replicas = min(spec replicas, 1 + fully joined workers)` and
+  `MaxReplicas: 1` per node. The release waits for exactly those tasks. A
+  worker that is not fully joined is never a target, and one that leaves
+  drops the count at the next 30 s reconcile.
+- **Identity.** The executor sets `TS_NODE` to the host that runs the task.
+  `TS_REGION` stays the region.
+- **Peers file.** Each founder's ping reply lists its fully joined workers. A
+  per-node service's file lists each region's founder, then its workers,
+  sorted. TerraBase reaches another region at its first line, so cross-region
+  traffic still goes to founders. A founder-only service's file lists
+  founders only. A worker writes the same file for its own task. It learns the
+  per-node services from its founder's desired state.
+- **NATS.** TerraBase on a worker dials the worker's own mesh server
+  (`127.0.0.1:4223`, same token). That server stores no JetStream, but JetStream
+  works through it (`TestFullyJoinedWorkerJoinsPerNodeServices`).
+- **Customer traffic.** The edge proxies only to `127.0.0.1`, so a worker's
+  TerraBase gets no customer request through a founder.
+
+Switch on, with R10, one region at a time:
+
+1. R10 ships TerraBase's follower mode.
+2. `ts-orch member activate ts-<region>-2` on the founder.
+3. Apply `terrabase.json` with `"replicas": 2`.
+4. Check: `ts-orch service ps terrabase` shows a running task on both nodes;
+   both nodes' peers files list the founder, then the worker; the worker's
+   TerraBase answers `/readyz`.
+
+`topology.json` (the attested topology) still lists founders only. R10 decides
+whether TerraBase's own topology check counts workers.
 - Capacity: 6 VM.Standard.A1.Flex nodes. Founders: gru 4 OCPU/24 GB, sjc and
   fra 2 OCPU/12 GB. Workers: sjc and fra 2 OCPU/12 GB; gru 1 OCPU/6 GB, because
   sa-saopaulo-1 had no A1 capacity for 2 OCPU/12 GB in FAULT-DOMAIN-1 or -2 on

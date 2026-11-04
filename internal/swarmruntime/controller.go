@@ -197,7 +197,10 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 		if cwd == "" {
 			cwd = "/"
 		}
-		env := c.spec.Env
+		env, err := withLocalNode(c.spec.Env, os.Hostname)
+		if err != nil {
+			return err
+		}
 		if c.stateful == nil && usesTaskPort(env) {
 			port, err := c.pickTaskPort(ctx)
 			if err != nil {

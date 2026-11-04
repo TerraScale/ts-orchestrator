@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -15,7 +16,9 @@ import (
 
 const memberCLIUsage = `usage:
   ts-orch member ls                List the hosts of this region's cluster
-  ts-orch member leave <hostname>  Drain a worker, wait for its tasks to stop, remove it
+  ts-orch member leave <hostname>     Drain a worker, wait for its tasks to stop, remove it
+  ts-orch member drain <hostname>     Run no task on a worker; it stays joined
+  ts-orch member activate <hostname>  Let a worker run its region's per-node services again
 `
 
 // RunMemberCLI lists and removes the hosts of the region's SwarmKit cluster
@@ -47,6 +50,15 @@ func runMemberCLI(ctx context.Context, args []string, output io.Writer, state st
 				return err
 			}
 			_, err := fmt.Fprintf(output, "%s drained and removed; terminate it or clear its state before it starts again\n", args[1])
+			return err
+		}
+	case len(args) == 2 && (args[0] == "drain" || args[0] == "activate"):
+		availability := map[string]api.NodeSpec_Availability{"drain": api.NodeAvailabilityDrain, "activate": api.NodeAvailabilityActive}[args[0]]
+		run = func(ctx context.Context, client api.ControlClient) error {
+			if err := swarmruntime.SetMemberAvailability(ctx, client, args[1], availability); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintf(output, "%s %s\n", args[1], strings.ToLower(availability.String()))
 			return err
 		}
 	default:

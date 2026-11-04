@@ -73,6 +73,26 @@ func LeaveMember(ctx context.Context, client api.ControlClient, hostname string)
 	return nil
 }
 
+// SetMemberAvailability drains (no tasks) or activates the worker named
+// hostname. A drained worker stays in the cluster and the mesh, but counts
+// as no node of its region's per-node services.
+func SetMemberAvailability(ctx context.Context, client api.ControlClient, hostname string, availability api.NodeSpec_Availability) error {
+	node, err := memberNode(ctx, client, hostname)
+	if err != nil {
+		return err
+	}
+	if node.Role == api.NodeRoleManager {
+		return fmt.Errorf("%s is the region's manager; only workers drain", hostname)
+	}
+	if node.Spec.Availability == availability {
+		return nil
+	}
+	spec := node.Spec.Copy()
+	spec.Availability = availability
+	_, err = client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec})
+	return err
+}
+
 func memberNode(ctx context.Context, client api.ControlClient, hostname string) (*api.Node, error) {
 	listed, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 	if err != nil {

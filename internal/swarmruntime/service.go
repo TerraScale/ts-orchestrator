@@ -478,9 +478,10 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		return nil, errors.New("service name must match ^[a-z][a-z0-9-]{0,62}$")
 	}
 	// Host-mode ports spread replicas one per host (SwarmKit's HostPortFilter);
-	// a mount is one host's data, so a service with mounts runs once.
-	if s.Replicas < 1 || s.Replicas > 8 || len(s.Mounts) != 0 && s.Replicas != 1 {
-		return nil, errors.New("services run 1 to 8 replicas, and exactly one when they mount host data")
+	// a mount is one host's data, so a service with mounts and replicas > 1
+	// runs one task per node, each on its own host's directory.
+	if s.Replicas < 1 || s.Replicas > 8 {
+		return nil, errors.New("services run 1 to 8 replicas")
 	}
 	if s.Port < 1024 || s.Port > 65535 {
 		return nil, errors.New("service port must be in 1024..65535")
@@ -641,11 +642,15 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		Update:      &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(serviceUpdateMonitor), Order: api.UpdateConfig_STOP_FIRST},
 		Endpoint:    &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: ports},
 	}
-	if s.Region != "" {
-		// A mesh service carries the founder's TS_NODE and its peers file, which
-		// only the founder (the region's manager) has; a worker rejects the task
-		// (ts-sjc-2, 2026-11-04). Workers take mesh tasks once R10 gives them
-		// their own node identity.
+	switch {
+	case s.Region != "" && len(s.Mounts) != 0 && s.Replicas > 1:
+		// One per node: the mesh counts only fully joined nodes in Replicas, each
+		// task names its own host as TS_NODE and reads that host's peers file.
+		spec.Task.Placement = &api.Placement{MaxReplicas: 1}
+	case s.Region != "":
+		// Every other mesh service runs on the founder (the region's manager):
+		// the founder's edge serves it on loopback, and a worker rejected such a
+		// task for want of its peers file (ts-sjc-2, 2026-11-04).
 		spec.Task.Placement = &api.Placement{Constraints: []string{"node.role==manager"}}
 	}
 	if s.Name == "terrabase" {
