@@ -42,9 +42,10 @@ func sized(shape string) machine {
 	return m
 }
 
-// live drops terminated and terminating instances.
+// live is a copy of items without terminated and terminating instances; the
+// caller's slice stays intact (DeleteFunc zeroes the elements it drops).
 func live(items []core.Instance) []core.Instance {
-	return slices.DeleteFunc(items, func(i core.Instance) bool {
+	return slices.DeleteFunc(slices.Clone(items), func(i core.Instance) bool {
 		return i.LifecycleState == core.InstanceLifecycleStateTerminated || i.LifecycleState == core.InstanceLifecycleStateTerminating
 	})
 }

@@ -50,6 +50,14 @@ func TestSpreadPicksAFreeFaultDomainBesideTheRegionHost(t *testing.T) {
 	if err != nil || ad != "AD-1" || fd != "FAULT-DOMAIN-2" {
 		t.Fatalf("spread = %q %q %v, want AD-1 FAULT-DOMAIN-2", ad, fd, err)
 	}
+	// Picking a new host's name must leave the region's hosts intact for spread.
+	hosts := []core.Instance{first}
+	if found, err := pick(hosts, "ts-sjc-2"); found != nil || err != nil {
+		t.Fatalf("pick = %v %v", found, err)
+	}
+	if ad, fd, err := spread(live(hosts), domains); err != nil || ad != "AD-1" || fd != "FAULT-DOMAIN-2" {
+		t.Fatalf("spread after pick = %q %q %v", ad, fd, err)
+	}
 	var full []core.Instance
 	for _, name := range []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"} {
 		full = append(full, core.Instance{AvailabilityDomain: new("AD-1"), FaultDomain: new(name), TimeCreated: first.TimeCreated})
