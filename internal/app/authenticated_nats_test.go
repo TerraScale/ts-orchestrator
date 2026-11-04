@@ -202,7 +202,9 @@ func (a *authenticatedNATS) config(t *testing.T, cfg natscell.Config) natscell.C
 			embedded.Host = "127.0.0.1"
 		}
 		if embedded.Port <= 0 {
-			embedded.Port = reserveControllerPort(t)
+			// The bridge binds any free port atomically; a port reserved and
+			// released here can be taken by a parallel test before it binds.
+			embedded.Port = -1
 		}
 	}
 	return cfg
