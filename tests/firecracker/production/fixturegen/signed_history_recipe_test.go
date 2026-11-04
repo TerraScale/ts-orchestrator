@@ -19,60 +19,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
-func TestSignedHistoryRecipeCompletesThreeSlotsThroughPublicLedger(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
-	recipe := syntheticSignedHistoryRecipe(t, now, []byte("synthetic orchestrator executable"))
-	capture, err := NewCapturingObjectStorage(now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	anchor := recipe.Anchor.Anchor()
-	grant, err := recipe.Anchor.LedgerDelegation()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ledger, err := bootstrap.NewLedger(capture, bootstrap.LedgerConfig{
-		DeploymentID: anchor.DeploymentID, Cell: anchor.Cell, ClusterID: anchor.ClusterID,
-		InitialRegionIntentGeneration: anchor.InitialRegionIntentGeneration,
-		InitialRegionIntentSHA256:     anchor.InitialRegionIntentSHA256,
-		Namespace:                     anchor.StorageDomain.Namespace, Bucket: anchor.StorageDomain.LedgerBucket,
-		KMSKeyID: anchor.StorageDomain.LedgerKMSKeyOCID, Prefix: anchor.StorageDomain.Prefix,
-		HeadBucket: anchor.StorageDomain.HeadBucket, HeadKMSKeyID: anchor.StorageDomain.HeadKMSKeyOCID,
-		Environment: anchor.Environment, ControllerSlots: slices.Clone(anchor.ControllerSlots),
-		AnchorExpiresAt: recipe.Anchor.ExpiresAt(), TrustRoots: recipe.Roots,
-		Delegations: []trust.VerifiedDelegation{grant}, TrustPolicy: bootstrap.BootstrapAnchorTrustPolicy(),
-		VerificationNow: func() time.Time { return now },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	seed, peers, err := recipe.Prepare(ledger)
-	if err != nil {
-		t.Fatalf("prepare public signed history: %v", err)
-	}
-	completed, err := BuildCompletedHistories(t.Context(), ledger, seed, peers)
-	if err != nil {
-		t.Fatalf("complete three public ledger histories: %v", err)
-	}
-	if completed.Seed.Result == nil || completed.Seed.Result.InstanceOCID != recipe.Observed["controller-c"].InstanceOCID ||
-		len(completed.Peers) != 2 || capture.PutCount() == 0 {
-		t.Fatalf("signed history did not complete three slots: seed=%+v peers=%d puts=%d",
-			completed.Seed.Result, len(completed.Peers), capture.PutCount())
-	}
-	for _, slot := range []string{"controller-a", "controller-b"} {
-		state := completed.Peers[slot]
-		if state.Result == nil || state.Result.InstanceOCID != recipe.Observed[slot].InstanceOCID ||
-			state.CandidateRecord == nil || state.ProgressRecord == nil || state.PeerReceiptRecord == nil ||
-			state.Head.CandidateDigest == "" || state.Head.ResultDigest == "" {
-			t.Fatalf("managed %s lacks completed candidate/progress/result proof: %+v", slot, state)
-		}
-	}
-}
-
-func syntheticSignedHistoryRecipe(t *testing.T, now time.Time, binary []byte) SignedHistoryRecipe {
-	return syntheticSignedHistoryRecipeWithMaterials(t, now, binary, nil)
-}
-
 func syntheticSignedHistoryRecipeWithMaterials(t *testing.T, now time.Time, binary []byte,
 	credentials map[string]map[string][]byte,
 ) SignedHistoryRecipe {

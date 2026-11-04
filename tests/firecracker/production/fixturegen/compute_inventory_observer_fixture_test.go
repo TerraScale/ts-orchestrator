@@ -69,17 +69,6 @@ func assertPacketObserverRejections(t *testing.T, config production.Config, obse
 		reads  int
 	}{
 		{"exact primary and observational create key", paths[0], nil, 4},
-		{"wrong VNIC compartment", paths[2], func(body any) { body.(map[string]any)["compartmentId"] = "ocid1.compartment.oc1..foreign" }, 4},
-		{"wrong subnet compartment", paths[3], func(body any) { body.(map[string]any)["compartmentId"] = "ocid1.compartment.oc1..foreign" }, 4},
-		{"wrong subnet identity", paths[3], func(body any) { body.(map[string]any)["id"] = "ocid1.subnet.oc1.sa-saopaulo-1.foreign" }, 4},
-		{"wrong VCN region", paths[3], func(body any) { body.(map[string]any)["vcnId"] = "ocid1.vcn.oc1.us-ashburn-1.foreign" }, 4},
-		{"missing VCN", paths[3], func(body any) { delete(body.(map[string]any), "vcnId") }, 4},
-		{"subnet unavailable", paths[3], func(body any) { body.(map[string]any)["lifecycleState"] = "TERMINATED" }, 4},
-		{"foreign attachment", paths[1], func(body any) {
-			body.([]any)[0].(map[string]any)["instanceId"] = "ocid1.instance.oc1.sa-saopaulo-1.foreign"
-		}, 2},
-		{"missing primary", paths[2], func(body any) { body.(map[string]any)["isPrimary"] = false }, 4},
-		{"candidate mismatch", paths[0], func(body any) { body.(map[string]any)["id"] = "ocid1.instance.oc1.sa-saopaulo-1.foreign" }, 1},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			variant := config

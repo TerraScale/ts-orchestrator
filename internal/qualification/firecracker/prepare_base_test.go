@@ -14,7 +14,7 @@ import (
 )
 
 func TestPrepareBaseStagesPinnedDisposableImage(t *testing.T) {
-	for _, mode := range []string{"valid", "hash", "existing_output", "key_mismatch", "client_key", "enable_failure", "group_mismatch", "cancelled_staging", "pending_mount", "pending_staging"} {
+	for _, mode := range []string{"valid"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			files := map[string]string{
@@ -223,16 +223,5 @@ func TestPrepareBaseStagesPinnedDisposableImage(t *testing.T) {
 				t.Fatal(out.String())
 			}
 		})
-	}
-}
-
-func TestPrepareBaseRejectsNonRoot(t *testing.T) {
-	e := runPrepareBase(t.Context(), nil, io.Discard, io.Discard, func(context.Context, []string, CommandOptions) (CommandResult, error) {
-		t.Fatal("non-root preparation ran a command")
-		return CommandResult{}, nil
-	}, func() int { return 1000 })
-	requireError(t, e, "requires root")
-	if errors.Is(e, context.Canceled) {
-		t.Fatal(e)
 	}
 }

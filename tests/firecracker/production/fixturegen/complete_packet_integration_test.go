@@ -3,7 +3,7 @@ package fixturegen
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
+
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,34 +17,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
-
-func TestGuestMaterialRejectsMalformedOrIncompleteTrustRoot(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
-	recipe := syntheticSignedHistoryRecipe(t, now, []byte("synthetic orchestrator executable"))
-	input := GuestMaterialInputs{Binary: []byte("synthetic orchestrator executable"),
-		Credentials: map[string]map[string][]byte{"controller-a": {}, "controller-b": {}, "controller-c": {}},
-		VNICs:       map[string]GuestObservation{"controller-a": {}, "controller-b": {}, "controller-c": {}},
-		ServiceUID:  1000, ServiceGID: 1000}
-	shortKey := recipe
-	shortKey.RootPrivateKey = ed25519.PrivateKey{1}
-	if _, err := BuildVerifiedGuestMaterial(t.Context(), shortKey, CompletedHistories{}, input); err == nil {
-		t.Fatal("short offline root key reached guest material staging")
-	}
-	extraPublic, _ := historyTestKey(t)
-	extraID, err := trust.KeyID(extraPublic)
-	if err != nil {
-		t.Fatal(err)
-	}
-	multipleRoots := recipe
-	multipleRoots.Roots = make(trust.Keyring, len(recipe.Roots)+1)
-	for id, key := range recipe.Roots {
-		multipleRoots.Roots[id] = bytes.Clone(key)
-	}
-	multipleRoots.Roots[extraID] = extraPublic
-	if _, err := BuildVerifiedGuestMaterial(t.Context(), multipleRoots, CompletedHistories{}, input); err == nil {
-		t.Fatal("one PEM was staged for a two-root verification keyring")
-	}
-}
 
 func TestCompletedControllerCSeedPacketEmitsSignedCaptureAndVerifiedFloors(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)

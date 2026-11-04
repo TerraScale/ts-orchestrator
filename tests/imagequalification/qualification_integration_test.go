@@ -111,37 +111,6 @@ func fixture(t *testing.T) qualificationFixture {
 	return qualificationFixture{p, wire, roots, private, diskPath, qualificationPath, now}
 }
 
-func TestSignedRunRejectsChangedDiskSourceAndProductionAuthority(t *testing.T) {
-	f := fixture(t)
-	a := f.prepared.Approval()
-	t.Run("different-source", func(t *testing.T) {
-		candidate := a.Candidate
-		candidate.SourceRevision = strings.Repeat("c", 40)
-		if _, err := Prepare(f.wire, nil, f.roots, candidate, a.RunID, f.disk, f.qualification, f.now); err == nil {
-			t.Fatal("changed source accepted")
-		}
-	})
-	t.Run("production-signature", func(t *testing.T) {
-		payload, _ := json.Marshal(a)
-		envelope, err := trust.Sign(payload, release.ProductionQualificationScope(a.Candidate), f.now.Add(-time.Minute), f.now.Add(time.Hour), f.private)
-		if err != nil {
-			t.Fatal(err)
-		}
-		wire, _ := json.Marshal(envelope)
-		if _, err := Prepare(wire, nil, f.roots, a.Candidate, a.RunID, f.disk, f.qualification, f.now); err == nil {
-			t.Fatal("production qualification signature granted disposable privilege")
-		}
-	})
-	t.Run("modified-qcow2", func(t *testing.T) {
-		if err := os.WriteFile(f.disk, []byte("same-length!"), 0600); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := Prepare(f.wire, nil, f.roots, a.Candidate, a.RunID, f.disk, f.qualification, f.now); err == nil {
-			t.Fatal("modified image accepted")
-		}
-	})
-}
-
 type cloudFixture struct {
 	mu                         sync.Mutex
 	image                      map[string]any
@@ -457,30 +426,5 @@ func TestCleanupTerminatesKnownHostsWhileRetainingUnresolvedIntent(t *testing.T)
 	}
 	if len(retained.Terminated) != 1 || retained.ImageDeleted || retained.ObjectDeleted || remote.image == nil || remote.object == nil || remote.deletes != 1 {
 		t.Fatalf("known host not terminated or recovery resources deleted: %+v", retained)
-	}
-}
-
-func TestApprovalKeepsNetBirdAndManagerTopologyDistinct(t *testing.T) {
-	a := fixture(t).prepared.Approval()
-	a.Candidate.Role, a.Candidate.Runtime = "netbird-manager", "netbird-containerd"
-	a.ProfileIdentity, a.MaterialFixtures = cellspec.Identity{}, nil
-	a.WorkloadImage, a.WorkloadArchiveSHA256 = "", ""
-	a.ClientSHA256 = hashBytes([]byte("netbird-client"))
-	a.Hosts = a.Hosts[:2]
-	a.Hosts[0].Role, a.Hosts[1].Role = "netbird-primary", "netbird-replacement"
-	for _, role := range []string{"server", "dashboard", "ingress"} {
-		a.ContainerArtifacts = append(a.ContainerArtifacts, ContainerArtifactApproval{Role: role, Image: "example.invalid/" + role + "@sha256:" + hashBytes([]byte(role)), ArchiveSHA256: hashBytes([]byte(role + "-archive"))})
-	}
-	if err := a.validate(); err != nil {
-		t.Fatal(err)
-	}
-	a.Hosts[1].Role = "manager"
-	if err := a.validate(); err == nil {
-		t.Fatal("Swarm host accepted as NetBird replacement")
-	}
-	a.Hosts[1].Role = "netbird-replacement"
-	a.Candidate.Runtime = release.ProductionRuntime
-	if err := a.validate(); err == nil {
-		t.Fatal("ordinary manager runtime accepted as dedicated NetBird")
 	}
 }

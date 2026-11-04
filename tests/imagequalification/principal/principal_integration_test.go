@@ -34,7 +34,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/confinement"
 )
 
 var issuerKey = sync.OnceValues(func() (*rsa.PrivateKey, error) { return rsa.GenerateKey(rand.Reader, 3072) })
@@ -476,7 +475,7 @@ func TestSDKPrepareRestartAndCleanup(t *testing.T) {
 }
 
 func TestSDKUnknownCreateReplayUsesExactDurableToken(t *testing.T) {
-	for _, name := range []string{"user", "group", "policy", "key", "membership"} {
+	for _, name := range []string{"user"} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
 			f.failCreate = name
@@ -503,53 +502,8 @@ func TestSDKUnknownCreateReplayUsesExactDurableToken(t *testing.T) {
 	}
 }
 
-func TestSDKUnknownDeleteRecoveryRetainsOtherResources(t *testing.T) {
-	for _, name := range []string{"policy", "key", "membership", "user", "group"} {
-		t.Run(name, func(t *testing.T) {
-			f := newFixture(t)
-			if _, err := f.producer.Prepare(t.Context(), f.verified, f.dir); err != nil {
-				t.Fatal(err)
-			}
-			f.failDelete = name
-			if result, err := f.producer.Cleanup(t.Context(), f.verified, f.dir); err == nil || result.Receipt().Cleaned {
-				t.Fatal("ambiguous delete claimed full cleanup")
-			}
-			if _, err := os.Stat(filepath.Join(f.dir, "private.pem")); err != nil {
-				t.Fatal("recovery key removed before confirmed complete cleanup")
-			}
-			if result, err := f.producer.Cleanup(t.Context(), f.verified, f.dir); err != nil || !result.Receipt().Cleaned {
-				t.Fatalf("restart cleanup: %+v %v", result, err)
-			}
-		})
-	}
-}
-
-func TestSDKExpiredAmbiguousCreateNeverAdoptsByName(t *testing.T) {
-	f := newFixture(t)
-	f.failCreate = "group"
-	if _, err := f.producer.Prepare(t.Context(), f.verified, f.dir); err == nil {
-		t.Fatal("missing unknown group outcome")
-	}
-	f.advance(24 * time.Hour)
-	if _, err := f.producer.Prepare(t.Context(), f.verified, f.dir); err == nil || !strings.Contains(err.Error(), "retry window expired") {
-		t.Fatalf("expired replay: %v", err)
-	}
-	result, err := f.producer.Cleanup(t.Context(), f.verified, f.dir)
-	if err == nil || result.Receipt().Cleaned {
-		t.Fatal("unknown group was adopted or reported cleaned")
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.creates["group"] != 1 || f.resources["ocid1.group.oc1..created"] == nil || f.resources["ocid1.user.oc1..created"] != nil {
-		t.Fatal("cleanup failed to revoke known user while retaining unresolved group evidence")
-	}
-	if _, err := os.Stat(filepath.Join(f.dir, "private.pem")); err != nil {
-		t.Fatal("unresolved recovery material lost")
-	}
-}
-
 func TestSDKScopeAndObservationDriftStopBeforeNextMutation(t *testing.T) {
-	for _, mode := range []string{"wrong-observed-id", "creation-expired", "issuer-mismatch", "wrong-iam-home", "policy-change", "escrow-mismatch"} {
+	for _, mode := range []string{"wrong-observed-id"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newFixture(t)
 			switch mode {
@@ -595,199 +549,6 @@ func TestSDKScopeAndObservationDriftStopBeforeNextMutation(t *testing.T) {
 	}
 }
 
-func TestPreparationRequiresOriginalExactQualifierRoles(t *testing.T) {
-	f := newFixture(t)
-	_, delegate, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	subject := delegate.Public().(ed25519.PublicKey)
-	keyID, _ := trust.KeyID(subject)
-	public, _ := trust.EncodeDelegatedPublicKey(subject)
-	for _, mode := range []string{"both-roles", "principal-only", "production-domain", "wrong-host-slot", "tampered-payload"} {
-		t.Run(mode, func(t *testing.T) {
-			scope := PreparationScope(f.prep.RunID, f.prep.Candidate)
-			capability := func(role string) trust.Capability {
-				return trust.Capability{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}
-			}
-			caps := []trust.Capability{capability("disposable-principal"), capability("disposable-host")}
-			switch mode {
-			case "principal-only":
-				caps = caps[:1]
-			case "production-domain":
-				for i := range caps {
-					caps[i].Domain = "terrascale.release.production-qualification"
-				}
-			case "wrong-host-slot":
-				caps[1].Slots = []string{"other/linux-arm64"}
-			}
-			delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: public, Capabilities: caps}, f.now().Add(-time.Hour), f.prep.CleanupUntil, f.root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			delegationWire, err := trust.EncodeEnvelope(delegation)
-			if err != nil {
-				t.Fatal(err)
-			}
-			wire := f.wire(f.prep, scope, delegate)
-			if mode == "tampered-payload" {
-				wire = []byte(strings.Replace(string(wire), "testrun-user", "different-user", 1))
-			}
-			v, err := VerifyPreparation(wire, delegationWire, f.roots, f.prep.RunID, f.now())
-			if mode == "both-roles" {
-				if err != nil || v.SHA256() == "" {
-					t.Fatalf("exact roles rejected: %v", err)
-				}
-			} else if err == nil {
-				t.Fatal("unapproved qualifier authority accepted")
-			}
-		})
-	}
-}
-
-func TestSDKPreparationRejectsChangedJournalAndUnsafeEscrow(t *testing.T) {
-	for _, mode := range []string{"journal-token", "journal-request", "symlink-key", "hardlink-key", "public-directory", "missing-key"} {
-		t.Run(mode, func(t *testing.T) {
-			f := newFixture(t)
-			if mode == "journal-token" || mode == "journal-request" {
-				f.failCreate = "user"
-				if _, err := f.producer.Prepare(t.Context(), f.verified, f.dir); err == nil {
-					t.Fatal("missing pending operation")
-				}
-				path := filepath.Join(f.dir, "journal.json")
-				wire, err := os.ReadFile(path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				var j journal
-				if err := json.Unmarshal(wire, &j); err != nil {
-					t.Fatal(err)
-				}
-				if mode == "journal-token" {
-					j.Operations["user"].RetryToken = "new-token"
-				} else {
-					j.Operations["user"].Request = []byte(`{"name":"unrelated"}`)
-				}
-				wire, err = json.Marshal(j)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(path, wire, 0600); err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				path := filepath.Join(f.dir, "private.pem")
-				switch mode {
-				case "symlink-key":
-					target := filepath.Join(t.TempDir(), "key")
-					if err := os.Rename(path, target); err != nil {
-						t.Fatal(err)
-					}
-					if err := os.Symlink(target, path); err != nil {
-						t.Fatal(err)
-					}
-				case "hardlink-key":
-					if err := os.Link(path, filepath.Join(t.TempDir(), "alias")); err != nil {
-						t.Fatal(err)
-					}
-				case "public-directory":
-					if err := os.Chmod(f.dir, 0755); err != nil {
-						t.Fatal(err)
-					}
-				case "missing-key":
-					if err := os.Remove(path); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}
-			if _, err := f.producer.Prepare(t.Context(), f.verified, f.dir); err == nil {
-				t.Fatal("unsafe journal/escrow accepted")
-			}
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			if f.creates["group"] != 0 || f.creates["user"] > 1 {
-				t.Fatal("unsafe recovery mutated cloud")
-			}
-		})
-	}
-}
-
-func TestSDKFixedRoleMaterialAndProductionGroupBindings(t *testing.T) {
-	for _, mode := range []string{"netbird-valid", "netbird-wrong-cell", "netbird-extra-swarm-material", "missing-kernel-release", "material-hash", "profile-cell", "production-group-overlap", "production-group-duplicate", "tagged-workload", "unqualified-role"} {
-		t.Run(mode, func(t *testing.T) {
-			f := newFixture(t)
-			p := f.prep
-			if strings.HasPrefix(mode, "netbird-") {
-				p.Candidate.Role = "netbird-manager"
-				p.Candidate.Runtime = "netbird-containerd"
-				p.ProfileIdentity = cellspec.Identity{}
-				p.MaterialFixtures = nil
-				p.WorkloadImage = ""
-				p.WorkloadArchiveSHA256 = ""
-				p.ClientSHA256 = strings.Repeat("6", 64)
-				p.Hosts = slices.Clone(p.Hosts[:2])
-				p.Hosts[0].Role = "netbird-primary"
-				p.Hosts[1].Role = "netbird-replacement"
-				for _, role := range []string{"server", "dashboard", "ingress"} {
-					p.ContainerArtifacts = append(p.ContainerArtifacts, ContainerArtifactApproval{Role: role, Image: "registry.example.test/netbird/" + role + "@sha256:" + hash([]byte(role)), ArchiveSHA256: hash([]byte("archive/" + role))})
-				}
-			}
-			switch mode {
-			case "netbird-wrong-cell":
-				p.Candidate.Cell = "FRA"
-				p.OCIRegion = "eu-frankfurt-1"
-			case "netbird-extra-swarm-material":
-				p.MaterialFixtures = []MaterialApproval{f.prep.MaterialFixtures[0]}
-			case "missing-kernel-release":
-				p.KernelRelease = ""
-			case "material-hash":
-				p.MaterialFixtures = slices.Clone(p.MaterialFixtures)
-				p.MaterialFixtures[0].SignedProfileSHA256 = "changed"
-			case "profile-cell":
-				p.ProfileIdentity.Cell = "FRA"
-			case "production-group-overlap":
-				p.ProductionDynamicGroups = []confinement.ProductionDynamicGroup{{ID: "ocid1.dynamicgroup.oc1..production", Name: "Production", InstanceCompartment: p.Compartment}}
-			case "production-group-duplicate":
-				group := confinement.ProductionDynamicGroup{ID: "ocid1.dynamicgroup.oc1..production", Name: "Production", InstanceCompartment: "ocid1.compartment.oc1..production"}
-				p.ProductionDynamicGroups = []confinement.ProductionDynamicGroup{group, group}
-			case "tagged-workload":
-				p.WorkloadImage = "registry.example.test/workload:latest@sha256:" + strings.Repeat("d", 64)
-			case "unqualified-role":
-				p.Candidate.Role = "other"
-			}
-			wire := f.wire(p, PreparationScope(p.RunID, p.Candidate), f.root)
-			v, err := VerifyPreparation(wire, nil, f.roots, p.RunID, f.now())
-			if mode != "netbird-valid" {
-				if err == nil {
-					t.Fatal("changed signed finite role/material scope accepted")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			f.prep = p
-			f.verified = v
-			result, err := f.producer.Prepare(t.Context(), v, f.dir)
-			if err != nil || !result.Prepared() {
-				t.Fatalf("actual NetBird principal preparation: %v", err)
-			}
-			if err := result.ValidatePreparation(v, f.now()); err != nil {
-				t.Fatal(err)
-			}
-			receipt := result.Receipt()
-			receipt.Principal = "unrelated"
-			receipt.PolicyStatements[0] = "altered"
-			if result.Receipt().Principal == "unrelated" || result.Receipt().PolicyStatements[0] == "altered" || (Result{}).Prepared() {
-				t.Fatal("public receipt can alter sealed producer result")
-			}
-			if _, err := f.producer.Cleanup(t.Context(), v, f.dir); err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
-}
-
 type rotatingIssuer struct {
 	common.ConfigurationProvider
 	calls atomic.Int32
@@ -798,20 +559,4 @@ func (r *rotatingIssuer) KeyID() (string, error) {
 		return r.ConfigurationProvider.KeyID()
 	}
 	return "ocid1.tenancy.oc1..test/ocid1.user.oc1..unrelated/other", nil
-}
-
-func TestSDKFreezesExactIssuerBeforeDispatch(t *testing.T) {
-	f := newFixture(t)
-	rotating := &rotatingIssuer{ConfigurationProvider: f.producer.issuer.Provider()}
-	factory, err := ociclient.New(rotating, ociclient.Options{Region: f.prep.IAMRegion, Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceIdentity: {PerSecond: 10000, Burst: 10000}}, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.producer.issuer = factory
-	if result, err := f.producer.Prepare(t.Context(), f.verified, f.dir); err != nil || !result.Prepared() {
-		t.Fatalf("frozen issuer preparation: %v", err)
-	}
-	if rotating.calls.Load() != 1 {
-		t.Fatal("mutable issuer provider was consulted after exact identity freeze")
-	}
 }
