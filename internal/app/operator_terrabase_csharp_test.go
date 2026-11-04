@@ -763,16 +763,6 @@ func writeTerraBaseRelease(t *testing.T, dir string, data []byte) string {
 	return path
 }
 
-func freeTCPPort(t *testing.T) int {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	return listener.Addr().(*net.TCPAddr).Port
-}
-
 func readFileString(path string) string {
 	data, _ := os.ReadFile(path)
 	return string(data)

@@ -165,12 +165,3 @@ func TestSpecRegistryBaselineFromSignedConfig(t *testing.T) {
 		t.Fatalf("a production controller accepted local spec trust: %v", err)
 	}
 }
-
-func mustRead(t *testing.T, path string) []byte {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return data
-}
