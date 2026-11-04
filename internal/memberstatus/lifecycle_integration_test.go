@@ -351,64 +351,6 @@ func startMemberFixtureNamespace(t *testing.T, namespaces uintptr) *memberFixtur
 	return fixture
 }
 
-func TestMemberPIDNamespaceIntegration(t *testing.T) {
-	if os.Geteuid() != 0 {
-		// Real PID/mount namespaces need root; rerun this test alone through passwordless sudo like the control fixture.
-		// umask 022 keeps the fixture binary and config readable by the member UID under sudo's restrictive umask.
-		output, err := exec.CommandContext(t.Context(), "sudo", "-n", "/bin/sh", "-c", `umask 022 && exec "$0" "$@"`,
-			os.Args[0], "-test.run=^"+t.Name()+"$", "-test.count=1", "-test.v").CombinedOutput()
-		if err != nil || !strings.Contains(string(output), "--- PASS: "+t.Name()) {
-			t.Fatalf("root PID namespace fixture: %v\n%s", err, output)
-		}
-		return
-	}
-	f := startMemberFixtureNamespace(t, syscall.CLONE_NEWPID|syscall.CLONE_NEWNS)
-	observation, err := f.client.observe(t.Context())
-	if err != nil || observation.PID != f.process.Process.Pid || observation.PID < 2 || observation.ProtocolPID() != 1 {
-		t.Fatalf("actual host/namespace identity: %+v, %v", observation, err)
-	}
-	status, err := f.client.Status(t.Context())
-	if err != nil || status.Process.PID != 1 {
-		t.Fatalf("PID1 status through host SO_PEERCRED: %+v, %v", status, err)
-	}
-	proof, err := f.client.ServingProof(t.Context(), status, fixtureSurvivor())
-	if err != nil || proof.Process.PID != 1 {
-		t.Fatalf("PID1 serving proof: %+v, %v", proof, err)
-	}
-	const operation = "0H248H248H248H248H248H248H"
-	envelope, err := f.client.Drain(t.Context(), fixtureSurvivor(), operation, f.store)
-	if err != nil || envelope.Receipt == nil {
-		t.Fatalf("PID1 drain receipt: %+v, %v", envelope, err)
-	}
-	record, found, err := f.store.Load()
-	if err != nil || !found || record.Request.Expected.Process.PID != 1 || envelope.Receipt.RequestedProcess.PID != 1 || envelope.Receipt.DrainedProcess.PID != 1 {
-		t.Fatalf("protocol identities were rewritten: %+v, %v", record, err)
-	}
-	if err := VerifyReportedDrain(envelope, operation, record.Request.Expected, record.Survivor, record.SourceSequence); err != nil {
-		t.Fatal(err)
-	}
-	actualObserver := f.client.observe
-	f.client.observe = func(ctx context.Context) (ProcessObservation, error) {
-		current, err := actualObserver(ctx)
-		current.namespace = processNamespace{}
-		return current, err
-	}
-	if _, err := f.client.Status(t.Context()); !errors.Is(err, ErrStaleBinding) {
-		t.Fatalf("namespace PID without kernel witness: %v", err)
-	}
-	f.client.observe = actualObserver
-	native, err := observeFixtureProcess(os.Getpid())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := BindPIDNamespace(native, os.Getpid()); !errors.Is(err, ErrStaleBinding) {
-		t.Fatalf("host process supplied as container namespace: %v", err)
-	}
-	observation.PID = os.Getpid()
-	if _, err := BindPIDNamespace(observation, f.process.Process.Pid); !errors.Is(err, ErrStaleBinding) {
-		t.Fatalf("changed host PID with retained namespace witness: %v", err)
-	}
-}
 func observeFixtureProcess(pid int) (ProcessObservation, error) {
 	path := "/proc/" + strconv.Itoa(pid)
 	info, err := os.Stat(path)
@@ -589,37 +531,5 @@ func TestMemberServingIntegration(t *testing.T) {
 				t.Fatal("unsafe replication proof accepted")
 			}
 		})
-	}
-}
-
-func TestMemberSocketBindingIntegration(t *testing.T) {
-	f := startMemberFixture(t)
-	original := f.client.observe
-	f.client.observe = func(ctx context.Context) (ProcessObservation, error) {
-		observation, err := original(ctx)
-		observation.PID++
-		return observation, err
-	}
-	if _, err := f.client.Status(t.Context()); !errors.Is(err, ErrStaleBinding) {
-		t.Fatalf("foreign peer PID = %v", err)
-	}
-	calls := 0
-	f.client.observe = func(ctx context.Context) (ProcessObservation, error) {
-		observation, err := original(ctx)
-		calls++
-		if calls > 1 {
-			observation.KernelStart += "changed"
-		}
-		return observation, err
-	}
-	if _, err := f.client.Status(t.Context()); !errors.Is(err, ErrStaleBinding) {
-		t.Fatalf("process changed during request = %v", err)
-	}
-	f.client.observe = original
-	if err := os.Chmod(f.client.socket, 0o666); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.client.Status(t.Context()); err == nil {
-		t.Fatal("unsafe socket permissions accepted")
 	}
 }

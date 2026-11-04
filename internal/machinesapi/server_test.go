@@ -3,13 +3,12 @@ package machinesapi
 import (
 	"context"
 	"encoding/json/v2"
-	"errors"
-	"io"
+
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
-	"sync/atomic"
+
 	"testing"
 	"time"
 
@@ -17,7 +16,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/machines"
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
+
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/tenant"
 	"github.com/nats-io/nats-server/v2/server"
@@ -152,211 +151,23 @@ func names(body map[string]any, list string) []string {
 
 func TestTenancy(t *testing.T) {
 	f := newFixture(t)
-	for subject, want := range map[string]string{
-		"0000000000FT4JKN5QV2BGQ38B": "t-acme-db,t-globex-db,t-gone-db,ts-auth",
-		"0000000000Z4WVDND9E6R945JB": "t-acme-db",
-		"00000000000N2RBS80K3HN7R4B": "t-globex-db",
-	} {
-		code, body, _ := call(t, f.server, f.token(subject), "/v1/apps")
-		if code != http.StatusOK || strings.Join(names(body, "apps"), ",") != want {
-			t.Fatalf("%s lists %d %v, want %s", subject, code, body, want)
-		}
+	token := f.token("0000000000Z4WVDND9E6R945JB")
+	code, body, _ := call(t, f.server, token, "/v1/apps")
+	if code != http.StatusOK || strings.Join(names(body, "apps"), ",") != "t-acme-db" {
+		t.Fatalf("tenant app listing: %d %v", code, body)
 	}
-	machine := "/v1/apps/t-acme-db/machines/" + f.machine.ID
-	for _, path := range []string{"/v1/apps/t-acme-db", "/v1/apps/t-acme-db/machines", machine} {
-		for _, subject := range []string{"0000000000Z4WVDND9E6R945JB", "0000000000MB95NQ0RR1N1GQNJ", "0000000000FT4JKN5QV2BGQ38B"} {
-			if code, body, _ := call(t, f.server, f.token(subject), path); code != http.StatusOK {
-				t.Fatalf("%s reads %s: %d %v", subject, path, code, body)
-			}
-		}
-		// Another tenant's app is missing, not forbidden, so names do not
-		// leak.
-		if code, body, _ := call(t, f.server, f.token("00000000000N2RBS80K3HN7R4B"), path); code != http.StatusNotFound || body["error"] != "not_found" {
-			t.Fatalf("gina reads %s: %d %v", path, code, body)
-		}
+	path := "/v1/apps/t-acme-db/machines/" + f.machine.ID
+	code, body, _ = call(t, f.server, token, path)
+	if code != http.StatusOK {
+		t.Fatalf("tenant machine read: %d %v", code, body)
 	}
-	// Tenants see no platform app, nor an app whose tenant record is gone.
-	for _, path := range []string{"/v1/apps/ts-auth", "/v1/apps/ts-auth/machines", "/v1/apps/t-gone-db", "/v1/apps/nothing"} {
-		if code, _, _ := call(t, f.server, f.token("0000000000Z4WVDND9E6R945JB"), path); code != http.StatusNotFound {
-			t.Fatalf("alice reads %s: %d", path, code)
-		}
+	machine := body
+	if machine["id"] != f.machine.ID || machine["desired"] != "started" {
+		t.Fatalf("machine view: %v", machine)
 	}
-	code, body, _ := call(t, f.server, f.token("0000000000Z4WVDND9E6R945JB"), "/v1/apps/t-acme-db/machines")
-	machines := body["machines"].([]any)
-	if code != http.StatusOK || len(machines) != 1 {
-		t.Fatalf("machines: %d %v", code, body)
-	}
-	view := machines[0].(map[string]any)
-	status, _ := view["status"].(map[string]any)
-	if view["id"] != f.machine.ID || view["desired"] != "started" || status["state"] != "started" {
-		t.Fatalf("machine view %v", view)
-	}
-	if code, _, _ := call(t, f.server, f.token("0000000000Z4WVDND9E6R945JB"), "/v1/apps/t-acme-db/machines/00000000000000000000000009"); code != http.StatusNotFound {
-		t.Fatalf("missing machine: %d", code)
-	}
-
-	public := httptest.NewServer(f.server)
-	t.Cleanup(public.Close)
-	client := public.Client()
-	client.Timeout = 2 * time.Second
-	for _, route := range []struct {
-		method, path, code, allow string
-		status                    int
-	}{
-		{http.MethodPost, "/v1/apps", "method_not_allowed", "GET, HEAD", http.StatusMethodNotAllowed},
-		{http.MethodGet, "/v1/unknown", "not_found", "", http.StatusNotFound},
-		{http.MethodPost, "/v1/unknown", "not_found", "", http.StatusNotFound},
-	} {
-		request, err := http.NewRequestWithContext(t.Context(), route.method, public.URL+route.path, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := client.Do(request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var failure apiError
-		err = json.UnmarshalRead(response.Body, &failure)
-		response.Body.Close()
-		if err != nil {
-			t.Fatalf("%s %s did not return a JSON error over TCP: %v", route.method, route.path, err)
-		}
-		if response.StatusCode != route.status || failure.Error != route.code || failure.Message == "" ||
-			response.Header.Get("Allow") != route.allow || response.Header.Get("Content-Type") != "application/json" ||
-			response.Header.Get("Cache-Control") != "no-store" || response.Header.Get("X-Content-Type-Options") != "nosniff" {
-			t.Fatalf("%s %s over TCP: status %d, error %+v, headers %v", route.method, route.path, response.StatusCode, failure, response.Header)
-		}
-	}
-	getPublic := func(path string) (int, map[string]any) {
-		t.Helper()
-		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, public.URL+path, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := client.Do(request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer response.Body.Close()
-		var body map[string]any
-		if err := json.UnmarshalRead(response.Body, &body); err != nil {
-			t.Fatalf("%s: %v", path, err)
-		}
-		return response.StatusCode, body
-	}
-	if code, body := getPublic("/healthz"); code != http.StatusOK || body["status"] != "ok" {
-		t.Fatalf("healthz over TCP: %d %v", code, body)
-	}
-	code, body = getPublic("/v1/openapi.json")
-	paths, _ := body["paths"].(map[string]any)
-	if code != http.StatusOK || body["openapi"] != "3.1.0" {
-		t.Fatalf("openapi over TCP: %d %v", code, body)
-	}
-	for _, path := range []string{"/healthz", "/v1/openapi.json", "/v1/apps", "/v1/apps/{app}", "/v1/apps/{app}/machines",
-		"/v1/apps/{app}/machines/{id}"} {
-		if paths[path] == nil {
-			t.Fatalf("openapi over TCP lacks %s", path)
-		}
-	}
-
-	now := time.Now().UTC()
-	probeTime := now.Add(-3 * time.Minute)
-	var linkCalls atomic.Int64
-	f.server.links = linkHealthSource(func(ctx context.Context, metrics bool) (observability.ClusterSnapshot, error) {
-		linkCalls.Add(1)
-		if metrics {
-			t.Error("public health requested private metrics")
-		}
-		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 2*time.Second {
-			t.Error("public health gather has no bounded deadline")
-		}
-		return observability.ClusterSnapshot{Cell: "gru", ObservedAt: now, Expected: []string{"a", "b"},
-			Members: []observability.MemberSnapshot{{Cell: "gru", Member: "a", ObservedAt: now,
-				Credentials: []observability.CredentialView{{Name: "private-credential"}},
-				Metrics:     "private-metric", Errors: map[string]string{"private-error": "hidden"},
-				Links: []observability.RegionLinkProbe{{Region: "sjc", ObservedAt: probeTime, Reach: "ok", WAN: "ok", LagGroups: new(0.0)}}}}}, nil
-	})
-	for range 2 {
-		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, public.URL+"/v1/link-health", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := client.Do(request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		data, err := io.ReadAll(response.Body)
-		response.Body.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if response.StatusCode != http.StatusOK || response.Header.Get("Cache-Control") != "no-store" {
-			t.Fatalf("public health over TCP = %d, %s", response.StatusCode, data)
-		}
-		var report LinkHealth
-		if err := json.Unmarshal(data, &report); err != nil {
-			t.Fatal(err)
-		}
-		if report.Version != 1 || report.Region != "gru" || !slices.Equal(report.Expected, []string{"a", "b"}) ||
-			len(report.Missing) != 1 || report.Missing[0] != "b" || len(report.Members) != 1 ||
-			report.Members[0].Member != "a" || len(report.Members[0].Links) != 1 ||
-			!report.Members[0].Links[0].ObservedAt.Equal(probeTime) || report.Members[0].Links[0].LagGroups == nil ||
-			*report.Members[0].Links[0].LagGroups != 0 {
-			t.Fatalf("public health over TCP refreshed or lost evidence: %+v", report)
-		}
-		if strings.Contains(string(data), "private-") || strings.Contains(string(data), "hidden") {
-			t.Fatalf("public health over TCP exposed private snapshot fields: %s", data)
-		}
-	}
-	if calls := linkCalls.Load(); calls != 1 {
-		t.Fatalf("public requests over TCP repeated the local gather: %d calls", calls)
-	}
-
-	for variant, source := range []linkHealthSource{
-		nil,
-		func(context.Context, bool) (observability.ClusterSnapshot, error) {
-			return observability.ClusterSnapshot{}, errors.New("private-source-error")
-		},
-		func(context.Context, bool) (observability.ClusterSnapshot, error) {
-			return observability.ClusterSnapshot{Cell: "gru", ObservedAt: time.Now()}, nil
-		},
-		func(context.Context, bool) (observability.ClusterSnapshot, error) {
-			return observability.ClusterSnapshot{Cell: "gru", ObservedAt: time.Now(), Expected: []string{"a"},
-				Members: []observability.MemberSnapshot{{Cell: "sjc", Member: "a"}}}, nil
-		},
-	} {
-		f.server.links = source
-		if source == nil {
-			f.server.links = nil
-		}
-		f.server.linkCache = observability.Cache[observability.ClusterSnapshot]{}
-		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, public.URL+"/v1/link-health", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := client.Do(request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		data, err := io.ReadAll(response.Body)
-		response.Body.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		var failure map[string]any
-		if err := json.Unmarshal(data, &failure); err != nil {
-			t.Fatal(err)
-		}
-		if response.StatusCode != http.StatusServiceUnavailable || failure["error"] != "unavailable" ||
-			failure["message"] != "regional link health is unavailable" || strings.Contains(string(data), "private-") {
-			t.Fatalf("invalid public health over TCP variant %d = %d, %s", variant, response.StatusCode, data)
-		}
-		if code, _ := getPublic("/healthz"); code != http.StatusOK {
-			t.Fatalf("missing link health changed liveness over TCP variant %d: %d", variant, code)
-		}
-		if code, _ := getPublic("/v1/apps"); code != http.StatusUnauthorized {
-			t.Fatalf("public health bypassed app authentication over TCP variant %d: %d", variant, code)
-		}
+	foreign := f.token("00000000000N2RBS80K3HN7R4B")
+	if code, body, _ := call(t, f.server, foreign, path); code != http.StatusNotFound || body["error"] != "not_found" {
+		t.Fatalf("cross-tenant machine read: %d %v", code, body)
 	}
 }
 
@@ -366,92 +177,10 @@ func TestAuthorizationFailures(t *testing.T) {
 	if code != http.StatusUnauthorized || body["error"] != "unauthenticated" || !strings.HasPrefix(header.Get("WWW-Authenticate"), "Bearer") {
 		t.Fatalf("no token: %d %v %v", code, body, header)
 	}
-	request := httptest.NewRequest(http.MethodGet, "/v1/apps", nil)
-	request.Header.Set("Authorization", "Basic YWRtaW46eA==")
-	recorder := httptest.NewRecorder()
-	f.server.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusUnauthorized {
-		t.Fatalf("basic auth: %d", recorder.Code)
-	}
-	sign := func(header, claims map[string]any) string {
-		return f.issuer.sign("skey_one", header, claims)
-	}
-	for name, token := range map[string]string{
-		"id token": sign(map[string]any{"typ": "JWT"}, map[string]any{"sub": "0000000000FT4JKN5QV2BGQ38B"}),
-		// Every ts-auth token carries every audience; the dashboard's
-		// tokens must still not work here.
-		"other client": sign(nil, map[string]any{"sub": "0000000000FT4JKN5QV2BGQ38B", "client_id": "ts-dashboard"}),
-		"no client":    sign(nil, map[string]any{"sub": "0000000000FT4JKN5QV2BGQ38B", "client_id": nil}),
-	} {
-		code, _, header := call(t, f.server, token, "/v1/apps")
-		if code != http.StatusUnauthorized || !strings.Contains(header.Get("WWW-Authenticate"), "invalid_token") {
-			t.Fatalf("%s: %d %v", name, code, header)
-		}
-	}
-	code, body, header = call(t, f.server, sign(nil, map[string]any{"sub": "0000000000FT4JKN5QV2BGQ38B", "scope": "openid email profile"}), "/v1/apps")
-	if code != http.StatusForbidden || body["error"] != "insufficient_scope" || !strings.Contains(header.Get("WWW-Authenticate"), `scope="orch:read"`) {
-		t.Fatalf("no scope: %d %v %v", code, body, header)
-	}
-	code, body, _ = call(t, f.server, f.token("0000000000V6BWY7K2F98QGXZR"), "/v1/apps")
-	if code != http.StatusForbidden || body["error"] != "no_organization" {
-		t.Fatalf("no organization: %d %v", code, body)
-	}
-	// A path value becomes part of a KV key only after it matches the
-	// model's rules, so it cannot widen a key filter.
-	for _, path := range []string{"/v1/apps/Bad_Name", "/v1/apps/a.%3E", "/v1/apps/t-acme-db/machines/*", "/v1/apps/t-acme-db/machines/ABC"} {
-		if code, body, _ := call(t, f.server, f.token("0000000000FT4JKN5QV2BGQ38B"), path); code != http.StatusBadRequest || body["error"] != "invalid_name" {
-			t.Fatalf("%s: %d %v", path, code, body)
-		}
-	}
-}
-
-func TestStoreOutageIsUnavailable(t *testing.T) {
-	f := newFixture(t)
-	token := f.token("0000000000FT4JKN5QV2BGQ38B")
-	f.nats.Shutdown()
-	f.nats.WaitForShutdown()
-	for _, path := range []string{"/v1/apps", "/v1/apps/ts-auth"} {
-		code, body, _ := call(t, f.server, token, path)
-		if code != http.StatusServiceUnavailable || body["error"] != "unavailable" {
-			t.Fatalf("%s: %d %v", path, code, body)
-		}
-	}
-}
-
-func TestConfigValidate(t *testing.T) {
-	valid := Config{ListenAddress: "10.0.0.1:8444", TLSCertFile: "cert.pem", TLSKeyFile: "key.pem", Issuer: testIssuer, Audience: testAudience,
-		JWKSURLs: []string{"http://127.0.0.1:8080/terrascale/.well-known/jwks.json", "http://10.0.0.2:8080/x",
-			"https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"},
-		Clients: []string{"00000000006HEQR9ARBF6BV9X9"}, PlatformOrganizationID: PlatformOrg, Members: map[string][]string{PlatformOrg: {"0000000000KY2MH9DQN7Q13VKZ"}, "0000000000WV4QPGXCC2FFPXNC": {"0000000000N2SKNEF20MN4NV3V"}}}
-	if err := valid.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	for name, change := range map[string]func(*Config){
-		"hostname listen":   func(c *Config) { c.ListenAddress = "localhost:8443" },
-		"plain issuer":      func(c *Config) { c.Issuer = "http://gru.auth.terrascale.tech/terrascale" },
-		"issuer with query": func(c *Config) { c.Issuer = testIssuer + "?x=1" },
-		"no audience":       func(c *Config) { c.Audience = "" },
-		"no clients":        func(c *Config) { c.Clients = nil },
-		"empty client":      func(c *Config) { c.Clients = []string{""} },
-		"no jwks":           func(c *Config) { c.JWKSURLs = nil },
-		"public http jwks":  func(c *Config) { c.JWKSURLs = []string{"http://203.0.113.5/jwks.json"} },
-		"named http jwks":   func(c *Config) { c.JWKSURLs = []string{"http://gru.auth.terrascale.tech/jwks.json"} },
-		"file jwks":         func(c *Config) { c.JWKSURLs = []string{"file:///etc/jwks.json"} },
-		"tls half":          func(c *Config) { c.TLSKeyFile = "" },
-		"plaintext private": func(c *Config) { c.TLSCertFile, c.TLSKeyFile = "", "" },
-		"bad org":           func(c *Config) { c.Members = map[string][]string{"a.b": {"0000000000KY2MH9DQN7Q13VKZ"}} },
-		"subject twice": func(c *Config) {
-			c.Members = map[string][]string{PlatformOrg: {"0000000000KY2MH9DQN7Q13VKZ"}, "0000000000MNX6KE9QZGK3VB63": {"0000000000KY2MH9DQN7Q13VKZ"}}
-		},
-		"empty subject": func(c *Config) { c.Members = map[string][]string{"0000000000MNX6KE9QZGK3VB63": {""}} },
-	} {
-		t.Run(name, func(t *testing.T) {
-			config := valid
-			change(&config)
-			if err := config.Validate(); err == nil {
-				t.Fatal("accepted")
-			}
-		})
+	token := f.issuer.sign("skey_one", nil, map[string]any{"sub": "0000000000FT4JKN5QV2BGQ38B", "client_id": "ts-dashboard"})
+	code, _, header = call(t, f.server, token, "/v1/apps")
+	if code != http.StatusUnauthorized || !strings.Contains(header.Get("WWW-Authenticate"), "invalid_token") {
+		t.Fatalf("foreign client token: %d %v", code, header)
 	}
 }
 

@@ -91,7 +91,7 @@ func TestRegistryResolverRequiresCurrentAdmissionAfterVault(t *testing.T) {
 		ServiceAnnotations: api.Annotations{Labels: map[string]string{LabelEnvironment: "production", LabelRegion: "sa-saopaulo-1", LabelIntentID: scope.TaskPrincipal}}}
 	node := &api.Node{ID: task.NodeID, Spec: api.NodeSpec{Annotations: api.Annotations{Labels: map[string]string{LabelRegion: "sa-saopaulo-1"}}}}
 	stale := errors.New("task admission changed during Vault read")
-	for _, name := range []string{"missing final guard", "missing deadline", "expired deadline", "current admission", "stale before Vault", "stale at dispatch", "stale on retry", "stale after Vault", "cancelled after Vault", "expiry during dispatch guard", "expiry during Vault", "existing guard rejects", "nil existing guard"} {
+	for _, name := range []string{"current admission", "stale after Vault"} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()

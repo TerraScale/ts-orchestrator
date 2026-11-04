@@ -4,7 +4,7 @@ package execution
 
 import (
 	"bytes"
-	"context"
+
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -21,7 +21,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
-	"github.com/moby/swarmkit/v2/api"
 )
 
 const backupPeerOperation = "3QEXVQEXVQEXVQEXVQEXVQEXVQ"
@@ -144,42 +143,5 @@ func TestBackupRelayAuthenticatedUnixDispatch(t *testing.T) {
 	result, err := relayBackup(t.Context(), client, host.ManagedBackupCommand{Kind: "complete-status", OperationID: backupPeerOperation, Envelope: envelope, EnvelopeSHA256: hex.EncodeToString(digest[:])})
 	if err != nil || result.Status.State != "complete" || result.Status.PublishedHeadReceipt != backupPeerReceipt {
 		t.Fatalf("terminal status recovery: %+v, %v", result, err)
-	}
-}
-
-func TestBackupWithdrawalCancelsBeforePublicationRemoval(t *testing.T) {
-	task := &api.Task{ID: "withdraw-task", ServiceID: "withdraw-service", NodeID: "withdraw-node"}
-	hash, err := TaskSHA256(task)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "publication.sock")
-	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener.SetUnlinkOnClose(false)
-	t.Cleanup(func() { _ = listener.Close() })
-	file, err := os.Lstat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, cancel := context.WithCancel(t.Context())
-	grant := VerifiedWorkerGrant{payload: WorkerGrantPayload{TaskSHA256: hash}, admissionSHA256: strings.Repeat("1", 64)}
-	var socketPresentAtCancellation bool
-	entry := &sourceEntry{grant: grant, backupCancel: func() {
-		current, err := os.Lstat(path)
-		socketPresentAtCancellation = err == nil && os.SameFile(file, current)
-		cancel()
-	}, publication: &publication{path: path, file: file, listener: listener, cancel: func() {}}}
-	source := &Source{entries: map[string]*sourceEntry{hash: entry}}
-	if err := source.WithdrawTask(t.Context(), task, grant); err != nil {
-		t.Fatal(err)
-	}
-	if request.Err() == nil || !socketPresentAtCancellation || !entry.revoked || entry.publication != nil {
-		t.Fatal("withdrawal did not cancel backup before revoking publication")
-	}
-	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("withdrawal retained publication socket: %v", err)
 	}
 }

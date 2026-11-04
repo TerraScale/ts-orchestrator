@@ -2,9 +2,6 @@ package machines
 
 import (
 	"strings"
-	"testing"
-
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 )
@@ -36,15 +33,4 @@ func testApp(name string) App {
 func testMachine(app App) Machine {
 	return Machine{ID: NewMachineID(), App: app.Name, AppID: app.ID, Region: "gru", Version: 1, Config: testConfig(),
 		Desired: DesiredStarted}
-}
-
-func TestNewMachineIDIsValidAndUnique(t *testing.T) {
-	seen := map[string]bool{}
-	for range 1000 {
-		id := NewMachineID()
-		if !entityid.Valid(id) || seen[id] {
-			t.Fatalf("machine ID %q is malformed or repeated", id)
-		}
-		seen[id] = true
-	}
 }

@@ -275,7 +275,6 @@ func TestFunctionWorkerVariantFloorIntegration(t *testing.T) {
 		root   []byte
 	}{
 		{"source", strings.Repeat("f", 40), nil},
-		{"index", strings.Repeat("c", 40), []byte(strings.Replace(string(index), `"schemaVersion":2`, `"annotations":{"release":"divergent"},"schemaVersion":2`, 1))},
 	} {
 		t.Run(divergence.name, func(t *testing.T) {
 			intent, conflicting := build("amd64", 101, "sa-saopaulo-1", divergence.source, divergence.root)

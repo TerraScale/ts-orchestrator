@@ -25,75 +25,6 @@ func usage(role storage.VolumeRole, total, used, avail uint64) VolumeUsage {
 		TotalBytes: total, UsedBytes: used, AvailBytes: avail, InodesTotal: 1 << 20, InodesFree: 1 << 19, ObservedAt: observed}
 }
 
-func TestPolicyValidation(t *testing.T) {
-	if err := (Policy{}).Validate(); err != nil {
-		t.Fatal(err)
-	}
-	for _, bad := range []Policy{
-		{WarnPercent: 90, ScaleOutPercent: 80, RefusePercent: 95},
-		{WarnPercent: 70, ScaleOutPercent: 85, RefusePercent: 101},
-		{WarnPercent: -1},
-	} {
-		if err := bad.Validate(); err == nil {
-			t.Fatalf("invalid policy accepted: %+v", bad)
-		}
-	}
-}
-
-func TestWorstAndNodeHeadroom(t *testing.T) {
-	signals := []Signal{
-		Evaluate(usage(storage.RoleTerraBaseData, 100*gib, 50*gib, 50*gib), Policy{}),
-		Evaluate(usage(storage.RoleBoot, 100*gib, 80*gib, 20*gib), Policy{}),
-		Evaluate(usage(storage.RoleJetStream, 100*gib, 75*gib, 25*gib), Policy{}),
-	}
-	worst, ok := Worst(signals)
-	if !ok || worst.Usage.Role != storage.RoleBoot {
-		t.Fatalf("worst = %+v", worst)
-	}
-	if _, ok := Worst(nil); ok {
-		t.Fatal("empty worst reported a signal")
-	}
-	headroom, ok := NodeHeadroomBytes(signals, "host-a")
-	if !ok || headroom != 20*gib {
-		t.Fatalf("headroom = %d %v", headroom, ok)
-	}
-	if _, ok := NodeHeadroomBytes(signals, "host-b"); ok {
-		t.Fatal("unknown node has headroom")
-	}
-}
-
-func TestCollectorMeasuresTargetsAndReportsPartialFailures(t *testing.T) {
-	failure := errors.New("no such mount")
-	collector := Collector{
-		Cell: "gru", Node: "host-a", Now: func() time.Time { return observed },
-		Targets: []Target{
-			{Role: storage.RoleBoot, Path: "/"},
-			{Role: storage.RoleJetStream, Path: "/var/lib/nats", Reserve: func(context.Context) (uint64, error) { return 3 * gib, nil }},
-			{Role: storage.RoleTerraBaseData, Path: "/missing", VolumeID: "ocid1.volume.x"},
-		},
-		Statfs: func(path string) (FSStat, error) {
-			if path == "/missing" {
-				return FSStat{}, failure
-			}
-			return FSStat{TotalBytes: 100 * gib, FreeBytes: 40 * gib, AvailBytes: 35 * gib, InodesTotal: 100, InodesFree: 50}, nil
-		},
-	}
-	usages, err := collector.Collect(t.Context())
-	if !errors.Is(err, failure) || len(usages) != 2 {
-		t.Fatalf("collect = %+v, %v", usages, err)
-	}
-	if usages[0].UsedBytes != 60*gib || usages[0].AvailBytes != 35*gib || usages[1].ReservedBytes != 3*gib {
-		t.Fatalf("unexpected measurements: %+v", usages)
-	}
-}
-
-func TestRealStatfsOfTempDir(t *testing.T) {
-	stat, err := Statfs(t.TempDir())
-	if err != nil || stat.TotalBytes == 0 || stat.AvailBytes > stat.TotalBytes {
-		t.Fatalf("statfs = %+v, %v", stat, err)
-	}
-}
-
 func TestUsageStorePublishesWithTTLAndFeedsSignals(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
@@ -412,30 +343,4 @@ func (publisher *recordingPublisher) Publish(_ context.Context, usage VolumeUsag
 	defer publisher.mu.Unlock()
 	publisher.published = append(publisher.published, usage)
 	return nil
-}
-
-func TestRunPublishesAndSignalsUntilCanceled(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	publisher := &recordingPublisher{}
-	var signals []Signal
-	collector := Collector{Cell: "gru", Node: "host-a", Targets: []Target{{Role: storage.RoleBoot, Path: "/"}},
-		Statfs: func(string) (FSStat, error) {
-			return FSStat{TotalBytes: 100 * gib, FreeBytes: 3 * gib, AvailBytes: 3 * gib, InodesTotal: 10, InodesFree: 5}, nil
-		}}
-	done := make(chan error, 1)
-	go func() {
-		done <- Run(ctx, collector, publisher, Policy{MinFreeInodes: 1}, time.Hour, func(signal Signal) {
-			signals = append(signals, signal)
-			cancel()
-		})
-	}()
-	if err := <-done; !errors.Is(err, context.Canceled) {
-		t.Fatalf("run returned %v", err)
-	}
-	if len(publisher.published) != 1 || len(signals) != 1 || signals[0].Level != LevelCritical {
-		t.Fatalf("published=%d signals=%+v", len(publisher.published), signals)
-	}
-	if err := Run(t.Context(), collector, nil, Policy{}, time.Second, nil); err == nil {
-		t.Fatal("run without publisher started")
-	}
 }

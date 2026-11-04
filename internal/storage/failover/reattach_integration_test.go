@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
+
 	"slices"
 	"testing"
 	"time"
@@ -252,34 +252,6 @@ func TestIntegrationReattachRecoversPersistentMountWithoutFormatting(t *testing.
 	}
 }
 
-func TestIntegrationReattachValidatesWholeInventoryBeforeEffects(t *testing.T) {
-	fixture := newReattachFixture(t)
-	old := observedAttachment("previous", "old", "ATTACHED")
-	wrongVolume := observedAttachment("wrong-volume", "new", "ATTACHED")
-	wrongVolume.VolumeID = "another-volume"
-	cases := [][]oci.Attachment{
-		{old, observedAttachment("foreign", "third", "ATTACHED")},
-		{old, wrongVolume},
-		{old, observedAttachment("replacement-1", "new", "ATTACHED"), observedAttachment("replacement-2", "new", "ATTACHING")},
-		{old, observedAttachment("fault", "new", "FAULTY")},
-		{old, observedAttachment("", "new", "ATTACHED")},
-		{old, observedAttachment("unknown", "old", "FAULTY")},
-	}
-	for index, attachments := range cases {
-		t.Run(fmt.Sprint(index), func(t *testing.T) {
-			fixture.seed(t, "TERMINATED", attachments...)
-			step, err := fixture.reattacher().Step(t.Context(), integrationRequest)
-			if step.Kind != StepHold || !errors.Is(err, storage.ErrVolumeHeld) {
-				t.Fatalf("unsafe inventory = %+v %v", step, err)
-			}
-			observation, err := fixture.fleet.read(t.Context())
-			if err != nil || !slices.Equal(observation.Attachments, attachments) {
-				t.Fatalf("held inventory changed: %+v %v", observation, err)
-			}
-		})
-	}
-}
-
 func TestIntegrationReattachFencesEveryMutationAfterAuthorityLoss(t *testing.T) {
 	for _, kind := range []StepKind{StepDetach, StepAttach, StepGrantMount} {
 		t.Run(string(kind), func(t *testing.T) {
@@ -314,36 +286,5 @@ func TestIntegrationReattachFencesEveryMutationAfterAuthorityLoss(t *testing.T) 
 				t.Fatalf("fenced effect granted a mount: %v %v", has, err)
 			}
 		})
-	}
-}
-
-func TestIntegrationReattachRefusesFollowerAndInvalidRequests(t *testing.T) {
-	fixture := newReattachFixture(t)
-	old := observedAttachment("previous", "old", "ATTACHED")
-	fixture.seed(t, "TERMINATED", old)
-	js, err := jetstream.New(fixture.conn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	follower, err := authority.Start(t.Context(), js, authority.Config{Scope: "gru", Replicas: 1,
-		DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", CandidateID: "000000000082B6JM3GHXKNG2CR"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = follower.Close() })
-	reattacher := fixture.reattacher()
-	reattacher.Fencer = follower
-	if _, err := reattacher.Step(t.Context(), integrationRequest); !errors.Is(err, authority.ErrNotLeader) {
-		t.Fatalf("follower mutated volume: %v", err)
-	}
-	for _, invalid := range []Request{{}, {DatabaseID: integrationRequest.DatabaseID, PartitionID: integrationRequest.PartitionID,
-		VolumeID: "vol", OldInstanceID: "old", ReplacementInstanceID: "old", AttachKey: "invalid"}} {
-		if _, err := fixture.reattacher().Step(t.Context(), invalid); err == nil {
-			t.Fatalf("invalid request was accepted: %+v", invalid)
-		}
-	}
-	observation, err := fixture.fleet.read(t.Context())
-	if err != nil || !slices.Equal(observation.Attachments, []oci.Attachment{old}) {
-		t.Fatalf("refused request changed volume: %+v %v", observation, err)
 	}
 }

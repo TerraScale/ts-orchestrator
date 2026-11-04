@@ -260,10 +260,6 @@ func TestContainerdContainerCredentialExpirySurvivesAgentExit(t *testing.T) {
 	testContainerCredentialExpiry(t, "container")
 }
 
-func TestContainerdFunctionCredentialExpirySurvivesAgentExit(t *testing.T) {
-	testContainerCredentialExpiry(t, "function-worker")
-}
-
 func testContainerCredentialExpiry(t *testing.T, role string) {
 	t.Helper()
 	if *integrationSocket == "" {

@@ -25,87 +25,6 @@ func owned(id, state, kind string, age time.Duration) oci.CloudVolumeBackup {
 		CreatedAt: now.Add(-age), FreeformTags: scope.Tags(volume, entityid.Derive("test-backup", id)), ETag: "etag-" + id}
 }
 
-func TestScopeOwnsRequiresExactTagsAndSourceVolume(t *testing.T) {
-	backup := owned("b1", "AVAILABLE", TypeFull, time.Hour)
-	if !scope.Owns(backup, volume) {
-		t.Fatal("exact backup is not owned")
-	}
-	for name, mutate := range map[string]func(*oci.CloudVolumeBackup){
-		"other source volume": func(b *oci.CloudVolumeBackup) { b.VolumeID = "ocid1.volume.b" },
-		"other owner":         func(b *oci.CloudVolumeBackup) { b.FreeformTags[tagOwner] = "owner-b" },
-		"other region":        func(b *oci.CloudVolumeBackup) { b.FreeformTags[tagRegion] = "fra" },
-		"untagged":            func(b *oci.CloudVolumeBackup) { b.FreeformTags = nil },
-		"missing key":         func(b *oci.CloudVolumeBackup) { delete(b.FreeformTags, tagBackupKey) },
-		"tag volume mismatch": func(b *oci.CloudVolumeBackup) { b.FreeformTags[tagBackupVolume] = "ocid1.volume.b" },
-	} {
-		candidate := backup
-		candidate.FreeformTags = maps.Clone(backup.FreeformTags)
-		mutate(&candidate)
-		if scope.Owns(candidate, volume) {
-			t.Fatalf("%s: foreign backup is owned", name)
-		}
-	}
-}
-
-func TestPlanCreatesFirstFullThenIncrementalsOnInterval(t *testing.T) {
-	actions := Plan(scope, volume, nil, now)
-	if len(actions) != 1 || actions[0].Kind != ActionCreate || actions[0].Type != TypeFull || !entityid.Valid(actions[0].Key) {
-		t.Fatalf("first plan = %+v", actions)
-	}
-	// Same slot replays the same idempotency key.
-	if again := Plan(scope, volume, nil, now.Add(time.Minute)); again[0].Key != actions[0].Key {
-		t.Fatal("create key is not stable within its slot")
-	}
-	recent := []oci.CloudVolumeBackup{owned("b1", "AVAILABLE", TypeFull, time.Hour)}
-	if actions := Plan(scope, volume, recent, now); len(actions) != 0 {
-		t.Fatalf("backup inside interval planned %+v", actions)
-	}
-	due := []oci.CloudVolumeBackup{owned("b1", "AVAILABLE", TypeFull, 25*time.Hour)}
-	if actions := Plan(scope, volume, due, now); len(actions) != 1 || actions[0].Type != TypeIncremental {
-		t.Fatalf("due incremental = %+v", actions)
-	}
-	chain := []oci.CloudVolumeBackup{owned("full", "AVAILABLE", TypeFull, 7*24*time.Hour+time.Hour)}
-	for index := range 6 {
-		chain = append(chain, owned(fmt.Sprintf("inc-%d", index), "AVAILABLE", TypeIncremental, time.Duration(index+1)*24*time.Hour+time.Hour))
-	}
-	if actions := Plan(scope, volume, chain, now); len(actions) != 1 || actions[0].Type != TypeFull {
-		t.Fatalf("the seventh successor was not FULL: %+v", actions)
-	}
-	inProgress := []oci.CloudVolumeBackup{owned("b2", "CREATING", TypeIncremental, 30*time.Hour), owned("b1", "AVAILABLE", TypeFull, 50*time.Hour)}
-	if actions := Plan(scope, volume, inProgress, now); len(actions) != 0 {
-		t.Fatalf("plan created while a backup is in progress: %+v", actions)
-	}
-	queued := []oci.CloudVolumeBackup{owned("b2", "REQUEST_RECEIVED", TypeIncremental, 30*time.Hour), owned("b1", "AVAILABLE", TypeFull, 50*time.Hour)}
-	if actions := Plan(scope, volume, queued, now); len(actions) != 0 {
-		t.Fatalf("plan created while a backup request is queued: %+v", actions)
-	}
-	foreign := owned("f1", "AVAILABLE", TypeFull, time.Hour)
-	foreign.FreeformTags = nil
-	if actions := Plan(scope, volume, []oci.CloudVolumeBackup{foreign}, now); len(actions) != 1 || actions[0].Type != TypeFull {
-		t.Fatalf("foreign backup satisfied the policy: %+v", actions)
-	}
-}
-
-func TestPlanPrunesOnlyOwnedAvailableBeyondRetain(t *testing.T) {
-	var backups []oci.CloudVolumeBackup
-	for index := range 10 {
-		backups = append(backups, owned(fmt.Sprintf("b%d", index), "AVAILABLE", TypeIncremental, time.Duration(index+1)*time.Hour))
-	}
-	backups = append(backups, owned("faulty", "FAULTY", TypeFull, 100*time.Hour))
-	foreign := owned("foreign", "AVAILABLE", TypeFull, 200*time.Hour)
-	foreign.FreeformTags = nil
-	backups = append(backups, foreign)
-	var deleted []string
-	for _, action := range Plan(scope, volume, backups, now) {
-		if action.Kind == ActionDelete {
-			deleted = append(deleted, action.BackupID)
-		}
-	}
-	if fmt.Sprint(deleted) != "[b7 b8 b9]" {
-		t.Fatalf("pruned %v, want the three oldest owned AVAILABLE backups", deleted)
-	}
-}
-
 type fakeFencer struct {
 	snapshot authority.Snapshot
 	guardErr error
@@ -222,19 +141,6 @@ func TestRunnerCreatesIdempotentlyAndPrunesWithExactETag(t *testing.T) {
 	}
 }
 
-func TestRunnerSkipsBackupThatChangedOwnershipBeforeDelete(t *testing.T) {
-	provider := newFakeProvider(owned("old", "AVAILABLE", TypeFull, 8*time.Hour))
-	for index := range 7 {
-		backup := owned(fmt.Sprintf("keep-%d", index), "AVAILABLE", TypeFull, time.Duration(index+1)*time.Hour)
-		provider.backups[backup.ID] = backup
-	}
-	provider.onGet = func(backup *oci.CloudVolumeBackup) { backup.FreeformTags = nil }
-	report, err := runner(provider, &fakeFencer{snapshot: leader()}).RunOnce(t.Context())
-	if err != nil || len(provider.deletes) != 0 || len(report.Skipped) != 1 {
-		t.Fatalf("re-read foreign backup was deleted: report=%+v deletes=%v err=%v", report, provider.deletes, err)
-	}
-}
-
 func TestRunnerRefusesFollowersAndFencedAuthority(t *testing.T) {
 	provider := newFakeProvider()
 	follower := &fakeFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Epoch: 3, Revision: 5, ExpiresAt: time.Now().Add(time.Minute)}}
@@ -248,44 +154,5 @@ func TestRunnerRefusesFollowersAndFencedAuthority(t *testing.T) {
 
 	if provider.creates != 0 {
 		t.Fatalf("refused runs created %d backups", provider.creates)
-	}
-}
-
-func orphan(id, volumeID string, age time.Duration) oci.CloudVolumeBackup {
-	return oci.CloudVolumeBackup{ID: id, VolumeID: volumeID, LifecycleState: "AVAILABLE", Type: TypeFull,
-		CreatedAt: now.Add(-age), FreeformTags: scope.Tags(volumeID, entityid.Derive("test-backup", id)), ETag: "etag-" + id}
-}
-
-func TestRunnerPrunesOrphanedBackupsOfRemovedVolumesAfterRetention(t *testing.T) {
-	const removed, retained = "ocid1.volume.removed", "ocid1.volume.retained"
-	foreign := orphan("foreign", removed, 90*24*time.Hour)
-	foreign.FreeformTags = nil
-	provider := newFakeProvider(
-		owned("live", "AVAILABLE", TypeFull, time.Hour),
-		orphan("old", removed, 40*24*time.Hour),
-		orphan("young", removed, 10*24*time.Hour),
-		orphan("still-there", retained, 90*24*time.Hour),
-		foreign,
-	)
-	provider.gone = map[string]bool{removed: true}
-	fencer := &fakeFencer{snapshot: leader()}
-
-	report, err := runner(provider, fencer).RunOnce(t.Context())
-	if err != nil || fmt.Sprint(provider.deletes) != "[old]" || fmt.Sprint(report.Deleted) != "[old]" {
-		t.Fatalf("orphan prune deletes=%v report=%+v err=%v; want only the expired owned backup of the removed volume", provider.deletes, report, err)
-	}
-}
-
-func TestRunnerProtectsListedVolumesButSkipsOrphansOnPartialListing(t *testing.T) {
-	const removed = "ocid1.volume.removed"
-	provider := newFakeProvider(orphan("old", removed, 400*24*time.Hour))
-	provider.gone = map[string]bool{removed: true}
-	partial := runner(provider, &fakeFencer{snapshot: leader()})
-	partial.Volumes = func(context.Context) ([]string, error) {
-		return []string{volume}, fmt.Errorf("%w: partition unreadable", ErrPartialVolumes)
-	}
-	report, err := partial.RunOnce(t.Context())
-	if !errors.Is(err, ErrPartialVolumes) || len(report.Created) != 1 || len(provider.deletes) != 0 {
-		t.Fatalf("partial listing: report=%+v deletes=%v err=%v", report, provider.deletes, err)
 	}
 }

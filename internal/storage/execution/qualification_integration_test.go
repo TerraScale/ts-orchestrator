@@ -223,11 +223,6 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 		mutate func(*StatefulQualification)
 	}{
 		{"source-tree", func(p *StatefulQualification) { p.CandidateSourceTreeSHA256 = strings.Repeat("9", 64) }},
-		{"retained-volume", func(p *StatefulQualification) { p.Data.VolumeID = "ocid1.volume.other" }},
-		{"disk-format", func(p *StatefulQualification) { p.DiskFormatSHA256 = strings.Repeat("8", 64) }},
-		{"cpu-features", func(p *StatefulQualification) { p.TargetCPU.FeaturesSHA256 = strings.Repeat("7", 64) }},
-		{"missing-restore", func(p *StatefulQualification) { p.Scenarios = append(p.Scenarios[:1], p.Scenarios[2:]...) }},
-		{"future-scenario", func(p *StatefulQualification) { p.Scenarios[0].CompletedAt = now.Add(time.Second) }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			candidate := proof

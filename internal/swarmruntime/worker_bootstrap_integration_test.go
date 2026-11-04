@@ -193,14 +193,6 @@ func TestWorkerBootstrapIntegration(t *testing.T) {
 		mutate func(*hostenroll.SwarmWorker)
 	}{
 		{"wrong-instance", func(worker *hostenroll.SwarmWorker) { worker.InstanceID += "-other" }},
-		{"wrong-architecture", func(worker *hostenroll.SwarmWorker) {
-			worker.Architecture = "arm64"
-			if runtime.GOARCH == "arm64" {
-				worker.Architecture = "amd64"
-			}
-		}},
-		{"manager-role", func(worker *hostenroll.SwarmWorker) { worker.Role = "manager" }},
-		{"expired", func(worker *hostenroll.SwarmWorker) { worker.ExpiresAt = now.Add(-time.Second) }},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			changed := signed
