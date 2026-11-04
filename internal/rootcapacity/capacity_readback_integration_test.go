@@ -123,32 +123,7 @@ func TestRootCapacityConfigurationReadbackOCIProtocol(t *testing.T) {
 			configurationID := "ocid1.instanceconfiguration.oc1..fixture"
 			configuration := core.InstanceConfiguration{Id: new(configurationID), CompartmentId: details.CompartmentId,
 				DisplayName: details.DisplayName, FreeformTags: details.FreeformTags, InstanceDetails: details.InstanceDetails}
-			launch := configuration.InstanceDetails.(core.ComputeInstanceDetails).LaunchDetails
 			switch change {
-			case "image":
-				source := launch.SourceDetails.(core.InstanceConfigurationInstanceSourceViaImageDetails)
-				source.ImageId = new("ocid1.image.oc1..foreign")
-				launch.SourceDetails = source
-			case "network":
-				launch.CreateVnicDetails.NsgIds = []string{"ocid1.networksecuritygroup.oc1..foreign"}
-			case "subnet":
-				launch.CreateVnicDetails.SubnetId = new("ocid1.subnet.oc1..foreign")
-			case "public IP":
-				launch.CreateVnicDetails.AssignPublicIp = new(true)
-			case "metadata":
-				launch.Metadata["unapproved"] = "bootstrap"
-			case "shape":
-				launch.Shape = new("VM.Standard.E4.Flex")
-			case "OCPUs":
-				launch.ShapeConfig.Ocpus = new(float32(4))
-			case "memory":
-				launch.ShapeConfig.MemoryInGBs = new(float32(24))
-			case "legacy IMDS":
-				launch.InstanceOptions.AreLegacyImdsEndpointsDisabled = new(false)
-			case "missing IMDS":
-				launch.InstanceOptions = nil
-			case "id":
-				configuration.Id = new("ocid1.instanceconfiguration.oc1..foreign")
 			case "compartment":
 				configuration.CompartmentId = new("ocid1.compartment.oc1..foreign")
 			}

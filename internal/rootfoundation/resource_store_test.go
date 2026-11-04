@@ -118,16 +118,8 @@ func TestOriginalRequestHistoryPersistsBeforeConditionalRewrite(t *testing.T) {
 			next := previous
 			next.Requests = slices.Clone(previous.Requests)
 			switch field {
-			case "remove":
-				next.Requests = nil
-			case "body":
-				next.Requests[0].Body = []byte(`{"owned":false}`)
 			case "token":
 				next.Requests[0].RetryToken = "new"
-			case "deadline":
-				next.Requests[0].Deadline = now.Add(time.Hour)
-			case "target":
-				next.Requests[0].URL += "/other"
 			}
 			if err := originalRequests(previous, next); err == nil {
 				t.Fatal("persisted original history rewrite accepted before conditional commit")

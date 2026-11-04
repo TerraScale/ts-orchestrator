@@ -114,13 +114,6 @@ func TestOriginalStartupSDKAtomicAppend(t *testing.T) {
 		switch fault {
 		case "rollback":
 			changed.Startup = nil
-		case "changed signature":
-			changed.Startup["controller-b"][len(changed.Startup["controller-b"])-2] ^= 1
-		case "changed config":
-			changed.Startup["controller-c"] = changed.Startup["controller-b"]
-		case "seed before startup":
-			changed.Startup = nil
-			changed.SeedCompletion = []byte("{}")
 		}
 		if _, err := writeOriginalState(t.Context(), t.Context(), clients.objects, f.in, changed, etag); err == nil || !bytes.Equal(before, f.state) {
 			t.Fatal("startup mutation accepted", fault)

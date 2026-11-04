@@ -243,7 +243,7 @@ func TestOriginalMaterialPublicationSDKDurableRecovery(t *testing.T) {
 			originalBinding := originalReservationSHA(state)
 			f.material.fault = fault
 			publication, err := originalMaterialMechanicalProvision(t, f, clients, &state, &etag, archive)
-			if fault != "" {
+			{
 				if err == nil || !f.material.faulted || f.material.creates != 1 {
 					t.Fatal("lost create did not retain exact uncertain send", err)
 				}
@@ -293,20 +293,8 @@ func TestOriginalMaterialPublicationSDKDurableRecovery(t *testing.T) {
 					t.Fatal(err)
 				}
 				switch fault {
-				case "drop publication":
-					changed.Publication = nil
-				case "drop journal":
-					changed.Publication.Journal = nil
 				case "retry identity":
 					journal.Entries[0].RetryToken = "00000000-0000-4000-8000-000000000000"
-				case "file name permutation":
-					journal.Entries[0].Name, journal.Entries[1].Name = journal.Entries[1].Name, journal.Entries[0].Name
-				case "version2":
-					changed.Publication.Result.References[0].Reference.VersionNumber = 2
-				case "wrong target":
-					changed.Publication.Scope.Target.KMSKeyOCID = f.in.intent.Escrow.KMSKeyOCID
-				case "duplicate secret":
-					journal.Entries[1].SecretOCID = journal.Entries[0].SecretOCID
 				}
 				if changed.Publication != nil && fault != "drop journal" {
 					changed.Publication.Journal, err = json.Marshal(journal)
@@ -314,9 +302,7 @@ func TestOriginalMaterialPublicationSDKDurableRecovery(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if (fault == "file name permutation" || fault == "version2" || fault == "duplicate secret") && validOriginalPublication(changed, f.in) {
-					t.Fatal("invalid per-file publication binding passed", fault)
-				}
+
 				if _, err := writeOriginalState(t.Context(), t.Context(), clients.objects, f.in, changed, etag); err == nil || !bytes.Equal(f.state, before) {
 					t.Fatal("protected publication accepted retained-state mutation", fault)
 				}

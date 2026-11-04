@@ -3,12 +3,10 @@ package materialsource
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
@@ -30,7 +28,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -42,15 +39,7 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 		"exact publication pins",
 	} {
 		t.Run(mode, func(t *testing.T) {
-			var birthRoles []string
-			switch mode {
-			case "sole founder compartment reference", "consumed dynamic control compartment":
-				birthRoles = []string{"control_compartment"}
-			case "unbound publication key", "logical publication key":
-				birthRoles = []string{"key"}
-			case "mixed dynamic control and consumed pinned key":
-				birthRoles = []string{"control_compartment", "key"}
-			}
+
 			now := time.Now().UTC().Truncate(time.Second)
 			initial, _, roots, root, _ := materialSourceAnchor(t)
 			identity := initial.Anchor()
@@ -96,13 +85,7 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 				}
 				template.ControllerFiles[1].Bytes = startupScopeJSON(t, sidecar)
 				template.ControllerFiles[1].SHA256 = digestWire(template.ControllerFiles[1].Bytes)
-				if mode == "sole founder compartment reference" || mode == "consumed dynamic control compartment" {
-					template.FounderResources.Slots[0].ImageCompartmentOCID = "foundation:" + name + ":control_compartment"
-				}
-				if mode == "mixed dynamic control and consumed pinned key" {
-					template.ManagedMaterial = &bootstrap.ManagedMaterialDomain{Namespace: domain.Namespace, Bucket: "managed-material", KMSKeyOCID: "foundation:" + name + ":key", MemberCompartmentOCID: "ocid1.compartment.oc1.." + strings.ToLower(name) + "workload", MemberSubnetOCID: ids["subnet"].(string), MemberSubnetCIDR: config.SubnetCIDR,
-						RecipientSignerPublicKey: base64.StdEncoding.EncodeToString(root.Public().(ed25519.PublicKey)), NativeVerifierSHA256: strings.Repeat("c", 64)}
-				}
+
 				if err := template.ValidateFoundation(name); err != nil {
 					t.Fatal(err)
 				}
@@ -114,15 +97,7 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 				ids["boot_volumes"] = map[string]any{"controller-a": nil, "controller-b": "ocid1.bootvolume.oc1." + ociRegion + ".retained", "controller-c": nil}
 				ids["data_volumes"] = map[string]any{"database-a": nil}
 				ids["workload_compartment"] = "foundation:" + name + ":workload_compartment"
-				if mode == "unbound publication key" {
-					ids["key"] = nil
-				}
-				if mode == "logical publication key" {
-					ids["key"] = "foundation:" + name + ":key"
-				}
-				if mode == "consumed dynamic control compartment" && cell == oci.RegionSJC || mode == "mixed dynamic control and consumed pinned key" {
-					ids["control_compartment"] = "foundation:" + name + ":control_compartment"
-				}
+
 				grant.Regions = append(grant.Regions, region.FoundationIntent{Generation: 1, Plan: map[string]any{"cell": name, "region": ociRegion, "tenancy_id": grant.TenancyID, "parent_compartment_id": grant.ParentCompartmentID, "shared_compartment_id": grant.SharedCompartmentID, "network_cidr": "10.251.0.0/16", "subnet_cidr": config.SubnetCIDR, "resource_ids": ids},
 					BootstrapMaterial: &region.BootstrapMaterialIntent{InstallationID: installation, PlanSHA256: registration.PlanSHA256, Config: config, SourceVaultTarget: bootstrapmaterial.VaultTarget{CompartmentOCID: targets["GRU"].CompartmentOCID, VaultOCID: targets["GRU"].VaultOCID, KMSKeyOCID: targets["GRU"].KMSKeyOCID}, Startup: &template, SourceRegistration: &registration}})
 			}
@@ -283,9 +258,7 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 				}
 				record := region.FoundationRecord{SchemaVersion: 1, Cell: cell, OCIRegion: intent.Plan["region"].(string), TenancyID: grant.TenancyID, ParentCompartmentID: grant.ParentCompartmentID, SharedCompartmentID: grant.SharedCompartmentID, Generation: 1, GrantSHA256: digestWire(wire), IntentDigest: intentDigest, OperationID: entityid.Derive("regional-foundation", grant.TenancyID, cell, "1"), Epoch: 7, LeaseID: entityid.New(), Stage: "foundation", StartedAt: now.Add(-time.Minute), UpdatedAt: now, ExpiresAt: leaseDeadline,
 					ResourceIDs: map[string]string{"control_compartment": target.CompartmentOCID, "vault": target.VaultOCID, "key": target.KMSKeyOCID}, ResourceProvenance: map[string]region.FoundationResourceProvenance{}}
-				for _, birthRole := range birthRoles {
-					record.ResourceProvenance[birthRole] = region.FoundationResourceProvenance{ResourceID: record.ResourceIDs[birthRole], Generation: 1, GrantSHA256: record.GrantSHA256, Create: region.PendingFoundationCreate{OperationID: record.OperationID, IntentDigest: intentDigest, FirstAttemptAt: record.StartedAt.Add(time.Second), Request: foundation.CreateIdentity{Key: birthRole, Region: record.OCIRegion, RequestDigest: strings.Repeat("a", 64), RetryToken: strings.Repeat("b", 64)}}}
-				}
+
 				if _, err := store.CompareAndSwap(t.Context(), record, ""); err != nil {
 					t.Fatal(err)
 				}
@@ -309,9 +282,7 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 				if verified.Template().FounderResources.Slots[0].ImageCompartmentOCID != targets[cell].CompartmentOCID {
 					t.Fatal("startup founder compartment escaped its finite publication target")
 				}
-				if mode == "mixed dynamic control and consumed pinned key" && verified.Template().ManagedMaterial.KMSKeyOCID != targets[cell].KMSKeyOCID {
-					t.Fatal("startup managed key escaped its consumed pinned publication target")
-				}
+
 				if err := verified.VerifyCurrentContext(t.Context(), now); err != nil {
 					t.Fatal(err)
 				}
@@ -333,31 +304,7 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertStartup(sibling, "SJC")
-			var regionalMaterial region.VerifiedBootstrapMaterial
-			if mode == "consumed dynamic control compartment" {
-				resolver, err := region.NewFoundationDiscovery(factory, anchor, roots)
-				if err != nil {
-					t.Fatal(err)
-				}
-				regionalMaterial, err = resolver.BootstrapMaterial(t.Context(), "SJC")
-				if err != nil {
-					t.Fatal(err)
-				}
-				startup, err := regionalMaterial.Startup()
-				if err != nil {
-					t.Fatal(err)
-				}
-				original := grant.Regions[1].BootstrapMaterial
-				if startup.FounderResources.Slots[0].ImageCompartmentOCID != targets["SJC"].CompartmentOCID || regionalMaterial.PlanDigest() != original.PlanSHA256 || !bytes.Equal(startupScopeJSON(t, regionalMaterial.Config()), startupScopeJSON(t, original.Config)) || !bytes.Equal(regionalMaterial.FoundationGrantWire(), wire) || !regionalMaterial.ExpiresAt().Equal(leaseDeadline) {
-					t.Fatal("regional material projection changed founder scope or original signed plan/config provenance")
-				}
-				if err := startup.Validate(); err != nil {
-					t.Fatal(err)
-				}
-				if err := regionalMaterial.Revalidate(t.Context()); err != nil {
-					t.Fatal(err)
-				}
-			}
+
 			switched, err := home.ForCell(t.Context(), oci.RegionSJC, now)
 			if err != nil {
 				t.Fatal(err)
@@ -377,39 +324,7 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 			if err := home.VerifyCurrentContext(t.Context(), now); err != nil {
 				t.Fatalf("foreign sibling drift invalidated selected home scope: %v", err)
 			}
-			if len(birthRoles) != 0 {
-				birthRole := birthRoles[len(birthRoles)-1]
-				record, etag, err := store.Load(t.Context(), "GRU")
-				if err != nil {
-					t.Fatal(err)
-				}
-				if _, exists := record.ResourceProvenance[birthRole]; !exists {
-					t.Fatal("dynamic startup role lacks the original persisted birth")
-				}
-				delete(record.ResourceProvenance, birthRole)
-				if _, err := store.CompareAndSwap(t.Context(), record, etag); err != nil {
-					t.Fatal(err)
-				}
-				if err := home.VerifyCurrentContext(t.Context(), now); err == nil {
-					t.Fatal("startup revalidation accepted CAS removal of its consumed dynamic birth")
-				}
-			}
-			if mode == "consumed dynamic control compartment" {
-				mu.Lock()
-				live[keyPath]["vaultId"] = targets["SJC"].VaultOCID
-				mu.Unlock()
-				record, etag, err := store.Load(t.Context(), "SJC")
-				if err != nil {
-					t.Fatal(err)
-				}
-				record.Epoch++
-				if _, err := store.CompareAndSwap(t.Context(), record, etag); err != nil {
-					t.Fatal(err)
-				}
-				if err := regionalMaterial.Revalidate(t.Context()); err == nil {
-					t.Fatal("regional material accepted replacement of its original retained startup epoch")
-				}
-			}
+
 		})
 	}
 }

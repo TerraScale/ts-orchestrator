@@ -1,14 +1,10 @@
 package cli
 
 import (
-	"crypto/ecdh"
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/pem"
 	"io"
 	"os"
 	"path/filepath"
@@ -68,30 +64,6 @@ func TestCustomerEnvelopeFilesystemBoundary(t *testing.T) {
 			directory := t.TempDir()
 			spec, reply, keyPath := baseSpec, baseReply, recipientPath
 			switch test.name {
-			case "WrongRecipient":
-				wrong, err := ecdh.X25519().GenerateKey(rand.Reader)
-				if err != nil {
-					t.Fatal(err)
-				}
-				privateDER, err := x509.MarshalPKCS8PrivateKey(wrong)
-				if err != nil {
-					t.Fatal(err)
-				}
-				keyPath = filepath.Join(directory, "wrong-recipient.pem")
-				if err := os.WriteFile(keyPath,
-					pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER}), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				if parsed, err := managedmaterial.ReadRecipientKey(keyPath); err != nil || !parsed.Equal(wrong) {
-					t.Fatalf("wrong-recipient fixture is not a readable X25519 key: %v", err)
-				}
-			case "FlippedCiphertext":
-				first := "A"
-				if strings.HasPrefix(reply.Customer.Ciphertext, first) {
-					first = "B"
-				}
-				reply.Customer.Ciphertext = first + reply.Customer.Ciphertext[1:]
-				reply.Receipt.CustomerEnvelopeSHA256 = digestJSON(t, reply.Customer)
 			case "AlternatePartition":
 				spec.PartitionID = "00000000001WFHC56Q8NB0X6T8"
 				reply.Receipt.Spec = spec

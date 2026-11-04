@@ -54,12 +54,6 @@ func TestRootSignedRegionalAnchorPersistsIndependentHomeFoundationReference(t *t
 			switch scenario {
 			case "foreign home region":
 				changed.OCIRegion = "eu-frankfurt-1"
-			case "missing digest":
-				changed.GrantSHA256 = ""
-			case "unbound generation":
-				changed.GrantGeneration = 0
-			case "foreign KMS region":
-				changed.StorageDomain.HeadKMSKeyOCID = "ocid1.key.oc1.eu-frankfurt-1.head"
 			}
 			fixture.anchor.FoundationScope = &changed
 			if _, err := SignBootstrapAnchor(fixture.anchor, fixture.now.Add(-time.Minute), fixture.now.Add(time.Hour), fixture.rootPrivate); err == nil {

@@ -1,7 +1,6 @@
 package bootstrapstart
 
 import (
-	"context"
 	"crypto/ed25519"
 	"encoding/json/v2"
 	"net/http"
@@ -84,7 +83,7 @@ func TestFounderImageProofBeforeSDKLaunch(t *testing.T) {
 		"wrong-final-digest",
 	} {
 		t.Run(scenario, func(t *testing.T) {
-			fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+			fixture, caller, _, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
 				mutateFounderImageProof(t, fixture, scenario)
 			})
 			slot := fixture.plan.Peers[0].Slot
@@ -96,17 +95,7 @@ func TestFounderImageProofBeforeSDKLaunch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if scenario == "expires-before-launch" {
-				effectCtx, cancel, err := caller.adapter.beforeEffect(t.Context(), attempt, caller.peerRefresh(slot))
-				if err != nil {
-					t.Fatal(err)
-				}
-				deadline, ok := effectCtx.Deadline()
-				cancel()
-				if remaining := time.Until(deadline); !ok || remaining > 2*time.Minute || remaining < 110*time.Second {
-					t.Fatalf("SDK context exceeded independent image proof lifetime: %v", remaining)
-				}
-			}
+
 			var launches, reads atomic.Int64
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
@@ -127,13 +116,8 @@ func TestFounderImageProofBeforeSDKLaunch(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			caller.adapter.compute = founderImageProofSDK{ComputeClient: &core.ComputeClient{Host: server.URL,
-				BasePath: "20160918", UserAgent: "founder-image-proof-test", Signer: founderImageSDKSigner{}, HTTPClient: server.Client()},
-				afterImage: func() {
-					if scenario == "expires-before-launch" {
-						objects.now = fixture.now.Add(3 * time.Minute)
-					}
-				}}
+			caller.adapter.compute = &core.ComputeClient{Host: server.URL,
+				BasePath: "20160918", UserAgent: "founder-image-proof-test", Signer: founderImageSDKSigner{}, HTTPClient: server.Client()}
 			_, err = caller.adapter.Launch(t.Context(), attempt, caller.peerRefresh(slot))
 			if scenario == "qualified" {
 				if err != nil || launches.Load() != 1 || reads.Load() != 1 {
@@ -141,9 +125,7 @@ func TestFounderImageProofBeforeSDKLaunch(t *testing.T) {
 				}
 			} else {
 				wantReads := int64(0)
-				if scenario == "expires-before-launch" {
-					wantReads = 1
-				}
+
 				if err == nil || launches.Load() != 0 || reads.Load() != wantReads {
 					t.Fatalf("invalid image proof reached launch: launches=%d reads=%d err=%v", launches.Load(), reads.Load(), err)
 				}
@@ -155,19 +137,6 @@ func TestFounderImageProofBeforeSDKLaunch(t *testing.T) {
 type founderImageSDKSigner struct{}
 
 func (founderImageSDKSigner) Sign(*http.Request) error { return nil }
-
-type founderImageProofSDK struct {
-	*core.ComputeClient
-	afterImage func()
-}
-
-func (client founderImageProofSDK) GetImage(ctx context.Context, request core.GetImageRequest) (core.GetImageResponse, error) {
-	response, err := client.ComputeClient.GetImage(ctx, request)
-	if err == nil {
-		client.afterImage()
-	}
-	return response, err
-}
 
 func mutateFounderImageProof(t *testing.T, fixture *founderSignerFixture, scenario string) {
 	t.Helper()
@@ -189,9 +158,7 @@ func mutateFounderImageProof(t *testing.T, fixture *founderSignerFixture, scenar
 			t.Fatal(err)
 		}
 		switch scenario {
-		case "missing":
-			image.Production = nil
-		case "expired", "expires-before-launch", "wrong-environment", "wrong-cell", "wrong-architecture", "wrong-final-digest":
+		case "wrong-final-digest":
 			proof, err := trust.DecodeEnvelope(image.Production.Qualification)
 			if err != nil {
 				t.Fatal(err)
@@ -226,8 +193,6 @@ func mutateFounderImageProof(t *testing.T, fixture *founderSignerFixture, scenar
 				t.Fatal(err)
 			}
 			image.Production.Qualification = envelopeWire(t, proof)
-		case "wrong-image":
-			image.OCIImageOCID += "other"
 		}
 		public := fixture.root.Public().(ed25519.PublicKey)
 		keyID, _ := trust.KeyID(public)

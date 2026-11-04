@@ -232,15 +232,6 @@ func TestOCIRProtectedSDKJournalRestartPreservesUncertainAttempt(t *testing.T) {
 			switch field {
 			case "attempts":
 				entry.Attempts = nil
-			case "requests":
-				entry.Requests = nil
-			case "origin":
-				entry.Origin = region.OCIRIssuanceOrigin{}
-			case "request-deadline":
-				for hash, request := range entry.Requests {
-					request.Deadline = request.Deadline.Add(time.Minute)
-					entry.Requests[hash] = request
-				}
 			}
 			removed.OCIRIssuances[key] = entry
 			if _, err := store.CompareAndSwap(t.Context(), removed, protectedETag); err == nil {

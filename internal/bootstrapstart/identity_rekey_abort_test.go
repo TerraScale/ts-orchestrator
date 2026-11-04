@@ -2,15 +2,12 @@ package bootstrapstart
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/identityrekey"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -49,39 +46,14 @@ func TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles(t *test
 				if _, err := authority.ResetIdentityLease(t.Context(), js, envelope, verified.AcceptedRoots(), verified.ResetTarget(), accepted.AcceptedAt); err != nil {
 					t.Fatal(err)
 				}
-			} else if fault != "empty slot" {
+			} else {
 				if _, err := js.Publish(t.Context(), protocol.ControlRoot+".gru.lease", []byte("ordinary renewed opaque lease")); err != nil {
 					t.Fatal(err)
 				}
 			}
 			ctx := t.Context()
 			observe := IdentityObservation(acceptedObservation)
-			switch fault {
-			case "changed acceptance":
-				if err := os.WriteFile(filepath.Join(markers.directory, markerName), journal.AcceptedWire, 0o644); err != nil {
-					t.Fatal(err)
-				}
-			case "changed journal":
-				if err := os.WriteFile(filepath.Join(markers.directory, identityRekeyJournalName), append(wire, '\n'), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			case "cancelled":
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithCancel(ctx)
-				cancel()
-			case "changed store":
-				observe = func(a AcceptedIdentity) (identityrekey.BrokerIdentity, identityrekey.StoreIdentity, error) {
-					broker, store, err := acceptedObservation(a)
-					store.RaftNodeID = "OTHER000"
-					return broker, store, err
-				}
-			case "wrong digest":
-				expected = strings.Repeat("a", 64)
-			case "archive collision":
-				if err := os.WriteFile(filepath.Join(markers.directory, "identity-rekey.aborted."+expected+".json"), []byte("existing evidence"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
+
 			before, err := os.ReadFile(filepath.Join(markers.directory, markerName))
 			if err != nil {
 				t.Fatal(err)

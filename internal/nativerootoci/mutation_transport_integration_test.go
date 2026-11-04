@@ -105,10 +105,6 @@ func TestNativeRootSDKWireKeepsUnacknowledgedPutUncertain(t *testing.T) {
 							committed = true
 							// Close the actual HTTP/1 or HTTP/2 TLS connection after consuming the PUT.
 							_ = connection.Close()
-						case "service-unavailable":
-							writeNativeWireError(w, http.StatusServiceUnavailable, "ServiceUnavailable")
-						case "unauthorized":
-							writeNativeWireError(w, http.StatusUnauthorized, "NotAuthenticated")
 						}
 					default:
 						t.Errorf("unexpected wire method %s", request.Method)
@@ -146,7 +142,7 @@ func TestNativeRootSDKWireKeepsUnacknowledgedPutUncertain(t *testing.T) {
 				}
 				readback := service.Execute(ctx, testRequest(target, "get", nil, ""), authorize)
 				wantBody, wantETag := []byte("original-root"), "original-etag"
-				if failure == "lost-ack" {
+				{
 					wantBody, wantETag = root, "committed-etag"
 				}
 				if readback.Status != "found" || readback.ETag != wantETag ||

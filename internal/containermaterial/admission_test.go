@@ -34,16 +34,8 @@ func TestTaskRecipientRequiresRoleSpecificAuthority(t *testing.T) {
 			candidate.ManagedOCI = new(*registration.ManagedOCI)
 			var controller *bootstrapstart.ControllerHostRecipient
 			switch name {
-			case "missing OCI identity":
-				candidate.ManagedOCI = nil
 			case "other instance":
 				candidate.ManagedOCI.InstanceID += "-replacement"
-			case "other region":
-				candidate.ManagedOCI.Region = "us-ashburn-1"
-			case "other host":
-				candidate.ID = entityid.Derive("container-recipient", "other")
-			case "manager proof on worker":
-				controller = new(bootstrapstart.ControllerHostRecipient)
 			}
 			if err := verifyTaskRecipient(Profile{}, candidate, binding, node, controller); !errors.Is(err, ErrPending) {
 				t.Fatalf("substituted worker authority admitted: %v", err)

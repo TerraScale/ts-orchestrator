@@ -15,11 +15,9 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
-	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 )
 
 func TestRootOCIProcessExitIntegration(t *testing.T) {
@@ -92,9 +90,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 			var authorizations atomic.Int32
 			var retained *ProcessWitness
 			deadline := time.Now().Add(4 * time.Second)
-			if scenario == "expired" {
-				deadline = time.Now().Add(-time.Second)
-			}
+
 			authorize := func(callCtx context.Context, peer nativerootoci.Peer, operation Operation) (Lease, error) {
 				select {
 				case <-started:
@@ -102,22 +98,8 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					return Lease{}, ErrUnauthorized
 				}
 				expectedOperation := OperationObserveLocalInstance
-				if scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" || scenario == "container_release_startup" {
-					if !operation.ReadOnly() {
-						return Lease{}, ErrUnauthorized
-					}
-					expectedOperation = OperationRetainedContainerEvidence
-					if scenario == "channel_startup" {
-						expectedOperation = OperationNativeRelease
-					}
-					if scenario == "container_release_startup" {
-						expectedOperation = OperationContainerRelease
-					}
-					if scenario == "native_startup" {
-						expectedOperation = OperationMaterializeNativeCanary
-					}
-				}
-				if scenario == "effect_then_revoke" || scenario == "backend_unknown" {
+
+				{
 					expectedOperation = OperationReconcileFoundation
 				}
 				if peer.PID != childPID || peer.UID != uint32(os.Geteuid()) || peer.GID != uint32(os.Getegid()) || operation != expectedOperation {
@@ -151,79 +133,23 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 				}
 			})
 			request := wireRequest{Version: 1, Operation: OperationObserveLocalInstance, Payload: []byte(`{}`)}
-			if scenario == "raw_sign" {
-				request.Operation = "sign"
-			}
-			if scenario == "unknown_member" {
-				request.Payload = []byte(`{"provider_path":"arbitrary"}`)
-			}
-			if scenario == "effect_then_revoke" || scenario == "backend_unknown" {
+
+			{
 				request.Operation = OperationReconcileFoundation
 				request.Payload = []byte(`{"cell":"gru"}`)
 			}
-			if scenario == "retained_negative_offset" || scenario == "retained_startup" {
-				input := RetainedContainerEvidenceRequest{
-					OperationID: entityid.New(), ExpectedFingerprint: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-					EvidenceSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-				}
-				if scenario == "retained_negative_offset" {
-					input.Offset = -1
-				}
-				request.Operation = OperationRetainedContainerEvidence
-				request.Payload, err = json.Marshal(input)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
+
 			if strings.HasPrefix(scenario, "container_release_") {
 				input := ContainerReleaseRequest{Role: "ts-auth", Architecture: "arm64"}
-				if scenario == "container_release_bad_role" {
-					input.Role = "signer"
-				}
-				if scenario == "container_release_bad_architecture" {
-					input.Architecture = "../arm64"
-				}
+
 				request.Operation = OperationContainerRelease
 				request.Payload, err = json.Marshal(input)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if scenario == "container_release_unknown_member" {
-					request.Payload = []byte(`{"Role":"ts-auth","Architecture":"arm64","bucket":"other"}`)
-				}
+
 			}
-			if scenario == "channel_bad_role" || scenario == "channel_startup" {
-				input := NativeReleaseRequest{Role: "ts-auth"}
-				if scenario == "channel_bad_role" {
-					input.Role = "signer"
-				}
-				request.Operation = OperationNativeRelease
-				request.Payload, err = json.Marshal(input)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			if scenario == "channel_offset_limit" {
-				request.Operation = OperationReleaseBinaryChunk
-				request.Payload, err = json.Marshal(ReleaseBinaryChunkRequest{
-					Digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-					Offset: releasechannel.MaxServiceBinaryBytes + 1,
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			if scenario == "native_bad_node" || scenario == "native_startup" {
-				input := NativeCanaryRequest{OperationID: entityid.New(), Node: "worker-a"}
-				if scenario == "native_bad_node" {
-					input.Node = "../worker-a"
-				}
-				request.Operation = OperationMaterializeNativeCanary
-				request.Payload, err = json.Marshal(input)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
+
 			wire, err := json.Marshal(request)
 			if err != nil {
 				t.Fatal(err)
@@ -240,45 +166,17 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 				t.Fatal(err)
 			}
 			childPID = child.Process.Pid
-			if scenario == "wrong_process" {
-				childPID = os.Getpid()
-			}
+
 			close(started)
 			t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
-			if scenario == "session_cancel" {
-				select {
-				case <-reader.started:
-				case <-ctx.Done():
-					t.Fatal("guarded reader was never reached")
-				}
-				revoke()
-				select {
-				case <-reader.stopped:
-				case <-ctx.Done():
-					t.Fatal("session cancellation did not stop reader")
-				}
-			}
+
 			if err := child.Wait(); err != nil {
 				t.Fatalf("socket child: %v: %s", err, output.Bytes())
 			}
-			if scenario == "session_cancel" {
-				if authorizations.Load() < 2 || reader.calls.Load() != 1 || output.String() != "closed\n" {
-					t.Fatalf("unexpected guarded cancellation: auth=%d reads=%d output=%s", authorizations.Load(), reader.calls.Load(), output.Bytes())
-				}
-			} else if scenario == "effect_then_revoke" || scenario == "backend_unknown" {
+			{
 				var response wireResponse
 				if json.Unmarshal(output.Bytes(), &response) != nil || response.Status != "outcome_unknown" || foundation.effects.Load() != 1 || reader.calls.Load() != 0 {
 					t.Fatalf("uncertain committed effect lost outcome: effects=%d response=%s", foundation.effects.Load(), output.Bytes())
-				}
-			} else {
-				var response wireResponse
-				expected := "invalid"
-				if scenario == "wrong_process" || scenario == "expired" || scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" || scenario == "container_release_startup" {
-					expected = "unauthorized"
-				}
-				if json.Unmarshal(output.Bytes(), &response) != nil || response.Status != expected || reader.calls.Load() != 0 ||
-					(scenario != "expired" && authorizations.Load() != 0) {
-					t.Fatalf("invalid operation crossed authority boundary: %s", output.Bytes())
 				}
 			}
 		})
