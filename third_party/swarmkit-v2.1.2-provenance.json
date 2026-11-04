@@ -277,7 +277,7 @@
   ],
   "module": "github.com/moby/swarmkit/v2",
   "module_sum": "h1:1WDZAI6HVYNKdCG4zlXnTAPyLsLwuhRGWlHoOUf5Z6I=",
-  "test_policy": "Nested module tests are archived upstream source; none are implicitly qualified or invoked by root-module ./... checks. Any execution requires explicit QA inventory and grant.",
+  "test_policy": "Upstream and local nested-module test sources listed in archived_test_files were deleted on 2026-11-04 under TerraScale's happy-path test policy; none were invoked by root-module checks.",
   "upstream_files": [
     {
       "bytes": 405,
