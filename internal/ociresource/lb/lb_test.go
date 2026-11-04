@@ -40,6 +40,17 @@ type providerState struct {
 	healthErr error
 }
 
+func (f *providerState) UnhealthyBackends(context.Context, string, string) (map[string]bool, error) {
+	return f.unhealthy, f.healthErr
+}
+
+func (f *providerState) GetLoadBalancer(context.Context, string) (LoadBalancer, error) {
+	if f.gone {
+		return LoadBalancer{}, fmt.Errorf("get OCI load balancer: %w", ociresource.ErrGone)
+	}
+	return f.balancer, nil
+}
+
 func (f *providerState) ListBackends(context.Context, string, string) ([]Backend, error) {
 	if f.setGone {
 		return nil, fmt.Errorf("list OCI load balancer backends: %w", ociresource.ErrGone)

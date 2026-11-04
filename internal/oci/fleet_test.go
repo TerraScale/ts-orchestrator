@@ -370,11 +370,32 @@ func (j *fakeJournal) GetOperation(_ context.Context, scope OperationScope) (Ope
 	return stored, true, nil
 }
 
+func (j *fakeJournal) IsOwnedInstance(_ context.Context, identity ResourceIdentity) (bool, error) {
+	return j.instances[identity.ID] == identity, nil
+}
+
+func (j *fakeJournal) IsOwnedVolume(_ context.Context, identity ResourceIdentity) (bool, error) {
+	return j.volumes[identity.ID] == identity, nil
+}
+
+func (j *fakeJournal) IsOwnedAttachment(_ context.Context, identity AttachmentIdentity) (bool, error) {
+	return j.attachments[identity.ID] == identity, nil
+}
+
 type fakeWriterStop struct {
 	volumeErr      error
 	instanceErr    error
 	volumeChecks   int
 	instanceChecks int
+}
+
+func (v *fakeWriterStop) VerifyVolumeWriterStopped(context.Context, Region, string, string, WriterStopEvidence) error {
+	v.volumeChecks++
+	return v.volumeErr
+}
+func (v *fakeWriterStop) VerifyInstanceWritersStopped(context.Context, Region, string, WriterStopEvidence) error {
+	v.instanceChecks++
+	return v.instanceErr
 }
 
 type fakeImageVerifier struct {
@@ -521,6 +542,20 @@ func (p *fakeProvider) LaunchInstance(_ context.Context, request LaunchRequest) 
 	return cloneCloudInstance(instance), launchErr
 }
 
+func (p *fakeProvider) UpdateInstanceTags(_ context.Context, id, etag string, tags map[string]string) (CloudInstance, error) {
+	instance, ok := p.instances[id]
+	if !ok {
+		return CloudInstance{}, fakeNotFound{}
+	}
+	if instance.ETag != etag {
+		return CloudInstance{}, ErrStaleETag
+	}
+	instance.FreeformTags = cloneStringMap(tags)
+	instance.ETag = etag + "-next"
+	p.instances[id] = instance
+	return cloneCloudInstance(instance), nil
+}
+
 func (p *fakeProvider) TerminateInstance(_ context.Context, id, etag string) error {
 	instance, ok := p.instances[id]
 	if !ok {
@@ -538,6 +573,43 @@ func (p *fakeProvider) TerminateInstance(_ context.Context, id, etag string) err
 
 func (p *fakeProvider) TerminateTerminalInstance(ctx context.Context, id, etag string) error {
 	return p.TerminateInstance(ctx, id, etag)
+}
+
+func (p *fakeProvider) GetAttachedBootVolume(_ context.Context, instanceID string) (CloudBootVolume, error) {
+	instance, ok := p.instances[instanceID]
+	if !ok {
+		return CloudBootVolume{}, fakeNotFound{}
+	}
+	id := "ocid1.bootvolume." + strings.TrimPrefix(instanceID, "ocid1.instance.")
+	if boot, ok := p.bootVolumes[id]; ok {
+		return boot, nil
+	}
+	boot := CloudBootVolume{ID: id, CompartmentID: p.config.CompartmentID,
+		AvailabilityDomain: p.config.AvailabilityDomain, ImageID: instance.ImageID,
+		SizeGB: int64(p.config.BootVolumeGB), VPUsPerGB: int64(p.config.BootVolumeVPUsPerGB),
+		LifecycleState: "AVAILABLE", ETag: "boot-etag"}
+	p.bootVolumes[id] = boot
+	return boot, nil
+}
+
+func (p *fakeProvider) GetBootVolume(_ context.Context, id string) (CloudBootVolume, error) {
+	boot, ok := p.bootVolumes[id]
+	if !ok {
+		return CloudBootVolume{}, fakeNotFound{}
+	}
+	return boot, nil
+}
+
+func (p *fakeProvider) ListBootVolumeAttachments(_ context.Context, id string) ([]CloudBootAttachment, error) {
+	for instanceID, instance := range p.instances {
+		if id == "ocid1.bootvolume."+strings.TrimPrefix(instanceID, "ocid1.instance.") {
+			if instance.LifecycleState == "TERMINATED" {
+				return nil, nil
+			}
+			return []CloudBootAttachment{{InstanceID: instanceID, BootVolumeID: id, LifecycleState: "ATTACHED"}}, nil
+		}
+	}
+	return nil, nil
 }
 
 func (p *fakeProvider) DeleteBootVolume(_ context.Context, id, etag string) error {
@@ -564,6 +636,130 @@ func (p *fakeProvider) DeleteVolume(_ context.Context, id, etag string) error {
 	return nil
 }
 
+func (p *fakeProvider) ListVolumeAttachments(_ context.Context, compartmentID, instanceID string) ([]CloudAttachment, error) {
+	if compartmentID != p.config.CompartmentID {
+		return nil, ErrForeignResource
+	}
+	if p.attachmentListErr != nil {
+		err := p.attachmentListErr
+		p.attachmentListErr = nil
+		return nil, err
+	}
+	var attachments []CloudAttachment
+	for _, attachment := range p.attachments {
+		if instanceID == "" || attachment.InstanceID == instanceID {
+			attachments = append(attachments, attachment)
+		}
+	}
+	return attachments, nil
+}
+
+func (p *fakeProvider) ListInstanceDevices(_ context.Context, instanceID string) ([]CloudDevice, error) {
+	p.deviceListCalls++
+	devices, exists := p.devices[instanceID]
+	if exists {
+		return cloneCloudDevices(devices), nil
+	}
+	available := true
+	return []CloudDevice{
+		{Name: "/dev/oracleoci/oraclevdb", IsAvailable: &available},
+		{Name: "/dev/oracleoci/oraclevdc", IsAvailable: &available},
+	}, nil
+}
+
+func (p *fakeProvider) GetVolumeAttachment(_ context.Context, id string) (CloudAttachment, error) {
+	attachment, ok := p.attachments[id]
+	if !ok {
+		return CloudAttachment{}, fakeNotFound{}
+	}
+	return attachment, nil
+}
+
+func (p *fakeProvider) AttachVolume(_ context.Context, request CloudVolumeAttachRequest) (CloudAttachment, error) {
+	if id, exists := p.attachRetryTokens[request.RetryToken]; exists {
+		return p.attachments[id], p.attachReplayError
+	}
+	p.attachCalls++
+	readOnly, shareable, encryption := request.IsReadOnly, request.IsShareable, request.IsPvEncryptionInTransitEnabled
+	attachment := CloudAttachment{
+		ID: fmt.Sprintf("attachment-%d", p.attachCalls), VolumeID: request.VolumeID,
+		InstanceID: request.InstanceID, LifecycleState: "ATTACHED", ETag: "a1", Device: request.Device,
+		IsReadOnly: &readOnly, IsShareable: &shareable, IsPvEncryptionInTransitEnabled: &encryption,
+	}
+	// Like OCI, the response describes the attachment while it is ATTACHING,
+	// under an ETag that changes once it settles.
+	response := attachment
+	response.LifecycleState, response.ETag = "ATTACHING", "a0"
+	p.attachments[attachment.ID] = attachment
+	p.attachRetryTokens[request.RetryToken] = attachment.ID
+	if p.afterAttach != nil {
+		p.afterAttach(p, attachment.ID)
+		p.afterAttach = nil
+	}
+	attachErr := p.attachErrorAfterCreate
+	p.attachErrorAfterCreate = nil
+	return response, attachErr
+}
+
+func (p *fakeProvider) DetachVolume(_ context.Context, id, etag string) error {
+	attachment, ok := p.attachments[id]
+	if !ok {
+		return fakeNotFound{}
+	}
+	if attachment.ETag != etag {
+		return ErrStaleETag
+	}
+	delete(p.attachments, id)
+	return nil
+}
+
+func (p *fakeProvider) GetVolume(_ context.Context, id string) (CloudVolume, error) {
+	volume, ok := p.volumes[id]
+	if !ok {
+		return CloudVolume{}, fakeNotFound{}
+	}
+	volume.FreeformTags = cloneStringMap(volume.FreeformTags)
+	return volume, nil
+}
+
+func (p *fakeProvider) ListVolumes(_ context.Context, compartmentID, availabilityDomain string) ([]CloudVolume, error) {
+	if compartmentID != p.config.CompartmentID || availabilityDomain != p.config.AvailabilityDomain {
+		return nil, ErrForeignResource
+	}
+	var volumes []CloudVolume
+	for _, volume := range p.volumes {
+		if volume.AvailabilityDomain == availabilityDomain {
+			volume.FreeformTags = cloneStringMap(volume.FreeformTags)
+			volumes = append(volumes, volume)
+		}
+	}
+	return volumes, nil
+}
+
+func (p *fakeProvider) CreateVolume(_ context.Context, request VolumeCreateRequest, tags map[string]string, retry string) (CloudVolume, error) {
+	p.volumeCreateCalls++
+	if id, exists := p.volumeRetryTokens[retry]; exists {
+		return p.volumes[id], p.volumeRetryReplayError
+	}
+	p.volumeCreates++
+	p.volumeCreateRequests = append(p.volumeCreateRequests, request)
+	id := fmt.Sprintf("ocid1.volume.created-%d", p.volumeCreates)
+	volume := CloudVolume{
+		ID: id, CompartmentID: p.config.CompartmentID, AvailabilityDomain: request.AvailabilityDomain,
+		SizeGB: request.SizeGB, VPUsPerGB: int64(p.config.DataVolumeVPUsPerGB),
+		LifecycleState: "PROVISIONING", ETag: "volume-etag", FreeformTags: cloneStringMap(tags),
+	}
+	p.volumes[id] = volume
+	p.volumeRetryTokens[retry] = id
+	createErr := p.volumeCreateErrorAfterCreate
+	p.volumeCreateErrorAfterCreate = nil
+	if p.afterVolumeCreate != nil {
+		p.afterVolumeCreate()
+	}
+	volume.FreeformTags = cloneStringMap(volume.FreeformTags)
+	return volume, createErr
+}
+
 func cloneCloudInstance(instance CloudInstance) CloudInstance {
 	instance.FreeformTags = maps.Clone(instance.FreeformTags)
 	instance.Metadata = maps.Clone(instance.Metadata)
@@ -577,6 +773,17 @@ func cloneCloudInstance(instance CloudInstance) CloudInstance {
 		instance.ConsistentVolumeNamingEnabled = boolPointer(*instance.ConsistentVolumeNamingEnabled)
 	}
 	return instance
+}
+
+func cloneCloudDevices(devices []CloudDevice) []CloudDevice {
+	cloned := make([]CloudDevice, len(devices))
+	for index, device := range devices {
+		cloned[index].Name = device.Name
+		if device.IsAvailable != nil {
+			cloned[index].IsAvailable = boolPointer(*device.IsAvailable)
+		}
+	}
+	return cloned
 }
 
 func boolPointer(value bool) *bool { return &value }

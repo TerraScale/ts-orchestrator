@@ -124,6 +124,63 @@ func (api *fakeConsoleHistoryAPI) GetInstance(_ context.Context, request core.Ge
 	return core.GetInstanceResponse{Instance: api.instance, Etag: new(api.instanceETag)}, nil
 }
 
+func (api *fakeConsoleHistoryAPI) CaptureConsoleHistory(_ context.Context, request core.CaptureConsoleHistoryRequest) (core.CaptureConsoleHistoryResponse, error) {
+	api.captureCalls++
+	api.retryTokens = append(api.retryTokens, stringValue(request.OpcRetryToken))
+	if api.captureErr != nil {
+		return core.CaptureConsoleHistoryResponse{}, api.captureErr
+	}
+	if request.CaptureConsoleHistoryDetails.InstanceId == nil || *request.CaptureConsoleHistoryDetails.InstanceId != api.instanceID {
+		return core.CaptureConsoleHistoryResponse{}, fmt.Errorf("unexpected capture instance")
+	}
+	return core.CaptureConsoleHistoryResponse{
+		ConsoleHistory: api.history(string(core.ConsoleHistoryLifecycleStateRequested)),
+		Etag:           new(api.historyETag), OpcRequestId: new("capture-request-id"),
+	}, nil
+}
+
+func (api *fakeConsoleHistoryAPI) GetConsoleHistory(_ context.Context, request core.GetConsoleHistoryRequest) (core.GetConsoleHistoryResponse, error) {
+	api.getHistoryCalls++
+	if request.InstanceConsoleHistoryId == nil || *request.InstanceConsoleHistoryId != api.historyID {
+		return core.GetConsoleHistoryResponse{}, fmt.Errorf("unexpected history ID")
+	}
+	state := string(core.ConsoleHistoryLifecycleStateSucceeded)
+	if api.historyStateAt < len(api.historyStates) {
+		state = api.historyStates[api.historyStateAt]
+		api.historyStateAt++
+	} else if len(api.historyStates) != 0 {
+		lastState := api.historyStates[len(api.historyStates)-1]
+		if lastState == string(core.ConsoleHistoryLifecycleStateRequested) || lastState == string(core.ConsoleHistoryLifecycleStateGettingHistory) {
+			state = lastState
+		}
+	}
+	return core.GetConsoleHistoryResponse{
+		ConsoleHistory: api.history(state), Etag: new(api.historyETag), OpcRequestId: new("get-request-id"),
+	}, nil
+}
+
+func (api *fakeConsoleHistoryAPI) GetConsoleHistoryContent(_ context.Context, request core.GetConsoleHistoryContentRequest) (core.GetConsoleHistoryContentResponse, error) {
+	api.contentCalls++
+	if request.InstanceConsoleHistoryId == nil || *request.InstanceConsoleHistoryId != api.historyID {
+		return core.GetConsoleHistoryContentResponse{}, fmt.Errorf("unexpected history content ID")
+	}
+	if request.Offset != nil {
+		api.contentOffset = *request.Offset
+	}
+	if request.Length != nil {
+		api.contentLength = *request.Length
+	}
+	return core.GetConsoleHistoryContentResponse{
+		Value: new(api.content), OpcBytesRemaining: new(api.bytesRemaining),
+	}, nil
+}
+
+func (api *fakeConsoleHistoryAPI) DeleteConsoleHistory(_ context.Context, request core.DeleteConsoleHistoryRequest) (core.DeleteConsoleHistoryResponse, error) {
+	api.deletedIDs = append(api.deletedIDs, stringValue(request.InstanceConsoleHistoryId))
+	api.deletedETags = append(api.deletedETags, stringValue(request.IfMatch))
+	return core.DeleteConsoleHistoryResponse{}, nil
+}
+
 func (api *fakeConsoleHistoryAPI) history(state string) core.ConsoleHistory {
 	instanceID := api.historyInstanceID
 	if instanceID == "" {

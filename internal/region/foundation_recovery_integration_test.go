@@ -160,7 +160,6 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 		t.Run(invalid, func(t *testing.T) {
 			candidate := saved
 			candidate.PendingCreates = maps.Clone(saved.PendingCreates)
-			pending := candidate.PendingCreates["control_compartment"]
 			switch invalid {
 			case "missing pending":
 				delete(candidate.PendingCreates, "control_compartment")

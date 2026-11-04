@@ -10,10 +10,13 @@ import (
 
 type fakeResponse struct{ raw *http.Response }
 
+func (f fakeResponse) HTTPResponse() *http.Response { return f.raw }
+
 type fakeServiceError struct{ status int }
 
 func (e fakeServiceError) Error() string           { return http.StatusText(e.status) }
 func (e fakeServiceError) GetHTTPStatusCode() int  { return e.status }
+func (e fakeServiceError) GetMessage() string      { return "" }
 func (e fakeServiceError) GetCode() string         { return "" }
 func (e fakeServiceError) GetOpcRequestID() string { return "" }
 

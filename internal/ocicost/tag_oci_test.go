@@ -42,3 +42,7 @@ func (f *fakeCompute) GetInstance(context.Context, core.GetInstanceRequest) (cor
 	}
 	return core.GetInstanceResponse{Instance: f.instance, Etag: common.String(f.etag)}, nil
 }
+func (f *fakeCompute) UpdateInstance(_ context.Context, request core.UpdateInstanceRequest) (core.UpdateInstanceResponse, error) {
+	f.updates = append(f.updates, request)
+	return core.UpdateInstanceResponse{}, f.updateErr
+}

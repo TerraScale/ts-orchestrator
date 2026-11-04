@@ -32,6 +32,12 @@ type providerState struct {
 	loseResponse bool
 }
 
+func (f *providerState) GetBucket(context.Context, string, string) (Bucket, error) {
+	return f.bucket, nil
+}
+func (f *providerState) ListRetentionRules(context.Context, string, string) ([]Rule, error) {
+	return slices.Clone(f.rules), nil
+}
 func (f *providerState) UpdateBucket(_ context.Context, _, _, etag, versioning string, tags ociresource.Tags) error {
 	if etag != f.bucket.ETag {
 		return errors.New("etag mismatch")

@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/regionlink"
 	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 )
 
 type staticCluster struct{ snapshot observability.ClusterSnapshot }

@@ -30,6 +30,15 @@ type providerState struct {
 	onRead       func()
 }
 
+func (f *providerState) GetGroup(context.Context, string) (Group, error) {
+	if f.gone {
+		return Group{}, fmt.Errorf("get OCI NSG: %w", ociresource.ErrGone)
+	}
+	return f.group, nil
+}
+func (f *providerState) ListRules(context.Context, string) ([]ObservedRule, error) {
+	return slices.Clone(f.rules), nil
+}
 func (f *providerState) AddRules(_ context.Context, _ string, rules []Rule) error {
 	f.calls = append(f.calls, fmt.Sprintf("add %d", len(rules)))
 	f.group.ETag += "+" // a rule change advances the NSG's ETag, as OCI does

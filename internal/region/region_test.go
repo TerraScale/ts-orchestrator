@@ -21,6 +21,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 )
 
@@ -154,6 +155,24 @@ type fakeSubscriptions struct {
 	waits   int
 }
 
+func (f *fakeSubscriptions) ListRegionSubscriptions(context.Context, identity.ListRegionSubscriptionsRequest) (identity.ListRegionSubscriptionsResponse, error) {
+	if f.status == identity.RegionSubscriptionStatusInProgress && len(f.after) > 0 {
+		f.status, f.after = f.after[0], f.after[1:]
+	}
+	var items []identity.RegionSubscription
+	if f.status != "" {
+		items = append(items, identity.RegionSubscription{RegionKey: common.String("FRA"), RegionName: common.String("eu-frankfurt-1"), Status: f.status})
+	}
+	return identity.ListRegionSubscriptionsResponse{Items: items}, nil
+}
+
+func (f *fakeSubscriptions) CreateRegionSubscription(_ context.Context, request identity.CreateRegionSubscriptionRequest) (identity.CreateRegionSubscriptionResponse, error) {
+	f.creates = append(f.creates, request)
+	f.status = identity.RegionSubscriptionStatusInProgress
+	return identity.CreateRegionSubscriptionResponse{OpcRequestId: common.String("req-1"),
+		RegionSubscription: identity.RegionSubscription{RegionKey: request.RegionKey, Status: f.status}}, nil
+}
+
 func (f *fakeSubscriptions) pause(context.Context, time.Duration) error {
 	f.waits++
 	return nil
@@ -285,6 +304,10 @@ type fakeLB struct {
 func (f fakeLB) ListBackends(_ context.Context, _, set string) ([]lb.Backend, error) {
 	return f.backends[set], nil
 }
+func (f fakeLB) UnhealthyBackends(_ context.Context, _, set string) (map[string]bool, error) {
+	return f.unhealthy[set], nil
+}
+func (fakeLB) GetLoadBalancer(context.Context, string) (lb.LoadBalancer, error) { panic("read only") }
 func (fakeLB) CreateBackend(context.Context, string, string, lb.Backend) (string, error) {
 	panic("read only")
 }

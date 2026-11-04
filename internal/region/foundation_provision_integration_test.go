@@ -354,6 +354,13 @@ func (p *provisionProvider) KeyIDContext(ctx context.Context) (string, error) {
 	return p.ConfigurationProvider.KeyID()
 }
 
+func (p *provisionProvider) PrivateRSAKeyContext(ctx context.Context) (*rsa.PrivateKey, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return p.key, nil
+}
+
 func (p *provisionProvider) TenancyOCID() (string, error) {
 	p.reads.Add(1)
 	return p.ConfigurationProvider.TenancyOCID()
@@ -447,6 +454,15 @@ func (c *provisionCloud) seedPrerequisites(input FoundationPreparationInput) {
 		c.rows[id] = map[string]any{"id": id, "name": name, "namespace": "ns", "compartmentId": input.SourceVaultTarget.CompartmentOCID, "kmsKeyId": key, "versioning": versioning, "publicAccessType": "NoPublicAccess", "storageTier": "Standard"}
 		c.collections[id] = "buckets"
 	}
+}
+
+func (fixture foundationProvisionFixture) provisionMaterial(t *testing.T, bundle RetainedFoundation) {
+	t.Helper()
+	stage, err := provisionFoundationMaterial(t.Context(), fixture.factoryFor(), fixture.roots, bundle)
+	if err != nil {
+		t.Fatalf("material-only preparation failed: %v", err)
+	}
+	stage.cancel()
 }
 
 func (fixture foundationProvisionFixture) assertMaterial(t *testing.T) {

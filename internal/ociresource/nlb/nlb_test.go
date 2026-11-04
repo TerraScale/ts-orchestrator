@@ -19,6 +19,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
 	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 )
@@ -42,6 +43,12 @@ type providerState struct {
 	setGone          bool
 }
 
+func (f *providerState) GetLoadBalancer(context.Context, string) (LoadBalancer, error) {
+	if f.gone {
+		return LoadBalancer{}, fmt.Errorf("get OCI NLB: %w", ociresource.ErrGone)
+	}
+	return f.balancer, nil
+}
 func (f *providerState) ListBackends(context.Context, string, string) ([]Backend, error) {
 	if f.setGone {
 		return nil, fmt.Errorf("list OCI NLB backends: %w", ociresource.ErrGone)

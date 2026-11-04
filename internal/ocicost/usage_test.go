@@ -3,6 +3,7 @@ package ocicost
 import (
 	"context"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -19,6 +20,36 @@ type fakeUsageAPI struct {
 	endless                           bool
 	err                               error
 	requests                          []usageapi.RequestSummarizedUsagesRequest
+}
+
+func (f *fakeUsageAPI) RequestSummarizedUsages(_ context.Context, request usageapi.RequestSummarizedUsagesRequest,
+) (usageapi.RequestSummarizedUsagesResponse, error) {
+	f.requests = append(f.requests, request)
+	if f.err != nil {
+		return usageapi.RequestSummarizedUsagesResponse{}, f.err
+	}
+	pages := f.components
+	switch {
+	// The SKU query is daily too, so it is matched before the daily pages.
+	case slices.Equal(request.GroupBy, []string{"skuPartNumber"}):
+		pages = f.skus
+	case request.Granularity == usageapi.RequestSummarizedUsagesDetailsGranularityDaily:
+		pages = f.daily
+	case len(request.GroupBy) == 1:
+		pages = f.services
+	}
+	index := 0
+	if request.Page != nil {
+		index, _ = strconv.Atoi(*request.Page)
+	}
+	var response usageapi.RequestSummarizedUsagesResponse
+	if index < len(pages) {
+		response.Items = pages[index]
+	}
+	if f.endless || index+1 < len(pages) {
+		response.OpcNextPage = common.String(strconv.Itoa(index + 1))
+	}
+	return response, nil
 }
 
 func usageRead(api UsageAPI, now time.Time) (Report, error) {

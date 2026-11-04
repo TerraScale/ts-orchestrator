@@ -388,6 +388,14 @@ func TestSFOEdgeComesUpAndRotatesItsOrigin(t *testing.T) {
 	}
 }
 
+func (p Provisioner) ensureRules(ctx context.Context, nsg string, rules []Rule) error {
+	steps, err := p.syncRules(ctx, nsg, "test", rules, false)
+	if err != nil {
+		return err
+	}
+	return run(ctx, steps, true, io.Discard)
+}
+
 func TestCertIssuesIntoVaultThenInstallsOnTheLoadBalancer(t *testing.T) {
 	d := testDesired(t, testPlan)
 	f := newFakeOCI(t)

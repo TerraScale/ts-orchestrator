@@ -13,6 +13,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"

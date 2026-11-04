@@ -1,6 +1,9 @@
 package oci
 
 import (
+	"context"
+	"fmt"
+	"maps"
 	"testing"
 )
 
@@ -11,6 +14,48 @@ type resizeProvider struct {
 	updateApplies      bool
 	volumeAttachLists  int
 	compartmentListing int
+}
+
+func (p *resizeProvider) UpdateVolumeSize(_ context.Context, id, etag string, sizeGB int64, tags map[string]string) (CloudVolume, error) {
+	p.updates++
+	volume, ok := p.volumes[id]
+	if !ok {
+		return CloudVolume{}, fakeNotFound{}
+	}
+	if volume.ETag != etag {
+		return CloudVolume{}, ErrStaleETag
+	}
+	if p.updateErr != nil && !p.updateApplies {
+		return CloudVolume{}, p.updateErr
+	}
+	volume.SizeGB = sizeGB
+	volume.FreeformTags = maps.Clone(tags)
+	volume.ETag = fmt.Sprintf("%s-resized-%d", etag, sizeGB)
+	p.volumes[id] = volume
+	return volume, p.updateErr
+}
+
+func (p *resizeProvider) ListVolumeAttachments(ctx context.Context, compartmentID, instanceID string) ([]CloudAttachment, error) {
+	if instanceID == "" {
+		p.compartmentListing++
+	}
+	return p.fakeProvider.ListVolumeAttachments(ctx, compartmentID, instanceID)
+}
+
+func (p *resizeProvider) ListVolumeAttachmentsByVolume(_ context.Context, compartmentID, availabilityDomain, volumeID string) ([]CloudAttachment, error) {
+	if compartmentID != p.config.CompartmentID || availabilityDomain != p.config.AvailabilityDomain {
+		return nil, ErrForeignResource
+	}
+	p.volumeAttachLists++
+	var found []CloudAttachment
+	for _, attachment := range p.attachments {
+		if attachment.VolumeID == volumeID {
+			found = append(found, attachment)
+		}
+	}
+	// A foreign record proves the fleet still filters client-side.
+	found = append(found, CloudAttachment{ID: "foreign", VolumeID: "ocid1.volume.other"})
+	return found, nil
 }
 
 func resizeFixture(t *testing.T) (*fleet, *resizeProvider, *fakeJournal, *fakeFencer, RetainedVolume) {
