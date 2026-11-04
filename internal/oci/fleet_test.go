@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -427,6 +428,10 @@ func newTestFleet(
 
 // Keep the SDK GetInstance adapter in this regression path. A boot mismatch
 // must be withheld as one foreign host without hiding an unrelated OCI error.
+type observeSDKSigner struct{}
+
+func (observeSDKSigner) Sign(*http.Request) error { return nil }
+
 func newAttachTestState(t *testing.T) (RegionConfig, *fakeProvider, *fakeJournal, Fleet, Instance, RetainedVolume) {
 	t.Helper()
 	ctx := t.Context()
