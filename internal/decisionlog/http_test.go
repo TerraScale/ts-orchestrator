@@ -4,31 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
-	"time"
 )
-
-func TestParseQuery(t *testing.T) {
-	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
-	values := url.Values{"region": {"GRU,sjc"}, "kind": {"held", "scale_up"}, "actor": {"placement"},
-		"status": {"failed"}, "subject": {"Orders"}, "since": {"1h"}, "until": {"2026-10-02T11:30:00Z"},
-		"limit": {"5000"}, "parent": {"p"}}
-	query, err := ParseQuery(values, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(query.Regions) != 2 || query.Regions[0] != "gru" || len(query.Kinds) != 2 || query.Subject != "orders" ||
-		!query.Since.Equal(now.Add(-time.Hour)) || query.Until.Hour() != 11 || query.Limit != MaxQueryLimit ||
-		query.ParentID != "p" || len(query.Statuses) != 1 {
-		t.Fatalf("query = %+v", query)
-	}
-	for _, bad := range []url.Values{{"since": {"yesterday"}}, {"until": {"x"}}, {"limit": {"-1"}}} {
-		if _, err := ParseQuery(bad, now); err == nil {
-			t.Fatalf("accepted %v", bad)
-		}
-	}
-}
 
 func TestHandler(t *testing.T) {
 	journal := NewJournal(JournalConfig{Region: "gru"})

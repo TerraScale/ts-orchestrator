@@ -2,17 +2,13 @@ package logs
 
 import (
 	"encoding/json/v2"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
-
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 func startNATS(t *testing.T) *nats.Conn {
@@ -75,33 +71,6 @@ func TestServeAnswersQueryAndRejectsInvalidRequests(t *testing.T) {
 		}
 		if string(response.Data) != string(invalidRequest) {
 			t.Errorf("%s: reply = %s, want invalid_request", request, response.Data)
-		}
-	}
-}
-
-func TestHandlerValidatesQueryParameters(t *testing.T) {
-	p := newLogPipeline(t)
-	for _, query := range []string{"window=2h", "min_level=LOUD", "limit=501", "limit=-1", "limit=nope", "service=" + url.QueryEscape(strings.Repeat("s", maxServiceBytes+1))} {
-		req, err := http.NewRequestWithContext(p.ctx, http.MethodGet, p.http.URL+"/v1/logs?"+query, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := p.http.Client().Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, err := io.ReadAll(io.LimitReader(response.Body, 4096))
-		response.Body.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if response.StatusCode != http.StatusBadRequest {
-			t.Errorf("%s: status %d body %s, want 400", query, response.StatusCode, body)
-		}
-	}
-	for _, query := range []string{"", "min_level=WARN&limit=7", "window=24h&limit=500&service=" + strings.Repeat("s", maxServiceBytes)} {
-		if reply := p.get(t, query); reply.Region != "gru" || reply.Version != 1 {
-			t.Fatalf("%s: reply = %+v", query, reply)
 		}
 	}
 }

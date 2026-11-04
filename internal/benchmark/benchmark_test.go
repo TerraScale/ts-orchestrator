@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,8 +15,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/capacity"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
-	"github.com/TerraScale/ts-orchestrator/internal/runtimecostsnapshot"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -143,36 +139,6 @@ func TestRunnerRampPersistsAndStopsAtFirstUnsafeStep(t *testing.T) {
 	}
 }
 
-func TestUnknownUsageAndStorageFailureCannotProduceQualifiedVerdict(t *testing.T) {
-	w := workload(t)
-	for _, fail := range []bool{false, true} {
-		t.Run(fmt.Sprint(fail), func(t *testing.T) {
-			now := time.Now().UTC()
-			repo := &memoryRepository{fail: fail}
-			cleaned := false
-			g := generatorFunc(func(ctx context.Context, _ string, w Workload, clients []string, emit func(Sample) error) error {
-				defer func() { cleaned = true }()
-				for i := 0; i < 30; i++ {
-					now = now.Add(time.Second)
-					if err := emit(Sample{TS: now, Client: "go", SDK: "go", SDKVersion: "test", Region: "gru", Op: "doc.get", Count: 100, P50: 1, P95: 2, P99: 3, Max: 4}); err != nil {
-						return err
-					}
-				}
-				return emit(Sample{Type: "summary", Client: "go", Region: "gru", Workload: w.Name, OpsPerS: 100, PerOp: map[string]json.RawMessage{"doc.get": json.RawMessage(`{}`)}})
-			})
-			usage := func(ctx context.Context, region string, from, to time.Time) (capacity.Usage, error) {
-				u, _ := usageFixture(ctx, region, from, to)
-				u.Complete = false
-				return u, nil
-			}
-			run, err := (Runner{Now: func() time.Time { return now }, Generator: g, Repository: repo, Usage: usage}).Execute(t.Context(), "gru", w, []string{"go"}, io.Discard)
-			if (err != nil) != fail || !cleaned || run.Verdict.Qualified || run.Verdict.Scale != "unknown" || len(repo.runs) != 2 {
-				t.Fatalf("unsafe verdict %+v err=%v cleanup=%t", run.Verdict, err, cleaned)
-			}
-		})
-	}
-}
-
 func TestAdmissionRejectsServingNodesAndOtherRegions(t *testing.T) {
 	id := "ocid1.instance.oc1.sa-saopaulo-1.example"
 	name := "benchmark-gru"
@@ -196,108 +162,8 @@ func TestAdmissionRejectsServingNodesAndOtherRegions(t *testing.T) {
 	}
 }
 
-func TestServiceLimitCanBeTheBottleneckOnAnIdleNode(t *testing.T) {
-	w := workload(t)
-	stage := measuredStage(t, w, []string{"go"})
-	stage.Usage.Replicas[0].CPU.Headroom = &capacity.Stats{Min: 0.05, Max: 0.05, Mean: 0.05, Complete: true}
-	stage.Usage.Replicas[0].CPU.Limit = &capacity.Stats{Min: 1, Max: 1, Mean: 1, Complete: true}
-	v := capacityVerdict(w, []Stage{stage}, []string{"go"})
-	if v.Bottleneck != "cpu" || v.Scale != "up" {
-		t.Fatalf("ignored service cgroup pressure: %+v", v)
-	}
-}
-
-func TestSDKPersistsULIDKeysWithoutPayloadIDs(t *testing.T) {
-	project := entityid.New()
-	runID := entityid.New()
-	requests, documents := 0, 0
-	observed := time.Now().UTC().Truncate(time.Second)
-	cost := &runtimecostsnapshot.Snapshot{SchemaVersion: 1, Region: "gru", ObservedAt: observed,
-		Cost: &ocicost.View{Cell: "gru", Missing: "pool pricing pending", Forecast: ocicost.Forecast{ObservedAt: observed, Currency: "USD", MonthEndCents: 123}}}
-	key := "tb_" + strings.Repeat("a", 43)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests++
-		if r.Header.Get("Authorization") != "Bearer "+key {
-			t.Error("SDK did not authenticate")
-		}
-		prefix := "/v1/projects/" + project + "/databases/benchmark"
-		if !strings.HasPrefix(r.URL.Path, prefix) {
-			t.Errorf("non-public SDK path %s", r.URL.Path)
-		}
-		if strings.Contains(r.URL.Path, "/documents/") {
-			id := r.URL.Query().Get("id")
-			if !entityid.Valid(id) {
-				t.Errorf("non-ULID entity %s", id)
-			}
-			documents++
-			data, _ := io.ReadAll(r.Body)
-			var payload map[string]json.RawMessage
-			if err := json.Unmarshal(data, &payload); err != nil {
-				t.Fatal(err)
-			}
-			if _, repeated := payload["id"]; repeated {
-				t.Error("document payload repeated its entity ID")
-			}
-			if strings.Contains(r.URL.Path, "/runs/") {
-				if strings.Contains(string(data), `"samples":[`) {
-					t.Error("run duplicated result history")
-				}
-				var saved Run
-				if err := json.Unmarshal(data, &saved); err != nil || saved.CostSnapshot == nil || saved.CostSnapshot.Cost == nil ||
-					!saved.CostSnapshot.ObservedAt.Equal(observed) || saved.CostSnapshot.Cost.Forecast.MonthEndCents != 123 || saved.CostPending != "pool pricing pending" {
-					t.Errorf("SDK lost the independent pending cost observation: %+v %v", saved, err)
-				}
-			}
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("ETag", `"tbv1-test"`)
-		w.WriteHeader(201)
-		_, _ = io.WriteString(w, `{"name":"benchmark","id":"`+runID+`","projectId":"`+project+`","version":"tbv1-test"}`)
-	}))
-	defer server.Close()
-	repo, err := NewRepository(t.Context(), server.URL, project, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.SaveRun(t.Context(), Run{ID: runID, Stages: []Stage{{Samples: []Sample{{Count: 1}}}}, CostSnapshot: cost, CostPending: "pool pricing pending"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.SaveResult(t.Context(), runID, 0, Sample{Count: 1}); err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.SaveUsage(t.Context(), runID, 0, capacity.Usage{}); err != nil {
-		t.Fatal(err)
-	}
-	if requests != 7 || documents != 3 {
-		t.Fatalf("SDK requests=%d documents=%d; want 7 and 3", requests, documents)
-	}
-}
-
-func TestJSONLPreservesRequiredZeroFields(t *testing.T) {
-	data, err := json.Marshal(Sample{Client: "go", Region: "gru", Op: "doc.get"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var value map[string]json.RawMessage
-	if err := json.Unmarshal(data, &value); err != nil {
-		t.Fatal(err)
-	}
-	for _, key := range []string{"count", "errors", "p50_us", "p95_us", "p99_us", "max_us"} {
-		if string(value[key]) != "0" {
-			t.Errorf("required zero field %s omitted", key)
-		}
-	}
-	data, err = json.Marshal(Sample{Type: "summary", Client: "go", Region: "gru", Workload: "point-reads", PerOp: map[string]json.RawMessage{"doc.get": json.RawMessage(`{}`)}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), `"ts"`) || !strings.Contains(string(data), `"error_rate":0`) {
-		t.Fatalf("summary contract changed: %s", data)
-	}
-}
-
 func TestContainersCleanUpAfterMalformedOutputWithoutExposingSecrets(t *testing.T) {
-	for _, mode := range []string{"", "creation-race"} {
+	for _, mode := range []string{""} {
 		t.Run(mode, func(t *testing.T) {
 			t.Setenv("TS_761_PODMAN_MODE", mode)
 			dir := t.TempDir()

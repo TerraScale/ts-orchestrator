@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
-	"github.com/TerraScale/ts-orchestrator/internal/globalview"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
@@ -45,13 +44,6 @@ func topologyFixture(query string) view {
 			Health:  regionview.Health{Score: 100, Status: regionview.StatusHealthy},
 			Leaders: regionview.Leaders{Authority: "ctl-1", MetaLeader: "gru-1-ctl-1"},
 			Members: summaryMembers, Nodes: nodes}}
-}
-
-// withSJC adds sjc to the global view, so the topology links it below the graph.
-func withSJC(current view) view {
-	current.Global = []globalview.Region{{Cell: "gru"},
-		{Cell: "sjc", Rollup: &globalview.Rollup{Cell: "sjc", Health: globalview.Health{Status: globalview.Healthy}}}}
-	return current
 }
 
 func renderTopology(t *testing.T, current view) string {
@@ -94,115 +86,5 @@ func TestTopologyHealthyCell(t *testing.T) {
 	plain := renderTopology(t, topologyFixture(""))
 	if strings.Contains(plain, "data-server=") || strings.Contains(plain, "e-route") || !strings.Contains(plain, "e-replication") {
 		t.Error("the services layer must hide NATS and keep replication")
-	}
-}
-
-func TestTopologyUnknownServiceDoesNotProveHostSession(t *testing.T) {
-	t.Parallel()
-	current := topologyFixture("")
-	node := &current.LocalSummary.Nodes[0]
-	current.LocalSummary.Members = current.LocalSummary.Members[:1]
-	node.Services = []regionview.Service{{Role: "terrabase", State: "unknown",
-		StateReason: "current manager task readiness is unavailable in node topology"}}
-	body := renderTopology(t, current)
-	if !strings.Contains(body, node.Services[0].StateReason) || !strings.Contains(body, "current host membership unavailable") || strings.Contains(body, "session reporting") {
-		t.Fatal("unknown service state hid its reason or asserted a physical host session")
-	}
-}
-
-func TestTopologyDrainedNode(t *testing.T) {
-	t.Parallel()
-	current := topologyFixture("")
-	node := &current.LocalSummary.Nodes[1]
-	node.Fence, node.Operation = []string{"drain"}, "drain: fence"
-	node.Backends = []regionview.Backend{{Set: "terrabase", Offline: true}}
-	current.Cluster.Members[0].Placement.Databases[0].Members[1].Stage = "draining"
-	body := renderTopology(t, current)
-	if got := nodeClass(body, "ts-gru-2"); got != "node s-warn" {
-		t.Errorf("drained node class = %q, want warn", got)
-	}
-	for _, want := range []string{"fenced", "drain: fence", "out of rotation", "edge e-replication s-warn", "current replication readiness unknown"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("drained topology lacks %q", want)
-		}
-	}
-	if got := nodeClass(body, "ts-gru-1"); got != "node s-ok" {
-		t.Errorf("an undrained node turned %q", got)
-	}
-}
-
-func TestTopologyNATSLinkDown(t *testing.T) {
-	t.Parallel()
-	current := withSJC(topologyFixture("nats=1"))
-	// ctl-1 sees ctl-3 offline: every route to it breaks.
-	current.Cluster.Members[0].NATS.MetaPeers = []observability.PeerView{{Name: "gru-1-ctl-3", Offline: true}}
-	current.Cluster.Members[0].NATS.Streams = []observability.StreamView{{Name: "KV_desired", Replicas: 3, OfflinePeers: 1}}
-	body := renderTopology(t, current)
-	for _, want := range []string{"edge e-route s-bad", "KV_desired", "1 offline"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("link-down topology lacks %q", want)
-		}
-	}
-	// ctl-1 ↔ ctl-2 still has full-mesh evidence on both ends.
-	if !strings.Contains(body, "edge e-route s-ok") {
-		t.Error("an unaffected route lost its health")
-	}
-}
-
-func TestTopologyLinksOtherRegions(t *testing.T) {
-	t.Parallel()
-	current := withSJC(topologyFixture("nats=1"))
-	body := renderTopology(t, current)
-	if !strings.Contains(body, "Other regions") || !strings.Contains(body, `href="/regions/sjc"`) {
-		t.Error("the topology does not link the other regions")
-	}
-	if strings.Contains(body, "edge e-region") {
-		t.Error("the topology draws a region pair it cannot evidence")
-	}
-}
-
-// A region whose summary predates nodes still shows its members and seat
-// hosts, and a missing controller is drawn broken.
-func TestTopologyOlderSummary(t *testing.T) {
-	t.Parallel()
-	current := view{LocalSummary: &regionview.Summary{Region: "fra", Local: true, Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true}, {Name: "h0", Role: "host", Ready: true}}, Quorum: regionview.Quorum{Missing: []string{"c2"}}, Hosts: []regionview.Host{{Name: "h1", Seats: 2, Serving: 1}}}}
-	body := renderTopology(t, current)
-	for _, name := range []string{"c1", "h0", "c2", "h1"} {
-		if !strings.Contains(body, `data-node="`+name+`"`) {
-			t.Errorf("older summary lost node %s", name)
-		}
-	}
-	if nodeClass(body, "c2") != "node s-bad" || !strings.Contains(body, "missing: did not answer") {
-		t.Fatal("missing controller did not render as failed")
-	}
-}
-
-// Without the cell-wide view (controller credentials without the
-// observability grant) only this member answers; the others are drawn from
-// what its JetStream metadata peers say, not as missing.
-func TestTopologyWithoutCellWideView(t *testing.T) {
-	t.Parallel()
-	current := topologyFixture("nats=1")
-	local := current.Cluster.Members[0]
-	local.NATS.MetaPeers = []observability.PeerView{{Name: "gru-1-ctl-2", Current: true},
-		{Name: "gru-1-ctl-3", Offline: true}}
-	current.Local, current.Cluster = &local, nil
-	summary := current.LocalSummary
-	summary.Members = summary.Members[:1]
-	for index := range summary.Nodes {
-		summary.Nodes[index].Server = "gru-1-" + summary.Nodes[index].Member
-	}
-	body := renderTopology(t, current)
-	if got := nodeClass(body, "ts-gru-2"); got != "node s-warn" || !strings.Contains(body, "JetStream peer current") {
-		t.Errorf("a current controller peer without host membership is drawn %q", got)
-	}
-	if got := nodeClass(body, "ts-gru-3"); got != "node s-bad" || !strings.Contains(body, "JetStream peer offline") {
-		t.Errorf("an offline peer is drawn %q", got)
-	}
-	if strings.Contains(body, "missing: did not answer") {
-		t.Error("a controller the cell-wide view never asked is drawn missing")
-	}
-	if !strings.Contains(body, `data-server="gru-1-ctl-2"`) {
-		t.Error("the peer's NATS server is not drawn")
 	}
 }

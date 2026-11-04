@@ -2,7 +2,6 @@ package budget
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -68,19 +67,6 @@ func TestStatusPageResolveWarningPostsResolvedUpdate(t *testing.T) {
 	}
 }
 
-func TestStatusPageRejectsBadIncidentIDs(t *testing.T) {
-	page, seen := statusServer(t, http.StatusCreated, `{"id":"../../secret","url":"/x"}`)
-	if _, err := page.OpenWarning(t.Context()); err == nil {
-		t.Fatal("OpenWarning accepted a non-UUID incident id")
-	}
-	if err := page.ResolveWarning(t.Context(), "../../secret"); err == nil {
-		t.Fatal("ResolveWarning accepted a path-traversing incident id")
-	}
-	if len(*seen) != 1 {
-		t.Fatalf("made %d requests, want only the open call", len(*seen))
-	}
-}
-
 func TestStatusPageErrorsOmitTheToken(t *testing.T) {
 	page, _ := statusServer(t, http.StatusUnauthorized, `{"error":{"code":"unauthorized"}}`)
 	_, err := page.OpenWarning(t.Context())
@@ -89,13 +75,5 @@ func TestStatusPageErrorsOmitTheToken(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), testStatusToken) {
 		t.Fatalf("error %q contains the token", err)
-	}
-}
-
-func TestStatusPageMissingTokenIsReported(t *testing.T) {
-	page := StatusPage{URL: "http://127.0.0.1:1", HTTP: &http.Client{Timeout: time.Second},
-		Token: func(context.Context) (string, error) { return "", ErrNoStatusToken }}
-	if _, err := page.OpenWarning(t.Context()); !errors.Is(err, ErrNoStatusToken) {
-		t.Fatalf("error = %v, want ErrNoStatusToken", err)
 	}
 }

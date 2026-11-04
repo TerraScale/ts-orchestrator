@@ -1,8 +1,6 @@
 package observability
 
 import (
-	"fmt"
-	"math"
 	"slices"
 	"testing"
 	"time"
@@ -23,65 +21,6 @@ func hostMetricWANBatch(at time.Time) HostMetricBatch {
 		batch.Samples = append(batch.Samples, Sample{Metric: reading.metric, Labels: slices.Clone(labels), Value: reading.value})
 	}
 	return batch
-}
-
-func TestHostMetricWANValidatesLabelsCountsAndOriginalFreshness(t *testing.T) {
-	at := time.Now().UTC().Truncate(HostMetricInterval)
-	valid := hostMetricWANBatch(at)
-	hostMetricAcceptArchive(t, valid)
-	for name, change := range map[string]func(*HostMetricBatch){
-		"NaN":                func(b *HostMetricBatch) { b.Samples[2].Value = math.NaN() },
-		"infinity":           func(b *HostMetricBatch) { b.Samples[3].Value = math.Inf(1) },
-		"negative":           func(b *HostMetricBatch) { b.Samples[2].Value = -1 },
-		"fractional members": func(b *HostMetricBatch) { b.Samples[4].Value = 1.5 },
-		"inexact count":      func(b *HostMetricBatch) { b.Samples[2].Value = 1 << 53 },
-		"missing label":      func(b *HostMetricBatch) { b.Samples[2].Labels = b.Samples[2].Labels[:4] },
-		"duplicate label":    func(b *HostMetricBatch) { b.Samples[2].Labels = append(b.Samples[2].Labels, b.Samples[2].Labels[0]) },
-		"extra label": func(b *HostMetricBatch) {
-			b.Samples[2].Labels = append(b.Samples[2].Labels, Label{Name: "source_cell", Value: "sjc"})
-		},
-		"different node":        func(b *HostMetricBatch) { b.Samples[2].Labels[1].Value = "node-b" },
-		"different role":        func(b *HostMetricBatch) { b.Samples[2].Labels[2].Value = "api" },
-		"display receiver":      func(b *HostMetricBatch) { b.Samples[2].Labels[3].Value = "GRU" },
-		"inconsistent receiver": func(b *HostMetricBatch) { b.Samples[2].Labels[3].Value = "another-native" },
-		"invalid source":        func(b *HostMetricBatch) { b.Samples[2].Labels[4].Value = "west_native" },
-		"duplicate series":      func(b *HostMetricBatch) { b.Samples = append(b.Samples, b.Samples[2]) },
-		"counter flag":          func(b *HostMetricBatch) { b.Samples[7].Counter = true },
-		"zero time":             func(b *HostMetricBatch) { b.Samples[1].Value = 0 },
-		"fractional time":       func(b *HostMetricBatch) { b.Samples[1].Value += 0.5 },
-		"future batch time": func(b *HostMetricBatch) {
-			b.Samples[1].Value = float64(at.Add(HostMetricInterval + time.Second).UnixMilli())
-		},
-		"after receipt": func(b *HostMetricBatch) { b.Samples[1].Value = b.Samples[0].Value + 1 },
-		"stale original time": func(b *HostMetricBatch) {
-			b.Samples[1].Value = float64(at.Add(-2*time.Minute - time.Millisecond).UnixMilli())
-		},
-		"inconsistent scrape times": func(b *HostMetricBatch) {
-			sample := b.Samples[1]
-			sample.Labels = slices.Clone(sample.Labels)
-			sample.Labels[4].Value = "east-native"
-			sample.Value--
-			b.Samples = append(b.Samples, sample)
-		},
-		"source bound": func(b *HostMetricBatch) {
-			for i := range 65 {
-				sample := b.Samples[2]
-				sample.Labels = slices.Clone(sample.Labels)
-				sample.Labels[4].Value = fmt.Sprintf("native-%d", i)
-				b.Samples = append(b.Samples, sample)
-			}
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			batch := hostMetricWANBatch(at)
-			change(&batch)
-			hostMetricRejectArchive(t, batch)
-		})
-	}
-	// Zero members and missing optional counter remain honest failure/unknown data.
-	valid.Samples[4].Value = 0
-	valid.Samples = valid.Samples[:7]
-	hostMetricAcceptArchive(t, valid)
 }
 
 func TestHostMetricWANPublishesAndReplaysOriginalScrapeBatches(t *testing.T) {

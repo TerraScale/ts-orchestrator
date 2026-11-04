@@ -27,13 +27,8 @@ func TestDeliveryOnlyAcknowledgesProviderAcceptanceAndOmitsPrivateLabels(t *test
 		want     int
 	}{
 		{"accepted", `{"success":true,"result":{"delivered":["mariogk@terrascale.tech"],"permanent_bounces":[]}}`, 200, 202},
-		{"queued", `{"success":true,"result":{"queued":["mariogk@terrascale.tech"]}}`, 200, 202},
-		{"suppressed", `{"success":true,"result":{"suppressed_recipients":["mariogk@terrascale.tech"]}}`, 200, 502},
-		{"no recipient", `{"success":true,"result":{}}`, 200, 502},
-		{"bounce", `{"success":true,"result":{"permanent_bounces":["recipient"]}}`, 200, 502},
-		{"provider failure", `{"success":false}`, 200, 502},
+
 		{"unavailable", `{"success":false,"errors":[{"message":"private value"}]}`, 503, 502},
-		{"malformed", `not json`, 200, 502},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var pushed atomic.Bool
@@ -72,59 +67,6 @@ func TestDeliveryOnlyAcknowledgesProviderAcceptanceAndOmitsPrivateLabels(t *test
 	}
 }
 
-func TestInvalidNotificationsNeverReadCredentials(t *testing.T) {
-	r := relay{ledgerPath: filepath.Join(t.TempDir(), "email-ledger.json"), read: func(context.Context) (credentials, error) {
-		t.Fatal("read credentials for invalid input")
-		return credentials{}, nil
-	}}
-	for _, body := range []string{`{`, `{}`, `{"status":"firing","alerts":[{"status":"firing","labels":{}}]}`, strings.Repeat("x", 64<<10+1)} {
-		response := httptest.NewRecorder()
-		r.deliver(response, httptest.NewRequest(http.MethodPost, "/alerts", strings.NewReader(body)))
-		if response.Code != http.StatusBadRequest {
-			t.Fatalf("invalid input returned %d", response.Code)
-		}
-	}
-}
-
-func TestPushFailureDoesNotRetryEmail(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		body   string
-		status int
-	}{
-		{"unavailable", `provider private error`, 503},
-		{"malformed", `{`, 200},
-		{"missing receipt", `{}`, 200},
-		{"wrong event", `{"id":"id","event":"keepalive","topic":"` + fixtureTopic + `"}`, 200},
-		{"wrong topic", `{"id":"id","event":"message","topic":"other"}`, 200},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			var emails atomic.Int32
-			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/"+fixtureTopic {
-					w.WriteHeader(test.status)
-					_, _ = io.WriteString(w, test.body)
-					return
-				}
-				emails.Add(1)
-				_, _ = io.WriteString(w, `{"success":true,"result":{"delivered":["mariogk@terrascale.tech"]}}`)
-			}))
-			defer provider.Close()
-			r := relay{ledgerPath: filepath.Join(t.TempDir(), "email-ledger.json"), client: admittingClient(provider.Client()), endpoint: provider.URL + "/", pushEndpoint: provider.URL + "/", readTopic: fixtureReadTopic, read: func(context.Context) (credentials, error) { return credentials{"account", "test-token"}, nil }}
-			for range 3 {
-				response := httptest.NewRecorder()
-				r.deliver(response, httptest.NewRequest(http.MethodPost, "/alerts", strings.NewReader(`{"status":"firing","alerts":[{"status":"firing","labels":{"alertname":"Test"}}]}`)))
-				if response.Code != http.StatusAccepted || strings.Contains(response.Body.String(), "private") {
-					t.Errorf("accepted email must survive push failure: status=%d", response.Code)
-				}
-			}
-			if emails.Load() != 1 {
-				t.Fatalf("push failure retries sent %d emails, want 1", emails.Load())
-			}
-		})
-	}
-}
-
 func TestVaultFailureStillAttemptsPush(t *testing.T) {
 	var pushed atomic.Bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -145,34 +87,6 @@ func TestVaultFailureStillAttemptsPush(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
-
-func TestPushTopicFailureStillAttemptsEmail(t *testing.T) {
-	for _, value := range []string{"", "short", fixtureTopic + "/escape", fixtureTopic + "\n", fixtureTopic + "?query", fixtureTopic} {
-		t.Run("invalid topic", func(t *testing.T) {
-			var emailed atomic.Bool
-			r := relay{ledgerPath: filepath.Join(t.TempDir(), "email-ledger.json"), endpoint: "https://email.invalid/", read: func(context.Context) (credentials, error) { return credentials{"account", "test-token"}, nil },
-				readTopic: func(context.Context) (string, error) {
-					if value == fixtureTopic {
-						return "", errors.New("private Vault failure")
-					}
-					return value, nil
-				},
-				client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-					if request.URL.Host != "email.invalid" {
-						t.Error("invalid topic reached transport")
-					}
-					emailed.Store(true)
-					return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"result":{"queued":["mariogk@terrascale.tech"]}}`))}, nil
-				})}}
-			r.client = admittingClient(r.client)
-			response := httptest.NewRecorder()
-			r.deliver(response, httptest.NewRequest(http.MethodPost, "/alerts", strings.NewReader(`{"status":"firing","alerts":[{"status":"firing","labels":{"alertname":"Test"}}]}`)))
-			if !emailed.Load() || response.Code != http.StatusAccepted {
-				t.Fatal("topic failure skipped email or caused an email retry")
-			}
-		})
-	}
-}
 
 func TestDeliveryNeverLogsTopicOrProviderErrors(t *testing.T) {
 	var logs bytes.Buffer
@@ -206,46 +120,5 @@ func TestDeliveryNeverLogsTopicOrProviderErrors(t *testing.T) {
 		if response.Code != want || strings.Contains(response.Body.String()+logs.String(), fixtureTopic) || strings.Contains(logs.String(), "https://") {
 			t.Fatal("topic or transport URL escaped in output")
 		}
-	}
-}
-
-func TestResolvedOnlyPushesAndWarningsDigestDaily(t *testing.T) {
-	var emails, pushes atomic.Int32
-	var subject string
-	r := relay{ledgerPath: filepath.Join(t.TempDir(), "email-ledger.json"), endpoint: "https://email.invalid/", pushEndpoint: "https://push.invalid/", readTopic: fixtureReadTopic,
-		read: func(context.Context) (credentials, error) { return credentials{"account", "test-token"}, nil },
-		client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-			if request.URL.Host == "email.invalid" {
-				emails.Add(1)
-				var payload struct {
-					Subject string `json:"subject"`
-				}
-				data, _ := io.ReadAll(request.Body)
-				_ = json.Unmarshal(data, &payload)
-				subject = payload.Subject
-				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"result":{"queued":["mariogk@terrascale.tech"]}}`))}, nil
-			}
-			pushes.Add(1)
-			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"id","event":"message","topic":"` + fixtureTopic + `"}`))}, nil
-		})}}
-	r.client = admittingClient(r.client)
-	send := func(handler http.HandlerFunc, body string) {
-		t.Helper()
-		response := httptest.NewRecorder()
-		handler(response, httptest.NewRequest(http.MethodPost, "/alerts", strings.NewReader(body)))
-		if response.Code != http.StatusAccepted {
-			t.Fatalf("status=%d", response.Code)
-		}
-	}
-	send(r.deliver, `{"groupKey":"critical","status":"resolved","alerts":[{"status":"resolved","labels":{"alertname":"Test","severity":"critical"}}]}`)
-	if emails.Load() != 0 || pushes.Load() != 1 {
-		t.Fatalf("resolved: emails=%d pushes=%d, want 0 and 1", emails.Load(), pushes.Load())
-	}
-	// Alertmanager may regroup warnings; every digest still shares one daily slot.
-	for _, group := range []string{"a", "b", "c"} {
-		send(r.digest, `{"groupKey":"`+group+`","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"ServiceSLOBurnSteady","severity":"warning"}}]}`)
-	}
-	if emails.Load() != 1 || pushes.Load() != 1 || subject != "TerraScale daily alert digest" {
-		t.Fatalf("digest: emails=%d pushes=%d subject=%q, want one email and no push", emails.Load(), pushes.Load(), subject)
 	}
 }

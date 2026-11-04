@@ -8,10 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
-
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 func publicUserKey(t *testing.T) string {

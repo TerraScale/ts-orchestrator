@@ -15,10 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 type logPipeline struct {
@@ -230,16 +229,6 @@ func journalRecords(t *testing.T, entries ...Entry) []Record {
 		}
 	}
 	return records
-}
-
-func compareRecords(a, b Record) int {
-	return strings.Compare(fmt.Sprint(a), fmt.Sprint(b))
-}
-
-func persistedWindow(t *testing.T, window Window) Window {
-	t.Helper()
-	p := newLogPipeline(t)
-	return p.publish(t, p.key, window)
 }
 
 func testClass(service, level, message string, count int) Class {

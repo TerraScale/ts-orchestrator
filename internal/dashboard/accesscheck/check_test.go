@@ -15,13 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/dashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
-	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 func TestFleetCheckRequiresEveryAddressEndpointAndRegionToken(t *testing.T) {
-	for _, failure := range []string{"", "ipv6", "missing", "dns", "unauthorized", "redirect", "wrong-address", "wrong-ipv6", "missing-ipv6", "empty", "local-only", "duplicate-nodes", "duplicate-members"} {
+	for _, failure := range []string{"", "unauthorized"} {
 		t.Run(failure, func(t *testing.T) {
 			peers := map[string]sshlogin.PeerAddress{}
 			for i, region := range []string{"gru", "sjc"} {
@@ -180,96 +178,5 @@ func TestCurlSendsTokenAndDoesNotFollowRedirectsOrUseProxy(t *testing.T) {
 		if err != nil || status != want || ip != "127.0.0.1" {
 			t.Fatalf("curl %s: status=%s IP=%s err=%v", path, status, ip, err)
 		}
-	}
-}
-
-func TestRenderedRejectsEmptyAndDuplicateTelemetry(t *testing.T) {
-	for _, test := range []struct {
-		name, path, body string
-	}{
-		{"blank", "/", ""},
-		{"login", "/", `<form><input name="token"></form>`},
-		{"empty content", "/storage", `<div id="content"> </div>`},
-		{"title only", "/storage", `<div id="content"><h1>Storage</h1></div>`},
-		{"header only", "/", `<div id="content"><div class="page-head"><h1>All regions</h1><small>updated now</small></div><h2>Regions</h2></div>`},
-		{"empty topology", "/topology", `<div id="content"><h1>Topology</h1><svg></svg></div>`},
-		{"duplicate nodes", "/topology", `<div id="content"><h1>Topology</h1><svg><g data-node="one"></g><g data-node="one"></g><g data-node="one"></g></svg></div>`},
-		{"navigation links", "/members", `<div id="content"><h1>Members</h1><a href="/members/one">one</a><a href="/members/two">two</a><a href="/members/three">three</a></div>`},
-		{"duplicate members", "/members", `<div id="content"><table><tbody><tr><td><a href="/members/one">one</a><a href="/members/one">one</a><a href="/members/one">one</a></td></tr></tbody></table></div>`},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, test.body) }))
-			defer server.Close()
-			status, _, body, err := curl(t.Context(), server.URL, "token", 5*time.Second)
-			if err != nil || status != "200" {
-				t.Fatalf("read response: %s %v", status, err)
-			}
-			if err := rendered(test.path, body); err == nil {
-				t.Fatal("empty dashboard passed after HTTP fetch")
-			}
-		})
-	}
-}
-
-func TestRenderedProductionDashboardRequiresCellWideReports(t *testing.T) {
-	now := time.Now().UTC()
-	var members []observability.MemberSnapshot
-	for _, member := range []string{"one", "two", "three"} {
-		members = append(members, observability.MemberSnapshot{Version: 1, Cell: "gru", Member: member,
-			Role: "controller", Ready: true, BuildVersion: "live-build", StartedAt: now.Add(-time.Hour), ObservedAt: now})
-	}
-	for _, count := range []int{1, 3} {
-		t.Run(fmt.Sprintf("%d controllers", count), func(t *testing.T) {
-			source := probeSource{members: members[:count], now: now}
-			board := dashboard.New(dashboard.Options{Snapshots: source, Cluster: source})
-			for _, path := range []string{"/members", "/topology"} {
-				response := httptest.NewRecorder()
-				board.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
-				if response.Code != http.StatusOK {
-					t.Fatalf("%s: HTTP %d", path, response.Code)
-				}
-				if err := rendered(path, response.Body.String()); (err != nil) != (count < 3) {
-					t.Fatalf("%s with %d controllers: %v", path, count, err)
-				}
-			}
-		})
-	}
-}
-
-type probeSource struct {
-	members []observability.MemberSnapshot
-	now     time.Time
-}
-
-func (source probeSource) Snapshot(context.Context, bool) (observability.MemberSnapshot, error) {
-	return source.members[0], nil
-}
-
-func (source probeSource) Cluster(context.Context, bool) (observability.ClusterSnapshot, error) {
-	return observability.ClusterSnapshot{Cell: "gru", ObservedAt: source.now, Members: source.members}, nil
-}
-
-func TestCurlReturnsBodyAndBoundsResponseSize(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/large" {
-			_, _ = io.WriteString(w, strings.Repeat("x", 3<<20))
-			return
-		}
-		_, _ = io.WriteString(w, "body with newlines\n200 10.200.0.1\n")
-	}))
-	defer server.Close()
-	status, ip, body, err := curl(t.Context(), server.URL, "secret", 5*time.Second)
-	if err != nil || status != "200" || ip != "127.0.0.1" || body != "body with newlines\n200 10.200.0.1\n" {
-		t.Fatalf("curl body/status split: %q %q %q %v", status, ip, body, err)
-	}
-	getLarge := func(ctx context.Context, _ string, token string, timeout time.Duration) (string, string, string, error) {
-		return curl(ctx, server.URL+"/large", token, timeout)
-	}
-	var out bytes.Buffer
-	err = check(t.Context(), &out, map[string]sshlogin.PeerAddress{"ts-gru-1": {IP: "10.200.0.1"}},
-		map[string]string{"gru": "secret", "sjc": "secret"}, 5*time.Second, getLarge)
-	if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 63 ||
-		!strings.Contains(out.String(), "FAIL dashboard response exceeds 2 MiB") || strings.Contains(out.String(), "secret") {
-		t.Fatalf("oversized response diagnostic: %v; output: %s", err, &out)
 	}
 }

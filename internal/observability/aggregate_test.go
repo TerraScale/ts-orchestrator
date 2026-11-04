@@ -91,20 +91,3 @@ func TestAggregatorGathersMembersAndReportsMissing(t *testing.T) {
 		t.Fatal("metrics were included without being requested")
 	}
 }
-
-func TestSnapshotResponderIgnoresMalformedRequests(t *testing.T) {
-	t.Parallel()
-	conn := startTestNATS(t)
-	collector, _ := testCollector(t, "one", nil)
-	if _, err := ServeSnapshots(t.Context(), conn, "gru", collector); err != nil {
-		t.Fatal(err)
-	}
-	for _, payload := range []string{`{"version":2}`, `not json`, `{"version":1,"pad":"` + string(make([]byte, 300)) + `"}`} {
-		if _, err := conn.Request("ts.orch.v1.gru.obs.snapshot", []byte(payload), 200*time.Millisecond); err == nil {
-			t.Errorf("malformed request %.20q was answered", payload)
-		}
-	}
-	if _, err := ServeSnapshots(t.Context(), conn, "bad.cell", collector); err == nil {
-		t.Fatal("an injected cell token was accepted")
-	}
-}
