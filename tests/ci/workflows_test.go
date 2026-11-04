@@ -1,6 +1,8 @@
 package ci_test
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -109,4 +111,58 @@ func TestRequiredCheckIdentity(t *testing.T) {
 	requireText(t, aggregate, "      result: ${{ github.event_name == 'pull_request' && needs.change.result || needs.build.result }}\n")
 	forbidText(t, aggregate, "needs.race")
 	forbidText(t, aggregate, "continue-on-error:")
+}
+
+// A documentation-only push reuses its newest code ancestor's dev-host Fast
+// evidence, and the Fast execution clock excludes compilation.
+func TestFastQualificationBudget(t *testing.T) {
+	ci := workflowText(t, ".github/workflows/ci.yml")
+	_, buildJob, _ := strings.Cut(ci, "\n  build:\n")
+	buildJob, _, _ = strings.Cut(buildJob, "\n  release-push:\n")
+	compile := strings.Index(buildJob, "- name: Compile Fast test binaries\n")
+	qualify := strings.Index(buildJob, "- name: Qualify this revision with Fast tests\n")
+	if compile < 0 || qualify <= compile {
+		t.Fatal("Fast compilation must be a separate step before Fast execution")
+	}
+	requireText(t, buildJob[qualify:], "        timeout-minutes: 5\n        run: make test-fast GO=go\n")
+
+	_, fn, _ := strings.Cut(buildJob, "docs_only() {\n")
+	fn, _, found := strings.Cut(fn, "\n          }\n")
+	if !found {
+		t.Fatal("missing docs_only function")
+	}
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	git("commit", "-q", "--allow-empty", "-m", "base")
+	for _, c := range []struct {
+		path string
+		docs bool
+	}{
+		{"docs/runbook.md", true}, {"README.md", true}, {".cos/lanes.md", true},
+		{"internal/app/AGENTS.md", true}, {"docs/diagram.svg", true},
+		{"main.go", false}, {"scripts/notes.md", false}, {"tests/fixture.md", false},
+		{"docs/config.json", false}, {".github/workflows/ci.yml", false},
+	} {
+		file := filepath.Join(repo, c.path)
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(c.path), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git("add", "-A")
+		git("commit", "-q", "-m", c.path)
+		cmd := exec.Command("bash", "-c", "docs_only() {\n"+fn+"\n}\ndocs_only HEAD")
+		cmd.Dir = repo
+		if err := cmd.Run(); (err == nil) != c.docs {
+			t.Errorf("%s: docs-only=%v, want %v", c.path, err == nil, c.docs)
+		}
+	}
 }
