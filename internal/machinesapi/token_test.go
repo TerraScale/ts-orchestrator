@@ -69,20 +69,6 @@ func (i *issuer) addKey(kid string) {
 	i.keys[kid] = key
 }
 
-func (i *issuer) removeKey(kid string) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	delete(i.keys, kid)
-}
-
-func (i *issuer) setDown(down bool) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	i.down = down
-}
-
-// sign returns a token with claims merged over valid defaults; a nil claim
-// value removes the claim.
 func (i *issuer) sign(kid string, header, claims map[string]any) string {
 	i.mu.Lock()
 	key := i.keys[kid]

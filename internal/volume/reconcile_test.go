@@ -90,12 +90,6 @@ func (c *fakeCloud) settle() {
 	}
 }
 
-func (c *fakeCloud) put(v CloudVolume) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.volumes[v.ID] = v
-}
-
 func (c *fakeCloud) ListVolumes(_ context.Context, compartmentID, zone string) ([]CloudVolume, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
