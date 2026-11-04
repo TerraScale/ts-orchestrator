@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// This extends the actual SDK/HTTP/disk foundation scenario. Serialized fixture
-// records exercise storage retention without minting a privileged root proof.
 func capacityJournalSDKScenario(t *testing.T, store *ObjectFoundationStore) {
 	t.Helper()
 	record, etag, err := store.Load(t.Context(), "GRU")

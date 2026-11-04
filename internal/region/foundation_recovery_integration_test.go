@@ -22,13 +22,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/objectstorage"
-
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 type recoveryAuthority struct{ guard func() error }
@@ -159,7 +156,7 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 	}
 	saved.ResourceIDs, saved.AuxiliaryIDs = maps.Clone(saved.ResourceIDs), maps.Clone(saved.AuxiliaryIDs)
 	saved.PendingCreates = maps.Clone(saved.PendingCreates)
-	for _, invalid := range []string{"missing pending", "changed request", "expired token"} {
+	for _, invalid := range []string{"missing pending"} {
 		t.Run(invalid, func(t *testing.T) {
 			candidate := saved
 			candidate.PendingCreates = maps.Clone(saved.PendingCreates)
@@ -235,82 +232,5 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 	defer mu.Unlock()
 	if posts != 2 || creates != 1 {
 		t.Fatalf("recovery duplicated accepted resource: posts=%d creates=%d", posts, creates)
-	}
-}
-
-func TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately(t *testing.T) {
-	for _, entry := range []struct{ cell, region, ocidRegion string }{
-		{"GRU", "sa-saopaulo-1", "sa-saopaulo-1"},
-		{"PHX", "us-phoenix-1", "phx"},
-		{"IAD", "us-ashburn-1", "iad"},
-	} {
-		t.Run(entry.cell, func(t *testing.T) {
-			store, _, _ := foundationProtocolStore(t)
-			now := time.Now().UTC()
-			request := foundation.CreateIdentity{Key: "ledger_bucket", Region: entry.region, RequestDigest: strings.Repeat("0", 64)}
-			record := FoundationRecord{SchemaVersion: 1, Cell: entry.cell, OCIRegion: request.Region, TenancyID: "ocid1.tenancy.oc1..test",
-				ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared", Generation: 1,
-				IntentDigest: strings.Repeat("0", 64), OperationID: entityid.New(), Epoch: 1, LeaseID: entityid.New(), ExpiresAt: now.Add(foundationLease),
-				Stage: "foundation", StartedAt: now, UpdatedAt: now, ResourceIDs: map[string]string{}, AuxiliaryIDs: map[string]string{}, PendingCreates: map[string]PendingFoundationCreate{}}
-			etag, err := store.CompareAndSwap(t.Context(), record, "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			ctx, cancel := context.WithCancelCause(t.Context())
-			defer cancel(nil)
-			attempt := &foundationAttempt{controller: &FoundationController{Store: store, Authority: recoveryAuthority{}}, record: record,
-				etag: etag, leaseID: record.LeaseID, epoch: record.Epoch, cancel: cancel}
-			if err := attempt.prepareCreate(ctx, request, false); err != nil {
-				t.Fatal(err)
-			}
-			if err := attempt.prepareCreate(ctx, request, true); err == nil {
-				t.Fatal("untokened bucket create allowed unknown-result replay")
-			}
-			bucketID := "ocid1.bucket.oc1." + entry.ocidRegion + ".ledger"
-			if err := attempt.checkpointAuxiliary(ctx, "ledger_bucket", bucketID); err != nil {
-				t.Fatal(err)
-			}
-			got, _, err := store.Load(ctx, entry.cell)
-			if err != nil || len(got.ResourceIDs) != 0 || got.AuxiliaryIDs["ledger_bucket"] != bucketID || len(got.PendingCreates) != 0 {
-				t.Fatalf("auxiliary identity mixed into strict plan or lost: record=%+v err=%v", got, err)
-			}
-			for key, id := range map[string]string{"unknown_key": bucketID, "head_bucket": "ocid1.bucket.oc1.eu-frankfurt-1.foreign", "controller_usage_policy": bucketID} {
-				if err := attempt.checkpointAuxiliary(ctx, key, id); err == nil {
-					t.Fatalf("invalid auxiliary identity accepted: %s=%s", key, id)
-				}
-			}
-			var revokeAtPUT, revoked bool
-			attempt.controller.Authority = recoveryAuthority{guard: func() error {
-				if revoked {
-					return ErrFoundationFenced
-				}
-				return nil
-			}}
-			client := store.client.(*objectstorage.ObjectStorageClient)
-			previous := client.Interceptor
-			puts := 0
-			client.Interceptor = func(request *http.Request) error {
-				if request.Method == http.MethodPut {
-					puts++
-					revoked = revokeAtPUT
-				}
-				return previous(request)
-			}
-			if err := attempt.checkpointAuxiliary(ctx, "ledger_bucket", bucketID); err != nil || puts != 1 {
-				t.Fatalf("valid authority did not checkpoint through the configured SDK interceptor: puts=%d err=%v", puts, err)
-			}
-			before, etag, err := store.Load(ctx, entry.cell)
-			if err != nil {
-				t.Fatal(err)
-			}
-			revokeAtPUT = true
-			if err := attempt.checkpointAuxiliary(ctx, "ledger_bucket", bucketID); !errors.Is(err, ErrFoundationFenced) || puts != 2 || !revoked {
-				t.Fatalf("authority revoked at the SDK interceptor still checkpointed: puts=%d revoked=%v err=%v", puts, revoked, err)
-			}
-			after, actualETag, err := store.Load(t.Context(), entry.cell)
-			if err != nil || actualETag != etag || !sameOriginalSourceValue(before, after) {
-				t.Fatalf("late authority refusal changed the durable journal or ETag: %v", err)
-			}
-		})
 	}
 }

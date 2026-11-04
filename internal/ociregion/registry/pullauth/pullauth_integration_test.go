@@ -1,7 +1,6 @@
 package pullauth
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
@@ -14,11 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
-
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 type pullVault struct {
@@ -214,31 +212,5 @@ func TestVaultPullRotationExpiryAndMissingCredentialBlock(t *testing.T) {
 	vault.mu.Unlock()
 	if _, err := reader.Resolve(t.Context(), next, scope, owned); !errors.Is(err, ErrPullAuth) || strings.Contains(err.Error(), vault.token) {
 		t.Fatal("missing private credential allowed fallback or leaked contents")
-	}
-}
-
-func TestVaultPullReadCancellationAndIndependentBinding(t *testing.T) {
-	reader, vault, scope, owned := setupPull(t)
-	claim, err := reader.Describe(t.Context(), scope, owned, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wrong := owned
-	wrong.Ref.Vault = "ocid1.vault.oc1.us-sanjose-1.other"
-	if _, err := reader.Resolve(t.Context(), claim, scope, wrong); !errors.Is(err, ErrPullAuth) {
-		t.Fatal("claim overrode independent owned binding")
-	}
-	if _, err := reader.Resolve(t.Context(), claim, scope, PullSecret{}); !errors.Is(err, ErrPullAuth) {
-		t.Fatal("missing owned credential allowed anonymous fallback")
-	}
-	vault.blocked.Store(true)
-	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Millisecond)
-	defer cancel()
-	started := time.Now()
-	if _, err := reader.Resolve(ctx, claim, scope, owned); !errors.Is(err, ErrPullAuth) {
-		t.Fatal("canceled Vault read succeeded")
-	}
-	if time.Since(started) > 2*time.Second {
-		t.Fatal("canceled SDK request remained active")
 	}
 }

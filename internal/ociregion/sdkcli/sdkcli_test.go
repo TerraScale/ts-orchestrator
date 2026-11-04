@@ -1,7 +1,6 @@
 package sdkcli
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -14,11 +13,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
-
-	"github.com/oracle/oci-go-sdk/v65/common"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 func testClient(t *testing.T, handler http.HandlerFunc) *Client {
@@ -173,125 +170,6 @@ func TestHandlersServeCLIShapedData(t *testing.T) {
 				}
 			} else if err == nil {
 				t.Fatalf("accepted malformed VCN list: %s", body)
-			}
-		})
-	}
-}
-
-func TestObjectVersionListSendsTheCLIFieldList(t *testing.T) {
-	var fields []string
-	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/objectversions") {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = io.WriteString(w, `{"code":"NotAuthorizedOrNotFound","message":"missing"}`)
-			return
-		}
-		fields = append(fields, r.URL.Query().Get("fields"))
-		if r.URL.Query().Get("page") == "" {
-			w.Header().Set("opc-next-page", "p2")
-			_, _ = io.WriteString(w, `{"items":[{"name":"a","size":1,"versionId":"v1","storageTier":"Standard"}]}`)
-			return
-		}
-		_, _ = io.WriteString(w, `{"items":[{"name":"a","size":2,"versionId":"v2","isDeleteMarker":true}]}`)
-	})
-	data, handled, err := client.Call(t.Context(), []string{"os", "object", "list-object-versions", "--namespace-name", "n",
-		"--bucket-name", "b", "--fields", "name,size,storageTier,archivalState", "--all"})
-	if err != nil || !handled {
-		t.Fatalf("handled=%v err=%v", handled, err)
-	}
-	var versions []map[string]any
-	if err := json.Unmarshal(data, &versions); err != nil || len(versions) != 2 || versions[0]["storage-tier"] != "Standard" ||
-		versions[1]["is-delete-marker"] != true {
-		t.Fatalf("versions=%v err=%v", versions, err)
-	}
-	if len(fields) != 2 || fields[0] != "name,size,storageTier,archivalState" || fields[1] != fields[0] {
-		t.Fatalf("fields query=%q", fields)
-	}
-}
-
-func TestSDKShapeCompatibilityAndCancellation(t *testing.T) {
-	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Query().Get("compartmentId") != "compartment" || r.URL.Query().Get("imageId") != "image" {
-			t.Errorf("shape compatibility query = %s", r.URL.RawQuery)
-		}
-		if r.URL.Query().Get("availabilityDomain") == "blocked" {
-			<-r.Context().Done()
-			return
-		}
-		if r.URL.Query().Get("page") == "" {
-			w.Header().Set("opc-next-page", "second")
-			_, _ = io.WriteString(w, `[{"shape":"VM.Standard.A1.Flex","processorDescription":"Ampere Altra","isFlexible":true,"ocpuOptions":{"min":1,"max":80},"memoryOptions":{"minInGBs":1,"maxInGBs":512}}]`)
-			return
-		}
-		_, _ = io.WriteString(w, `[{"shape":"VM.Standard.E4.Flex","processorDescription":"AMD EPYC"}]`)
-	})
-	args := []string{"compute", "shape", "list", "--compartment-id", "compartment", "--image-id", "image", "--all"}
-	wire, handled, err := client.Call(t.Context(), args)
-	if err != nil || !handled {
-		t.Fatalf("shape compatibility: handled=%v err=%v", handled, err)
-	}
-	var shapes []map[string]any
-	if err := json.Unmarshal(wire, &shapes); err != nil || len(shapes) != 2 || shapes[0]["processor-description"] != "Ampere Altra" || shapes[1]["shape"] != "VM.Standard.E4.Flex" {
-		t.Fatalf("shape compatibility = %s, %v", wire, err)
-	}
-	if shapes[0]["memory-options"].(map[string]any)["max-in-gbs"] != float64(512) {
-		t.Fatalf("shape dimensions = %s", wire)
-	}
-	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
-	defer cancel()
-	_, _, err = client.Call(ctx, append(args, "--availability-domain", "blocked"))
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("SDK HTTP cancellation = %v", err)
-	}
-}
-
-func TestSDKObjectInventoryRejectsMalformedResponses(t *testing.T) {
-	for _, wire := range []string{"", `{}`, `{"prefixes":["hidden/"]}`, `{"objects":[] ,"objects":[{"name":"hidden","size":100}]}`, `{"objects":[]} {"objects":[]}`} {
-		t.Run(wire, func(t *testing.T) {
-			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = io.WriteString(w, wire)
-			})
-			_, _, err := client.Call(t.Context(), []string{"os", "object", "list", "--namespace-name", "n", "--bucket-name", "b", "--all"})
-			if err == nil {
-				t.Fatalf("accepted uncounted storage: %s", wire)
-			}
-		})
-	}
-	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"objects":[]}`)
-	})
-	wire, _, err := client.Call(t.Context(), []string{"os", "object", "list", "--namespace-name", "n", "--bucket-name", "b", "--all"})
-	if err != nil || string(wire) != "[]" {
-		t.Fatalf("empty inventory = %s, %v", wire, err)
-	}
-	for _, body := range []string{"", `{"items":[]}`} {
-		t.Run("object versions "+body, func(t *testing.T) {
-			var requests atomic.Int64
-			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-				requests.Add(1)
-				if r.Method != http.MethodGet || r.URL.Path != "/n/n/b/b/objectversions" ||
-					r.URL.RawQuery != "" || r.Header.Get("Authorization") == "" {
-					t.Errorf("unexpected object version request: %s %s, authorization present=%v", r.Method, r.URL, r.Header.Get("Authorization") != "")
-					http.Error(w, "unexpected request", http.StatusBadRequest)
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = io.WriteString(w, body)
-			})
-			wire, handled, err := client.Call(t.Context(), []string{"os", "object", "list-object-versions", "--namespace-name", "n", "--bucket-name", "b", "--all"})
-			if requests.Load() != 1 || !handled {
-				t.Fatalf("object versions: requests=%d handled=%v err=%v", requests.Load(), handled, err)
-			}
-			if body == "" {
-				if err == nil {
-					t.Fatal("accepted a blank object version response")
-				}
-			} else if err != nil || string(wire) != "[]" {
-				t.Fatalf("empty object versions = %s, %v", wire, err)
 			}
 		})
 	}

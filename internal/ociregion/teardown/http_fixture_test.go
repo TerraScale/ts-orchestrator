@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// teardownAPI speaks OCI's HTTP protocol; teardown always uses the real SDK.
 type teardownAPI struct {
 	mu       sync.Mutex
 	provider *SDKProvider

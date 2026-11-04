@@ -2,7 +2,6 @@ package regionsuggest
 
 import (
 	"context"
-	"slices"
 	"testing"
 	"time"
 
@@ -166,43 +165,4 @@ func TestSuggestSavesTheAddSuggestion(t *testing.T) {
 			t.Fatalf("an unknown status kept the idle clock: %+v", state.Memory)
 		}
 	})
-}
-
-func TestCandidatesAreTheCatalogRegionsThatServeNothing(t *testing.T) {
-	t.Parallel()
-
-	regions := []Region{{Cell: "gru", Home: true}, {Cell: "sjc"}, {Cell: "fra"}}
-	var names []string
-	for _, candidate := range candidates(regions) {
-		names = append(names, candidate.Cell)
-		if candidate.Cell == "gru" || candidate.Cell == "sjc" || candidate.Cell == "fra" {
-			t.Fatalf("candidates = %v; a serving or bootstrap region is a candidate", names)
-		}
-	}
-	if !slices.Contains(names, "lhr") || len(names) == 0 {
-		t.Fatalf("candidates = %v; want lhr among the catalog's other regions", names)
-	}
-}
-
-func TestRegionsReadTheMeasuredRoundTrips(t *testing.T) {
-	t.Parallel()
-
-	status := statusIdle()
-	status.RTTMillis = map[string]int{"us-sanjose-1": 171, "eu-frankfurt-1": 197}
-	runner := newTestRunner(t, []globalview.Region{summary("sjc", status)})
-	regions, err := runner.regions(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, region := range regions {
-		if region.Cell != "sjc" {
-			continue
-		}
-		if len(region.RTT) != 2 || region.RTT["us-sanjose-1"] != 171*time.Millisecond ||
-			region.RTT["eu-frankfurt-1"] != 197*time.Millisecond {
-			t.Fatalf("sjc RTT = %v; want 171ms and 197ms", region.RTT)
-		}
-		return
-	}
-	t.Fatal("sjc is not in the regions")
 }

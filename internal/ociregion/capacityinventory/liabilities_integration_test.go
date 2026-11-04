@@ -23,8 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
-
 	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
@@ -32,6 +30,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 func TestKnownLiabilitiesUseProtectedOriginalTariffsAndExactIDsThroughSDK(t *testing.T) {

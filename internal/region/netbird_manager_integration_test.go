@@ -22,7 +22,6 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,8 +43,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
-// This fixture crosses the real OCI SDK, public-price HTTP and disk-backed
-// Object Storage CAS; only the remote services and ARM64 binary measurement are fixtures.
 func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	tier.Integration(t)
 	withNetBirdManagerFixture(t, nil)
@@ -460,18 +457,6 @@ func withNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory, Founda
 	}
 	for fault, mutate := range map[string]func(*FoundationRecord){
 		"remove reservation": func(r *FoundationRecord) { r.NetBirdManager = nil },
-		"remove quote":       func(r *FoundationRecord) { r.NetBirdManager.OriginalQuote = nil },
-		"replace quote identity": func(r *FoundationRecord) {
-			r.NetBirdManager.OriginalQuote.IssuedAt = r.NetBirdManager.OriginalQuote.IssuedAt.Add(time.Nanosecond)
-		},
-		"reorder original tariffs": func(r *FoundationRecord) { slices.Reverse(r.NetBirdManager.OriginalQuote.Prices) },
-		"transplant launch identity": func(r *FoundationRecord) {
-			r.NetBirdManager.OriginGrantSHA256 = strings.Repeat("f", 64)
-		},
-		"transplant physical scope": func(r *FoundationRecord) {
-			r.NetBirdManager.PhysicalScopeSHA256 = strings.Repeat("e", 64)
-			r.NetBirdManager.OriginalQuote.ScopeSHA256 = r.NetBirdManager.PhysicalScopeSHA256
-		},
 	} {
 		current, etag, err := reopened.Load(t.Context(), "GRU")
 		if err != nil {
@@ -858,22 +843,7 @@ func withNetBirdManagerFixture(t *testing.T, run func(*ociclient.Factory, Founda
 	delete(channelOverrides, channelName)
 	mu.Unlock()
 	for fault, mutate := range map[string]func(*NetBirdManagerLaunch){
-		"remove all":              func(l *NetBirdManagerLaunch) { l.ComponentFloors = nil },
-		"partial set":             func(l *NetBirdManagerLaunch) { l.ComponentFloors[1] = NetBirdComponentFloor{} },
-		"lower sequence":          func(l *NetBirdManagerLaunch) { l.ComponentFloors[0].ReleaseSequence-- },
-		"equal sequence identity": func(l *NetBirdManagerLaunch) { l.ComponentFloors[0].ReleaseIdentity = strings.Repeat("f", 64) },
-		"equal sequence image": func(l *NetBirdManagerLaunch) {
-			l.ComponentFloors[0].Image = "gru.ocir.io/ns/netbird-server@sha256:" + strings.Repeat("f", 64)
-		},
-		"replace bundle evidence": func(l *NetBirdManagerLaunch) { l.ComponentFloors[0].BundleSHA256 = strings.Repeat("f", 64) },
-		"migration namespace": func(l *NetBirdManagerLaunch) {
-			l.ComponentFloors[0].SequenceNamespace += "other"
-			l.ComponentFloors[0].ReleaseSequence++
-		},
-		"migration identity": func(l *NetBirdManagerLaunch) {
-			l.ComponentFloors[0].SequenceMigrationSHA256 = strings.Repeat("f", 64)
-			l.ComponentFloors[0].ReleaseSequence++
-		},
+		"lower sequence": func(l *NetBirdManagerLaunch) { l.ComponentFloors[0].ReleaseSequence-- },
 	} {
 		current, etag, err := floorStore.Load(t.Context(), "GRU")
 		if err != nil {

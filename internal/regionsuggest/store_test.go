@@ -8,14 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
-// fencer passes every guard, or refuses them all when refuse is set.
 type fencer struct{ refuse bool }
 
 func (f fencer) Current() authority.Snapshot {

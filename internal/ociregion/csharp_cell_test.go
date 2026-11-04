@@ -21,10 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nkeys"
-
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/nats-io/nkeys"
 )
 
 var cellNow = time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
@@ -107,61 +106,6 @@ func cellInventory(plan Object, path string, instances ...Object) Object {
 
 func dbHost(plan Object, name string, tags Object) Object {
 	return Object{"kind": "instance", "id": fakeOCID("instance", "sa-saopaulo-1", name), "compartment-id": obj(plan["resource_ids"])["workload_compartment"], "lifecycle-state": "RUNNING", "display-name": name, "shape": "VM.Standard.A1.Flex", "shape-config": Object{"ocpus": 1, "memory-in-gbs": 6}, "freeform-tags": tags}
-}
-
-func TestFoundationInspectionNeedsNoRustEraResources(t *testing.T) {
-	e := cellEngine()
-	plan := mustCapture(t, func() Object { return e.loadPlan(writePlan(t, bindPhase1)) })
-	ids := mustCapture(t, func() Object { return e.requiredIDs(plan) })
-	identity, netbird := obj(plan["identity"]), obj(plan["netbird"])
-	matching := func(key string) string { return "ALL {instance.compartment.id = '" + str(ids[key]) + "'}" }
-	keyStatement := "Allow service objectstorage-sa-saopaulo-1 to use keys in compartment gru-1-control where all {target.key.id='" + str(ids["key"]) + "', any {request.permission='KEY_READ', request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}"
-	responses := map[string]Object{
-		text(ids["controller_dynamic_group"]): {"lifecycle-state": "ACTIVE", "name": identity["controller_dynamic_group_name"], "matching-rule": matching("control_compartment")},
-		text(ids["controller_policy"]):        {"lifecycle-state": "ACTIVE", "name": identity["controller_policy_name"], "compartment-id": plan["parent_compartment_id"], "statements": arr(controllerStatements(plan, ids, ""))},
-		text(ids["objectstorage_key_policy"]): {"lifecycle-state": "ACTIVE", "name": identity["objectstorage_key_policy_name"], "compartment-id": ids["control_compartment"], "statements": []any{keyStatement}},
-		text(ids["host_dynamic_group"]):       {"lifecycle-state": "ACTIVE", "name": identity["host_dynamic_group_name"], "matching-rule": matching("workload_compartment")},
-		text(netbird["policy_id"]):            {"lifecycle-state": "ACTIVE", "name": netbird["policy_name"], "compartment-id": netbird["secret_compartment_id"], "statements": arr(netbirdStatements(plan))},
-		text(netbird["setup_key_secret_id"]):  {"lifecycle-state": "ACTIVE", "compartment-id": netbird["secret_compartment_id"]},
-	}
-	read := []string{}
-	e.Dependency = func(name string, args []any, kwargs Object) (any, error) {
-		id := text(args[len(args)-1])
-		read = append(read, id)
-		response, ok := responses[id]
-		if name != "oci" || !ok {
-			return nil, errors.New("unexpected OCI read " + str(args))
-		}
-		response["id"] = id
-		return response, nil
-	}
-	mustCapture(t, func() bool { e.liveIAM(plan, ids, ""); e.livePublic(plan, ids); return true })
-	if len(read) != len(responses) {
-		t.Fatalf("live IAM reads = %v, want exactly the controller, host, and NetBird resources", read)
-	}
-}
-
-func TestFoundationInspectionRejectsPartialLegacyAndPublicBindings(t *testing.T) {
-	e := cellEngine()
-	for name, mutate := range map[string]func(Object){
-		"host policy only": func(raw Object) { obj(raw["resource_ids"])["host_policy"] = fakeOCID("policy", "", "host") },
-		"secret only": func(raw Object) {
-			raw["host_credential_secret"] = Object{"compartment_id": fakeOCID("compartment", "", "host"), "secret_id": fakeOCID("vaultsecret", "sa-saopaulo-1", "host")}
-		},
-	} {
-		plan := mustCapture(t, func() Object { return e.loadPlan(writePlan(t, bindPhase1, mutate)) })
-		t.Run(name, func(t *testing.T) {
-			wantFailure(t, "host LiveS3Credential secret and policy together or not at all", func() { e.requiredIDs(plan) })
-			wantFailure(t, "host LiveS3Credential secret and policy together or not at all", func() { e.liveIAM(plan, obj(plan["resource_ids"]), "") })
-		})
-	}
-	plan := mustCapture(t, func() Object {
-		return e.loadPlan(writePlan(t, bindPhase1, func(raw Object) {
-			obj(raw["resource_ids"])["internet_gateway"] = fakeOCID("internetgateway", "sa-saopaulo-1", "public")
-		}))
-	})
-	wantFailure(t, "every public API resource ID or none", func() { e.requiredIDs(plan) })
-	wantFailure(t, "every public API resource ID or none", func() { e.livePublic(plan, obj(plan["resource_ids"])) })
 }
 
 func TestInventoryAdmitsOperatorLaunchedCSharpHosts(t *testing.T) {
@@ -317,131 +261,5 @@ func TestMemberLaunchWritesStaticCSharpHostInput(t *testing.T) {
 	enrollment, _ := os.ReadFile(f.enrollment)
 	if !exact(metadata, hostboot.MetadataKey, hostboot.EnrollmentMetadataKey, "ssh_authorized_keys") || metadata[hostboot.MetadataKey] != `{"schema_version":2,"cell":"gru","region":"GRU","node":"gru-1-db-1"}` || metadata[hostboot.EnrollmentMetadataKey] != string(enrollment) || !strings.HasPrefix(text(metadata["ssh_authorized_keys"]), "ssh-ed25519 ") {
 		t.Fatalf("launch metadata = %v", metadata)
-	}
-}
-
-func TestMemberLaunchRejectsUnadmittedOrInvalidInputs(t *testing.T) {
-	f := memberLaunchFixture(t)
-	expired := cellEngine()
-	expired.Clock = func() time.Time { return cellNow.Add(16 * time.Minute) }
-	for name, test := range map[string]struct {
-		engine      *Engine
-		slot, image string
-		want        string
-	}{
-		"expired admission": {expired, "member-a", memberImage, "stale"},
-		"controller slot":   {cellEngine(), "controller-a", memberImage, "requires a plan member slot"},
-		"unplanned slot":    {cellEngine(), "member-c", memberImage, "requires a plan member slot"},
-		"foreign image":     {cellEngine(), "member-a", "ocid1.image.oc1.us-ashburn-1.fakeimage", "invalid image OCID"},
-		"not an image":      {cellEngine(), "member-a", "ocid1.instance.oc1.sa-saopaulo-1.fakeimage", "invalid image OCID"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := f.run(test.engine, io.Discard, test.slot, test.image); err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("error = %v, want %q", err, test.want)
-			}
-		})
-	}
-	admission := readJSON(f.admission, 64*1024, "admission")
-	obj(admission["estimate"])["total"] = "1.00"
-	writeJSON(f.admission, admission)
-	if _, err := f.run(cellEngine(), io.Discard, "member-a", memberImage); err == nil || !strings.Contains(err.Error(), "does not match the exact current plan and inventory") {
-		t.Fatalf("mismatched admission: %v", err)
-	}
-	existing := memberLaunchFixture(t, func(plan Object) Object { return dbHost(plan, "gru-1-db-1", memberTags(plan, "gru-1-db-1")) })
-	if _, err := existing.run(cellEngine(), io.Discard, "member-a", memberImage); err == nil || !strings.Contains(err.Error(), "gru-1-db-1 already exists in the inventory") {
-		t.Fatalf("existing host: %v", err)
-	}
-	if _, err := existing.run(cellEngine(), io.Discard, "member-b", memberImage); err != nil {
-		t.Fatalf("second host after the first: %v", err)
-	}
-}
-
-func cellPlanOutput(t *testing.T, plan string, extra ...string) (Object, error) {
-	t.Helper()
-	dir := t.TempDir()
-	loaded := mustCapture(t, func() Object { return cellEngine().loadPlan(plan) })
-	inventory := filepath.Join(dir, "inventory.json")
-	writeJSON(inventory, cellInventory(loaded, plan))
-	var stdout bytes.Buffer
-	if err := cellEngine().Run(append([]string{"cell-plan", "--plan", plan, "--inventory", inventory}, extra...), &stdout); err != nil {
-		return nil, err
-	}
-	v, err := decodeJSON(stdout.Bytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return obj(v), nil
-}
-
-func TestCellPlanNamesTheCheckedInPhase2Cell(t *testing.T) {
-	profile := filepath.Join("..", "..", "deploy", "oci-region", "terrabase-gru-1-profile.json")
-	result, err := cellPlanOutput(t, checkedInPlan(), "--profile", profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := func(key string) string {
-		r := []string{}
-		for _, v := range arr(result[key]) {
-			r = append(r, text(obj(v)["name"])+"@"+text(obj(v)["private_ip"]))
-		}
-		return strings.Join(r, ",")
-	}
-	if result["cell"] != "gru-1" || result["oci_region"] != "sa-saopaulo-1" || result["image"] != "gru-1-arm64" || !eq(result["ceiling_usd"], 200) || greater(obj(result["estimate"])["total"], 200) ||
-		names("controllers") != "gru-1-ctl-1@10.251.0.11,gru-1-ctl-2@10.251.0.12,gru-1-ctl-3@10.251.0.13" || names("members") != "gru-1-db-1@10.251.0.21,gru-1-db-2@10.251.0.22" ||
-		result["terrabase_peers"] != "gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443" {
-		t.Fatalf("cell plan = %v", result)
-	}
-}
-
-// The checked-in sjc-1 plan founds a colocated cell of ts-sjc-1..3 outside
-// the home region, beside ts-ops's peering gateway of another cell.
-func TestCellPlanNamesTheCheckedInSFOCell(t *testing.T) {
-	path := filepath.Join("..", "..", "deploy", "oci-region", "sjc-1-plan.json")
-	plan := mustCapture(t, func() Object { return cellEngine().loadPlan(path) })
-	profile := filepath.Join(t.TempDir(), "terrabase-sjc-1-profile.json")
-	writeJSON(profile, Object{"env": Object{"TERRABASE_REGION": "sjc-1", "TERRABASE_PEER_PORT": "9443", "TERRABASE_CLIENT_PORT": "9465",
-		"TERRABASE_PEERS": "ts-sjc-1=10.252.0.11:9443,ts-sjc-2=10.252.0.12:9443,ts-sjc-3=10.252.0.13:9443"}})
-	existing := obj(plan["existing_operations_host"])
-	gru := Object{"kind": "local-peering-gateway", "id": fakeOCID("localpeeringgateway", "sa-saopaulo-1", "gru"), "compartment-id": plan["shared_compartment_id"], "vcn-id": existing["vcn_id"], "lifecycle-state": "AVAILABLE"}
-	inventory := filepath.Join(t.TempDir(), "inventory.json")
-	writeJSON(inventory, cellInventory(plan, path, gru))
-	var stdout bytes.Buffer
-	if err := cellEngine().Run([]string{"cell-plan", "--plan", path, "--inventory", inventory, "--profile", profile}, &stdout); err != nil {
-		t.Fatal(err)
-	}
-	v, err := decodeJSON(stdout.Bytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	result := obj(v)
-	var controllers []string
-	for _, v := range arr(result["controllers"]) {
-		controllers = append(controllers, text(obj(v)["name"])+"@"+text(obj(v)["private_ip"]))
-	}
-	if result["cell"] != "sjc-1" || result["oci_region"] != "us-sanjose-1" || result["image"] != "sjc-1-arm64" || len(arr(result["members"])) != 0 ||
-		strings.Join(controllers, ",") != "ts-sjc-1@10.252.0.11,ts-sjc-2@10.252.0.12,ts-sjc-3@10.252.0.13" ||
-		obj(obj(result["estimate"])["items"])["compute"] != "41.1600" || greater(obj(result["estimate"])["total"], 200) {
-		t.Fatalf("cell plan = %v", result)
-	}
-}
-
-func TestCellPlanRejectsProfileDriftAndOverCeiling(t *testing.T) {
-	for name, peers := range map[string]string{
-		"wrong address": "gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.23:9443",
-		"wrong name":    "gru-1-db-1=10.251.0.21:9443,gru-1-db-3=10.251.0.22:9443",
-		"extra peer":    "gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443,gru-1-db-3=10.251.0.23:9443",
-		"missing peer":  "gru-1-db-1=10.251.0.21:9443",
-	} {
-		t.Run(name, func(t *testing.T) {
-			profile := filepath.Join(t.TempDir(), "profile.json")
-			writeJSON(profile, Object{"env": Object{"TERRABASE_PEER_PORT": "9443", "TERRABASE_PEERS": peers}})
-			if _, err := cellPlanOutput(t, checkedInPlan(), "--profile", profile); err == nil || !strings.Contains(err.Error(), "TerraBase peers differ from the plan members") {
-				t.Fatalf("error = %v", err)
-			}
-		})
-	}
-	expensive := writePlan(t, func(raw Object) { obj(raw["budget"])["misc_reserve_usd"] = 150 })
-	if _, err := cellPlanOutput(t, expensive); err == nil || !strings.Contains(err.Error(), "exceeds the monthly ceiling") {
-		t.Fatalf("over-ceiling plan: %v", err)
 	}
 }

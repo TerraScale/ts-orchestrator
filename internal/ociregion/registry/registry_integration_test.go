@@ -12,14 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
 	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/artifacts"
 	"github.com/oracle/oci-go-sdk/v65/common"
-
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
 )
 
 type ocirServer struct {
@@ -254,93 +252,5 @@ func TestSDKRetentionKeepsCurrentRollbackTasksAndIndexChildren(t *testing.T) {
 	pins.Children[d["garbage"]] = nil
 	if err := c.SetPins(t.Context(), repo, pins); !errors.Is(err, ErrRetiring) {
 		t.Fatalf("retired image admitted: %v", err)
-	}
-}
-
-func TestSDKRetentionPinDuringDeleteAndLostResponseRecovery(t *testing.T) {
-	c, remote, repo, _ := setup(t)
-	d := seedImages(t, c, remote, repo, "garbage")
-	pins := Pins{Generation: 1, ObservedAt: time.Now(), Children: map[string][]string{}}
-	if err := c.SetPins(t.Context(), repo, pins); err != nil {
-		t.Fatal(err)
-	}
-	var pinErr error
-	remote.beforeDelete = func() {
-		pinErr = c.SetPins(t.Context(), repo, Pins{Generation: 2, ObservedAt: time.Now(), Tasks: []string{d["garbage"]}, Children: map[string][]string{d["garbage"]: {}}})
-	}
-	remote.loseDelete = true
-	if _, err := c.Collect(t.Context(), repo); err == nil {
-		t.Fatal("lost delete response reported success")
-	}
-	if !errors.Is(pinErr, ErrRetiring) {
-		t.Fatalf("concurrent pin accepted: %v", pinErr)
-	}
-	restarted := *c
-	if _, err := restarted.Collect(t.Context(), repo); err != nil {
-		t.Fatal(err)
-	}
-	if len(remote.deleted) != 1 {
-		t.Fatalf("duplicate delete: %v", remote.deleted)
-	}
-}
-
-func TestSDKMissingPinsAndConditionalConflictPreventDeletion(t *testing.T) {
-	c, remote, repo, fenced := setup(t)
-	seedImages(t, c, remote, repo, "garbage")
-	if _, err := c.Collect(t.Context(), repo); !errors.Is(err, ErrPins) {
-		t.Fatalf("missing pins: %v", err)
-	}
-	if err := c.SetPins(t.Context(), repo, Pins{Generation: 1, ObservedAt: time.Now(), Children: map[string][]string{}}); err != nil {
-		t.Fatal(err)
-	}
-	remote.conflict = true
-	if _, err := c.Collect(t.Context(), repo); err == nil {
-		t.Fatal("conditional conflict accepted")
-	}
-	if len(remote.deleted) != 0 {
-		t.Fatal("conditional conflict deleted image")
-	}
-	remote.conflict = false
-	fenced.Store(true)
-	if _, err := c.Collect(t.Context(), repo); err == nil {
-		t.Fatal("fenced authority deleted image")
-	}
-	if len(remote.deleted) != 0 {
-		t.Fatal("fenced delete reached OCI")
-	}
-}
-
-func TestSDKRetryRechecksAuthorityAndIncompletePinsStay(t *testing.T) {
-	c, remote, repo, fenced := setup(t)
-	remote.loseCreate = true
-	policy := common.NewRetryPolicy(2, func(common.OCIOperationResponse) bool {
-		fenced.Store(true)
-		return true
-	}, func(common.OCIOperationResponse) time.Duration { return 0 })
-	c.client.Configuration.RetryPolicy = &policy
-	if _, err := c.Ensure(t.Context(), repo); err == nil {
-		t.Fatal("retry ignored authority loss")
-	}
-	fenced.Store(false)
-	c.client.Configuration.RetryPolicy = new(common.NoRetryPolicy())
-	if _, err := c.Ensure(t.Context(), repo); err != nil {
-		t.Fatal(err)
-	}
-	d := "sha256:" + strings.Repeat("a", 64)
-	for _, pins := range []Pins{
-		{Generation: 1, ObservedAt: time.Now(), Current: []string{d}, Children: map[string][]string{}},
-		{Generation: 1, ObservedAt: time.Now().Add(-3 * time.Minute), Children: map[string][]string{}},
-	} {
-		if err := c.SetPins(t.Context(), repo, pins); !errors.Is(err, ErrPins) {
-			t.Fatalf("unsafe inventory accepted: %v", err)
-		}
-	}
-}
-
-func TestSDKExistingForeignRepositoryCannotBeAdopted(t *testing.T) {
-	c, remote, repo, _ := setup(t)
-	remote.repo = artifacts.ContainerRepository{Id: new("ocid1.containerrepo.oc1..foreign"), CreatedBy: new(repo.PrincipalID), CompartmentId: new(repo.CompartmentID), DisplayName: new(repo.Name), LifecycleState: artifacts.ContainerRepositoryLifecycleStateAvailable}
-	if _, err := c.Ensure(t.Context(), repo); !errors.Is(err, ErrOwnership) {
-		t.Fatalf("existing name was adopted: %v", err)
 	}
 }

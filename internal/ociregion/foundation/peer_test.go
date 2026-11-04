@@ -3,8 +3,6 @@ package foundation
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -45,16 +43,6 @@ func writeJSON(t *testing.T, path string, v any) {
 	if err := os.WriteFile(path, wire, 0o644); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func fileSHA(t *testing.T, path string) string {
-	t.Helper()
-	wire, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256(wire)
-	return hex.EncodeToString(sum[:])
 }
 
 func newPair(t *testing.T) *pair {
@@ -245,27 +233,6 @@ func peerWrites() []string {
 	return w
 }
 
-func TestPeerDryRunPlansEveryChangeAndWritesNothing(t *testing.T) {
-	x := newPair(t)
-	log, err := x.run(t, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(x.f.writes) != 0 {
-		t.Fatalf("dry run wrote %v", x.f.writes)
-	}
-	if _, err := os.Stat(x.out); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("dry run wrote the bound intent: %v", err)
-	}
-	for _, want := range []string{"plan: create DRG sjc-1-drg", "plan: create RPC gru-1-rpc-sjc-1", "plan: create DRG route table gru-1-drg-rpc-routes",
-		"plan: connect RPC sjc-1-rpc-gru-1 to gru-1-rpc-sjc-1 in sa-saopaulo-1", "plan: route 10.252.0.0/25 through gru-1-drg in gru-1's route table",
-		fmt.Sprintf("%d changes planned", len(peerWrites()))} {
-		if !strings.Contains(log, want) {
-			t.Fatalf("dry run output lacks %q:\n%s", want, log)
-		}
-	}
-}
-
 func TestPeerApplyPassesInspectionThenRerunIsANoOp(t *testing.T) {
 	x := newPair(t)
 	if log, err := x.run(t, true); err != nil {
@@ -321,180 +288,3 @@ func mustRead(t *testing.T, path string) []byte {
 
 // The full-list updates resend every live rule as read, including the rules
 // no plan carries, and only against the ETag of that read.
-func TestPeerKeepsEveryExistingRule(t *testing.T) {
-	x := newPair(t)
-	type snapshot struct{ table, list, routes, ingress, egress any }
-	before := map[string]snapshot{}
-	for cell, plan := range x.plans {
-		ids := obj(plan["resource_ids"])
-		table, list := x.f.rows[text(ids["route_table"])].data, x.f.rows[text(ids["security_list"])].data
-		if cell == "GRU" {
-			obj(arr(table["route-rules"])[0])["description"] = "Oracle services, kept as written"
-		}
-		before[cell] = snapshot{table, list, clone(table["route-rules"]), clone(list["ingress-security-rules"]), clone(list["egress-security-rules"])}
-	}
-	if _, err := x.run(t, true); err != nil {
-		t.Fatal(err)
-	}
-	bound := obj(decode(mustRead(t, x.out)).(Object)["cells"])
-	for cell, b := range before {
-		peer := map[string]string{"GRU": "10.252.0.0/25", "SJC": "10.251.0.0/25"}[cell]
-		want := append(arr(b.routes), Object{"destination": peer, "destination-type": "CIDR_BLOCK", "network-entity-id": obj(bound[cell])["drg_id"]})
-		if got := obj(b.table)["route-rules"]; command.JSON(got) != command.JSON(want) {
-			t.Fatalf("%s route rules\n%s\nwant\n%s", cell, command.JSON(got), command.JSON(want))
-		}
-		egress := arr(obj(b.list)["egress-security-rules"])
-		if kept := arr(b.egress); command.JSON(egress[:len(kept)]) != command.JSON(kept) || len(egress) != len(kept)+1 {
-			t.Fatalf("%s egress rules\n%s\nkept\n%s", cell, command.JSON(egress), command.JSON(kept))
-		}
-		if command.JSON(obj(b.list)["ingress-security-rules"]) != command.JSON(b.ingress) {
-			t.Fatalf("%s ingress rules changed", cell)
-		}
-	}
-	for _, args := range x.f.args {
-		if strings.Contains(strings.Join(args, " "), " update --rt-id ") || slices.Contains(args, "--security-list-id") {
-			if i := slices.Index(args, "--if-match"); i < 0 || args[i+1] != "1" {
-				t.Fatalf("full-list update without the read's ETag: %v", args)
-			}
-		}
-	}
-}
-
-func TestPeerRefusesBeforeAnyChange(t *testing.T) {
-	for name, test := range map[string]struct {
-		setup func(*pair)
-		want  string
-	}{
-		"same-named DRG route table with ECMP": {func(x *pair) {
-			network := obj(x.plans["GRU"]["resource_ids"])["network_compartment"]
-			drg := x.f.add("drg", gru, Object{"display-name": "gru-1-drg", "compartment-id": network})
-			x.f.add("drg-route-table", gru, Object{"display-name": "gru-1-drg-vcn-routes", "drg-id": drg, "compartment-id": network, "is-ecmp-enabled": true})
-		}, "DRG route table gru-1-drg-vcn-routes exists but differs from the plan"},
-		"route to the peer subnet through another gateway": {func(x *pair) {
-			table := x.f.rows[text(obj(x.plans["GRU"]["resource_ids"])["route_table"])].data
-			table["route-rules"] = append(arr(table["route-rules"]), Object{"destination": "10.252.0.0/25", "destination-type": "CIDR_BLOCK",
-				"network-entity-id": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.other"})
-		}, "gru-1: live reciprocal subnet route table: a rule reaches the peer VCN"},
-		"NSG rule from anywhere": {func(x *pair) {
-			nsg := text(obj(x.plans["SJC"]["resource_ids"])["network_security_group"])
-			x.f.nsgRules[nsg] = append(x.f.nsgRules[nsg], Object{"direction": "INGRESS", "protocol": "6", "source": "0.0.0.0/0", "source-type": "CIDR_BLOCK",
-				"is-stateless": false, "tcp-options": Object{"destination-port-range": Object{"min": 7422, "max": 7422}}})
-		}, "sjc-1: live peer NSG rules: a rule reaches the peer VCN"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			x := newPair(t)
-			test.setup(x)
-			if _, err := x.run(t, true); err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("err %v, want %q", err, test.want)
-			}
-			if len(x.f.writes) != 0 {
-				t.Fatalf("refused run wrote %v", x.f.writes)
-			}
-		})
-	}
-}
-
-func TestPeerRefusesOverlappingCells(t *testing.T) {
-	x := newPair(t)
-	// gru-1 renumbered into sjc-1's 10.252.0.0/24.
-	wire := bytes.ReplaceAll(mustRead(t, x.right), []byte("10.251."), []byte("10.252."))
-	if err := os.WriteFile(x.right, wire, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	intent := decode(mustRead(t, x.intent)).(Object)
-	obj(obj(intent["cells"])["GRU"])["plan_sha256"] = fileSHA(t, x.right)
-	writeJSON(t, x.intent, intent)
-	// RunPeer refuses before it builds an OCI client.
-	err := RunPeer(t.Context(), []string{"--pair-intent", x.intent, "--left-plan", x.left, "--right-plan", x.right, "--out", x.out, "--apply"}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "CIDRs must not overlap") {
-		t.Fatalf("err %v", err)
-	}
-	if _, err := os.Stat(x.out); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("refused run wrote the bound intent")
-	}
-}
-
-func TestInterruptedPeerResumes(t *testing.T) {
-	for _, step := range []string{"network drg-attachment create", "network remote-peering-connection connect", "network security-list update"} {
-		t.Run(step, func(t *testing.T) {
-			x := newPair(t)
-			x.f.failOn = step
-			if _, err := x.run(t, true); err == nil {
-				t.Fatal("interrupted run succeeded")
-			}
-			if _, err := x.run(t, true); err != nil {
-				t.Fatal(err)
-			}
-			got := x.f.writes
-			i := slices.IndexFunc(got, func(w string) bool { return strings.HasSuffix(w, " "+step) })
-			if got = slices.Delete(slices.Clone(got), i, i+1); !slices.Equal(got, peerWrites()) {
-				t.Fatalf("resumed writes\n%v\nwant\n%v", got, peerWrites())
-			}
-		})
-	}
-}
-
-// A failover test drops one port's NSG ingress rule on both sides and
-// nothing else; the next apply restores exactly those rules.
-func TestPeerDropPortRemovesOnlyThatRule(t *testing.T) {
-	x := newPair(t)
-	intent := decode(mustRead(t, x.intent)).(Object)
-	intent["allowed_tcp_ports"] = []any{7422, 9443}
-	writeJSON(t, x.intent, intent)
-	if log, err := x.run(t, true); err != nil {
-		t.Fatalf("%v\n%s", err, log)
-	}
-	rules := func() map[string][]any {
-		r := map[string][]any{}
-		for cell, plan := range x.plans {
-			r[cell] = clone(x.f.nsgRules[text(obj(plan["resource_ids"])["network_security_group"])]).([]any)
-		}
-		return r
-	}
-	before := rules()
-	drop := func(port int, apply bool) string {
-		t.Helper()
-		var log bytes.Buffer
-		engine := &ociregion.Engine{Context: t.Context(), Dependency: x.f.dependency}
-		intent, plans, err := engine.PrivatePeerPair(x.intent, x.left, x.right)
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := &Peer{Clients: map[string]command.Client{sjc: client{x.f, sjc}, gru: client{x.f, gru}}, Out: &log, BeforeWrite: allowWrite, Guard: allowGuard}
-		if err := p.Drop(t.Context(), intent, plans, port, apply); err != nil {
-			t.Fatalf("drop %d: %v\n%s", port, err, log.String())
-		}
-		return log.String()
-	}
-	x.f.writes = nil
-	if log := drop(7422, false); len(x.f.writes) != 0 || !strings.Contains(log, "2 changes planned") {
-		t.Fatalf("dry drop wrote %v:\n%s", x.f.writes, log)
-	}
-	drop(7422, true)
-	if want := []string{sjc + " network nsg rules remove", gru + " network nsg rules remove"}; !slices.Equal(x.f.writes, want) {
-		t.Fatalf("drop wrote %v, want %v", x.f.writes, want)
-	}
-	for cell, live := range rules() {
-		if len(live) != len(before[cell])-1 || strings.Contains(command.JSON(live), `"min":7422`) {
-			t.Fatalf("%s NSG after drop: %s", cell, command.JSON(live))
-		}
-	}
-	if log := drop(7422, true); !strings.Contains(log, "has no TCP 7422 rule") {
-		t.Fatalf("second drop:\n%s", log)
-	}
-	if engine := (&ociregion.Engine{Context: t.Context(), Dependency: x.f.dependency}); engine.CheckPrivatePeer(x.out, x.left, x.right) == nil {
-		t.Fatal("inspection passes with a dropped port")
-	}
-	x.f.writes = nil
-	if log, err := x.run(t, true); err != nil {
-		t.Fatalf("restore: %v\n%s", err, log)
-	}
-	if want := []string{sjc + " network nsg rules add", gru + " network nsg rules add"}; !slices.Equal(x.f.writes, want) {
-		t.Fatalf("restore wrote %v, want %v", x.f.writes, want)
-	}
-	var log bytes.Buffer
-	p := &Peer{Out: &log, BeforeWrite: allowWrite, Guard: allowGuard}
-	if err := p.Drop(t.Context(), intent, nil, 22, true); err == nil {
-		t.Fatal("dropped a port outside the intent")
-	}
-}

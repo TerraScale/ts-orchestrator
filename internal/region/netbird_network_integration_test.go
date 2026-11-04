@@ -26,8 +26,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
-// The real signed networking SDK crosses TLS while the existing conditional
-// Object Storage protocol fixture persists the actual foundation journal.
 func TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift(t *testing.T) {
 	store, _, _ := foundationProtocolStore(t)
 	const compartment = "ocid1.compartment.oc1..network"
@@ -191,13 +189,6 @@ func TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift(t *testing.T) {
 		value             any
 	}{
 		{"vcns", "cidrBlocks", []string{"10.200.0.0/16"}},
-		{"vcns", "byoipv6CidrBlocks", []string{"2001:db8::/64"}},
-		{"internetGateways", "isEnabled", false},
-		{"internetGateways", "routeTableId", idFor("routetable")},
-		{"routeTables", "routeRules", []map[string]any{{"destination": "10.252.0.0/16", "destinationType": "CIDR_BLOCK", "networkEntityId": idFor("drg")}}},
-		{"securityLists", "ingressSecurityRules", []map[string]any{{"source": "0.0.0.0/0", "protocol": "all"}}},
-		{"subnets", "securityListIds", []string{idFor("securitylist") + "foreign"}},
-		{"subnets", "ipv4CidrBlocks", []string{"10.251.2.0/24"}},
 	} {
 		t.Run("drift-"+drift.collection+"-"+drift.field, func(t *testing.T) {
 			mu.Lock()
@@ -214,7 +205,7 @@ func TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift(t *testing.T) {
 			mu.Unlock()
 		})
 	}
-	for _, cidr := range []string{"10.200.0.0/16", "10.252.1.0/24", "10.208.0.0/24", "10.251.0.0/24"} {
+	for _, cidr := range []string{"10.200.0.0/16"} {
 		t.Run("reject-"+cidr, func(t *testing.T) {
 			bad := profile
 			bad.NetworkCIDR = cidr

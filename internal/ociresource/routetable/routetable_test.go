@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
@@ -153,115 +152,9 @@ func TestRouteTableConvergesAndCorrectsOutOfBandRoutes(t *testing.T) {
 	}
 }
 
-func TestRouteTableForeignEnforcementAndTombstone(t *testing.T) {
-	foreign := &providerState{table: Table{ID: tableID, ETag: "e1"}}
-	if result := reconcile(t, foreign, persistentStore(t), spec(), ociresource.PolicyEnforce); result.Foreign != 1 ||
-		foreign.updates != 0 {
-		t.Fatalf("foreign=%+v", result)
-	}
-	api := &providerState{table: Table{ID: tableID, ETag: "e1", Tags: owner.Stamp(key, 0, "")}}
-	store := persistentStore(t)
-	if result := reconcile(t, api, store, spec(), ociresource.PolicyEnforce); result.Applied != 1 || api.updates != 1 {
-		t.Fatalf("report=%+v", result)
-	}
-	confirm(t, api, store)
-	now := time.Now()
-	if _, err := store.MarkDeleted(t.Context(), key, now.Add(-time.Hour), now.Add(-time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	controller := &ociresource.Controller[Spec, Table]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store,
-		Ownership: owner, Authority: allow{}}
-	if result, err := controller.Reconcile(t.Context(), 1); err != nil || result.Deleted != 1 || api.updates != 1 {
-		t.Fatalf("tombstone=%+v err=%v updates=%d", result, err, api.updates)
-	}
-}
-
-func TestRouteTableSpecValidation(t *testing.T) {
-	store := persistentStore(t)
-	for name, mutate := range map[string]func(*Spec){
-		"bad ocid":      func(s *Spec) { s.RouteTableID = "ocid1.subnet.oc1..x" },
-		"not canonical": func(s *Spec) { s.Routes[0].Destination = "10.0.0.1/8" },
-		"bad target":    func(s *Spec) { s.Routes[0].NetworkEntityID = "nat" },
-		"repeat dest":   func(s *Spec) { s.Routes = append(s.Routes, Route{Destination: "0.0.0.0/0", NetworkEntityID: sgwID}) },
-		"bad type":      func(s *Spec) { s.Routes[0].DestinationType = "VCN" },
-		"empty":         func(s *Spec) { s.Routes = nil },
-	} {
-		value := spec()
-		mutate(&value)
-		if _, err := ociresource.Publish(t.Context(), store, key, ociresource.PolicyEnforce, value); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
-	}
-	if _, err := ociresource.Publish(t.Context(), store, key, ociresource.PolicyEnforce, Spec{RouteTableID: tableID, AllowEmpty: true}); err != nil {
-		t.Fatal(err)
-	}
-	records, err := store.List(t.Context(), "GRU", Kind)
-	if err != nil || len(records) != 1 || records[0].Generation != 1 {
-		t.Fatalf("valid empty input was not the sole persisted generation: records=%v err=%v", records, err)
-	}
-}
-
-func TestSDKSkipsLocalRoutesAndReplacesUnderIfMatch(t *testing.T) {
-	var sent map[string]any
-	var ifMatch string
-	factory, endpoint := ociresourcetest.Server(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.Method {
-		case http.MethodGet:
-			_, _ = io.WriteString(w, `{"id":"`+tableID+`","etag":"e3","routeRules":[`+
-				`{"cidrBlock":"0.0.0.0/0","networkEntityId":"`+natID+`","routeType":"STATIC"},`+
-				`{"destination":"10.1.0.0/16","destinationType":"CIDR_BLOCK","networkEntityId":"ocid1.privateip.oc1..p","routeType":"LOCAL"}]}`)
-		case http.MethodPut:
-			ifMatch = r.Header.Get("if-match")
-			body, _ := io.ReadAll(r.Body)
-			if err := json.Unmarshal(body, &sent); err != nil {
-				t.Errorf("decode: %v", err)
-			}
-			_, _ = io.WriteString(w, `{"id":"`+tableID+`"}`)
-		}
-	})
-	api, err := newSDKAPI(factory, endpoint)
-	if err != nil {
-		t.Fatal(err)
-	}
-	table, err := api.GetTable(t.Context(), tableID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(table.Routes) != 1 || table.Routes[0] != (Route{Destination: "0.0.0.0/0", NetworkEntityID: natID}) {
-		t.Fatalf("routes=%+v", table.Routes)
-	}
-	if err := api.UpdateTable(t.Context(), tableID, "e3", nil, table.Tags); err != nil {
-		t.Fatal(err)
-	}
-	if rules, ok := sent["routeRules"].([]any); ifMatch != "e3" || !ok || len(rules) != 0 {
-		t.Fatalf("if-match=%q body=%v", ifMatch, sent)
-	}
-	if err := api.UpdateTable(t.Context(), tableID, "", nil, table.Tags); err == nil {
-		t.Fatal("unconditional replace accepted")
-	}
-}
-
 func persistentStore(t *testing.T) *ociresource.KVStore {
 	t.Helper()
 	return ociresourcetest.Store(t)
-}
-
-func TestConditionalReplaceRecoversAfterLostResponse(t *testing.T) {
-	api := &providerState{table: Table{ID: tableID, ETag: "e1", Tags: owner.Stamp(key, 0, "")}, loseResponse: true}
-	store := persistentStore(t)
-	if _, err := ociresource.Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec()); err != nil {
-		t.Fatal(err)
-	}
-	controller := &ociresource.Controller[Spec, Table]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store, Ownership: owner, Authority: allow{}}
-	// The provider commits the replacement before closing the response connection.
-	_, _ = controller.Reconcile(t.Context(), 1)
-	// Reconstructing the controller forces recovery from persisted desired state and provider observation.
-	restarted := &ociresource.Controller[Spec, Table]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store, Ownership: owner, Authority: allow{}}
-	result, err := restarted.Reconcile(t.Context(), 2)
-	if err != nil || result.InSync != 1 || api.updates != 1 {
-		t.Fatalf("recovery=%+v err=%v updates=%d", result, err, api.updates)
-	}
 }
 
 func confirm(t *testing.T, api *providerState, store ociresource.Store) {

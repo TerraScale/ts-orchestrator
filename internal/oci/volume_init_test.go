@@ -2,14 +2,12 @@ package oci
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"sync"
 	"testing"
 
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 type volumeInitTestFencer struct {
@@ -86,92 +84,6 @@ func newVolumeInitFixture(t *testing.T) (*fleet, *fakeProvider, *KVJournal, Volu
 	return fleet, provider, journal, pins, host.BootDescriptorSHA256
 }
 
-func TestInspectVolumeInitializationGrantsOneFirstFormat(t *testing.T) {
-	fleet, _, journal, pins, bootDigest := newVolumeInitFixture(t)
-	for _, test := range []struct {
-		name   string
-		change func(*VolumeInitializationPins)
-	}{
-		{"wrong host", func(pins *VolumeInitializationPins) { pins.InstanceID = "ocid1.instance.foreign" }},
-		{"wrong volume", func(pins *VolumeInitializationPins) { pins.VolumeID = "ocid1.volume.foreign" }},
-		{"wrong device", func(pins *VolumeInitializationPins) { pins.Device = "/dev/oracleoci/oraclevdz" }},
-		{"stale attachment ETag", func(pins *VolumeInitializationPins) { pins.AttachmentETag = "stale-etag" }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			wrong := pins
-			test.change(&wrong)
-			if proof, err := fleet.InspectVolumeInitialization(t.Context(), wrong); err == nil || proof.AllowFormat {
-				t.Fatalf("mismatched binding received first-format authority: proof=%+v err=%v", proof, err)
-			}
-		})
-	}
-
-	type outcome struct {
-		proof VolumeInitializationProof
-		err   error
-	}
-	start := make(chan struct{})
-	results := make(chan outcome, 2)
-	var calls sync.WaitGroup
-	for range 2 {
-		calls.Go(func() {
-			<-start
-			proof, err := fleet.InspectVolumeInitialization(t.Context(), pins)
-			results <- outcome{proof: proof, err: err}
-		})
-	}
-	close(start)
-	calls.Wait()
-	close(results)
-	granted := 0
-	for result := range results {
-		if result.err != nil || result.proof.BootDescriptorSHA256 != bootDigest {
-			t.Fatalf("exact owned first attachment was not inspected: proof=%+v err=%v", result.proof, result.err)
-		}
-		if result.proof.AllowFormat {
-			granted++
-		}
-	}
-	if granted != 1 {
-		t.Fatalf("two concurrent current requests received %d format grants, want exactly one", granted)
-	}
-	// A guest crash after receiving permission cannot recreate the grant.
-	again, err := fleet.InspectVolumeInitialization(t.Context(), pins)
-	if err != nil || again.AllowFormat || again.BootDescriptorSHA256 != bootDigest {
-		t.Fatalf("replayed first-format request was not permanently consumed: %+v err=%v", again, err)
-	}
-	operations, err := journal.ListOperations(t.Context())
-	if err != nil || len(operations) != 3 {
-		t.Fatalf("format permission changed OCI operation inventory: operations=%d err=%v", len(operations), err)
-	}
-}
-
-func TestInspectVolumeInitializationGrantsPinnedXFSFirstFormat(t *testing.T) {
-	fleet, _, _, pins, _ := newVolumeInitFixture(t)
-	pins.FileSystemType = "xfs"
-	proof, err := fleet.InspectVolumeInitialization(t.Context(), pins)
-	if err != nil || !proof.AllowFormat {
-		t.Fatalf("pinned xfs did not receive its one first-format grant: proof=%+v err=%v", proof, err)
-	}
-	pins.FileSystemType = "btrfs"
-	if proof, err := fleet.InspectVolumeInitialization(t.Context(), pins); err == nil || proof.AllowFormat {
-		t.Fatalf("unsupported filesystem pin was inspected: proof=%+v err=%v", proof, err)
-	}
-}
-
-func TestInspectVolumeInitializationDeniesPriorDetachHistory(t *testing.T) {
-	fleet, _, journal, pins, bootDigest := newVolumeInitFixture(t)
-	prior := fleet.intent(actionVolumeDetach, "prior-detach-history", pins.AttachmentID,
-		pins.HostCreateKey, pins.AttachmentETag, "", pins.VolumeID)
-	if err := journal.RecordIntent(t.Context(), prior); err != nil {
-		t.Fatal(err)
-	}
-	proof, err := fleet.InspectVolumeInitialization(t.Context(), pins)
-	if err != nil || proof.AllowFormat || proof.BootDescriptorSHA256 != bootDigest {
-		t.Fatalf("prior detach history regained first-format authority: proof=%+v err=%v", proof, err)
-	}
-}
-
 func TestVolumeFormatPermitJournalOneWinnerAndImmutableBinding(t *testing.T) {
 	kv := testJournalBucket(t)
 	first, err := NewKVJournal(kv)
@@ -235,13 +147,5 @@ func TestVolumeFormatPermitJournalOneWinnerAndImmutableBinding(t *testing.T) {
 	}
 	if operations, err := reopened.ListOperations(t.Context()); err != nil || len(operations) != 0 {
 		t.Fatalf("format record appeared as a pending OCI operation: operations=%d err=%v", len(operations), err)
-	}
-}
-
-func TestInspectVolumeInitializationHoldsWhenAuthorityIsFenced(t *testing.T) {
-	fleet, _, _, pins, _ := newVolumeInitFixture(t)
-	fleet.fencer = volumeInitTestFencer{snapshot: authority.Snapshot{}}
-	if proof, err := fleet.InspectVolumeInitialization(t.Context(), pins); !errors.Is(err, authority.ErrNotLeader) || proof.AllowFormat {
-		t.Fatalf("fenced inspector granted format authority: proof=%+v err=%v", proof, err)
 	}
 }

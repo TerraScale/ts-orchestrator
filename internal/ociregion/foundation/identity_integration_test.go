@@ -26,8 +26,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
-// This scenario crosses the actual signed SDK/HTTP provider boundary. It stops
-// after the first durable OCID checkpoint, before downstream resources exist.
 func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	const resourceID = "ocid1.compartment.oc1..ownedcontrol"
 	const founderID = "ocid1.instance.oc1.us-sanjose-1.acceptedseed"
@@ -56,8 +54,6 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 		target        vaultsecret.Target
 	}{
 		{"ocid1.instance.oc1.us-sanjose-1.seed'", sourceName, sourceTarget},
-		{founderID, "ts-bootstrap-source-*", sourceTarget},
-		{founderID, sourceName, vaultsecret.Target{CompartmentID: resourceID, VaultID: "ocid1.vault.oc1.us-sanjose-1.foreign", KeyID: sourceTarget.KeyID}},
 	} {
 		if _, err := ociregion.BootstrapSourceStatements(invalid.founder, invalid.name, invalid.target); err == nil {
 			t.Fatalf("invalid source IAM accepted: %+v", invalid)

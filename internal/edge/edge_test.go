@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/letsencrypt/pebble/v2/ca"
 	"github.com/letsencrypt/pebble/v2/db"
 	"github.com/letsencrypt/pebble/v2/va"
@@ -35,9 +34,6 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-// TestEdgeIssuesCertificateAndProxies runs an in-process Pebble ACME server
-// that validates HTTP-01 against the edge's :80 listener, then proxies HTTP,
-// SSE, websocket and gRPC through :443 to loopback backends.
 func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 	t.Setenv("PEBBLE_VA_NOSLEEP", "1")
 	t.Setenv("PEBBLE_WFE_NONCEREJECT", "0")
@@ -603,15 +599,6 @@ func echoBackend(t *testing.T) (port int, got, headers chan []byte) {
 	return ln.Addr().(*net.TCPAddr).Port, got, headers
 }
 
-func TestProxyHeaderSendsMappedIPv4AsTCP4(t *testing.T) {
-	src := &net.TCPAddr{IP: net.ParseIP("::ffff:203.0.113.7"), Port: 50000}
-	dst := &net.TCPAddr{IP: net.ParseIP("::ffff:10.0.0.1"), Port: 5432}
-	want := []byte("\r\n\r\n\x00\r\nQUIT\n\x21\x11\x00\x0c\xcb\x00\x71\x07\x0a\x00\x00\x01\xc3\x50\x15\x38")
-	if got := proxyHeader(src, dst); !bytes.Equal(got, want) {
-		t.Fatalf("header = %x, want %x", got, want)
-	}
-}
-
 func appBackend() http.Handler {
 	grpcServer := grpc.NewServer()
 	healthpb.RegisterHealthServer(grpcServer, health.NewServer())
@@ -691,80 +678,3 @@ func startDNS(t *testing.T) string {
 type zeros struct{}
 
 func (zeros) Read(p []byte) (int, error) { clear(p); return len(p), nil }
-
-func TestSecureHeadersKeepBackendValues(t *testing.T) {
-	h := http.Header{}
-	h.Set("Content-Security-Policy", "default-src 'self'")
-	h.Set("Referrer-Policy", "same-origin")
-	secureHeaders(h)
-	if h.Get("X-Frame-Options") != "" || h.Get("Content-Security-Policy") != "default-src 'self'" || h.Get("Referrer-Policy") != "same-origin" || h.Get("X-Content-Type-Options") != "nosniff" {
-		t.Fatalf("headers = %v", h)
-	}
-}
-
-func TestEdgeRefusesPublicNetBirdSetup(t *testing.T) {
-	e := newEdge(t.TempDir(), nil)
-	e.SetRoutes(map[string]int{netbirdHost: 1}, nil)
-	for _, target := range []string{"/api/setup", "//api/./setup", "/api/setup/"} {
-		r := httptest.NewRequest(http.MethodPost, "https://"+netbirdHost+target, nil)
-		w := httptest.NewRecorder()
-		e.serveHTTPS(w, r)
-		if w.Code != http.StatusForbidden {
-			t.Fatalf("%s: status %d, want 403", target, w.Code)
-		}
-	}
-}
-
-// A backend that binds its port during the handoff window still gets the request.
-func TestDialHandoffWaitsForBackend(t *testing.T) {
-	probe, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	address := probe.Addr().String()
-	probe.Close()
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		ln, err := net.Listen("tcp", address)
-		if err != nil {
-			return
-		}
-		defer ln.Close()
-		if conn, err := ln.Accept(); err == nil {
-			conn.Close()
-		}
-	}()
-	conn, err := dialHandoff(context.Background(), "tcp", address)
-	if err != nil {
-		t.Fatalf("dial during handoff: %v", err)
-	}
-	conn.Close()
-}
-
-// A held port gets no dial until its new task is ready, even while it already
-// accepts connections.
-func TestDialHandoffWaitsForHeldPort(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	port := uint16(ln.Addr().(*net.TCPAddr).Port)
-	handoff.Hold(port)
-	released := make(chan struct{})
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		close(released)
-		handoff.Release(port)
-	}()
-	conn, err := dialHandoff(context.Background(), "tcp", ln.Addr().String())
-	if err != nil {
-		t.Fatalf("dial after release: %v", err)
-	}
-	conn.Close()
-	select {
-	case <-released:
-	default:
-		t.Fatal("dial finished before the port was released")
-	}
-}

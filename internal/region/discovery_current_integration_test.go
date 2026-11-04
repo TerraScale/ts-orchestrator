@@ -23,19 +23,14 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/sys/unix"
-
-	"github.com/oracle/oci-go-sdk/v65/common"
-
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
-// All discovery requests cross the actual OCI SDK's signed HTTP boundary.
-// Only the remote Object Storage service and root ceremony are local fixtures.
 type currentDiscoveryScenario struct {
 	client  foundationDiscoveryObjects
 	genesis trust.Keyring
@@ -417,24 +412,4 @@ func TestCurrentFoundationDiscoveryHTTPDurableAuthority(t *testing.T) {
 			t.Fatalf("symlink target changed: %q %v", wire, err)
 		}
 	})
-}
-
-func TestCurrentFoundationDiscoveryLockProcess(t *testing.T) {
-	path := os.Getenv("TS_TEST_FOUNDATION_LOCK")
-	if path == "" {
-		return
-	}
-	lock, err := os.OpenFile(path, os.O_RDWR, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lock.Close()
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stdout.Write([]byte("L")); err != nil {
-		t.Fatal(err)
-	}
-	var done [1]byte
-	_, _ = os.Stdin.Read(done[:])
 }

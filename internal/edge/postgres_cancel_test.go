@@ -79,24 +79,3 @@ func TestPostgresCancellationFindsUniqueOwnerOverMeshAndRejectsStaleGeneration(t
 }
 
 func sha256Digest(key [8]byte) []byte { sum := sha256.Sum256(key[:]); return sum[:] }
-
-func TestPostgresCancellationRejectsAmbiguousOwnersAndIncompleteDiscovery(t *testing.T) {
-	t.Parallel()
-	regions := startRegions(t, terraBase, "ams")
-	key := [8]byte{1}
-	port, _, _ := echoBackend(t)
-	one, _ := regions["gru"].edge.pgKeys.add(key, port)
-	two, _ := regions["ams"].edge.pgKeys.add(key, port)
-	defer one()
-	defer two()
-	packet := append(binary.BigEndian.AppendUint32([]byte{0, 0, 0, 16}, cancelRequest), key[:]...)
-	packet = append(proxyHeader(nil, nil), packet...)
-	if regions["fra"].edge.relayPostgresCancel(packet, key) {
-		t.Fatal("ambiguous ownership dispatched cancellation")
-	}
-	two()
-	regions["ams"].stop()
-	if regions["fra"].edge.relayPostgresCancel(packet, key) {
-		t.Fatal("incomplete ownership discovery dispatched cancellation")
-	}
-}

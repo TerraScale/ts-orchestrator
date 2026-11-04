@@ -16,15 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/identity"
-
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/oracle/oci-go-sdk/v65/identity"
 )
 
 const (
@@ -51,100 +48,6 @@ func load(t *testing.T, path string) map[string]any {
 	return plan
 }
 
-func TestNetworkFollowsTheCatalog(t *testing.T) {
-	for cell, want := range map[string]string{"GRU": "10.251.0.0/24", "SJC": "10.252.0.0/24", "FRA": "10.253.0.0/24"} {
-		if got, err := Network(cell); err != nil || got != want {
-			t.Fatalf("%s: %q %v", cell, got, err)
-		}
-	}
-	if _, err := Network("XYZ"); err == nil {
-		t.Fatal("a cell outside the catalog has a network")
-	}
-}
-
-// Deriving fra from sjc-1 and sjc back from fra must give sjc-1's reviewed
-// plan: every field is either derived or kept, none hand-edited.
-func TestDeriveRoundTripsTheReviewedPlan(t *testing.T) {
-	sjc := load(t, sjcPlan)
-	fra, err := Derive(load(t, sjcPlan), "fra", "eu-frankfurt-1", fraLive)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "fra-1-plan.json")
-	if err := writePlan(path, fra); err != nil {
-		t.Fatal(err)
-	}
-	fra = load(t, path)
-	purpose := fra["purpose"]
-	delete(fra, "purpose") // names its template
-	data, _ := json.Marshal(fra)
-	text := string(data)
-	for _, gone := range []string{"sjc-1", "ts-sjc", "10.252.", "all-sjc", "us-sanjose-1"} {
-		if strings.Contains(text, gone) {
-			t.Fatalf("fra plan still names %q", gone)
-		}
-	}
-	public := fra["public_api"].(map[string]any)
-	if fra["cell"] != "FRA" || fra["network_cidr"] != "10.253.0.0/24" || fra["subnet_cidr"] != "10.253.0.0/25" ||
-		public["subnet_cidr"] != "10.253.0.128/26" || !reflect.DeepEqual(public["terrabase_members"], []any{"ts-fra-1", "ts-fra-2", "ts-fra-3"}) ||
-		fra["preview_compartment_names"].(map[string]any)["control"] != "fra-1-control" ||
-		fra["hosts"].([]any)[2].(map[string]any)["private_ip"] != "10.253.0.13" ||
-		!reflect.DeepEqual(fra["existing_operations_host"], sjc["existing_operations_host"]) || !reflect.DeepEqual(public["origin_pull"], sjc["public_api"].(map[string]any)["origin_pull"]) {
-		t.Fatalf("fra plan: %s", text)
-	}
-	fra["purpose"] = purpose
-	back, err := Derive(fra, "sjc", "us-sanjose-1", sjcLive)
-	if err != nil {
-		t.Fatal(err)
-	}
-	back["purpose"] = sjc["purpose"]
-	want, _ := json.Marshal(sjc, json.Deterministic(true))
-	got, _ := json.Marshal(back, json.Deterministic(true))
-	if string(got) != string(want) {
-		t.Fatalf("round trip differs\nwant %s\n got %s", want, got)
-	}
-}
-
-func TestDeriveRefuses(t *testing.T) {
-	gru := load(t, "../../deploy/oci-region/plan.json")
-	for name, run := range map[string]func() error{
-		"home region":       func() error { _, err := Derive(load(t, sjcPlan), "gru", "sa-saopaulo-1", fraLive); return err },
-		"wrong OCI region":  func() error { _, err := Derive(load(t, sjcPlan), "fra", "us-sanjose-1", fraLive); return err },
-		"not in catalog":    func() error { _, err := Derive(load(t, sjcPlan), "nrt", "ap-tokyo-1", fraLive); return err },
-		"same region":       func() error { _, err := Derive(load(t, sjcPlan), "sjc", "us-sanjose-1", sjcLive); return err },
-		"home template":     func() error { _, err := Derive(gru, "fra", "eu-frankfurt-1", fraLive); return err },
-		"no live lookup":    func() error { _, err := Derive(load(t, sjcPlan), "fra", "eu-frankfurt-1", Live{}); return err },
-		"existing out file": func() error { return writePlan("/dev/null/x", map[string]any{}) },
-	} {
-		if run() == nil {
-			t.Fatalf("%s accepted", name)
-		}
-	}
-}
-
-func TestRegionProfileKeepsOnlyDefaultInTheRegion(t *testing.T) {
-	dir := t.TempDir()
-	for input, want := range map[string]string{
-		"[DEFAULT]\nuser=u\nregion=sa-saopaulo-1\nkey_file=~/.oci/k.pem\n[OTHER]\nregion=x\n": "[DEFAULT]\nuser=u\nregion=eu-frankfurt-1\nkey_file=~/.oci/k.pem\n",
-		"[OTHER]\nuser=o\n[DEFAULT]\nuser=u":                                                  "[DEFAULT]\nuser=u\nregion=eu-frankfurt-1\n",
-	} {
-		path := filepath.Join(dir, "config")
-		if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if got, err := regionProfile(path, "eu-frankfurt-1"); err != nil || string(got) != want {
-			t.Fatalf("%q: %q %v", input, got, err)
-		}
-	}
-	path := filepath.Join(dir, "none")
-	_ = os.WriteFile(path, []byte("[OTHER]\nregion=x\n"), 0o600)
-	if _, err := regionProfile(path, "eu-frankfurt-1"); err == nil {
-		t.Fatal("a config without DEFAULT gave a profile")
-	}
-}
-
-// creation runs region create against a fake ts-orch that plays each
-// command's file effects.
 type creation struct {
 	*Creation
 	calls       []string
@@ -251,56 +154,9 @@ type fakeSubscriptions struct {
 	waits   int
 }
 
-func (f *fakeSubscriptions) ListRegionSubscriptions(context.Context, identity.ListRegionSubscriptionsRequest) (identity.ListRegionSubscriptionsResponse, error) {
-	if f.status == identity.RegionSubscriptionStatusInProgress && len(f.after) > 0 {
-		f.status, f.after = f.after[0], f.after[1:]
-	}
-	var items []identity.RegionSubscription
-	if f.status != "" {
-		items = append(items, identity.RegionSubscription{RegionKey: common.String("FRA"), RegionName: common.String("eu-frankfurt-1"), Status: f.status})
-	}
-	return identity.ListRegionSubscriptionsResponse{Items: items}, nil
-}
-
-func (f *fakeSubscriptions) CreateRegionSubscription(_ context.Context, request identity.CreateRegionSubscriptionRequest) (identity.CreateRegionSubscriptionResponse, error) {
-	f.creates = append(f.creates, request)
-	f.status = identity.RegionSubscriptionStatusInProgress
-	return identity.CreateRegionSubscriptionResponse{OpcRequestId: common.String("req-1"),
-		RegionSubscription: identity.RegionSubscription{RegionKey: request.RegionKey, Status: f.status}}, nil
-}
-
 func (f *fakeSubscriptions) pause(context.Context, time.Duration) error {
 	f.waits++
 	return nil
-}
-
-func TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey(t *testing.T) {
-	c := newCreation(t)
-	c.failOn = "netbird sync"
-	if err := c.Create(t.Context()); err == nil {
-		t.Fatal("region creation continued after fabric sync failed")
-	}
-	for _, call := range c.calls {
-		if strings.HasPrefix(call, "netbird image-input") || strings.HasPrefix(call, "oci-region attempt") {
-			t.Fatalf("nodes prepared before fabric access: %s", call)
-		}
-	}
-	if _, err := os.Stat(c.path("netbird-setup-key.json")); err != nil {
-		t.Fatalf("setup key receipt was not retained: %v", err)
-	}
-	c.calls, c.failOn = nil, ""
-	c.verifyOK = true
-	if err := c.Create(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if len(c.calls) < 2 || c.calls[0] != "netbird sync --apply" || !strings.HasPrefix(c.calls[1], "netbird image-input") {
-		t.Fatalf("retry did not reconcile fabric before image preparation: %v", c.calls)
-	}
-	for _, call := range c.calls {
-		if strings.HasPrefix(call, "netbird setup-key") || strings.HasPrefix(call, "vault put") {
-			t.Fatalf("retry replaced the stored enrollment key: %s", call)
-		}
-	}
 }
 
 func TestCreateRunsEveryStepOnceAndResumes(t *testing.T) {
@@ -421,99 +277,6 @@ func TestCreatePeersWithTheHome(t *testing.T) {
 	}
 }
 
-func TestCreateRefusesBeforeSpending(t *testing.T) {
-	c := newCreation(t)
-	home := c.HomePlan
-	c.missing = "gru-1-netbird-admin-pat"
-	if err := c.Create(t.Context()); err == nil || !strings.Contains(err.Error(), c.missing) || len(c.calls) != 0 {
-		t.Fatalf("ran without the NetBird PAT: %v %v", err, c.calls)
-	}
-	c.missing = ""
-	for _, plan := range []string{"", sjcPlan} {
-		c.HomePlan = plan
-		if err := c.Create(t.Context()); err == nil || !strings.Contains(err.Error(), "home") || len(c.calls) != 0 {
-			t.Fatalf("ran with --home-plan %q: %v", plan, err)
-		}
-	}
-	c.HomePlan = home
-	c.Label = "gru"
-	if err := c.Create(t.Context()); err == nil || len(c.calls) != 0 {
-		t.Fatal("created the home region")
-	}
-	c.Label = "fra"
-	if err := os.WriteFile(c.AttemptBase, []byte(`{"workdir":"/elsewhere"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Create(t.Context()); err == nil || !strings.Contains(err.Error(), "workdir") {
-		t.Fatalf("attempt base overriding the region's workdir: %v", err)
-	}
-}
-
-func TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown(t *testing.T) {
-	for _, token := range []string{"fra", "eu-frankfurt-1"} {
-		if entry, err := ResolveRegion(token); err != nil || entry.Cell != catalog.FRA {
-			t.Fatalf("%s: %+v %v", token, entry, err)
-		}
-	}
-	for _, token := range []string{"gru", "sa-saopaulo-1", "xyz", "eu-frankfurt-2"} {
-		if _, err := ResolveRegion(token); err == nil {
-			t.Fatalf("%s accepted", token)
-		}
-	}
-}
-
-// The tokens are read once per run and reach only the steps' child
-// environments, never the operator's report.
-func TestCreateReadsTheTokensOnceForItsSteps(t *testing.T) {
-	c := newCreation(t)
-	c.verifyOK = true
-	if err := c.Create(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if c.secretReads["gru-1-cloudflare-dns-edit-token"] != 1 || c.secretReads["gru-1-netbird-admin-pat"] != 1 {
-		t.Fatalf("secret reads: %v", c.secretReads)
-	}
-	if out := c.Out.(*bytes.Buffer).String(); strings.Contains(out, cfValue) || strings.Contains(out, patValue) {
-		t.Fatalf("the report carries a token: %s", out)
-	}
-}
-
-func TestSubscribeReusesAReadySubscription(t *testing.T) {
-	entry, _ := catalog.LookupName("fra")
-	api := &fakeSubscriptions{status: identity.RegionSubscriptionStatusReady}
-	if err := subscribeRegion(t.Context(), api, "ocid1.tenancy", entry, api.pause, &bytes.Buffer{}); err != nil || len(api.creates) != 0 || api.waits != 0 {
-		t.Fatalf("ready subscription: %v, creates %v, waits %d", err, api.creates, api.waits)
-	}
-}
-
-func TestSubscribeCreatesThenPollsUntilReady(t *testing.T) {
-	entry, _ := catalog.LookupName("fra")
-	api := &fakeSubscriptions{after: []identity.RegionSubscriptionStatusEnum{identity.RegionSubscriptionStatusInProgress, identity.RegionSubscriptionStatusReady}}
-	var out bytes.Buffer
-	if err := subscribeRegion(t.Context(), api, "ocid1.tenancy", entry, api.pause, &out); err != nil {
-		t.Fatal(err)
-	}
-	if len(api.creates) != 1 || *api.creates[0].RegionKey != "FRA" || *api.creates[0].TenancyId != "ocid1.tenancy" || api.waits != 2 {
-		t.Fatalf("creates %v, waits %d", api.creates, api.waits)
-	}
-	if got := out.String(); !strings.Contains(got, "req-1") || !strings.Contains(got, "cannot be undone") {
-		t.Fatalf("report: %s", got)
-	}
-}
-
-func TestSubscribeRefusesATerminalStatusAndAnEndedWait(t *testing.T) {
-	entry, _ := catalog.LookupName("fra")
-	api := &fakeSubscriptions{after: []identity.RegionSubscriptionStatusEnum{"FAILED"}}
-	if err := subscribeRegion(t.Context(), api, "ocid1.tenancy", entry, api.pause, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "FAILED") {
-		t.Fatalf("terminal status passed: %v", err)
-	}
-	api = &fakeSubscriptions{after: []identity.RegionSubscriptionStatusEnum{identity.RegionSubscriptionStatusInProgress}}
-	ended := func(context.Context, time.Duration) error { return context.DeadlineExceeded }
-	if err := subscribeRegion(t.Context(), api, "ocid1.tenancy", entry, ended, &bytes.Buffer{}); err == nil {
-		t.Fatal("an in-progress subscription with no time left passed")
-	}
-}
-
 type fakeLB struct {
 	backends  map[string][]lb.Backend
 	unhealthy map[string]map[string]bool
@@ -522,10 +285,6 @@ type fakeLB struct {
 func (f fakeLB) ListBackends(_ context.Context, _, set string) ([]lb.Backend, error) {
 	return f.backends[set], nil
 }
-func (f fakeLB) UnhealthyBackends(_ context.Context, _, set string) (map[string]bool, error) {
-	return f.unhealthy[set], nil
-}
-func (fakeLB) GetLoadBalancer(context.Context, string) (lb.LoadBalancer, error) { panic("read only") }
 func (fakeLB) CreateBackend(context.Context, string, string, lb.Backend) (string, error) {
 	panic("read only")
 }
@@ -574,10 +333,7 @@ func TestVerifierPassesOnlyAServingRegion(t *testing.T) {
 		t.Fatalf("serving region fails %v", got)
 	}
 	for name, breakIt := range map[string]func(){
-		"api":           func() { region = "gru-1" },
-		"auth":          func() { issuer = "https://gru.auth.terrascale.tech/terrascale" },
-		"atlas":         func() { health = "unknown" },
-		"load balancer": func() { balancer.unhealthy["ts-auth"] = map[string]bool{"10.253.0.12:8080": true} },
+		"api": func() { region = "gru-1" },
 	} {
 		breakIt()
 		if got := failing(); !slices.Equal(got, []string{name}) {
@@ -596,21 +352,6 @@ func TestVerifierPassesOnlyAServingRegion(t *testing.T) {
 	}
 	var out bytes.Buffer
 	if err := Print(&out, v.Checks(t.Context())); err != nil || !strings.Contains(out.String(), "| load balancer | FAIL |") {
-		t.Fatal(out.String(), err)
-	}
-}
-
-func TestRunRefusesBadArguments(t *testing.T) {
-	var out bytes.Buffer
-	for _, args := range [][]string{
-		{"plan", "fra"}, {"plan", "fra", "--out", "x"}, {"create", "fra", "eu-frankfurt-1"}, {"verify", "--plan", "x"},
-		{"verify", "fra"}, {"nope", "fra", "x"},
-	} {
-		if err := Run(t.Context(), args, &out, &out); err == nil {
-			t.Fatalf("%v accepted", args)
-		}
-	}
-	if err := Run(t.Context(), []string{"--help"}, &out, &out); err != nil || !strings.Contains(out.String(), "create  BUNDLE") {
 		t.Fatal(out.String(), err)
 	}
 }

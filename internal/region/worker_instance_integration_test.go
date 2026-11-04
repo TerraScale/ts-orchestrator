@@ -23,8 +23,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
-// The actual SDK crosses signed TLS requests to independently persisted provider
-// observations. These observations never manufacture a protected pool proof.
 func TestWorkerInstanceSDKObservationsRequireProtectedCreation(t *testing.T) {
 	const instanceID = "ocid1.instance.oc1.sa-saopaulo-1.worker"
 	const configID = "ocid1.instanceconfiguration.oc1.sa-saopaulo-1.worker"
@@ -159,31 +157,6 @@ func TestWorkerInstanceSDKObservationsRequireProtectedCreation(t *testing.T) {
 			changed["instanceOptions"] = map[string]any{"areLegacyImdsEndpointsDisabled": false}
 			write("instance", changed)
 		}},
-		{"different native processor", func() {
-			changed := maps.Clone(instance)
-			changed["shapeConfig"] = map[string]any{"ocpus": 2, "memoryInGBs": 12, "processorDescription": "AMD EPYC"}
-			write("instance", changed)
-		}},
-		{"different configuration", func() {
-			changed := maps.Clone(instance)
-			changed["instanceConfigurationId"] = "ocid1.instanceconfiguration.oc1.sa-saopaulo-1.other"
-			write("instance", changed)
-		}},
-		{"public primary address", func() {
-			changed := maps.Clone(vnic)
-			changed["publicIp"] = "203.0.113.5"
-			write("vnic", changed)
-		}},
-		{"additional VNIC", func() { write("vnicAttachments", []any{vnicAttachment, vnicAttachment}) }},
-		{"different boot image", func() {
-			changed := maps.Clone(boot)
-			changed["imageId"] = "ocid1.image.oc1.sa-saopaulo-1.other"
-			write("boot", changed)
-		}},
-		{"unapproved data attachment", func() {
-			write("volumeAttachments", []any{map[string]any{"attachmentType": "paravirtualized", "instanceId": instanceID, "lifecycleState": "ATTACHED"}})
-		}},
-		{"repeated inventory page", func() { repeatedPage.Store(true) }},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			reset()

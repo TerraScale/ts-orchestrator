@@ -12,9 +12,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 )
 
-// This extends the genuine signed ObjectStorage fixture. No current image
-// channel is published: original birth provenance is enough for cleanup scope,
-// while the separate runtime drain and destructive SDK admission remain required.
 func testKnownPoolLifecycle(t *testing.T, resolver FoundationResolver, original FoundationRecord, poolID, configurationID string,
 	publish func(string, []byte), now time.Time,
 ) {

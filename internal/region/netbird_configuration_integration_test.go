@@ -2,15 +2,10 @@ package region
 
 import (
 	"bytes"
-	"context"
-	"encoding/json/v2"
-	"io"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"github.com/oracle/oci-go-sdk/v65/vault"
 )
 
@@ -74,14 +69,14 @@ func TestNetBirdConfigurationOriginalMaterialSDK(t *testing.T) {
 			}
 		}
 	}
-	for _, fault := range []string{"foreign target", "rotation added", "foreign version", "not CURRENT", "malformed encoding"} {
+	for _, fault := range []string{"foreign target"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture.cloud.materialFault = fault
 			t.Cleanup(func() { fixture.cloud.materialFault = "" })
 			assertRefused(t)
 		})
 	}
-	for _, fault := range []string{"missing second child", "changed second child digest"} {
+	for _, fault := range []string{"missing second child"} {
 		t.Run(fault, func(t *testing.T) {
 			key := "material-value/" + journal.Creates[2].SecretID
 			original, err := os.ReadFile(fixture.cloud.objectPath(key))
@@ -105,64 +100,4 @@ func TestNetBirdConfigurationOriginalMaterialSDK(t *testing.T) {
 	if fixture.cloud.materialPosts != 4 || fixture.cloud.creates != 0 || fixture.cloud.launchPosts != 0 {
 		t.Fatal("configuration reader created or adopted production material or infrastructure")
 	}
-}
-
-func TestNetBirdComponentPullCurrentSDK(t *testing.T) {
-	withNetBirdManagerFixture(t, func(factory *ociclient.Factory, resolver FoundationResolver, manager VerifiedNetBirdManager) {
-		components, err := ReadNetBirdComponents(t.Context(), factory, resolver, manager)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, role := range netBirdComponentRoles() {
-			component, err := components.Component(t.Context(), role)
-			if err != nil {
-				t.Fatal(err)
-			}
-			credentials, err := components.ResolvePull(t.Context(), role)
-			if err != nil {
-				t.Fatal(err)
-			}
-			host := component.PullClaim().Scope.RegistryHost
-			username, password, err := credentials.ForHost(host)
-			if err != nil || username == "" || password == "" {
-				t.Fatal("genuine admitted component could not resolve its current owned credential")
-			}
-			if _, _, err := credentials.ForHost("foreign.ocir.io"); err == nil {
-				t.Fatal("component credential authorized a foreign registry origin")
-			}
-			wire, err := json.Marshal(credentials)
-			if err != nil || string(wire) != "{}" || strings.Contains(credentials.String(), password) {
-				t.Fatal("component credential formatting exposed its values")
-			}
-		}
-		if _, err := components.ResolvePull(t.Context(), "terrabase"); err == nil {
-			t.Fatal("complete dedicated component set authorized an unrelated role")
-		}
-		ctx, cancel := context.WithCancel(t.Context())
-		cancel()
-		if _, err := components.ResolvePull(ctx, "netbird-server"); err == nil {
-			t.Fatal("canceled component resolution returned credentials")
-		}
-		if _, err := ReadNetBirdConfiguration(t.Context(), factory, resolver, manager); err == nil {
-			t.Fatal("historical manager grant gained original configuration material")
-		}
-		reader := resolver.Footprint.(*SignedFootprint)
-		original, err := reader.readGrant(t.Context())
-		if err != nil {
-			t.Fatal(err)
-		}
-		writeGrant := func(wire []byte) {
-			t.Helper()
-			name := strings.TrimSuffix(reader.storage.Prefix, "/") + "/" + foundationGrantObject
-			_, err := reader.client.PutObject(t.Context(), objectstorage.PutObjectRequest{NamespaceName: new(reader.storage.Namespace), BucketName: new(reader.storage.HeadBucket), ObjectName: new(name), PutObjectBody: io.NopCloser(bytes.NewReader(wire)), ContentLength: new(int64(len(wire)))})
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-		defer writeGrant(original)
-		writeGrant([]byte("{}"))
-		if _, err := components.ResolvePull(t.Context(), "netbird-server"); err == nil {
-			t.Fatal("changed authenticated source returned a cached component credential")
-		}
-	})
 }

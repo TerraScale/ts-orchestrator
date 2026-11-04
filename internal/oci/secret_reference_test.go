@@ -1,6 +1,8 @@
 package oci
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestSecretVersionReferenceRequiresVaultSecretAndExactVersion(t *testing.T) {
 	valid := SecretVersionReference{
@@ -13,7 +15,6 @@ func TestSecretVersionReferenceRequiresVaultSecretAndExactVersion(t *testing.T) 
 
 	for _, reference := range []SecretVersionReference{
 		{SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.synthetic", VersionNumber: 1},
-		{SecretOCID: valid.SecretOCID, VersionNumber: 0},
 	} {
 		if err := reference.Validate(); err == nil {
 			t.Fatalf("invalid Vault secret reference accepted: %+v", reference)

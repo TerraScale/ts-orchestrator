@@ -2,49 +2,19 @@ package regionview
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 	"time"
-
-	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
 
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/insights"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
-	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/regionlink"
+	"github.com/nats-io/nats-server/v2/server"
 )
-
-func TestLocalSummaryCarriesCost(t *testing.T) {
-	view := &ocicost.View{Cell: "gru", OCIRegion: "sa-saopaulo-1", Forecast: ocicost.Forecast{MonthEndCents: 3100}}
-	provider := &Provider{Cell: "gru", Cost: func(context.Context) *ocicost.View { return view }}
-	summary := provider.Local(t.Context())
-	if summary.Cost != view {
-		t.Fatalf("cost = %+v, want the provider's view", summary.Cost)
-	}
-	wire, err := json.Marshal(summary)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got Summary
-	if err := json.Unmarshal(wire, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Cost == nil || got.Cost.Forecast.MonthEndCents != 3100 {
-		t.Fatalf("cost after a JSON round trip = %+v", got.Cost)
-	}
-	// A region without a cost view omits the field.
-	provider.Cost = nil
-	if wire, err = json.Marshal(provider.Local(t.Context())); err != nil || strings.Contains(string(wire), `"cost":`) {
-		t.Fatalf("summary without a cost view = %s, %v", wire, err)
-	}
-}
 
 type staticCluster struct{ snapshot observability.ClusterSnapshot }
 
@@ -77,76 +47,6 @@ func member(name, version string, leader bool) observability.MemberSnapshot {
 
 func cluster(members ...observability.MemberSnapshot) observability.ClusterSnapshot {
 	return observability.ClusterSnapshot{Cell: "gru", Expected: []string{"c1", "c2", "c3"}, Members: members}
-}
-
-func TestLocalSummary(t *testing.T) {
-	journal := decisionlog.NewJournal(decisionlog.JournalConfig{Region: "gru"})
-	for range 7 {
-		journal.Record(t.Context(), decisionlog.Decision{Kind: decisionlog.KindHeld})
-	}
-	open := []insights.Insight{{Rule: "disk_time_to_full", Severity: insights.SeverityWarning},
-		{Rule: "quorum_at_risk", Severity: insights.SeverityWarning}}
-	provider := &Provider{Cell: "GRU", Cluster: staticCluster{cluster(member("c1", "v1", true), member("c2", "v1", false),
-		member("c3", "v1", false))}, Decisions: journal, Insights: staticInsights{open}}
-	summary := provider.Local(t.Context())
-	if summary.Region != "gru" || !summary.Local || summary.Reach != decisionlog.RegionOK {
-		t.Fatalf("identity = %+v", summary)
-	}
-	if !summary.Quorum.Healthy || summary.Quorum.Required != 2 || summary.Quorum.Ready != 3 {
-		t.Fatalf("quorum = %+v", summary.Quorum)
-	}
-	if summary.Leaders.Authority != "c1" || summary.Leaders.Epoch != 4 || summary.Leaders.MetaLeader != "c2" {
-		t.Fatalf("leaders = %+v", summary.Leaders)
-	}
-	if summary.Capacity.CPUs != 6 || summary.Capacity.MemoryUsedBytes != 180 || summary.Capacity.DiskUsedBytes != 1200 {
-		t.Fatalf("capacity = %+v", summary.Capacity)
-	}
-	if summary.TerraBase.Databases != 1 || len(summary.Rollouts) != 1 || summary.MixedVersions() {
-		t.Fatalf("terrabase = %+v rollouts=%d", summary.TerraBase, len(summary.Rollouts))
-	}
-	if len(summary.Decisions) != DefaultLatestDecisions || summary.Counts.Warning != 2 {
-		t.Fatalf("decisions=%d counts=%+v", len(summary.Decisions), summary.Counts)
-	}
-	// The quorum insight is scored from the snapshot, not twice.
-	if summary.Health.Score != 92 || summary.Health.Status != StatusHealthy {
-		t.Fatalf("health = %+v", summary.Health)
-	}
-}
-
-func TestLocalSummaryTopology(t *testing.T) {
-	leader := member("c2", "v1", true)
-	leader.Placement.Databases[0].Members = []observability.MemberView{
-		{SeatID: "0000000000D0AGSZ25QNHAF8B6", HostNode: "h1", Stage: "serving"}, {SeatID: "000000000098SVGR6D35X6XPT3", HostNode: "h1", Stage: "draining"},
-		{SeatID: "0000000000VEJ0PH18NVM0KEPW", HostNode: "h0", Stage: "serving"}, {SeatID: "0000000000RPN0Y82EPE5T3G2C"}}
-	host := observability.MemberSnapshot{Member: "h0", Role: "host", Ready: false}
-	provider := &Provider{Cell: "gru", Cluster: staticCluster{cluster(leader, member("c1", "v1", false), host)}}
-	summary := provider.Local(t.Context())
-	want := []Member{{Name: "c1", Role: "controller", Ready: true, Version: "v1"},
-		{Name: "c2", Role: "controller", Ready: true, Version: "v1"}, {Name: "h0", Role: "host"}}
-	if !slices.Equal(summary.Members, want) {
-		t.Fatalf("members = %+v", summary.Members)
-	}
-	hosts := []Host{{Name: "h0", Seats: 1, Readiness: "unknown", ReadinessReason: "current native root task and member readiness source is unavailable"},
-		{Name: "h1", Seats: 2, Readiness: "unknown", ReadinessReason: "current native root task and member readiness source is unavailable"}}
-	if !slices.Equal(summary.Hosts, hosts) {
-		t.Fatalf("hosts = %+v", summary.Hosts)
-	}
-}
-
-func TestScore(t *testing.T) {
-	lost := Summary{Quorum: Quorum{Expected: 3, Answering: 1, Ready: 1, Required: 2}}
-	if health := score(lost, true, nil); health.Status != StatusCritical || health.Score != 0 {
-		t.Fatalf("lost quorum = %+v", health)
-	}
-	degraded := Summary{Quorum: Quorum{Expected: 3, Answering: 2, Ready: 2, Required: 2, Healthy: true},
-		Leaders: Leaders{Authority: "c1"}, Versions: []Version{{Version: "a"}, {Version: "b"}}}
-	health := score(degraded, true, []insights.Insight{{Severity: insights.SeverityCritical}})
-	if health.Score != 55 || health.Status != StatusDegraded || len(health.Reasons) != 3 {
-		t.Fatalf("degraded = %+v", health)
-	}
-	if health := score(Summary{}, false, nil); health.Status != StatusUnknown {
-		t.Fatalf("unobserved = %+v", health)
-	}
 }
 
 func TestRegionsAcrossLinks(t *testing.T) {

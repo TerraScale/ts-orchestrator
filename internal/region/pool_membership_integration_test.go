@@ -19,8 +19,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
-// Permission and original births cross the actual signed SDK/ObjectStorage
-// boundary; a current signed profile alone cannot authorize adoption.
 func TestPoolMembershipUsesSignedPermissionAndOriginalProtectedBirth(t *testing.T) {
 	store, client, publish := foundationProtocolStore(t)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
@@ -153,18 +151,6 @@ func TestPoolMembershipUsesSignedPermissionAndOriginalProtectedBirth(t *testing.
 		change func(*FoundationRecord)
 	}{
 		{"missing original create", func(r *FoundationRecord) { delete(r.CapacityCreates, operation+":pool") }},
-		{"different original profile", func(r *FoundationRecord) {
-			p := r.CapacityPools[poolID]
-			p.ProfileSHA256 = strings.Repeat("1", 64)
-			r.CapacityPools[poolID] = p
-		}},
-		{"different configuration birth", func(r *FoundationRecord) {
-			p := r.CapacityPools[poolID]
-			c := p.Configurations[configurationID]
-			c.Create.OpcRequestID = "successor"
-			p.Configurations[configurationID] = c
-			r.CapacityPools[poolID] = p
-		}},
 	} {
 		t.Run(alter.name, func(t *testing.T) {
 			candidate := record

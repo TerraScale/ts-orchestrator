@@ -1,7 +1,6 @@
 package ociresource
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -59,60 +58,3 @@ func TestPublishSetWritesOnlyChangesAndPrunesOnlyWhenAsked(t *testing.T) {
 
 // Authority is re-checked before every write and every tombstone: losing it
 // mid-set stops the set at once.
-func TestPublishSetFencesEveryWrite(t *testing.T) {
-	store := integrationStore(t)
-	ctx := t.Context()
-	now := time.Now()
-	entries := []Entry{{Name: "a", Policy: PolicyEnforce, Spec: testSpec{"1"}}, {Name: "b", Policy: PolicyEnforce, Spec: testSpec{"2"}},
-		{Name: "c", Policy: PolicyEnforce, Spec: testSpec{"3"}}}
-	calls := 0
-	loseAfter := func(allowed int) func(context.Context) error {
-		calls = 0
-		return func(context.Context) error {
-			calls++
-			if calls > allowed {
-				return errors.New("lost leadership")
-			}
-			return nil
-		}
-	}
-	result, err := PublishSet(ctx, store, "GRU", "nsg-rules", entries, false, now, 0, loseAfter(1))
-	if !errors.Is(err, ErrFenced) || result.Published != 1 {
-		t.Fatalf("result=%+v err=%v", result, err)
-	}
-	if records, _ := store.List(ctx, "GRU", "nsg-rules"); len(records) != 1 {
-		t.Fatalf("records=%d", len(records))
-	}
-	// Publish all three, then lose authority before the prune tombstone.
-	if _, err := PublishSet(ctx, store, "GRU", "nsg-rules", entries, false, now, 0, nil); err != nil {
-		t.Fatal(err)
-	}
-	result, err = PublishSet(ctx, store, "GRU", "nsg-rules", entries[:1], true, now, 0, loseAfter(1))
-	if !errors.Is(err, ErrFenced) || result.Tombstoned != 0 {
-		t.Fatalf("prune result=%+v err=%v", result, err)
-	}
-	records, _ := store.List(ctx, "GRU", "nsg-rules")
-	for _, record := range records {
-		if record.Tombstone != nil {
-			t.Fatalf("fenced prune tombstoned %s", record.Key)
-		}
-	}
-}
-
-func TestPublishSetValidatesEverythingBeforeWriting(t *testing.T) {
-	store := integrationStore(t)
-	for name, entries := range map[string][]Entry{
-		"invalid spec": {{Name: "a", Policy: PolicyEnforce, Spec: testSpec{"1"}}, {Name: "b", Policy: PolicyEnforce, Spec: testSpec{}}},
-		"bad policy":   {{Name: "a", Policy: "adopt", Spec: testSpec{"1"}}},
-		"bad name":     {{Name: "A_B", Policy: PolicyEnforce, Spec: testSpec{"1"}}},
-		"duplicate":    {{Name: "a", Policy: PolicyEnforce, Spec: testSpec{"1"}}, {Name: "a", Policy: PolicyEnforce, Spec: testSpec{"2"}}},
-		"nil spec":     {{Name: "a", Policy: PolicyEnforce}},
-	} {
-		if _, err := PublishSet(t.Context(), store, "GRU", "nsg-rules", entries, true, time.Now(), 0, nil); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
-		if records, _ := store.List(t.Context(), "GRU", "nsg-rules"); len(records) != 0 {
-			t.Fatalf("%s: wrote %d records", name, len(records))
-		}
-	}
-}

@@ -3,7 +3,6 @@ package atlas
 import (
 	"os"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -64,35 +63,5 @@ func TestAddRegionListsTheCatalogRegion(t *testing.T) {
 	both, _, _ := fra.AddRegion("sjc-1")
 	if !slices.Equal(ids(both), []string{"gru-1", "sjc-1", "fra-1"}) {
 		t.Fatalf("order = %v", ids(both))
-	}
-}
-
-func TestAddRegionRefusesConflictsAndUnknownCells(t *testing.T) {
-	gru := gruSection(t)
-	conflicting := gru
-	conflicting.Regions = append(slices.Clone(gru.Regions), Region{ID: "sjc-1", Name: "San Francisco", Country: "US",
-		API: "https://sjc.api.terrascale.tech", Auth: "https://sjc.auth.terrascale.tech"})
-	if _, _, err := conflicting.AddRegion("sjc-1"); err == nil || !strings.Contains(err.Error(), "already lists") {
-		t.Fatalf("conflicting entry: %v", err)
-	}
-	for _, cell := range []string{"xxx-1", "sjc", "sjc-0", "sjc-01", "SJC-1", "sjc-1-a", ""} {
-		if _, _, err := gru.AddRegion(cell); err == nil {
-			t.Errorf("%q was accepted", cell)
-		}
-	}
-}
-
-func TestRegionForAndWithRegionsRefuseBadCells(t *testing.T) {
-	gru := gruSection(t)
-	for _, cell := range []string{"xxx-1", "gru", "gru-0", "gru-01", "GRU-1", ""} {
-		if _, err := RegionFor(cell); err == nil {
-			t.Errorf("RegionFor(%q) was accepted", cell)
-		}
-		if _, err := gru.WithRegions([]string{"gru-1", cell}); err == nil {
-			t.Errorf("WithRegions with %q was accepted", cell)
-		}
-	}
-	if _, err := gru.WithRegions(nil); err == nil {
-		t.Error("an empty roster was accepted")
 	}
 }

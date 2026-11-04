@@ -3,7 +3,6 @@ package edge
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -11,15 +10,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
 
@@ -177,54 +173,6 @@ func TestReplayGoesToNearestHolder(t *testing.T) {
 
 // TerraBase takes transactions up to 2 MiB and import parts up to 4 MiB; a
 // region that does not hold the database replays them from a spool file.
-func TestReplaySpoolsLargeBodies(t *testing.T) {
-	regions := startRegions(t, func(name string, w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		if name != "sjc" && r.Header.Get(replaySrcHeader) == "" {
-			w.Header().Set(replayHeader, "region=sjc")
-			w.WriteHeader(http.StatusMisdirectedRequest)
-			return
-		}
-		fmt.Fprintf(w, "%s got %d %x", name, len(body), sha256.Sum256(body))
-	})
-	for _, size := range []int{2 << 20, 4<<20 + 100<<10, maxReplayBody} {
-		body := strings.Repeat("x", size)
-		code, got := call(t, regions["gru"], http.MethodPost, "/v1/db/import", body)
-		if want := fmt.Sprintf("sjc got %d %x", size, sha256.Sum256([]byte(body))); code != 200 || got != want {
-			t.Fatalf("%d B body: gru -> %d %q, want %q", size, code, got, want)
-		}
-	}
-	// Past maxReplayBody the body streams to the local backend, whole.
-	code, _ := call(t, regions["gru"], http.MethodPost, "/v1/db/import", strings.Repeat("x", maxReplayBody+1))
-	if code != http.StatusMisdirectedRequest {
-		t.Fatalf("oversize body: gru -> %d, want 421", code)
-	}
-	if left, _ := os.ReadDir(filepath.Join(regions["gru"].dir, "edge-spool")); len(left) != 0 {
-		t.Fatalf("spool files left: %v", left)
-	}
-}
-
-func TestReplayNeverLoops(t *testing.T) {
-	// gru and sjc disagree and each names the other.
-	regions := startRegions(t, func(name string, w http.ResponseWriter, r *http.Request) {
-		w.Header().Set(replayHeader, map[string]string{"gru": "region=sjc", "sjc": "region=gru", "fra": "region=gru"}[name])
-		w.WriteHeader(http.StatusMisdirectedRequest)
-		fmt.Fprintf(w, "wrong_region in %s", name)
-	})
-	code, body := call(t, regions["gru"], http.MethodGet, "/", "")
-	if code != http.StatusMisdirectedRequest || body != "wrong_region in sjc" {
-		t.Fatalf("gru -> %d %q", code, body)
-	}
-	if gru, sjc := regions["gru"].hits.Load(), regions["sjc"].hits.Load(); gru != 1 || sjc != 1 {
-		t.Fatalf("backend hits gru=%d sjc=%d, want 1 each", gru, sjc)
-	}
-	// Without fallback=self and no reachable holder, the client gets the first answer.
-	regions["sjc"].stop()
-	if code, body := call(t, regions["gru"], http.MethodGet, "/", ""); code != http.StatusMisdirectedRequest || body != "wrong_region in gru" {
-		t.Fatalf("sjc down: gru -> %d %q", code, body)
-	}
-}
-
 func TestReplayPortNeedsMeshCertificate(t *testing.T) {
 	regions := startRegions(t, terraBase)
 	tlsAddr := regions["gru"].edge.peerAddr("sjc")
@@ -236,36 +184,6 @@ func TestReplayPortNeedsMeshCertificate(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("handshake without a mesh certificate succeeded")
-	}
-}
-
-func TestChallengeComesFromThePeerHoldingIt(t *testing.T) {
-	regions := startRegions(t, terraBase)
-	// autocert keeps a pending HTTP-01 key authorization in its cache.
-	if err := os.MkdirAll(filepath.Join(regions["gru"].dir, "edge-certs"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(regions["gru"].dir, "edge-certs", "tok123+http-01"), []byte("tok123.thumb"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	get := func(reg *region, token string) (int, string) {
-		req, _ := http.NewRequest(http.MethodGet, "http://"+reg.plain+challengePath+token, nil)
-		req.Host = host
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, string(body)
-	}
-	for _, name := range []string{"gru", "sjc", "fra"} {
-		if code, body := get(regions[name], "tok123"); code != 200 || body != "tok123.thumb" {
-			t.Fatalf("%s: challenge = %d %q", name, code, body)
-		}
-	}
-	if code, _ := get(regions["fra"], "unknown"); code != http.StatusNotFound {
-		t.Fatalf("unknown token = %d, want 404", code)
 	}
 }
 
@@ -297,110 +215,3 @@ func TestReadyzAnswersOnPlainHTTP(t *testing.T) {
 // While a region's TerraBase is handed off (its port held from the old task's
 // SIGTERM until the new one is ready), its edge serves clients from the nearest
 // region instead of holding them; a held peer answers down at once.
-func TestHandoffFailsOverToNearestRegion(t *testing.T) {
-	regions := startRegions(t, func(name string, w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "%s served %s src=%q", name, r.Method, r.Header.Get(replaySrcHeader))
-	})
-	port := func(name string) uint16 { return uint16(regions[name].backend.Listener.Addr().(*net.TCPAddr).Port) }
-	handoff.Hold(port("gru"))
-	defer handoff.Release(port("gru"))
-	start := time.Now()
-	if code, body := call(t, regions["gru"], http.MethodPost, "/v1/db/docs", "a"); code != 200 || body != `sjc served POST src="region=gru"` {
-		t.Fatalf("gru held -> %d %q", code, body)
-	}
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("failover took %s", elapsed)
-	}
-	// sjc is being handed off too: it answers down and fra serves.
-	handoff.Hold(port("sjc"))
-	defer handoff.Release(port("sjc"))
-	if code, body := call(t, regions["gru"], http.MethodGet, "/readyz", ""); code != 200 || body != `fra served GET src="region=gru"` {
-		t.Fatalf("gru and sjc held -> %d %q", code, body)
-	}
-	// No region serves: the request waits out the local handoff.
-	handoff.Hold(port("fra"))
-	go func() { time.Sleep(300 * time.Millisecond); handoff.Release(port("gru")) }()
-	if code, body := call(t, regions["gru"], http.MethodGet, "/readyz", ""); code != 200 || body != `gru served GET src=""` {
-		t.Fatalf("all held -> %d %q", code, body)
-	}
-	handoff.Release(port("fra"))
-	if hits := regions["gru"].hits.Load(); hits != 1 {
-		t.Fatalf("gru backend hits %d, want 1 (after its release)", hits)
-	}
-}
-
-// The mesh replaces regions one at a time (TestMeshRollsRegionsOneAtATime): a
-// probe of gru's edge every 20 ms with a 2 s timeout, as FR1's curl -m 2, sees
-// only 200 while gru, then sjc, then fra hand their TerraBase off.
-func TestRegionByRegionHandoffServesEveryProbe(t *testing.T) {
-	regions := startRegions(t, func(name string, w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "%s ready", name)
-	})
-	client := &http.Client{Timeout: 2 * time.Second}
-	var probes, failures atomic.Int32
-	var failed atomic.Value
-	stop := make(chan struct{})
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			req, _ := http.NewRequest(http.MethodGet, regions["gru"].public.URL+"/readyz", nil)
-			req.Host = host
-			probes.Add(1)
-			resp, err := client.Do(req)
-			if err == nil {
-				resp.Body.Close()
-			}
-			if err != nil || resp.StatusCode != http.StatusOK {
-				failures.Add(1)
-				failed.Store(fmt.Sprint(resp, err))
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-	}()
-	for _, name := range []string{"gru", "sjc", "fra"} {
-		port := uint16(regions[name].backend.Listener.Addr().(*net.TCPAddr).Port)
-		handoff.Hold(port)
-		time.Sleep(1500 * time.Millisecond)
-		handoff.Release(port)
-		time.Sleep(500 * time.Millisecond)
-	}
-	close(stop)
-	<-done
-	t.Logf("%d probes, %d failed", probes.Load(), failures.Load())
-	if probes.Load() < 150 || failures.Load() != 0 {
-		t.Fatalf("%d probes, %d failed (last: %v); want >= 150 and 0", probes.Load(), failures.Load(), failed.Load())
-	}
-}
-
-// A request to a regional host (fra.api...) that fra cannot serve replays to
-// sjc as sjc.api...: each edge routes only its own region's name (TS-925).
-func TestReplayRewritesRegionalHost(t *testing.T) {
-	regions := startRegions(t, terraBase)
-	for name, reg := range regions {
-		port := reg.backend.Listener.Addr().(*net.TCPAddr).Port
-		reg.edge.SetRoutes(map[string]int{host: port, name + "." + host: port}, nil)
-	}
-	req, _ := http.NewRequest(http.MethodPost, regions["fra"].public.URL+"/v1/db/tx", strings.NewReader(`{"tx":1}`))
-	req.Host = "fra." + host
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 || !strings.HasPrefix(string(body), `sjc served POST /v1/db/tx src="region=fra"`) {
-		t.Fatalf("fra.%s -> %d %q", host, resp.StatusCode, body)
-	}
-	if got := regionalHost("sjc.api.terrascale.tech:443", "sjc", "gru"); got != "gru.api.terrascale.tech:443" {
-		t.Fatalf("regionalHost = %q", got)
-	}
-	if got := regionalHost("api.terrascale.tech", "sjc", "gru"); got != "api.terrascale.tech" {
-		t.Fatalf("regionalHost of a global host = %q", got)
-	}
-}

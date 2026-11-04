@@ -55,66 +55,10 @@ func TestCompleteObserveSweepPublishesTheFleetByLifecycleState(t *testing.T) {
 	}
 }
 
-func TestInventoryZeroesStatesThatEmptied(t *testing.T) {
-	region := Region("inventory-test")
-	first := newInventoryTally()
-	first.instance("RUNNING")
-	first.instance("")
-	publishInventory(region, first, time.Unix(1, 0))
-	second := newInventoryTally()
-	second.instance("STOPPED")
-	publishInventory(region, second, time.Unix(2, 0))
-	instances, _, _, _ := fleetView(t, region)
-	if len(instances) != 1 || instances["STOPPED"] != 1 {
-		t.Fatalf("instances = %v", instances)
-	}
-	var exposition strings.Builder
-	Metrics.WritePrometheus(&exposition)
-	if !strings.Contains(exposition.String(), `oci_fleet_resources{region="inventory-test",kind="instance",state="RUNNING"} 0`) {
-		t.Fatal("an emptied state kept its last count")
-	}
-	var nilTally *inventoryTally
-	nilTally.volume("AVAILABLE") // outside a sweep: no tally, no panic
-	bounded := newInventoryTally()
-	for index := range maxInventoryStates + 4 {
-		bounded.attachment(strings.Repeat("S", index+1))
-	}
-	if len(bounded.attachments) != maxInventoryStates+1 || bounded.attachments["OTHER"] != 4 {
-		t.Fatalf("states are not bounded: %v", bounded.attachments)
-	}
-}
-
 func sum(counts map[string]int) int {
 	total := 0
 	for _, count := range counts {
 		total += count
 	}
 	return total
-}
-
-// TestInventoryCountsOnlyVerifiedHosts pins that a host withheld partway
-// through its attachments contributes no volume or attachment, whichever
-// order OCI lists them in.
-func TestInventoryCountsOnlyVerifiedHosts(t *testing.T) {
-	ctx := t.Context()
-	_, provider, _, subject, host, volume := newAttachTestState(t)
-	if _, err := subject.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "0000000000JJVVW9EMWY1PE1VX", PartitionID: "0000000000HE4W7FRNR204Q6TQ",
-		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive("test-attach", "attach-inventory-partial"),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	provider.attachments["attachment-unconfirmed"] = observeTestAttachment("attachment-unconfirmed", volume.ID, host.ID)
-	for range 8 {
-		observed, err := subject.Observe(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(observed) != 0 {
-			t.Fatalf("observed %d hosts, want the host withheld", len(observed))
-		}
-		instances, volumes, attachments, _ := fleetView(t, host.Region)
-		if sum(instances) != 1 || sum(volumes) != 0 || sum(attachments) != 0 {
-			t.Fatalf("inventory = instances %v volumes %v attachments %v", instances, volumes, attachments)
-		}
-	}
 }

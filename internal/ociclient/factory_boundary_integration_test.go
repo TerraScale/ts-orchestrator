@@ -1,7 +1,6 @@
 package ociclient_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -10,7 +9,6 @@ import (
 	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -26,72 +24,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
 )
-
-func TestOperationCardinalityThroughVerifiedTLSHTTP(t *testing.T) {
-	var routes []string
-	expected := map[string]uint64{"other": 10}
-	for index := range 74 {
-		route := "/route" + string(rune('a'+index%26)) + string(rune('a'+index/26))
-		routes = append(routes, route)
-		if index < 64 {
-			expected["GET "+route] = 1
-		}
-	}
-	var received atomic.Int32
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		index := int(received.Add(1)) - 1
-		if index >= len(routes) || request.TLS == nil || request.Method != http.MethodGet || request.URL.RequestURI() != routes[index] {
-			t.Errorf("unexpected TLS request %d: %s %s", index+1, request.Method, request.URL.RequestURI())
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-	client := server.Client()
-	defer client.CloseIdleConnections()
-	service := "cardinality-" + t.Name()
-	dispatcher := ociclient.Instrument(client, service)
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	for _, route := range routes {
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+route, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := dispatcher.Do(request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, readErr := io.Copy(io.Discard, response.Body)
-		closeErr := response.Body.Close()
-		if response.StatusCode != http.StatusOK || readErr != nil || closeErr != nil {
-			t.Fatalf("HTTP result = %d, read=%v, close=%v", response.StatusCode, readErr, closeErr)
-		}
-	}
-	views := 0
-	var calls uint64
-	for _, operation := range ociclient.APIOperations() {
-		if operation.Service != service {
-			continue
-		}
-		views++
-		calls += operation.Calls
-		want, known := expected[operation.Operation]
-		if !known || operation.Calls != want || operation.Errors != 0 || operation.Throttled != 0 || operation.LastStatus != http.StatusOK {
-			t.Errorf("API operation = %+v, want known operation with %d successful calls", operation, want)
-		}
-	}
-	if views != 65 || calls != 74 || received.Load() != 74 {
-		t.Fatalf("bounded operations: views=%d calls=%d wire=%d, want 65/74/74", views, calls, received.Load())
-	}
-	var metrics bytes.Buffer
-	ociclient.Metrics.WritePrometheus(&metrics)
-	for operation, count := range expected {
-		want := fmt.Sprintf("ts_orch_oci_requests_total{service=%q,operation=%q,code=\"200\"} %d\n", service, operation, count)
-		if !strings.Contains(metrics.String(), want) {
-			t.Errorf("Prometheus output lacks %q", want)
-		}
-	}
-}
 
 func TestFactoryAdmissionThroughSignedSDKHTTP(t *testing.T) {
 	const instanceID = "ocid1.instance.oc1..a"

@@ -11,7 +11,6 @@ import (
 	"testing"
 )
 
-// fakeOCI keeps objects per collection and answers list, get, create and update.
 type fakeOCI struct {
 	objects map[string]map[string]map[string]any
 	writes  []string

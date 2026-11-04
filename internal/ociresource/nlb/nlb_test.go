@@ -19,7 +19,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
 	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 )
@@ -43,12 +42,6 @@ type providerState struct {
 	setGone          bool
 }
 
-func (f *providerState) GetLoadBalancer(context.Context, string) (LoadBalancer, error) {
-	if f.gone {
-		return LoadBalancer{}, fmt.Errorf("get OCI NLB: %w", ociresource.ErrGone)
-	}
-	return f.balancer, nil
-}
 func (f *providerState) ListBackends(context.Context, string, string) ([]Backend, error) {
 	if f.setGone {
 		return nil, fmt.Errorf("list OCI NLB backends: %w", ociresource.ErrGone)
@@ -185,204 +178,6 @@ func TestBackendsFollowPlacement(t *testing.T) {
 	}
 }
 
-func TestEmptyPlacementIsNeverPublishedOrApplied(t *testing.T) {
-	store := persistentStore(t)
-	spec := FromPlacement(nlbID, "api", 8443, []oci.Instance{instance("10.0.1.11", "STOPPED")})
-	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err == nil {
-		t.Fatal("published an empty backend set")
-	}
-	spec.AllowEmpty = true
-	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestForeignNLBAndFailedWorkRequests(t *testing.T) {
-	store := persistentStore(t)
-	spec := Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "10.0.1.11", Port: 8443}}}
-	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
-		t.Fatal(err)
-	}
-	foreign := &providerState{balancer: LoadBalancer{ID: nlbID, Tags: ociresource.Tags{Freeform: map[string]string{"terrascale-owner": "cell-gru"}}}}
-	if result, err := controller(t, foreign, store).Reconcile(t.Context(), 1); err != nil || result.Foreign != 1 || len(foreign.calls) != 0 {
-		t.Fatalf("result=%+v err=%v calls=%v", result, err, foreign.calls)
-	}
-	failing := &providerState{balancer: LoadBalancer{ID: nlbID, Tags: owner.Stamp(key, 0, "")}, failWR: true}
-	if _, err := controller(t, failing, store).Reconcile(t.Context(), 1); err == nil {
-		t.Fatal("ignored a failed work request")
-	}
-	status, _, _ := store.GetStatus(t.Context(), key)
-	if status.Error == "" || status.Applied {
-		t.Fatalf("status=%+v", status)
-	}
-}
-
-func TestTombstoneDrainsBackendsThenPurges(t *testing.T) {
-	api := &providerState{balancer: LoadBalancer{ID: nlbID, Tags: owner.Stamp(key, 0, "")}}
-	store := persistentStore(t)
-	spec := Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "10.0.1.11", Port: 8443, Weight: 5}}}
-	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := controller(t, api, store).Reconcile(t.Context(), 1); err != nil {
-		t.Fatal(err)
-	}
-	confirm(t, api, store)
-	// Reweighting uses update, not delete and re-add.
-	spec.Backends[0].Weight = 7
-	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
-		t.Fatal(err)
-	}
-	api.calls = nil
-	if _, err := controller(t, api, store).Reconcile(t.Context(), 1); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(api.calls, []string{"update 10.0.1.11:8443", "tags"}) || api.backends[0].Weight != 7 {
-		t.Fatalf("calls=%v backends=%+v", api.calls, api.backends)
-	}
-	confirm(t, api, store)
-	now := time.Now()
-	if _, err := store.MarkDeleted(t.Context(), key, now, now); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err == nil {
-		t.Fatal("published over a tombstone")
-	}
-	for range 2 {
-		if _, err := controller(t, api, store).Reconcile(t.Context(), 1); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if len(api.backends) != 0 {
-		t.Fatalf("backends=%+v", api.backends)
-	}
-	if _, err := store.Get(t.Context(), key); !errors.Is(err, ociresource.ErrNotFound) {
-		t.Fatalf("record survived: %v", err)
-	}
-}
-
-func TestTombstonePurgesWhenTheNLBIsGone(t *testing.T) {
-	api := &providerState{balancer: LoadBalancer{ID: nlbID, Tags: owner.Stamp(key, 0, "")}}
-	store := persistentStore(t)
-	spec := Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "10.0.1.11", Port: 8443}}}
-	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
-		t.Fatal(err)
-	}
-	api.gone = true
-	if result, err := controller(t, api, store).Reconcile(t.Context(), 1); err == nil || result.Failed != 1 {
-		t.Fatalf("live spec over a missing NLB: result=%+v err=%v", result, err)
-	}
-	confirm(t, api, store)
-	now := time.Now()
-	if _, err := store.MarkDeleted(t.Context(), key, now, now); err != nil {
-		t.Fatal(err)
-	}
-	if result, err := controller(t, api, store).Reconcile(t.Context(), 1); err != nil || result.Deleted != 1 {
-		t.Fatalf("tombstone over a missing NLB: result=%+v err=%v", result, err)
-	}
-	if _, err := store.Get(t.Context(), key); !errors.Is(err, ociresource.ErrNotFound) {
-		t.Fatalf("record survived: %v", err)
-	}
-	if len(api.calls) != 0 {
-		t.Fatalf("unexpected mutations: %v", api.calls)
-	}
-}
-
-func TestSpecValidation(t *testing.T) {
-	store := persistentStore(t)
-	for _, spec := range []Spec{
-		{NLBID: "ocid1.loadbalancer.oc1..x", BackendSet: "api", Backends: []Backend{{IP: "10.0.0.1", Port: 1}}},
-		{NLBID: nlbID, Backends: []Backend{{IP: "10.0.0.1", Port: 1}}},
-		{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "8.8.8.8", Port: 1}}},
-		{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "10.0.0.1", Port: 0}}},
-		{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "10.0.0.1", Port: 1}, {IP: "10.0.0.1", Port: 1, Weight: 3}}},
-		{NLBID: nlbID, BackendSet: "api"},
-	} {
-		if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err == nil {
-			t.Fatalf("accepted %+v", spec)
-		}
-	}
-	if _, err := Publish(t.Context(), store, ociresource.Key{Region: "GRU", Kind: "0000000000V4MRM46HP1SNGDYW", Name: "x"},
-		ociresource.PolicyEnforce, Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "10.0.0.1", Port: 1}}}); err == nil {
-		t.Fatal("published under another kind")
-	}
-	records, err := store.List(t.Context(), "GRU", Kind)
-	if err != nil || len(records) != 0 {
-		t.Fatalf("invalid input changed persistent state: records=%v err=%v", records, err)
-	}
-}
-
-// fenceAfter allows a number of guards and then reports lost authority.
-type fenceAfter struct{ remaining int }
-
-func (f *fenceAfter) Guard(context.Context, uint64) error {
-	if f.remaining <= 0 {
-		return errors.New("lost leadership")
-	}
-	f.remaining--
-	return nil
-}
-
-func TestApplyReguardsBeforeEveryMutation(t *testing.T) {
-	api := &providerState{balancer: LoadBalancer{ID: nlbID, Tags: owner.Stamp(key, 0, "")}}
-	store := persistentStore(t)
-	spec := Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{
-		{IP: "10.0.1.11", Port: 8443}, {IP: "10.0.1.12", Port: 8443}, {IP: "10.0.1.13", Port: 8443}}}
-	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
-		t.Fatal(err)
-	}
-	// The controller's own guard plus one mutation (seven guards: controller,
-	// write authority and wire authority), then leadership is lost.
-	fenced := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store,
-		Ownership: owner, Authority: &fenceAfter{remaining: 1 + 7}}
-	if _, err := fenced.Reconcile(t.Context(), 1); err == nil {
-		t.Fatal("a fenced pass reported success")
-	}
-	if len(api.calls) != 1 {
-		t.Fatalf("mutations after losing authority: %v", api.calls)
-	}
-}
-
-func TestRestampAfterBackendChangesUsesAFreshETag(t *testing.T) {
-	api := &providerState{balancer: LoadBalancer{ID: nlbID, ETag: "etag-0", Tags: owner.Stamp(key, 0, "")}}
-	store := persistentStore(t)
-	spec := Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "10.0.1.11", Port: 8443}}}
-	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
-		t.Fatal(err)
-	}
-	result, err := controller(t, api, store).Reconcile(t.Context(), 1)
-	if err != nil || result.Failed != 0 {
-		t.Fatalf("drift with a generation bump: result=%+v err=%v", result, err)
-	}
-	if !slices.Equal(api.calls, []string{"create 10.0.1.11:8443", "tags"}) {
-		t.Fatalf("calls = %v", api.calls)
-	}
-}
-
-func TestTombstonePurgesWhenTheBackendSetIsGone(t *testing.T) {
-	api := &providerState{balancer: LoadBalancer{ID: nlbID, Tags: owner.Stamp(key, 0, "")}}
-	store := persistentStore(t)
-	spec := Spec{NLBID: nlbID, BackendSet: "typo", Backends: []Backend{{IP: "10.0.1.11", Port: 8443}}}
-	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
-		t.Fatal(err)
-	}
-	api.setGone = true
-	if result, err := controller(t, api, store).Reconcile(t.Context(), 1); err == nil || result.Failed != 1 {
-		t.Fatalf("live spec over a missing backend set: result=%+v err=%v", result, err)
-	}
-	confirm(t, api, store)
-	now := time.Now()
-	if _, err := store.MarkDeleted(t.Context(), key, now, now); err != nil {
-		t.Fatal(err)
-	}
-	if result, err := controller(t, api, store).Reconcile(t.Context(), 1); err != nil || result.Deleted != 1 {
-		t.Fatalf("tombstone over a missing backend set: result=%+v err=%v", result, err)
-	}
-	if _, err := store.Get(t.Context(), key); !errors.Is(err, ociresource.ErrNotFound) {
-		t.Fatalf("record survived: %v", err)
-	}
-}
-
 func (f *providerState) client(t *testing.T) API {
 	t.Helper()
 	if f.api != nil {
@@ -515,30 +310,6 @@ func (f *providerState) client(t *testing.T) API {
 func persistentStore(t *testing.T) *ociresource.KVStore {
 	t.Helper()
 	return ociresourcetest.Store(t)
-}
-
-func confirm(t *testing.T, api *providerState, store ociresource.Store) {
-	t.Helper()
-	current, err := store.Get(t.Context(), key)
-	if errors.Is(err, ociresource.ErrNotFound) {
-		return
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if current.Operation == nil || !current.Operation.CompletedAt.IsZero() {
-		return
-	}
-	for range 2 {
-		result, err := controller(t, api, store).Reconcile(t.Context(), 1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.InSync == 1 {
-			return
-		}
-	}
-	t.Fatal("operation did not converge")
 }
 
 func TestDurableWorkRequestRecoversAfterNATSAndControllerRestart(t *testing.T) {

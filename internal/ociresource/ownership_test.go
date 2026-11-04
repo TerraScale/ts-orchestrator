@@ -1,6 +1,8 @@
 package ociresource
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestPersistentControllerRefusesMissingForeignAndPartialOwnership(t *testing.T) {
 	ownership := Ownership{Owner: "cell-gru"}

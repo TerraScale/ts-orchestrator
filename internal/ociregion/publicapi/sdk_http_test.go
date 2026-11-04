@@ -21,7 +21,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
-// sdkFixture sends signed SDK requests over TLS to a controlled OCI API.
 func sdkFixture(t *testing.T, handler http.Handler) *SDKClient {
 	t.Helper()
 	server := httptest.NewTLSServer(handler)

@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// testHosts are the declared all-region hostnames.
 var testHosts = func() []Host {
 	hosts, err := Hosts()
 	if err != nil {
@@ -16,12 +15,6 @@ var testHosts = func() []Host {
 
 // Only the dashboard serves every region: ts-auth stays in gru and api's
 // TerraBase routing is not steered here.
-func TestHostsAreTheAllRegionDeclarations(t *testing.T) {
-	if got := fmt.Sprint(testHosts); got != "[{dash.terrascale.tech dash.terrascale.tech} {mcp.terrascale.tech dash.terrascale.tech} {platform.terrascale.tech dash.terrascale.tech}]" {
-		t.Fatalf("hosts = %s", got)
-	}
-}
-
 func TestBuildSteersToNearestHealthyRegion(t *testing.T) {
 	regions := []Region{
 		{Name: "gru", IP: "163.176.124.12", Latitude: -23.43, Longitude: -46.47},

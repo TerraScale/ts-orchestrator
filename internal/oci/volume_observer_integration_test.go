@@ -16,11 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
-
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *testing.T) {

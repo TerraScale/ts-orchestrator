@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// The JSON names are the contract between founders and joiners of different releases.
 func TestMaterialJSON(t *testing.T) {
 	data, err := json.Marshal(Material{Founder: "ts-gru-1", Manager: "10.0.0.2:4242", WorkerToken: "token"})
 	if err != nil || string(data) != `{"founder":"ts-gru-1","manager":"10.0.0.2:4242","workerToken":"token"}` {

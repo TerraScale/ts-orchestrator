@@ -4,7 +4,6 @@ import (
 	"time"
 )
 
-// viewReport is October 2026 through the 9th, with October 9th partial.
 func viewReport() Report {
 	report := Report{Version: Version, Cell: "gru", OCIRegion: "sa-saopaulo-1", Currency: "USD",
 		ObservedAt: time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC),
