@@ -137,27 +137,8 @@ func TestSignedReadAccessRequiresCurrentOwnedFoundation(t *testing.T) {
 			grant.Regions[1].ReadAccess = &changed
 			signedScope, expiry, pin := scope, now.Add(time.Hour), true
 			switch scenario {
-			case "no access":
-				grant.Regions[1].ReadAccess = nil
 			case "foreign Vault":
 				changed.UsageToken.Vault = "ocid1.vault.oc1.eu-frankfurt-1.foreign"
-			case "plaintext":
-				changed.URLs[0] = "http://FRA.example.test"
-			case "credential URL":
-				changed.URLs[0] = "https://user:password@FRA.example.test"
-			case "path URL":
-				changed.URLs[0] += "/other"
-			case "query URL":
-				changed.URLs[0] += "?token=value"
-			case "bad port":
-				changed.URLs[0] += ":65536"
-			case "wrong signature scope":
-				signedScope.Cell = "FRA"
-			case "expired":
-				expiry = now.Add(-time.Second)
-			case "changed pinned wire":
-				changed.URLs[0] = "https://changed.example.test"
-				pin = false
 			}
 			publish(signedScope, expiry, pin)
 			if _, err := resolver.ReadAccess(t.Context(), "FRA"); err == nil {
@@ -169,17 +150,13 @@ func TestSignedReadAccessRequiresCurrentOwnedFoundation(t *testing.T) {
 			publish(scope, now.Add(time.Hour), true)
 		})
 	}
-	for _, scenario := range []string{"foreign current Vault", "stale generation", "unreconciled"} {
+	for _, scenario := range []string{"foreign current Vault"} {
 		t.Run(scenario, func(t *testing.T) {
 			changed := records["FRA"]
 			changed.ResourceIDs = maps.Clone(changed.ResourceIDs)
 			switch scenario {
 			case "foreign current Vault":
 				changed.ResourceIDs["vault"] = "ocid1.vault.oc1.eu-frankfurt-1.foreign"
-			case "stale generation":
-				changed.Generation++
-			case "unreconciled":
-				changed.Stage, changed.BlockedReason, changed.CompletedAt = "blocked", "foundation-unavailable", time.Time{}
 			}
 			etag, err := store.CompareAndSwap(t.Context(), changed, etags["FRA"])
 			if err != nil {

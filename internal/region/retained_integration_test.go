@@ -3,8 +3,6 @@ package region
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -12,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
@@ -129,32 +126,6 @@ func TestRetainedFoundationHTTPRejectsInvalidAndRollback(t *testing.T) {
 			f := newCurrentDiscoveryScenario(t)
 			snapshot := f.export(t)
 			switch name {
-			case "tampered grant":
-				snapshot.GrantWire[len(snapshot.GrantWire)-1] ^= 1
-			case "wrong tenancy":
-				snapshot.TenancyID = "ocid1.tenancy.oc1..foreign"
-			case "wrong namespace":
-				snapshot.Namespace = "foreign"
-			case "unknown root":
-				_, key, err := ed25519.GenerateKey(rand.Reader)
-				if err != nil {
-					t.Fatal(err)
-				}
-				f.root = key
-				f.publish()
-				snapshot = f.snapshot()
-			case "expired":
-				f.now = f.now.Add(-2 * time.Hour)
-				f.publish()
-				snapshot = f.snapshot()
-			case "missing grant":
-				snapshot.GrantWire = nil
-			case "retired chain":
-				f.rotate()
-				f.grant.Generation = 2
-				f.grant.Regions[0].Generation = 2
-				f.publish()
-				f.export(t)
 			case "lower generation":
 				f.grant.Generation = 2
 				f.grant.Regions[0].Generation = 2

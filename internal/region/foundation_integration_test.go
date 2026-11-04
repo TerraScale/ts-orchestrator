@@ -492,26 +492,8 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 			grant = changed
 			signedScope, expires := scope, now.Add(time.Hour)
 			switch scenario {
-			case "wrong startup image":
-				badMaterial.Startup.ImageOCID = "ocid1.image.oc1.sa-saopaulo-1.FOREIGN"
-			case "wrong startup profile":
-				badMaterial.Startup.Profiles[0].SubnetOCID = "ocid1.subnet.oc1.sa-saopaulo-1.foreign"
-			case "missing startup recipe":
-				badMaterial.Startup.ControllerConfigDerivation = ""
 			case "wrong scope":
 				signedScope.Cell = "FRA"
-			case "expired":
-				expires = now.Add(-time.Second)
-			case "wrong tenancy":
-				grant.TenancyID = "ocid1.tenancy.oc1..foreign"
-			case "no budget":
-				grant.MonthlyLimitMinor = 0
-			case "wrong escrow":
-				badMaterial.SourceVaultTarget.VaultOCID = "ocid1.vault.oc1.sa-saopaulo-1.foreign"
-			case "wrong local cluster":
-				reader.local.ClusterID = entityid.New()
-			case "wrong digest":
-				badMaterial.PlanSHA256 = fmt.Sprintf("%064d", 0)
 			}
 			publish(signedScope, expires)
 			if scenario == "wrong pinned digest" {

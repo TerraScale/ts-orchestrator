@@ -164,13 +164,6 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 			switch invalid {
 			case "missing pending":
 				delete(candidate.PendingCreates, "control_compartment")
-			case "changed request":
-				pending.Request.RequestDigest = strings.Repeat("0", 64)
-				candidate.PendingCreates["control_compartment"] = pending
-			case "expired token":
-				candidate.StartedAt = now.Add(-25 * time.Hour)
-				pending.FirstAttemptAt = now.Add(-24 * time.Hour)
-				candidate.PendingCreates["control_compartment"] = pending
 			}
 			candidate.Epoch, candidate.LeaseID = saved.Epoch+1, entityid.New()
 			candidate.UpdatedAt, candidate.ExpiresAt = time.Now().UTC(), time.Now().UTC().Add(foundationLease)

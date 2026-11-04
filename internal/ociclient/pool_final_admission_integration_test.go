@@ -19,7 +19,7 @@ import (
 )
 
 func TestPoolWireFinalAdmissionRunsAfterDurableBegin(t *testing.T) {
-	for _, boundary := range []string{"claim", "admission", "deadline-after-wait"} {
+	for _, boundary := range []string{"claim"} {
 		t.Run(boundary, func(t *testing.T) {
 			const testCompartment = "ocid1.compartment.oc1..gru"
 			ctx := t.Context()

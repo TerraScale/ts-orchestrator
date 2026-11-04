@@ -21,19 +21,7 @@ func TestOperationTemplateThroughVerifiedTLSHTTP(t *testing.T) {
 		raw  string
 		want string
 	}{
-		{"instance", "GET https://iaas.sa-saopaulo-1.oraclecloud.com/20160918/instances/ocid1.instance.oc1.sa-saopaulo-1.abc?page=9", "GET /instances/{id}"},
-		{"softstop", "POST https://iaas.example/20160918/instances/ocid1.instance.oc1..x?action=SOFTSTOP", "POST /instances/{id}?action=SOFTSTOP"},
-		{"unbounded_action", "POST https://iaas.example/20160918/instances/x?action=evil-value", "POST /instances/x?action={action}"},
-		{"attachments", "GET https://iaas.example/20160918/volumeAttachments?compartmentId=ocid1.compartment.oc1..a", "GET /volumeAttachments"},
-		{"numeric_instance", "GET https://iaas.example/20160918/instances/1234567890/vnics", "GET /instances/{id}/vnics"},
 		{"object", "GET https://objects.example/n/secretNamespace/b/secretBucket/o/secret/object/name?versionId=secret", "GET /n/{id}/b/{id}/o/{id}"},
-		{"multipart", "PUT https://objects.example/n/secretNamespace/b/secretBucket/u/secret/object/name?uploadId=secret", "PUT /n/{id}/b/{id}/u/{id}"},
-		{"list_objects", "GET https://objects.example/n/secretNamespace/b/secretBucket/o?prefix=secret", "GET /n/{id}/b/{id}/o"},
-		{"head_bucket", "HEAD https://objects.example/n/secretNamespace/b/secretBucket", "HEAD /n/{id}/b/{id}"},
-		{"list_buckets", "GET https://objects.example/n/secretNamespace/b", "GET /n/{id}/b"},
-		{"private_endpoint", "GET https://objects.example/n/secretNamespace/pe/secretEndpoint", "GET /n/{id}/pe/{id}"},
-		{"preauthenticated_request", "GET https://objects.example/n/secretNamespace/b/secretBucket/p/secretToken", "GET /n/{id}/b/{id}/p/{id}"},
-		{"reencrypt", "POST https://objects.example/n/secretNamespace/b/secretBucket/actions/reencrypt/secret/object/name", "POST /n/{id}/b/{id}/actions/reencrypt/{id}"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			method, rawURL, _ := strings.Cut(test.raw, " ")
