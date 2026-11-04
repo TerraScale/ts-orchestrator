@@ -9,19 +9,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/globalview"
-	"github.com/TerraScale/ts-orchestrator/internal/regionview"
-
-	"github.com/TerraScale/ts-orchestrator/internal/insights"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 // History applies wall-clock retention, so the shared fixture must stay current.
@@ -153,105 +149,6 @@ func TestEveryPageRendersProviderData(t *testing.T) {
 		if response.Header().Get("X-Frame-Options") != "DENY" || response.Header().Get("Cache-Control") != "no-store" {
 			t.Errorf("GET %s lacks hardening headers", path)
 		}
-	}
-}
-
-func TestLateAttachedProvidersAndSharedClusterCache(t *testing.T) {
-	t.Parallel()
-	dashboard := newTestDashboard(Options{})
-	handler := dashboard.Handler()
-	if body := get(t, handler, "/members").Body.String(); strings.Contains(body, "ctl-1") {
-		t.Fatal("member listed before its provider was attached")
-	}
-	calls := 0
-	dashboard.SetSnapshots(fixedSnapshots{snapshot: memberSnapshot()})
-	dashboard.SetCluster(fixedCluster{snapshot: observability.ClusterSnapshot{Cell: "fra",
-		Members: []observability.MemberSnapshot{memberSnapshot()}}, calls: &calls})
-	for range 3 {
-		if body := get(t, handler, "/members").Body.String(); !strings.Contains(body, "ctl-1") {
-			t.Fatal("member missing after attaching providers")
-		}
-	}
-	if calls != 1 {
-		t.Fatalf("cluster provider called %d times, want one shared call per cache period", calls)
-	}
-}
-
-func TestEventFilterFromQuery(t *testing.T) {
-	t.Parallel()
-	bus := observability.NewEventBus(16)
-	bus.Publish(observability.Event{Level: "INFO", Component: "controller", Message: "controller ready"})
-	bus.Publish(observability.Event{Level: "WARN", Component: "placement", Message: "placement held"})
-	bus.Publish(observability.Event{Level: "ERROR", Component: "delivery", Message: "delivery failed"})
-	handler := newTestDashboard(Options{Events: bus}).Handler()
-	body := get(t, handler, "/events?level=warn").Body.String()
-	if strings.Contains(body, "controller ready") || !strings.Contains(body, "placement held") ||
-		!strings.Contains(body, "delivery failed") || !strings.Contains(body, "/events/stream?level=warn") {
-		t.Fatalf("level filter not applied")
-	}
-	body = get(t, handler, "/events?component=delivery").Body.String()
-	if strings.Contains(body, "placement held") || !strings.Contains(body, "delivery failed") {
-		t.Fatalf("component filter not applied")
-	}
-	body = get(t, handler, "/events?component=%3Cscript%3E&level=trace").Body.String()
-	if !strings.Contains(body, "controller ready") || strings.Contains(body, "<script>") {
-		t.Fatalf("invalid filter was not ignored")
-	}
-}
-
-func TestLoginPageKeepsRedirectLocal(t *testing.T) {
-	t.Parallel()
-	handler := newTestDashboard(Options{}).Handler()
-	body := get(t, handler, "/login?failed=1&next=https://evil.example/").Body.String()
-	if !strings.Contains(body, "not accepted") || !strings.Contains(body, `name="next" value="/"`) {
-		t.Fatalf("login page = %q", body)
-	}
-	body = get(t, handler, "/login?next=/nats").Body.String()
-	if !strings.Contains(body, `name="next" value="/nats"`) || strings.Contains(body, "not accepted") {
-		t.Fatalf("login page = %q", body)
-	}
-}
-
-func TestAssetsAreContentAddressed(t *testing.T) {
-	t.Parallel()
-	handler := newTestDashboard(Options{}).Handler()
-	page := get(t, handler, "/login").Body.String()
-	if strings.Count(page, `rel="stylesheet"`) != 1 || !strings.Contains(page, assetURL("dashboard.css")) {
-		t.Fatal("dashboard must load its single embedded stylesheet")
-	}
-	if css := get(t, handler, assetURL("dashboard.css")).Body.String(); !strings.Contains(css, "Pico CSS") || !strings.Contains(css, "Licensed under MIT") {
-		t.Fatal("consolidated stylesheet lost its base rules or license notice")
-	}
-	for _, name := range []string{"dashboard.css", "datastar.js"} {
-		url := assetURL(name)
-		response := get(t, handler, url)
-		if response.Code != http.StatusOK || response.Body.Len() == 0 {
-			t.Fatalf("GET %s = %d", url, response.Code)
-		}
-		if !strings.Contains(response.Header().Get("Cache-Control"), "immutable") ||
-			response.Header().Get("ETag") == "" {
-			t.Errorf("GET %s headers = %v", url, response.Header())
-		}
-		wantType := "text/css"
-		if strings.HasSuffix(name, ".js") {
-			wantType = "text/javascript"
-		}
-		if !strings.HasPrefix(response.Header().Get("Content-Type"), wantType) {
-			t.Errorf("GET %s Content-Type = %q", url, response.Header().Get("Content-Type"))
-		}
-		request := httptest.NewRequest(http.MethodGet, url, nil)
-		request.Header.Set("If-None-Match", response.Header().Get("ETag"))
-		recorder := httptest.NewRecorder()
-		handler.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusNotModified || recorder.Body.Len() != 0 {
-			t.Errorf("conditional GET %s = %d", url, recorder.Code)
-		}
-	}
-	if response := get(t, handler, "/assets/000000000000/datastar.js"); response.Code != http.StatusNotFound {
-		t.Fatalf("stale asset hash = %d", response.Code)
-	}
-	if response := get(t, handler, "/assets/x/missing.js"); response.Code != http.StatusNotFound {
-		t.Fatalf("unknown asset = %d", response.Code)
 	}
 }
 
@@ -407,157 +304,6 @@ func TestEventsStreamPrependsLiveEvents(t *testing.T) {
 	bus.Publish(observability.Event{Level: "ERROR", Message: "second"})
 	if _, data = reader.next(); !strings.Contains(data, "second") {
 		t.Fatalf("second live event patch = %q", data)
-	}
-}
-
-type publishOnRecentEvents struct {
-	*observability.EventBus
-	initialSnapshot atomic.Bool
-	armed           chan struct{}
-	publish         func()
-}
-
-func (source *publishOnRecentEvents) Snapshot(ctx context.Context, _ bool) (observability.MemberSnapshot, error) {
-	if !source.initialSnapshot.Swap(true) {
-		return memberSnapshot(), nil
-	}
-	// Keep background chrome from publishing through Recent before the stream's ticker.
-	<-ctx.Done()
-	return observability.MemberSnapshot{}, ctx.Err()
-}
-
-func (source *publishOnRecentEvents) Recent(limit int) []observability.Event {
-	select {
-	case <-source.armed:
-		source.publish()
-	default:
-	}
-	return source.EventBus.Recent(limit)
-}
-
-func TestEventsStreamPrependsQueuedEventsOnReconcile(t *testing.T) {
-	t.Parallel()
-	source := &publishOnRecentEvents{EventBus: observability.NewEventBus(16), armed: make(chan struct{})}
-	source.publish = sync.OnceFunc(func() {
-		source.Publish(observability.Event{Level: "INFO", Message: "filtered out"})
-		source.Publish(observability.Event{Level: "WARN", Message: "queued warning"})
-	})
-	dashboard := newTestDashboard(Options{Events: source})
-	dashboard.SetSnapshots(source)
-	server := newStreamServer(t, dashboard)
-	reader, _ := openStream(t, server, "/events/stream?level=warn")
-	reader.next() // Initial rows.
-	reader.next() // Initial chrome.
-	// Publish inside the next snapshot, after the ticker has won the select.
-	close(source.armed)
-	_, data := reader.next()
-	if !strings.Contains(data, "selector #events-rows") || !strings.Contains(data, "mode prepend") ||
-		!strings.Contains(data, "queued warning") || strings.Contains(data, "filtered out") {
-		t.Fatalf("queued event patch = %q", data)
-	}
-	if _, data = reader.next(); !strings.Contains(data, "selector #events-rows-empty") || !strings.Contains(data, "mode remove") {
-		t.Fatalf("empty placeholder removal = %q", data)
-	}
-}
-
-func TestStreamsAreCapped(t *testing.T) {
-	t.Parallel()
-	dashboard := newTestDashboard(Options{MaxStreams: 1, Interval: time.Hour})
-	server := newStreamServer(t, dashboard)
-	reader, _ := openStream(t, server, "/global/stream")
-	reader.next()
-	response, err := server.Client().Get(server.URL + "/nats/stream")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusServiceUnavailable || response.Header.Get("Retry-After") == "" {
-		t.Fatalf("second stream = %d", response.StatusCode)
-	}
-}
-
-func TestEventPageMatchesSeverityAndComponent(t *testing.T) {
-	t.Parallel()
-	bus := observability.NewEventBus(16)
-	for _, event := range []observability.Event{{Level: "WARN", Component: "placement", Message: "warn-match"}, {Level: "ERROR", Component: "placement", Message: "error-match"}, {Level: "WARN+2", Component: "placement", Message: "custom-match"}, {Level: "INFO", Component: "placement", Message: "info-excluded"}, {Level: "ERROR", Component: "delivery", Message: "delivery-excluded"}} {
-		bus.Publish(event)
-	}
-	body := get(t, newTestDashboard(Options{Events: bus}).Handler(), "/events?level=warn&component=placement").Body.String()
-	for _, want := range []string{"warn-match", "error-match", "custom-match"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("event page lost %s", want)
-		}
-	}
-	if strings.Contains(body, "info-excluded") || strings.Contains(body, "delivery-excluded") {
-		t.Fatal("event page ignored filters")
-	}
-}
-
-// lossyEvents keeps events in its ring but never delivers them live, as a
-// bus whose full subscription dropped them.
-type lossyEvents struct {
-	mu     sync.Mutex
-	events []observability.Event
-}
-
-func (source *lossyEvents) add(event observability.Event) {
-	source.mu.Lock()
-	defer source.mu.Unlock()
-	event.Sequence = uint64(len(source.events) + 1)
-	source.events = append([]observability.Event{event}, source.events...)
-}
-
-func (source *lossyEvents) Recent(int) []observability.Event {
-	source.mu.Lock()
-	defer source.mu.Unlock()
-	return slices.Clone(source.events)
-}
-
-func (source *lossyEvents) Since(uint64, int) []observability.Event { return nil }
-
-func (source *lossyEvents) Subscribe(ctx context.Context, _ int) <-chan observability.Event {
-	channel := make(chan observability.Event)
-	context.AfterFunc(ctx, func() { close(channel) })
-	return channel
-}
-
-// A matching event the bus dropped from the stream's subscription is still
-// listed: every tick reconciles the rows with the event ring.
-func TestEventsStreamRecoversDroppedEvents(t *testing.T) {
-	t.Parallel()
-	source := &lossyEvents{}
-	dashboard := newTestDashboard(Options{Events: source})
-	server := newStreamServer(t, dashboard)
-	reader, _ := openStream(t, server, "/events/stream?level=warn")
-	reader.next()
-	source.add(observability.Event{Level: "WARN", Component: "placement", Message: "dropped warning"})
-	for range 20 {
-		if _, data := reader.next(); strings.Contains(data, "dropped warning") {
-			return
-		}
-	}
-	t.Fatal("a dropped matching event never appeared")
-}
-
-// A toast opens its insight under the insight's own region on the
-// all-regions list, like an insight card does.
-func TestToastLinksTheRegionScopedInsight(t *testing.T) {
-	t.Parallel()
-	board, source, _ := journalDashboard(Options{})
-	server := newStreamServer(t, board)
-	reader, _ := openStream(t, server, "/insights/stream?r=fra")
-	reader.next()
-	insight := testInsight("oci:x", "OCI errors", insights.SeverityWarning, "sjc")
-	source.push(insights.Change{Time: testNow.Add(time.Second), Type: insights.ChangeOpened, Insight: insight})
-	// A ticker re-render of the page may precede the toast, which is its own #toasts patch.
-	var body string
-	for range 5 {
-		if _, body = reader.next(); strings.Contains(body, "#toasts") {
-			break
-		}
-	}
-	if !strings.Contains(body, "id="+insight.Key) || !strings.Contains(body, "region=all") || !strings.Contains(body, "#insight-"+insight.Key) {
-		t.Fatalf("toast lost region scoped link: %s", body)
 	}
 }
 

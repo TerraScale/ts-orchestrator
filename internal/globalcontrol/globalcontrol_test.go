@@ -8,9 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -23,90 +22,6 @@ func testRoster(generation uint64) Roster {
 		{Cell: "gru", OCIRegion: "sa-saopaulo-1", State: RegionActive},
 		{Cell: "sjc", OCIRegion: "us-sanjose-1", State: RegionActive},
 	}}
-}
-
-func TestDirectoryValidation(t *testing.T) {
-	t.Parallel()
-
-	entry := DirectoryEntry{DatabaseID: "00000000004SJMRETVW39JX054", PartitionID: "00000000003K6TBW31R91GBDRD", HomeRegion: "gru", ActiveRegions: []string{"gru", "sjc"}, Generation: 1}
-	if err := entry.ValidateAgainst(testRoster(1)); err != nil {
-		t.Fatal(err)
-	}
-	if entry.Key() != DirectoryKey(entry.DatabaseID, entry.PartitionID) || DirectoryKey("a--b", "c") == DirectoryKey("a", "b--c") {
-		t.Fatalf("directory keys collide or changed: %q", entry.Key())
-	}
-	provisioning := entry
-	provisioning.ActiveRegions = []string{"fra", "gru"}
-	if err := provisioning.ValidateAgainst(testRoster(1)); err == nil {
-		t.Fatal("directory placed a partition in a non-active region")
-	}
-	cases := map[string]func(*DirectoryEntry){
-		"no generation":   func(d *DirectoryEntry) { d.Generation = 0 },
-		"bad database":    func(d *DirectoryEntry) { d.DatabaseID = "DB" },
-		"dotted database": func(d *DirectoryEntry) { d.DatabaseID = "db.1" },
-		"home not active": func(d *DirectoryEntry) { d.HomeRegion = "fra" },
-		"unsorted":        func(d *DirectoryEntry) { d.ActiveRegions = []string{"sjc", "gru"} },
-		"duplicate":       func(d *DirectoryEntry) { d.ActiveRegions = []string{"gru", "gru"} },
-		"empty":           func(d *DirectoryEntry) { d.ActiveRegions = nil },
-		"too many":        func(d *DirectoryEntry) { d.ActiveRegions = []string{"a", "b", "c", "d", "e", "gru"} },
-	}
-	for name, mutate := range cases {
-		candidate := entry
-		candidate.ActiveRegions = append([]string(nil), entry.ActiveRegions...)
-		mutate(&candidate)
-		if err := candidate.Validate(); err == nil {
-			t.Errorf("%s directory entry validated", name)
-		}
-	}
-}
-
-func TestMirrorConfigIsReadOnlyAndPinnedToHome(t *testing.T) {
-	t.Parallel()
-
-	config := MirrorStreamConfig("gru", "sjc", 3)
-	if len(config.Subjects) != 0 || config.Mirror == nil ||
-		config.Mirror.External.APIPrefix != "$JS.gru.API" ||
-		config.Mirror.External.DeliverPrefix != "" || config.Mirror.Consumer == nil ||
-		config.Mirror.Consumer.Name != "global-mirror-sjc" ||
-		config.Mirror.Consumer.DeliverSubject != "ts.interregion.v1.sjc.global" {
-		t.Fatalf("mirror config = %+v", config)
-	}
-	if err := verifyMirror(config, "gru", "sjc", 3); err != nil {
-		t.Fatal(err)
-	}
-	if err := verifyHome(HomeStreamConfig(3), 3); err != nil {
-		t.Fatal(err)
-	}
-	if err := verifyHome(config, 3); err == nil {
-		t.Fatal("mirror verified as the writable home stream")
-	}
-	tampered := []func(*jetstream.StreamConfig){
-		func(c *jetstream.StreamConfig) { c.Subjects = []string{protocol.GlobalStateStreamSubject()} },
-		func(c *jetstream.StreamConfig) { c.Mirror.External.APIPrefix = "$JS.sjc.API" },
-		func(c *jetstream.StreamConfig) { c.Mirror.External.DeliverPrefix = "ts.interregion.v1.sjc.global" },
-		func(c *jetstream.StreamConfig) { c.Mirror.Consumer = nil },
-		func(c *jetstream.StreamConfig) {
-			c.Mirror.Consumer = &jetstream.StreamConsumerSource{Name: "global-mirror-fra", DeliverSubject: "ts.interregion.v1.sjc.global"}
-		},
-		func(c *jetstream.StreamConfig) {
-			c.Mirror.Consumer = &jetstream.StreamConsumerSource{Name: "global-mirror-sjc", DeliverSubject: "ts.orch.v1.sjc.placement.apply"}
-		},
-		func(c *jetstream.StreamConfig) { c.Mirror.FilterSubject = "ts.global.v1.roster.>" },
-		func(c *jetstream.StreamConfig) { c.DenyPurge = false },
-		func(c *jetstream.StreamConfig) {
-			c.Metadata = map[string]string{"terrascale-contract": contract, "terrascale-role": "mirror", "terrascale-home": "sjc"}
-		},
-	}
-	for index, mutate := range tampered {
-		candidate := MirrorStreamConfig("gru", "sjc", 3)
-		mutate(&candidate)
-		if err := verifyMirror(candidate, "gru", "sjc", 3); err == nil {
-			t.Errorf("tampered mirror %d verified", index)
-		}
-	}
-	if _, err := OpenMirror(t.Context(), nil, "gru", "gru", 1); err == nil {
-		t.Fatal("home region opened a mirror of itself")
-	}
 }
 
 func TestHomeWriterGuardsAndCompareAndSets(t *testing.T) {

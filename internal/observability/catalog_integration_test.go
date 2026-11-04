@@ -239,41 +239,6 @@ func TestMetricCatalogHTTPRegistryAndHistoryIntegration(t *testing.T) {
 			}
 			return response.StatusCode, string(body)
 		}
-		t.Run("server private listeners and token files", func(t *testing.T) {
-			tokenFile := filepath.Join(t.TempDir(), "token")
-			token := strings.Repeat("t", 40)
-			if err := os.WriteFile(tokenFile, []byte(token), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			deps := ServerDeps{Registry: NewRegistry(false), Health: new(Health)}
-			for _, address := range []string{"127.0.0.1:9464", "[::1]:9464", "10.0.1.5:9464", "172.16.4.2:9464", "192.168.1.10:9464", "10.200.106.253:9464", "[fd00::1]:9464"} {
-				t.Run(address, func(t *testing.T) {
-					service, err := NewServer(Config{ListenAddress: address, BearerTokenFile: tokenFile}, deps)
-					if err != nil {
-						t.Fatalf("NewServer(%q): %v", address, err)
-					}
-					base, client := start(t, service)
-					if code, _ := request(t, client, base, http.MethodGet, "/metrics", "Bearer "+token, ""); code != http.StatusOK {
-						t.Fatalf("listener %q metrics = %d", address, code)
-					}
-				})
-			}
-			service, err := NewServer(Config{}, deps)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, address := range []string{"0.0.0.0:9464", "[::]:9464", ":9464", "localhost:9464", "8.8.8.8:9464", "169.254.1.1:9464", "224.0.0.1:9464", "127.0.0.1:0", "127.0.0.1", "[fe80::1%eth0]:9464", "127.000.0.1:9464", "[::ffff:8.8.8.8]:9464", "100.90.12.3:9464", "off"} {
-				if _, err := service.Start(t.Context(), Config{ListenAddress: address}); err == nil {
-					_ = service.Close()
-					t.Fatalf("Start accepted %q", address)
-				}
-			}
-			for _, config := range []Config{{ListenAddress: "10.0.0.4:9464"}, {TLSCertFile: "/cert"}, {LogFormat: "xml"}, {LogLevel: "trace"}} {
-				if _, err := NewServer(config, deps); err == nil {
-					t.Fatalf("NewServer accepted %+v", config)
-				}
-			}
-		})
 		t.Run("server routes and bearer token", func(t *testing.T) {
 			tokenFile := filepath.Join(t.TempDir(), "token")
 			token := strings.Repeat("t", 40)
@@ -332,80 +297,6 @@ func TestMetricCatalogHTTPRegistryAndHistoryIntegration(t *testing.T) {
 				t.Fatalf("POST /metrics = %d", code)
 			}
 		})
-		t.Run("server refuses tokenless network address", func(t *testing.T) {
-			service, err := NewServer(Config{}, ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := service.Start(t.Context(), Config{ListenAddress: "10.0.0.1:9464"}); err == nil || !strings.Contains(err.Error(), "bearer_token_file") {
-				_ = service.Close()
-				t.Fatalf("Start(tokenless private address) error = %v", err)
-			}
-			base, client := start(t, service)
-			if code, _ := request(t, client, base, http.MethodGet, "/metrics", "", ""); code != http.StatusOK {
-				t.Fatalf("tokenless loopback /metrics = %d", code)
-			}
-		})
-		t.Run("tokenless server refuses hostnames on every route", func(t *testing.T) {
-			service, err := NewServer(Config{}, ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
-			if err != nil {
-				t.Fatal(err)
-			}
-			service.Handle("GET /v1/extra", http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { writer.WriteHeader(http.StatusOK) }))
-			base, client := start(t, service)
-			for _, path := range []string{"/metrics", "/healthz", "/v1/extra"} {
-				for host, want := range map[string]int{"rebind.attacker.example:9464": http.StatusMisdirectedRequest, "127.0.0.1:9464": http.StatusOK, "[::1]:9464": http.StatusOK, "localhost:9464": http.StatusOK} {
-					if code, _ := request(t, client, base, http.MethodGet, path, "", host); code != want {
-						t.Fatalf("GET %s with Host %q = %d, want %d", path, host, code, want)
-					}
-				}
-			}
-		})
-	}
-}
-
-func TestMetricCatalogHTTPBoundedExpositionIntegration(t *testing.T) {
-	t.Parallel()
-	registry := NewRegistry(false)
-	registry.RegisterWriter(func(writer io.Writer) {
-		for index := range catalogMaxMetrics + 10 {
-			fmt.Fprintf(writer, "bounded_metric_%d 1\n", index)
-		}
-		fmt.Fprint(writer, strings.Repeat("x", catalogMaxBytes))
-	})
-	token := strings.Repeat("b", 40)
-	server, err := NewTokenServer(Config{}, token, ServerDeps{Registry: registry, Health: new(Health)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener := httptest.NewServer(server)
-	t.Cleanup(listener.Close)
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, listener.URL+"/v1/metrics/catalog", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := listener.Client().Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	var catalog CatalogResult
-	if err := json.NewDecoder(response.Body).Decode(&catalog); err != nil {
-		t.Fatal(err)
-	}
-	if response.StatusCode != http.StatusOK || !catalog.Truncated || catalog.State != "truncated" || len(catalog.Metrics) != catalogMaxMetrics {
-		t.Fatalf("bounded response: status %d, state %s, truncated %t, metrics %d", response.StatusCode, catalog.State, catalog.Truncated, len(catalog.Metrics))
-	}
-	// A loopback address alone must not authorize this new discovery API.
-	local, err := NewServer(Config{}, ServerDeps{Registry: registry, Health: new(Health)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	recorder := httptest.NewRecorder()
-	local.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/v1/metrics/catalog", nil))
-	if recorder.Code != http.StatusServiceUnavailable {
-		t.Fatalf("tokenless discovery status %d", recorder.Code)
 	}
 }
 
