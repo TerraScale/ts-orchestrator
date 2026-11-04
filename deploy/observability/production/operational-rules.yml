@@ -54,6 +54,21 @@ groups:
           severity: critical
         annotations:
           summary: TerraBase replication send lag exceeds thirty seconds
+      # A diverged replica rebootstraps itself; a repeat within 15 minutes waits, so this alert is the operator's signal.
+      - alert: TerraBaseReplicaDiverged
+        expr: (increase(terrabase_replica_verifications_total{service="terrabase",result="diverged"}[15m]) > 0) or ((terrabase_replica_verifications_total{service="terrabase",result="diverged"} > 0) unless terrabase_replica_verifications_total{service="terrabase",result="diverged"} offset 15m)
+        labels:
+          severity: critical
+        annotations:
+          summary: A TerraBase region replica diverged from its home
+          description: The replica was deleted and bootstrapped again. Read the replica node's error log for the database and range; repeated divergence points at an engine or sync bug.
+      - alert: TerraBaseReplicaUnverified
+        expr: max by (host, region) (terrabase_replica_max_verification_age_seconds{service="terrabase"}) > 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: A TerraBase region replica has gone an hour without a completed checksum verification
       - alert: TerraBaseMetricsDown
         expr: up{job="terrabase",region="gru"} == 0
         labels:
