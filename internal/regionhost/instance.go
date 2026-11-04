@@ -102,7 +102,7 @@ func (r *run) ensureInstance(host, shape string) (*core.Instance, error) {
 	if host == "" {
 		host = "ts-" + r.code + "-1"
 	}
-	launched, err := r.launch(host, sized(shape))
+	launched, err := r.launch(host, sized(shape), live(items))
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,44 @@ func (r *run) ensureInstance(host, shape string) (*core.Instance, error) {
 	return launched, r.report("created", "instance", host, deref(launched.Id))
 }
 
-func (r *run) launch(name string, m machine) (*core.Instance, error) {
+// spread is where a new host goes beside the region's live hosts: their
+// oldest host's availability domain, in a fault domain none of them uses
+// (PIVOT D16: an in-region ack lands on 2 fault domains). With no live host
+// any domain does; with every fault domain taken it is an error.
+func spread(hosts []core.Instance, faultDomains func(ad string) ([]string, error)) (ad, fd string, err error) {
+	if len(hosts) == 0 {
+		return "", "", nil
+	}
+	oldest := slices.MinFunc(hosts, func(a, b core.Instance) int { return a.TimeCreated.Compare(b.TimeCreated.Time) })
+	ad = deref(oldest.AvailabilityDomain)
+	names, err := faultDomains(ad)
+	if err != nil {
+		return "", "", err
+	}
+	for _, name := range names {
+		if !slices.ContainsFunc(hosts, func(h core.Instance) bool {
+			return deref(h.AvailabilityDomain) == ad && deref(h.FaultDomain) == name
+		}) {
+			return ad, name, nil
+		}
+	}
+	return "", "", fmt.Errorf("every fault domain of %s already holds a host of this region", ad)
+}
+
+func (r *run) faultDomains(ad string) ([]string, error) {
+	list, err := r.ids.ListFaultDomains(r.ctx, identity.ListFaultDomainsRequest{CompartmentId: &r.tenancy, AvailabilityDomain: &ad})
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(list.Items))
+	for _, f := range list.Items {
+		names = append(names, deref(f.Name))
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+func (r *run) launch(name string, m machine, hosts []core.Instance) (*core.Instance, error) {
 	images, err := r.compute.ListImages(r.ctx, core.ListImagesRequest{CompartmentId: &r.compartment, OperatingSystem: new("Canonical Ubuntu"),
 		OperatingSystemVersion: new("24.04"), Shape: &m.shape, SortBy: core.ListImagesSortByTimecreated, SortOrder: core.ListImagesSortOrderDesc})
 	if err != nil {
@@ -149,8 +186,20 @@ func (r *run) launch(name string, m machine) (*core.Instance, error) {
 		return nil, err
 	}
 	ads, err := r.ids.ListAvailabilityDomains(r.ctx, identity.ListAvailabilityDomainsRequest{CompartmentId: &r.tenancy})
+	if err != nil {
+		return nil, err
+	}
+	ad, fd, err := spread(hosts, r.faultDomains)
 	if err != nil || r.dry { // a dry run checks every lookup, then launches nothing
 		return nil, err
+	}
+	if ad != "" {
+		// Beside its region's hosts: their AD, a fault domain of its own, no fallback.
+		ads.Items = []identity.AvailabilityDomain{{Name: &ad}}
+	}
+	var faultDomain *string
+	if fd != "" {
+		faultDomain = &fd
 	}
 	// Out of host capacity in one AD: try the next, at most twice.
 	var launched core.LaunchInstanceResponse
@@ -159,7 +208,7 @@ func (r *run) launch(name string, m machine) (*core.Instance, error) {
 			break
 		}
 		launched, err = r.compute.LaunchInstance(r.ctx, core.LaunchInstanceRequest{LaunchInstanceDetails: core.LaunchInstanceDetails{
-			AvailabilityDomain: ad.Name, CompartmentId: &r.compartment, DisplayName: &name, Shape: &m.shape,
+			AvailabilityDomain: ad.Name, FaultDomain: faultDomain, CompartmentId: &r.compartment, DisplayName: &name, Shape: &m.shape,
 			ShapeConfig:   &core.LaunchInstanceShapeConfigDetails{Ocpus: &m.ocpus, MemoryInGBs: &m.gb},
 			SourceDetails: core.InstanceSourceViaImageDetails{ImageId: images.Items[i].Id, BootVolumeSizeInGBs: new(int64(50))},
 			CreateVnicDetails: &core.CreateVnicDetails{SubnetId: &subnet, AssignPublicIp: new(true), NsgIds: nsgs,

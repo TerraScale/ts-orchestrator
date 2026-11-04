@@ -332,3 +332,26 @@ func TestCanaryAfterCIIdentityCannotReleaseOtherServices(t *testing.T) {
 		t.Fatal("pull request gained canary release authority")
 	}
 }
+
+// A founder relays the release it accepted to its region's workers, which
+// verify and install the same signed request; a refused request goes nowhere.
+func TestFounderRelaysAcceptedReleaseToWorkers(t *testing.T) {
+	now := time.Now()
+	i := newIssuer(t)
+	founder, _ := testHandler(t, i, now, []byte("new"))
+	worker, workerBinary := testHandler(t, i, now, []byte("new"))
+	var relayed [][]byte
+	founder.Relay = func(request []byte) { relayed = append(relayed, request) }
+	if reply := founder.relayed(t.Context(), orchRequest(t, "not-a-token", []byte("new"), nil)); reply.State != "rejected" || len(relayed) != 0 {
+		t.Fatalf("refused request: reply %+v, relayed %d", reply, len(relayed))
+	}
+	if reply := founder.relayed(t.Context(), orchRequest(t, i.sign(t, goodClaims(now)), []byte("new"), nil)); reply.State != "installed" || len(relayed) != 1 {
+		t.Fatalf("accepted request: reply %+v, relayed %d", reply, len(relayed))
+	}
+	if reply := worker.orch(t.Context(), relayed[0]); reply.State != "installed" {
+		t.Fatalf("worker reply = %+v", reply)
+	}
+	if current, _ := os.ReadFile(workerBinary); string(current) != "new" {
+		t.Fatalf("worker binary %q", current)
+	}
+}

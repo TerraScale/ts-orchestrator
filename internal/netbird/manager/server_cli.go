@@ -96,9 +96,12 @@ func runServer(ctx context.Context, args []string, stdout io.Writer) error {
 // netbird-server service, and this host's client everywhere; each step is
 // idempotent.
 func serveOnce(ctx context.Context, vault ServerVault, dir string) error {
-	server, err := runsServer(ctx)
-	if err != nil {
-		return err
+	server := false
+	if !regionWorker(admissionFile) { // a worker has no control socket and never runs the server
+		var err error
+		if server, err = runsServer(ctx); err != nil {
+			return err
+		}
 	}
 	if server {
 		if err := runServerSide(ctx, vault, dir); err != nil {
@@ -109,6 +112,21 @@ func serveOnce(ctx context.Context, vault ServerVault, dir string) error {
 		return err
 	}
 	return enrollHost(ctx, vault)
+}
+
+// admissionFile is the single-host node's stored SwarmKit admission
+// (swarmruntime.StoredAdmission; manager cannot import swarmruntime).
+const admissionFile = "/var/lib/ts-orch/swarm/admission.json"
+
+// regionWorker reports whether this host joined its region's cluster as a
+// worker: its stored admission names another host as the founder.
+func regionWorker(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var admission struct{ HostID, FounderID string }
+	return json.Unmarshal(data, &admission) == nil && admission.HostID != "" && admission.HostID != admission.FounderID
 }
 
 // runsServer reports whether this host's single-host node declares the

@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/nats-io/nats.go"
 
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
 	"github.com/TerraScale/ts-orchestrator/internal/hostdashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/hostmetrics"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/regionjoin"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
@@ -94,6 +96,9 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	}
 	releases.Mesh = mesh.Bridge(state)
 	releases.App = mesh.Release(state)
+	if founder {
+		releases.Relay = func(request []byte) { relayRelease(state, plan.region, request) }
+	}
 	natsServer, natsConn, err := releasepush.Start(state)
 	if err != nil {
 		return err
@@ -102,6 +107,9 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 	defer natsConn.Close()
 	if err := releases.Serve(natsConn); err != nil {
 		return err
+	}
+	if plan.joiner() && plan.address != "" {
+		go serveWorkerReleases(ctx, state, plan.region, releases)
 	}
 	if founder {
 		go publishJoin(ctx, state, plan)
@@ -234,6 +242,47 @@ func publishJoin(ctx context.Context, state string, plan hostPlan) {
 		case <-ctx.Done():
 			return
 		case <-time.After(wait):
+		}
+	}
+}
+
+// relayRelease publishes CI's accepted ts-orch release request to the
+// region's workers over the mesh. A worker that misses it catches up on the
+// next push, which CI repeats until every region is current.
+func relayRelease(state, region string, request []byte) {
+	conn, err := mesh.Connect(state)
+	if err != nil {
+		slog.Warn("release not relayed to the region's workers", "error", err)
+		return
+	}
+	defer conn.Close()
+	if err := errors.Join(conn.Publish(protocol.MeshWorkerReleasePrefix+region, request), conn.Flush()); err != nil {
+		slog.Warn("release not relayed to the region's workers", "error", err)
+	}
+}
+
+// serveWorkerReleases installs the releases this worker's founder relays,
+// reconnecting to the local mesh node until ctx ends.
+func serveWorkerReleases(ctx context.Context, state, region string, releases *releasepush.Handler) {
+	for ctx.Err() == nil {
+		conn, err := mesh.Connect(state)
+		if err == nil {
+			closed := make(chan struct{})
+			conn.SetClosedHandler(func(*nats.Conn) { close(closed) })
+			if err = releases.ServeWorker(conn, protocol.MeshWorkerReleasePrefix+region); err == nil {
+				select {
+				case <-ctx.Done():
+				case <-closed:
+				}
+			}
+			conn.Close()
+		}
+		if err != nil {
+			slog.WarnContext(ctx, "worker release subscription failed; retrying", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(30 * time.Second):
 		}
 	}
 }

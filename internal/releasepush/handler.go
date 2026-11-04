@@ -109,6 +109,9 @@ type Handler struct {
 	// Mesh runs a multi-region workflow request (op "ping" or "apply") on the
 	// cross-region mesh and returns its rows, also when it fails; nil refuses them.
 	Mesh func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
+	// Relay, when set, passes an accepted ts-orch release request on to the
+	// region's workers (the founder's mesh); each worker verifies it itself.
+	Relay func(request []byte)
 	// Installed receives once after a new binary is in place; the caller exits
 	// so systemd restarts the new binary.
 	Installed chan struct{}
@@ -164,15 +167,35 @@ func Revision() string {
 
 // Serve subscribes the release subjects until the connection closes.
 func (h *Handler) Serve(conn *nats.Conn) error {
-	for subject, handle := range map[string]func(context.Context, []byte) Reply{
+	return h.serve(conn, map[string]func(context.Context, []byte) Reply{
 		SubjectVersion: func(context.Context, []byte) Reply { return h.version() },
-		SubjectOrch:    h.orch,
+		SubjectOrch:    h.relayed,
 		SubjectApp:     h.app,
 		SubjectPing:    func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "ping", data) },
 		SubjectApply:   func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "apply", data) },
 		SubjectRemove:  func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "rm", data) },
 		SubjectState:   func(ctx context.Context, data []byte) Reply { return h.mesh(ctx, "state", data) },
-	} {
+	})
+}
+
+// ServeWorker installs the ts-orch releases a region's founder relays on
+// subject: the same signed request CI sent, verified here again.
+func (h *Handler) ServeWorker(conn *nats.Conn, subject string) error {
+	return h.serve(conn, map[string]func(context.Context, []byte) Reply{subject: h.orch})
+}
+
+// relayed installs a release and, once this host runs or installed it,
+// passes the request on to the region's workers.
+func (h *Handler) relayed(ctx context.Context, data []byte) Reply {
+	reply := h.orch(ctx, data)
+	if h.Relay != nil && (reply.State == "installed" || reply.State == "current") {
+		h.Relay(data)
+	}
+	return reply
+}
+
+func (h *Handler) serve(conn *nats.Conn, subjects map[string]func(context.Context, []byte) Reply) error {
+	for subject, handle := range subjects {
 		if _, err := conn.Subscribe(subject, func(m *nats.Msg) {
 			// Each request runs on its own goroutine so a download never blocks version polls.
 			go func() {

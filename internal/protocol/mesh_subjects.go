@@ -9,6 +9,9 @@ const (
 	MeshStateSubject = "ts.svc.state"
 	// MeshPingSubject answers with the region and server name.
 	MeshPingSubject = "ts.mesh.ping"
+	// MeshWorkerReleasePrefix + region carries a founder's accepted ts-orch
+	// release request to its region's workers, which CI never reaches.
+	MeshWorkerReleasePrefix = "ts.mesh.release."
 	// MeshHealthSubject answers with the region's host and SwarmKit health
 	// (internal/regionhealth).
 	MeshHealthSubject = "ts.mesh.health"

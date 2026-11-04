@@ -74,7 +74,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	edgeDone := make(chan error, 1)
 	var public *edge.Edge // nil on a joiner, which serves no edge
 	if plan.joiner() {
-		// shortcut: a worker serves no edge (it has no control socket for routes; the founder's edge serves the region) and receives no release push (CI pushes only deploy/m1/regions.json hosts).
+		// shortcut: a worker serves no edge (it has no control socket for routes; the founder's edge serves the region); its releases come relayed from the founder (CI pushes only deploy/m1/regions.json hosts).
 		edgeDone <- nil
 	} else {
 		public = edge.New(*state)
