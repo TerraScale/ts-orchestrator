@@ -43,9 +43,11 @@ domains (D16: an in-region ack lands on 2 nodes that do not share hardware):
 
 | Region | Founder (JetStream peer) | Worker |
 |---|---|---|
-| gru | `ts-gru-1`, FAULT-DOMAIN-3 | `ts-gru-2` |
-| sjc | `ts-sjc-1`, FAULT-DOMAIN-1 | `ts-sjc-2` |
-| fra | `ts-fra-1`, FAULT-DOMAIN-3 | `ts-fra-2` |
+| gru | `ts-gru-1`, FAULT-DOMAIN-3 | `ts-gru-2`, FAULT-DOMAIN-2 |
+| sjc | `ts-sjc-1`, FAULT-DOMAIN-1 | `ts-sjc-2`, FAULT-DOMAIN-2 |
+| fra | `ts-fra-1`, FAULT-DOMAIN-3 | `ts-fra-2`, FAULT-DOMAIN-1 |
+
+All in AD-1 of their region, launched 2026-11-04 19:43–19:52Z.
 
 Every node is `ts-<region>-<n>` (TS-609, no role names). The gru founder was
 `gru-1-ctl-1` with hostname `ts-gru-2`. It was renamed in place to `ts-gru-1`
@@ -59,8 +61,8 @@ second host exists: a new host whose hostname equals the join material's
 
 - `ts-orch region add <code> --host ts-<code>-<n>` launches the worker
   (`internal/regionhost`): the founder's shape family (A1.Flex 2 OCPU/12 GB),
-  the founder's availability domain and the first fault domain no live host of
-  the region uses. With every fault domain taken it launches nothing.
+  the founder's availability domain and a fault domain no live host of the
+  region uses. With every fault domain taken it launches nothing.
 - Cloud-init installs ts-orch and the NetBird companion
   (`netbird-server.service`). The companion installs the pinned NetBird client
   and enrolls the host into `gru-servers` with `gru-1-netbird-setup-key`
@@ -79,8 +81,13 @@ second host exists: a new host whose hostname equals the join material's
   in-region follower. Its service has a data mount, and SwarmKit runs a
   service with mounts on one host only. The worker runs the stateless mesh
   services and is the node R10 places the second TerraBase copy on.
-- Capacity: 6 A1.Flex nodes (gru 4 OCPU/24 GB founder + 2 OCPU/12 GB worker;
-  sjc and fra 2 OCPU/12 GB each).
+- Capacity: 6 VM.Standard.A1.Flex nodes. Founders: gru 4 OCPU/24 GB, sjc and
+  fra 2 OCPU/12 GB. Workers: sjc and fra 2 OCPU/12 GB; gru 1 OCPU/6 GB, because
+  sa-saopaulo-1 had no A1 capacity for 2 OCPU/12 GB in FAULT-DOMAIN-1 or -2 on
+  2026-11-04. Resize `ts-gru-2` to 2 OCPU/12 GB before R10 places TerraBase
+  on it. The resize restarts it, and it holds no data until then.
+- `region add` tries every free fault domain in turn when OCI is out of host
+  capacity.
 
 ## JetStream
 
