@@ -75,15 +75,13 @@ func plan(packages map[string][]string, hints []estimate) []shard {
 	// Plain -short observations, including packages the race planner does not
 	// split. All other estimated slow packages also receive six shards.
 	heavy := map[string]float64{
-		"/internal/app": 170, "/internal/natscell": 85,
-		"/internal/natscell/mesh": 170, "/internal/region": 180,
-		"/internal/bootstrapstart": 90, "/internal/swarmruntime": 90,
-		"/internal/observability": 75, "/internal/ociregion/publicapi": 85,
-		"/internal/edge": 75, "/internal/host": 70,
-		"/internal/foundationbinding": 40, "/internal/delivery": 30,
-		"/internal/kvsnapshot": 25, "/internal/netbird/client": 25,
-		"/internal/ociresource/lb": 30, "/internal/ociresource/nlb": 25,
-		"/tests/deploy": 180,
+		"/internal/app": 70, "/internal/natscell/mesh": 35,
+		"/internal/ociregion/publicapi": 35, "/internal/bootstrapstart": 35,
+		"/internal/swarmruntime": 20, "/internal/oci": 20,
+		"/internal/bootstrapmaterial": 20, "/internal/bootstrapstart/materialsource": 20,
+		"/internal/natscell": 20, "/internal/region": 15,
+		"/internal/observability": 15, "/internal/edge": 15,
+		"/internal/host": 15, "/internal/authority": 12,
 	}
 	var queue []shard
 	for pkg, tests := range packages {
@@ -127,12 +125,6 @@ func plan(packages map[string][]string, hints []estimate) []shard {
 			// package loading, vet and TestMain setup. Split roughly thirty
 			// seconds of estimated work per process, up to the existing limit.
 			count = min(packageShards, max(1, (int(cost)+29)/30), max(1, len(tests)))
-			// Region's SDK cases dominate the measured serial tail. Give the
-			// expensive cases independent slots instead of combining several
-			// of them behind one long-running case.
-			if strings.HasSuffix(pkg, "/internal/region") {
-				count = min(jobs, max(1, len(tests)))
-			}
 		}
 		bins := make([]shard, count)
 		for i := range bins {
