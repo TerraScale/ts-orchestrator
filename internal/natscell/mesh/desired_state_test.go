@@ -28,7 +28,7 @@ func stateTestNodesWithAppliers(t *testing.T, factory func(string) Applier, regi
 			}
 		}
 		node, err := start(config{region: region, server: region + "-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
-			clusterPort: ports[2*i], localPort: ports[2*i+1], ca: ca, seeds: seeds,
+			clusterPort: ports[2*i], localPort: ports[2*i+1], ca: ca, terrabaseToken: testTerraBaseToken, seeds: seeds,
 			applier: factory(region), peersDir: t.TempDir(), peersEvery: 20 * time.Millisecond,
 			address: func() (string, error) { return "10.200.0.1", nil }})
 		if err != nil {

@@ -104,12 +104,19 @@ not the global account) all differ. There is no bridge. Reasons:
 | Account | JetStream | Users | Use |
 |---|---|---|---|
 | `ORCH` | none | `orch`: the root CLI and the node, with the loopback token in `<state>/mesh/client.token` | service desired state, ping, release bridge |
-| `TERRABASE` | 1 GiB memory, 36 GiB file (replicas counted), 64 streams, 4096 consumers | `ts-orch`: the node itself, with an in-memory password made fresh at each start | the TerraBase fabric (D25) |
+| `TERRABASE` | 1 GiB memory, 36 GiB file (replicas counted), 64 streams, 4096 consumers | `ts-orch`: the node itself, with an in-memory password made fresh at each start; `terrabase`: each region's TerraBase, by the token in Vault secret `gru-1-terrabase-nats-token`, publishing and subscribing only on `terrabase.>` (plus `_INBOX.>` subscriptions) | the TerraBase fabric (D25): revision notices `terrabase.revision.<home>.<database>` |
 | `$SYS` | system | none | JetStream cluster traffic |
 
-- Passwords are random 256-bit values, stored bcrypt-hashed at the minimum
-  cost: their entropy, not the work factor, protects them, and a connect stays
-  fast on a busy host.
+- Secrets are random 256-bit values compared in constant time: their entropy
+  protects them. One custom authenticator admits the loopback clients, because
+  TerraBase's client sends a bare token and NATS cannot mix a token with users.
+- TerraBase runs on the host network and dials `TS_NATS_URL=nats://127.0.0.1:4223`
+  with `TERRABASE_NATS_TOKEN_FILE` (`deploy/m1/services/terrabase.json`). ts-orch
+  creates the token in the gru Vault on first start and reads it on every start.
+  Each admitted TerraBase client logs `mesh NATS admitted TerraBase` in the
+  ts-orch journal. A refused token logs `mesh NATS refused a TerraBase token`.
+- JetStream use by TerraBase (D25 streams and KV) needs `$JS.API.>` added to its
+  publish permissions when that work lands; today it has notices only.
 - The `TERRABASE` account has its own route connection (pinned account).
   Fabric traffic therefore never delays service applies.
 

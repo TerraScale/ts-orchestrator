@@ -2,10 +2,12 @@ package mesh
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/url"
 	"slices"
@@ -13,7 +15,6 @@ import (
 
 	"github.com/nats-io/nats-server/v2/logger"
 	"github.com/nats-io/nats-server/v2/server"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -22,24 +23,33 @@ const (
 	orchAccount   = "ORCH"
 	orchUser      = "orch"
 	fabricUser    = "ts-orch"
-	regionTag     = "region:"
+	terrabaseUser = "terrabase"
+	// TerraBaseSubjects is all a TerraBase client may publish or subscribe to
+	// (PIVOT D25), plus its own reply inboxes.
+	TerraBaseSubjects = "terrabase.>"
+	regionTag         = "region:"
 
 	jetStreamMaxMemory = 1 << 30
 	jetStreamMaxStore  = 16 << 30
 )
 
 func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret string) (*server.Options, error) {
+	if len(cfg.terrabaseToken) < 16 {
+		return nil, errors.New("mesh needs TerraBase's NATS token")
+	}
 	options := &server.Options{}
 	if err := options.ProcessConfigString(accountsConfig); err != nil {
 		return nil, fmt.Errorf("mesh accounts: %w", err)
 	}
-	for _, user := range []struct{ name, secret, account string }{{orchUser, orchSecret, orchAccount}, {fabricUser, fabricSecret, FabricAccount}} {
-		hash, err := bcrypt.GenerateFromPassword([]byte(user.secret), bcrypt.MinCost)
-		if err != nil {
-			return nil, err
-		}
-		account := slices.IndexFunc(options.Accounts, func(a *server.Account) bool { return a.Name == user.account })
-		options.Users = append(options.Users, &server.User{Username: user.name, Password: string(hash), Account: options.Accounts[account]})
+	options.CustomClientAuthentication = &clientAuth{
+		users: map[string]credential{
+			orchUser:   {secret: orchSecret, account: orchAccount},
+			fabricUser: {secret: fabricSecret, account: FabricAccount},
+		},
+		terrabase: credential{secret: cfg.terrabaseToken, account: FabricAccount, permissions: &server.Permissions{
+			Publish:   &server.SubjectPermission{Allow: []string{TerraBaseSubjects}},
+			Subscribe: &server.SubjectPermission{Allow: []string{TerraBaseSubjects, "_INBOX.>"}},
+		}},
 	}
 	options.ServerName = serverName(cfg)
 	options.Host, options.Port = "127.0.0.1", cfg.localPort
@@ -74,6 +84,51 @@ var accountsConfig = fmt.Sprintf(`accounts {
   %s { jetstream: { max_memory: 1G, max_file: 36G, max_streams: 64, max_consumers: 4096 } }
 }
 `, orchAccount, FabricAccount)
+
+type credential struct {
+	secret, account string
+	permissions     *server.Permissions // nil: the whole account
+}
+
+// clientAuth admits the loopback clients: ts-orch's users by name and
+// password, and TerraBase by the token its client sends (TERRABASE_NATS_TOKEN_FILE).
+// server is set before the server starts accepting clients.
+type clientAuth struct {
+	server    *server.Server
+	users     map[string]credential
+	terrabase credential
+}
+
+func (a *clientAuth) Check(c server.ClientAuthentication) bool {
+	opts := c.GetOpts()
+	if c.Kind() != server.CLIENT {
+		return false
+	}
+	name, want, presented := terrabaseUser, a.terrabase, opts.Token
+	if opts.Username != "" {
+		user, ok := a.users[opts.Username]
+		if !ok {
+			return false
+		}
+		name, want, presented = opts.Username, user, opts.Password
+	}
+	if subtle.ConstantTimeCompare([]byte(want.secret), []byte(presented)) != 1 {
+		if name == terrabaseUser {
+			slog.Warn("mesh NATS refused a TerraBase token", "client", opts.Name, "remote", c.RemoteAddress().String())
+		}
+		return false
+	}
+	account, err := a.server.LookupAccount(want.account)
+	if err != nil {
+		return false
+	}
+	c.RegisterUser(&server.User{Username: name, Account: account, Permissions: want.permissions})
+	if name == terrabaseUser {
+		// The per-node proof that TerraBase follows revisions over NATS, not the sweep.
+		slog.Info("mesh NATS admitted TerraBase", "client", opts.Name, "account", want.account, "subjects", TerraBaseSubjects)
+	}
+	return true
+}
 
 func serverName(cfg config) string {
 	if cfg.applier != nil {

@@ -1,5 +1,10 @@
 # TerraBase wire TLS edge
 
+**Retired 2026-11-04.** TerraBase no longer has a custom wire listener
+(`TerraBaseOptions.WirePort` is gone), so `terrabase.json` drops
+`TERRABASE_WIRE_PORT` and its `wire` block. The edge stops serving 7464 for
+TerraBase. The rest of this page is history.
+
 Every region serves `api.terrascale.tech:7464` and its own regional API hostname
 with direct TLS and the edge's existing ACME certificates. No ALPN is required.
 After TLS terminates, the edge forwards binary frames unchanged to the local

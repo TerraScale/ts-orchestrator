@@ -209,7 +209,7 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 		configs[region] = config{
 			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
 			clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), clusterPort: ports[2*i], localPort: ports[2*i+1],
-			seeds: seeds, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
+			seeds: seeds, ca: ca, terrabaseToken: testTerraBaseToken, applier: appliers[region], every: 300 * time.Millisecond,
 			peersDir: t.TempDir(), peersEvery: 300 * time.Millisecond, address: func() (string, error) { return address, nil },
 		}
 	}
@@ -410,7 +410,7 @@ func TestNewRegionJoinsByGossip(t *testing.T) {
 		node, err := start(config{
 			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
 			clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), clusterPort: ports[2*i], localPort: ports[2*i+1],
-			seeds: seeds, ca: ca, applier: appliers[region], every: time.Hour,
+			seeds: seeds, ca: ca, terrabaseToken: testTerraBaseToken, applier: appliers[region], every: time.Hour,
 			peersDir: t.TempDir(), peersEvery: time.Hour, address: func() (string, error) { return fmt.Sprintf("10.200.1.%d", i+1), nil },
 		})
 		if err != nil {
@@ -506,7 +506,7 @@ func startMeshRegions(t *testing.T, settle time.Duration) ([]string, map[string]
 		node, err := start(config{
 			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
 			clusterAdvertise: fmt.Sprintf("127.0.0.1:%d", ports[2*i]), clusterPort: ports[2*i], localPort: ports[2*i+1],
-			seeds: seeds, ca: ca, applier: appliers[region], every: 300 * time.Millisecond,
+			seeds: seeds, ca: ca, terrabaseToken: testTerraBaseToken, applier: appliers[region], every: 300 * time.Millisecond,
 			peersDir: t.TempDir(), peersEvery: 300 * time.Millisecond, address: func() (string, error) { return address, nil },
 		})
 		if err != nil {

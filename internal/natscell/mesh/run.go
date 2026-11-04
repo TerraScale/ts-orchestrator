@@ -34,7 +34,10 @@ const (
 	vaultKeyID    = "ocid1.key.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljr2bdwyvlua7oi6gpg7gl72ln6t2l2fb63tl2cvhllvokc4l2afeeq"
 	compartmentID = "ocid1.compartment.oc1..aaaaaaaaypdff62jbchkojfli5i22ybzm3qnptwwsbg3aa2t5ali6te52nzq"
 	secretName    = "ts-orch-mesh-key"
-	retryEvery    = 30 * time.Second
+	// TerraBaseTokenSecret is TerraBase's mesh NATS token; its service spec
+	// delivers the same secret as TERRABASE_NATS_TOKEN_FILE.
+	TerraBaseTokenSecret = "gru-1-terrabase-nats-token"
+	retryEvery           = 30 * time.Second
 )
 
 // Run serves this host's region on the mesh until ctx ends, calling started
@@ -74,8 +77,13 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 	if err := releasepush.OpenTCP(ctx, ClusterPort); err != nil {
 		slog.WarnContext(ctx, "mesh cluster firewall", "error", err)
 	}
-	secret, err := loadSecret(ctx)
+	secret, err := loadSecret(ctx, secretName, "ts-orch mesh CA seed")
 	if err != nil {
+		return nil, err
+	}
+	terrabaseToken, err := loadSecret(ctx, TerraBaseTokenSecret, "TerraBase mesh NATS token")
+	if err != nil {
+		clear(secret)
 		return nil, err
 	}
 	ca, err := DeriveCA(secret)
@@ -106,7 +114,7 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 	return start(config{
 		region: region, server: name, dir: filepath.Join(state, "mesh"),
 		clusterHost: "0.0.0.0", clusterAdvertise: advertise, clusterPort: ClusterPort, localPort: LocalPort,
-		seeds: seeds, routes: routes, ca: ca, applier: applier, every: antiEntropyEvery,
+		seeds: seeds, routes: routes, ca: ca, terrabaseToken: hex.EncodeToString(terrabaseToken), applier: applier, every: antiEntropyEvery,
 		peersDir: swarmruntime.PeersDirectory, peersEvery: peersEvery, address: NetBirdAddress,
 	})
 }
@@ -134,9 +142,9 @@ func ownRegion(ctx context.Context) (string, error) {
 	return entry.Name(), nil
 }
 
-// loadSecret reads the shared mesh secret, creating it once when the Vault
-// has none. The value is never logged.
-func loadSecret(ctx context.Context) ([]byte, error) {
+// loadSecret reads a shared mesh secret of 32 random bytes, creating it once
+// when the Vault has none. The value is never logged.
+func loadSecret(ctx context.Context, secretName, description string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	factory, err := ociclient.InstancePrincipalContext(ctx, vaultRegion)
@@ -157,7 +165,7 @@ func loadSecret(ctx context.Context) ([]byte, error) {
 		factory.Configure(&management.BaseClient, ociclient.ServiceVault)
 		// Ensure creates only when absent; a concurrent creator wins and we re-read.
 		if _, ensureErr := vaultsecret.Ensure(ctx, &management, vaultsecret.Target{CompartmentID: compartmentID, VaultID: vaultID, KeyID: vaultKeyID},
-			secretName, "ts-orch mesh CA seed", func(context.Context) (string, error) {
+			secretName, description, func(context.Context) (string, error) {
 				seed := make([]byte, 32)
 				_, err := rand.Read(seed)
 				return hex.EncodeToString(seed), err

@@ -146,6 +146,7 @@ type config struct {
 	seeds                  map[string]string
 	routes                 []string
 	ca                     *CA
+	terrabaseToken         string  // TerraBase's client token, from Vault
 	applier                Applier // nil on a worker, which serves no region requests
 	every                  time.Duration
 	peersDir               string // host root of every service's peers file
@@ -214,6 +215,7 @@ func start(cfg config) (_ *Node, err error) {
 	if err != nil {
 		return nil, err
 	}
+	options.CustomClientAuthentication.(*clientAuth).server = embedded
 	log := newContainedLog()
 	embedded.SetLoggerV2(log, false, false, false)
 	go embedded.Start()

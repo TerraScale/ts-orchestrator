@@ -155,7 +155,7 @@ func startJetStreamRegions(t *testing.T) ([]string, map[string]*jetStreamRegion)
 		cfg := config{
 			region: region, server: "ts-" + region + "-1", dir: t.TempDir(), clusterHost: "127.0.0.1",
 			clusterAdvertise: ingress[region].addr, clusterPort: ports[2*i], localPort: ports[2*i+1],
-			seeds: seeds, ca: ca, applier: &fakeApplier{running: map[string]int64{}}, every: time.Hour,
+			seeds: seeds, ca: ca, terrabaseToken: testTerraBaseToken, applier: &fakeApplier{running: map[string]int64{}}, every: time.Hour,
 			peersDir: t.TempDir(), peersEvery: time.Hour, address: func() (string, error) { return fmt.Sprintf("10.202.0.%d", i+1), nil },
 		}
 		node, err := start(cfg)
