@@ -29,6 +29,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"golang.org/x/sys/unix"
 )
 
 type currentDiscoveryScenario struct {
@@ -412,4 +413,24 @@ func TestCurrentFoundationDiscoveryHTTPDurableAuthority(t *testing.T) {
 			t.Fatalf("symlink target changed: %q %v", wire, err)
 		}
 	})
+}
+
+func TestCurrentFoundationDiscoveryLockProcess(t *testing.T) {
+	path := os.Getenv("TS_TEST_FOUNDATION_LOCK")
+	if path == "" {
+		return
+	}
+	lock, err := os.OpenFile(path, os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stdout.Write([]byte("L")); err != nil {
+		t.Fatal(err)
+	}
+	var done [1]byte
+	_, _ = os.Stdin.Read(done[:])
 }
