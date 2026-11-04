@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
+
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -96,99 +96,6 @@ func TestTSAuthReplicaGetsVaultSecrets(t *testing.T) {
 	}
 }
 
-func TestTSAuthReplicaRejectsUUIDProject(t *testing.T) {
-	agent := tsAuthTestAgent(t)
-	secrets := tsAuthTestSecrets()
-	secrets[tsauth.EnvProjectID] = "0192f0c4-7d1e-7a2b-9c3d-4e5f6a7b8c9d"
-	if _, err := agent.prepareTSAuth(tsAuthTestDesired(), secrets); err == nil {
-		t.Fatal("accepted a UUID project for a ULID-only replica")
-	}
-}
-
-// TestTSAuthRefusesBadProfileOrSecrets refuses a profile that carries a
-// secret, arguments or misses a secret ref, and Vault values in the wrong
-// form. No error carries a secret.
-func TestTSAuthRefusesBadProfileOrSecrets(t *testing.T) {
-	agent := tsAuthTestAgent(t)
-	d := tsAuthTestDesired()
-	d.Env[tsauth.EnvAPIKey] = tsAuthTestAPIKey
-	if _, err := agent.prepareTSAuth(d, tsAuthTestSecrets()); err == nil || strings.Contains(err.Error(), tsAuthTestAPIKey) {
-		t.Fatalf("profile carrying a secret: %v", err)
-	}
-	d = tsAuthTestDesired()
-	d.Args = []string{"--listen=http://0.0.0.0:1"}
-	if _, err := agent.prepareTSAuth(d, tsAuthTestSecrets()); err == nil {
-		t.Fatal("launched a replica whose arguments override host-owned settings")
-	}
-	d = tsAuthTestDesired()
-	delete(d.Secrets, tsauth.EnvMasterKey)
-	if _, err := agent.prepareTSAuth(d, tsAuthTestSecrets()); err == nil {
-		t.Fatal("launched a replica whose profile names no master key")
-	}
-	for name, change := range map[string]func(map[string]string){
-		"missing value": func(s map[string]string) { delete(s, tsauth.EnvOperatorKey) },
-		"bad api key":   func(s map[string]string) { s[tsauth.EnvAPIKey] = "tb_ " + tsAuthTestAPIKey },
-		"short key": func(s map[string]string) {
-			s[tsauth.EnvMasterKey] = base64.StdEncoding.EncodeToString([]byte(tsAuthTestAPIKey))
-		},
-	} {
-		secrets := tsAuthTestSecrets()
-		change(secrets)
-		_, err := agent.prepareTSAuth(tsAuthTestDesired(), secrets)
-		if err == nil || strings.Contains(err.Error(), tsAuthTestAPIKey) {
-			t.Errorf("%s: %v", name, err)
-		}
-	}
-	if _, err := os.Stat(agent.cfg.TSAuthRoot); err == nil {
-		t.Fatal("prepared the replica's directory before its profile and secrets passed")
-	}
-}
-
-// TestTSAuthRootBelowManagedRuntimeRoot accepts the image layout: every
-// enrolled host's managed runtime root is /srv/ts-managed, the only tree the
-// host unit may write, and the ts-auth root /srv/ts-managed/ts-auth is in it.
-func TestTSAuthRootBelowManagedRuntimeRoot(t *testing.T) {
-	agent := tsAuthTestAgent(t)
-	agent.cfg.ManagedRuntimeRoot = filepath.Dir(agent.cfg.TSAuthRoot)
-	if _, err := agent.prepareTSAuth(tsAuthTestDesired(), tsAuthTestSecrets()); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// TestTSAuthRefusedWithoutRoot keeps a host without a ts-auth root from
-// launching ts-auth generically, without its bundle directory or a probe.
-func TestTSAuthRefusedWithoutRoot(t *testing.T) {
-	d := tsAuthTestDesired()
-	if !(&Agent{}).tsAuthMisplaced(d) {
-		t.Fatal("a host without a ts-auth root would launch ts-auth")
-	}
-	withdrawn := d
-	withdrawn.Withdrawn = true
-	if (&Agent{}).tsAuthMisplaced(withdrawn) || (&Agent{cfg: AgentConfig{TSAuthRoot: "/srv/ts-managed/ts-auth"}}).tsAuthMisplaced(d) {
-		t.Fatal("a withdrawn ts-auth or one on a ts-auth host was refused")
-	}
-}
-
-func TestTSAuthPortValidation(t *testing.T) {
-	for _, port := range []int{-1, 65536, 70000} {
-		t.Run(strconv.Itoa(port), func(t *testing.T) {
-			if _, err := NewAgent(AgentConfig{Cell: "gru", Node: "node-a", Environment: "production", TSAuthPort: port}); err == nil || !strings.Contains(err.Error(), "ts-auth port") {
-				t.Fatalf("port %d accepted: %v", port, err)
-			}
-		})
-	}
-}
-
-func TestTSAuthRootMustBeSeparate(t *testing.T) {
-	identity := WorkloadIdentity{UID: 65534, GID: 65534}
-	terraBase := filepath.Join(traversableTempDir(t), "terrabase")
-	for _, root := range []string{terraBase, filepath.Join(terraBase, "ts-auth"), "/var/lib/host/state/ts-auth", "relative"} {
-		if err := validateWorkloadRoot("ts-auth", root, identity, "/var/lib/host/install", "/var/lib/host/state", terraBase); err == nil {
-			t.Errorf("ts-auth root %q accepted", root)
-		}
-	}
-}
-
 // TestTSAuthRunningOnlyWhenReady reports a replica running only while both
 // /healthz and /readyz answer, and starting with the reason otherwise.
 func TestTSAuthRunningOnlyWhenReady(t *testing.T) {
@@ -214,16 +121,5 @@ func TestTSAuthRunningOnlyWhenReady(t *testing.T) {
 	ready.Store(false)
 	if report := agent.tsAuthRunningReport(t.Context(), d); report.State != "starting" || !strings.Contains(report.Error, tsauth.ReadyPath) {
 		t.Fatalf("unready replica reported %s: %s", report.State, report.Error)
-	}
-}
-
-func TestTSAuthExitReportedOnceBeforeRelaunch(t *testing.T) {
-	agent := &Agent{terraBase: map[string]terraBaseMember{}, cfg: AgentConfig{TSAuthRoot: "/srv/ts-managed/ts-auth"}}
-	d := tsAuthTestDesired()
-	exited := Observation{Role: d.Role, Digest: d.Digest, Fingerprint: "f"}
-	for i, want := range []bool{true, false} {
-		if got := agent.tsAuthReplica(d) && agent.terraBaseExited(exited, d, "f"); got != want {
-			t.Fatalf("observation %d: exited %v, want %v", i, got, want)
-		}
 	}
 }

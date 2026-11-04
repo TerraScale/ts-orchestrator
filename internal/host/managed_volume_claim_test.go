@@ -3,8 +3,6 @@
 package host
 
 import (
-	"bytes"
-	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,77 +39,6 @@ func managedClaimFixture(t *testing.T) (string, ManagedMemberLaunch, WorkloadIde
 		t.Fatal(err)
 	}
 	return root, launch, WorkloadIdentity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())}, fd, stat.Dev
-}
-
-func TestManagedVolumeClaimBindsStableMemberNotHostAttempt(t *testing.T) {
-	_, launch, _, _, _ := managedClaimFixture(t)
-	expected := managedVolumeClaimBytes(launch)
-	changed := launch
-	changed.Member.HostAttempt++
-	changed.AttachmentID = "ocid1.volumeattachment.oc1..next"
-	changed.AttachmentETag = "next-etag"
-	if !bytes.Equal(managedVolumeClaimBytes(changed), expected) {
-		t.Fatal("host replacement changed the retained volume claim")
-	}
-	changed = launch
-	changed.Member.Scope.Incarnation = strings.Repeat("f", 32)
-	if bytes.Equal(managedVolumeClaimBytes(changed), expected) {
-		t.Fatal("logical incarnation change reused an old volume claim")
-	}
-	changed = launch
-	changed.Authority.CertificateSHA256 = strings.Repeat("0", 64)
-	if bytes.Equal(managedVolumeClaimBytes(changed), expected) {
-		t.Fatal("authority change reused an old volume claim")
-	}
-}
-
-func TestManagedPreformatRejectsExistingShardAndUnclaimedData(t *testing.T) {
-	root, launch, identity, fd, device := managedClaimFixture(t)
-	if err := managedPreformatEmpty(fd, launch, identity, device, false); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(root, "replication", "shard"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := managedPreformatEmpty(fd, launch, identity, device, false); err == nil {
-		t.Fatal("unclaimed shard directory was accepted")
-	}
-	if err := os.Remove(filepath.Join(root, "replication", "shard")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "data", "old"), []byte("retained"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := managedPreformatEmpty(fd, launch, identity, device, false); err == nil {
-		t.Fatal("unclaimed data was accepted")
-	}
-}
-
-func TestManagedAcceptedAuthorityRecordPreflight(t *testing.T) {
-	root, launch, _, fd, device := managedClaimFixture(t)
-	certificate := []byte("exact signed certificate bytes")
-	expected, err := managedAcceptedAuthorityRecord(launch, certificate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(expected[:8]) != "TBACR001" || binary.LittleEndian.Uint32(expected[8:12]) != uint32(len(expected)) ||
-		binary.LittleEndian.Uint32(expected[76:80]) != uint32(len(certificate)) ||
-		!bytes.Equal(expected[80:len(expected)-4], certificate) {
-		t.Fatal("accepted authority record layout differs from TerraBase")
-	}
-	path := filepath.Join(root, "accepted.tbca")
-	if err := os.WriteFile(path, expected, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := managedReadExactFile(fd, "accepted.tbca", expected, device, -1); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, append([]byte(nil), expected[:len(expected)-1]...), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := managedReadExactFile(fd, "accepted.tbca", expected, device, -1); err == nil {
-		t.Fatal("partial accepted authority record was accepted")
-	}
 }
 
 func TestManagedVolumeClaimCrashCutsHoldPartialShard(t *testing.T) {

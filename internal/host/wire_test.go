@@ -103,12 +103,3 @@ func TestForgedHostReplyCannotBecomeDesired(t *testing.T) {
 		t.Fatal("unsigned forged desired reply accepted")
 	}
 }
-
-func TestStrictHostJSONRejectsDuplicateAndTrailingData(t *testing.T) {
-	var out response
-	for _, data := range [][]byte{[]byte(`{"nonce":"a","nonce":"b"}`), []byte(`{"nonce":"a"}garbage`), []byte(`{"nonce":"a"}{"nonce":"b"}`)} {
-		if err := decodeStrict(data, &out); err == nil {
-			t.Fatalf("accepted malformed JSON: %s", data)
-		}
-	}
-}

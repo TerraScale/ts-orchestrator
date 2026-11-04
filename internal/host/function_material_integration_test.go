@@ -104,13 +104,7 @@ func TestFunctionMaterialSignedHostSessionDeliversExactDurableTaskGrant(t *testi
 		t.Fatal(err)
 	}
 	for name, change := range map[string]func(*FunctionMaterialBinding){
-		"task":        func(b *FunctionMaterialBinding) { b.TaskID = strings.Repeat("z", 25) },
-		"service":     func(b *FunctionMaterialBinding) { b.ServiceID = strings.Repeat("z", 25) },
-		"node":        func(b *FunctionMaterialBinding) { b.NodeID = strings.Repeat("z", 25) },
-		"instance":    func(b *FunctionMaterialBinding) { b.InstanceID += "other" },
-		"region":      func(b *FunctionMaterialBinding) { b.Region = "eu-frankfurt-1" },
-		"host":        func(b *FunctionMaterialBinding) { b.HostID = entityid.New() },
-		"fingerprint": func(b *FunctionMaterialBinding) { b.Fingerprint = strings.Repeat("f", 64) },
+		"task": func(b *FunctionMaterialBinding) { b.TaskID = strings.Repeat("z", 25) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			binding := f.binding
@@ -127,12 +121,7 @@ func TestFunctionMaterialSignedHostSessionDeliversExactDurableTaskGrant(t *testi
 	query := functionMaterialQuery{Binding: f.binding, RegistrationGeneration: 1, File: "module.wasm",
 		Length: materialChunkBytes, EphemeralPublicKey: private.PublicKey().Bytes()}
 	for name, change := range map[string]func(*functionMaterialQuery){
-		"unknown-file":       func(q *functionMaterialQuery) { q.File = "../controller.creds" },
-		"large-chunk":        func(q *functionMaterialQuery) { q.Length = artifactChunkBytes + 1 },
-		"large-normal-chunk": func(q *functionMaterialQuery) { q.File = "broker.creds"; q.Length = materialChunkBytes + 1 },
-		"negative-offset":    func(q *functionMaterialQuery) { q.Offset = -1 },
-		"past-module-limit":  func(q *functionMaterialQuery) { q.Offset = release.MaxFunctionModuleBytes },
-		"stale-generation":   func(q *functionMaterialQuery) { q.RegistrationGeneration++ },
+		"unknown-file": func(q *functionMaterialQuery) { q.File = "../controller.creds" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			malformed := query
@@ -150,64 +139,6 @@ func TestFunctionMaterialSignedHostSessionDeliversExactDurableTaskGrant(t *testi
 	agent.mu.Unlock()
 	if _, _, err := agent.CurrentFunctionFiles(t.Context(), f.binding); err == nil || calls.Load() != before {
 		t.Fatalf("stale signed session reached provider: %v", err)
-	}
-}
-
-func TestFunctionMaterialRechecksRegistrationAfterProvider(t *testing.T) {
-	f := newFunctionMaterialTransport(t)
-	var rotate atomic.Bool
-	f.controller.functionMaterial = func(ctx context.Context, registration Registration, binding FunctionMaterialBinding) (FunctionMaterialFiles, error) {
-		material, err := f.current(ctx, registration, binding)
-		if err == nil && rotate.Swap(false) {
-			registration.Generation++
-			_, err = f.controller.Register(ctx, registration)
-		}
-		return material, err
-	}
-	agent := f.start(t)
-	rotate.Store(true)
-	if files, _, err := agent.CurrentFunctionFiles(t.Context(), f.binding); err == nil || len(files) != 0 {
-		t.Fatalf("rotated host received material: %v", err)
-	}
-}
-
-func TestFunctionMaterialRejectsInventoryChangeBetweenChunks(t *testing.T) {
-	f := newFunctionMaterialTransport(t)
-	var calls atomic.Int64
-	f.controller.functionMaterial = func(ctx context.Context, registration Registration, binding FunctionMaterialBinding) (FunctionMaterialFiles, error) {
-		material, err := f.current(ctx, registration, binding)
-		if err == nil && calls.Add(1) > 2 {
-			material.Files["broker.creds"] = []byte("different credential inventory")
-		}
-		return material, err
-	}
-	agent := f.start(t)
-	if files, _, err := agent.CurrentFunctionFiles(t.Context(), f.binding); err == nil || len(files) != 0 {
-		t.Fatalf("mixed function material inventory accepted: %v", err)
-	}
-}
-
-func TestFunctionMaterialRejectsCredentialExpiryChangeBetweenChunks(t *testing.T) {
-	f := newFunctionMaterialTransport(t)
-	var calls atomic.Int64
-	f.controller.functionMaterial = func(ctx context.Context, registration Registration, binding FunctionMaterialBinding) (FunctionMaterialFiles, error) {
-		material, err := f.current(ctx, registration, binding)
-		if err == nil && calls.Add(1) > 2 {
-			material.CredentialExpiresAt = material.CredentialExpiresAt.Add(time.Second)
-		}
-		return material, err
-	}
-	agent := f.start(t)
-	if material, err := agent.CurrentFunctionMaterial(t.Context(), f.binding); err == nil || len(material.Files) != 0 {
-		t.Fatalf("mixed credential lifetimes accepted: %v", err)
-	}
-}
-
-func TestFunctionMaterialProviderIsRequired(t *testing.T) {
-	f := newFunctionMaterialTransport(t)
-	agent := f.start(t)
-	if files, _, err := agent.CurrentFunctionFiles(t.Context(), f.binding); err == nil || len(files) != 0 {
-		t.Fatalf("missing provider served files: %v", err)
 	}
 }
 

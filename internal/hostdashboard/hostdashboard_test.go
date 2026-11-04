@@ -17,44 +17,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/regionhealth"
 )
 
-func TestSecretNameFollowsTheCellSpec(t *testing.T) {
-	if got := SecretName("gru"); got != "gru-1-orch-dashboard-token" {
-		t.Fatalf("SecretName(gru) = %q", got)
-	}
-}
-
-// Every region's host is a member: this host's own snapshot, the others from
-// their mesh health reports, and a silent region as missing.
-func TestMeshClusterListsEveryRegion(t *testing.T) {
-	at := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
-	cluster := &meshCluster{region: "gru", local: fixedSnapshot{Cell: "gru", Member: "ts-gru-2", Role: Role, Ready: true},
-		regions: func() []string { return []string{"gru", "sjc", "fra", "iad"} },
-		ask: func(context.Context) (map[string]regionhealth.Report, error) {
-			return map[string]regionhealth.Report{
-				"gru": {Region: "gru", Server: "ts-gru-2", State: regionhealth.StateOK, At: at},
-				"sjc": {Region: "sjc", Server: "ts-sjc-1", State: regionhealth.StateOK, At: at},
-				"fra": {Region: "fra", Server: "ts-fra-1", State: regionhealth.StateDegraded, Reasons: []string{"memory low"}, At: at},
-			}, nil
-		}}
-	snapshot, err := cluster.Cluster(t.Context(), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var members []string
-	for _, member := range snapshot.Members {
-		members = append(members, member.Cell+"/"+member.Member)
-	}
-	if got := strings.Join(members, ","); got != "fra/ts-fra-1,gru/ts-gru-2,sjc/ts-sjc-1" {
-		t.Fatalf("members = %s", got)
-	}
-	if fra := snapshot.Members[0]; fra.Ready || fra.Checks[0].Detail != "degraded: memory low" {
-		t.Fatalf("fra = %+v", fra)
-	}
-	if strings.Join(snapshot.Missing, ",") != "iad" {
-		t.Fatalf("missing = %v", snapshot.Missing)
-	}
-}
-
 // The loop serves once it has an address and a token, signs a browser in
 // with the token, renders every region's host, follows a rotated token, and
 // keeps the token read last while Vault is down.

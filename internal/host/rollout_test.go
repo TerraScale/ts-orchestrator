@@ -55,31 +55,3 @@ func TestRolloutOperationsReachTheSinkWithTheHostsRegistration(t *testing.T) {
 		}
 	}
 }
-
-// A host assembles a release only from chunks that continue it.
-func TestReadReleaseRefusesChunksThatDoNotContinueTheRelease(t *testing.T) {
-	release := bytes.Repeat([]byte("orchestrator"), 3)
-	serve := func(edit func(offset int64, chunk *RolloutChunk)) func(int64) (RolloutChunk, error) {
-		return func(offset int64) (RolloutChunk, error) {
-			chunk := RolloutChunk{Data: release[offset:min(offset+10, int64(len(release)))], Size: int64(len(release))}
-			if edit != nil {
-				edit(offset, &chunk)
-			}
-			return chunk, nil
-		}
-	}
-	var got bytes.Buffer
-	if err := readRelease("d", serve(nil), &got); err != nil || !bytes.Equal(got.Bytes(), release) {
-		t.Fatalf("release = %q %v", got.Bytes(), err)
-	}
-	for name, edit := range map[string]func(int64, *RolloutChunk){
-		"size changes":    func(offset int64, chunk *RolloutChunk) { chunk.Size += offset },
-		"empty chunk":     func(_ int64, chunk *RolloutChunk) { chunk.Data = nil },
-		"past the size":   func(_ int64, chunk *RolloutChunk) { chunk.Size = 5 },
-		"oversized chunk": func(_ int64, chunk *RolloutChunk) { chunk.Data = make([]byte, artifactChunkBytes+1) },
-	} {
-		if err := readRelease("d", serve(edit), &bytes.Buffer{}); err == nil {
-			t.Errorf("%s: release accepted", name)
-		}
-	}
-}

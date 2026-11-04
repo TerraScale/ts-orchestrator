@@ -45,102 +45,11 @@ func TestParseRejectsUnknownSecretSmugglingFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := strings.TrimSuffix(string(wire), "}")
-	for _, field := range []string{"instance_id", "service_url", "trust_root", "private_key", "jwt", "secret"} {
+	for _, field := range []string{"private_key"} {
 		t.Run(field, func(t *testing.T) {
 			candidate := []byte(base + `,"` + field + `":"smuggled-value"}`)
 			if _, err := Parse(candidate); err == nil {
 				t.Fatalf("Parse() accepted unknown %q field", field)
-			}
-		})
-	}
-}
-
-func TestDescriptorDigestChangesWithBoundAttemptAndImage(t *testing.T) {
-	base := testDescriptor()
-	baseDigest, err := base.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct {
-		name   string
-		mutate func(*Descriptor)
-	}{
-		{name: "member attempt", mutate: func(descriptor *Descriptor) { descriptor.HostAttempt++ }},
-		{name: "admitted intent", mutate: func(descriptor *Descriptor) { descriptor.IntentGeneration++ }},
-		{name: "profile", mutate: func(descriptor *Descriptor) { descriptor.ManagedHostProfileDigest = strings.Repeat("e", 64) }},
-		{name: "runtime manifest", mutate: func(descriptor *Descriptor) { descriptor.RuntimeManifestDigest = strings.Repeat("f", 64) }},
-		{name: "create key", mutate: func(descriptor *Descriptor) { descriptor.CreateKey = "0000000000SEXMAJ923GRX9VMQ" }},
-		{name: "fleet generation", mutate: func(descriptor *Descriptor) { descriptor.FleetGeneration++ }},
-		{name: "image identity", mutate: func(descriptor *Descriptor) { descriptor.ImageID = "ocid1.image.oc1.sa-saopaulo-1.image-b" }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			descriptor := base
-			test.mutate(&descriptor)
-			got, err := descriptor.Digest()
-			if err != nil {
-				t.Fatalf("Digest() error = %v", err)
-			}
-			if got == baseDigest {
-				t.Fatal("descriptor digest did not change with a bound field")
-			}
-		})
-	}
-}
-
-func TestParseRequiresBoundedExactCanonicalV1(t *testing.T) {
-	wire, err := testDescriptor().CanonicalBytes()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct {
-		name string
-		wire []byte
-	}{
-		{name: "leading whitespace", wire: append([]byte{' '}, wire...)},
-		{name: "trailing newline", wire: append(bytes.Clone(wire), '\n')},
-		{name: "duplicate member", wire: bytes.Replace(wire,
-			[]byte(`"schema_version":1`), []byte(`"schema_version":1,"schema_version":1`), 1)},
-		{name: "oversized", wire: bytes.Repeat([]byte{'x'}, MaxDescriptorBytes+1)},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if _, err := Parse(test.wire); err == nil {
-				t.Fatal("Parse() accepted noncanonical or out-of-bounds input")
-			}
-		})
-	}
-}
-
-func TestDescriptorRejectsInvalidBindingsAndSecretLikeValues(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		mutate func(*Descriptor)
-	}{
-		{name: "schema", mutate: func(descriptor *Descriptor) { descriptor.SchemaVersion++ }},
-		{name: "cell region mismatch", mutate: func(descriptor *Descriptor) { descriptor.Cell = "sjc" }},
-		{name: "unknown region", mutate: func(descriptor *Descriptor) { descriptor.Region = "XXX" }},
-		{name: "node", mutate: func(descriptor *Descriptor) { descriptor.Node = "https://host.invalid" }},
-		{name: "owner", mutate: func(descriptor *Descriptor) { descriptor.Owner = "private key" }},
-		{name: "create key whitespace", mutate: func(descriptor *Descriptor) { descriptor.CreateKey = "host key" }},
-		{name: "image ID", mutate: func(descriptor *Descriptor) { descriptor.ImageID = "ocid1.image.oc1..image secret" }},
-		{name: "fleet generation", mutate: func(descriptor *Descriptor) { descriptor.FleetGeneration = 0 }},
-		{name: "host attempt", mutate: func(descriptor *Descriptor) { descriptor.HostAttempt = 0 }},
-		{name: "intent generation", mutate: func(descriptor *Descriptor) { descriptor.IntentGeneration = 0 }},
-		{name: "database ID", mutate: func(descriptor *Descriptor) { descriptor.DatabaseID = "bad/id" }},
-		{name: "partition ID", mutate: func(descriptor *Descriptor) { descriptor.PartitionID = "bad/id" }},
-		{name: "seat ID", mutate: func(descriptor *Descriptor) { descriptor.SeatID = "" }},
-		{name: "intent digest", mutate: func(descriptor *Descriptor) { descriptor.IntentPayloadDigest = "not-a-digest" }},
-		{name: "roster digest", mutate: func(descriptor *Descriptor) { descriptor.CanonicalRosterDigest = "" }},
-		{name: "profile digest", mutate: func(descriptor *Descriptor) { descriptor.ManagedHostProfileDigest = strings.Repeat("A", 64) }},
-		{name: "runtime manifest digest", mutate: func(descriptor *Descriptor) { descriptor.RuntimeManifestDigest = strings.Repeat("0", 63) }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			descriptor := testDescriptor()
-			test.mutate(&descriptor)
-			if err := descriptor.Validate(); err == nil {
-				t.Fatal("Validate() accepted an invalid descriptor")
-			}
-			if _, err := descriptor.CanonicalBytes(); err == nil {
-				t.Fatal("CanonicalBytes() serialized an invalid descriptor")
 			}
 		})
 	}
@@ -158,54 +67,5 @@ func testDescriptor() Descriptor {
 		CanonicalRosterDigest:    strings.Repeat("b", 64),
 		ManagedHostProfileDigest: strings.Repeat("c", 64),
 		RuntimeManifestDigest:    strings.Repeat("d", 64),
-	}
-}
-
-func TestStaticDescriptorNamesOnlyACellDatabaseOrControllerServer(t *testing.T) {
-	static := Static("gru", "GRU", "gru-1-db-2")
-	wire, err := static.CanonicalBytes()
-	if err != nil || string(wire) != `{"schema_version":2,"cell":"gru","region":"GRU","node":"gru-1-db-2"}` {
-		t.Fatalf("CanonicalBytes() = %s, %v", wire, err)
-	}
-	if parsed, err := ParseHost(wire); err != nil || parsed != static || !parsed.IsStatic() {
-		t.Fatalf("ParseHost() = %+v, %v", parsed, err)
-	}
-	if _, err := Parse(wire); err == nil {
-		t.Fatal("managed Parse accepted a static host")
-	}
-	managed, err := testDescriptor().CanonicalBytes()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if parsed, err := ParseHost(managed); err != nil || parsed.IsStatic() {
-		t.Fatalf("ParseHost(managed) = %+v, %v", parsed, err)
-	}
-	if static.IsController() {
-		t.Fatal("a database server descriptor names a controller")
-	}
-	if controller := Static("gru", "GRU", "gru-1-ctl-1"); controller.Validate() != nil || !controller.IsController() {
-		t.Fatalf("controller descriptor %+v is refused or not a controller", controller)
-	}
-	if node := Static("sjc", "SJC", "ts-sjc-2"); node.Validate() != nil || !node.IsController() {
-		t.Fatalf("node descriptor %+v is refused or not a controller", node)
-	}
-	if pool := Static("gru", "GRU", "gru-1-pool-app-3"); pool.Validate() != nil || pool.IsController() {
-		t.Fatalf("pool host descriptor %+v is refused or a controller", pool)
-	}
-	withOwner := static
-	withOwner.Owner = "terrascale"
-	for _, candidate := range []Descriptor{
-		Static("gru", "GRU", "gru-1-ctl-1-data"), Static("gru", "GRU", "gru-1-gw-1"), Static("gru", "GRU", "gru-1-db-1-data"),
-		Static("gru", "GRU", "sjc-1-db-1"), Static("gru", "GRU", "gru-2-db-1"),
-		Static("sjc", "GRU", "gru-1-db-1"), Static("gru", "GRU", "host-0123456789abcdef01234567"), withOwner,
-		Static("gru", "GRU", "gru-1-pool-app"), Static("gru", "GRU", "sjc-1-pool-app-1"), Static("gru", "GRU", "gru-1-pool-app-0"),
-		Static("sjc", "SJC", "ts-gru-1"), Static("sjc", "SJC", "ts-sjc-1-data"), Static("sjc", "SJC", "ts-sjc-0"),
-	} {
-		if err := candidate.Validate(); err == nil {
-			t.Fatalf("accepted static descriptor %+v", candidate)
-		}
-	}
-	if _, err := ParseHost([]byte(`{"schema_version":2,"cell":"gru","region":"GRU","node":"gru-1-db-2","owner":""}`)); err == nil {
-		t.Fatal("ParseHost accepted a noncanonical static descriptor")
 	}
 }

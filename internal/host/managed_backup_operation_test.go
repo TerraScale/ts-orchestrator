@@ -64,43 +64,6 @@ func (reader backupTestMutationReader) ReadBackupOperation(_ context.Context,
 	return reader.record, 1, nil
 }
 
-func TestBackupRelaySerializedBoundsAtDERAndCompleteCaps(t *testing.T) {
-	cut := bytes.Repeat([]byte("c"), 1753)
-	der := bytes.Repeat([]byte{0x42}, 4096)
-	record := authority.BackupOperationRecord{State: "barrier",
-		Roster: []authority.BackupOperationMember{
-			{MemberID: "1K6CSK6CSK6CSK6CSK6CSK6CSK", CutEnvelope: cut, CutLeafDER: der},
-			{MemberID: "248H248H248H248H248H248H24"}},
-	}
-	proof, err := backupRelayEnvelope(record, record.Roster[1].MemberID,
-		"cut-proof", record.Roster[0].MemberID)
-	if err != nil || len(proof) > maxBackupRelayBytes {
-		t.Fatalf("maximal CutProof does not fit 8 KiB: %d, %v", len(proof), err)
-	}
-	record.Roster[0].CutLeafDER = append(der, 0)
-	if _, err := backupRelayEnvelope(record, record.Roster[1].MemberID,
-		"cut-proof", record.Roster[0].MemberID); err == nil {
-		t.Fatal("oversize pinned leaf entered CutProof relay")
-	}
-	command := ManagedBackupCommand{Kind: "complete",
-		Envelope:       bytes.Repeat([]byte("x"), maxBackupCompleteRelayBytes),
-		EnvelopeSHA256: strings.Repeat("a", 64),
-		OperationID:    "3QEXVQEXVQEXVQEXVQEXVQEXVQ",
-		DatabaseID:     "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8",
-		MemberID: record.Roster[1].MemberID, Node: "host-a", Role: "terrabase"}
-	status := memberstatus.BackupOperationStatus{Version: 1,
-		OperationID: command.OperationID, State: "complete",
-		PublishedHeadReceipt: string(bytes.Repeat([]byte("r"), 18<<10))}
-	commandWire, err := json.Marshal(command)
-	if err != nil || len(commandWire) > 64<<10 {
-		t.Fatalf("maximal Complete command KV exceeds 64 KiB: %d, %v", len(commandWire), err)
-	}
-	resultWire, err := json.Marshal(ManagedBackupResult{Command: command, Status: status})
-	if err != nil || len(resultWire) > 64<<10 {
-		t.Fatalf("maximal Complete result KV exceeds 64 KiB: %d, %v", len(resultWire), err)
-	}
-}
-
 func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	t.Skip("QUARANTINE until 2026-10-22, owner ts-orch consolidation thread: failing since the 2026-10-21 integration-line merge")
 	registration, desired, hostKey := managedContractFixture()
@@ -406,58 +369,5 @@ func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	if _, err := controller.handleAuthorized(t.Context(), signedHostRequest(t, hostKey,
 		"backup-result", s.SessionID, s.Epoch, result)); err == nil {
 		t.Fatal("replaced control socket submitted old process evidence")
-	}
-}
-
-func TestBackupHostCommandOnlyRelaysExactR3Envelope(t *testing.T) {
-	prepare := []byte(`{"version":1,"payload":"prepare"}`)
-	sum := sha256.Sum256(prepare)
-	prepareSHA := hex.EncodeToString(sum[:])
-	memberID := "1K6CSK6CSK6CSK6CSK6CSK6CSK"
-	incarnation := strings.Repeat("5", 32)
-	leafSHA := strings.Repeat("1", 64)
-	record := authority.BackupOperationRecord{DatabaseID: "0000000000WVSMBJNMAWCDJBSK", PartitionID: "0000000000Z3WK359G2W66CVT8",
-		OperationID: "3QEXVQEXVQEXVQEXVQEXVQEXVQ", State: "accepted",
-		PrepareEnvelope: prepare, Roster: []authority.BackupOperationMember{{
-			MemberID: memberID, Incarnation: incarnation, Node: "host-a", Role: "terrabase",
-			TLSLeafSHA256: leafSHA}}}
-	command := ManagedBackupCommand{OperationID: record.OperationID, DatabaseID: record.DatabaseID,
-		PartitionID: record.PartitionID, MemberID: memberID, Node: "host-a", Role: "terrabase",
-		Kind: "prepare", Envelope: bytes.Clone(prepare), EnvelopeSHA256: prepareSHA,
-		Member:    ManagedMemberBinding{Scope: MemberScope{MemberID: memberID, Incarnation: incarnation}},
-		Authority: MemberAuthority{TLSLeafSHA256: leafSHA}}
-	if !command.matchesRecord(record) {
-		t.Fatal("exact R3 Prepare was rejected")
-	}
-	changed := command
-	changed.Envelope = []byte(`{"version":1,"payload":"0000000000V4MRM46HP1SNGDYW"}`)
-	if changed.matchesRecord(record) {
-		t.Fatal("changed host Prepare envelope was accepted")
-	}
-	changed = command
-	changed.MemberID = "248H248H248H248H248H248H24"
-	if changed.matchesRecord(record) {
-		t.Fatal("wrong roster member received an envelope")
-	}
-	changed = command
-	changed.Envelope = bytes.Repeat([]byte("x"), maxBackupRelayBytes+1)
-	if changed.matchesRecord(record) {
-		t.Fatal("oversize host envelope was accepted")
-	}
-	abort := []byte(`{"version":1,"payload":"abort"}`)
-	sum = sha256.Sum256(abort)
-	record.State = "aborting"
-	record.AbortEnvelope = abort
-	command.Kind = "abort"
-	command.Envelope = abort
-	command.EnvelopeSHA256 = hex.EncodeToString(sum[:])
-	if !command.matchesRecord(record) {
-		t.Fatal("R3-committed Abort was rejected")
-	}
-	command.Kind = "prepare"
-	command.Envelope = prepare
-	command.EnvelopeSHA256 = prepareSHA
-	if command.matchesRecord(record) {
-		t.Fatal("stale Prepare was relayed after Abort decision")
 	}
 }

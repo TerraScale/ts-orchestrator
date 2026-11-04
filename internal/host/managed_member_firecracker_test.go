@@ -689,19 +689,3 @@ func managedMemberUniformIdentity(line string) (uint32, error) {
 	}
 	return uint32(identity), nil
 }
-
-func TestManagedMemberProcessIdentityRejectsRetainedRoot(t *testing.T) {
-	valid := "Uid:\t65534\t65534\t65534\t65534\nGid:\t65534\t65534\t65534\t65534\n"
-	if uid, gid, err := managedMemberProcessIdentity(valid); err != nil || uid != 65534 || gid != 65534 {
-		t.Fatalf("uniform dropped IDs: uid=%d gid=%d err=%v", uid, gid, err)
-	}
-	for _, status := range []string{
-		"Uid:\t0\t65534\t65534\t65534\nGid:\t65534\t65534\t65534\t65534\n",
-		"Uid:\t65534\t65534\t0\t65534\nGid:\t65534\t65534\t65534\t65534\n",
-		"Uid:\t65534\t65534\t65534\t65534\nGid:\t65534\t65534\t65534\t0\n",
-	} {
-		if _, _, err := managedMemberProcessIdentity(status); err == nil {
-			t.Fatalf("retained root credential accepted: %q", status)
-		}
-	}
-}

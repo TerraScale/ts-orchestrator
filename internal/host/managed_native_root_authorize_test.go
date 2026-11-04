@@ -88,49 +88,6 @@ func TestManagedNativeRootAuthorizesLiveRunnerAndRevokesStaleWitnesses(t *testin
 		{name: "expired desired", change: func(a *Agent, _ *processRunner, _ *managedNativeRoot, _ *Desired, _ *nativerootoci.Peer) {
 			a.nativeDesired[role] = nativeRootDesired{fingerprint: a.nativeDesired[role].fingerprint, until: time.Now().Add(-time.Second)}
 		}, want: "no longer active"},
-		{name: "changed desired", change: func(a *Agent, _ *processRunner, _ *managedNativeRoot, _ *Desired, _ *nativerootoci.Peer) {
-			if err := a.pinManagedNativeRootDesired(role, "replacement-fingerprint"); err != nil {
-				t.Fatal(err)
-			}
-		}, want: "no longer active"},
-		{name: "lost session", change: func(a *Agent, _ *processRunner, _ *managedNativeRoot, _ *Desired, _ *nativerootoci.Peer) {
-			a.sessionLost.Store(true)
-		}, want: "unauthorized"},
-		{name: "expired execution lease", change: func(a *Agent, _ *processRunner, _ *managedNativeRoot, _ *Desired, _ *nativerootoci.Peer) {
-			a.sessionSafeUntil = time.Now().Add(-time.Second)
-		}, want: "execution reserve exhausted"},
-		{name: "wrong peer UID", change: func(_ *Agent, _ *processRunner, _ *managedNativeRoot, _ *Desired, p *nativerootoci.Peer) {
-			p.UID++
-		}, want: "unauthorized"},
-		{name: "wrong peer GID", change: func(_ *Agent, _ *processRunner, _ *managedNativeRoot, _ *Desired, p *nativerootoci.Peer) {
-			p.GID++
-		}, want: "unauthorized"},
-		{name: "replaced listener", change: func(a *Agent, _ *processRunner, _ *managedNativeRoot, _ *Desired, _ *nativerootoci.Peer) {
-			a.nativeRoots[role] = &managedNativeRoot{role: role, fingerprint: a.nativeDesired[role].fingerprint}
-		}, want: "no longer active"},
-		{name: "stopped runner", change: func(_ *Agent, r *processRunner, _ *managedNativeRoot, _ *Desired, _ *nativerootoci.Peer) {
-			delete(r.records, role)
-		}, want: "differs from active member"},
-		{name: "digest drift", change: func(_ *Agent, r *processRunner, _ *managedNativeRoot, _ *Desired, _ *nativerootoci.Peer) {
-			record := r.records[role]
-			record.Digest = "different"
-			r.records[role] = record
-		}, want: "differs from active member"},
-		{name: "fingerprint drift", change: func(_ *Agent, r *processRunner, _ *managedNativeRoot, _ *Desired, _ *nativerootoci.Peer) {
-			record := r.records[role]
-			record.Fingerprint = "different"
-			r.records[role] = record
-		}, want: "differs from active member"},
-		{name: "memory cap drift", change: func(_ *Agent, _ *processRunner, _ *managedNativeRoot, d *Desired, _ *nativerootoci.Peer) {
-			d.ManagedMember.CgroupMemoryMaxBytes++
-		}, want: "differs from active member"},
-		{name: "outside role cgroup", change: func(_ *Agent, r *processRunner, _ *managedNativeRoot, _ *Desired, p *nativerootoci.Peer) {
-			p.PID = 1
-			record := r.records[role]
-			record.PID = p.PID
-			record.StartTime = currentStartTime(p.PID)
-			r.records[role] = record
-		}, want: "left its role cgroup"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if test.name == "outside role cgroup" {

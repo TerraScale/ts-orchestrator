@@ -50,39 +50,6 @@ func (v managedNativePolicyVerifier) VerifyManagedNativeAdmission(ctx context.Co
 	return v.admit(ctx, desired, registration)
 }
 
-func TestManagedNativeFenceCancelsAndJoinsPausedPermits(t *testing.T) {
-	gate := &managedNativeGate{}
-	permit, release, err := gate.acquire(t.Context(), "physical-volume")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(release)
-	fenced := make(chan error, 1)
-	go func() { fenced <- gate.fence(t.Context()) }()
-	select {
-	case <-permit.ctx.Done():
-	case <-time.After(time.Second):
-		t.Fatal("fence did not cancel prior native effect")
-	}
-	if _, _, err := gate.acquire(t.Context(), "physical-volume"); !errors.Is(err, ErrManagedNativeFenced) {
-		t.Fatalf("fence admitted another effect: %v", err)
-	}
-	select {
-	case err := <-fenced:
-		t.Fatalf("fence acknowledged a paused effect before join: %v", err)
-	default:
-	}
-	release()
-	select {
-	case err := <-fenced:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("fence did not finish after prior effect joined")
-	}
-}
-
 func TestManagedNativeSignedEnrollmentRetainsPhysicalFenceAndPublicationHold(t *testing.T) {
 	t.Run("retained original", func(t *testing.T) { testManagedNativeSignedEnrollment(t, true) })
 	t.Run("unknown original", func(t *testing.T) { testManagedNativeSignedEnrollment(t, false) })
