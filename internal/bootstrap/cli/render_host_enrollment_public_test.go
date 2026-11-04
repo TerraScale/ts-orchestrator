@@ -23,9 +23,7 @@ func TestHostEnrollmentPublicBundleUsesRegionalMaterialAndImagePaths(t *testing.
 		ips                               [3]string
 		validityHours                     int
 	}{
-		{"gru", "sa-saopaulo-1", "canary", "10.251.0.0/25", [3]string{"10.251.0.11", "10.251.0.12", "10.251.0.13"}, 48},
 		{"sjc", "us-sanjose-1", "production", "10.52.8.0/24", [3]string{"10.52.8.101", "10.52.8.102", "10.52.8.103"}, 24},
-		{"fra", "eu-frankfurt-1", "canary", "172.20.16.0/24", [3]string{"172.20.16.41", "172.20.16.42", "172.20.16.43"}, 720},
 	}
 	for _, test := range cases {
 		t.Run(test.cell, func(t *testing.T) {

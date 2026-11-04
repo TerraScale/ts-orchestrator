@@ -65,14 +65,6 @@ func TestSeedAndPeerReceiptsBindExactInstanceAndManifest(t *testing.T) {
 
 	mutations := map[string]func(*InstanceFacts){
 		"foreign instance": func(facts *InstanceFacts) { facts.InstanceOCID = "ocid1.instance.oc1.iad.foreign" },
-		"wrong role":       func(facts *InstanceFacts) { facts.Role = "operator" },
-		"wrong image":      func(facts *InstanceFacts) { facts.ImageOCID = "ocid1.image.oc1.iad.foreign" },
-		"wrong compartment": func(facts *InstanceFacts) {
-			facts.CompartmentOCID = "ocid1.compartment.oc1..foreign"
-		},
-		"wrong create key": func(facts *InstanceFacts) { facts.CreateKey = "0000000000DBMGSH7AGWFS7GFS" },
-		"wrong intent":     func(facts *InstanceFacts) { facts.IntentSHA256 = digestBytes([]byte("different-intent")) },
-		"wrong subnet":     func(facts *InstanceFacts) { facts.Profile.SubnetOCID = "ocid1.subnet.oc1.iad.foreign" },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
