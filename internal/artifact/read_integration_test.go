@@ -62,10 +62,6 @@ func TestReadVerifiedObjectStoreToFileIntegration(t *testing.T) {
 				t.Fatal(err)
 			}
 			subject := "$O." + bucket + ".C." + info.NUID
-			first, err := stream.GetMsg(ctx, 1, jetstream.WithGetMsgSubject(subject))
-			if err != nil {
-				t.Fatal(err)
-			}
 			wantError := artifact.ErrInvalid
 			switch scenario {
 			case "interleaved chunks":

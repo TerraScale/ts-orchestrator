@@ -37,9 +37,6 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 	for _, failure := range []string{"unreachable"} {
 		t.Run(failure, func(t *testing.T) {
 			fixture.reset(failure)
-			qualificationPath := filepath.Join(filepath.Dir(filepath.Dir(fixture.binaryPath)), "production", "SJC", "amd64", "production.json")
-			var qualificationWire []byte
-
 			var output bytes.Buffer
 			c := command{ctx: t.Context(), output: &output}
 			err := c.applyWith(fixture.args, fixture.env)
