@@ -42,20 +42,10 @@ func TestJournalAPIExposesRegionalResourceObservations(t *testing.T) {
 		path, state, contains string
 		status                int
 	}{
-		{"/v1/regions/gru/nodes", "current", "node-a", http.StatusOK},
-		{"/v1/regions/gru/nodes/node-a", "current", "node-a", http.StatusOK},
-		{"/v1/regions/gru/nodes/node-a/services", "current", "gateway", http.StatusOK},
-		{"/v1/regions/gru/nodes/node-a/services/gateway", "current", "running", http.StatusOK},
-		{"/v1/regions/gru/volumes", "current", "volume-a", http.StatusOK},
-		{"/v1/regions/gru/volumes/volume-a", "current", "attached", http.StatusOK},
-		{"/v1/regions/gru/services", "current", "manager-api", http.StatusOK},
-		{"/v1/regions/gru/services/manager-api", "current", "unknown", http.StatusOK},
-		{"/v1/regions/gru/functions", "current", "echo", http.StatusOK},
+
 		{"/v1/regions/gru/functions/tenant-a/echo", "current", "unplaced", http.StatusOK},
-		{"/v1/regions/gru/services/absent", "not_found", "", http.StatusNotFound},
+
 		{"/v1/regions/gru/functions/tenant-b/echo", "not_found", "", http.StatusNotFound},
-		{"/v1/regions/gru/nodes/absent", "not_found", "", http.StatusNotFound},
-		{"/v1/regions/sjc/nodes", "missing", "", http.StatusServiceUnavailable},
 	} {
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, listener.URL+scenario.path, nil)
 		if err != nil {

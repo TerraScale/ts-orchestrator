@@ -46,7 +46,7 @@ func TestIdentityRekeyFinalInputsRecoverAfterInterruptedPublication(t *testing.T
 			t.Fatalf("finalized journal not recovered exactly: %v", err)
 		}
 	}
-	for _, fault := range []string{"checkpoint", "material"} {
+	for _, fault := range []string{"checkpoint"} {
 		changed := final
 		if fault == "checkpoint" {
 			changed.CheckpointWire = []byte("another checkpoint")

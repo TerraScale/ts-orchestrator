@@ -2,49 +2,60 @@ package app
 
 import (
 	"context"
-	"fmt"
-	"slices"
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/hostload"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
-type metricTestFence struct{ switchingFencer }
-
-func (f *metricTestFence) Guard(_ context.Context, epoch uint64) error {
-	snapshot := f.Current()
-	if !snapshot.CanMutate() || snapshot.Epoch != epoch {
-		return authority.ErrFenced
+func TestHostMetricHistoryReplaysWithoutMemberSnapshotOverlap(t *testing.T) {
+	js := testRolloutJetStream(t)
+	writer, err := observability.OpenHostMetricStream(t.Context(), js, "gru", 1)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return nil
-}
-
-func overflowingHostMetricLoad(t *testing.T, epoch uint64, at time.Time) *hostTelemetry {
-	t.Helper()
-
-	fence := &metricTestFence{}
-	fence.set(authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: epoch, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)})
-	load := &hostTelemetry{fencer: fence, load: hostload.NewAggregator(hostload.AggregatorConfig{
-		Now: func() time.Time { return at },
-	})}
-	cpu, cores, memory := 0.4, 0.125, uint64(1024)
-	report := hostload.Report{SchemaVersion: hostload.SchemaVersion,
-		Host: hostload.HostUsage{CPU: &cpu, Memory: &cpu, Disk: &cpu}}
-	for role := range hostload.MaxRoles {
-		report.Roles = append(report.Roles, hostload.RoleUsage{Role: fmt.Sprintf("role-%02d", role), CPUCores: &cores, MemoryBytes: &memory})
-	}
-	// Changing report and node arrival order cannot change capacity selection.
-	for node := 61; node >= 0; node-- {
-		copy := report
-		copy.Roles = slices.Clone(report.Roles)
-		if node%2 == 0 {
-			slices.Reverse(copy.Roles)
-		}
-		if err := load.record(hostload.Origin{Cell: "gru", Environment: "production", Node: fmt.Sprintf("host-%03d", node)}, copy); err != nil {
+	now := time.Now().UTC().Truncate(time.Minute)
+	for _, at := range []time.Time{now.Add(-13 * 24 * time.Hour), now} {
+		if _, err := writer.Publish(t.Context(), observability.HostMetricBatch{Version: observability.HostMetricBatchVersion, At: at, Epoch: 1,
+			Samples: []observability.Sample{{Metric: observability.HistHostCPUUtilization,
+				Labels: observability.L("member", "host-a"), Value: 0.25}}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return load
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	for range 2 {
+		local := observability.NewHistory(observability.HistoryConfig{})
+		local.Append(now, []observability.Sample{
+			{Metric: observability.HistHostCPUUtilization, Labels: observability.L("member", "host-a"), Value: 0.99},
+			{Metric: observability.HistCPUUtilization, Labels: observability.L("member", "ctl-a"), Value: 0.8}})
+		h := &hostMetricHistory{local: local,
+			shared: observability.NewHistory(observability.HistoryConfig{Interval: observability.HostMetricInterval})}
+		query := observability.HistoryQuery{Metric: observability.HistHostCPUUtilization,
+			Labels: map[string]string{"member": "host-a"}, Start: now.Add(-14 * 24 * time.Hour), End: now}
+		if result := h.Range(query); !result.Pending || len(result.Series) != 0 {
+			t.Fatalf("member snapshot masked regional replay: %+v", result)
+		}
+		done := make(chan struct{})
+		go func() { h.run(ctx, js, "gru", 1, nil, nil); close(done) }()
+		t.Cleanup(func() { cancel(); <-done })
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			result := h.Range(query)
+			if !result.Pending && len(result.Series) == 1 && len(result.Series[0].Points) == 2 {
+				for _, point := range result.Series[0].Points {
+					if point.Value != 0.25 {
+						t.Fatalf("member-local value leaked: %+v", result)
+					}
+				}
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("shared history not replayed: %+v", result)
+			}
+		}
+		query.Metric, query.Labels = observability.HistCPUUtilization, map[string]string{"member": "ctl-a"}
+		if result := h.Range(query); result.Pending || len(result.Series) != 1 || result.Series[0].Points[0].Value != 0.8 {
+			t.Fatalf("controller history not isolated: %+v", result)
+		}
+	}
 }
