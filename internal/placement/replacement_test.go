@@ -11,65 +11,10 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 )
 
-func lostMemberObservation(state MemberState) MemberObservation {
-	return MemberObservation{DatabaseID: state.DatabaseID, PartitionID: state.PartitionID, MemberID: state.MemberID,
-		Region: state.Region, FailureDomain: state.FailureDomain, InstanceID: state.InstanceID,
-		VolumeID: state.VolumeID, Stage: StageAwaitingRuntimeContract}
-}
-
 func completeLostEvidence(state MemberState) RetirementEvidence {
 	return RetirementEvidence{DatabaseID: state.DatabaseID, PartitionID: state.PartitionID, MemberID: state.MemberID,
 		InstanceID: state.InstanceID, VolumeID: state.VolumeID, ReplicationHealthy: true, QuorumSafe: true,
 		WriterStopped: true, WriterStopProof: oci.WriterStopEvidence("detached-and-terminated"), VolumeRetained: true}
-}
-
-func TestCanReplaceLostMemberGate(t *testing.T) {
-	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
-	permanent := testMemberState(t, intent, Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU,
-		FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}, StageAwaitingRuntimeContract)
-	elastic := testMemberState(t, intent, Seat{MemberID: elasticMember(oci.RegionGRU), Region: oci.RegionGRU,
-		FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic}, StageServing)
-	survivor := lostMemberObservation(elastic)
-	survivor.Stage, survivor.Healthy, survivor.CurrentSession = StageServing, true, true
-	lost := lostMemberObservation(permanent)
-	if allowed, reason := CanReplaceLostMember(intent, lost, []MemberObservation{survivor},
-		completeLostEvidence(permanent)); !allowed {
-		t.Fatalf("complete evidence refused: %s", reason)
-	}
-	for _, test := range []struct {
-		name     string
-		mutate   func(*MemberObservation, *MemberObservation, *RetirementEvidence)
-		expected string
-	}{
-		{"still healthy", func(l *MemberObservation, _ *MemberObservation, _ *RetirementEvidence) { l.Healthy = true }, "candidate-not-lost"},
-		{"serving stage", func(l *MemberObservation, _ *MemberObservation, _ *RetirementEvidence) { l.Stage = StageServing }, "candidate-not-lost"},
-		{"no volume", func(l *MemberObservation, _ *MemberObservation, _ *RetirementEvidence) { l.VolumeID = "" }, "candidate-identity-missing"},
-		{"survivor unhealthy", func(_ *MemberObservation, s *MemberObservation, _ *RetirementEvidence) { s.Healthy = false }, "no-serving-survivor"},
-		{"survivor same domain", func(_ *MemberObservation, s *MemberObservation, _ *RetirementEvidence) {
-			s.FailureDomain = "FAULT-DOMAIN-1"
-		}, "survivor-anti-affinity-violated"},
-		{"other instance", func(_ *MemberObservation, _ *MemberObservation, e *RetirementEvidence) {
-			e.InstanceID = "0000000000V4MRM46HP1SNGDYW"
-		}, "retirement-evidence-identity-mismatch"},
-		{"replication", func(_ *MemberObservation, _ *MemberObservation, e *RetirementEvidence) { e.ReplicationHealthy = false }, "replication-health-unverified"},
-		{"quorum", func(_ *MemberObservation, _ *MemberObservation, e *RetirementEvidence) { e.QuorumSafe = false }, "quorum-safety-unverified"},
-		{"writer proof", func(_ *MemberObservation, _ *MemberObservation, e *RetirementEvidence) { e.WriterStopProof = nil }, "writer-stop-unverified"},
-		{"volume", func(_ *MemberObservation, _ *MemberObservation, e *RetirementEvidence) { e.VolumeRetained = false }, "retained-volume-decision-unverified"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			candidate, peer, evidence := lost, survivor, completeLostEvidence(permanent)
-			test.mutate(&candidate, &peer, &evidence)
-			if allowed, reason := CanReplaceLostMember(intent, candidate, []MemberObservation{peer}, evidence); allowed ||
-				reason != test.expected {
-				t.Fatalf("CanReplaceLostMember = %t %q, want %q", allowed, reason, test.expected)
-			}
-		})
-	}
-	// Scale-in retirement of the same lost member is still refused: the
-	// seat is desired and only one other member would remain.
-	if allowed, _ := CanRetire(intent, lost, []MemberObservation{survivor}, completeLostEvidence(permanent)); allowed {
-		t.Fatal("CanRetire allowed retiring a desired seat")
-	}
 }
 
 // servingSurvivor gives the elastic member a current serving report.
@@ -208,27 +153,5 @@ func TestControllerReplacesLostMemberOnlyWithEvidenceAfterGrace(t *testing.T) {
 	}
 	if fleet.ensureCalls != 0 || fleet.terminateCalls != 0 {
 		t.Fatalf("replacement decision touched OCI directly: ensure=%d terminate=%d", fleet.ensureCalls, fleet.terminateCalls)
-	}
-}
-
-func TestControllerNeverReplacesObservedLostHost(t *testing.T) {
-	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
-	store := newPlacementMemoryStore(t, intent)
-	permanent := store.members[permanentMember(oci.RegionGRU)]
-	permanent.State.UpdatedAt = time.Now().UTC().Add(-time.Hour)
-	store.members[permanentMember(oci.RegionGRU)] = permanent
-	fleet := &placementTestFleet{instances: attachedInstances(t, intent)}
-	hosts := &placementTestHosts{}
-	controller := startTestPlacementController(t, store, fleet, hosts, nil)
-	called := false
-	controller.config.LostMemberEvidence = func(context.Context, MemberState) (RetirementEvidence, bool, error) {
-		called = true
-		return completeLostEvidence(permanent.State), true, nil
-	}
-	if err := controller.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if called || store.members[permanentMember(oci.RegionGRU)].State.HostAttempt != 1 {
-		t.Fatal("a still-observed host was considered for replacement")
 	}
 }

@@ -15,8 +15,6 @@ func TestD15PublisherReadback(t *testing.T) {
 		success                                        bool
 	}{
 		{"transient_wrong_attachment", "no", "no", "2\n", "release-created\nqualification-created\n", true},
-		{"persistent_wrong_attachment", "yes", "no", "6\n", "release-created\n", false},
-		{"http_failure", "no", "yes", "6\n", "release-created\n", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()

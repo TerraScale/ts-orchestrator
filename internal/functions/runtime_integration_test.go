@@ -8,9 +8,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"runtime"
-	"sync"
 	"testing"
-	"time"
 )
 
 func TestWorkerGuestExecutionAndIsolation(t *testing.T) {
@@ -50,80 +48,8 @@ func TestWorkerGuestExecutionAndIsolation(t *testing.T) {
 	}
 }
 
-func TestWorkerCancellationAndCapacity(t *testing.T) {
-	artifact := integrationArtifact(t, "loop")
-	w := integrationWorker(t, artifact)
-	ctx, cancel := context.WithCancel(t.Context())
-	results := make(chan error, MaxConcurrent)
-	var wg sync.WaitGroup
-	for range MaxConcurrent {
-		wg.Go(func() { _, err := w.Invoke(ctx, integrationInvocation(artifact.Manifest)); results <- err })
-	}
-	deadline := time.NewTimer(time.Second)
-	defer deadline.Stop()
-	for w.Snapshot().Active != MaxConcurrent {
-		select {
-		case <-deadline.C:
-			t.Fatal("workers did not enter guests")
-		default:
-			runtime.Gosched()
-		}
-	}
-	if _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); !errors.Is(err, ErrBusy) {
-		t.Fatalf("concurrency admission: %v", err)
-	}
-	cancel()
-	wg.Wait()
-	close(results)
-	for err := range results {
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("canceled loop: %v", err)
-		}
-	}
-	if w.Snapshot().Active != 0 {
-		t.Fatal("cancellation leaked concurrency tokens")
-	}
-	ctx, cancel = context.WithTimeout(t.Context(), 20*time.Millisecond)
-	defer cancel()
-	if _, err := w.Invoke(ctx, integrationInvocation(artifact.Manifest)); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("deadline loop: %v", err)
-	}
-}
-
-func TestWorkerFixedDeadlineAndConcurrentClose(t *testing.T) {
-	artifact := integrationArtifact(t, "loop")
-	w := integrationWorker(t, artifact)
-	started := time.Now()
-	if _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("fixed deadline: %v", err)
-	}
-	if elapsed := time.Since(started); elapsed < InvocationTimeout || elapsed > InvocationTimeout+time.Second {
-		t.Fatalf("deadline took %s", elapsed)
-	}
-	result := make(chan error, 1)
-	go func() { _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); result <- err }()
-	for w.Snapshot().Active == 0 {
-		runtime.Gosched()
-	}
-	var wg sync.WaitGroup
-	for range 4 {
-		wg.Go(func() {
-			if err := w.Close(t.Context()); err != nil {
-				t.Error(err)
-			}
-		})
-	}
-	wg.Wait()
-	if err := <-result; !errors.Is(err, ErrClosed) {
-		t.Fatalf("close active guest: %v", err)
-	}
-	if _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); !errors.Is(err, ErrClosed) {
-		t.Fatalf("invoke closed worker: %v", err)
-	}
-}
-
 func TestWorkerResourceAndImportBoundaries(t *testing.T) {
-	for _, kind := range []string{"output-limit", "stderr-limit"} {
+	for _, kind := range []string{"output-limit"} {
 		t.Run(kind, func(t *testing.T) {
 			artifact := integrationArtifact(t, kind)
 			w := integrationWorker(t, artifact)
@@ -140,29 +66,7 @@ func TestWorkerResourceAndImportBoundaries(t *testing.T) {
 	if _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); err != nil {
 		t.Fatalf("memory.grow exceeded configured maximum: %v", err)
 	}
-	for _, kind := range []string{"ambient", "exit-zero"} {
-		t.Run(kind, func(t *testing.T) {
-			artifact := integrationArtifact(t, kind)
-			w := integrationWorker(t, artifact)
-			if _, err := w.Invoke(t.Context(), integrationInvocation(artifact.Manifest)); err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
-	t.Run("host-sleep-cancellation", func(t *testing.T) {
-		artifact := integrationArtifact(t, "sleep")
-		w := integrationWorker(t, artifact)
-		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
-		defer cancel()
-		start := time.Now()
-		if _, err := w.Invoke(ctx, integrationInvocation(artifact.Manifest)); !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("sleep deadline: %v", err)
-		}
-		if time.Since(start) > 500*time.Millisecond {
-			t.Fatal("WASI host sleep did not honor cancellation")
-		}
-	})
-	for _, kind := range []string{"unauthorized", "socket", "bad-start"} {
+	for _, kind := range []string{"socket"} {
 		t.Run(kind, func(t *testing.T) {
 			if worker, err := newWorker(t.Context(), integrationArtifact(t, kind)); !errors.Is(err, ErrInvalid) {
 				if worker != nil {

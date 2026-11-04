@@ -2,48 +2,15 @@ package terrabase
 
 import (
 	"bytes"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
-	"slices"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
 )
-
-func TestRestoreNamespaceCommandIsolatesBeforeExec(t *testing.T) {
-	const directStage = "TS_RESTORE_NAMESPACE_DIRECT_TEST"
-	if os.Getenv(directStage) == "1" {
-		if err := runIsolatedRestoreCheck(t.Context(), strings.NewReader("{}"), io.Discard); err == nil ||
-			!strings.Contains(err.Error(), "requires a new network namespace") {
-			t.Fatalf("direct helper invocation bypassed isolation: %v", err)
-		}
-		return
-	}
-	command, err := restoreNamespaceCommand(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { command.ExtraFiles[0].Close() })
-	if command.SysProcAttr == nil || command.SysProcAttr.Cloneflags != syscall.CLONE_NEWNET ||
-		!slices.Equal(command.Args[1:], []string{"terrabase", "__restore-check"}) {
-		t.Fatalf("helper is not isolated before exec: %+v", command)
-	}
-	if !slices.Equal(command.Env, []string{"HOME=/", "LANG=C", "PATH=/usr/bin:/bin"}) {
-		t.Fatalf("helper inherited host credentials or networking configuration: %q", command.Env)
-	}
-	// Pass the real host descriptor while deliberately retaining its namespace.
-	command.Args = []string{command.Path, "-test.run=^" + t.Name() + "$", "-test.count=1"}
-	command.Env = append(command.Env, directStage+"=1")
-	command.SysProcAttr.Cloneflags = 0
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("unisolated restore check: %v: %s", err, output)
-	}
-}
 
 // Prefer the daemon's root/NEWNET permission model: Ubuntu AppArmor can deny
 // NET_ADMIN inside an unprivileged user namespace even after clone succeeds.

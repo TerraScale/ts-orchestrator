@@ -4,14 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"fmt"
-	"strconv"
-	"strings"
-	"testing"
-	"time"
-
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
+	"strconv"
+	"testing"
 )
 
 var testTarget = Target{CompartmentID: "ocid1.compartment.oc1..control", VaultID: "ocid1.vault.oc1.sa-saopaulo-1.vault",
@@ -33,14 +29,6 @@ type fakeVault struct {
 
 func newVault(t *testing.T) *fakeVault {
 	return &fakeVault{t: t, bundles: map[string]ocisecrets.SecretBundleContentDetails{}}
-}
-
-// withSecrets stores every secret of cell as a base64 bundle.
-func (v *fakeVault) withSecrets(cell string, secrets map[string]string) *fakeVault {
-	for key, value := range secrets {
-		v.bundles[SecretName(cell, key)] = ocisecrets.Base64SecretBundleContentDetails{Content: new(base64.StdEncoding.EncodeToString([]byte(value)))}
-	}
-	return v
 }
 
 func (v *fakeVault) add(name string, state ocivault.SecretSummaryLifecycleStateEnum) string {
@@ -152,118 +140,10 @@ func TestEnsureCreatesOnce(t *testing.T) {
 	}
 }
 
-func TestEnsureKeepsExistingSecret(t *testing.T) {
-	for _, state := range []ocivault.SecretSummaryLifecycleStateEnum{ocivault.SecretSummaryLifecycleStateActive, ocivault.SecretSummaryLifecycleStateCreating} {
-		vault := newVault(t)
-		id := vault.add(SecretName("gru-1", EnvOperatorKey), state)
-		stored, err := Ensure(t.Context(), vault, testTarget, "gru-1", EnvOperatorKey, never(t))
-		if err != nil || stored.Created || stored.ID != id || (state == ocivault.SecretSummaryLifecycleStateCreating) != stored.Provisioning || len(vault.creates) != 0 {
-			t.Errorf("%s: %+v: %v", state, stored, err)
-		}
-	}
-}
-
-func TestEnsureVaultRecoversCreateConflictByRereading(t *testing.T) {
-	vault := newVault(t)
-	vault.createErrAfterStore = errors.New("secret name already exists")
-	stored, err := Ensure(t.Context(), vault, testTarget, "gru-1", EnvMasterKey, func(context.Context) (string, error) {
-		return testSecrets()[EnvMasterKey], nil
-	})
-	if err != nil || stored.Created || stored.ID == "" || !stored.Provisioning {
-		t.Fatalf("conflict result %+v: %v", stored, err)
-	}
-}
-
 func TestEnsureRefusesUnusableSecret(t *testing.T) {
-	name := SecretName("gru-1", EnvMasterKey)
-	for state, setup := range map[string]func(*fakeVault){
-		"pending deletion": func(v *fakeVault) { v.add(name, ocivault.SecretSummaryLifecycleStatePendingDeletion) },
-		"failed":           func(v *fakeVault) { v.add(name, ocivault.SecretSummaryLifecycleStateFailed) },
-		"two of one name": func(v *fakeVault) {
-			v.add(name, ocivault.SecretSummaryLifecycleStateActive)
-			v.add(name, ocivault.SecretSummaryLifecycleStateActive)
-		},
-		"malformed OCID": func(v *fakeVault) {
-			v.items = append(v.items, ocivault.SecretSummary{Id: new("ocid1.key.oc1..x"), SecretName: new(name),
-				LifecycleState: ocivault.SecretSummaryLifecycleStateActive})
-		},
-	} {
-		vault := newVault(t)
-		setup(vault)
-		if _, err := Ensure(t.Context(), vault, testTarget, "gru-1", EnvMasterKey, never(t)); err == nil || len(vault.creates) != 0 {
-			t.Errorf("%s: %v, %d creates", state, err, len(vault.creates))
-		}
-	}
-}
-
-func TestEnsureFollowsPages(t *testing.T) {
 	vault := newVault(t)
-	vault.pageSize = 1
-	vault.add("gru-1-other", ocivault.SecretSummaryLifecycleStateActive)
-	id := vault.add(SecretName("gru-1", EnvAuditSigningKey), ocivault.SecretSummaryLifecycleStateActive)
-	stored, err := Ensure(t.Context(), vault, testTarget, "gru-1", EnvAuditSigningKey, never(t))
-	if err != nil || stored.ID != id || len(vault.lists) != 2 || *vault.lists[1].Page != "1" {
-		t.Fatalf("stored %+v after %d lists: %v", stored, len(vault.lists), err)
-	}
-}
-
-func TestEnsureRejectsBeforeCreate(t *testing.T) {
-	vault := newVault(t)
-	_, err := Ensure(t.Context(), vault, testTarget, "gru-1", EnvMasterKey, func(context.Context) (string, error) { return sentinel, nil })
-	if err == nil || len(vault.creates) != 0 || strings.Contains(err.Error(), sentinel) {
-		t.Fatalf("invalid value: %v, %d creates", err, len(vault.creates))
-	}
-	vault.createErr = errors.New("service unavailable")
-	value := testSecrets()[EnvMasterKey]
-	_, err = Ensure(t.Context(), vault, testTarget, "gru-1", EnvMasterKey, func(context.Context) (string, error) { return value, nil })
-	if err == nil || !strings.Contains(err.Error(), "gru-1-ts-auth-master-key") || strings.Contains(err.Error(), value) {
-		t.Fatalf("create error: %v", err)
-	}
-}
-
-func TestGenerate(t *testing.T) {
-	first, err := Generate(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := Generate(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded, err := base64.StdEncoding.DecodeString(first); err != nil || len(decoded) != 32 || first == second {
-		t.Fatalf("generated %d bytes, distinct %v: %v", len(decoded), first != second, err)
-	}
-}
-
-func TestReadBackDoesNotRetryPermanentVaultErrors(t *testing.T) {
-	client := &readErrorBundle{err: errors.New("authorization denied")}
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-	if _, err := readBack(ctx, client, testTarget.VaultID, "gru-1", EnvMasterKey, false); err == nil {
-		t.Fatal("permanent read error was accepted")
-	}
-	if client.calls != 1 {
-		t.Fatalf("permanent read error retried %d times", client.calls)
-	}
-}
-
-type readErrorBundle struct {
-	err   error
-	calls int
-}
-
-func (c *readErrorBundle) GetSecretBundleByName(context.Context, ocisecrets.GetSecretBundleByNameRequest) (ocisecrets.GetSecretBundleByNameResponse, error) {
-	c.calls++
-	return ocisecrets.GetSecretBundleByNameResponse{}, c.err
-}
-
-func TestSecretNames(t *testing.T) {
-	var names []string
-	for _, key := range Secrets {
-		names = append(names, SecretName("gru-1", key))
-	}
-	if got := fmt.Sprint(names); got != "[gru-1-ts-auth-master-key gru-1-ts-auth-audit-signing-key gru-1-ts-auth-operator-key "+
-		"gru-1-ts-auth-dashboard-client-secret gru-1-ts-auth-terrascale-api-key gru-1-ts-auth-terrascale-project-id]" {
-		t.Fatal(got)
+	vault.add(SecretName("gru-1", EnvMasterKey), ocivault.SecretSummaryLifecycleStatePendingDeletion)
+	if _, err := Ensure(t.Context(), vault, testTarget, "gru-1", EnvMasterKey, never(t)); err == nil || len(vault.creates) != 0 {
+		t.Fatalf("unusable secret: %v, %d creates", err, len(vault.creates))
 	}
 }

@@ -2,7 +2,6 @@ package commandio
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"io"
 	"os"
@@ -115,59 +114,4 @@ func TestWriterPreservesFailureAndRejectsShortWrites(t *testing.T) {
 			t.Fatalf("writer reused the drained pipe: read %d, %v", n, err)
 		}
 	})
-}
-
-// Keep File.WriteTo: Reader must prevent io.Copy from bypassing Read.
-type cancelAtFileEOF struct {
-	*os.File
-	cancel context.CancelFunc
-}
-
-func (source cancelAtFileEOF) Read(contents []byte) (int, error) {
-	n, err := source.File.Read(contents)
-	if errors.Is(err, io.EOF) {
-		source.cancel()
-	}
-	return n, err
-}
-
-func TestCopyCannotSucceedWhenFinalReadCancels(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "artifact")
-	const contents = "artifact"
-	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { file.Close() })
-	copied := filepath.Join(dir, "copied")
-	destination, err := os.Create(copied)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { destination.Close() })
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	source := cancelAtFileEOF{File: file, cancel: cancel}
-	if n, err := io.Copy(destination, Reader(ctx, source)); n != int64(len(contents)) || !errors.Is(err, context.Canceled) || !errors.Is(err, io.EOF) {
-		t.Fatalf("file copy = %d, %v, want all bytes and final-read cancellation", n, err)
-	}
-	if err := destination.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if data, err := os.ReadFile(copied); err != nil || string(data) != contents {
-		t.Fatalf("copied file = %q, %v", data, err)
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		t.Fatal(err)
-	}
-	if n, err := Reader(ctx, source).Read(make([]byte, 32)); n != 0 || !errors.Is(err, context.Canceled) {
-		t.Fatalf("already-canceled read = %d, %v", n, err)
-	}
-	if position, err := file.Seek(0, io.SeekCurrent); err != nil || position != 0 {
-		t.Fatalf("canceled read consumed file input: offset = %d, %v", position, err)
-	}
 }

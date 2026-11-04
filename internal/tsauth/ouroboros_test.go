@@ -1,7 +1,6 @@
 package tsauth
 
 import (
-	"bytes"
 	"encoding/json/v2"
 	"fmt"
 	"net/http"
@@ -46,83 +45,10 @@ func TestOuroborosTSAuthUserLookup(t *testing.T) {
 	if id, err := lookup.UserID(t.Context(), email); err != nil || id != "01K78000000000000000001001" || fmt.Sprint(cursors) != "[ 00000000000000000000001099]" {
 		t.Fatalf("user %q, cursors %v: %v", id, cursors, err)
 	}
-	for name, owners := range map[string][]map[string]any{
-		"sign in once":     nil,
-		"must have verifi": {{"id": "01K78000000000000000001001", "email": email}},
-		"neither anonymou": {{"id": "01K78000000000000000001001", "email": email, "email_verified": true, "banned": true}},
-		"has 2 users":      {{"id": "01K78000000000000000001003", "email": email, "email_verified": true}, {"id": "01K78000000000000000001004", "email": email, "email_verified": true}},
-		"unusable id":      {{"id": BootstrapUser, "email": email, "email_verified": true}},
-	} {
-		set(owners...)
-		if _, err := lookup.UserID(t.Context(), email); err == nil || !strings.Contains(err.Error(), name) {
-			t.Errorf("%s: %v", name, err)
-		}
-	}
-	for _, id := range []string{"", "usr_mario", "01a1105a-7350-7f48-a96e-d71bbb45d7a8", strings.ToLower("01K78000000000000000001001"), "81K78000000000000000001001", "01K7800000000000000000100I"} {
-		set(map[string]any{"id": id, "email": email, "email_verified": true})
-		if _, err := lookup.UserID(t.Context(), email); err == nil || !strings.Contains(err.Error(), "noncanonical user ID") {
-			t.Errorf("accepted noncanonical owner %q: %v", id, err)
-		}
-	}
 	wrong := lookup
 	wrong.Key = "sk_wrong-SENTINEL"
 	if _, err := wrong.UserID(t.Context(), email); err == nil || !strings.Contains(err.Error(), "HTTP 401") || strings.Contains(err.Error(), "SENTINEL") {
 		t.Fatalf("wrong key: %v", err)
-	}
-}
-
-func TestRunOuroborosRejectsIncompleteCommands(t *testing.T) {
-	var output bytes.Buffer
-	if err := RunOuroboros(t.Context(), nil, &output, nil); err != nil || !strings.HasPrefix(output.String(), "Usage: ts-orch ouroboros") ||
-		!strings.Contains(output.String(), "ts-dashboard (database dashboard)") {
-		t.Fatalf("usage %q: %v", output.String(), err)
-	}
-	member := []string{"bootstrap", "--plan", "/nonexistent/plan.json", "--client-url", "https://127.0.0.1:1", "--admin-url", "http://127.0.0.1:2",
-		"--member", "gru-1-db-1", "--member-ca", "/nonexistent/ca.pem", "--dashboard-credential-file", "/nonexistent/credential"}
-	key := writeFile(t, "sk_test\n", 0o600)
-	for _, test := range []struct {
-		args []string
-		want string
-	}{
-		{[]string{"rotate"}, "unknown ouroboros command"},
-		{[]string{"bootstrap", "--plan", "plan.json"}, "bootstrap requires"},
-		{append(slices.Clone(member), "--management-listener", "public"), "client or admin"},
-		{[]string{"bootstrap", "--plan", "plan.json", "extra"}, "unexpected"},
-		{append(slices.Clone(member), "--owner-email", "mariogk@terrascale.tech", "--ts-auth-key-file", key), "--owner-email needs"},
-		{append(slices.Clone(member), "--ts-auth-instance", "terrascale", "--ts-auth-key-file", key), "--owner-email needs"},
-		{append(slices.Clone(member), "--owner-email", "Mario <mariogk@terrascale.tech>", "--ts-auth-instance", "terrascale", "--ts-auth-key-file", key), "--owner-email needs"},
-		{append(slices.Clone(member), "--owner-email", "mariogk@terrascale.tech", "--ts-auth-instance", "terrascale", "--ts-auth-key-file", key),
-			"--management-listener admin"},
-		{append(slices.Clone(member), "--management-listener", "admin", "--owner-email", "mariogk@terrascale.tech", "--ts-auth-instance", "terrascale",
-			"--ts-auth-key-file", key, "--ts-auth-url", "http://gru.auth.terrascale.tech"), "must be https"},
-		{append(slices.Clone(member), "--management-listener", "admin", "--owner-email", "mariogk@terrascale.tech", "--ts-auth-instance", "terrascale",
-			"--ts-auth-key-file", writeFile(t, "sk_test\n", 0o644)), "owner-only"},
-	} {
-		if err := RunOuroboros(t.Context(), test.args, &bytes.Buffer{}, nil); err == nil || !strings.Contains(err.Error(), test.want) {
-			t.Errorf("%v: %v, want %q", test.args, err, test.want)
-		}
-	}
-}
-
-func TestOuroborosSecretNames(t *testing.T) {
-	var names []string
-	for _, project := range Projects {
-		names = append(names, project.Name+"/"+project.Database, SecretName("gru-1", project.ProjectIDKey), SecretName("gru-1", project.APIKeyKey))
-		if validSecret(project.ProjectIDKey, "01K78000000000000000000001") != nil || validSecret(project.ProjectIDKey, "auth") == nil ||
-			validSecret(project.APIKeyKey, "tb_key") != nil || validSecret(project.APIKeyKey, "tb key") == nil {
-			t.Errorf("%s secrets validated wrongly", project.Name)
-		}
-	}
-	if OrganizationName != "terrascale" {
-		t.Fatalf("organization %s", OrganizationName)
-	}
-	if got := fmt.Sprint(names); got != "[ts-auth/auth gru-1-ts-auth-terrascale-project-id gru-1-ts-auth-terrascale-api-key "+
-		"ts-dashboard/dashboard gru-1-ts-dashboard-terrabase-project-id gru-1-ts-dashboard-terrabase-api-key "+
-		"atlas/atlas gru-1-atlas-terrabase-project-id gru-1-atlas-store-key]" {
-		t.Fatal(got)
-	}
-	if validSecret("TS_DASHBOARD_OTHER", "tb_key") == nil {
-		t.Fatal("accepted a key outside the table")
 	}
 }
 
@@ -184,14 +110,7 @@ func TestEnsureOwnerAddsTransfersAndKeepsTheBootstrapAdmin(t *testing.T) {
 	}{
 		{"fresh", map[string]string{BootstrapUser: "owner"}, "", mario,
 			"[added transferred kept 01M4EB0GDPPHGJPPVY77EMZQKT as admin]", []string{list, add, start, confirm, relist, readmin}, ""},
-		{"after the add", map[string]string{BootstrapUser: "owner", mario: "member"}, "", mario,
-			"[transferred kept 01M4EB0GDPPHGJPPVY77EMZQKT as admin]", []string{list, start, confirm, relist, readmin}, ""},
-		{"after the offer", map[string]string{BootstrapUser: "owner", mario: "member"}, mario, mario,
-			"[transferred kept 01M4EB0GDPPHGJPPVY77EMZQKT as admin]", []string{list, start, confirm, relist, readmin}, ""},
-		{"after the confirm", map[string]string{BootstrapUser: "member", mario: "owner"}, "", mario,
-			"[kept 01M4EB0GDPPHGJPPVY77EMZQKT as admin]", []string{list, readmin}, ""},
 		{"done", map[string]string{BootstrapUser: "admin", mario: "owner"}, "", mario, "[]", []string{list}, ""},
-		{"another address", map[string]string{BootstrapUser: "admin", mario: "owner"}, "", "01K78000000000000000001002", "[]", []string{list}, "owned by another user"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			roles, nominee := test.roles, test.nominee

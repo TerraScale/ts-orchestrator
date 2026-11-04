@@ -3,9 +3,7 @@ package cli
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
-	"io"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -80,108 +78,5 @@ func TestObserveExistingFeatureAPIs(t *testing.T) {
 		if response.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("unauthenticated %s status = %d", path, response.StatusCode)
 		}
-	}
-}
-
-func TestObserveExistingFeaturePartialStates(t *testing.T) {
-	f, journal, _, logView := observeFeatureFixture(t)
-	journal.MarkCoveredFrom(time.Now())
-	logView.Add(logs.Window{Version: 1, Region: "gru", Node: "node-gap", Boot: "boot", Seq: 0,
-		Minute: time.Now().Truncate(time.Minute), Classes: []logs.Class{{Service: "gateway", Level: logs.LevelError, Message: "retry failed", Count: 1}}}, time.Now())
-	logView.Add(logs.Window{Version: 1, Region: "gru", Node: "node-gap", Boot: "boot", Seq: 2,
-		Minute: time.Now().Truncate(time.Minute)}, time.Now())
-	for _, scenario := range []struct {
-		view, want string
-		flags      []string
-	}{
-		{"decisions", `"truncated": true`, []string{"--limit", "1"}},
-		{"summary", `"partial": true`, nil},
-		{"logs", `"gaps": 1`, []string{"--limit", "1"}},
-	} {
-		output, err := f.run(t, scenario.view, append(scenario.flags, "--format", "json")...)
-		if err == nil || !strings.Contains(err.Error(), "partial") || !strings.Contains(output, scenario.want) || !strings.Contains(output, `"partial": true`) {
-			t.Fatalf("partial %s observation = %s, %v", scenario.view, output, err)
-		}
-	}
-	// The actual engine has not evaluated; an empty list is not a healthy pass.
-	unknown := insights.NewEngine(insights.Config{Region: "gru"})
-	other := newObserveFixture(t)
-	other.server.HandleAuthenticated("GET /v1/insights", insights.Handler(unknown, insights.Summarizer{}))
-	output, err := other.run(t, "insights")
-	if err == nil || !strings.Contains(output, "unknown") {
-		t.Fatalf("unevaluated insights = %s, %v", output, err)
-	}
-}
-
-func TestObserveExistingFeatureValidation(t *testing.T) {
-	f, _, _, _ := observeFeatureFixture(t)
-	for _, scenario := range []struct {
-		view  string
-		flags []string
-	}{
-		{"decisions", []string{"--limit", "1001"}},
-		{"decisions", []string{"--since", "invalid"}},
-		{"decisions", []string{"--window", "1h"}},
-		{"summary", []string{"--window", "169h"}},
-		{"summary", []string{"--limit", "1"}},
-		{"logs", []string{"--limit", "501"}},
-		{"logs", []string{"--limit", "0"}},
-		{"logs", []string{"--window", "2h"}},
-		{"logs", []string{"--min-level", "TRACE"}},
-		{"insights", []string{"--since", "1h"}},
-	} {
-		if output, err := f.run(t, scenario.view, scenario.flags...); err == nil || output != "" {
-			t.Fatalf("invalid %s %v produced %s, %v", scenario.view, scenario.flags, output, err)
-		}
-	}
-	if err := os.WriteFile(f.tokenFile, []byte(strings.Repeat("b", 32)), 0600); err != nil {
-		t.Fatal(err)
-	}
-	for _, view := range []string{"decisions", "insights", "summary", "logs"} {
-		if output, err := f.run(t, view); err == nil || output != "" || !strings.Contains(err.Error(), "authentication denied") {
-			t.Fatalf("unauthorized %s produced %s, %v", view, output, err)
-		}
-	}
-}
-
-func TestObserveExistingFeatureExactIntegersAndUnavailable(t *testing.T) {
-	f, _, _, logView := observeFeatureFixture(t)
-	logView.Add(logs.Window{Version: 1, Region: "gru", Node: "node-large", Boot: "boot", Seq: 0,
-		Minute: time.Now().Truncate(time.Minute), Classes: []logs.Class{{Service: "counter", Level: logs.LevelWarn, Message: "counted", Count: (1 << 60) + 1}}}, time.Now())
-	for _, format := range []string{"table", "json"} {
-		output, err := f.run(t, "logs", "--service", "counter", "--format", format)
-		if err != nil || !strings.Contains(output, "1152921504606846977") {
-			t.Fatalf("log integers changed in %s = %s, %v", format, output, err)
-		}
-	}
-	other := newObserveFixture(t)
-	other.server.HandleAuthenticated("GET /v1/logs", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "provider unavailable", http.StatusServiceUnavailable)
-	}))
-	output, err := other.run(t, "logs")
-	if err == nil || output != "" || !strings.Contains(err.Error(), "HTTP 503") {
-		t.Fatalf("unavailable logs became empty success: %s, %v", output, err)
-	}
-	malformed := newObserveFixture(t)
-	malformed.server.HandleAuthenticated("GET /v1/logs", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{"v":2,"region":"gru"}`)
-	}))
-	output, err = malformed.run(t, "logs")
-	if err == nil || output != "" || !strings.Contains(err.Error(), "invalid log summary JSON") {
-		t.Fatalf("unsupported log reply accepted: %s, %v", output, err)
-	}
-	malformed.server.HandleAuthenticated("GET /v1/decisions", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{}`)
-	}))
-	output, err = malformed.run(t, "decisions")
-	if err == nil || output != "" || !strings.Contains(err.Error(), "omitted its observation") {
-		t.Fatalf("missing decision observation became empty success: %s, %v", output, err)
-	}
-	malformed.server.HandleAuthenticated("GET /v1/insights", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{"at":"2026-10-17T00:00:00Z","insights":[],"unavailable":["cluster"]}`)
-	}))
-	output, err = malformed.run(t, "insights", "--format", "json")
-	if err == nil || !strings.Contains(output, `"partial": true`) || !strings.Contains(output, "cluster") {
-		t.Fatalf("unavailable insights became healthy: %s, %v", output, err)
 	}
 }

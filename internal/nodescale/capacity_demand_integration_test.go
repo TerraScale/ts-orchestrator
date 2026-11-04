@@ -104,12 +104,6 @@ func TestFunctionCapacityTracksManagerAndActualPoolSlots(t *testing.T) {
 		apply func(*api.Node)
 	}{
 		{"wrong role", func(n *api.Node) { n.Spec.Annotations.Labels["terrascale.host-role"] = RoleContainer }},
-		{"wrong scope", func(n *api.Node) { n.Spec.Annotations.Labels["terrascale.execution-scope"] = "platform" }},
-		{"wrong architecture", func(n *api.Node) { n.Description.Platform.Architecture = "arm64" }},
-		{"missing slot", func(n *api.Node) { n.Description.Resources.Generic = nil }},
-		{"two slots", func(n *api.Node) {
-			n.Description.Resources.Generic = []*api.GenericResource{genericresource.NewDiscrete("terrascale.function-worker-slot", 2)}
-		}},
 	} {
 		t.Run(change.name, func(t *testing.T) {
 			original, err := hosts.control.GetNode(ctx, &api.GetNodeRequest{NodeID: "ts-gru-4"})

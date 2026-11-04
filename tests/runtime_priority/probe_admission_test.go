@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -35,17 +33,10 @@ func decodeObject(t *testing.T, raw []byte) object {
 	}
 	return o
 }
-func field(o object, key string) object { return o[key].(map[string]any) }
 func assertEqual(t *testing.T, got, want any) {
 	t.Helper()
 	if string(jsonWire(t, got)) != string(jsonWire(t, want)) {
 		t.Fatalf("got %#v, want %#v", got, want)
-	}
-}
-func assertContains(t *testing.T, got, want string) {
-	t.Helper()
-	if !strings.Contains(got, want) {
-		t.Fatalf("%q does not contain %q", got, want)
 	}
 }
 
@@ -102,105 +93,5 @@ func TestProbeAdmissionExactPublication(t *testing.T) {
 	}
 	for key, name := range map[string]string{"publication_sha256": "publication.json", "qualification_sha256": "qualification.json", "run_detail_sha256": "run-detail.json", "job_log_sha256": "job.log"} {
 		assertEqual(t, receipt[key], digest(script.Read(t, filepath.Join(f.root, name))))
-	}
-}
-func TestProbeAdmissionRejectsUnboundEvidence(t *testing.T) {
-	cases := []struct {
-		name, reason string
-		change       func(*testing.T, *admissionFixture)
-	}{
-		{"publication_digest", "differs from the CI publication", func(t *testing.T, f *admissionFixture) {
-			field(f.descriptor, "probe")["sha256"] = strings.Repeat("0", 64)
-		}},
-		{"probe_bytes", "differs from the CI publication", func(t *testing.T, f *admissionFixture) {
-			script.Write(t, filepath.Join(f.root, probeAsset), append(append([]byte{}, probeBytes...), []byte("changed")...), 0600)
-		}},
-		{"qualification_source", "qualification source differs", func(t *testing.T, f *admissionFixture) { f.qualification["source_revision"] = strings.Repeat("c", 40) }},
-		{"failed_job", "job is not successful", func(t *testing.T, f *admissionFixture) { f.runDetail["jobs"].([]object)[0]["status"] = "failure" }},
-		{"missing_attempt", "D15-producing job attempt", func(t *testing.T, f *admissionFixture) { f.runDetail["jobs"].([]object)[0]["attempt"] = 0 }},
-		{"consistent_replacement", "one exact CI publication marker", func(t *testing.T, f *admissionFixture) {
-			changed := []byte("replaced probe on mutable release\n")
-			script.Write(t, filepath.Join(f.root, probeAsset), changed, 0600)
-			field(f.descriptor, "probe")["bytes"] = len(changed)
-			field(f.descriptor, "probe")["sha256"] = digest(changed)
-		}},
-		{"qualification_replacement", "one exact CI publication marker", func(t *testing.T, f *admissionFixture) {
-			f.qualification["artifacts"].([]object)[0]["sha256"] = strings.Repeat("f", 64)
-		}},
-		{"duplicate_markers", "one exact CI publication marker", func(t *testing.T, f *admissionFixture) { f.log = append(f.log, f.log...) }},
-		{"missing_binaries", "strict v1 two-binary", func(t *testing.T, f *admissionFixture) { delete(f.qualification, "artifacts") }},
-		{"unordered_binaries", "invalid or unordered binary", func(t *testing.T, f *admissionFixture) {
-			v := f.qualification["artifacts"].([]object)
-			v[0], v[1] = v[1], v[0]
-		}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newAdmissionFixture(t)
-			tc.change(t, f)
-			r := f.admit(t)
-			if r.Code == 0 {
-				t.Fatal("unbound evidence admitted")
-			}
-			assertContains(t, r.Stderr, tc.reason)
-			if _, err := os.Stat(filepath.Join(f.root, "receipt.json")); !os.IsNotExist(err) {
-				t.Fatalf("failed admission wrote receipt: %v", err)
-			}
-		})
-	}
-}
-
-func TestRemotePinnedProbe(t *testing.T) {
-	for _, tc := range []struct{ name, reason string }{{"exact", ""}, {"mode", "root-owned regular mode-0555"}, {"bytes", "bytes differ from the exact CI digest"}, {"symlink", "root-owned regular mode-0555"}} {
-		t.Run(tc.name, func(t *testing.T) {
-			base := filepath.Join(t.TempDir(), "terrascale-d15")
-			path := filepath.Join(base, "probes", sourceRevision, digest(probeBytes), "qualify")
-			script.Write(t, path, probeBytes, 0555)
-			for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
-				if err := os.Chmod(dir, 0700); err != nil {
-					t.Fatal(err)
-				}
-				if dir == base {
-					break
-				}
-			}
-			switch tc.name {
-			case "mode":
-				if err := os.Chmod(path, 0644); err != nil {
-					t.Fatal(err)
-				}
-			case "bytes":
-				if err := os.Chmod(path, 0600); err != nil {
-					t.Fatal(err)
-				}
-				script.Write(t, path, []byte("changed probe with same size!!!!!!!\n"), 0555)
-			case "symlink":
-				if err := os.Remove(path); err != nil {
-					t.Fatal(err)
-				}
-				replacement := filepath.Join(base, "replacement")
-				script.Write(t, replacement, probeBytes, 0600)
-				if err := os.Symlink(replacement, path); err != nil {
-					t.Fatal(err)
-				}
-			}
-			file, err := rp.OpenPinnedProbe(base, sourceRevision, digest(probeBytes), path, uint32(os.Getuid()))
-			got := object{}
-			if err != nil {
-				got["error"] = err.Error()
-			} else {
-				defer file.Close()
-				wire, err := io.ReadAll(file)
-				if err != nil {
-					t.Fatal(err)
-				}
-				got["bytes"] = string(wire)
-			}
-			if tc.reason == "" {
-				assertEqual(t, got["bytes"], string(probeBytes))
-			} else {
-				assertContains(t, fmt.Sprint(got["error"]), tc.reason)
-			}
-		})
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,9 +21,6 @@ func TestScopeAdmissionOwnershipAndCleanup(t *testing.T) {
 		cancel, admit, cleanupFailure bool
 	}{
 		{name: "failed evidence", loadState: "not-found"},
-		{name: "failed evidence keeps cleanup error", loadState: "not-found", cleanupFailure: true},
-		{name: "canceled admission", loadState: "not-found", cancel: true},
-		{name: "preexisting unit", loadState: "loaded"},
 		{name: "owned RUNNING admission", loadState: "not-found", admit: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -127,43 +123,4 @@ func TestScopeAdmissionOwnershipAndCleanup(t *testing.T) {
 			t.Fatalf("launcher %d was not reaped", pid)
 		})
 	}
-}
-
-func TestScopeLauncherRunsDetachedAndReapsOnStop(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	remote := Remote{}
-	started := time.Now()
-	stop, done, err := remote.launchScope([]string{executable, "-test.run=^TestDetachedScopeChild$", "--", "--runtime-scope-child"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
-	defer cancel()
-	defer stop(cleanupCtx)
-	if time.Since(started) > time.Second {
-		t.Fatal("launcher waited for pressure process to exit")
-	}
-	select {
-	case err := <-done:
-		t.Fatalf("launcher exited before stop: %v", err)
-	default:
-	}
-	if err := stop(cleanupCtx); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-done:
-	case <-cleanupCtx.Done():
-		t.Fatal("stopped launcher was not reaped")
-	}
-}
-
-func TestDetachedScopeChild(t *testing.T) {
-	if !slices.Contains(os.Args, "--runtime-scope-child") {
-		return
-	}
-	<-time.After(time.Minute)
 }

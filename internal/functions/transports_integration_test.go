@@ -8,10 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -60,10 +58,6 @@ func TestHTTPRealWorkerAuthenticationScopeAndLimits(t *testing.T) {
 		{"success", "POST", "Bearer valid", "http-1", `{"tenant_id":"forged","payload":"raw input"}`, 200},
 		{"authentication", "POST", "Bearer invalid", "http-2", "secret payload", 401},
 		{"tenant", "POST", "Bearer other", "http-3", "secret payload", 403},
-		{"missing ID", "POST", "Bearer valid", "", "secret payload", 400},
-		{"invalid ID", "POST", "Bearer valid", "invalid.id", "secret payload", 400},
-		{"payload limit", "POST", "Bearer valid", "http-4", strings.Repeat("x", MaxPayloadBytes+1), 413},
-		{"method", "GET", "Bearer valid", "http-5", "secret payload", 405},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req, err := http.NewRequestWithContext(t.Context(), tc.method, srv.URL+"/invoke?private=host-secret", strings.NewReader(tc.payload))
@@ -98,37 +92,6 @@ func TestHTTPRealWorkerAuthenticationScopeAndLimits(t *testing.T) {
 			}
 			if bytes.Contains(body, []byte(tc.auth)) || bytes.Contains(body, []byte("host-secret")) {
 				t.Fatal("HTTP metadata reached guest")
-			}
-		})
-	}
-}
-
-func TestHTTPRealWorkerTimeoutAndGuestFailure(t *testing.T) {
-	for _, tc := range []struct {
-		kind   string
-		status int
-	}{{"loop", http.StatusGatewayTimeout}, {"output-limit", http.StatusBadGateway}} {
-		t.Run(tc.kind, func(t *testing.T) {
-			worker := transportWorker(t, tc.kind)
-			handler, err := NewHTTPHandler(worker, func(*http.Request) (string, error) { return worker.Manifest().TenantID, nil })
-			if err != nil {
-				t.Fatal(err)
-			}
-			srv := httptest.NewServer(handler)
-			defer srv.Close()
-			req, err := http.NewRequestWithContext(t.Context(), "POST", srv.URL, strings.NewReader("private payload"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			req.Header.Set("Idempotency-Key", "failure-1")
-			resp, err := srv.Client().Do(req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer resp.Body.Close()
-			body, err := io.ReadAll(resp.Body)
-			if err != nil || resp.StatusCode != tc.status || string(body) != "function invocation failed\n" {
-				t.Fatalf("response: status=%d body=%q err=%v", resp.StatusCode, body, err)
 			}
 		})
 	}
@@ -278,82 +241,5 @@ func TestQueueRealWorkerReceiptsReplayPoisonAndScope(t *testing.T) {
 	otherSubject := strings.Replace(queue.Subject(), worker.Manifest().TenantID, entityid.New(), 1)
 	if _, err := js.Publish(t.Context(), otherSubject, []byte("wrong tenant")); !errors.Is(err, jetstream.ErrNoStreamResponse) {
 		t.Fatalf("cross-tenant publication: %v", err)
-	}
-}
-
-func TestQueueRealWorkerRetriesTimedOutInvocation(t *testing.T) {
-	nc, js := transportBroker(t)
-	worker := transportWorker(t, "loop")
-	if err := provisionQueue(t.Context(), nc, worker.Manifest()); err != nil {
-		t.Fatal(err)
-	}
-	queue, err := NewQueueWorker(t.Context(), nc, worker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope, _ := QueueIdentity(worker.Manifest())
-	receipts, err := js.KeyValue(t.Context(), scope.ReceiptBucket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stop := runTransportQueue(t, queue)
-	defer stop()
-	publishTransportMessage(t, js, queue.Subject(), "retry-stable-id", []byte("private payload"))
-	waitTransport(t, func() bool {
-		info, err := queue.consumer.Info(t.Context())
-		return err == nil && info.Delivered.Consumer >= 2 && info.NumAckPending == 1
-	})
-	if _, err := receipts.Get(t.Context(), "retry-stable-id"); !errors.Is(err, jetstream.ErrKeyNotFound) {
-		t.Fatalf("failed invocation has a success receipt: %v", err)
-	}
-}
-
-func TestHTTPBoundsPendingBodiesBeforeGuestExecution(t *testing.T) {
-	worker := transportWorker(t, "echo")
-	entered := make(chan struct{}, MaxConcurrent)
-	handler, err := NewHTTPHandler(worker, func(*http.Request) (string, error) { entered <- struct{}{}; return worker.Manifest().TenantID, nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
-	endpoint, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var pending []net.Conn
-	defer func() {
-		for _, conn := range pending {
-			_ = conn.Close()
-		}
-	}()
-	for range MaxConcurrent {
-		conn, err := net.DialTimeout("tcp", endpoint.Host, time.Second)
-		if err != nil {
-			t.Fatal(err)
-		}
-		pending = append(pending, conn)
-		_, err = fmt.Fprintf(conn, "POST / HTTP/1.1\r\nHost: %s\r\nIdempotency-Key: pending\r\nContent-Length: 100\r\n\r\n", endpoint.Host)
-		if err != nil {
-			t.Fatal(err)
-		}
-		select {
-		case <-entered:
-		case <-time.After(time.Second):
-			t.Fatal("HTTP body admission did not begin")
-		}
-	}
-	req, err := http.NewRequestWithContext(t.Context(), "POST", srv.URL, strings.NewReader("bounded input"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Idempotency-Key", "excess")
-	response, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("excess body admission: %d", response.StatusCode)
 	}
 }

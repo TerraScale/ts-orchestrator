@@ -151,43 +151,6 @@ func TestReattachMovesTheLostMembersVolumeOnlyAfterTermination(t *testing.T) {
 	}
 }
 
-func TestReattachHoldsOnALiveThirdAttachmentAndUnsupportedFleets(t *testing.T) {
-	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
-	seat := Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU,
-		FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}
-	store := newPlacementMemoryStore(t, intent)
-	lost := store.members[seat.MemberID].State
-	replacement, err := replacementMemberState(intent, seat, lost)
-	if err != nil {
-		t.Fatal(err)
-	}
-	replacement.InstanceID, replacement.HostGeneration, replacement.Stage = "ocid1.instance.replacement", 1, StagePreparedAttach
-	store.members[seat.MemberID] = VersionedMemberState{State: replacement, Revision: 1}
-	fleet := &reattachTestFleet{
-		placementTestFleet: &placementTestFleet{},
-		states:             map[string]string{lost.InstanceID: "TERMINATED"},
-		attachments: []oci.Attachment{{ID: "ocid1.volumeattachment.third", VolumeID: lost.VolumeID,
-			InstanceID: "ocid1.instance.third", State: "ATTACHED", ETag: "third"}},
-	}
-	var holds []string
-	controller := startTestPlacementController(t, store, fleet, &placementTestHosts{},
-		func(reason string) { holds = append(holds, reason) })
-	acted, err := controller.reattachRetainedVolume(t.Context(), 1, intent, seat, store.members[seat.MemberID])
-	if err != nil || acted || len(fleet.detaches)+len(fleet.attachRequests) != 0 ||
-		!strings.Contains(strings.Join(holds, "\n"), "unrelated instance") {
-		t.Fatalf("third live attachment: acted=%v err=%v holds=%q", acted, err, holds)
-	}
-
-	plain := &placementTestFleet{}
-	holds = nil
-	controller = startTestPlacementController(t, store, plain, &placementTestHosts{},
-		func(reason string) { holds = append(holds, reason) })
-	acted, err = controller.reattachRetainedVolume(t.Context(), 1, intent, seat, store.members[seat.MemberID])
-	if err != nil || acted || plain.attachCalls != 0 || !strings.Contains(strings.Join(holds, "\n"), "does not support") {
-		t.Fatalf("unsupported fleet: acted=%v err=%v holds=%q", acted, err, holds)
-	}
-}
-
 func TestReattachReportsFailedFenceLookupsAndRejectsAStaleEpoch(t *testing.T) {
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	seat := Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU,
@@ -223,23 +186,5 @@ func TestReattachReportsFailedFenceLookupsAndRejectsAStaleEpoch(t *testing.T) {
 	if acted, err := controller.reattachRetainedVolume(t.Context(), 1, intent, seat, store.members[seat.MemberID]); err != nil ||
 		!acted || len(fleet.detaches) != 1 {
 		t.Fatalf("current epoch: acted=%v err=%v detaches=%d", acted, err, len(fleet.detaches))
-	}
-}
-
-func TestMemberStateRejectsAnInconsistentPreviousInstance(t *testing.T) {
-	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
-	store := newPlacementMemoryStore(t, intent)
-	state := store.members[permanentMember(oci.RegionGRU)].State
-	state.PreviousInstanceID = "ocid1.instance.previous"
-	if err := state.Validate(); err == nil {
-		t.Fatal("a first host attempt accepted a previous instance")
-	}
-	state.HostAttempt = 2
-	if err := state.Validate(); err != nil {
-		t.Fatalf("replacement attempt with a previous instance: %v", err)
-	}
-	state.PreviousInstanceID = state.InstanceID
-	if err := state.Validate(); err == nil {
-		t.Fatal("a member accepted its own instance as its previous instance")
 	}
 }

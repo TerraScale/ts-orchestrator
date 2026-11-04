@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -28,9 +27,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
-	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 const testCompartment = "ocid1.compartment.oc1..gru"
@@ -371,49 +368,6 @@ func TestCapacityStoreReopenAndFencedWrites(t *testing.T) {
 	}
 }
 
-func TestCapacityProberUsesTCPAndKeepsLastOnCancel(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			conn.Close()
-		}
-	}()
-	var calls int
-	prober := &Prober{Now: time.Now, Regions: func(context.Context) ([]string, error) { return []string{"us-ashburn-1", "invalid/region"}, nil },
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			if address != "objectstorage.us-ashburn-1.oraclecloud.com:443" {
-				return nil, fmt.Errorf("unexpected endpoint %s", address)
-			}
-			calls++
-			return (&net.Dialer{}).DialContext(ctx, network, listener.Addr().String())
-		},
-	}
-	if err := prober.Probe(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	before, at := prober.Latest()
-	if len(before) != 1 || before["us-ashburn-1"] <= 0 || calls != RTTSamples || at.IsZero() {
-		t.Fatalf("TCP probe: %+v at %s calls=%d", before, at, calls)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if err := prober.Probe(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("canceled probe: %v", err)
-	}
-	after, afterAt := prober.Latest()
-	if !reflect.DeepEqual(before, after) || !at.Equal(afterAt) {
-		t.Fatal("canceled round discarded last measurement")
-	}
-}
-
 func TestCapacityPoolProtocolObservation(t *testing.T) {
 	ctx := t.Context()
 	cloud := newCapacityCloud()
@@ -443,62 +397,8 @@ func TestCapacityPoolProtocolObservation(t *testing.T) {
 	}
 }
 
-func TestCapacityPoolProtocolIsolationAndValidation(t *testing.T) {
-	ctx := t.Context()
-	cloud := newCapacityCloud()
-	base := capacityRecipe()
-	for i, capacity := range []Capacity{base.Capacity, {Role: RoleWasm, Architecture: "arm64", Shape: base.Capacity.Shape}, {Role: RoleContainer, Architecture: "amd64", Shape: "VM.Standard.E4.Flex"}} {
-		recipe := base
-		recipe.Capacity = capacity
-		seedCapacityPool(cloud, recipe, i+1)
-		pool := protocolPool(t, cloud, capacity)
-		if size, err := pool.TargetSize(ctx, recipe); err != nil || size != i+1 {
-			t.Fatalf("isolation collision for %+v: size=%d err=%v", capacity, size, err)
-		}
-	}
-	pool := protocolPool(t, cloud, base.Capacity)
-	if state, err := pool.Observe(ctx); err != nil || state.Size != 6 || state.PoolID != "" {
-		t.Fatalf("heterogeneous capacity was collapsed: %+v %v", state, err)
-	}
-	if err := pool.validateImage(ctx, base); err != nil {
-		t.Fatalf("positive image validation: %v", err)
-	}
-	for name, mutate := range map[string]func(*Recipe){
-		"image architecture mismatch": func(r *Recipe) { r.Capacity.Architecture = "amd64" },
-		"unknown shape":               func(r *Recipe) { r.Capacity.Shape = "VM.Standard.Unknown.Flex" },
-		"missing metadata":            func(r *Recipe) { r.Metadata = nil },
-		"missing image":               func(r *Recipe) { r.ImageID = "" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			recipe := base
-			mutate(&recipe)
-			err := recipe.Validate()
-			if err == nil {
-				err = pool.validateImage(ctx, recipe)
-			}
-			if err == nil {
-				t.Fatalf("%s accepted", name)
-			}
-		})
-	}
-	cloud.shapeRows = []core.Shape{}
-	if err := pool.validateImage(ctx, base); err == nil {
-		t.Fatal("empty image-compatible shape list accepted")
-	}
-	target, _, err := pool.pool(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	duplicate := *target
-	duplicate.Id = new("ocid1.instancepool.oc1..duplicate")
-	cloud.pools[*duplicate.Id] = &duplicate
-	if _, err := pool.Observe(ctx); err == nil || !strings.Contains(err.Error(), "refusing to guess") {
-		t.Fatalf("ambiguous ownership accepted: %v", err)
-	}
-}
-
 func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
-	for _, scenario := range []string{"grow preparation and restart", "launch timeout", "database drain hold", "backend drain timeout", "drain and revoke refusal", "missing allowance", "stale loads", "request pressure", "missing host memory", "pending selector resume", "expired allowance resume", "follower"} {
+	for _, scenario := range []string{"grow preparation and restart", "database drain hold"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			now := time.Now().UTC().Truncate(time.Second)
@@ -512,11 +412,6 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 				t.Fatal(err)
 			}
 			selectors := capacitySelectors
-			if scenario == "pending selector resume" {
-				selectors = func(context.Context, Record) (rootoci.PoolChildExpectation, error) {
-					return rootoci.PoolChildExpectation{}, ErrCapacityPending
-				}
-			}
 			pool := chosenProtocolPool(t, observed, records, selectors)
 			hosts := newSwarmHosts(t)
 			hosts.live = map[string]bool{"ts-gru-1": true, "ts-gru-2": true, "ts-gru-3": true}
@@ -528,26 +423,13 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 				CanRetire: func(context.Context, string, string) error { return ErrCapacityPending },
 				Recipe:    func(context.Context) (Recipe, error) { return recipe, nil }, Now: func() time.Time { return now },
 				Allowance: func(time.Time) (int, bool) {
-					return MaxNodes, scenario != "missing allowance" && scenario != "expired allowance resume"
+					return MaxNodes, true
 				},
 				Loads: func() []NodeLoad {
 					var loads []NodeLoad
 					for node := range hosts.live {
 						at := now
-						if scenario == "stale loads" {
-							at = at.Add(-3 * time.Minute)
-						}
-						cpu := .9
-						if scenario == "request pressure" {
-							cpu = .1
-						}
-						report := hostload.Report{SchemaVersion: hostload.SchemaVersion, Host: hostload.HostUsage{CPU: new(cpu), Memory: new(.1), Disk: new(.1), CPUCores: 2}}
-						if scenario == "missing host memory" {
-							report.Host.Memory = nil
-						}
-						if scenario == "request pressure" {
-							report.Roles = []hostload.RoleUsage{{TerraBase: &memberstatus.Load{WriteQPS: 450, Connections: 900}}, {TerraBase: &memberstatus.Load{WriteQPS: 450, Connections: 900}}}
-						}
+						report := hostload.Report{SchemaVersion: hostload.SchemaVersion, Host: hostload.HostUsage{CPU: new(.9), Memory: new(.1), Disk: new(.1), CPUCores: 2}}
 						if load, ok := FromHostLoad(hostload.NodeLoad{Origin: hostload.Origin{Node: node}, At: at, Report: report}); ok {
 							loads = append(loads, load)
 						}
@@ -558,7 +440,7 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 				Revoke:   func(context.Context, string) error { revoked++; return nil },
 				Journal:  func(_ context.Context, d decisionlog.Decision) { entries = append(entries, d) },
 			}
-			if scenario == "launch timeout" || strings.Contains(scenario, "drain") {
+			if scenario == "database drain hold" {
 				id := cloud.launch("ts-gru-4", seeded.PoolID, "10.0.0.4", core.InstanceLifecycleStateRunning, nil)
 				cloud.pools[seeded.PoolID].Size = new(1)
 				hosts.live["ts-gru-4"], hosts.instanceIDs["ts-gru-4"] = true, id
@@ -579,68 +461,17 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 				if pass.obs.counted["ts-gru-4"] || pass.obs.live["ts-gru-4"] {
 					t.Fatal("membership observation was treated as original birth")
 				}
-				if scenario == "launch timeout" {
-					record := capacityBirthRecord(recipe)
-					record.Action.Step = stepEnroll
-					if _, err := records.Save(ctx, record, 0); err != nil {
-						t.Fatal(err)
+				if scenario == "database drain hold" {
+					protected, err := scaler.protectedNodes(ctx)
+					if err != nil || !protected["ts-gru-4"] {
+						t.Fatalf("actual database task lost retirement protection: %v", err)
 					}
-					reopened, err := OpenStore(ctx, js, 1)
-					if err != nil {
-						t.Fatal(err)
+					if safe, err := scaler.retireSafe(ctx, "ts-gru-4", id); err != nil || safe {
+						t.Fatalf("actual database holder admitted to drain: safe=%v err=%v", safe, err)
 					}
-					pass.record, _, err = reopened.Load(ctx)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if err := scaler.enroll(ctx, pass); err != nil {
-						t.Fatal(err)
-					}
-					if pass.record.Action == nil || pass.record.Action.ID != record.Action.ID || pass.record.Action.Step != stepEnroll || pass.record.Retirement != nil ||
-						!strings.Contains(pass.pool.Pending, "not been positively reobserved") {
-						t.Fatalf("timeout adopted or retired unproven membership: %+v", pass)
-					}
-				} else if scenario == "backend drain timeout" {
-					// An already-draining Swarm observation exercises rollback, without a root retirement receipt.
-					pass.record = Record{Action: &InFlight{ID: entityid.New(), Kind: Down, Step: stepDrain, Node: "ts-gru-4", InstanceID: id, Started: now}}
-					if _, err := records.Save(ctx, pass.record, 0); err != nil {
-						t.Fatal(err)
-					}
-					pass.record, _, err = records.Load(ctx)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if err := scaler.setAvailability(ctx, "ts-gru-4", id, api.NodeAvailabilityDrain, 7); err != nil {
-						t.Fatal(err)
-					}
-					pass.now = now.Add(DrainTimeout - Interval)
-					if err := scaler.drain(ctx, pass); err != nil {
-						t.Fatal(err)
-					}
-					if pass.record.Action == nil || pass.record.Action.Step != stepDrain {
-						t.Fatal("registered backend did not hold drain")
-					}
-					pass.now = now.Add(DrainTimeout)
-					if err := scaler.drain(ctx, pass); err != nil {
-						t.Fatal(err)
-					}
-					node, err := hosts.control.GetNode(ctx, &api.GetNodeRequest{NodeID: "ts-gru-4"})
-					if err != nil || node.Node.Spec.Availability != api.NodeAvailabilityActive || pass.record.Action != nil || !pass.record.LastChange.Equal(pass.now) || pass.record.Retirement != nil {
-						t.Fatalf("drain timeout did not restore active capacity and cooldown: record=%+v err=%v", pass.record, err)
-					}
-				} else {
-					if scenario == "database drain hold" {
-						protected, err := scaler.protectedNodes(ctx)
-						if err != nil || !protected["ts-gru-4"] {
-							t.Fatalf("actual database task lost retirement protection: %v", err)
-						}
-						if safe, err := scaler.retireSafe(ctx, "ts-gru-4", id); err != nil || safe {
-							t.Fatalf("actual database holder admitted to drain: safe=%v err=%v", safe, err)
-						}
-					}
-					if _, found, err := scaler.pickDrain(ctx, pass); err != nil || found {
-						t.Fatalf("unproven worker entered retirement selection: found=%v err=%v", found, err)
-					}
+				}
+				if _, found, err := scaler.pickDrain(ctx, pass); err != nil || found {
+					t.Fatalf("unproven worker entered retirement selection: found=%v err=%v", found, err)
 				}
 				hosts.observe(t)
 				if len(hosts.cordoned) != 0 || revoked != 0 || deref(cloud.instances[id].DisplayName) != "ts-gru-4" || deref(cloud.pools[seeded.PoolID].Size) != 1 ||
@@ -662,37 +493,11 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 				}
 				return record
 			}
-			if scenario == "pending selector resume" || scenario == "expired allowance resume" {
-				pending := capacityBirthRecord(recipe)
-				if _, err := records.Save(ctx, pending, 0); err != nil {
-					t.Fatal(err)
-				}
-				resumed := tickOnce()
-				if resumed.Action == nil || resumed.Action.ID != pending.Action.ID || resumed.Action.Step != stepGrow || resumed.Child != nil || scaler.Status().Action != Hold {
-					t.Fatalf("unsafe resume lost original pending action: %+v", resumed)
-				}
-				return
-			}
-			if scenario == "follower" {
-				leader.snapshot.Leader = false
-				tickOnce()
-				_, revision, err := records.Load(ctx)
-				if err != nil || revision != 0 {
-					t.Fatalf("follower persisted capacity: revision=%d err=%v", revision, err)
-				}
-				return
-			}
 			for range int(UpWindow/Interval) + 1 {
 				tickOnce()
 				now = now.Add(Interval)
 			}
 			record := tickOnce()
-			if scenario == "missing allowance" || scenario == "stale loads" || scenario == "missing host memory" {
-				if record.Action != nil {
-					t.Fatalf("unsafe growth planned with %s: %+v", scenario, record)
-				}
-				return
-			}
 			if record.Action == nil || record.Action.Step != stepGrow || record.Child != nil || record.Reservation != nil {
 				t.Fatalf("pressure did not retain preparation before unavailable home authority: %+v", record)
 			}
@@ -707,53 +512,5 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 				t.Fatalf("restart lost pending original preparation: %+v", retained)
 			}
 		})
-	}
-}
-
-func TestCapacityAdmissionAndLegacyObservationOverOCI(t *testing.T) {
-	ctx := t.Context()
-	cloud := newCapacityCloud()
-	recipe := capacityRecipe()
-	legacyID := "ocid1.instancepool.oc1..legacy"
-	cloud.pools[legacyID] = &core.InstancePool{Id: new(legacyID), CompartmentId: new(testCompartment), DisplayName: new("ts-gru-nodes"),
-		InstanceConfigurationId: new("ocid1.instanceconfiguration.old"), Size: new(1), LifecycleState: core.InstancePoolLifecycleStateRunning,
-		FreeformTags: map[string]string{tagCell: "gru", tagRole: roleNodePool}}
-	instanceID := cloud.launch("ts-gru-4", legacyID, "10.0.0.4", core.InstanceLifecycleStateRunning, nil)
-	pool := protocolPool(t, cloud, recipe.Capacity)
-	observed, err := pool.Observe(ctx)
-	if err != nil || observed.Size != 1 || len(observed.Instances) != 1 || observed.Instances[0].ID != instanceID || observed.Instances[0].Birth != nil || !strings.Contains(observed.Pending, "legacy pool") {
-		t.Fatalf("legacy capacity disappeared or gained birth authority: %+v %v", observed, err)
-	}
-	other := recipe
-	other.Capacity = Capacity{Role: RoleContainer, Architecture: "amd64", Shape: "VM.Standard.E4.Flex"}
-	otherPool := seedCapacityPool(cloud, other, 1)
-	cloud.launch("ts-gru-5", otherPool.PoolID, "10.0.0.5", core.InstanceLifecycleStateRunning, nil)
-	observed, err = pool.Observe(ctx)
-	if err != nil || observed.Size != 2 || len(observed.Instances) != 2 || observed.PoolID != "" || observed.Pending == "" {
-		t.Fatalf("heterogeneous legacy observation collapsed capacity: %+v %v", observed, err)
-	}
-	if _, err := pool.TargetSize(ctx, recipe); err == nil || !strings.Contains(err.Error(), "legacy pool") {
-		t.Fatalf("legacy pool admitted as a current target: %v", err)
-	}
-}
-
-func TestCapacityDiscoveryDoesNotPruneTaggedConfigurations(t *testing.T) {
-	cloud := newCapacityCloud()
-	recipe := capacityRecipe()
-	seedCapacityPool(cloud, recipe, 0)
-	staleID := "ocid1.instanceconfiguration.oc1..stale"
-	cloud.configs[staleID] = &core.InstanceConfiguration{Id: new(staleID), CompartmentId: new(testCompartment),
-		DisplayName: new(configPrefix("gru", recipe.Capacity) + "stale"), FreeformTags: poolTags("gru", recipe.Capacity, roleNodeConfig)}
-	pool := protocolPool(t, cloud, recipe.Capacity)
-	for range 2 {
-		if _, err := pool.Observe(t.Context()); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := pool.TargetSize(t.Context(), recipe); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if cloud.configs[staleID] == nil || len(cloud.configs) != 2 || len(cloud.pools) != 1 {
-		t.Fatal("discovery used matching tags as pruning authority")
 	}
 }

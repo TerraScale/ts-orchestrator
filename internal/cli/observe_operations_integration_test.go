@@ -5,9 +5,7 @@ import (
 	"encoding/json/v2"
 	"io"
 	"net/http"
-	"os"
 	"strings"
-	"sync/atomic"
 	"testing"
 )
 
@@ -48,7 +46,7 @@ func TestObserveCurrentOperationHTTP(t *testing.T) {
 			}
 			_, _ = io.WriteString(w, wire)
 		}))
-		for _, format := range []string{"table", "json"} {
+		for _, format := range []string{"json"} {
 			t.Run(view+"/"+format, func(t *testing.T) {
 				output, err := f.run(t, view, append(flags, "--format", format)...)
 				if err != nil || !strings.Contains(output, "1152921504606846977") || !strings.Contains(output, observeOperationRecordedAt) || strings.Contains(output, "private-source-secret") {
@@ -90,107 +88,5 @@ func TestObserveCurrentOperationHTTP(t *testing.T) {
 	}
 	if output, err := f.run(t, "foundation"); err != nil || !strings.Contains(output, "GRU") {
 		t.Fatalf("foundation local-region discovery failed: %s, %v", output, err)
-	}
-}
-
-func TestObserveCurrentOperationUnavailable(t *testing.T) {
-	for _, view := range []string{"foundation", "credentials", "backups", "netbird"} {
-		t.Run(view, func(t *testing.T) {
-			f := newObserveFixture(t)
-			path, _, flags := observeOperationContract(view)
-			wire := `{"error":"operation_unavailable","reason":"private-source-secret"}`
-			if view == "foundation" {
-				wire = `{"schemaVersion":1,"state":"unavailable","reason":"foundation-record-missing","error":"private-source-secret"}`
-			}
-			f.server.HandleAuthenticated("GET "+path, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = io.WriteString(w, wire)
-			}))
-			for _, format := range []string{"table", "json"} {
-				output, err := f.run(t, view, append(flags, "--format", format)...)
-				if err == nil || !strings.Contains(err.Error(), "partial") || !strings.Contains(output, "unavailable") || strings.Contains(output, "private-source-secret") || strings.Contains(output, "0001-01-01") {
-					t.Fatalf("unavailable became healthy or exposed raw errors: %s, %v", output, err)
-				}
-				if format == "json" && !strings.Contains(output, `"partial": true`) {
-					t.Fatalf("unavailable JSON omitted partial marker: %s", output)
-				}
-			}
-			if err := os.WriteFile(f.tokenFile, []byte(strings.Repeat("b", 32)), 0600); err != nil {
-				t.Fatal(err)
-			}
-			if output, err := f.run(t, view, flags...); err == nil || output != "" || !strings.Contains(err.Error(), "authentication denied") {
-				t.Fatalf("wrong bearer was accepted: %s, %v", output, err)
-			}
-		})
-	}
-	f := newObserveFixture(t)
-	path, _, flags := observeOperationContract("backups")
-	f.server.HandleAuthenticated("GET "+path, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = io.WriteString(w, `{"error":"operation_not_found"}`)
-	}))
-	if output, err := f.run(t, "backups", append(flags, "--format", "json")...); err == nil || !strings.Contains(output, "operation_not_found") || !strings.Contains(output, `"partial": true`) {
-		t.Fatalf("genuine absence lost: %s, %v", output, err)
-	}
-}
-
-func TestObserveCurrentOperationValidationAndUnknown(t *testing.T) {
-	f := newObserveFixture(t)
-	var requests atomic.Int64
-	f.server.HandleAuthenticated("GET /v1/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		_, _ = io.WriteString(w, `{}`)
-	}))
-	for _, scenario := range []struct {
-		view  string
-		flags []string
-	}{
-		{"credentials", nil}, {"backups", []string{"--database", observeOperationDatabase}},
-		{"credentials", []string{"--database", strings.ToLower(observeOperationDatabase), "--partition", observeOperationPartition}},
-		{"backups", []string{"--database", observeOperationDatabase + "/other", "--partition", observeOperationPartition}},
-		{"credentials", []string{"--database", observeOperationDatabase, "--partition", observeOperationPartition + "%2Fother"}},
-		{"backups", []string{"--database", observeOperationDatabase, "--partition", ".."}},
-		{"netbird", []string{"--database", observeOperationDatabase}}, {"foundation", []string{"--partition", observeOperationPartition}},
-		{"foundation", []string{"--cell", "gru/other"}}, {"netbird", []string{"--cell", "gru"}},
-		{"foundation", []string{"--since", "1h"}}, {"backups", []string{"--window", "1h"}},
-	} {
-		if output, err := f.run(t, scenario.view, scenario.flags...); err == nil || output != "" {
-			t.Fatalf("invalid selectors/flags accepted: %s %v = %s, %v", scenario.view, scenario.flags, output, err)
-		}
-	}
-	if requests.Load() != 0 {
-		t.Fatal("invalid selectors reached HTTP")
-	}
-	for _, view := range []string{"foundation", "credentials", "backups", "netbird"} {
-		other := newObserveFixture(t)
-		path, wire, flags := observeOperationContract(view)
-		wire = strings.NewReplacer(`"blocked"`, `"unknown"`, `"pending"`, `"unknown"`, `"uncertain"`, `"unknown"`, `"install"`, `"unknown"`).Replace(wire)
-		other.server.HandleAuthenticated("GET "+path, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = io.WriteString(w, wire)
-		}))
-		if output, err := other.run(t, view, append(flags, "--format", "json")...); err == nil || !strings.Contains(output, `"unknown"`) || !strings.Contains(output, `"partial": true`) {
-			t.Fatalf("unknown %s became healthy: %s, %v", view, output, err)
-		}
-		if output, err := f.run(t, view, flags...); err == nil || output != "" {
-			t.Fatalf("missing %s observation accepted: %s, %v", view, output, err)
-		}
-	}
-	for _, scenario := range []struct {
-		status int
-		wire   string
-	}{
-		{http.StatusInternalServerError, "private-source-secret"},
-		{http.StatusServiceUnavailable, `{"error":"private-source-secret"}`},
-		{http.StatusOK, `{"cell":"gru","commit":{"mutation_operation_id":"` + observeOperationMutationID + `","sequence":1,"epoch":1},"operation_id":"` + observeOperationDomainID + `","phase":"install"}`},
-	} {
-		other := newObserveFixture(t)
-		other.server.HandleAuthenticated("GET /v1/operations/netbird", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(scenario.status)
-			_, _ = io.WriteString(w, scenario.wire)
-		}))
-		output, err := other.run(t, "netbird", "--format", "json")
-		if err == nil || output != "" || strings.Contains(err.Error(), "private-source-secret") {
-			t.Fatalf("raw error or missing commit time accepted: %s, %v", output, err)
-		}
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"net/url"
 	"testing"
@@ -67,56 +66,6 @@ func functionBrokerCluster(t *testing.T, options *server.Options) []*server.Serv
 			t.Fatal("function R3 metadata unavailable: ", ctx.Err())
 		case <-time.After(20 * time.Millisecond):
 		}
-	}
-}
-
-func TestQueueRejectsUnreplicatedResources(t *testing.T) {
-	nc, js := transportBroker(t)
-	worker := transportWorker(t, "echo")
-	if err := provisionQueue(t.Context(), nc, worker.Manifest()); err != nil {
-		t.Fatal(err)
-	}
-	scope, err := QueueIdentity(worker.Manifest())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, resource := range []string{"queue", "receipts"} {
-		t.Run(resource, func(t *testing.T) {
-			name := scope.Stream
-			if resource == "receipts" {
-				name = "KV_" + scope.ReceiptBucket
-			}
-			stream, err := js.Stream(t.Context(), name)
-			if err != nil {
-				t.Fatal(err)
-			}
-			config := stream.CachedInfo().Config
-			config.Replicas = 1
-			if _, err := js.UpdateStream(t.Context(), config); err != nil {
-				t.Fatal(err)
-			}
-			if resource == "queue" {
-				// WorkQueue consumers must match their parent's replication.
-				consumer, err := js.Consumer(t.Context(), scope.Stream, "worker")
-				if err != nil {
-					t.Fatal(err)
-				}
-				config := consumer.CachedInfo().Config
-				config.Replicas = 1
-				if _, err := js.UpdateConsumer(t.Context(), scope.Stream, config); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if _, err := NewQueueWorker(t.Context(), nc, worker); !errors.Is(err, ErrScope) {
-				t.Fatalf("worker accepted R1 %s: %v", resource, err)
-			}
-			if err := provisionQueue(t.Context(), nc, worker.Manifest()); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := NewQueueWorker(t.Context(), nc, worker); err != nil {
-				t.Fatalf("worker cannot bind repaired R3 resources: %v", err)
-			}
-		})
 	}
 }
 

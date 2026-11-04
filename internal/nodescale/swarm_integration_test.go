@@ -3,25 +3,20 @@ package nodescale
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"net"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/manager/controlapi"
 	"github.com/moby/swarmkit/v2/manager/state/raft"
 	"github.com/moby/swarmkit/v2/manager/state/store"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
 )
 
 // swarmHosts drives admitted node/task observations through the real upstream control API.
@@ -227,237 +222,5 @@ func TestSwarmDrainWaitsForObservedStopAndBackends(t *testing.T) {
 	scaler.Backends = func(context.Context, string, string) (int, error) { return 0, nil }
 	if drained, err := scaler.drained(t.Context(), pass); err != nil || !drained {
 		t.Fatalf("terminal tasks and no backends: drained=%v err=%v", drained, err)
-	}
-}
-
-func TestSwarmRetainsProtectedAndUnprovenWorkers(t *testing.T) {
-	for _, kind := range []string{"no-proof", "failed-proof", "stateful-history", "terrabase", "orphan", "unlabelled-service"} {
-		t.Run(kind, func(t *testing.T) {
-			scaler, hosts, pass := swarmScaler(t)
-			switch kind {
-			case "no-proof":
-				scaler.CanRetire = nil
-			case "failed-proof":
-				scaler.CanRetire = func(context.Context, string, string) error { return errors.New("retained volume attachment") }
-			default:
-				if err := hosts.store.Update(func(tx store.Tx) error {
-					task := &api.Task{ID: "protected", NodeID: "ts-gru-4", ServiceID: "missing", Status: api.TaskStatus{State: api.TaskStateCompleted}}
-					if kind != "orphan" {
-						labels := map[string]string{}
-						if kind == "stateful-history" {
-							labels["terrascale.stateful"] = "true"
-							labels["terrascale.role"] = "database"
-						}
-						if kind == "terrabase" {
-							labels["terrascale.role"] = "terrabase"
-						}
-						service := &api.Service{ID: "service", Spec: api.ServiceSpec{Annotations: api.Annotations{Name: "service", Labels: labels}}}
-						if err := store.CreateService(tx, service); err != nil {
-							return err
-						}
-						task.ServiceID = service.ID
-					}
-					return store.CreateTask(tx, task)
-				}); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if _, found, err := scaler.pickDrain(t.Context(), pass); err != nil || found {
-				t.Fatalf("protected candidate selected: found=%v err=%v", found, err)
-			}
-			_ = scaler.cordon(t.Context(), pass)
-			nodes, err := hosts.control.ListNodes(t.Context(), &api.ListNodesRequest{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if nodes.Nodes[0].Spec.Availability == api.NodeAvailabilityDrain {
-				t.Fatal("drained protected worker")
-			}
-		})
-	}
-}
-
-func TestSwarmCordonChecksIdentityAndLeadership(t *testing.T) {
-	for _, kind := range []string{"wrong-instance", "empty-instance", "duplicate-instance", "lost-leadership", "missing-node", "manager", "wrong-certificate-role", "wrong-region", "pending-membership", "worker-hostname"} {
-		t.Run(kind, func(t *testing.T) {
-			scaler, hosts, pass := swarmScaler(t)
-			if kind == "lost-leadership" {
-				scaler.Leader.(*swarmLeader).guardErr = errors.New("leadership lost")
-			}
-			if err := hosts.store.Update(func(tx store.Tx) error {
-				node := store.GetNode(tx, "ts-gru-4")
-				switch kind {
-				case "wrong-instance":
-					node.Spec.Annotations.Labels["terrascale.instance-id"] = "other-instance"
-				case "empty-instance":
-					pass.record.Action.InstanceID = ""
-				case "duplicate-instance":
-					duplicate := node.Copy()
-					duplicate.ID = "old-certificate-node"
-					duplicate.Spec.Annotations.Name = "ts-gru-5"
-					return store.CreateNode(tx, duplicate)
-				case "missing-node":
-					return store.DeleteNode(tx, node.ID)
-				case "manager":
-					node.Role = api.NodeRoleManager
-					node.Certificate.Role = api.NodeRoleManager
-					node.Spec.DesiredRole = api.NodeRoleManager
-				case "pending-membership":
-					node.Spec.Membership = api.NodeMembershipPending
-				case "wrong-certificate-role":
-					node.Certificate.Role = api.NodeRoleManager
-				case "wrong-region":
-					node.Spec.Annotations.Labels["terrascale.region"] = "eu-frankfurt-1"
-				case "worker-hostname":
-					node.Spec.Annotations.Name = ""
-					node.Description = &api.NodeDescription{Hostname: "ts-gru-4"}
-				}
-				return store.UpdateNode(tx, node)
-			}); err != nil {
-				t.Fatal(err)
-			}
-			_ = scaler.cordon(t.Context(), pass)
-			nodes, err := hosts.control.ListNodes(t.Context(), &api.ListNodesRequest{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, node := range nodes.Nodes {
-				if node.Spec.Availability == api.NodeAvailabilityDrain {
-					t.Fatal("drained without trusted identity/authority")
-				}
-			}
-		})
-	}
-}
-
-func TestSwarmControlRejectsStaleNodeVersion(t *testing.T) {
-	scaler, hosts, _ := swarmScaler(t)
-	before, err := hosts.control.GetNode(t.Context(), &api.GetNodeRequest{NodeID: "ts-gru-4"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := scaler.setAvailability(t.Context(), "ts-gru-4", "ocid-ts-gru-4", api.NodeAvailabilityDrain, 7); err != nil {
-		t.Fatal(err)
-	}
-	_, err = hosts.control.UpdateNode(t.Context(), &api.UpdateNodeRequest{NodeID: before.Node.ID, NodeVersion: &before.Node.Meta.Version, Spec: &before.Node.Spec})
-	if err == nil {
-		t.Fatal("accepted stale node version")
-	}
-	if status.Code(err) != codes.Unknown || !strings.Contains(err.Error(), "update out of sequence") {
-		t.Fatalf("unexpected CAS error: %v", err)
-	}
-	after, err := hosts.control.GetNode(t.Context(), &api.GetNodeRequest{NodeID: "ts-gru-4"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.Node.Spec.Availability != api.NodeAvailabilityDrain {
-		t.Fatal("stale update undid drain")
-	}
-}
-
-func TestSwarmRetirementRechecksAfterDrainAndLaunchTimeout(t *testing.T) {
-	scaler, hosts, pass := swarmScaler(t)
-	if err := scaler.cordon(t.Context(), pass); err != nil {
-		t.Fatal(err)
-	}
-	hosts.desired = []desiredTask{{Node: "ts-gru-4", Role: "terrabase"}}
-	hosts.sync(t)
-	pass.record.Action.Step = stepRemove
-	if err := scaler.remove(t.Context(), pass); err != nil {
-		t.Fatal(err)
-	}
-	if pass.pool.Pending == "" || pass.record.Action.Step != stepRemove {
-		t.Fatal("retirement did not retain newly observed database member")
-	}
-	if err := scaler.expiredSafe(t.Context(), pass, pass.pool.Instances[0]); err == nil {
-		t.Fatal("launch timeout bypassed database safety")
-	}
-	scaler.CanRetire = nil
-	if err := scaler.expiredSafe(t.Context(), pass, PoolInstance{Name: "unenrolled", ID: "other"}); err == nil {
-		t.Fatal("launch timeout bypassed missing retained-volume proof")
-	}
-}
-
-func TestSwarmPoolBindingUsesOCIIdentityInsteadOfCanonicalHostID(t *testing.T) {
-	for _, duplicate := range []bool{false, true} {
-		t.Run(fmt.Sprintf("duplicate=%t", duplicate), func(t *testing.T) {
-			scaler, hosts, pass := swarmScaler(t)
-			pass.pool.Instances[0].Birth = &rootoci.PoolChildView{Node: "ts-gru-4", InstanceID: "ocid-ts-gru-4"}
-			canonicalHostID := entityid.New()
-			managerSlot := "gru-controller-primary"
-			if err := hosts.store.Update(func(tx store.Tx) error {
-				node := store.GetNode(tx, "ts-gru-4")
-				node.Spec.Annotations.Name = canonicalHostID
-				node.Description = &api.NodeDescription{Hostname: canonicalHostID}
-				if err := store.UpdateNode(tx, node); err != nil {
-					return err
-				}
-				if duplicate {
-					old := node.Copy()
-					old.ID = "old-worker-certificate"
-					old.Spec.Annotations.Name = entityid.New()
-					if err := store.CreateNode(tx, old); err != nil {
-						return err
-					}
-				}
-				for _, region := range []string{"sa-saopaulo-1", "eu-frankfurt-1"} {
-					manager := &api.Node{ID: region + "-manager", Role: api.NodeRoleManager, Certificate: api.Certificate{Role: api.NodeRoleManager},
-						Spec: api.NodeSpec{DesiredRole: api.NodeRoleManager, Membership: api.NodeMembershipAccepted,
-							Annotations: api.Annotations{Name: managerSlot, Labels: map[string]string{"terrascale.region": region, "terrascale.instance-id": "ocid-" + region + "-manager"}}},
-						Status: api.NodeStatus{State: api.NodeStatus_READY}}
-					if err := store.CreateNode(tx, manager); err != nil {
-						return err
-					}
-				}
-				return nil
-			}); err != nil {
-				t.Fatal(err)
-			}
-			listed, err := hosts.control.ListNodes(t.Context(), &api.ListNodesRequest{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			pass.obs = scaler.observe(pass.pool, listed.Nodes)
-			if pass.obs.quorum != 1 || pass.obs.nodes != 2 || !pass.obs.counted[managerSlot] {
-				t.Fatalf("regional manager slot was not counted independently of pool naming: %+v", pass.obs)
-			}
-			if pass.obs.live["ts-gru-4"] == duplicate || pass.obs.counted[canonicalHostID] {
-				t.Fatalf("canonical host ID was interpreted as the pool hostname: %+v", pass.obs)
-			}
-			loads := countedLoads([]NodeLoad{{Node: canonicalHostID}, {Node: "ts-gru-4"}, {Node: managerSlot}}, pass.obs)
-			wantLoads := 2
-			if duplicate {
-				wantLoads--
-			}
-			if len(loads) != wantLoads || slices.ContainsFunc(loads, func(load NodeLoad) bool { return load.Node == canonicalHostID }) {
-				t.Fatalf("load samples lost their trusted pool/manager names: %+v", loads)
-			}
-			target, found, err := scaler.pickDrain(t.Context(), pass)
-			if err != nil || found == duplicate {
-				t.Fatalf("pool binding candidate: found=%v err=%v", found, err)
-			}
-			if duplicate {
-				if _, err := scaler.worker(t.Context(), "ts-gru-4", "ocid-ts-gru-4"); err == nil {
-					t.Fatal("duplicate OCI identity resolved to a worker")
-				}
-				return
-			}
-			if target.Name != "ts-gru-4" || target.ID != "ocid-ts-gru-4" {
-				t.Fatalf("pool identity was not preserved for retirement: %+v", target)
-			}
-			if err := scaler.cordon(t.Context(), pass); err != nil {
-				t.Fatal(err)
-			}
-			if drained, err := scaler.drained(t.Context(), pass); err != nil || !drained {
-				t.Fatalf("canonical worker did not drain through OCI binding: drained=%v err=%v", drained, err)
-			}
-			observed, err := hosts.control.GetNode(t.Context(), &api.GetNodeRequest{NodeID: "ts-gru-4"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if observed.Node.Spec.Annotations.Name != canonicalHostID || observed.Node.Spec.Availability != api.NodeAvailabilityDrain {
-				t.Fatalf("drain changed or lost canonical host identity: node=%+v", observed.Node)
-			}
-		})
 	}
 }

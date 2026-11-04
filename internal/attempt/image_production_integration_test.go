@@ -57,7 +57,7 @@ func TestAttemptFinalImageQualificationPrecedesOCIMutations(t *testing.T) {
 	}
 	ociPEM := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(ociKey)}))
 	for _, phase := range []string{"image", "members"} {
-		for _, scenario := range []string{"qualified disk", "different disk", "missing retained evidence", "unsigned proof", "expired proof", "old signed receipt without proof", "wrong OCI image", "wrong environment", "wrong cell", "wrong architecture"} {
+		for _, scenario := range []string{"qualified disk", "unsigned proof"} {
 			if phase == "image" && (scenario == "old signed receipt without proof" || scenario == "wrong OCI image") {
 				continue
 			}

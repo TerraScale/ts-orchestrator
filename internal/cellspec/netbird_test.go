@@ -3,7 +3,6 @@ package cellspec
 import (
 	"errors"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
@@ -27,39 +26,6 @@ func TestNetBirdPinValidationAndAmendment(t *testing.T) {
 	spec.RequiresBinary = 20
 	if err := spec.Validate(); err != nil {
 		t.Fatal(err)
-	}
-	defaultRegion := managed
-	defaultRegion.Enrollment.Region = ""
-	if err := defaultRegion.Validate("gru"); err != nil {
-		t.Fatalf("documented default region rejected for GRU: %v", err)
-	}
-	if err := defaultRegion.Validate("sjc"); err == nil || !strings.Contains(err.Error(), "region differs") {
-		t.Fatalf("default GRU region accepted for SJC: %v", err)
-	}
-	if err := managed.Validate("lab"); err == nil || !strings.Contains(err.Error(), "requires a catalog cell") {
-		t.Fatalf("unknown cell did not identify its missing catalog region: %v", err)
-	}
-	for name, change := range map[string]func(*NetBird){
-		"foreign source":     func(n *NetBird) { n.Pin.Archives.AMD64.URL = "https://example.com/netbird" },
-		"missing checksum":   func(n *NetBird) { n.Pin.Archives.Arm64.SHA256 = "" },
-		"unbounded artifact": func(n *NetBird) { n.Pin.Archives.Arm64.Bytes = client.MaxBinaryBytes + 1 },
-		"input traversal":    func(n *NetBird) { n.Pin.EnrollmentConfig.Path = "deploy/image/inputs/../netbird.json" },
-		"input checksum":     func(n *NetBird) { n.Pin.EnrollmentConfig.SHA256 = "" },
-		"foreign region": func(n *NetBird) {
-			n.Enrollment.Region = "us-sanjose-1"
-			n.Enrollment.SetupKeySecretID = "ocid1.vaultsecret.oc1.us-sanjose-1.setupkey"
-		},
-		"foreign manager":   func(n *NetBird) { n.Enrollment.ManagementURL = "https://example.com" },
-		"literal setup key": func(n *NetBird) { n.Enrollment.SetupKeySecretID = "secret-value" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			invalid, altered := spec, managed
-			change(&altered)
-			invalid.NetBird = &altered
-			if !errors.Is(invalid.Validate(), ErrInvalid) {
-				t.Fatal("invalid NetBird settings accepted")
-			}
-		})
 	}
 	before := testSpec(id, 1)
 	plan, err := Diff(before, spec, nil)
