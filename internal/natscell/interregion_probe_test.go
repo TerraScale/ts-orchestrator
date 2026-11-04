@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 )
 
