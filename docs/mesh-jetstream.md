@@ -43,13 +43,19 @@ domains (D16: an in-region ack lands on 2 nodes that do not share hardware):
 
 | Region | Founder (JetStream peer) | Worker |
 |---|---|---|
-| gru | `gru-1-ctl-1` (NetBird `ts-gru-1`, hostname `ts-gru-2`), FAULT-DOMAIN-3 | `ts-gru-3` |
+| gru | `ts-gru-1`, FAULT-DOMAIN-3 | `ts-gru-2` |
 | sjc | `ts-sjc-1`, FAULT-DOMAIN-1 | `ts-sjc-2` |
 | fra | `ts-fra-1`, FAULT-DOMAIN-3 | `ts-fra-2` |
 
-gru's worker is `ts-gru-3` because the founder's hostname is already
-`ts-gru-2` (below); a second `ts-gru-2` would collide in NetBird, the swarm
-and the mesh.
+Every node is `ts-<region>-<n>` (TS-609, no role names). The gru founder was
+`gru-1-ctl-1` with hostname `ts-gru-2`. It was renamed in place to `ts-gru-1`
+on 2026-11-04 17:46Z, inside the storage format 21 reset: hostname, OCI display
+name, VNIC hostname label, join material founder and the peers file. The cell
+was not re-founded: the SwarmKit cluster, the mesh server name `gru` and the
+JetStream store stayed. TerraBase's `TS_NODE`, and with it its backup prefix
+`nodes/<node>`, follows the hostname. Rename the founder before its region's
+second host exists: a new host whose hostname equals the join material's
+`founder` would found a second cluster.
 
 - `ts-orch region add <code> --host ts-<code>-<n>` launches the worker
   (`internal/regionhost`): the founder's shape family (A1.Flex 2 OCPU/12 GB),
@@ -180,7 +186,7 @@ not the global account) all differ. There is no bridge. Reasons:
   in the region can join as a worker. W0-9 read a commit that came before it.
   This change keeps the port and binds it on all interfaces: the NSG admits it
   only inside the VCN, and wt0 (NetBird) is accepted by the host firewall.
-- **`ts-gru-1` reports hostname `ts-gru-2`.** It is the OCI instance
+- **`ts-gru-1` reported hostname `ts-gru-2`** (renamed 2026-11-04, above). It is the OCI instance
   `gru-1-ctl-1` (10.251.0.11), created 2026-10-21 and tagged
   `terrascale-host-node=ts-gru-1`. Its NetBird peer name is `ts-gru-1`.
   `/etc/hostname` was rewritten to `ts-gru-2` on 2026-10-25 22:05Z. The journal
