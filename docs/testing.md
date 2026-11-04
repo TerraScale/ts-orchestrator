@@ -58,24 +58,21 @@ nice -n 19 go test ./internal/githubapi
 
 ## TerraBase upgrade traffic regression (TS-719, first slice)
 
-`TestTerraBaseReleaseFenceUnderLoad` runs in the fast CI tier. It exercises
-the active service-release engine, signed artifact admission, JetStream
-delivery receipts, canary gate and automatic rollback while four HTTP clients
-send requests through modeled backend routing. Every grace, poll, retry and
-settle wait includes at least eight fresh requests. A successful canary
-precedes the other nodes; a failed canary leaves them on the predecessor
-until rollback; a member readiness failure returns the failed node first.
-Every case requires zero failed requests, the expected restart order,
-delivery of each artifact to every node, the final artifact on all three
-running members and all three backends restored with no remaining fence.
-An all-backends-down negative control must register a failed request.
+The under-load fence regression `TestTerraBaseReleaseFenceUnderLoad` and its
+file `internal/app/release_fence_load_test.go` were removed by the app test
+cut (fcc2abcdf). The surviving fence coverage is
+`TestReleaseFenceRestartsOneFencedNodeAtATime` and
+`TestReleaseFenceStopsOnALostLease` in `internal/app/release_fence_test.go`:
+one fenced node restarts at a time, and a deposed leader performs no further
+load-balancer or restart steps (`authority.ErrFenced`). They run in the fast
+CI tier without request traffic.
 
 ```sh
-nice -n 19 env GOMAXPROCS=2 GOFLAGS=-p=1 mise exec -- go test -race \
-  ./internal/app -run '^TestTerraBaseReleaseFenceUnderLoad$' -count=1 -v
+nice -n 19 env GOMAXPROCS=2 GOFLAGS=-p=1 mise exec -- go test \
+  ./internal/app -run '^TestReleaseFence' -count=1 -v
 ```
 
-This is simulated request-availability evidence. It does not qualify real
+This is simulated fencing evidence. It does not qualify real
 TerraBase replication or storage, OCI load-balancer draining, keep-alive
 behavior, or a staging deployment. TS-719 remains open for a dedicated
 staging CI job with pinned baseline/candidate releases, SDK data traffic
