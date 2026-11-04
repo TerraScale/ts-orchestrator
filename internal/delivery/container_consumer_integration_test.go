@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"encoding/json/v2"
 	"errors"
-	"github.com/nats-io/nats.go"
 	"strings"
 	"testing"
 	"time"

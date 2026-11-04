@@ -11,7 +11,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/nats-io/nats.go"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 )
 
 const testSHA = "0123456789abcdef0123456789abcdef01234567"

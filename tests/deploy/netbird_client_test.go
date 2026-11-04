@@ -4,18 +4,17 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-
 	"encoding/binary"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
-	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-
 	"testing"
+
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 )
 
 type netbirdArchive struct {

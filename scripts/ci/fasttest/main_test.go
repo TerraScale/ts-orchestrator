@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-
 	"strings"
 	"syscall"
 	"testing"

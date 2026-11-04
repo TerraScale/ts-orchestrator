@@ -4,18 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nats-io/nats.go"
 	"slices"
-
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 type fakeUnit struct {

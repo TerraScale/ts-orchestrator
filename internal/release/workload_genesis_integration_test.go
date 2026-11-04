@@ -3,12 +3,9 @@ package release
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-
 	"encoding/base64"
 	"encoding/json/v2"
-
 	"strings"
-
 	"testing"
 	"time"
 

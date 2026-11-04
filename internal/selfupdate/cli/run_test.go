@@ -5,14 +5,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-
 	"encoding/base64"
-
 	"fmt"
-
 	"os"
 	"path/filepath"
-
 	"strings"
 	"testing"
 	"time"

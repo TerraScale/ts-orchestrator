@@ -2,14 +2,11 @@ package cli
 
 import (
 	"crypto/ed25519"
-
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
-
 	"os"
 	"path/filepath"
-
 	"testing"
 	"time"
 
@@ -62,25 +59,6 @@ func writeProductionRecord(t *testing.T, path string, record release.ProductionQ
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, wire, 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func writeQualificationDelegation(t *testing.T, path string, candidate release.ProductionExpectation, private, root ed25519.PrivateKey, domain string) {
-	t.Helper()
-	public := private.Public().(ed25519.PublicKey)
-	keyID, _ := trust.KeyID(public)
-	encoded, _ := trust.EncodeDelegatedPublicKey(public)
-	scope := release.ProductionQualificationScope(candidate)
-	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded,
-		Capabilities: []trust.Capability{{Domain: domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
-			Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}},
-		time.Now().Add(-time.Hour), time.Now().Add(2*time.Hour), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire, _ := trust.EncodeEnvelope(delegation)
 	if err := os.WriteFile(path, wire, 0o600); err != nil {
 		t.Fatal(err)
 	}

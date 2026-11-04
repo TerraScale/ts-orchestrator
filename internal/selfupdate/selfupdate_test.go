@@ -10,13 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )

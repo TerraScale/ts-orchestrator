@@ -6,13 +6,10 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-	"github.com/nats-io/nats.go"
-
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,9 +17,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
-
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-
 	"github.com/nats-io/nats.go/jetstream"
 )
 

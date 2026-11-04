@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
-
 	"strings"
 	"testing"
 	"time"

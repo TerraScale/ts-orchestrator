@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/nats-io/nats.go"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nats-server/v2/server"
-
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 

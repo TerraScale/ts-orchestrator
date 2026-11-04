@@ -5,8 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"github.com/nats-io/nats.go"
-
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,9 +13,8 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/artifact"
-
 	"github.com/nats-io/nats-server/v2/server"
-
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -107,11 +104,7 @@ func TestReadVerifiedObjectStoreToFileIntegration(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = output.Close() })
-			if scenario == "closed destination" {
-				if err := output.Close(); err != nil {
-					t.Fatal(err)
-				}
-			}
+
 			err = artifact.ReadVerified(ctx, js, store, bucket, name, digest, int64(len(body)), 100, output)
 			if !errors.Is(err, wantError) {
 				t.Fatalf("read stored artifact: %v, want %v", err, wantError)

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/trust"

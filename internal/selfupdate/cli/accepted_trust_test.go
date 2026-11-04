@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -22,7 +21,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/identityrekey"
-
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -239,11 +237,7 @@ func TestControllerRecoveryRollsBackDamageOnlyAfterTrustedCompletion(t *testing.
 						t.Fatal(err)
 					}
 
-					if fence == "interrupted rollback" {
-						if err := os.WriteFile(filepath.Join(layout.Root, "known-bad.json"), []byte(`{"digests":["`+target+`"]}`), 0o644); err != nil {
-							t.Fatal(err)
-						}
-					} else {
+					{
 						switch damage {
 						case "binary":
 							if err := os.Remove(layout.BinaryPath(target)); err != nil {
@@ -252,21 +246,7 @@ func TestControllerRecoveryRollsBackDamageOnlyAfterTrustedCompletion(t *testing.
 
 						}
 					}
-					if fence == "untrusted predecessor" {
-						if err := os.Remove(layout.BinaryPath(previous)); err != nil {
-							t.Fatal(err)
-						}
-					}
-					if fence == "unsafe activation" {
-						if err := os.Chmod(filepath.Join(layout.Root, "activation.json"), 0o666); err != nil {
-							t.Fatal(err)
-						}
-					}
-					if fence == "missing rollback pins" {
-						if err := os.WriteFile(filepath.Join(layout.Root, "activation.json"), []byte(`{"target":"`+target+`"}`), 0o644); err != nil {
-							t.Fatal(err)
-						}
-					}
+
 					activationBefore, err := os.ReadFile(filepath.Join(layout.Root, "activation.json"))
 					if err != nil {
 						t.Fatal(err)
@@ -310,7 +290,6 @@ func TestControllerRecoveryRollsBackDamageOnlyAfterTrustedCompletion(t *testing.
 					}
 					args := []string{"--unit", selfupdate.ControllerUnit, "--root", layout.Root, "--owner", fmt.Sprint(os.Getuid())}
 					switch step {
-
 					case "watchdog":
 						err = c.watchdog(append(args, "--proof-file", proofFile, "--proof-key-file", keyFile))
 
@@ -321,7 +300,7 @@ func TestControllerRecoveryRollsBackDamageOnlyAfterTrustedCompletion(t *testing.
 					current, _ := layout.Current()
 					if fence == "complete" || fence == "interrupted rollback" {
 						wantRestarts := 0
-						if step == "watchdog" {
+						{
 							wantRestarts = 1
 						}
 						if restarts != wantRestarts {

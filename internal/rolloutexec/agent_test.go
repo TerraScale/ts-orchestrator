@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 )

@@ -2,17 +2,14 @@ package seatrollout
 
 import (
 	"context"
-	"github.com/nats-io/nats.go"
-
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats-server/v2/server"
-
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 type epochFence struct{ epoch atomic.Uint64 }

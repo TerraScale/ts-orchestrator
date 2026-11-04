@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nats-io/nats.go"
 	"net"
 	"path/filepath"
 	"slices"
@@ -12,12 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
-
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 

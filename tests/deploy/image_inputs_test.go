@@ -2,7 +2,6 @@ package deploy_test
 
 import (
 	"bytes"
-
 	"path/filepath"
 	"strings"
 	"testing"

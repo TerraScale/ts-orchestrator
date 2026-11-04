@@ -7,9 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
-
 	"path/filepath"
-
 	"testing"
 	"time"
 )

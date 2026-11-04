@@ -4,20 +4,18 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"github.com/nats-io/nats.go"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats-server/v2/server"
-
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 var (

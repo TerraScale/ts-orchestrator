@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/nats-io/nats.go"
 	"slices"
 	"testing"
 	"time"

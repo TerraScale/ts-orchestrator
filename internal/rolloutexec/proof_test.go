@@ -3,7 +3,6 @@ package rolloutexec
 import (
 	"context"
 	"errors"
-
 	"os"
 	"path/filepath"
 	"testing"

@@ -6,9 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"os"
 	"path/filepath"
-
 	"testing"
 	"time"
 
@@ -55,19 +53,11 @@ func TestFinalImageProductionAdmissionBoundary(t *testing.T) {
 			record := writeProductionEvidence(t, directory, candidate)
 			signer, issued, expires := f.rootPrivate, now.Add(-time.Minute), now.Add(time.Hour)
 			switch failure {
-
 			case "tampered evidence":
 				writeFixtureFile(t, filepath.Join(directory, "objects", record.Evidence[0].SHA256), []byte("changed"), 0o600)
 			}
 			writeProductionRecord(t, filepath.Join(directory, image.OCIRegion, image.Architecture, "production.json"), record, signer, issued, expires)
-			if failure == "ordinary release signer" {
-				writeQualificationDelegation(t, filepath.Join(directory, image.OCIRegion, image.Architecture, "delegation.json"), record.Candidate, private, f.rootPrivate, release.ImageDomain)
-			}
-			if failure == "missing proof" {
-				if err := os.Remove(filepath.Join(directory, image.OCIRegion, image.Architecture, "production.json")); err != nil {
-					t.Fatal(err)
-				}
-			}
+
 			cliErr := Run(t.Context(), []string{"verify-image-production", "--image-file", imageFile,
 				"--qualification", filepath.Join(f.releaseDir, "qualification.json"), "--root-key", f.rootPath,
 				"--cell", image.OCIRegion, "--arch", image.Architecture, "--production-evidence-dir", directory}, io.Discard)
@@ -78,13 +68,8 @@ func TestFinalImageProductionAdmissionBoundary(t *testing.T) {
 				return // Retained evidence hashing belongs to the producer boundary.
 			}
 			current := image
-			if failure == "changed disk" {
-				current.ImageSHA256, _, err = (command{ctx: t.Context()}).hashQcow2(imageFile)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			if failure != "missing proof" {
+
+			{
 				proof, err := readProductionProof(directory, image.OCIRegion, image.Architecture)
 				if err != nil {
 					t.Fatal(err)

@@ -6,8 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"github.com/nats-io/nats.go"
-
 	"io"
 	"os"
 	"path/filepath"
@@ -18,13 +16,11 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // boardFixture is one controller node: the leader's driver, the unit's

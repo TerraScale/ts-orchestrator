@@ -3,14 +3,12 @@ package artifact_test
 import (
 	"encoding/base64"
 	"errors"
-	"github.com/nats-io/nats.go"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/artifact"
-
 	"github.com/nats-io/nats-server/v2/server"
-
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 

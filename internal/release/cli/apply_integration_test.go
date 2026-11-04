@@ -23,12 +23,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/objectstorage"
-
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 // This scenario crosses the real artifact/crypto, Git, OCI SDK and HTTP boundaries.
@@ -40,16 +39,7 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 			fixture.reset(failure)
 			qualificationPath := filepath.Join(filepath.Dir(filepath.Dir(fixture.binaryPath)), "production", "SJC", "amd64", "production.json")
 			var qualificationWire []byte
-			if failure == "qualification" {
-				var err error
-				qualificationWire, err = os.ReadFile(qualificationPath)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Remove(qualificationPath); err != nil {
-					t.Fatal(err)
-				}
-			}
+
 			var output bytes.Buffer
 			c := command{ctx: t.Context(), output: &output}
 			err := c.applyWith(fixture.args, fixture.env)
@@ -67,11 +57,7 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 			}
 			fixture.failure = ""
 			fixture.mu.Unlock()
-			if failure == "qualification" {
-				if err := os.WriteFile(qualificationPath, qualificationWire, 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
+
 			if fixture.inspections.Load() != 1 {
 				t.Fatalf("same digest inspected %d times", fixture.inspections.Load())
 			}

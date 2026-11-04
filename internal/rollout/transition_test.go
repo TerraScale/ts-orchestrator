@@ -2,7 +2,6 @@ package rollout
 
 import (
 	"strings"
-
 	"time"
 )
 

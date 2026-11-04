@@ -2,7 +2,6 @@ package deploy_test
 
 import (
 	"bytes"
-
 	"encoding/binary"
 	"encoding/json/v2"
 	"fmt"

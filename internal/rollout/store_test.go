@@ -2,11 +2,8 @@ package rollout
 
 import (
 	"context"
-	"github.com/nats-io/nats.go"
-
 	"errors"
 	"fmt"
-
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,7 +12,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats-server/v2/server"
-
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 

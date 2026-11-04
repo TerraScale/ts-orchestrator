@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-
 	"sync/atomic"
 	"testing"
 )
@@ -41,7 +40,6 @@ func TestOIDCNeverRequestsWritingRoutesOrSendsCredentials(t *testing.T) {
 				}
 				issuer, uri := origin, origin+"/.well-known/jwks.json"
 				switch attack {
-
 				case "writing readiness":
 					uri = origin + "/readyz"
 

@@ -2,15 +2,12 @@ package liveverify
 
 import (
 	"bytes"
-
 	"encoding/json"
-
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
-
 	"testing"
 	"time"
 )

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
-
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,12 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	releasecli "github.com/TerraScale/ts-orchestrator/internal/release/cli"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
-
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
 	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 const promoteSource = "5ff44290b67a91c3b27373c6661d778fe6ef8ffc"

@@ -2,7 +2,6 @@ package releasechannel
 
 import (
 	"bytes"
-
 	"testing"
 	"time"
 

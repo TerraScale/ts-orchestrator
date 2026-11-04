@@ -2,7 +2,6 @@ package selfupdate
 
 import (
 	"fmt"
-
 	"slices"
 	"testing"
 	"time"

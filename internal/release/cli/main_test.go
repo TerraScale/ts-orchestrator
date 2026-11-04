@@ -5,18 +5,14 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
-
 	"encoding/hex"
 	"encoding/pem"
-
 	"os"
 	"path/filepath"
-
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )

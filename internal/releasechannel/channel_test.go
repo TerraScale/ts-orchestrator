@@ -19,10 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/objectstorage"
-
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 const (

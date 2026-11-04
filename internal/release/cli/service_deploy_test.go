@@ -14,17 +14,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/objectstorage"
-
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 // serviceBucket is a region's head bucket whose leader admits the role's
