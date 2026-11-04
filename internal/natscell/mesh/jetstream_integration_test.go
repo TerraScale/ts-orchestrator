@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -174,12 +175,26 @@ func startJetStreamRegions(t *testing.T) ([]string, map[string]*jetStreamRegion)
 	return regions, started
 }
 
-func fabricBucket(t *testing.T, ctx context.Context, node *Node) jetstream.KeyValue {
+// terrabaseJetStream is JetStream as TerraBase sees it: its token on the
+// node's loopback listener, with TerraBase's scoped permissions.
+func terrabaseJetStream(t *testing.T, node *Node) jetstream.JetStream {
 	t.Helper()
-	js, err := jetstream.New(node.fabric)
+	conn, err := nats.Connect(fmt.Sprintf("nats://127.0.0.1:%d", node.cfg.localPort), nats.Token(testTerraBaseToken))
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(conn.Close)
+	js, err := jetstream.New(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return js
+}
+
+func fabricBucket(t *testing.T, ctx context.Context, node *Node) jetstream.KeyValue {
+	t.Helper()
+	js := terrabaseJetStream(t, node)
+	var err error
 	var kv jetstream.KeyValue
 	waitFor(t, 60*time.Second, "the leases bucket to answer in "+node.cfg.region, func() error {
 		kv, err = js.KeyValue(ctx, "tb-quorum-proof")
@@ -209,11 +224,7 @@ func TestMeshJetStreamQuorumSpansRegions(t *testing.T) {
 	}
 	ctx := t.Context()
 	regions, started := startJetStreamRegions(t)
-	home := started[regions[0]].node
-	js, err := jetstream.New(home.fabric)
-	if err != nil {
-		t.Fatal(err)
-	}
+	js := terrabaseJetStream(t, started[regions[0]].node)
 	formed := waitFor(t, 90*time.Second, "an R3 bucket across the regions", func() error {
 		_, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
 			Bucket: "tb-quorum-proof", Replicas: 3, History: 4, LimitMarkerTTL: time.Second, MaxBytes: 8 << 20,
@@ -237,6 +248,22 @@ func TestMeshJetStreamQuorumSpansRegions(t *testing.T) {
 	}
 	if info.Cluster.Name != ClusterName || len(placed) != 3 {
 		t.Fatalf("bucket placed on cluster %q in regions %v, want one replica in each of %v", info.Cluster.Name, placed, regions)
+	}
+
+	// An R3 stream on TerraBase's subjects, deduplicated by message ID (D25 push).
+	push, err := js.CreateStream(ctx, jetstream.StreamConfig{Name: "TB_PUSH_PROOF", Subjects: []string{"terrabase.push.>"},
+		Replicas: 3, Duplicates: time.Minute, MaxBytes: 8 << 20})
+	if err != nil {
+		t.Fatalf("R3 stream as TerraBase: %v", err)
+	}
+	for range 2 {
+		if _, err := terrabaseJetStream(t, started[regions[2]].node).Publish(ctx, "terrabase.push.gru.db1", []byte("tx1"),
+			jetstream.WithMsgID("db1-tx1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if state, err := push.Info(ctx); err != nil || state.State.Msgs != 1 || len(state.Cluster.Replicas) != 2 {
+		t.Fatalf("push stream after a duplicate publish: %+v %v", state, err)
 	}
 
 	buckets := map[string]jetstream.KeyValue{}

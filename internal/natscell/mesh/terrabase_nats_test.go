@@ -13,7 +13,8 @@ import (
 const testTerraBaseToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 // TerraBase reaches the mesh's loopback listener with its token alone and may
-// use only its own subjects (PIVOT D25); ts-orch's users still authenticate.
+// use only its own subjects and JetStream API (PIVOT D25); ts-orch's subjects
+// stay refused and ts-orch's users still authenticate.
 func TestTerraBaseTokenIsScopedToItsSubjects(t *testing.T) {
 	ca, err := DeriveCA(make([]byte, 32))
 	if err != nil {
@@ -64,7 +65,7 @@ func TestTerraBaseTokenIsScopedToItsSubjects(t *testing.T) {
 		t.Fatalf("revision notice: %v %v", message, err)
 	}
 
-	for _, subject := range []string{ApplySubject, PingSubject, "$JS.API.STREAM.LIST", "ts.anything"} {
+	for _, subject := range []string{ApplySubject, PingSubject, "ts.anything", "$SYS.REQ.SERVER.PING"} {
 		if err := terrabase.Publish(subject, nil); err != nil {
 			t.Fatal(err)
 		}

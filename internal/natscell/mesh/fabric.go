@@ -24,8 +24,7 @@ const (
 	orchUser      = "orch"
 	fabricUser    = "ts-orch"
 	terrabaseUser = "terrabase"
-	// TerraBaseSubjects is all a TerraBase client may publish or subscribe to
-	// (PIVOT D25), plus its own reply inboxes.
+	// TerraBaseSubjects is the TerraBase fabric's own subject space (PIVOT D25).
 	TerraBaseSubjects = "terrabase.>"
 	regionTag         = "region:"
 
@@ -47,8 +46,8 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret s
 			fabricUser: {secret: fabricSecret, account: FabricAccount},
 		},
 		terrabase: credential{secret: cfg.terrabaseToken, account: FabricAccount, permissions: &server.Permissions{
-			Publish:   &server.SubjectPermission{Allow: []string{TerraBaseSubjects}},
-			Subscribe: &server.SubjectPermission{Allow: []string{TerraBaseSubjects, "_INBOX.>"}},
+			Publish:   &server.SubjectPermission{Allow: terrabasePublish},
+			Subscribe: &server.SubjectPermission{Allow: terrabaseSubscribe},
 		}},
 	}
 	options.ServerName = serverName(cfg)
@@ -78,6 +77,15 @@ func serverOptions(cfg config, tlsConfig *tls.Config, orchSecret, fabricSecret s
 	}
 	return options, nil
 }
+
+// TerraBase publishes its own subjects and uses JetStream inside its own
+// account (D17, D25): the stream and KV API, KV writes, acks and flow-control
+// replies. It subscribes to its own subjects and its reply inboxes, where
+// consumers and KV watches deliver. ts-orch's ORCH account stays out of reach.
+var (
+	terrabasePublish   = []string{TerraBaseSubjects, "$JS.API.>", "$KV.>", "$JS.ACK.>", "$JS.FC.>"}
+	terrabaseSubscribe = []string{TerraBaseSubjects, "_INBOX.>"}
+)
 
 var accountsConfig = fmt.Sprintf(`accounts {
   %s {}
@@ -125,7 +133,7 @@ func (a *clientAuth) Check(c server.ClientAuthentication) bool {
 	c.RegisterUser(&server.User{Username: name, Account: account, Permissions: want.permissions})
 	if name == terrabaseUser {
 		// The per-node proof that TerraBase follows revisions over NATS, not the sweep.
-		slog.Info("mesh NATS admitted TerraBase", "client", opts.Name, "account", want.account, "subjects", TerraBaseSubjects)
+		slog.Info("mesh NATS admitted TerraBase", "client", opts.Name, "account", want.account, "subjects", TerraBaseSubjects, "jetstream", true)
 	}
 	return true
 }
