@@ -309,14 +309,17 @@ install, DNS and pin steps. In order, it creates or adopts:
 2. the network (`ts-orch oci-region network <cell> --apply`);
 3. the host: without `--host`, the oldest live instance in the compartment
    (so `region add gru` adopts `gru-1-ctl-1`), else a new `ts-<code>-1`
-   (A1.Flex 2 OCPU/12 GB, 50 GB, Ubuntu 24.04, AD fallback). `--host NAME`
+   (A1.Flex 2 OCPU/12 GB, 50 GB, Ubuntu 24.04, AD fallback). A host beside
+   live ones goes to the oldest one's AD in a fault domain none of them uses
+   (no AD fallback; refused when all are taken). `--host NAME`
    adopts or launches exactly NAME; `--shape SHAPE` launches the smallest
    SHAPE host (1 OCPU, 6 GB Ampere / 8 GB x86) with the matching arm64/amd64
    image and binary. Cloud-init installs host-runtime.sh, NetBird, the
-   newest CI release binary (sha256 checked) and only `ts-orch.service`,
-   without ssh. Never `deploy/m1/services/*.service`: netbird-server.service
-   is gru's one NetBird server; a region's other services ship as mesh
-   services. Later cloud-init changes never relaunch a host;
+   newest CI release binary (sha256 checked), `ts-orch.service` and the
+   NetBird companion `netbird-server.service`, without ssh. The companion
+   enrolls the host in NetBird and runs the NetBird server only where the mesh
+   declares `netbird-server` (gru's founder). A region's other services ship
+   as mesh services. Later cloud-init changes never relaunch a host;
 4. IAM: dynamic group `ts-orch-hosts` matches every cell compartment with a
    host; policy `ts-orch-hosts-vault` (gru-1-control) holds the gru-vault
    statements plus one `manage secret-family` per region for its join secret
@@ -344,6 +347,10 @@ regions.json PR. The compartment and network stay (free).
 The founder listens on 0.0.0.0:4242 and advertises `<private VCN IP>:4242`. A founder created before this change advertised 127.0.0.1:4242. At every start it re-registers its Raft member at the new address (same cluster, Raft log and services; `TestSingleHostFounderMovesAddressIntegration`). It publishes the join material, and updates it only when it differs. If Vault refuses (the hosts' IAM policy lacks `manage secret-family` for `ts-orch-join-*`), the founder logs `region join material not published; retrying` and retries every 30 s while it keeps serving.
 
 Each host's mesh server joins its region's NATS cluster (name = region, `<private IP>:6222`, the same mesh mTLS). A worker dials the founder's `route` from the secret. A worker answers no ping, state or apply, so each region answers once, from its founder. Its `ts-orch mesh ping` and `service apply` reach every region over the cluster route. A worker advertises the region's gateway name (`<region>.mesh.terrascale.tech:7222`), so other regions always dial the founder.
+
+A worker gets ts-orch releases from its founder, which relays every release
+CI pushes it on `ts.mesh.release.<region>`; the worker verifies the signed
+request itself ([mesh JetStream](mesh-jetstream.md#two-nodes-per-region)).
 
 Ports: 4242/tcp (SwarmKit) and 6222/tcp (NATS cluster) are reachable inside the VCN only. The host NSG admits all VCN traffic, the edge NSG opens neither port, and ts-orch adds the iptables ACCEPTs. A worker has no control socket or edge. `ts-orch service ls` and `member` work on the manager only.
 

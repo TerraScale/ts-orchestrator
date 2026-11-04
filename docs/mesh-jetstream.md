@@ -1,7 +1,8 @@
-# Mesh NATS: one cross-region cluster with JetStream
+# Mesh NATS: one cross-region cluster with JetStream (PIVOT N1)
 
-Decision: PIVOT.md D17 and D25, user 2026-10-29 ("prefer re using the nats
-cluster that we already have and use it to the max").
+Decision: PIVOT.md D16, D17 and D25, user 2026-10-29 ("prefer re using the nats
+cluster that we already have and use it to the max"); two nodes per region
+approved 2026-11-04 (Q-WCAP).
 
 ## The rule this replaces
 
@@ -35,10 +36,53 @@ with this one, this file wins.
   these names.
 - The loopback client listener stays on `127.0.0.1:4223`.
 
+## Two nodes per region
+
+Each region runs two hosts in one availability domain and two fault
+domains (D16: an in-region ack lands on 2 nodes that do not share hardware):
+
+| Region | Founder (JetStream peer) | Worker |
+|---|---|---|
+| gru | `gru-1-ctl-1` (NetBird `ts-gru-1`, hostname `ts-gru-2`), FAULT-DOMAIN-3 | `ts-gru-3` |
+| sjc | `ts-sjc-1`, FAULT-DOMAIN-1 | `ts-sjc-2` |
+| fra | `ts-fra-1`, FAULT-DOMAIN-3 | `ts-fra-2` |
+
+gru's worker is `ts-gru-3` because the founder's hostname is already
+`ts-gru-2` (below); a second `ts-gru-2` would collide in NetBird, the swarm
+and the mesh.
+
+- `ts-orch region add <code> --host ts-<code>-<n>` launches the worker
+  (`internal/regionhost`): the founder's shape family (A1.Flex 2 OCPU/12 GB),
+  the founder's availability domain and the first fault domain no live host of
+  the region uses. With every fault domain taken it launches nothing.
+- Cloud-init installs ts-orch and the NetBird companion
+  (`netbird-server.service`). The companion installs the pinned NetBird client
+  and enrolls the host into `gru-servers` with `gru-1-netbird-setup-key`
+  (gru-vault, instance principal). It skips the NetBird server check on a
+  worker, which has no control socket.
+- ts-orch joins the region by itself
+  ([second host](m1-runbook.md#a-second-host-in-a-region-joins-by-itself)): the
+  join material `ts-orch-join-<region>` in gru-vault, the SwarmKit worker
+  token, the mesh route to the founder's VCN address.
+- Releases: CI pushes only the founders (`deploy/m1/regions.json`). A founder
+  that accepts or already runs a ts-orch release relays the same signed
+  request on the mesh subject `ts.mesh.release.<region>`; the worker verifies
+  the GitHub OIDC token itself and installs it. A worker that was down misses
+  that relay and catches up on the next push.
+- TerraBase keeps one data owner per region (the founder) until R10 adds the
+  in-region follower. Its service has a data mount, and SwarmKit runs a
+  service with mounts on one host only. The worker runs the stateless mesh
+  services and is the node R10 places the second TerraBase copy on.
+- Capacity: 6 A1.Flex nodes (gru 4 OCPU/24 GB founder + 2 OCPU/12 GB worker;
+  sjc and fra 2 OCPU/12 GB each).
+
 ## JetStream
 
 - JetStream runs on every founder (the host that answers for its region).
-  Workers carry messages but store nothing.
+  Workers carry messages but store nothing. So the JetStream cluster has 3
+  peers, one per region, and a second node per region adds no vote: an R3
+  asset keeps one replica per region, and a meta group of 3 tolerates losing
+  any one region or founder.
 - It runs only when the node is in the cluster. A server with no routes runs
   no JetStream.
 - A fatal error inside the embedded server, such as a JetStream store it
@@ -115,8 +159,16 @@ not the global account) all differ. There is no bridge. Reasons:
   creates the token in the gru Vault on first start and reads it on every start.
   Each admitted TerraBase client logs `mesh NATS admitted TerraBase` in the
   ts-orch journal. A refused token logs `mesh NATS refused a TerraBase token`.
-- JetStream use by TerraBase (D25 streams and KV) needs `$JS.API.>` added to its
-  publish permissions when that work lands; today it has notices only.
+- TerraBase uses JetStream inside its own account (D25). It may publish
+  `terrabase.>`, `$JS.API.>`, `$KV.>`, `$JS.ACK.>` and `$JS.FC.>`, and subscribe
+  to `terrabase.>` and `_INBOX.>`. It cannot reach `ORCH` or `$SYS`.
+- TerraBase creates its own streams and buckets (R7 push, R8 leases and epochs,
+  F8 provisional, events). The rules:
+  - `Replicas: 3`, so region-unique placement puts one copy in each region;
+  - stream subjects under `terrabase.`;
+  - per-key TTL needs `LimitMarkerTTL` on the bucket (`AllowMsgTTL` on a stream);
+  - CAS: `Create` or `Update` with the last revision;
+  - deduplication: `Nats-Msg-Id` within the stream's `Duplicates` window.
 - The `TERRABASE` account has its own route connection (pinned account).
   Fabric traffic therefore never delays service applies.
 

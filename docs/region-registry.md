@@ -97,7 +97,8 @@ identity, never a per-region grant.
   home; latency-sensitive replication between two spokes pays that path.
 - If the home is unreachable, regions keep serving from local state and
   their global mirror; only global writes and cross-region reads stop.
-- JetStream never spans regions.
+- The mesh JetStream cluster spans the regions, one replica per region
+  ([mesh JetStream](mesh-jetstream.md), PIVOT D17).
 
 ## Releases
 
