@@ -7,14 +7,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-
 	"errors"
 	"fmt"
 	"io"
 	"maps"
-
 	"net"
-
 	"runtime"
 	"slices"
 	"strings"
@@ -24,23 +21,18 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
-
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
-
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 
 	swarmexec "github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/api/genericresource"
-
 	"github.com/nats-io/nats.go/jetstream"
 )
 
