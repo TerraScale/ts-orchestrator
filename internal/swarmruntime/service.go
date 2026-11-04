@@ -984,6 +984,17 @@ func ListServiceSpecs(ctx context.Context, client api.ControlClient) ([]ServiceS
 	if err != nil {
 		return nil, err
 	}
+	// A task's node decides whether a placement-only change makes it dirty:
+	// SwarmKit keeps a task whose node satisfies new constraints, so it is
+	// current (ts-sjc-1 showed TerraBase 0/1 after node.role==manager).
+	nodes := map[string]*api.Node{}
+	if listedNodes, err := client.ListNodes(ctx, &api.ListNodesRequest{}); err == nil {
+		for _, node := range listedNodes.Nodes {
+			nodes[node.ID] = node
+		}
+	} else {
+		return nil, err
+	}
 	rows := []ServiceSpecStatus{}
 	for _, service := range listed.Services {
 		if service.Spec.Annotations.Labels[LabelServiceSpec] == "" || service.Spec.GetReplicated() == nil {
@@ -1000,7 +1011,7 @@ func ListServiceSpecs(ctx context.Context, client api.ControlClient) ([]ServiceS
 		}
 		for _, task := range tasks.Tasks {
 			// A task of an older spec still running mid-update does not count.
-			if task.Status.State == api.TaskStateRunning && !orchestrator.IsTaskDirty(service, task, nil) {
+			if task.Status.State == api.TaskStateRunning && !orchestrator.IsTaskDirty(service, task, nodes[task.NodeID]) {
 				row.Running++
 			}
 		}
