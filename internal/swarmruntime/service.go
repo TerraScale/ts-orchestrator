@@ -641,6 +641,13 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 		Update:      &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(serviceUpdateMonitor), Order: api.UpdateConfig_STOP_FIRST},
 		Endpoint:    &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: ports},
 	}
+	if s.Region != "" {
+		// A mesh service carries the founder's TS_NODE and its peers file, which
+		// only the founder (the region's manager) has; a worker rejects the task
+		// (ts-sjc-2, 2026-11-04). Workers take mesh tasks once R10 gives them
+		// their own node identity.
+		spec.Task.Placement = &api.Placement{Constraints: []string{"node.role==manager"}}
+	}
 	if s.Name == "terrabase" {
 		// The candidate may have written a newer storage format. Fix forward.
 		spec.Update.FailureAction = api.UpdateConfig_PAUSE

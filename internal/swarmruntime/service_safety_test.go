@@ -2,6 +2,7 @@ package swarmruntime
 
 import (
 	"context"
+	"slices"
 
 	"strings"
 	"testing"
@@ -99,5 +100,15 @@ func TestDeploymentAttemptFencesRuntime(t *testing.T) {
 		if next.Accepts(&changed) == nil {
 			t.Fatal("rerun changed commit")
 		}
+	}
+}
+
+// A mesh service runs on the region's founder only: a worker has no peers
+// file or node identity of its own (ts-sjc-2 rejected TerraBase, 2026-11-04).
+func TestMeshServiceStaysOnTheManager(t *testing.T) {
+	spec, _ := safetyFixture(t)
+	swarm := swarmForTest(t, spec)
+	if swarm.Task.Placement == nil || !slices.Contains(swarm.Task.Placement.Constraints, "node.role==manager") {
+		t.Fatalf("mesh service placement = %+v, want node.role==manager", swarm.Task.Placement)
 	}
 }

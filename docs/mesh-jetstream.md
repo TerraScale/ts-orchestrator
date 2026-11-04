@@ -77,10 +77,13 @@ second host exists: a new host whose hostname equals the join material's
   request on the mesh subject `ts.mesh.release.<region>`; the worker verifies
   the GitHub OIDC token itself and installs it. A worker that was down misses
   that relay and catches up on the next push.
-- TerraBase keeps one data owner per region (the founder) until R10 adds the
-  in-region follower. Its service has a data mount, and SwarmKit runs a
-  service with mounts on one host only. The worker runs the stateless mesh
-  services and is the node R10 places the second TerraBase copy on.
+- Every mesh service runs on the founder only (`node.role==manager`): the mesh
+  gives a task the founder's `TS_NODE` and peers file, which a worker does not
+  have. On 2026-11-04 SwarmKit put TerraBase on `ts-sjc-2`, the task was
+  rejected ("peers file is not written yet") and two TerraBase releases paused.
+  The workers were drained, then the constraint shipped. TerraBase keeps one
+  data owner per region until R10 gives the worker its own node identity and
+  places the in-region follower on it.
 - Capacity: 6 VM.Standard.A1.Flex nodes. Founders: gru 4 OCPU/24 GB, sjc and
   fra 2 OCPU/12 GB. Workers: sjc and fra 2 OCPU/12 GB; gru 1 OCPU/6 GB, because
   sa-saopaulo-1 had no A1 capacity for 2 OCPU/12 GB in FAULT-DOMAIN-1 or -2 on
