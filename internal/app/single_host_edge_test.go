@@ -49,3 +49,15 @@ func TestEdgeRoutesMapsHostnamesToPublishedPort(t *testing.T) {
 		t.Fatalf("routes = %v %v, want %v", got, gotPG, want)
 	}
 }
+
+func TestEdgeRoutesDeriveRegionalPostgresHostname(t *testing.T) {
+	spec := api.ServiceSpec{Annotations: api.Annotations{Labels: map[string]string{
+		swarmruntime.LabelHostnames: "api.example.com",
+		swarmruntime.LabelPostgres:  "pg.example.com",
+	}}, Endpoint: &api.EndpointSpec{Ports: []*api.PortConfig{{PublishedPort: 8080}, {PublishedPort: 6432}}}}
+	web, pg := edgeRoutes([]*api.Service{{Spec: spec, Meta: api.Meta{CreatedAt: &types.Timestamp{}}}}, "sjc")
+	if !maps.Equal(web, map[string]int{"api.example.com": 8080, "sjc.api.example.com": 8080}) ||
+		!maps.Equal(pg, map[string]int{"pg.example.com": 6432, "sjc.pg.example.com": 6432}) {
+		t.Fatalf("routes = %v %v", web, pg)
+	}
+}

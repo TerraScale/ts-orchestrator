@@ -140,7 +140,7 @@ func syncEdgeRoutes(ctx context.Context, state string, public *edge.Edge, region
 // and every postgres hostname to its postgres port. The oldest service keeps
 // a hostname another service also claims, so a later spec cannot take over
 // traffic (apply refuses that too). On a host in region, every declared web
-// hostname H also routes <region>.H, so each region's edge serves its own
+// or postgres hostname H also routes <region>.H, so each region's edge serves its own
 // regional names with no per-region spec; a declared hostname wins over a
 // derived one, and H whose first label already names a catalog region
 // derives nothing.
@@ -151,7 +151,15 @@ func edgeRoutes(services []*api.Service, region string) (web, postgres map[strin
 		return cmp.Or(cmp.Compare(at.GetSeconds(), bt.GetSeconds()), cmp.Compare(at.GetNanos(), bt.GetNanos()), strings.Compare(a.ID, b.ID))
 	})
 	web, postgres = map[string]int{}, map[string]int{}
-	derived := map[string]int{}
+	derived, derivedPG := map[string]int{}, map[string]int{}
+	derive := func(table map[string]int, host string, port int) {
+		first, _, _ := strings.Cut(host, ".")
+		if _, regional := catalog.LookupName(strings.ToLower(first)); region != "" && !regional {
+			if _, owned := table[region+"."+host]; !owned {
+				table[region+"."+host] = port
+			}
+		}
+	}
 	for _, svc := range services {
 		labels := svc.Spec.Annotations.Labels
 		var ports []*api.PortConfig
@@ -172,20 +180,23 @@ func edgeRoutes(services []*api.Service, region string) (web, postgres map[strin
 			if _, owned := web[host]; !owned {
 				web[host] = port
 			}
-			first, _, _ := strings.Cut(host, ".")
-			if _, regional := catalog.LookupName(strings.ToLower(first)); region != "" && !regional {
-				if _, owned := derived[region+"."+host]; !owned {
-					derived[region+"."+host] = port
-				}
-			}
+			derive(derived, host, port)
 		}
-		if _, owned := postgres[labels[swarmruntime.LabelPostgres]]; labels[swarmruntime.LabelPostgres] != "" && len(ports) >= 2 && !owned {
-			postgres[labels[swarmruntime.LabelPostgres]] = int(ports[1].PublishedPort)
+		if pgHost := labels[swarmruntime.LabelPostgres]; pgHost != "" && len(ports) >= 2 {
+			if _, owned := postgres[pgHost]; !owned {
+				postgres[pgHost] = int(ports[1].PublishedPort)
+			}
+			derive(derivedPG, pgHost, int(ports[1].PublishedPort))
 		}
 	}
 	for host, port := range derived {
 		if _, declared := web[host]; !declared {
 			web[host] = port
+		}
+	}
+	for host, port := range derivedPG {
+		if _, declared := postgres[host]; !declared {
+			postgres[host] = port
 		}
 	}
 	return web, postgres

@@ -99,7 +99,10 @@ outage remains owned by FR1 and must recover before that proof can pass.
 A spec's `"postgres": {"port": 6432, "hostname": "pg.terrascale.tech"}`
 publishes a second loopback port; the edge serves it on public `:5432` over TLS
 only (`sslmode=require`, or PG17 `sslnegotiation=direct` with ALPN
-`postgresql`), with the same Let's Encrypt certificates as `:443`. A plaintext
+`postgresql`), with the same Let's Encrypt certificates as `:443`. Like web
+hostnames, each region's edge also serves `<region>.pg.terrascale.tech`
+(`gru.pg`, `sjc.pg`, ...) with its own certificate; Cloudflare holds one
+DNS-only A record per serving region pointing at that region's edge. A plaintext
 startup gets `FATAL 28000` and never reaches TerraBase. CancelRequests go in
 plaintext to every postgres port. At most 1024 connections at once.
 
@@ -109,7 +112,7 @@ behind the INPUT REJECT. Check:
 
 ```sh
 ssh ts-gru-1 sudo iptables -S INPUT | grep -E 'dport (5432|6432)'   # 5432 ACCEPT only
-psql "host=pg.terrascale.tech port=5432 sslmode=require user=... dbname=..."
+psql "host=sjc.pg.terrascale.tech port=5432 sslmode=verify-full sslrootcert=system user=... dbname=..."
 ```
 
 ## Operator commands
