@@ -93,10 +93,6 @@
 ./internal/controlaccess TestReadAccessCrossesSignedObjectFoundationAndCurrentVault 2
 ./internal/decisionlog TestJournalRunRetriesThenDrops 2
 ./internal/delivery TestDurableRetryReplayAndOperationConflict 3
-./internal/delivery TestSubmitOperationReadUsesRecoveryBudgetAfterFiveTransientFailures 3
-./internal/delivery TestSubmitRetriesNoStreamResponseThroughLeaderRecoveryWithSameMessageID 3
-./internal/delivery TestSubmitRetriesWhenPublishAttemptDeadlineExpires 3
-./internal/delivery TestVerifyArtifactFailsClosedAfterVisibilityRetryBound 2
 ./internal/edge TestEdgeIssuesCertificateAndProxies 31
 ./internal/edge TestPostgresSeparateCapacityAdmitsCancellationAtFullSessions 13
 ./internal/edge TestRegionByRegionHandoffServesEveryProbe 7
@@ -241,15 +237,10 @@
 ./internal/region TestOriginalStartupTrustSDKCancellationHoldsAtIAMBoundary 189 # observed full-Fast scheduling cost; interrupted values are lower bounds
 ./internal/region TestSchema3FullGrantRefusalsReachRoutingConsumers 2
 ./internal/region TestSchema3GenericReachabilitySignedSDK 2
-./internal/release/cli TestProductionEvidenceReleaseTransport 2
-./internal/release/cli TestProductionPreflightStreamsHealthyRegionsDuringHTTPStall 3
 ./internal/release/cli TestSignedApplyRegionalHTTPRecovery 2
-./internal/releasechannel TestFoundationWriterImageRejectsOtherAuthority 2
-./internal/releasechannel TestPublishedImageSDKRejectsChangedPublication 2
 ./internal/releasepush TestAppWaitRenewsShortCredentialAndResumesDroppedConnection 7
 ./internal/runtimepriority TestScopeAdmissionOwnershipAndCleanup 3
 ./internal/selfupdate/cli TestControllerRecoveryRollsBackDamageOnlyAfterTrustedCompletion 4
-./internal/selfupdate/cli TestRootStepsRunTheKnownGoodRelease 5
 ./internal/storage/capacity TestUsageStorePublishesWithTTLAndFeedsSignals 3
 ./internal/swarmruntime TestAutoscaleHistoryManagerIntegration 15
 ./internal/swarmruntime TestAutoscaleManagerIntegration 3
@@ -272,21 +263,8 @@
 ./internal/terrabase TestCollectWANLoopbackBoundsAndNoRedirect 3
 ./scripts TestDashboardNetbirdCheck 67
 ./scripts/ci/racetest TestRaceScheduler 90 # observed full-Fast scheduling cost; interrupted values are lower bounds
-./scripts/ci/racetest TestRaceSchedulerReapsShardsWaitNNoLongerReports 20 # observed full-Fast scheduling cost; interrupted values are lower bounds
-./tests/deploy TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex 75
-./tests/deploy TestOfflineDeploymentMaterialNeverBaked 75
-./tests/deploy TestOfflineInstallsSelfUpdateEnabled 75
-./tests/deploy TestOfflineManagedRootAndVolumeInitUnits 74
-./tests/deploy TestOfflineRejectsPersistedSelfUpdateState 14
-./tests/deploy TestOfflineRejectsReservedWorkloadIdentityBeforeInstall 16
 ./tests/deploy TestOfflineVerifiedInputsInstalled 77
 ./tests/deploy TestPromotionCIImageImportedSignedVerifiedAndReceipted 5
-./tests/deploy TestPromotionDryRunReadOnlyGates 2
-./tests/deploy TestPromotionFirstRunWaitsForImageDelegation 6
-./tests/deploy TestPromotionRejectsInvalidEvidenceBeforeEffects 7
-./tests/deploy TestPromotionResumeRefetchesChangedAssetsAndRefusesOtherImages 3
-./tests/deploy TestPromotionResumeReusesVerifiedWork 3
-./tests/deploy TestPromotionUnsignedCandidateRequiresSignBinary 4
 ./tests/firecracker/jwtsetup TestGeneratedFixtureReservesProductionR3StoresWithProductionJWTAndTLS 4
 ./tests/firecracker/managedmember TestManagedMemberManifestSecurityMatrix 16
 ./tests/firecracker/managedmember TestManagedMemberRealProtectedMaterialStaging 3
