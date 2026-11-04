@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"os"
 	"path/filepath"
@@ -149,15 +150,26 @@ func (f *fakeApplier) generation(name string) int64 {
 	return f.running[name]
 }
 
+// freePorts returns distinct free ports below the kernel's ephemeral range
+// (32768+). Outbound connections and :0 listeners never receive these, so a
+// restarted router can rebind its port while parallel tests run.
 func freePorts(t *testing.T, count int) []int {
+	t.Helper()
 	ports := []int{}
 	for range count {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
+		for attempt := 0; ; attempt++ {
+			if attempt == 1000 {
+				t.Fatal("no free port below the ephemeral range")
+			}
+			port := 20000 + rand.IntN(12000)
+			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+			if err != nil {
+				continue
+			}
+			defer listener.Close()
+			ports = append(ports, port)
+			break
 		}
-		defer listener.Close()
-		ports = append(ports, listener.Addr().(*net.TCPAddr).Port)
 	}
 	return ports
 }
