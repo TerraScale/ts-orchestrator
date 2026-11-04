@@ -26,7 +26,7 @@
 ./internal/bootstrapstart TestFounderReplacementRelaunchesRetiredPeerAsNextAttempt 4
 ./internal/bootstrapstart TestFounderRuntimeCompletesTwoPlannedPeersAndRestartIsIdempotent 2
 ./internal/bootstrapstart/materialsource TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS 9
-./internal/bootstrapstart/materialsource TestOriginalMaterialPublicationSDKDurableRecovery 7
+./internal/bootstrapstart/materialsource TestOriginalMaterialPublicationSDKDurableRecovery 1
 ./internal/bootstrapstart/materialsource TestOriginalStartupSDKAtomicAppend 3
 ./internal/cli TestRecoverQuorumRefoundReFoundsOneSlotAtATime 2
 ./internal/controlaccess TestReadAccessCrossesSignedObjectFoundationAndCurrentVault 2
