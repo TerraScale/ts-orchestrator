@@ -136,7 +136,7 @@ func TestDashboardRolloutHistoryRetainsTerminalRecords(t *testing.T) {
 			}
 
 			// Reconnect and reopen: the dashboard must read persisted outcomes, not an executor's memory.
-			reconnected, err := auth.start(t, ctx, natscell.Config{URL: broker.Conn().ConnectedUrl()})
+			reconnected, err := auth.start(t, ctx, natscell.Config{URL: broker.URL()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -274,7 +274,7 @@ func TestDashboardRolloutStoreFailuresStayUnavailable(t *testing.T) {
 	}
 	defer broker.Close()
 	lease := observedAuthority{snapshot: authority.Snapshot{Leader: true, Ready: true, Epoch: 3, ExpiresAt: time.Now().Add(time.Hour)}}
-	reconnected, err := auth.start(t, ctx, natscell.Config{URL: broker.Conn().ConnectedUrl()})
+	reconnected, err := auth.start(t, ctx, natscell.Config{URL: broker.URL()})
 	if err != nil {
 		t.Fatal(err)
 	}

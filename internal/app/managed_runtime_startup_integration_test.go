@@ -241,7 +241,7 @@ func TestManagedRuntimeReadyBeforeSingleOwnHostSession(t *testing.T) {
 	if err != nil || len(before) != 1 || !before[0].SessionExpiresAt.IsZero() {
 		t.Fatal("unexpected ownhost session before the one Agent", err)
 	}
-	hostRuntime, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Instance: "ownhost", URL: runtime.Conn().ConnectedUrl(),
+	hostRuntime, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Instance: "ownhost", URL: runtime.URL(),
 		ClientRole: "host", NKeySeedFile: hostSeed})
 	if err != nil {
 		t.Fatal(err)

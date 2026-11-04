@@ -1440,7 +1440,7 @@ func startGenericRuntimeHostSession(t *testing.T, ctx context.Context, auth *aut
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	transport, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Instance: registration.Node, URL: broker.Conn().ConnectedUrl(), ClientRole: "host", NKeySeedFile: seed})
+	transport, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Instance: registration.Node, URL: broker.URL(), ClientRole: "host", NKeySeedFile: seed})
 	if err != nil {
 		t.Fatal(err)
 	}
