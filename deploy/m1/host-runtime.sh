@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
-# Pin containerd and runc on a milestone 1 host (arm64 or amd64); runs as root
-# on the host. Ubuntu's containerd 2.2 cannot start ts-orch tasks (the binary-v2
-# log scheme needs containerd >= 2.3). Release binaries go to /usr/local, ahead
-# of the distro packages, so apt upgrades cannot replace them.
 set -euo pipefail
 
+if ! command -v chronyc >/dev/null; then
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chrony
+fi
+cat > /etc/chrony/chrony.conf <<'CHRONY'
+server 169.254.169.254 iburst minpoll 4 maxpoll 6
+driftfile /var/lib/chrony/chrony.drift
+makestep 0.1 3
+rtcsync
+leapsectz right/UTC
+CHRONY
+systemctl enable --now chrony
+systemctl restart chrony
+chronyc waitsync 30 0.01 0 1
+
 containerd_version=2.4.2
-# runc is the version containerd pins in script/setup/runc-version.
 runc_version=1.5.2
-# The sha256 values are the upstream releases' published checksums.
 case $(uname -m) in
 aarch64)
 	arch=arm64
@@ -38,7 +47,6 @@ if [[ $(/usr/local/sbin/runc --version 2>/dev/null) != "runc version $runc_versi
 	install -m 0755 "$tmp/runc" /usr/local/sbin/runc
 fi
 
-# A fresh host has no distro containerd unit; install upstream's.
 if ! systemctl cat containerd.service >/dev/null 2>&1; then
 	cat > /etc/systemd/system/containerd.service <<'UNIT'
 [Unit]
@@ -67,7 +75,6 @@ install -d /etc/systemd/system/containerd.service.d
 printf '[Service]\nExecStart=\nExecStart=/usr/local/bin/containerd\n' > /etc/systemd/system/containerd.service.d/10-ts-orch.conf
 systemctl daemon-reload
 systemctl enable containerd
-# Restart only when the running daemon is not the pinned one.
 running=$(ctr version 2>/dev/null || true)
 [[ $running == *"Server:"*"Version:  v$containerd_version"* ]] || systemctl restart containerd
 ctr version

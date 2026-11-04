@@ -242,6 +242,11 @@ func start(cfg config) (_ *Node, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, fabric: fabric, ctx: ctx, cancel: cancel, desired: desired,
 		peers: peerFiles}
+	if err := node.serveClockReports(); err != nil {
+		node.closeConns()
+		cancel()
+		return nil, err
+	}
 	node.publishTopologyDesired()
 	handlers := map[string]nats.MsgHandler{
 		PingSubject: func(m *nats.Msg) {
