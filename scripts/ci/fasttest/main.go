@@ -24,6 +24,7 @@ import (
 )
 
 const jobs = 24
+const buildJobs = 2
 
 type event struct {
 	Action  string
@@ -221,9 +222,10 @@ func discover(ctx context.Context, goCommand []string, directory string, binarie
 	if len(packages) == 0 {
 		return nil, errors.New("empty package graph")
 	}
-	// Listing uses the same package concurrency as execution; GOMAXPROCS
-	// bounds each process without reducing the pool to two packages.
-	cmd = command(ctx, goCommand, "test", "-short", "-json", "-count=1", fmt.Sprintf("-p=%d", jobs), "-exec", wrapper, "-list", ".", "./...")
+	// Strip checkout paths so Go's content-addressed compilation cache works
+	// across isolated shipping clones. Compile within the two admitted CPUs;
+	// execution retains its independent, fully parallel worker pool.
+	cmd = command(ctx, goCommand, "test", "-trimpath", "-short", "-json", "-count=1", fmt.Sprintf("-p=%d", buildJobs), "-exec", wrapper, "-list", ".", "./...")
 	cmd.Stderr = os.Stderr
 	output, err := cmd.StdoutPipe()
 	if err != nil {

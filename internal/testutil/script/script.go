@@ -83,10 +83,26 @@ func record(path string) error {
 func Root(t testing.TB) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate repository test support")
+	if ok && filepath.IsAbs(file) {
+		return filepath.Clean(filepath.Join(filepath.Dir(file), "../../.."))
 	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "../../.."))
+	// Trimmed test binaries carry module paths rather than checkout paths.
+	// Go runs them from their package directory; locate the actual checkout.
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+		if err == nil && strings.HasPrefix(string(data), "module github.com/TerraScale/ts-orchestrator\n") {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("cannot locate repository test support")
+		}
+		dir = parent
+	}
 }
 
 func Write(t testing.TB, path string, data []byte, mode os.FileMode) {

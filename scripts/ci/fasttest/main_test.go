@@ -237,7 +237,7 @@ func TestFullShortTierCoverageAndConcurrency(t *testing.T) {
 	if err := json.Unmarshal(listing, &discovered); err != nil {
 		t.Fatal(err)
 	}
-	if discovered.CPU != "2" || !slices.Contains(discovered.Args, fmt.Sprintf("-p=%d", jobs)) {
+	if discovered.CPU != "2" || !slices.Contains(discovered.Args, fmt.Sprintf("-p=%d", buildJobs)) || !slices.Contains(discovered.Args, "-trimpath") {
 		t.Fatalf("discovery escaped the process budget: %+v", discovered)
 	}
 	seen := make(map[string]int)
