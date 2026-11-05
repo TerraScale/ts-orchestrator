@@ -35,7 +35,9 @@ membership, an unavailable drain coordinator, or an unready peer denies the stop
    authorizes stopping a node. For writer replacement, prepare local primaries
    from the proven replicas and transfer logical catalog records atomically.
 5. Commit the regional owner CAS. The new owner acquires database leases and
-   renews write admission. Keep the barrier until it reports Writer and Ready.
+   renews write admission. Keep the barrier until it reports Writer and Ready
+   and every admitted peer has observed that owner and epoch. This prevents a
+   remote forwarder from retaining the old home address across listener shutdown.
 6. Route queued and new requests to that survivor, then SIGTERM the old process.
    The next replacement must pass the same peer proof against the newly started
    node. There is no shadow process or simultaneous use of a node's data directory.
@@ -67,6 +69,16 @@ TerraBase Slow tests exercise two real app listeners, promotion and handback,
 and a subprocess killed while its native write transaction is open before COMMIT.
 The crash drill checks exact acknowledged IDs after restart and promotion.
 It does not claim automatic regional crash takeover.
+
+Final pre-ship qualification on engine source `e6c076621` passed all five
+measured repeats of both regional Slow tests (10 tests total, suite times
+11.136 / 10.996 / 10.325 / 11.234 / 11.591 seconds). The existing R10
+`InRegionAckDrillTests` also passed (13.524 seconds). Logs:
+`/tmp/zdt-final-slow.log` on beta. The shipping candidate differs only in
+initializer whitespace and rebased documentation. Orchestrator full Fast
+passed 885 cases across 343 shards, longest shard 4.29 seconds; log:
+`/tmp/zdt-orch-fast3.log` on beta. These are development proofs; the three
+live rollout measurements remain pending.
 
 ## Boundaries
 
