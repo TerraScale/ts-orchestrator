@@ -25,7 +25,7 @@ import (
 type serviceExecutor struct{}
 
 func (serviceExecutor) Describe(context.Context) (*api.NodeDescription, error) {
-	return &api.NodeDescription{Platform: &api.Platform{OS: "linux", Architecture: runtime.GOARCH}, Resources: &api.Resources{NanoCPUs: 8_000_000_000, MemoryBytes: 8 << 30, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 8<<30)}}}, nil
+	return &api.NodeDescription{Platform: &api.Platform{OS: "linux", Architecture: runtime.GOARCH}, Resources: &api.Resources{NanoCPUs: 8_000_000_000, MemoryBytes: 8 << 30, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 32<<30)}}}, nil
 }
 func (serviceExecutor) Configure(context.Context, *api.Node) error         { return nil }
 func (serviceExecutor) SetNetworkBootstrapKeys([]*api.EncryptionKey) error { return nil }
