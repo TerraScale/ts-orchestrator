@@ -24,6 +24,12 @@ func (a swarmApplier) Bake(ctx context.Context, spec swarmruntime.ServiceSpec, r
 	var initial error
 	if spec.Name == "terrabase" {
 		for _, task := range ready.Tasks {
+			// Catalog/writer regressions belong to the founder's data owner.
+			// Holders run no customer writer; their readiness is probed on their
+			// own host below, and their logs are not local to this founder.
+			if task.Machine != spec.Node {
+				continue
+			}
 			for _, stream := range []string{"stdout", "stderr"} {
 				log := &bakeLog{path: swarmruntime.RuntimeLogFile(a.state, task.TaskID, stream)}
 				initial = errors.Join(initial, log.check())

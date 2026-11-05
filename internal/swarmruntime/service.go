@@ -450,6 +450,9 @@ type ServiceSpec struct {
 	// the task gets TS_REGION, TS_NODE and TS_PEERS_FILE.
 	Region string `json:"-"`
 	Node   string `json:"-"`
+	// WorkerAddresses is the founder's fresh, READY/ACTIVE mesh membership,
+	// derived at reconciliation; declarations cannot supply this inventory.
+	WorkerAddresses map[string]string `json:"-"`
 }
 
 type ServicePostgres struct {

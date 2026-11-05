@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/netip"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
@@ -41,7 +42,16 @@ func WaitServiceSpecExact(ctx context.Context, client api.ControlClient, request
 	}
 	var probe func(context.Context, *api.Task) error
 	if requested.ReadyPath != "" {
-		probe = ProbeLocalTask
+		probe = func(ctx context.Context, task *api.Task) error {
+			_, address, err := serviceTaskHost(ctx, client, requested, task)
+			if err != nil {
+				return err
+			}
+			if address.IsLoopback() {
+				return ProbeLocalTask(ctx, task)
+			}
+			return ProbeTask(ctx, task, address)
+		}
 	}
 	rollout, err = WaitServiceSpec(ctx, client, service, probe)
 	if err != nil {
@@ -86,6 +96,7 @@ func serviceSpecExact(ctx context.Context, client api.ControlClient, requested S
 	if uint64(len(tasks.Tasks)) != requested.Replicas || len(tasks.Tasks) == 0 {
 		return rollout, errors.New("requested replica inventory changed after readiness")
 	}
+	machines := map[string]bool{}
 	for _, task := range tasks.Tasks {
 		container, containerErr := containerOf(api.ServiceSpec{Task: task.Spec})
 		generation, _, err := serviceGeneration(task.ServiceAnnotations.Labels)
@@ -109,23 +120,22 @@ func serviceSpecExact(ctx context.Context, client api.ControlClient, requested S
 			admitServiceSpec(task.ServiceAnnotations.Labels, requested) != nil {
 			return rollout, errors.New("running task does not match the requested artifact and generation")
 		}
-		node, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
+		machine, address, err := serviceTaskHost(ctx, client, requested, task)
 		if err != nil {
 			return rollout, err
 		}
-		if node.Node == nil || node.Node.Description == nil {
-			return rollout, fmt.Errorf("task %s runs on an unexpected machine", task.ID)
+		if len(requested.Mounts) != 0 && requested.Replicas > 1 && machines[machine] {
+			return rollout, errors.New("per-node service repeats a machine")
 		}
-		machine := node.Node.Description.Hostname
-		// The founder node keeps the fixed singleHostID; the mesh node checking is that founder.
-		if machine == singleHostID {
-			machine = requested.Node
-		}
-		if machine != requested.Node {
-			return rollout, fmt.Errorf("task %s runs on an unexpected machine", task.ID)
-		}
+		machines[machine] = true
 		if probe && requested.ReadyPath != "" {
-			if err := ProbeLocalTask(ctx, task); err != nil {
+			var err error
+			if address.IsLoopback() {
+				err = ProbeLocalTask(ctx, task)
+			} else {
+				err = ProbeTask(ctx, task, address)
+			}
+			if err != nil {
 				return rollout, err
 			}
 		}
@@ -140,4 +150,30 @@ func serviceSpecExact(ctx context.Context, client api.ControlClient, requested S
 		return rollout, errors.New("requested service spec changed during readiness verification")
 	}
 	return rollout, nil
+}
+
+// serviceTaskHost accepts only this founder or a currently admitted per-node
+// worker. Readiness uses that worker's mesh address, never the founder's port.
+func serviceTaskHost(ctx context.Context, client api.ControlClient, requested ServiceSpec, task *api.Task) (string, netip.Addr, error) {
+	response, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
+	if err != nil {
+		return "", netip.Addr{}, err
+	}
+	node := response.Node
+	if node != nil && node.Description != nil {
+		machine := node.Description.Hostname
+		if machine == singleHostID {
+			machine = requested.Node
+		}
+		if machine == requested.Node {
+			return machine, netip.AddrFrom4([4]byte{127, 0, 0, 1}), nil
+		}
+		address, parseErr := netip.ParseAddr(requested.WorkerAddresses[machine])
+		if len(requested.Mounts) != 0 && requested.Replicas > 1 && node.ID == task.NodeID &&
+			node.Spec.DesiredRole == api.NodeRoleWorker && node.Spec.Availability == api.NodeAvailabilityActive &&
+			node.Status.State == api.NodeStatus_READY && parseErr == nil && address.Is4() && address.IsPrivate() {
+			return machine, address, nil
+		}
+	}
+	return "", netip.Addr{}, fmt.Errorf("task %s runs on an unexpected machine", task.ID)
 }
