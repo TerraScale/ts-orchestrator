@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/testwait"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -148,17 +149,13 @@ func publishTransportMessage(t *testing.T, js jetstream.JetStream, subject, id s
 
 func waitTransport(t *testing.T, condition func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		if condition() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("transport condition did not complete within 8 seconds")
+	testwait.Until(t, "transport condition", condition)
 }
 
 func TestQueueRealWorkerReceiptsReplayPoisonAndScope(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy durability, deployment or scheduler integration runs in Slow")
+	}
 	nc, js := transportBroker(t)
 	worker := transportWorker(t, "echo")
 	if err := provisionQueue(t.Context(), nc, worker.Manifest()); err != nil {

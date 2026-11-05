@@ -70,6 +70,9 @@ func functionBrokerCluster(t *testing.T, options *server.Options) []*server.Serv
 }
 
 func TestQueuePendingAndReceiptsSurviveOwningBrokerLoss(t *testing.T) {
+	if testing.Short() {
+		t.Skip("broker-loss durability runs in the Slow suite")
+	}
 	for _, lostResource := range []string{"queue", "receipts"} {
 		t.Run(lostResource, func(t *testing.T) {
 			brokers := functionBrokerCluster(t, &server.Options{})

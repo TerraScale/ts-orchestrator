@@ -104,19 +104,30 @@ for changed executable inputs before publication.
 
 ## Test tiers
 
-Tests belong to one of three tiers. `internal/testutil/tier` selects them, so
+Keep one happy path per public surface and critical paths only, per the
+2026-11-04 test policy in workspace `AGENTS.md`. Delete non-critical cases
+rather than moving them to Slow. Tests belong to three tiers; `internal/testutil/tier` selects them, so
 a tier is chosen with `-short` and `TS_TEST_TIER`, never with build tags, and
 `go vet ./...` still sees every test.
 
 | Tier | Runs | Command | Contains |
 |---|---|---|---|
-| T0, fast | every pull request (`TS_TEST_TIER=change`: only the packages the change reaches) and merge queue entry | `TS_TEST_TIER=pr make ci-verify` (race tests with `-short`); `make test-fast` locally | Unit tests and the single-process safety invariants: fencing, lease reserves, authority epochs, CAS, signed configuration, idempotent journaled OCI operations, and one case of every image-builder rejection family. |
+| T0, fast | every pull request (`TS_TEST_TIER=change`: only the packages the change reaches) and merge queue entry | `TS_TEST_TIER=pr make ci-verify` (race tests with `-short`); `make test-fast` locally | Happy paths and critical safety checks: auth/tenant isolation, durability, fencing, signed configuration, billing and deployment health. Each case finishes in less than 10 seconds; the full Fast execution finishes in less than 30 seconds. |
 | T1, integration | merge queue, `develop` pushes, scheduled and manual runs | `make ci-verify` (`TS_TEST_TIER=full`, the default) | T0, plus tests that call `tier.Integration(t)`, plus `make fixturetest-check` (`go vet` and the fixturegen tests with `-tags fixturetest`). |
 | T2, qualification | explicit image qualification with supplied fixtures | `scripts/ci/qualify-image.sh` with `TS_TEST_TIER=qualification` | Tests that call `tier.Qualification(t, envs...)`: real TerraBase members, cross-language packets and rendered enrollment bundles. Firecracker VMs qualify through `ts-orch qualification firecracker ...`. |
 
-The merge queue runs full coverage before main; main pushes publish changed
-executable inputs without repeating that suite. The former `image.yml` is
+Ship directly to main with `ts-ship`; there is no merge queue. Main CI admits
+the exact dev-host Fast evidence before publishing changed executable inputs. The former `image.yml` is
 not an active workflow. See [the delivery pipeline](docs/delivery-pipeline.md).
+
+`make test-fast-build` compiles the runner and prepares every package's short-tier
+inventory and exact test binary. This is build work, under the separate build
+budget. `make test-fast` then executes that inventory with bounded parallelism;
+it never retries or omits discovered cases. The job-local manifest hashes the
+source inventory, so changed source is refused until preparation runs again.
+Execution retains per-case JSON and package coverage receipts in
+`artifacts/fasttest/prepared/`. `ts-ship` keeps its 30-second execution cap and
+the runner rejects any passing Fast case that takes 10 seconds or more.
 
 Choose the tier when you add a test:
 

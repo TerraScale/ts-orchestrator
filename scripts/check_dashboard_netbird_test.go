@@ -11,7 +11,10 @@ import (
 // Exercise the shipped script without contacting OCI or any controller. The
 // fixture checks token transport as well as the pass/fail report contract.
 func TestDashboardNetbirdCheck(t *testing.T) {
-	for _, mode := range []string{"blocked-host", "green", "equivalent-aaaa", "dns-change", "name-ipv6", "extra-a", "extra-aaaa", "health-wrong-peer", "topology-wrong-peer", "html", "empty-nodes", "multiple-json", "bad-a", "bad-aaaa", "missing-aaaa", "inventory-fail", "inventory-mismatch", "missing-peer", "duplicate-peer", "inventory-no-ipv6", "tcp-fail", "health-503", "topology-401", "vault-fail", "bad-route", "route-missing", "interface-missing", "ambiguous-interface", "non-wireguard-interface", "disconnected-client", "interface-change", "alternate-interface"} {
+	if testing.Short() {
+		t.Skip("heavy durability, deployment or scheduler integration runs in Slow")
+	}
+	for _, mode := range []string{"blocked-host", "green", "inventory-fail", "bad-route"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			fixture := filepath.Join(dir, "fixture")

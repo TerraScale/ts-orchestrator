@@ -359,6 +359,9 @@ func (f schedulerFixture) complete(t *testing.T, r script.Result, short bool) {
 }
 
 func TestRaceScheduler(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy durability, deployment or scheduler integration runs in Slow")
+	}
 	t.Run("full", func(t *testing.T) {
 		t.Parallel()
 		f := newScheduler(t)

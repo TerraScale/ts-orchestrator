@@ -84,6 +84,24 @@ func fakeGo(args []string) {
 		}
 		for _, pkg := range sortedKeys(packages) {
 			emit(event{Action: "start", Package: pkg})
+			if mode == "split-marker" && len(packages[pkg]) == 0 {
+				exe, err := os.Executable()
+				if err != nil {
+					panic(err)
+				}
+				retained := filepath.Join(os.Getenv("FAST_CONTRACT_STATE"), "retained")
+				data, err := os.ReadFile(exe)
+				if err != nil {
+					panic(err)
+				}
+				if err := os.WriteFile(retained, data, 0700); err != nil {
+					panic(err)
+				}
+				search := strings.Repeat(filepath.SplitList(os.Getenv("PATH"))[0]+string(os.PathListSeparator), 120)
+				marker := binaryMarker + retained + "\t" + mustAbs(".") + "\t" + search + "\n"
+				emit(event{Action: "output", Package: pkg, Output: marker[:700]})
+				emit(event{Action: "output", Package: pkg, Output: marker[700:]})
+			}
 			for _, name := range packages[pkg] {
 				emit(event{Action: "output", Package: pkg, Output: name + "\n"})
 			}
@@ -154,6 +172,14 @@ func fakeGo(args []string) {
 	if failure && mode != "masked-failure" {
 		os.Exit(1)
 	}
+}
+
+func mustAbs(path string) string {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		panic(err)
+	}
+	return absolute
 }
 
 func sortedKeys[V any](values map[string]V) []string {
@@ -279,8 +305,28 @@ func TestFullShortTierCoverageAndConcurrency(t *testing.T) {
 			t.Errorf("actual JSON receipt %s = %d, want 1", key, actual[key])
 		}
 	}
-	if len(calls) != len(receipts) {
+	if len(calls)+1 != len(receipts) {
 		t.Fatalf("calls=%d receipts=%d", len(calls), len(receipts))
+	}
+}
+
+func TestSplitMarkerStillRetainsTheBinary(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("FAST_CONTRACT_MODE", "split-marker")
+	t.Setenv("FAST_CONTRACT_STATE", directory)
+	var output bytes.Buffer
+	binaries := make(map[string]testBinary)
+	packages, err := discover(t.Context(), []string{os.Args[0], "--fake-go"}, directory, binaries)
+	if err != nil {
+		t.Log(output.String())
+		t.Fatal(err)
+	}
+	if len(packages[fixtureModule+"/empty"]) != 0 {
+		t.Fatalf("empty package listed cases: %v", packages[fixtureModule+"/empty"])
+	}
+	retained := binaries[fixtureModule+"/empty"]
+	if retained.Path == "" || retained.Dir != mustAbs(".") || !strings.HasPrefix(retained.SearchPath, filepath.SplitList(os.Getenv("PATH"))[0]+string(os.PathListSeparator)) {
+		t.Fatalf("marker split across events lost the retained binary: %+v", retained)
 	}
 }
 
@@ -309,7 +355,7 @@ func TestRetainedBinaryRunsShortTierWithOriginalWorkingDirectory(t *testing.T) {
 	}
 	t.Setenv("FAST_COMPILED_DIRECTORY", working)
 	t.Setenv("FAST_COMPILED_SEARCH_PATH", fields[2])
-	r := executeBinary(t.Context(), []string{"go"}, shard{Package: "fixture/compiled", Tests: []string{"TestCompiledShardHelper"}}, directory, testBinary{fields[0], fields[1], fields[2]})
+	r := executeBinary(t.Context(), []string{"go"}, shard{Package: "fixture/compiled", Tests: []string{"TestCompiledShardHelper"}}, directory, testBinary{fields[0], fields[1], fields[2], ""})
 	if len(r.Problems) != 0 || len(r.Cases) != 2 {
 		t.Fatalf("retained short-tier receipt: %+v", r)
 	}

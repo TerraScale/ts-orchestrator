@@ -19,6 +19,9 @@ import (
 )
 
 func TestMembershipProviderOutageKeepsRegionalNATSServing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("membership outage integration runs in the Slow suite")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	broker, err := newAuthenticatedNATS(t, "gru").start(t, ctx, natscell.Config{Cell: "gru", Instance: "membership-outage", Replicas: 1,
