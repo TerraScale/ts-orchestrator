@@ -685,7 +685,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// Preparation has the build budget; execution keeps the enforced Fast budget.
-	ctx, cancel := context.WithTimeout(ctx, 9*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 590*time.Second)
 	defer cancel()
 	mode := "run"
 	goCommand := os.Args[1:]
