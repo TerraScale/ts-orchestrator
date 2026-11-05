@@ -32,6 +32,7 @@ type regionalRouter struct {
 	owner     mesh.WorkerPeer
 	checked   time.Time
 	transport *http.Transport
+	requests  chan struct{}
 }
 type regionalStatus struct {
 	Node   string `json:"node"`
@@ -50,7 +51,7 @@ func (e *Edge) SetRegionalNodes(nodes func() []mesh.WorkerPeer) {
 	transport.ResponseHeaderTimeout = 60 * time.Second
 	router := e.regional.Load()
 	if router == nil {
-		candidate := &regionalRouter{transport: transport}
+		candidate := &regionalRouter{transport: transport, requests: make(chan struct{}, 1024)}
 		candidate.nodes.Store(&nodes)
 		if e.regional.CompareAndSwap(nil, candidate) {
 			return
@@ -134,6 +135,17 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 	if router == nil {
 		return nil, nil
 	}
+	select {
+	case router.requests <- struct{}{}:
+	default:
+		return nil, errors.New("regional ingress is full")
+	}
+	admitted := false
+	defer func() {
+		if !admitted {
+			<-router.requests
+		}
+	}()
 	// Waiting for admission is cancellation-aware; avoid stranding a goroutine on
 	// an RWMutex when a client disconnects during a bounded handoff.
 	for {
@@ -149,7 +161,8 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		case <-time.After(time.Millisecond):
 		}
 	}
-	release := router.ingress.RUnlock
+	admitted = true
+	release := func() { router.ingress.RUnlock(); <-router.requests }
 	peer, err := e.regionalOwner(request.Context(), router, false)
 	if err != nil {
 		release()
