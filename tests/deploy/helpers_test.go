@@ -99,7 +99,7 @@ func TestDeployTool(t *testing.T) {
 	if len(args) > 0 {
 		switch args[0] {
 		case "image":
-			var services image.Services
+			services := image.Services{RuntimeFetch: offlineRuntimeFetch}
 			// Promotion tests aim the real in-binary SDK importer at the
 			// stand-in OCI region their parent process serves.
 			if endpoint := os.Getenv(ociStandInEnv); endpoint != "" {

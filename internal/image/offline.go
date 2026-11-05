@@ -30,7 +30,11 @@ type GuestBuildOptions struct {
 	BootstrapRoots                                                                                                                          []string
 }
 
-func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Writer) (result error) {
+func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Writer) error {
+	return (Services{}).guestBuild(ctx, repo, o, out)
+}
+
+func (services Services) guestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Writer) (result error) {
 	pin, e := client.LoadPin(filepath.Join(repo, "deploy/image/image-inputs.json"))
 	if e != nil {
 		return e
@@ -204,7 +208,7 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 			return e
 		}
 	}
-	if e = installRuntime(ctx, g, architecture, o.Work, out); e != nil {
+	if e = services.installRuntime(ctx, g, architecture, o.Work, out); e != nil {
 		return e
 	}
 	if e = installLinks(g, o.Work, repo, out); e != nil {
@@ -406,6 +410,10 @@ type OfflineOptions struct {
 }
 
 func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Writer) error {
+	return (Services{}).offlineBuild(ctx, repo, o, out)
+}
+
+func (services Services) offlineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Writer) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -616,7 +624,7 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 		return e
 	}
 	kernel := filepath.Join(work, "guest-kernel")
-	if e = GuestBuild(ctx, repo, GuestBuildOptions{candidate, o.KernelRelease, kernel, work, filepath.Join(repo, "deploy/image/terrascale-orchestrator.sysusers"), profile, priorityRoot, binaryPath, native, timesync, netbird, config, o.BootstrapRoots}, out); e != nil {
+	if e = services.guestBuild(ctx, repo, GuestBuildOptions{candidate, o.KernelRelease, kernel, work, filepath.Join(repo, "deploy/image/terrascale-orchestrator.sysusers"), profile, priorityRoot, binaryPath, native, timesync, netbird, config, o.BootstrapRoots}, out); e != nil {
 		return e
 	}
 	if _, e = Execute(ctx, "", nil, "qemu-img", "check", "--", candidate); e != nil {

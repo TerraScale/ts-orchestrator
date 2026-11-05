@@ -66,7 +66,7 @@ func TestManagedRuntimeImageIntegration(t *testing.T) {
 					g, root := runtimeFixtureGuest(t)
 					var output bytes.Buffer
 					work := t.TempDir()
-					err := installRuntime(t.Context(), g, architecture, work, &output)
+					err := (Services{}).installRuntime(t.Context(), g, architecture, work, &output)
 					if scenario != "install" {
 						expected := map[string]string{
 							"tampered-download":    "SHA-256",
