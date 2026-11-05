@@ -103,6 +103,12 @@ remains the first peer and keeps its existing data and identity.
   `MaxReplicas: 1` per node. The release waits for exactly those tasks. A
   worker that is not fully joined is never a target, and one that leaves
   drops the count at the next 30 s reconcile.
+- **Release evidence.** Verification admits the founder and the exact
+  READY/ACTIVE workers in its fresh mesh inventory, with one task per host.
+  Readiness and bake checks probe each worker's own NetBird address. A healthy
+  founder cannot satisfy an unhealthy holder's readiness. Catalog and writer
+  log checks stay on the founder, which owns that data and runs the customer
+  writer; holder logs are not on the founder's disk.
 - **Identity.** The executor sets `TS_NODE` to the host that runs the task.
   `TS_REGION` stays the region.
 - **Peers file.** Each founder's ping reply lists its fully joined workers. A
