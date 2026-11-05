@@ -7,6 +7,11 @@ Compilation and preparation use the build budget; execution uses the strict
 30-second Fast budget. A source fingerprint refuses execution after any source
 change until preparation runs again.
 
+Preparation compiles with `-trimpath` and two compiler jobs, matching the
+admitted CPU budget and allowing Go's compilation cache to reuse identical
+source across isolated checkout paths. Test binaries still run in their own
+checkout's original package directory.
+
 The runner executes at most 24 isolated top-level cases at once, with two
 parallel subtests and two runtime CPUs per process (`-parallel=2 -cpu=2`).
 Repeated exported names remain together because Go's test selector executes
