@@ -73,11 +73,13 @@ func estimates(data string) []estimate {
 }
 
 func plan(packages map[string][]string, hints []estimate) []shard {
-	// Prepared binaries remove graph-loading overhead, so independent cases can
-	// run in separate processes. Setenv, chdir and TestMain remain isolated.
+	// Keep the parallel worker pool busy without paying package initialization
+	// for every tiny case. Small groups retain ordinary Go package test semantics,
+	// including cleanup of Setenv and Chdir; expensive cases run separately.
 	var queue []shard
 	for pkg, tests := range packages {
 		assigned := map[string]int{}
+		group := -1
 		for _, test := range tests {
 			if previous, ok := assigned[test]; ok {
 				// Internal and external test packages can export the same name. One
@@ -94,8 +96,18 @@ func plan(packages map[string][]string, hints []estimate) []shard {
 					}
 				}
 			}
-			assigned[test] = len(queue)
-			queue = append(queue, shard{Package: pkg, Tests: []string{test}, Cost: cost})
+			index := group
+			if cost >= 2 || group < 0 || len(queue[group].Tests) >= 4 {
+				index = len(queue)
+				queue = append(queue, shard{Package: pkg, Tests: []string{test}, Cost: cost})
+				if cost < 2 {
+					group = index
+				}
+			} else {
+				queue[index].Tests = append(queue[index].Tests, test)
+				queue[index].Cost += cost
+			}
+			assigned[test] = index
 		}
 		if len(tests) == 0 {
 			queue = append(queue, shard{Package: pkg})

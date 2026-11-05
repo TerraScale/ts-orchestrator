@@ -12,8 +12,10 @@ admitted CPU budget and allowing Go's compilation cache to reuse identical
 source across isolated checkout paths. Test binaries still run in their own
 checkout's original package directory.
 
-The runner executes at most 24 isolated top-level cases at once, with two
-parallel subtests and two runtime CPUs per process (`-parallel=2 -cpu=2`).
+The runner executes at most 24 package shards at once, with two parallel
+subtests and two runtime CPUs per process (`-parallel=2 -cpu=2`). Each shard
+groups at most four cheap top-level cases; estimated expensive cases run
+separately. Grouped cases retain Go’s ordinary package test and cleanup semantics.
 Repeated exported names remain together because Go's test selector executes
 every matching declaration. Each process uses the original test binary,
 working directory and search path, preserving `TestMain` helper dispatch and
