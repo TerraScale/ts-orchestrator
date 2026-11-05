@@ -7,6 +7,7 @@ import http.client
 import json
 import math
 import secrets
+import signal
 import threading
 import time
 import urllib.parse
@@ -82,6 +83,9 @@ def main():
     base = '/v1/projects/' + config['project'] + '/databases'
     database = None
     stopping = threading.Event()
+    stop_offers = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop_offers.set())
+    signal.signal(signal.SIGINT, lambda *_: stop_offers.set())
 
     def renew_background():
         while not stopping.wait(40):
@@ -139,6 +143,8 @@ def main():
               'reads_per_second_per_region': 5, 'retries': 0})
         with concurrent.futures.ThreadPoolExecutor(max_workers=96) as pool:
             for number in range(args.seconds * 5):
+                if stop_offers.is_set():
+                    break
                 scheduled = start + number / 5
                 stopping.wait(max(0, scheduled - time.monotonic()))
                 for region in REGIONS:
@@ -154,12 +160,17 @@ def main():
                                 samples.append(missed)
                             emit(missed)
         for region in REGIONS:
-            status, _, body = sql(region, 'SELECT region, COUNT(*) FROM rollout_rows GROUP BY region')
-            emit({'kind': 'inventory', 'region': region, 'status': status, 'body': body})
+            try:
+                status, _, body = sql(region, 'SELECT region, COUNT(*) FROM rollout_rows GROUP BY region')
+                emit({'kind': 'inventory', 'region': region, 'status': status, 'body': body})
+            except Exception as error:
+                emit({'kind': 'inventory', 'region': region, 'status': 0, 'error': type(error).__name__})
         for region in REGIONS:
             for kind in ('write', 'read'):
                 cell = [sample for sample in samples if sample['region'] == region and sample['kind'] == kind]
                 times = sorted(sample['ms'] for sample in cell)
+                if not times:
+                    continue
                 emit({'kind': 'summary', 'region': region, 'operation': kind, 'requests': len(cell),
                       'failed': sum(not sample['ok'] for sample in cell),
                       'p99_ms': times[math.ceil(len(times) * .99) - 1], 'max_ms': times[-1]})
