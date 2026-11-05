@@ -16,7 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/testwait"
 )
 
 // The child is a protocol simulator, never a TerraBase build or substitute for
@@ -56,6 +57,7 @@ func serveMemberFixture(directory string) error {
 		return err
 	}
 	if err := os.Chmod(listener.Addr().String(), 0o602); err != nil {
+		listener.Close()
 		return err
 	}
 	return http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -319,16 +321,10 @@ func startMemberFixtureNamespace(t *testing.T, namespaces uintptr) *memberFixtur
 		}
 	})
 	socket := filepath.Join(control, "member.sock")
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(socket); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("member socket missing: %s", logs.String())
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	testwait.Until(t, "member socket missing: "+logs.String(), func() bool {
+		info, err := os.Lstat(socket)
+		return err == nil && info.Mode().Perm() == 0o602
+	})
 	identity := fixtureIdentity(fixture.process.Process.Pid)
 	observe := func(context.Context) (ProcessObservation, error) {
 		if namespaces != 0 {
@@ -399,16 +395,10 @@ func (f *memberFixture) restart(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.process = process
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(f.client.socket); err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("restarted member socket missing")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	testwait.Until(t, "restarted member socket missing", func() bool {
+		info, err := os.Lstat(f.client.socket)
+		return err == nil && info.Mode().Perm() == 0o602
+	})
 }
 
 func TestMemberLifecycleIntegration(t *testing.T) {
