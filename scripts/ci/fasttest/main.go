@@ -16,7 +16,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -616,11 +615,20 @@ func prepare(ctx context.Context, goCommand []string, directory string) error {
 	if err != nil {
 		return err
 	}
-	root, err := command(ctx, goCommand, "env", "GOROOT").Output()
+	tool, err := command(ctx, goCommand, "tool", "-n", "test2json").Output()
 	if err != nil {
 		return err
 	}
-	converter := filepath.Join(strings.TrimSpace(string(root)), "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH, "test2json")
+	// Go may build tools in its cache instead of installing them in GOROOT.
+	// Retain the resolved executable with this job's test binaries.
+	converter := filepath.Join(directory, "test2json")
+	toolBytes, err := os.ReadFile(strings.TrimSpace(string(tool)))
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(converter, toolBytes, 0700); err != nil {
+		return err
+	}
 	for pkg, binary := range suite.Binaries {
 		binary.Converter = converter
 		suite.Binaries[pkg] = binary
