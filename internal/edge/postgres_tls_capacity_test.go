@@ -15,9 +15,6 @@ import (
 )
 
 func TestPostgresSeparateCapacityAdmitsCancellationAtFullSessions(t *testing.T) {
-	if testing.Short() {
-		t.Skip("full-session capacity integration runs in the Slow suite")
-	}
 	t.Parallel()
 	regions := startRegions(t, terraBase, "ams")
 	e := regions["fra"].edge

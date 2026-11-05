@@ -234,9 +234,6 @@ func originalMaterialMechanicalProvision(t *testing.T, f *originalMechanicalSDK,
 }
 
 func TestOriginalMaterialPublicationSDKDurableRecovery(t *testing.T) {
-	if testing.Short() {
-		t.Skip("durable material publication recovery runs in the Slow suite")
-	}
 	for _, fault := range []string{
 		"lost material create",
 	} {

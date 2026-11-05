@@ -35,9 +35,6 @@ import (
 )
 
 func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
-	if testing.Short() {
-		t.Skip("full edge surface with bind collisions runs in the Slow suite")
-	}
 	t.Setenv("PEBBLE_VA_NOSLEEP", "1")
 	t.Setenv("PEBBLE_WFE_NONCEREJECT", "0")
 	httpLn := listen(t)

@@ -23,9 +23,6 @@ import (
 )
 
 func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *testing.T) {
-	if testing.Short() {
-		t.Skip("volume observer SDK integration runs in the Slow suite")
-	}
 	intent := RegionIntent{SchemaVersion: 1, Generation: 7, BootstrapRegion: RegionGRU, Regions: []RegionMapping{{Cell: RegionGRU, OCIRegion: "sa-saopaulo-1"}}}
 	config := RegionConfig{Region: RegionGRU, Generation: 7, Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com",
 		CompartmentID: "ocid1.compartment.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ImageCompartmentID: "ocid1.compartment.oc1..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",

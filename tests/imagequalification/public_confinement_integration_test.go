@@ -73,9 +73,6 @@ func authenticatedFixtureRequest(r *http.Request, key *rsa.PublicKey, tenancy st
 }
 
 func TestPublicConfinementSealsActualSDKAndRejectsResourceDrift(t *testing.T) {
-	if testing.Short() {
-		t.Skip("public confinement qualification runs in the Slow suite")
-	}
 	f := fixture(t)
 	exercisePublicConfinement(t, f, func(p Prepared, verified confinement.Verified, j journal) {
 		f.prepared = p

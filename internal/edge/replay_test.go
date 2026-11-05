@@ -142,9 +142,6 @@ func call(t *testing.T, reg *region, method, path, body string, header ...string
 }
 
 func TestReplayGoesToNearestHolder(t *testing.T) {
-	if testing.Short() {
-		t.Skip("region-down failover waits out serving timeouts; runs in the Slow suite")
-	}
 	regions := startRegions(t, terraBase)
 
 	// fra holds nothing; sjc (138 ms) is nearer than gru (188 ms).

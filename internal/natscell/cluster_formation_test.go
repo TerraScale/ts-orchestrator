@@ -71,9 +71,6 @@ func (cluster *labCluster) stop(index int) {
 // After a region-wide stop only two of three brokers return. Their persisted
 // peer set lets them elect a metadata leader and serve an existing R3 stream.
 func TestColdRestartWithTwoOfThreeBrokers(t *testing.T) {
-	if testing.Short() {
-		t.Skip("three-broker restart runs in the Slow suite")
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	cluster := newLabCluster(t, 3)

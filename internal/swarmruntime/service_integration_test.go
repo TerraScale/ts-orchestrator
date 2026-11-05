@@ -139,9 +139,6 @@ func serviceEventually(t *testing.T, ctx context.Context, check func() bool) {
 }
 
 func TestServiceManagerIntegration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("multi-node service cluster runs in the Slow suite")
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Second)
 	defer cancel()
 	client, _, _ := serviceCluster(t, ctx)

@@ -55,9 +55,6 @@ func transientAuthorityStartupError(err error) bool {
 }
 
 func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
-	if testing.Short() {
-		t.Skip("regional authority failover runs in the Slow suite")
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	t.Cleanup(cancel)
 

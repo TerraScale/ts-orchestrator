@@ -43,21 +43,31 @@ rest - 1/8
 ./internal/ociclient - 38
 ./internal/bootstrapstart/materialsource - 36
 ./internal/selfupdate/cli - 30
+./internal/dashboard/devfake - 26
 ./internal/placement - 20
 ./internal/dashboard - 18
 
 # Swarm manager integration suites run one after another; local -race timings
 # (2026-10-21). -short skips none of them.
+./internal/swarmruntime TestSignedReleaseRaftIntegration 185 solo
 ./internal/swarmruntime TestFunctionServiceManagerIntegration 40
 ./internal/swarmruntime TestServiceManagerIntegration 37
 ./internal/swarmruntime TestBootstrapVaultIntegration 15
+./internal/swarmruntime TestAutoscaleHistoryManagerIntegration 15
 ./internal/swarmruntime TestFunctionRegistryManagerIntegration 14
 
+./internal/natscell TestPrepareNodeIdentityPreservesR3State 35/1 idle
+./internal/natscell TestEmbeddedRouteRTTFlowsToMetricsAndHistory 5 idle
 
 # Multi-process controller labs: real 10-30s lease and session
 # timers, little CPU. tier.Integration skips them under -short.
 ./internal/app TestBrokerGateR3TicketRevocationAndOfflineFence 40/1 idle
 ./internal/app TestRolloutExecutorUpdatesARunningCell 30/1 idle
+./internal/app TestRootRotationOnARunningController 5
+./internal/app TestTerraBaseReleaseUnderLoadServesNoErrors 6 idle
+./internal/app TestTerraBaseReleaseFenceUnderLoad 8 idle
+./internal/app TestServiceReleasePinsRefusedClaimsDoNotAccumulate 35
+./internal/app TestGenericRuntimeSignedManagerIntegration 420/1 solo
 ./internal/app * 1
 
 # Founder fixture tests re-verify signed plans on every
@@ -69,6 +79,7 @@ rest - 1/8
 ./internal/bootstrapstart TestFounderReplacement* 6 norace
 ./internal/bootstrapstart TestReplacement* 6 norace
 ./internal/bootstrapstart TestFencedReplacementStopsBeforeEveryMutation 6 norace
+./internal/bootstrapstart TestFounderFloorArtifactsMatchInitializedPeerFloor 3 norace
 ./internal/bootstrapstart * 1
 
 # Offline image builder: a successful build is about 25s, a rejection inside
@@ -82,8 +93,77 @@ rest - 1/8
 # solo lines give race seconds, norace solo lines non-race seconds, measured
 # with GOMAXPROCS=2 -cpu 2 on dev hosts (2026-10-22). Tests over about 5 min
 # with -race on a loaded host run without it.
+./internal/region TestOriginalFoundationLaunchMetadataNeverRetrofitsRetainedActors 330/1 solo
+./internal/region TestOriginalFoundationCompartmentsSDK 60/1 norace solo
+./internal/region TestOriginalFoundationAdmissionReadRetainedScope 35/1 norace solo
+./internal/region TestOriginalFoundationCurrentnessSignedAndRetainedContract 40/1 norace solo
+./internal/region TestOriginalFoundationAdmissionReadEffectPredecessors 55/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMPeerGroupHistoryCannotResetSDK 65/1 norace solo
+./internal/region TestOriginalFoundationAdmissionReadVersionsSDK 85/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMV1Compatibility 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMV2Compatibility 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMRetainedContract 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMRequiresOwningLease 65/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMEffectPredecessors 90/1 norace solo
+./internal/region TestOriginalFoundationNetworkSDK 230/1 norace solo
+./internal/region TestOriginalFoundationAdmissionReadsSDK 265/1 norace solo
+./internal/region TestOriginalFoundationVaultSDK 350/1 norace solo
+./internal/region TestOriginalFoundationSourceIAMSDK 90/1 norace solo
+./internal/region TestOriginalFoundationCurrentnessSDK 205/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMPeerGroupSDK 290/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart1 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart2 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart3 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart4 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart5 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart6 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart7 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart8 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart9 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart10 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart11 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart12 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart13 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart14 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart15 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart16 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart17 330/1 norace solo
+./internal/region TestOriginalFoundationActorsSDKPart18 330/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart1 250/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart2 250/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart3 250/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart4 250/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart5 250/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart6 250/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart7 250/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart8 250/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart9 250/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart10 250/1 norace solo
+./internal/region TestOriginalFoundationActorReadsSDKPart11 250/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart1 280/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart2 280/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart3 280/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart4 280/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart5 280/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart6 280/1 norace solo
+./internal/region TestOriginalFoundationMaterialIAMSDKPart7 280/1 norace solo
+./internal/region TestOriginalStartupLedgerSDKExactExternalSeedAndRestart 180/1 norace solo
+./internal/region TestOriginalStartupLedgerSDKRejectsSchemaAndBirthChanges 100/1 norace solo
+./internal/region TestOriginalStartupLedgerSDKPreservesOrdinarySchema1 100/1 norace solo
+./internal/region TestOriginalStartupTrustSDKCancellationHoldsAtIAMBoundary 100/1 norace solo
+./internal/region TestOriginalStartupLedgerSDKRejectsSourceAndLinkChanges 100/1 norace solo
+./internal/region TestOriginalStartupActorCannotBypassRunningBinarySDK 90/1 norace solo
+./internal/region TestOriginalMaterialPublicationUsesProtectedV2Policy 90/1 norace solo
+./internal/region TestOriginalSourceActorRequiresCompleteSignedOriginalRecord 50/1 norace solo
+./internal/region TestOriginalSourceActorOwnPrincipalSDKStopsAtRunningBinary 50/1 norace solo
 ./internal/region TestFoundationRecordsPersistAndFenceConcurrentWriters 240/1 norace solo
 
 # Original NetBird SDK scenarios (tier.Integration), same rules; race
 # seconds and non-race seconds from dev hosts (2026-10-22).
 ./internal/region TestNetBirdManagerSignedLaunchAndStoreRecovery 160/1 solo
+./internal/region TestOriginalNetBirdManagerFirstLaunchAccountBirth 320/1 solo
+./internal/region TestOriginalNetBirdManagerSDK 60/1 norace solo
+./internal/region TestOriginalNetBirdAccountEscrowInterruptedPublication 150/1 norace solo
+./internal/region TestOriginalNetBirdBackupSDK 440/1 norace solo
+./internal/region TestOriginalNetBirdBackupRefusesPendingProtection 150/1 norace solo
+./internal/region TestOriginalNetBirdBackupDoesNotFallBackAfterRefusal 160/1 norace solo

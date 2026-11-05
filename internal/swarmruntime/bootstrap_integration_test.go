@@ -31,9 +31,6 @@ import (
 // This scenario starts at the post-verification boundary. The actual upstream
 // manager, agent, Raft store and OCI Vault SDK communicate over real sockets.
 func TestBootstrapVaultIntegration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("bootstrap vault integration runs in the Slow suite")
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	fixture, vaultClient, bundles := bootstrapVaultServer(t)

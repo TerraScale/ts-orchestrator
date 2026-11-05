@@ -517,9 +517,6 @@ func (f *offlineFixture) cleanTemp() {
 }
 
 func TestOfflineVerifiedInputsInstalled(t *testing.T) {
-	if testing.Short() {
-		t.Skip("offline image build runs in the Slow suite")
-	}
 	t.Parallel()
 	f := newOffline(t)
 	r := f.run(nil, nil, nil)

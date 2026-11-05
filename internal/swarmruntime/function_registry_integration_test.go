@@ -50,9 +50,6 @@ func (client *functionRegistryGuardClient) GetNode(ctx context.Context, request 
 }
 
 func TestFunctionRegistryManagerIntegration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("multi-node service cluster runs in the Slow suite")
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	client, workerConfig, platform := serviceCluster(t, ctx)

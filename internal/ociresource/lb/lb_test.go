@@ -198,9 +198,6 @@ func TestDrainAndServeOneSeat(t *testing.T) {
 // A serving backend leaves rotation only while another backend that keeps
 // serving reports health OK; a backend the same plan creates does not count.
 func TestServingBackendLeavesOnlyWithAHealthyPeer(t *testing.T) {
-	if testing.Short() {
-		t.Skip("backend drain with a healthy peer runs in the Slow suite")
-	}
 	api := &providerState{balancer: LoadBalancer{ID: lbID, ETag: "e", Tags: owner.Stamp(key, 0, "")},
 		backends:  []Backend{observed("10.251.0.21", false), observed("10.251.0.22", false)},
 		unhealthy: map[string]bool{"10.251.0.22:9465": true}}

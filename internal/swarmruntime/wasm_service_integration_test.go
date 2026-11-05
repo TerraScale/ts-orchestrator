@@ -66,9 +66,6 @@ func (f *functionIntentFixture) CurrentFunction(_ context.Context, tenant, funct
 // Exercise actual CA admission, manager RPC, scheduler, Raft service CAS and
 // release floors. The lifecycle fixture does not qualify container isolation.
 func TestFunctionServiceManagerIntegration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("multi-node service cluster runs in the Slow suite")
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Second)
 	defer cancel()
 	client, workerCfg, platform := serviceCluster(t, ctx)
