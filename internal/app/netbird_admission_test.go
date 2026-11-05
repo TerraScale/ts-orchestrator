@@ -44,9 +44,21 @@ func TestNetBirdAdmissionSurvivesFenceAndGrantRemovalWithoutLosingQuorum(t *test
 		t.Fatal(err)
 	}
 	api.down[lb.Backend{IP: fenceAddresses["gru-1-ctl-3"], Port: 9465}.Name()] = true
-	limited, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	limited, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	if err := restarted.drainNode(limited, 3, record.Node); !errors.Is(err, context.DeadlineExceeded) || len(api.log) != 0 {
+	waited := false
+	sleep := f.sleep
+	f.sleep = func(ctx context.Context, delay time.Duration) error {
+		if delay != fencePoll {
+			t.Fatalf("expected a denied-quorum wait, got %s", delay)
+		}
+		waited = true
+		cancel()
+		return ctx.Err()
+	}
+	err := restarted.drainNode(limited, 3, record.Node)
+	f.sleep = sleep
+	if !waited || !errors.Is(err, context.Canceled) || len(api.log) != 0 {
 		t.Fatalf("removed fence weakened admitted min_serving: log=%v error=%v", api.log, err)
 	}
 	if err := f.reconcile(t.Context()); err != nil {
