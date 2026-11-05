@@ -51,7 +51,7 @@ def main():
         recovery = []
         for region in ('gru', 'sjc', 'fra'):
             region_rows = [row for row in samples if row['region'] == region
-                           and end['at'] <= row['started_at'] <= through]
+                           and row['completed_at'] >= end['at'] and row['started_at'] <= through]
             failures = [row['completed_at'] for row in region_rows if not row['ok']]
             recovered = max(0, max(failures, default=end['at']) - end['at'])
             recovery.append({'region': region, 'seconds_after_end': recovered,
@@ -59,7 +59,11 @@ def main():
         results.append({'rollout': start['rollout'], 'start': start['at'], 'end': end['at'],
                         'complete_coverage': bool(coverage), 'cells': cells, 'recovery': recovery,
                         'pass': bool(coverage) and all(cell['pass'] for cell in cells)})
-    print(json.dumps({'rollouts': results, 'pass': len(results) == 3 and all(row['pass'] for row in results)}, indent=2))
+    inventories = {row['region']: row for row in rows if row.get('kind') == 'inventory'}
+    exact = all(inventories.get(region, {}).get('exact', False) for region in ('gru', 'sjc', 'fra'))
+    cleanup = any(row.get('kind') == 'cleanup' and row.get('status') in (204, 404) for row in rows)
+    print(json.dumps({'rollouts': results, 'exact_inventory': exact, 'cleanup_confirmed': cleanup,
+                      'pass': len(results) == 3 and all(row['pass'] for row in results) and exact and cleanup}, indent=2))
 
 
 if __name__ == '__main__':

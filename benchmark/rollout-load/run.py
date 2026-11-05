@@ -159,12 +159,27 @@ def main():
                             with output_lock:
                                 samples.append(missed)
                             emit(missed)
+        expected = {region: sum(row['ok'] and row['kind'] == 'write' and row['region'] == region for row in samples)
+                    for region in REGIONS}
         for region in REGIONS:
-            try:
-                status, _, body = sql(region, 'SELECT region, COUNT(*) FROM rollout_rows GROUP BY region')
-                emit({'kind': 'inventory', 'region': region, 'status': status, 'body': body})
-            except Exception as error:
-                emit({'kind': 'inventory', 'region': region, 'status': 0, 'error': type(error).__name__})
+            deadline = time.monotonic() + 30
+            while True:
+                try:
+                    status, _, body = sql(region, 'SELECT region, COUNT(*), COUNT(DISTINCT sequence) FROM rollout_rows GROUP BY region')
+                    inventory = body.get('results', [{}])[0].get('rows', []) if isinstance(body, dict) else []
+                    actual = {row[0]: row[1] for row in inventory}
+                    exact = status == 200 and all(actual.get(origin, 0) == count for origin, count in expected.items()) \
+                        and all(row[1] == row[2] for row in inventory) and all(origin in expected for origin in actual)
+                    emit({'kind': 'inventory', 'region': region, 'at': time.time(), 'status': status,
+                          'body': body, 'expected_acked': expected, 'exact': exact})
+                    if exact or time.monotonic() >= deadline:
+                        break
+                except Exception as error:
+                    emit({'kind': 'inventory', 'region': region, 'at': time.time(), 'status': 0,
+                          'error': type(error).__name__, 'exact': False})
+                    if time.monotonic() >= deadline:
+                        break
+                stopping.wait(1)
         for region in REGIONS:
             for kind in ('write', 'read'):
                 cell = [sample for sample in samples if sample['region'] == region and sample['kind'] == kind]
