@@ -22,7 +22,7 @@ const peerCredentialHeader = "X-TerraBase-Peer-Credential"
 const forwardedClientHeader = "X-TerraBase-Forwarded-For"
 
 type regionalRouter struct {
-	nodes func() []mesh.WorkerPeer
+	nodes atomic.Pointer[func() []mesh.WorkerPeer]
 	// Requests retain a read lease until their response body finishes. The write
 	// lease withdraws admission, then waits for every admitted request to finish.
 	holding   atomic.Bool
@@ -48,7 +48,17 @@ func (e *Edge) SetRegionalNodes(nodes func() []mesh.WorkerPeer) {
 	transport.Protocols = new(http.Protocols)
 	transport.Protocols.SetUnencryptedHTTP2(true)
 	transport.ResponseHeaderTimeout = 60 * time.Second
-	e.regional.Store(&regionalRouter{nodes: nodes, transport: transport})
+	router := e.regional.Load()
+	if router == nil {
+		candidate := &regionalRouter{transport: transport}
+		candidate.nodes.Store(&nodes)
+		if e.regional.CompareAndSwap(nil, candidate) {
+			return
+		}
+		router = e.regional.Load()
+	}
+	transport.CloseIdleConnections()
+	router.nodes.Store(&nodes)
 }
 
 func (e *Edge) regionalRequest(ctx context.Context, router *regionalRouter, peer mesh.WorkerPeer, method, path string) (*http.Response, error) {
@@ -85,7 +95,7 @@ func (e *Edge) regionalOwner(ctx context.Context, router *regionalRouter, fresh 
 	if !fresh && router.owner.Node != "" && time.Since(router.checked) < 250*time.Millisecond {
 		return router.owner, nil
 	}
-	peers := router.nodes()
+	peers := (*router.nodes.Load())()
 	// Try the last writer first; during a replacement the other node can be absent.
 	if router.owner.Node != "" {
 		peers = append([]mesh.WorkerPeer{router.owner}, peers...)
@@ -187,7 +197,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 	}
 	var target mesh.WorkerPeer
 	admitted := false
-	for _, peer := range router.nodes() {
+	for _, peer := range (*router.nodes.Load())() {
 		if peer.Node == node {
 			admitted = true
 		} else {
@@ -222,7 +232,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 	router.transport.CloseIdleConnections()
 	{
 		source := owner
-		for _, peer := range router.nodes() {
+		for _, peer := range (*router.nodes.Load())() {
 			if peer.Node == node {
 				source = peer
 			}
