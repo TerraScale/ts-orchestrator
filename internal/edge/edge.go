@@ -103,13 +103,13 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	http1.ResponseHeaderTimeout = 30 * time.Second
 	e.local = roundTripper(func(r *http.Request) (*http.Response, error) {
 		r = traceBackend(r)
-		if resp, err := e.failover(r); resp != nil || err != nil {
-			return resp, err
-		}
 		if r.URL.Port() == "8080" {
 			if response, err := e.regionalRoundTrip(r, false); response != nil || err != nil {
 				return response, err
 			}
+		}
+		if resp, err := e.failover(r); resp != nil || err != nil {
+			return resp, err
 		}
 		if isGRPC(r) {
 			return h2c.RoundTrip(r)
