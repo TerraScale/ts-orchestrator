@@ -51,10 +51,19 @@ stream recreation's `MkdirAll`. Stream data deletion and account cleanup are
 unchanged. The existing root-resource delete/recreate authority regression
 passed 100 executions across five concurrent groups after this fix.
 
+`server/jetstream_cluster.go` selects consumer peers from the stream's target
+assignment during replica migration. An R1-to-R3 stream update publishes the R3
+configuration while its serving peer set can still contain only the original
+R1 peer. Consumer creation and scale-up use `targetPeers()`, including the desired
+assignment, so a matching consumer replica count is not rejected against that
+stale serving set. The function publication and R1-to-R3 consumer migration
+integration passed five race-instrumented repeats after this change (76ae267d2).
+
 Compare this directory with the upstream `v2.15.0` Go module archive before
 upgrading. Apart from this README and the TerraScale regression test,
 `server/server.go`, `server/accounts.go`, `server/leafnode.go`,
-`server/route.go`, `server/events.go`, `server/client.go`, `server/auth.go` and `server/stream.go`
+`server/route.go`, `server/events.go`, `server/client.go`, `server/auth.go`, `server/stream.go`
+and `server/jetstream_cluster.go`
 are the changed upstream files. An upgrade must pass the route-start, absent-client-listener, bounded
 shutdown, R3 formation, and real JWT bridge caller regressions before replacing
 this pinned copy, including initial and repeated CONNECT identity restrictions.
