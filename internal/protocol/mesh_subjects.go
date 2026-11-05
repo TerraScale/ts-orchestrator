@@ -15,6 +15,8 @@ const (
 	// MeshWorkerPrefix + region carries each worker's announcement (its node
 	// name and NetBird address) to its region's founder.
 	MeshWorkerPrefix = "ts.mesh.worker."
+	// MeshDrainPrefix + region asks its ingress to drain a TerraBase task.
+	MeshDrainPrefix = "ts.mesh.drain."
 	// MeshHealthSubject answers with the region's host and SwarmKit health
 	// (internal/regionhealth).
 	MeshHealthSubject = "ts.mesh.health"

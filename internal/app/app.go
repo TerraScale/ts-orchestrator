@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"github.com/TerraScale/ts-orchestrator/internal/edge"
+	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
@@ -92,7 +93,10 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 	} else {
 		go func() {
 			mesh.Run(ctx, *state, meshCluster(plan), func(node *mesh.Node) {
+				handoff.SetTaskDrainer(node.DrainTask)
 				if public != nil {
+					public.SetRegionalNodes(node.RegionalNodes)
+					node.SetRegionalDrainer(public.DrainRegionalNode)
 					public.SetMesh(node)
 				}
 			})

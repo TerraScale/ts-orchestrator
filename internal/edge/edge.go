@@ -52,6 +52,7 @@ type Edge struct {
 	// challenges answers HTTP-01 for the tokens this edge holds.
 	challenges http.Handler
 	mesh       atomic.Pointer[Mesh]
+	regional   atomic.Pointer[regionalRouter]
 	local      http.RoundTripper // to the loopback backends
 	peers      http.RoundTripper // to other regions' edges
 	// peerAddr is region's edge; tests replace it.
@@ -104,6 +105,11 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 		r = traceBackend(r)
 		if resp, err := e.failover(r); resp != nil || err != nil {
 			return resp, err
+		}
+		if r.URL.Port() == "8080" {
+			if response, err := e.regionalRoundTrip(r, false); response != nil || err != nil {
+				return response, err
+			}
 		}
 		if isGRPC(r) {
 			return h2c.RoundTrip(r)

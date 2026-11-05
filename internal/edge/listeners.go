@@ -87,7 +87,7 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 		case "wire":
 			served <- e.serveWire(ln)
 		case "terrabase":
-			served <- serveTerraBase(ln, terrabaseInternal, terrabaseHandoffWait)
+			served <- e.serveRegionalInternal(ln)
 		}
 	}()
 	tick := time.NewTicker(5 * time.Second)

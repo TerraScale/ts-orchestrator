@@ -34,6 +34,7 @@ def main():
     output_lock = threading.Lock()
     local = threading.local()
     samples = []
+    admission = threading.BoundedSemaphore(96)
     output = args.output.open('w')
 
     def emit(value):
@@ -99,14 +100,20 @@ def main():
         result = {'kind': kind, 'region': region, 'sequence': number, 'started_at': started,
                   'schedule_lag_ms': round((time.monotonic() - scheduled) * 1000, 3)}
         try:
-            status, headers, _ = sql(region, statement)
+            status, headers, body = sql(region, statement)
+            if status != 200 and isinstance(body, dict):
+                result['error_code'] = body.get('code')
+                if not result['error_code'] and isinstance(body.get('error'), dict):
+                    result['error_code'] = body['error'].get('code')
             result.update(status=status, headers=headers, ok=status == 200)
         except Exception as error:
             result.update(status=0, ok=False, error=type(error).__name__)
-        result.update(completed_at=time.time(), ms=round((time.time() - started) * 1000, 3))
+        result.update(completed_at=time.time(), request_ms=round((time.time() - started) * 1000, 3),
+                      ms=round((time.monotonic() - scheduled) * 1000, 3))
         with output_lock:
             samples.append(result)
         emit(result)
+        admission.release()
 
     renew()
     renewal = threading.Thread(target=renew_background, daemon=True)
@@ -136,7 +143,16 @@ def main():
                 stopping.wait(max(0, scheduled - time.monotonic()))
                 for region in REGIONS:
                     for kind in ('write', 'read'):
-                        pool.submit(sample, region, kind, number, scheduled)
+                        if admission.acquire(blocking=False):
+                            pool.submit(sample, region, kind, number, scheduled)
+                        else:
+                            missed = {'kind': kind, 'region': region, 'sequence': number,
+                                      'started_at': time.time(), 'completed_at': time.time(),
+                                      'status': 0, 'ok': False, 'error': 'offered_arrival_missed',
+                                      'ms': 0, 'schedule_lag_ms': round((time.monotonic() - scheduled) * 1000, 3)}
+                            with output_lock:
+                                samples.append(missed)
+                            emit(missed)
         for region in REGIONS:
             status, _, body = sql(region, 'SELECT region, COUNT(*) FROM rollout_rows GROUP BY region')
             emit({'kind': 'inventory', 'region': region, 'status': status, 'body': body})

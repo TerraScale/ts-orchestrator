@@ -1,0 +1,283 @@
+package edge
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+)
+
+const peerCredentialHeader = "X-TerraBase-Peer-Credential"
+const forwardedClientHeader = "X-TerraBase-Forwarded-For"
+
+type regionalRouter struct {
+	nodes func() []mesh.WorkerPeer
+	// Requests retain a read lease until their response body finishes. The write
+	// lease withdraws admission, then waits for every admitted request to finish.
+	holding   atomic.Bool
+	ingress   sync.RWMutex
+	changing  sync.Mutex
+	mu        sync.Mutex
+	owner     mesh.WorkerPeer
+	checked   time.Time
+	transport *http.Transport
+}
+type regionalStatus struct {
+	Node   string `json:"node"`
+	Owner  string `json:"owner"`
+	Epoch  int64  `json:"epoch"`
+	Writer bool   `json:"writer"`
+	Ready  bool   `json:"ready"`
+}
+
+// SetRegionalNodes discovers backends from authenticated mesh membership.
+func (e *Edge) SetRegionalNodes(nodes func() []mesh.WorkerPeer) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.Protocols = new(http.Protocols)
+	transport.Protocols.SetUnencryptedHTTP2(true)
+	transport.ResponseHeaderTimeout = 60 * time.Second
+	e.regional.Store(&regionalRouter{nodes: nodes, transport: transport})
+}
+
+func (e *Edge) regionalRequest(ctx context.Context, router *regionalRouter, peer mesh.WorkerPeer, method, path string) (*http.Response, error) {
+	key := e.requestProofSecret.Load()
+	if key == nil {
+		return nil, errors.New("TerraBase peer credential unavailable")
+	}
+	request, err := http.NewRequestWithContext(ctx, method, "http://"+net.JoinHostPort(peer.Address, "8081")+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set(peerCredentialHeader, string(*key))
+	return router.transport.RoundTrip(request)
+}
+func (e *Edge) regionalStatus(ctx context.Context, router *regionalRouter, peer mesh.WorkerPeer) (regionalStatus, error) {
+	response, err := e.regionalRequest(ctx, router, peer, http.MethodGet, "/v1/rollout/status")
+	if err != nil {
+		return regionalStatus{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return regionalStatus{}, fmt.Errorf("regional status HTTP %d", response.StatusCode)
+	}
+	var status regionalStatus
+	err = json.NewDecoder(io.LimitReader(response.Body, 16<<10)).Decode(&status)
+	if err == nil && status.Node != peer.Node {
+		err = errors.New("regional node identity mismatch")
+	}
+	return status, err
+}
+func (e *Edge) regionalOwner(ctx context.Context, router *regionalRouter, fresh bool) (mesh.WorkerPeer, error) {
+	router.mu.Lock()
+	defer router.mu.Unlock()
+	if !fresh && router.owner.Node != "" && time.Since(router.checked) < 250*time.Millisecond {
+		return router.owner, nil
+	}
+	peers := router.nodes()
+	// Try the last writer first; during a replacement the other node can be absent.
+	if router.owner.Node != "" {
+		peers = append([]mesh.WorkerPeer{router.owner}, peers...)
+	}
+	for _, peer := range peers {
+		probe, cancel := context.WithTimeout(ctx, time.Second)
+		status, err := e.regionalStatus(probe, router, peer)
+		cancel()
+		if err != nil || !status.Writer || !status.Ready || status.Owner != peer.Node {
+			continue
+		}
+		router.owner = peer
+		router.checked = time.Now()
+		return peer, nil
+	}
+	return mesh.WorkerPeer{}, errors.New("no fenced regional writer is ready")
+}
+
+type regionalBody struct {
+	io.ReadCloser
+	once    sync.Once
+	release func()
+}
+
+func (b *regionalBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil {
+		b.once.Do(b.release)
+	}
+	return n, err
+}
+func (b *regionalBody) Close() error { err := b.ReadCloser.Close(); b.once.Do(b.release); return err }
+
+func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Response, error) {
+	router := e.regional.Load()
+	if router == nil {
+		return nil, nil
+	}
+	// Waiting for admission is cancellation-aware; avoid stranding a goroutine on
+	// an RWMutex when a client disconnects during a bounded handoff.
+	for {
+		if !router.holding.Load() && router.ingress.TryRLock() {
+			if !router.holding.Load() {
+				break
+			}
+			router.ingress.RUnlock()
+		}
+		select {
+		case <-request.Context().Done():
+			return nil, request.Context().Err()
+		case <-time.After(time.Millisecond):
+		}
+	}
+	release := router.ingress.RUnlock
+	peer, err := e.regionalOwner(request.Context(), router, false)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	key := e.requestProofSecret.Load()
+	if key == nil {
+		release()
+		return nil, errors.New("TerraBase peer credential unavailable")
+	}
+	out := request.Clone(request.Context())
+	out.URL.Host = net.JoinHostPort(peer.Address, "8081")
+	out.URL.Scheme = "http"
+	out.Header.Set(peerCredentialHeader, string(*key))
+	if !internal {
+		// X-Forwarded-For was derived by this edge (or its authenticated mesh peer).
+		// Never trust a public caller's peer-only client identity header.
+		host, _, _ := net.SplitHostPort(request.RemoteAddr)
+		if forwarded := request.Header.Get("X-Forwarded-For"); forwarded != "" {
+			host = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+		}
+		out.Header.Set(forwardedClientHeader, host)
+	}
+	response, err := router.transport.RoundTrip(out)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	response.Body = &regionalBody{ReadCloser: response.Body, release: release}
+	return response, nil
+}
+
+// DrainRegionalNode authorizes a stop only after ingress has drained and a
+// different ready node owns the region following an applied-position handoff.
+func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
+	router := e.regional.Load()
+	if router == nil {
+		return errors.New("regional routing unavailable")
+	}
+	router.changing.Lock()
+	defer router.changing.Unlock()
+	owner, err := e.regionalOwner(ctx, router, true)
+	if err != nil {
+		return err
+	}
+	var target mesh.WorkerPeer
+	admitted := false
+	for _, peer := range router.nodes() {
+		if peer.Node == node {
+			admitted = true
+		} else {
+			target = peer
+		}
+	}
+	if !admitted || target.Node == "" {
+		return errors.New("replacement has no admitted regional peer")
+	}
+	if owner.Node == node {
+		// Copy bulk state while clients still use the writer; the final fenced pull
+		// under the ingress barrier proves positions and transfers ownership.
+		response, err := e.regionalRequest(ctx, router, target, http.MethodPost, "/v1/rollout/prime?source="+url.QueryEscape(node))
+		if err != nil {
+			return err
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusNoContent {
+			return fmt.Errorf("regional prime HTTP %d", response.StatusCode)
+		}
+	}
+	router.holding.Store(true)
+	defer router.holding.Store(false)
+	for !router.ingress.TryLock() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Millisecond):
+		}
+	}
+	defer router.ingress.Unlock()
+	router.transport.CloseIdleConnections()
+	{
+		source := owner
+		for _, peer := range router.nodes() {
+			if peer.Node == node {
+				source = peer
+			}
+		}
+		response, err := e.regionalRequest(ctx, router, source, http.MethodPost, "/v1/rollout/drain?target="+url.QueryEscape(target.Node))
+		if err != nil {
+			return err
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusNoContent {
+			return fmt.Errorf("regional handoff HTTP %d", response.StatusCode)
+		}
+	}
+	// The CAS may take one observation round to reach the candidate. Never let
+	// status on the node being stopped authorize its own stop.
+	for {
+		status, err := e.regionalStatus(ctx, router, target)
+		if err == nil && status.Writer && status.Ready && status.Owner == target.Node {
+			router.mu.Lock()
+			router.owner = target
+			router.checked = time.Now()
+			router.mu.Unlock()
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+// serveRegionalInternal selects a backend for each HTTP/2 request, including
+// already pooled auth/dashboard connections, rather than pinning the TCP stream.
+func (e *Edge) serveRegionalInternal(ln net.Listener) error {
+	protocols := new(http.Protocols)
+	protocols.SetUnencryptedHTTP2(true)
+	proxy := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
+		pr.SetURL(&url.URL{Scheme: "http", Host: "127.0.0.1:8081"})
+		pr.Out.Host = pr.In.Host
+	},
+		Transport: roundTripper(func(r *http.Request) (*http.Response, error) {
+			if response, err := e.regionalRoundTrip(r, true); response != nil || err != nil {
+				return response, err
+			}
+			address, err := terrabaseInternal()
+			if err != nil {
+				return nil, err
+			}
+			r.URL.Host = address
+			transport := http.DefaultTransport.(*http.Transport).Clone()
+			transport.Protocols = protocols
+			defer transport.CloseIdleConnections()
+			return transport.RoundTrip(r)
+		}), FlushInterval: -1}
+	server := &http.Server{Handler: proxy, Protocols: protocols, ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 64 << 10}
+	return server.Serve(ln)
+}

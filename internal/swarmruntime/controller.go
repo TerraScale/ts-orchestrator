@@ -727,6 +727,13 @@ func (c *controller) stopTask(ctx context.Context) error {
 	if status.Status == containerd.Created {
 		return c.Terminate(ctx)
 	}
+	if c.task.ServiceAnnotations.Labels[LabelServiceSpec] == "terrabase" && slices.ContainsFunc(c.spec.Env, func(value string) bool {
+		return strings.HasPrefix(value, "TS_REGION=")
+	}) {
+		if err := handoff.DrainTask(ctx, c.task.ID); err != nil {
+			return err
+		}
+	}
 	wait, err := t.Wait(ctx)
 	if err != nil {
 		return err

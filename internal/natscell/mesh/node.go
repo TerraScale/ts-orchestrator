@@ -184,9 +184,10 @@ type Node struct {
 	peerReportMu    sync.Mutex
 	topologyDesired atomic.Pointer[map[string]Entry]
 
-	workerMu  sync.Mutex
-	announced map[string]announcement // founder: worker node -> its last announcement
-	joined    []WorkerPeer            // founder: the fully joined workers, refreshed each peersEvery
+	regionalDrain atomic.Pointer[regionalDrainer]
+	workerMu      sync.Mutex
+	announced     map[string]announcement // founder: worker node -> its last announcement
+	joined        []WorkerPeer            // founder: the fully joined workers, refreshed each peersEvery
 }
 
 func start(cfg config) (_ *Node, err error) {
@@ -278,6 +279,7 @@ func start(cfg config) (_ *Node, err error) {
 		ApplySubject: func(m *nats.Msg) { node.goWork(func() { node.handleApply(m) }) },
 	}
 	handlers[protocol.MeshWorkerPrefix+cfg.region] = node.recordWorker
+	handlers[protocol.MeshDrainPrefix+cfg.region] = func(m *nats.Msg) { node.goWork(func() { node.handleDrain(m) }) }
 	if cfg.applier == nil {
 		handlers = nil // the region's founder answers; a worker only carries messages
 	}
