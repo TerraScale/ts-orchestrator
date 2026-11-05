@@ -5,6 +5,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +26,7 @@ import (
 
 const jobs = 24
 const packageShards = 6
+const cacheLimitBytes = 32 << 30
 
 type event struct {
 	Action  string
@@ -375,6 +378,214 @@ func discover(ctx context.Context, goCommand []string, directory string, binarie
 
 func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
 
+const cacheFormat = 1
+
+// cacheRoot holds discovery generations under the user cache directory, never
+// inside a checkout. FASTTEST_CACHE redirects it in contract tests.
+func cacheRoot() string {
+	if root := os.Getenv("FASTTEST_CACHE"); root != "" {
+		return root
+	}
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "ts-orchestrator-fasttest")
+	}
+	return filepath.Join(base, "ts-orchestrator-fasttest")
+}
+
+type pkgInventory struct {
+	ImportPath   string
+	Dir          string
+	GoFiles      []string
+	CgoFiles     []string
+	TestGoFiles  []string
+	XTestGoFiles []string
+	EmbedFiles   []string
+	HFiles       []string
+	SFiles       []string
+}
+
+// generationKey fingerprints every input a rebuilt test binary reads: the
+// module's whole source inventory, its module pins, the toolchain executable
+// and the build-relevant environment. Retained binaries are transitive
+// compilation outputs, so their validity is a module-wide property; a
+// per-package key would reuse a stale binary after a dependency edit.
+func generationKey(ctx context.Context, goCommand []string) string {
+	cmd := command(ctx, goCommand, "list", "-json", "./...")
+	cmd.Stderr = nil
+	data, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	digest := sha256.New()
+	fmt.Fprintln(digest, cacheFormat)
+	for _, name := range []string{"GOOS", "GOARCH", "CGO_ENABLED", "GOFLAGS", "GOTOOLCHAIN"} {
+		fmt.Fprintf(digest, "%s=%s\n", name, os.Getenv(name))
+	}
+	if info, err := os.Stat(goCommand[0]); err == nil {
+		fmt.Fprintf(digest, "tool=%s:%d:%d\n", goCommand[0], info.Size(), info.ModTime().UnixNano())
+	}
+	var packages []pkgInventory
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	for {
+		var pkg pkgInventory
+		if err := decoder.Decode(&pkg); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return ""
+		}
+		packages = append(packages, pkg)
+	}
+	slices.SortFunc(packages, func(a, b pkgInventory) int { return strings.Compare(a.ImportPath, b.ImportPath) })
+	for _, pkg := range packages {
+		fmt.Fprintf(digest, "pkg %s\n", pkg.ImportPath)
+		for _, group := range [][]string{pkg.GoFiles, pkg.CgoFiles, pkg.TestGoFiles, pkg.XTestGoFiles, pkg.EmbedFiles, pkg.HFiles, pkg.SFiles} {
+			names := slices.Clone(group)
+			slices.Sort(names)
+			for _, name := range names {
+				info, err := os.Stat(filepath.Join(pkg.Dir, name))
+				if err != nil {
+					return ""
+				}
+				fmt.Fprintf(digest, "file %s:%d:%d\n", name, info.Size(), info.ModTime().UnixNano())
+			}
+		}
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for _, name := range []string{"go.mod", "go.sum", "go.work"} {
+		info, err := os.Stat(filepath.Join(cwd, name))
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(digest, "module %s:%d:%d\n", name, info.Size(), info.ModTime().UnixNano())
+	}
+	return hex.EncodeToString(digest.Sum(nil))[:32]
+}
+
+type cacheEntry struct {
+	Format   int
+	Working  string
+	Search   string
+	Tests    map[string][]string
+	Binaries map[string]string
+}
+
+// loadCache returns the stored generation only when it is complete: same
+// package set, same working directory and every retained binary present.
+func loadCache(root, key string, packages map[string][]string) (map[string]testBinary, bool) {
+	if key == "" {
+		return nil, false
+	}
+	data, err := os.ReadFile(filepath.Join(root, key, "entry.json"))
+	if err != nil {
+		return nil, false
+	}
+	var entry cacheEntry
+	if json.Unmarshal(data, &entry) != nil || entry.Format != cacheFormat {
+		return nil, false
+	}
+	cwd, err := os.Getwd()
+	if err != nil || entry.Working != cwd || len(entry.Tests) != len(packages) {
+		return nil, false
+	}
+	binaries := make(map[string]testBinary)
+	for pkg, names := range entry.Tests {
+		if _, known := packages[pkg]; !known || !slices.Equal(names, packages[pkg]) {
+			return nil, false
+		}
+		relative := entry.Binaries[pkg]
+		if relative == "" {
+			continue
+		}
+		path := filepath.Join(root, key, relative)
+		if info, err := os.Stat(path); err != nil || info.IsDir() || info.Mode()&0111 == 0 {
+			return nil, false
+		}
+		binaries[pkg] = testBinary{path, entry.Working, entry.Search}
+	}
+	return binaries, true
+}
+
+// storeCache writes one generation atomically and keeps only the newest few,
+// bounding the cache far below the dev hosts' spare disk.
+func storeCache(root, key string, packages map[string][]string, binaries map[string]testBinary) {
+	if key == "" {
+		return
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return
+	}
+	staging, err := os.MkdirTemp(root, ".staging-")
+	if err != nil {
+		return
+	}
+	entry := cacheEntry{Format: cacheFormat, Tests: packages, Binaries: map[string]string{}}
+	cwd, _ := os.Getwd()
+	entry.Working = cwd
+	entry.Search = os.Getenv("PATH")
+	kept := 0
+	for pkg, tests := range packages {
+		if len(tests) == 0 && binaries[pkg].Path == "" {
+			continue
+		}
+		binary := binaries[pkg]
+		if binary.Path == "" {
+			continue
+		}
+		relative := fmt.Sprintf("test-%04d", kept)
+		if err := os.Link(binary.Path, filepath.Join(staging, relative)); err != nil {
+			_ = os.RemoveAll(staging)
+			return
+		}
+		entry.Binaries[pkg] = relative
+		kept++
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		_ = os.RemoveAll(staging)
+		return
+	}
+	if os.WriteFile(filepath.Join(staging, "entry.json"), data, 0o600) != nil {
+		_ = os.RemoveAll(staging)
+		return
+	}
+	if os.Rename(staging, filepath.Join(root, key)) != nil {
+		_ = os.RemoveAll(staging)
+		return
+	}
+	pruneCache(root, key)
+}
+
+func pruneCache(root, keep string) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	var generations []os.DirEntry
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".staging-") {
+			_ = os.RemoveAll(filepath.Join(root, entry.Name()))
+		} else if entry.IsDir() && len(entry.Name()) == 32 && entry.Name() != keep {
+			generations = append(generations, entry)
+		}
+	}
+	slices.SortFunc(generations, func(a, b os.DirEntry) int {
+		left, leftErr := a.Info()
+		right, rightErr := b.Info()
+		if leftErr != rightErr {
+			return -1
+		}
+		return left.ModTime().Compare(right.ModTime())
+	})
+	for _, stale := range generations[:max(0, len(generations)-2)] {
+		_ = os.RemoveAll(filepath.Join(root, stale.Name()))
+	}
+}
+
 func execute(ctx context.Context, goCommand []string, s shard, directory string) result {
 	return executeBinary(ctx, goCommand, s, directory, testBinary{})
 }
@@ -525,9 +736,36 @@ func run(ctx context.Context, goCommand []string, hints []estimate, directory st
 		}
 		_ = os.Remove(filepath.Join(directory, "retain-test"))
 	}()
-	packages, err := discover(ctx, goCommand, directory, binaries)
-	if err != nil {
-		return err
+	root := cacheRoot()
+	key := generationKey(ctx, goCommand)
+	packages, cached := map[string][]string(nil), false
+	if key != "" {
+		if data, err := os.ReadFile(filepath.Join(root, key, "entry.json")); err == nil {
+			var entry cacheEntry
+			if json.Unmarshal(data, &entry) == nil && entry.Format == cacheFormat {
+				candidates := entry.Tests
+				if binaries, cached = loadCache(root, key, candidates); cached {
+					for pkg, tests := range candidates {
+						if binaries[pkg].Path == "" && len(tests) > 0 {
+							cached = false
+							break
+						}
+					}
+					if cached {
+						packages = candidates
+					}
+				}
+			}
+		}
+	}
+	fmt.Fprintf(os.Stderr, "fast phase=cache hit=%v key=%s\n", cached, key)
+	if !cached {
+		discovered, err := discover(ctx, goCommand, directory, binaries)
+		if err != nil {
+			return err
+		}
+		packages = discovered
+		storeCache(root, key, packages, binaries)
 	}
 	queue := plan(packages, hints)
 	if err := validatePlan(packages, queue); err != nil {

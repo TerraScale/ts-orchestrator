@@ -196,6 +196,7 @@ func fixtureRun(t *testing.T, mode string) ([]invocation, []result, error) {
 	directory := t.TempDir()
 	t.Setenv("FAST_CONTRACT_MODE", mode)
 	t.Setenv("FAST_CONTRACT_STATE", directory)
+	t.Setenv("FASTTEST_CACHE", filepath.Join(t.TempDir(), "cache"))
 	var output bytes.Buffer
 	err := run(t.Context(), []string{os.Args[0], "--fake-go"}, nil, directory, &output)
 	var calls []invocation
