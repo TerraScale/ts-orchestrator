@@ -36,6 +36,8 @@ func (n *Node) SetRegionalDrainer(drain func(context.Context, string) error) {
 
 // DrainTask asks the region's founder to withdraw ingress before this task stops.
 func (n *Node) DrainTask(ctx context.Context, task string) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	data, err := protocol.EncodeJSON(drainRequest{Node: n.cfg.server, Task: task})
 	if err != nil {
 		return err
