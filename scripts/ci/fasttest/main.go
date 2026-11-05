@@ -394,22 +394,25 @@ func cacheRoot() string {
 }
 
 type pkgInventory struct {
-	ImportPath   string
-	Dir          string
-	GoFiles      []string
-	CgoFiles     []string
-	TestGoFiles  []string
-	XTestGoFiles []string
-	EmbedFiles   []string
-	HFiles       []string
-	SFiles       []string
+	ImportPath      string
+	Dir             string
+	GoFiles         []string
+	CgoFiles        []string
+	TestGoFiles     []string
+	XTestGoFiles    []string
+	EmbedFiles      []string
+	TestEmbedFiles  []string
+	XTestEmbedFiles []string
+	HFiles          []string
+	SFiles          []string
 }
 
 // generationKey fingerprints every input a rebuilt test binary reads: the
-// module's whole source inventory, its module pins, the toolchain executable
-// and the build-relevant environment. Retained binaries are transitive
-// compilation outputs, so their validity is a module-wide property; a
-// per-package key would reuse a stale binary after a dependency edit.
+// hashed contents of the module's whole source inventory, its module pins,
+// the PATH-resolved toolchain and the build-relevant environment. Retained
+// binaries are transitive compilation outputs, so their validity is a
+// module-wide property; a per-package key would reuse a stale binary after a
+// dependency edit.
 func generationKey(ctx context.Context, goCommand []string) string {
 	cmd := command(ctx, goCommand, "list", "-json", "./...")
 	cmd.Stderr = nil
@@ -422,8 +425,19 @@ func generationKey(ctx context.Context, goCommand []string) string {
 	for _, name := range []string{"GOOS", "GOARCH", "CGO_ENABLED", "GOFLAGS", "GOTOOLCHAIN"} {
 		fmt.Fprintf(digest, "%s=%s\n", name, os.Getenv(name))
 	}
-	if info, err := os.Stat(goCommand[0]); err == nil {
-		fmt.Fprintf(digest, "tool=%s:%d:%d\n", goCommand[0], info.Size(), info.ModTime().UnixNano())
+	tool := goCommand[0]
+	if resolved, err := exec.LookPath(goCommand[0]); err == nil {
+		tool = resolved
+	} else if !filepath.IsAbs(tool) {
+		return ""
+	}
+	if contents, err := os.ReadFile(tool); err == nil {
+		toolDigest := sha256.Sum256(contents)
+		fmt.Fprintf(digest, "tool=%s:%s\n", tool, hex.EncodeToString(toolDigest[:]))
+	} else if info, statErr := os.Stat(tool); statErr == nil {
+		fmt.Fprintf(digest, "tool=%s:%d:%d\n", tool, info.Size(), info.ModTime().UnixNano())
+	} else {
+		return ""
 	}
 	var packages []pkgInventory
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
@@ -440,15 +454,21 @@ func generationKey(ctx context.Context, goCommand []string) string {
 	slices.SortFunc(packages, func(a, b pkgInventory) int { return strings.Compare(a.ImportPath, b.ImportPath) })
 	for _, pkg := range packages {
 		fmt.Fprintf(digest, "pkg %s\n", pkg.ImportPath)
-		for _, group := range [][]string{pkg.GoFiles, pkg.CgoFiles, pkg.TestGoFiles, pkg.XTestGoFiles, pkg.EmbedFiles, pkg.HFiles, pkg.SFiles} {
+		for _, group := range [][]string{pkg.GoFiles, pkg.CgoFiles, pkg.TestGoFiles, pkg.XTestGoFiles, pkg.EmbedFiles, pkg.TestEmbedFiles, pkg.XTestEmbedFiles, pkg.HFiles, pkg.SFiles} {
 			names := slices.Clone(group)
 			slices.Sort(names)
 			for _, name := range names {
-				info, err := os.Stat(filepath.Join(pkg.Dir, name))
+				file, err := os.Open(filepath.Join(pkg.Dir, name))
 				if err != nil {
 					return ""
 				}
-				fmt.Fprintf(digest, "file %s:%d:%d\n", name, info.Size(), info.ModTime().UnixNano())
+				fileDigest := sha256.New()
+				_, err = io.Copy(fileDigest, file)
+				_ = file.Close()
+				if err != nil {
+					return ""
+				}
+				fmt.Fprintf(digest, "file %s:%s\n", name, hex.EncodeToString(fileDigest.Sum(nil)[:16]))
 			}
 		}
 	}
@@ -457,11 +477,17 @@ func generationKey(ctx context.Context, goCommand []string) string {
 		return ""
 	}
 	for _, name := range []string{"go.mod", "go.sum", "go.work"} {
-		info, err := os.Stat(filepath.Join(cwd, name))
+		file, err := os.Open(filepath.Join(cwd, name))
 		if err != nil {
 			continue
 		}
-		fmt.Fprintf(digest, "module %s:%d:%d\n", name, info.Size(), info.ModTime().UnixNano())
+		fileDigest := sha256.New()
+		_, err = io.Copy(fileDigest, file)
+		_ = file.Close()
+		if err != nil {
+			return ""
+		}
+		fmt.Fprintf(digest, "module %s:%s\n", name, hex.EncodeToString(fileDigest.Sum(nil)[:16]))
 	}
 	return hex.EncodeToString(digest.Sum(nil))[:32]
 }
@@ -729,14 +755,18 @@ func executeBinary(ctx context.Context, goCommand []string, s shard, directory s
 }
 
 func run(ctx context.Context, goCommand []string, hints []estimate, directory string, out io.Writer) error {
+	root := cacheRoot()
 	binaries := make(map[string]testBinary)
 	defer func() {
+		// Cache-owned hardlinks survive; only scratch binaries from this run
+		// are removed. Hardlinks cannot be removed through the cache root.
 		for _, binary := range binaries {
-			_ = os.Remove(binary.Path)
+			if !strings.HasPrefix(binary.Path, root+string(os.PathSeparator)) {
+				_ = os.Remove(binary.Path)
+			}
 		}
 		_ = os.Remove(filepath.Join(directory, "retain-test"))
 	}()
-	root := cacheRoot()
 	key := generationKey(ctx, goCommand)
 	packages, cached := map[string][]string(nil), false
 	if key != "" {
