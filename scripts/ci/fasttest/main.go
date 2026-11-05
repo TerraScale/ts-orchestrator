@@ -75,15 +75,13 @@ func plan(packages map[string][]string, hints []estimate) []shard {
 	// Plain -short observations, including packages the race planner does not
 	// split. All other estimated slow packages also receive six shards.
 	heavy := map[string]float64{
-		"/internal/app": 170, "/internal/natscell": 85,
-		"/internal/natscell/mesh": 170, "/internal/region": 180,
-		"/internal/bootstrapstart": 90, "/internal/swarmruntime": 90,
-		"/internal/observability": 75, "/internal/ociregion/publicapi": 85,
-		"/internal/edge": 75, "/internal/host": 70,
-		"/internal/foundationbinding": 40, "/internal/delivery": 30,
-		"/internal/kvsnapshot": 25, "/internal/netbird/client": 25,
-		"/internal/ociresource/lb": 30, "/internal/ociresource/nlb": 25,
-		"/tests/deploy": 180,
+		"/internal/app": 70, "/internal/natscell/mesh": 35,
+		"/internal/ociregion/publicapi": 35, "/internal/bootstrapstart": 35,
+		"/internal/swarmruntime": 20, "/internal/oci": 20,
+		"/internal/bootstrapmaterial": 20, "/internal/bootstrapstart/materialsource": 20,
+		"/internal/natscell": 20, "/internal/region": 15,
+		"/internal/observability": 15, "/internal/edge": 15,
+		"/internal/host": 15, "/internal/authority": 12,
 	}
 	var queue []shard
 	for pkg, tests := range packages {
@@ -127,12 +125,6 @@ func plan(packages map[string][]string, hints []estimate) []shard {
 			// package loading, vet and TestMain setup. Split roughly thirty
 			// seconds of estimated work per process, up to the existing limit.
 			count = min(packageShards, max(1, (int(cost)+29)/30), max(1, len(tests)))
-			// Region's SDK cases dominate the measured serial tail. Give the
-			// expensive cases independent slots instead of combining several
-			// of them behind one long-running case.
-			if strings.HasSuffix(pkg, "/internal/region") {
-				count = min(jobs, max(1, len(tests)))
-			}
 		}
 		bins := make([]shard, count)
 		for i := range bins {
@@ -297,6 +289,9 @@ func discover(ctx context.Context, goCommand []string, directory string, binarie
 	}
 	stopRead := context.AfterFunc(ctx, func() { _ = output.Close() })
 	defer stopRead()
+	// test2json emits long output lines as several events without test names;
+	// a retained-binary marker longer than one event must be reassembled.
+	pendingLines := make(map[string]*strings.Builder)
 	terminal := make(map[string]int)
 	var invalid error
 	decoder := json.NewDecoder(output)
@@ -322,6 +317,21 @@ func discover(ctx context.Context, goCommand []string, directory string, binarie
 			terminal[e.Package]++
 		}
 		if e.Action != "output" {
+			continue
+		}
+		// test2json splits lines longer than its buffer across several output
+		// events; only a trailing newline completes one. Retained-binary
+		// markers exceed that buffer whenever PATH is long.
+		if pending, ok := pendingLines[e.Package]; ok {
+			pending.WriteString(e.Output)
+			if !strings.HasSuffix(pending.String(), "\n") {
+				continue
+			}
+			delete(pendingLines, e.Package)
+			e.Output = pending.String()
+		} else if !strings.HasSuffix(e.Output, "\n") {
+			pendingLines[e.Package] = new(strings.Builder)
+			pendingLines[e.Package].WriteString(e.Output)
 			continue
 		}
 		name := strings.TrimSpace(e.Output)
@@ -400,7 +410,11 @@ func executeBinary(ctx context.Context, goCommand []string, s shard, directory s
 		source = command(ctx, []string{binary.Path},
 			"-test.paniconexit0", "-test.v=test2json", "-test.timeout=10m", "-test.short", "-test.count=1", "-test.parallel=2", "-test.cpu=2", "-test.run", expression)
 		source.Dir = binary.Dir
-		source.Env = append(source.Env, "PATH="+binary.SearchPath)
+		// Replace PATH instead of appending it: a duplicate would shadow the
+		// original on the last-wins platforms and drop every later entry.
+		source.Env = append(slices.DeleteFunc(source.Env, func(entry string) bool {
+			return strings.HasPrefix(entry, "PATH=")
+		}), "PATH="+binary.SearchPath)
 		source.Stdout, source.Stderr = writer, writer
 		cmd = command(ctx, goCommand, "tool", "test2json", "-p", s.Package, "-t")
 		cmd.Stdin = input

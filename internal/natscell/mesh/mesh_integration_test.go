@@ -207,6 +207,9 @@ func eventually(t *testing.T, what string, check func() bool) {
 }
 
 func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("multi-region mesh integration runs in the Slow suite")
+	}
 	regions := Regions()
 	if len(regions) != 3 {
 		t.Fatalf("ordered regions = %v", regions)
