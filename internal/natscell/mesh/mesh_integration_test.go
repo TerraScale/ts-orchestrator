@@ -1,7 +1,6 @@
 package mesh
 
 import (
-	"maps"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -9,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/rand/v2"
 	"net"
 	"os"
