@@ -47,13 +47,17 @@ WantedBy=multi-user.target
 `
 
 // Runtime binaries are image inputs: hosts never install mutable distribution packages.
-func installRuntime(ctx context.Context, g *Guest, architecture, work string, out io.Writer) error {
+func (services Services) installRuntime(ctx context.Context, g *Guest, architecture, work string, out io.Writer) error {
+	fetch := services.RuntimeFetch
+	if fetch == nil {
+		fetch = fetchRuntime
+	}
 	pins, ok := runtimeDigests[architecture]
 	if !ok {
 		return errors.New("unsupported container runtime architecture")
 	}
 	archive := filepath.Join(work, "containerd.tar.gz")
-	if err := fetchRuntime(ctx, "https://github.com/containerd/containerd/releases/download/v"+containerdVersion+"/containerd-static-"+containerdVersion+"-linux-"+architecture+".tar.gz", archive, pins.containerd); err != nil {
+	if err := fetch(ctx, "https://github.com/containerd/containerd/releases/download/v"+containerdVersion+"/containerd-static-"+containerdVersion+"-linux-"+architecture+".tar.gz", archive, pins.containerd); err != nil {
 		return err
 	}
 	f, err := os.Open(archive)
@@ -96,7 +100,7 @@ func installRuntime(ctx context.Context, g *Guest, architecture, work string, ou
 	if len(found) != 2 {
 		return errors.New("pinned containerd archive lacks runtime executables")
 	}
-	if err := fetchRuntime(ctx, "https://github.com/opencontainers/runc/releases/download/v"+runcVersion+"/runc."+architecture, filepath.Join(work, "runc"), pins.runc); err != nil {
+	if err := fetch(ctx, "https://github.com/opencontainers/runc/releases/download/v"+runcVersion+"/runc."+architecture, filepath.Join(work, "runc"), pins.runc); err != nil {
 		return err
 	}
 	for _, name := range []string{"containerd", "containerd-shim-runc-v2", "runc"} {

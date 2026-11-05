@@ -26,6 +26,10 @@ type Services struct {
 	// ImageImporter builds the OCI image importer for one region. Nil uses
 	// the operator's ~/.oci/config through the in-binary SDK.
 	ImageImporter imageimport.ImporterFactory
+
+	// RuntimeFetch downloads a pinned runtime artifact. Nil uses the production
+	// HTTP downloader and checksum verifier. Tests supply local artifact bytes.
+	RuntimeFetch func(context.Context, string, string, string) error
 }
 
 func (s Services) importer() imageimport.ImporterFactory {
@@ -63,9 +67,9 @@ func RunWith(ctx context.Context, root string, args []string, stdout, stderr io.
 	case "inputs":
 		e, code = runInputs(root, args[1:], output, stderr)
 	case "guestfs":
-		e, code = runGuestfs(ctx, root, args[1:], output, stderr)
+		e, code = runGuestfs(ctx, root, args[1:], output, stderr, services)
 	case "build-offline":
-		e, code = runOffline(ctx, root, args[1:], output, stderr)
+		e, code = runOffline(ctx, root, args[1:], output, stderr, services)
 	case "promote":
 		e, code = runPromotion(ctx, root, args[1:], output, stderr, services)
 	case "help", "--help", "-h":
@@ -152,7 +156,7 @@ func runInputs(root string, args []string, out, stderr io.Writer) (error, int) {
 	}
 	return e, 0
 }
-func runGuestfs(ctx context.Context, root string, args []string, out, stderr io.Writer) (error, int) {
+func runGuestfs(ctx context.Context, root string, args []string, out, stderr io.Writer, services Services) (error, int) {
 	if len(args) == 0 {
 		return errors.New("guestfs requires build or verify"), 2
 	}
@@ -204,9 +208,9 @@ func runGuestfs(ctx context.Context, root string, args []string, out, stderr io.
 	if len(o.BootstrapRoots) == 0 {
 		return errors.New("missing --bootstrap-root"), 2
 	}
-	return GuestBuild(ctx, root, o, out), 0
+	return services.guestBuild(ctx, root, o, out), 0
 }
-func runOffline(ctx context.Context, root string, args []string, out, stderr io.Writer) (error, int) {
+func runOffline(ctx context.Context, root string, args []string, out, stderr io.Writer, services Services) (error, int) {
 	fs := flag.NewFlagSet("build-offline", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
@@ -249,5 +253,5 @@ func runOffline(ctx context.Context, root string, args []string, out, stderr io.
 	if !gitSHA.MatchString(o.SourceRevision) || !kernelRelease.MatchString(o.KernelRelease) {
 		return errors.New("invalid source revision or kernel release"), 2
 	}
-	return OfflineBuild(ctx, root, o, out), 0
+	return services.offlineBuild(ctx, root, o, out), 0
 }
