@@ -74,12 +74,12 @@ work=$(mktemp -d)
 trap 'find "$work" -depth -delete' EXIT
 
 tag="ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}"
-if ! gh release view "$tag" --repo "$repository" --json tagName,isDraft,isPrerelease,assets > "$work/view.json" 2>/dev/null; then
-    gh release create "$tag" --repo "$repository" --target "$GITHUB_SHA" --prerelease \
+if ! gh release view "$tag" --repo "$repository" --json tagName,targetCommitish,isDraft,isPrerelease,assets > "$work/view.json" 2>/dev/null; then
+    gh release create "$tag" --repo "$repository" --target "$GITHUB_SHA" --prerelease --draft \
         --title "$tag" --notes ''
-    gh release view "$tag" --repo "$repository" --json tagName,isDraft,isPrerelease,assets > "$work/view.json"
+    gh release view "$tag" --repo "$repository" --json tagName,targetCommitish,isDraft,isPrerelease,assets > "$work/view.json"
 fi
-jq -e --arg tag "$tag" '.tagName == $tag and .isDraft == false and .isPrerelease == true and
+jq -e --arg tag "$tag" '.tagName == $tag and .isPrerelease == true and
     (.assets | all(.name == "terrascale-orchestrator-linux-amd64" or
       .name == "terrascale-orchestrator-linux-arm64" or .name == "terrascale-d15-qualify" or
       .name == "terrascale-d15-probe.json" or .name == "qualification.json" or
@@ -89,9 +89,17 @@ jq -e --arg tag "$tag" '.tagName == $tag and .isDraft == false and .isPrerelease
       (.name | test("^image-production-evidence-[0-9a-f]{64}$"))))' "$work/view.json" >/dev/null || {
     echo 'retained release has an unexpected tag, state or asset' >&2; exit 1;
 }
-[[ $(gh api "repos/$repository/commits/$tag" --jq .sha) == "$GITHUB_SHA" ]] || {
-    echo 'retained release tag points to a different source revision' >&2; exit 1;
-}
+# A draft has no public tag yet. Its immutable source target must match;
+# published retries retain the existing tag/source admission check.
+if jq -e '.isDraft == true' "$work/view.json" >/dev/null; then
+    jq -e --arg sha "$GITHUB_SHA" '.targetCommitish == $sha' "$work/view.json" >/dev/null || {
+        echo 'draft release targets a different source revision' >&2; exit 1;
+    }
+else
+    [[ $(gh api "repos/$repository/commits/$tag" --jq .sha) == "$GITHUB_SHA" ]] || {
+        echo 'retained release tag points to a different source revision' >&2; exit 1;
+    }
+fi
 mkdir -m 0700 "$work/readback"
 retain() {
     local name=$1 delay matched attempt readback
@@ -126,6 +134,15 @@ retain "$probe_name"
 retain terrascale-d15-probe.json
 # The manifest is the completion marker. A partial upload cannot be admitted.
 retain qualification.json
+# Publish only after every binary, probe and completion manifest has been
+# uploaded and read back byte-for-byte. Public consumers never see an empty
+# release while the first binary is still uploading.
+if jq -e '.isDraft == true' "$work/view.json" >/dev/null; then
+    gh release edit "$tag" --repo "$repository" --draft=false
+fi
+[[ $(gh api "repos/$repository/commits/$tag" --jq .sha) == "$GITHUB_SHA" ]] || {
+    echo 'published release tag points to a different source revision' >&2; exit 1;
+}
 printf 'TS_D15_PROBE_PUBLICATION_V1 source_sha=%s run_id=%s run_number=%s probe_sha256=%s descriptor_sha256=%s\n' \
     "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$probe_sha256" \
     "$(sha256sum dist/terrascale-d15-probe.json | awk '{print $1}')"
