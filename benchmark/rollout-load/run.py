@@ -4,6 +4,7 @@ import argparse
 import base64
 import concurrent.futures
 import http.client
+import hashlib
 import json
 import math
 import secrets
@@ -99,9 +100,10 @@ def main():
 
     def sample(region, kind, number, scheduled):
         started = time.time()
-        statement = ("INSERT INTO rollout_rows (id, region, sequence) VALUES ('" + new_id() + "', '" + region + "', " + str(number) + ")"
+        row_id = new_id() if kind == 'write' else None
+        statement = ("INSERT INTO rollout_rows (id, region, sequence) VALUES ('" + row_id + "', '" + region + "', " + str(number) + ")"
                      if kind == 'write' else 'SELECT COUNT(*) FROM rollout_rows')
-        result = {'kind': kind, 'region': region, 'sequence': number, 'started_at': started,
+        result = {'kind': kind, 'region': region, 'sequence': number, 'row_id': row_id, 'started_at': started,
                   'schedule_lag_ms': round((time.monotonic() - scheduled) * 1000, 3)}
         try:
             status, headers, body = sql(region, statement)
@@ -161,17 +163,34 @@ def main():
                             emit(missed)
         expected = {region: sum(row['ok'] and row['kind'] == 'write' and row['region'] == region for row in samples)
                     for region in REGIONS}
+        acknowledged = {row['row_id']: (row['region'], row['sequence'])
+                        for row in samples if row['ok'] and row['kind'] == 'write'}
         for region in REGIONS:
             deadline = time.monotonic() + 30
             while True:
                 try:
-                    status, _, body = sql(region, 'SELECT region, COUNT(*), COUNT(DISTINCT sequence) FROM rollout_rows GROUP BY region')
-                    inventory = body.get('results', [{}])[0].get('rows', []) if isinstance(body, dict) else []
-                    actual = {row[0]: row[1] for row in inventory}
-                    exact = status == 200 and all(actual.get(origin, 0) == count for origin, count in expected.items()) \
-                        and all(row[1] == row[2] for row in inventory) and all(origin in expected for origin in actual)
+                    actual = {}
+                    after = ''
+                    while True:
+                        status, _, body = sql(region, "SELECT id, region, sequence FROM rollout_rows WHERE id > '" + after
+                                              + "' ORDER BY id LIMIT 500")
+                        if status != 200:
+                            break
+                        page = body['results'][0]['rows']
+                        actual.update({row[0]: (row[1], row[2]) for row in page})
+                        if len(page) < 500:
+                            break
+                        after = page[-1][0]
+                        if len(actual) > len(samples):
+                            raise RuntimeError('inventory exceeds offered load')
+                    missing = sorted(acknowledged.keys() - actual.keys())
+                    unexpected = sorted(actual.keys() - acknowledged.keys())
+                    changed = sum(actual.get(key) != value for key, value in acknowledged.items())
+                    exact = status == 200 and actual == acknowledged
                     emit({'kind': 'inventory', 'region': region, 'at': time.time(), 'status': status,
-                          'body': body, 'expected_acked': expected, 'exact': exact})
+                          'rows': len(actual), 'expected_acked': expected, 'missing': missing[:10],
+                          'missing_count': len(missing), 'unexpected_count': len(unexpected), 'changed_count': changed,
+                          'id_sha256': hashlib.sha256('\n'.join(sorted(actual)).encode()).hexdigest(), 'exact': exact})
                     if exact or time.monotonic() >= deadline:
                         break
                 except Exception as error:
