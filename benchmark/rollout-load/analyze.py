@@ -69,11 +69,15 @@ def main():
         results.append({'rollout': start['rollout'], 'start': start['at'], 'end': end['at'],
                         'complete_coverage': bool(coverage), 'cells': cells, 'recovery': recovery,
                         'pass': bool(coverage) and all(cell['pass'] for cell in cells)})
+    full_run = summarize(samples, min((offered(row) for row in samples), default=0),
+                         max((offered(row) for row in samples), default=0))
     inventories = {row['region']: row for row in rows if row.get('kind') == 'inventory'}
     exact = all(inventories.get(region, {}).get('exact', False) for region in ('gru', 'sjc', 'fra'))
     cleanup = any(row.get('kind') == 'cleanup' and row.get('status') in (204, 404) for row in rows)
-    print(json.dumps({'rollouts': results, 'exact_inventory': exact, 'cleanup_confirmed': cleanup,
-                      'pass': len(results) == 3 and all(row['pass'] for row in results) and exact and cleanup}, indent=2))
+    print(json.dumps({'rollouts': results, 'full_run': full_run,
+                      'exact_inventory': exact, 'cleanup_confirmed': cleanup,
+                      'pass': len(results) == 3 and all(row['pass'] for row in results)
+                              and all(row['pass'] for row in full_run) and exact and cleanup}, indent=2))
 
 
 if __name__ == '__main__':
