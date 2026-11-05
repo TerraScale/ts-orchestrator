@@ -18,6 +18,9 @@ import (
 type sessionOnlyRunner struct{ Runner }
 
 func TestSessionRuntimeDeliversMaterialAndFencesRevokedHostWithoutNativeRunner(t *testing.T) {
+	if testing.Short() {
+		t.Skip("session runtime integration runs in the Slow suite")
+	}
 	fixture := newFunctionMaterialTransport(t)
 	fixture.controller.functionMaterial = fixture.current
 	agent := fixture.startUnacquired(t)

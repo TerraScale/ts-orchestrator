@@ -547,6 +547,9 @@ func TestMemberVolumeSocketBackupPolicyPrecedesAttachment(t *testing.T) {
 }
 
 func TestMemberVolumeSocketScratchRestoreAndReadOnlyVerification(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy durability, deployment or scheduler integration runs in Slow")
+	}
 	t.Run("VerifyRestoredAttachmentReadsExactScratchCopyWithoutMutatingOCI", memberSDKVerifyRestoredAttachmentReadsExactScratchCopyWithoutMutatingOCI)
 	t.Run("MemberVolumeRestoreDrill", memberSDKMemberVolumeRestoreDrill)
 }

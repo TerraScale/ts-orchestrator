@@ -19,6 +19,9 @@ import (
 )
 
 func TestCompletedControllerCSeedPacketEmitsSignedCaptureAndVerifiedFloors(t *testing.T) {
+	if testing.Short() {
+		t.Skip("complete restart packet build runs in the Slow suite")
+	}
 	now := time.Now().UTC().Truncate(time.Second)
 	binary := []byte("synthetic orchestrator executable")
 	inputs := productionGuestTestInputs(t, now, binary)

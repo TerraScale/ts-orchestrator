@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/testwait"
 )
 
 func regionalReleaseFixture(t *testing.T, name, hold string) ([]*Node, swarmruntime.ServiceSpec) {
@@ -22,7 +23,7 @@ func regionalReleaseFixture(t *testing.T, name, hold string) ([]*Node, swarmrunt
 	spec := swarmruntime.ServiceSpec{Name: name, Image: "ghcr.io/terrascale/" + packageName + "@sha256:" + strings.Repeat("a", 64),
 		Port: 8090, ReadyPath: "/readyz", Replicas: 1, Regions: []string{"gru"}, MilliCPU: 500, MemoryMiB: 2048,
 		Env: map[string]string{"LISTEN": "http://127.0.0.1:${PORT}"}, Hostnames: []string{"custom.example.com"}}
-	if _, err := send(t.Context(), nodes[0].conn, ApplyRequest{Name: name, Entry: Entry{Generation: 10, Spec: &spec, HoldAfter: hold}}, time.Second); err != nil {
+	if _, err := send(t.Context(), nodes[0].conn, ApplyRequest{Name: name, Entry: Entry{Generation: 10, Spec: &spec, HoldAfter: hold}}, testwait.Budget(t)); err != nil {
 		t.Fatal(err)
 	}
 	return nodes, spec
@@ -36,7 +37,7 @@ func TestSignedDashboardReleaseExpandsPersistedPlacement(t *testing.T) {
 	const name = "ts-dashboard"
 	nodes, previous := regionalReleaseFixture(t, name, "")
 	deployment := regionalDeployment(previous)
-	rows, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second)
+	rows, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, testwait.Budget(t))
 	if err != nil || len(rows) != len(nodes) {
 		t.Fatalf("release: %+v, %v", rows, err)
 	}
@@ -62,7 +63,7 @@ func TestSignedDashboardReleaseExpandsPersistedPlacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Fresh release caller after a binary/handler restart: no new generation or bake.
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, time.Second); err != nil {
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, time.Second, testwait.Budget(t)); err != nil {
 		t.Fatal(err)
 	}
 	for _, node := range nodes {
@@ -80,12 +81,12 @@ func TestSignedDashboardReleaseExpandsPersistedPlacement(t *testing.T) {
 	// Every later signed release stays all-region even if an old operator spec
 	// has put placement back to gru between releases.
 	restored := previous
-	if _, err := send(t.Context(), nodes[0].conn, ApplyRequest{Name: name, Entry: Entry{Generation: before.Generation + 1, Spec: &restored}}, time.Second); err != nil {
+	if _, err := send(t.Context(), nodes[0].conn, ApplyRequest{Name: name, Entry: Entry{Generation: before.Generation + 1, Spec: &restored}}, testwait.Budget(t)); err != nil {
 		t.Fatal(err)
 	}
 	newer := *deployment
 	newer.RunID = "101"
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, newer.Image, &newer, time.Second, time.Second); err != nil {
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, newer.Image, &newer, time.Second, testwait.Budget(t)); err != nil {
 		t.Fatal(err)
 	}
 	states, err = desiredStates(t.Context(), nodes[0].conn)

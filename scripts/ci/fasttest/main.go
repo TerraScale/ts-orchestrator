@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -75,15 +77,13 @@ func plan(packages map[string][]string, hints []estimate) []shard {
 	// Plain -short observations, including packages the race planner does not
 	// split. All other estimated slow packages also receive six shards.
 	heavy := map[string]float64{
-		"/internal/app": 170, "/internal/natscell": 85,
-		"/internal/natscell/mesh": 170, "/internal/region": 180,
-		"/internal/bootstrapstart": 90, "/internal/swarmruntime": 90,
-		"/internal/observability": 75, "/internal/ociregion/publicapi": 85,
-		"/internal/edge": 75, "/internal/host": 70,
-		"/internal/foundationbinding": 40, "/internal/delivery": 30,
-		"/internal/kvsnapshot": 25, "/internal/netbird/client": 25,
-		"/internal/ociresource/lb": 30, "/internal/ociresource/nlb": 25,
-		"/tests/deploy": 180,
+		"/internal/app": 70, "/internal/natscell/mesh": 35,
+		"/internal/ociregion/publicapi": 35, "/internal/bootstrapstart": 35,
+		"/internal/swarmruntime": 20, "/internal/oci": 20,
+		"/internal/bootstrapmaterial": 20, "/internal/bootstrapstart/materialsource": 20,
+		"/internal/natscell": 20, "/internal/region": 15,
+		"/internal/observability": 15, "/internal/edge": 15,
+		"/internal/host": 15, "/internal/authority": 12,
 	}
 	var queue []shard
 	for pkg, tests := range packages {
@@ -127,12 +127,6 @@ func plan(packages map[string][]string, hints []estimate) []shard {
 			// package loading, vet and TestMain setup. Split roughly thirty
 			// seconds of estimated work per process, up to the existing limit.
 			count = min(packageShards, max(1, (int(cost)+29)/30), max(1, len(tests)))
-			// Region's SDK cases dominate the measured serial tail. Give the
-			// expensive cases independent slots instead of combining several
-			// of them behind one long-running case.
-			if strings.HasSuffix(pkg, "/internal/region") {
-				count = min(jobs, max(1, len(tests)))
-			}
 		}
 		bins := make([]shard, count)
 		for i := range bins {
@@ -249,7 +243,7 @@ func validatePlan(packages map[string][]string, queue []shard) error {
 	return nil
 }
 
-type testBinary struct{ Path, Dir, SearchPath string }
+type testBinary struct{ Path, Dir, SearchPath, Converter string }
 
 const binaryMarker = "_TS_FAST_BINARY\t"
 
@@ -297,6 +291,9 @@ func discover(ctx context.Context, goCommand []string, directory string, binarie
 	}
 	stopRead := context.AfterFunc(ctx, func() { _ = output.Close() })
 	defer stopRead()
+	// test2json emits long output lines as several events without test names;
+	// a retained-binary marker longer than one event must be reassembled.
+	pendingLines := make(map[string]*strings.Builder)
 	terminal := make(map[string]int)
 	var invalid error
 	decoder := json.NewDecoder(output)
@@ -324,13 +321,28 @@ func discover(ctx context.Context, goCommand []string, directory string, binarie
 		if e.Action != "output" {
 			continue
 		}
+		// test2json splits lines longer than its buffer across several output
+		// events; only a trailing newline completes one. Retained-binary
+		// markers exceed that buffer whenever PATH is long.
+		if pending, ok := pendingLines[e.Package]; ok {
+			pending.WriteString(e.Output)
+			if !strings.HasSuffix(pending.String(), "\n") {
+				continue
+			}
+			delete(pendingLines, e.Package)
+			e.Output = pending.String()
+		} else if !strings.HasSuffix(e.Output, "\n") {
+			pendingLines[e.Package] = new(strings.Builder)
+			pendingLines[e.Package].WriteString(e.Output)
+			continue
+		}
 		name := strings.TrimSpace(e.Output)
 		if marker, ok := strings.CutPrefix(name, binaryMarker); ok {
 			fields := strings.SplitN(marker, "\t", 3)
 			if len(fields) != 3 || !filepath.IsAbs(fields[0]) || !filepath.IsAbs(fields[1]) || filepath.Dir(fields[0]) != directory || binaries[e.Package].Path != "" {
 				invalid = fmt.Errorf("invalid retained binary for %s", e.Package)
 			} else {
-				binaries[e.Package] = testBinary{fields[0], fields[1], fields[2]}
+				binaries[e.Package] = testBinary{fields[0], fields[1], fields[2], ""}
 			}
 			continue
 		}
@@ -400,9 +412,16 @@ func executeBinary(ctx context.Context, goCommand []string, s shard, directory s
 		source = command(ctx, []string{binary.Path},
 			"-test.paniconexit0", "-test.v=test2json", "-test.timeout=10m", "-test.short", "-test.count=1", "-test.parallel=2", "-test.cpu=2", "-test.run", expression)
 		source.Dir = binary.Dir
-		source.Env = append(source.Env, "PATH="+binary.SearchPath)
+		// Replace PATH instead of appending it: a duplicate would shadow the
+		// original on the last-wins platforms and drop every later entry.
+		source.Env = append(slices.DeleteFunc(source.Env, func(entry string) bool {
+			return strings.HasPrefix(entry, "PATH=")
+		}), "PATH="+binary.SearchPath)
 		source.Stdout, source.Stderr = writer, writer
 		cmd = command(ctx, goCommand, "tool", "test2json", "-p", s.Package, "-t")
+		if binary.Converter != "" {
+			cmd = command(ctx, []string{binary.Converter}, "-p", s.Package, "-t")
+		}
 		cmd.Stdin = input
 	}
 	cmd.Stderr = log
@@ -470,6 +489,9 @@ func executeBinary(ctx context.Context, goCommand []string, s shard, directory s
 		if strings.Contains(e.Test, "/") {
 			continue
 		}
+		if e.Action == "pass" && e.Elapsed >= 10 {
+			r.Problems = append(r.Problems, "Fast test exceeded 10s: "+e.Test)
+		}
 		if expected[e.Test] == 0 {
 			r.Problems = append(r.Problems, "unexpected case: "+e.Test)
 		}
@@ -512,6 +534,10 @@ func run(ctx context.Context, goCommand []string, hints []estimate, directory st
 	if err != nil {
 		return err
 	}
+	return runInventory(ctx, goCommand, hints, directory, out, packages, binaries)
+}
+
+func runInventory(ctx context.Context, goCommand []string, hints []estimate, directory string, out io.Writer, packages map[string][]string, binaries map[string]testBinary) error {
 	queue := plan(packages, hints)
 	if err := validatePlan(packages, queue); err != nil {
 		return err
@@ -527,7 +553,13 @@ func run(ctx context.Context, goCommand []string, hints []estimate, directory st
 	for range min(jobs, len(queue)) {
 		workers.Go(func() {
 			for s := range work {
-				results <- executeBinary(ctx, goCommand, s, directory, binaries[s.Package])
+				if len(s.Tests) == 0 && binaries[s.Package].Path == "" {
+					// Packages with no test executable have no TestMain or cases.
+					// Keep their coverage receipt without reloading the Go graph.
+					results <- result{Shard: s}
+				} else {
+					results <- executeBinary(ctx, goCommand, s, directory, binaries[s.Package])
+				}
 			}
 		})
 	}
@@ -593,26 +625,140 @@ func run(ctx context.Context, goCommand []string, hints []estimate, directory st
 	return nil
 }
 
+type preparedSuite struct {
+	Stamp    string
+	Packages map[string][]string
+	Binaries map[string]testBinary
+}
+
+func sourceStamp(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	data, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	names := strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
+	slices.Sort(names)
+	hash := sha256.New()
+	for _, name := range slices.Compact(names) {
+		if name == "" {
+			continue
+		}
+		data, err := os.ReadFile(name)
+		if os.IsNotExist(err) {
+			data = nil
+		} else if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(hash, "%s\x00%d\x00", name, len(data))
+		_, _ = hash.Write(data)
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func prepare(ctx context.Context, goCommand []string, directory string) error {
+	if err := os.RemoveAll(directory); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return err
+	}
+	before, err := sourceStamp(ctx)
+	if err != nil {
+		return err
+	}
+	suite := preparedSuite{Binaries: map[string]testBinary{}}
+	suite.Packages, err = discover(ctx, goCommand, directory, suite.Binaries)
+	if err != nil {
+		return err
+	}
+	root, err := command(ctx, goCommand, "env", "GOROOT").Output()
+	if err != nil {
+		return err
+	}
+	converter := filepath.Join(strings.TrimSpace(string(root)), "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH, "test2json")
+	for pkg, binary := range suite.Binaries {
+		binary.Converter = converter
+		suite.Binaries[pkg] = binary
+	}
+	suite.Stamp, err = sourceStamp(ctx)
+	if err != nil {
+		return err
+	}
+	if suite.Stamp != before {
+		return errors.New("source changed during Fast preparation")
+	}
+	data, err := json.Marshal(suite)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(directory, "suite.json"), data, 0600)
+}
+
+func runPrepared(ctx context.Context, goCommand []string, hints []estimate, directory string, out io.Writer) error {
+	data, err := os.ReadFile(filepath.Join(directory, "suite.json"))
+	if err != nil {
+		return fmt.Errorf("prepare Fast binaries first: %w", err)
+	}
+	var suite preparedSuite
+	if err := json.Unmarshal(data, &suite); err != nil {
+		return err
+	}
+	stamp, err := sourceStamp(ctx)
+	if err != nil {
+		return err
+	}
+	if stamp != suite.Stamp {
+		return errors.New("Fast source differs from prepared binaries")
+	}
+	for pkg, names := range suite.Packages {
+		binary := suite.Binaries[pkg]
+		if binary.Path == "" {
+			if len(names) != 0 {
+				return fmt.Errorf("missing prepared binary for %s", pkg)
+			}
+			continue
+		}
+		if filepath.Dir(binary.Path) != directory {
+			return fmt.Errorf("invalid prepared binary for %s", pkg)
+		}
+		if _, err := os.Stat(binary.Path); err != nil {
+			return err
+		}
+	}
+	return runInventory(ctx, goCommand, hints, directory, out, suite.Packages, suite.Binaries)
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// Leave time to terminate all shard groups and write failed receipts
-	// before ts-ship's independent 299-second execution deadline.
-	ctx, cancel := context.WithTimeout(ctx, 270*time.Second)
+	// Preparation has the build budget; execution keeps the enforced Fast budget.
+	ctx, cancel := context.WithTimeout(ctx, 9*time.Minute)
 	defer cancel()
+	mode := "run"
 	goCommand := os.Args[1:]
+	if len(goCommand) > 0 && (goCommand[0] == "prepare" || goCommand[0] == "run") {
+		mode, goCommand = goCommand[0], goCommand[1:]
+	}
 	if len(goCommand) > 0 && goCommand[0] == "--" {
 		goCommand = goCommand[1:]
 	}
 	if len(goCommand) == 0 {
 		goCommand = []string{"go"}
 	}
-	data, err := os.ReadFile("scripts/ci/fasttest/durations.txt")
-	if err == nil {
-		var directory string
-		directory, err = os.MkdirTemp("", "fast-test.")
+	if mode == "run" {
+		var stopFast context.CancelFunc
+		ctx, stopFast = context.WithTimeout(ctx, 29*time.Second)
+		defer stopFast()
+	}
+	directory, err := filepath.Abs("artifacts/fasttest/prepared")
+	if err == nil && mode == "prepare" {
+		err = prepare(ctx, goCommand, directory)
+	} else if err == nil {
+		data, readErr := os.ReadFile("scripts/ci/fasttest/durations.txt")
+		err = readErr
 		if err == nil {
-			err = run(ctx, goCommand, estimates(string(data)), directory, os.Stdout)
+			err = runPrepared(ctx, goCommand, estimates(string(data)), directory, os.Stdout)
 		}
 	}
 	if err != nil {

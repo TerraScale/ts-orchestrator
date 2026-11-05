@@ -58,15 +58,14 @@ generate-check:
 test:
 	$(GO) test ./...
 
-# Keep this compile-only command and the runner as the exact two commands
-# of test-fast. ts-ship executes them in separate build/test clocks, without
-# repeating the compile prerequisite inside the Fast execution clock.
+# Prepare the complete short-tier inventory and exact test binaries once.
+# Build/preparation and test execution have independent shipping clocks.
 test-fast-build:
-	$(GO) test -short -run '^$$' ./...
+	$(GO) build -o artifacts/fasttest/runner ./scripts/ci/fasttest
+	artifacts/fasttest/runner prepare -- $(GO)
 
-# The same short tier, with slow packages split across bounded processes.
 test-fast: test-fast-build
-	$(GO) run ./scripts/ci/fasttest -- $(GO)
+	artifacts/fasttest/runner run -- $(GO)
 
 vet:
 	$(GO) vet ./...
