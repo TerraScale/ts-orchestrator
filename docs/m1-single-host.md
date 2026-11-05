@@ -101,7 +101,9 @@ multi-region workflow, only `app-digests.yml` may call it, and only it. That
 workflow (every 10 min and after each canary release) runs `ts-orch release
 digests --out deploy/m1/app-digests.json` and commits the file to branch
 `app-digests`, so the git record of every released digest never lags the
-hosts by more than 10 min.
+hosts by more than 10 min. That branch, not the `deploy/m1/services/*.json`
+specs in this repository, is the running fleet's pin of record: the specs
+carry a service's first image only and are never updated by releases.
 
 A ts-orch release needs a token from `TerraScale/ts-orchestrator` whose `sha`
 claim equals `sha`, and the URL must be exactly that run's release asset:
