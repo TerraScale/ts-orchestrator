@@ -34,6 +34,8 @@ type regionalRouter struct {
 	checked   time.Time
 	transport *http.Transport
 	requests  chan struct{}
+	waiting   atomic.Int64
+	recovery  chan struct{}
 }
 type regionalStatus struct {
 	Node   string `json:"node"`
@@ -52,7 +54,7 @@ func (e *Edge) SetRegionalNodes(nodes func() []mesh.WorkerPeer) {
 	transport.ResponseHeaderTimeout = 60 * time.Second
 	router := e.regional.Load()
 	if router == nil {
-		candidate := &regionalRouter{transport: transport, requests: make(chan struct{}, 1024)}
+		candidate := &regionalRouter{transport: transport, requests: make(chan struct{}, 1024), recovery: make(chan struct{}, 2)}
 		candidate.nodes.Store(&nodes)
 		if e.regional.CompareAndSwap(nil, candidate) {
 			return
@@ -142,8 +144,13 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		return nil, errors.New("regional ingress is full")
 	}
 	admitted := false
+	waited := false
+	paced := false
 	defer func() {
 		if !admitted {
+			if waited {
+				router.waiting.Add(-1)
+			}
 			<-router.requests
 		}
 	}()
@@ -156,6 +163,10 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 			}
 			router.ingress.RUnlock()
 		}
+		if !waited {
+			waited = true
+			router.waiting.Add(1)
+		}
 		select {
 		case <-request.Context().Done():
 			return nil, request.Context().Err()
@@ -163,7 +174,27 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		}
 	}
 	admitted = true
-	release := func() { router.ingress.RUnlock(); <-router.requests }
+	release := func() {
+		router.ingress.RUnlock()
+		if paced {
+			<-router.recovery
+		}
+		if waited {
+			router.waiting.Add(-1)
+		}
+		<-router.requests
+	}
+	// A handoff accumulates offered arrivals. Keep their recovery concurrency
+	// bounded through response completion instead of bursting them into QoS.
+	if router.waiting.Load() > 0 {
+		select {
+		case router.recovery <- struct{}{}:
+			paced = true
+		case <-request.Context().Done():
+			release()
+			return nil, request.Context().Err()
+		}
+	}
 	peer, err := e.regionalOwner(request.Context(), router, false)
 	if err != nil {
 		release()
@@ -243,38 +274,64 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 		case <-time.After(time.Millisecond):
 		}
 	}
-	defer router.ingress.Unlock()
-	slog.Info("regional edge requests drained", "source", node, "target", target.Node)
-	router.transport.CloseIdleConnections()
-	{
-		source := owner
-		for _, peer := range (*router.nodes.Load())() {
-			if peer.Node == node {
-				source = peer
-			}
-		}
-		response, err := e.regionalRequest(ctx, router, source, http.MethodPost, "/v1/rollout/drain?target="+url.QueryEscape(target.Node))
-		if err != nil {
-			return err
-		}
-		response.Body.Close()
-		if response.StatusCode != http.StatusNoContent {
-			return fmt.Errorf("regional handoff HTTP %d", response.StatusCode)
+	held := true
+	releaseIngress := func() {
+		if held {
+			router.ingress.Unlock()
+			router.holding.Store(false)
+			held = false
 		}
 	}
-	// The CAS may take one observation round to reach the candidate. Never let
-	// status on the node being stopped authorize its own stop.
+	defer releaseIngress()
+	slog.Info("regional edge requests drained", "source", node, "target", target.Node)
+	router.transport.CloseIdleConnections()
+	source := owner
+	for _, peer := range (*router.nodes.Load())() {
+		if peer.Node == node {
+			source = peer
+		}
+	}
+	drainCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	drained := make(chan error, 1)
+	go func() {
+		response, err := e.regionalRequest(drainCtx, router, source, http.MethodPost, "/v1/rollout/drain?target="+url.QueryEscape(target.Node))
+		if err == nil {
+			response.Body.Close()
+			if response.StatusCode != http.StatusNoContent {
+				err = fmt.Errorf("regional handoff HTTP %d", response.StatusCode)
+			}
+		}
+		drained <- err
+	}()
+	complete := false
 	for {
-		status, err := e.regionalStatus(ctx, router, target)
+		// The candidate's writer readiness follows the applied-position proof
+		// and CAS. Serve there while the source finishes remote observation and
+		// direct-request drain; only a completed drain can authorize SIGTERM.
+		probe, stopProbe := context.WithTimeout(ctx, time.Second)
+		status, err := e.regionalStatus(probe, router, target)
+		stopProbe()
 		if err == nil && status.Writer && status.Ready && status.Owner == target.Node {
 			router.mu.Lock()
 			router.owner = target
 			router.checked = time.Now()
 			router.mu.Unlock()
-			slog.Info("regional surviving writer ready", "source", node, "target", target.Node, "epoch", status.Epoch)
-			return nil
+			if held {
+				releaseIngress()
+				slog.Info("regional ingress resumed", "source", node, "target", target.Node, "epoch", status.Epoch)
+			}
+			if complete {
+				slog.Info("regional surviving writer ready", "source", node, "target", target.Node, "epoch", status.Epoch)
+				return nil
+			}
 		}
 		select {
+		case err := <-drained:
+			if err != nil {
+				return err
+			}
+			complete = true
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(25 * time.Millisecond):

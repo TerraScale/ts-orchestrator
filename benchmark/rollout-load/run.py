@@ -7,6 +7,7 @@ import http.client
 import hashlib
 import json
 import math
+import queue
 import secrets
 import signal
 import threading
@@ -34,7 +35,10 @@ def main():
     token = {'value': '', 'until': 0}
     token_lock = threading.Lock()
     output_lock = threading.Lock()
-    local = threading.local()
+    connections = {region: queue.Queue(maxsize=4) for region in REGIONS}
+    for region, pool in connections.items():
+        for _ in range(4):
+            pool.put(http.client.HTTPSConnection(region + '.api.terrascale.tech', timeout=40))
     samples = []
     admission = threading.BoundedSemaphore(96)
     output = args.output.open('w')
@@ -62,9 +66,7 @@ def main():
             conn.close()
 
     def request(region, method, path, body=None):
-        if not hasattr(local, 'connections'):
-            local.connections = {}
-        conn = local.connections.setdefault(region, http.client.HTTPSConnection(region + '.api.terrascale.tech', timeout=40))
+        conn = connections[region].get()
         with token_lock:
             bearer = token['value']
         try:
@@ -78,8 +80,9 @@ def main():
             return response.status, headers, json.loads(data) if data else None
         except Exception:
             conn.close()
-            local.connections.pop(region, None)
             raise
+        finally:
+            connections[region].put(conn)
 
     base = '/v1/projects/' + config['project'] + '/databases'
     database = None
@@ -141,6 +144,12 @@ def main():
                 if attempt == 59:
                     raise RuntimeError('regional warmup failed')
                 stopping.wait(1)
+        # Warm every bounded regional connection before measured arrivals. Pool
+        # waiting remains inside offered latency; requests never retry on failure.
+        for region in REGIONS:
+            for _ in range(4):
+                if sql(region, 'SELECT COUNT(*) FROM rollout_rows')[0] != 200:
+                    raise RuntimeError('connection warmup failed')
         start = time.monotonic()
         emit({'kind': 'load_start', 'at': time.time(), 'seconds': args.seconds, 'writes_per_second_per_region': 5,
               'reads_per_second_per_region': 5, 'retries': 0})
@@ -219,6 +228,9 @@ def main():
                 emit({'kind': 'cleanup', 'error': type(error).__name__})
         stopping.set()
         renewal.join(timeout=16)
+        for pool in connections.values():
+            while not pool.empty():
+                pool.get().close()
         output.close()
 
 

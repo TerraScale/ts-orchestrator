@@ -727,11 +727,11 @@ func (c *controller) stopTask(ctx context.Context) error {
 	if status.Status == containerd.Created {
 		return c.Terminate(ctx)
 	}
-	if c.task.ServiceAnnotations.Labels[LabelServiceSpec] == "terrabase" && slices.ContainsFunc(c.spec.Env, func(value string) bool {
-		return strings.HasPrefix(value, "TS_REGION=")
-	}) {
+	if c.regionalTerraBase() {
 		if err := handoff.DrainTask(ctx, c.task.ID); err != nil {
-			return err
+			// A missing/restarting coordinator never makes a live process a failed
+			// terminal task: retain its assignment and retry once the mesh returns.
+			return exec.MakeTemporary(err)
 		}
 	}
 	wait, err := t.Wait(ctx)
@@ -786,7 +786,7 @@ const (
 )
 
 func (c *controller) stopGrace() time.Duration {
-	if c.stateful != nil || len(c.spec.Mounts) != 0 {
+	if c.stateful != nil || c.regionalTerraBase() || len(c.spec.Mounts) != 0 {
 		return dataStopGrace
 	}
 	if c.spec.StopGracePeriod == nil {

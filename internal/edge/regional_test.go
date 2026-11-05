@@ -24,6 +24,7 @@ func TestRegionalHandoffDrainsResponseBeforeMovingWriter(t *testing.T) {
 	var drainCalls atomic.Int32
 	bodyStarted := make(chan struct{})
 	finishBody := make(chan struct{})
+	finishProof := make(chan struct{})
 	servers := map[string]*httptest.Server{}
 	for _, node := range []string{"n1", "n2"} {
 		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -44,6 +45,10 @@ func TestRegionalHandoffDrainsResponseBeforeMovingWriter(t *testing.T) {
 			case "/v1/rollout/drain":
 				drainCalls.Add(1)
 				moved.Store(true)
+				select {
+				case <-finishProof:
+				case <-r.Context().Done():
+				}
 				w.WriteHeader(204)
 			case "/long":
 				w.WriteHeader(200)
@@ -105,9 +110,6 @@ func TestRegionalHandoffDrainsResponseBeforeMovingWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	response.Body.Close()
-	if err := <-drained; err != nil {
-		t.Fatal(err)
-	}
 	request = httptest.NewRequest("POST", "http://localhost:8080/write", strings.NewReader("one")).WithContext(ctx)
 	request.RemoteAddr = "192.0.2.1:1234"
 	response, err = edge.regionalRoundTrip(request, false)
@@ -118,6 +120,15 @@ func TestRegionalHandoffDrainsResponseBeforeMovingWriter(t *testing.T) {
 	response.Body.Close()
 	if err != nil || string(body) != "n2" {
 		t.Fatalf("after handoff: %q, %v", body, err)
+	}
+	select {
+	case err := <-drained:
+		t.Fatalf("stop authorized before final source proof: %v", err)
+	default:
+	}
+	close(finishProof)
+	if err := <-drained; err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/containerd/errdefs"
 	"github.com/gofrs/flock"
 	"github.com/moby/swarmkit/v2/agent/exec"
+	"github.com/moby/swarmkit/v2/api"
 )
 
 const portsLabel = "terrascale.ports"
@@ -84,6 +85,16 @@ func (c *controller) checkPortHolders(ctx context.Context, requested []string, s
 		}
 		sameService := labels["terrascale.service"] == c.task.ServiceID
 		if portConflict(holder, sameService, starting) {
+			if starting && sameService && c.regionalTerraBase() && c.task.DesiredState == api.TaskStateRunning {
+				// A controller restart can leave a serving predecessor whose task
+				// assignment was already terminal. This admitted replacement may
+				// retire it only through the ordinary peer proof and full SIGTERM
+				// grace, while this port lock prevents competing replacements.
+				if err := c.retireRegionalPredecessor(ctx, container.ID(), labels); err != nil {
+					return exec.MakeTemporary(err)
+				}
+				continue
+			}
 			err := fmt.Errorf("host port %s is reserved by container %s", claimed, container.ID())
 			if starting && sameService {
 				// The predecessor is still stopping (up to dataStopGrace); the agent retries each second.
@@ -93,6 +104,23 @@ func (c *controller) checkPortHolders(ctx context.Context, requested []string, s
 		}
 	}
 	return nil
+}
+
+func (c *controller) regionalTerraBase() bool {
+	return c.stateful == nil && c.task.ServiceAnnotations.Labels[LabelServiceSpec] == "terrabase" && slices.ContainsFunc(c.spec.Env, func(value string) bool {
+		return strings.HasPrefix(value, "TS_REGION=")
+	})
+}
+
+func (c *controller) retireRegionalPredecessor(ctx context.Context, id string, labels map[string]string) error {
+	previous := labels["terrascale.task"]
+	if previous == "" || previous == c.task.ID || id != "ts-"+previous || labels["terrascale.spec"] == "" {
+		return errors.New("retained regional predecessor has no verified task identity")
+	}
+	task := c.task.Copy()
+	task.ID = previous
+	old := &controller{executor: c.executor, task: task, spec: c.spec, id: id, fingerprint: labels["terrascale.spec"]}
+	return old.stopTask(ctx)
 }
 
 // releasedPorts is the claim of a container that holds no host port (created
