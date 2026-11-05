@@ -9,6 +9,8 @@ import re
 import subprocess
 import sys
 
+from retry_download import download as retry_download
+
 
 REPOSITORY = "TerraScale/ts-orchestrator"
 JOB = "verify/go + artifact/linux-amd64-arm64"
@@ -52,8 +54,8 @@ def admit(tag, directory):
                 f"missing or invalid retained asset: {name}")
         path = directory / name
         require(not path.exists() and not path.is_symlink(), "candidate path already exists")
-        command("gh", "release", "download", tag, "--repo", REPOSITORY,
-                "--pattern", name, "--output", str(path))
+        retry_download("gh", "release", "download", tag, "--repo", REPOSITORY,
+                       "--pattern", name, "--output", str(path), runner=command)
         require(path.is_file() and not path.is_symlink() and
                 path.stat().st_size == advertised[0]["size"], f"retained size differs: {name}")
         return path

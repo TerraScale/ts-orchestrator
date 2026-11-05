@@ -23,7 +23,7 @@ class ArtifactGraph(unittest.TestCase):
         self.work = Path(self.temporary.name)
         self.root = self.work / "repo"
         self.root.mkdir()
-        for name in ("qualified_release.py", "release-inputs-changed.py"):
+        for name in ("qualified_release.py", "release-inputs-changed.py", "retry_download.py"):
             self.write("scripts/ci/" + name, (SCRIPTS / name).read_text())
         for name, content in {
             "go.mod": "module example.invalid/fixture\n",

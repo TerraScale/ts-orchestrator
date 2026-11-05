@@ -123,7 +123,7 @@ for asset in base-image.qcow2 ubuntu-SHA256SUMS ubuntu-SHA256SUMS.gpg ubuntu-clo
 		verify_file "$work/base/$asset" "$asset_sha256" "$asset_bytes" 2>/dev/null; then
 		continue
 	fi
-	gh release download "$base_tag" --repo "$repository" --pattern "$asset" --output "$work/base/$asset" --clobber >/dev/null
+	python3 scripts/ci/retry_download.py gh release download "$base_tag" --repo "$repository" --pattern "$asset" --output "$work/base/$asset" --clobber >/dev/null
 	verify_file "$work/base/$asset" "$asset_sha256" "$asset_bytes"
 	if [[ -n $cached ]] && mkdir -p -- "$TS_IMAGE_BASE_CACHE" 2>/dev/null; then
 		if ! { cp --reflink=auto -- "$work/base/$asset" "$cached.$$" && mv -f -- "$cached.$$" "$cached"; }; then
@@ -159,13 +159,13 @@ terrabase_tag="ci-${terrabase_sha}-run-${terrabase_run_id}"
 if [[ $(input_json '.terrabase.archive != null') == true ]]; then
 	terrabase_tag=$(input_json .terrabase.archive.release_tag)
 	for asset in image-qualification.json "$native_artifact"; do
-		gh release download "$terrabase_tag" --repo "$repository" --pattern "$asset" --output "$work/terrabase/$asset" --clobber >/dev/null
+		python3 scripts/ci/retry_download.py gh release download "$terrabase_tag" --repo "$repository" --pattern "$asset" --output "$work/terrabase/$asset" --clobber >/dev/null
 	done
 	"$TS_ORCH_BIN" image inputs --file "$inputs" verify-terrabase-archive \
 		--qualification "$work/terrabase/image-qualification.json" --binary "$work/terrabase/$native_artifact" >/dev/null
 else
 	for asset in qualification.json "$native_artifact"; do
-		gh release download "$terrabase_tag" --repo TerraScale/TerraBase --pattern "$asset" --output "$work/terrabase/$asset" --clobber >/dev/null
+		python3 scripts/ci/retry_download.py gh release download "$terrabase_tag" --repo TerraScale/TerraBase --pattern "$asset" --output "$work/terrabase/$asset" --clobber >/dev/null
 	done
 	[[ $(sha256 "$work/terrabase/qualification.json") == "$(input_json .terrabase.qualification_sha256)" &&
 		$(sha256 "$work/terrabase/$native_artifact") == "$(input_json .terrabase.binary_sha256)" ]] || {
