@@ -43,6 +43,9 @@ func (recoveryAuthority) HomeWrite(ctx context.Context, _ uint64) (context.Conte
 // Accepted creates cross the real signed OCI SDK and disk-backed conditional
 // Object Storage boundary, then resume from a newly constructed owner.
 func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	store, _, _ := foundationProtocolStore(t)
 	plan, err := ociregion.LoadPlan(filepath.Join("..", "..", "deploy", "oci-region", "sjc-1-plan.json"))
 	if err != nil {

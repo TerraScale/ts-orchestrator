@@ -43,6 +43,9 @@ import (
 )
 
 func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	now := time.Now().UTC().Truncate(time.Second)
 	root, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

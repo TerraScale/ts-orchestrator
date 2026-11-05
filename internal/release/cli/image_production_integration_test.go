@@ -15,6 +15,9 @@ import (
 )
 
 func TestFinalImageProductionAdmissionBoundary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	f := newApplyHTTPFixture(t)
 	private, err := readDelegatedPrivateKey(f.leafPath)
 	if err != nil {

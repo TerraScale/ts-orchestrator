@@ -35,6 +35,9 @@ import (
 )
 
 func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	for _, mode := range []string{
 		"exact publication pins",
 	} {

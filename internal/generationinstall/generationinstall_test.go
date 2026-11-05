@@ -145,6 +145,9 @@ func (s *stager) spooled(t *testing.T) []string {
 // arms only while the record arms the slot, and stages nothing for another
 // manifest of its slot.
 func TestStagerStagesOnlyItsSlot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	c := newCell(t)
 	leader := c.leader()
 	ctx := t.Context()
@@ -226,6 +229,9 @@ func TestStagerStagesOnlyItsSlot(t *testing.T) {
 }
 
 func TestVerifiedArmedStageSurvivesVaultOutageAndShutdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	c := newCell(t)
 	leader, ctx := c.leader(), t.Context()
 	chain := c.sign(1, nil, time.Now().Add(-time.Minute))

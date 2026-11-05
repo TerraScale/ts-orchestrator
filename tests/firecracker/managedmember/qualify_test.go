@@ -49,6 +49,9 @@ func mmCleanupSudo(t *testing.T, path string) {
 }
 
 func TestManagedMemberRealProtectedMaterialStaging(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	mmSudo(t)
 	base := t.TempDir()
 	mount := filepath.Join(base, "guest-root")

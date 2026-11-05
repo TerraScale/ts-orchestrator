@@ -133,6 +133,9 @@ func reconcile(t *testing.T, api *providerState, store ociresource.Store, spec S
 }
 
 func TestRouteTableConvergesAndCorrectsOutOfBandRoutes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	rogue := Route{Destination: "0.0.0.0/0", NetworkEntityID: "ocid1.internetgateway.oc1.sa-saopaulo-1.igw"}
 	api := &providerState{table: Table{ID: tableID, ETag: "e1", Routes: []Route{rogue}, Tags: owner.Stamp(key, 0, "")}}
 	store := persistentStore(t)

@@ -24,6 +24,9 @@ import (
 // This exercises the loopback protocol against actual HTTP and persistent SQLite.
 // It does not substitute fixture proofs for the public account authority or qualify upstream Dex.
 func TestAccountLoopbackSQLiteIdentityAndPerWireFence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	directory := t.TempDir()
