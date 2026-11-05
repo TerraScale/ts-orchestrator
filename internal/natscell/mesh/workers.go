@@ -43,7 +43,17 @@ type workerNodes interface {
 // its region (a data owner such as TerraBase with replicas > 1) rather than
 // once, on the founder.
 func PerNode(spec *swarmruntime.ServiceSpec) bool {
-	return spec != nil && len(spec.Mounts) != 0 && spec.Replicas > 1
+	return spec != nil && len(spec.Mounts) != 0 && regionalReplicas(spec) > 1
+}
+
+// regionalReplicas upgrades existing TerraBase declarations in place. R10's
+// founder needs one durable in-region holder; a drained worker still does not
+// count toward the runtime replica count. Other services keep their declaration.
+func regionalReplicas(spec *swarmruntime.ServiceSpec) uint64 {
+	if spec.Name == "terrabase" {
+		return 2
+	}
+	return spec.Replicas
 }
 
 // announce is a worker's loop: every peersEvery it tells its founder its node

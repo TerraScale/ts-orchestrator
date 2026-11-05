@@ -63,7 +63,7 @@
     "port": 6432,
     "hostname": "pg.terrascale.tech"
   },
-  "replicas": 1,
+  "replicas": 2,
   "milliCPU": 1000,
   "memoryMiB": 4096,
   "regions": ["sjc", "fra", "gru"]

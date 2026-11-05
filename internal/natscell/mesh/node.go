@@ -809,7 +809,7 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 		// One task per fully joined node: a worker counts only once it announces
 		// itself over the mesh and SwarmKit has it READY and ACTIVE, so a drained
 		// or half-joined worker is never a release target.
-		spec.Replicas = min(spec.Replicas, uint64(1+len(n.joinedWorkers())))
+		spec.Replicas = min(regionalReplicas(&spec), uint64(1+len(n.joinedWorkers())))
 	}
 	if err := n.peers.track(name, spec.Regions, perNode); err != nil {
 		return applyResult{}, err

@@ -44,7 +44,9 @@ func TestFullyJoinedWorkerJoinsPerNodeServices(t *testing.T) {
 	go worker.run(t.Context())
 
 	image := "ghcr.io/terrascale/terrabase@sha256:" + fmt.Sprintf("%064d", 1)
-	perNode := swarmruntime.ServiceSpec{Name: "terrabase", Image: image, Port: 8080, Replicas: 2,
+	// An existing one-replica declaration upgrades without applying a new image
+	// or re-founding the cell. The drained worker remains excluded until active.
+	perNode := swarmruntime.ServiceSpec{Name: "terrabase", Image: image, Port: 8080, Replicas: 1,
 		Mounts: []swarmruntime.ServiceMount{{Source: "/var/lib/ts-data/terrabase", Target: "/data"}}}
 	single := swarmruntime.ServiceSpec{Name: "whoami", Image: "docker.io/library/alpine@sha256:" + fmt.Sprintf("%064d", 2), Port: 8099, Replicas: 1}
 	for i, spec := range []swarmruntime.ServiceSpec{perNode, single} {

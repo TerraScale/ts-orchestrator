@@ -82,16 +82,17 @@ second host exists: a new host whose hostname equals the join material's
   on `ts-sjc-2` before this rule; the task was rejected ("peers file is not
   written yet") and two TerraBase releases paused. The exception is a
   per-node service (below).
-- The workers are drained (`ts-orch member drain <host>`): joined, but they
-  run no task until R10 switches them on.
+- Workers join the mesh before scheduling. Activate each worker with
+  `ts-orch member activate <host>` after its predecessor passes readiness.
 
 ### Per-node services (R10's second TerraBase)
 
 A mesh service with a data mount and `replicas` > 1 is per node: one task on
 each fully joined node of its region, each with its own host's data
-directory. Today that is nothing. TerraBase stays at `"replicas": 1` until R10
-ships its follower mode. A plain second TerraBase would pull every replica
-placed in its region, so it would hold customer data.
+directory. TerraBase always requests two nodes, including existing one-replica
+declarations. R10 (terrascale `59c46e4ac`) makes the second peer a durable ack
+holder; it does not follow customer replicas or start a push stream. The founder
+remains the first peer and keeps its existing data and identity.
 
 - **Fully joined.** A worker announces its node name and NetBird IPv4 on
   `ts.mesh.worker.<region>` every 5 s. Its founder counts it while the
@@ -116,22 +117,24 @@ placed in its region, so it would hold customer data.
 - **Customer traffic.** The edge proxies only to `127.0.0.1`, so a worker's
   TerraBase gets no customer request through a founder.
 
-Switch on, with R10, one region at a time:
+Activate one region at a time, in order sjc, gru, fra:
 
-1. R10 ships TerraBase's follower mode.
-2. `ts-orch member activate ts-<region>-2` on the founder.
-3. Apply `terrabase.json` with `"replicas": 2`.
-4. Check: `ts-orch service ps terrabase` shows a running task on both nodes;
+1. Ship the two-node placement policy through `ts-ship` and green-main release.
+   Existing desired images and credentials remain authoritative. Reconciliation
+   requests two TerraBase tasks only when a second node is fully joined.
+2. `ts-orch member activate ts-<region>-2` on the founder. No manual service
+   apply or binary install is needed.
+3. Check: `ts-orch service ps terrabase` shows a running task on both nodes;
    both nodes' peers files list the founder, then the worker; the worker's
    TerraBase answers `/readyz`.
 
 `topology.json` (the attested topology) still lists founders only. R10 decides
 whether TerraBase's own topology check counts workers.
 - Capacity: 6 VM.Standard.A1.Flex nodes. Founders: gru 4 OCPU/24 GB, sjc and
-  fra 2 OCPU/12 GB. Workers: sjc and fra 2 OCPU/12 GB; gru 1 OCPU/6 GB, because
-  sa-saopaulo-1 had no A1 capacity for 2 OCPU/12 GB in FAULT-DOMAIN-1 or -2 on
-  2026-11-04. Resize `ts-gru-2` to 2 OCPU/12 GB before R10 places TerraBase
-  on it. The resize restarts it, and it holds no data until then.
+  fra 2 OCPU/12 GB. All workers: 2 OCPU/12 GB. São Paulo initially had no A1
+  capacity for that size, so `ts-gru-2` launched at 1 OCPU/6 GB on 2026-11-04.
+  It was resized in place to 2 OCPU/12 GB on 2026-11-05 before TerraBase
+  placement, while drained and holding no data. The serving founder stayed up.
 - `region add` tries every free fault domain in turn when OCI is out of host
   capacity.
 
