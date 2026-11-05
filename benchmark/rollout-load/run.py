@@ -100,11 +100,12 @@ def main():
 
     def sample(region, kind, number, scheduled):
         started = time.time()
+        lag = (time.monotonic() - scheduled) * 1000
         row_id = new_id() if kind == 'write' else None
         statement = ("INSERT INTO rollout_rows (id, region, sequence) VALUES ('" + row_id + "', '" + region + "', " + str(number) + ")"
                      if kind == 'write' else 'SELECT COUNT(*) FROM rollout_rows')
         result = {'kind': kind, 'region': region, 'sequence': number, 'row_id': row_id, 'started_at': started,
-                  'schedule_lag_ms': round((time.monotonic() - scheduled) * 1000, 3)}
+                  'offered_at': started - lag / 1000, 'schedule_lag_ms': round(lag, 3)}
         try:
             status, headers, body = sql(region, statement)
             if status != 200 and isinstance(body, dict):
@@ -156,6 +157,7 @@ def main():
                         else:
                             missed = {'kind': kind, 'region': region, 'sequence': number,
                                       'started_at': time.time(), 'completed_at': time.time(),
+                                      'offered_at': time.time() - (time.monotonic() - scheduled),
                                       'status': 0, 'ok': False, 'error': 'offered_arrival_missed',
                                       'ms': 0, 'schedule_lag_ms': round((time.monotonic() - scheduled) * 1000, 3)}
                             with output_lock:
