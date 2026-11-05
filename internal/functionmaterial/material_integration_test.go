@@ -265,8 +265,8 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 		}
 	}
 	consumer, err = js.Consumer(t.Context(), queueScope.Stream, "worker")
-	if err != nil || consumer.CachedInfo().Config.Replicas != 0 || consumer.CachedInfo().Config.MemoryStorage {
-		t.Fatalf("existing R1 durable consumer did not inherit R3 file storage: %v", err)
+	if err != nil || consumer.CachedInfo().Config.Replicas != 3 || consumer.CachedInfo().Config.MemoryStorage {
+		t.Fatalf("existing R1 durable consumer did not match the R3 stream's file storage: %v", err)
 	}
 	retained, err := receipts.Get(t.Context(), "retained")
 	if err != nil || retained.Revision() != receiptRevision || !bytes.Equal(retained.Value(), receiptDigest) {

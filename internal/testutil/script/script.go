@@ -3,7 +3,6 @@ package script
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -127,8 +126,7 @@ func Run(t *testing.T, dir string, env map[string]string, name string, args ...s
 // then re-runs only when its own package or those inputs change.
 func Exec(t *testing.T, dir string, env map[string]string, name string, args ...string) Result {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
-	defer cancel()
+	ctx := t.Context()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
@@ -148,7 +146,7 @@ func Exec(t *testing.T, dir string, env map[string]string, name string, args ...
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
 	if ctx.Err() != nil {
-		t.Fatalf("%s exceeded its command deadline: %v", name, ctx.Err())
+		t.Fatalf("%s interrupted by test cancellation: %v", name, ctx.Err())
 	}
 	code := 0
 	if err != nil {

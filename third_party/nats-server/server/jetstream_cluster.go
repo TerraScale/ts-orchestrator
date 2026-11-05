@@ -11768,12 +11768,13 @@ func decodeDeleteRange(buf []byte) (*DeleteRange, error) {
 
 // createGroupForConsumer will create a new group from same peer set as the stream.
 func (cc *jetStreamCluster) createGroupForConsumer(cfg *ConsumerConfig, sa *streamAssignment) (*raftGroup, *selectPeerError) {
-	if len(sa.Group.Peers) == 0 || cfg.Replicas > len(sa.Group.Peers) {
+	streamPeers := sa.targetPeers()
+	if len(streamPeers) == 0 || cfg.Replicas > len(streamPeers) {
 		return nil, &selectPeerError{misc: true}
 	}
 
 	replicas := cfg.replicas(sa.Config)
-	peers := copyStrings(sa.Group.Peers)
+	peers := copyStrings(streamPeers)
 	var _ss [5]string
 	active := _ss[:0]
 
@@ -12123,7 +12124,10 @@ func (s *Server) jsClusteredConsumerRequest(ci *ClientInfo, acc *Account, subjec
 		if rBefore < rAfter {
 			newPeerSet := nca.Group.Peers
 			// Scale up by adding new members from the stream peer set that are not yet in the consumer peer set.
-			streamPeerSet := copyStrings(sa.Group.Peers)
+			// The stream config already describes its target replica count while
+			// an R1 scale-up can still retain only its original serving peer.
+			// Consumers must derive their peers from that same target assignment.
+			streamPeerSet := copyStrings(sa.targetPeers())
 
 			// Respond with error when there is a config mismatch between the intended config and expected peer size.
 			if len(streamPeerSet) < rAfter {

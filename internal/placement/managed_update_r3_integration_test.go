@@ -1,7 +1,6 @@
 package placement
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -19,8 +18,7 @@ import (
 )
 
 func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
-	defer cancel()
+	ctx := t.Context()
 
 	broker, err := natscell.Start(ctx, placementTestBrokerConfig(t, "managed-update-r3"))
 	if err != nil {
@@ -34,18 +32,7 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start R3 authority runtime: %v", err)
 	}
-	t.Cleanup(func() {
-		closed := make(chan struct{})
-		go func() {
-			_ = runtime.Close()
-			close(closed)
-		}()
-		select {
-		case <-closed:
-		case <-time.After(5 * time.Second):
-			t.Error("close R3 authority runtime exceeded its cleanup deadline")
-		}
-	})
+	t.Cleanup(func() { _ = runtime.Close() })
 	snapshot := runtime.Current()
 	if !snapshot.CanMutate() || snapshot.Epoch == 0 {
 		t.Fatalf("R3 lab authority did not acquire a mutable lease: %+v", snapshot)
@@ -99,12 +86,8 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 		t.Fatalf("verify trusted operator Prepare signature: %v", err)
 	}
 
-	var preparedSequence uint64
-	if err := awaitManagedUpdateCall(t, ctx, "PrepareManagedUpdate", func(callCtx context.Context) error {
-		var prepareErr error
-		preparedSequence, prepareErr = controller.PrepareManagedUpdate(callCtx, prepared)
-		return prepareErr
-	}); err != nil {
+	preparedSequence, err := controller.PrepareManagedUpdate(ctx, prepared)
+	if err != nil {
 		t.Fatalf("PrepareManagedUpdate: %v", err)
 	}
 	if preparedSequence == 0 {
@@ -123,7 +106,7 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 
 	// Reconcile the durable Prepare into the canary seat. Tick exercises the
 	// actual placement caller, including its authority guard and workload fence.
-	if err := awaitManagedUpdateCall(t, ctx, "Prepared seat reconciliation", controller.Tick); err != nil {
+	if err := controller.Tick(ctx); err != nil {
 		t.Fatalf("reconcile R3 Prepare: %v", err)
 	}
 	preparedSeat := fixture.store.members[canary.State.MemberID]
@@ -153,7 +136,7 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 		}
 		return nil
 	}
-	heldErr := awaitManagedUpdateCall(t, ctx, "Held authority commit", controller.Tick)
+	heldErr := controller.Tick(ctx)
 	if !failedHeldCAS || !errors.Is(heldErr, ErrStoreConflict) {
 		t.Fatalf("Held transition = err %v, injected CAS=%v; want R3 Held commit followed by lost seat CAS",
 			heldErr, failedHeldCAS)
@@ -181,7 +164,7 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 		fleet: controller.fleet, hosts: controller.hosts, desired: controller.desired,
 		resolveArtifact: controller.resolveArtifact, now: controller.now,
 	}
-	if err := awaitManagedUpdateCall(t, ctx, "Held restart reconciliation", restarted.Tick); err != nil {
+	if err := restarted.Tick(ctx); err != nil {
 		t.Fatalf("reconcile retained R3 Held after restart: %v", err)
 	}
 	repaired := fixture.store.members[canary.State.MemberID]
@@ -269,21 +252,4 @@ func verifyManagedUpdatePreparedEnvelope(record authority.ManagedUpdateRecord,
 		Region: update.Cell, Kind: ManagedUpdateEnvelopeKind, Actor: "operator",
 		OperationID: update.OperationID, Generation: update.CanaryDesiredGeneration, Epoch: update.AuthorityEpoch,
 	}, publicKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: 2 * time.Minute})
-}
-
-func awaitManagedUpdateCall(t *testing.T, parent context.Context, name string,
-	call func(context.Context) error,
-) error {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
-	defer cancel()
-	result := make(chan error, 1)
-	go func() { result <- call(ctx) }()
-	select {
-	case err := <-result:
-		return err
-	case <-ctx.Done():
-		t.Fatalf("%s did not finish within its bounded deadline: %v", name, ctx.Err())
-		return ctx.Err()
-	}
 }

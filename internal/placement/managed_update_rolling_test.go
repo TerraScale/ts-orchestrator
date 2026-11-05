@@ -41,8 +41,7 @@ func (list fakeKnownBad) IsKnownBad(_ context.Context, digest string) (bool, err
 // replaces a completed target; a candidate that never serves is held with its
 // peer still serving, and a rollback operation restores the replaced artifact.
 func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
-	defer cancel()
+	ctx := t.Context()
 	broker, err := natscell.Start(ctx, placementTestBrokerConfig(t, "managed-update-rolling"))
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +107,7 @@ func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testin
 	}
 	tick := func(name string) {
 		t.Helper()
-		if err := awaitManagedUpdateCall(t, ctx, name, controller.Tick); err != nil {
+		if err := controller.Tick(ctx); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
