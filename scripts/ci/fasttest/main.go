@@ -256,6 +256,7 @@ func retainWrapper(directory string) (string, error) {
 }
 
 func discover(ctx context.Context, goCommand []string, directory string, binaries map[string]testBinary) (map[string][]string, error) {
+	started := time.Now()
 	wrapper, err := retainWrapper(directory)
 	if err != nil {
 		return nil, err
@@ -276,6 +277,7 @@ func discover(ctx context.Context, goCommand []string, directory string, binarie
 	if len(packages) == 0 {
 		return nil, errors.New("empty package graph")
 	}
+	fmt.Fprintf(os.Stderr, "fast phase=graph elapsed=%.2fs\n", time.Since(started).Seconds())
 	// Listing uses the same package concurrency as execution; GOMAXPROCS
 	// bounds each process without reducing the pool to two packages.
 	cmd = command(ctx, goCommand, "test", "-short", "-json", "-count=1", fmt.Sprintf("-p=%d", jobs), "-exec", wrapper, "-list", ".", "./...")
@@ -367,6 +369,7 @@ func discover(ctx context.Context, goCommand []string, directory string, binarie
 			return nil, fmt.Errorf("listing package %s has %d results, want 1", pkg, terminal[pkg])
 		}
 	}
+	fmt.Fprintf(os.Stderr, "fast phase=list elapsed=%.2fs\n", time.Since(started).Seconds())
 	return packages, nil
 }
 
