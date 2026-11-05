@@ -67,7 +67,7 @@ func provisionQueue(ctx context.Context, nc *nats.Conn, manifest Manifest) error
 	if err != nil {
 		return err
 	}
-	_, err = provisionRequest(ctx, func(ctx context.Context) (jetstream.Stream, error) {
+	stream, err := provisionRequest(ctx, func(ctx context.Context) (jetstream.Stream, error) {
 		return js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{Name: scope.Stream, Subjects: []string{scope.Subject},
 			Storage: jetstream.FileStorage, Replicas: 3, Retention: jetstream.WorkQueuePolicy, Discard: jetstream.DiscardNew,
 			MaxAge: time.Hour, MaxMsgs: 10000, MaxBytes: 64 << 20, MaxMsgSize: MaxPayloadBytes + 8192, Duplicates: 2 * time.Minute})
@@ -82,7 +82,7 @@ func provisionQueue(ctx context.Context, nc *nats.Conn, manifest Manifest) error
 		return fmt.Errorf("function receipts: %w", err)
 	}
 	_, err = provisionRequest(ctx, func(ctx context.Context) (jetstream.Consumer, error) {
-		return js.CreateOrUpdateConsumer(ctx, scope.Stream, jetstream.ConsumerConfig{Durable: "worker", FilterSubject: scope.Subject, AckPolicy: jetstream.AckExplicitPolicy, AckWait: 30 * time.Second, MaxDeliver: -1, MaxAckPending: 1, MaxWaiting: 32, MaxRequestBatch: 1, MaxRequestExpires: time.Second})
+		return js.CreateOrUpdateConsumer(ctx, scope.Stream, jetstream.ConsumerConfig{Durable: "worker", Replicas: stream.CachedInfo().Config.Replicas, FilterSubject: scope.Subject, AckPolicy: jetstream.AckExplicitPolicy, AckWait: 30 * time.Second, MaxDeliver: -1, MaxAckPending: 1, MaxWaiting: 32, MaxRequestBatch: 1, MaxRequestExpires: time.Second})
 	})
 	if err != nil {
 		return fmt.Errorf("function consumer: %w", err)

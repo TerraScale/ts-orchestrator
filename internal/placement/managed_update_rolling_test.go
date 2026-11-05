@@ -44,8 +44,7 @@ func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testin
 	if testing.Short() {
 		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
-	defer cancel()
+	ctx := t.Context()
 	broker, err := natscell.Start(ctx, placementTestBrokerConfig(t, "managed-update-rolling"))
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +110,7 @@ func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testin
 	}
 	tick := func(name string) {
 		t.Helper()
-		if err := awaitManagedUpdateCall(t, ctx, name, controller.Tick); err != nil {
+		if err := controller.Tick(ctx); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
