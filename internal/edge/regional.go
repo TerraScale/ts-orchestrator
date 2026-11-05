@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -220,6 +221,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 	if !admitted || target.Node == "" {
 		return errors.New("replacement has no admitted regional peer")
 	}
+	slog.Info("regional replacement requested", "source", node, "target", target.Node, "writer", owner.Node)
 	if owner.Node == node {
 		// Copy bulk state while clients still use the writer; the final fenced pull
 		// under the ingress barrier proves positions and transfers ownership.
@@ -242,6 +244,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 		}
 	}
 	defer router.ingress.Unlock()
+	slog.Info("regional edge requests drained", "source", node, "target", target.Node)
 	router.transport.CloseIdleConnections()
 	{
 		source := owner
@@ -268,6 +271,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 			router.owner = target
 			router.checked = time.Now()
 			router.mu.Unlock()
+			slog.Info("regional surviving writer ready", "source", node, "target", target.Node, "epoch", status.Epoch)
 			return nil
 		}
 		select {
