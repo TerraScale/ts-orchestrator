@@ -41,6 +41,9 @@ func (fake *fakeIdentityRecord) record() *hostIdentityRecord {
 // removes the disk copies; after a reboot it renews from Vault alone. A disk
 // identity the record lacks is published before it is used (TS-745).
 func TestHostEnrollmentIdentityMovesToVaultAndMemory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	lab := startStaticEnrollmentLab(t, ctx, staticTerraBaseWorkloads())

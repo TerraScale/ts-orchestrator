@@ -403,6 +403,9 @@ func TestIssuerSignedScopeIAMVaultAndRotationHTTP(t *testing.T) {
 }
 
 func TestIssuerAuthorityReplacementAndForeignIdentityBlock(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	i, remote, fenced := setupIssuer(t)
 	if _, err := i.Ensure(t.Context()); err != nil {
 		t.Fatal(err)

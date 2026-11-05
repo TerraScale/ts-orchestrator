@@ -32,6 +32,9 @@ import (
 )
 
 func TestAttemptFinalImageQualificationPrecedesOCIMutations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	if os.Getenv("TS_ATTEMPT_IMAGE_PROOF_PROCESS") == "1" {
 		separator := slices.Index(os.Args, "--")
 		if separator < 0 {

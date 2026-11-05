@@ -203,6 +203,9 @@ func sequenceRestartStore(t *testing.T) func() *Store {
 }
 
 func TestSequencePublicationDurableBoundary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	fixture := newSequenceFixture(t)
 	restart := sequenceRestartStore(t)
 	store := restart()

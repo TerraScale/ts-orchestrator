@@ -33,6 +33,9 @@ import (
 // admission or the public APIs with genuine signed constructor proofs.
 // The loopback OCI protocol server persists both region copies.
 func TestBackupArchivePersistentIdentityAndProtectedCopies(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	root := t.TempDir()

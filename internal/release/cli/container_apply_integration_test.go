@@ -29,6 +29,9 @@ import (
 // Actual OCI layout, Git, delegated signatures, allocator and OCI SDK/HTTP are
 // exercised. HTTP models regional admission; live runtime readiness is separate.
 func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	base := newApplyHTTPFixture(t)
 	f := &containerHTTPFixture{applyHTTPFixture: base}
 	base.reset("")

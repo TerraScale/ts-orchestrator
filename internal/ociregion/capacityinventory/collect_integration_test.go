@@ -21,6 +21,9 @@ import (
 )
 
 func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	for _, scenario := range []string{"observed", "missing currency", "unknown shape", "region unavailable", "autotuned disk", "stale tariff", "search misses node", "terminal resources", "repeated page", "boot ancestry", "ambiguous boot ancestry", "live GRU", "paid A1", "one SKU unseen"} {
 		t.Run(scenario, func(t *testing.T) {
 			nodeTariffs := scenario == "live GRU" || scenario == "paid A1" || scenario == "one SKU unseen"
