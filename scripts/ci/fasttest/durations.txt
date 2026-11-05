@@ -22,7 +22,6 @@
 ./internal/oci TestConsoleHistoryCaptureEvidenceAndExactDelete 2
 ./internal/oci TestMemberVolumeSocketReplacementPreservesRecordedData 2
 ./internal/oci TestMemberVolumeSocketRetirementRetainsDataAndSeparatesIncarnations 4
-./internal/ociregion/publicapi TestCheckBalancerSecurityHealthAndOriginCertificate 5
 ./internal/ociregion/publicapi TestDNSSecurityPreflightRefusesUnsafeOrigin 28
 ./internal/ociregion/teardown TestRefusesResourcesOutsideThePlan 2
 ./internal/runtimepriority TestScopeAdmissionOwnershipAndCleanup 3

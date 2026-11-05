@@ -27,6 +27,9 @@ func unsafeOriginChecks(t *testing.T) map[string]originCheck {
 }
 
 func TestCheckBalancerSecurityHealthAndOriginCertificate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("multi-step origin security drill runs in Slow")
+	}
 	for name, test := range unsafeOriginChecks(t) {
 		t.Run(name, func(t *testing.T) {
 			d, f, p, cloudflare, members := reviewedEdge(t)
