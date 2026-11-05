@@ -66,7 +66,8 @@ alone does not establish usable signing keys or successful authentication.
 
 The pin for every mesh service is the `app-digests` branch's
 `deploy/m1/app-digests.json` (written by `app-digests.yml` from
-`ts.release.mesh.state` within 10 min of each release); the
+`ts.release.mesh.state`; nightly and after App release canary runs, so
+it can lag the hosts by hours); the
 `deploy/m1/services/*.json` images in this repository are only the
 first-application specs and do not track releases. The ts-orch pin is
 this repository's `main`: the `ci.yml` `release-push` job pushes every

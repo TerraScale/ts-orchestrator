@@ -98,10 +98,13 @@ connection and prints `{"via","state","serving_ms","error","regions"}`.
 
 `ts.release.mesh.state` returns `{"<service>": "<desired image>"}`; besides the
 multi-region workflow, only `app-digests.yml` may call it, and only it. That
-workflow (every 10 min and after each canary release) runs `ts-orch release
-digests --out deploy/m1/app-digests.json` and commits the file to branch
-`app-digests`, so the git record of every released digest never lags the
-hosts by more than 10 min. That branch, not the `deploy/m1/services/*.json`
+workflow (nightly, after each App release canary run, and on dispatch) runs
+`ts-orch release digests --out deploy/m1/app-digests.json` and commits the
+file to branch `app-digests`. Releases that reach the hosts through another
+path (for example a `ts-dashboard` release from the monorepo's image
+workflow, which does not trigger it) are not recorded until the next run, so
+the branch can lag the hosts by hours; it is a record, not a live view.
+That branch, not the `deploy/m1/services/*.json`
 specs in this repository, is the running fleet's pin of record: the specs
 carry a service's first image only and are never updated by releases.
 
