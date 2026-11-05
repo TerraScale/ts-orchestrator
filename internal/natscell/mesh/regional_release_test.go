@@ -34,6 +34,9 @@ func regionalDeployment(spec swarmruntime.ServiceSpec) *Deployment {
 }
 
 func TestSignedDashboardReleaseExpandsPersistedPlacement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	const name = "ts-dashboard"
 	nodes, previous := regionalReleaseFixture(t, name, "")
 	deployment := regionalDeployment(previous)
@@ -96,6 +99,9 @@ func TestSignedDashboardReleaseExpandsPersistedPlacement(t *testing.T) {
 }
 
 func TestRegionalAppReleaseRollbackRestoresPlacementAndBudgets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	nodes, previous := regionalReleaseFixture(t, "ts-dashboard", "")
 	deployment := regionalDeployment(previous)
 	// sjc is first, fra fails, gru must retain/restore its original workload.

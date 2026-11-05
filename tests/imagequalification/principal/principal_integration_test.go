@@ -390,6 +390,9 @@ func validSDKSignature(r *http.Request, key *rsa.PublicKey, keyID string) bool {
 }
 
 func TestSDKPrepareRestartAndCleanup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	f := newFixture(t)
 	result, err := f.producer.Prepare(t.Context(), f.verified, f.dir)
 	if err != nil {
@@ -475,6 +478,9 @@ func TestSDKPrepareRestartAndCleanup(t *testing.T) {
 }
 
 func TestSDKUnknownCreateReplayUsesExactDurableToken(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	for _, name := range []string{"user"} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -503,6 +509,9 @@ func TestSDKUnknownCreateReplayUsesExactDurableToken(t *testing.T) {
 }
 
 func TestSDKScopeAndObservationDriftStopBeforeNextMutation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	for _, mode := range []string{"wrong-observed-id"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newFixture(t)

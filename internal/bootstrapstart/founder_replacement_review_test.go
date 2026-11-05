@@ -10,6 +10,9 @@ import (
 // slot or launches, and a term lost between the advance and the launch stops
 // before the launch; a later replay resumes the admitted successor.
 func TestFencedReplacementStopsBeforeEveryMutation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	fixture, caller, fake, ledger := founderReplacementFixture(t)
 	row := fixture.plan.Peers[0]
 	retirement := signedSlotRetirement(t, fixture, ledger, row.Slot, fixture.root)

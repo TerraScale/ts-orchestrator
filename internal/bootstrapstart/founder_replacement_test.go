@@ -62,6 +62,9 @@ func readFounderSlot(t *testing.T, fixture *founderSignerFixture, ledger *bootst
 }
 
 func TestFounderReplacementRelaunchesRetiredPeerAsNextAttempt(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	fixture, caller, fake, ledger := founderReplacementFixture(t)
 	row := fixture.plan.Peers[0]
 	before := readFounderSlot(t, fixture, ledger, row.Slot)

@@ -333,6 +333,9 @@ func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFix
 }
 
 func TestFounderRuntimeCompletesTwoPlannedPeersAndRestartIsIdempotent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	_, caller, _, fake := newFounderRuntimeFixture(t)
 	for _, slot := range []string{"controller-a", "controller-b"} {
 		if err := caller.runPeer(t.Context(), slot); err != nil {

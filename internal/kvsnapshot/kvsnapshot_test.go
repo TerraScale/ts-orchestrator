@@ -173,6 +173,9 @@ func TestRestoreRebuildsSignedValuesInAnEmptyCell(t *testing.T) {
 // A snapshot that is not exactly this cell's bucket, or that cannot be read,
 // fails the restore before any plan is recorded, so the next boot retries.
 func TestRestoreRejectsTamperedOrUnreadableSnapshots(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	valid := Document{Version: 1, Cell: testCell, Bucket: testBucket, StreamCreated: time.Now(), Sequence: 3,
 		TakenAt: time.Now(), Config: BucketConfig{History: 2, MaxValueSize: 8},
 		Entries: []Entry{{Key: "a", Value: []byte("1")}, {Key: "b", Value: []byte("2")}}}

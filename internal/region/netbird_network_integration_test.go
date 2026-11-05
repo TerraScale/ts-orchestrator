@@ -27,6 +27,9 @@ import (
 )
 
 func TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	store, _, _ := foundationProtocolStore(t)
 	const compartment = "ocid1.compartment.oc1..network"
 	plan := map[string]any{"cell": "GRU", "region": foundationHomeRegion, "tenancy_id": "ocid1.tenancy.oc1..test", "network_cidr": "10.251.0.0/24", "subnet_cidr": "10.251.0.0/25",

@@ -26,6 +26,9 @@ func usage(role storage.VolumeRole, total, used, avail uint64) VolumeUsage {
 }
 
 func TestUsageStorePublishesWithTTLAndFeedsSignals(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	token := rand.Text()

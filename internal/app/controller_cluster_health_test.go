@@ -15,6 +15,9 @@ import (
 // the cluster as healthy from its own real NATS Raft view. A NATS follower
 // reports other followers as not current, which must not read as lagging.
 func TestClusterHealthIsHealthyOnEveryFormedBroker(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	root := t.TempDir()

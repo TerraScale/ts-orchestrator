@@ -35,6 +35,9 @@ import (
 // R3 authority and real manager certificate/Raft boundaries. It does not qualify
 // DATA issuance or a containerd stopped observation.
 func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 70*time.Second)
 	defer cancel()
 	js, connection, _ := effectSessionR3(t)

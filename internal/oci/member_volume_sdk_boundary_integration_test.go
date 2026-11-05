@@ -529,6 +529,9 @@ func (p *memberSDKLedger) exchange(r *http.Request, header http.Header) (any, in
 }
 
 func TestMemberVolumeSocketCreateAttachReplayAndAdmission(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	t.Run("MemberVolumeCreatesAndAttachesOnceIdempotently", memberSDKMemberVolumeCreatesAndAttachesOnceIdempotently)
 	t.Run("MemberVolumeLostCreateResponseReplaysOneVolume", memberSDKMemberVolumeLostCreateResponseReplaysOneVolume)
 }

@@ -27,6 +27,9 @@ import (
 )
 
 func TestWorkerBrokerJWTAndTLSIsolation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	artifact := integrationArtifact(t, "echo")
 	admitted, _, _ := signedFunctionFixture(t, artifact)
 	account, signer, accountJWT, admin, connect := workerBrokerFixture(t)

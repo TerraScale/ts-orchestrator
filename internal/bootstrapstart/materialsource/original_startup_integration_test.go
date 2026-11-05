@@ -19,6 +19,9 @@ import (
 // These SDK/CAS/crypto scenarios qualify append mechanics only. They neither
 // manufacture sealed actors/templates nor qualify the public serving path.
 func TestOriginalStartupSDKAtomicAppend(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	f, clients, state, etag, archive := originalMaterialMechanicalFixture(t)
 	publication, err := originalMaterialMechanicalProvision(t, f, clients, &state, &etag, archive)
 	if err != nil {

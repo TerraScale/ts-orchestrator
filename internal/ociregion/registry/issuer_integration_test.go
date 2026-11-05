@@ -351,6 +351,9 @@ func setupIssuer(t *testing.T) (*Issuer, *issuerProtocol, *atomic.Bool) {
 }
 
 func TestIssuerSignedScopeIAMVaultAndRotationHTTP(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	i, remote, _ := setupIssuer(t)
 	binding, err := i.Ensure(t.Context())
 	if err != nil {

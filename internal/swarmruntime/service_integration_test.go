@@ -237,6 +237,9 @@ func TestServiceManagerIntegration(t *testing.T) {
 }
 
 func TestServicePlacementIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	client, workerCfg, worker := serviceCluster(t, ctx)

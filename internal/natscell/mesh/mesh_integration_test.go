@@ -409,6 +409,9 @@ func TestMeshAppliesInEveryRegionAndCatchesUpAfterRestart(t *testing.T) {
 }
 
 func TestNewRegionJoinsByGossip(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ca, err := DeriveCA(bytes.Repeat([]byte{43}, 32))
 	if err != nil {
 		t.Fatal(err)
@@ -472,6 +475,9 @@ func TestNewRegionJoinsByGossip(t *testing.T) {
 // apply it and every region gets the previous spec back, well within the
 // apply window.
 func TestMeshFailedRegionStopsAndRollsBack(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	regions, nodes, appliers := startMeshRegions(t, 0)
 	conn := nodes[regions[0]].conn
 	good := swarmruntime.ServiceSpec{Name: "whoami", Image: "docker.io/library/alpine@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 1}

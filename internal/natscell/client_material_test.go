@@ -51,6 +51,9 @@ func writeExpiringUserCredentials(t *testing.T, path string, account nkeys.KeyPa
 // A renewed host JWT must be picked up on the reconnect the broker forces at
 // the old credential's expiry, without restarting the client process.
 func TestHostClientPresentsRenewedCredentialsAfterExpiry(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	root := t.TempDir()
 	operatorKey, _ := nkeys.CreateOperator()
 	systemKey, _ := nkeys.CreateAccount()

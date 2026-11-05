@@ -45,6 +45,9 @@ func (s *runtimeEffectExpiryRead) GetLastMsgForSubject(ctx context.Context, subj
 }
 
 func TestRuntimeEffectR3Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	js, _ := newIdentityHostR3(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()

@@ -299,6 +299,9 @@ func testOriginCertificate(t *testing.T, edit func(*x509.Certificate)) string {
 }
 
 func TestProvisionServesTheMachinesAPI(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	d := testDesired(t, strings.Replace(testPlan, `"terrabase_members":["gru-1-db-1"]}`, `"terrabase_members":["gru-1-db-1"],"orch":true}`, 1))
 	_, cloudflare := newFakeCloudflare(t)
 	f := newFakeOCI(t)
@@ -324,6 +327,9 @@ func TestProvisionServesTheMachinesAPI(t *testing.T) {
 }
 
 func TestSFOEdgeComesUpAndRotatesItsOrigin(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	wire, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "oci-region", "sjc-1-plan.json"))
 	if err != nil {
 		t.Fatal(err)

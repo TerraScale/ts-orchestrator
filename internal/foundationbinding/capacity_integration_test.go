@@ -13,6 +13,9 @@ import (
 )
 
 func TestCapacityLedgerRequiresCurrentSignedGrantAndProtectedSDKRecord(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	s := newBindingScenario(t)
 	s.grant.InfrastructureSpend = jsontext.Value(`{"monthlyLimitMinor":1000}`)
 	s.publish()

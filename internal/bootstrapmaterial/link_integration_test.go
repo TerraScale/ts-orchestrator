@@ -67,6 +67,9 @@ func newLinkFixture(t *testing.T) linkFixture {
 // Source and publication survive retries without changing the leaf user or its
 // home signing key; an interrupted create is recovered from the journal.
 func TestLinkMaterialPublicationRecovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	f := newLinkFixture(t)
 	before, err := os.ReadFile(filepath.Join(f.spokeLink, bootstrap.LinkCredentialsFile))
 	if err != nil {
@@ -169,6 +172,9 @@ func TestLinkMaterialPublicationRecovery(t *testing.T) {
 }
 
 func TestLinkMaterialAuthenticatesEmbeddedNATS(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	f := newLinkFixture(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()

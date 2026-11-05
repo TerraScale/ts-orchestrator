@@ -12,6 +12,9 @@ import (
 )
 
 func TestAppWaitRenewsShortCredentialAndResumesDroppedConnection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	for _, subject := range []string{SubjectApp, SubjectApply} {
 		t.Run(subject, func(t *testing.T) { testOperationWait(t, subject) })
 	}

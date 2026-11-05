@@ -72,6 +72,9 @@ func (f *failingBakeApplier) Bake(ctx context.Context, spec swarmruntime.Service
 }
 
 func TestMeshFailedPostReadinessBakeHoldsRollout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	for _, check := range []string{"dependency"} {
 		t.Run(check, func(t *testing.T) {
 			regions, nodes, appliers := startMeshRegions(t, 0)

@@ -323,6 +323,9 @@ func pinMechanicalCandidate(t *testing.T, in originalSourceInputs, clients origi
 }
 
 func TestOriginalSourceArchiveSDKMechanicalRecovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	in := originalMechanicalInputs(t)
 	f, clients := newOriginalMechanicalSDK(t, in, "lost CAS response")
 	directory := filepath.Join(t.TempDir(), "original")

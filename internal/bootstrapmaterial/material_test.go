@@ -23,6 +23,9 @@ func testConfig() Config {
 }
 
 func TestGenerateStableAndProductionValid(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	directory := filepath.Join(t.TempDir(), "material")
 	now := time.Now().UTC().Truncate(time.Second)
 	first, err := Generate(directory, testConfig(), now)

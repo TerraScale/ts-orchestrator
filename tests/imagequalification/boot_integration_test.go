@@ -9,6 +9,9 @@ import (
 )
 
 func TestNativeBootRecoversExactCapabilityCreateAndRejectsForeignCleanup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	f := fixture(t)
 	remote := &cloudFixture{hosts: map[string]map[string]any{}, tokens: map[string]string{}, failCapabilityResponse: true}
 	server := httptest.NewServer(http.HandlerFunc(remote.serve))

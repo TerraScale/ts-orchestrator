@@ -83,6 +83,9 @@ func managedPeerProgressSigner(fixture planBackedManagedPeerFixture) ManagedPeer
 }
 
 func TestManagedPeerRecoveryResumesAfterEachCommittedWrite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	for _, test := range []struct {
 		name             string
 		puts             int

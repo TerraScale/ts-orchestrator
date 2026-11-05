@@ -34,6 +34,9 @@ import (
 )
 
 func TestKnownLiabilitiesUseProtectedOriginalTariffsAndExactIDsThroughSDK(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	const tenancy = "ocid1.tenancy.oc1..financial"
 	const parent = "ocid1.compartment.oc1..parent"
 	const shared = "ocid1.compartment.oc1..shared"

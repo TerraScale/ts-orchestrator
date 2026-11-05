@@ -38,6 +38,9 @@ import (
 )
 
 func TestFunctionControllerIngestsSignedChannelIntoDurableIntent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	js := testRolloutJetStream(t)
 	runtime, err := authority.Start(t.Context(), js, authority.Config{DeploymentID: entityid.Derive("deployment", "function-controller-test"),
 		Scope: "gru", CandidateID: entityid.New(), Replicas: 1})

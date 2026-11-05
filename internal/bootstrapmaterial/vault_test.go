@@ -127,6 +127,9 @@ func makeSource(t *testing.T) string {
 }
 
 func TestProvisionExactReadbackAndStableReplay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	directory := makeSource(t)
 	target := testTarget()
 	fake := newFakeVault(target)
@@ -152,6 +155,9 @@ func TestProvisionExactReadbackAndStableReplay(t *testing.T) {
 }
 
 func TestProvisionRecoversUncertainCreateOnlyAfterExactReadback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	directory := makeSource(t)
 	target := testTarget()
 	fake := newFakeVault(target)

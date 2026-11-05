@@ -7,6 +7,9 @@ import (
 )
 
 func TestAppCanaryFirstSignedReleaseNeedsNoOperatorApply(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	nodes := stateTestNodesWithAppliers(t, func(string) Applier {
 		return &evidenceApplier{fakeApplier: fakeApplier{running: map[string]int64{}}, revision: strings.Repeat("b", 40)}
 	}, "gru", "sjc", "fra")
@@ -82,6 +85,9 @@ func TestAppCanaryFirstSignedReleaseNeedsNoOperatorApply(t *testing.T) {
 }
 
 func TestAppCanaryFailedCreationRollsBackAndPreservesAuthority(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	nodes := stateTestNodesWithAppliers(t, func(string) Applier {
 		return &evidenceApplier{fakeApplier: fakeApplier{running: map[string]int64{}}, revision: strings.Repeat("b", 40)}
 	}, "gru", "sjc", "fra")

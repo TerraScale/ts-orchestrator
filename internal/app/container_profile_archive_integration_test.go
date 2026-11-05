@@ -32,6 +32,9 @@ import (
 // Genuine signed broker delivery retains immutable policy before a deliberate
 // application refusal. It proves descriptive continuity, never runtime admission.
 func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	js := testRolloutJetStream(t)

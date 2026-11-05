@@ -560,6 +560,9 @@ func (dispatch ociProtocolDispatch) Do(request *http.Request) (*http.Response, e
 // signing, current IAM, create-once Vault and bundle decoding over local TLS.
 // It is protocol-simulator coverage; no installed-runtime qualification follows.
 func TestOCIInstanceVaultProtocolIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)

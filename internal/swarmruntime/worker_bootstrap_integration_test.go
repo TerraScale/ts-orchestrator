@@ -33,6 +33,9 @@ import (
 // Starts after current registration authority: the pinned enrollment signature,
 // OCI Secrets SDK, TLS join, dual-key proof and durable floor are real.
 func TestWorkerBootstrapIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	managerConfig := nodeFixtureConfig(t, "founder", "manager")

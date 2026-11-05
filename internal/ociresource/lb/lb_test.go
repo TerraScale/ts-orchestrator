@@ -173,6 +173,9 @@ func publishAndReconcile(t *testing.T, api *providerState, store ociresource.Sto
 }
 
 func TestDrainAndServeOneSeat(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	api := &providerState{balancer: LoadBalancer{ID: lbID, ETag: "e", Tags: owner.Stamp(key, 0, "")},
 		backends: []Backend{observed("10.251.0.21", false), observed("10.251.0.22", false)}}
 	store := persistentStore(t)

@@ -19,6 +19,9 @@ import (
 // TestMeshHubRecoveryPreservesLocalServing exercises production JWT accounts,
 // mTLS leaves and disk stores; loopback endpoints stand in for the overlay.
 func TestMeshHubRecoveryPreservesLocalServing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	root := t.TempDir()

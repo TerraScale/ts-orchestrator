@@ -26,6 +26,9 @@ type spooledInstall struct {
 const oldConfig = `{"manifest":"era"}`
 
 func TestRestoreArmedStageCannotRollBackDurableChainAfterMemoryLoss(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	staged := newSpooledInstall(t)
 	staged.installer.store.chainCopy = filepath.Join(t.TempDir(), MaterialGenerationsFile)
 	firstWire, firstFingerprint := bytes.Clone(staged.wire), staged.fingerprint

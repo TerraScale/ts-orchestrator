@@ -33,6 +33,9 @@ import (
 // This scenario crosses the real artifact/crypto, Git, OCI SDK and HTTP boundaries.
 // The endpoint simulates regional Object Storage; it does not qualify live OCI.
 func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	fixture := newApplyHTTPFixture(t)
 	for _, failure := range []string{"unreachable"} {
 		t.Run(failure, func(t *testing.T) {

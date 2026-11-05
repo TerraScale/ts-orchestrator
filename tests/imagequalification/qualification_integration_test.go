@@ -333,6 +333,9 @@ func publicSSHKey(t *testing.T) string {
 }
 
 func TestSDKQualificationResumesExactResourcesAndCleansOnlyOwnedHosts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	f := fixture(t)
 	remote := &cloudFixture{hosts: map[string]map[string]any{}, tokens: map[string]string{}, failSecond: true}
 	server := httptest.NewServer(http.HandlerFunc(remote.serve))

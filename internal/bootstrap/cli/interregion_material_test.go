@@ -17,6 +17,9 @@ import (
 )
 
 func TestGenerateInterRegionMaterialWritesThePublicInventory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	root := t.TempDir()
 	now := time.Now().UTC().Truncate(time.Second)
 	material := filepath.Join(root, "material")

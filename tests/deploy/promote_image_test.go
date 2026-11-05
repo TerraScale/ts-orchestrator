@@ -335,6 +335,9 @@ func (f *promotionFixture) reset() {
 }
 
 func TestPromotionCIImageImportedSignedVerifiedAndReceipted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	f := newPromotion(t)
 	successful(t, f.promote(nil, nil, f.realArgs()...))
 	equal(t, f.commands(), []string{"verify-binary", "verify-image-production", "image-candidate", "sign-image", "verify-image"})

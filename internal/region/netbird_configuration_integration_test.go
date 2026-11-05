@@ -10,6 +10,9 @@ import (
 )
 
 func TestNetBirdConfigurationOriginalMaterialSDK(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	fixture := newFoundationProvisionFixture(t)
 	// A fresh client adopts the schema3 origin; the fixture already adopted its legacy grant at this generation.
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

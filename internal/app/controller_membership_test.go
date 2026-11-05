@@ -259,6 +259,9 @@ func (fake *fakeSlotOCI) Replace(ctx context.Context, action membership.Action) 
 }
 
 func TestMembershipReplacesTerminatedControllerUnderSameServerName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 	cluster := startMembershipCluster(t, ctx)

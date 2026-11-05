@@ -140,6 +140,9 @@ func controller(t *testing.T, api *providerState, store ociresource.Store) *ocir
 func instance(ip, state string) oci.Instance { return oci.Instance{PrivateIP: ip, State: state} }
 
 func TestBackendsFollowPlacement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	api := &providerState{balancer: LoadBalancer{ID: nlbID, ETag: "e", Tags: owner.Stamp(key, 0, "")},
 		backends: []Backend{{IP: "10.0.1.9", Port: 8443, Weight: 1, name: "10.0.1.9:8443"}}}
 	store := persistentStore(t)
@@ -320,6 +323,9 @@ func persistentStore(t *testing.T) *ociresource.KVStore {
 }
 
 func TestDurableWorkRequestRecoversAfterNATSAndControllerRestart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	token, storeDir := rand.Text(), t.TempDir()

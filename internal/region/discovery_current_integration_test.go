@@ -210,6 +210,9 @@ func (f *currentDiscoveryScenario) floorPath() string {
 }
 
 func TestCurrentFoundationDiscoveryHTTPDurableAuthority(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	t.Run("mandatory chain even on fresh installation", func(t *testing.T) {
 		f := newCurrentDiscoveryScenario(t)
 		delete(f.objects, foundationRootChainObject)

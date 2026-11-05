@@ -32,6 +32,9 @@ import (
 )
 
 func TestInstancePrincipalProtocolFreshSigningAndRotatingRefresh(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	fixture := newPrincipalProtocol(t)
 	constructor, cancelConstructor := context.WithCancel(t.Context())
 	defer cancelConstructor()

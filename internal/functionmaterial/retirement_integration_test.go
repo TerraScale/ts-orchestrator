@@ -32,6 +32,9 @@ import (
 )
 
 func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	root, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)

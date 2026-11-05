@@ -10,6 +10,9 @@ import (
 )
 
 func TestD15PublisherReadback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	for _, tc := range []struct {
 		name, permanent, httpFailure, attempts, events string
 		success                                        bool

@@ -25,6 +25,9 @@ import (
 // The home receives only public recipient metadata, publishes scoped leaf files
 // through the real OCI SDK protocol boundary, and authenticates the resulting leaf.
 func TestSpokeLinkPublicRecipientAuthenticatesAndRecovers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
 	f := newLinkFixture(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
