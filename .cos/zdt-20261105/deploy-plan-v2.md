@@ -285,6 +285,24 @@ change was made.
 - Neither origin/main moved (ts-orchestrator `2142b1f3`, terrascale `a811367b`);
   no other lane pushed.
 
+## GO attempt 2 (Q-ZDTPUBLISH = 1), 2026-11-06 — aborted before step P1
+
+Nothing was disabled, shipped, dispatched or announced. Option 1 cannot work
+because the fence pins the target **image digest** before the window, but CI
+produces that digest only inside the window:
+
+- `arm-stopped` and `arm-offline` manifests must carry `Target.Image` as
+  `ghcr.io/terrascale/terrabase@sha256:<arm64>`. The job validator and the
+  cross-checks all compare that exact digest: `store.go:120/383`,
+  `bootstrap_cold.go:72`, `mesh/bootstrap.go:58/73`.
+- The fenced founder records the authenticated candidate only if
+  `j.Target.Image == released image` (`candidate.go:31`). Otherwise the release is
+  refused, and a failed push-run release dispatches a fresh main run, which
+  rebuilds a new digest.
+- The monorepo `main` job builds the image and releases it in the same job, for
+  push and dispatch alike. No green digest can exist before step 5 without a
+  release reaching unfenced b443-era executors.
+
 ## Prepare before the announced window
 
 - Freeze production publications for both repos; retain the current disabled
