@@ -262,6 +262,29 @@ revised window: 1200 s serving.
 - Keep the originals until the separately approved cleanup after success; the
   clones become the workers' boot volumes.
 
+## GO attempt 2026-11-06 — aborted at the pre-window publication gate (12:50Z)
+
+GO was received with these conditions: a 20+5 min window announced first; the sjc
+worker canary first; SOFTSTOP→timeout→STOP; ts-ship both repos first; per-step UTC
+reports. The attempt stopped before shipping or announcing anything. No production
+change was made.
+
+- **ts-orchestrator CI is active, not disabled.** "TerraScale Orchestrator Go
+  checks" (`ci.yml`) runs `deploy/release-push` on every push to main with a
+  required publication. A ts-ship of this candidate would hot-push the new ts-orch
+  to all six nodes while b443 runs: the forbidden mixed install and NATS restart.
+  A `workflow_dispatch` run builds and publishes `ci-<sha>-run-<id>` without
+  release-push, but only if the workflow is disabled across the ts-ship push.
+- **The monorepo has no build/release separation.** CI's `main` job builds the
+  engine image and runs "Release to every region" in the same job, for both push
+  and dispatch. The fenced founders retain the authenticated candidate only from
+  that release (`mesh/release.go` → `RetainCandidate`), so it must land after
+  step 5. Measured push→release on run 42111952116: 7 min 23 s. This puts about
+  8 min of CI, plus queue variance, on the in-window critical path, giving a
+  ≈t0+1190 s finish against the 1200 s limit with no margin.
+- Neither origin/main moved (ts-orchestrator `2142b1f3`, terrascale `a811367b`);
+  no other lane pushed.
+
 ## Prepare before the announced window
 
 - Freeze production publications for both repos; retain the current disabled
