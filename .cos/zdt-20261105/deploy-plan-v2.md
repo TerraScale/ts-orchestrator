@@ -8,9 +8,47 @@ This supersedes deploy-plan.md. It is a plan, not an execution receipt. No annou
 production stop, key mutation, installation, workflow enable or rollout has occurred.
 Independent review of the Version:0 guard, cold arming and this plan precedes GO.
 
-Target: about 10–15 minutes from closing customer ingress to restored service,
-including the status monitor's five consecutive passing minutes. Preparation and
-artifact production happen before that clock. If the estimate stops fitting,
+## Current control-path gate — HOLD, 2026-11-06
+
+The installed SJC founder binary is clean source `2142b1f308b1c1169d25093f93eab3b10c479e1c`
+(`vcs.modified=false`), SHA256
+`214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146`.
+Its real `service --help` includes **`ts-orch service rm <name>`**. This is an
+existing fleet-wide desired-state removal, not a scale-to-zero command; apply
+rejects replicas 0. Do not execute `service rm terrabase` in production.
+
+Disposable qualification against that exact installed source passed the actual
+CLI `apply -f`, `ls`, `ps`, `rm`, and final task-lifecycle convergence. A separate
+real three-region embedded NATS fixture passed the actual `mesh.Remove` wrapper
+used by fleet CLI removal. These prove command availability and dispatch, not a
+physical six-node TerraBase stop. Only the disposable lifecycle/appliers and
+TerraBase HTTP contract are fixtures; no TerraBase binary was downloaded or run.
+
+**That installed path cannot satisfy step 2.** Its executor calls `DrainTask`
+before TERM; mounted-data removal calls the same `stopTask`. The regional edge
+requires another admitted, ready surviving writer. Exact-source HTTP contract
+drills prove refusal both when the last node is the sole admitted peer and when
+its still-admitted peer is unavailable (`regional prime HTTP 503`). Generic CLI
+success/removal acknowledgement is not physical exit. Removing both nodes may
+also start the legacy handoff we are avoiding. `member drain/leave` uses this
+same lifecycle and does not provide the missing cold-stop bypass.
+
+DECISION: Keep the production window held; do not substitute service removal for
+physical stop. Reason: the installed controller cannot stop the last regional
+writer through that path, and the new pinned bypass is not installed yet.
+
+The fallback is **a user-approved temporary SSH key on the three workers**, as
+specified in Q-ZDTCONTROL. No new key, security permission or access is authorized
+or installed. Until that approval and bounded installation/readback, steps 1–7
+are not executable: no maintenance publication, stop, key deletion or rollout.
+The temporary access must also support per-node byte inventory, backup transport,
+and the two process-watch receipts; derive-only units do not grant execution.
+Proof: `qualification/v4-installed-control.md` and its exact-source fixture/logs.
+
+Target: 10–15 minutes of serving maintenance. The current hard serving limit is
+12 minutes; status resolution can take another five consecutive passing minutes
+(17 minutes total). The notice and final GO must reflect these bounds. Preparation
+and artifact production happen before that clock. If the estimate stops fitting,
 start the rollback while its original processes/data are still available; do not
 wait indefinitely for CI, backup transfer, readiness or a missing node.
 
@@ -54,7 +92,10 @@ wait indefinitely for CI, backup transfer, readiness or a missing node.
   maintenance operator's probes and engine/NATS peer traffic. Save and read back
   the narrowly scoped host routing/firewall changes and their exact reversal;
   do not replace the existing firewall or remove SSH/NetBird/NATS access.
-- Read back the live systemd dependency graph before GO: stopping containerd
+- Use the actual founder systemd readback and the conditionally accepted worker
+  provisioning/image derivation; do not claim worker units were read back. The
+  parent accepts that derivation only with the scripted 60-second gates below.
+  Before GO verify the accessible dependency graph: stopping containerd
   must leave old ts-orch/embedded NATS running through step 4. The M1 unit has
   `Wants=containerd.service`; managed-host units with `Requires=` need separate
   verification and cannot be assumed equivalent. If the actual graph propagates
@@ -85,7 +126,11 @@ Abort: if the notice, gate, drain or inventory cannot be verified, do not stop a
 process or change any key. Rollback: remove only this transaction's gate, verify
 original b443 serving/token issuance and amend/cancel the notice. No data restore.
 
-### 2. Stop TerraBase on all six, with no automatic recreation (1–2.5 minutes)
+### 2. Stop TerraBase on all six, with no automatic recreation (conditional; HOLD)
+
+**Unexecutable until the control-path gate above is resolved.** The following
+explicit systemd/PID commands require approved worker access; no existing Swarm
+CLI can replace them. No fleet-wide service-removal intent is published.
 
 Keep old ts-orch/NATS running for the moment, but stop the containerd control
 service on **all six** hosts first. Verify every runtime API is unavailable and
@@ -96,7 +141,11 @@ step 4. Do not restart ts-orch or NATS yet.
 Signal TERM to each captured TerraBase host PID only after rechecking its start
 ticks and executable identity. Do not call the legacy /drain endpoint. Wait for
 physical exit and listener closure on all six; record PID/start identity, UTC exit,
-container/shim state and absence of replacement PIDs. A failed API request, failed
+container/shim state and absence of replacement PIDs. Run `cold.py watch` for
+60 full seconds on every node after the stop, with the retained pre-stop task
+baseline and `--barrier stopped --runtime-down`. Run `watch-check` over all six
+receipts before step 3/4: abort=true, unreadable/incomplete/missing/wrong-barrier
+receipt or any new engine PID/containerd task aborts the window. A failed API request, failed
 health check, expired lease or dead parent is not exit proof. Preserve stopped
 containers, data mounts and task-secret material. No new engine starts here.
 
@@ -180,7 +229,12 @@ new host, new identity or rewritten database is involved.
 Restart containerd, then new ts-orch. NATS/Swarm resume their retained state; every
 TerraBase executor remains held before it can recreate b443. Confirm new revision,
 control-plane membership, all six persisted fences, all three durable regional
-holds and zero running TerraBase processes. A reappearing old process is an abort.
+holds and zero running TerraBase processes. Repeat the full 60-second scripted
+watch on all six with `--barrier restarted` (runtime API now required readable),
+then consume all six receipts with `watch-check` before any engine start. The
+pre-stop baseline forbids new/recreated task identities, including non-engine
+tasks. A reappearing b443/terrabase process, new task or failed receipt aborts.
+Do this again after any additional stop/restart; an earlier receipt is not reusable.
 
 Abort: a missing fence, binary/provenance mismatch, unexpected task or NATS/store
 failure retains maintenance and prevents engine start. Rollback: stop all new
@@ -406,17 +460,23 @@ No target starts while any predecessor's exit is unknown.
 | Barrier complete | Hard elapsed limit from t0 | Failure action |
 | --- | ---: | --- |
 | Notice public, gate + negative/positive probes, drained logical cutoff | 75 s | Undo only owned nft table; verify retained b443 and amend notice. No process/key change. |
-| Runtime APIs down, six exact engine PIDs physically gone | 120 s | Stop advancing; no NATS restart/key change/new process. Account for stuck host. |
-| Cold local + encrypted off-host backup readback | 270 s | Leave originals untouched; complete safe two-key cleanup before b443 watcher restart. |
-| Both exact conditional tombstones read back | 290 s | Reconcile each private receipt; no blind retry/reinsertion; keep engines absent until both hazards are gone. |
-| Six fences, offline controller snapshot, new ts-orch/NATS up, no engine | 380 s | Keep gate; fleet retained-state rollback, excluding JetStream. |
-| Six exact new engines at original owner/epoch, replicas caught up | 530 s | Fleet rollback after physical exit and six-second exclusive TTL. Each local replace also retains its independent 60 s bound. |
-| Logical reconciliation, token issuance, all nine canary reads; reopen | 600 s | Reclose/retain gate and rollback against latest retained acknowledged data. |
-| Five minutes passing checks and operational status | 900 s | Report measured incident; never override measured component status. |
+| Runtime APIs down, six exact engine PIDs physically gone; six 60 s stopped-watch receipts pass | 180 s | Stop advancing; no NATS restart/key change/new process. Account for stuck host. |
+| Cold local + encrypted off-host backup readback | 330 s maximum; measured budget required before GO | Leave originals untouched; complete safe two-key cleanup before b443 watcher restart. |
+| Both exact conditional tombstones read back | 350 s | Reconcile each private receipt; no blind retry/reinsertion; keep engines absent until both hazards are gone. |
+| Six fences, offline controller snapshot, new ts-orch/NATS up; six 60 s restarted-watch receipts pass | 500 s | Keep gate; fleet retained-state rollback, excluding JetStream. |
+| Six exact new engines at original owner/epoch, replicas caught up | 650 s | Fleet rollback after physical exit and six-second exclusive TTL. Each local replace also retains its independent 60 s bound. |
+| Logical reconciliation, token issuance, all nine canary reads; reopen | 720 s | Reclose/retain gate and rollback against latest retained acknowledged data. |
+| Five minutes passing checks and operational status | 1020 s | Report measured incident; never override measured component status. |
 
-The 150-second cold-backup budget includes readback and off-host transfer, not just
-copy initiation. Preparation must measure actual source bytes and the authorized
-transport's elapsed time before GO. A small dev fixture is not evidence that the
+The cold-backup budget includes full local copy/encryption/readback and off-host
+transfer/readback. Before GO, measure **real DB bytes on each of the six nodes**,
+time an equivalent-size copy over that node's actual planned transfer path, and
+set its budget to **ceil(measured seconds × 1.5)**. Record the largest parallel
+node budget and demonstrate that it fits the currently reserved 150 seconds;
+otherwise obtain a revised window before maintenance. The fixed helper alarm is
+a maximum, not a substitute for the measured +50% budget. Worker measurement
+is currently blocked by the same access prerequisite; founder-only/dev-link
+numbers are not six-node qualification. A small dev fixture is not evidence that the
 production inventory fits. If it does not fit, the parent revises the announced
 window before closing the gate. If physical exit is unprovable or quorum is down,
 a hard abort does not magically make rollback safe: retain maintenance and report
@@ -450,9 +510,12 @@ Keep containerd's real unit semantics distinct from a stale source template.
   The record retains the exact boot binary and containerd/runc archive SHA256 pins.
   This verifies provisioning content and OCI image identity, not current unit
   drift, running binary digest or task restart labels. Those gates remain unread.
-  Parent decision is required before treating derived evidence as sufficient.
+  Parent accepted the derivation conditional on the two scripted 60-second
+  zero-engine/no-new-task gates. Live restart-label readback and actual stop/backup
+  execution paths remain prerequisites; the conditional acceptance grants no access.
 
 Fresh origin refs, candidate manifests, complete logs, drill counts/times and
 remaining pre-GO gates are in qualification/v3-results.md. Neither disabled CI nor
 local green Fast means green deployed main; ship via ts-ship only after explicit
-GO, then require both exact main revisions' real CI green before maintenance.
+GO, then require **BUILD green on both exact shipped main revisions** before
+maintenance. Slow **PROBES are not deploy gates** under the parent's decision.

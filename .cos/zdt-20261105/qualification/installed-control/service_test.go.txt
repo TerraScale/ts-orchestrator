@@ -1,0 +1,56 @@
+package app
+
+import (
+ "bytes"
+ "context"
+ "fmt"
+ "net"
+ "os"
+ "path/filepath"
+ "runtime"
+ "strings"
+ "sync"
+ "testing"
+ "time"
+
+ "github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+ "github.com/moby/swarmkit/v2/agent/exec"
+ "github.com/moby/swarmkit/v2/api"
+ "github.com/moby/swarmkit/v2/api/genericresource"
+)
+
+// Real installed-source CLI, manager, Raft, scheduler and worker agent. Only the
+// task lifecycle is a contract fixture; no TerraBase binary or production mesh.
+type coldCLIExecutor struct { mu sync.Mutex; tasks map[string]*coldCLITask }
+type coldCLITask struct { done chan struct{}; once sync.Once }
+func (*coldCLIExecutor) Describe(context.Context) (*api.NodeDescription,error) {
+ return &api.NodeDescription{Platform:&api.Platform{OS:"linux",Architecture:runtime.GOARCH},Resources:&api.Resources{NanoCPUs:8e9,MemoryBytes:8<<30,Generic:[]*api.GenericResource{genericresource.NewDiscrete(swarmruntime.DiskResource,32<<30)}}},nil
+}
+func (*coldCLIExecutor) Configure(context.Context,*api.Node) error{return nil}
+func (*coldCLIExecutor) SetNetworkBootstrapKeys([]*api.EncryptionKey)error{return nil}
+func(e *coldCLIExecutor)Controller(task *api.Task)(exec.Controller,error){e.mu.Lock();defer e.mu.Unlock();c:=e.tasks[task.ID];if c==nil{c=&coldCLITask{done:make(chan struct{})};e.tasks[task.ID]=c};return c,nil}
+func(*coldCLITask)Update(context.Context,*api.Task)error{return nil}
+func(*coldCLITask)Prepare(context.Context)error{return nil}
+func(*coldCLITask)Start(context.Context)error{return nil}
+func(c *coldCLITask)Wait(ctx context.Context)error{select{case <-ctx.Done():return ctx.Err();case <-c.done:return nil}}
+func(c *coldCLITask)Shutdown(context.Context)error{c.once.Do(func(){close(c.done)});return nil}
+func(c *coldCLITask)Terminate(ctx context.Context)error{return c.Shutdown(ctx)}
+func(c *coldCLITask)Remove(ctx context.Context)error{return c.Shutdown(ctx)}
+func(*coldCLITask)Close()error{return nil}
+func TestInstalledColdServiceCLI(t *testing.T){
+ ctx,cancel:=context.WithTimeout(t.Context(),35*time.Second);defer cancel()
+ state:=t.TempDir();e:=&coldCLIExecutor{tasks:map[string]*coldCLITask{}}
+ ln,err:=net.Listen("tcp","127.0.0.1:0");if err!=nil{t.Fatal(err)};addr:=ln.Addr().String();ln.Close()
+ node,err:=swarmruntime.StartSingleHost(ctx,state,e,addr,addr,swarmruntime.FounderAdmission());if err!=nil{t.Fatal(err)}
+ t.Cleanup(func(){c,done:=context.WithTimeout(context.Background(),10*time.Second);defer done();node.Stop(c)})
+ run:=func(args ...string)string{t.Helper();var out bytes.Buffer;if err:=runServiceCLI(ctx,args,&out,state);err!=nil{t.Fatalf("%v: %v %s",args,err,out.String())};t.Logf("CLI %v: %s",args,out.String());return out.String()}
+ run("--help")
+ file:=filepath.Join(state,"disposable.json")
+ spec:=fmt.Sprintf(`{"name":"zdt-cold-disposable","image":"example.invalid/fixture@sha256:%s","port":19089,"replicas":1}`,strings.Repeat("a",64))
+ if err:=os.WriteFile(file,[]byte(spec),0600);err!=nil{t.Fatal(err)}
+ run("apply","-f",file);if !strings.Contains(run("ls"),"zdt-cold-disposable"){t.Fatal("not applied")};run("ps","zdt-cold-disposable")
+ run("rm","zdt-cold-disposable")
+ if strings.Contains(run("ls"),"zdt-cold-disposable"){t.Fatal("service remained")}
+ for { all:=true;e.mu.Lock();for _,task:=range e.tasks{select{case <-task.done:default:all=false}};e.mu.Unlock();if all{break};select{case <-ctx.Done():t.Fatal("task lifecycle did not stop");case <-time.After(20*time.Millisecond):}}
+ t.Log("PASS: existing apply/rm CLI stopped the disposable task lifecycle; no physical engine exit claimed")
+}

@@ -1,0 +1,28 @@
+package edge
+
+import (
+ "context"
+ "encoding/json"
+ "net"
+ "net/http"
+ "net/http/httptest"
+ "strings"
+ "testing"
+ "time"
+ "github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
+)
+
+func TestInstalledColdLastNodeCannotStop(t *testing.T){
+ for _,peers:=range []int{1,2}{t.Run(string(rune('0'+peers))+" admitted",func(t *testing.T){
+ ctx,cancel:=context.WithTimeout(t.Context(),2*time.Second);defer cancel()
+ server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  if r.Host=="n2:8081"{w.WriteHeader(503);return}
+  if r.URL.Path!="/v1/rollout/status"{t.Errorf("unexpected mutation: %s",r.URL.Path);w.WriteHeader(500);return}
+  json.NewEncoder(w).Encode(regionalStatus{Node:"n1",Owner:"n1",Epoch:5,Writer:true,Ready:true})
+ }));defer server.Close()
+ e:=New(t.TempDir());e.SetRequestProofSecret(strings.Repeat("a",64))
+ nodes:=[]mesh.WorkerPeer{{Node:"n1",Address:"n1"}};if peers==2{nodes=append(nodes,mesh.WorkerPeer{Node:"n2",Address:"n2"})};e.SetRegionalNodes(func()[]mesh.WorkerPeer{return nodes})
+ router:=e.regional.Load();router.transport.Protocols=nil;router.transport.DialContext=func(ctx context.Context,network,address string)(net.Conn,error){return (&net.Dialer{}).DialContext(ctx,network,server.Listener.Addr().String())}
+ err:=e.DrainRegionalNode(ctx,"n1");if err==nil{t.Fatal("last live node stop unexpectedly allowed")};t.Logf("stop refused: %v",err)
+ })}
+}
