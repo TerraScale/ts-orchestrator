@@ -256,11 +256,18 @@ def no_reappearance(args):
 
 
 def check_watches(args):
-    expected = {f'ts-{region}-{node}' for region in ('gru', 'sjc', 'fra') for node in (1, 2)}
+    # stopped: three founder 60 s watches plus three worker OCI STOPPED receipts.
+    # restarted: the three founders; each worker gates itself in boot-drive.
+    founders = {f'ts-{region}-1' for region in ('gru', 'sjc', 'fra')}
+    workers = {f'ts-{region}-2' for region in ('gru', 'sjc', 'fra')}
+    expected = founders | workers if args.barrier == 'stopped' else founders
     rows = [json.loads(private(path).read_text()) for path in args.receipts]
-    require(len(rows) == 6 and {row['host'] for row in rows} == expected, 'six distinct live node receipts required')
+    require(len(rows) == len(expected) and {row['host'] for row in rows} == expected, 'one receipt per expected host required')
     for row in rows:
-        require(row['abort'] is False and row['barrier'] == args.barrier
+        if row.get('kind') == 'oci-stopped':
+            require(args.barrier == 'stopped' and row['host'] in workers and row['abort'] is False, 'OCI receipt is only a worker stop proof')
+            continue
+        require(row['host'] in founders and row['abort'] is False and row['barrier'] == args.barrier
                 and row['requiredSeconds'] == WATCH_SECONDS and row['elapsedSeconds'] >= WATCH_SECONDS
                 and row['samples'] >= 2 and row['completedAt'] >= row['startedAt'] + WATCH_SECONDS,
                 'missing, incomplete, failed or wrong-barrier process watch')
@@ -533,6 +540,196 @@ def kv(args):
         client.s.close()
 
 
+# --- Offline worker install (v3): founder-side on a mounted worker boot volume ---
+# The worker is STOPPED and its (cloned) boot volume is attached to its region's
+# founder. Nothing here touches the founder's own root or a live worker.
+STATE = '/var/lib/ts-orch'
+BINARY = 'usr/local/bin/terrascale-orchestrator'
+DRIVE_DIR = 'var/lib/ts-orch/zdt-drive'
+DRIVE_UNIT = 'ts-orch-cold-drive.service'
+DRIVE_SCRIPT = 'usr/local/lib/ts-zdt/cold.py'
+UNIT_TEXT = '''[Unit]
+Description=TerraScale cold maintenance drive for one pinned TerraBase transaction
+After=ts-orch.service
+Requires=ts-orch.service
+ConditionPathExists=/var/lib/ts-orch/zdt-drive/drive.json
+ConditionPathExists=!/var/lib/ts-orch/zdt-drive/attempted
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/lib/ts-zdt/cold.py boot-drive
+TimeoutStartSec=420
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+'''
+
+
+def sha256_file(path):
+    with open(path, 'rb') as f:
+        return hashlib.file_digest(f, 'sha256').hexdigest()
+
+
+def offline_root(root, member):
+    root = Path(root)
+    require(root.is_absolute() and str(root) != '/' and os.path.ismount(root), 'offline root must be a mounted path other than /')
+    require(root.stat().st_dev != Path('/').stat().st_dev, 'offline root is the live root filesystem')
+    require((root / 'etc/hostname').read_text().strip() == member != socket.gethostname(), 'mounted volume is not the named stopped worker')
+    return root
+
+
+def write_private(path, data, mode=0o600):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.with_name('.' + path.name + '.zdt-new')
+    with open(temporary, 'wb', opener=lambda name, flags: os.open(name, flags | os.O_TRUNC, mode)) as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(temporary, mode)
+    os.replace(temporary, path)
+    fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def offline_manifest(root, job_id):
+    # Every path this transaction owns, with hash/mode/owner, for verify after detach.
+    paths = [BINARY, BINARY + '.zdt-b443', DRIVE_SCRIPT, 'etc/systemd/system/' + DRIVE_UNIT, DRIVE_DIR + '/drive.json',
+             'var/lib/ts-orch/terrabase-bootstrap/job.json', 'var/lib/ts-orch/terrabase-bootstrap/ingress.json',
+             'var/lib/ts-orch/zdt-retained/tasks.db.' + job_id]
+    rows = {}
+    for name in paths:
+        st = (root / name).lstat()
+        require(stat.S_ISREG(st.st_mode) and st.st_uid == 0, 'offline file is not a root-owned regular file: ' + name)
+        rows[name] = {'sha256': sha256_file(root / name), 'mode': stat.S_IMODE(st.st_mode), 'size': st.st_size}
+    link = root / 'etc/systemd/system/multi-user.target.wants' / DRIVE_UNIT
+    rows['enabled'] = os.readlink(link)
+    rows['agentDatabasePresent'] = (root / 'var/lib/ts-orch/swarm/worker/tasks.db').exists()
+    rows['releaseTrialPresent'] = (root / 'var/lib/ts-orch/nats/release-trial').exists()
+    return rows
+
+
+def offline_install(args):
+    require(os.geteuid() == 0, 'offline install requires root')
+    started = time.monotonic()
+    manifest = json.loads(private(args.manifest).read_text())
+    local = manifest['local']
+    member, job_id = local['member'], local['id']
+    root = offline_root(args.root, member)
+    require(not (root / 'var/lib/ts-orch/nats/release-trial').exists(), 'pending release probation could restore .prev')
+    require(sha256_file(args.binary) == args.binary_sha256, 'staged binary differs from the qualified digest')
+    current = root / BINARY
+    require(sha256_file(current) == args.old_sha256, 'worker binary differs from the captured b443-era executable')
+    tool = [args.binary, 'bootstrap-maintenance']
+    pins = json.loads(command([*tool, 'pins-offline', '--root', str(root), '--state', STATE], timeout=20))
+    require(pins == local['source'], 'worker agent task differs from the manifest source pin')
+    # Fence first: if anything below fails, the volume is discarded, never booted.
+    command([*tool, 'arm-offline', '--root', str(root), '--state', STATE, '--manifest', str(args.manifest)], timeout=20)
+    retained = root / (BINARY + '.zdt-b443')
+    if not retained.exists():
+        os.link(current, retained)
+    write_private(root / (BINARY + '.zdt-stage'), Path(args.binary).read_bytes(), 0o755)
+    os.replace(root / (BINARY + '.zdt-stage'), current)
+    write_private(root / DRIVE_SCRIPT, Path(__file__).read_bytes(), 0o700)
+    write_private(root / 'etc/systemd/system' / DRIVE_UNIT, UNIT_TEXT.encode(), 0o644)
+    write_private(root / DRIVE_DIR / 'drive.json', json.dumps({'id': job_id, 'member': member}).encode())
+    link = root / 'etc/systemd/system/multi-user.target.wants' / DRIVE_UNIT
+    if not link.is_symlink():
+        os.symlink('/etc/systemd/system/' + DRIVE_UNIT, link)
+    for d in (root / 'usr/local/bin', link.parent):
+        fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    os.sync()
+    files = offline_manifest(root, job_id)
+    require(files[BINARY]['sha256'] == args.binary_sha256 and files[BINARY + '.zdt-b443']['sha256'] == args.old_sha256
+            and not files['agentDatabasePresent'] and not files['releaseTrialPresent'], 'offline install readback failed')
+    job = json.loads((root / 'var/lib/ts-orch/terrabase-bootstrap/job.json').read_text())
+    require(job == local, 'retained worker fence differs from the manifest')
+    save(args.receipt, {'member': member, 'id': job_id, 'files': files, 'pins': pins,
+                        'seconds': time.monotonic() - started, 'at': time.time()})
+
+
+def offline_verify(args):
+    # Read-only mount after detach/reattach: the same bytes must be there.
+    expected = json.loads(private(args.install_receipt).read_text())
+    root = offline_root(args.root, expected['member'])
+    require(offline_manifest(root, expected['id']) == expected['files'], 'offline volume differs from the install receipt')
+    save(args.receipt, {'member': expected['member'], 'id': expected['id'], 'verified': True, 'at': time.time()})
+
+
+# --- Worker boot drive: runs once on the worker, from the offline-installed unit ---
+def rebooted_watch(receipt_path):
+    # After a reboot every task is new: non-engine services may restart, but no
+    # engine process and no live engine containerd task may appear for 60 s.
+    receipt = Path(receipt_path)
+    record = {'host': socket.gethostname(), 'abort': True, 'startedAt': time.time(), 'barrier': 'rebooted',
+              'requiredSeconds': WATCH_SECONDS, 'samples': 0}
+    save(receipt, record)
+    start = time.monotonic()
+    try:
+        while True:
+            require(not engine_processes(), 'engine process appeared after reboot')
+            for task in runtime_tasks().values():
+                require(not task['engine'] or (task['identity'] is None and task['status'] != 'RUNNING'), 'live engine task after reboot')
+            record['samples'] += 1
+            record['elapsedSeconds'] = time.monotonic() - start
+            require(record['elapsedSeconds'] < WATCH_SECONDS + 10, 'watch sample deadline exceeded')
+            if record['elapsedSeconds'] >= WATCH_SECONDS:
+                record.update(abort=False, completedAt=time.time())
+                break
+            time.sleep(min(0.25, WATCH_SECONDS - record['elapsedSeconds']))
+    finally:
+        pending = receipt.with_name(receipt.name + '.pending')
+        save(pending, record)
+        os.replace(pending, receipt)
+
+
+def boot_drive(args):
+    require(os.geteuid() == 0, 'boot drive requires root')
+    base = Path('/' + DRIVE_DIR)
+    config = json.loads(private(base / 'drive.json').read_text())
+    require(config['member'] == socket.gethostname(), 'drive belongs to another host')
+    # Attempt once: a later reboot never re-drives; the fence keeps holding.
+    save(base / 'attempted', {'at': time.time()})
+    result = {'id': config['id'], 'host': config['member'], 'startedAt': time.time(), 'steps': []}
+    def step(name, run):
+        t = time.monotonic()
+        run()
+        result['steps'].append({'step': name, 'seconds': time.monotonic() - t})
+        save(base / ('result-' + name + '.json'), result)
+    tool = ['/' + BINARY, 'bootstrap-maintenance']
+    def ready():
+        end = time.monotonic() + 180
+        while not Path(STATE + '/terrabase-bootstrap/control.sock').exists():
+            require(time.monotonic() < end, 'executor control socket did not appear')
+            time.sleep(0.5)
+        job = json.loads(command([*tool, 'status', '--state', STATE], timeout=10))
+        require(job['id'] == config['id'] and job['phase'] == 'held', 'fence is not the held offline transaction')
+    step('ready', ready)
+    step('watch', lambda: rebooted_watch(base / 'watch-rebooted.json'))
+    step('stage', lambda: command([*tool, 'stage', '--state', STATE, '--id', config['id']], timeout=70))
+    step('replace', lambda: command([*tool, 'replace', '--state', STATE, '--id', config['id']], timeout=70))
+    def verified():
+        job = json.loads(command([*tool, 'status', '--state', STATE], timeout=10))
+        require(job['id'] == config['id'] and job['phase'] == 'verified', 'replacement not verified')
+    step('verified', verified)
+
+
+def oci_stopped(args):
+    # Workers: OCI STOPPED is the physical exit receipt (no worker shell exists).
+    data = json.loads(command(['oci', '--region', args.region, 'compute', 'instance', 'get', '--instance-id', args.instance_id], timeout=30))
+    instance = data['data']
+    require(instance['display-name'] == args.host and instance['lifecycle-state'] == 'STOPPED', 'worker is not STOPPED')
+    save(args.receipt, {'host': args.host, 'kind': 'oci-stopped', 'abort': False, 'barrier': 'stopped',
+                        'instance': args.instance_id, 'etag': data.get('etag'), 'at': time.time()})
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -541,18 +738,22 @@ def main():
     p = sub.add_parser('runtime-labels'); p.add_argument('--receipt', required=True); p.set_defaults(run=runtime_labels)
     p = sub.add_parser('watch-baseline'); p.add_argument('--receipt', required=True); p.set_defaults(run=watch_baseline)
     p = sub.add_parser('watch'); p.add_argument('--baseline', required=True); p.add_argument('--receipt', required=True); p.add_argument('--barrier', required=True, choices=['stopped', 'restarted']); p.add_argument('--runtime-down', action='store_true'); p.set_defaults(run=no_reappearance)
-    p = sub.add_parser('watch-check'); p.add_argument('--barrier', required=True, choices=['stopped', 'restarted']); p.add_argument('--receipts', required=True, nargs=6); p.set_defaults(run=check_watches)
+    p = sub.add_parser('watch-check'); p.add_argument('--barrier', required=True, choices=['stopped', 'restarted']); p.add_argument('--receipts', required=True, nargs='+'); p.set_defaults(run=check_watches)
     p = sub.add_parser('stop'); p.add_argument('--identity', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=stop)
     p = sub.add_parser('backup'); p.add_argument('--roots', required=True); p.add_argument('--destination', required=True); p.add_argument('--password', required=True); p.set_defaults(run=backup)
     p = sub.add_parser('row-hash'); p.add_argument('--address', required=True); p.add_argument('--region', required=True); p.add_argument('--catalogs', nargs='+'); p.add_argument('--credential', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=row_hash)
     p = sub.add_parser('compare'); p.add_argument('--before', required=True); p.add_argument('--after', required=True); p.set_defaults(run=logical_compare)
     p = sub.add_parser('kv'); p.add_argument('action', choices=['dry-run', 'delete']); p.add_argument('--token', required=True); p.add_argument('--audit', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=kv)
+    p = sub.add_parser('oci-stopped'); p.add_argument('--host', required=True); p.add_argument('--region', required=True); p.add_argument('--instance-id', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=oci_stopped)
+    p = sub.add_parser('offline-install'); p.add_argument('--root', required=True); p.add_argument('--manifest', required=True); p.add_argument('--binary', required=True); p.add_argument('--binary-sha256', required=True); p.add_argument('--old-sha256', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=offline_install)
+    p = sub.add_parser('offline-verify'); p.add_argument('--root', required=True); p.add_argument('--install-receipt', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=offline_verify)
+    p = sub.add_parser('boot-drive'); p.set_defaults(run=boot_drive)
     args = parser.parse_args()
     def expired(signum, frame):
         raise TimeoutError('step hard deadline exceeded')
     signal.signal(signal.SIGALRM, expired)
     signal.alarm({'backup': 150, 'row-hash': 120, 'runtime-labels': 30, 'watch-baseline': 30,
-                  'watch': 72, 'watch-check': 15, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
+                  'watch': 72, 'watch-check': 15, 'oci-stopped': 40, 'offline-install': 60, 'offline-verify': 30, 'boot-drive': 400, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
     try:
         args.run(args)
     except Exception as error:

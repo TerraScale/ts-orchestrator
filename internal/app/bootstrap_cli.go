@@ -19,7 +19,7 @@ import (
 // RunBootstrapMaintenance arms stopped hosts offline or talks to the admitted
 // executor. It never launches another executor or synthesizes a task spec.
 func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) error {
-	const usage = "usage: ts-orch bootstrap-maintenance <status|arm|arm-stopped|stage|replace> --state DIR [--manifest FILE | --id ID --source-task TASK --target-image REF@sha256:DIGEST --owner NODE --epoch EPOCH]"
+	const usage = "usage: ts-orch bootstrap-maintenance <status|arm|arm-stopped|pins-offline|arm-offline|stage|replace> --state DIR [--root MOUNT] [--manifest FILE | --id ID --source-task TASK --target-image REF@sha256:DIGEST --owner NODE --epoch EPOCH]"
 	if len(args) == 0 || args[0] == "--help" {
 		fmt.Fprintln(out, usage)
 		return nil
@@ -31,7 +31,8 @@ func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) 
 	fs := flag.NewFlagSet("bootstrap-maintenance", flag.ContinueOnError)
 	fs.SetOutput(out)
 	state := fs.String("state", "/var/lib/ts-orch", "local executor state directory")
-	manifest := fs.String("manifest", "", "captured cold bootstrap pins; arm-stopped only")
+	manifest := fs.String("manifest", "", "captured cold bootstrap pins; arm-stopped and arm-offline only")
+	root := fs.String("root", "", "a stopped host's boot volume mounted on its founder; offline actions only")
 	var request swarmruntime.BootstrapRequest
 	fs.StringVar(&request.ID, "id", "", "finite transaction ID")
 	fs.StringVar(&request.SourceTask, "source-task", "", "current admitted source task ID")
@@ -44,24 +45,40 @@ func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) 
 	if fs.NArg() != 0 {
 		return errors.New(usage)
 	}
+	if action == "pins-offline" || action == "arm-offline" {
+		if *root == "" {
+			return errors.New("--root is required for offline actions")
+		}
+		if action == "pins-offline" {
+			pin, err := swarmruntime.OfflinePins(*root, *state)
+			if err != nil {
+				return err
+			}
+			data, err := protocol.EncodeJSON(pin)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(out, "%s\n", data)
+			return err
+		}
+		input, err := readColdManifest(*manifest)
+		if err != nil {
+			return err
+		}
+		return swarmruntime.ArmOfflineColdBootstrap(ctx, *root, *state, input)
+	}
+	if *root != "" {
+		return errors.New("--root is only valid for offline actions")
+	}
 	if action == "arm-stopped" {
-		file, err := os.Open(*manifest)
+		input, err := readColdManifest(*manifest)
 		if err != nil {
-			return err
-		}
-		defer file.Close()
-		data, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
-		if err != nil {
-			return err
-		}
-		var input swarmruntime.ColdBootstrap
-		if err := protocol.DecodeStrict(data, &input, 64<<10); err != nil {
 			return err
 		}
 		return swarmruntime.ArmColdBootstrap(ctx, *state, input)
 	}
 	if *manifest != "" {
-		return errors.New("manifest is only valid for arm-stopped")
+		return errors.New("manifest is only valid for arm-stopped and arm-offline")
 	}
 	method := http.MethodPost
 	var data []byte
@@ -104,4 +121,18 @@ func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) 
 	}
 	_, err = out.Write(body)
 	return err
+}
+
+func readColdManifest(path string) (swarmruntime.ColdBootstrap, error) {
+	var input swarmruntime.ColdBootstrap
+	file, err := os.Open(path)
+	if err != nil {
+		return input, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
+	if err != nil {
+		return input, err
+	}
+	return input, protocol.DecodeStrict(data, &input, 64<<10)
 }
