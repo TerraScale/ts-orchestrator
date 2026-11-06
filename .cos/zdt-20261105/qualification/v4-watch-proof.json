@@ -1,0 +1,93 @@
+{
+  "at": "2026-11-06T04:13:24.067397+00:00",
+  "rows": [
+    {
+      "abort": false,
+      "barrier": "stopped",
+      "elapsedSeconds": 60.010462195961736,
+      "repeat": 1,
+      "samples": 237
+    },
+    {
+      "abort": false,
+      "barrier": "restarted",
+      "elapsedSeconds": 60.01457005698467,
+      "repeat": 1,
+      "samples": 236
+    },
+    {
+      "abort": false,
+      "barrier": "stopped",
+      "elapsedSeconds": 60.01002097403398,
+      "repeat": 2,
+      "samples": 237
+    },
+    {
+      "abort": false,
+      "barrier": "restarted",
+      "elapsedSeconds": 60.00947000901215,
+      "repeat": 2,
+      "samples": 237
+    },
+    {
+      "abort": false,
+      "barrier": "stopped",
+      "elapsedSeconds": 60.009107774007134,
+      "repeat": 3,
+      "samples": 238
+    },
+    {
+      "abort": false,
+      "barrier": "restarted",
+      "elapsedSeconds": 60.007875373994466,
+      "repeat": 3,
+      "samples": 238
+    },
+    {
+      "abort": false,
+      "barrier": "stopped",
+      "elapsedSeconds": 60.00830779701937,
+      "repeat": 4,
+      "samples": 237
+    },
+    {
+      "abort": false,
+      "barrier": "restarted",
+      "elapsedSeconds": 60.00961588800419,
+      "repeat": 4,
+      "samples": 237
+    },
+    {
+      "abort": false,
+      "barrier": "stopped",
+      "elapsedSeconds": 60.010993506992236,
+      "repeat": 5,
+      "samples": 238
+    },
+    {
+      "abort": false,
+      "barrier": "restarted",
+      "elapsedSeconds": 60.011049775988795,
+      "repeat": 5,
+      "samples": 238
+    }
+  ],
+  "passed": 10,
+  "failed": 0,
+  "criticalRefusals": [
+    "real process appearing after initial sample",
+    "new real runtime task directory",
+    "unreadable runtime API",
+    "abort receipt",
+    "incomplete duration",
+    "wrong barrier"
+  ],
+  "isolation": "real private PID/mount namespaces, real proc and task-directory observations; runtime API contract fixtures",
+  "liveReadOnlyParser": "3/3 founders; v4-live-runtime-contract.json",
+  "productionMutation": false,
+  "logSha256": "24e58ca448e0579099d21609443bc1fd4e88bd042926ea7cd84ee375cb2f8459",
+  "files": {
+    "scripts/maintenance/cold.py": "07e5fea571c7ffee68fae8e35fd6ceb8f726e9dcdf9d1f40b3ba199955b685e0",
+    "scripts/maintenance/qualify-watch.py": "5d3f1020b0869337bd2447ca4d4bb3dae643129cec65f90ca54d8090d30513f2"
+  }
+}

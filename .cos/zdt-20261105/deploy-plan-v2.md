@@ -488,6 +488,34 @@ policies; reject `always`, `on-failure`, `unless-stopped` and unknown policies.
 Verify no socket/external runtime restarter and no task resurrection before starts.
 Keep containerd's real unit semantics distinct from a stale source template.
 
+### Fixed-duration no-reappearance gate qualification
+
+`scripts/maintenance/cold.py` now implements `watch-baseline`, `watch` and
+`watch-check`; README has their exact local commands. Every observation starts
+with an abort receipt; the completed 60-second watch alone can record pass.
+`watch-check` consumes six distinct-node receipts and refuses missing, aborted,
+incomplete or wrong-phase receipts. Stop and restart receipts cannot substitute
+for one another. Both barriers ×5 pass10/10,60.0079–60.0146s, including critical
+refusal cases on real processes and shim task directories in private namespaces.
+Runtime replies in these tests are contract fixtures; actual parser readback passes
+on all three live founders. This is local qualification, not physical exit proof
+from live workers. `qualification/v4-watch-proof.json` records exact source hashes.
+
+### Read-only founder backup-path measurements (partial)
+
+`qualification/v4-founder-backup-path.json` and
+`benchmark/bench/2026-11-06-zdt-cold-gates.md` retain three measured repeats per
+founder. Real file bytes: GRU26,780,425; SJC24,134,351; FRA10,896,355, only the
+principal `/var/lib/ts-data/terrabase` root. Proxy local copy/encrypt/readback plus
+actual source→mariogk-dev SSH transfer/readback yields +50% budgets4s/11s/9s.
+The full random equivalent stream's source and destination hashes/lengths agree.
+Pin **mariogk-dev** as off-host destination and root SSH stdout with compression
+**disabled** for the actual encrypted archive, or repeat on the changed path.
+The local filesystem copy timings are from dev, not production. Worker roots
+and additional mounts remain unmeasured. Refresh every size before GO; a larger
+inventory requires another equivalent-size rehearsal. This is partial evidence,
+not permission to start an outage or assume worker backups fit the budget.
+
 ### Worker access and dependency evidence
 
 - Founders: `qualification/v3-live-systemd.json` is actual live readback. All three

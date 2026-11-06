@@ -42,6 +42,67 @@ labels and prohibit any restart supervisor before stopping containerd. A service
 `Restart=always` does not restart after an explicit `systemctl stop`; a socket or
 external trigger does, and must be ruled out using the live dependency readback.
 
+## Mandatory 60-second no-reappearance barriers
+
+The installed `service rm` command is not a cold last-node stop: it still calls
+regional handoff before TERM. Production remains held until the parent resolves
+worker execution access. No helper here supplies remote access or bypasses that
+approval. The following are implemented **local** commands, not invented node RPCs.
+
+Capture a fresh root-owned task baseline before stopping anything:
+
+```sh
+sudo python3 scripts/maintenance/cold.py watch-baseline --receipt "$txn/watch-baseline.json"
+```
+
+After each physical stop and before advancing the fleet barrier, run on that node:
+
+```sh
+sudo python3 scripts/maintenance/cold.py watch --baseline "$txn/watch-baseline.json" --barrier stopped --runtime-down --receipt "$txn/stopped-watch.json"
+```
+
+After step 5 restarts containerd and ts-orch, repeat on all six with the runtime
+API required readable (omit `--runtime-down`):
+
+```sh
+sudo python3 scripts/maintenance/cold.py watch --baseline "$txn/watch-baseline.json" --barrier restarted --receipt "$txn/restarted-watch.json"
+```
+
+The duration is fixed at 60 seconds; there is no shorter operator setting. Root
+scans host `/proc` for native `/app/terrabase`/`tb-server` and managed TerraBase
+entrypoints, checking start identities independently of the daemon. All containerd
+namespaces and task identities are observed. Runtime-down mode requires an absent
+or refused socket and checks the shim task directories independently; API failure
+in restarted mode is an abort, never zero tasks. New/recreated task directories,
+new task IDs, changed live PID/start identities, or live engine tasks abort.
+Only already-inventoried non-engine task identities may remain running. Unreadable
+proc/runtime state aborts. Inspecting an operator script argument that happens to
+mention TerraBase does not classify that script as the engine.
+
+Each invocation creates `abort:true` before observing, fsyncs progress and atomically
+replaces the receipt; only a complete passing watch records `abort:false`. The
+72-second outer deadline also leaves an abort receipt. SIGKILL or a missing,
+truncated or invalid receipt is an abort. Transfer the six private receipts using
+approved access into the transaction directory, then consume them as an explicit
+input to the next barrier:
+
+```sh
+python3 scripts/maintenance/cold.py watch-check --barrier stopped --receipts "$txn/gru-1-stopped.json" "$txn/gru-2-stopped.json" "$txn/sjc-1-stopped.json" "$txn/sjc-2-stopped.json" "$txn/fra-1-stopped.json" "$txn/fra-2-stopped.json"
+python3 scripts/maintenance/cold.py watch-check --barrier restarted --receipts "$txn/gru-1-restarted.json" "$txn/gru-2-restarted.json" "$txn/sjc-1-restarted.json" "$txn/sjc-2-restarted.json" "$txn/fra-1-restarted.json" "$txn/fra-2-restarted.json"
+```
+
+The checker rejects a wrong barrier, any abort, incomplete duration, duplicate or
+missing host. A stopped-barrier receipt cannot authorize post-restart activation.
+Repeat after any additional stop/restart; use the current transaction's receipts,
+never a prior rehearsal's files. These observations certify only the watched
+interval, so retain the runtime/executor barriers through the subsequent steps.
+
+`qualify-watch.py`, Slow only through ts-heavy-any, uses private PID/mount
+namespaces, real proc scans and task directories, plus runtime API contract
+fixtures. It exercises both full 60-second barriers five times and checks abort
+receipts for real process reappearance, task creation, unreadable API and bad fleet
+receipts. This does not claim live worker qualification or install access.
+
 ## Physical exit, retained files, backup
 
 After the all-six containerd-stop barrier, with socket availability checked,
@@ -78,8 +139,9 @@ transport, with an outer 60-second deadline. On the destination use
 new destination, never overwrite an older backup. No bucket, credentials, SSH key,
 or paid capacity is provisioned. **The local qualification's byte/time measurement
 is not a production-size or off-host transport measurement.** Actual six-node
-inventory sizes and a timed existing-transport rehearsal must fit the plan's
-150-second backup/readback/transfer budget before GO; otherwise extend the
+inventory sizes and equivalent-size rehearsals over each actual transfer path
+must set each node's budget to ceil(measured duration × 1.5). Require the largest
+parallel node budget to fit the plan's reserved 150 seconds before GO; otherwise extend the
 announced window or revise the backup step with the parent.
 
 ## Logical row/schema hashes and applied positions

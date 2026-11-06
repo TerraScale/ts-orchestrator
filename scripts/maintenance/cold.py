@@ -7,6 +7,7 @@ six receipts before advancing the next fleet barrier. See README.md.
 import argparse
 import base64
 import collections
+import errno
 import hashlib
 import ipaddress
 import json
@@ -27,6 +28,9 @@ TABLE = 'ts_zdt_20261105'
 PEERS = ('10.200.165.148', '10.200.101.28', '10.200.109.193',
          '10.200.72.235', '10.200.40.238', '10.200.95.5')
 KEYS = ('home.00000000000000000000000003', 'home.00000000000000000000000004')
+TASK_ROOT = Path('/run/containerd/io.containerd.runtime.v2.task')
+RUNTIME_SOCKET = '/run/containerd/containerd.sock'
+WATCH_SECONDS = 60
 
 
 def require(value, message):
@@ -119,6 +123,148 @@ def identity(pid):
         return {'pid': pid, 'start': fields[19], 'exe': os.readlink(f'/proc/{pid}/exe')}
     except (FileNotFoundError, ProcessLookupError):
         return None
+
+
+def engine_args(args):
+    # Inspect executable/managed entrypoint identities, never arbitrary operator
+    # arguments which may mention TerraBase in a receipt or script pathname.
+    if not args:
+        return False
+    name = Path(args[0]).name.lower().removesuffix(' (deleted)')
+    if name in ('terrabase', 'tb-server', 'terrabase.dll'):
+        return True
+    return name == 'dotnet' and any(Path(x).name.lower() == 'terrabase.dll' for x in args[1:])
+
+
+def engine_processes():
+    rows = []
+    for p in Path('/proc').iterdir():
+        if not p.name.isdecimal():
+            continue
+        try:
+            found = identity(int(p.name))
+            if found is None:
+                continue
+            args = (p / 'cmdline').read_bytes().decode(errors='replace').split('\0')
+            if engine_args([found['exe']]) or engine_args(args):
+                rows.append(found)
+        except (FileNotFoundError, ProcessLookupError):
+            continue  # A process exiting during enumeration is absent.
+        # Permission errors and malformed proc data are failures, not absence.
+    return rows
+
+
+def task_directories():
+    require(TASK_ROOT.is_dir() and not TASK_ROOT.is_symlink(), 'runtime task directory unavailable')
+    rows = {}
+    for namespace in TASK_ROOT.iterdir():
+        require(namespace.is_dir() and not namespace.is_symlink(), 'unexpected runtime namespace')
+        for task in namespace.iterdir():
+            require(task.is_dir() and not task.is_symlink(), 'unexpected runtime task directory')
+            s = task.stat()
+            rows[namespace.name + '/' + task.name] = [s.st_dev, s.st_ino, s.st_ctime_ns]
+    return rows
+
+
+def runtime_tasks():
+    rows = {}
+    for ns in command(['ctr', 'namespaces', 'list', '-q'], timeout=2).decode().split():
+        lines = command(['ctr', '-n', ns, 'tasks', 'list'], timeout=2).decode().splitlines()
+        require(lines and lines[0].split() == ['TASK', 'PID', 'STATUS'], 'unexpected task table')
+        for line in lines[1:]:
+            columns = line.split()
+            require(len(columns) == 3 and columns[1].isdecimal(), 'malformed task table')
+            task, pid, status = columns
+            data = json.loads(command(['ctr', '-n', ns, 'containers', 'info', task], timeout=2))
+            args = data.get('Spec', {}).get('value', {}).get('process', {}).get('args', [])
+            image = data.get('Image', '').split('@')[0].split(':')[0]
+            engine = image.endswith('/terrabase') or engine_args(args)
+            rows[ns + '/' + task] = {'pid': int(pid), 'identity': identity(int(pid)) if int(pid) else None,
+                                     'status': status, 'engine': engine}
+    return rows
+
+
+def watch_baseline(args):
+    require(os.geteuid() == 0, 'watch baseline requires root')
+    save(args.receipt, {'host': socket.gethostname(), 'at': time.time(),
+                        'tasks': runtime_tasks(), 'directories': task_directories()})
+
+
+def no_reappearance(args):
+    require(os.geteuid() == 0, 'process watch requires root')
+    baseline_path = private(args.baseline)
+    baseline_bytes = baseline_path.read_bytes()
+    baseline = json.loads(baseline_bytes)
+    require(baseline['host'] == socket.gethostname(), 'watch baseline belongs to another host')
+    # Create the abort receipt before taking observations. An interrupted driver
+    # leaves abort=true, never a missing receipt which could be mistaken for pass.
+    receipt = Path(args.receipt)
+    record = {'host': socket.gethostname(), 'abort': True, 'startedAt': time.time(),
+              'baselineSha256': hashlib.sha256(baseline_bytes).hexdigest(),
+              'barrier': args.barrier, 'runtimeDown': args.runtime_down,
+              'requiredSeconds': WATCH_SECONDS, 'samples': 0}
+    save(receipt, record)
+    def update():
+        pending = receipt.with_name(receipt.name + '.pending')
+        save(pending, record)
+        os.replace(pending, receipt)
+        fd = os.open(receipt.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    start = time.monotonic()
+    try:
+        while True:
+            processes = engine_processes()
+            require(not processes, 'engine process reappeared')
+            directories = task_directories()
+            require(all(baseline['directories'].get(k) == v for k, v in directories.items()),
+                    'new or recreated containerd task directory')
+            if args.runtime_down:
+                with socket.socket(socket.AF_UNIX) as probe:
+                    probe.settimeout(0.2)
+                    code = probe.connect_ex(RUNTIME_SOCKET)
+                require(code in (errno.ENOENT, errno.ECONNREFUSED), 'runtime API reappeared or unreadable')
+                # With the daemon down, direct host proc identities plus the
+                # shim task directories remain observable independently of RPC.
+                for task in baseline['tasks'].values():
+                    if task['engine'] and task['identity'] is not None:
+                        require(identity(task['pid']) != task['identity'], 'captured engine still alive')
+            else:
+                tasks = runtime_tasks()
+                for key, task in tasks.items():
+                    require(key in baseline['tasks'], 'new containerd task')
+                    old = baseline['tasks'][key]
+                    require(not task['engine'] or task['status'] == 'STOPPED' and task['identity'] is None,
+                            'live engine containerd task')
+                    require(task['identity'] is None or task['identity'] == old['identity'],
+                            'restarted containerd task')
+            record['samples'] += 1
+            record['elapsedSeconds'] = time.monotonic() - start
+            require(record['elapsedSeconds'] < WATCH_SECONDS + 10, 'watch sample deadline exceeded')
+            update()
+            if record['elapsedSeconds'] >= WATCH_SECONDS:
+                record.update(abort=False, completedAt=time.time())
+                update()
+                return
+            time.sleep(min(0.25, WATCH_SECONDS - record['elapsedSeconds']))
+    except BaseException as error:
+        record.update(abort=True, failure=type(error).__name__, elapsedSeconds=time.monotonic() - start)
+        update()
+        raise
+
+
+def check_watches(args):
+    expected = {f'ts-{region}-{node}' for region in ('gru', 'sjc', 'fra') for node in (1, 2)}
+    rows = [json.loads(private(path).read_text()) for path in args.receipts]
+    require(len(rows) == 6 and {row['host'] for row in rows} == expected, 'six distinct live node receipts required')
+    for row in rows:
+        require(row['abort'] is False and row['barrier'] == args.barrier
+                and row['requiredSeconds'] == WATCH_SECONDS and row['elapsedSeconds'] >= WATCH_SECONDS
+                and row['samples'] >= 2 and row['completedAt'] >= row['startedAt'] + WATCH_SECONDS,
+                'missing, incomplete, failed or wrong-barrier process watch')
+    print(json.dumps({'barrier': args.barrier, 'abort': False, 'hosts': sorted(expected)}))
 
 
 def stop(args):
@@ -393,6 +539,9 @@ def main():
     sub = parser.add_subparsers(dest='cmd', required=True)
     p = sub.add_parser('gate'); p.add_argument('action', choices=['render', 'close', 'open']); p.add_argument('--operator', required=True); p.set_defaults(run=gate)
     p = sub.add_parser('runtime-labels'); p.add_argument('--receipt', required=True); p.set_defaults(run=runtime_labels)
+    p = sub.add_parser('watch-baseline'); p.add_argument('--receipt', required=True); p.set_defaults(run=watch_baseline)
+    p = sub.add_parser('watch'); p.add_argument('--baseline', required=True); p.add_argument('--receipt', required=True); p.add_argument('--barrier', required=True, choices=['stopped', 'restarted']); p.add_argument('--runtime-down', action='store_true'); p.set_defaults(run=no_reappearance)
+    p = sub.add_parser('watch-check'); p.add_argument('--barrier', required=True, choices=['stopped', 'restarted']); p.add_argument('--receipts', required=True, nargs=6); p.set_defaults(run=check_watches)
     p = sub.add_parser('stop'); p.add_argument('--identity', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=stop)
     p = sub.add_parser('backup'); p.add_argument('--roots', required=True); p.add_argument('--destination', required=True); p.add_argument('--password', required=True); p.set_defaults(run=backup)
     p = sub.add_parser('row-hash'); p.add_argument('--address', required=True); p.add_argument('--region', required=True); p.add_argument('--catalogs', nargs='+'); p.add_argument('--credential', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=row_hash)
@@ -402,7 +551,8 @@ def main():
     def expired(signum, frame):
         raise TimeoutError('step hard deadline exceeded')
     signal.signal(signal.SIGALRM, expired)
-    signal.alarm({'backup': 150, 'row-hash': 120, 'runtime-labels': 30, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
+    signal.alarm({'backup': 150, 'row-hash': 120, 'runtime-labels': 30, 'watch-baseline': 30,
+                  'watch': 72, 'watch-check': 15, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
     try:
         args.run(args)
     except Exception as error:

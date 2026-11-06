@@ -1,0 +1,225 @@
+{
+  "at": "2026-11-06T04:05:44.763896+00:00",
+  "productionMutation": false,
+  "readOnlyRuntimeParser": [
+    {
+      "host": "ts-gru-1",
+      "passed": true,
+      "tasks": {
+        "terrascale/ts-5pxjeyskfxk2sbpkdjpndtuun": {
+          "pid": 3303856,
+          "identity": {
+            "pid": 3303856,
+            "start": "124279621",
+            "exe": "/app/terrabase"
+          },
+          "status": "RUNNING",
+          "engine": true
+        },
+        "terrascale/ts-vh9f0fnigh2c6qsdw9ce9fz4t": {
+          "pid": 3335413,
+          "identity": {
+            "pid": 3335413,
+            "start": "125830482",
+            "exe": "/usr/share/dotnet/dotnet"
+          },
+          "status": "RUNNING",
+          "engine": false
+        },
+        "terrascale/ts-nrkb960rsgg9mxl4av22rqj7b": {
+          "pid": 3289503,
+          "identity": {
+            "pid": 3289503,
+            "start": "123804291",
+            "exe": "/app/ts-auth"
+          },
+          "status": "RUNNING",
+          "engine": false
+        },
+        "terrascale/ts-n8481q2iu9dh0pjb9unld1nvt": {
+          "pid": 3297732,
+          "identity": {
+            "pid": 3297732,
+            "start": "124112256",
+            "exe": "/whoami"
+          },
+          "status": "RUNNING",
+          "engine": false
+        },
+        "terrascale/ts-u2w955zi7gs2qeisd6zatzdtj": {
+          "pid": 2976413,
+          "identity": {
+            "pid": 2976413,
+            "start": "113806650",
+            "exe": "/go/bin/netbird-server"
+          },
+          "status": "RUNNING",
+          "engine": false
+        }
+      },
+      "directories": {
+        "terrascale/ts-vh9f0fnigh2c6qsdw9ce9fz4t": [
+          29,
+          1608408,
+          1793934674628228171
+        ],
+        "terrascale/ts-5pxjeyskfxk2sbpkdjpndtuun": [
+          29,
+          1585761,
+          1793919166020444720
+        ],
+        "terrascale/ts-n8481q2iu9dh0pjb9unld1nvt": [
+          29,
+          1582559,
+          1793917492509390497
+        ],
+        "terrascale/ts-nrkb960rsgg9mxl4av22rqj7b": [
+          29,
+          1577656,
+          1793914412725846508
+        ],
+        "terrascale/ts-u2w955zi7gs2qeisd6zatzdtj": [
+          29,
+          1406874,
+          1793814436310211245
+        ]
+      }
+    },
+    {
+      "host": "ts-sjc-1",
+      "passed": true,
+      "tasks": {
+        "terrascale/ts-n474r433pkvh47weny1abjsoo": {
+          "pid": 2540189,
+          "identity": {
+            "pid": 2540189,
+            "start": "130323542",
+            "exe": "/whoami"
+          },
+          "status": "RUNNING",
+          "engine": false
+        },
+        "terrascale/ts-me3xvyfzbz3oyvkxsynq2to9y": {
+          "pid": 2540244,
+          "identity": {
+            "pid": 2540244,
+            "start": "130323588",
+            "exe": "/whoami"
+          },
+          "status": "RUNNING",
+          "engine": false
+        },
+        "terrascale/ts-p5ugbub2kqboe9c6f20evkxgb": {
+          "pid": 2533283,
+          "identity": {
+            "pid": 2533283,
+            "start": "130040098",
+            "exe": "/usr/share/dotnet/dotnet"
+          },
+          "status": "RUNNING",
+          "engine": false
+        },
+        "terrascale/ts-xi2q7998r5i7h05a1rh5qce8r": {
+          "pid": 2543501,
+          "identity": {
+            "pid": 2543501,
+            "start": "130476934",
+            "exe": "/app/terrabase"
+          },
+          "status": "RUNNING",
+          "engine": true
+        }
+      },
+      "directories": {
+        "terrascale/ts-xi2q7998r5i7h05a1rh5qce8r": [
+          28,
+          1378193,
+          1793918963075560065
+        ],
+        "terrascale/ts-me3xvyfzbz3oyvkxsynq2to9y": [
+          28,
+          1376063,
+          1793917429838941860
+        ],
+        "terrascale/ts-n474r433pkvh47weny1abjsoo": [
+          28,
+          1376045,
+          1793917429359936361
+        ],
+        "terrascale/ts-p5ugbub2kqboe9c6f20evkxgb": [
+          28,
+          1372032,
+          1793914594714374803
+        ]
+      }
+    },
+    {
+      "host": "ts-fra-1",
+      "passed": true,
+      "tasks": {
+        "terrascale/ts-mu2v2dqvvbmds8lns0bscswtf": {
+          "pid": 2256314,
+          "identity": {
+            "pid": 2256314,
+            "start": "130314839",
+            "exe": "/whoami"
+          },
+          "status": "RUNNING",
+          "engine": false
+        },
+        "terrascale/ts-rg2v4n2ve7zntpmu40kugq6ti": {
+          "pid": 2256371,
+          "identity": {
+            "pid": 2256371,
+            "start": "130314868",
+            "exe": "/whoami"
+          },
+          "status": "RUNNING",
+          "engine": false
+        },
+        "terrascale/ts-gjbfohncm34thqrfjgrkwtmi8": {
+          "pid": 2260698,
+          "identity": {
+            "pid": 2260698,
+            "start": "130475613",
+            "exe": "/app/terrabase"
+          },
+          "status": "RUNNING",
+          "engine": true
+        },
+        "terrascale/ts-m1sp1yziz14xbwg236g5tdjp3": {
+          "pid": 2248489,
+          "identity": {
+            "pid": 2248489,
+            "start": "130032346",
+            "exe": "/usr/share/dotnet/dotnet"
+          },
+          "status": "RUNNING",
+          "engine": false
+        }
+      },
+      "directories": {
+        "terrascale/ts-gjbfohncm34thqrfjgrkwtmi8": [
+          28,
+          1301655,
+          1793919069024804855
+        ],
+        "terrascale/ts-rg2v4n2ve7zntpmu40kugq6ti": [
+          28,
+          1299216,
+          1793917461666183911
+        ],
+        "terrascale/ts-mu2v2dqvvbmds8lns0bscswtf": [
+          28,
+          1299200,
+          1793917461415182422
+        ],
+        "terrascale/ts-m1sp1yziz14xbwg236g5tdjp3": [
+          28,
+          1295466,
+          1793914636352431536
+        ]
+      }
+    }
+  ]
+}
