@@ -1,49 +1,168 @@
-# Coordinated cold maintenance — v2, HOLD for review and GO
+# Coordinated cold maintenance — v3, HOLD: blocked on worker-local execution
 
 DECISION: Replace the six-node fleet during one announced stop-the-world window.
 Reason: all b443 watchers can be physically absent before deleting the stale keys
 or restarting embedded NATS. A hot mixed-version installation is unnecessary.
 
-This supersedes deploy-plan.md. It is a plan, not an execution receipt. No announce,
-production stop, key mutation, installation, workflow enable or rollout has occurred.
-Independent review of the Version:0 guard, cold arming and this plan precedes GO.
+DECISION: v3 controls workers ts-gru-2/ts-sjc-2/ts-fra-2 only through OCI Compute
+instance power actions and founders through their existing pinned SSH. No worker
+SSH, key or new credential. Reason: the user declined worker SSH; OCI power actions
+are existing access. A STOPPED VM physically proves b443 exited there.
 
-## Current control-path gate — HOLD, 2026-11-06
+This supersedes deploy-plan.md and the v2 control-path gate. It is a plan, not an
+execution receipt. No announce, production stop, power action, key mutation,
+installation, workflow enable or rollout has occurred. The v2 sections below still
+govern founders and remain the detailed gates; v3 replaces their worker paths.
 
-The installed SJC founder binary is clean source `2142b1f308b1c1169d25093f93eab3b10c479e1c`
-(`vcs.modified=false`), SHA256
-`214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146`.
-Its real `service --help` includes **`ts-orch service rm <name>`**. This is an
-existing fleet-wide desired-state removal, not a scale-to-zero command; apply
-rejects replicas 0. Do not execute `service rm terrabase` in production.
+## v3 status — NOT GO-ready (2026-11-06T10:40Z)
 
-Disposable qualification against that exact installed source passed the actual
-CLI `apply -f`, `ls`, `ps`, `rm`, and final task-lifecycle convergence. A separate
-real three-region embedded NATS fixture passed the actual `mesh.Remove` wrapper
-used by fleet CLI removal. These prove command availability and dispatch, not a
-physical six-node TerraBase stop. Only the disposable lifecycle/appliers and
-TerraBase HTTP contract are fixtures; no TerraBase binary was downloaded or run.
+**Exact blocker: steps 5–7 need root on each worker, and v3 has no path to it.**
+OCI instance actions change only power state. Each of the following runs locally as
+root on the host it changes. None can run on a worker without worker execution:
 
-**That installed path cannot satisfy step 2.** Its executor calls `DrainTask`
-before TERM; mounted-data removal calls the same `stopTask`. The regional edge
-requires another admitted, ready surviving writer. Exact-source HTTP contract
-drills prove refusal both when the last node is the sole admitted peer and when
-its still-admitted peer is unavailable (`regional prime HTTP 503`). Generic CLI
-success/removal acknowledgement is not physical exit. Removing both nodes may
-also start the legacy handoff we are avoiding. `member drain/leave` uses this
-same lifecycle and does not provide the missing cold-stop bypass.
+1. Installing the new ts-orch binary. The worker boot volume holds the old binary.
+2. `bootstrap-maintenance arm-stopped`, which needs root, the local hostname and the
+   local containerd socket.
+3. `stage`/`replace`, which use the executor's local unix socket
+   (`internal/app/bootstrap_cli.go`, `RunBootstrapMaintenance`).
+4. The restarted-barrier 60 s `cold.py watch` receipts.
 
-DECISION: Keep the production window held; do not substitute service removal for
-physical stop. Reason: the installed controller cannot stop the last regional
-writer through that path, and the new pinned bypass is not installed yet.
+v3 step 6 assumed workers "come under the new executor" on boot. That does not
+hold. START boots the unchanged boot volume, and the enabled old unit
+(`ExecStart=/usr/local/bin/terrascale-orchestrator`, `Restart=always`) runs the old
+binary. Its user_data is a once-per-instance `#!/bin/bash` with no per-boot hook,
+so it does not reinstall anything. At boot the old Swarm agent's `worker.Init`
+starts a task manager for every locally assigned task before it contacts any
+manager (`third_party/swarmkit/agent/worker.go:82-111` at 2142b1f). It is unproven
+whether b443 then passes its local storage checks. Either way the worker stays
+under the old executor. Stopping the VM again repeats the identical boot, so the
+remedy never converges.
 
-The fallback is **a user-approved temporary SSH key on the three workers**, as
-specified in Q-ZDTCONTROL. No new key, security permission or access is authorized
-or installed. Until that approval and bounded installation/readback, steps 1–7
-are not executable: no maintenance publication, stop, key deletion or rollout.
-The temporary access must also support per-node byte inventory, backup transport,
-and the two process-watch receipts; derive-only units do not grant execution.
-Proof: `qualification/v4-installed-control.md` and its exact-source fixture/logs.
+**FRA's retained owner is ts-fra-2 (FRA2, epoch 7).** Without a worker executor,
+FRA cannot start the new engine at the same owner and epoch, and owner CAS is
+excluded. The GRU and SJC followers (ts-gru-2, ts-sjc-2) have the same gap.
+
+Alternatives checked read-only:
+
+- **OCI Run Command:** no policy grants `instance-agent-command-execution-family`
+  to any dynamic group. That explains why the v3 commands stayed ACCEPTED with no
+  output. user_data also adds no `ocarun` sudoers, so even an IAM grant would not
+  give root.
+- **ts-orch self-update:** this reaches a worker only through a release publication
+  to its old executor, after `worker.Init` has already run. That path is unreviewed,
+  and publications are held.
+
+Next decision for the parent:
+`NEED Q-ZDTWORKEREXEC: worker root for steps 5–7 | options: 1) approve the bounded
+temporary worker SSH key from Q-ZDTCONTROL (only reviewed path; everything else
+in v3 is measured) 2) build, review and qualify an offline boot-volume path (stop,
+detach the boot volume, attach it to the same-AD founder, install the binary and
+fence, reattach) plus boot-time stage/replace. That is new code and adds minutes
+per worker to the window. 3) OCI Run Command needs a new IAM grant and root
+sudoers, so it needs option 1 first.`
+
+### Verified for v3 (read-only, no production mutation)
+
+- **OCI get-instance**, 2026-11-06T10:19:38–44Z, `qualification/v5-oci-worker-instances.json`:
+  ts-gru-2, ts-sjc-2 and ts-fra-2 are RUNNING. Each is VM.Standard.A1.Flex with
+  2 OCPU and 12 GB in AD-1, recovery-action RESTORE_INSTANCE. Each has one ATTACHED
+  boot volume and no block volumes, so worker data lives only on the boot volume.
+  user_data SHA256 is unchanged from the v3 derivation. Our DEFAULT principal is
+  in Administrators (`manage all-resources IN TENANCY`), so power actions are
+  allowed by policy. They have not been exercised.
+- **Embedded NATS quorum without workers:** the JetStream meta group has exactly
+  3 peers, and all three founders host the same three R3 KV raft groups
+  (`terrabase-homes`, `terrabase-region-owners`, `tb-clock-skew`). Workers connect
+  only as routes or clients. Step 4's conditional DELs therefore keep quorum with
+  all three workers powered off.
+- **Founder data inventory:** each live b443 engine has exactly one data mount,
+  `/var/lib/ts-data/terrabase`. `terrabase-e2e` (SJC/FRA, 2026-10-23), `m1-test`
+  and the `netbird*` trees are not engine mounts and are out of DB-backup scope.
+- **Measured founder backup, real bytes,** `qualification/v5-founder-backup-real.{py,json,log}`.
+  Three repeats per founder streamed a live `tar` over root SSH stdout with
+  compression off to pinned mariogk-dev, then hashed and discarded it. Source and
+  destination SHA256 matched every time, and nothing was stored.
+
+  | Founder | Real TerraBase bytes (files) | Live archive bytes | SSH transfer and readback | Archive and hash on founder |
+  | --- | ---: | ---: | ---: | ---: |
+  | ts-gru-1 | 37,220,812 (112) | 37.7–38.1 MB | 1.26–1.50 s | 0.05–0.06 s |
+  | ts-sjc-1 | 13,931,292 (61) | 14.5–15.5 MB | 5.28–5.47 s | 0.02–0.05 s |
+  | ts-fra-1 | 9,700,662 (76) | 10.1–11.1 MB | 5.08–5.20 s | 0.02–0.04 s |
+
+  SJC and FRA are dominated by SSH session latency, not bytes. The budget is
+  `ceil(1.5 × (transfer + 2 × founder archive/hash + the v4 dev copy/encrypt/readback rate scaled to real bytes))`, computed per repeat:
+  **GRU 5 s, SJC 10 s, FRA 9 s**. The largest parallel node is 10 s, well inside
+  the reserved 150 s. Refresh sizes at preparation. Repeat the rehearsal if any
+  root exceeds 2× these bytes.
+
+### v3 sequence (founder SSH and OCI only; t0 = gate close)
+
+Prepare-section rules apply to founders unchanged. For workers, preparation adds:
+
+- Save the OCI get-instance readback with lifecycle RUNNING, the ETag and the boot
+  volume OCID.
+- Read the six TerraBase tasks and their node pins from the founder Swarm managers.
+- At the drained cutoff, read each region's owner and follower applied positions
+  through the existing authenticated TerraBase/ts-orch status.
+
+There is no worker backup. By parent decision, worker files stay untouched on the
+boot volume. For FRA the owner copy is on ts-fra-2. The **fra-1 follower must equal
+fra-2's applied positions at cutoff**, otherwise abort before any stop. The same
+holds for the gru-2 and sjc-2 followers against their owners.
+
+1. **Announce and close ingress** as in v2 step 1 (≤75 s). Abort and rollback are
+   unchanged.
+2. **Stop everything, follower-safe and executor-first** (≤180 s):
+   - a. On the 3 founders, stop containerd and verify the runtime API is down and
+     cannot restart. Do this before any worker power action, so a founder executor
+     cannot re-place a worker task when the worker node disappears. Keep old
+     ts-orch and NATS up.
+   - b. Send OCI `SOFTSTOP` to the 3 workers in parallel, each with `If-Match` on
+     the saved ETag. Read back with bounded `get-instance` until `STOPPED`. At
+     90 s, send `STOP` (hard). On shutdown the old ts-orch cancels its agent and
+     does not stop workloads (`swarmruntime/node.go:291`). systemd's final
+     SIGTERM→SIGKILL reaches b443 with no `/drain`, the same signal path as v2.
+     **Unverified pre-GO:** whether OCI accepts `STOP` while the instance is
+     `STOPPING` from `SOFTSTOP`. `SOFTSTOP`'s own forced power-off comes after
+     15 min, which exceeds the window. This cannot be qualified read-only.
+   - c. On the founders, TERM→KILL the pinned engine PIDs (TERM 20 s → KILL 5 s,
+     outer 28 s), then run the 60 s `--barrier stopped --runtime-down` watch.
+   - Gate: 3 founder watch receipts plus 3 OCI `STOPPED` readbacks with
+     instance-id, time and ETag. Founder evidence must also show the worker NATS
+     routes and NetBird peers gone. **Pre-GO code gap:** `cold.py watch-check`
+     accepts only six local receipts. It needs an OCI-stopped receipt type.
+   - Abort: a worker not `STOPPED` by 150 s, or any founder engine alive. Retain the
+     gate, delete no keys and restart no NATS. Report the host.
+3. **Founder cold backup** as in v2 step 3, founders only. Measured budget is
+   ≤10 s per node in parallel, with a 330 s hard limit.
+4. **Delete the two stale keys** as in v2 step 4. Quorum is founders-only, as
+   verified above.
+5. **Founders:** `arm-stopped` with the 3 founder manifests, final controller
+   backup, install the new ts-orch, restart containerd and ts-orch, then the 60 s
+   restarted watch on all 3 founders.
+6. **START the workers** after step 5 passes. **BLOCKED:** a worker boots its old
+   executor (see the blocker above). With worker root this becomes: install, arm,
+   then a 60 s restarted watch per worker before any engine start.
+7. **New engine at the same owners and epochs:** SJC (sjc-1 owner), FRA (fra-2
+   owner, **BLOCKED**), GRU (gru-1 owner), each followed by its follower. The
+   remaining checks follow v2 steps 6–7.
+
+### v3 rollback (existing access only; executable at any step)
+
+1. Retain the gate.
+2. Stop the new controllers and engines on the founders, and prove PID exit.
+3. Keep both stale-key tombstones. Restore the old founder binary and controller
+   state offline (v2 B).
+4. Start b443 on the founders' retained files at the unchanged owner and epoch.
+5. OCI `START` the workers. Their old executor restarting b443 from local agent
+   state is the intended rollback here: the data is untouched, the owner and
+   epoch are unchanged, and the stale-key hazard is already deleted.
+6. Verify one writer per region, FRA served by fra-2, then run canaries and reopen
+   ingress.
+
+Never START a worker while a v2 engine runs in its region. A worker that fails to
+reach RUNNING within 10 min stays in maintenance. Report it; do not CAS its owner
+away.
 
 Target: 10–15 minutes of serving maintenance. The current hard serving limit is
 12 minutes; status resolution can take another five consecutive passing minutes
@@ -127,6 +246,8 @@ process or change any key. Rollback: remove only this transaction's gate, verify
 original b443 serving/token issuance and amend/cancel the notice. No data restore.
 
 ### 2. Stop TerraBase on all six, with no automatic recreation (conditional; HOLD)
+
+**v3:** workers use OCI power actions (v3 step 2b), and founders use the steps below.
 
 **Unexecutable until the control-path gate above is resolved.** The following
 explicit systemd/PID commands require approved worker access; no existing Swarm
@@ -503,6 +624,8 @@ from live workers. `qualification/v4-watch-proof.json` records exact source hash
 
 ### Read-only founder backup-path measurements (partial)
 
+**Superseded by the v3 real-byte measurement** (`qualification/v5-founder-backup-real.json`); kept for history.
+
 `qualification/v4-founder-backup-path.json` and
 `benchmark/bench/2026-11-06-zdt-cold-gates.md` retain three measured repeats per
 founder. Real file bytes: GRU26,780,425; SJC24,134,351; FRA10,896,355, only the
@@ -547,3 +670,41 @@ remaining pre-GO gates are in qualification/v3-results.md. Neither disabled CI n
 local green Fast means green deployed main; ship via ts-ship only after explicit
 GO, then require **BUILD green on both exact shipped main revisions** before
 maintenance. Slow **PROBES are not deploy gates** under the parent's decision.
+
+## Superseded v2 control-path gate (history)
+
+
+The installed SJC founder binary is clean source `2142b1f308b1c1169d25093f93eab3b10c479e1c`
+(`vcs.modified=false`), SHA256
+`214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146`.
+Its real `service --help` includes **`ts-orch service rm <name>`**. This is an
+existing fleet-wide desired-state removal, not a scale-to-zero command; apply
+rejects replicas 0. Do not execute `service rm terrabase` in production.
+
+Disposable qualification against that exact installed source passed the actual
+CLI `apply -f`, `ls`, `ps`, `rm`, and final task-lifecycle convergence. A separate
+real three-region embedded NATS fixture passed the actual `mesh.Remove` wrapper
+used by fleet CLI removal. These prove command availability and dispatch, not a
+physical six-node TerraBase stop. Only the disposable lifecycle/appliers and
+TerraBase HTTP contract are fixtures; no TerraBase binary was downloaded or run.
+
+**That installed path cannot satisfy step 2.** Its executor calls `DrainTask`
+before TERM; mounted-data removal calls the same `stopTask`. The regional edge
+requires another admitted, ready surviving writer. Exact-source HTTP contract
+drills prove refusal both when the last node is the sole admitted peer and when
+its still-admitted peer is unavailable (`regional prime HTTP 503`). Generic CLI
+success/removal acknowledgement is not physical exit. Removing both nodes may
+also start the legacy handoff we are avoiding. `member drain/leave` uses this
+same lifecycle and does not provide the missing cold-stop bypass.
+
+DECISION: Keep the production window held; do not substitute service removal for
+physical stop. Reason: the installed controller cannot stop the last regional
+writer through that path, and the new pinned bypass is not installed yet.
+
+The fallback is **a user-approved temporary SSH key on the three workers**, as
+specified in Q-ZDTCONTROL. No new key, security permission or access is authorized
+or installed. Until that approval and bounded installation/readback, steps 1–7
+are not executable: no maintenance publication, stop, key deletion or rollout.
+The temporary access must also support per-node byte inventory, backup transport,
+and the two process-watch receipts; derive-only units do not grant execution.
+Proof: `qualification/v4-installed-control.md` and its exact-source fixture/logs.
