@@ -204,6 +204,49 @@ direct D1 write, announcement or notification is part of local qualification. If
 publication times out, reconcile public history before retrying to avoid duplicate
 subscriber notices. A local form/contract check is not a published notice.
 
+## Workers: OCI stop receipt and offline boot-volume install (plan v4)
+
+There is no worker shell. A STOPPED worker is the physical-exit proof:
+
+```sh
+cold.py oci-stopped --host ts-fra-2 --region eu-frankfurt-1 --instance-id "$worker" --receipt stopped-ts-fra-2.json
+cold.py watch-check --barrier stopped --receipts <3 founder watch receipts> <3 oci-stopped receipts>
+cold.py watch-check --barrier restarted --receipts <3 founder watch receipts>
+```
+
+On the founder, with a clone of the STOPPED worker's boot volume attached rw and
+mounted at `/mnt/zdt-ts-fra-2`. First pass the founder reboot gate (README of plan
+v4); a founder must never reboot while a clone is attached. The binary and
+cold.py are staged in `/var/tmp/zdt-offline` (root, 0700; `/run` is noexec).
+
+```sh
+s=/var/tmp/zdt-offline
+sudo $s/terrascale-orchestrator bootstrap-maintenance pins-offline --root /mnt/zdt-ts-fra-2 --state /var/lib/ts-orch
+# must equal the prepared worker manifest's local.source (manager's last running task)
+sudo python3 -I $s/cold.py offline-install --root /mnt/zdt-ts-fra-2 --manifest $s/manifest-ts-fra-2.json \
+  --binary $s/terrascale-orchestrator --binary-sha256 "$green" --old-sha256 "$b443_orch" \
+  --instance-id "$worker" --receipt $s/install-ts-fra-2.json
+sudo python3 -I $s/cold.py offline-verify --root /mnt/zdt-ts-fra-2 --install-receipt $s/install-ts-fra-2.json --receipt $s/verify-ts-fra-2.json
+sudo umount /mnt/zdt-ts-fra-2   # then OCI detach; re-check /dev/disk/by-label/* on sda
+```
+
+`offline-install` arms the fence offline (`arm-offline`), moves the old agent
+`tasks.db` aside, installs the binary (old one kept as `.zdt-b443`), `cold.py`,
+and the enabled oneshot `ts-orch-cold-drive.service`. Both receipts are required
+before the clone is attached as the worker's boot volume. On first boot the unit
+runs `cold.py boot-drive` once: IMDS instance check, 60 s rebooted watch, `stage`
+(≤300 s), best-effort `prepull` (≤300 s), followers poll `owner` (≤900 s), then
+`replace` and require `verified`. Receipts stay in `/var/lib/ts-orch/zdt-drive/`
+on the volume; read them by stopping the worker and attaching its volume read-only.
+
+The operator uses the same new executor actions on founders:
+`bootstrap-maintenance owner --id <job>` (read-only: pinned owner is the ready
+writer and released ingress) and `prepull --id <job>`.
+
+Rehearsal on clones only: `python3 qualify-offline-worker.py TARGETS.json BINARY
+OLD_SHA256 3 OUT.json` (clone, attach, install, verify, detach, delete; founders
+checked clean). Boot-drive ordering: `python3 -I qualify-boot-drive.py`.
+
 ## Local qualification
 
 `ts-heavy-any python3 scripts/maintenance/qualify.py --repo ts-orchestrator --branch <base>`

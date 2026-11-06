@@ -1,4 +1,4 @@
-# Coordinated cold maintenance — v3, HOLD: blocked on worker-local execution
+# Coordinated cold maintenance — v4, GO-ready on two parent conditions
 
 DECISION: Replace the six-node fleet during one announced stop-the-world window.
 Reason: all b443 watchers can be physically absent before deleting the stale keys
@@ -12,54 +12,149 @@ are existing access. A STOPPED VM physically proves b443 exited there.
 This supersedes deploy-plan.md and the v2 control-path gate. It is a plan, not an
 execution receipt. No announce, production stop, power action, key mutation,
 installation, workflow enable or rollout has occurred. The v2 sections below still
-govern founders and remain the detailed gates; v3 replaces their worker paths.
+govern founders and remain the detailed gates; v4 replaces their worker paths
+(offline boot-volume install; the v3 blocker is history at the end).
 
-## v3 status — NOT GO-ready (2026-11-06T10:40Z)
+DECISION: Q-ZDTWORKEREXEC = 2. Install the workers offline through their boot
+volumes: no worker SSH, no new credential, no new compute. Reason: the parent decided
+2 after the user declined worker access; OCI volume and power actions are existing
+Administrator access.
 
-**Exact blocker: steps 5–7 need root on each worker, and v3 has no path to it.**
-OCI instance actions change only power state. Each of the following runs locally as
-root on the host it changes. None can run on a worker without worker execution:
+DECISION: Modify a **clone** of each stopped worker's boot volume and boot the worker
+from that clone; the original volume is never written and is the rollback.
+Reason: rollback is then reattaching the untouched original (exact bytes and OCID),
+and the clone can be prepared while the original is being detached.
 
-1. Installing the new ts-orch binary. The worker boot volume holds the old binary.
-2. `bootstrap-maintenance arm-stopped`, which needs root, the local hostname and the
-   local containerd socket.
-3. `stage`/`replace`, which use the executor's local unix socket
-   (`internal/app/bootstrap_cli.go`, `RunBootstrapMaintenance`).
-4. The restarted-barrier 60 s `cold.py watch` receipts.
+## v4 status — GO-ready on two parent conditions (2026-11-06)
 
-v3 step 6 assumed workers "come under the new executor" on boot. That does not
-hold. START boots the unchanged boot volume, and the enabled old unit
-(`ExecStart=/usr/local/bin/terrascale-orchestrator`, `Restart=always`) runs the old
-binary. Its user_data is a once-per-instance `#!/bin/bash` with no per-boot hook,
-so it does not reinstall anything. At boot the old Swarm agent's `worker.Init`
-starts a task manager for every locally assigned task before it contacts any
-manager (`third_party/swarmkit/agent/worker.go:82-111` at 2142b1f). It is unproven
-whether b443 then passes its local storage checks. Either way the worker stays
-under the old executor. Stopping the VM again repeats the identical boot, so the
-remedy never converges.
+All code is qualified locally and every offline step was rehearsed on real worker
+clones: two runs, 18/18. No production volume, instance, process, key or publication changed.
+GO requires the parent to accept both of these:
 
-**FRA's retained owner is ts-fra-2 (FRA2, epoch 7).** Without a worker executor,
-FRA cannot start the new engine at the same owner and epoch, and owner CAS is
-excluded. The GRU and SJC followers (ts-gru-2, ts-sjc-2) have the same gap.
+1. **A revised announced window: 20 min serving maintenance + 5 min status (25 min).**
+   The worker boot, 60 s watch, stage and replace chain runs after the founder
+   control-plane restart. The measured and estimated budget below ends near
+   t0+1030 s (≈17 min), so the current 12 min hard limit does not fit.
+2. **Accept two worker steps qualified without a production rehearsal.** A boot-volume
+   swap on a STOPPED instance (detach the original, attach the clone as boot) and the
+   first boot of the offline-installed volume cannot be rehearsed without a new
+   instance, which the parent excluded. They are covered by the Slow drill and
+   boot-drive harness below. If either fails, the worker reattaches its original
+   volume (per-worker rollback).
 
-Alternatives checked read-only:
+Unchanged pre-GO and in-window gates: ship via ts-ship only after GO, BUILD green on
+both exact shipped main revisions, and the v2/v3 founder gates.
 
-- **OCI Run Command:** no policy grants `instance-agent-command-execution-family`
-  to any dynamic group. That explains why the v3 commands stayed ACCEPTED with no
-  output. user_data also adds no `ocarun` sudoers, so even an IAM grant would not
-  give root.
-- **ts-orch self-update:** this reaches a worker only through a release publication
-  to its old executor, after `worker.Init` has already run. That path is unreviewed,
-  and publications are held.
+### v4 offline worker install — what was built (local commits, not shipped)
 
-Next decision for the parent:
-`NEED Q-ZDTWORKEREXEC: worker root for steps 5–7 | options: 1) approve the bounded
-temporary worker SSH key from Q-ZDTCONTROL (only reviewed path; everything else
-in v3 is measured) 2) build, review and qualify an offline boot-volume path (stop,
-detach the boot volume, attach it to the same-AD founder, install the binary and
-fence, reattach) plus boot-time stage/replace. That is new code and adds minutes
-per worker to the window. 3) OCI Run Command needs a new IAM grant and root
-sudoers, so it needs option 1 first.`
+- `ts-orch bootstrap-maintenance pins-offline --root MOUNT` reads the stopped
+  worker's own Swarm agent DB (`/var/lib/ts-orch/swarm/worker/tasks.db`). It selects
+  the single assigned, desired-RUNNING, regional TerraBase task; retained SHUTDOWN
+  history is ignored (found on the real clone). The pin uses the executor's own
+  fingerprint.
+- `bootstrap-maintenance arm-offline --root MOUNT --manifest M` refuses when:
+  - the root is `/` or not a separate mount;
+  - the volume's `/etc/hostname` is not the manifest member, or is this host;
+  - the process identity is not the unreachable `PID 1<<22` sentinel (exit is
+    proven by the detached volume itself);
+  - the manifest source differs from the agent DB pin.
+
+  It then writes the existing fence journal and owner ingress hold, and moves
+  `tasks.db` aside to `zdt-retained/` so `worker.Init` cannot restart b443 at boot.
+- `cold.py offline-install` (on the founder) refuses when the mount is wrong, the
+  binary or old binary hash differs, or a pending `release-trial` (probation could
+  restore `.prev`) is present. It then:
+  1. Runs pins-offline and arm-offline.
+  2. Installs the new binary atomically (old one kept as `.zdt-b443`).
+  3. Installs `cold.py` and the oneshot `ts-orch-cold-drive.service`, enabled.
+  4. Writes `drive.json` with job ID, member and **worker instance OCID**.
+  5. Writes a hash/mode receipt.
+
+  `offline-verify` recomputes the receipt.
+- **Worker boot drive** (`cold.py boot-drive`, runs once:
+  `ConditionPathExists=!attempted` + O_EXCL):
+  1. IMDS instance ID must equal `drive.json`. A founder that boots a same-label
+     clone root is refused.
+  2. Wait for the executor socket.
+  3. 60 s rebooted watch: no engine process or live engine task.
+  4. `stage`, retried ≤300 s until the worker has joined the mesh.
+  5. Best-effort `prepull` of the pinned target, ≤300 s.
+  6. Followers only: poll the read-only `owner` action ≤900 s.
+  7. `replace`, then status must read `verified`.
+
+  The 60 s driver budget starts only at `replace`. A follower's `replace` never
+  runs before its owner is a ready writer **and** has released the founder's ingress
+  hold.
+- Orchestrator fixes found while building this, needed for any cold bootstrap:
+  - **Staging uses Parallelism 0** for the fenced founder's TerraBase apply only
+    (`BootstrapStage`). With Parallelism 1 + STOP_FIRST, the updater picks a random
+    slot and could wait on the follower while the owner must go first. That
+    reproduced 1/5 in the Slow drill and would deadlock about half the regions.
+    Normal publications stay fenced, and the next normal apply restores 1.
+  - Edge `owner` action: read-only, outside the barrier lock, 10 s probe.
+  - Executor `prepull` of the held job's target.
+  - A held, never-started down-node replacement task completes Shutdown as a no-op.
+    Swarm's agent already fails it out; this is now explicit.
+
+### v4 qualification evidence
+
+- **Rehearsal on real clones, two runs × 3 per region, 18/18 PASS**
+  (`qualification/v6-offline-rehearsal-{a,b}.json`). Run A used candidate `dfa83761…`;
+  run B used the final `2ccab3fd…` with verify-rw and the instance-OCID drive binding.
+  - Each repeat:
+    1. Fresh clone of the live worker boot volume, attached rw to its founder.
+    2. Mount, then capture pins and cross-check against the manager's running task.
+    3. offline-install, verify-rw, unmount, detach.
+    4. Reattach read-only, `offline-verify`, detach, delete the clone.
+  - Every founder was checked clean after each repeat (`/`, `/boot`, `/boot/efi` and
+    the by-label links on `sda`). No clone, attachment or staging dir remains.
+  - Seconds, min/median/max:
+
+    | Step | Seconds |
+    | --- | --- |
+    | Clone | 12.0/12.9/21.2 |
+    | Attach rw | 17.5/20.5/37.8 |
+    | Mount | 1.0/3.0/3.6 |
+    | Capture | 1.0/5.5/6.3 |
+    | Install | 7.8/10.1/10.6 |
+    | Unmount | 0.5/2.7/2.9 |
+    | Detach | 19.8/33.1/37.3 |
+    | Reattach ro + verify | ≤50 |
+    | Delete | 3.9/7.0/11.7 |
+
+  - **Forward path, clone→detach: 73–119 s per worker (run A); 78–103 s including
+    verify-rw (run B)**; regions run in parallel. Report:
+    `benchmark/bench/2026-11-06-zdt-offline-worker.md`.
+- Slow drills ×5 each: the six-node fence drill and the new
+  `TestOfflineArmedWorkerRebootsFencedAndReplaces`. The latter uses a real manager,
+  dispatcher, Raft and agent, with fake runtime and edge:
+  1. The worker is powered off until DOWN, and Swarm creates a replacement b443 task.
+  2. Arm offline; the agent DB is gone at reboot.
+  3. Both the pinned and the down-node b443 tasks stay unstarted.
+  4. Replace with the sentinel identity verifies, and the founder is untouched.
+
+  Mutation check: without the offline fence the drill fails.
+- Fast suites for the touched packages, vet, the boot-drive harness ×5, and the edge
+  owner test (including refusal at another epoch or while the owner still holds
+  ingress). Logs: `qualification/v6-qualification*.log` (final: Fast per package
+  ≤12.5 s; offline drill 7.9–9.7 s).
+- Independent Opus review: no path starts b443 or a second writer. Its six findings
+  (staging and race stalls, barrier lock, boot-drive retries and prepull, label
+  reboot hazard, verify-before-boot) are fixed or gated here.
+
+### Founder hazard while a clone is attached (gate)
+
+Worker clones carry the same filesystem LABELs (`cloudimg-rootfs`, `BOOT`, `UEFI`)
+as the founders. While a clone is attached, the founder's `/dev/disk/by-label/*`
+point at the clone (observed). A founder boots with `root=LABEL=cloudimg-rootfs`,
+so **a founder must not reboot while a clone is attached.**
+
+- Gate before every attach: no `/run/systemd/shutdown/scheduled`, no
+  `Automatic-Reboot "true"`, and `/`, `/boot`, `/boot/efi` and the by-label links on
+  `sda`. Re-check after detach. `reboot-required` exists on founders and is
+  ignored, because nothing reboots automatically.
+- Attach for ≤2 min per worker. The IMDS check means even a mistaken founder boot of
+  the clone cannot drive.
 
 ### Verified for v3 (read-only, no production mutation)
 
@@ -95,81 +190,77 @@ sudoers, so it needs option 1 first.`
   the reserved 150 s. Refresh sizes at preparation. Repeat the rehearsal if any
   root exceeds 2× these bytes.
 
-### v3 sequence (founder SSH and OCI only; t0 = gate close)
+### v4 sequence (t0 = gate close; founder steps as v2/v3)
 
-Prepare-section rules apply to founders unchanged. For workers, preparation adds:
+Prepare, before the window:
 
-- Save the OCI get-instance readback with lifecycle RUNNING, the ETag and the boot
-  volume OCID.
-- Read the six TerraBase tasks and their node pins from the founder Swarm managers.
-- At the drained cutoff, read each region's owner and follower applied positions
-  through the existing authenticated TerraBase/ts-orch status.
+- Capture each worker's running TerraBase task (manager `service ps`) and the owner
+  records. Build each worker manifest: local job from the expected pins with
+  `process {pid: 4194304, start: 1}`; owner job is the founder's prepared job for
+  GRU/SJC, and itself for FRA.
+- Stage the exact green binary (hash) and `cold.py` in `/var/tmp/zdt-offline` on each
+  founder (root, 0700; `/run` is noexec).
+- Pass the founder reboot gate.
 
-There is no worker backup. By parent decision, worker files stay untouched on the
-boot volume. For FRA the owner copy is on ts-fra-2. The **fra-1 follower must equal
-fra-2's applied positions at cutoff**, otherwise abort before any stop. The same
-holds for the gru-2 and sjc-2 followers against their owners.
+In the window:
 
-1. **Announce and close ingress** as in v2 step 1 (≤75 s). Abort and rollback are
-   unchanged.
-2. **Stop everything, follower-safe and executor-first** (≤180 s):
-   - a. On the 3 founders, stop containerd and verify the runtime API is down and
-     cannot restart. Do this before any worker power action, so a founder executor
-     cannot re-place a worker task when the worker node disappears. Keep old
-     ts-orch and NATS up.
-   - b. Send OCI `SOFTSTOP` to the 3 workers in parallel, each with `If-Match` on
-     the saved ETag. Read back with bounded `get-instance` until `STOPPED`. At
-     90 s, send `STOP` (hard). On shutdown the old ts-orch cancels its agent and
-     does not stop workloads (`swarmruntime/node.go:291`). systemd's final
-     SIGTERM→SIGKILL reaches b443 with no `/drain`, the same signal path as v2.
-     **Unverified pre-GO:** whether OCI accepts `STOP` while the instance is
-     `STOPPING` from `SOFTSTOP`. `SOFTSTOP`'s own forced power-off comes after
-     15 min, which exceeds the window. This cannot be qualified read-only.
-   - c. On the founders, TERM→KILL the pinned engine PIDs (TERM 20 s → KILL 5 s,
-     outer 28 s), then run the 60 s `--barrier stopped --runtime-down` watch.
-   - Gate: 3 founder watch receipts plus 3 OCI `STOPPED` readbacks with
-     instance-id, time and ETag. Founder evidence must also show the worker NATS
-     routes and NetBird peers gone. **Pre-GO code gap:** `cold.py watch-check`
-     accepts only six local receipts. It needs an OCI-stopped receipt type.
-   - Abort: a worker not `STOPPED` by 150 s, or any founder engine alive. Retain the
-     gate, delete no keys and restart no NATS. Report the host.
-3. **Founder cold backup** as in v2 step 3, founders only. Measured budget is
-   ≤10 s per node in parallel, with a 330 s hard limit.
-4. **Delete the two stale keys** as in v2 step 4. Quorum is founders-only, as
-   verified above.
-5. **Founders:** `arm-stopped` with the 3 founder manifests, final controller
-   backup, install the new ts-orch, restart containerd and ts-orch, then the 60 s
-   restarted watch on all 3 founders.
-6. **START the workers** after step 5 passes. **BLOCKED:** a worker boots its old
-   executor (see the blocker above). With worker root this becomes: install, arm,
-   then a 60 s restarted watch per worker before any engine start.
-7. **New engine at the same owners and epochs:** SJC (sjc-1 owner), FRA (fra-2
-   owner, **BLOCKED**), GRU (gru-1 owner), each followed by its follower. The
-   remaining checks follow v2 steps 6–7.
+1. Announce and close ingress (≤75 s), as v2.
+2. Stop all six engines (≤180 s), as v3 2a–2c: founder containerd first, then worker
+   OCI SOFTSTOP→STOP, then founder TERM→KILL and the 60 s watch. Gate: 3 founder
+   receipts plus 3 OCI-STOPPED receipts (`cold.py oci-stopped`; `watch-check`
+   accepts this mix).
+3. **Workers W1–W5, in parallel with founder steps 3–5 (measured 73–119 s +
+   verify ≤12 s):**
+   - **W1:** clone the STOPPED worker's boot volume.
+   - **W2:** in parallel, detach the original boot volume from the worker (keep it).
+   - **W3:** attach the clone rw to its founder and mount it. `pins-offline` must
+     equal the prepared pin.
+   - **W4:** offline-install, then **offline-verify on the rw mount**. Both
+     receipts are required.
+   - **W5:** unmount, detach, re-check the founder's by-label links.
+4. Founder steps 3–5 as v2: backup (budget ≤10 s), delete the two stale keys,
+   arm-stopped, install, restart, and the 60 s restarted watch on the founders
+   (≤500 s).
+5. **W6:** only after step 5 passes, attach the clone as the worker's boot volume
+   and OCI START it (estimate ≤160 s to ts-orch ready; unrehearsed). The drive then
+   runs: watch 60 s, stage, prepull.
+6. Engines at the same owners and epochs (≤60 s budget each):
+   - **SJC and GRU:** the operator drives the founder owner (`replace`) as soon as
+     stage succeeds. The worker follower's drive then passes `owner` and replaces
+     itself.
+   - **FRA:** the fra-2 drive replaces the owner. The operator waits for
+     `bootstrap-maintenance owner` to pass on fra-1, then drives the fra-1 follower.
+   - The outcome is read through the founder's manager tasks and edge status. A
+     worker's own receipts are readable only by stopping it and attaching
+     read-only.
+7. Reconcile, canaries, reopen and status, as v2 step 7.
 
-### v3 rollback (existing access only; executable at any step)
+Budget: worker START ≈ t0+500 → ready ≈ +660 → watch/stage/prepull ≈ +760 → owners
+≈ +820 → followers ≈ +880 → reconciliation ≈ +960–1030 s. Hard limit with the
+revised window: 1200 s serving.
 
-1. Retain the gate.
-2. Stop the new controllers and engines on the founders, and prove PID exit.
-3. Keep both stale-key tombstones. Restore the old founder binary and controller
-   state offline (v2 B).
-4. Start b443 on the founders' retained files at the unchanged owner and epoch.
-5. OCI `START` the workers. Their old executor restarting b443 from local agent
-   state is the intended rollback here: the data is untouched, the owner and
-   epoch are unchanged, and the stale-key hazard is already deleted.
-6. Verify one writer per region, FRA served by fra-2, then run canaries and reopen
-   ingress.
+### v4 per-worker abort and rollback
 
-Never START a worker while a v2 engine runs in its region. A worker that fails to
-reach RUNNING within 10 min stays in maintenance. Report it; do not CAS its owner
-away.
+- **Before START** (W1–W6 fail, a receipt is missing, or a founder gate fails):
+  - Detach the clone and reattach the **original** as boot; do not start it.
+  - Optionally retry once on a fresh clone if the window allows.
+  - Otherwise use the fleet rollback. No v2 engine can have started in that region,
+    because stage needs both nodes fenced.
+- **After START, before replace** (the watch, stage or owner wait fails; the fence
+  holds and the budget is unspent):
+  - STOP the worker and attach the clone read-only to its founder to read the
+    drive receipts.
+  - Either re-drive once (rw mount: remove only `zdt-drive/attempted`, verify, reboot
+    the clone), or roll back.
+- **Rollback for a region:**
+  1. Stop all v2 engines in the region and prove they exited.
+  2. STOP the worker, then detach the clone and reattach the original.
+  3. Start b443 on the founder per the fleet rollback, then START the worker. Its
+     original volume restarts b443 from its own agent DB.
 
-Target: 10–15 minutes of serving maintenance. The current hard serving limit is
-12 minutes; status resolution can take another five consecutive passing minutes
-(17 minutes total). The notice and final GO must reflect these bounds. Preparation
-and artifact production happen before that clock. If the estimate stops fitting,
-start the rollback while its original processes/data are still available; do not
-wait indefinitely for CI, backup transfer, readiness or a missing node.
+  Never START an original (b443) volume while that region runs any v2 writer.
+- Keep the originals until the separately approved cleanup after success; the
+  clones become the workers' boot volumes.
 
 ## Prepare before the announced window
 
@@ -670,6 +761,132 @@ remaining pre-GO gates are in qualification/v3-results.md. Neither disabled CI n
 local green Fast means green deployed main; ship via ts-ship only after explicit
 GO, then require **BUILD green on both exact shipped main revisions** before
 maintenance. Slow **PROBES are not deploy gates** under the parent's decision.
+
+## Superseded v3 blocker, sequence and rollback (history)
+
+### v3 status — NOT GO-ready (2026-11-06T10:40Z)
+
+**Exact blocker: steps 5–7 need root on each worker, and v3 has no path to it.**
+OCI instance actions change only power state. Each of the following runs locally as
+root on the host it changes. None can run on a worker without worker execution:
+
+1. Installing the new ts-orch binary. The worker boot volume holds the old binary.
+2. `bootstrap-maintenance arm-stopped`, which needs root, the local hostname and the
+   local containerd socket.
+3. `stage`/`replace`, which use the executor's local unix socket
+   (`internal/app/bootstrap_cli.go`, `RunBootstrapMaintenance`).
+4. The restarted-barrier 60 s `cold.py watch` receipts.
+
+v3 step 6 assumed workers "come under the new executor" on boot. That does not
+hold. START boots the unchanged boot volume, and the enabled old unit
+(`ExecStart=/usr/local/bin/terrascale-orchestrator`, `Restart=always`) runs the old
+binary. Its user_data is a once-per-instance `#!/bin/bash` with no per-boot hook,
+so it does not reinstall anything. At boot the old Swarm agent's `worker.Init`
+starts a task manager for every locally assigned task before it contacts any
+manager (`third_party/swarmkit/agent/worker.go:82-111` at 2142b1f). It is unproven
+whether b443 then passes its local storage checks. Either way the worker stays
+under the old executor. Stopping the VM again repeats the identical boot, so the
+remedy never converges.
+
+**FRA's retained owner is ts-fra-2 (FRA2, epoch 7).** Without a worker executor,
+FRA cannot start the new engine at the same owner and epoch, and owner CAS is
+excluded. The GRU and SJC followers (ts-gru-2, ts-sjc-2) have the same gap.
+
+Alternatives checked read-only:
+
+- **OCI Run Command:** no policy grants `instance-agent-command-execution-family`
+  to any dynamic group. That explains why the v3 commands stayed ACCEPTED with no
+  output. user_data also adds no `ocarun` sudoers, so even an IAM grant would not
+  give root.
+- **ts-orch self-update:** this reaches a worker only through a release publication
+  to its old executor, after `worker.Init` has already run. That path is unreviewed,
+  and publications are held.
+
+Next decision for the parent:
+`NEED Q-ZDTWORKEREXEC: worker root for steps 5–7 | options: 1) approve the bounded
+temporary worker SSH key from Q-ZDTCONTROL (only reviewed path; everything else
+in v3 is measured) 2) build, review and qualify an offline boot-volume path (stop,
+detach the boot volume, attach it to the same-AD founder, install the binary and
+fence, reattach) plus boot-time stage/replace. That is new code and adds minutes
+per worker to the window. 3) OCI Run Command needs a new IAM grant and root
+sudoers, so it needs option 1 first.`
+
+### v3 sequence (founder SSH and OCI only; t0 = gate close)
+
+Prepare-section rules apply to founders unchanged. For workers, preparation adds:
+
+- Save the OCI get-instance readback with lifecycle RUNNING, the ETag and the boot
+  volume OCID.
+- Read the six TerraBase tasks and their node pins from the founder Swarm managers.
+- At the drained cutoff, read each region's owner and follower applied positions
+  through the existing authenticated TerraBase/ts-orch status.
+
+There is no worker backup. By parent decision, worker files stay untouched on the
+boot volume. For FRA the owner copy is on ts-fra-2. The **fra-1 follower must equal
+fra-2's applied positions at cutoff**, otherwise abort before any stop. The same
+holds for the gru-2 and sjc-2 followers against their owners.
+
+1. **Announce and close ingress** as in v2 step 1 (≤75 s). Abort and rollback are
+   unchanged.
+2. **Stop everything, follower-safe and executor-first** (≤180 s):
+   - a. On the 3 founders, stop containerd and verify the runtime API is down and
+     cannot restart. Do this before any worker power action, so a founder executor
+     cannot re-place a worker task when the worker node disappears. Keep old
+     ts-orch and NATS up.
+   - b. Send OCI `SOFTSTOP` to the 3 workers in parallel, each with `If-Match` on
+     the saved ETag. Read back with bounded `get-instance` until `STOPPED`. At
+     90 s, send `STOP` (hard). On shutdown the old ts-orch cancels its agent and
+     does not stop workloads (`swarmruntime/node.go:291`). systemd's final
+     SIGTERM→SIGKILL reaches b443 with no `/drain`, the same signal path as v2.
+     **Unverified pre-GO:** whether OCI accepts `STOP` while the instance is
+     `STOPPING` from `SOFTSTOP`. `SOFTSTOP`'s own forced power-off comes after
+     15 min, which exceeds the window. This cannot be qualified read-only.
+   - c. On the founders, TERM→KILL the pinned engine PIDs (TERM 20 s → KILL 5 s,
+     outer 28 s), then run the 60 s `--barrier stopped --runtime-down` watch.
+   - Gate: 3 founder watch receipts plus 3 OCI `STOPPED` readbacks with
+     instance-id, time and ETag. Founder evidence must also show the worker NATS
+     routes and NetBird peers gone. **Pre-GO code gap:** `cold.py watch-check`
+     accepts only six local receipts. It needs an OCI-stopped receipt type.
+   - Abort: a worker not `STOPPED` by 150 s, or any founder engine alive. Retain the
+     gate, delete no keys and restart no NATS. Report the host.
+3. **Founder cold backup** as in v2 step 3, founders only. Measured budget is
+   ≤10 s per node in parallel, with a 330 s hard limit.
+4. **Delete the two stale keys** as in v2 step 4. Quorum is founders-only, as
+   verified above.
+5. **Founders:** `arm-stopped` with the 3 founder manifests, final controller
+   backup, install the new ts-orch, restart containerd and ts-orch, then the 60 s
+   restarted watch on all 3 founders.
+6. **START the workers** after step 5 passes. **BLOCKED:** a worker boots its old
+   executor (see the blocker above). With worker root this becomes: install, arm,
+   then a 60 s restarted watch per worker before any engine start.
+7. **New engine at the same owners and epochs:** SJC (sjc-1 owner), FRA (fra-2
+   owner, **BLOCKED**), GRU (gru-1 owner), each followed by its follower. The
+   remaining checks follow v2 steps 6–7.
+
+### v3 rollback (existing access only; executable at any step)
+
+1. Retain the gate.
+2. Stop the new controllers and engines on the founders, and prove PID exit.
+3. Keep both stale-key tombstones. Restore the old founder binary and controller
+   state offline (v2 B).
+4. Start b443 on the founders' retained files at the unchanged owner and epoch.
+5. OCI `START` the workers. Their old executor restarting b443 from local agent
+   state is the intended rollback here: the data is untouched, the owner and
+   epoch are unchanged, and the stale-key hazard is already deleted.
+6. Verify one writer per region, FRA served by fra-2, then run canaries and reopen
+   ingress.
+
+Never START a worker while a v2 engine runs in its region. A worker that fails to
+reach RUNNING within 10 min stays in maintenance. Report it; do not CAS its owner
+away.
+
+Target: 10–15 minutes of serving maintenance. The current hard serving limit is
+12 minutes; status resolution can take another five consecutive passing minutes
+(17 minutes total). The notice and final GO must reflect these bounds. Preparation
+and artifact production happen before that clock. If the estimate stops fitting,
+start the rollback while its original processes/data are still available; do not
+wait indefinitely for CI, backup transfer, readiness or a missing node.
+
 
 ## Superseded v2 control-path gate (history)
 

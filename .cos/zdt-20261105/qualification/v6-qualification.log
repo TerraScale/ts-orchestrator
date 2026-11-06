@@ -1,0 +1,49 @@
+ts-heavy-any: mariogk-dev ~/remote-builds/ts-orchestrator/2142b1f308b1c1169d25093f93eab3b10c479e1c-e4f826cb03d4f0e96b121256d081299cf70cd65b8a82c3084842549d80a5330c
+ts-heavy-any: mariogk-dev unreachable, supersede skipped
+ts-slot: admitted bash on mariogk-dev after 1s (threads=600 mem=2.2G cpu=7)
+ts-slot: bash used peak threads=82 mem=1.3G cpu-peak=6.85 cpu-average=3 in 154s
+ts-slot: workspace cleanup: {"removed": 1, "kept_live": 0, "freed_bytes": 0, "free_percent": 57.82}
+ts-heavy-any: local seed /home/mariogk/Projects/TerraScale/ts-orchestrator (122981 objects) in 7.828s
+== fast
+ok  	github.com/TerraScale/ts-orchestrator/internal/swarmruntime	3.266s
+ok  	github.com/TerraScale/ts-orchestrator/internal/app	11.609s
+ok  	github.com/TerraScale/ts-orchestrator/internal/edge	0.172s
+ok  	github.com/TerraScale/ts-orchestrator/internal/natscell/mesh	2.629s
+ok  	github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance	0.036s
+fast_wall_seconds=64
+== slow x5
+    maintenance_bootstrap_integration_test.go:463: six_nodes_intent_fenced=true daemon_restarts=6 selected=ts-gru-2 physical_old_exit=2026-11-06T11:25:16.244783946Z new_admission=2026-11-06T11:25:16.250532046Z blocked_calls=36
+--- PASS: TestBootstrapFenceAcrossSixDispatchedNodesAndDaemonRestart (3.33s)
+    offline_worker_integration_test.go:203: offline_armed_worker_reboot=fenced agent_db=absent replace=verified old_exit=2026-11-06T11:25:17.105329251Z new_admission=2026-11-06T11:25:18.681011001Z
+--- PASS: TestOfflineArmedWorkerRebootsFencedAndReplaces (2.42s)
+ok  	github.com/TerraScale/ts-orchestrator/internal/swarmruntime	5.816s
+    maintenance_bootstrap_integration_test.go:463: six_nodes_intent_fenced=true daemon_restarts=6 selected=ts-gru-2 physical_old_exit=2026-11-06T11:25:28.318359786Z new_admission=2026-11-06T11:25:28.324501456Z blocked_calls=44
+--- PASS: TestBootstrapFenceAcrossSixDispatchedNodesAndDaemonRestart (5.52s)
+    offline_worker_integration_test.go:203: offline_armed_worker_reboot=fenced agent_db=absent replace=verified old_exit=2026-11-06T11:25:29.18161121Z new_admission=2026-11-06T11:25:30.758604385Z
+--- PASS: TestOfflineArmedWorkerRebootsFencedAndReplaces (2.43s)
+ok  	github.com/TerraScale/ts-orchestrator/internal/swarmruntime	7.997s
+    maintenance_bootstrap_integration_test.go:463: six_nodes_intent_fenced=true daemon_restarts=6 selected=ts-gru-2 physical_old_exit=2026-11-06T11:25:38.831478775Z new_admission=2026-11-06T11:25:38.838268891Z blocked_calls=34
+--- PASS: TestBootstrapFenceAcrossSixDispatchedNodesAndDaemonRestart (4.04s)
+    offline_worker_integration_test.go:203: offline_armed_worker_reboot=fenced agent_db=absent replace=verified old_exit=2026-11-06T11:25:39.699250838Z new_admission=2026-11-06T11:25:41.278891025Z
+--- PASS: TestOfflineArmedWorkerRebootsFencedAndReplaces (2.43s)
+ok  	github.com/TerraScale/ts-orchestrator/internal/swarmruntime	6.538s
+    maintenance_bootstrap_integration_test.go:463: six_nodes_intent_fenced=true daemon_restarts=6 selected=ts-gru-2 physical_old_exit=2026-11-06T11:25:49.46245454Z new_admission=2026-11-06T11:25:49.469444824Z blocked_calls=40
+--- PASS: TestBootstrapFenceAcrossSixDispatchedNodesAndDaemonRestart (4.16s)
+    offline_worker_integration_test.go:203: offline_armed_worker_reboot=fenced agent_db=absent replace=verified old_exit=2026-11-06T11:25:50.329353403Z new_admission=2026-11-06T11:25:51.91274433Z
+--- PASS: TestOfflineArmedWorkerRebootsFencedAndReplaces (2.44s)
+ok  	github.com/TerraScale/ts-orchestrator/internal/swarmruntime	6.649s
+    maintenance_bootstrap_integration_test.go:463: six_nodes_intent_fenced=true daemon_restarts=6 selected=ts-gru-2 physical_old_exit=2026-11-06T11:26:00.166058419Z new_admission=2026-11-06T11:26:00.172842542Z blocked_calls=34
+--- PASS: TestBootstrapFenceAcrossSixDispatchedNodesAndDaemonRestart (4.24s)
+    offline_worker_integration_test.go:203: offline_armed_worker_reboot=fenced agent_db=absent replace=verified old_exit=2026-11-06T11:26:01.029343453Z new_admission=2026-11-06T11:26:02.60843382Z
+--- PASS: TestOfflineArmedWorkerRebootsFencedAndReplaces (2.43s)
+ok  	github.com/TerraScale/ts-orchestrator/internal/swarmruntime	6.727s
+== vet
+== boot-drive
+  "pass": true,
+  "checks": {
+    "owner replaces after stage": true,
+    "follower waits for its owner": true,
+    "never-ready owner: no replace": true,
+    "second boot never re-drives": true
+  },
+exit 0

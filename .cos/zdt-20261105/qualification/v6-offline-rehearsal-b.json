@@ -1,0 +1,845 @@
+{
+  "startedAt": 1793965767.1950648,
+  "finishedAt": 1793966354.8686748,
+  "binarySha256": "2ccab3fdef93966401c05806b16834c1b2d7ecd59e2e0019dab9105542827e4d",
+  "oldBinarySha256": "214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146",
+  "repeats": 3,
+  "productionMutation": "none: clones only; each founder gained and lost one attachment",
+  "results": {
+    "gru": [
+      {
+        "region": "gru",
+        "repeat": 1,
+        "cloneSeconds": 17.423,
+        "clone": "ocid1.bootvolume.oc1.sa-saopaulo-1.abtxeljrvknzeiwyr2yrltwxrq4zzuc53pzqtqysxitv4zi6rsft6wsj7tzq",
+        "attachRwSeconds": 17.309,
+        "mountRwSeconds": 0.859,
+        "device": "sdb",
+        "captureSeconds": 1.069,
+        "pins": {
+          "node": "9azigs7e908kssjcqc0hf5mle",
+          "service": "zevuzxswpc6l3cx1qm0k0yf6m",
+          "task": "o43glheyg5mrcwhstq5in84te",
+          "fingerprint": "9ee31783981eee2329532bd03b31a9c59389a67de80e649634b767394eb9056e",
+          "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f"
+        },
+        "installSeconds": 7.433,
+        "install": {
+          "at": 1793965816.7604234,
+          "files": {
+            "agentDatabasePresent": false,
+            "enabled": "/etc/systemd/system/ts-orch-cold-drive.service",
+            "etc/systemd/system/ts-orch-cold-drive.service": {
+              "mode": 420,
+              "sha256": "12bdc6abeb0af2fbc385b3cb42c856c7fdacdef12b62bfa8aaba9d23d65f99a9",
+              "size": 418
+            },
+            "releaseTrialPresent": false,
+            "usr/local/bin/terrascale-orchestrator": {
+              "mode": 493,
+              "sha256": "2ccab3fdef93966401c05806b16834c1b2d7ecd59e2e0019dab9105542827e4d",
+              "size": 110526791
+            },
+            "usr/local/bin/terrascale-orchestrator.zdt-b443": {
+              "mode": 493,
+              "sha256": "214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146",
+              "size": 110382803
+            },
+            "usr/local/lib/ts-zdt/cold.py": {
+              "mode": 448,
+              "sha256": "87fe0ce0f2bd3ff24b013c4bc9af83a0a5fdd04af6794e168350cb177eefe56e",
+              "size": 41768
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/ingress.json": {
+              "mode": 384,
+              "sha256": "50d0d3c32659e1e7ddc9d26d75b88e5451c5346c6244126d0266f42c561f8666",
+              "size": 686
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/job.json": {
+              "mode": 384,
+              "sha256": "17338e0d696893bf90e09d8db859e1e2878a82a170ee3aba83d7d8a3eb086229",
+              "size": 701
+            },
+            "var/lib/ts-orch/zdt-drive/drive.json": {
+              "mode": 384,
+              "sha256": "e31bba552a20531316c0fde3db0aa7092bb3ce9cc4ea80a0abf00a1078a7d1d4",
+              "size": 166
+            },
+            "var/lib/ts-orch/zdt-retained/tasks.db.zdt-rehearsal-ts-gru-2-r1": {
+              "mode": 384,
+              "sha256": "c8f35903aadc2e089e023c8fc9572eb89e3e5ecceb4bdb4e975b25368586065b",
+              "size": 131072
+            }
+          },
+          "id": "zdt-rehearsal-ts-gru-2-r1",
+          "member": "ts-gru-2",
+          "pins": {
+            "fingerprint": "9ee31783981eee2329532bd03b31a9c59389a67de80e649634b767394eb9056e",
+            "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f",
+            "node": "9azigs7e908kssjcqc0hf5mle",
+            "service": "zevuzxswpc6l3cx1qm0k0yf6m",
+            "task": "o43glheyg5mrcwhstq5in84te"
+          },
+          "seconds": 6.92383229592815
+        },
+        "verifyRwSeconds": 0.634,
+        "umountSeconds": 0.478,
+        "detachSeconds": 33.121,
+        "attachRoSeconds": 33.563,
+        "mountRoSeconds": 0.702,
+        "verifySeconds": 7.306,
+        "verify": {
+          "at": 1793965893.9261048,
+          "id": "zdt-rehearsal-ts-gru-2-r1",
+          "member": "ts-gru-2",
+          "verified": true
+        },
+        "detachRoSeconds": 17.063,
+        "result": "pass",
+        "deleteSeconds": 8.642,
+        "founderClean": true
+      },
+      {
+        "region": "gru",
+        "repeat": 2,
+        "cloneSeconds": 17.045,
+        "clone": "ocid1.bootvolume.oc1.sa-saopaulo-1.abtxeljrpah4wx7pogndwzqm3g4gi5c5qvr75mgdjtxthdv3illzpafsgfnq",
+        "attachRwSeconds": 33.412,
+        "mountRwSeconds": 1.232,
+        "device": "sdb",
+        "captureSeconds": 0.963,
+        "pins": {
+          "node": "9azigs7e908kssjcqc0hf5mle",
+          "service": "zevuzxswpc6l3cx1qm0k0yf6m",
+          "task": "o43glheyg5mrcwhstq5in84te",
+          "fingerprint": "9ee31783981eee2329532bd03b31a9c59389a67de80e649634b767394eb9056e",
+          "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f"
+        },
+        "installSeconds": 7.642,
+        "install": {
+          "at": 1793965984.0540442,
+          "files": {
+            "agentDatabasePresent": false,
+            "enabled": "/etc/systemd/system/ts-orch-cold-drive.service",
+            "etc/systemd/system/ts-orch-cold-drive.service": {
+              "mode": 420,
+              "sha256": "12bdc6abeb0af2fbc385b3cb42c856c7fdacdef12b62bfa8aaba9d23d65f99a9",
+              "size": 418
+            },
+            "releaseTrialPresent": false,
+            "usr/local/bin/terrascale-orchestrator": {
+              "mode": 493,
+              "sha256": "2ccab3fdef93966401c05806b16834c1b2d7ecd59e2e0019dab9105542827e4d",
+              "size": 110526791
+            },
+            "usr/local/bin/terrascale-orchestrator.zdt-b443": {
+              "mode": 493,
+              "sha256": "214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146",
+              "size": 110382803
+            },
+            "usr/local/lib/ts-zdt/cold.py": {
+              "mode": 448,
+              "sha256": "87fe0ce0f2bd3ff24b013c4bc9af83a0a5fdd04af6794e168350cb177eefe56e",
+              "size": 41768
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/ingress.json": {
+              "mode": 384,
+              "sha256": "50d0d3c32659e1e7ddc9d26d75b88e5451c5346c6244126d0266f42c561f8666",
+              "size": 686
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/job.json": {
+              "mode": 384,
+              "sha256": "d02099ca841dc1aea593cef43dd050f3a3abe1f76d24c466469bf69512b5d146",
+              "size": 701
+            },
+            "var/lib/ts-orch/zdt-drive/drive.json": {
+              "mode": 384,
+              "sha256": "45491ffc296f55fd9e1f456d4b19f972a91a3a0382fdd45c4364a86d3079e994",
+              "size": 166
+            },
+            "var/lib/ts-orch/zdt-retained/tasks.db.zdt-rehearsal-ts-gru-2-r2": {
+              "mode": 384,
+              "sha256": "c2af9b55aee3891fab550d75a90d715232c5bae7c3768624fc86a6bd6bb543ee",
+              "size": 131072
+            }
+          },
+          "id": "zdt-rehearsal-ts-gru-2-r2",
+          "member": "ts-gru-2",
+          "pins": {
+            "fingerprint": "9ee31783981eee2329532bd03b31a9c59389a67de80e649634b767394eb9056e",
+            "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f",
+            "node": "9azigs7e908kssjcqc0hf5mle",
+            "service": "zevuzxswpc6l3cx1qm0k0yf6m",
+            "task": "o43glheyg5mrcwhstq5in84te"
+          },
+          "seconds": 7.149915650021285
+        },
+        "verifyRwSeconds": 0.641,
+        "umountSeconds": 0.464,
+        "detachSeconds": 16.985,
+        "attachRoSeconds": 17.237,
+        "mountRoSeconds": 0.777,
+        "verifySeconds": 7.398,
+        "verify": {
+          "at": 1793966028.5734534,
+          "id": "zdt-rehearsal-ts-gru-2-r2",
+          "member": "ts-gru-2",
+          "verified": true
+        },
+        "detachRoSeconds": 33.143,
+        "result": "pass",
+        "deleteSeconds": 4.717,
+        "founderClean": true
+      },
+      {
+        "region": "gru",
+        "repeat": 3,
+        "cloneSeconds": 17.232,
+        "clone": "ocid1.bootvolume.oc1.sa-saopaulo-1.abtxeljrlxs5jxrlx22hxr34zlwz52uftxgvyrzw6cv63b4mwy6paqcrlnlq",
+        "attachRwSeconds": 33.436,
+        "mountRwSeconds": 0.984,
+        "device": "sdb",
+        "captureSeconds": 0.98,
+        "pins": {
+          "node": "9azigs7e908kssjcqc0hf5mle",
+          "service": "zevuzxswpc6l3cx1qm0k0yf6m",
+          "task": "o43glheyg5mrcwhstq5in84te",
+          "fingerprint": "9ee31783981eee2329532bd03b31a9c59389a67de80e649634b767394eb9056e",
+          "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f"
+        },
+        "installSeconds": 8.379,
+        "install": {
+          "at": 1793966131.5705948,
+          "files": {
+            "agentDatabasePresent": false,
+            "enabled": "/etc/systemd/system/ts-orch-cold-drive.service",
+            "etc/systemd/system/ts-orch-cold-drive.service": {
+              "mode": 420,
+              "sha256": "12bdc6abeb0af2fbc385b3cb42c856c7fdacdef12b62bfa8aaba9d23d65f99a9",
+              "size": 418
+            },
+            "releaseTrialPresent": false,
+            "usr/local/bin/terrascale-orchestrator": {
+              "mode": 493,
+              "sha256": "2ccab3fdef93966401c05806b16834c1b2d7ecd59e2e0019dab9105542827e4d",
+              "size": 110526791
+            },
+            "usr/local/bin/terrascale-orchestrator.zdt-b443": {
+              "mode": 493,
+              "sha256": "214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146",
+              "size": 110382803
+            },
+            "usr/local/lib/ts-zdt/cold.py": {
+              "mode": 448,
+              "sha256": "87fe0ce0f2bd3ff24b013c4bc9af83a0a5fdd04af6794e168350cb177eefe56e",
+              "size": 41768
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/ingress.json": {
+              "mode": 384,
+              "sha256": "50d0d3c32659e1e7ddc9d26d75b88e5451c5346c6244126d0266f42c561f8666",
+              "size": 686
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/job.json": {
+              "mode": 384,
+              "sha256": "f86fa451b56f25e123da4854b0216ed972c1f3d0558e5254550c8fb31af63a91",
+              "size": 701
+            },
+            "var/lib/ts-orch/zdt-drive/drive.json": {
+              "mode": 384,
+              "sha256": "f7da885903a5642b91d79c2a62f54053c7c7ec71b6680429b9b8ac477599b9fd",
+              "size": 166
+            },
+            "var/lib/ts-orch/zdt-retained/tasks.db.zdt-rehearsal-ts-gru-2-r3": {
+              "mode": 384,
+              "sha256": "6a6dbe73ffde10b05fb65a227014e0acb1efdd98ae88fa6fccb16dd30fc4a83c",
+              "size": 131072
+            }
+          },
+          "id": "zdt-rehearsal-ts-gru-2-r3",
+          "member": "ts-gru-2",
+          "pins": {
+            "fingerprint": "9ee31783981eee2329532bd03b31a9c59389a67de80e649634b767394eb9056e",
+            "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f",
+            "node": "9azigs7e908kssjcqc0hf5mle",
+            "service": "zevuzxswpc6l3cx1qm0k0yf6m",
+            "task": "o43glheyg5mrcwhstq5in84te"
+          },
+          "seconds": 7.499332045903429
+        },
+        "verifyRwSeconds": 0.65,
+        "umountSeconds": 0.468,
+        "detachSeconds": 33.157,
+        "attachRoSeconds": 17.281,
+        "mountRoSeconds": 1.046,
+        "verifySeconds": 7.3,
+        "verify": {
+          "at": 1793966192.5061867,
+          "id": "zdt-rehearsal-ts-gru-2-r3",
+          "member": "ts-gru-2",
+          "verified": true
+        },
+        "detachRoSeconds": 33.113,
+        "result": "pass",
+        "deleteSeconds": 4.659,
+        "founderClean": true
+      }
+    ],
+    "sjc": [
+      {
+        "region": "sjc",
+        "repeat": 1,
+        "cloneSeconds": 20.795,
+        "clone": "ocid1.bootvolume.oc1.us-sanjose-1.abzwuljrpeoid2rjnxwgm2yuzgykfet2rt2m7z5es5q2kb3qip63wayxh5sq",
+        "attachRwSeconds": 20.377,
+        "mountRwSeconds": 3.569,
+        "device": "sdb",
+        "captureSeconds": 5.433,
+        "pins": {
+          "node": "z88h04e34dq12ufk7ffs6954x",
+          "service": "8n6bpq8grs47yvimafrxh2equ",
+          "task": "vleqkx31mcoa0yvt0pqj7stcu",
+          "fingerprint": "04ccd8c592933941ceaafab93bede456822aaae619b9a9f97a698733d7590776",
+          "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f"
+        },
+        "installSeconds": 10.361,
+        "install": {
+          "at": 1793965861.6969976,
+          "files": {
+            "agentDatabasePresent": false,
+            "enabled": "/etc/systemd/system/ts-orch-cold-drive.service",
+            "etc/systemd/system/ts-orch-cold-drive.service": {
+              "mode": 420,
+              "sha256": "12bdc6abeb0af2fbc385b3cb42c856c7fdacdef12b62bfa8aaba9d23d65f99a9",
+              "size": 418
+            },
+            "releaseTrialPresent": false,
+            "usr/local/bin/terrascale-orchestrator": {
+              "mode": 493,
+              "sha256": "2ccab3fdef93966401c05806b16834c1b2d7ecd59e2e0019dab9105542827e4d",
+              "size": 110526791
+            },
+            "usr/local/bin/terrascale-orchestrator.zdt-b443": {
+              "mode": 493,
+              "sha256": "214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146",
+              "size": 110382803
+            },
+            "usr/local/lib/ts-zdt/cold.py": {
+              "mode": 448,
+              "sha256": "87fe0ce0f2bd3ff24b013c4bc9af83a0a5fdd04af6794e168350cb177eefe56e",
+              "size": 41768
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/ingress.json": {
+              "mode": 384,
+              "sha256": "b2fd4bb04349f53d705ac40fb7652a6288c1c69afa11ca0887d322bfc69a8fab",
+              "size": 686
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/job.json": {
+              "mode": 384,
+              "sha256": "40de2afa77230c41e11bd0ad4b7eb12ef9033976228606632693c997fbea8032",
+              "size": 701
+            },
+            "var/lib/ts-orch/zdt-drive/drive.json": {
+              "mode": 384,
+              "sha256": "b665d0c8d2202a120ff22f37a13b794a1557c5de69d5dba0681621c830275058",
+              "size": 165
+            },
+            "var/lib/ts-orch/zdt-retained/tasks.db.zdt-rehearsal-ts-sjc-2-r1": {
+              "mode": 384,
+              "sha256": "650ff9768e2b0b8d6ea4314b775c5b18fb8a75d17eaace9527cef6bfffb232b7",
+              "size": 262144
+            }
+          },
+          "id": "zdt-rehearsal-ts-sjc-2-r1",
+          "member": "ts-sjc-2",
+          "pins": {
+            "fingerprint": "04ccd8c592933941ceaafab93bede456822aaae619b9a9f97a698733d7590776",
+            "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f",
+            "node": "z88h04e34dq12ufk7ffs6954x",
+            "service": "8n6bpq8grs47yvimafrxh2equ",
+            "task": "vleqkx31mcoa0yvt0pqj7stcu"
+          },
+          "seconds": 7.661400621989742
+        },
+        "verifyRwSeconds": 2.855,
+        "umountSeconds": 2.661,
+        "detachSeconds": 36.687,
+        "attachRoSeconds": 20.209,
+        "mountRoSeconds": 2.805,
+        "verifySeconds": 11.7,
+        "verify": {
+          "at": 1793965944.2803786,
+          "id": "zdt-rehearsal-ts-sjc-2-r1",
+          "member": "ts-sjc-2",
+          "verified": true
+        },
+        "detachRoSeconds": 36.777,
+        "result": "pass",
+        "deleteSeconds": 4.146,
+        "founderClean": true
+      },
+      {
+        "region": "sjc",
+        "repeat": 2,
+        "cloneSeconds": 20.802,
+        "clone": "ocid1.bootvolume.oc1.us-sanjose-1.abzwuljr7c5rp6dkcjvmuqtfraocbbfu4hvnyya6sapaar32dhidms3zkj7a",
+        "attachRwSeconds": 20.386,
+        "mountRwSeconds": 2.855,
+        "device": "sdb",
+        "captureSeconds": 5.697,
+        "pins": {
+          "node": "z88h04e34dq12ufk7ffs6954x",
+          "service": "8n6bpq8grs47yvimafrxh2equ",
+          "task": "vleqkx31mcoa0yvt0pqj7stcu",
+          "fingerprint": "04ccd8c592933941ceaafab93bede456822aaae619b9a9f97a698733d7590776",
+          "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f"
+        },
+        "installSeconds": 9.773,
+        "install": {
+          "at": 1793966066.2531927,
+          "files": {
+            "agentDatabasePresent": false,
+            "enabled": "/etc/systemd/system/ts-orch-cold-drive.service",
+            "etc/systemd/system/ts-orch-cold-drive.service": {
+              "mode": 420,
+              "sha256": "12bdc6abeb0af2fbc385b3cb42c856c7fdacdef12b62bfa8aaba9d23d65f99a9",
+              "size": 418
+            },
+            "releaseTrialPresent": false,
+            "usr/local/bin/terrascale-orchestrator": {
+              "mode": 493,
+              "sha256": "2ccab3fdef93966401c05806b16834c1b2d7ecd59e2e0019dab9105542827e4d",
+              "size": 110526791
+            },
+            "usr/local/bin/terrascale-orchestrator.zdt-b443": {
+              "mode": 493,
+              "sha256": "214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146",
+              "size": 110382803
+            },
+            "usr/local/lib/ts-zdt/cold.py": {
+              "mode": 448,
+              "sha256": "87fe0ce0f2bd3ff24b013c4bc9af83a0a5fdd04af6794e168350cb177eefe56e",
+              "size": 41768
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/ingress.json": {
+              "mode": 384,
+              "sha256": "b2fd4bb04349f53d705ac40fb7652a6288c1c69afa11ca0887d322bfc69a8fab",
+              "size": 686
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/job.json": {
+              "mode": 384,
+              "sha256": "b9f000aba5c53fd3129ebbd600cba8458b1b25fcd11af912eb2d610de96fc663",
+              "size": 701
+            },
+            "var/lib/ts-orch/zdt-drive/drive.json": {
+              "mode": 384,
+              "sha256": "7252c0eb964e6aafd5663cfe82292de729a6926a0cb119c0ae287aa94c392b46",
+              "size": 165
+            },
+            "var/lib/ts-orch/zdt-retained/tasks.db.zdt-rehearsal-ts-sjc-2-r2": {
+              "mode": 384,
+              "sha256": "08d41d3c42add5608e47ca65758650db8555ee6e519d033edecea8351cf38660",
+              "size": 262144
+            }
+          },
+          "id": "zdt-rehearsal-ts-sjc-2-r2",
+          "member": "ts-sjc-2",
+          "pins": {
+            "fingerprint": "04ccd8c592933941ceaafab93bede456822aaae619b9a9f97a698733d7590776",
+            "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f",
+            "node": "z88h04e34dq12ufk7ffs6954x",
+            "service": "8n6bpq8grs47yvimafrxh2equ",
+            "task": "vleqkx31mcoa0yvt0pqj7stcu"
+          },
+          "seconds": 7.051838103914633
+        },
+        "verifyRwSeconds": 2.844,
+        "umountSeconds": 2.652,
+        "detachSeconds": 20.113,
+        "attachRoSeconds": 20.428,
+        "mountRoSeconds": 3.141,
+        "verifySeconds": 11.701,
+        "verify": {
+          "at": 1793966132.4531388,
+          "id": "zdt-rehearsal-ts-sjc-2-r2",
+          "member": "ts-sjc-2",
+          "verified": true
+        },
+        "detachRoSeconds": 20.018,
+        "result": "pass",
+        "deleteSeconds": 4.12,
+        "founderClean": true
+      },
+      {
+        "region": "sjc",
+        "repeat": 3,
+        "cloneSeconds": 12.066,
+        "clone": "ocid1.bootvolume.oc1.us-sanjose-1.abzwuljrupd6dho4lay43tx66msb5m4lbxc3c4rnwh4svrkfsf4guywzmenq",
+        "attachRwSeconds": 20.443,
+        "mountRwSeconds": 2.931,
+        "device": "sdb",
+        "captureSeconds": 5.383,
+        "pins": {
+          "node": "z88h04e34dq12ufk7ffs6954x",
+          "service": "8n6bpq8grs47yvimafrxh2equ",
+          "task": "vleqkx31mcoa0yvt0pqj7stcu",
+          "fingerprint": "04ccd8c592933941ceaafab93bede456822aaae619b9a9f97a698733d7590776",
+          "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f"
+        },
+        "installSeconds": 9.97,
+        "install": {
+          "at": 1793966228.8665254,
+          "files": {
+            "agentDatabasePresent": false,
+            "enabled": "/etc/systemd/system/ts-orch-cold-drive.service",
+            "etc/systemd/system/ts-orch-cold-drive.service": {
+              "mode": 420,
+              "sha256": "12bdc6abeb0af2fbc385b3cb42c856c7fdacdef12b62bfa8aaba9d23d65f99a9",
+              "size": 418
+            },
+            "releaseTrialPresent": false,
+            "usr/local/bin/terrascale-orchestrator": {
+              "mode": 493,
+              "sha256": "2ccab3fdef93966401c05806b16834c1b2d7ecd59e2e0019dab9105542827e4d",
+              "size": 110526791
+            },
+            "usr/local/bin/terrascale-orchestrator.zdt-b443": {
+              "mode": 493,
+              "sha256": "214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146",
+              "size": 110382803
+            },
+            "usr/local/lib/ts-zdt/cold.py": {
+              "mode": 448,
+              "sha256": "87fe0ce0f2bd3ff24b013c4bc9af83a0a5fdd04af6794e168350cb177eefe56e",
+              "size": 41768
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/ingress.json": {
+              "mode": 384,
+              "sha256": "b2fd4bb04349f53d705ac40fb7652a6288c1c69afa11ca0887d322bfc69a8fab",
+              "size": 686
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/job.json": {
+              "mode": 384,
+              "sha256": "420d2d947ce5158aa335e7ddc2bcd49987b0bec688afe74fbd0e061ffa30b7f2",
+              "size": 701
+            },
+            "var/lib/ts-orch/zdt-drive/drive.json": {
+              "mode": 384,
+              "sha256": "373fcc98dbdb06bbdf6474b8c65848663cd8202f5ef43401ea5b46cd3efcbb63",
+              "size": 165
+            },
+            "var/lib/ts-orch/zdt-retained/tasks.db.zdt-rehearsal-ts-sjc-2-r3": {
+              "mode": 384,
+              "sha256": "4ef0142ee5fbbb1467e613b8552dfc8e8c7b16ff5e2d0d8275899a96200782e5",
+              "size": 262144
+            }
+          },
+          "id": "zdt-rehearsal-ts-sjc-2-r3",
+          "member": "ts-sjc-2",
+          "pins": {
+            "fingerprint": "04ccd8c592933941ceaafab93bede456822aaae619b9a9f97a698733d7590776",
+            "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f",
+            "node": "z88h04e34dq12ufk7ffs6954x",
+            "service": "8n6bpq8grs47yvimafrxh2equ",
+            "task": "vleqkx31mcoa0yvt0pqj7stcu"
+          },
+          "seconds": 7.254024195950478
+        },
+        "verifyRwSeconds": 2.849,
+        "umountSeconds": 2.658,
+        "detachSeconds": 36.744,
+        "attachRoSeconds": 20.369,
+        "mountRoSeconds": 2.793,
+        "verifySeconds": 11.706,
+        "verify": {
+          "at": 1793966311.6374192,
+          "id": "zdt-rehearsal-ts-sjc-2-r3",
+          "member": "ts-sjc-2",
+          "verified": true
+        },
+        "detachRoSeconds": 20.156,
+        "result": "pass",
+        "deleteSeconds": 6.752,
+        "founderClean": true
+      }
+    ],
+    "fra": [
+      {
+        "region": "fra",
+        "repeat": 1,
+        "cloneSeconds": 12.587,
+        "clone": "ocid1.bootvolume.oc1.eu-frankfurt-1.abtheljto33pbjxltkereljnzbuw2ert2agboqvbfkr7hizltsdwrant2o4q",
+        "attachRwSeconds": 20.93,
+        "mountRwSeconds": 3.013,
+        "device": "sdb",
+        "captureSeconds": 5.88,
+        "pins": {
+          "node": "jgcsdvfmj3scx91q6dd0dg4xr",
+          "service": "o2gngq8jfduhxzlhi9rrdo1va",
+          "task": "jtp6mmeaotn5tqw6bkoja542v",
+          "fingerprint": "e8d52fb24fec91ba53c5cd21436b4f5ae9644a198906a5e3a4b56d393f87993d",
+          "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f"
+        },
+        "installSeconds": 9.893,
+        "install": {
+          "at": 1793965856.2381985,
+          "files": {
+            "agentDatabasePresent": false,
+            "enabled": "/etc/systemd/system/ts-orch-cold-drive.service",
+            "etc/systemd/system/ts-orch-cold-drive.service": {
+              "mode": 420,
+              "sha256": "12bdc6abeb0af2fbc385b3cb42c856c7fdacdef12b62bfa8aaba9d23d65f99a9",
+              "size": 418
+            },
+            "releaseTrialPresent": false,
+            "usr/local/bin/terrascale-orchestrator": {
+              "mode": 493,
+              "sha256": "2ccab3fdef93966401c05806b16834c1b2d7ecd59e2e0019dab9105542827e4d",
+              "size": 110526791
+            },
+            "usr/local/bin/terrascale-orchestrator.zdt-b443": {
+              "mode": 493,
+              "sha256": "214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146",
+              "size": 110382803
+            },
+            "usr/local/lib/ts-zdt/cold.py": {
+              "mode": 448,
+              "sha256": "87fe0ce0f2bd3ff24b013c4bc9af83a0a5fdd04af6794e168350cb177eefe56e",
+              "size": 41768
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/ingress.json": {
+              "mode": 384,
+              "sha256": "d9a27425cdd7b1cf65a11bbfcff0cebdd41fb7026c40dc19954e421d7e696408",
+              "size": 701
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/job.json": {
+              "mode": 384,
+              "sha256": "d9a27425cdd7b1cf65a11bbfcff0cebdd41fb7026c40dc19954e421d7e696408",
+              "size": 701
+            },
+            "var/lib/ts-orch/zdt-drive/drive.json": {
+              "mode": 384,
+              "sha256": "a5cc5a7b928b365efa373da25ddd16170d5ceb7d9995847a70bb19290ebef2b9",
+              "size": 167
+            },
+            "var/lib/ts-orch/zdt-retained/tasks.db.zdt-rehearsal-ts-fra-2-r1": {
+              "mode": 384,
+              "sha256": "6bbcaf508b963c711e57e814e025f2ae4f7bc1060ec7f8a63661e57494e7316d",
+              "size": 131072
+            }
+          },
+          "id": "zdt-rehearsal-ts-fra-2-r1",
+          "member": "ts-fra-2",
+          "pins": {
+            "fingerprint": "e8d52fb24fec91ba53c5cd21436b4f5ae9644a198906a5e3a4b56d393f87993d",
+            "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f",
+            "node": "jgcsdvfmj3scx91q6dd0dg4xr",
+            "service": "o2gngq8jfduhxzlhi9rrdo1va",
+            "task": "jtp6mmeaotn5tqw6bkoja542v"
+          },
+          "seconds": 6.968958873068914
+        },
+        "verifyRwSeconds": 3.112,
+        "umountSeconds": 2.887,
+        "detachSeconds": 20.415,
+        "attachRoSeconds": 20.916,
+        "mountRoSeconds": 2.915,
+        "verifySeconds": 12.398,
+        "verify": {
+          "at": 1793965924.5713158,
+          "id": "zdt-rehearsal-ts-fra-2-r1",
+          "member": "ts-fra-2",
+          "verified": true
+        },
+        "detachRoSeconds": 20.575,
+        "result": "pass",
+        "deleteSeconds": 4.276,
+        "founderClean": true
+      },
+      {
+        "region": "fra",
+        "repeat": 2,
+        "cloneSeconds": 12.571,
+        "clone": "ocid1.bootvolume.oc1.eu-frankfurt-1.abtheljtfq6gn3dmpdi6ifmb25upcxsjo4p4ybu5radulrsdxgp7x6vx7roq",
+        "attachRwSeconds": 37.692,
+        "mountRwSeconds": 3.403,
+        "device": "sdb",
+        "captureSeconds": 5.822,
+        "pins": {
+          "node": "jgcsdvfmj3scx91q6dd0dg4xr",
+          "service": "o2gngq8jfduhxzlhi9rrdo1va",
+          "task": "jtp6mmeaotn5tqw6bkoja542v",
+          "fingerprint": "e8d52fb24fec91ba53c5cd21436b4f5ae9644a198906a5e3a4b56d393f87993d",
+          "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f"
+        },
+        "installSeconds": 9.99,
+        "install": {
+          "at": 1793966041.8233826,
+          "files": {
+            "agentDatabasePresent": false,
+            "enabled": "/etc/systemd/system/ts-orch-cold-drive.service",
+            "etc/systemd/system/ts-orch-cold-drive.service": {
+              "mode": 420,
+              "sha256": "12bdc6abeb0af2fbc385b3cb42c856c7fdacdef12b62bfa8aaba9d23d65f99a9",
+              "size": 418
+            },
+            "releaseTrialPresent": false,
+            "usr/local/bin/terrascale-orchestrator": {
+              "mode": 493,
+              "sha256": "2ccab3fdef93966401c05806b16834c1b2d7ecd59e2e0019dab9105542827e4d",
+              "size": 110526791
+            },
+            "usr/local/bin/terrascale-orchestrator.zdt-b443": {
+              "mode": 493,
+              "sha256": "214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146",
+              "size": 110382803
+            },
+            "usr/local/lib/ts-zdt/cold.py": {
+              "mode": 448,
+              "sha256": "87fe0ce0f2bd3ff24b013c4bc9af83a0a5fdd04af6794e168350cb177eefe56e",
+              "size": 41768
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/ingress.json": {
+              "mode": 384,
+              "sha256": "5d73ccb340b70767120ba7f482358cb5099a2a4765ab17b609432459b4ee3012",
+              "size": 701
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/job.json": {
+              "mode": 384,
+              "sha256": "5d73ccb340b70767120ba7f482358cb5099a2a4765ab17b609432459b4ee3012",
+              "size": 701
+            },
+            "var/lib/ts-orch/zdt-drive/drive.json": {
+              "mode": 384,
+              "sha256": "f0291db03f6fc3f79ebc540d7228ad6e925bf7b6bcd5fe339f68a173eff460e8",
+              "size": 167
+            },
+            "var/lib/ts-orch/zdt-retained/tasks.db.zdt-rehearsal-ts-fra-2-r2": {
+              "mode": 384,
+              "sha256": "39849c922ee402eab3c52d26d7f55c9888b36002e61f6d367894eded1f1c8f6c",
+              "size": 131072
+            }
+          },
+          "id": "zdt-rehearsal-ts-fra-2-r2",
+          "member": "ts-fra-2",
+          "pins": {
+            "fingerprint": "e8d52fb24fec91ba53c5cd21436b4f5ae9644a198906a5e3a4b56d393f87993d",
+            "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f",
+            "node": "jgcsdvfmj3scx91q6dd0dg4xr",
+            "service": "o2gngq8jfduhxzlhi9rrdo1va",
+            "task": "jtp6mmeaotn5tqw6bkoja542v"
+          },
+          "seconds": 7.085789070930332
+        },
+        "verifyRwSeconds": 3.085,
+        "umountSeconds": 2.879,
+        "detachSeconds": 20.403,
+        "attachRoSeconds": 20.71,
+        "mountRoSeconds": 3.112,
+        "verifySeconds": 12.139,
+        "verify": {
+          "at": 1793966109.8230703,
+          "id": "zdt-rehearsal-ts-fra-2-r2",
+          "member": "ts-fra-2",
+          "verified": true
+        },
+        "detachRoSeconds": 20.396,
+        "result": "pass",
+        "deleteSeconds": 6.954,
+        "founderClean": true
+      },
+      {
+        "region": "fra",
+        "repeat": 3,
+        "cloneSeconds": 12.41,
+        "clone": "ocid1.bootvolume.oc1.eu-frankfurt-1.abtheljt4e42zgxjjphnpzetdbwfvqmvrgaru73ph5iah36qic3ugpxzlfga",
+        "attachRwSeconds": 20.865,
+        "mountRwSeconds": 3.26,
+        "device": "sdb",
+        "captureSeconds": 5.849,
+        "pins": {
+          "node": "jgcsdvfmj3scx91q6dd0dg4xr",
+          "service": "o2gngq8jfduhxzlhi9rrdo1va",
+          "task": "jtp6mmeaotn5tqw6bkoja542v",
+          "fingerprint": "e8d52fb24fec91ba53c5cd21436b4f5ae9644a198906a5e3a4b56d393f87993d",
+          "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f"
+        },
+        "installSeconds": 10.221,
+        "install": {
+          "at": 1793966212.7234054,
+          "files": {
+            "agentDatabasePresent": false,
+            "enabled": "/etc/systemd/system/ts-orch-cold-drive.service",
+            "etc/systemd/system/ts-orch-cold-drive.service": {
+              "mode": 420,
+              "sha256": "12bdc6abeb0af2fbc385b3cb42c856c7fdacdef12b62bfa8aaba9d23d65f99a9",
+              "size": 418
+            },
+            "releaseTrialPresent": false,
+            "usr/local/bin/terrascale-orchestrator": {
+              "mode": 493,
+              "sha256": "2ccab3fdef93966401c05806b16834c1b2d7ecd59e2e0019dab9105542827e4d",
+              "size": 110526791
+            },
+            "usr/local/bin/terrascale-orchestrator.zdt-b443": {
+              "mode": 493,
+              "sha256": "214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146",
+              "size": 110382803
+            },
+            "usr/local/lib/ts-zdt/cold.py": {
+              "mode": 448,
+              "sha256": "87fe0ce0f2bd3ff24b013c4bc9af83a0a5fdd04af6794e168350cb177eefe56e",
+              "size": 41768
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/ingress.json": {
+              "mode": 384,
+              "sha256": "2a848c64b8053eb9cfcb37f5a05e882e95092abf168b4055ab4e3c9628b1fd53",
+              "size": 701
+            },
+            "var/lib/ts-orch/terrabase-bootstrap/job.json": {
+              "mode": 384,
+              "sha256": "2a848c64b8053eb9cfcb37f5a05e882e95092abf168b4055ab4e3c9628b1fd53",
+              "size": 701
+            },
+            "var/lib/ts-orch/zdt-drive/drive.json": {
+              "mode": 384,
+              "sha256": "1148998a3b564f1e6d6671b0a0c34ea394e96d1405a7d242b25420e9b5aa9600",
+              "size": 167
+            },
+            "var/lib/ts-orch/zdt-retained/tasks.db.zdt-rehearsal-ts-fra-2-r3": {
+              "mode": 384,
+              "sha256": "35c12842e665d653616507cf99692968fb0f7fb0ba3e5d1c53d18f4f1221591f",
+              "size": 131072
+            }
+          },
+          "id": "zdt-rehearsal-ts-fra-2-r3",
+          "member": "ts-fra-2",
+          "pins": {
+            "fingerprint": "e8d52fb24fec91ba53c5cd21436b4f5ae9644a198906a5e3a4b56d393f87993d",
+            "image": "ghcr.io/terrascale/terrabase@sha256:e922a8e8304b2e0d9eeaecb92d9ea54a8d5aa7f2578d2152ee5cce69dc5aa21f",
+            "node": "jgcsdvfmj3scx91q6dd0dg4xr",
+            "service": "o2gngq8jfduhxzlhi9rrdo1va",
+            "task": "jtp6mmeaotn5tqw6bkoja542v"
+          },
+          "seconds": 7.301360826939344
+        },
+        "verifyRwSeconds": 3.073,
+        "umountSeconds": 2.88,
+        "detachSeconds": 20.508,
+        "attachRoSeconds": 20.862,
+        "mountRoSeconds": 2.966,
+        "verifySeconds": 12.202,
+        "verify": {
+          "at": 1793966281.0857337,
+          "id": "zdt-rehearsal-ts-fra-2-r3",
+          "member": "ts-fra-2",
+          "verified": true
+        },
+        "detachRoSeconds": 20.482,
+        "result": "pass",
+        "deleteSeconds": 4.279,
+        "founderClean": true
+      }
+    ]
+  },
+  "pass": true
+}
