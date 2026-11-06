@@ -85,7 +85,7 @@ parked baseline failures, not a green whole-Fast claim. Affected packages pass:
 The new root-only local CLI is:
 
 ```text
-ts-orch bootstrap-maintenance <status|arm|stage|replace> --state DIR
+ts-orch bootstrap-maintenance <status|arm|arm-stopped|stage|replace> --state DIR
 ```
 
 Arm takes a finite job ID, current source task, immutable target image and retained
@@ -98,14 +98,46 @@ both fences. There is no forced-kill grant, automatic rollback or deadline reset
 **This is not an executable production GO.** The old orchestrators lack this
 endpoint/fence. Installing a new daemon normally restarts embedded NATS, which
 must not cause old b443 watchers to replay the retained hazardous platform keys.
-No tested hot-installation or offline-prearm procedure exists yet. The two stale
-keys remain untouched, and no early-deletion safety decision is made here.
+No tested hot-installation procedure is claimed. The cold offline arming action
+and coordinated maintenance alternative are described below. The two stale keys
+remain untouched; production execution still requires independent review and GO.
 
-There is deliberately no fence-removal command yet. Before execution, qualify
-reconciliation to the exact already-running signed image, rejection of stale
+There is deliberately no fence-removal command yet. Before normal rollouts resume,
+qualify reconciliation to the exact already-running signed image, rejection of stale
 desired intents, and an explicit safe completion/recovery procedure. An expired
 budget must not invite journal editing, CAS-back or an old lease-unaware writer.
-The updated `.cos/zdt-20261105/deploy-plan.md` on delta records these gates and
-the actual implemented commands. Independent review and final parent GO remain
-required. Three live zero-error/p99 rollout proofs and acceptance HANDOFF are
+The updated `.cos/zdt-20261105/deploy-plan-v2.md` on delta records the cold
+maintenance barriers and actual commands. Independent review and final parent GO
+remain required. Three live zero-error/p99 rollout proofs and acceptance HANDOFF are
 still outstanding; notice durability (#1104) is not claimed by these tests.
+
+## Coordinated cold maintenance revision
+
+The approved installation approach now stops all six legacy processes during one
+announced maintenance window, proves their physical exit, checksums and backs up
+all retained DBs, deletes only the two audited stale platform keys, then installs
+the orchestrator and starts pinned owners and followers. It preserves owner node,
+epoch, data and R10 holds. Each step has an abort and b443 retained-data rollback.
+The full plan is `.cos/zdt-20261105/deploy-plan-v2.md` on delta; it supersedes v1.
+No announcement, key deletion, restart or deployment has been performed.
+
+Commit `7897a49ea` adds the root-only offline `arm-stopped --manifest FILE` action
+for the staged new executable. It refuses a live captured process or available
+containerd socket and persists both local executor and regional owner ingress
+journals before the new daemon starts. Exact initial retries are idempotent;
+partial failure leaves a fence. The all-six exit proof remains an operator
+prerequisite, and the independent maintenance gate stays closed through data and
+application verification. The live systemd graph must prove that stopping
+containerd leaves embedded NATS available for the two-key cleanup.
+
+The new process/socket/journal tests pass **five race-detector repeats** on delta,
+followed by all seven affected Fast packages (longest 11.905 s). This candidate
+remains based on current main `2142b1f30`. The rebased engine on `a811367bd` passes
+66/66 TerraBase and 4/4 native Fast; all five rebased patches are content-identical.
+Raw logs, source digests and exact commands are in delta's
+`.cos/zdt-20261105/qualification/v2-fast.{md,json}`. These are local qualification
+results, not proof of production systemd/containerd installation or rollback.
+Independent review of the added offline action, Version:0 guard and v2 plan and
+explicit user GO remain required. Executor fences stay retained afterward until
+separately approved desired-state reconciliation; normal rollout proofs remain
+outstanding.
