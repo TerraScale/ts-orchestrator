@@ -141,3 +141,32 @@ Independent review of the added offline action, Version:0 guard and v2 plan and
 explicit user GO remain required. Executor fences stay retained afterward until
 separately approved desired-state reconciliation; normal rollout proofs remain
 outstanding.
+
+## v2 cold-maintenance review qualification
+
+The reviewed cold plan now has executable gates in
+[scripts/maintenance](../scripts/maintenance/README.md). They qualify ten executions
+(two critical cases ×5) on dev hosts, covering real isolated nft apply/undo,
+pidfd TERM→KILL exit, encrypted backup readback, real dev JetStream conditional
+DEL and stale-revision refusal. Three 64MiB backup/transport repeats also pass
+exact off-host SHA/size readback. These are local proofs, not production mutations.
+
+The parked full-Fast failures are fixed without weakening permissions: public
+fixtures explicitly set their expected modes under umask077; privileged staging
+checks protected parent components and still refuses symlink escapes. The final
+full Fast run passes 892 cases/346 shards with zero failures. Five repeats of each
+affected package pass too. Exact sources/logs are in
+`.cos/zdt-20261105/qualification/v3-{maintenance,engine}-proof.json` on delta.
+
+The updated deploy-plan-v2.md spells out the original all-peer desired/floor/bake
+and offline Swarm restore set, retained latest JetStream/protocol/prepared keys,
+restart-label gate, TERM20s/KILL5s stop and hard abort deadlines. Both branches are
+rebased on fresh origin refs. All 13 engine Slow drills pass ×5, including both
+publication crash cuts and v2→real-b443→v2 on retained files.
+
+Workers remain **derived, not read back**: the actual OCI launch unit/runtime
+matches provisioning source and image identity, but existing Run Command stayed
+ACCEPTED despite RUNNING plugins. No SSH access was added. The parent must decide
+that gate, and usable six-node control, full inventories, production backup timing
+and exact green-main CI remain prerequisites. No deployment, workflow enable,
+stale-key deletion or live rollout is authorized by these local results.

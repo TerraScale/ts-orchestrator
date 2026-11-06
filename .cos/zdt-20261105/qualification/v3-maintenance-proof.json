@@ -1,0 +1,116 @@
+{
+  "source": {
+    "repo": "ts-orchestrator",
+    "head": "0259c6e2f645db6978c0f18090d968d5d8f7e22e",
+    "base": "2142b1f308b1c1169d25093f93eab3b10c479e1c",
+    "files": {
+      "internal/app/app.go": "c6b693628b2faf05534d3a78123269f5a79a23cf1d53444ba40fcf7bde7d66c5",
+      "internal/app/bootstrap_cli.go": "c170fa10f79b64b7512802a8d74f96475b51c06f76a5887b6b89742d6bd3c33b",
+      "internal/app/single_host.go": "fe3f54e6a6da0d21afe619d503eb83620de7a049840f37fbac559be6abd8a02e",
+      "internal/bootstrapstart/accepted_identity_test.go": "ef51f80ff4a981ddbc6fd47f86033e1499654e6fcce73cef23960b36461ca884",
+      "internal/bootstrapstart/identity_rekey_completion_test.go": "4a40aae4385566569dc4fe167b26e6a247e3c7fa8ed80776b6a7dd821dae7772",
+      "internal/bootstrapstart/identity_rekey_install_test.go": "21fc1907ba8d6953fe0e402833e1b96e97501db0bda6047d3b5d1bdfcac2291d",
+      "internal/bootstrapstart/identity_rekey_material_test.go": "6f1ec0afb21126f342f4e9e6907bb1be619ba85ecd5da68afb0362ed0e6fec0b",
+      "internal/cli/cli.go": "d64828d180b40253c2eb20a9495406107c2a134a9f8505826e9e17cc16cf75b0",
+      "internal/edge/bootstrap.go": "18173921a4998f41851887d4572546566eb33598d566c006acef1c72599c6d50",
+      "internal/edge/bootstrap_test.go": "a1ce4afffc0b9b345cfb68ba351bf22a4ef03c5016be841687fd54865a9747ee",
+      "internal/edge/edge.go": "3abece4f038a8580adeb2e612992111ad1814f3437664e27556d38d8dac6f995",
+      "internal/edge/regional.go": "054962bb553772bbf5172cc52443e67409ca02f6d870172f464a907fd989682e",
+      "internal/handoff/bootstrap.go": "704f9d6ab66b23c3f276b9655c934c27cf3da4e665a92a8098a826858fad7dec",
+      "internal/image/runtime_integration_test.go": "003876d34d0f447527a6cc5ac39aa14ee01cdc0c248d7324071641816299ab6f",
+      "internal/natscell/mesh/bootstrap.go": "4d9c6c236dc9c3ed9bfe53af82c8c438411ed30bd5b2a601c9dc2cfcd8de8f25",
+      "internal/natscell/mesh/bootstrap_test.go": "6c34c4c98b5d5a09ede76652a90ae932c189ace8dbc1f36371b75f4651a3e19c",
+      "internal/natscell/mesh/node.go": "6f8f4df399c1dfea8f8356ee65c92eb39f84d39317ddfbed6deeb215d34e2bf6",
+      "internal/natscell/mesh/regional_drain.go": "adb84f10a1aab6f111f13c9819a6443617552a91bf486ff99e138c7b74b11855",
+      "internal/natscell/mesh/release.go": "1dcdb51cef82d63f203e634f1045e14cf59f02a55abcb8da2d38da32a65a02b2",
+      "internal/natscell/mesh/run.go": "c9a11af2c9dba91f2a0cc1aa52ecdfae8b3c848f6cc71654c47364d541d71982",
+      "internal/qualification/memberstatus/memberstatus_test.go": "8602e1e873a81fb850cf3dbf52a5c7cdd25789b159704eeef652e776922874f4",
+      "internal/qualification/memberstatus/qualification.go": "6070254292985bba64af19f7ac4d52e0c46d8f46461ca8d04079b0c22dbee33f",
+      "internal/rolloutmaintenance/candidate.go": "c53adf6b989aae1b307d5291166c4ee93ed9d23d7006e3f50b15f5f127f5b680",
+      "internal/rolloutmaintenance/ingress.go": "bf8e7a1403d401ce43284f69f8a4e2c8cefaa28776e5be7f699496df2f70a1ec",
+      "internal/rolloutmaintenance/store.go": "75b45e13aad40db4ba84a0f36e449058ca91f1edb329ed593e20cd3e588b306f",
+      "internal/rolloutmaintenance/store_test.go": "0de36653bececcadebfd6412a614f2af148a0f80930197f45c0c5a64ca0272de",
+      "internal/swarmruntime/bootstrap_cold.go": "0d6516c7e46a0ea5856135f85471764d0b2a669a61d912f2356db54a9b1a6cce",
+      "internal/swarmruntime/bootstrap_cold_test.go": "b4f4a1da1fb457f37f76df75de7cb98df3f761f9ab03da948e6912a35e6b676e",
+      "internal/swarmruntime/bootstrap_control.go": "fb1f11428bcca7caf7426d7464117c41a646b3c9d15aec58234e2c112780abd4",
+      "internal/swarmruntime/bootstrap_fence.go": "c9cfabca2ee8aeddabdb8fddea40385785a44208bac1f18e608b12b5bda00bdc",
+      "internal/swarmruntime/controller.go": "c8115e0dcda7f7611e2ba18932342d8f29e874491e14ee67a5bbbcbe8e107bff",
+      "internal/swarmruntime/executor.go": "13a7bb021d9775b39fed216b2d243069b7ae67b0f7ed3729681f565e5d83023d",
+      "internal/swarmruntime/maintenance_bootstrap_integration_test.go": "12b9b977763950ec85f64ec506eb2bdfa1262371e40ce14732abdb870c06b454",
+      "internal/swarmruntime/runtime_reap.go": "bf225cbd0ff3ef26ea479700b00a2c7d655bc80983bb134c4a14655ac95bb370",
+      "scripts/maintenance/README.md": "f5a26721cae1053972c927f04a3e1b7f53030c8e7510aba927bdd84991d4ea2c",
+      "scripts/maintenance/cold.py": "6194d46fa9c47b90878f71bbc459b792339d89a44d433963e65f3f9b51b2a4bf",
+      "scripts/maintenance/notice.py": "35157cf86f17c0df1465eca2d4067b988b683e577ed7947d9564a287a5085a92",
+      "scripts/maintenance/qualify.py": "09a52e5b7cac5446b29c96f95569e2710da9ddd0e59bc6f05b63404f3c44ec3c",
+      "third_party/swarmkit/manager/scheduler/pipeline.go": "ded6def4064ba07e6257e83ce86f67f45fc31e441a62f448bab323d4f50eaac3"
+    },
+    "command": "for maintenance_repeat in 1 2 3 4 5; do echo MAINTENANCE_REPEAT=$maintenance_repeat; python3 scripts/maintenance/qualify.py || exit; done; make test-fast"
+  },
+  "qualification": {
+    "casesPerRepeat": 2,
+    "repeats": 5,
+    "passes": 10,
+    "seconds": [
+      "26.725",
+      "21.547",
+      "21.298",
+      "21.297",
+      "21.271"
+    ],
+    "killEscalationSeconds": [
+      "20.052935638988856",
+      "20.02198912500171",
+      "20.06514344899915",
+      "20.068813332007267",
+      "20.056486961024348"
+    ]
+  },
+  "fullFast": {
+    "shards": 346,
+    "cases": 892,
+    "maximumShardSeconds": 2.76,
+    "failed": 0,
+    "rawLogSha256": "80d0879b9d3470ab8e23440155cb88cd20ffbe9573fcbfbe24343b4d774905b5"
+  },
+  "backupTransport": [
+    {
+      "archiveBytes": 67123232,
+      "coldCopyEncryptReadbackSeconds": 0.6764644560171291,
+      "destinationHost": "mariogk-dev",
+      "exactReadback": true,
+      "repeat": 1,
+      "sha256": "efb3af5fa04662071c60dcf51c908344177224c2e8d6dbc8553e4d40866a80fa",
+      "sourceBytes": 67108872,
+      "sourceHost": "beta",
+      "transferReadbackSeconds": 1.6118826399906538
+    },
+    {
+      "archiveBytes": 67123232,
+      "coldCopyEncryptReadbackSeconds": 0.7058925110031851,
+      "destinationHost": "mariogk-dev",
+      "exactReadback": true,
+      "repeat": 2,
+      "sha256": "76310a9a5a541db16a9238b905575025d2cb3bdc31447581abdaf95dab1aea72",
+      "sourceBytes": 67108872,
+      "sourceHost": "beta",
+      "transferReadbackSeconds": 1.6482320600189269
+    },
+    {
+      "archiveBytes": 67123232,
+      "coldCopyEncryptReadbackSeconds": 0.7304984420188703,
+      "destinationHost": "mariogk-dev",
+      "exactReadback": true,
+      "repeat": 3,
+      "sha256": "71480895b17ab4de5da45893f7bd852ce0c05d16d57f3e03356435cc00f32ab1",
+      "sourceBytes": 67108872,
+      "sourceHost": "beta",
+      "transferReadbackSeconds": 1.6345629579736851
+    }
+  ],
+  "priorAttempts": [
+    "maintenance-r1: Path.open does not accept opener; use built-in open",
+    "maintenance-r2: Nix dev host lacks /usr/bin/python3; use exact existing interpreter",
+    "maintenance-r3: pass before adding real dev JetStream coverage",
+    "maintenance-r4: pass before adding per-key fsynced receipts and outer alarms"
+  ]
+}
