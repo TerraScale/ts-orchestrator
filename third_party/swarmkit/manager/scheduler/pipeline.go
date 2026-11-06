@@ -6,19 +6,6 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-var (
-	defaultFilters = []Filter{
-		// Always check for readiness first.
-		&ReadyFilter{},
-		&ResourceFilter{},
-		&PluginFilter{},
-		&ConstraintFilter{},
-		&PlatformFilter{},
-		&HostPortFilter{},
-		&MaxReplicasFilter{},
-	}
-)
-
 type checklistEntry struct {
 	f       Filter
 	enabled bool
@@ -43,6 +30,18 @@ type Pipeline struct {
 // NewPipeline returns a pipeline with the default set of filters.
 func NewPipeline() *Pipeline {
 	p := &Pipeline{}
+	// Filters retain the current task. Sharing them across scheduler instances
+	// mixes reservations/constraints and races when managers coexist or restart.
+	defaultFilters := []Filter{
+		// Always check for readiness first.
+		&ReadyFilter{},
+		&ResourceFilter{},
+		&PluginFilter{},
+		&ConstraintFilter{},
+		&PlatformFilter{},
+		&HostPortFilter{},
+		&MaxReplicasFilter{},
+	}
 
 	for _, f := range defaultFilters {
 		p.checklist = append(p.checklist, checklistEntry{f: f})
