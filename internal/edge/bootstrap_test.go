@@ -132,6 +132,16 @@ func TestBootstrapIngressDrainsAndRetainsItsHoldAfterRestart(t *testing.T) {
 	if body, err := io.ReadAll(response.Body); err != nil || string(body) != "n1" {
 		t.Fatalf("restored owner: %q %v", body, err)
 	}
+	// A held follower (e.g. a rebooted worker) may only read its pinned owner.
+	follower := j
+	follower.Member, follower.ID = "n2", "follower-bootstrap"
+	if err := restarted.Bootstrap(ctx, "owner", follower); err != nil {
+		t.Fatal("ready pinned owner refused", err)
+	}
+	follower.Epoch = 8
+	if err := restarted.Bootstrap(ctx, "owner", follower); err == nil {
+		t.Fatal("owner at another epoch accepted")
+	}
 	// Release the defunct fixture's in-memory barrier after the restart proof.
 	e.bootstrapBarrier.release()
 }

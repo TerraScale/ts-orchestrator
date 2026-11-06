@@ -57,6 +57,10 @@ func (e *Edge) Bootstrap(ctx context.Context, action string, j rolloutmaintenanc
 		return nil
 	}
 	switch action {
+	case "owner":
+		// Read-only: a held follower waits here until its pinned owner serves as
+		// writer at the pinned epoch, before its driver spends its 60 s budget.
+		return status(owner, true)
 	case "verify":
 		if err := status(member, j.Member == j.Owner); err != nil {
 			return err

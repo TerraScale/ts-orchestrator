@@ -548,6 +548,7 @@ BINARY = 'usr/local/bin/terrascale-orchestrator'
 DRIVE_DIR = 'var/lib/ts-orch/zdt-drive'
 DRIVE_UNIT = 'ts-orch-cold-drive.service'
 DRIVE_SCRIPT = 'usr/local/lib/ts-zdt/cold.py'
+OWNER_WAIT_SECONDS = 900
 UNIT_TEXT = '''[Unit]
 Description=TerraScale cold maintenance drive for one pinned TerraBase transaction
 After=ts-orch.service
@@ -558,7 +559,7 @@ ConditionPathExists=!/var/lib/ts-orch/zdt-drive/attempted
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/python3 -I /usr/local/lib/ts-zdt/cold.py boot-drive
-TimeoutStartSec=420
+TimeoutStartSec=1500
 UMask=0077
 
 [Install]
@@ -714,6 +715,21 @@ def boot_drive(args):
     step('ready', ready)
     step('watch', lambda: rebooted_watch(base / 'watch-rebooted.json'))
     step('stage', lambda: command([*tool, 'stage', '--state', STATE, '--id', config['id']], timeout=70))
+    def owner_ready():
+        # A follower's driver budget starts at replace: never spend it before its
+        # pinned owner serves as writer. A timeout leaves the fence and budget intact.
+        job = json.loads(command([*tool, 'status', '--state', STATE], timeout=10))
+        if job['member'] == job['owner']:
+            return
+        end = time.monotonic() + OWNER_WAIT_SECONDS
+        while True:
+            try:
+                command([*tool, 'owner', '--state', STATE, '--id', config['id']], timeout=70)
+                return
+            except subprocess.CalledProcessError:
+                require(time.monotonic() < end, 'pinned owner did not become the ready writer')
+                time.sleep(5)
+    step('owner', owner_ready)
     step('replace', lambda: command([*tool, 'replace', '--state', STATE, '--id', config['id']], timeout=70))
     def verified():
         job = json.loads(command([*tool, 'status', '--state', STATE], timeout=10))
@@ -753,7 +769,7 @@ def main():
         raise TimeoutError('step hard deadline exceeded')
     signal.signal(signal.SIGALRM, expired)
     signal.alarm({'backup': 150, 'row-hash': 120, 'runtime-labels': 30, 'watch-baseline': 30,
-                  'watch': 72, 'watch-check': 15, 'oci-stopped': 40, 'offline-install': 60, 'offline-verify': 30, 'boot-drive': 400, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
+                  'watch': 72, 'watch-check': 15, 'oci-stopped': 40, 'offline-install': 60, 'offline-verify': 30, 'boot-drive': 1450, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
     try:
         args.run(args)
     except Exception as error:

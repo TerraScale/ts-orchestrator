@@ -108,6 +108,27 @@ func (e *Executor) ServeBootstrap(ctx context.Context, state string) error {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /owner", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			ID string `json:"id"`
+		}
+		if err := readBootstrap(r, &input, 4096); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		job, err := e.bootstrap.Status(r.Context())
+		if err == nil && (job == nil || job.ID != input.ID) {
+			err = rolloutmaintenance.ErrFenced
+		}
+		if err == nil {
+			err = handoff.Bootstrap(r.Context(), "owner", *job)
+		}
+		if err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /stage", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID string `json:"id"`
