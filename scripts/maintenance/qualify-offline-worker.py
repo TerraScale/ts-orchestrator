@@ -155,9 +155,12 @@ def repeat(region, t, rep):
         remote(founder, f'sudo install -m 0600 -o root -g root /dev/stdin {STAGE}/manifest-{name}.json <<\'EOF\'\n{doc}\nEOF')
         def install():
             remote(founder, f'sudo python3 -I {STAGE}/cold.py offline-install --root /mnt/zdt-{worker} --manifest {STAGE}/manifest-{name}.json '
-                            f'--binary {STAGE}/terrascale-orchestrator --binary-sha256 {BIN_SHA} --old-sha256 {OLD_SHA} --receipt {STAGE}/install-{name}.json')
+                            f'--binary {STAGE}/terrascale-orchestrator --binary-sha256 {BIN_SHA} --old-sha256 {OLD_SHA} --instance-id {t["worker"]} --receipt {STAGE}/install-{name}.json')
         timed(rows, 'installSeconds', install)
         rows['install'] = json.loads(remote(founder, f'sudo cat {STAGE}/install-{name}.json'))
+        # Production gate: verify on the rw mount before unmount/detach/boot attach.
+        timed(rows, 'verifyRwSeconds', lambda: remote(founder, f'sudo python3 -I {STAGE}/cold.py offline-verify --root /mnt/zdt-{worker} '
+                                                          f'--install-receipt {STAGE}/install-{name}.json --receipt {STAGE}/verify-rw-{name}.json'))
         timed(rows, 'umountSeconds', lambda: umount(founder, worker))
         timed(rows, 'detachSeconds', lambda: detach(t, attachment))
         attachment = None

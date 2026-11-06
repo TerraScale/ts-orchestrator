@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -108,6 +109,29 @@ func (e *Executor) ServeBootstrap(ctx context.Context, state string) error {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /prepull", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			ID string `json:"id"`
+		}
+		if err := readBootstrap(r, &input, 4096); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		job, err := e.bootstrap.Status(r.Context())
+		if err == nil && (job == nil || job.ID != input.ID) {
+			err = rolloutmaintenance.ErrFenced
+		}
+		if err == nil {
+			// Fetch only the held job's pinned target with its service's registry
+			// labels, so the 60 s replace budget does not include the pull.
+			err = e.prePullBootstrapTarget(r.Context(), *job)
+		}
+		if err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /owner", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID string `json:"id"`
@@ -179,4 +203,20 @@ func readBootstrap(r *http.Request, value any, limit int) error {
 		return err
 	}
 	return protocol.DecodeStrict(data, value, limit)
+}
+
+func (e *Executor) prePullBootstrapTarget(ctx context.Context, j rolloutmaintenance.Job) error {
+	e.mu.Lock()
+	var labels map[string]string
+	for _, c := range e.bootstrapTasks {
+		if c.task.ServiceID == j.Source.Service && c.regionalTerraBase() {
+			labels = maps.Clone(c.task.ServiceAnnotations.Labels)
+			break
+		}
+	}
+	e.mu.Unlock()
+	if labels == nil {
+		return errors.New("no dispatched TerraBase task names the registry yet")
+	}
+	return e.PrePull(ctx, j.Target.Image, labels)
 }

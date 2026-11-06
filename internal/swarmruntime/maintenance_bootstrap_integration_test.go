@@ -47,6 +47,20 @@ func (w *bootstrapWorld) start(task string) error {
 	w.processes[task] = &bootstrapProcess{cmd: cmd, done: make(chan struct{})}
 	return nil
 }
+
+// live is the fixture's runtime probe: a task has a process until it exits.
+func (w *bootstrapWorld) live(_ context.Context, c *controller) (bool, error) {
+	p := w.process(c.task.ID)
+	if p == nil {
+		return false, nil
+	}
+	select {
+	case <-p.done:
+		return false, nil
+	default:
+		return true, nil
+	}
+}
 func (w *bootstrapWorld) stop(task string) error {
 	p := w.process(task)
 	if p == nil {
@@ -303,7 +317,7 @@ func TestBootstrapFenceAcrossSixDispatchedNodesAndDaemonRestart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		h.e = &bootstrapExecutorFixture{raw: &Executor{bootstrap: store, bootstrapTasks: map[string]*controller{}}, world: world, controllers: map[string]*bootstrapControllerFixture{}}
+		h.e = &bootstrapExecutorFixture{raw: &Executor{bootstrap: store, bootstrapTasks: map[string]*controller{}, bootstrapLive: world.live}, world: world, controllers: map[string]*bootstrapControllerFixture{}}
 		h.node, err = StartNode(ctx, h.cfg, h.e)
 		if err != nil {
 			t.Fatal(err)

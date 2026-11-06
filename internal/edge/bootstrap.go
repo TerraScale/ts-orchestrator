@@ -32,6 +32,37 @@ func (e *Edge) Bootstrap(ctx context.Context, action string, j rolloutmaintenanc
 	if r == nil {
 		return errors.New("regional router unavailable")
 	}
+	if action == "owner" {
+		// Read-only and outside the barrier lock: a held follower polls here
+		// until its pinned owner serves as writer and has released the
+		// founder's ingress hold, before its driver spends its 60 s budget.
+		var owner mesh.WorkerPeer
+		for _, p := range (*r.nodes.Load())() {
+			if p.Node == j.Owner {
+				owner = p
+			}
+		}
+		if owner.Node == "" {
+			return errors.New("bootstrap owner is not admitted to this region")
+		}
+		retained, err := e.bootstrap.Ingress(ctx)
+		if err != nil {
+			return err
+		}
+		if retained != nil {
+			return errors.New("pinned owner still holds regional ingress")
+		}
+		probe, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		s, err := e.regionalStatus(probe, r, owner)
+		if err != nil {
+			return err
+		}
+		if s.Owner != j.Owner || s.Epoch != j.Epoch || !s.Writer || !s.Ready {
+			return fmt.Errorf("pinned owner not ready: owner=%s epoch=%d writer=%t ready=%t", s.Owner, s.Epoch, s.Writer, s.Ready)
+		}
+		return nil
+	}
 	e.bootstrapBarrier.mu.Lock()
 	defer e.bootstrapBarrier.mu.Unlock()
 	var member, owner mesh.WorkerPeer
@@ -57,10 +88,6 @@ func (e *Edge) Bootstrap(ctx context.Context, action string, j rolloutmaintenanc
 		return nil
 	}
 	switch action {
-	case "owner":
-		// Read-only: a held follower waits here until its pinned owner serves as
-		// writer at the pinned epoch, before its driver spends its 60 s budget.
-		return status(owner, true)
 	case "verify":
 		if err := status(member, j.Member == j.Owner); err != nil {
 			return err

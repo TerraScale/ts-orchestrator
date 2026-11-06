@@ -549,6 +549,16 @@ DRIVE_DIR = 'var/lib/ts-orch/zdt-drive'
 DRIVE_UNIT = 'ts-orch-cold-drive.service'
 DRIVE_SCRIPT = 'usr/local/lib/ts-zdt/cold.py'
 OWNER_WAIT_SECONDS = 900
+STAGE_WAIT_SECONDS = 300
+PREPULL_WAIT_SECONDS = 300
+IMDS = 'http://169.254.169.254/opc/v2/instance/id'
+
+
+def imds_instance_id():
+    import urllib.request
+    request = urllib.request.Request(IMDS, headers={'Authorization': 'Bearer Oracle'})
+    with urllib.request.urlopen(request, timeout=5) as response:
+        return response.read().decode().strip()
 UNIT_TEXT = '''[Unit]
 Description=TerraScale cold maintenance drive for one pinned TerraBase transaction
 After=ts-orch.service
@@ -559,7 +569,7 @@ ConditionPathExists=!/var/lib/ts-orch/zdt-drive/attempted
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/python3 -I /usr/local/lib/ts-zdt/cold.py boot-drive
-TimeoutStartSec=1500
+TimeoutStartSec=2100
 UMask=0077
 
 [Install]
@@ -636,7 +646,8 @@ def offline_install(args):
     os.replace(root / (BINARY + '.zdt-stage'), current)
     write_private(root / DRIVE_SCRIPT, Path(__file__).read_bytes(), 0o700)
     write_private(root / 'etc/systemd/system' / DRIVE_UNIT, UNIT_TEXT.encode(), 0o644)
-    write_private(root / DRIVE_DIR / 'drive.json', json.dumps({'id': job_id, 'member': member}).encode())
+    require(args.instance_id.startswith('ocid1.instance.'), 'worker instance OCID required')
+    write_private(root / DRIVE_DIR / 'drive.json', json.dumps({'id': job_id, 'member': member, 'instance': args.instance_id}).encode())
     link = root / 'etc/systemd/system/multi-user.target.wants' / DRIVE_UNIT
     if not link.is_symlink():
         os.symlink('/etc/systemd/system/' + DRIVE_UNIT, link)
@@ -696,6 +707,9 @@ def boot_drive(args):
     base = Path('/' + DRIVE_DIR)
     config = json.loads(private(base / 'drive.json').read_text())
     require(config['member'] == socket.gethostname(), 'drive belongs to another host')
+    # The hostname comes from the volume; only the instance identity proves this
+    # is the worker (a founder booting a same-label clone root must never drive).
+    require(imds_instance_id() == config['instance'], 'drive volume booted on another instance')
     # Attempt once: a later reboot never re-drives; the fence keeps holding.
     save(base / 'attempted', {'at': time.time()})
     result = {'id': config['id'], 'host': config['member'], 'startedAt': time.time(), 'steps': []}
@@ -714,7 +728,21 @@ def boot_drive(args):
         require(job['id'] == config['id'] and job['phase'] == 'held', 'fence is not the held offline transaction')
     step('ready', ready)
     step('watch', lambda: rebooted_watch(base / 'watch-rebooted.json'))
-    step('stage', lambda: command([*tool, 'stage', '--state', STATE, '--id', config['id']], timeout=70))
+    def retry(name, seconds, required=True):
+        # Budget-free, idempotent calls: stage waits for the mesh join; prepull
+        # is best effort (Prepare still pulls inside the replace budget).
+        end = time.monotonic() + seconds
+        while True:
+            try:
+                command([*tool, name, '--state', STATE, '--id', config['id']], timeout=70)
+                return True
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                if time.monotonic() >= end:
+                    require(not required, name + ' did not succeed in time')
+                    return False
+                time.sleep(5)
+    step('stage', lambda: retry('stage', STAGE_WAIT_SECONDS))
+    step('prepull', lambda: result.update(prepulled=retry('prepull', PREPULL_WAIT_SECONDS, required=False)))
     def owner_ready():
         # A follower's driver budget starts at replace: never spend it before its
         # pinned owner serves as writer. A timeout leaves the fence and budget intact.
@@ -726,7 +754,7 @@ def boot_drive(args):
             try:
                 command([*tool, 'owner', '--state', STATE, '--id', config['id']], timeout=70)
                 return
-            except subprocess.CalledProcessError:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 require(time.monotonic() < end, 'pinned owner did not become the ready writer')
                 time.sleep(5)
     step('owner', owner_ready)
@@ -761,7 +789,7 @@ def main():
     p = sub.add_parser('compare'); p.add_argument('--before', required=True); p.add_argument('--after', required=True); p.set_defaults(run=logical_compare)
     p = sub.add_parser('kv'); p.add_argument('action', choices=['dry-run', 'delete']); p.add_argument('--token', required=True); p.add_argument('--audit', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=kv)
     p = sub.add_parser('oci-stopped'); p.add_argument('--host', required=True); p.add_argument('--region', required=True); p.add_argument('--instance-id', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=oci_stopped)
-    p = sub.add_parser('offline-install'); p.add_argument('--root', required=True); p.add_argument('--manifest', required=True); p.add_argument('--binary', required=True); p.add_argument('--binary-sha256', required=True); p.add_argument('--old-sha256', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=offline_install)
+    p = sub.add_parser('offline-install'); p.add_argument('--root', required=True); p.add_argument('--manifest', required=True); p.add_argument('--binary', required=True); p.add_argument('--binary-sha256', required=True); p.add_argument('--old-sha256', required=True); p.add_argument('--instance-id', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=offline_install)
     p = sub.add_parser('offline-verify'); p.add_argument('--root', required=True); p.add_argument('--install-receipt', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=offline_verify)
     p = sub.add_parser('boot-drive'); p.set_defaults(run=boot_drive)
     args = parser.parse_args()
@@ -769,7 +797,7 @@ def main():
         raise TimeoutError('step hard deadline exceeded')
     signal.signal(signal.SIGALRM, expired)
     signal.alarm({'backup': 150, 'row-hash': 120, 'runtime-labels': 30, 'watch-baseline': 30,
-                  'watch': 72, 'watch-check': 15, 'oci-stopped': 40, 'offline-install': 60, 'offline-verify': 30, 'boot-drive': 1450, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
+                  'watch': 72, 'watch-check': 15, 'oci-stopped': 40, 'offline-install': 60, 'offline-verify': 30, 'boot-drive': 2050, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
     try:
         args.run(args)
     except Exception as error:

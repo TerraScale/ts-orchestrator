@@ -729,6 +729,9 @@ func (c *controller) Shutdown(ctx context.Context) (operationErr error) {
 	if completed, err := c.bootstrapSourceCompleted(ctx); completed || err != nil {
 		return err
 	}
+	if unstarted, err := c.bootstrapUnstarted(ctx); unstarted || err != nil {
+		return err
+	}
 	defer func() { c.finishTaskLoadOperation(api.TaskStateShutdown, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {

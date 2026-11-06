@@ -50,7 +50,7 @@ def scenario(name, member, owner, owner_ready_after):
     drive = root / 'drive'
     drive.mkdir(mode=0o700)
     host = socket.gethostname()
-    cold.save(drive / 'drive.json', {'id': 'zdt-' + name, 'member': host})
+    cold.save(drive / 'drive.json', {'id': 'zdt-' + name, 'member': host, 'instance': 'ocid1.instance.oc1.test.' + ('owner' if name == 'wrong-instance' else name)})
     (state / 'job.json').write_text(json.dumps({'id': 'zdt-' + name, 'phase': 'held', 'member': member, 'owner': owner}))
     if owner_ready_after is not None:
         (state / 'owner-ready').write_text(str(owner_ready_after))
@@ -61,8 +61,9 @@ def scenario(name, member, owner, owner_ready_after):
     os.environ['FAKE_STATE'] = str(state)
     cold.os.geteuid = lambda: 0  # the private-file owner check is qualified elsewhere
     cold.private = Path
+    cold.imds_instance_id = lambda: 'ocid1.instance.oc1.test.' + name
     cold.STATE, cold.DRIVE_DIR, cold.BINARY = str(state), str(drive).lstrip('/'), str(fake).lstrip('/')
-    cold.WATCH_SECONDS, cold.OWNER_WAIT_SECONDS = 1, 3
+    cold.WATCH_SECONDS, cold.OWNER_WAIT_SECONDS, cold.STAGE_WAIT_SECONDS, cold.PREPULL_WAIT_SECONDS = 1, 3, 1, 1
     cold.engine_processes, cold.runtime_tasks = (lambda: []), (lambda: {})
     cold.time.sleep = lambda s: REAL_SLEEP(min(s, 0.05))
     error = None
@@ -70,23 +71,27 @@ def scenario(name, member, owner, owner_ready_after):
         cold.boot_drive(None)
     except Exception as e:
         error = type(e).__name__ + ': ' + str(e)
-    calls = (state / 'calls.log').read_text().split()
+    calls = (state / 'calls.log').read_text().split() if (state / 'calls.log').exists() else []
     rerun = None
     try:
         cold.boot_drive(None)
     except FileExistsError:
         rerun = 'refused'
+    except RuntimeError:
+        rerun = 'refused-identity'
     return {'scenario': name, 'error': error, 'calls': [c for c in calls if c != 'status'], 'secondBoot': rerun}
 
 
 rows = [scenario('owner', 'ts-fra-2', 'ts-fra-2', None),
         scenario('follower', 'ts-gru-2', 'ts-gru-1', 3),
-        scenario('follower-owner-never-ready', 'ts-sjc-2', 'ts-sjc-1', None)]
+        scenario('follower-owner-never-ready', 'ts-sjc-2', 'ts-sjc-1', None),
+        scenario('wrong-instance', 'ts-fra-2', 'ts-fra-2', None)]
 checks = {
-    'owner replaces after stage': rows[0]['error'] is None and rows[0]['calls'] == ['stage', 'replace'],
-    'follower waits for its owner': rows[1]['error'] is None and rows[1]['calls'] == ['stage', 'owner', 'owner', 'owner', 'replace'],
+    'owner replaces after stage': rows[0]['error'] is None and rows[0]['calls'] == ['stage', 'prepull', 'replace'],
+    'follower waits for its owner': rows[1]['error'] is None and rows[1]['calls'] == ['stage', 'prepull', 'owner', 'owner', 'owner', 'replace'],
+    'clone booted on another instance never drives': rows[3]['error'] is not None and rows[3]['calls'] == [],
     'never-ready owner: no replace': rows[2]['error'] is not None and 'replace' not in rows[2]['calls'],
-    'second boot never re-drives': all(r['secondBoot'] == 'refused' for r in rows),
+    'second boot never re-drives': all(r['secondBoot'] == 'refused' for r in rows[:3]),
 }
 print(json.dumps({'pass': all(checks.values()), 'checks': checks, 'rows': rows}, indent=2))
 sys.exit(0 if all(checks.values()) else 1)

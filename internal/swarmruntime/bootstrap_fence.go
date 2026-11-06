@@ -147,6 +147,36 @@ func (r BootstrapRuntime) Exited(ctx context.Context, p rolloutmaintenance.Pin, 
 	return nil
 }
 
+// bootstrapUnstarted completes Shutdown for a held regional TerraBase task that
+// is neither pinned source nor target and has no runtime process on this boot,
+// e.g. the replacement Swarm created while a worker was powered off. Stopping
+// it touches no process; holding it would stall the STOP_FIRST updater forever.
+func (c *controller) bootstrapUnstarted(ctx context.Context) (bool, error) {
+	if c.executor.bootstrap == nil || !c.regionalTerraBase() {
+		return false, nil
+	}
+	j, err := c.executor.bootstrap.Status(ctx)
+	if err != nil || j == nil {
+		return false, err
+	}
+	pin := c.bootstrapPin()
+	if pin == j.Source || pin.Task == j.Target.Task || pin.Image == j.Target.Image {
+		return false, nil
+	}
+	live := c.executor.bootstrapLive
+	if live == nil {
+		live = func(ctx context.Context, c *controller) (bool, error) {
+			_, err := c.runtimeTask(runtimeContext(ctx))
+			if errdefs.IsNotFound(err) {
+				return false, nil
+			}
+			return err == nil, err
+		}
+	}
+	running, err := live(ctx, c)
+	return err == nil && !running, err
+}
+
 // sourceCompleted reports an already proved exit to Swarm's STOP_FIRST updater;
 // it cannot signal a process, run legacy handoff, or act on an unselected task.
 func (c *controller) bootstrapSourceCompleted(ctx context.Context) (bool, error) {

@@ -121,6 +121,11 @@ func TestBootstrapIngressDrainsAndRetainsItsHoldAfterRestart(t *testing.T) {
 	if err := restarted.Bootstrap(ctx, "verify", j); err != nil {
 		t.Fatal(err)
 	}
+	waiting := j
+	waiting.Member, waiting.ID = "n2", "follower-bootstrap"
+	if err := restarted.Bootstrap(ctx, "owner", waiting); err == nil {
+		t.Fatal("follower released while the owner still held ingress")
+	}
 	if err := restarted.Bootstrap(ctx, "release", j); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +137,8 @@ func TestBootstrapIngressDrainsAndRetainsItsHoldAfterRestart(t *testing.T) {
 	if body, err := io.ReadAll(response.Body); err != nil || string(body) != "n1" {
 		t.Fatalf("restored owner: %q %v", body, err)
 	}
-	// A held follower (e.g. a rebooted worker) may only read its pinned owner.
+	// A held follower (e.g. a rebooted worker) may only read its pinned owner,
+	// and only once the owner released the founder's ingress hold.
 	follower := j
 	follower.Member, follower.ID = "n2", "follower-bootstrap"
 	if err := restarted.Bootstrap(ctx, "owner", follower); err != nil {

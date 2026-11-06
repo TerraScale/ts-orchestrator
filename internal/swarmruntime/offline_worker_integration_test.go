@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
+	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -46,7 +47,7 @@ func TestOfflineArmedWorkerRebootsFencedAndReplaces(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		h.e = &bootstrapExecutorFixture{raw: &Executor{bootstrap: store, bootstrapTasks: map[string]*controller{}}, world: world, controllers: map[string]*bootstrapControllerFixture{}}
+		h.e = &bootstrapExecutorFixture{raw: &Executor{bootstrap: store, bootstrapTasks: map[string]*controller{}, bootstrapLive: world.live}, world: world, controllers: map[string]*bootstrapControllerFixture{}}
 		if h.node, err = StartNode(ctx, h.cfg, h.e); err != nil {
 			t.Fatal(err)
 		}
@@ -77,6 +78,13 @@ func TestOfflineArmedWorkerRebootsFencedAndReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A powered-off worker misses heartbeats for minutes; keep that short here.
+	cluster := clusters.Clusters[0]
+	cluster.Spec.Dispatcher.HeartbeatPeriod = gogotypes.DurationProto(500 * time.Millisecond)
+	if _, err = client.UpdateCluster(ctx, &api.UpdateClusterRequest{ClusterID: cluster.ID, ClusterVersion: &cluster.Meta.Version, Spec: &cluster.Spec}); err != nil {
+		t.Fatal(err)
+	}
+
 	// The worker's state uses the production layout below a mounted root.
 	root := t.TempDir()
 	worker := &host{cfg: serviceConfig(t, "ts-fra-2", "container"), state: filepath.Join(root, "var/lib/ts-orch")}
@@ -138,6 +146,22 @@ func TestOfflineArmedWorkerRebootsFencedAndReplaces(t *testing.T) {
 	// OCI STOP: the agent and the engine process are gone; the volume remains.
 	source := running(worker)
 	stop(worker)
+	// The manager marks the node DOWN and Swarm creates a replacement b443 task
+	// for the slot; the pinned source is no longer the slot's desired task.
+	var rescheduled string
+	serviceEventually(t, ctx, func() bool {
+		tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{created.Service.ID}}})
+		if err != nil {
+			return false
+		}
+		for _, task := range tasks.Tasks {
+			if task.ID != source.Task && task.ID != founderPin.Task && task.DesiredState == api.TaskStateRunning {
+				rescheduled = task.ID
+				return true
+			}
+		}
+		return false
+	})
 	if err = world.stop(source.Task); err != nil {
 		t.Fatal(err)
 	}
@@ -200,5 +224,8 @@ func TestOfflineArmedWorkerRebootsFencedAndReplaces(t *testing.T) {
 	if err = world.process(founderPin.Task).cmd.Process.Signal(syscall.Signal(0)); err != nil {
 		t.Fatal("worker drive stopped the founder", err)
 	}
-	t.Logf("offline_armed_worker_reboot=fenced agent_db=absent replace=verified old_exit=%s new_admission=%s", world.process(source.Task).exit.Format(time.RFC3339Nano), runtime.started.Format(time.RFC3339Nano))
+	if world.process(rescheduled) != nil {
+		t.Fatal("the down-node replacement b443 task started")
+	}
+	t.Logf("offline_armed_worker_reboot=fenced agent_db=absent node_down_replacement=%s held_unstarted=true replace=verified old_exit=%s new_admission=%s", rescheduled, world.process(source.Task).exit.Format(time.RFC3339Nano), runtime.started.Format(time.RFC3339Nano))
 }
