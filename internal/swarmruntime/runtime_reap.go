@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"
 )
@@ -68,6 +69,15 @@ func (e *Executor) reapContainer(ctx context.Context, container containerd.Conta
 	labels, err := container.Labels(ctx)
 	if err != nil {
 		return false, ignoreNotFound(err)
+	}
+	// Retain the bootstrap source and target evidence across executor restarts.
+	// Unknown containers also stay untouched while the finite transaction is held.
+	if e.bootstrap != nil {
+		_, done, err := e.bootstrap.Enter(ctx, rolloutmaintenance.Pin{Service: labels["terrascale.service"]}, true, "reap")
+		if err != nil {
+			return false, nil
+		}
+		defer done()
 	}
 	// Stateful tasks fence their runtime through their own hooks.
 	if labels["terrascale.task"] == "" || labels["terrascale.task-binding"] != "" {

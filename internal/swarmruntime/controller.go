@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 
 	"github.com/containerd/containerd/api/types"
@@ -79,6 +80,20 @@ func (c *controller) container(ctx context.Context) (containerd.Container, error
 }
 
 func (c *controller) Prepare(ctx context.Context) (operationErr error) {
+	if running, err := c.bootstrapTargetRunning(ctx); running || err != nil {
+		if err != nil {
+			return err
+		}
+		return exec.ErrTaskPrepared
+	}
+	var bootstrapDone func()
+	var bootstrapErr error
+	ctx, bootstrapDone, bootstrapErr = c.bootstrapOperation(ctx, "prepare")
+	if bootstrapErr != nil {
+		return bootstrapErr
+	}
+	defer bootstrapDone()
+
 	defer func() { c.finishTaskLoadOperation(api.TaskStatePreparing, operationErr) }()
 	defer func() { c.releaseFailedPorts(ctx, operationErr) }()
 	defer func() { operationErr = canceledAsRetry(ctx, operationErr) }()
@@ -310,6 +325,20 @@ func (c *controller) Prepare(ctx context.Context) (operationErr error) {
 }
 
 func (c *controller) Start(ctx context.Context) (operationErr error) {
+	if running, err := c.bootstrapTargetRunning(ctx); running || err != nil {
+		if err != nil {
+			return err
+		}
+		return exec.ErrTaskStarted
+	}
+	var bootstrapDone func()
+	var bootstrapErr error
+	ctx, bootstrapDone, bootstrapErr = c.bootstrapOperation(ctx, "start")
+	if bootstrapErr != nil {
+		return bootstrapErr
+	}
+	defer bootstrapDone()
+
 	defer func() { c.finishTaskLoadOperation(api.TaskStateStarting, operationErr) }()
 	defer func() { c.releaseFailedPorts(ctx, operationErr) }()
 	defer func() { operationErr = canceledAsRetry(ctx, operationErr) }()
@@ -697,6 +726,9 @@ func runtimeUnavailable(err error) bool {
 }
 
 func (c *controller) Shutdown(ctx context.Context) (operationErr error) {
+	if completed, err := c.bootstrapSourceCompleted(ctx); completed || err != nil {
+		return err
+	}
 	defer func() { c.finishTaskLoadOperation(api.TaskStateShutdown, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
@@ -709,6 +741,14 @@ func (c *controller) Shutdown(ctx context.Context) (operationErr error) {
 // stopTask sends SIGTERM and SIGKILLs only after stopGrace; it returns once
 // the process is gone, so a replacement can take the port and the data.
 func (c *controller) stopTask(ctx context.Context) error {
+	var bootstrapDone func()
+	var bootstrapErr error
+	ctx, bootstrapDone, bootstrapErr = c.bootstrapOperation(ctx, "stop")
+	if bootstrapErr != nil {
+		return bootstrapErr
+	}
+	defer bootstrapDone()
+
 	ctx = runtimeContext(ctx)
 	t, err := c.runtimeTask(ctx)
 	if errdefs.IsNotFound(err) {
@@ -727,7 +767,7 @@ func (c *controller) stopTask(ctx context.Context) error {
 	if status.Status == containerd.Created {
 		return c.Terminate(ctx)
 	}
-	if c.regionalTerraBase() {
+	if c.regionalTerraBase() && !rolloutmaintenance.PinnedStop(ctx, c.bootstrapPin()) {
 		if err := handoff.DrainTask(ctx, c.task.ID); err != nil {
 			// A missing/restarting coordinator never makes a live process a failed
 			// terminal task: retain its assignment and retry once the mesh returns.
@@ -800,6 +840,14 @@ func (c *controller) stopGrace() time.Duration {
 }
 
 func (c *controller) Terminate(ctx context.Context) error {
+	var bootstrapDone func()
+	var bootstrapErr error
+	ctx, bootstrapDone, bootstrapErr = c.bootstrapOperation(ctx, "terminate")
+	if bootstrapErr != nil {
+		return bootstrapErr
+	}
+	defer bootstrapDone()
+
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -827,6 +875,14 @@ func (c *controller) Terminate(ctx context.Context) error {
 }
 
 func (c *controller) Remove(ctx context.Context) error {
+	var bootstrapDone func()
+	var bootstrapErr error
+	ctx, bootstrapDone, bootstrapErr = c.bootstrapOperation(ctx, "remove")
+	if bootstrapErr != nil {
+		return bootstrapErr
+	}
+	defer bootstrapDone()
+
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -887,6 +943,11 @@ func (c *controller) Close() error {
 	defer c.executor.mu.Unlock()
 	if c.executor.loadTasks[c.task.ID] == c {
 		delete(c.executor.loadTasks, c.task.ID)
+	}
+	if c.executor.bootstrapTasks[c.task.ID] == c {
+		// Closed controllers are not executable capabilities. Physical exit
+		// inspection after a restart uses the retained pin and runtime labels.
+		delete(c.executor.bootstrapTasks, c.task.ID)
 	}
 	return nil
 }

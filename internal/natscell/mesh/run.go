@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 	"io"
 	"log/slog"
 	"net"
@@ -111,7 +112,11 @@ func startHost(ctx context.Context, state string, cluster Cluster) (*Node, error
 	if cluster.Worker {
 		applier = nil
 	}
-	return start(config{
+	fence, err := rolloutmaintenance.Open(state)
+	if err != nil {
+		return nil, err
+	}
+	return start(config{maintenance: fence,
 		region: region, server: name, dir: filepath.Join(state, "mesh"),
 		clusterHost: "0.0.0.0", clusterAdvertise: advertise, clusterPort: ClusterPort, localPort: LocalPort,
 		seeds: seeds, routes: routes, ca: ca, terrabaseToken: hex.EncodeToString(terrabaseToken), applier: applier, every: antiEntropyEvery,

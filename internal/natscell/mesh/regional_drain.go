@@ -6,14 +6,17 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 	"github.com/nats-io/nats.go"
 )
 
 type regionalDrainer func(context.Context, string) error
 
 type drainRequest struct {
-	Node string `json:"node"`
-	Task string `json:"task"`
+	Bootstrap *rolloutmaintenance.Job `json:"bootstrap,omitempty"`
+	Action    string                  `json:"action,omitempty"`
+	Node      string                  `json:"node"`
+	Task      string                  `json:"task"`
 }
 type drainReply struct {
 	Error string `json:"error,omitempty"`
@@ -67,7 +70,35 @@ func (n *Node) handleDrain(m *nats.Msg) {
 		admitted = admitted || peer.Node == request.Node
 	}
 	drain := n.regionalDrain.Load()
-	if !admitted || drain == nil {
+	if !admitted {
+		n.respond(m, drainReply{Error: "node not admitted"})
+		return
+	}
+	if request.Bootstrap != nil {
+		if request.Action == "stage" || request.Action == "staged" {
+			err := n.stageBootstrap(request.Action, *request.Bootstrap)
+			reply := drainReply{}
+			if err != nil {
+				reply.Error = err.Error()
+			}
+			n.respond(m, reply)
+			return
+		}
+		hook := n.bootstrapHook.Load()
+		if hook == nil || request.Bootstrap.Member != request.Node {
+			n.respond(m, drainReply{Error: "bootstrap ingress unavailable"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(n.ctx, rolloutmaintenance.Budget)
+		defer cancel()
+		var reply drainReply
+		if err := (*hook)(ctx, request.Action, *request.Bootstrap); err != nil {
+			reply.Error = err.Error()
+		}
+		n.respond(m, reply)
+		return
+	}
+	if drain == nil {
 		n.respond(m, drainReply{Error: "regional ingress drain unavailable"})
 		return
 	}
@@ -78,4 +109,30 @@ func (n *Node) handleDrain(m *nats.Msg) {
 		reply.Error = err.Error()
 	}
 	n.respond(m, reply)
+}
+
+type bootstrapHook func(context.Context, string, rolloutmaintenance.Job) error
+
+// SetBootstrap binds only the founder's authenticated regional ingress endpoint.
+func (n *Node) SetBootstrap(call func(context.Context, string, rolloutmaintenance.Job) error) {
+	fn := bootstrapHook(call)
+	n.bootstrapHook.Store(&fn)
+}
+func (n *Node) Bootstrap(ctx context.Context, action string, j rolloutmaintenance.Job) error {
+	data, err := protocol.EncodeJSON(drainRequest{Node: n.cfg.server, Task: j.Source.Task, Bootstrap: &j, Action: action})
+	if err != nil {
+		return err
+	}
+	response, err := n.conn.RequestWithContext(ctx, protocol.MeshDrainPrefix+n.cfg.region, data)
+	if err != nil {
+		return err
+	}
+	var reply drainReply
+	if err = protocol.DecodeStrict(response.Data, &reply, maxWire); err != nil {
+		return err
+	}
+	if reply.Error != "" {
+		return errors.New(reply.Error)
+	}
+	return nil
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats-server/v2/server"
@@ -141,6 +142,7 @@ type Applier interface {
 }
 
 type config struct {
+	maintenance            *rolloutmaintenance.Store
 	region, server, dir    string
 	clusterHost            string
 	clusterAdvertise       string
@@ -158,13 +160,14 @@ type config struct {
 
 // Node is one region's running mesh server.
 type Node struct {
-	cfg    config
-	tls    *tls.Config
-	server *server.Server
-	conn   *nats.Conn
-	fabric *nats.Conn
-	ctx    context.Context
-	cancel context.CancelFunc
+	bootstrapHook atomic.Pointer[bootstrapHook]
+	cfg           config
+	tls           *tls.Config
+	server        *server.Server
+	conn          *nats.Conn
+	fabric        *nats.Conn
+	ctx           context.Context
+	cancel        context.CancelFunc
 	// work is every goroutine that writes the node's directory; Close waits
 	// for it, and closing (under workMu) refuses new ones.
 	workMu  sync.Mutex
@@ -281,8 +284,9 @@ func start(cfg config) (_ *Node, err error) {
 	handlers[protocol.MeshWorkerPrefix+cfg.region] = node.recordWorker
 	handlers[protocol.MeshDrainPrefix+cfg.region] = func(m *nats.Msg) { node.goWork(func() { node.handleDrain(m) }) }
 	if cfg.applier == nil {
-		handlers = nil // the region's founder answers; a worker only carries messages
+		handlers = map[string]nats.MsgHandler{}
 	}
+	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".fence"] = func(m *nats.Msg) { node.handleBootstrapFence(m) }
 	for subject, handler := range handlers {
 		if _, err := conn.Subscribe(subject, handler); err != nil {
 			node.closeConns()
@@ -789,6 +793,14 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 
 // reconcile makes the local service match entry; the caller holds n.mu.
 func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (applyResult, error) {
+	if n.cfg.maintenance != nil {
+		staged, _ := ctx.Value(bootstrapStageKey{}).(string)
+		if staged == "" || name != "terrabase" || state.entry().Spec == nil || state.entry().Spec.Image != staged {
+			if err := n.cfg.maintenance.Publication(ctx, name); err != nil {
+				return applyResult{}, err
+			}
+		}
+	}
 	entry := state.entry()
 	if entry.Spec == nil || len(entry.Spec.Regions) != 0 && !slices.Contains(entry.Spec.Regions, n.cfg.region) {
 		if _, err := n.cfg.applier.Remove(ctx, name); err != nil {

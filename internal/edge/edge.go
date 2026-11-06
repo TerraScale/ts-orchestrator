@@ -32,23 +32,27 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	netbirddashboard "github.com/TerraScale/ts-orchestrator/internal/netbird/dashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 )
 
 // Edge serves :80, :443, :5432 and :7464 for the hostnames in its route tables,
 // and 127.0.0.1:8081 for TerraBase's private listener (terrabase_loopback.go).
 type Edge struct {
-	wireFirewall func(context.Context, bool) error                   // Production owns the exact wire ACCEPT rule; tests replace it.
-	listen       func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
-	certs        *autocert.Manager
-	routes       atomic.Pointer[map[string]int]
-	postgres     atomic.Pointer[map[string]int]
-	pgKeys       postgresKeys
-	pgHandshakes chan struct{}
-	pgSessions   chan struct{}
-	pgRelays     chan struct{}
-	pgControl    chan struct{}
-	wire         atomic.Pointer[map[string]int]
-	proxy        *httputil.ReverseProxy
+	bootstrap        *rolloutmaintenance.Store
+	bootstrapErr     error
+	bootstrapBarrier bootstrapBarrier
+	wireFirewall     func(context.Context, bool) error                   // Production owns the exact wire ACCEPT rule; tests replace it.
+	listen           func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
+	certs            *autocert.Manager
+	routes           atomic.Pointer[map[string]int]
+	postgres         atomic.Pointer[map[string]int]
+	pgKeys           postgresKeys
+	pgHandshakes     chan struct{}
+	pgSessions       chan struct{}
+	pgRelays         chan struct{}
+	pgControl        chan struct{}
+	wire             atomic.Pointer[map[string]int]
+	proxy            *httputil.ReverseProxy
 	// challenges answers HTTP-01 for the tokens this edge holds.
 	challenges http.Handler
 	mesh       atomic.Pointer[Mesh]
@@ -82,6 +86,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 		spoolDir:         filepath.Join(stateDir, "edge-spool"),
 		netbirdDashboard: netbirddashboard.New(stateDir),
 	}
+	e.bootstrap, e.bootstrapErr = rolloutmaintenance.Open(stateDir)
 	e.peers = newPeerTransport(e)
 	e.routes.Store(&map[string]int{})
 	e.postgres.Store(&map[string]int{})

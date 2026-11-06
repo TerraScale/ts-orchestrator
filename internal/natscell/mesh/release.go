@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/deploy/m1"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats.go"
 )
@@ -29,6 +30,23 @@ const (
 // mesh node: it updates the image and declared all-region app budgets.
 func Release(state string) func(ctx context.Context, service, image string, claims releasepush.Claims) (json.RawMessage, error) {
 	return func(ctx context.Context, service, image string, claims releasepush.Claims) (json.RawMessage, error) {
+		fence, err := rolloutmaintenance.Open(state)
+		if err != nil {
+			return nil, err
+		}
+		if err := fence.Publication(ctx, service); err != nil {
+			if !errors.Is(err, rolloutmaintenance.ErrFenced) {
+				return nil, err
+			}
+			attempt, _ := strconv.ParseUint(claims.RunAttempt, 10, 64)
+			if err = fence.RetainCandidate(ctx, rolloutmaintenance.Candidate{Image: image, Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA}); err != nil {
+				return nil, err
+			}
+			return protocol.EncodeJSON(struct {
+				Held  bool   `json:"held"`
+				Image string `json:"image"`
+			}{true, image})
+		}
 		conn, err := Connect(state)
 		if err != nil {
 			return nil, err

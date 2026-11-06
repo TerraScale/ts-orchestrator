@@ -59,6 +59,7 @@ const usage = `Usage: ts-orch <command> [flags]
 
 Runtime:
   alert-delivery         Deliver loopback Alertmanager notifications through Cloudflare Email Sending
+  bootstrap-maintenance  Inspect or drive a finite pinned TerraBase bootstrap transaction (root, local socket)
   single-host            Run one SwarmKit manager+worker with containerd and the HTTPS edge
   managed-runtime-start  Run the admitted root Swarm runtime
   function-worker        Run one admitted function revision
@@ -154,6 +155,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return app.RunRootOCIQualification(ctx, args[1:], os.Stdin, output)
 	case "root-oci-qualification-read", "root-oci-qualification-probe":
 		return app.RunRootOCIQualificationReader(ctx, args[0], args[1:], os.Stdin, output)
+	case "bootstrap-maintenance":
+		return app.RunBootstrapMaintenance(ctx, args[1:], output)
 	case "single-host":
 		return app.RunSingleHostServing(ctx, args[1:], output)
 	case "service":

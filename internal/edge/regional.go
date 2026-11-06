@@ -134,6 +134,18 @@ func (b *regionalBody) Read(p []byte) (int, error) {
 func (b *regionalBody) Close() error { err := b.ReadCloser.Close(); b.once.Do(b.release); return err }
 
 func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Response, error) {
+	if e.bootstrapErr != nil {
+		return nil, e.bootstrapErr
+	}
+	if e.bootstrap != nil {
+		held, err := e.bootstrap.Ingress(request.Context())
+		if err != nil {
+			return nil, err
+		}
+		if held != nil && held.Member == held.Owner {
+			return nil, errors.New("regional maintenance ingress held")
+		}
+	}
 	router := e.regional.Load()
 	if router == nil {
 		return nil, nil

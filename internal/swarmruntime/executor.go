@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 
 	containerd "github.com/containerd/containerd/v2/client"
@@ -39,6 +40,8 @@ const HostContainerdSocket = "/run/containerd/containerd.sock"
 
 // Executor translates upstream SwarmKit tasks directly into containerd objects.
 type Executor struct {
+	bootstrap         *rolloutmaintenance.Store
+	bootstrapTasks    map[string]*controller
 	client            *containerd.Client
 	socket            string
 	logRoot           string
@@ -85,7 +88,12 @@ func NewExecutor(socket, stateDir string) (*Executor, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Executor{client: c, socket: socket, logRoot: root, executable: executable}, nil
+	fence, err := rolloutmaintenance.Open(stateDir)
+	if err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	return &Executor{client: c, socket: socket, logRoot: root, executable: executable, bootstrap: fence, bootstrapTasks: make(map[string]*controller)}, nil
 }
 
 func runtimeContext(ctx context.Context) context.Context {
@@ -185,6 +193,13 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 	controller := &controller{executor: e, task: t.Copy(), spec: s, id: "ts-" + t.ID, fingerprint: taskFingerprint(t)}
 	e.mu.Lock()
 	e.trackLoadTask(controller)
+	if e.bootstrap != nil && controller.regionalTerraBase() {
+		if len(e.bootstrapTasks) >= 128 && e.bootstrapTasks[t.ID] == nil {
+			e.mu.Unlock()
+			return nil, exec.MakeTemporary(rolloutmaintenance.ErrFenced)
+		}
+		e.bootstrapTasks[t.ID] = controller
+	}
 	e.mu.Unlock()
 	return controller, nil
 }
