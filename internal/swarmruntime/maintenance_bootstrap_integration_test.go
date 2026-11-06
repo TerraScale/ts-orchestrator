@@ -396,6 +396,7 @@ func TestBootstrapFenceAcrossSixDispatchedNodesAndDaemonRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 		next := current.Service.Spec.Copy()
+		next.Update.Parallelism = 0 // as the fenced founder's BootstrapStage apply renders it
 		nextContainer := container.Copy()
 		nextContainer.Image = manager.job.Target.Image
 		next.Task.Runtime, err = ContainerRuntime(nextContainer)

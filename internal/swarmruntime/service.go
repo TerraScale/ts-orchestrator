@@ -453,6 +453,10 @@ type ServiceSpec struct {
 	// WorkerAddresses is the founder's fresh, READY/ACTIVE mesh membership,
 	// derived at reconciliation; declarations cannot supply this inventory.
 	WorkerAddresses map[string]string `json:"-"`
+	// BootstrapStage marks the fenced founder's pinned TerraBase staging apply.
+	// Both regional slots then receive their candidate at once, so the pinned
+	// drivers, not the updater's random slot order, serialize owner then follower.
+	BootstrapStage bool `json:"-"`
 }
 
 type ServicePostgres struct {
@@ -659,6 +663,11 @@ func (s ServiceSpec) SwarmSpec() (*api.ServiceSpec, error) {
 	if s.Name == "terrabase" {
 		// The candidate may have written a newer storage format. Fix forward.
 		spec.Update.FailureAction = api.UpdateConfig_PAUSE
+		if s.BootstrapStage {
+			// Every regional executor holds its own task until its pinned driver
+			// runs; one-at-a-time slots could wait on the follower forever.
+			spec.Update.Parallelism = 0
+		}
 	}
 	if usesTaskPort(env) {
 		// Each task listens on its own port and the executor serves s.Port, so the new task starts first.

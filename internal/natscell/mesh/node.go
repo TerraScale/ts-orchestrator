@@ -793,9 +793,10 @@ func (n *Node) apply(ctx context.Context, request ApplyRequest) (applyResult, er
 
 // reconcile makes the local service match entry; the caller holds n.mu.
 func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (applyResult, error) {
+	staged, _ := ctx.Value(bootstrapStageKey{}).(string)
+	bootstrapStage := n.cfg.maintenance != nil && staged != "" && name == "terrabase" && state.entry().Spec != nil && state.entry().Spec.Image == staged
 	if n.cfg.maintenance != nil {
-		staged, _ := ctx.Value(bootstrapStageKey{}).(string)
-		if staged == "" || name != "terrabase" || state.entry().Spec == nil || state.entry().Spec.Image != staged {
+		if !bootstrapStage {
 			if err := n.cfg.maintenance.Publication(ctx, name); err != nil {
 				return applyResult{}, err
 			}
@@ -818,6 +819,7 @@ func (n *Node) reconcile(ctx context.Context, name string, state desiredState) (
 	spec.Generation, spec.Region, spec.Node = entry.Generation, n.cfg.region, n.cfg.server
 	spec.RollbackOf = entry.RollbackOf
 	spec.Deployment, spec.DeploymentFloor = entry.Deployment, state.Floor
+	spec.BootstrapStage = bootstrapStage
 	perNode := PerNode(&spec)
 	if perNode {
 		// One task per fully joined node: a worker counts only once it announces

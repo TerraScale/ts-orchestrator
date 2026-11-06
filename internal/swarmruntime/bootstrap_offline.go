@@ -38,7 +38,8 @@ func OfflinePins(root, state string) (rolloutmaintenance.Pin, error) {
 	var found []rolloutmaintenance.Pin
 	err = db.View(func(tx *bolt.Tx) error {
 		return agent.WalkTasks(tx, func(task *api.Task) error {
-			if !agent.TaskAssigned(tx, task.ID) || task.ServiceAnnotations.Labels[LabelServiceSpec] != "terrabase" {
+			// Retained SHUTDOWN history stays assigned; only the desired-running task is the source.
+			if !agent.TaskAssigned(tx, task.ID) || task.DesiredState != api.TaskStateRunning || task.ServiceAnnotations.Labels[LabelServiceSpec] != "terrabase" {
 				return nil
 			}
 			spec, err := DecodeContainer(task)

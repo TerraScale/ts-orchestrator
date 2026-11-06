@@ -49,7 +49,10 @@ func offlineWorkerRoot(t *testing.T) (string, ColdBootstrap) {
 		t.Fatal(err)
 	}
 	if err := db.Update(func(tx *bolt.Tx) error {
-		return errorsJoin(agent.PutTask(tx, task), agent.SetTaskAssignment(tx, task.ID, true))
+		history := task.Copy()
+		history.ID, history.DesiredState = "shutdownhistory", api.TaskStateShutdown
+		return errorsJoin(agent.PutTask(tx, task), agent.SetTaskAssignment(tx, task.ID, true),
+			agent.PutTask(tx, history), agent.SetTaskAssignment(tx, history.ID, true))
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +104,15 @@ func TestOfflineArmFencesTheMountedWorkerAndRemovesAgentRestart(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "var/lib/ts-orch/zdt-retained/tasks.db.zdt-fra-2")); err != nil {
 		t.Fatal("old agent database was not retained", err)
+	}
+	// The fenced staging apply hands both regional slots their candidate at once.
+	staged := ServiceSpec{Name: "terrabase", Image: "ghcr.io/terrascale/terrabase@sha256:" + strings.Repeat("a", 64), Port: 8080, Replicas: 2, Region: "fra", Node: "ts-fra-1"}
+	if normal := swarmForTest(t, staged); normal.Update.Parallelism != 1 {
+		t.Fatal("ordinary TerraBase rollout must stay one slot at a time")
+	}
+	staged.BootstrapStage = true
+	if swarm := swarmForTest(t, staged); swarm.Update.Parallelism != 0 || swarm.Update.Order != api.UpdateConfig_STOP_FIRST {
+		t.Fatal("bootstrap staging can wait on a fenced follower slot forever")
 	}
 }
 
