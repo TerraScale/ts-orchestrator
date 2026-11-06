@@ -3,6 +3,7 @@ package memberstatus
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -327,18 +328,15 @@ func (q *Qualification) stageFile(name, content string, mode os.FileMode) string
 	return path
 }
 func (q *Qualification) Install(source, destination, mode, group string) {
-	target, e := GuestPath(q.MountPath, destination)
-	q.fail(e)
+	target := q.stagedGuestPath(destination)
 	q.sudo("install-"+filepath.Base(destination), time.Minute, "install", "-D", "-o", "root", "-g", group, "-m", mode, source, target)
 }
 func (q *Qualification) InstallDirectory(destination, mode, group string) {
-	target, e := GuestPath(q.MountPath, destination)
-	q.fail(e)
+	target := q.stagedGuestPath(destination)
 	q.sudo("install-dir-"+filepath.Base(destination), 30*time.Second, "install", "-d", "-o", "root", "-g", group, "-m", mode, target)
 }
 func (q *Qualification) HashStagedGuestFile(label, destination string) string {
-	target, e := GuestPath(q.MountPath, destination)
-	q.fail(e)
+	target := q.stagedGuestPath(destination)
 	log := q.sudo(label, time.Minute, "sha256sum", "--zero", "--", target)
 	if q.err != nil {
 		return ""
@@ -351,6 +349,44 @@ func (q *Qualification) HashStagedGuestFile(label, destination string) string {
 		return ""
 	}
 	return string(digest)
+}
+
+// The managed guest's root-owned parents deliberately become unsearchable by
+// this driver. Validate those paths under the same privilege used for install
+// and hash readback, retaining GuestPath's rejection of symlinks/non-directories.
+func (q *Qualification) stagedGuestPath(destination string) string {
+	target, err := GuestPath(q.MountPath, destination)
+	if err == nil || !q.Managed || !os.IsPermission(err) {
+		q.fail(err)
+		return target
+	}
+	const validate = `set -eu
+set -f
+root=$1
+path=$2
+target=$root$path
+current=$root
+IFS=/
+for part in $path; do
+ [ -n "$part" ] || continue
+ current=$current/$part
+ [ ! -L "$current" ] || exit 1
+ if [ "$current" != "$target" ] && [ -e "$current" ] && [ ! -d "$current" ]; then exit 1; fi
+done
+printf '%s\n' "$target"
+`
+	log := q.sudo("validate-staged-"+filepath.Base(destination), 10*time.Second, "sh", "-c", validate, "staged-path", q.MountPath, destination)
+	if q.err != nil {
+		return ""
+	}
+	wire, err := os.ReadFile(log)
+	q.fail(err)
+	target = filepath.Join(q.MountPath, strings.TrimPrefix(destination, "/"))
+	if string(wire) != target+"\n" {
+		q.fail(errors.New("privileged staged path validation returned another path"))
+		return ""
+	}
+	return target
 }
 
 type Directory struct {

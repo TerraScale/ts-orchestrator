@@ -166,6 +166,9 @@ func TestAcceptedIdentityPublicationPredecessorAndNoReplace(t *testing.T) {
 	if err := os.WriteFile(path, old, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	checkpoint, key, roots := acceptedCheckpoint(t, identity, old)
 	verified := verifyAcceptedCheckpoint(t, checkpoint, key, roots, identity.AcceptedAt)
 	if err := store.ReplaceIdentity(identityrekey.VerifiedIdentityCheckpoint{}, identity.Slot, identity.AcceptedAt, acceptedObservation); err == nil {
@@ -175,6 +178,9 @@ func TestAcceptedIdentityPublicationPredecessorAndNoReplace(t *testing.T) {
 	if err := os.WriteFile(path, wrong, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.ReplaceIdentity(verified, identity.Slot, identity.AcceptedAt, acceptedObservation); !errors.Is(err, ErrAcceptancePredecessor) {
 		t.Fatalf("wrong predecessor: %v", err)
 	}
@@ -182,6 +188,9 @@ func TestAcceptedIdentityPublicationPredecessorAndNoReplace(t *testing.T) {
 		t.Fatal("wrong predecessor was overwritten")
 	}
 	if err := os.WriteFile(path, old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ReplaceIdentity(verified, identity.Slot, identity.AcceptedAt, acceptedObservation); err != nil {

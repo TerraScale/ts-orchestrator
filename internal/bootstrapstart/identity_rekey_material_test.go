@@ -78,6 +78,9 @@ func identityRekeyMaterialFixture(t *testing.T) (*generationInstall, MaterialSto
 	if err := os.WriteFile(store.chainCopy, old, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(store.chainCopy, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	return install, store, verified, inputs, wire, files
 }
 
@@ -101,6 +104,9 @@ func TestIdentityRekeyMaterialRecoversAfterDurableCopyAndPartialRename(t *testin
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(store.chainCopy, wire, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(store.chainCopy, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(filepath.Join(stagePath, "ca.pem"), filepath.Join(install.dir, "ca.pem")); err != nil {

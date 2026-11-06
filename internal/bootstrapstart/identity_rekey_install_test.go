@@ -20,6 +20,9 @@ func rootInstallerFixture(t *testing.T) (MarkerStore, bakedStore, IdentityRekeyJ
 	if err := os.WriteFile(filepath.Join(markers.directory, markerName), []byte("obsolete identity bytes are opaque"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(filepath.Join(markers.directory, markerName), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	baked, rootDirectory, _ := bakedFixture(t)
 	for _, key := range inputs.Genesis {
 		der, err := x509.MarshalPKIXPublicKey(key)

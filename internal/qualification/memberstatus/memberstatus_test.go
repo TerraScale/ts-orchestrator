@@ -67,9 +67,14 @@ func TestManagedProtectedStagingUsesPrivilegedHashReadback(t *testing.T) {
 	if q.Err() != nil || actual != shaBytes([]byte("private fixture material")) {
 		t.Fatal(actual, q.Err())
 	}
-	target, _ := GuestPath(q.MountPath, dest)
+	target := q.stagedGuestPath(dest)
 	if _, e = os.ReadFile(target); !os.IsPermission(e) {
 		t.Fatal("unprivileged driver could read protected material", e)
+	}
+	q.sudo("escape-fixture", 5*time.Second, "ln", "-s", "/etc", filepath.Join(q.MountPath, dir, "escape"))
+	q.InstallDirectory(dir+"/escape/must-not-create", "0755", "65534")
+	if q.Err() == nil {
+		t.Fatal("privileged path traversal accepted a protected-parent symlink")
 	}
 	q.CommandRunner.Run(t.Context(), "restore-test-permissions", []string{sudo, "-n", "chmod", "-R", "u+rwX", q.MountPath}, time.Minute, nil)
 }

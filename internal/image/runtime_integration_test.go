@@ -531,6 +531,9 @@ func runtimeFixtureMetadataFence(t *testing.T, g *Guest, repo, root, work, archi
 		if err := os.WriteFile(nft, runtimeFixtureMetadataELF(toolArchitecture, interpreter, []string{"libnftables.so.1"}), 0755); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.Chmod(nft, 0755); err != nil {
+			t.Fatal(err)
+		}
 		for _, library := range []struct {
 			name   string
 			needed []string
@@ -540,6 +543,9 @@ func runtimeFixtureMetadataFence(t *testing.T, g *Guest, repo, root, work, archi
 				mode = 0755
 			}
 			if err := os.WriteFile(filepath.Join(root, libraryDirectory, library.name), runtimeFixtureMetadataELF(architecture, "", library.needed), mode); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(filepath.Join(root, libraryDirectory, library.name), mode); err != nil {
 				t.Fatal(err)
 			}
 		}

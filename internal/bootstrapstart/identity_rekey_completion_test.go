@@ -30,6 +30,9 @@ func completionMarkerFixture(t *testing.T, journal IdentityRekeyJournal) MarkerS
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.Chmod(filepath.Join(dir, name), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return store
 }
