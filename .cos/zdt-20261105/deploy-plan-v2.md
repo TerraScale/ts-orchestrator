@@ -435,6 +435,55 @@ is guarded by prime pull-all and the post-window two-node gate.
 **Re-seed rehearsal: ts-gru-2 clone path ×3, 3/3 PASS** (170 files, 23–29 MB moved in 0.5 s; owner 65532:65532, mode 755; founder clean); results in
 `qualification/v8-reseed-rehearsal.json`.
 
+## Engine target after main moved (COS 06:52Z, 2026-11-07) — DECISION: option 2
+
+Monorepo main moved 16 commits past d79589c6, to 06320a097 (monorepo-ci `ci.yml`
+routing, SDK, dashboard). My 06:23Z note that main was still d79589c6 was a
+misread. Freezing main for 20 h was rejected.
+
+DECISION: at the 02:20Z (2026-11-08) prep, freeze both repos with ts-ship, then
+dispatch a build-only run for the frozen main head and run the window with that
+digest (`window.py` reads `target.txt`).
+
+Reason: option 1 (a SHA-pinned release of the d79589c6 digest) is impossible
+without changing the release-authority contract.
+
+- Hosts admit only `ci.yml@refs/heads/main` OIDC tokens; a dispatch at a SHA or
+  tag ref is rejected.
+- A main dispatch carries `sha` = HEAD.
+- The mesh bake requires the running image's revision label to equal the signed
+  release revision (`mesh/bake.go:179`), so a d79589c6 image released from HEAD
+  would fail its bake.
+
+**Qualification for option 2:**
+
+- The 16 commits leave the engine sources and image inputs untouched (src/TerraBase*,
+  tests/TerraBase*, terrabase.slnf, scripts/terrabase, image-payloads, vendor,
+  Directory.*, global.json, NuGet.config). The .NET SDK diffs are test, script and
+  packaging only, so the Slow-qualified d79589c6 engine code is unchanged.
+- The build-only run applies CI's own gates at the exact head:
+  - trusted `ci-build/terrabase` and `ts-ship/terrabase` proofs (06320a097 already
+    has both);
+  - TerraBase Fast;
+  - the arm64 revision-label check.
+- If the frozen head lacks TerraBase proofs, ship one TerraBase-area commit first,
+  then freeze.
+- If the digest isn't ready by about 03:30Z, move the window 24 h.
+
+**`ci.yml` d79589c6→06320a097** (`qualification/v10-ci-yml-d79589c6-to-06320a097.diff`):
+
+- **Routing:** path filters were rescoped. TerraBase now also counts
+  `sdk/dotnet`, `src/vendor`, `src/TerraScale.TerraBase.*`, the vendored driver
+  tests and the vendor scripts.
+- **Skips:** `test` and `budget` skip when no core area is selected.
+- **Publication logic:** the build-only, release-only and default-release
+  publication logic is unchanged.
+- **release-only:** it still selects no area, so `test` now skips instead of
+  running empty. It has no `needs`, so it is unaffected.
+- **cienable:** unaffected. The first post-enable push or dispatch run builds and
+  releases the main head of that moment, a normal v2 rolling release of HEAD,
+  never the older d79589c6 or b443 intents.
+
 ## Prepare before the announced window
 
 - Freeze production publications for both repos; retain the current disabled

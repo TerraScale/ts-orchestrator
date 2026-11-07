@@ -12,7 +12,9 @@ from pathlib import Path
 X = Path(os.environ['HOME']) / 'zdt-txn-20261107'
 T = json.loads((X / 'targets.json').read_text())
 REGIONS = ('gru', 'sjc', 'fra')
-TARGET = 'ghcr.io/terrascale/terrabase@sha256:0046773223695fdc4c26043f8fa843d89a394465c8a84c1bc6e0e9fb1b05c001'
+# The build-only digest of the frozen monorepo main head (written at the 02:20Z prep).
+TARGET = (X / 'target.txt').read_text().strip()
+assert TARGET.startswith('ghcr.io/terrascale/terrabase@sha256:') and len(TARGET.split('@sha256:')[1]) == 64
 OLD_ORCH = '214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146'
 NEW_ORCH = 'cfe93f83230b23c16e4fc83477261958ee7c92a469bf0bd65b28aa0e8fcaa60b'
 OWNER = {'gru': ('ts-gru-1', 9), 'sjc': ('ts-sjc-1', 5), 'fra': ('ts-fra-2', 7)}
