@@ -35,6 +35,7 @@ require (
 	github.com/prometheus/common v0.70.1
 	github.com/starfederation/datastar-go v1.2.2
 	github.com/tetratelabs/wazero v1.12.0
+	go.etcd.io/bbolt v1.5.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.62.0
 	golang.org/x/sync v0.24.0
@@ -51,7 +52,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.3-0.20251027160822-ad3df93bed29 // indirect
 	github.com/Microsoft/hcsshim v0.15.0-rc.4 // indirect
 	github.com/a-h/parse v0.0.0-20250122154542-74294addb73e // indirect
-	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.13.0 // indirect
@@ -93,7 +94,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.9.2 // indirect
 	github.com/jmoiron/sqlx v1.3.3 // indirect
-	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/letsencrypt/challtestsrv v1.4.2 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
@@ -119,7 +120,6 @@ require (
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/zmap/zcrypto v0.0.0-20210511125630-18f1e0152cfc // indirect
 	github.com/zmap/zlint/v3 v3.1.0 // indirect
-	go.etcd.io/bbolt v1.5.0 // indirect
 	go.etcd.io/etcd/api/v3 v3.6.14 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.6.14 // indirect
 	go.etcd.io/etcd/pkg/v3 v3.6.14 // indirect
