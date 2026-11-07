@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 TARGETS, BINARY, OLD_SHA, REPEATS, OUT = sys.argv[1:6]
+RESEED = set(sys.argv[6].split(',')) if len(sys.argv) > 6 else set()
 REPEATS = int(REPEATS)
 HERE = Path(__file__).resolve().parent
 COLD = HERE / 'cold.py'
@@ -26,8 +27,16 @@ SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'Compressi
 OWNERS = {'gru': ('ts-gru-1', 9), 'sjc': ('ts-sjc-1', 5), 'fra': ('ts-fra-2', 7)}  # rehearsal: expected owners/epochs
 TARGET_IMAGE = 'ghcr.io/terrascale/terrabase@sha256:' + hashlib.sha256(b'zdt-rehearsal-target').hexdigest()
 ZERO = '0001-01-01T00:00:00Z'
-STAGE = '/var/tmp/zdt-offline'
+STAGE = '/var/tmp/zdt-rehearsal'  # never the production staging dir
 BIN_SHA = hashlib.file_digest(open(BINARY, 'rb'), 'sha256').hexdigest()
+
+
+# Mark a stale follower: keep its data aside, leave a fresh empty data dir with
+# the original owner/mode so the new engine starts it as a fresh follower.
+RESEED_SH = '''sudo bash -c 'set -euo pipefail; d={root}/var/lib/ts-data/terrabase; s=$d.stale-zdt-20261107
+test -d $d; test ! -e $s; o=$(stat -c %u:%g $d); m=$(stat -c %a $d); n=$(find $d -type f | wc -l); b=$(du -sb $d | cut -f1)
+mv $d $s; install -d -o ${{o%:*}} -g ${{o#*:}} -m $m $d; sync -f $d
+test -z "$(ls -A $d)"; test "$(stat -c "%u:%g %a" $d)" = "$o $m"; echo "moved files=$n bytes=$b owner=$o mode=$m"' '''
 
 
 def run(args, timeout, data=None):
@@ -158,6 +167,8 @@ def repeat(region, t, rep):
                             f'--binary {STAGE}/terrascale-orchestrator --binary-sha256 {BIN_SHA} --old-sha256 {OLD_SHA} --instance-id {t["worker"]} --receipt {STAGE}/install-{name}.json')
         timed(rows, 'installSeconds', install)
         rows['install'] = json.loads(remote(founder, f'sudo cat {STAGE}/install-{name}.json'))
+        if region in RESEED:
+            rows['reseed'] = timed(rows, 'reseedSeconds', lambda: remote(founder, RESEED_SH.format(root=f'/mnt/zdt-{worker}')).strip())
         # Production gate: verify on the rw mount before unmount/detach/boot attach.
         timed(rows, 'verifyRwSeconds', lambda: remote(founder, f'sudo python3 -I {STAGE}/cold.py offline-verify --root /mnt/zdt-{worker} '
                                                           f'--install-receipt {STAGE}/install-{name}.json --receipt {STAGE}/verify-rw-{name}.json'))
@@ -169,6 +180,8 @@ def repeat(region, t, rep):
         attachment = timed(rows, 'attachRoSeconds', lambda: attach(t, clone, True, f'zdt-rehearsal-{worker}-r{rep}-verify'))
         timed(rows, 'mountRoSeconds', lambda: mount(founder, worker, 'ro,noload,nodev,nosuid,noexec', before))
         def verify():
+            if region in RESEED:
+                remote(founder, f'sudo test -d /mnt/zdt-{worker}/var/lib/ts-data/terrabase.stale-zdt-20261107 && sudo test -z "$(sudo ls -A /mnt/zdt-{worker}/var/lib/ts-data/terrabase)"')
             remote(founder, f'sudo python3 -I {STAGE}/cold.py offline-verify --root /mnt/zdt-{worker} --install-receipt {STAGE}/install-{name}.json --receipt {STAGE}/verify-{name}.json')
             return json.loads(remote(founder, f'sudo cat {STAGE}/verify-{name}.json'))
         rows['verify'] = timed(rows, 'verifySeconds', verify)

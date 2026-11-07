@@ -399,6 +399,42 @@ cold plan's follower prime and catch-up would run against a broken replication
 path, so no retry until that is diagnosed and fixed (or GRU's follower is
 explicitly re-seeded).
 
+## Q-ZDTGRUREPL = 2: re-seed ts-gru-2 in-window (2026-11-07)
+
+DECISION: re-seed ts-gru-2 as a fresh follower. In W4, after offline-install,
+move its `/var/lib/ts-data/terrabase` aside on the clone to
+`terrabase.stale-zdt-20261107` (kept on the clone; the original boot volume also
+keeps it). Leave an empty data dir with the original owner and mode. The v2
+engine starts on it as a fresh follower, and the bootstrap verify's
+`/v1/rollout/prime?source=ts-gru-1` runs `SyncCatalogsAsync` + `PullAllAsync`
+from the verified owner before verify can pass.
+Reason: ts-gru-1 is authoritative. Copying the owner's files would duplicate the
+owner's incarnation onto another node, and an empty data dir is the engine's
+supported fresh start.
+
+**Data gate:**
+
+- Before the stop: GRU checks the owner only; SJC and FRA require founder ==
+  worker.
+- After the window: every region requires founder == worker (this proves the
+  re-seeded follower is fully primed), and founder after == before.
+- Equality covers table, rowid bounds, rows and bytes per range; range hashes are
+  incarnation-specific.
+
+**Issue:** TerraScale/terrascale#1141, "b443 follower reports ready while stalled
+(ts-gru-2 ts-auth rev 3 vs 556)", filed with evidence.
+
+DECISION: d79589c6 `NodeReadiness` does not check follower freshness either.
+The stale-follower readiness rule and its drill ship after the window as the
+first v2 rolling update, not in this window.
+Reason: a correct rule needs the stall's root cause, which is unknown (no worker
+shell; the retained data dir allows offline inspection). It also needs review
+and a new digest under the main freeze. In this window, the re-seeded follower
+is guarded by prime pull-all and the post-window two-node gate.
+
+**Re-seed rehearsal: ts-gru-2 clone path ×3, 3/3 PASS** (170 files, 23–29 MB moved in 0.5 s; owner 65532:65532, mode 755; founder clean); results in
+`qualification/v8-reseed-rehearsal.json`.
+
 ## Prepare before the announced window
 
 - Freeze production publications for both repos; retain the current disabled
