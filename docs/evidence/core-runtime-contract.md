@@ -12,6 +12,12 @@ entrypoints. A package build or local runtime result is not a fleet cutover.
 | containerd | `github.com/containerd/containerd/v2 v2.4.2` | Local privileged daemon and runc-v2 shim; `native` snapshotter. |
 | runc | `v1.5.2` | Matches containerd v2.4.2's upstream `script/setup/runc-version`. |
 
+The vendored SwarmKit differs from its tag in one reviewed file:
+`manager/scheduler/pipeline.go` builds its default filters inside `NewPipeline`.
+Filters retain the current task, so a package-level filter set shared across
+scheduler instances mixed reservations and raced when regional managers coexist
+or restart (six-node bootstrap race proof, 8bd5ee901; five race repeats).
+
 CAP owns architecture-specific image installation and release checksums.
 The first executed disposable prototype is native Linux/amd64. Linux/arm64,
 regional HA and paid OCI capacity remain unqualified by this evidence.
