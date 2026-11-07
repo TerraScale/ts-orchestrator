@@ -102,3 +102,42 @@ func protocolDecode(data []byte, j *Job) error {
 	}
 	return j.validate()
 }
+
+// Clear ends one verified transaction after the no-op reconciliation: it is the
+// only way to lift the fence, refuses any unfinished or different job, and
+// removes its candidate and same-epoch ingress hold before the job record.
+func (s *Store) Clear(ctx context.Context, id string) error {
+	unlock, err := s.lock(ctx, false)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	j, err := s.read()
+	if err != nil {
+		return err
+	}
+	if j == nil || j.ID != id || j.Phase != "verified" {
+		return ErrFenced
+	}
+	if err = os.Remove(filepath.Join(s.root, "candidate.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if data, err := os.ReadFile(filepath.Join(s.root, "ingress.json")); err == nil {
+		var held Job
+		if err = protocolDecode(data, &held); err != nil {
+			return err
+		}
+		if held.Owner != j.Owner || held.Epoch != j.Epoch {
+			return ErrFenced
+		}
+		if err = os.Remove(filepath.Join(s.root, "ingress.json")); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err = os.Remove(filepath.Join(s.root, "job.json")); err != nil {
+		return err
+	}
+	return syncDir(s.root)
+}

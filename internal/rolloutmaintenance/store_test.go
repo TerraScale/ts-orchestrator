@@ -137,6 +137,9 @@ func TestPinnedReplacementRetainsFenceAcrossOperatorAndExecutorRestart(t *testin
 	if e != nil || retained.Deadline.IsZero() || retained.Phase != "stopping" {
 		t.Fatal(retained, e)
 	}
+	if e = s.Clear(ctx, j.ID); !errors.Is(e, ErrFenced) {
+		t.Fatal("an unfinished transaction lifted its fence", e)
+	}
 	// A new Store/Driver represents an operator reconnect and daemon reopening
 	// its durable state. New intents, including changed labels/services, stay held.
 	restarted, e := Open(dir)
@@ -169,6 +172,21 @@ func TestPinnedReplacementRetainsFenceAcrossOperatorAndExecutorRestart(t *testin
 	}
 	if e = restarted.Publication(ctx, "terrabase"); !errors.Is(e, ErrFenced) {
 		t.Fatal("verified reopened fleet publication", e)
+	}
+	// Only the exact verified transaction is cleared, after the no-op reconciliation.
+	if e = restarted.Clear(ctx, "another-transaction"); !errors.Is(e, ErrFenced) {
+		t.Fatal("cleared a different transaction", e)
+	}
+	if e = restarted.Clear(ctx, j.ID); e != nil {
+		t.Fatal(e)
+	}
+	if e = restarted.Publication(ctx, "terrabase"); e != nil {
+		t.Fatal("cleared fence still holds publication", e)
+	}
+	if _, done, e := restarted.Enter(ctx, j.Target, true, "start"); e != nil {
+		t.Fatal("cleared fence still holds the executor", e)
+	} else {
+		done()
 	}
 	t.Logf("physical_old_exit=%s new_admission=%s persisted_deadline=%s", r.exitedAt.Format(time.RFC3339Nano), r.startedAt.Format(time.RFC3339Nano), after.Deadline.Format(time.RFC3339Nano))
 }

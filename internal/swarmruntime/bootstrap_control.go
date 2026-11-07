@@ -109,6 +109,27 @@ func (e *Executor) ServeBootstrap(ctx context.Context, state string) error {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /clear", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			ID   string `json:"id"`
+			Node string `json:"node,omitempty"`
+		}
+		if err := readBootstrap(r, &input, 4096); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		var err error
+		if input.Node == "" {
+			err = e.bootstrap.Clear(r.Context(), input.ID)
+		} else {
+			err = handoff.ClearPeer(r.Context(), input.Node, input.ID)
+		}
+		if err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /prepull", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID string `json:"id"`

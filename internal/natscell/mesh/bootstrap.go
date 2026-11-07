@@ -31,6 +31,55 @@ func (n *Node) handleBootstrapFence(m *nats.Msg) {
 	n.respond(m, reply)
 }
 
+type bootstrapClearRequest struct {
+	ID string `json:"id"`
+}
+
+// handleBootstrapClear lifts this node's fence only for its own exact verified
+// transaction (the store refuses anything else); mesh members alone can ask.
+func (n *Node) handleBootstrapClear(m *nats.Msg) {
+	var request bootstrapClearRequest
+	var reply bootstrapFenceReply
+	switch {
+	case protocol.DecodeStrict(m.Data, &request, maxWire) != nil || request.ID == "":
+		reply.Error = "invalid clear request"
+	case n.cfg.maintenance == nil:
+		reply.Error = "executor fence unavailable"
+	default:
+		if err := n.cfg.maintenance.Clear(n.ctx, request.ID); err != nil {
+			reply.Error = err.Error()
+		}
+	}
+	n.respond(m, reply)
+}
+
+// ClearPeer asks one admitted regional peer to clear its exact verified fence.
+func (n *Node) ClearPeer(ctx context.Context, peer, id string) error {
+	admitted := false
+	for _, p := range n.RegionalNodes() {
+		admitted = admitted || p.Node == peer
+	}
+	if !admitted {
+		return errors.New("clear target is not an admitted regional node")
+	}
+	data, err := protocol.EncodeJSON(bootstrapClearRequest{ID: id})
+	if err != nil {
+		return err
+	}
+	response, err := n.conn.RequestWithContext(ctx, protocol.MeshDrainPrefix+n.cfg.region+"."+peer+".clear", data)
+	if err != nil {
+		return err
+	}
+	var reply bootstrapFenceReply
+	if err = protocol.DecodeStrict(response.Data, &reply, maxWire); err != nil {
+		return err
+	}
+	if reply.Error != "" {
+		return errors.New(reply.Error)
+	}
+	return nil
+}
+
 // stageBootstrap uses only the candidate retained by the existing authenticated
 // release handler and the existing service applier. Both regional executors
 // must durably fence this exact image and owner epoch before Swarm sees it.

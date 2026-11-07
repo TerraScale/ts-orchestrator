@@ -287,6 +287,7 @@ func start(cfg config) (_ *Node, err error) {
 		handlers = map[string]nats.MsgHandler{}
 	}
 	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".fence"] = func(m *nats.Msg) { node.handleBootstrapFence(m) }
+	handlers[protocol.MeshDrainPrefix+cfg.region+"."+cfg.server+".clear"] = func(m *nats.Msg) { node.handleBootstrapClear(m) }
 	for subject, handler := range handlers {
 		if _, err := conn.Subscribe(subject, handler); err != nil {
 			node.closeConns()

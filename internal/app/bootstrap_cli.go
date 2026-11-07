@@ -19,7 +19,7 @@ import (
 // RunBootstrapMaintenance arms stopped hosts offline or talks to the admitted
 // executor. It never launches another executor or synthesizes a task spec.
 func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) error {
-	const usage = "usage: ts-orch bootstrap-maintenance <status|arm|arm-stopped|pins-offline|arm-offline|stage|prepull|owner|replace> --state DIR [--root MOUNT] [--manifest FILE | --id ID --source-task TASK --target-image REF@sha256:DIGEST --owner NODE --epoch EPOCH]"
+	const usage = "usage: ts-orch bootstrap-maintenance <status|arm|arm-stopped|pins-offline|arm-offline|stage|prepull|owner|replace|clear> --state DIR [--root MOUNT] [--manifest FILE | --id ID --source-task TASK --target-image REF@sha256:DIGEST --owner NODE --epoch EPOCH]"
 	if len(args) == 0 || args[0] == "--help" {
 		fmt.Fprintln(out, usage)
 		return nil
@@ -39,6 +39,7 @@ func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) 
 	fs.StringVar(&request.TargetImage, "target-image", "", "green candidate immutable image")
 	fs.StringVar(&request.Owner, "owner", "", "retained regional owner member")
 	fs.Int64Var(&request.Epoch, "epoch", 0, "retained regional owner epoch")
+	peer := fs.String("node", "", "clear only: an admitted regional peer whose verified fence to clear")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -88,6 +89,11 @@ func RunBootstrapMaintenance(ctx context.Context, args []string, out io.Writer) 
 		method = http.MethodGet
 	case "arm":
 		data, err = protocol.EncodeJSON(request)
+	case "clear":
+		data, err = protocol.EncodeJSON(struct {
+			ID   string `json:"id"`
+			Node string `json:"node,omitempty"`
+		}{request.ID, *peer})
 	case "stage", "replace", "owner", "prepull":
 		data, err = protocol.EncodeJSON(struct {
 			ID string `json:"id"`

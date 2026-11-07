@@ -95,6 +95,7 @@ func RunSingleHostServing(ctx context.Context, args []string, output io.Writer) 
 			mesh.Run(ctx, *state, meshCluster(plan), func(node *mesh.Node) {
 				handoff.SetTaskDrainer(node.DrainTask)
 				handoff.SetBootstrap(node.Bootstrap)
+				handoff.SetClearPeer(node.ClearPeer)
 				if public != nil {
 					public.SetRegionalNodes(node.RegionalNodes)
 					node.SetRegionalDrainer(public.DrainRegionalNode)
