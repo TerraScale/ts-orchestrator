@@ -29,8 +29,10 @@ def child(phase):
     with tempfile.TemporaryDirectory(prefix='zdt-watch-') as tmp:
         root = Path(tmp)
         tasks = root / 'tasks'; tasks.mkdir(); (tasks / 'namespace').mkdir()
+        engine_dir = tasks / 'namespace/engine-task'; engine_dir.mkdir()
         baseline = root / 'baseline.json'
-        with patch.object(cold, 'TASK_ROOT', tasks), patch.object(cold, 'RUNTIME_SOCKET', str(root / 'missing.sock')), patch.object(cold, 'runtime_tasks', return_value={}):
+        stopped_engine = {'namespace/engine-task': {'pid': 0, 'identity': None, 'status': 'STOPPED', 'engine': True}}
+        with patch.object(cold, 'TASK_ROOT', tasks), patch.object(cold, 'RUNTIME_SOCKET', str(root / 'missing.sock')), patch.object(cold, 'runtime_tasks', return_value=stopped_engine):
             cold.watch_baseline(SimpleNamespace(receipt=str(baseline)))
             args = SimpleNamespace(baseline=str(baseline), receipt=str(root / 'watch.json'), barrier=phase, runtime_down=phase == 'stopped')
             assert cold.engine_args(['/app/terrabase'])
@@ -62,6 +64,19 @@ def child(phase):
                 assert json.loads(Path(args.receipt).read_text())['abort'] is True
             finally:
                 timer.join(); (tasks / 'namespace/new-task').rmdir()
+            # A recreated engine bundle directory (new inode) aborts.
+            def recreate():
+                engine_dir.rmdir(); engine_dir.mkdir()
+            timer = threading.Timer(0.3, recreate); timer.start()
+            args.receipt = str(root / 'engine-dir-recreated.json')
+            try:
+                try: cold.no_reappearance(args)
+                except RuntimeError: pass
+                else: raise AssertionError('recreated engine task directory was accepted')
+                assert json.loads(Path(args.receipt).read_text())['abort'] is True
+            finally:
+                timer.join()
+            cold.watch_baseline(SimpleNamespace(receipt=str(baseline) + '.2')); baseline.unlink(); Path(str(baseline) + '.2').rename(baseline)
             # Read failure is not evidence of zero tasks.
             args.runtime_down = False; args.receipt = str(root / 'unreadable.json')
             with patch.object(cold, 'runtime_tasks', side_effect=RuntimeError('fixture unavailable')):
@@ -71,7 +86,10 @@ def child(phase):
             assert json.loads(Path(args.receipt).read_text())['abort'] is True
             # Run the full positive interval only after failure fixtures work.
             args.runtime_down = phase == 'stopped'; args.receipt = str(root / 'watch.json')
+            # The stopped engine's shim writes into its own bundle (ctime moves): accepted.
+            timer = threading.Timer(0.5, lambda: (engine_dir / 'exit-status').write_text('0')); timer.start()
             before = time.monotonic(); cold.no_reappearance(args); elapsed = time.monotonic() - before
+            timer.join()
             receipt = json.loads(Path(args.receipt).read_text())
             assert 60 <= elapsed < 72 and receipt['abort'] is False and receipt['samples'] >= 2
             assert receipt['elapsedSeconds'] >= 60 and receipt['barrier'] == phase
@@ -80,9 +98,9 @@ def child(phase):
             # Both fleet barriers consume receipt abort/phase, not CLI success.
             paths = []
             for region in ('gru', 'sjc', 'fra'):
-                for node in (1, 2):
-                    p = root / f'{region}-{node}.json'; cold.save(p, {**good, 'host': f'ts-{region}-{node}'})
-                    paths.append(str(p))
+                p = root / f'{region}-1.json'; cold.save(p, {**good, 'host': f'ts-{region}-1'}); paths.append(str(p))
+                if phase == 'stopped':  # workers prove exit by OCI STOPPED receipts
+                    p = root / f'{region}-2.json'; cold.save(p, {'host': f'ts-{region}-2', 'kind': 'oci-stopped', 'abort': False, 'barrier': 'stopped'}); paths.append(str(p))
             check = SimpleNamespace(receipts=paths, barrier=phase)
             with contextlib.redirect_stdout(io.StringIO()): cold.check_watches(check)
             for bad in ({'abort': True}, {'elapsedSeconds': 59.99}, {'barrier': 'restarted' if phase == 'stopped' else 'stopped'}):

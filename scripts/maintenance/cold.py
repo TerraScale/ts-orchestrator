@@ -27,6 +27,9 @@ import urllib.parse
 TABLE = 'ts_zdt_20261105'
 PEERS = ('10.200.165.148', '10.200.101.28', '10.200.109.193',
          '10.200.72.235', '10.200.40.238', '10.200.95.5')
+# Booting workers reach NetBird management on their founder's 443 before they
+# own an overlay address: VCN and public sources of ts-gru-2, ts-sjc-2, ts-fra-2.
+WORKER_SOURCES = ('10.251.0.115', '10.252.0.90', '10.253.0.35', '147.15.5.65', '163.192.24.49', '152.70.187.12')
 KEYS = ('home.00000000000000000000000003', 'home.00000000000000000000000004')
 TASK_ROOT = Path('/run/containerd/io.containerd.runtime.v2.task')
 RUNTIME_SOCKET = '/run/containerd/containerd.sock'
@@ -77,6 +80,7 @@ def gate_rules(operator):
   type filter hook input priority -20; policy accept;
   {family} saddr {addr} tcp dport {{ 80, 443, 5432, 7464, 8081 }} accept
   ip saddr {{ {', '.join(PEERS)} }} tcp dport 8081 accept
+  ip saddr {{ {', '.join(WORKER_SOURCES)} }} tcp dport 443 accept
   tcp dport {{ 80, 443, 5432, 7464, 8081 }} reject with tcp reset
  }}
 }}
@@ -219,8 +223,14 @@ def no_reappearance(args):
             processes = engine_processes()
             require(not processes, 'engine process reappeared')
             directories = task_directories()
-            require(all(baseline['directories'].get(k) == v for k, v in directories.items()),
-                    'new or recreated containerd task directory')
+            engine_dirs = {k for k, task in baseline['tasks'].items() if task['engine']}
+            for k, v in directories.items():
+                old = baseline['directories'].get(k)
+                # A stopped engine's shim records the exit in its own bundle
+                # directory (ctime moves). Same device/inode only; any new or
+                # recreated directory, and any other change, still fails.
+                same = old is not None and (old[:2] == v[:2] if k in engine_dirs else old == v)
+                require(same, 'new or recreated containerd task directory')
             if args.runtime_down:
                 with socket.socket(socket.AF_UNIX) as probe:
                     probe.settimeout(0.2)
@@ -525,6 +535,19 @@ def delete_keys(client, approved, apply, record=lambda key, value: None):
     return receipts
 
 
+def kv_tombstoned(args):
+    # Read-only: both stale keys must read back as DEL tombstones.
+    client = Nats(private(args.token).read_text().strip())
+    try:
+        for key in KEYS:
+            m = client.read(key)
+            require('KV-Operation: DEL' in base64.b64decode(m.get('hdrs', '')).decode(), 'stale key is not tombstoned: ' + key[-2:])
+    finally:
+        client.r.close()
+        client.s.close()
+    print(json.dumps({'tombstoned': list(KEYS)}))
+
+
 def kv(args):
     client = Nats(private(args.token).read_text().strip())
     try:
@@ -788,6 +811,7 @@ def main():
     p = sub.add_parser('row-hash'); p.add_argument('--address', required=True); p.add_argument('--region', required=True); p.add_argument('--catalogs', nargs='+'); p.add_argument('--credential', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=row_hash)
     p = sub.add_parser('compare'); p.add_argument('--before', required=True); p.add_argument('--after', required=True); p.set_defaults(run=logical_compare)
     p = sub.add_parser('kv'); p.add_argument('action', choices=['dry-run', 'delete']); p.add_argument('--token', required=True); p.add_argument('--audit', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=kv)
+    p = sub.add_parser('kv-tombstoned'); p.add_argument('--token', required=True); p.set_defaults(run=kv_tombstoned)
     p = sub.add_parser('oci-stopped'); p.add_argument('--host', required=True); p.add_argument('--region', required=True); p.add_argument('--instance-id', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=oci_stopped)
     p = sub.add_parser('offline-install'); p.add_argument('--root', required=True); p.add_argument('--manifest', required=True); p.add_argument('--binary', required=True); p.add_argument('--binary-sha256', required=True); p.add_argument('--old-sha256', required=True); p.add_argument('--instance-id', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=offline_install)
     p = sub.add_parser('offline-verify'); p.add_argument('--root', required=True); p.add_argument('--install-receipt', required=True); p.add_argument('--receipt', required=True); p.set_defaults(run=offline_verify)
@@ -797,7 +821,7 @@ def main():
         raise TimeoutError('step hard deadline exceeded')
     signal.signal(signal.SIGALRM, expired)
     signal.alarm({'backup': 150, 'row-hash': 120, 'runtime-labels': 30, 'watch-baseline': 30,
-                  'watch': 72, 'watch-check': 15, 'oci-stopped': 40, 'offline-install': 60, 'offline-verify': 30, 'boot-drive': 2050, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
+                  'watch': 72, 'watch-check': 15, 'kv-tombstoned': 20, 'oci-stopped': 40, 'offline-install': 60, 'offline-verify': 30, 'boot-drive': 2050, 'kv': 20, 'stop': 28, 'gate': 15, 'compare': 15}[args.cmd])
     try:
         args.run(args)
     except Exception as error:
