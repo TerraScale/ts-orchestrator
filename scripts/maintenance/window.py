@@ -14,7 +14,7 @@ T = json.loads((X / 'targets.json').read_text())
 REGIONS = ('gru', 'sjc', 'fra')
 TARGET = 'ghcr.io/terrascale/terrabase@sha256:0046773223695fdc4c26043f8fa843d89a394465c8a84c1bc6e0e9fb1b05c001'
 OLD_ORCH = '214b1e2791692bca33e9b6d9b554aab9346aaabba034285606e865d6703c4146'
-NEW_ORCH = '27b17d84026fca3153969bed61fd25cfef68990978488199fc1672308215a3c2'
+NEW_ORCH = 'cfe93f83230b23c16e4fc83477261958ee7c92a469bf0bd65b28aa0e8fcaa60b'
 OWNER = {'gru': ('ts-gru-1', 9), 'sjc': ('ts-sjc-1', 5), 'fra': ('ts-fra-2', 7)}
 OPERATOR = '179.124.206.245'
 PUBLIC = {'gru': '163.176.124.12', 'sjc': '163.192.54.17', 'fra': '130.162.238.198'}
@@ -642,6 +642,49 @@ def stepall():
         log('RESTORED', 'rolled back to the old engines; ingress open')
     finally:
         heart.stop.set()
+
+
+
+# ---------------- Q-CIENABLE (after DONE): deploy-plan §3 ----------------
+def stepcienable():
+    def proof(r):
+        return sh(F(r), f'''python3 - <<'PY2'
+import json, subprocess
+target = "{TARGET}"
+d = json.load(open('/var/lib/ts-orch/mesh/desired.json'))
+entry = d['terrabase']
+signed = entry.get('signed') or {{}}
+# The mesh selects the newer of the operator spec and the signed deployment.
+e = signed if signed.get('generation', 0) > entry['generation'] else entry
+assert e['spec']['image'] == target, 'effective desired terrabase is not the running image'
+ins = json.loads(subprocess.check_output(['/usr/local/bin/terrascale-orchestrator', 'service', 'inspect', 'terrabase'], timeout=15))
+assert ins['spec']['image'] == target, 'swarm spec differs from the running image'
+ps = [l.split() for l in subprocess.check_output(['/usr/local/bin/terrascale-orchestrator', 'service', 'ps', 'terrabase'], timeout=15).decode().splitlines()[1:]]
+running = sorted(l[0] for l in ps if l[2] == 'running' and l[3] == 'running')
+assert len(running) == 2, running
+job = json.loads(subprocess.check_output(['/usr/local/bin/terrascale-orchestrator', 'bootstrap-maintenance', 'status', '--state', '/var/lib/ts-orch'], timeout=15))
+assert job['phase'] == 'verified', job['phase']
+print(json.dumps({{'version': ins['version'], 'generation': e['generation'], 'running': running, 'job': job['id']}}))
+PY2''').strip().splitlines()[-1]
+    first = {r: json.loads(v) for r, v in par(proof, REGIONS).items()}
+    log('cienable', f'fence on: desired == swarm == running {TARGET[-12:]} on 3 regions; jobs verified; {first}')
+    time.sleep(120)  # several 30 s anti-entropy rounds under the fence
+    second = {r: json.loads(v) for r, v in par(proof, REGIONS).items()}
+    if first != second:
+        raise RuntimeError(f'reconciliation changed the service under the fence: {first} -> {second}')
+    log('cienable', 'no-op reconciliation proven: service versions and running tasks unchanged over 120 s; no b443 intent')
+    for repo, wf in (('TerraScale/terrascale', '381575024'), ('TerraScale/terrascale', '392154991'), ('TerraScale/ts-orchestrator', '386958765')):
+        subprocess.run(['gh', 'workflow', 'enable', wf, '--repo', repo], check=True, timeout=60)
+    states = [subprocess.run(['gh', 'api', f'repos/{repo}/actions/workflows/{wf}', '--jq', '.name + "=" + .state'], capture_output=True, text=True, check=True).stdout.strip()
+              for repo, wf in (('TerraScale/terrascale', '381575024'), ('TerraScale/terrascale', '392154991'), ('TerraScale/ts-orchestrator', '386958765'))]
+    log('cienable', f'workflows enabled: {states}')
+    for r in REGIONS:
+        bm(F(r), 'clear', f'zdt-20261107-{F(r)}')
+        sh(F(r), f'/usr/local/bin/terrascale-orchestrator bootstrap-maintenance clear --state /var/lib/ts-orch --id zdt-20261107-{W(r)} --node {W(r)}', 80)
+    left = par(lambda r: sh(F(r), 'ls /var/lib/ts-orch/terrabase-bootstrap/ | grep -E "^(job|ingress|candidate).json$" || true').strip(), REGIONS)
+    if any(left.values()):
+        raise RuntimeError(f'fence files remain: {left}')
+    log('cienable', 'executor fences cleared on 6 nodes (founders locally, workers over the mesh); publication unfenced')
 
 
 if __name__ == '__main__':
