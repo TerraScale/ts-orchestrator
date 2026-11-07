@@ -303,6 +303,63 @@ produces that digest only inside the window:
   push and dispatch alike. No green digest can exist before step 5 without a
   release reaching unfenced b443-era executors.
 
+## Option 2 artifacts — GO-ready for the window (2026-11-07T01:57Z)
+
+The monorepo CI split shipped. A `publication` dispatch input takes `build-only`
+(TerraBase images, no release, `:main` unmoved, own concurrency group) or
+`release-only` with `terrabase_arm64` (no build; the label must equal the main
+revision; one region per call; each region must report `done`). An independent
+review found no blocking issue; its findings are fixed (5b116808c). CI and the
+ts-orch Go checks stay `disabled_manually`; each dispatch was enable→run→disable.
+
+**Pinned artifacts (write into every fence; main must not move until release-only):**
+
+- TerraBase: monorepo main `d79589c6b9f5bfa2f685c56cabe88a16b0c3223b`, build-only run
+  42326073891 (green; release step skipped).
+  - **Target.Image** = `ghcr.io/terrascale/terrabase@sha256:0046773223695fdc4c26043f8fa843d89a394465c8a84c1bc6e0e9fb1b05c001`
+    (arm64 child)
+  - Index: `sha256:e411c1d2083b6f07020cbcbce952d17c9adcdf3b491f3f8586efa2f393e5f156`
+- ts-orch: main `09381c305b0aedcc12cd3a7e046a72d38ce8d58c`, build-only run 42324265546
+  (green; release-push skipped), release `ci-09381c30…-run-42324265546`.
+  - arm64 `27b17d84026fca3153969bed61fd25cfef68990978488199fc1672308215a3c2`
+  - amd64 `e93bf083b4b55e282db6026a279d756bad83af38a58aff8ad4df4ff9b88c801c`
+
+**Fixes required to reach green**, all shipped via ts-ship:
+
+- ts-orch:
+  - SwarmKit provenance digest (8bd5ee901 patch).
+  - GO-2026-6888 / GO-2026-6865 (brotli 1.2.7, compress 1.20.2, including the
+    vendored SwarmKit graph).
+- Monorepo:
+  - Whitespace format fix.
+  - Dashboard runtime base re-pinned for USN-9001-1.
+  - Engine brand removed from the bootstrap harness, which moved to
+    `scripts/terrabase/`.
+- One CI flake re-run (natscell test port collision).
+
+**Window:** 30 min serving + 5 min status. The release-only dispatch adds its CI
+queue and runtime after founder step 5, on top of the ≈t0+1030 s budget, so
+20 + 5 has no margin.
+
+**Read-only audit (01:00Z, sjc-1):**
+
+- Stale keys `home.…03` seq 78672 and `home.…04` seq 78674: both `ts-sjc-2`,
+  epoch 3, home sjc.
+- Owners:
+  - SJC `ts-sjc-1` epoch 5
+  - FRA `ts-fra-2` epoch 7
+  - GRU `ts-gru-1` epoch 9
+
+Revisions and hashes must be re-read at preparation.
+
+**Open items before the announcement:**
+
+- The status-page admin session cookie is a user-only secret; it will be requested
+  via a secret card.
+- **The GitHub token of the MarioGK gh login was printed in a session tool output**
+  when `ts-dev-secret env` was misused on a raw token. Revoke and re-login before
+  the window.
+
 ## Prepare before the announced window
 
 - Freeze production publications for both repos; retain the current disabled
