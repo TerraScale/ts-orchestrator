@@ -360,6 +360,45 @@ Revisions and hashes must be re-read at preparation.
   when `ts-dev-secret env` was misused on a raw token. Revoke and re-login before
   the window.
 
+## Window attempt 2026-11-07 03:01Z — aborted at step 1 (data gate), restored 03:02:48Z
+
+**Preparation (02:48–03:00Z, all PASS):**
+
+- Exact artifacts staged on the founders: orch `27b17d84…`, cold.py `87fe0ce0…`.
+- Founder pins equal the live container labels.
+- Runtime restart labels pass; fresh task baselines captured.
+- Stale-key audit and dry-run pass (seq 78672/78674).
+- Gate `nft --check` passes on all founders.
+- Canary passes: token, writes via gru/sjc/fra, all reads 3/3.
+- Live peer status: gru `ts-gru-1`/9, sjc `ts-sjc-1`/5, fra `ts-fra-2`/7 writer.
+
+**Data-gate design corrections found against production:**
+
+- Cross-region replicas return 404 from the checksum API, so each region uses its
+  home catalog only.
+- Range `hash` values differ between a region's two nodes even for identical rows
+  (incarnation-specific), so equality uses table, rowid bounds, rows and bytes.
+
+**Window:**
+
+- 03:01:10Z: gate closed on 3 founders (negative and positive probes passed).
+- 03:01:38Z: settled.
+- 03:02:38Z: **GATE FAILED.** The GRU founder (owner) and the gru-2 follower differ:
+  - ts-auth (`rate_limits` 284/249, `closure_commits` 41/36, …)
+  - ts-dashboard (accounts 44/39, …)
+  - the 02:53Z canary DB is absent on gru-2.
+- 03:02:48Z: gate removed (founder public ingress was closed ~98 s).
+- 03:02:53Z: canary passes in all regions.
+
+No engine, key, volume or controller was touched.
+
+**Pre-existing blocker:** gru-2 reports `ready: true` as follower at gru-1/9, but
+its ts-auth replica is at revision `…:3:0` while the owner is at `…:556:191`.
+GRU replication to its follower is stalled, so GRU has no current standby. The
+cold plan's follower prime and catch-up would run against a broken replication
+path, so no retry until that is diagnosed and fixed (or GRU's follower is
+explicitly re-seeded).
+
 ## Prepare before the announced window
 
 - Freeze production publications for both repos; retain the current disabled

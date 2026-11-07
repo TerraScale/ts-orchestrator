@@ -1,0 +1,5 @@
+2026-11-07T03:01:10Z 1 gate closed on 3 founders (nft table ts_zdt_20261105 read back)
+2026-11-07T03:01:18Z 1 negative probes reset (3 cross-founder), positive operator probes answered (3 regions)
+2026-11-07T03:01:38Z 1 admitted work settled 20 s
+2026-11-07T03:02:38Z 1 GATE FAILED: RuntimeError: gru: gru founder and worker logical inventories differ
+2026-11-07T03:02:48Z 7 maintenance gate removed on 3 founders
