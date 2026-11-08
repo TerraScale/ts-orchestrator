@@ -13,7 +13,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/alertdelivery"
 	"github.com/TerraScale/ts-orchestrator/internal/app"
-	"github.com/TerraScale/ts-orchestrator/internal/atlas"
 	"github.com/TerraScale/ts-orchestrator/internal/attempt"
 	"github.com/TerraScale/ts-orchestrator/internal/benchmark"
 	bootstrapcli "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli"
@@ -110,7 +109,6 @@ Operator tooling:
   caller-key             Add, activate, retire, recover and list regional caller keys
   vault                  Store secrets in OCI Vault once; render host files from them
   ouroboros              Bootstrap TerraScale's own TerraBase organization, project keys and owner
-  atlas                  Create the Atlas publish key; publish the cell's topology to Atlas once
   runtime-priority       Qualify runtime resources and run bounded pressure
   cluster                Break-glass controller quorum-loss recovery
   disaster-recovery      Prepare cross-region Object Storage and Vault recovery copies
@@ -263,11 +261,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return callerkey.Run(ctx, args[1:], output)
 	case "vault":
 		return vaultsecret.Run(ctx, args[1:], commandio.NewWriter(output))
-	case "atlas":
-		if len(args) > 1 && args[1] == "add-region" {
-			return app.Run(ctx, append([]string{"operator", "atlas-add-region"}, args[2:]...), output)
-		}
-		return atlas.Run(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
 	case "ouroboros":
 		return tsauth.RunOuroboros(ctx, args[1:], commandio.NewWriter(output), ociregion.LoadPlan)
 	case "source-digest":

@@ -10,7 +10,6 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/TerraScale/ts-orchestrator/internal/atlas"
 	"github.com/TerraScale/ts-orchestrator/internal/budget"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/globalcontrol"
@@ -43,10 +42,10 @@ type capacityAllocator struct {
 // other region gets an allocator that never runs; its budget insight reads the
 // capacity document instead.
 func startCapacityAllocator(ctx context.Context, global *globalControl,
-	regions func() []globalview.Region, js jetstream.JetStream, replicas int, atlasConfig func() *atlas.Config,
+	regions func() []globalview.Region, js jetstream.JetStream, replicas int,
 	reservations *capacityReservations,
 ) *capacityAllocator {
-	allocator := &capacityAllocator{global: global, regions: regions, reservations: reservations, alert: newBudgetAlert(js, replicas, atlasConfig)}
+	allocator := &capacityAllocator{global: global, regions: regions, reservations: reservations, alert: newBudgetAlert(js, replicas)}
 	if global == nil || global.writer == nil || global.authority == nil {
 		return allocator
 	}

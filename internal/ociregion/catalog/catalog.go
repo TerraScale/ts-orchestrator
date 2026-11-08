@@ -20,8 +20,6 @@ type Entry struct {
 	// example SJC for us-sanjose-1.
 	OCIRegionKey string
 	// City, Country (ISO 3166-1 alpha-2), Latitude and Longitude are display
-	// metadata for operator views (the dashboard world map) and the cell's
-	// Atlas region entry. They authorize nothing.
 	City                string
 	Country             string
 	Latitude, Longitude float64

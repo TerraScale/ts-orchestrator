@@ -10,7 +10,6 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/TerraScale/ts-orchestrator/internal/atlas"
 	"github.com/TerraScale/ts-orchestrator/internal/budget"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
@@ -48,30 +47,22 @@ type alertRecord struct {
 	At       time.Time `json:"at,omitzero"`
 }
 
-func newBudgetAlert(js jetstream.JetStream, replicas int, atlasConfig func() *atlas.Config) budgetAlert {
+func newBudgetAlert(js jetstream.JetStream, replicas int) budgetAlert {
 	return budgetAlert{js: js, replicas: replicas, status: budget.StatusPage{URL: budget.StatusOperatorURL,
-		Token: statusOperatorToken(atlasConfig), HTTP: &http.Client{Timeout: statusTimeout}}}
+		Token: statusOperatorToken, HTTP: &http.Client{Timeout: statusTimeout}}}
 }
 
-// statusOperatorToken reads the ts-status operator token from the Vault of the atlas publish key.
-// shortcut: assumes the home's Vault is the atlas Vault, upgrade to TS-803 Vault discovery when it lands.
-func statusOperatorToken(atlasConfig func() *atlas.Config) func(context.Context) (string, error) {
-	return func(ctx context.Context) (string, error) {
-		config := atlasConfig()
-		if config == nil {
-			return "", budget.ErrNoStatusToken
-		}
-		ref := config.PublishKey
-		ref.Name = statusTokenSecret
-		value, err := vaultsecret.ReadRefVersioned(ctx, ref)
-		if vaultsecret.Absent(err) {
-			return "", budget.ErrNoStatusToken
-		}
-		if err != nil {
-			return "", err
-		}
-		return value.Value, nil
+const homeVault = "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq"
+
+func statusOperatorToken(ctx context.Context) (string, error) {
+	value, err := vaultsecret.ReadRefVersioned(ctx, vaultsecret.Ref{Vault: homeVault, Name: statusTokenSecret})
+	if vaultsecret.Absent(err) {
+		return "", budget.ErrNoStatusToken
 	}
+	if err != nil {
+		return "", err
+	}
+	return value.Value, nil
 }
 
 // alertBudget opens the ts-status warning when the budget alert turns on and

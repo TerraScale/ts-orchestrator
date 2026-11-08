@@ -161,7 +161,6 @@ type FoundationResult struct {
 }
 
 // FoundationController reconciles approved foundations independently, including
-// GRU before overlay, regional NATS, SwarmKit or Atlas exist.
 type FoundationController struct {
 	Footprint   Footprint
 	Authority   FoundationAuthority
