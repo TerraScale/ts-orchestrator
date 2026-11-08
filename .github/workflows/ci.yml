@@ -110,47 +110,12 @@ jobs:
           git read-tree --empty
           git diff --name-only --diff-filter=ACMR -z "$base" "$SOURCE_SHA" | git update-index --add -z --stdin
           python3 "$scanner/scan.py" --repo ts-orchestrator --root . --output "$RUNNER_TEMP/legacy-hits.md"
-      - name: Verify exact-commit dev-host Fast evidence
-        id: fast-proof
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          # ts-ship skips tests for documentation-only commits, the same set
-          # as its docs() rule. Their evidence is the newest first-parent
-          # ancestor that changed anything else.
-          docs_only() {
-            local path
-            while IFS= read -r path; do
-              case "$path" in
-                .cos/*|AGENTS.md|*/AGENTS.md|CLAUDE.md|*/CLAUDE.md) ;;
-                src/*|tests/*|scripts/*|docs-site/*) return 1 ;;
-                *.md|*.MD|*.mdx|*.rst) ;;
-                docs/*.png|docs/*.jpg|docs/*.jpeg|docs/*.gif|docs/*.webp|docs/*.svg) ;;
-                *) return 1 ;;
-              esac
-            done < <(git diff --no-renames --name-only "$1^" "$1")
-          }
-          evidence=$GITHUB_SHA
-          for _ in $(seq 100); do
-            git rev-parse --verify --quiet "$evidence^" > /dev/null && docs_only "$evidence" || break
-            evidence=$(git rev-parse "$evidence^")
-          done
-          # Public commit metadata requires no additional token permission.
-          if statuses=$(curl --fail --silent --show-error --max-time 15 --retry 2 \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$evidence/statuses?per_page=100") &&
-             jq -e '[.[] | select(.context | startswith("ts-ship/"))] | group_by(.context) | map(max_by(.id)) | length > 0 and all(.[]; .state == "success" and ((.creator.login // "" | ascii_downcase) == "mariogk"))' <<< "$statuses" > /dev/null; then
-            echo 'verified=true' >> "$GITHUB_OUTPUT"
-            echo "Affected Fast passed on a dev host for $evidence; verified ts-ship statuses by MarioGK; later commits to $GITHUB_SHA change documentation only." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'verified=false' >> "$GITHUB_OUTPUT"
-          fi
-      # Compilation has its own clock, as in ts-ship: the 5-minute Fast
+      # Compilation has its own clock: the 5-minute Fast
       # budget measures test execution, not a cold build cache.
       - name: Compile Fast test binaries
-        if: steps.fast-proof.outputs.verified != 'true'
         timeout-minutes: 10
         run: make test-fast-build GO=go
       - name: Qualify this revision with Fast tests
-        if: steps.fast-proof.outputs.verified != 'true'
         timeout-minutes: 5
         run: make test-fast GO=go
       - name: Audit release package graphs
