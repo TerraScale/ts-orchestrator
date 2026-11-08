@@ -38,5 +38,4 @@ tests are silently omitted when listing or execution is invalid.
 `go test ./scripts/ci/fasttest` checks the execution contract using subprocess
 Go fakes, including bounded concurrency, full coverage, examples, fuzz seeds,
 helper dispatch, invalid discovery, missing/duplicate actual executions and
-failure propagation without retries. Full-suite timing is proven separately
-through `ts-ship` on a dev host.
+failure propagation without retries. Full-suite timing is checked by CI.

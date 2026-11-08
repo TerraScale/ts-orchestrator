@@ -6,30 +6,31 @@
 
 - No PRs, reviews or merge queue. Push to `main`. Ignore outside contributors' PRs unless asked.
 - Fetch `origin` first. Branch from fresh `origin/main` in your own worktree or clone, outside shared checkouts. Commit small changes; no AI attribution.
-- Ship with `ts-ship` (fetch, rebase, affected Fast suites on a dev host, push `main`, retry on races). Docs-only, `.cos`-only and `AGENTS.md`-only changes skip tests. Never force-push or delete `main`.
-- CI runs on every main push; deploy only green main. If your push makes main red, fix or revert within about 30 minutes. For a red main you did not cause, wait for its owner's fix and rebase.
-- Heavy builds, tests, benchmarks and stress repeats use `ts-heavy-any`, never GitHub Actions. Use delta, mariogk-dev or beta (ts-heavy-any balances them); never run anything on or SSH to mariogk-desktop.
-- Fast tests run fully parallel. Each area's Fast suite finishes in under 30 s wall time; each single test finishes in under 10 s. A Fast suite over 30 s or a test over 10 s is a bug.
-- Fast covers only the happy path and critical paths. Slow keeps only heavy critical tests; delete everything else. Delete at least 80% of tests against the 2026-11-04 policy baseline.
-- New features add at most one happy-path and one critical-failure test.
+- Before pushing, build or type-check only the project you changed. Don't run test suites locally: GitHub CI runs them on every push to `main`. Rebase and push again if the push races. Never force-push or delete `main`.
+- Deploy only green main. If your push makes main red, fix or revert within about 30 minutes. For a red main you did not cause, wait for its owner's fix and rebase.
+- Never run anything on or SSH to mariogk-desktop.
+- StorageFormat.cs bumps and production resets need the user's approval; otherwise put `Needs format bump` in the commit message.
+
+### Tests
+
+- Keep tests few. Fast covers only the happy path and critical paths. Slow keeps only heavy critical tests; delete everything else.
+- A new feature adds at most one happy-path and one critical-failure test. Refactors, renames, docs and config changes add none. Deleting low-value tests is welcome.
+- Fast tests run fully parallel. Each single test finishes in under 10 s, each area's Fast suite in under 30 s, and every CI test job in under 5 minutes. Anything slower is a bug.
 - Prove flaky fixes with 5 repeats; benchmarks with 3 measured repeats in `benchmark/bench/`. For page changes, report before/after screenshots.
-- StorageFormat.cs bumps and production resets belong to the lane in `.cos/lanes.md`; other lanes put `Needs format bump` in the commit message.
 
-### Agents and decisions
+### Decisions
 
-- Use gpt-6.1-sol (Codex, high effort; low for work under 10 minutes) for most work. Use claude-haiku-5-5 for bounded work of at most 20 minutes; never Haiku 4.5 or the `haiku` alias. Reserve claude-opus-5-5 for engine/replication, auth/security design, billing correctness, production infrastructure or work Sol already failed.
 - Decide and continue. Record `DECISION: <choice>. Reason: <why>` in commits.
-- Workers never ask the user. Send the parent `NEED Q-<ID>: <question> | options: 1) <recommended> 2) ... | DECIDED: 1, continuing`. Only the COS asks the user.
-- Block only for a user-only secret/login, new paid capacity, or deleting serving infrastructure or unrecoverable data. Start login device flows yourself, show URL/code, then finish after the user enters them.
+- Block only for a user-only secret/login, new paid capacity, or deleting serving infrastructure or unrecoverable data.
 
 ### Secrets and hard gates
 
-- Runtime secrets: OCI Vault in gru via instance principal. CI secrets: GitHub Actions. Dev secrets: `ts-dev-secret get <name> | <consumer>` or `ts-dev-secret env <name> -- <cmd>`.
+- Runtime secrets: OCI Vault in gru via instance principal. CI secrets: GitHub Actions. Ask the user for dev secrets.
 - Never expose secret values in chat, arguments, history, logs, git or commits. Use stdin or a 0600 file. Credential installs are one-command handoffs the user runs.
 - Ask first before new paid capacity, security permissions or credentials.
 - ts-auth and ts-dashboard store data in TerraBase through ts-dotnet; keep the SDK current with TerraBase's API.
 - Outside the monorepo, never download or run TerraBase binaries in tests, CI or helpers; use HTTP fakes or contract fixtures. Live ts-status API monitoring is allowed. Never publish TerraBase binaries.
-- Use GitHub and `gh`; no polling loops. Never revive ts-reviewer or ts-cos.
+- Use GitHub and `gh`; no polling loops.
 
 <!-- shared-rules:end -->
 
@@ -43,5 +44,5 @@
 - CI rejects switch-style configuration; unavoidable third-party names need a narrow allowance and one-line reason.
 - Entry point: `cmd/terrascale-orchestrator`; features: `internal/`; deployment assets: `deploy/`; runbooks: `docs/`; vendored NATS: `third_party/nats-server` (go.mod replacement).
 - Build: `make build` produces `dist/ts-orch`; `make release-linux` builds Linux amd64/arm64. `make release-check` validates release binaries.
-- Fast pre-push: `make test-fast` (`go test -short ./...`). Full tests: `make test`; race/checks: `make verify` or `make ci-check`. `make generate-check` checks committed templ output; `make generate` regenerates it with the pinned Go tool. Use Makefile toolchain selection through mise when available. This area's Fast suite must finish in under 30 s wall time; each single test must finish in under 10 s.
+- Fast: `make test-fast` (`go test -short ./...`). Full tests: `make test`; race/checks: `make verify` or `make ci-check`. `make generate-check` checks committed templ output; `make generate` regenerates it with the pinned Go tool. Use Makefile toolchain selection through mise when available. This area's Fast suite must finish in under 30 s wall time; each single test must finish in under 10 s.
 - `make nats-identity-check` runs the separate vendored NATS regression. `make fixturetest-check` validates the fixturetest-only build. Use HTTP fakes and contract fixtures for TerraBase boundaries, per workspace rules.

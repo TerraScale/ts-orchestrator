@@ -97,7 +97,7 @@ Repeat after any additional stop/restart; use the current transaction's receipts
 never a prior rehearsal's files. These observations certify only the watched
 interval, so retain the runtime/executor barriers through the subsequent steps.
 
-`qualify-watch.py`, Slow only through ts-heavy-any, uses private PID/mount
+`qualify-watch.py`, Slow only on a dev host, uses private PID/mount
 namespaces, real proc scans and task directories, plus runtime API contract
 fixtures. It exercises both full 60-second barriers five times and checks abort
 receipts for real process reappearance, task creation, unreadable API and bad fleet
@@ -249,7 +249,7 @@ checked clean). Boot-drive ordering: `python3 -I qualify-boot-drive.py`.
 
 ## Local qualification
 
-`ts-heavy-any python3 scripts/maintenance/qualify.py --repo ts-orchestrator --branch <base>`
+`python3 scripts/maintenance/qualify.py` on a dev host, from a checkout of `<base>`
 with the exact candidate overlay. Two critical integration cases cover the real
 nft apply/undo in an isolated network namespace, actual TERM→KILL/physical exit,
 full backup/encrypt/readback, real dev JetStream conditional DEL, repeated checksum
