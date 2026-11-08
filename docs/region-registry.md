@@ -40,7 +40,7 @@ other region. Nothing below lists regions; everything reads the registry.
 
 The roster is the only list of regions. Links, `/v1/regions/<cell>`, the
 dashboard, the planner, the home's mirror consumers, the link probe and
-deploy targets (through Atlas `/v1/discovery`) all derive from it.
+deploy targets (each cell's head-bucket release status) all derive from it.
 
 ## Cross-region subjects
 

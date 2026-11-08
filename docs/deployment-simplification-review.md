@@ -44,12 +44,12 @@ an otherwise valid release.
 
 ### 2. Deployment discovery requires an online serving directory
 
-**What this is:** [discovery.go](../internal/release/cli/discovery.go#L14) reads
-the fixed [Atlas endpoint](../internal/atlas/discovery.go#L19); stale or empty
-membership is refused. Regional scope also requires an existing status object.
+**What this is:** [discovery.go](../internal/release/cli/discovery.go#L14) now
+reads each founded cell's head-bucket `releases/orchestrator/status.json`; stale
+or unreadable membership fails the whole command.
 
-**Problem:** Atlas unavailability stops discovery for all regions. A new region
-without serving/status records cannot enter through this application path.
+**Problem:** (historical) the fixed Atlas endpoint's unavailability stopped
+discovery for all regions.
 
 **Fix:** Use authenticated durable foundation/admitted membership for lifecycle
 authority, with explicit partition and freshness rules. Separate provisioning
