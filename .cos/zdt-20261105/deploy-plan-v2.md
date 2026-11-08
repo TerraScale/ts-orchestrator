@@ -1147,3 +1147,45 @@ are not executable: no maintenance publication, stop, key deletion or rollout.
 The temporary access must also support per-node byte inventory, backup transport,
 and the two process-watch receipts; derive-only units do not grant execution.
 Proof: `qualification/v4-installed-control.md` and its exact-source fixture/logs.
+
+## 2026-11-08 prep: gate STOP, window moved to 2026-11-09 02:50Z
+
+- 02:20Z: froze both repos. The frozen monorepo head 2fcfd9629 is 43 commits past
+  d79589c6. That range changed the engine runtime (ReadyToRun, HomePush crypto/region
+  race, shape chunk clock, shredded sweep, HomePush key store) and
+  `scripts/ci/image-payloads.sh`, and the head had no TerraBase proofs. Per the
+  gate, the window STOPPED. Both repos were unfrozen at 02:21Z.
+- The regional cold-window drills (real b443 fixture, Regional Slow ×5) are rerun
+  at 2fcfd9629. On a pass, `requalified-head.txt` records it. The next prep reruns
+  the drills only if engine inputs changed after the requalified head.
+
+**CI hold tightened (COS 02:30Z).** A failed ts-auth push release dispatches a
+default main run, and any manual default dispatch selects TerraBase. The
+da4a08bcb hold skipped TerraBase only on push runs.
+
+DECISION: e97a5727e skips the TerraBase `Release to every region` step on every
+push and every default dispatch. TerraBase then releases only through the explicit
+release-only job.
+Reason: close the gap until cienable. `holdrevert` reverts both commits.
+
+**Freeze switched to a GitHub ruleset (COS, 2026-11-08).** ts-ship and the
+other ts-* tools are being retired.
+
+- `window.py freeze` creates one ruleset per repo (`freeze main`, rule `update`
+  on the default branch) and records the ids in `freeze.json`; `window.py
+  unfreeze` deletes them.
+- Proven on ts-orchestrator: ruleset 26783461 was created at 02:35:24Z and
+  deleted at 02:35:27Z.
+- `window.py holdrevert` unfreezes terrascale, reverts the hold on fresh
+  origin/main, runs `make terrabase-test-fast`, pushes `HEAD:main` (rebasing on a
+  race), then refreezes.
+- `requal.sh SHA` replaces ts-heavy-any for the drills. It runs in a dedicated
+  clone on mariogk-dev over SSH.
+- The driver never used ts-dev-secret.
+- **Remaining ts-ship dependency:** monorepo CI's `qualified-build.py verify`
+  needs trusted `ci-build/<area>` and `ts-ship/<area>` commit statuses at the
+  build-only head. Only ts-ship posts `ts-ship/<area>`.
+  DECISION: until monorepo CI changes that check, the prep runs `make
+  terrabase-test-fast` on mariogk-dev and posts the `ts-ship/terrabase` status
+  itself (same identity and budget text). `ci-build/terrabase` comes from
+  `qualified-build.py prepare`.
