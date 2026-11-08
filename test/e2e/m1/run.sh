@@ -33,7 +33,6 @@ report() {
 		printf '%s\n' "${timings[@]}"
 	} >>"$summary"
 }
-trap report EXIT
 
 # wait_for <seconds> <command...>: poll once a second until the command succeeds.
 wait_for() {
@@ -51,9 +50,41 @@ dump() {
 	echo "::group::diagnostics"
 	orch service ls || true
 	sudo journalctl -u ts-orch --no-pager -n 200 || true
+	sudo cat "$work/ntp-responder.log" 2>/dev/null || true
 	echo "::endgroup::"
 }
 trap dump ERR
+
+# host-runtime.sh disciplines chrony against OCI's metadata NTP
+# (169.254.169.254) only; nothing answers there on a GitHub runner. Put the
+# address on a dummy interface and serve NTP from a stdlib Python responder,
+# so the unmodified clock gate has a reachable source: the runner's own
+# platform clock. This is CI-only; production hosts use the real OCI server.
+ntp_pid=""
+stop_ntp() { [[ -n $ntp_pid ]] && sudo kill "$ntp_pid" 2>/dev/null || true; }
+trap 'stop_ntp; report' EXIT
+begin "169.254.169.254 NTP stand-in for the clock gate"
+sudo systemctl stop chrony chronyd 2>/dev/null || true # free UDP :123 for the responder
+if ! ip -o -4 addr show | grep -q 'inet 169\.254\.169\.254/'; then
+	if sudo ip link add ntp-ci type dummy 2>/dev/null; then
+		sudo ip addr add 169.254.169.254/32 dev ntp-ci
+		sudo ip link set ntp-ci up
+	else # no dummy module on this kernel: the address works on loopback too
+		sudo ip addr add 169.254.169.254/32 dev lo
+	fi
+fi
+sudo python3 "$here/ntp_responder.py" >"$work/ntp-responder.log" 2>&1 &
+ntp_pid=$!
+# ntp_up: one mode-3 packet out, one 48-byte mode-4 packet back.
+ntp_up() {
+	python3 -c 'import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(2)
+s.sendto(bytes([0x23]) + bytes(47), ("169.254.169.254", 123))
+r = s.recvfrom(64)[0]
+sys.exit(0 if len(r) == 48 and r[0] & 7 == 4 else 1)'
+}
+wait_for 10 ntp_up
+end "NTP stand-in answers on 169.254.169.254"
 
 begin "local CA, ssh and https binary server"
 cd "$work"
