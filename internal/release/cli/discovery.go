@@ -4,15 +4,78 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
+	"slices"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/atlas"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
+const membershipTimeout = 10 * time.Second
+
+// discoverServingCells reads the serving fleet from the orchestrator's own
+// controller membership: each founded cell's regional authority leader
+// refreshes its head bucket's releases/orchestrator/status.json, so a
+// readable, current status proves the cell is a serving member. A cell
+// whose status object is authoritatively absent has not deployed a
+// release yet; any failed, unreadable or stale probe fails the whole
+// command instead of silently narrowing the fleet.
 func discoverServingCells(ctx context.Context) ([]string, error) {
-	return atlas.DiscoverServingCells(ctx, http.DefaultClient)
+	return servingCells(ctx, membershipLocation, time.Now().UTC())
+}
+
+func servingCells(ctx context.Context, open func(context.Context, string) (releasechannel.Location, error), now time.Time) ([]string, error) {
+	cells := make([]string, 0, catalog.MaxRegions)
+	for _, entry := range catalog.Founded() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, membershipTimeout)
+		location, err := open(probeCtx, entry.Cell)
+		found := false
+		if err == nil {
+			var status releasechannel.Status
+			status, found, err = releasechannel.ReadStatus(probeCtx, location)
+			if err == nil && found {
+				err = status.ValidateDeploymentScope(entry.Cell, now)
+			}
+		}
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("discover %s membership: %w", entry.Cell, err)
+		}
+		if found {
+			cells = append(cells, entry.Cell)
+		}
+	}
+	if len(cells) == 0 {
+		return nil, errors.New("serving-region discovery found no region reporting its own release status")
+	}
+	return cells, nil
+}
+
+// membershipLocation opens cell's head bucket with this operator's OCI
+// credentials, the same per-cell read the deployment scope below performs.
+func membershipLocation(ctx context.Context, cell string) (releasechannel.Location, error) {
+	bucket, err := releasechannel.BucketName(cell)
+	if err != nil {
+		return releasechannel.Location{}, err
+	}
+	factory, err := ociclient.OperatorConfig(catalog.OCIRegion(cell))
+	if err != nil {
+		return releasechannel.Location{}, err
+	}
+	client, err := factory.ObjectStorage()
+	if err != nil {
+		return releasechannel.Location{}, err
+	}
+	response, err := client.GetNamespace(ctx, objectstorage.GetNamespaceRequest{})
+	if err != nil || response.Value == nil || *response.Value == "" {
+		return releasechannel.Location{}, fmt.Errorf("read the Object Storage namespace of %s: %w", cell, err)
+	}
+	return releasechannel.Location{Client: client, Namespace: *response.Value, Bucket: bucket}, nil
 }
 
 func deploymentCells(ctx context.Context, cells []string, discover func(context.Context) ([]string, error)) ([]string, error) {
@@ -36,6 +99,7 @@ func deploymentCells(ctx context.Context, cells []string, discover func(context.
 		}
 		seen[cell] = true
 	}
+	slices.Sort(cells)
 	return cells, nil
 }
 

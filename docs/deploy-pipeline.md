@@ -36,11 +36,13 @@ concurrently. A signing, storage, publication or rollout failure
 in one region does not interrupt another region's healthy rollout; the command
 waits for all started regions and returns failure if any failed.
 
-Serving membership comes from the orchestrator's signed cell-spec topology,
-published at Atlas `/v1/discovery`. Region creation admits its Atlas entry;
-future supported regions join delivery without edits to service repositories.
-Routing health never removes an admitted region from deployment. The CLI
-rejects empty, unreadable, duplicate, unsupported or stale membership, rather
+Serving membership comes from the orchestrator's own controller membership:
+each founded cell's regional authority leader refreshes its head bucket's
+`releases/orchestrator/status.json`, and discovery reads that document with
+the same per-cell operator credentials the deploy path uses. A cell whose
+status object is authoritatively absent has not deployed a release; routing
+health never removes a serving region from deployment. The CLI rejects
+empty, unreadable, duplicate, unsupported or stale membership, rather
 than treating the entire supported-region catalog as a serving fleet.
 `release deploy`, `release service-deploy` and `release fleet-status` omit
 `--cell` to discover every serving cell. Native deploy commands omit

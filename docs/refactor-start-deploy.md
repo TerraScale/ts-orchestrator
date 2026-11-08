@@ -20,7 +20,8 @@ fails before the script reads any OCI credential input.
 Admission fetches the exact `ci-SHA-run-ID` release's `qualification.json`, both
 Linux binaries, and retained signed regional production records. The real
 `release verify-production` command inspects the binary build metadata and
-hashes, discovers current serving membership through Atlas, and checks every
+hashes, discovers current serving membership through each cell's head-bucket
+release status, and checks every
 region independently. A signed record binds the source revision, binary digest,
 qualification-manifest digest, region, production environment,
 `swarmkit-containerd` runtime, architecture and `orchestrator` role. It requires

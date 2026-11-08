@@ -51,8 +51,8 @@ readiness retain their existing meaning; cross-region failure does not withdraw
 a regional load balancer backend.
 
 A 200 is evidence availability, not healthy connectivity. A consumer must check
-every expected controller and every admitted destination discovered through
-Atlas, retaining each original probe time. Repeated HTTP polls cannot renew old
+every expected controller and every admitted destination on the roster,
+retaining each original probe time. Repeated HTTP polls cannot renew old
 evidence. Probe times record when WAN was assessed; original WAN scrape times
 are not exposed by this endpoint. Missing controllers, absent probes and
 observations older than two minutes are monitoring loss; `not_linked`, unknown

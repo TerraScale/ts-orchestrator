@@ -103,7 +103,8 @@ rounds): all three regions reported TerraBase `0.1.0` with matching
 commit, and the newest ts-orch push had reached every region within
 ~11 s of serving. Atlas discovery (`atlas.terrascale.tech`) answered
 NXDOMAIN during the audit, so `ts-orch release fleet-status` could not
-enumerate regions; it is not required for the per-endpoint checks above.
+enumerate regions then; discovery now reads each cell's head-bucket release
+status instead (Nov 2026).
 
 ## Offline checks
 

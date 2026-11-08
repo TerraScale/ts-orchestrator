@@ -26,7 +26,7 @@ the delegated scope, signed receipts and binary digests locally, and enforce
 channel ordering and rollback rules.
 
 Application takes regional targets from the signed bundle directories; applying
-an existing release needs no live Atlas or CI discovery. It verifies local trust
+an existing release needs no live fleet discovery. It verifies local trust
 and shared binary metadata before any remote write, inspecting each digest once.
 Regional scope preflight, transfer, channel admission and observation then run
 independently with at most four regions active. An unreachable or invalid region
