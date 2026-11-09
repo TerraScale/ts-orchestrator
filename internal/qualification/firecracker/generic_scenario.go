@@ -410,7 +410,7 @@ func (l *Lab) CaptureClockDiagnostics(name string) {
 		snapshot["host_clock_captured_at"] = l.Now()
 		if l.ChronyControlDir != "" {
 			for _, suffix := range []string{"sources", "tracking", "clients"} {
-				record("chrony_"+suffix, []string{"sudo", "-n", Chronyc, "-n", "-h", filepath.Join(l.ChronyControlDir, "chronyd.sock"), suffix}, "")
+				record("chrony_"+suffix, []string{"sudo", "-n", l.Options.Chronyc, "-n", "-h", filepath.Join(l.ChronyControlDir, "chronyd.sock"), suffix}, "")
 			}
 		}
 		b, e := os.ReadFile(filepath.Join(l.Stage, "chrony.conf"))

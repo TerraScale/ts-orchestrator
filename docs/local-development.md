@@ -84,17 +84,20 @@ read-only prerequisite check, then start the live qualification from the
 repository root:
 
 ```bash
-ts-orch qualification firecracker generic check \
-  --kernel /tmp/vm-inputs/vmlinux \
-  --rootfs /tmp/vm-inputs/rootfs.ext4
-ts-orch qualification firecracker generic run \
-  --kernel /tmp/vm-inputs/vmlinux \
-  --rootfs /tmp/vm-inputs/rootfs.ext4
+scripts/qualification/fetch-firecracker-inputs.sh
+ts-orch qualification firecracker generic check
+ts-orch qualification firecracker generic run
 ```
 
-The harness requires Firecracker, `/dev/kvm`, `/dev/net/tun`, the pinned kernel
-at `/tmp/vm-inputs/vmlinux`, and the pinned base filesystem at
-`/tmp/vm-inputs/rootfs.ext4`. `check` creates no VMs or network devices. `run`
+The script downloads the pinned Linux 6.1.186 kernel from the Firecracker CI
+bucket and derives the Ubuntu 24.04 (release 20260911) root filesystem from the
+cloud image's root partition, verifies both against `KernelSHA`/`RootfsSHA` in
+`internal/qualification/firecracker/generic.go`, and installs them read-only
+under `${XDG_CACHE_HOME:-~/.cache}/ts-orch/firecracker-qualification`, which
+`check` and `run` use by default (`--kernel`/`--rootfs` override). It needs
+`curl`, `qemu-img` and `sfdisk`; reruns skip verified inputs. The harness
+requires Firecracker, `/dev/kvm`, `/dev/net/tun`, and `chronyd` and `chronyc`
+on `PATH`. `check` creates no VMs or network devices. `run`
 needs passwordless `sudo` for the documented network, mount, and service
 setup commands. It builds the current Linux amd64 binary, verifies the Go
 source stayed unchanged during the build, and creates fresh working copies of

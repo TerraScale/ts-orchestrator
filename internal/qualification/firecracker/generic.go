@@ -20,21 +20,17 @@ import (
 
 const (
 	KernelSHA                 = "586a02db8ea1fd331d45efa6ebf502fff21ceddfedf010ef70ba389b8e095523"
-	RootfsSHA                 = "a6c1cb9c712d8bb9e67b05dd8f46b7e88827250b445e76015e6bb536a15e1af6"
+	RootfsSHA                 = "202b09669e1f31ed3d5f0e32e2ffcc5b476507ab737e608593d1f6f3898fcf04"
 	PreAcceptanceFenced       = "authority epoch was fenced before acceptance"
 	ClockReady                = "/run/ts-orch-clock-ready"
 	ClockBoundNS        int64 = 1_000_000_000
-	Chronyd                   = "/nix/store/zinbanwvmabvr9lk7x5qaac0al3v18ml-chrony-4.8/bin/chronyd"
-	Chronyc                   = "/nix/store/zinbanwvmabvr9lk7x5qaac0al3v18ml-chrony-4.8/bin/chronyc"
-	ChronydSHA                = "bcfa87ddfc6b61c079ed764b541c82de7e1f279c56ad50b6757c679d6c3b05dd"
-	ChronycSHA                = "10fbfd50c1efe52f56e2a1f1643ab8855b41a6954b5f93242bba1404d8fc7875"
 )
 
 var Controllers = []string{"c1", "c2", "c3"}
 var Guests = []string{"c1", "c2", "c3", "host"}
 var ConfigDigest = hashBytes([]byte(`{"args":[],"env":{}}`))
 
-type GenericOptions struct{ Kernel, Rootfs, Firecracker, RunDir, SourceRoot string }
+type GenericOptions struct{ Kernel, Rootfs, Firecracker, Chronyd, Chronyc, RunDir, SourceRoot string }
 type Lab struct {
 	Ctx                                                                                                                                                 context.Context
 	Options                                                                                                                                             GenericOptions
@@ -564,7 +560,7 @@ func (l *Lab) Deploy(record Object, generation int, name, operation string) erro
 	return errors.New("no deployment attempt accepted")
 }
 func GenericPreflight(o GenericOptions) error {
-	for _, x := range [][2]string{{o.Kernel, KernelSHA}, {o.Rootfs, RootfsSHA}, {Chronyd, ChronydSHA}, {Chronyc, ChronycSHA}} {
+	for _, x := range [][2]string{{o.Kernel, KernelSHA}, {o.Rootfs, RootfsSHA}} {
 		h, e := Digest(x[0])
 		if e != nil || h != x[1] {
 			return fmt.Errorf("asset missing or SHA-256 mismatch: %s", x[0])
@@ -574,6 +570,12 @@ func GenericPreflight(o GenericOptions) error {
 		if _, e := exec.LookPath(name); e != nil {
 			return fmt.Errorf("required command missing: %s", name)
 		}
+	}
+	if o.Chronyd == "" {
+		return errors.New("required command missing: chronyd")
+	}
+	if o.Chronyc == "" {
+		return errors.New("required command missing: chronyc")
 	}
 	if s, e := os.Stat(o.Firecracker); e != nil || !s.Mode().IsRegular() {
 		return fmt.Errorf("Firecracker executable missing: %s", o.Firecracker)
@@ -596,16 +598,22 @@ func RunGeneric(ctx context.Context, args []string, out, errout io.Writer) error
 	f := flag.NewFlagSet("qualification firecracker generic", flag.ContinueOnError)
 	f.SetOutput(errout)
 	var o GenericOptions
-	f.StringVar(&o.Kernel, "kernel", "", "pinned guest kernel")
-	f.StringVar(&o.Rootfs, "rootfs", "", "pinned guest ext4 image")
+	cache, e := os.UserCacheDir()
+	if e != nil {
+		return e
+	}
+	inputs := filepath.Join(cache, "ts-orch", "firecracker-qualification")
+	f.StringVar(&o.Kernel, "kernel", filepath.Join(inputs, "vmlinux-6.1.186"), "pinned guest kernel")
+	f.StringVar(&o.Rootfs, "rootfs", filepath.Join(inputs, "rootfs-noble-20260911.ext4"), "pinned guest ext4 image")
 	fc, _ := exec.LookPath("firecracker")
+	o.Chronyd, _ = exec.LookPath("chronyd")
+	o.Chronyc, _ = exec.LookPath("chronyc")
 	f.StringVar(&o.Firecracker, "firecracker", fc, "Firecracker executable")
 	f.StringVar(&o.RunDir, "run-dir", "", "new private evidence directory")
 	f.StringVar(&o.SourceRoot, "source-root", ".", "repository source root")
-	if e := f.Parse(args[1:]); e != nil {
+	if e = f.Parse(args[1:]); e != nil {
 		return e
 	}
-	var e error
 	o.SourceRoot, e = filepath.Abs(o.SourceRoot)
 	if e != nil {
 		return e
