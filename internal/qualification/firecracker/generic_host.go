@@ -411,14 +411,14 @@ func (l *Lab) StartChrony() error {
 	if e = os.WriteFile(config, []byte(text), 0o600); e != nil {
 		return e
 	}
-	if _, e = l.cmd([]string{Chronyd, "-p", "-f", config}, CommandOptions{}); e != nil {
+	if _, e = l.cmd([]string{l.Options.Chronyd, "-p", "-f", config}, CommandOptions{}); e != nil {
 		return e
 	}
 	log, e := os.OpenFile(filepath.Join(l.Logs, "chronyd.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if e != nil {
 		return e
 	}
-	l.ChronyProcess, e = l.startProcess([]string{"sudo", "-n", Chronyd, "-x", "-d", "-4", "-f", config}, l.Options.SourceRoot, log)
+	l.ChronyProcess, e = l.startProcess([]string{"sudo", "-n", l.Options.Chronyd, "-x", "-d", "-4", "-f", config}, l.Options.SourceRoot, log)
 	if e != nil {
 		log.Close()
 		return e
@@ -432,7 +432,7 @@ func (l *Lab) StartChrony() error {
 		if exited {
 			return nil, errors.New("private chronyd exited")
 		}
-		r, e := l.cmd([]string{"sudo", "-n", Chronyc, "-n", "-h", socket, "sources"}, CommandOptions{Timeout: 10 * time.Second, AllowFailure: true})
+		r, e := l.cmd([]string{"sudo", "-n", l.Options.Chronyc, "-n", "-h", socket, "sources"}, CommandOptions{Timeout: 10 * time.Second, AllowFailure: true})
 		if e != nil {
 			return nil, e
 		}
@@ -451,7 +451,7 @@ func (l *Lab) StartChrony() error {
 	if e != nil {
 		return e
 	}
-	h, _ := Digest(Chronyd)
+	h, _ := Digest(l.Options.Chronyd)
 	l.Note("chrony_ready", Object{"pid": l.ChronyProcess.PID(), "upstream": "selected_remote", "bind_address": l.gateway(), "chronyd_sha256": h})
 	return nil
 }

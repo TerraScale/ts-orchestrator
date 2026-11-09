@@ -77,18 +77,21 @@ claim the member is serving. The host still requires natural Firecracker exit
 Run from the repository root on the authorized local lab host:
 
 ```sh
-ts-orch qualification firecracker generic check --kernel /path/to/vmlinux-6.1.186 --rootfs /path/to/rootfs-noble-20260911.ext4
-ts-orch qualification firecracker generic run --kernel /path/to/vmlinux-6.1.186 --rootfs /path/to/rootfs-noble-20260911.ext4
+scripts/qualification/fetch-firecracker-inputs.sh
+ts-orch qualification firecracker generic check
+ts-orch qualification firecracker generic run
 ```
 
 `check` verifies the exact read-only kernel and Ubuntu ext4 image passed with
 `--kernel` and `--rootfs` against the SHA-256 values pinned in
-`internal/qualification/firecracker/generic.go`.
+`internal/qualification/firecracker/generic.go`; both default to the inputs
+installed by `scripts/qualification/fetch-firecracker-inputs.sh`.
 It also checks Firecracker,
 `/dev/kvm`, `/dev/net/tun`, and required host commands. It creates no VMs or
 network devices. `run` needs passwordless `sudo` for `ip`, `mount`, `umount`,
-`install`, `systemctl`, `nft`, `ss`, `mktemp`, `rm`, `rmdir`, and the pinned
-Chrony 4.8 `chronyd` and `chronyc` binaries pinned in the Go driver. The host
+`install`, `systemctl`, `nft`, `ss`, `mktemp`, `rm`, `rmdir`, and the
+`chronyd` and `chronyc` found on `PATH` (their SHA-256 is recorded in the run
+evidence). The host
 also needs `openssl`. Options
 `--firecracker` and `--run-dir` select an alternate Firecracker binary or a new
 evidence directory. The default evidence directory is temporary under `/tmp`;
@@ -280,7 +283,8 @@ root filesystem SHA-256
 current harness defaults to Linux 6.1.186 with kernel SHA-256
 `586a02db8ea1fd331d45efa6ebf502fff21ceddfedf010ef70ba389b8e095523` and Ubuntu
 root filesystem SHA-256
-`a6c1cb9c712d8bb9e67b05dd8f46b7e88827250b445e76015e6bb536a15e1af6`; the older
+`202b09669e1f31ed3d5f0e32e2ffcc5b476507ab737e608593d1f6f3898fcf04`, the root
+partition of the noble release-20260911 server cloud image; the older
 qualification results below do not apply to those newer inputs. On the 6.1.155
 kernel, the reproduced `cgroup.kill` condition involved `clone3(CLONE_INTO_CGROUP)`
 reading the creator cgroup's `kill_seq` before it resolves the destination.
