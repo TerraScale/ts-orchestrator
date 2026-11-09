@@ -85,22 +85,28 @@ func newPeers(cfg config) (*peers, error) {
 	p := &peers{root: cfg.peersDir, region: cfg.region, node: cfg.server, address: cfg.address, worker: cfg.applier == nil,
 		registry: filepath.Join(cfg.dir, "admitted-peers.json"), admitted: map[string]peer{}, regions: append([]string{cfg.region}, slices.Sorted(maps.Keys(cfg.seeds))...)}
 	data, err := os.ReadFile(p.registry)
-	if errors.Is(err, os.ErrNotExist) {
-		return p, nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	var admitted []topologyPeer
-	if err := protocol.DecodeStrict(data, &admitted, maxWire); err != nil {
-		return nil, err
-	}
-	for _, at := range admitted {
-		if _, duplicate := p.admitted[at.Region]; duplicate || !validPeer(at.Region, peer{at.Node, at.Address}) {
-			return nil, errors.New("invalid admitted peer registry")
+	if err == nil {
+		var admitted []topologyPeer
+		if err := protocol.DecodeStrict(data, &admitted, maxWire); err != nil {
+			return nil, err
 		}
-		p.admitted[at.Region] = peer{at.Node, at.Address}
-		p.regions = append(p.regions, at.Region)
+		for _, at := range admitted {
+			if _, duplicate := p.admitted[at.Region]; duplicate || !validPeer(at.Region, peer{at.Node, at.Address}) {
+				return nil, errors.New("invalid admitted peer registry")
+			}
+			p.admitted[at.Region] = peer{at.Node, at.Address}
+			p.regions = append(p.regions, at.Region)
+		}
+	}
+	if !p.worker {
+		if address, addressErr := p.address(); addressErr == nil {
+			if err := p.admit(map[string]peer{p.region: {p.node, address}}, p.regions); err != nil {
+				return nil, err
+			}
+		}
 	}
 	slices.Sort(p.regions)
 	p.regions = slices.Compact(p.regions)
