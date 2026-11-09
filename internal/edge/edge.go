@@ -43,6 +43,7 @@ type Edge struct {
 	bootstrapBarrier bootstrapBarrier
 	wireFirewall     func(context.Context, bool) error                   // Production owns the exact wire ACCEPT rule; tests replace it.
 	listen           func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
+	terrabase        func() (string, error)
 	certs            *autocert.Manager
 	routes           atomic.Pointer[map[string]int]
 	postgres         atomic.Pointer[map[string]int]
@@ -81,6 +82,7 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 			return releasepush.CloseTCP(ctx, WirePort)
 		},
 		listen:       net.Listen,
+		terrabase:    terrabaseInternal,
 		pgHandshakes: make(chan struct{}, maxPostgresHandshakes), pgSessions: make(chan struct{}, maxPostgresConns),
 		peerAddr:         func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
 		spoolDir:         filepath.Join(stateDir, "edge-spool"),
@@ -275,6 +277,9 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener, wire
 const netbirdHost = "netbird.terrascale.tech"
 
 func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
+	if isExtendedConnect(r) {
+		w, r = upgradeExtendedConnect(w, r)
+	}
 	e.identify(w, r)
 	peer := fromPeer(r)
 	if strings.HasPrefix(r.URL.Path, postgresCancelPath) {
