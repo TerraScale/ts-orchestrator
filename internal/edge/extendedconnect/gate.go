@@ -1,10 +1,18 @@
 package extendedconnect
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 var godebug, hasGodebug = os.LookupEnv("GODEBUG")
 
-func init() { _ = os.Setenv("GODEBUG", godebug+",http2xconnect=1") }
+func init() {
+	if strings.Contains(godebug, "http2xconnect=") {
+		return
+	}
+	_ = os.Setenv("GODEBUG", strings.TrimPrefix(godebug+",http2xconnect=1", ","))
+}
 
 func Restore() {
 	if hasGodebug {

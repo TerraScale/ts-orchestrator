@@ -22,8 +22,12 @@ address, and it speaks only HTTP/2 without TLS (h2c). ts-auth and ts-dashboard
 use `http://127.0.0.1:8081`, which the edge serves as protocol `terrabase`: an
 h2c server (`internal/edge/regional.go`, `serveRegionalInternal`) that relays
 each request to `<wt0 IPv4>:8081` on its own, so pooled client connections
-pick the backend per request. A backend dial refused while TerraBase restarts
-fails that request with 502; nothing waits for the new task.
+pick the backend per request. TerraBase restarts stop-first (21-30 s with
+nothing listening), so a refused dial to `<wt0 IPv4>:8081` is retried for up
+to 60 s, REST and extended CONNECT alike; the request fails with 502 only
+past that. A refused dial sent nothing, so the retry is safe for any method,
+and ts-auth and ts-dashboard need it: the .NET SDK retries only
+serialization conflicts and a busy tenant, not a 502.
 
 - REST requests go through a reverse proxy that keeps the caller's `Host` and
   streams the response.
@@ -48,7 +52,17 @@ edge turns such a request into the HTTP/1.1 Upgrade that the backend already
 serves (`internal/edge/upgrade.go`: a fresh `Sec-WebSocket-Key`, and
 `Upgrade`, `Connection` and `Sec-WebSocket-Accept` dropped from the answer)
 and relays the stream with the same routing, identity and security headers as
-an HTTP/1.1 WebSocket.
+an HTTP/1.1 WebSocket. Only a `101 Switching Protocols` from the backend opens
+the stream; any other 2xx (an SPA catch-all answering 200 with HTML) is sent
+as 502, because under RFC 8441 a 2xx tells the browser the WebSocket is open.
+
+`GODEBUG=http2xconnect=0` in the service environment turns extended CONNECT
+off: the binary leaves any `http2xconnect=` value the operator set. Then no
+ts-orch HTTP/2 server advertises `SETTINGS_ENABLE_CONNECT_PROTOCOL`. On :443
+browsers fall back to HTTP/1.1 WebSockets and the adapter goes unused. On
+127.0.0.1:8081 TerraBase SQL WebSocket sessions fail ("The HTTP/2 server does
+not support extended CONNECT requests") while REST keeps working, so use it
+only to contain a defect in the extended CONNECT path.
 
 If another process holds 127.0.0.1:8081 (the retired
 `fr1-terrabase-loopback.socket` shortcut), the bind error names it,

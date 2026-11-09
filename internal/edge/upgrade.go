@@ -31,10 +31,35 @@ func upgradeExtendedConnect(w http.ResponseWriter, r *http.Request) (http.Respon
 
 type upgradedWriter struct {
 	http.ResponseWriter
-	stream io.ReadCloser
+	stream  io.ReadCloser
+	started bool
 }
 
 func (u *upgradedWriter) Unwrap() http.ResponseWriter { return u.ResponseWriter }
+
+func (u *upgradedWriter) WriteHeader(code int) {
+	if code >= http.StatusOK {
+		u.started = true
+	}
+	if code/100 == 2 {
+		code = http.StatusBadGateway
+	}
+	u.ResponseWriter.WriteHeader(code)
+}
+
+func (u *upgradedWriter) Write(p []byte) (int, error) {
+	if !u.started {
+		u.WriteHeader(http.StatusOK)
+	}
+	return u.ResponseWriter.Write(p)
+}
+
+func (u *upgradedWriter) FlushError() error {
+	if !u.started {
+		u.WriteHeader(http.StatusOK)
+	}
+	return http.NewResponseController(u.ResponseWriter).Flush()
+}
 
 func (u *upgradedWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	conn := &upgradedConn{writer: u}

@@ -371,10 +371,11 @@ func (e *Edge) serveRegionalInternal(ln net.Listener) error {
 		}
 		r.URL.Host = address
 		if isExtendedConnect(r) {
-			return tunnelTransport{dial: (&net.Dialer{}).DialContext}.RoundTrip(r)
+			return tunnelTransport{dial: dialTerraBase}.RoundTrip(r)
 		}
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Protocols = protocols
+		transport.DialContext = dialTerraBase
 		defer transport.CloseIdleConnections()
 		return transport.RoundTrip(r)
 	})
