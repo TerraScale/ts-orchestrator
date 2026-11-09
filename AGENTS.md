@@ -11,6 +11,13 @@
 - Never run anything on or SSH to mariogk-desktop.
 - StorageFormat.cs bumps and production resets need the user's approval; otherwise put `Needs format bump` in the commit message.
 
+### Code
+
+- No comments: no `//`, `#`, `/* */`, `///` doc comments or commented-out code in code, scripts or build files, including code you move or rewrite. Names and types carry the meaning; non-obvious choices go in the commit message as `DECISION:`.
+- Fix the root cause. No workarounds: no retries, sleeps, longer timeouts, swallowed errors, special cases, flags or skipped or weakened tests that hide a symptom. If the cause is outside your task or outside our code, report it instead of patching around it.
+- No legacy: no deprecated paths, compatibility shims, fallbacks, old-format readers, dead code or copies kept "for now". Replace the old path and delete it in the same change.
+- No unit tests. Tests drive the real service through its public interface (integration or end-to-end); never test a single class or function in isolation or mock our own code. Delete unit tests you come across; cover a critical path they guarded with an integration test.
+
 ### Tests
 
 - Keep tests few. Fast covers only the happy path and critical paths. Slow keeps only heavy critical tests; delete everything else.
