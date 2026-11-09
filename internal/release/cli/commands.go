@@ -105,13 +105,15 @@ func (c command) run(args []string) error {
 		return c.serviceDeploy(args[1:])
 	case "fleet-status":
 		return c.fleetStatus(args[1:])
+	case "observed-digests":
+		return c.observedDigests(args[1:])
 	default:
 		return usageError()
 	}
 }
 
 func usageError() error {
-	return errors.New("usage: ts-orch release <run-detail|sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-spec-delegation|sign-spec|sign-root-rotation|verify-production|verify-image-production|apply|deploy|container-bundle|container-apply|fleet-status> [flags]")
+	return errors.New("usage: ts-orch release <run-detail|sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-spec-delegation|sign-spec|sign-root-rotation|verify-production|verify-image-production|apply|deploy|container-bundle|container-apply|fleet-status|observed-digests> [flags]")
 }
 
 func (c command) publish(args []string) error {
