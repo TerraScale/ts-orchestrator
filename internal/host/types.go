@@ -183,18 +183,19 @@ type Receipt struct {
 }
 
 type Report struct {
-	Cell        string                `json:"cell"`
-	Node        string                `json:"node"`
-	Environment string                `json:"environment"`
-	Role        string                `json:"role"`
-	Digest      string                `json:"digest"`
-	Generation  uint64                `json:"generation"`
-	SessionID   string                `json:"session_id"`
-	Epoch       uint64                `json:"epoch"`
-	State       string                `json:"state"`
-	Error       string                `json:"error,omitempty"`
-	ObservedAt  time.Time             `json:"observed_at"`
-	Managed     *ManagedRuntimeReport `json:"managed,omitempty"`
+	Cell          string                `json:"cell"`
+	Node          string                `json:"node"`
+	Environment   string                `json:"environment"`
+	Role          string                `json:"role"`
+	Digest        string                `json:"digest"`
+	RunningDigest string                `json:"running_digest,omitempty"`
+	Generation    uint64                `json:"generation"`
+	SessionID     string                `json:"session_id"`
+	Epoch         uint64                `json:"epoch"`
+	State         string                `json:"state"`
+	Error         string                `json:"error,omitempty"`
+	ObservedAt    time.Time             `json:"observed_at"`
+	Managed       *ManagedRuntimeReport `json:"managed,omitempty"`
 }
 
 // ManagedRuntimeReport binds a process and mounted volume to its

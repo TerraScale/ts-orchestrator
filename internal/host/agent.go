@@ -1141,6 +1141,11 @@ func (a *Agent) publishReport(ctx context.Context, r Report) error {
 	a.mu.RUnlock()
 	r.SessionID = s.SessionID
 	r.Epoch = s.Epoch
+	if a.runner != nil {
+		if observed, err := a.runner.Observe(ctx, r.Role); err == nil && observed.Running {
+			r.RunningDigest = observed.Digest
+		}
+	}
 	if r.Error != "" && len(r.Error) > 1024 {
 		r.Error = r.Error[:1024]
 	}

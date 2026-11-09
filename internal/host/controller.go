@@ -741,6 +741,8 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 func sameReportMeaning(a, b Report) bool {
 	a.ObservedAt = time.Time{}
 	b.ObservedAt = time.Time{}
+	a.RunningDigest = ""
+	b.RunningDigest = ""
 	if a.Managed != nil && a.Managed.ServingProof != nil {
 		managed, proof := *a.Managed, *a.Managed.ServingProof
 		proof.Nonce = ""

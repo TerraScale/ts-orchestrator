@@ -56,17 +56,25 @@ func ServiceStatusKey(cell, role string) string { return "service." + role + "."
 // ServiceStatus is the region leader's report on a role's release: the
 // release is the claim's digest and issuance instant.
 type ServiceStatus struct {
-	ReleaseSequence uint64       `json:"release_sequence,omitzero"`
-	SourceRevision  string       `json:"source_revision,omitempty"`
-	Schema          string       `json:"schema"`
-	Cell            string       `json:"cell"`
-	Role            string       `json:"role"`
-	Digest          string       `json:"digest"`
-	IssuedAt        time.Time    `json:"issued_at"`
-	State           State        `json:"state"`
-	Reason          string       `json:"reason,omitempty"`
-	UpdatedAt       time.Time    `json:"updated_at"`
-	Pins            *ReleasePins `json:"pins,omitempty"`
+	ReleaseSequence uint64               `json:"release_sequence,omitzero"`
+	SourceRevision  string               `json:"source_revision,omitempty"`
+	Schema          string               `json:"schema"`
+	Cell            string               `json:"cell"`
+	Role            string               `json:"role"`
+	Digest          string               `json:"digest"`
+	IssuedAt        time.Time            `json:"issued_at"`
+	State           State                `json:"state"`
+	Reason          string               `json:"reason,omitempty"`
+	UpdatedAt       time.Time            `json:"updated_at"`
+	Pins            *ReleasePins         `json:"pins,omitempty"`
+	Replicas        []ReplicaObservation `json:"replicas,omitempty"`
+}
+
+type ReplicaObservation struct {
+	Node          string    `json:"node"`
+	RunningDigest string    `json:"running_digest,omitempty"`
+	State         string    `json:"state"`
+	ObservedAt    time.Time `json:"observed_at"`
 }
 
 // ClaimIssuedAt returns when a signed artifact claim was issued.

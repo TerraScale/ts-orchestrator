@@ -215,6 +215,11 @@ func (b *rootReleaseChannels) ReconcileNativeServiceStatus(ctx context.Context, 
 	case len(proofs) > 0 && good:
 		status.State, status.Reason = releasechannel.StateComplete, ""
 	}
+	for _, report := range proofs {
+		status.Replicas = append(status.Replicas, releasechannel.ReplicaObservation{
+			Node: report.Node, RunningDigest: report.RunningDigest, State: report.State, ObservedAt: report.ObservedAt})
+	}
+	slices.SortFunc(status.Replicas, func(a, b releasechannel.ReplicaObservation) int { return strings.Compare(a.Node, b.Node) })
 	if len(proofs) > 0 {
 		hosts, err := o.ListHosts(ctx)
 		if err != nil {
