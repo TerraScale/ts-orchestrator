@@ -284,6 +284,32 @@ func TestEdgeIssuesCertificateAndProxies(t *testing.T) {
 		}
 	})
 
+	t.Run("websocket over HTTP/2", func(t *testing.T) {
+		browser := tunnelTransport{dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&tls.Dialer{Config: &tls.Config{RootCAs: roots, ServerName: "app.edge.test", NextProtos: []string{"h2"}}}).DialContext(ctx, network, tlsLn.Addr().String())
+		}}
+		upload, send := io.Pipe()
+		request, _ := http.NewRequestWithContext(ctx, http.MethodConnect, "https://app.edge.test/ws", upload)
+		request.Header.Set(":protocol", "websocket")
+		request.Header.Set("Sec-WebSocket-Version", "13")
+		request.Header.Set("Origin", "https://app.edge.test")
+		response, err := browser.RoundTrip(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		defer send.Close()
+		if response.StatusCode != http.StatusOK || response.Header.Get("Upgrade") != "" || response.Header.Get("Sec-WebSocket-Accept") != "" {
+			t.Fatalf("extended CONNECT = %d %v", response.StatusCode, response.Header)
+		}
+		if err := writeWebSocketFrame(send, "ping", true); err != nil {
+			t.Fatal(err)
+		}
+		if reply, err := readWebSocketFrame(bufio.NewReader(response.Body)); err != nil || reply != "echo ping" {
+			t.Fatalf("reply = %q, %v", reply, err)
+		}
+	})
+
 	t.Run("grpc", func(t *testing.T) {
 		conn, err := grpc.NewClient("passthrough:///app.edge.test",
 			grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) { return dialTLS(ctx, "tcp", addr) }),

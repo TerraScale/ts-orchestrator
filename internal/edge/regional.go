@@ -230,7 +230,11 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		}
 		out.Header.Set(forwardedClientHeader, host)
 	}
-	response, err := router.transport.RoundTrip(out)
+	var transport http.RoundTripper = router.transport
+	if isExtendedConnect(out) {
+		transport = tunnelTransport{dial: router.transport.DialContext}
+	}
+	response, err := transport.RoundTrip(out)
 	if err != nil {
 		release()
 		return nil, err
@@ -356,24 +360,35 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 func (e *Edge) serveRegionalInternal(ln net.Listener) error {
 	protocols := new(http.Protocols)
 	protocols.SetUnencryptedHTTP2(true)
+	relay := roundTripper(func(r *http.Request) (*http.Response, error) {
+		if response, err := e.regionalRoundTrip(r, true); response != nil || err != nil {
+			return response, err
+		}
+		address, err := e.terrabase()
+		if err != nil {
+			closeBody(r)
+			return nil, err
+		}
+		r.URL.Host = address
+		if isExtendedConnect(r) {
+			return tunnelTransport{dial: (&net.Dialer{}).DialContext}.RoundTrip(r)
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.Protocols = protocols
+		defer transport.CloseIdleConnections()
+		return transport.RoundTrip(r)
+	})
 	proxy := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
-		pr.SetURL(&url.URL{Scheme: "http", Host: "127.0.0.1:8081"})
+		pr.SetURL(&url.URL{Scheme: "http", Host: terrabaseLoopback})
 		pr.Out.Host = pr.In.Host
-	},
-		Transport: roundTripper(func(r *http.Request) (*http.Response, error) {
-			if response, err := e.regionalRoundTrip(r, true); response != nil || err != nil {
-				return response, err
-			}
-			address, err := terrabaseInternal()
-			if err != nil {
-				return nil, err
-			}
-			r.URL.Host = address
-			transport := http.DefaultTransport.(*http.Transport).Clone()
-			transport.Protocols = protocols
-			defer transport.CloseIdleConnections()
-			return transport.RoundTrip(r)
-		}), FlushInterval: -1}
-	server := &http.Server{Handler: proxy, Protocols: protocols, ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 64 << 10}
+	}, Transport: relay, FlushInterval: -1}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isExtendedConnect(r) {
+			relayTunnel(w, r, relay)
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	})
+	server := &http.Server{Handler: handler, Protocols: protocols, ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 64 << 10}
 	return server.Serve(ln)
 }
