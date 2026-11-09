@@ -25,10 +25,11 @@ import (
 func init() { extendedconnect.Restore() }
 
 const (
-	tunnelWindow    = 1 << 18
-	tunnelHandshake = 60 * time.Second
-	tunnelStreamID  = 1
+	tunnelWindow   = 1 << 18
+	tunnelStreamID = 1
 )
+
+var tunnelHandshake = 60 * time.Second
 
 var errTunnelClosed = errors.New("extended CONNECT tunnel closed")
 
@@ -86,7 +87,7 @@ func (t tunnelTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	s := &tunnelStream{
 		conn: conn, framer: http2.NewFramer(conn, bufio.NewReader(conn)),
-		sendConn: 65535, sendStream: 65535, maxFrame: 16384,
+		sendConn: 65535, sendStream: 65535, initialWindow: 65535, maxFrame: 16384,
 		answer: make(chan *http.Response, 1), failed: make(chan struct{}),
 	}
 	s.cond = sync.NewCond(&s.mu)
@@ -131,15 +132,16 @@ type tunnelStream struct {
 	failed chan struct{}
 	wmu    sync.Mutex
 
-	mu         sync.Mutex
-	cond       *sync.Cond
-	sendConn   int64
-	sendStream int64
-	maxFrame   uint32
-	recv       []byte
-	recvEnd    bool
-	answered   bool
-	err        error
+	mu            sync.Mutex
+	cond          *sync.Cond
+	sendConn      int64
+	sendStream    int64
+	initialWindow int64
+	maxFrame      uint32
+	recv          []byte
+	recvEnd       bool
+	answered      bool
+	err           error
 }
 
 func (s *tunnelStream) open(req *http.Request) error {
@@ -234,7 +236,8 @@ func (s *tunnelStream) apply(settings *http2.SettingsFrame) error {
 		}
 		switch setting.ID {
 		case http2.SettingInitialWindowSize:
-			s.sendStream += int64(setting.Val) - 65535
+			s.sendStream += int64(setting.Val) - s.initialWindow
+			s.initialWindow = int64(setting.Val)
 		case http2.SettingMaxFrameSize:
 			s.maxFrame = setting.Val
 		}

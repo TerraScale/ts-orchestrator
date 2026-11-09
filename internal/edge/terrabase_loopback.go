@@ -1,11 +1,13 @@
 package edge
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 )
@@ -24,6 +26,12 @@ func terrabaseInternal() (string, error) {
 		return "", err
 	}
 	return net.JoinHostPort(ip, strconv.Itoa(TerraBaseInternalPort)), nil
+}
+
+const terrabaseRestartWait = 60 * time.Second
+
+func dialTerraBase(ctx context.Context, network, address string) (net.Conn, error) {
+	return dialHandoffWithin(ctx, network, address, terrabaseRestartWait)
 }
 
 // terrabaseBindError names the host shortcut that held 127.0.0.1:8081 before
