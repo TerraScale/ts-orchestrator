@@ -21,14 +21,14 @@ const (
 
 func testProjectCredential() projectCredential {
 	return projectCredential{APIKey: projectKeyMetadata{ID: testKeyID, OrganizationID: testOrg, ProjectID: testProject,
-		Database: testDB, Scopes: []string{"documents:read"}, ExpiresAt: time.Now().UTC().Add(time.Hour)}, Key: testKeyID + "_" + strings.Repeat("a", 52)}
+		Database: testDB, Scopes: []string{"sql:read"}, ExpiresAt: time.Now().UTC().Add(time.Hour)}, Key: testKeyID + "_" + strings.Repeat("a", 52)}
 }
 
 func fakeJWT(t *testing.T, e *environment, mutate func(map[string]any)) string {
 	t.Helper()
 	m := e.ProjectCredential.APIKey
 	claims := map[string]any{"iss": e.AuthURL + "/terrascale", "aud": e.TerraBaseURL, "sub": m.ID,
-		"org_id": m.OrganizationID, "project_id": m.ProjectID, "database": m.Database, "scope": "documents:read",
+		"org_id": m.OrganizationID, "project_id": m.ProjectID, "database": m.Database, "scope": "sql:read",
 		"iat": time.Now().Unix(), "exp": time.Now().Add(15 * time.Minute).Unix()}
 	if mutate != nil {
 		mutate(claims)
@@ -46,7 +46,7 @@ func productionFake(t *testing.T, override func(http.ResponseWriter, *http.Reque
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-TerraBase-Region", "gru")
-		if r.Header.Get("X-TerraBase-User-Id") != "" || (r.Method != http.MethodGet && r.URL.Path != "/terrascale/oauth/token") {
+		if r.Header.Get("X-TerraBase-User-Id") != "" || (r.Method != http.MethodGet && r.URL.Path != "/terrascale/oauth/token" && !strings.HasSuffix(r.URL.Path, "/sql/execute")) {
 			t.Error("production sent a management identity or mutating data request")
 		}
 		if strings.HasPrefix(r.URL.Path, "/v1/") && r.Header.Get("Authorization") != "Bearer "+e.APIKey && (e.OIDCToken == "" || r.Header.Get("Authorization") != "Bearer "+e.OIDCToken) {
@@ -69,21 +69,18 @@ func productionFake(t *testing.T, override func(http.ResponseWriter, *http.Reque
 			case r.Form.Get("project") != "" && r.Form.Get("project") != e.ProjectCredential.APIKey.ProjectID:
 				w.WriteHeader(http.StatusBadRequest)
 				fmt.Fprint(w, `{"error":"invalid_target"}`)
-			case r.Form.Get("scope") == "documents:write":
+			case r.Form.Get("scope") == "sql:write":
 				w.WriteHeader(http.StatusBadRequest)
 				fmt.Fprint(w, `{"error":"invalid_scope"}`)
 			default:
 				if len(r.Form) != 1 {
 					t.Error("positive exchange must not narrow a broad key")
 				}
-				fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":900,"scope":"documents:read"}`, fakeJWT(t, e, nil))
+				fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":900,"scope":"sql:read"}`, fakeJWT(t, e, nil))
 			}
-		case "GET /v1/projects/" + testProject + "/databases/e2e_read/collections":
-			if r.URL.Query().Get("limit") != "1" {
-				t.Error("SDK collections read must use the exchanged JWT and bounded limit")
-			}
-			fmt.Fprint(w, `{"items":[]}`)
-		case "GET /v1/projects/" + testProject + "/databases/e2e_negative/collections", "GET /v1/management/organizations":
+		case "POST /v1/projects/" + testProject + "/databases/e2e_read/sql/execute":
+			fmt.Fprint(w, `{"results":[{"columns":[{"name":"1","decltype":null}],"rows":[[1]],"rows_affected":0,"last_insert_rowid":null}]}`)
+		case "POST /v1/projects/" + testProject + "/databases/e2e_negative/sql/execute", "GET /v1/management/organizations":
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, `{"error":{"code":"unknown_database"}}`)
 		case "GET /v1/terrascale/organizations":

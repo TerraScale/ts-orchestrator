@@ -135,7 +135,7 @@ func startLocal(ctx context.Context) (_ *environment, teardown func() error, err
 	if err != nil {
 		return nil, teardown, fmt.Errorf("TerraBase startup: %w", err)
 	}
-	management, err := tb.NewManagement(tb.Config{BaseURL: e.AdminURL, Token: e.Credential, HTTPClient: e.HTTP, MaxRetries: -1})
+	management, err := tb.NewManagement(tb.Config{BaseURL: e.AdminURL, Token: e.Credential, HTTPClient: e.HTTP})
 	if err != nil {
 		return nil, teardown, err
 	}

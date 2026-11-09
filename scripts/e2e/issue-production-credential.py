@@ -171,7 +171,7 @@ def confirm(expected):
             try:
                 # Discard queued input: an unattended pipe cannot supply consent.
                 termios.tcsetattr(fd, termios.TCSAFLUSH, hidden)
-                terminal.write("USER ONLY: issue one 23-hour documents:read key and install into MarioGK / "
+                terminal.write("USER ONLY: issue one 23-hour sql:read key and install into MarioGK / "
                                "TerraScale/ts-orchestrator / production / E2E_PROJECT_CREDENTIAL.\n"
                                "Organization: " + expected["E2E_ORGANIZATION_ID"] + "\n"
                                "Confirm both exact databases in this one approved project; no negative-database key.\n"
@@ -420,7 +420,7 @@ class Session:
         self.issuance_attempted = True
         expiry = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=23)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         return self.call(keys_url, "POST", {"name": KEY_NAME, "database": database_id,
-            "scopes": ["documents:read"], "expires_at": expiry}, token=self.token, status=201)
+            "scopes": ["sql:read"], "expires_at": expiry}, token=self.token, status=201)
 
 
 def run():

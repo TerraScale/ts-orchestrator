@@ -135,22 +135,22 @@ func githubProjectToken(ctx context.Context, e *environment) error {
 	return nil
 }
 
-func githubProjectCollections(ctx context.Context, e *environment) error {
+func githubProjectSQLRead(ctx context.Context, e *environment) error {
 	if e.OIDCToken == "" {
 		return errors.New("GitHub project token check has not passed")
 	}
 	project := *e
 	project.APIKey = e.OIDCToken
-	return projectCollections(ctx, &project)
+	return projectSQLRead(ctx, &project)
 }
 
-func githubUnrelatedCollections(ctx context.Context, e *environment) error {
+func githubUnrelatedSQLDenied(ctx context.Context, e *environment) error {
 	if e.OIDCToken == "" {
 		return errors.New("GitHub project token check has not passed")
 	}
 	project := *e
 	project.APIKey = e.OIDCToken
-	return unrelatedCollections(ctx, &project)
+	return unrelatedSQLDenied(ctx, &project)
 }
 
 func githubScopeDenied(ctx context.Context, e *environment) error {
@@ -161,7 +161,7 @@ func githubScopeDenied(ctx context.Context, e *environment) error {
 	if err != nil || assertion == e.OIDCAssertion || sameGitHubJTI(assertion, e.OIDCAssertion) {
 		return errors.New("scope elevation probe requires a fresh GitHub assertion and jti")
 	}
-	return deniedGitHubExchange(ctx, e, assertion, "documents:write", "invalid_scope")
+	return deniedGitHubExchange(ctx, e, assertion, "sql:write", "invalid_scope")
 }
 
 func sameGitHubJTI(a, b string) bool {

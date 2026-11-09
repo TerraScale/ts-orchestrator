@@ -78,7 +78,7 @@ func documents(ctx context.Context, e *environment) (err error) {
 	if e.Target != "local" {
 		return errors.New("mutating document scenarios require the disposable local stack")
 	}
-	m, err := tb.NewManagement(tb.Config{Resolver: tb.StaticResolver(e.AdminURL), Token: e.Credential, HTTPClient: e.HTTP, MaxRetries: -1})
+	m, err := tb.NewManagement(tb.Config{Resolver: tb.StaticResolver(e.AdminURL), Token: e.Credential, HTTPClient: e.HTTP})
 	if err != nil {
 		return err
 	}
@@ -120,7 +120,7 @@ func documents(ctx context.Context, e *environment) (err error) {
 		base = http.DefaultTransport
 	}
 	hc.Transport = regionTransport{base: base, region: e.Region}
-	c, err := tb.New(tb.Config{Resolver: tb.StaticResolver(e.TerraBaseURL), Token: key, HTTPClient: &hc, MaxRetries: -1})
+	c, err := tb.New(tb.Config{Resolver: tb.StaticResolver(e.TerraBaseURL), Token: key, HTTPClient: &hc})
 	if err != nil {
 		return err
 	}

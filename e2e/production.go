@@ -53,8 +53,8 @@ func production() (*environment, error) {
 	m := credential.APIKey
 	if !nativeKeyPattern.MatchString(credential.Key) || !strings.HasPrefix(credential.Key, m.ID+"_") || tb.ValidateID(m.ID) != nil ||
 		tb.ValidateID(m.OrganizationID) != nil || tb.ValidateID(m.ProjectID) != nil || tb.ValidateID(m.Database) != nil ||
-		!slices.Equal(m.Scopes, []string{"documents:read"}) || !m.ExpiresAt.After(time.Now()) || m.ExpiresAt.After(time.Now().Add(24*time.Hour)) {
-		return nil, errors.New("project credential must have native ids/key, one database id, only documents:read and expiry within 24 hours")
+		!slices.Equal(m.Scopes, []string{"sql:read"}) || !m.ExpiresAt.After(time.Now()) || m.ExpiresAt.After(time.Now().Add(24*time.Hour)) {
+		return nil, errors.New("project credential must have native ids/key, one database id, only sql:read and expiry within 24 hours")
 	}
 	for name, want := range map[string]string{"E2E_ORGANIZATION_ID": m.OrganizationID, "E2E_PROJECT_ID": m.ProjectID} {
 		if os.Getenv(name) != want {
@@ -82,7 +82,7 @@ func productionScenarios() []scenario {
 	return []scenario{
 		{"production.health", []string{"terrabase", "ts-auth"}, []string{"TS-749"}, productionHealth},
 		{"auth.project-client-credentials", []string{"ts-auth"}, []string{"TS-749"}, projectToken},
-		{"terrabase.project-collections-read", []string{"terrabase", "ts-go"}, []string{"TS-749"}, projectCollections},
+		{"terrabase.project-sql-read", []string{"terrabase", "ts-go"}, []string{"TS-749"}, projectSQLRead},
 		{"auth.cross-project-exchange-denied", []string{"ts-auth"}, []string{"TS-749"}, func(ctx context.Context, e *environment) error {
 			// A valid alternate id tests token targeting without provisioning another project.
 			project := "00000000000000000000000000"
@@ -92,9 +92,9 @@ func productionScenarios() []scenario {
 			return deniedExchange(ctx, e, url.Values{"project": {project}}, "invalid_target")
 		}},
 		{"auth.scope-elevation-denied", []string{"ts-auth"}, []string{"TS-749"}, func(ctx context.Context, e *environment) error {
-			return deniedExchange(ctx, e, url.Values{"scope": {"documents:write"}}, "invalid_scope")
+			return deniedExchange(ctx, e, url.Values{"scope": {"sql:write"}}, "invalid_scope")
 		}},
-		{"terrabase.cross-database-read-denied", []string{"terrabase", "ts-go"}, []string{"TS-749"}, unrelatedCollections},
+		{"terrabase.cross-database-read-denied", []string{"terrabase", "ts-go"}, []string{"TS-749"}, unrelatedSQLDenied},
 		{"auth.admin-read-denied", []string{"ts-auth"}, []string{"TS-749"}, func(ctx context.Context, e *environment) error {
 			return deniedRead(ctx, e, e.AuthURL+"/v1/terrascale/organizations", http.StatusUnauthorized, "unauthorized")
 		}},
@@ -102,8 +102,8 @@ func productionScenarios() []scenario {
 			return deniedRead(ctx, e, e.TerraBaseURL+"/v1/management/organizations", http.StatusNotFound, "unknown_database")
 		}},
 		{"auth.github-actions-project-exchange", []string{"ts-auth"}, nil, githubProjectToken},
-		{"terrabase.github-actions-project-read", []string{"terrabase", "ts-go"}, nil, githubProjectCollections},
-		{"terrabase.github-actions-cross-database-read-denied", []string{"terrabase", "ts-go"}, nil, githubUnrelatedCollections},
+		{"terrabase.github-actions-project-read", []string{"terrabase", "ts-go"}, nil, githubProjectSQLRead},
+		{"terrabase.github-actions-cross-database-read-denied", []string{"terrabase", "ts-go"}, nil, githubUnrelatedSQLDenied},
 		{"auth.github-actions-scope-elevation-denied", []string{"ts-auth"}, nil, githubScopeDenied},
 		{"auth.github-actions-replay-denied", []string{"ts-auth"}, nil, githubReplayDenied},
 	}
@@ -206,10 +206,10 @@ func validateProjectToken(e *environment, body oauthResponse, subject string) er
 	now := time.Now().Unix()
 	if h.Algorithm != "ES256" || h.Type != "at+jwt" || claims.Issuer != e.AuthURL+"/terrascale" || !audienceOK ||
 		claims.Subject == "" || subject != "" && claims.Subject != subject || claims.OrganizationID != m.OrganizationID || claims.ProjectID != m.ProjectID || claims.Database != m.Database ||
-		claims.Scope != "documents:read" || claims.IssuedAt <= 0 || claims.IssuedAt > now+30 || claims.Expires <= now || claims.Expires <= claims.IssuedAt || claims.Expires-claims.IssuedAt > 900 || claims.Expires > m.ExpiresAt.Unix() ||
+		claims.Scope != "sql:read" || claims.IssuedAt <= 0 || claims.IssuedAt > now+30 || claims.Expires <= now || claims.Expires <= claims.IssuedAt || claims.Expires-claims.IssuedAt > 900 || claims.Expires > m.ExpiresAt.Unix() ||
 		body.ExpiresIn < 1 || body.ExpiresIn > 900 || int64(body.ExpiresIn) > m.ExpiresAt.Unix()-now+1 ||
 		claims.Expires > now+int64(body.ExpiresIn)+30 || claims.Expires < now+int64(body.ExpiresIn)-30 ||
-		body.Scope != "documents:read" || body.TokenType != "Bearer" || body.Error != "" || body.RefreshToken != "" || body.IDToken != "" {
+		body.Scope != "sql:read" || body.TokenType != "Bearer" || body.Error != "" || body.RefreshToken != "" || body.IDToken != "" {
 		return errors.New("project JWT exceeds the approved identity, audience, scope, database or 15-minute lifetime")
 	}
 	return nil
@@ -225,18 +225,18 @@ func projectClient(e *environment) (*tb.Client, error) {
 		base = http.DefaultTransport
 	}
 	hc.Transport = regionTransport{base: base, region: e.Region}
-	return tb.New(tb.Config{Resolver: tb.StaticResolver(e.TerraBaseURL), Token: e.APIKey, HTTPClient: &hc, MaxRetries: -1})
+	return tb.New(tb.Config{Resolver: tb.StaticResolver(e.TerraBaseURL), Token: e.APIKey, HTTPClient: &hc})
 }
 
-func projectCollections(ctx context.Context, e *environment) error {
+func projectSQLRead(ctx context.Context, e *environment) error {
 	c, err := projectClient(e)
 	if err != nil {
 		return err
 	}
 	m := e.ProjectCredential.APIKey
-	page, err := c.Database(m.ProjectID, e.Database).Collections(ctx, tb.ListOptions{Limit: 1})
-	if err != nil || page == nil || page.Items == nil {
-		return errors.New("SDK read of the approved project's collections failed")
+	res, err := c.Database(m.ProjectID, e.Database).ExecuteSQL(ctx, "SELECT 1")
+	if err != nil || res == nil {
+		return errors.New("SDK SQL read of the approved project's database failed")
 	}
 	return nil
 }
@@ -252,16 +252,15 @@ func deniedExchange(ctx context.Context, e *environment, form url.Values, code s
 	return nil
 }
 
-func unrelatedCollections(ctx context.Context, e *environment) error {
+func unrelatedSQLDenied(ctx context.Context, e *environment) error {
 	c, err := projectClient(e)
 	if err != nil {
 		return err
 	}
-	// The owner must confirm this database exists in the approved project; absence returns the same denial.
-	_, err = c.Database(e.ProjectCredential.APIKey.ProjectID, e.UnrelatedDatabase).Collections(ctx, tb.ListOptions{Limit: 1})
+	_, err = c.Database(e.ProjectCredential.APIKey.ProjectID, e.UnrelatedDatabase).ExecuteSQL(ctx, "SELECT 1")
 	denied, ok := errors.AsType[*tb.APIError](err)
 	if !ok || denied.Status != http.StatusNotFound || string(denied.Code) != "unknown_database" {
-		return errors.New("unrelated database collections must deny with HTTP 404 unknown_database")
+		return errors.New("unrelated database SQL read must deny with HTTP 404 unknown_database")
 	}
 	return nil
 }

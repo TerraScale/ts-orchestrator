@@ -66,7 +66,7 @@ func githubProductionFake(t *testing.T, override func(http.ResponseWriter, *http
 		case used[assertion]:
 			w.WriteHeader(http.StatusBadRequest)
 			fmt.Fprint(w, `{"error":"invalid_grant"}`)
-		case r.Form.Get("scope") == "documents:write":
+		case r.Form.Get("scope") == "sql:write":
 			used[assertion] = true
 			w.WriteHeader(http.StatusBadRequest)
 			fmt.Fprint(w, `{"error":"invalid_scope"}`)
@@ -75,7 +75,7 @@ func githubProductionFake(t *testing.T, override func(http.ResponseWriter, *http
 				t.Error("positive OIDC exchange must attest the configured trust without target or scope narrowing")
 			}
 			used[assertion] = true
-			fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":900,"scope":"documents:read"}`,
+			fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":900,"scope":"sql:read"}`,
 				fakeJWT(t, e, func(c map[string]any) { c["sub"] = "workflow-principal" }))
 		}
 		return true
@@ -134,7 +134,7 @@ func TestSDKReadsUseOwnTokensAndDistinctDatabasesInSameProject(t *testing.T) {
 	for _, unavailable := range []bool{false, true} {
 		reads := map[string]int{}
 		e := githubProductionFake(t, func(w http.ResponseWriter, r *http.Request, e *environment) bool {
-			if !strings.HasSuffix(r.URL.Path, "/collections") {
+			if !strings.HasSuffix(r.URL.Path, "/sql/execute") {
 				return false
 			}
 			reads[r.URL.Path]++
@@ -144,9 +144,9 @@ func TestSDKReadsUseOwnTokensAndDistinctDatabasesInSameProject(t *testing.T) {
 				return true
 			}
 			switch r.URL.Path {
-			case "/v1/projects/" + testProject + "/databases/e2e_read/collections":
-				fmt.Fprint(w, `{"items":[]}`)
-			case "/v1/projects/" + testProject + "/databases/e2e_negative/collections":
+			case "/v1/projects/" + testProject + "/databases/e2e_read/sql/execute":
+				fmt.Fprint(w, `{"results":[{"columns":[{"name":"1","decltype":null}],"rows":[[1]],"rows_affected":0,"last_insert_rowid":null}]}`)
+			case "/v1/projects/" + testProject + "/databases/e2e_negative/sql/execute":
 				w.WriteHeader(http.StatusNotFound)
 				fmt.Fprint(w, `{"error":{"code":"unknown_database"}}`)
 			default:
@@ -164,17 +164,17 @@ func TestSDKReadsUseOwnTokensAndDistinctDatabasesInSameProject(t *testing.T) {
 			return base.RoundTrip(r)
 		})
 		for _, run := range []func() error{
-			func() error { return projectCollections(t.Context(), e) },
-			func() error { return unrelatedCollections(t.Context(), e) },
-			func() error { wantToken = e.OIDCToken; return githubProjectCollections(t.Context(), e) },
-			func() error { return githubUnrelatedCollections(t.Context(), e) },
+			func() error { return projectSQLRead(t.Context(), e) },
+			func() error { return unrelatedSQLDenied(t.Context(), e) },
+			func() error { wantToken = e.OIDCToken; return githubProjectSQLRead(t.Context(), e) },
+			func() error { return githubUnrelatedSQLDenied(t.Context(), e) },
 		} {
 			if err := run(); (err != nil) != unavailable {
 				t.Fatal("read must pass only its exact positive/denial response and fail on outage")
 			}
 		}
-		if len(reads) != 2 || reads["/v1/projects/"+testProject+"/databases/e2e_read/collections"] != 2 ||
-			reads["/v1/projects/"+testProject+"/databases/e2e_negative/collections"] != 2 {
+		if len(reads) != 2 || reads["/v1/projects/"+testProject+"/databases/e2e_read/sql/execute"] != 2 ||
+			reads["/v1/projects/"+testProject+"/databases/e2e_negative/sql/execute"] != 2 {
 			t.Fatal("native and OIDC must each read both distinct databases in the same project")
 		}
 	}

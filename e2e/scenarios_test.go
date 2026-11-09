@@ -41,7 +41,7 @@ func TestCleanupProjectRevokesPagedKeysBeforeDeletingOwnedProject(t *testing.T) 
 		}
 	}))
 	defer server.Close()
-	m, err := tb.NewManagement(tb.Config{BaseURL: server.URL, Token: "test-management-credential-00000000", MaxRetries: -1})
+	m, err := tb.NewManagement(tb.Config{BaseURL: server.URL, Token: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"})
 	if err != nil {
 		t.Fatal(err)
 	}
