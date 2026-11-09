@@ -84,7 +84,7 @@ func TestManagementOnAdminListener(t *testing.T) {
 	}
 	if got := fmt.Sprint(seen); got != "[GET /v1/management/organizations POST /v1/management/organizations "+
 		"GET /v1/management/organizations/00000000000000000000000002/projects POST /v1/management/organizations/00000000000000000000000002/projects "+
-		"GET /v1/management/organizations/00000000000000000000000002/projects/00000000000000000000000004/databases POST /v1/management/organizations/00000000000000000000000002/projects/00000000000000000000000004/databases]" {
+		"GET /v1/projects/00000000000000000000000004/databases POST /v1/projects/00000000000000000000000004/databases]" {
 		t.Fatal(got)
 	}
 }

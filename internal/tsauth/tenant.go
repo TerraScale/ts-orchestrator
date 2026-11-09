@@ -94,7 +94,7 @@ func (t TerraBase) EnsureTenant(ctx context.Context, project Project) (Tenant, e
 	if err != nil {
 		return Tenant{}, fmt.Errorf("project: %w", err)
 	}
-	database, err := t.ensure(ctx, organization, projects+"/"+url.PathEscape(projectID)+"/databases", project.Database)
+	database, err := t.ensure(ctx, organization, "/v1/projects/"+url.PathEscape(projectID)+"/databases", project.Database)
 	if err != nil {
 		return Tenant{}, fmt.Errorf("database: %w", err)
 	}
