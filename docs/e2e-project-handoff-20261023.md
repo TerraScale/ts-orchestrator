@@ -43,7 +43,7 @@ patterns and additional branches are refused **before** any secret prompt.
 
 1. After approval, MarioGK uses ts-auth's native project-key flow at
    `https://auth.terrascale.tech/v1/terrascale/organizations/<org>/projects/<project>/api-keys`.
-   Select exactly `scopes: ["documents:read"]`, the approved `database`, and a
+   Select exactly `scopes: ["sql:read"]`, the approved `database`, and a
    non-null UTC `expires_at` no more than 24 hours ahead. Keep the complete native
    creation response (`api_key` metadata plus `key`) private; no chat, tickets,
    screenshots, command arguments, shell history or diagnostic logs.
@@ -85,14 +85,14 @@ as a requested OAuth target; it does not require or read another project.
 
 The runner first checks `https://api.terrascale.tech/readyz`,
 `https://auth.terrascale.tech/readyz` and issuer discovery at `/terrascale`.
-It reads one page of collections for the exact approved project/database using
-ts-go and requires `X-TerraBase-Region: gru`. It never creates projects, databases,
-collections or documents. The pinned SDK's API-key source still requires the
-retired `tsk_` key format. Standard native OAuth HTTP accepts the current native
-key response and preserves raw denial responses so a denial containing a token
-cannot pass. The SDK is pinned to commit
-`6a9d69c9c2aa1cbe88428b80934dd6581a1c84f6` so its data client accepts project JWTs
-while preserving the existing local Management-credential contract.
+It runs one SQL read (`SELECT 1`) against the exact approved project/database
+using ts-go and requires `X-TerraBase-Region: gru`. It never creates projects,
+databases, collections or documents. Standard native OAuth HTTP accepts the
+current native key response and preserves raw denial responses so a denial
+containing a token cannot pass. The SDK is pinned to commit
+`07ffb51e1d66fb2f7a42673683e731bdfc26d158` so its data client accepts project
+JWTs and the SQL read while preserving the existing local Management-credential
+contract.
 Native auth administration and raw management-denial probes have no SDK method.
 
 All production report scenarios must pass: readiness/discovery, native exchange,

@@ -20,7 +20,7 @@ is created by the runner.
 | Event / ref / environment | `workflow_dispatch` / `refs/heads/main` / `production` |
 | GitHub subject | `repo:TerraScale/ts-orchestrator:environment:production` |
 | Reusable workflow claim | `job_workflow_ref` must be absent |
-| Access-token audience / scope | `https://api.terrascale.tech` / only `documents:read` |
+| Access-token audience / scope | `https://api.terrascale.tech` / only `sql:read` |
 
 Bind the trust to the existing `E2E_ORGANIZATION_ID`, `E2E_PROJECT_ID`, and
 the database **ULID** that `E2E_DATABASE` names (terrascale#778: ts-auth binds
@@ -76,7 +76,7 @@ in output, reports, environment exports or files. Response bodies and transport
 errors are suppressed. There is no fallback to native credentials for OIDC.
 
 The scope probe fetches a second assertion and requires different token bytes
-and `jti` before requesting `documents:write`, so replay rejection cannot mask a
+and `jti` before requesting `sql:write`, so replay rejection cannot mask a
 scope error. The replay probe reuses the assertion from the successful exchange.
 Denials require the exact HTTP/OAuth error and no access, refresh or ID token.
 The decoded access-token assertions do not verify its signature locally:

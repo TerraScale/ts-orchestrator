@@ -32,7 +32,7 @@ KEY_URL = m.AUTH + "/v1/terrascale/organizations/" + IDS[0] + "/projects/" + IDS
 
 def native():
     return {"api_key": {"id": IDS[3], "name": m.KEY_NAME, "organization_id": IDS[0], "project_id": IDS[1],
-                        "database": DB, "scopes": ["documents:read"],
+                        "database": DB, "scopes": ["sql:read"],
                         "expires_at": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=23)).isoformat()},
             "key": IDS[3] + "_" + "a" * 52}
 
@@ -235,7 +235,7 @@ class TrustTests(SyntheticTests):
                 self.assertEqual(args[:2], (KEY_URL, "POST"))
                 request = args[2]
                 self.assertEqual(set(request), {"name", "database", "scopes", "expires_at"})
-                self.assertEqual(request["scopes"], ["documents:read"])
+                self.assertEqual(request["scopes"], ["sql:read"])
                 self.assertEqual(request["name"], "deployment-e2e-read")
                 self.assertEqual(request["database"], DB)
                 expiry = dt.datetime.fromisoformat(request["expires_at"].replace("Z", "+00:00"))
@@ -552,7 +552,7 @@ class RunTests(SyntheticTests):
             body["api_key"]["expires_at"] = expiry.isoformat()
             secret = body["key"]
             if failure == "validation":
-                body["api_key"]["scopes"] = ["documents:write"]
+                body["api_key"]["scopes"] = ["sql:write"]
             session = mock.Mock()
             session.verify_targets.return_value = (KEY_URL, DB)
             session.issue.return_value = body

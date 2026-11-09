@@ -68,7 +68,7 @@ No key exists from this handoff until the user runs and confirms the helper.
    provisions nothing. The target project's native key list must be empty with
    no next page; existing keys refuse. GitHub preflight is rechecked unchanged.
 5. One native POST creates `deployment-e2e-read`, exact database,
-   `scopes: ["documents:read"]` and a UTC expiry 23 hours ahead. The shared
+   `scopes: ["sql:read"]` and a UTC expiry 23 hours ahead. The shared
    validator checks native key/id, organization, project, database, exact scope
    and expiry within 24 hours. The helper also checks the key name. The complete
    native JSON goes directly to the existing protected-stdin `gh secret set`
