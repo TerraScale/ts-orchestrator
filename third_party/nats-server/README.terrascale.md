@@ -6,8 +6,8 @@ This directory is the complete `github.com/nats-io/nats-server/v2` Go module at
 tag `v2.15.0` resolves to commit `eb763679aa3c24a40dcd3012aa046ad1996d851c`
 (annotated tag object `4165d0d62508a8abe99feed39bb9e8ca4216aede`). The
 upstream Apache-2.0 `LICENSE` and module files are retained. Upstream test
-files were deleted on 2026-11-04 under TerraScale's happy-path test policy;
-only `server/terrascale_node_identity_test.go` remains, with its helpers inlined.
+files were deleted on 2026-11-04 under TerraScale's test policy; the module
+carries no test files.
 
 The first upstream source change is in `server/server.go`: when `DontListen` is
 true, `Server.Start()` closes `clientListenReady` itself. In v2.15.0, route
@@ -60,7 +60,7 @@ stale serving set. The function publication and R1-to-R3 consumer migration
 integration passed five race-instrumented repeats after this change (76ae267d2).
 
 Compare this directory with the upstream `v2.15.0` Go module archive before
-upgrading. Apart from this README and the TerraScale regression test,
+upgrading. Apart from this README,
 `server/server.go`, `server/accounts.go`, `server/leafnode.go`,
 `server/route.go`, `server/events.go`, `server/client.go`, `server/auth.go`, `server/stream.go`
 and `server/jetstream_cluster.go`

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Bind patched sources to reviewed upstream baselines and query their advisories."""
 import hashlib
+import http.client
 import json
-from pathlib import Path
 import subprocess
 import sys
 import urllib.request
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 # Resolve once: a vendored module's tool-manager files must not select a different Go.
@@ -25,7 +25,7 @@ BASELINES = (
         "github.com/nats-io/nats-server/v2", "v2.15.0", "third_party/nats-server",
         "eb763679aa3c24a40dcd3012aa046ad1996d851c",
         "third_party/nats-server/README.terrascale.md",
-        "f7e2e198c286a7f2cb780583a5f2bca444179e8c27bc4e6eafade36132bce59c",
+        "f34993146176f4fa32eaad4b3e7d1f235a47d3e32956246be23c5b782d7d23d9",
     ),
     (
         "github.com/oracle/oci-go-sdk/v65", "v65.126.0", "third_party/oci-go-sdk",
@@ -99,7 +99,7 @@ def audit(module, version):
         raise ValueError("malformed OSV response")
     findings = result.get("vulns", [])
     if not isinstance(findings, list):
-        raise ValueError("malformed OSV findings")
+        raise TypeError("malformed OSV findings")
     if findings:
         raise ValueError(f"upstream advisory findings: {module}@{version}; see complete response above")
 
@@ -117,7 +117,7 @@ def main():
     for module, version, *_ in BASELINES:
         try:
             audit(module, version)
-        except Exception as error:
+        except (OSError, ValueError, TypeError, http.client.HTTPException) as error:
             failures.append(f"{module}: {error}")
     if failures:
         raise ValueError("\n".join(failures))
@@ -126,5 +126,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as error:
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
         sys.exit(f"replacement advisory qualification failed: {error}")
