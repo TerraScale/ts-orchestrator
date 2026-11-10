@@ -174,18 +174,20 @@ type Node struct {
 	closing bool
 	work    sync.WaitGroup
 
-	mu      sync.Mutex
-	desired map[string]desiredState
-	failed  map[string]int64 // generation whose local rollout failed, per service
-	baking  map[string]chan struct{}
+	mu          sync.Mutex
+	desired     map[string]desiredState
+	failed      map[string]int64 // generation whose local rollout failed, per service
+	specInvalid map[string]error
+	baking      map[string]chan struct{}
 	// starting is a ts-auth or ts-dashboard update reconcile submitted whose
 	// evaluate has not yet registered its bake in baking.
-	starting        map[string]bool
-	bakeUnsaved     map[string]bakeRecord
-	peers           *peers
-	peerReports     map[string]map[string]PeerAttestation
-	peerReportMu    sync.Mutex
-	topologyDesired atomic.Pointer[map[string]Entry]
+	starting             map[string]bool
+	bakeUnsaved          map[string]bakeRecord
+	peers                *peers
+	peerReports          map[string]map[string]PeerAttestation
+	peerReportMu         sync.Mutex
+	topologyDesired      atomic.Pointer[map[string]Entry]
+	specInvalidPublished atomic.Pointer[map[string]error]
 
 	regionalDrain atomic.Pointer[regionalDrainer]
 	workerMu      sync.Mutex
@@ -200,9 +202,13 @@ func start(cfg config) (_ *Node, err error) {
 	if err := os.MkdirAll(cfg.dir, 0o700); err != nil {
 		return nil, err
 	}
-	desired, err := loadDesired(cfg.dir)
+	desired, specInvalid, err := loadDesired(cfg.dir)
 	if err != nil {
 		return nil, err
+	}
+	for _, name := range slices.Sorted(maps.Keys(specInvalid)) {
+		slog.Error("stored service spec rejected; service not managed", "service", name,
+			"error", fmt.Errorf("invalid desired state for %s: %w", name, specInvalid[name]))
 	}
 	peerFiles, err := newPeers(cfg)
 	if err != nil {
@@ -251,7 +257,7 @@ func start(cfg config) (_ *Node, err error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	node := &Node{cfg: cfg, tls: tlsConfig, server: embedded, conn: conn, fabric: fabric, ctx: ctx, cancel: cancel, desired: desired,
-		peers: peerFiles}
+		specInvalid: specInvalid, peers: peerFiles}
 	if err := node.serveClockReports(); err != nil {
 		node.closeConns()
 		cancel()
@@ -446,6 +452,11 @@ func (n *Node) sync(ctx context.Context) {
 	for _, name := range slices.Sorted(maps.Keys(n.desired)) {
 		if n.ctx.Err() != nil {
 			return
+		}
+		if err, rejected := n.specInvalid[name]; rejected {
+			slog.ErrorContext(ctx, "stored service spec rejected; service not managed", "service", name,
+				"error", fmt.Errorf("invalid desired state for %s: %w", name, err))
+			continue
 		}
 		// The peers file follows desired state even while the rollout waits (a
 		// held canary or an earlier region's turn): a restart must re-render it.
@@ -945,27 +956,28 @@ func collectAgain(ctx context.Context, conn *nats.Conn, subject string, payload 
 	return nil
 }
 
-func loadDesired(dir string) (map[string]desiredState, error) {
+func loadDesired(dir string) (map[string]desiredState, map[string]error, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "desired.json"))
 	if errors.Is(err, os.ErrNotExist) {
-		return map[string]desiredState{}, nil
+		return map[string]desiredState{}, map[string]error{}, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	desired := map[string]desiredState{}
 	if err := protocol.DecodeTolerant(data, &desired, maxWire); err != nil {
-		return nil, fmt.Errorf("decode mesh desired state: %w", err)
+		return nil, nil, fmt.Errorf("decode mesh desired state: %w", err)
 	}
 	if desired == nil {
-		return nil, errors.New("mesh desired state must be an object")
+		return nil, nil, errors.New("mesh desired state must be an object")
 	}
+	specInvalid := map[string]error{}
 	for name, state := range desired {
 		if err := validState(name, state); err != nil {
-			return nil, fmt.Errorf("invalid desired state for %s: %w", name, err)
+			specInvalid[name] = err
 		}
 	}
-	return desired, nil
+	return desired, specInvalid, nil
 }
 
 func saveDesired(dir string, desired map[string]desiredState) error {

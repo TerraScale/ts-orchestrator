@@ -308,3 +308,33 @@ tests:
             exp_annotations:
               summary: A TerraBase region replica has gone an hour without a completed checksum verification
 
+  - name: A rejected stored service spec pages after two minutes
+    interval: 15s
+    input_series:
+      - series: 'ts_orch_service_spec_invalid{service="ts-auth"}'
+        values: '1+0x12 0+0x4'
+    alert_rule_test:
+      - eval_time: 1m45s
+        alertname: ServiceSpecInvalid
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: ServiceSpecInvalid
+        exp_alerts:
+          - exp_labels:
+              service: ts-auth
+              severity: critical
+            exp_annotations:
+              summary: Stored service spec rejected; service not managed
+              description: The mesh excluded this service from startup because its stored desired state fails validation. Its running task is left alone. Apply a corrected spec to restore management.
+      - eval_time: 4m
+        alertname: ServiceSpecInvalid
+        exp_alerts: []
+  - name: Every managed service keeps a zero gauge
+    interval: 15s
+    input_series:
+      - series: 'ts_orch_service_spec_invalid{service="ts-auth"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ServiceSpecInvalid
+        exp_alerts: []
