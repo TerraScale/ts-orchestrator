@@ -68,8 +68,6 @@ tests:
     input_series:
       - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="admission_unavailable"}'
         values: '0+2x420'
-      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="sent"}'
-        values: '1000+0x420'
     alert_rule_test:
       - eval_time: 6h30m
         alertname: AuthEmailNoneSent
@@ -86,6 +84,16 @@ tests:
         values: '0+2x420'
       - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="sent"}'
         values: '1000+1x420'
+    alert_rule_test:
+      - eval_time: 6h30m
+        alertname: AuthEmailNoneSent
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="admission_unavailable"}'
+        values: '1000+0x420'
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="sent"}'
+        values: '1000+0x420'
     alert_rule_test:
       - eval_time: 6h30m
         alertname: AuthEmailNoneSent
