@@ -11,6 +11,14 @@
     "TS_AUTH_TERRABASE_URL": "http://127.0.0.1:8081"
   },
   "secrets": {
+    "CLOUDFLARE_ACCOUNT_ID_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-cloudflare-account-id"
+    },
+    "CLOUDFLARE_EMAIL_TOKEN_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-cloudflare-email-token"
+    },
     "TERRABASE_PEER_SECRET_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-terrabase-peer-secret"
