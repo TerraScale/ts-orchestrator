@@ -141,7 +141,7 @@ func (a api) orch(ctx context.Context, now time.Time) ([]string, error) {
 			break
 		}
 		if release == "skipped" {
-			if test, err := conclusion("test"); err != nil {
+			if test, err := conclusion("all-green"); err != nil {
 				return nil, err
 			} else if test == "success" {
 				continue

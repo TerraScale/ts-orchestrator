@@ -8,7 +8,7 @@ name: App release canary
 # shows published -> serving in every region.
 on:
   workflow_run:
-    workflows: [TerraScale Orchestrator Go checks]
+    workflows: [CI]
     types: [completed]
     branches: [main]
 

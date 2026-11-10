@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
   # After each main push's checks, so a fresh deploy/release-push is re-proved.
   workflow_run:
-    workflows: [TerraScale Orchestrator Go checks]
+    workflows: [CI]
     types: [completed]
     branches: [main]
 
