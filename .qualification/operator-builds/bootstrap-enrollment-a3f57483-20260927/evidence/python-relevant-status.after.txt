@@ -1,4 +1,0 @@
- M deploy/image/build-offline.sh
- M deploy/image/terrascale-orchestrator.sysusers
- M tests/deploy/test_build_offline.py
-?? deploy/image/validate-host-enrollment-public.py

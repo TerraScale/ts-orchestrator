@@ -1,2 +1,0 @@
-#!/usr/bin/env bash
-[[ "$*" == 'env GOVERSION' ]] && printf 'go1.27.3\n'
