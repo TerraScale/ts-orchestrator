@@ -124,3 +124,13 @@ groups:
         annotations:
           summary: A public edge listener is unavailable
           description: Inspect listener bind errors and native wire readiness. Other edge protocols continue serving; no manual release prerequisite is required.
+  - name: desired-state
+    rules:
+      - alert: ServiceSpecInvalid
+        expr: max by (service) (ts_orch_service_spec_invalid) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Stored service spec rejected; service not managed
+          description: The mesh excluded this service from startup because its stored desired state fails validation. Its running task is left alone. Apply a corrected spec to restore management.

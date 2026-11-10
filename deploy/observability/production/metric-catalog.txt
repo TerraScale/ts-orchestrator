@@ -56,4 +56,5 @@ ts_orch_peer_topology_age_seconds
 ts_orch_peer_topology_generation_rejected
 ts_orch_peer_topology_mismatch
 ts_orch_peer_topology_runtime_mismatch
+ts_orch_service_spec_invalid
 up

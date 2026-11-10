@@ -49,10 +49,17 @@ type PeerAttestation struct {
 // Publish while holding n.mu; monitoring never waits for reconciliation RPCs.
 func (n *Node) publishTopologyDesired() {
 	entries := make(map[string]Entry, len(n.desired))
+	invalid := make(map[string]error, len(n.specInvalid))
 	for name, state := range n.desired {
+		if err := validState(name, state); err != nil {
+			invalid[name] = err
+			continue
+		}
 		entries[name] = state.entry()
 	}
+	n.specInvalid = invalid
 	n.topologyDesired.Store(&entries)
+	n.specInvalidPublished.Store(&invalid)
 }
 
 func (n *Node) awaitPeerAdmission(ctx context.Context, spec *swarmruntime.ServiceSpec) error {
@@ -241,6 +248,11 @@ func (n *Node) localAttestations() map[string]PeerAttestation {
 
 // Only desired service names and admitted region names become metric labels.
 func (n *Node) writePeerMetrics(w io.Writer) {
+	if invalid := n.specInvalidPublished.Load(); invalid != nil {
+		for _, service := range slices.Sorted(maps.Keys(*invalid)) {
+			fmt.Fprintf(w, "ts_orch_service_spec_invalid{service=%q} 1\n", service)
+		}
+	}
 	n.peers.mu.Lock()
 	defer n.peers.mu.Unlock()
 	n.peerReportMu.Lock()
