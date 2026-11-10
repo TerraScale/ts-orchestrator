@@ -28,8 +28,8 @@ const (
 
 // Release serves app image releases (releasepush.Handler.App) on this host's
 // mesh node: it updates the image and declared all-region app budgets.
-func Release(state string) func(ctx context.Context, service, image string, claims releasepush.Claims) (json.RawMessage, error) {
-	return func(ctx context.Context, service, image string, claims releasepush.Claims) (json.RawMessage, error) {
+func Release(state string) func(ctx context.Context, service, image string, claims releasepush.Claims, progress releasepush.Progress) (json.RawMessage, error) {
+	return func(ctx context.Context, service, image string, claims releasepush.Claims, progress releasepush.Progress) (json.RawMessage, error) {
 		fence, err := rolloutmaintenance.Open(state)
 		if err != nil {
 			return nil, err
@@ -53,7 +53,7 @@ func Release(state string) func(ctx context.Context, service, image string, clai
 		}
 		defer conn.Close()
 		attempt, _ := strconv.ParseUint(claims.RunAttempt, 10, 64)
-		rows, failed := releaseDeployment(ctx, conn, service, image, &Deployment{Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA, Image: image}, releaseWait, rollbackWait)
+		rows, failed := releaseDeployment(ctx, conn, service, image, &Deployment{Repository: claims.Repository, RunID: claims.RunID, RunAttempt: attempt, Revision: claims.SHA, Image: image}, releaseWait, rollbackWait, progress)
 		if rows == nil {
 			return nil, failed
 		}
@@ -67,10 +67,27 @@ func Release(state string) func(ctx context.Context, service, image string, clai
 // previous spec everywhere, unless a newer release replaced this one meanwhile;
 // the rollback's rows follow the release's.
 func release(ctx context.Context, conn *nats.Conn, service, image string, wait, rollbackWait time.Duration) ([]Reply, error) {
-	return releaseDeployment(ctx, conn, service, image, nil, wait, rollbackWait)
+	return releaseDeployment(ctx, conn, service, image, nil, wait, rollbackWait, unreported{})
 }
 
-func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image string, deployment *Deployment, wait, rollbackWait time.Duration) ([]Reply, error) {
+type unreported struct{}
+
+func (unreported) Deadline(time.Time) {}
+func (unreported) Event(string)       {}
+
+func regionEvent(prefix string, reply Reply) string {
+	elapsed := time.Duration(reply.ElapsedMS) * time.Millisecond
+	switch {
+	case reply.Error != "":
+		return fmt.Sprintf("%s%s failed after %s: %s", prefix, reply.Region, elapsed, reply.Error)
+	case reply.Phases != "":
+		return fmt.Sprintf("%s%s %s in %s (%s)", prefix, reply.Region, reply.Result, elapsed, reply.Phases)
+	default:
+		return fmt.Sprintf("%s%s %s in %s", prefix, reply.Region, reply.Result, elapsed)
+	}
+}
+
+func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image string, deployment *Deployment, wait, rollbackWait time.Duration, progress releasepush.Progress) ([]Reply, error) {
 	entries, err := desiredStates(ctx, conn)
 	if err != nil {
 		return nil, err
@@ -134,18 +151,27 @@ func releaseDeployment(ctx context.Context, conn *nats.Conn, service, image stri
 		generation = before.Generation
 		request.Entry = before
 	}
-	rows, failed := send(ctx, conn, request, max(wait, rolloutWait(&next)))
+	rollout, rollback := max(wait, rolloutWait(&next)), max(rollbackWait, regionWindow(previous))
+	deadline := time.Now().Add(rollout + rollback + 2*stateWait)
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	progress.Deadline(deadline)
+	progress.Event(fmt.Sprintf("%s %s rolls out to %s one region at a time; other regions answer at once; outcome by %s (rollout %s, rollback %s)",
+		service, image, strings.Join(rolloutOrder(&next), ", "), deadline.UTC().Format(time.RFC3339), rollout, rollback))
+	rows, failed := sendObserved(ctx, conn, request, rollout, func(reply Reply) { progress.Event(regionEvent("", reply)) })
 	if failed == nil || bakeHeld(rows, service) {
 		return rows, failed
 	}
 	if current, err := desiredStates(ctx, conn); err != nil || current[service].entry().Generation != generation {
 		return rows, errors.Join(failed, errors.New("not rolled back: a newer release replaced it"), err)
 	}
-	back, err := send(ctx, conn, ApplyRequest{Name: service, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: previous, Deployment: deployment, HoldAfter: entries[service].entry().HoldAfter}}, max(rollbackWait, regionWindow(previous)))
 	target := "absence"
 	if previous != nil {
 		target = previous.Image
 	}
+	progress.Event(fmt.Sprintf("rolling back to %s in every region: %s", target, failed))
+	back, err := sendObserved(ctx, conn, ApplyRequest{Name: service, ExpectedGeneration: generation, Entry: Entry{Generation: max(time.Now().UnixNano(), generation+1), Spec: previous, Deployment: deployment, HoldAfter: entries[service].entry().HoldAfter}}, rollback,
+		func(reply Reply) { progress.Event(regionEvent("rollback ", reply)) })
 	if err != nil {
 		return append(rows, back...), errors.Join(failed, fmt.Errorf("rollback to %s: %w", target, err))
 	}

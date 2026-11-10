@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -12,8 +13,8 @@ import (
 
 // Await only short replies; the authenticated operation survives a connection
 // or credential expiring. Repeated requests poll the same verified identity.
-func awaitApp(ctx context.Context, release AppRelease, conn *nats.Conn, mint func(context.Context) (string, error), dial func(string) (*nats.Conn, error), poll time.Duration) (Reply, error) {
-	return awaitOperation(ctx, release.Token, conn, mint, dial, poll, SubjectApp, func(token string) ([]byte, error) {
+func awaitApp(ctx context.Context, release AppRelease, conn *nats.Conn, mint func(context.Context) (string, error), dial func(string) (*nats.Conn, error), poll time.Duration, progress func(Reply)) (Reply, error) {
+	return awaitOperation(ctx, release.Token, conn, mint, dial, poll, progress, SubjectApp, func(token string) ([]byte, error) {
 		release.Token = token
 		return json.Marshal(release)
 	})
@@ -23,15 +24,18 @@ func awaitApp(ctx context.Context, release AppRelease, conn *nats.Conn, mint fun
 func AwaitMesh(ctx context.Context, region Region, subject string, mesh MeshRequest) (Reply, error) {
 	return awaitOperation(ctx, mesh.Token, nil, MintToken, func(token string) (*nats.Conn, error) {
 		return Dial(region, token, nats.Name("ts-orch release mesh-check"))
-	}, 5*time.Second, subject, func(token string) ([]byte, error) {
+	}, 5*time.Second, func(Reply) {}, subject, func(token string) ([]byte, error) {
 		mesh.Token = token
 		return json.Marshal(mesh)
 	})
 }
 
-func awaitOperation(ctx context.Context, token string, conn *nats.Conn, mint func(context.Context) (string, error), dial func(string) (*nats.Conn, error), poll time.Duration, subject string, encode func(string) ([]byte, error)) (Reply, error) {
+const deadlineGrace = 20 * time.Second
+
+func awaitOperation(ctx context.Context, token string, conn *nats.Conn, mint func(context.Context) (string, error), dial func(string) (*nats.Conn, error), poll time.Duration, progress func(Reply), subject string, encode func(string) ([]byte, error)) (Reply, error) {
 	ctx, cancel := context.WithTimeout(ctx, HandlerWait+10*time.Second)
 	defer cancel()
+	var deadline time.Time
 	claims, err := appTokenClaims(token)
 	if err != nil {
 		if conn != nil {
@@ -67,8 +71,17 @@ func awaitOperation(ctx context.Context, token string, conn *nats.Conn, mint fun
 			reply, requestErr := request(ctx, conn, subject, payload, 15*time.Second)
 			conn.Close()
 			conn, err = nil, requestErr
+			if err == nil {
+				progress(reply)
+			}
 			if err == nil && reply.State != "accepted" {
 				return reply, nil
+			}
+			if err == nil && !reply.Deadline.IsZero() && deadline.IsZero() {
+				deadline = reply.Deadline
+				var stop context.CancelFunc
+				ctx, stop = context.WithDeadline(ctx, deadline.Add(deadlineGrace))
+				defer stop()
 			}
 		}
 		if err != nil {
@@ -78,6 +91,9 @@ func awaitOperation(ctx context.Context, token string, conn *nats.Conn, mint fun
 		select {
 		case <-ctx.Done():
 			timer.Stop()
+			if !deadline.IsZero() && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return Reply{}, errors.Join(fmt.Errorf("ts-orch did not report the outcome by its deadline %s", deadline.UTC().Format(time.RFC3339)), lastErr)
+			}
 			return Reply{}, errors.Join(ctx.Err(), lastErr)
 		case <-timer.C:
 		}

@@ -112,7 +112,7 @@ const applyRepublish = 30 * time.Second
 // plus every region a reply names) and each one's first reply, once all
 // replied or wait elapsed. rtt stamps each reply's ElapsedMS with its round
 // trip. A positive again re-publishes the request while regions are pending.
-func gather(ctx context.Context, conn *nats.Conn, subject string, payload []byte, wait, again time.Duration, rtt bool) ([]string, map[string]Reply, error) {
+func gather(ctx context.Context, conn *nats.Conn, subject string, payload []byte, wait, again time.Duration, rtt bool, observe func(Reply)) ([]string, map[string]Reply, error) {
 	sent := time.Now()
 	regions, replies := Regions(), map[string]Reply{}
 	err := collectAgain(ctx, conn, subject, payload, math.MaxInt, wait, again, func(data []byte) bool {
@@ -125,6 +125,7 @@ func gather(ctx context.Context, conn *nats.Conn, subject string, payload []byte
 		}
 		if _, seen := replies[reply.Region]; !seen {
 			replies[reply.Region] = reply
+			observe(reply)
 		}
 		pending := false
 		for _, region := range slices.Concat(regions, reply.Regions) {
@@ -142,11 +143,15 @@ func gather(ctx context.Context, conn *nats.Conn, subject string, payload []byte
 // send returns one row per known region; it fails when a targeted region
 // failed or did not reply.
 func send(ctx context.Context, conn *nats.Conn, request ApplyRequest, wait time.Duration) ([]Reply, error) {
+	return sendObserved(ctx, conn, request, wait, func(Reply) {})
+}
+
+func sendObserved(ctx context.Context, conn *nats.Conn, request ApplyRequest, wait time.Duration, observe func(Reply)) ([]Reply, error) {
 	payload, err := protocol.EncodeJSON(request)
 	if err != nil {
 		return nil, err
 	}
-	regions, replies, err := gather(ctx, conn, ApplySubject, payload, wait, applyRepublish, false)
+	regions, replies, err := gather(ctx, conn, ApplySubject, payload, wait, applyRepublish, false, observe)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +166,7 @@ func send(ctx context.Context, conn *nats.Conn, request ApplyRequest, wait time.
 		if reply.Error == "" {
 			succeeded = append(succeeded, region)
 		} else if request.Entry.Spec == nil || len(request.Entry.Spec.Regions) == 0 || slices.Contains(request.Entry.Spec.Regions, region) {
-			failed = append(failed, region)
+			failed = append(failed, region+" ("+reply.Error+")")
 		}
 	}
 	if len(failed) != 0 {
@@ -212,7 +217,7 @@ func Ping(ctx context.Context, conn *nats.Conn, wait time.Duration, output io.Wr
 
 // ping returns one row per known region, ElapsedMS being its round trip.
 func ping(ctx context.Context, conn *nats.Conn, wait time.Duration) ([]Reply, error) {
-	regions, answers, err := gather(ctx, conn, PingSubject, nil, wait, 0, true)
+	regions, answers, err := gather(ctx, conn, PingSubject, nil, wait, 0, true, func(Reply) {})
 	if err != nil {
 		return nil, err
 	}

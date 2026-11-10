@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -20,12 +21,29 @@ type appOperation struct {
 
 func (h *Handler) appOperation(release AppRelease, claims Claims) Reply {
 	key := appOperationKey{claims.Repository, claims.RunID, claims.RunAttempt, claims.SHA, claims.JobWorkflowRef, release.Service, release.Image}
-	return h.operation(key, func(ctx context.Context) (json.RawMessage, error) {
-		return h.App(ctx, release.Service, release.Image, claims)
+	return h.operation(key, func(ctx context.Context, progress Progress) (json.RawMessage, error) {
+		return h.App(ctx, release.Service, release.Image, claims, progress)
 	})
 }
 
-func (h *Handler) operation(key appOperationKey, run func(context.Context) (json.RawMessage, error)) Reply {
+type operationProgress struct {
+	h         *Handler
+	operation *appOperation
+}
+
+func (p operationProgress) Deadline(deadline time.Time) {
+	p.h.mu.Lock()
+	defer p.h.mu.Unlock()
+	p.operation.reply.Deadline = deadline
+}
+
+func (p operationProgress) Event(event string) {
+	p.h.mu.Lock()
+	defer p.h.mu.Unlock()
+	p.operation.reply.Events = append(p.operation.reply.Events, event)
+}
+
+func (h *Handler) operation(key appOperationKey, run func(context.Context, Progress) (json.RawMessage, error)) Reply {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for key, operation := range h.appOperations {
@@ -36,6 +54,7 @@ func (h *Handler) operation(key appOperationKey, run func(context.Context) (json
 	if operation := h.appOperations[key]; operation != nil {
 		reply := operation.reply
 		reply.Result = append([]byte(nil), reply.Result...)
+		reply.Events = slices.Clone(reply.Events)
 		return reply
 	}
 	// Never evict active operations or recently completed evidence to admit a
@@ -52,12 +71,12 @@ func (h *Handler) operation(key appOperationKey, run func(context.Context) (json
 		// The rollout outlives each short poll and its OIDC connection.
 		ctx, cancel := context.WithTimeout(context.Background(), HandlerWait)
 		defer cancel()
-		result, err := run(ctx)
-		reply := Reply{State: "done", Result: append([]byte(nil), result...)}
+		result, err := run(ctx, operationProgress{h, operation})
+		h.mu.Lock()
+		reply := Reply{State: "done", Result: append([]byte(nil), result...), Deadline: operation.reply.Deadline, Events: operation.reply.Events}
 		if err != nil {
 			reply.State, reply.Error = "failed", err.Error()
 		}
-		h.mu.Lock()
 		operation.reply, operation.completed = reply, time.Now()
 		h.mu.Unlock()
 	}()

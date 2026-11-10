@@ -32,8 +32,10 @@ func testOperationWait(t *testing.T, subject string) {
 	defer local.Close()
 	started := make(chan struct{})
 	var applications, mints, connections atomic.Int32
-	h := &Handler{Verifier: v, App: func(ctx context.Context, _, _ string, _ Claims) (json.RawMessage, error) {
+	h := &Handler{Verifier: v, App: func(ctx context.Context, _, _ string, _ Claims, progress Progress) (json.RawMessage, error) {
 		applications.Add(1)
+		progress.Deadline(time.Now().Add(10 * time.Second))
+		progress.Event("gru applied")
 		close(started)
 		select {
 		case <-time.After(3 * time.Second): // Longer than each credential's admitted lifetime.
@@ -43,7 +45,7 @@ func testOperationWait(t *testing.T, subject string) {
 		}
 	}}
 	h.Mesh = func(ctx context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
-		return h.App(ctx, "", "", Claims{})
+		return h.App(ctx, "", "", Claims{}, operationProgress{h, &appOperation{}})
 	}
 	if err := h.Serve(local); err != nil {
 		t.Fatal(err)
@@ -75,16 +77,65 @@ func testOperationWait(t *testing.T, subject string) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	reply, err := awaitOperation(ctx, token, conn, mint, dial, 100*time.Millisecond, subject, func(token string) ([]byte, error) {
+	var progressed atomic.Bool
+	reply, err := awaitOperation(ctx, token, conn, mint, dial, 100*time.Millisecond, func(reply Reply) {
+		progressed.Store(progressed.Load() || reply.State == "accepted" && len(reply.Events) == 1 && !reply.Deadline.IsZero())
+	}, subject, func(token string) ([]byte, error) {
 		if subject == SubjectApply {
 			return json.Marshal(MeshRequest{Token: token, Spec: json.RawMessage(`{"name":"whoami"}`)})
 		}
 		return json.Marshal(AppRelease{Service: "ts-dashboard", Image: "ghcr.io/terrascale/terrascale-dashboard@sha256:" + strings.Repeat("a", 64), Token: token})
 	})
-	if err != nil || reply.State != "done" || !strings.Contains(string(reply.Result), "passed") {
+	if err != nil || reply.State != "done" || !strings.Contains(string(reply.Result), "passed") || subject == SubjectApp && !progressed.Load() {
 		t.Fatalf("release lost across credential expiry/disconnect: %+v %v", reply, err)
 	}
 	if applications.Load() != 1 || mints.Load() < 2 || connections.Load() < 2 || time.Now().Before(time.Unix(initialClaims.Expires, 0).Add(clockSkew)) {
 		t.Fatalf("release did not outlive its credential idempotently: apps=%d mints=%d connections=%d", applications.Load(), mints.Load(), connections.Load())
+	}
+}
+
+func TestAppWaitEndsAtTheReleaseDeadline(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy provisioning, recovery or multi-node integration runs in Slow")
+	}
+	i := newIssuer(t)
+	v := i.verifier(time.Now())
+	v.Now = time.Now
+	srv, auth, url, pin := startServerIn(t, v, t.TempDir())
+	local, err := auth.Connect(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	h := &Handler{Verifier: v, App: func(ctx context.Context, _, _ string, _ Claims, progress Progress) (json.RawMessage, error) {
+		progress.Deadline(time.Now().Add(time.Second - deadlineGrace))
+		progress.Event("gru failed after 1m0s: not ready within 1m0s: task application readiness returned HTTP 503")
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	if err := h.Serve(local); err != nil {
+		t.Fatal(err)
+	}
+	mint := func(context.Context) (string, error) {
+		claims := goodClaims(time.Now())
+		claims["repository"] = owner + "/terrascale"
+		claims["job_workflow_ref"] = owner + "/terrascale/.github/workflows/images-ghcr.yml@" + mainRef
+		return i.sign(t, claims), nil
+	}
+	dial := func(token string) (*nats.Conn, error) {
+		return Dial(Region{NATS: url, SPKISHA256: pin}, token, nats.MaxReconnects(0))
+	}
+	token, _ := mint(t.Context())
+	conn, err := dial(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []string
+	started := time.Now()
+	_, err = awaitApp(t.Context(), AppRelease{Service: "ts-dashboard", Image: "ghcr.io/terrascale/terrascale-dashboard@sha256:" + strings.Repeat("a", 64), Token: token},
+		conn, mint, dial, 100*time.Millisecond, func(reply Reply) { events = reply.Events })
+	if err == nil || !strings.Contains(err.Error(), "did not report the outcome by its deadline") || time.Since(started) > 5*time.Second ||
+		len(events) != 1 || !strings.Contains(events[0], "HTTP 503") {
+		t.Fatalf("wait outlived the release deadline or lost its cause: %v after %s, events %q", err, time.Since(started), events)
 	}
 }

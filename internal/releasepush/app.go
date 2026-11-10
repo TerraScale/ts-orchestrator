@@ -17,7 +17,6 @@ import (
 
 const appUsage = "usage: ts-orch release app --service <name> --image ghcr.io/terrascale/<name>@sha256:<64 hex> [--regions deploy/m1/regions.json]"
 
-// AppResult is the one JSON line PushApp prints.
 type AppResult struct {
 	// Via is the region whose ts-orch ran the release on the mesh.
 	Via       string          `json:"via,omitempty"`
@@ -58,8 +57,15 @@ func PushApp(ctx context.Context, args []string, output io.Writer) error {
 			unreachable = errors.Join(unreachable, fmt.Errorf("region %s: %w", region.Region, err))
 			continue
 		}
+		printed := 0
 		reply, err := awaitApp(ctx, AppRelease{Service: *service, Image: *image, Token: token}, conn, MintToken,
-			func(token string) (*nats.Conn, error) { return Dial(region, token, nats.Name("ts-orch release app")) }, 5*time.Second)
+			func(token string) (*nats.Conn, error) { return Dial(region, token, nats.Name("ts-orch release app")) }, 5*time.Second,
+			func(reply Reply) {
+				for _, event := range reply.Events[min(printed, len(reply.Events)):] {
+					fmt.Fprintf(output, "release %s via %s: %s\n", *service, region.Region, event)
+				}
+				printed = max(printed, len(reply.Events))
+			})
 		result = AppResult{Via: region.Region, State: reply.State, Error: reply.Error, Regions: reply.Result, ServingMS: time.Since(start).Milliseconds()}
 		if err != nil {
 			result.Error = err.Error()
