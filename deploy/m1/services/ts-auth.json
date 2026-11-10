@@ -6,17 +6,11 @@
     "TS_AUTH_DASHBOARD_REDIRECT_URIS": "https://dash.terrascale.tech/login/callback",
     "TS_AUTH_LISTEN": "http://127.0.0.1:${PORT}",
     "TS_AUTH_METRICS_LISTEN": "http://127.0.0.1:0",
+    "TS_AUTH_SMTP_HOST": "smtp.email.sa-saopaulo-1.oci.oraclecloud.com",
+    "TS_AUTH_SMTP_PORT": "587",
     "TS_AUTH_TERRABASE_URL": "http://127.0.0.1:8081"
   },
   "secrets": {
-    "CLOUDFLARE_ACCOUNT_ID_FILE": {
-      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
-      "name": "gru-1-cloudflare-account-id"
-    },
-    "CLOUDFLARE_EMAIL_TOKEN_FILE": {
-      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
-      "name": "gru-1-cloudflare-email-token"
-    },
     "TERRABASE_PEER_SECRET_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-terrabase-peer-secret"
@@ -32,6 +26,14 @@
     "TS_AUTH_MASTER_KEY_FILE": {
       "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
       "name": "gru-1-ts-auth-master-key"
+    },
+    "TS_AUTH_SMTP_PASSWORD_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-smtp-password"
+    },
+    "TS_AUTH_SMTP_USERNAME_FILE": {
+      "vault": "ocid1.vault.oc1.sa-saopaulo-1.ffvnrldqaaexa.abtxeljrlqoda2dl7r527hwngvx5k5j7lhfytswubkmx6rtg5f4mjtv4xzlq",
+      "name": "gru-1-ts-auth-smtp-username"
     }
   },
   "port": 8090,
