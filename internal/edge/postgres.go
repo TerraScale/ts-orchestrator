@@ -23,12 +23,11 @@ import (
 const PostgresPort = 5432
 
 const (
-	postgresHandshake = 10 * time.Second
-	// Normal sessions and unclassified connections have separate fixed budgets.
-	// Established sessions leave room for cancellation handshakes.
-	maxPostgresHandshakes = 32
-	maxPostgresConns      = 1024
-	postgresALPN          = "postgresql"
+	postgresHandshake       = 10 * time.Second
+	maxPostgresHandshakes   = 32
+	maxPostgresHandshakeAll = 1024
+	maxPostgresConns        = 1024
+	postgresALPN            = "postgresql"
 	// Startup-family request codes (Postgres protocol, "Message Formats").
 	cancelRequest = 80877102
 	sslRequest    = 80877103
@@ -60,13 +59,59 @@ func (e *Edge) servePostgresTLS(ln net.Listener, config *tls.Config) error {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		select {
-		case e.pgHandshakes <- struct{}{}:
-			go e.postgresConn(conn, config, sync.OnceFunc(func() { <-e.pgHandshakes }))
-		default:
+		release, ok := e.admitPostgresHandshake(conn.RemoteAddr())
+		if !ok {
 			conn.Close()
+			continue
+		}
+		go e.postgresConn(conn, config, release)
+	}
+}
+
+func (e *Edge) admitPostgresHandshake(addr net.Addr) (func(), bool) {
+	select {
+	case e.pgHandshakes <- struct{}{}:
+	default:
+		return nil, false
+	}
+	ip := postgresPeerIP(addr)
+	e.pgHandshakeMu.Lock()
+	if e.pgHandshakeN[ip] >= maxPostgresHandshakes {
+		e.pgHandshakeMu.Unlock()
+		<-e.pgHandshakes
+		return nil, false
+	}
+	e.pgHandshakeN[ip]++
+	e.pgHandshakeMu.Unlock()
+	return sync.OnceFunc(func() {
+		e.pgHandshakeMu.Lock()
+		e.pgHandshakeN[ip]--
+		if e.pgHandshakeN[ip] == 0 {
+			delete(e.pgHandshakeN, ip)
+		}
+		e.pgHandshakeMu.Unlock()
+		<-e.pgHandshakes
+	}), true
+}
+
+func postgresPeerIP(addr net.Addr) string {
+	var ip net.IP
+	if tcp, ok := addr.(*net.TCPAddr); ok {
+		ip = tcp.IP
+	} else {
+		host, _, err := net.SplitHostPort(addr.String())
+		if err != nil {
+			return addr.String()
+		}
+		ip = net.ParseIP(host)
+		if ip == nil {
+			return host
 		}
 	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	return ip.String()
 }
 
 // bufConn reads through r so bytes peeked before the TLS handshake are not lost.
