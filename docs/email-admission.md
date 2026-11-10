@@ -36,3 +36,9 @@ restart, provider send or credential change is part of this source change.
 `ts_auth_emails_total{outcome="provider_exhausted"}` events through the existing
 relay. Push remains available when email capacity is exhausted. The rule drops
 all labels except service and region, and old events clear after five minutes.
+
+`AuthEmailDeliveryFailing` pages when sends end as `admission_unavailable`,
+`failed` or `bounced` for ten minutes; `capacity_refused` and
+`provider_exhausted` stay out because they are expected under load.
+`AuthEmailNoneSent` pages when six hours of attempts produce no `sent`,
+`accepted` or `queued` outcome, catching failure modes the outcome labels miss.
