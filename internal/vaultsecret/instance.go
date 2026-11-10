@@ -33,6 +33,8 @@ var serviceKeyRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
 var sharedSecrets = map[string][]string{
 	"terrabase-peer-secret":           {"ts-auth", "ts-dashboard"},
 	"ts-auth-dashboard-client-secret": {"ts-dashboard"},
+	"cloudflare-account-id":           {"ts-auth"},
+	"cloudflare-email-token":          {"ts-auth"},
 	"stripe-secret-key":               {"ts-dashboard"},
 	"stripe-webhook-secret":           {"ts-dashboard"},
 }

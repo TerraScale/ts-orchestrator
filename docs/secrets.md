@@ -42,7 +42,7 @@ read that compartment.
 | Secret | Compartment | Consumer |
 | --- | --- | --- |
 | `gru-1-ts-auth-*` | `gru-1-control` | ts-auth replicas, through the secret refs of its profile; see [ts-auth deployment](ts-auth-deployment.md) |
-| `gru-1-ts-auth-smtp-username`, `gru-1-ts-auth-smtp-password` | `gru-1-control` (gru-vault) | ts-auth email: OCI Email Delivery SMTP login on `smtp.email.sa-saopaulo-1.oci.oraclecloud.com:587`, delivered as `TS_AUTH_SMTP_USERNAME` / `TS_AUTH_SMTP_PASSWORD`; see [ts-auth deployment](ts-auth-deployment.md) |
+| `gru-1-ts-auth-smtp-username`, `gru-1-ts-auth-smtp-password` | `gru-1-control` (gru-vault) | ts-auth email: OCI Email Delivery SMTP login on `smtp.email.sa-saopaulo-1.oci.oraclecloud.com:587`, delivered as `TS_AUTH_SMTP_USERNAME(_FILE)` / `TS_AUTH_SMTP_PASSWORD(_FILE)`. ts-auth sends through it first and falls back to Cloudflare Email Sending (`gru-1-cloudflare-account-id`, `gru-1-cloudflare-email-token`, delivered as `CLOUDFLARE_ACCOUNT_ID(_FILE)` / `CLOUDFLARE_EMAIL_TOKEN(_FILE)`); both sets are required outside Development. See [ts-auth deployment](ts-auth-deployment.md) |
 | `gru-1-netbird-setup-key`, `gru-1-netbird-admin-pat` | `gru-1-control` | Server enrollment and controller reconciliation; see [NetBird](../deploy/netbird/README.md#secrets-and-tokens) |
 | `gru-1-netbird-datastore-encryption-key`, `gru-1-netbird-relay-auth-secret`, `gru-1-netbird-session-cookie-encryption-key` | `ts-ops` | `/run/terrascale-netbird/config.yaml` on ts-ops, fetched before each server start |
 | `gru-1-netbird-owner-email`, `gru-1-netbird-owner-password` | `TerraScale` | NetBird dashboard owner login |
