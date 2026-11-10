@@ -38,6 +38,66 @@ tests:
       - eval_time: 1m
         alertname: AuthEmailProviderExhausted
         exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="admission_unavailable"}'
+        values: '0+2x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AuthEmailDeliveryFailing
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: AuthEmailDeliveryFailing
+        exp_alerts:
+          - exp_labels:
+              service: ts-auth
+              region: gru
+              severity: critical
+            exp_annotations:
+              summary: Authentication email delivery failing
+              description: ts-auth sends are ending as admission_unavailable, failed or bounced. Check the admission endpoint and provider response before users are locked out of sign-up.
+  - interval: 1m
+    input_series:
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="accepted"}'
+        values: '0+2x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AuthEmailDeliveryFailing
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="admission_unavailable"}'
+        values: '0+2x420'
+    alert_rule_test:
+      - eval_time: 6h30m
+        alertname: AuthEmailNoneSent
+        exp_alerts:
+          - exp_labels:
+              service: ts-auth
+              region: gru
+              severity: critical
+            exp_annotations:
+              summary: 'Authentication email: attempts but no successful send in 6 hours'
+  - interval: 1m
+    input_series:
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="admission_unavailable"}'
+        values: '0+2x420'
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="sent"}'
+        values: '1000+1x420'
+    alert_rule_test:
+      - eval_time: 6h30m
+        alertname: AuthEmailNoneSent
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="admission_unavailable"}'
+        values: '1000+0x420'
+      - series: 'ts_auth_emails_total{service="ts-auth",region="gru",outcome="sent"}'
+        values: '1000+0x420'
+    alert_rule_test:
+      - eval_time: 6h30m
+        alertname: AuthEmailNoneSent
+        exp_alerts: []
   - name: Backup purge alone reaches day 20
     interval: 15s
     input_series:

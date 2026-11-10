@@ -97,6 +97,21 @@ groups:
           severity: critical
         annotations:
           summary: Authentication email provider capacity exhausted
+      - alert: AuthEmailDeliveryFailing
+        expr: sum by (service, region) (increase(ts_auth_emails_total{service="ts-auth",outcome=~"admission_unavailable|failed|bounced"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Authentication email delivery failing
+          description: ts-auth sends are ending as admission_unavailable, failed or bounced. Check the admission endpoint and provider response before users are locked out of sign-up.
+      - alert: AuthEmailNoneSent
+        expr: sum by (service, region) (increase(ts_auth_emails_total{service="ts-auth"}[6h])) > 0 unless sum by (service, region) (increase(ts_auth_emails_total{service="ts-auth",outcome=~"sent|accepted|queued"}[6h])) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Authentication email: attempts but no successful send in 6 hours'
 
   - name: edge-listeners
     rules:
