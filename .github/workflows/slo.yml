@@ -58,4 +58,4 @@ jobs:
           tar -xzf prometheus.tar.gz prometheus-3.15.0.linux-amd64/promtool
           printf 'TS_SLO_PROMTOOL=%s/prometheus-3.15.0.linux-amd64/promtool\n' "${RUNNER_TEMP}" >> "${GITHUB_ENV}"
       - name: Evaluate rules and validate dashboard
-        run: go test ./tests/slo -count=1 -v
+        run: go test ./internal/observability -count=1 -run TestAlertExprsUseExportedMetrics -v
