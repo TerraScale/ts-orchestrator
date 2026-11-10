@@ -80,9 +80,14 @@ An app release needs a token from a workflow `appServices` allows to release
 `terrabase`, `ts-auth`; ts-dashboard `images-ghcr.yml`: `ts-dashboard`), and
 the image name must equal the service. The receiving host reads the service's
 newest desired spec on the mesh, changes only its digest (same repository) and
-applies it to every region it targets: pre-pull, fast replacement, ready path.
-If a targeted region fails or is not ready within 70 s, it re-applies the
-previous spec everywhere (40 s) unless a newer release replaced it. A service
+applies it to every region it targets, one region at a time: pre-pull, fast
+replacement, ready path, bake. Each region gets its readiness timeout
+(`readyTimeoutSeconds`, 60 s by default) plus 30 s to pull and submit plus the
+bake budget; regions the spec does not place answer at once. If a targeted
+region fails or misses its window, the release re-applies the previous spec
+everywhere unless a newer release replaced it. The release ends by a deadline
+fixed when it starts: the rollout windows of all regions plus one rollback
+window. A service
 must have been applied once with `ts-orch service apply -f`, except `app-canary`:
 its authenticated workflow initializes the embedded, bounded canary spec on its
 first release or after removal. Failed creation rolls back to absence while
@@ -94,7 +99,13 @@ ts-orch release app --service terrabase --image ghcr.io/terrascale/terrabase@sha
 ```
 
 It tries the regions in `deploy/m1/regions.json` order until one accepts the
-connection and prints `{"via","state","serving_ms","error","regions"}`.
+connection. While the release runs it prints one line per event: the rollout
+order and deadline, each region's outcome as it reports (`sjc applied in 40.5s
+(pulled ..., submitted ..., ready ..., bake ...)` or `gru failed after 2m0s: not
+ready within 1m0s: task application readiness returned HTTP 503`), and the
+rollback. It then prints `{"via","state","serving_ms","error","regions"}` and
+fails with each failed region's cause. It waits until the deadline the release
+reported plus 20 s, so a caller needs no time limit of its own.
 
 `ts.release.mesh.state` returns `{"<service>": "<desired image>"}`; besides the
 multi-region workflow, only `app-digests.yml` may call it, and only it. That

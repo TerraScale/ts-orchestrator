@@ -87,7 +87,14 @@ type Reply struct {
 	// RolledBack is the release this host restored <binary>.prev over; Error says why.
 	RolledBack string `json:"rolled_back,omitempty"`
 	// Result is the mesh's per-region rows.
-	Result json.RawMessage `json:"result,omitempty"`
+	Result   json.RawMessage `json:"result,omitempty"`
+	Deadline time.Time       `json:"deadline,omitzero"`
+	Events   []string        `json:"events,omitempty"`
+}
+
+type Progress interface {
+	Deadline(time.Time)
+	Event(string)
 }
 
 // Handler serves the release subjects on any connection with full permissions.
@@ -105,7 +112,7 @@ type Handler struct {
 	Client                  *http.Client
 	// App swaps service's image in every region (rolling back on failure) and
 	// returns the per-region rows, also when it fails; nil refuses app releases.
-	App func(ctx context.Context, service, image string, claims Claims) (json.RawMessage, error)
+	App func(ctx context.Context, service, image string, claims Claims, progress Progress) (json.RawMessage, error)
 	// Mesh runs a multi-region workflow request (op "ping" or "apply") on the
 	// cross-region mesh and returns its rows, also when it fails; nil refuses them.
 	Mesh func(ctx context.Context, op string, spec json.RawMessage) (json.RawMessage, error)
@@ -489,7 +496,7 @@ func (h *Handler) mesh(ctx context.Context, op string, data []byte) Reply {
 	}
 	if op == "apply" {
 		key := appOperationKey{claims.Repository, claims.RunID, claims.RunAttempt, claims.SHA, claims.JobWorkflowRef, "mesh-apply", fmt.Sprintf("%x", sha256.Sum256(request.Spec))}
-		return h.operation(key, func(ctx context.Context) (json.RawMessage, error) { return h.Mesh(ctx, op, request.Spec) })
+		return h.operation(key, func(ctx context.Context, _ Progress) (json.RawMessage, error) { return h.Mesh(ctx, op, request.Spec) })
 	}
 	result, err := h.Mesh(ctx, op, request.Spec)
 	if err != nil {

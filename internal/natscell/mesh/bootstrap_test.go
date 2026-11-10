@@ -82,7 +82,7 @@ func TestBootstrapStagesOnlyTheRetainedReleaseWithBothExactFences(t *testing.T) 
 		t.Fatal("worker was not admitted")
 	}
 	claims := releasepush.Claims{Repository: "TerraScale/terrascale", RunID: "100", RunAttempt: "1", SHA: strings.Repeat("b", 40)}
-	if body, err := Release(state)(ctx, "terrabase", image, claims); err != nil || !strings.Contains(string(body), `"held":true`) {
+	if body, err := Release(state)(ctx, "terrabase", image, claims, unreported{}); err != nil || !strings.Contains(string(body), `"held":true`) {
 		t.Fatalf("authenticated release was not retained: %s %v", body, err)
 	}
 	if applier.appliedImage("terrabase") != spec.Image {

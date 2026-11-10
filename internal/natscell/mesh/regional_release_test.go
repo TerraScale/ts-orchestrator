@@ -3,6 +3,7 @@ package mesh
 import (
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,7 +41,7 @@ func TestSignedDashboardReleaseExpandsPersistedPlacement(t *testing.T) {
 	const name = "ts-dashboard"
 	nodes, previous := regionalReleaseFixture(t, name, "")
 	deployment := regionalDeployment(previous)
-	rows, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, testwait.Budget(t), testwait.Budget(t))
+	rows, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, testwait.Budget(t), testwait.Budget(t), unreported{})
 	if err != nil || len(rows) != len(nodes) {
 		t.Fatalf("release: %+v, %v", rows, err)
 	}
@@ -66,7 +67,7 @@ func TestSignedDashboardReleaseExpandsPersistedPlacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Fresh release caller after a binary/handler restart: no new generation or bake.
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, testwait.Budget(t), testwait.Budget(t)); err != nil {
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, deployment.Image, deployment, testwait.Budget(t), testwait.Budget(t), unreported{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, node := range nodes {
@@ -89,7 +90,7 @@ func TestSignedDashboardReleaseExpandsPersistedPlacement(t *testing.T) {
 	}
 	newer := *deployment
 	newer.RunID = "101"
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, newer.Image, &newer, testwait.Budget(t), testwait.Budget(t)); err != nil {
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, name, newer.Image, &newer, testwait.Budget(t), testwait.Budget(t), unreported{}); err != nil {
 		t.Fatal(err)
 	}
 	states, err = desiredStates(t.Context(), nodes[0].conn)
@@ -109,8 +110,20 @@ func TestRegionalAppReleaseRollbackRestoresPlacementAndBudgets(t *testing.T) {
 	applier.mu.Lock()
 	applier.unready = deployment.Image
 	applier.mu.Unlock()
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, previous.Name, deployment.Image, deployment, time.Second, time.Second); err == nil {
-		t.Fatal("failed regional rollout did not roll back")
+	progress := &recordedProgress{}
+	started := time.Now()
+	_, err := releaseDeployment(t.Context(), nodes[0].conn, previous.Name, deployment.Image, deployment, time.Second, time.Second, progress)
+	if err == nil || !strings.Contains(err.Error(), "fra (test image not ready)") {
+		t.Fatalf("failed regional rollout did not roll back with its cause: %v", err)
+	}
+	progress.mu.Lock()
+	events := strings.Join(progress.events, "\n")
+	progress.mu.Unlock()
+	failure, rollback := strings.Index(events, "fra failed after"), strings.Index(events, "rolling back to "+previous.Image)
+	if !progress.deadline.After(started) || !strings.HasPrefix(events, previous.Name+" "+deployment.Image+" rolls out to sjc, fra, gru") ||
+		!strings.Contains(events, "sjc applied in") || failure < 0 || rollback < failure || !strings.Contains(events[failure:rollback], "test image not ready") ||
+		!strings.Contains(events[rollback:], "rollback sjc ") {
+		t.Fatalf("release progress missing deadline, region outcomes or cause: %s %s", progress.deadline, events)
 	}
 	for _, node := range nodes {
 		node.mu.Lock()
@@ -131,4 +144,22 @@ func TestRegionalAppReleaseRollbackRestoresPlacementAndBudgets(t *testing.T) {
 			t.Fatalf("rollback left candidate running in %s", node.cfg.region)
 		}
 	}
+}
+
+type recordedProgress struct {
+	mu       sync.Mutex
+	deadline time.Time
+	events   []string
+}
+
+func (p *recordedProgress) Deadline(deadline time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.deadline = deadline
+}
+
+func (p *recordedProgress) Event(event string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.events = append(p.events, event)
 }

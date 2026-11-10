@@ -15,7 +15,7 @@ func TestAppCanaryFirstSignedReleaseNeedsNoOperatorApply(t *testing.T) {
 	}, "gru", "sjc", "fra")
 	image := "ghcr.io/terrascale/app-canary@sha256:" + strings.Repeat("a", 64)
 	deployment := &Deployment{Repository: "TerraScale/ts-orchestrator", RunID: "100", Revision: strings.Repeat("b", 40), Image: image}
-	rows, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second)
+	rows, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second, unreported{})
 	if err != nil || len(rows) != len(nodes) {
 		t.Fatalf("first canary release: rows=%+v err=%v", rows, err)
 	}
@@ -42,7 +42,7 @@ func TestAppCanaryFirstSignedReleaseNeedsNoOperatorApply(t *testing.T) {
 			t.Fatalf("canary placement %s running=%d", node.cfg.region, running)
 		}
 	}
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "unknown", image, deployment, time.Second, time.Second); err == nil {
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "unknown", image, deployment, time.Second, time.Second, unreported{}); err == nil {
 		t.Fatal("arbitrary missing service was bootstrapped")
 	}
 	// A fresh release caller (including one after handler restart) must reuse
@@ -56,7 +56,7 @@ func TestAppCanaryFirstSignedReleaseNeedsNoOperatorApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second); err != nil {
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second, unreported{}); err != nil {
 		t.Fatalf("identical signed retry failed: %v", err)
 	}
 	for _, node := range nodes {
@@ -73,7 +73,7 @@ func TestAppCanaryFirstSignedReleaseNeedsNoOperatorApply(t *testing.T) {
 	}
 	newer := *deployment
 	newer.RunID = "101"
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, &newer, time.Second, time.Second); err != nil {
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, &newer, time.Second, time.Second, unreported{}); err != nil {
 		t.Fatalf("new signed run failed: %v", err)
 	}
 	nodes[0].mu.Lock()
@@ -97,7 +97,7 @@ func TestAppCanaryFailedCreationRollsBackAndPreservesAuthority(t *testing.T) {
 	applier.mu.Lock()
 	applier.unready = image
 	applier.mu.Unlock()
-	rows, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second)
+	rows, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second, unreported{})
 	if err == nil || !strings.Contains(err.Error(), "rolled back to absence") || len(rows) != 2*len(nodes) {
 		t.Fatalf("failed first creation: rows=%+v err=%v", rows, err)
 	}
@@ -111,7 +111,7 @@ func TestAppCanaryFailedCreationRollsBackAndPreservesAuthority(t *testing.T) {
 	}
 	older := *deployment
 	older.RunID = "99"
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, &older, time.Second, time.Second); err == nil {
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, &older, time.Second, time.Second, unreported{}); err == nil {
 		t.Fatal("an old signed run bypassed the failed creation's floor")
 	}
 	applier.mu.Lock()
@@ -124,7 +124,7 @@ func TestAppCanaryFailedCreationRollsBackAndPreservesAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	generation := before["app-canary"].entry().Generation
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second); err == nil || !strings.Contains(err.Error(), "newer signed run") {
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second, unreported{}); err == nil || !strings.Contains(err.Error(), "newer signed run") {
 		t.Fatalf("identical signed retry escaped terminal rollback: %v", err)
 	}
 	for _, node := range nodes {
@@ -136,14 +136,14 @@ func TestAppCanaryFailedCreationRollsBackAndPreservesAuthority(t *testing.T) {
 		}
 	}
 	deployment.RunID = "101"
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second); err != nil {
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second, unreported{}); err != nil {
 		t.Fatalf("new run could not recover failed creation: %v", err)
 	}
 	if _, err := send(t.Context(), nodes[0].conn, ApplyRequest{Name: "app-canary", Entry: Entry{Generation: time.Now().UnixNano()}}, time.Second); err != nil {
 		t.Fatal(err)
 	}
 	deployment.RunID = "102"
-	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second); err != nil {
+	if _, err := releaseDeployment(t.Context(), nodes[0].conn, "app-canary", image, deployment, time.Second, time.Second, unreported{}); err != nil {
 		t.Fatalf("new signed canary run did not restore the fixed spec after removal: %v", err)
 	}
 }
