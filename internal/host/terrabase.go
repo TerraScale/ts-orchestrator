@@ -400,6 +400,14 @@ func (a *Agent) terraBaseState(ctx context.Context, d Desired) (string, error) {
 	return "running", nil
 }
 
+func (a *Agent) terraBaseBackup(ctx context.Context, d Desired) error {
+	profile, err := terrabase.ParseProfile(d.Env)
+	if err != nil {
+		return err
+	}
+	return terrabase.Backupz(ctx, profile.AdminPort)
+}
+
 // ensureOwnedDir creates path and sets its owner and mode through a
 // descriptor opened without following a symlink at path. The agent holds
 // CAP_CHOWN but not CAP_FOWNER, so it cannot chmod a directory it gave to the
