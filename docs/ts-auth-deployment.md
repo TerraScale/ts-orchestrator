@@ -105,7 +105,7 @@ breaks these rules:
 | `TS_AUTH_ACCESS_TOKEN_AUDIENCES` | Exactly `https://<cell>.api.terrascale.tech`, the cell TerraBase's `auth-audience`: every access token names it, so a dashboard user's token reaches TerraBase's Management API (TS-519). |
 | `TS_AUTH_DASHBOARD_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login/callback`, the dashboard's callback. |
 | `TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login`, the `post_logout_redirect_uri` the dashboard sends; ts-auth compares it exactly. |
-| `TS_AUTH_SMTP_HOST`, `TS_AUTH_SMTP_PORT`, `TS_AUTH_SMTP_FROM_ADDRESS`, `TS_AUTH_SMTP_CHECK_REVOCATION` | The [SMTP relay](#secrets-and-email-delivery): `smtp.email.sa-saopaulo-1.oci.oraclecloud.com`, `587` (STARTTLS), `noreply@terrascale.tech` and `false`. Other non-secret optional settings (OTEL endpoint) may be added. |
+| `TS_AUTH_SMTP_HOST`, `TS_AUTH_SMTP_PORT` | The [SMTP relay](#secrets-and-email-delivery): `smtp.email.sa-saopaulo-1.oci.oraclecloud.com`, `587` (STARTTLS). ts-auth fixes the From address to `no-reply@terrascale.tech`. Other non-secret optional settings (OTEL endpoint) may be added. |
 | The secret keys below, `TS_AUTH_LISTEN`, `DOTNET_BUNDLE_EXTRACT_BASE_DIR` | Must not be set in `env`. |
 | `secrets` | Names the six secret keys below, each `{"vault": OCID, "name": NAME}`, and may add `TS_AUTH_SMTP_USERNAME`, `TS_AUTH_SMTP_PASSWORD` and `TS_AUTH_SERVICE_CLIENTS`. The committed profile names both SMTP credentials. |
 | `TS_AUTH_STRIPE_SECRET_KEY`, `TS_AUTH_STRIPE_WEBHOOK_SECRET`, `TS_AUTH_SENTRY_DSN`, `TS_AUTH_AUDIT_VERIFY_KEYS`, `OTEL_EXPORTER_OTLP_HEADERS` | Must not be set: they are secrets, and the profile does not name them yet. |

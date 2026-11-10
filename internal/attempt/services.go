@@ -156,7 +156,6 @@ func (a *Attempt) deriveTSAuth(cell catalog.Entry, plan Object, terraBase map[st
 		tsauth.EnvAPIFailover: strconv.FormatBool(len(endpoints) > 1), tsauth.EnvDatabase: tsauth.Database,
 		tsauth.EnvDashboardRedirectURIs: tsauth.DashboardRedirectURI, tsauth.EnvDashboardLogoutURIs: tsauth.DashboardLogoutURI,
 		"TS_AUTH_SMTP_HOST": "smtp.email." + cell.OCIRegion + ".oci.oraclecloud.com", "TS_AUTH_SMTP_PORT": "587",
-		"TS_AUTH_SMTP_FROM_ADDRESS": "noreply@terrascale.tech", "TS_AUTH_SMTP_CHECK_REVOCATION": "false",
 	}
 	name, err := naming.RegionCell(cell.Cell).Name()
 	if err != nil {
