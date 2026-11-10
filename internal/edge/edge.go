@@ -49,6 +49,8 @@ type Edge struct {
 	postgres         atomic.Pointer[map[string]int]
 	pgKeys           postgresKeys
 	pgHandshakes     chan struct{}
+	pgHandshakeMu    sync.Mutex
+	pgHandshakeN     map[string]int
 	pgSessions       chan struct{}
 	pgRelays         chan struct{}
 	pgControl        chan struct{}
@@ -83,7 +85,8 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 		},
 		listen:       net.Listen,
 		terrabase:    terrabaseInternal,
-		pgHandshakes: make(chan struct{}, maxPostgresHandshakes), pgSessions: make(chan struct{}, maxPostgresConns),
+		pgHandshakes: make(chan struct{}, maxPostgresHandshakeAll), pgHandshakeN: map[string]int{},
+		pgSessions:       make(chan struct{}, maxPostgresConns),
 		peerAddr:         func(region string) string { return net.JoinHostPort(region+"."+mesh.Domain, "443") },
 		spoolDir:         filepath.Join(stateDir, "edge-spool"),
 		netbirdDashboard: netbirddashboard.New(stateDir),
