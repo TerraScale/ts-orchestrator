@@ -260,3 +260,22 @@ func Healthy(ctx context.Context, adminPort int) error {
 	}
 	return nil
 }
+
+func Backupz(ctx context.Context, adminPort int) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+strconv.Itoa(adminPort)+"/backupz", nil)
+	if err != nil {
+		return err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("terrabase backup: %w", err)
+	}
+	defer response.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("terrabase backup: HTTP %d %q", response.StatusCode, strings.TrimSpace(string(data)))
+	}
+	return nil
+}

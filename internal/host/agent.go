@@ -24,6 +24,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/nkeys"
 )
 
@@ -888,6 +889,11 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 			report.Error = strings.TrimPrefix(report.Error+"; "+filesErr.Error(), "; ")
 		}
 		return a.publishReport(ctx, report)
+	}
+	if d.Role == terrabase.Role && d.ManagedMember == nil && !d.Withdrawn && current.Running && current.Digest != d.Digest {
+		if err := a.terraBaseBackup(ctx, d); err != nil {
+			return err
+		}
 	}
 	var query cycleQuery
 	var cycle cycleReply
