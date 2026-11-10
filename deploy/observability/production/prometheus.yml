@@ -53,11 +53,7 @@ scrape_configs:
         replacement: '${1}:9091'
     metric_relabel_configs:
       - source_labels: [__name__]
-        regex: 'terrabase_(storage_(queued|running|admitted)|catalog_anchor_timeouts_total|shape_cleanup_(parked|oldest_age_seconds|saturated))'
+        regex: 'terrabase_storage_(queued|running|admitted)'
         action: keep
-      - source_labels: [__name__]
-        regex: 'terrabase_shape_cleanup_(parked|oldest_age_seconds|saturated)'
-        target_label: service
-        replacement: terrabase
       - regex: '__name__|host|region|service|instance|job'
         action: labelkeep

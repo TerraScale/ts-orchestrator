@@ -38,10 +38,10 @@ tests:
       - eval_time: 1m
         alertname: AuthEmailProviderExhausted
         exp_alerts: []
-  - name: History erasure reaches day 20 and recovers
+  - name: Backup purge alone reaches day 20
     interval: 15s
     input_series:
-      - series: 'terrabase_history_erasure_oldest_age_seconds{service="terrabase",region="gru"}'
+      - series: 'terrabase_backup_purge_oldest_age_seconds{service="terrabase",region="gru"}'
         values: '1727999 1728000 0'
     alert_rule_test:
       - eval_time: 0s
@@ -54,8 +54,8 @@ tests:
               service: terrabase
               severity: warning
             exp_annotations:
-              summary: A TerraBase deletion is overdue or stalled by a replica epoch change
-              description: Inspect pending holders; escalate epoch stalls to engineering (TS-875), never override coverage. Region removal requires explicit user authorization.
+              summary: A TerraBase deletion has stayed pending for twenty days
+              description: Inspect pending holders. Region removal requires explicit user authorization.
       - eval_time: 30s
         alertname: TerraBaseErasurePendingDay20
         exp_alerts: []
@@ -72,29 +72,8 @@ tests:
               service: terrabase
               severity: warning
             exp_annotations:
-              summary: A TerraBase deletion is overdue or stalled by a replica epoch change
-              description: Inspect pending holders; escalate epoch stalls to engineering (TS-875), never override coverage. Region removal requires explicit user authorization.
-  - name: Epoch stall fires immediately with no age metric
-    interval: 15s
-    input_series:
-      - series: 'terrabase_history_erasure_epoch_stalled{service="terrabase",region="gru"}'
-        values: '0 1 0'
-    alert_rule_test:
-      - eval_time: 0s
-        alertname: TerraBaseErasurePendingDay20
-        exp_alerts: []
-      - eval_time: 15s
-        alertname: TerraBaseErasurePendingDay20
-        exp_alerts:
-          - exp_labels:
-              service: terrabase
-              severity: warning
-            exp_annotations:
-              summary: A TerraBase deletion is overdue or stalled by a replica epoch change
-              description: Inspect pending holders; escalate epoch stalls to engineering (TS-875), never override coverage. Region removal requires explicit user authorization.
-      - eval_time: 30s
-        alertname: TerraBaseErasurePendingDay20
-        exp_alerts: []
+              summary: A TerraBase deletion has stayed pending for twenty days
+              description: Inspect pending holders. Region removal requires explicit user authorization.
   - name: Missing deletion metrics do not imply completion
     interval: 15s
     alert_rule_test:
@@ -109,8 +88,8 @@ tests:
         values: '0+0x3 1+0x24'
       - series: 'terrabase_backup_drills_total{service="terrabase",region="gru",result="failed"}'
         values: '0+0x3 1+0x24'
-      - series: 'terrabase_replication_send_lag_seconds{service="terrabase",region="gru"}'
-        values: '31+0x28'
+      - series: 'terrabase_replica_max_lag_milliseconds{service="terrabase",region="gru"}'
+        values: '31000+0x28'
       - series: 'terrabase_backup_lag_seconds{service="terrabase",region="gru"}'
         values: '601+0x28'
       - series: 'up{job="terrabase",service="terrabase",region="gru"}'
@@ -231,64 +210,6 @@ tests:
               description: Inspect listener bind errors and native wire readiness. Other edge protocols continue serving; no manual release prerequisite is required.
       - eval_time: 90s
         alertname: EdgeListenerUnavailable
-        exp_alerts: []
-  - name: Shape cleanup parks, overdues and saturates
-    interval: 15s
-    input_series:
-      - series: 'terrabase_shape_cleanup_parked{job="terrabase-host-storage",service="terrabase",host="sjc-1",region="sjc"}'
-        values: '0 1 0'
-      - series: 'terrabase_shape_cleanup_oldest_age_seconds{job="terrabase-host-storage",service="terrabase",host="fra-1",region="fra"}'
-        values: '3600 3601 0'
-      - series: 'terrabase_shape_cleanup_saturated{job="terrabase-host-storage",service="terrabase",host="gru-1",region="gru"}'
-        values: '1+0x24 0'
-    alert_rule_test:
-      - eval_time: 0s
-        alertname: TerraBaseShapeCleanupParked
-        exp_alerts: []
-      - eval_time: 15s
-        alertname: TerraBaseShapeCleanupParked
-        exp_alerts:
-          - exp_labels:
-              host: sjc-1
-              region: sjc
-              service: terrabase
-              severity: critical
-            exp_annotations:
-              summary: TerraBase shape cleanup is parked by a credential or policy refusal
-              description: Repair the shape R2 or CDN purge identity in OCI Vault and roll TerraBase; parked inventory resumes at the next start and is never dropped.
-      - eval_time: 30s
-        alertname: TerraBaseShapeCleanupParked
-        exp_alerts: []
-      - eval_time: 0s
-        alertname: TerraBaseShapeCleanupOverdue
-        exp_alerts: []
-      - eval_time: 15s
-        alertname: TerraBaseShapeCleanupOverdue
-        exp_alerts:
-          - exp_labels:
-              host: fra-1
-              region: fra
-              service: terrabase
-              severity: warning
-            exp_annotations:
-              summary: TerraBase shape cleanup has been due for more than an hour
-              description: Inspect terrabase_shape_cleanup_attempts_total by stage and outcome, the shared purge budget bucket and Cloudflare purge limits.
-      - eval_time: 4m
-        alertname: TerraBaseShapeCleanupSaturated
-        exp_alerts: []
-      - eval_time: 5m
-        alertname: TerraBaseShapeCleanupSaturated
-        exp_alerts:
-          - exp_labels:
-              host: gru-1
-              region: gru
-              service: terrabase
-              severity: warning
-            exp_annotations:
-              summary: TerraBase shape cleanup inventory refuses new mirror publication
-              description: Origin shape reads keep serving; drain pending cleanup before raising any bound.
-      - eval_time: 6m15s
-        alertname: TerraBaseShapeCleanupSaturated
         exp_alerts: []
   - interval: 1m
     input_series:
