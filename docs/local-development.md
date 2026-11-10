@@ -1,7 +1,7 @@
 # Local development
 
 This repository contains the current Go `ts-orchestrator` executable. The
-[workspace GOAL](../../GOAL.md) prioritizes end-to-end API behavior and an
+workspace GOAL prioritizes end-to-end API behavior and an
 early, low-cost ARM64 preview of ts-orchestrator with TerraBase. It authorizes
 that preview under a combined recurring-cost cap of **US$200/month for
 qualification testing and preview**; these local commands do not deploy or
@@ -9,7 +9,7 @@ qualify it. Current preview evidence and open gates are linked in the
 [OCI preview record](evidence/oci-preview-20260926.json) and
 [shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
 The management resource-protection and pressure/restart acceptance requirement
-is defined as D15 in the [workspace GOAL](../../GOAL.md#minimum-end-to-end-acceptance-scenarios)
+is defined as D15 in the workspace GOAL
 and tracked in the [D15 gate file](evidence/gates/d15.md); the commands below
 do not establish that runtime qualification.
 
@@ -20,21 +20,16 @@ targets used in CI:
 ```bash
 mise trust .mise.toml
 mise install
-mise exec -- make verify
+mise exec -- make lint
 mise exec -- make build
 mise exec -- make release-linux
 ```
 
-`make verify` checks formatting, runs `go vet`, and runs all Go tests with the
-race detector. Deployment and qualification driver contracts use Go's
-standard `testing` package and are included in `go test ./...`. Their operational
-implementations also use Go. Use `make test` for an
-ordinary full run or `mise exec -- go test ./tests/deploy -run TestName` for a
-focused contract. Actual VM qualification is run separately. `make build`
+`make lint` checks formatting, templ output, `go vet`, shell scripts and the
+repository policies. `make build`
 writes the current-platform binary to `dist/ts-orch`. Use `ts-orch` for operator
 tasks and implement new operational tooling as Go subcommands rather than
-Python scripts; see [contributing](../CONTRIBUTING.md). Run verification with
-`umask 022`, as the qualification tests check exact file modes.
+Python scripts; see [contributing](../AGENTS.md).
 
 `make release-linux` builds Linux amd64 and arm64 binaries with cgo disabled.
 It is a cross-build target; it does not demonstrate execution on ARM64 or
@@ -76,37 +71,7 @@ volume, and no TerraBase serving claim is made. See [`internal/app/managed_confi
 and [`internal/placement/controller.go`](../internal/placement/controller.go)
 for the strict parser and lifecycle boundary.
 
-## Firecracker qualification
-
-Use the four-VM harness described in
-[`tests/firecracker/README.md`](../tests/firecracker/README.md). First run its
-read-only prerequisite check, then start the live qualification from the
-repository root:
-
-```bash
-scripts/qualification/fetch-firecracker-inputs.sh
-ts-orch qualification firecracker generic check
-ts-orch qualification firecracker generic run
-```
-
-The script downloads the pinned Linux 6.1.186 kernel from the Firecracker CI
-bucket and derives the Ubuntu 24.04 (release 20260911) root filesystem from the
-cloud image's root partition, verifies both against `KernelSHA`/`RootfsSHA` in
-`internal/qualification/firecracker/generic.go`, and installs them read-only
-under `${XDG_CACHE_HOME:-~/.cache}/ts-orch/firecracker-qualification`, which
-`check` and `run` use by default (`--kernel`/`--rootfs` override). It needs
-`curl`, `qemu-img` and `sfdisk`; reruns skip verified inputs. The harness
-requires Firecracker, `/dev/kvm`, `/dev/net/tun`, and `chronyd` and `chronyc`
-on `PATH`. `check` creates no VMs or network devices. `run`
-needs passwordless `sudo` for the documented network, mount, and service
-setup commands. It builds the current Linux amd64 binary, verifies the Go
-source stayed unchanged during the build, and creates fresh working copies of
-the guest images in a private per-run directory. The scenario covers the
-controller/operator/host path, workload execution, host reboot recovery, and
-control-quorum loss and recovery. A successful local test run does not replace
-this guest qualification.
-
-### Prior local qualification (2026-09-24)
+## Prior local qualification (2026-09-24)
 
 On 2026-09-24, the four-VM run passed at source revision
 `df09ee5692b4a5dc60230f019d1265efccb2f972` using Go 1.27.1 via `mise`. It observed an
@@ -132,19 +97,5 @@ summary at `/tmp/ts-orch-fc-evidence-20260924-live15/summary.json` has SHA-256
 `logs/events.json` SHA-256 is
 `91729e7022415835abce25392cdc34b1811a314448939223d014a657c737c25a`.
 
-The runner correction passed `mise exec -- go test ./internal/host -count=1`
-and `mise exec -- go test -race ./internal/host -count=1`. Seven native
-cgroup-runner tests passed without skips on the pinned guest image; see
-`/tmp/ts-orch-fc14-runner-repro/fixed-guest-1/logs/runner-tests.txt` (SHA-256
-`5b5b0ca3a87e35155d3109eb793fc6ad273987b37cbca771accfb540b9c4e8b5`). The
-complete Go suite and `go vet ./...` passed for the source committed as
-`69823ca4124d910b105d7af3d7a543a1baca7461` before this runner-only correction.
 Static Linux artifacts for `df09ee5` and their hashes are in
 [release boundaries](releases.md#local-static-build-receipt).
-
-The focused app-level caller is
-`mise exec -- go test ./internal/app -run TestAuthenticatedOperatorToHostDelivery -count=1`.
-It exercises signed host registration and placement admission, artifact
-admission, deployment and status, and host-agent delivery over NATS using an
-in-memory workload runner. It does not start a guest process or test VM reboot
-and quorum recovery.

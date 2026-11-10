@@ -20,7 +20,7 @@ and `/tmp/ts-alpha-acceptance-queue-20260928.md` keep the M0–M3 map and next
 checks. **Formal acceptance remains 0/16.**
 
 TerraBase main `d2017ca9668a650ec490dff3f79bd51b75bb6466` passed CI #1012/run
-11696 Fast 138/0/2, release and publish ([qualification](/home/mariogk/Projects/TerraScale/.qualification/terrabase-ci1012-d2017ca/qualification.json)
+11696 Fast 138/0/2, release and publish (qualification
 SHA-256 `69ef5119a78ec1692d49f12447f66cdeb72ca09d8e42f135c05e779ef0e992e9`).
 Go main `db0231f1f2ee85cda8c087c8f9cb384147a7662d` published active $200 preview
 caps, but CI #696 failed test fixtures. Its seven-path test-only correction passed independent review and the repository-wide race run passed locally; corrected main and matching Forgejo CI qualification are pending. These source and CI results do not qualify OCI serving.
@@ -49,7 +49,7 @@ and `dafce2e4` (namespace checkpoint).
 | Managed-volume preparation | **PASS, one VM.** One test run with no skips mounted the retained volume. This used orchestrator `22ec45f9f9cc683852fd5519e4826cddfaa5c995` and TerraBase `12850214606652f036e9fde000695fe5743b374b`. The VM had no guest NIC; the run proves local volume preparation only, not member serving, a signed running report, or OCI ownership. |
 | Two-member managed serving | **FAIL.** Both guests accepted host sessions, but run-03 timed out before a signed running report; offline inspection found no member claim or shard. It produced no serving, client write/read, or replication-ACK evidence. Teardown was clean. This qualification used orchestrator `22ec45f9` and TerraBase `12850214`, not the current published source snapshot. |
 | Three-VM restart fixture | **FAIL before bootstrap.** Run-02 stopped at `ntp-synchronized`: the guest reported `NTPSynchronized=no` and packet count 0, so bootstrap/controller services failed by dependency. Its OCI audit recorded no requests, overflow, or unknown sources. Cleanup reported no errors and no OCI resources were created. This run used source `c4f56f050e7d916e18df5bc64df4547474c9cfcf` and an older artifact. The three-file namespace fix is now published in `dafce2e4`; a new VM build and rerun have not started. |
-| CI and release gates | Runs 612 and 614 failed in the ordinary test gate. Run 612 hit NATS stream-not-found 404/10059 and host-session 503/10008. Run 614 had host-session and authority-startup 503/10008 failures, with no 10059 in that run. Run 615 on `984b8405` passed Python and ordinary `go test ./...`, then failed the race-test gate on host-session 503/10008. The host-session fix was later published; full final CI on the updated source is unverified, and the release-artifact stage did not run. |
+| CI and release gates | Runs 612 and 614 failed in the ordinary test gate. Run 612 hit NATS stream-not-found 404/10059 and host-session 503/10008. Run 614 had host-session and authority-startup 503/10008 failures, with no 10059 in that run. Run 615 on `984b8405` passed Python and the ordinary Go suite, then failed the race gate on host-session 503/10008. The host-session fix was later published; full final CI on the updated source is unverified, and the release-artifact stage did not run. |
 
 The authority stream-visibility retry is published in `a20d2b29`, but run 614
 still observed authority-startup 503/10008; a separate authority-fixture

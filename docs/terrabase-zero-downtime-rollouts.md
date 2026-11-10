@@ -51,14 +51,12 @@ dashboard connections do not remain pinned to a process being replaced.
 
 ## Evidence and acceptance
 
-The observed failure and baseline are recorded in
-[the regional rollout baseline](../benchmark/bench/2026-11-05-regional-rollout-baseline.md).
-The harness is `benchmark/rollout-load/run.py`; it offers five writes and five
+The acceptance load offers five writes and five
 reads per second in each of gru, sjc and fra, without retrying measured requests.
 Latency includes time waiting from the scheduled arrival. Missed arrivals count
 as failures. Final inventory reconciles acknowledged writes and duplicate IDs.
 
-`benchmark/rollout-load/analyze.py` requires three recorded replacement windows,
+Acceptance requires three recorded replacement windows,
 complete load coverage, zero failed requests and p99 below 500 ms in every
 region and operation for every repeat. Each window includes ten seconds before
 replacement and sixty seconds after completion, including post-rollout errors

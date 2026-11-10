@@ -51,8 +51,6 @@ and the role's rules. Only signing (`bootstrap render-controller-config` and
 `host-setup` stamp it as `version`. Schema changes edit version 1 in place.
 Unknown members and unsupported versions are refused; admission has no
 compatibility or migration path.
-`TestConfigVersionCoversEveryMember` fails when `app.Config`'s members differ
-from `internal/app/testdata/config-members.txt`: rewrite that fixture in place.
 
 **Tolerant records.** `protocol.DecodeTolerant` is `DecodeStrict` without the
 unknown-member check: duplicate names, invalid UTF-8, the size limit and the

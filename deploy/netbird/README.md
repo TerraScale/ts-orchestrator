@@ -1,7 +1,7 @@
 > **Legacy ts-ops runbook.** This describes the previous shared host installation,
 > on ts-ops. Source, releases and CI use GitHub; NetBird has no source-hosting
 > service dependency. Do not use this layout for new
-> provisioning: [REFACTOR.md](../../REFACTOR.md) specifies the dedicated GRU A1
+> provisioning: REFACTOR.md specifies the dedicated GRU A1
 > manager and orchestrator-owned bootstrap, Vault credentials, backup and restore.
 > Those lifecycle changes remain implementation work; this migration has not
 > provisioned or moved the live manager.

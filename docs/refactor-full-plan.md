@@ -331,7 +331,7 @@ isolation and database safety while closing these implementation gaps:
 CORE owns task-engine replacement, and QA tracks removals and measured outcomes.
 Each stream implements its portion alongside the others.
 
-Use the [deployment code review](docs/deployment-simplification-review.md) as the
+Use the [deployment code review](deployment-simplification-review.md) as the
 initial evidence and removal inventory. It traces the highest-risk deployment
 paths; it is not an exhaustive inspection of every source file. Each migrated
 slice must finish the review of its callers, tests, fixtures, schemas, APIs,
@@ -515,7 +515,7 @@ Use bounded collection, label cardinality, history tiers and streaming queues so
 observability remains viable on small A1 hosts. Retention and dropped samples
 must be visible; complete metric coverage does not imply infinite raw history.
 Keep secrets and customer payloads out of telemetry, CLI output and chart labels.
-See [the CLI and dashboard contract](docs/cluster-visibility.md) for coverage and
+See [the CLI and dashboard contract](cluster-visibility.md) for coverage and
 implementation gaps. This section defines desired state, not completed features.
 
 ## First desired state: three regions that actually communicate
@@ -561,7 +561,7 @@ Acceptance requires real OCI hosts and the exact qualified source/artifacts:
    locally while unavailable cross-region operations are reported honestly.
 5. **Publish evidence.** Retain redacted inventories/OCIDs, peer and link health,
    six-direction results, boot/join/rollout/recovery timings, resource use, and
-   the actual regional bill under `benchmark/bench/`. Include CLI/dashboard
+   the actual regional bill. Include CLI/dashboard
    parity, metric coverage and missing-region/stream-recovery evidence from the
    visibility contract above. Add separate ARM/x86/Wasm
    workload hosts before claiming the mixed-runtime milestone is complete.
@@ -925,7 +925,7 @@ re-founding a cluster or retiring a region. Regional loss must not trigger a
 second founder while an existing quorum or data may still be recoverable.
 Persist identity and container inventory across agent restarts; do not kill
 healthy stateless containers merely to rebuild supervisor memory. See
-[automatic regional lifecycle](docs/automatic-regions.md) for gaps and evidence.
+[automatic regional lifecycle](automatic-regions.md) for gaps and evidence.
 
 Record boot-to-ready separately from agent-start-to-admitted, and break out
 network join, discovery, Vault fetch, certificate exchange, image pull, and health
@@ -1165,8 +1165,8 @@ research are independent work items; delay only the decision that needs their
 result. Use isolated fixtures or exclusive measurement windows when concurrent
 benchmarks would distort results. No hardware capacity is authorized here.
 
-Publish pinned inputs, raw samples, correctness checks, and reports under
-`benchmark/bench/`. Compare equivalent availability and isolation on the same
+Publish pinned inputs, raw samples, correctness checks, and reports.
+Compare equivalent availability and isolation on the same
 host classes. Include warm idle workers, dedicated function hosts, spare capacity,
 three regional managers, NATS, containerd, image storage, and operational work.
 
@@ -1198,7 +1198,7 @@ This remains a risk-based source review, not exhaustive live verification.
 
 | Finding / owner | Parallel work and retained evidence | Gate affected |
 | --- | --- | --- |
-| Signed artifact continuity — REL | GitHub-hosted workflows/module/tooling have been migrated, but exact run ID/number, attempt, job, source, manifest and lineage qualification still require evidence. Extend existing signed `release apply` across service roles and eliminate regional preflight coupling. Old standalone TerraBase/ts-auth/ts-libs qualification inputs returned 404 to the reviewed account; replace legacy fixture/producer assumptions through signed artifacts, without requiring those repositories to be recreated. Never relabel historical signatures or run IDs. See [migration status](docs/github-migration.md). | CONNECT for smoke releases; RUNTIME/COMPLETE for generalized apply and signer-owned ordering. |
+| Signed artifact continuity — REL | GitHub-hosted workflows/module/tooling have been migrated, but exact run ID/number, attempt, job, source, manifest and lineage qualification still require evidence. Extend existing signed `release apply` across service roles and eliminate regional preflight coupling. Old standalone TerraBase/ts-auth/ts-libs qualification inputs returned 404 to the reviewed account; replace legacy fixture/producer assumptions through signed artifacts, without requiring those repositories to be recreated. Never relabel historical signatures or run IDs. See [migration status](github-migration.md). | CONNECT for smoke releases; RUNTIME/COMPLETE for generalized apply and signer-owned ordering. |
 | Independent NetBird bootstrap — NET + OCI | Remove installer/`setup-owner.sh` ts-ops dependencies and `netbirdManagementLoop` explicit PAT/peer-map assumptions. In parallel, implement scoped Vault delivery and recover the setup-key crash window without manual records. | CONNECT. |
 | NetBird account-write fencing — NET | `manager/loop.go` checks leadership around sync/prune, but planned writes in `sync.go` need per-write authority checks/cancellation and partial-result recovery. Qualify leadership changes separately from component packaging. | CONNECT and recovery. |
 | Off-host NetBird recovery — NET + OCI | Existing `manager/netbird-backup` snapshots sit beside live SQLite data. Implement protected off-host copies and matching key/identity recovery while enrollment/policy work proceeds; exercise restore on an isolated replacement. | CONNECT recovery; production disaster-recovery claims. |

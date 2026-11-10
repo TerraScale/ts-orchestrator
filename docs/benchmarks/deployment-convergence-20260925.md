@@ -20,20 +20,13 @@ in-memory observation: it did not start an OS process.
 
 The frozen clean source was commit `c424bb4690c220b5832606c2947036c340cd96ac`
 with tree `ed4f2f74d8121a59c9c47a52f222d1a9c9120ae4`; the measurement
-source [deployment_convergence_measurement_test.go](../../internal/app/deployment_convergence_measurement_test.go)
-had SHA-256 `16174d75e6b72469ad7c331ec9067033a78df24f6c1542b9a036c2a6ea01133d`.
+source had SHA-256 `16174d75e6b72469ad7c331ec9067033a78df24f6c1542b9a036c2a6ea01133d`.
 The recorded runtime was Go 1.27.1 on Linux amd64, Intel Xeon E5-2660 v4
 2.00 GHz, with `NumCPU=46` and `GOMAXPROCS=46`. The run notes record unrelated
 background process CPU and load averages of `5.32 / 6.94 / 6.28`; controlled
 build, test, staging, and VM/lab work was quiescent. The source manifest at
 `/tmp/ts-orch-c424-qualification/meta/source-manifest.sha256` has SHA-256
 `37bd01bc44931bc502ccb3cce6a412c8484a1ec47fe69c10d9fd0039417b55e4`.
-
-The exact opt-in command in the measurement source is:
-
-```sh
-TS_ORCH_RUN_DEPLOYMENT_CONVERGENCE_MEASUREMENT=1 go test ./internal/app -run '^TestDeploymentConvergenceMeasurement$' -count=1 -v
-```
 
 The completed run passed once; its retained log is
 `/tmp/ts-orch-c424-qualification/meta/deployment-convergence-measurement.log`

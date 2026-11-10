@@ -40,4 +40,4 @@ The relay probes only fixed public HTTPS endpoints: `https://api.terrascale.tech
 
 `ServiceReadinessFailed` pages critically for any of the three services after one minute of sustained readiness failure; fixtures cover the pending interval, all three firing and recovery, while absent readiness series leave the original operational fixture counts unchanged. With 15-second scrape/evaluation intervals, at most three seconds probing and the initial 30-second grouping wait, the nominal initial notification budget is under two minutes, within five minutes. Existing groups, retries and provider delay can extend delivery. Readiness is a public endpoint check, not a full user operation or fleet SLO. These gauges manufacture no request successes; native SLO counters are collected separately. Relay/host failure can remove readiness samples altogether; this rule alone does not detect missing series.
 
-Host storage collection and the FR1 rollout/validation sequence are in [host-storage.md](host-storage.md).
+Host storage collection and the FR1 rollout/validation sequence are in host-storage.md.

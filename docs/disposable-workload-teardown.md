@@ -165,12 +165,3 @@ operation-bound disabled grants and absent-grant tombstones use
 Exact OCI discovery, conditional deletion, and status readback are in
 [`terminal.go`](../internal/oci/terminal.go) and
 [`terminal_scope.go`](../internal/oci/terminal_scope.go).
-
-Focused regression coverage is in
-[`operator_terminal_test.go`](../internal/app/operator_terminal_test.go),
-[`operator_terminal_integration_test.go`](../internal/app/operator_terminal_integration_test.go),
-[`log_test.go`](../internal/authority/log_test.go),
-[`grant_terminal_test.go`](../internal/hostenroll/grant_terminal_test.go),
-[`terminal_test.go`](../internal/oci/terminal_test.go), and
-[`sdk_test.go`](../internal/oci/sdk_test.go). These source-level tests do not
-establish that the current GRU preview has been deployed or torn down.

@@ -296,7 +296,7 @@ The next region runs them all with one command, `ts-orch region create`
   `sjc.orch` for the Machines API. Vault's `gru-1-cloudflare-dns-edit-token`
   cannot read the zone's configuration rules, so the `dns` steps (the
   `ts-orch-sjc-1-api-ssl-strict` rule and the proxied records) were made with
-  the `cf` CLI; see the [evidence](evidence/ts-662-sjc-public-edge-20261007.md).
+  the `cf` CLI.
 - **Host setup.** The image's `host-setup` ran its baked binary, which
   refused `ts-sjc-N` names, so the nodes never enrolled. sjc-1's nodes got
   the self-update drop-in (`60-selfupdate.conf`) by hand before #283 made
@@ -1358,20 +1358,6 @@ drift until the plans carry them.
     same-cell B/C peers. Preserve the signed plan and exact IDs so retries and
     reconciliation use the same intent. Do not create replacement seed
     instances to resolve an uncertain handoff or publication result.
-12. After the cell is running, the read-only NATS topology/availability helper
-    can report controller and JetStream metadata:
-
-    ```sh
-    go build -trimpath -o /tmp/natsdiag tests/firecracker/natsdiag.go
-    /tmp/natsdiag \
-      --controller-config /etc/terrascale-orchestrator/controller.json \
-      --phase steady
-    ```
-
-    This is a topology and availability diagnostic. It does not establish
-    durable recovery, verify the OCI launch, or prove live deployment or
-    production readiness. Use the reviewed deployment evidence procedure for
-    those claims.
 
 The detailed founder-object formats and seed transaction are documented in
 [Initial founder authority](founder-genesis-cli.md). Use that page together

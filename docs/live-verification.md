@@ -27,9 +27,7 @@ default is still the legacy `gru-1`, so always pass `--region <gru|sjc|fra>`
 (or set `E2E_REGION`) for a passing header check. The command
 uses TS-512's `E2E_TERRABASE_URL`, `E2E_AUTH_URL`, `E2E_DASHBOARD_URL`,
 `E2E_STATUS_URL` and `E2E_REGION` conventions and its bounded, non-redirecting
-HTTP probe approach. The independent `e2e/` module cannot be imported by the
-single-binary operational CLI. Its full production scenario runner creates
-projects/documents and must **not** be called for this read-only verification.
+HTTP probe approach.
 TS-471's live write/restart E2E remains separately authorized work.
 
 | Acceptance item | Evidence required / present limits |
@@ -110,11 +108,8 @@ status instead (Nov 2026).
 
 ```sh
 umask 022
-nice -n 19 mise exec -- go test -race ./internal/liveverify ./internal/cli
-nice -n 19 make verify shellcheck fixturetest-check build
+nice -n 19 make lint build
 ```
 
-Tests use `httptest`, including malicious discovery URLs that would reach
-writing readiness/Management routes if accepted. They never run the live
-verifier implicitly or contact production. The first
+The first
 production result and gap mapping are retained in the TS-520 PR body.

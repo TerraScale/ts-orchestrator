@@ -29,7 +29,7 @@ provisioning, bootstrap, release, and inspection tooling as Go subcommands in
 this executable instead of creating Python scripts or separate tools. CI and
 automation should call those commands. Operational tools and qualification
 drivers live in Go feature packages; shell wrappers select the environment
-and invoke the CLI. See [contributing](CONTRIBUTING.md) and [CLI boundaries](docs/cli.md).
+and invoke the CLI. See [contributing](AGENTS.md) and [CLI boundaries](docs/cli.md).
 
 The [cluster visibility contract](docs/cluster-visibility.md) specifies the
 complete human/AI CLI and dashboard target: shared cluster APIs, metric discovery
@@ -63,7 +63,7 @@ implementation and its gaps are described in [the architecture notes](docs/archi
 ## Build and verify
 
 CI is the merge gate; local checks are optional before push. Follow the
-[GitHub contribution workflow](CONTRIBUTING.md#github-workflow) for PRs,
+[GitHub contribution workflow](AGENTS.md#shipping-code) for PRs,
 reviews and the merge queue.
 
 This repository pins Go 1.27.1 in `.mise.toml`:
@@ -72,17 +72,12 @@ This repository pins Go 1.27.1 in `.mise.toml`:
 mise trust .mise.toml  # first checkout only
 mise install
 umask 022
-nice -n 19 mise exec -- make verify
+nice -n 19 mise exec -- make lint
 nice -n 19 mise exec -- make build
 nice -n 19 mise exec -- make release-linux
 ```
 
-All first-party tests use Go's standard `testing` package. `make test` runs
-`go test ./...`; `make verify` checks formatting, runs `go vet`, and runs all
-Go suites with the race detector, including deployment and qualification
-driver contracts. Their operational implementations also use Go; Python is
-not a prerequisite for first-party tooling or tests.
-See [Go testing](docs/testing.md) for focused suites and external prerequisites.
+`make lint` checks formatting, templ output, `go vet`, shell scripts and the repository policies; the only test here is the single-host E2E (`test/e2e/m1/run.sh`), and product behaviour is proven by the journey E2E in the terrascale repo.
 `make build` creates `dist/ts-orch` for the current host. The same executable runs
 the controller, host agent, and operator tooling:
 
@@ -114,22 +109,11 @@ requires no Go runtime on the target machine. GitHub CI repeats the checks
 against the event's exact commit, verifies both ELF architectures and the
 embedded Git revision, and prints SHA-256 digests.
 
-See [local development](docs/local-development.md) for Firecracker
-qualification and [release boundaries](docs/releases.md) for what CI proves
+See [release boundaries](docs/releases.md) for what CI proves
 and what still needs a separate release process.
 
 ## Current limits
 
-The signed native-workload path has an app-level test with an in-memory runner.
-A four-VM Firecracker qualification passed for the pinned test image at source
-revision `df09ee5692b4a5dc60230f019d1265efccb2f972`, covering guest execution,
-host restart recovery, and workload recovery through controller loss and
-quorum restoration. During controller loss, host session renewal/reporting
-failed with `context deadline exceeded`; systemd restarted the host agent and
-the workload later returned to running. This demonstrates recovery, not
-uninterrupted availability or compatibility with arbitrary or production
-kernels. Exact image and binary hashes are in [the prior local qualification
-record](docs/local-development.md#prior-local-qualification-2026-09-24).
 Managed OCI placement can provision a host
 and retained volume. After the attachment is positively observed and the
 runtime artifact and managed mount path are ready, it publishes signed
@@ -140,8 +124,7 @@ member is serving, and the orchestrator does not discover, format, or mount the
 guest block device itself. Host image preparation, first-boot configuration,
 and signed enrollment remain operator steps.
 
-OCI provider behavior has only fake-provider and offline simulator coverage;
-no live OCI account has been mutated. A create accepted by
+No live OCI account has been mutated. A create accepted by
 OCI whose result is lost before its recovery result is durably journaled stays
 unowned. Matching tags alone do not authorize adoption; manual inspection and
 reconciliation are required. Artifact uploads are bounded by a 2 GiB default
@@ -153,8 +136,3 @@ Live OCI mutation, scale-in, region decommission, production authority
 failover, signed release publication, and guest-level rollback remain outside
 the evidence currently available here. Do not use this repository as a
 production-ready cloud control plane.
-
-The legacy GitHub producer/image/E2E fixture paths still lack qualified inputs:
-`TerraScale/terrabase`, `TerraScale/ts-auth` and `TerraScale/ts-libs` return
-404 to the current account. These repositories are not a prerequisite for
-applying an independently prepared signed bundle. See [E2E prerequisites](docs/e2e.md).

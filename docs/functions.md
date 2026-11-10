@@ -3,7 +3,7 @@
 Use wazero **v1.12.0** for the first `terrascale.function.command.v1` worker.
 This selects an implementation for the narrow contract below. It does not
 qualify customer execution in production; the FUNCTIONS gate in
-[`REFACTOR.md`](../REFACTOR.md#customer-functions-wasmtime-versus-wazero) still
+`REFACTOR.md` still
 requires CORE, CAP, REL and QA evidence for each admitted architecture.
 
 ## Contract and compatibility boundary
@@ -252,10 +252,9 @@ evidence includes a local Linux AMD64 race run, actual child-process kill/restar
 | Cancellation, memory/output/concurrency rejection and tenant/revision rejection | Local integration and race check passed, including bounded compiler declarations. | Native-host integration evidence pending. |
 | Qualified worker placement, signed admission, cgroups, network denial, cache/rollback and worker loss | CORE/CAP/REL/QA live evidence pending. | CORE/CAP/REL/QA live evidence pending. |
 
-The local pre-issuer qualification command was `go test -race
-./internal/functions -count=1 -timeout=90s` (13.946 seconds), followed by
-`CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -c` and a CGO-free Linux AMD64
-package build. These ran at local low CPU priority with two Go processors and
+The local pre-issuer qualification ran the functions race suite
+(13.946 seconds), a CGO-free Linux ARM64 test binary cross-build and a CGO-free
+Linux AMD64 package build. These ran at local low CPU priority with two Go processors and
 package parallelism two. Tests use real tiny Wasm modules, TLS HTTP, JetStream,
 signed release artifacts and child workers; no cloud resources were changed.
 The subsequent consume-only issuer, bind-only queue and private-inbox process run passed the complete functions race suite in 15.547 seconds. That run also exercised real broker denials for other tenants/revisions, resource mutation, foreign acknowledgements and inboxes; signer overlap renewal preserved the worker key while retired signers and widened grants were refused.

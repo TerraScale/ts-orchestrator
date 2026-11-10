@@ -31,8 +31,8 @@ region's deployment scope serially before starting concurrent publication.
 
 **Problem:** If FRA's status is missing, stale or unreadable, the command returns
 before publishing GRU or SJC. The observation deadline already runs during this
-preflight. Existing [regional isolation tests](../internal/release/cli/discovery_test.go#L26)
-cover the older deploy/service-deploy paths, not this new apply path.
+preflight. Existing regional isolation tests
+covered the older deploy/service-deploy paths, not this new apply path.
 
 **Fix:** Check shared local trust/bundle invariants once; move remote scope,
 regional admission, upload and observation into independent bounded workers.
@@ -115,7 +115,7 @@ lineage verification to make another producer pass.
 
 ### 6. The production deployment workflow still fetches, builds and signs
 
-**What this is:** [deploy-fleet.sh](../scripts/ci/deploy-fleet.sh#L42) downloads
+**What this is:** `deploy-fleet.sh` downloads
 fixed-repository GitHub assets, runs `make build`, configures Git authentication
 and invokes legacy `release deploy` with signing access.
 [TerraBase synchronization](../internal/app/operator_terrabase_sync.go#L27)
@@ -220,12 +220,12 @@ path and can trigger operational changes unrelated to their content.
 Preserve the older deploy path's regional failure isolation, conditional channel
 publication, signature/digest/scope checks, writer/volume fencing and bounded
 health/rollback decisions when porting behavior. Reuse existing image-import
-parallelism and [host-image input change detection](../scripts/ci/image-inputs-changed.sh);
+parallelism and host-image input change detection;
 the current code does not unconditionally rebuild host images on every app change.
 
 ## Completion evidence
 
-Use the acceptance table in [REFACTOR.md](../REFACTOR.md#evidence-required-before-claiming-simpler-or-faster).
+Use the acceptance table in REFACTOR.md.
 Record cold/warm/retry timings, regional errors and successful recovery. Count
 manual inputs, subprocesses, required services, transferred bytes and repeated
 build/hash work before and after. Put real progress and missing/stale observations
