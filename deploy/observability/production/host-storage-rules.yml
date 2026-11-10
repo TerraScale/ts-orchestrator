@@ -29,7 +29,6 @@ groups:
             or (ts_host_io_psi_ratio{scope="some"} > 0.9)
             or (host:disk_latency_seconds:rate5m > 0.5)
           )
-          or max by (host, region) (increase(terrabase_catalog_anchor_timeouts_total{job="terrabase-host-storage"}[5m]) > 0)
         for: 1m
         labels:
           service: host-storage
@@ -44,7 +43,6 @@ groups:
             or (up{job="terrabase-host-storage"} unless on (host, region) terrabase_storage_queued)
             or (up{job="terrabase-host-storage"} unless on (host, region) terrabase_storage_running)
             or (up{job="terrabase-host-storage"} unless on (host, region) terrabase_storage_admitted)
-            or (up{job="terrabase-host-storage"} unless on (host, region) terrabase_catalog_anchor_timeouts_total)
           ) or absent(up{job="host-storage"})
         for: 2m
         labels:
