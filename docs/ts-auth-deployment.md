@@ -128,6 +128,11 @@ chain/hostname. ts-auth sends through OCI Email Delivery SMTP first and falls
 back to Cloudflare Email Sending when that path fails; outside Development both
 secret sets (`TS_AUTH_SMTP_USERNAME(_FILE)`/`TS_AUTH_SMTP_PASSWORD(_FILE)` and
 `CLOUDFLARE_ACCOUNT_ID(_FILE)`/`CLOUDFLARE_EMAIL_TOKEN(_FILE)`) are required.
+Every cell's host NSG (`<cell>-host-nsg`, `internal/ociregion/hostnetwork/spec.go`)
+allows egress TCP 587 to `0.0.0.0/0` for that SMTP submission, applied with
+`ts-orch oci-region network <cell> --apply`. Without it the NSG drops the
+connect silently and every email waits out the SMTP attempt before the
+Cloudflare fallback sends it.
 The current revocation-check exception can accept a revoked
 relay certificate and remains a security limitation to resolve, not a switch
 recipe. Logging-only delivery belongs in test binaries. IAM must grant only the
