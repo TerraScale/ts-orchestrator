@@ -161,6 +161,12 @@ func (r *regionalRouter) change(ctx context.Context) error {
 	}
 }
 
+func (r *regionalRouter) holding() chan struct{} {
+	r.ingressMu.Lock()
+	defer r.ingressMu.Unlock()
+	return r.held
+}
+
 func (r *regionalRouter) enter() chan struct{} {
 	r.ingressMu.Lock()
 	defer r.ingressMu.Unlock()
@@ -285,18 +291,40 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 	default:
 		return nil, errors.New("regional ingress is full")
 	}
-	admitted := false
-	waited := false
-	paced := false
+	admitted, waited, paced, handedOff := false, false, false, false
+	release := func() {
+		if admitted {
+			router.leave()
+		}
+		if paced {
+			<-router.recovery
+		}
+		if waited {
+			router.waiting.Add(-1)
+		}
+		<-router.requests
+	}
 	defer func() {
-		if !admitted {
-			if waited {
-				router.waiting.Add(-1)
-			}
-			<-router.requests
+		if !handedOff {
+			release()
 		}
 	}()
-	for held := router.enter(); held != nil; held = router.enter() {
+	for {
+		held := router.holding()
+		if held == nil {
+			if !paced && router.waiting.Load() > 0 {
+				select {
+				case router.recovery <- struct{}{}:
+					paced = true
+				case <-request.Context().Done():
+					return nil, request.Context().Err()
+				}
+			}
+			if held = router.enter(); held == nil {
+				admitted = true
+				break
+			}
+		}
 		if !waited {
 			waited = true
 			router.waiting.Add(1)
@@ -307,36 +335,12 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		case <-held:
 		}
 	}
-	admitted = true
-	release := func() {
-		router.leave()
-		if paced {
-			<-router.recovery
-		}
-		if waited {
-			router.waiting.Add(-1)
-		}
-		<-router.requests
-	}
-	// A handoff accumulates offered arrivals. Keep their recovery concurrency
-	// bounded through response completion instead of bursting them into QoS.
-	if router.waiting.Load() > 0 {
-		select {
-		case router.recovery <- struct{}{}:
-			paced = true
-		case <-request.Context().Done():
-			release()
-			return nil, request.Context().Err()
-		}
-	}
 	peer, err := e.regionalOwner(request.Context(), router, false)
 	if err != nil {
-		release()
 		return nil, err
 	}
 	key := e.requestProofSecret.Load()
 	if key == nil {
-		release()
 		return nil, errors.New("TerraBase peer credential unavailable")
 	}
 	client := ""
@@ -370,7 +374,6 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		ctx, tunnel.cancel = context.WithCancel(ctx)
 		if status, message := router.openTunnel(tunnel); status != 0 {
 			tunnel.cancel()
-			release()
 			header := http.Header{"Content-Type": {"text/plain; charset=utf-8"}, "Content-Length": {strconv.Itoa(len(message))}, "Retry-After": {"1"}}
 			return &http.Response{Status: fmt.Sprintf("%d %s", status, http.StatusText(status)), StatusCode: status, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
 				Header: header, Body: io.NopCloser(strings.NewReader(message)), ContentLength: int64(len(message)), Request: request}, nil
@@ -390,14 +393,13 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 	}
 	response, err := transport.RoundTrip(out)
 	if err != nil {
-		release()
 		return nil, err
 	}
 	if tunnel != nil && (response.StatusCode == http.StatusSwitchingProtocols || response.StatusCode/100 == 2) {
-		release()
 		return response, nil
 	}
 	response.Body = &regionalBody{ReadCloser: response.Body, release: release}
+	handedOff = true
 	return response, nil
 }
 

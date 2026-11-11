@@ -124,8 +124,8 @@ func writeWithin(client interface{ SetWriteDeadline(time.Time) error }, write fu
 		return 0, err
 	}
 	n, err := write()
-	if err == nil {
-		err = client.SetWriteDeadline(time.Time{})
+	if cleared := client.SetWriteDeadline(time.Time{}); err == nil {
+		err = cleared
 	}
 	return n, err
 }
