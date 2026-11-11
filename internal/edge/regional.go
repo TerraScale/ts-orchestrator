@@ -168,6 +168,9 @@ func (r *regionalRouter) openTunnel(t *regionalTunnel) (int, string) {
 func (r *regionalRouter) closeTunnel(t *regionalTunnel) {
 	r.tunnelMu.Lock()
 	defer r.tunnelMu.Unlock()
+	if _, open := r.tunnels[t]; !open {
+		return
+	}
 	delete(r.tunnels, t)
 	if t.client != "" {
 		r.sockets--
@@ -283,11 +286,18 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 	ctx := request.Context()
 	var transport http.RoundTripper = router.transport
 	tunnel := &regionalTunnel{node: peer.Node, client: client}
+	established := roundTripper(func(r *http.Request) (*http.Response, error) {
+		response, err := tunnelTransport{dial: router.transport.DialContext}.RoundTrip(r)
+		if err == nil && response.StatusCode/100 == 2 {
+			response.Body = &regionalBody{ReadCloser: response.Body, release: func() { router.closeTunnel(tunnel) }}
+		}
+		return response, err
+	})
 	switch {
 	case isExtendedConnect(request):
-		transport = tunnelTransport{dial: router.transport.DialContext}
+		transport = established
 	case websocketHandshake(request):
-		transport = upgradeTunnel{tunnelTransport{dial: router.transport.DialContext}}
+		transport = upgradeTunnel{established}
 	default:
 		tunnel = nil
 	}

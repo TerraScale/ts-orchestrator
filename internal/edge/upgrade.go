@@ -131,13 +131,25 @@ func (c *upgradedConn) SetWriteDeadline(time.Time) error { return nil }
 
 const websocketAcceptGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
+type websocketWriter struct{ http.ResponseWriter }
+
+func (w websocketWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w websocketWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, buffered, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err != nil {
+		return nil, nil, err
+	}
+	return struct{ net.Conn }{conn}, buffered, nil
+}
+
 func websocketHandshake(r *http.Request) bool {
 	key, err := base64.StdEncoding.DecodeString(r.Header.Get("Sec-WebSocket-Key"))
 	return r.Method == http.MethodGet && httpguts.HeaderValuesContainsToken(r.Header["Upgrade"], "websocket") &&
 		httpguts.HeaderValuesContainsToken(r.Header["Connection"], "Upgrade") && r.Header.Get("Sec-WebSocket-Version") == "13" && err == nil && len(key) == 16
 }
 
-type upgradeTunnel struct{ tunnelTransport }
+type upgradeTunnel struct{ http.RoundTripper }
 
 func (t upgradeTunnel) RoundTrip(req *http.Request) (*http.Response, error) {
 	connect := req.Clone(req.Context())
@@ -146,7 +158,7 @@ func (t upgradeTunnel) RoundTrip(req *http.Request) (*http.Response, error) {
 	connect.Header.Del("Sec-WebSocket-Key")
 	stream, client := io.Pipe()
 	connect.Body = stream
-	response, err := t.tunnelTransport.RoundTrip(connect)
+	response, err := t.RoundTripper.RoundTrip(connect)
 	if err != nil || response.StatusCode/100 != 2 {
 		return response, err
 	}

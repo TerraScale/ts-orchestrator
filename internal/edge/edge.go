@@ -276,8 +276,11 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener, wire
 const netbirdHost = "netbird.terrascale.tech"
 
 func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
-	if isExtendedConnect(r) {
+	switch {
+	case isExtendedConnect(r):
 		w, r = upgradeExtendedConnect(w, r)
+	case websocketHandshake(r):
+		w = websocketWriter{w}
 	}
 	e.identify(w, r)
 	peer := fromPeer(r)
