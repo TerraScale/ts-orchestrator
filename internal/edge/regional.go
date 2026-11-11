@@ -286,7 +286,7 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 	switch {
 	case isExtendedConnect(request):
 		transport = tunnelTransport{dial: router.transport.DialContext}
-	case request.Header.Get("Upgrade") != "":
+	case websocketHandshake(request):
 		transport = upgradeTunnel{tunnelTransport{dial: router.transport.DialContext}}
 	default:
 		tunnel = nil
@@ -307,6 +307,10 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 	out.Header.Set(peerCredentialHeader, string(*key))
 	if !internal {
 		out.Header.Set(forwardedClientHeader, client)
+	}
+	if tunnel == nil {
+		out.Header.Del("Connection")
+		out.Header.Del("Upgrade")
 	}
 	response, err := transport.RoundTrip(out)
 	if err != nil {

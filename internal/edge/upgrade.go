@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"golang.org/x/net/http/httpguts"
 )
 
 func upgradeExtendedConnect(w http.ResponseWriter, r *http.Request) (http.ResponseWriter, *http.Request) {
@@ -115,12 +117,18 @@ func (c *upgradedConn) SetWriteDeadline(time.Time) error { return nil }
 
 const websocketAcceptGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
+func websocketHandshake(r *http.Request) bool {
+	key, err := base64.StdEncoding.DecodeString(r.Header.Get("Sec-WebSocket-Key"))
+	return r.Method == http.MethodGet && httpguts.HeaderValuesContainsToken(r.Header["Upgrade"], "websocket") &&
+		httpguts.HeaderValuesContainsToken(r.Header["Connection"], "Upgrade") && r.Header.Get("Sec-WebSocket-Version") == "13" && err == nil && len(key) == 16
+}
+
 type upgradeTunnel struct{ tunnelTransport }
 
 func (t upgradeTunnel) RoundTrip(req *http.Request) (*http.Response, error) {
 	connect := req.Clone(req.Context())
 	connect.Method = http.MethodConnect
-	connect.Header.Set(":protocol", req.Header.Get("Upgrade"))
+	connect.Header.Set(":protocol", "websocket")
 	connect.Header.Del("Sec-WebSocket-Key")
 	stream, client := io.Pipe()
 	connect.Body = stream
@@ -130,7 +138,7 @@ func (t upgradeTunnel) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	accept := sha1.Sum([]byte(req.Header.Get("Sec-WebSocket-Key") + websocketAcceptGUID))
 	response.Header.Set("Connection", "Upgrade")
-	response.Header.Set("Upgrade", req.Header.Get("Upgrade"))
+	response.Header.Set("Upgrade", "websocket")
 	response.Header.Set("Sec-WebSocket-Accept", base64.StdEncoding.EncodeToString(accept[:]))
 	return &http.Response{
 		Status: "101 Switching Protocols", StatusCode: http.StatusSwitchingProtocols, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,

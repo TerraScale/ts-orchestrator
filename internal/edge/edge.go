@@ -124,6 +124,9 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 			port, _ := e.port(pr.In.Host)
 			pr.SetURL(&url.URL{Scheme: "http", Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port))})
 			pr.Out.Host = pr.In.Host
+			if websocketHandshake(pr.Out) {
+				pr.Out.Header.Set("Upgrade", "websocket")
+			}
 			// Rewrite restores this even if Connection named it as hop-by-hop.
 			pr.Out.Header.Set(requestIDHeader, pr.In.Header.Get(requestIDHeader))
 			if proof := e.requestProof(pr.In.Header.Get(requestIDHeader)); proof != "" {
