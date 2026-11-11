@@ -398,7 +398,7 @@ chain (dispatch, admission, Vault signing, polling); the 3-4 min release build
 now runs beside lint and race (#72) instead of after them; restart delay 5 s ->
 1 s. Remaining time per region is the binary download from GitHub releases
 (~3-6 s, the accepted column) plus restart and SwarmKit reopen (~3-4 s).
-Merge -> live is dominated by CI checks (~8-13 min, race shards).
+Merge -> live was then dominated by CI checks (~8-13 min, race shards).
 
 ### Apps: new image digest -> new task serving, every region
 

@@ -12,15 +12,18 @@ APP := ./cmd/terrascale-orchestrator
 # Keep the symbol table so govulncheck can inspect the actual release bytes.
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-w"
 CHANGE_BASE ?= $(shell git merge-base origin/main HEAD)
-LINT_CHECKS := format-check generate-check vet shellcheck netbird-backup-check retired-host-check zero-config-check observability-check
+LINT_CHECKS := format-check generate-check vet shellcheck netbird-backup-check retired-host-check zero-config-check observability-check go-pin-check
 
-.PHONY: lint retired-host-check zero-config-check format-check generate generate-check vet netbird-backup-check shellcheck observability-check build build-linux release-linux release-check image run host check clean
+.PHONY: lint retired-host-check zero-config-check go-pin-check format-check generate generate-check vet netbird-backup-check shellcheck observability-check build build-linux release-linux release-check image run host check clean
 
 lint:
 	$(MAKE) --jobs --keep-going $(LINT_CHECKS)
 
 zero-config-check:
 	python3 scripts/ci/zero-config-check.py "$(CHANGE_BASE)" HEAD
+
+go-pin-check:
+	python3 scripts/ci/go-pin-check.py
 
 format-check:
 	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -not -path './docs/*' -print0 | xargs -0 $(GOFMT) -l)"; \

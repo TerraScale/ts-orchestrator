@@ -112,20 +112,25 @@ and scoped signing checks remain mandatory for each region.
 
 ## Live verification and timing
 
-`deploy-lag.yml` runs every five minutes (`scripts/ci/deploylag`) and fails,
+`deploy-lag.yml` runs after each CI run on main and once a day
+(`scripts/ci/deploylag`) and fails,
 opening or updating one assigned GitHub alert (`TS-768`, mentions `@mariogk`),
 when a main build was published but not released within 30 minutes:
 
 - ts-orchestrator: a main commit is released when its `deploy/release-push`
-  succeeded, or a newer one did; a skipped release-push with a green `test`
-  check had nothing to publish. A red main that skips release-push counts.
+  succeeded, or a newer one did; a skipped release-push with a green
+  `all-green` check had nothing to publish. A red main that skips
+  release-push counts.
 - terrabase, ts-auth (terrascale `ci.yml` jobs `main`; `main-auth` or
   `main-auth-ordered`) and ts-dashboard (terrascale `images-ghcr.yml` job
   `Publish and release`), in main runs of every event: the oldest image published
   since the last successful `Release to every region` step starts the clock;
   newer builds never reset it. A build-only dispatch counts as no publication.
 - Services in the code map `held` (today terrabase, until the batch-2 wipe)
-  are logged, not alerted. Unreadable history is a finding.
+  are logged, not alerted. Unreadable history is a finding, and so is a
+  successful main run without one of those jobs, or one of those jobs that
+  succeeded without a `Run docker/build-push-action` or `Release to every region`
+  step: the finding names the app, the missing job or step and the run.
 
 The alert closes on the first run with no findings.
 

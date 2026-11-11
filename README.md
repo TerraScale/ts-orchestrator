@@ -65,7 +65,7 @@ implementation and its gaps are described in [the architecture notes](docs/archi
 CI is the merge gate; local checks are optional before push. Follow the
 [GitHub contribution workflow](AGENTS.md#shipping-code) for PRs and reviews.
 
-This repository pins Go 1.27.4 in `.mise.toml`:
+The `go` line of `go.mod` pins the Go version, and `.mise.toml` installs the same one:
 
 ```bash
 mise trust .mise.toml  # first checkout only

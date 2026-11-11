@@ -1,11 +1,13 @@
 # Dependency qualification, 2026-10-26
 
+Dated record of 2026-10-26; the current procedure is [GitHub producer verification](releases.md#github-producer-verification).
+
 The executable graph is selected by the root module and its local SwarmKit,
 NATS and OCI replacements. The independent e2e module and all three replacement
 modules also receive package/test scans. Historical manifests under `docs/`
 remain immutable evidence and do not select current executable dependencies.
 
-Run `bash scripts/ci/audit-dependencies.sh source` using Go 1.27.4. It runs
+Run `bash scripts/ci/audit-dependencies.sh source` using Go 1.27.3. It runs
 govulncheck 1.9.0 on all five package/test graphs, including locally patched
 sources. An imported vulnerable package, scanner error or invalid graph fails
 the existing test job. No advisory is ignored. The existing Go build/module

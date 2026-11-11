@@ -4,7 +4,6 @@ on:
   pull_request:
   push:
     branches: [main]
-  workflow_dispatch:
 
 # Builds may overlap an admitted release. A newer revision replaces obsolete
 # build work; release-push below always lets the active rollout finish.
@@ -18,7 +17,6 @@ permissions:
 env:
   GH_TOKEN: ${{ github.token }}
   SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-  # The revision this change starts from; empty for scheduled and manual runs.
   CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
 
 jobs:
@@ -34,10 +32,11 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/go
         with:
-          cache: release
+          cache: lint
       - run: make lint GO=go
       - run: make --jobs=2 release-check GO=go
       - run: bash scripts/ci/audit-dependencies.sh source
+      - run: bash scripts/ci/audit-dependencies.sh release
 
   e2e-m1:
     concurrency:
@@ -50,7 +49,8 @@ jobs:
         with:
           ref: ${{ env.SOURCE_SHA }}
           persist-credentials: false
-      - uses: ./.github/actions/go
+      - id: go
+        uses: ./.github/actions/go
         with:
           cache: e2e-arm64
       - name: Build ts-orch
@@ -66,7 +66,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-e2e-arm64-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: ${{ steps.go.outputs.cache-key }}
 
   build:
     concurrency:
@@ -88,7 +88,8 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/go
+      - id: go
+        uses: ./.github/actions/go
         with:
           cache: release
       - name: Scan legacy terms within CI
@@ -148,7 +149,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-release-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: ${{ steps.go.outputs.cache-key }}
 
   # Push the retained release to every region's ts-orch over NATS
   # (deploy/m1/regions.json); fails when any region does not serve it. Only
