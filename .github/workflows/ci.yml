@@ -23,7 +23,6 @@ env:
 
 jobs:
   lint:
-    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -32,12 +31,21 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/go
+      - id: go
+        uses: ./.github/actions/go
         with:
-          cache: release
+          cache: lint
       - run: make lint GO=go
       - run: make --jobs=2 release-check GO=go
       - run: bash scripts/ci/audit-dependencies.sh source
+      - run: bash scripts/ci/audit-dependencies.sh release
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go.outputs.cache-key }}
 
   e2e-m1:
     concurrency:
@@ -50,7 +58,8 @@ jobs:
         with:
           ref: ${{ env.SOURCE_SHA }}
           persist-credentials: false
-      - uses: ./.github/actions/go
+      - id: go
+        uses: ./.github/actions/go
         with:
           cache: e2e-arm64
       - name: Build ts-orch
@@ -66,7 +75,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-e2e-arm64-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: ${{ steps.go.outputs.cache-key }}
 
   build:
     concurrency:
@@ -88,7 +97,8 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/go
+      - id: go
+        uses: ./.github/actions/go
         with:
           cache: release
       - name: Scan legacy terms within CI
@@ -148,7 +158,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-release-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: ${{ steps.go.outputs.cache-key }}
 
   # Push the retained release to every region's ts-orch over NATS
   # (deploy/m1/regions.json); fails when any region does not serve it. Only

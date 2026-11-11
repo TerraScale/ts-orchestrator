@@ -12,7 +12,8 @@ watcher while checks run.
 All CI runs on GitHub-hosted runners in one workflow,
 [`ci.yml`](../.github/workflows/ci.yml) (`CI`). A pull request runs two jobs in
 parallel: `lint` (`make lint`, `make release-check` for both release binaries
-and the dependency audit) and `e2e-m1`, the single-host E2E
+and the dependency audit of the source graphs and of both binaries) and
+`e2e-m1`, the single-host E2E
 (`test/e2e/m1/run.sh`) on a disposable GitHub-hosted ARM64 runner. The last
 job, `all-green`, is the one required check; it fails when any job failed or
 was cancelled. `gh pr merge --auto --squash` merges once it passes; the branch
@@ -23,8 +24,10 @@ and `e2e-m1` jobs while they run or wait, so that run skips
 both changes. `deploy/release-push` jobs share the `production-ts-orch` lock
 and never cancel a running rollout.
 
-Every main push runs `e2e-m1` again on the merged tree, beside the
-`verify/go + artifact/linux-amd64-arm64` job. That job compares the push's
+Every main push runs `lint` and `e2e-m1` again on the merged tree, beside the
+`verify/go + artifact/linux-amd64-arm64` job. `lint` then saves the build cache
+that pull-request `lint` runs restore; `deploy/release-push` does not wait for
+it. The `verify/go + artifact/linux-amd64-arm64` job compares the push's
 executable inputs with the newest retained `ci-*` release in its history:
 different inputs publish, and the same inputs skip publication and
 `deploy/release-push` when that release's run succeeded; a release whose run
