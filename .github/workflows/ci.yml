@@ -4,7 +4,6 @@ on:
   pull_request:
   push:
     branches: [main]
-  workflow_dispatch:
 
 # Builds may overlap an admitted release. A newer revision replaces obsolete
 # build work; release-push below always lets the active rollout finish.
@@ -18,7 +17,6 @@ permissions:
 env:
   GH_TOKEN: ${{ github.token }}
   SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-  # The revision this change starts from; empty for scheduled and manual runs.
   CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
 
 jobs:
