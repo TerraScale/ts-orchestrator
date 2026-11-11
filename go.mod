@@ -1,6 +1,6 @@
 module github.com/TerraScale/ts-orchestrator
 
-go 1.27.3
+go 1.27.4
 
 // The read-only applied snapshot/watch contract is maintained with upstream provenance.
 replace github.com/moby/swarmkit/v2 => ./third_party/swarmkit

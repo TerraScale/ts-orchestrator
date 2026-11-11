@@ -3,17 +3,17 @@
 # Package scans include tests and local replacements; no advisory is ignored.
 set -euo pipefail
 cd "$(dirname -- "$0")/../.."
-test "$(go env GOVERSION)" = go1.27.3
+test "$(go env GOVERSION)" = go1.27.4
 # Reuse the existing Go build cache; cached executables are verified before use.
 test "$(go env GOOS GOARCH)" = $'linux\namd64'
-scanner_dir="$(go env GOCACHE)/terrascale/govulncheck-v1.9.0-go1.27.3"
+scanner_dir="$(go env GOCACHE)/terrascale/govulncheck-v1.9.0-go1.27.4"
 scanner="$scanner_dir/govulncheck"
 mkdir -p "$scanner_dir"
 if [[ ! -f "$scanner" ]]; then
 	GOBIN="$scanner_dir" CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOAMD64=v1 GOFLAGS='' GOWORK=off GOTOOLCHAIN=local \
 		go install -trimpath golang.org/x/vuln/cmd/govulncheck@v1.9.0
 fi
-echo "d36c5d591f43f085b4561a3a9db05894d343a86376f20fab7d8c4ffff38b7a01  $scanner" | sha256sum --check
+echo "46db5cf19985d26fb41dbd8e429b29269c27d72b6e2bf181168d223f3732e499  $scanner" | sha256sum --check
 chmod +x "$scanner"
 "$scanner" -mode=binary -scan=module -show=verbose "$scanner"
 python3 -B scripts/ci/audit-replacements.py
@@ -35,7 +35,7 @@ source)
 release)
 	for binary in dist/terrascale-orchestrator-linux-{amd64,arm64}; do
 		go version -m "$binary"
-		test "$(go version "$binary" | awk '{print $NF}')" = go1.27.3
+		test "$(go version "$binary" | awk '{print $NF}')" = go1.27.4
 		# A stripped symbol table makes package reachability ambiguous.
 		go tool nm "$binary" > /dev/null
 		"$scanner" -mode=binary "$binary"

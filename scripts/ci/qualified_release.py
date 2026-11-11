@@ -4,13 +4,12 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 from retry_download import download as retry_download
-
 
 REPOSITORY = "TerraScale/ts-orchestrator"
 JOB = "verify/go + artifact/linux-amd64-arm64"
@@ -65,7 +64,7 @@ def admit(tag, directory):
     tree = command("git", "rev-parse", f"{source}^{{tree}}", text=True).strip()
     require(q["schema"] == "terrascale.release.qualification.v1" and
             q["repository"] == REPOSITORY and q["source_revision"] == source and
-            q["source_tree"] == tree and q["go_version"] == "go1.27.3",
+            q["source_tree"] == tree and q["go_version"] == "go1.27.4",
             "retained source, tree or toolchain differs")
     for name in ("go.mod", "go.sum"):
         contents = command("git", "show", f"{source}:{name}")

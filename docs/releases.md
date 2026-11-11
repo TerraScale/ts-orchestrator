@@ -63,7 +63,7 @@ requires a clean tree. Its producing job audits the package graphs and builds
 and checks both static release binaries (`make release-check`). Pull requests
 run `make lint` (formatting, templ output, `go vet`, shellcheck and policy
 checks) and the single-host E2E (job `e2e-m1`), which every main push runs
-again before `release-push`. The workflow installs Go 1.27.3 with
+again before `release-push`. The workflow installs Go 1.27.4 with
 `actions/setup-go`, and `.mise.toml` pins the same version for local development.
 
 Release admission requires the exact successful run and one uniquely named

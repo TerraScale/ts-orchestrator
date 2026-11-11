@@ -13,7 +13,7 @@ is defined as D15 in the workspace GOAL
 and tracked in the [D15 gate file](evidence/gates/d15.md); the commands below
 do not establish that runtime qualification.
 
-The repository pins Go 1.27.3 in `.mise.toml`. On a first checkout, trust that
+The repository pins Go 1.27.4 in `.mise.toml`. On a first checkout, trust that
 repository config and install its toolchain, then lint and build:
 
 ```bash
