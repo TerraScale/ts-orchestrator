@@ -70,9 +70,9 @@ for local development; `make lint` fails when `go.mod`, `.mise.toml` and
 `bash scripts/ci/audit-dependencies.sh source` with that Go to scan the package
 and test graphs of the root module and the three `third_party` replacements,
 and `bash scripts/ci/audit-dependencies.sh release` after `make release-check`
-to scan both release binaries; `lint` runs both on every pull request and main
-push, and the producing job runs them on main before it publishes. No advisory
-is ignored.
+to scan both release binaries; `lint` runs both on every pull request,
+`Lint cache` on every main push, and the producing job runs them on main before
+it publishes. No advisory is ignored.
 The `go` lines of `third_party/*/go.mod` are minimums for the vendored modules,
 so a compiler move leaves them unchanged.
 

@@ -24,10 +24,13 @@ and `e2e-m1` jobs while they run or wait, so that run skips
 both changes. `deploy/release-push` jobs share the `production-ts-orch` lock
 and never cancel a running rollout.
 
-Every main push runs `lint` and `e2e-m1` again on the merged tree, beside the
-`verify/go + artifact/linux-amd64-arm64` job. `lint` then saves the build cache
-that pull-request `lint` runs restore; `deploy/release-push` does not wait for
-it. The `verify/go + artifact/linux-amd64-arm64` job compares the push's
+Every main push runs `e2e-m1` again on the merged tree, beside the
+`verify/go + artifact/linux-amd64-arm64` job. `lint` runs in `ci.yml` only on
+pull requests and restores the `lint` build cache; every main push runs the same
+commands in [`lint-cache.yml`](../.github/workflows/lint-cache.yml)
+(`Lint cache`), which saves that cache. Nothing reads its result: a red run
+means main does not lint, and it holds back no merge and no release. The
+`verify/go + artifact/linux-amd64-arm64` job compares the push's
 executable inputs with the newest retained `ci-*` release in its history:
 different inputs publish, and the same inputs skip publication and
 `deploy/release-push` when that release's run succeeded; a release whose run

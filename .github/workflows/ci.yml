@@ -21,6 +21,7 @@ env:
 
 jobs:
   lint:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -29,21 +30,13 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-      - id: go
-        uses: ./.github/actions/go
+      - uses: ./.github/actions/go
         with:
           cache: lint
       - run: make lint GO=go
       - run: make --jobs=2 release-check GO=go
       - run: bash scripts/ci/audit-dependencies.sh source
       - run: bash scripts/ci/audit-dependencies.sh release
-      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ steps.go.outputs.cache-key }}
 
   e2e-m1:
     concurrency:
