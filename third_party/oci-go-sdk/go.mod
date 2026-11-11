@@ -1,6 +1,6 @@
 module github.com/oracle/oci-go-sdk/v65
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/ThalesGroup/crypto11 v1.5.0
