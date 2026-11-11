@@ -1,10 +1,3 @@
-// Package edge terminates public HTTPS on this host. It obtains certificates
-// from Let's Encrypt with ACME HTTP-01 and proxies each hostname to the
-// loopback port of the service that claims it. HTTP/1.1, websocket and SSE
-// reach the backend over HTTP/1.1; gRPC reaches it over cleartext HTTP/2.
-// A backend answer asking for a replay goes to the nearest region it names
-// (replay.go). Postgres clients reach a service's loopback Postgres port over
-// TLS on :5432 (postgres.go). TerraBase wire uses TLS on :7464 (wire.go).
 package edge
 
 import (
@@ -131,6 +124,9 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 			port, _ := e.port(pr.In.Host)
 			pr.SetURL(&url.URL{Scheme: "http", Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port))})
 			pr.Out.Host = pr.In.Host
+			if websocketHandshake(pr.Out) {
+				pr.Out.Header.Set("Upgrade", "websocket")
+			}
 			// Rewrite restores this even if Connection named it as hop-by-hop.
 			pr.Out.Header.Set(requestIDHeader, pr.In.Header.Get(requestIDHeader))
 			if proof := e.requestProof(pr.In.Header.Get(requestIDHeader)); proof != "" {
@@ -280,8 +276,11 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener, wire
 const netbirdHost = "netbird.terrascale.tech"
 
 func (e *Edge) serveHTTPS(w http.ResponseWriter, r *http.Request) {
-	if isExtendedConnect(r) {
+	switch {
+	case isExtendedConnect(r):
 		w, r = upgradeExtendedConnect(w, r)
+	case websocketHandshake(r):
+		w = websocketWriter{w}
 	}
 	e.identify(w, r)
 	peer := fromPeer(r)

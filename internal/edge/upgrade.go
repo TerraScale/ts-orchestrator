@@ -4,12 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/rand"
+	"crypto/sha1"
 	"encoding/base64"
 	"io"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/net/http/httpguts"
 )
 
 func upgradeExtendedConnect(w http.ResponseWriter, r *http.Request) (http.ResponseWriter, *http.Request) {
@@ -68,13 +72,20 @@ func (u *upgradedWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 
 type upgradedConn struct {
 	writer *upgradedWriter
+	mu     sync.Mutex
 	head   []byte
 	opened bool
+	closed bool
 }
 
 func (c *upgradedConn) Read(p []byte) (int, error) { return c.writer.stream.Read(p) }
 
 func (c *upgradedConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return 0, net.ErrClosed
+	}
 	if c.opened {
 		return c.relay(p)
 	}
@@ -105,9 +116,70 @@ func (c *upgradedConn) relay(p []byte) (int, error) {
 	return n, err
 }
 
-func (c *upgradedConn) Close() error                     { return c.writer.stream.Close() }
+func (c *upgradedConn) Close() error {
+	c.mu.Lock()
+	c.closed = true
+	c.mu.Unlock()
+	return c.writer.stream.Close()
+}
+
 func (c *upgradedConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
 func (c *upgradedConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
 func (c *upgradedConn) SetDeadline(time.Time) error      { return nil }
 func (c *upgradedConn) SetReadDeadline(time.Time) error  { return nil }
 func (c *upgradedConn) SetWriteDeadline(time.Time) error { return nil }
+
+const websocketAcceptGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+type websocketWriter struct{ http.ResponseWriter }
+
+func (w websocketWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w websocketWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, buffered, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err != nil {
+		return nil, nil, err
+	}
+	return struct{ net.Conn }{conn}, buffered, nil
+}
+
+func websocketHandshake(r *http.Request) bool {
+	key, err := base64.StdEncoding.DecodeString(r.Header.Get("Sec-WebSocket-Key"))
+	return r.Method == http.MethodGet && httpguts.HeaderValuesContainsToken(r.Header["Upgrade"], "websocket") &&
+		httpguts.HeaderValuesContainsToken(r.Header["Connection"], "Upgrade") && r.Header.Get("Sec-WebSocket-Version") == "13" && err == nil && len(key) == 16
+}
+
+type upgradeTunnel struct{ http.RoundTripper }
+
+func (t upgradeTunnel) RoundTrip(req *http.Request) (*http.Response, error) {
+	connect := req.Clone(req.Context())
+	connect.Method = http.MethodConnect
+	connect.Header.Set(":protocol", "websocket")
+	connect.Header.Del("Sec-WebSocket-Key")
+	stream, client := io.Pipe()
+	connect.Body = stream
+	response, err := t.RoundTripper.RoundTrip(connect)
+	if err != nil || response.StatusCode/100 != 2 {
+		return response, err
+	}
+	accept := sha1.Sum([]byte(req.Header.Get("Sec-WebSocket-Key") + websocketAcceptGUID))
+	response.Header.Set("Connection", "Upgrade")
+	response.Header.Set("Upgrade", "websocket")
+	response.Header.Set("Sec-WebSocket-Accept", base64.StdEncoding.EncodeToString(accept[:]))
+	return &http.Response{
+		Status: "101 Switching Protocols", StatusCode: http.StatusSwitchingProtocols, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+		Header: response.Header, Body: tunnelConn{response.Body, client}, Request: req,
+	}, nil
+}
+
+type tunnelConn struct {
+	io.ReadCloser
+	*io.PipeWriter
+}
+
+func (c tunnelConn) CloseWrite() error { return c.PipeWriter.Close() }
+
+func (c tunnelConn) Close() error {
+	_ = c.PipeWriter.Close()
+	return c.ReadCloser.Close()
+}

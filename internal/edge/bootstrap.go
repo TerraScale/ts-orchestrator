@@ -148,7 +148,6 @@ func (e *Edge) Bootstrap(ctx context.Context, action string, j rolloutmaintenanc
 		if e.bootstrapBarrier.id != "" {
 			return rolloutmaintenance.ErrFenced
 		}
-		r.holding.Store(true)
 		for !r.changing.TryLock() {
 			select {
 			case <-ctx.Done():
@@ -156,17 +155,20 @@ func (e *Edge) Bootstrap(ctx context.Context, action string, j rolloutmaintenanc
 			case <-time.After(time.Millisecond):
 			}
 		}
+		r.holding.Store(true)
 		for !r.ingress.TryLock() {
 			select {
 			case <-ctx.Done():
+				r.holding.Store(false)
 				r.changing.Unlock()
 				return ctx.Err()
 			case <-time.After(time.Millisecond):
 			}
 		}
+		r.endTunnels(j.Owner, true)
 		r.transport.CloseIdleConnections()
 		e.bootstrapBarrier.id = j.ID
-		e.bootstrapBarrier.release = func() { r.ingress.Unlock(); r.changing.Unlock(); r.holding.Store(false) }
+		e.bootstrapBarrier.release = func() { r.ingress.Unlock(); r.holding.Store(false); r.changing.Unlock() }
 		return nil
 	case "release":
 		if j.Member != j.Owner {

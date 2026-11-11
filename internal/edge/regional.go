@@ -10,7 +10,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +23,17 @@ import (
 
 const peerCredentialHeader = "X-TerraBase-Peer-Credential"
 const forwardedClientHeader = "X-TerraBase-Forwarded-For"
+
+const (
+	maxRegionalSockets           = 512
+	maxRegionalSocketsPerAddress = 64
+	maxInternalTunnels           = 256
+)
+
+type regionalTunnel struct {
+	node, client string
+	cancel       context.CancelFunc
+}
 
 type regionalRouter struct {
 	nodes atomic.Pointer[func() []mesh.WorkerPeer]
@@ -36,6 +49,11 @@ type regionalRouter struct {
 	requests  chan struct{}
 	waiting   atomic.Int64
 	recovery  chan struct{}
+	tunnelMu  sync.Mutex
+	tunnels   map[*regionalTunnel]struct{}
+	clients   map[string]int
+	sockets   int
+	internal  int
 }
 type regionalStatus struct {
 	Node   string `json:"node"`
@@ -54,7 +72,8 @@ func (e *Edge) SetRegionalNodes(nodes func() []mesh.WorkerPeer) {
 	transport.ResponseHeaderTimeout = 60 * time.Second
 	router := e.regional.Load()
 	if router == nil {
-		candidate := &regionalRouter{transport: transport, requests: make(chan struct{}, 1024), recovery: make(chan struct{}, 2)}
+		candidate := &regionalRouter{transport: transport, requests: make(chan struct{}, 1024), recovery: make(chan struct{}, 2),
+			tunnels: map[*regionalTunnel]struct{}{}, clients: map[string]int{}}
 		candidate.nodes.Store(&nodes)
 		if e.regional.CompareAndSwap(nil, candidate) {
 			return
@@ -132,6 +151,62 @@ func (b *regionalBody) Read(p []byte) (int, error) {
 	return n, err
 }
 func (b *regionalBody) Close() error { err := b.ReadCloser.Close(); b.once.Do(b.release); return err }
+
+func (r *regionalRouter) openTunnel(t *regionalTunnel) (int, string) {
+	r.tunnelMu.Lock()
+	defer r.tunnelMu.Unlock()
+	switch {
+	case t.client == "" && r.internal >= maxInternalTunnels:
+		return http.StatusServiceUnavailable, fmt.Sprintf("this edge already relays %d internal tunnels to this region\n", maxInternalTunnels)
+	case t.client == "":
+		r.internal++
+	case r.clients[t.client] >= maxRegionalSocketsPerAddress:
+		return http.StatusTooManyRequests, fmt.Sprintf("this address already has %d open WebSockets to this region\n", maxRegionalSocketsPerAddress)
+	case r.sockets >= maxRegionalSockets:
+		return http.StatusServiceUnavailable, fmt.Sprintf("this region already relays %d WebSockets\n", maxRegionalSockets)
+	default:
+		r.clients[t.client]++
+		r.sockets++
+	}
+	r.tunnels[t] = struct{}{}
+	return 0, ""
+}
+
+func (r *regionalRouter) closeTunnel(t *regionalTunnel) {
+	r.tunnelMu.Lock()
+	defer r.tunnelMu.Unlock()
+	if _, open := r.tunnels[t]; !open {
+		return
+	}
+	delete(r.tunnels, t)
+	if t.client == "" {
+		r.internal--
+		return
+	}
+	r.sockets--
+	if r.clients[t.client]--; r.clients[t.client] == 0 {
+		delete(r.clients, t.client)
+	}
+}
+
+func (r *regionalRouter) endTunnels(node string, writer bool) {
+	r.tunnelMu.Lock()
+	defer r.tunnelMu.Unlock()
+	for t := range r.tunnels {
+		if writer || t.node == node {
+			t.cancel()
+		}
+	}
+}
+
+func socketAddress(client string) string {
+	address, err := netip.ParseAddr(client)
+	if err != nil || address.Unmap().Is4() {
+		return client
+	}
+	network, _ := address.Prefix(64)
+	return network.String()
+}
 
 func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Response, error) {
 	if e.bootstrapErr != nil {
@@ -217,27 +292,63 @@ func (e *Edge) regionalRoundTrip(request *http.Request, internal bool) (*http.Re
 		release()
 		return nil, errors.New("TerraBase peer credential unavailable")
 	}
-	out := request.Clone(request.Context())
+	client := ""
+	if !internal {
+		// X-Forwarded-For was derived by this edge (or its authenticated mesh peer).
+		// Never trust a public caller's peer-only client identity header.
+		client, _, _ = net.SplitHostPort(request.RemoteAddr)
+		if forwarded := request.Header.Get("X-Forwarded-For"); forwarded != "" {
+			client = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+		}
+	}
+	ctx := request.Context()
+	var transport http.RoundTripper = router.transport
+	tunnel := &regionalTunnel{node: peer.Node, client: socketAddress(client)}
+	established := roundTripper(func(r *http.Request) (*http.Response, error) {
+		response, err := tunnelTransport{dial: router.transport.DialContext}.RoundTrip(r)
+		if err == nil && response.StatusCode/100 == 2 {
+			response.Body = &regionalBody{ReadCloser: response.Body, release: func() { router.closeTunnel(tunnel) }}
+		}
+		return response, err
+	})
+	switch {
+	case isExtendedConnect(request):
+		transport = established
+	case websocketHandshake(request):
+		transport = upgradeTunnel{established}
+	default:
+		tunnel = nil
+	}
+	if tunnel != nil {
+		ctx, tunnel.cancel = context.WithCancel(ctx)
+		if status, message := router.openTunnel(tunnel); status != 0 {
+			tunnel.cancel()
+			release()
+			header := http.Header{"Content-Type": {"text/plain; charset=utf-8"}, "Content-Length": {strconv.Itoa(len(message))}, "Retry-After": {"1"}}
+			return &http.Response{Status: fmt.Sprintf("%d %s", status, http.StatusText(status)), StatusCode: status, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+				Header: header, Body: io.NopCloser(strings.NewReader(message)), ContentLength: int64(len(message)), Request: request}, nil
+		}
+		context.AfterFunc(ctx, func() { router.closeTunnel(tunnel) })
+	}
+	out := request.Clone(ctx)
 	out.URL.Host = net.JoinHostPort(peer.Address, "8081")
 	out.URL.Scheme = "http"
 	out.Header.Set(peerCredentialHeader, string(*key))
 	if !internal {
-		// X-Forwarded-For was derived by this edge (or its authenticated mesh peer).
-		// Never trust a public caller's peer-only client identity header.
-		host, _, _ := net.SplitHostPort(request.RemoteAddr)
-		if forwarded := request.Header.Get("X-Forwarded-For"); forwarded != "" {
-			host = strings.TrimSpace(strings.Split(forwarded, ",")[0])
-		}
-		out.Header.Set(forwardedClientHeader, host)
+		out.Header.Set(forwardedClientHeader, client)
 	}
-	var transport http.RoundTripper = router.transport
-	if isExtendedConnect(out) {
-		transport = tunnelTransport{dial: router.transport.DialContext}
+	if tunnel == nil {
+		out.Header.Del("Connection")
+		out.Header.Del("Upgrade")
 	}
 	response, err := transport.RoundTrip(out)
 	if err != nil {
 		release()
 		return nil, err
+	}
+	if tunnel != nil && (response.StatusCode == http.StatusSwitchingProtocols || response.StatusCode/100 == 2) {
+		release()
+		return response, nil
 	}
 	response.Body = &regionalBody{ReadCloser: response.Body, release: release}
 	return response, nil
@@ -290,6 +401,7 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 		case <-time.After(time.Millisecond):
 		}
 	}
+	router.endTunnels(node, owner.Node == node)
 	held := true
 	releaseIngress := func() {
 		if held {
