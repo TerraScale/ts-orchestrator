@@ -24,7 +24,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/handoff"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell/mesh"
 	netbirddashboard "github.com/TerraScale/ts-orchestrator/internal/netbird/dashboard"
-	"github.com/TerraScale/ts-orchestrator/internal/releasepush"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 )
 
@@ -32,7 +31,6 @@ type Edge struct {
 	bootstrap        *rolloutmaintenance.Store
 	bootstrapErr     error
 	bootstrapBarrier bootstrapBarrier
-	wireFirewall     func(context.Context, bool) error                   // Production owns the exact wire ACCEPT rule; tests replace it.
 	listen           func(network, address string) (net.Listener, error) // net.Listen; tests use ephemeral ports.
 	terrabase        func() (string, error)
 	certs            *autocert.Manager
@@ -45,7 +43,6 @@ type Edge struct {
 	pgSessions       chan struct{}
 	pgRelays         chan struct{}
 	pgControl        chan struct{}
-	wire             atomic.Pointer[map[string]int]
 	proxy            *httputil.ReverseProxy
 	// challenges answers HTTP-01 for the tokens this edge holds.
 	challenges http.Handler
@@ -68,12 +65,6 @@ func New(stateDir string) *Edge { return newEdge(stateDir, nil) }
 func newEdge(stateDir string, client *acme.Client) *Edge {
 	e := &Edge{
 		pgRelays: make(chan struct{}, 32), pgControl: make(chan struct{}, 32),
-		wireFirewall: func(ctx context.Context, open bool) error {
-			if open {
-				return releasepush.OpenTCP(ctx, WirePort)
-			}
-			return releasepush.CloseTCP(ctx, WirePort)
-		},
 		listen:       net.Listen,
 		terrabase:    terrabaseInternal,
 		pgHandshakes: make(chan struct{}, maxPostgresHandshakeAll), pgHandshakeN: map[string]int{},
@@ -86,7 +77,6 @@ func newEdge(stateDir string, client *acme.Client) *Edge {
 	e.peers = newPeerTransport(e)
 	e.routes.Store(&map[string]int{})
 	e.postgres.Store(&map[string]int{})
-	e.wire.Store(&map[string]int{})
 	e.certs = &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		Cache:      autocert.DirCache(filepath.Join(stateDir, "edge-certs")),
@@ -194,7 +184,7 @@ func (e *Edge) SetRoutes(web, postgres map[string]int) {
 func (e *Edge) Run(ctx context.Context) error {
 	var running sync.WaitGroup
 	running.Go(func() { e.reconcileNetBirdDashboard(ctx) })
-	for _, protocol := range []string{"http", "https", "postgres", "wire", "terrabase"} {
+	for _, protocol := range []string{"http", "https", "postgres", "terrabase"} {
 		running.Go(func() { e.runListener(ctx, protocol) })
 	}
 	running.Wait()
@@ -210,7 +200,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			e.identify(w, r)
 			// A Postgres hostname needs :80 only for its certificate's challenge.
-			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && (e.postgresHost(r.Host) || e.wireHost(r.Host))) {
+			if _, ok := e.port(r.Host); !ok && !(isChallenge(r) && e.postgresHost(r.Host)) {
 				http.NotFound(w, r)
 				return
 			}
@@ -247,15 +237,12 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	return plain, public
 }
 
-func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener, wireLns ...net.Listener) error {
+func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener) error {
 	plain, public := e.httpServers()
-	errs := make(chan error, 3+len(wireLns))
+	errs := make(chan error, 3)
 	go func() { errs <- plain.Serve(httpLn) }()
 	go func() { errs <- public.ServeTLS(tlsLn, "", "") }()
 	go func() { errs <- e.servePostgres(pgLn) }()
-	for _, ln := range wireLns {
-		go func() { errs <- e.serveWire(ln) }()
-	}
 	var err error
 	select {
 	case <-ctx.Done():
@@ -264,9 +251,6 @@ func (e *Edge) serve(ctx context.Context, httpLn, tlsLn, pgLn net.Listener, wire
 	plain.Close()
 	public.Close()
 	pgLn.Close()
-	for _, ln := range wireLns {
-		ln.Close()
-	}
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		err = nil
 	}
@@ -358,7 +342,7 @@ func secureHeaders(h http.Header) {
 }
 
 func (e *Edge) hostPolicy(_ context.Context, host string) error {
-	if _, ok := e.port(host); !ok && !e.postgresHost(host) && !e.wireHost(host) {
+	if _, ok := e.port(host); !ok && !e.postgresHost(host) {
 		return fmt.Errorf("edge: no route for host %q", host)
 	}
 	return nil

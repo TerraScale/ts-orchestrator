@@ -2,7 +2,6 @@ package edge
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net"
 	"time"
@@ -11,25 +10,15 @@ import (
 )
 
 func (e *Edge) runListener(ctx context.Context, protocol string) {
-	address := map[string]string{"http": ":80", "https": ":443", "postgres": ":5432", "wire": ":7464", "terrabase": terrabaseLoopback}[protocol]
+	address := map[string]string{"http": ":80", "https": ":443", "postgres": ":5432", "terrabase": terrabaseLoopback}[protocol]
 	for ctx.Err() == nil {
 		observability.SetEdgeListenerReady(protocol, false)
-		var err error
-		if protocol == "wire" {
-			err = e.wireFirewall(ctx, false)
-			if err == nil && !e.wireReady(ctx) {
-				err = errors.New("private TerraBase wire listener not ready")
-			}
+		ln, err := e.listen("tcp", address)
+		if protocol == "terrabase" && err != nil {
+			err = terrabaseBindError(err)
 		}
 		if err == nil {
-			var ln net.Listener
-			ln, err = e.listen("tcp", address)
-			if protocol == "terrabase" && err != nil {
-				err = terrabaseBindError(err)
-			}
-			if err == nil {
-				err = e.serveListener(ctx, protocol, ln)
-			}
+			err = e.serveListener(ctx, protocol, ln)
 		}
 		if ctx.Err() != nil {
 			return
@@ -50,25 +39,9 @@ func (e *Edge) runListener(ctx context.Context, protocol string) {
 }
 
 func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listener) error {
-	// Withdraw public admission before releasing the socket, including on
-	// backend loss, so a legacy native listener cannot inherit an open port.
-	stop := func() {
-		if protocol == "wire" {
-			cleanup, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			if err := e.wireFirewall(cleanup, false); err != nil {
-				slog.Error("edge wire firewall cleanup failed", "error", err)
-			}
-		}
-		ln.Close()
-	}
+	stop := func() { ln.Close() }
 	defer stop()
 	defer observability.SetEdgeListenerReady(protocol, false)
-	if protocol == "wire" {
-		if err := e.wireFirewall(ctx, true); err != nil {
-			return err
-		}
-	}
 	observability.SetEdgeListenerReady(protocol, true)
 	served := make(chan error, 1)
 	go func() {
@@ -84,28 +57,16 @@ func (e *Edge) serveListener(ctx context.Context, protocol string, ln net.Listen
 			}
 		case "postgres":
 			served <- e.servePostgres(ln)
-		case "wire":
-			served <- e.serveWire(ln)
 		case "terrabase":
 			served <- e.serveRegionalInternal(ln)
 		}
 	}()
-	tick := time.NewTicker(5 * time.Second)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			stop()
-			<-served
-			return ctx.Err()
-		case err := <-served:
-			return err
-		case <-tick.C:
-			if protocol == "wire" && !e.wireReady(ctx) {
-				stop()
-				<-served
-				return errors.New("private TerraBase wire listener became unavailable")
-			}
-		}
+	select {
+	case <-ctx.Done():
+		stop()
+		<-served
+		return ctx.Err()
+	case err := <-served:
+		return err
 	}
 }

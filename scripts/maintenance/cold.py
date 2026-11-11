@@ -78,10 +78,10 @@ def gate_rules(operator):
  comment "zdt-20261105-owned-maintenance"
  chain ingress {{
   type filter hook input priority -20; policy accept;
-  {family} saddr {addr} tcp dport {{ 80, 443, 5432, 7464, 8081 }} accept
+  {family} saddr {addr} tcp dport {{ 80, 443, 5432, 8081 }} accept
   ip saddr {{ {', '.join(PEERS)} }} tcp dport 8081 accept
   ip saddr {{ {', '.join(WORKER_SOURCES)} }} tcp dport 443 accept
-  tcp dport {{ 80, 443, 5432, 7464, 8081 }} reject with tcp reset
+  tcp dport {{ 80, 443, 5432, 8081 }} reject with tcp reset
  }}
 }}
 '''

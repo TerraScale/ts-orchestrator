@@ -22,7 +22,7 @@ sudo nft -j list table inet ts_zdt_20261105 > "$txn/gate-readback.json"
 sudo python3 scripts/maintenance/cold.py gate open --operator "$operator_ip"
 ```
 
-The independent inet table resets TCP packets to ports 80/443/5432/7464/8081,
+The independent inet table resets TCP packets to ports 80/443/5432/8081,
 including established connections and IPv6. Only the exact operator IP and the six
 NetBird peers' internal 8081 traffic pass its rules. SSH, NetBird and NATS retain
 the existing firewall policy. An accept in this table does not bypass another

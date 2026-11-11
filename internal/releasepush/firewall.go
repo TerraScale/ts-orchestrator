@@ -31,8 +31,7 @@ func open(ctx context.Context, proto string, port int) error {
 	return nil
 }
 
-// CloseTCP removes only the exact ACCEPT rule owned by OpenTCP. This keeps
-// legacy plaintext wire private until the edge has claimed its public port.
+// CloseTCP removes only the exact ACCEPT rule owned by OpenTCP.
 func CloseTCP(ctx context.Context, port int) error {
 	rule := []string{"INPUT", "-p", "tcp", "--dport", strconv.Itoa(port), "-j", "ACCEPT"}
 	for range 64 {
