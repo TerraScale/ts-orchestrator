@@ -81,9 +81,6 @@ func runSingleHost(ctx context.Context, state string, output io.Writer, plan hos
 		// Workloads keep serving; only release pushes are blocked until the next start.
 		fmt.Fprintf(output, "release listener firewall: %v\n", err)
 	}
-	// The edge's :80/:443/:5432 sit behind the same Ubuntu OCI image INPUT REJECT;
-	// service ports (8080, 6432, ...) stay rejected, reachable on loopback only.
-	// Host metrics and the dashboard bind the NetBird address only.
 	if err := releasepush.CloseTCP(ctx, 7464); err != nil {
 		fmt.Fprintf(output, "retired wire firewall: %v\n", err)
 	}

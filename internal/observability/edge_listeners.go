@@ -21,7 +21,6 @@ func SetEdgeListenerReady(protocol string, ready bool) {
 	}
 }
 
-// WriteEdgeListenerMetrics adds four fixed protocol series to host scrapes.
 func WriteEdgeListenerMetrics(w io.Writer) {
 	for i, name := range edgeProtocols {
 		if state := edgeListeners[i].Load(); state != 0 {
