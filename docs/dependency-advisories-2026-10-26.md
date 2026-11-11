@@ -1,5 +1,7 @@
 # Dependency qualification, 2026-10-26
 
+Dated record of 2026-10-26; the current procedure is [GitHub producer verification](releases.md#github-producer-verification).
+
 The executable graph is selected by the root module and its local SwarmKit,
 NATS and OCI replacements. The independent e2e module and all three replacement
 modules also receive package/test scans. Historical manifests under `docs/`

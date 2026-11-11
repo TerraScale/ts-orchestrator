@@ -74,7 +74,7 @@ to scan both release binaries; `lint` runs both on every pull request,
 `Lint cache` on every main push, and the producing job runs them on main before
 it publishes. No advisory is ignored.
 The `go` lines of `third_party/*/go.mod` are minimums for the vendored modules,
-so a compiler move leaves them unchanged.
+so an upward compiler move leaves them unchanged.
 
 Release admission requires the exact successful run and one uniquely named
 producing job from its qualification manifest. Independent workflow checks,
