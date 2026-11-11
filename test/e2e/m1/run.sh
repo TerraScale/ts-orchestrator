@@ -128,25 +128,41 @@ runc_sha256=$(sed -n '/^aarch64)/,/;;/s/^\trunc_sha256=//p' "$runtime_pins")
 netbird_pin=$repo/internal/netbird/manager/server_cli.go
 netbird=$(sed -n 's/.*Arm64 = client.Archive{URL: "\([^"]*\)".*/\1/p' "$netbird_pin")
 netbird_sha256=$(sed -n '/Arm64 = client.Archive/{n;s/.*SHA256: "\([0-9a-f]*\)".*/\1/p}' "$netbird_pin")
+containerd_file=containerd-$containerd_version-linux-arm64.tar.gz
+runc_file=runc-$runc_version.arm64
+netbird_file=${netbird##*/}
 pinned() {
 	[[ -e $packages/$1 ]] || { curl -fsSL -o "$work/$1" "$2" && mv "$work/$1" "$packages/$1"; }
 	echo "$3  $packages/$1" | sha256sum -c --quiet
 }
-pinned "containerd-$containerd_version-linux-arm64.tar.gz" "https://github.com/containerd/containerd/releases/download/v$containerd_version/containerd-$containerd_version-linux-arm64.tar.gz" "$containerd_sha256"
-pinned "runc-$runc_version.arm64" "https://github.com/opencontainers/runc/releases/download/v$runc_version/runc.arm64" "$runc_sha256"
-pinned "${netbird##*/}" "$netbird" "$netbird_sha256"
-sudo tar -C /usr/local -xzf "$packages/containerd-$containerd_version-linux-arm64.tar.gz"
-sudo install -m 0755 "$packages/runc-$runc_version.arm64" /usr/local/sbin/runc
-tar -C "$work" -xzf "$packages/${netbird##*/}" netbird
-sudo install -m 0755 "$work/netbird" /usr/local/bin/netbird
-end "pinned packages in place (cached or downloaded)"
+cache_pins() {
+	pinned "$containerd_file" "https://github.com/containerd/containerd/releases/download/v$containerd_version/$containerd_file" "$containerd_sha256"
+	pinned "$runc_file" "https://github.com/opencontainers/runc/releases/download/v$runc_version/runc.arm64" "$runc_sha256"
+	pinned "$netbird_file" "$netbird" "$netbird_sha256"
+}
+cache_hit=false
+if [[ -e $packages/$containerd_file && -e $packages/$runc_file && -e $packages/$netbird_file ]]; then
+	cache_hit=true
+	cache_pins
+	sudo tar -C /usr/local -xzf "$packages/$containerd_file"
+	sudo install -m 0755 "$packages/$runc_file" /usr/local/sbin/runc
+	tar -C "$work" -xzf "$packages/$netbird_file" netbird
+	sudo install -m 0755 "$work/netbird" /usr/local/bin/netbird
+fi
+end "pinned packages: cache hit $cache_hit (a miss leaves the downloads to install.sh)"
 
 begin "install.sh (containerd 2.4.2, runc, NetBird client, ts-orch)"
 sudo install -d -o 65532 -g 65532 -m 0755 /var/lib/ts-data "$data"
 "$repo/deploy/m1/install.sh" ts-e2e https://localhost:8443/terrascale-orchestrator-linux-arm64 \
 	"$(sha256sum "$bin" | cut -d' ' -f1)"
 /usr/local/bin/containerd --version | grep -q ' v2.4.2 '
-end "install -> ts-orch active"
+end "install -> ts-orch active (cache hit $cache_hit)"
+if ! $cache_hit; then
+	begin "save the pinned packages for the next run"
+	netbird version
+	cache_pins
+	end "cache miss -> pinned packages saved for the next run"
+fi
 
 begin "service apply -> served through the edge"
 orch service apply -f "$here/whoami.json"
