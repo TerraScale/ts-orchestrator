@@ -242,6 +242,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       clientIdleTimeout,
 		MaxHeaderBytes:    64 << 10,
+		HTTP2:             &http.HTTP2Config{WriteByteTimeout: clientIdleTimeout},
 	}
 	return plain, public
 }
