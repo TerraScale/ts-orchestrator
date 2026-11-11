@@ -176,7 +176,8 @@ func (a api) release(ctx context.Context, x app, now time.Time) ([]string, error
 walk:
 	for _, run := range runs.WorkflowRuns {
 		var jobs struct {
-			Jobs []struct {
+			TotalCount int `json:"total_count"`
+			Jobs       []struct {
 				Name       string `json:"name"`
 				Conclusion string `json:"conclusion"`
 				Steps      []struct {
@@ -187,14 +188,19 @@ walk:
 				} `json:"steps"`
 			} `json:"jobs"`
 		}
-		if err := a.request(ctx, "GET", fmt.Sprintf("%s%s/actions/runs/%d/jobs?per_page=50", forge, x.repo, run.ID), a.readToken, nil, &jobs); err != nil {
+		if err := a.request(ctx, "GET", fmt.Sprintf("%s%s/actions/runs/%d/jobs?per_page=100", forge, x.repo, run.ID), a.readToken, nil, &jobs); err != nil {
 			return nil, err
 		}
 		listed := make(map[string]bool, len(jobs.Jobs))
 		for _, job := range jobs.Jobs {
 			listed[job.Name] = true
 		}
-		if absent := slices.IndexFunc(x.jobs, func(name string) bool { return !listed[name] }); run.Conclusion == "success" && absent >= 0 && unread == "" {
+		absent := slices.IndexFunc(x.jobs, func(name string) bool { return !listed[name] })
+		switch {
+		case unread != "":
+		case jobs.TotalCount > len(jobs.Jobs):
+			unread = fmt.Sprintf("- %s: %s %s run %s is unreadable: it has %d jobs, %d read", x.service, x.repo, x.workflow, run.HTMLURL, jobs.TotalCount, len(jobs.Jobs))
+		case run.Conclusion == "success" && absent >= 0:
 			unread = fmt.Sprintf("- %s: %s %s run %s succeeded without a job `%s`", x.service, x.repo, x.workflow, run.HTMLURL, x.jobs[absent])
 		}
 		for _, job := range jobs.Jobs {
