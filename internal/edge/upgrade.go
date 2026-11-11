@@ -109,15 +109,25 @@ func (c *upgradedConn) Write(p []byte) (int, error) {
 }
 
 func (c *upgradedConn) relay(p []byte) (int, error) {
+	controller := http.NewResponseController(c.writer.ResponseWriter)
+	if err := controller.SetWriteDeadline(time.Now().Add(clientIdleTimeout)); err != nil {
+		return 0, err
+	}
 	n, err := c.writer.ResponseWriter.Write(p)
 	if err == nil {
-		err = http.NewResponseController(c.writer.ResponseWriter).Flush()
+		err = controller.Flush()
+	}
+	if err == nil {
+		err = controller.SetWriteDeadline(time.Time{})
 	}
 	return n, err
 }
 
 func (c *upgradedConn) Close() error {
-	c.mu.Lock()
+	if !c.mu.TryLock() {
+		_ = http.NewResponseController(c.writer.ResponseWriter).SetWriteDeadline(time.Now())
+		c.mu.Lock()
+	}
 	c.closed = true
 	c.mu.Unlock()
 	return c.writer.stream.Close()
@@ -140,7 +150,20 @@ func (w websocketWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return struct{ net.Conn }{conn}, buffered, nil
+	return websocketConn{conn}, buffered, nil
+}
+
+type websocketConn struct{ net.Conn }
+
+func (c websocketConn) Write(p []byte) (int, error) {
+	if err := c.SetWriteDeadline(time.Now().Add(clientIdleTimeout)); err != nil {
+		return 0, err
+	}
+	n, err := c.Conn.Write(p)
+	if err == nil {
+		err = c.SetWriteDeadline(time.Time{})
+	}
+	return n, err
 }
 
 func websocketHandshake(r *http.Request) bool {

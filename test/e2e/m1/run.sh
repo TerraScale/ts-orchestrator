@@ -117,6 +117,30 @@ sudo systemctl start ssh
 wait_for 10 curl -fsSo /dev/null https://localhost:8443/terrascale-orchestrator-linux-arm64
 end "setup (CA, ssh, binary server)"
 
+begin "pinned containerd, runc and NetBird client from the Actions cache"
+packages=$HOME/.cache/ts-m1-runtime
+mkdir -p "$packages"
+runtime_pins=$repo/deploy/m1/host-runtime.sh
+containerd_version=$(sed -n 's/^containerd_version=//p' "$runtime_pins")
+runc_version=$(sed -n 's/^runc_version=//p' "$runtime_pins")
+containerd_sha256=$(sed -n '/^aarch64)/,/;;/s/^\tcontainerd_sha256=//p' "$runtime_pins")
+runc_sha256=$(sed -n '/^aarch64)/,/;;/s/^\trunc_sha256=//p' "$runtime_pins")
+netbird_pin=$repo/internal/netbird/manager/server_cli.go
+netbird=$(sed -n 's/.*Arm64 = client.Archive{URL: "\([^"]*\)".*/\1/p' "$netbird_pin")
+netbird_sha256=$(sed -n '/Arm64 = client.Archive/{n;s/.*SHA256: "\([0-9a-f]*\)".*/\1/p}' "$netbird_pin")
+pinned() {
+	[[ -e $packages/$1 ]] || { curl -fsSL -o "$work/$1" "$2" && mv "$work/$1" "$packages/$1"; }
+	echo "$3  $packages/$1" | sha256sum -c --quiet
+}
+pinned "containerd-$containerd_version-linux-arm64.tar.gz" "https://github.com/containerd/containerd/releases/download/v$containerd_version/containerd-$containerd_version-linux-arm64.tar.gz" "$containerd_sha256"
+pinned "runc-$runc_version.arm64" "https://github.com/opencontainers/runc/releases/download/v$runc_version/runc.arm64" "$runc_sha256"
+pinned "${netbird##*/}" "$netbird" "$netbird_sha256"
+sudo tar -C /usr/local -xzf "$packages/containerd-$containerd_version-linux-arm64.tar.gz"
+sudo install -m 0755 "$packages/runc-$runc_version.arm64" /usr/local/sbin/runc
+tar -C "$work" -xzf "$packages/${netbird##*/}" netbird
+sudo install -m 0755 "$work/netbird" /usr/local/bin/netbird
+end "pinned packages in place (cached or downloaded)"
+
 begin "install.sh (containerd 2.4.2, runc, NetBird client, ts-orch)"
 sudo install -d -o 65532 -g 65532 -m 0755 /var/lib/ts-data "$data"
 "$repo/deploy/m1/install.sh" ts-e2e https://localhost:8443/terrascale-orchestrator-linux-arm64 \

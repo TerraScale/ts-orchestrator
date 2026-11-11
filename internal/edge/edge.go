@@ -28,8 +28,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutmaintenance"
 )
 
-// Edge serves :80, :443, :5432 and :7464 for the hostnames in its route tables,
-// and 127.0.0.1:8081 for TerraBase's private listener (terrabase_loopback.go).
 type Edge struct {
 	bootstrap        *rolloutmaintenance.Store
 	bootstrapErr     error
@@ -193,7 +191,6 @@ func (e *Edge) SetRoutes(web, postgres map[string]int) {
 	e.postgres.Store(lower(postgres))
 }
 
-// Run serves :80, :443, :5432, :7464 and 127.0.0.1:8081 until ctx ends.
 func (e *Edge) Run(ctx context.Context) error {
 	var running sync.WaitGroup
 	running.Go(func() { e.reconcileNetBirdDashboard(ctx) })
@@ -203,6 +200,8 @@ func (e *Edge) Run(ctx context.Context) error {
 	running.Wait()
 	return nil
 }
+
+const clientIdleTimeout = 120 * time.Second
 
 // httpServers is shared by production startup and the complete proxy fixtures.
 func (e *Edge) httpServers() (*http.Server, *http.Server) {
@@ -230,7 +229,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		IdleTimeout:       clientIdleTimeout,
 		MaxHeaderBytes:    64 << 10,
 	}
 	// No read or write timeout on :443: gRPC, SSE and websocket streams stay
@@ -241,7 +240,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 		Handler:           http.HandlerFunc(e.serveHTTPS),
 		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		IdleTimeout:       clientIdleTimeout,
 		MaxHeaderBytes:    64 << 10,
 	}
 	return plain, public

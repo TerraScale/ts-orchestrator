@@ -1,20 +1,5 @@
 # TerraBase wire TLS edge
 
-**Retired 2026-11-04.** TerraBase no longer has a custom wire listener
-(`TerraBaseOptions.WirePort` is gone), so `terrabase.json` drops
-`TERRABASE_WIRE_PORT` and its `wire` block. The edge stops serving 7464 for
-TerraBase. The rest of this page is history.
-
-Every region serves `api.terrascale.tech:7464` and its own regional API hostname
-with direct TLS and the edge's existing ACME certificates. No ALPN is required.
-After TLS terminates, the edge forwards binary frames unchanged to the local
-private listener. It does not add the Postgres PROXY header. Unknown SNI and
-plaintext connections are rejected before connecting to TerraBase.
-
-The TerraBase service declares `wire.port=7465`, matching its existing
-`TerraBaseOptions.WirePort` through `TERRABASE_WIRE_PORT=7465`. The public edge
-owns 7464. Private port 7465 stays blocked externally, like Postgres backend 6432.
-
 ## Private loopback 127.0.0.1:8081
 
 TerraBase binds its internal listener (8081) only on the host's NetBird
@@ -92,6 +77,10 @@ region's writer; a bootstrap hold always holds the writer. The writer case
 covers a stream the edge sent to the previous writer within its 250 ms owner
 cache after TerraBase moved the writer itself: TerraBase relays that stream
 to the new writer (`HomeSocketRelay`) and holds an ingress lease there too.
+The edge ends only the streams it relays itself, so a drain or hold ends
+every stream of the region only while one edge serves the region, as today:
+the founder serves the region's edge and a joiner serves none
+(`internal/app/app.go`).
 The client sees its connection end, as when TerraBase restarts, and its next
 handshake meets the hold like any request. The edge sends no WebSocket close
 frame (1012) itself: it relays opaque bytes and cannot tell where TerraBase's
@@ -118,6 +107,13 @@ the TCP connection still open) and then wait for the client without a
 deadline. A WebSocket has no half-close (RFC 6455 7.1.1), so the edge closes
 that connection, as it already ends an RFC 8441 client's stream.
 
+A write to a WebSocket client waits at most 120 s, the idle timeout of :80 and
+:443, for the client to take it; then the edge closes the HTTP/1.1 connection
+or resets the RFC 8441 stream. A write carries at most 32 KiB, so this cuts
+only a client that reads slower than about 270 bytes per second. When the edge
+ends a WebSocket while a write to the client still waits, it cuts that write
+at once.
+
 An Upgrade never fails over to another region (`failover` in
 `internal/edge/replay.go` skips it): while a stop-first service on a loopback
 port is replaced, it waits up to 20 s for the new task, then gets 502.
@@ -134,6 +130,23 @@ If another process holds 127.0.0.1:8081 (the retired
 `fr1-terrabase-loopback.socket` shortcut), the bind error names it,
 `EdgeListenerUnavailable` fires for `protocol="terrabase"`, and the edge binds
 within 5 s of the port being freed.
+
+## Retired: TerraBase wire TLS on :7464
+
+**Retired 2026-11-04.** TerraBase no longer has a custom wire listener
+(`TerraBaseOptions.WirePort` is gone), so `terrabase.json` drops
+`TERRABASE_WIRE_PORT` and its `wire` block. The edge stops serving 7464 for
+TerraBase. The rest of this page is history.
+
+Every region serves `api.terrascale.tech:7464` and its own regional API hostname
+with direct TLS and the edge's existing ACME certificates. No ALPN is required.
+After TLS terminates, the edge forwards binary frames unchanged to the local
+private listener. It does not add the Postgres PROXY header. Unknown SNI and
+plaintext connections are rejected before connecting to TerraBase.
+
+The TerraBase service declares `wire.port=7465`, matching its existing
+`TerraBaseOptions.WirePort` through `TERRABASE_WIRE_PORT=7465`. The public edge
+owns 7464. Private port 7465 stays blocked externally, like Postgres backend 6432.
 
 ## Automatic releases and service rollout (FR1)
 
