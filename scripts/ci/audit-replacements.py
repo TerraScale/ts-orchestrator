@@ -19,13 +19,13 @@ BASELINES = (
         "github.com/moby/swarmkit/v2", "v2.1.2", "third_party/swarmkit",
         "12ce3490ef26cbca6ef9b243cb013fffbfe6a6cb",
         "docs/evidence/core-runtime-contract.md",
-        "59c8645e1ebfe9a77e0ba83603f4234beb3e61669f63d0467148fb0d70c2fefc",
+        "5e7d6144cc81b999cb115db0c356c21aa5d4084f96db5cc1cbc86770520489e8",
     ),
     (
         "github.com/nats-io/nats-server/v2", "v2.15.0", "third_party/nats-server",
         "eb763679aa3c24a40dcd3012aa046ad1996d851c",
         "third_party/nats-server/README.terrascale.md",
-        "f34993146176f4fa32eaad4b3e7d1f235a47d3e32956246be23c5b782d7d23d9",
+        "d7d9c6169ecf6333805c7c21492fdd30b31ac13182c4cf9fc4c5f59185285575",
     ),
     (
         "github.com/oracle/oci-go-sdk/v65", "v65.126.0", "third_party/oci-go-sdk",
