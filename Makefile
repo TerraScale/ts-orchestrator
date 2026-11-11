@@ -11,11 +11,15 @@ CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 # Keep the symbol table so govulncheck can inspect the actual release bytes.
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-w"
-CHANGE_BASE := $(or $(CHANGE_BASE),HEAD^)
+CHANGE_BASE ?= $(shell git merge-base origin/main HEAD)
+LINT_CHECKS := format-check generate-check vet shellcheck netbird-backup-check retired-host-check zero-config-check
 
-.PHONY: lint retired-host-check format-check generate generate-check vet netbird-backup-check shellcheck build build-linux release-linux release-check image run host check clean
+.PHONY: lint retired-host-check zero-config-check format-check generate generate-check vet netbird-backup-check shellcheck build build-linux release-linux release-check image run host check clean
 
-lint: format-check generate-check vet shellcheck netbird-backup-check retired-host-check
+lint:
+	$(MAKE) --jobs --keep-going $(LINT_CHECKS)
+
+zero-config-check:
 	python3 scripts/ci/zero-config-check.py "$(CHANGE_BASE)" HEAD
 
 format-check:
@@ -38,7 +42,7 @@ generate-check:
 	GO="$(GO)" bash scripts/ci/check-templ.sh
 
 vet:
-	CGO_ENABLED=0 GOFLAGS=-trimpath $(GO) vet ./... # zero-config: Go toolchain variable; vets the CGO-free release build
+	$(GO) vet ./...
 
 # Lint the tracked shell scripts (needs shellcheck >= 0.11 on PATH; the
 # ts-builder image ships it).
