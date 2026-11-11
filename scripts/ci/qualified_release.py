@@ -62,9 +62,10 @@ def admit(tag, directory):
     manifest = download("qualification.json", 1048576)
     q = json.loads(manifest.read_bytes())
     tree = command("git", "rev-parse", f"{source}^{{tree}}", text=True).strip()
+    pin = re.search(r"(?m)^go (\S+)$", command("git", "show", f"{source}:go.mod", text=True))
     require(q["schema"] == "terrascale.release.qualification.v1" and
             q["repository"] == REPOSITORY and q["source_revision"] == source and
-            q["source_tree"] == tree and q["go_version"] == "go1.27.4",
+            q["source_tree"] == tree and pin is not None and q["go_version"] == f"go{pin[1]}",
             "retained source, tree or toolchain differs")
     for name in ("go.mod", "go.sum"):
         contents = command("git", "show", f"{source}:{name}")

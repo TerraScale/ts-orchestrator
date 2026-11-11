@@ -3,10 +3,11 @@
 # Package scans include tests and local replacements; no advisory is ignored.
 set -euo pipefail
 cd "$(dirname -- "$0")/../.."
-test "$(go env GOVERSION)" = go1.27.4
+go_version=go$(go list -m -f '{{.GoVersion}}')
+test "$(go env GOVERSION)" = "$go_version"
 # Reuse the existing Go build cache; cached executables are verified before use.
 test "$(go env GOOS GOARCH)" = $'linux\namd64'
-scanner_dir="$(go env GOCACHE)/terrascale/govulncheck-v1.9.0-go1.27.4"
+scanner_dir="$(go env GOCACHE)/terrascale/govulncheck-v1.9.0-$go_version"
 scanner="$scanner_dir/govulncheck"
 mkdir -p "$scanner_dir"
 if [[ ! -f "$scanner" ]]; then
@@ -35,7 +36,7 @@ source)
 release)
 	for binary in dist/terrascale-orchestrator-linux-{amd64,arm64}; do
 		go version -m "$binary"
-		test "$(go version "$binary" | awk '{print $NF}')" = go1.27.4
+		test "$(go version "$binary" | awk '{print $NF}')" = "$go_version"
 		# A stripped symbol table makes package reachability ambiguous.
 		go tool nm "$binary" > /dev/null
 		"$scanner" -mode=binary "$binary"
