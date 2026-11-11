@@ -118,6 +118,13 @@ the TCP connection still open) and then wait for the client without a
 deadline. A WebSocket has no half-close (RFC 6455 7.1.1), so the edge closes
 that connection, as it already ends an RFC 8441 client's stream.
 
+A write to a WebSocket client waits at most 120 s, the idle timeout of :80 and
+:443, for the client to take it; then the edge closes the HTTP/1.1 connection
+or resets the RFC 8441 stream. A write carries at most 32 KiB, so this cuts
+only a client that reads slower than about 270 bytes per second. When the edge
+ends a WebSocket while a write to the client still waits, it cuts that write
+at once.
+
 An Upgrade never fails over to another region (`failover` in
 `internal/edge/replay.go` skips it): while a stop-first service on a loopback
 port is replaced, it waits up to 20 s for the new task, then gets 502.

@@ -204,6 +204,8 @@ func (e *Edge) Run(ctx context.Context) error {
 	return nil
 }
 
+const clientIdleTimeout = 120 * time.Second
+
 // httpServers is shared by production startup and the complete proxy fixtures.
 func (e *Edge) httpServers() (*http.Server, *http.Server) {
 	// :80 answers HTTP-01 challenges and redirects everything else to https.
@@ -230,7 +232,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		IdleTimeout:       clientIdleTimeout,
 		MaxHeaderBytes:    64 << 10,
 	}
 	// No read or write timeout on :443: gRPC, SSE and websocket streams stay
@@ -241,7 +243,7 @@ func (e *Edge) httpServers() (*http.Server, *http.Server) {
 		Handler:           http.HandlerFunc(e.serveHTTPS),
 		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		IdleTimeout:       clientIdleTimeout,
 		MaxHeaderBytes:    64 << 10,
 	}
 	return plain, public
