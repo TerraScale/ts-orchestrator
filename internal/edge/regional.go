@@ -41,7 +41,7 @@ type regionalRouter struct {
 	// lease withdraws admission, then waits for every admitted request to finish.
 	holding   atomic.Bool
 	ingress   sync.RWMutex
-	changing  sync.Mutex
+	changing  chan struct{}
 	mu        sync.Mutex
 	owner     mesh.WorkerPeer
 	checked   time.Time
@@ -73,7 +73,7 @@ func (e *Edge) SetRegionalNodes(nodes func() []mesh.WorkerPeer) {
 	router := e.regional.Load()
 	if router == nil {
 		candidate := &regionalRouter{transport: transport, requests: make(chan struct{}, 1024), recovery: make(chan struct{}, 2),
-			tunnels: map[*regionalTunnel]struct{}{}, clients: map[string]int{}}
+			changing: make(chan struct{}, 1), tunnels: map[*regionalTunnel]struct{}{}, clients: map[string]int{}}
 		candidate.nodes.Store(&nodes)
 		if e.regional.CompareAndSwap(nil, candidate) {
 			return
@@ -151,6 +151,15 @@ func (b *regionalBody) Read(p []byte) (int, error) {
 	return n, err
 }
 func (b *regionalBody) Close() error { err := b.ReadCloser.Close(); b.once.Do(b.release); return err }
+
+func (r *regionalRouter) change(ctx context.Context) error {
+	select {
+	case r.changing <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 func (r *regionalRouter) openTunnel(t *regionalTunnel) (int, string) {
 	r.tunnelMu.Lock()
@@ -361,8 +370,10 @@ func (e *Edge) DrainRegionalNode(ctx context.Context, node string) error {
 	if router == nil {
 		return errors.New("regional routing unavailable")
 	}
-	router.changing.Lock()
-	defer router.changing.Unlock()
+	if err := router.change(ctx); err != nil {
+		return err
+	}
+	defer func() { <-router.changing }()
 	owner, err := e.regionalOwner(ctx, router, true)
 	if err != nil {
 		return err
